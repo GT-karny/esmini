@@ -23,10 +23,12 @@ macro(
         if(IS_DIRECTORY
            ${path}/${child})
 
-            list(
-                APPEND
-                dirlist
-                ${child})
+            if(NOT ${child} STREQUAL "CMakeFiles")
+                list(
+                    APPEND
+                    dirlist
+                    ${child})
+            endif()
 
         endif()
 
