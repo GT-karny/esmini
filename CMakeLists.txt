@@ -302,3 +302,5 @@ set(EXTERNALS_FMT_PATH
 # ############################### Compiling targets ##################################################################
 
 add_subdirectory(EnvironmentSimulator)
+add_subdirectory(GT_esmini)
+
