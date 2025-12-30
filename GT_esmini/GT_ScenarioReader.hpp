@@ -52,6 +52,17 @@ namespace gt_esmini
                                                                 scenarioengine::Object*  object,
                                                                 scenarioengine::Event*   parent);
 
+        /**
+         * @brief Parse Extension Actions from full XML document
+         * 
+         * Re-scans the document for actions that regular ScenarioReader ignores
+         * (like AppearanceAction/LightStateAction) and injects them into the Storyboard.
+         * 
+         * @param doc Parsed XML document
+         * @param storyBoard Storyboard where actions should be attached
+         */
+        void ParseExtensionActions(const pugi::xml_document& doc, scenarioengine::StoryBoard& storyBoard);
+
     protected:
         /**
          * @brief Parse LightStateAction
@@ -78,6 +89,9 @@ namespace gt_esmini
         scenarioengine::OSCPrivateAction* ParseAppearanceAction(pugi::xml_node           node,
                                                                 scenarioengine::Object*  object,
                                                                 scenarioengine::Event*   parent);
+                                                                
+    private:
+        scenarioengine::Entities* entities = nullptr;
     };
 
 }  // namespace gt_esmini

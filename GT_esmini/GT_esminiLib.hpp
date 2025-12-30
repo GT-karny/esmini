@@ -12,7 +12,7 @@
 #pragma once
 
 #if defined(_WIN32)
-#ifdef GT_ESMINI_EXPORTS
+#if defined(GT_ESMINI_EXPORTS) || defined(GT_esminiLib_EXPORTS)
 #define GT_ESMINI_API __declspec(dllexport)
 #else
 #define GT_ESMINI_API __declspec(dllimport)

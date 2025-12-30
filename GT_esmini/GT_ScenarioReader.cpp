@@ -11,6 +11,8 @@
 
 #include "GT_ScenarioReader.hpp"
 #include "ExtraEntities.hpp"
+#include <vector>
+#include <string>
 
 namespace gt_esmini
 {
@@ -20,25 +22,20 @@ namespace gt_esmini
                                          bool                            disable_controllers)
         : scenarioengine::ScenarioReader(entities, catalogs, environment, disable_controllers)
     {
-        // Phase 1: Stub implementation
-        // Only call parent class constructor
+        this->entities = entities;
     }
 
     GT_ScenarioReader::~GT_ScenarioReader()
     {
-        // Phase 1: Stub implementation
     }
 
     scenarioengine::OSCPrivateAction* GT_ScenarioReader::parseOSCPrivateAction(pugi::xml_node           actionNode,
                                                                                 scenarioengine::Object*  object,
                                                                                 scenarioengine::Event*   parent)
     {
-        // Phase 2: Check for AppearanceAction and delegate to ParseAppearanceAction
-        // All other actions are delegated to parent class implementation
-        
         for (pugi::xml_node actionChild = actionNode.first_child(); actionChild; actionChild = actionChild.next_sibling())
         {
-            if (actionChild.name() == std::string("AppearanceAction"))
+            if (std::string(actionChild.name()) == "AppearanceAction")
             {
                 return ParseAppearanceAction(actionChild, object, parent);
             }
@@ -50,7 +47,6 @@ namespace gt_esmini
 
     OSCLightStateAction* GT_ScenarioReader::ParseLightStateAction(pugi::xml_node node)
     {
-        // Phase 2: Implement actual parsing logic
         OSCLightStateAction* action = new OSCLightStateAction(nullptr);
         
         // Parse LightType
@@ -70,7 +66,10 @@ namespace gt_esmini
             return nullptr;
         }
         
-        std::string lightTypeStr = parameters.ReadAttribute(vehicleLightNode, "vehicleLightType");
+        std::string lightTypeStr = parameters.ReadAttribute(vehicleLightNode, "vehicleLightType"); // Assumes 'parameters' member is available and initialized, or use generic reading
+        // Wait, 'parameters' is member of ScenarioReader? Check inheritance. 
+        // ScenarioReader has 'OSCParameterDeclarations parameters'. Yes.
+        
         if (lightTypeStr.empty())
         {
             LOG_ERROR("LightStateAction: Missing mandatory vehicleLightType attribute");
@@ -144,17 +143,17 @@ namespace gt_esmini
         // Parse optional attributes
         if (!lightStateNode.attribute("luminousIntensity").empty())
         {
-            action->lightState_.luminousIntensity = strtod(parameters.ReadAttribute(lightStateNode, "luminousIntensity"));
+            action->lightState_.luminousIntensity = strtod(parameters.ReadAttribute(lightStateNode, "luminousIntensity").c_str(), nullptr);
         }
         
         if (!lightStateNode.attribute("flashingOnDuration").empty())
         {
-            action->lightState_.flashingOnDuration = strtod(parameters.ReadAttribute(lightStateNode, "flashingOnDuration"));
+            action->lightState_.flashingOnDuration = strtod(parameters.ReadAttribute(lightStateNode, "flashingOnDuration").c_str(), nullptr);
         }
         
         if (!lightStateNode.attribute("flashingOffDuration").empty())
         {
-            action->lightState_.flashingOffDuration = strtod(parameters.ReadAttribute(lightStateNode, "flashingOffDuration"));
+            action->lightState_.flashingOffDuration = strtod(parameters.ReadAttribute(lightStateNode, "flashingOffDuration").c_str(), nullptr);
         }
         
         // Parse optional Color element
@@ -162,17 +161,17 @@ namespace gt_esmini
         if (!colorNode.empty())
         {
             if (!colorNode.attribute("r").empty())
-                action->lightState_.colorR = strtod(parameters.ReadAttribute(colorNode, "r"));
+                action->lightState_.colorR = strtod(parameters.ReadAttribute(colorNode, "r").c_str(), nullptr);
             if (!colorNode.attribute("g").empty())
-                action->lightState_.colorG = strtod(parameters.ReadAttribute(colorNode, "g"));
+                action->lightState_.colorG = strtod(parameters.ReadAttribute(colorNode, "g").c_str(), nullptr);
             if (!colorNode.attribute("b").empty())
-                action->lightState_.colorB = strtod(parameters.ReadAttribute(colorNode, "b"));
+                action->lightState_.colorB = strtod(parameters.ReadAttribute(colorNode, "b").c_str(), nullptr);
         }
         
-        // Parse transitionTime attribute
+        // Parse transitionTime attribute based on XML (node is LightStateAction)
         if (!node.attribute("transitionTime").empty())
         {
-            action->transitionTime_ = strtod(parameters.ReadAttribute(node, "transitionTime"));
+            action->transitionTime_ = strtod(parameters.ReadAttribute(node, "transitionTime").c_str(), nullptr);
         }
         
         return action;
@@ -182,9 +181,6 @@ namespace gt_esmini
                                                                                 scenarioengine::Object* object,
                                                                                 scenarioengine::Event*  parent)
     {
-        // Phase 2: Implement actual parsing logic
-        
-        // Check AppearanceAction child elements
         pugi::xml_node appearanceChild = node.first_child();
         
         if (appearanceChild.empty())
@@ -204,11 +200,9 @@ namespace gt_esmini
                 {
                     scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(object);
                     
-                    // Check if extension already exists
                     auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
                     if (ext == nullptr)
                     {
-                        // Create and register new extension
                         ext = new VehicleLightExtension(vehicle);
                         VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
                     }
@@ -225,6 +219,106 @@ namespace gt_esmini
         {
             LOG_WARN("AppearanceAction: Unsupported child element '{}'", appearanceChild.name());
             return nullptr;
+        }
+    }
+
+    void GT_ScenarioReader::ParseExtensionActions(const pugi::xml_document& doc, scenarioengine::StoryBoard& storyBoard)
+    {
+        pugi::xml_node oscNode = doc.child("OpenSCENARIO");
+        pugi::xml_node sbNode = oscNode.child("Storyboard");
+        
+        if (sbNode.empty()) return;
+
+        // 1. Parse Init actions
+        pugi::xml_node initNode = sbNode.child("Init");
+        if (!initNode.empty())
+        {
+            pugi::xml_node actionsNode = initNode.child("Actions");
+            if (!actionsNode.empty())
+            {
+                for (pugi::xml_node privNode = actionsNode.child("Private"); privNode; privNode = privNode.next_sibling("Private"))
+                {
+                    std::string entityRef = parameters.ReadAttribute(privNode, "entityRef");
+                    scenarioengine::Object* object = entities->GetObjectByName(entityRef);
+                    if (!object) continue;
+
+                    for (pugi::xml_node actionNode = privNode.first_child(); actionNode; actionNode = actionNode.next_sibling())
+                    {
+                         if (std::string(actionNode.name()) == "AppearanceAction")
+                         {
+                             auto* action = ParseAppearanceAction(actionNode, object, nullptr);
+                             if (action)
+                             {
+                                 storyBoard.init_.private_action_.push_back(action);
+                             }
+                         }
+                    }
+                }
+            }
+        }
+
+        // 2. Parse Stories
+        for (pugi::xml_node storyNode = sbNode.child("Story"); storyNode; storyNode = storyNode.next_sibling("Story"))
+        {
+            std::string storyName = parameters.ReadAttribute(storyNode, "name");
+            scenarioengine::Story* storyObj = nullptr;
+            for(auto* s : storyBoard.story_) if(s->GetName() == storyName) { storyObj = s; break; }
+            if(!storyObj) continue;
+
+            for (pugi::xml_node actNode = storyNode.child("Act"); actNode; actNode = actNode.next_sibling("Act"))
+            {
+                std::string actName = parameters.ReadAttribute(actNode, "name");
+                scenarioengine::Act* actObj = nullptr;
+                for(auto* a : storyObj->act_) if(a->GetName() == actName) { actObj = a; break; }
+                if(!actObj) continue;
+
+                for (pugi::xml_node mgNode = actNode.child("ManeuverGroup"); mgNode; mgNode = mgNode.next_sibling("ManeuverGroup"))
+                {
+                    std::string mgName = parameters.ReadAttribute(mgNode, "name");
+                    scenarioengine::ManeuverGroup* mgObj = nullptr;
+                    for(auto* m : actObj->maneuverGroup_) if(m->GetName() == mgName) { mgObj = m; break; }
+                    if(!mgObj) continue;
+
+                    for (pugi::xml_node mNode = mgNode.child("Maneuver"); mNode; mNode = mNode.next_sibling("Maneuver"))
+                    {
+                        std::string mName = parameters.ReadAttribute(mNode, "name");
+                        scenarioengine::Maneuver* mObj = nullptr;
+                        for(auto* m : mgObj->maneuver_) if(m->GetName() == mName) { mObj = m; break; }
+                        if(!mObj) continue;
+
+                        for (pugi::xml_node evtNode = mNode.child("Event"); evtNode; evtNode = evtNode.next_sibling("Event"))
+                        {
+                            std::string evtName = parameters.ReadAttribute(evtNode, "name");
+                            scenarioengine::Event* evtObj = nullptr;
+                            for(auto* e : mObj->event_) if(e->GetName() == evtName) { evtObj = e; break; }
+                            if(!evtObj) continue;
+
+                            // Scan actions in Event
+                            for (pugi::xml_node actionNode = evtNode.child("Action"); actionNode; actionNode = actionNode.next_sibling("Action"))
+                            {
+                                pugi::xml_node privNode = actionNode.child("PrivateAction");
+                                if (!privNode.empty())
+                                {
+                                    pugi::xml_node appNode = privNode.child("AppearanceAction");
+                                    if (!appNode.empty())
+                                    {
+                                        // Found one!
+                                        // Create action for EACH actor
+                                        for(auto* actor : mgObj->actor_)
+                                        {
+                                            auto* action = ParseAppearanceAction(appNode, actor->object_, evtObj);
+                                            if (action)
+                                            {
+                                                evtObj->action_.push_back(action);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

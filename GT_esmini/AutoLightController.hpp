@@ -11,65 +11,68 @@
 
 #pragma once
 
-#include "Entities.hpp"       // esmini core
+#include "Entities.hpp"  // esmini
 #include "ExtraEntities.hpp"  // GT_esmini extension
 
 namespace gt_esmini
 {
-    /**
-     * @brief AutoLight feature controller class
-     * 
-     * Automatically controls lights based on vehicle behavior:
-     * - Brake lights: Turn on when acceleration is -0.1G or less
-     * - Turn signals: Turn on during lane changes and intersection turns
-     * - Reversing lights: Turn on when speed is negative (reversing)
-     * 
-     * Phase 1: Stub implementation
-     * Phase 3: Implement actual control logic
-     */
     class AutoLightController
     {
     public:
-        AutoLightController(scenarioengine::Vehicle* vehicle, VehicleLightExtension* lightExt);
-        ~AutoLightController();
-
         /**
-         * @brief Called every frame
-         * @param dt Delta time (seconds)
+         * @brief Constructor
+         * @param vehicle Target vehicle
+         * @param lightExt Vehicle light extension
+         */
+        AutoLightController(scenarioengine::Vehicle* vehicle, VehicleLightExtension* lightExt);
+        
+        ~AutoLightController();
+        
+        /**
+         * @brief Update function called every frame
+         * @param dt Delta time [s]
          */
         void Update(double dt);
-
+        
         /**
-         * @brief Enable/disable AutoLight feature
-         * @param enabled true: enabled, false: disabled
+         * @brief Enable/disable AutoLight for this controller
+         * @param enabled true: enable, false: disable
          */
-        void SetEnabled(bool enabled);
-
+        void Enable(bool enabled);
+        
         /**
-         * @brief Check if AutoLight feature is enabled
-         * @return true: enabled, false: disabled
+         * @brief Check if AutoLight is enabled
+         * @return true if enabled
          */
         bool IsEnabled() const { return enabled_; }
-
+        
     private:
         scenarioengine::Vehicle* vehicle_;
-        VehicleLightExtension*   lightExt_;  // Reference to light extension
-        bool                     enabled_;
-
-        // Brake light control
-        void UpdateBrakeLights(double acceleration);
-
-        // Turn signal control
+        VehicleLightExtension* lightExt_;
+        bool enabled_;
+        
+        /**
+         * @brief Control brake lights based on deceleration
+         */
+        void UpdateBrakeLights();
+        
+        /**
+         * @brief Control indicators based on lane changes and turns
+         */
         void UpdateIndicators();
-
-        // Reversing light control
+        
+        /**
+         * @brief Control reversing lights based on speed
+         */
         void UpdateReversingLights();
-
-        // Previous state
+        
+        // State variables for logic
         double prevSpeed_;
-        int    prevLaneId_;
+        int prevLaneId_;
         double laneChangeStartTime_;
-        bool   isInLaneChange_;
+        bool isInLaneChange_;
+        
+        // Thresholds
+        const double BRAKE_DECELERATION_THRESHOLD = -0.98; // -0.1G [m/s^2]
     };
-
-}  // namespace gt_esmini
+}
