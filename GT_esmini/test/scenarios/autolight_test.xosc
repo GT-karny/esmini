@@ -52,17 +52,17 @@
                      </Position>
                   </TeleportAction>
                </PrivateAction>
-               <!-- Test Delta Parsing: Turn Fog Lights ON at Init -->
-               <PrivateAction>
-                  <AppearanceAction>
-                     <LightStateAction>
-                        <LightType>
-                           <VehicleLight vehicleLightType="fogLights"/>
-                        </LightType>
-                        <LightState mode="on"/>
-                     </LightStateAction>
-                  </AppearanceAction>
-               </PrivateAction>
+                <!-- Test LightState: Uncommented for verification -->
+                <PrivateAction>
+                   <AppearanceAction>
+                      <LightStateAction>
+                         <LightType>
+                            <VehicleLight vehicleLightType="fogLights"/>
+                         </LightType>
+                         <LightState mode="on"/>
+                      </LightStateAction>
+                   </AppearanceAction>
+                </PrivateAction>
             </Private>
          </Actions>
       </Init>

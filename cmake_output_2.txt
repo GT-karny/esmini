@@ -1,0 +1,17 @@
+-- CMake version: 3.30.5-msvc23
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- The default CMAKE_C_STANDARD used by external targets and tools is not set yet. Using the latest supported C standard that is 17
+-- Downloading dependencies...
+-- osg already exists, skipping
+-- osi already exists, skipping
+-- sumo already exists, skipping
+-- implot already exists, skipping
+-- models already exists, skipping
+-- googletest already exists, skipping
+-- {fmt} version: 11.2.0
+-- Build type: Release
+-- GT_esmini: Swapping OSIReporter.cpp with GT_OSIReporter.cpp
+-- GT_esmini: Added test_ScenarioReaderParsing and GT_Loader
+-- Configuring done (0.1s)
+-- Generating done (2.2s)
+-- Build files have been written to: E:/Repository/GT_esmini/esmini/build

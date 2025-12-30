@@ -14,45 +14,8 @@
 namespace gt_esmini
 {
     // ========== VehicleLightExtension ==========
-
-    VehicleLightExtension::VehicleLightExtension(scenarioengine::Vehicle* vehicle) : vehicle_(vehicle), autoLightEnabled_(false)
-    {
-        // Phase 1: Stub implementation
-        // Initialize all lights to OFF state
-        for (int i = 0; i < static_cast<int>(VehicleLightType::SPECIAL_PURPOSE_LIGHTS) + 1; ++i)
-        {
-            LightState state;
-            state.mode = LightState::Mode::OFF;
-            lightStates_[static_cast<VehicleLightType>(i)] = state;
-        }
-    }
-
-    VehicleLightExtension::~VehicleLightExtension()
-    {
-        // Phase 1: Stub implementation
-    }
-
-    void VehicleLightExtension::SetLightState(VehicleLightType type, const LightState& state)
-    {
-        // Phase 1: Stub implementation
-        // Phase 2: Implement actual light state change logic
-        lightStates_[type] = state;
-    }
-
-    LightState VehicleLightExtension::GetLightState(VehicleLightType type) const
-    {
-        // Phase 1: Stub implementation
-        auto it = lightStates_.find(type);
-        if (it != lightStates_.end())
-        {
-            return it->second;
-        }
-
-        // Default is OFF
-        LightState state;
-        state.mode = LightState::Mode::OFF;
-        return state;
-    }
+    // Methods moved to header (inlined) for cross-module linkage support without dllexport.
+    // See ExtraEntities.hpp
 
     // ========== VehicleExtensionManager ==========
 
@@ -75,9 +38,15 @@ namespace gt_esmini
 
     void VehicleExtensionManager::RegisterExtension(scenarioengine::Vehicle* vehicle, VehicleLightExtension* ext)
     {
-        // Phase 1: Stub implementation
+        // Phase 1: Stub implementation (Corrected)
         // Phase 2: Add handling for existing extensions
         extensions_[vehicle] = std::unique_ptr<VehicleLightExtension>(ext);
+        
+        // GT_esmini addition: Store pointer in Vehicle userData for cross-module access
+        if (vehicle)
+        {
+            vehicle->SetUserData(ext);
+        }
     }
 
     void VehicleExtensionManager::Clear()

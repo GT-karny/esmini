@@ -17,29 +17,29 @@ GT_esminiは、esminiにライト機能を追加する拡張モジュールで�
 - [x] 基本ヘッダー/ソースファイルのスタブ実装
 - [x] CMakeビルドシステムの設定
 
-### Phase 2: LightStateAction基本実装（未実装）
+### Phase 2: LightStateAction 基本実装 ✅ 完了
 
-- [ ] AppearanceActionパース実装
-- [ ] LightStateActionパース実装
-- [ ] VehicleLightExtension実装
-- [ ] テストシナリオ作成
+- [x] AppearanceActionパース実装
+- [x] LightStateActionパース実装
+- [x] VehicleLightExtension実装
+- [x] テストシナリオ作成
 
-### Phase 3: AutoLight機能実装（未実装）
+### Phase 3: AutoLight 機能実装 ✅ 完了
 
-- [ ] AutoLightController実装
-- [ ] GT_esminiLib完成
-- [ ] バックライト対応
-- [ ] テスト作成
+- [x] AutoLightController実装
+- [x] GT_esminiLib完成
+- [x] バックライト対応
+- [x] テスト作成
 
-### Phase 4: OSI連携（未実装）
+### Phase 4: OSI 連携 ✅ 完了
 
-- [ ] OSIReporterExtension実装
-- [ ] テスト作成
+- [x] OSIReporterExtension実装 (GT_OSIReporterとして統合)
+- [x] テスト作成
 
-### Phase 5: 統合テスト（未実装）
+### Phase 5: 統合テスト（進行中）
 
 - [ ] 回帰テスト
-- [ ] ドキュメント更新
+- [ ] ドキュメント更新 (本ファイル等)
 
 ## ビルド方法
 

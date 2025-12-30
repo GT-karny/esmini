@@ -44,10 +44,10 @@
     - [ ] 優先順位テスト (Manual Action vs AutoLight)
 
 ## Phase 4: OSI 連携 (オプション)
-- [ ] `OSIReporterExtension.hpp` / `OSIReporterExtension.cpp` 作成
-- [ ] OSI メッセージへの `LightState` 反映処理の実装
-- [ ] テスト実装
-    - [ ] OSI 出力確認テスト
+- [x] `OSIReporterExtension.hpp` / `OSIReporterExtension.cpp` 作成 (GT_OSIReporterとして統合)
+- [x] OSI メッセージへの `LightState` 反映処理の実装
+- [x] テスト実装
+    - [x] OSI 出力確認テスト (autolight_test.xosc + GT_Loader)
 
 ## Phase 5: 統合テスト & ドキュメント
 - [ ] 既存シナリオへの回帰テスト (Regression Testing)

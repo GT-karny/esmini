@@ -696,11 +696,22 @@ namespace scenarioengine
             return refpoint_x_offset_;
         }
 
+        // Generic User Data (GT_esmini extension support)
+        void SetUserData(void* data)
+        {
+            userData_ = data;
+        }
+        void* GetUserData() const
+        {
+            return userData_;
+        }
+
     private:
         int                      dirty_;
         bool                     is_active_;
         std::string              model3d_full_path_;
         std::vector<std::string> source_reference_;
+        void*                    userData_ = nullptr;
     };
 
     class Vehicle : public Object

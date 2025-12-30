@@ -42,6 +42,7 @@ set_target_properties(
                INSTALL_RPATH "${RPATH_DIRS}")
 
 add_library(${TARGET_STATIC} STATIC ${SOURCES} ${INCLUDES})
+target_compile_definitions(${TARGET_STATIC} PRIVATE GT_ESMINI_STATIC)
 
 foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 

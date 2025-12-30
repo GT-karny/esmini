@@ -27,22 +27,45 @@ namespace gt_esmini
     class VehicleLightExtension
     {
     public:
-        VehicleLightExtension(scenarioengine::Vehicle* vehicle);
-        ~VehicleLightExtension();
+        VehicleLightExtension(scenarioengine::Vehicle* vehicle) : vehicle_(vehicle), autoLightEnabled_(false)
+        {
+            // Initialize all lights to OFF state
+            for (int i = 0; i < static_cast<int>(VehicleLightType::SPECIAL_PURPOSE_LIGHTS) + 1; ++i)
+            {
+                LightState state;
+                state.mode = LightState::Mode::OFF;
+                lightStates_[static_cast<VehicleLightType>(i)] = state;
+            }
+        }
+        
+        ~VehicleLightExtension() {}
 
         /**
          * @brief Set light state
          * @param type Light type
          * @param state Light state
          */
-        void SetLightState(VehicleLightType type, const LightState& state);
+        void SetLightState(VehicleLightType type, const LightState& state)
+        {
+            lightStates_[type] = state;
+        }
 
         /**
          * @brief Get light state
          * @param type Light type
          * @return Light state
          */
-        LightState GetLightState(VehicleLightType type) const;
+        LightState GetLightState(VehicleLightType type) const
+        {
+            auto it = lightStates_.find(type);
+            if (it != lightStates_.end())
+            {
+                return it->second;
+            }
+            LightState state;
+            state.mode = LightState::Mode::OFF;
+            return state;
+        }
 
         /**
          * @brief Enable/disable AutoLight feature
