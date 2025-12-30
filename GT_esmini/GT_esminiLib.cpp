@@ -20,6 +20,9 @@
 
 #include <vector>
 #include <memory>
+#include <functional>
+#include <string>
+#include <iostream>
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -90,19 +93,108 @@ private:
 
 // --- GT_esminiLib C-API Implementation ---
 
+// Basic XOSC sanitizer to allow SE_Init to pass even with unsupported actions
+static bool CreateSanitizedScenario(const char* inFile, const std::string& outFile)
+{
+    pugi::xml_document doc;
+    pugi::xml_parse_result result = doc.load_file(inFile);
+    if (!result) return false;
+
+    // We need to remove AppearanceAction and LightStateAction nodes
+    // because standard esmini ScenarioReader throws exception on them.
+    // Traversing to find them.
+    
+    // Recursive lambda to strip unsupported nodes
+    std::function<void(pugi::xml_node)> stripUnsupported;
+    stripUnsupported = [&](pugi::xml_node node) {
+        for (pugi::xml_node child = node.first_child(); child; )
+        {
+            pugi::xml_node next = child.next_sibling();
+            std::string name = child.name();
+            if (name == "AppearanceAction" || name == "ParameterDeclarations" && node.name() == "Private") 
+            {
+                // Note: Removing ParameterDeclarations inside Private? No, just AppearanceAction.
+                // Re-aligned logic. Only AppearanceAction causes error in standard reader (PrivateAction).
+                if(name == "AppearanceAction") {
+                    node.remove_child(child);
+                } else {
+                    stripUnsupported(child);
+                }
+            }
+            else // Not AppearanceAction
+            {
+                // Specifically look for it.
+                if (name == "AppearanceAction")
+                {
+                    node.remove_child(child);
+                }
+                else
+                {
+                    stripUnsupported(child);
+                }
+            }
+            child = next;
+        }
+    };
+    
+    // Refined logic: stripUnsupported traverses all.
+    // However, we just need to target AppearanceAction which is under Private -> PrivateAction
+    // Let's keep it simple: any node named AppearanceAction is removed.
+    // (Standard Reader throws if name is not Longitudinal or Lateral)
+    // Actually, ScenarioReader throws if it finds ANY child of PrivateAction it doesn't know.
+    // So we just remove AppearanceAction children.
+    
+    std::function<void(pugi::xml_node)> strip;
+    strip = [&](pugi::xml_node node) {
+        for (pugi::xml_node child = node.first_child(); child; )
+        {
+            pugi::xml_node next = child.next_sibling();
+            std::string name = child.name();
+            
+            if (name == "AppearanceAction") 
+            {
+                node.remove_child(child);
+            }
+            else
+            {
+                strip(child);
+            }
+            child = next;
+        }
+    };
+
+    strip(doc);
+    
+    return doc.save_file(outFile.c_str());
+}
+
 GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 {
-    // 1. Initialize esmini using standard SE_Init (which we compiled in)
-    int ret = SE_Init(oscFilename, disable_ctrls, 0, 0, 0); 
+    // 1. Create a sanitized version of the scenario
+    // esmini throws error on AppearanceAction/LightStateAction.
+    // We strip them for the main initialization.
+    std::string sanitizedFile = std::string(oscFilename) + ".temp.xosc";
+    if (!CreateSanitizedScenario(oscFilename, sanitizedFile))
+    {
+         std::cerr << "GT_Init: Failed to create sanitized scenario file." << std::endl;
+         return -1;
+    }
+
+    // 2. Initialize esmini using SE_Init with sanitized file
+    int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0); 
+    
+    // Clean up temp file (or keep for debug?)
+    // std::remove(sanitizedFile.c_str()); 
+
     if (ret != 0)
     {
         return ret;
     }
 
-    // 2. Perform Delta Parsing for Extensions
+    // 3. Perform Delta Parsing for Extensions using ORIGINAL file
     if (player && player->scenarioEngine)
     {
-        // Load XML independently
+        // Load ORIGINAL XML
         pugi::xml_document doc;
         pugi::xml_parse_result result = doc.load_file(oscFilename);
         
@@ -110,7 +202,8 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         {
             // Use GT_ScenarioReader to parse extensions
             // Access Catalogs via existing loader because it's private in Engine
-            auto* catalogs = player->scenarioEngine->GetScenarioReader()->GetCatalogs();
+            auto* scReader = player->scenarioEngine->GetScenarioReader();
+            auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
             
             gt_esmini::GT_ScenarioReader reader(
                 &player->scenarioEngine->entities_,
@@ -126,7 +219,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
             std::cerr << "GT_Init: Failed to reload XOSC for extensions: " << result.description() << std::endl;
         }
 
-        // 3. Initialize AutoLightManager
+        // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
     }
 
@@ -151,4 +244,25 @@ GT_ESMINI_API void GT_Close()
 {
     AutoLightManager::Instance().Close();
     SE_Close();
+}
+
+GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType)
+{
+    if (!player || !player->scenarioEngine) return -1;
+    
+    for (auto* obj : player->scenarioEngine->entities_.object_)
+    {
+        if (obj->id_ == vehicleId && obj->type_ == scenarioengine::Object::Type::VEHICLE)
+        {
+             scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
+             auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+             if (ext)
+             {
+                 gt_esmini::LightState state = ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(lightType));
+                 return static_cast<int>(state.mode);
+             }
+             return -1; // Extension not found
+        }
+    }
+    return -1; // Vehicle not found
 }

@@ -250,6 +250,8 @@ namespace gt_esmini
                              if (action)
                              {
                                  storyBoard.init_.private_action_.push_back(action);
+                                 // Execute immediately since StartTrigger for Init has already passed
+                                 action->Start(0.0); 
                              }
                          }
                     }

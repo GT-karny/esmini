@@ -64,6 +64,17 @@ extern "C"
      */
     GT_ESMINI_API void GT_Close();
 
+    /**
+     * @brief Get light state for a vehicle (Debug/Inspection)
+     * 
+     * @param vehicleId Vehicle ID (SE_GetObjectId)
+     * @param lightType Integer casting of VehicleLightType
+     *        0: DaytimeRunning, 1: LowBeam, 2: HighBeam, 3: Fog, 4: FogFront, 5: FogRear,
+     *        6: Brake, 7: Warning, 8: IndicatorLeft, 9: IndicatorRight, 10: Reversing, ...
+     * @return 0: Off, 1: On, 2: Flashing, -1: Error/Vehicle Not Found/No Extension
+     */
+    GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType);
+
 #ifdef __cplusplus
 }
 #endif

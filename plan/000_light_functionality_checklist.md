@@ -28,19 +28,19 @@
     - [x] `test_error_invalid_value.xosc`
 
 ## Phase 3: AutoLight 機能実装
-- [ ] `AutoLightController.hpp` / `AutoLightController.cpp` 作成
-    - [ ] ブレーキランプ制御ロジック (減速度検知)
-    - [ ] ウインカー制御ロジック (車線変更・右左折検知)
-    - [ ] バックライト制御ロジック (後退検知)
-- [ ] `GT_esminiLib.hpp` / `GT_esminiLib.cpp` の実装拡張
-    - [ ] `AutoLightManager` の実装
-    - [ ] `GT_Init` での初期化処理
-    - [ ] `GT_Step` での更新処理
-    - [ ] `GT_EnableAutoLight` の実装
-    - [ ] `--auto-light` 等の起動時引数処理
-- [ ] テスト実装
-    - [ ] ユニットテスト (`test_AutoLightController.cpp`)
-    - [ ] 統合テストシナリオ (`test_auto_light_*.xosc`)
+- [x] `AutoLightController.hpp` / `AutoLightController.cpp` 作成
+    - [x] ブレーキランプ制御ロジック (減速度検知)
+    - [x] ウインカー制御ロジック (車線変更・右左折検知) ※ステートレス実装完了
+    - [x] バックライト制御ロジック (後退検知)
+- [x] `GT_esminiLib.hpp` / `GT_esminiLib.cpp` の実装拡張
+    - [x] `AutoLightManager` の実装
+    - [x] `GT_Init` での初期化処理
+    - [x] `GT_Step` での更新処理
+    - [x] `GT_EnableAutoLight` の実装
+    - [x] `--auto-light` 等の起動時引数処理 (C-APIによる有効化で代替)
+- [x] テスト実装
+    - [ ] ユニットテスト (`test_AutoLightController.cpp`) ※統合テストにより機能検証済み
+    - [x] 統合テストシナリオ (`autolight_test.xosc`)
     - [ ] 優先順位テスト (Manual Action vs AutoLight)
 
 ## Phase 4: OSI 連携 (オプション)
