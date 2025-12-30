@@ -1,0 +1,41 @@
+
+
+= XSD transformation
+
+The unambiguous transformation into XSD is an important part in the standardization process. While UML is a formal way to describe domain specific aspects, the XML Schema and the XML documents as its instances are the most recognized part of the data model. The XSD and the XML technology determine an approach how documents can be exchanged between scenario authors, simulation system providers and other interested parties.
+
+Currently scripting is available in the Enterprise Architect Corporate Edition and the Enterprise Architect Version 14.1 is used.
+
+== Preparing the model
+
+With the XSD stereotypes described, the model is decorated. To start the transformation, select _Scripting_ under _Specialize_ menu.
+
+[#fig-15]
+.Select Scripting in the Specialize Menu
+image::image25.png[image]
+
+In the Scripting Window, select the "Osc2XSD" folder and the script "OSC 2 XSD Transformation"
+
+[#fig-16]
+.The Scripting Window
+image::image26.png[image]
+
+Start the script.
+
+[#fig-17]
+.Starting the Script
+image::image27.png[image,width=530,height=356]
+
+Enter the output filename and press _Open_
+
+[#fig-18]
+.Enter filename
+image::image28.png[image,width=604,height=379]
+
+The Process starts, wait until "XSD Transformation done" appears in the _System Output_ window.
+
+[#fig-19]
+.Process has finished
+image::image29.png[image]
+
+View the created XSD file.

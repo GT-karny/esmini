@@ -1,0 +1,167 @@
+
+
+= Class diagrams
+
+== Overview
+
+In the {THIS_STANDARD} data model, these types are used:
+
+* Classes
+* Enumerations
+* Interfaces
+* PrimitiveTypes
+
+Constraints: All types have a name. The name of a type must follow the upper-camel-case notation, e.g. *UserDefinedAction*. It must be unique among the names of all types (interfaces, classes, enumerations, primitive types).
+
+----
+upper-camel-case notation pattern: [A-Z][A-Za-z0-9]*
+----
+
+=== Class
+
+The central modeling element in UML is a class. A class represents a set of similar objects, aka instances. Generally, a class can be instantiated many times. A class has attributes (defining the properties of these objects) and methods (defining the operations an object can perform). In general, for pure data models, methods are not relevant and are not used in the {THIS_STANDARD} data model.
+
+[#fig-1]
+.Class example
+image::image4.png[image]
+
+=== Attributes and cardinality
+
+An attribute is either of type enumeration or of a primitive type. In {THIS_STANDARD}, attributes have the cardinality 1..1 (required) or 0..1 (optional). In contrary to the XML schema notation, required is the default and 1..1 is not annotated to the attribute.
+
+Constraints: The name of a property must follow a lower-camel-case notation, e.g. *orientationType*. They must be unique within the enclosing class.
+
+----
+lower-camel-case notation pattern: [a-z][A-Za-z0-9]*
+----
+
+=== Enumerations and enumeration literals
+
+Enumerations are types in UML. They consist of a set of symbols which are called enumeration literals or enumeration tags. Instances of these types have one of these symbols as their value. In {THIS_STANDARD}, an enumeration literal is considered a symbol that represents a specific semantic. In UML modeling, no initial numerical values are assigned to the enumeration tags. In XML, the symbol is used as its string representation.
+
+[#fig-2]
+.RouteStrategy enumeration with the Enumeration literals fastest, leastIntersections, random, shortest.
+image::image5.png[image]
+
+Constraints: The symbols for the enumeration literals must be in lower-camel-case notation and unique within the enclosing enumeration.
+
+----
+lower-camel-case notation pattern: [a-z][A-Za-z0-9]*
+----
+
+=== Interfaces and realization-relationships
+
+Interfaces in UML provide a common semantic for any class that realizes this interface. Common UML also allows that interfaces inherit from other interfaces. This is not used in {THIS_STANDARD}. If a class realizes an interface, the relation between the class and the interface can be expressed as a "is considered a" relation. So, in the following example an instance of a _ScenarioObject_ is considered an _Entity_. An _EntitySelection_ is also considered an _Entity_. On the other hand, the set of any class that realizes an interface represents a closed set of types an instance can be of. An instance of _Entity_ is either of type _ScenarioObject_ or of type _EntitySelection_.
+
+[#fig-3]
+.Interfaces and realization relations
+image::image6.png[image]
+
+
+=== Primitive types
+
+Primitive types represent the smallest atoms in a data model. To be consistent, a UML data model can define its own primitive types which then semantically refer to data system that have already defined primitive types (e.g. IEEE, Oracle, XSD).
+
+In {THIS_STANDARD}, these types are used:
+
+[horizontal]
+_Boolean_:: Symbolic ``True`` or ``False`` or a $-notated parameter name
+_DateTime_:: from XSD DateTime or a $-notated parameter name
+_Double_:: IEEE 64-bit floating-point or a $-notated parameter name
+_Int_:: 32-bit signed integer or a $-notated parameter name
+_String_:: any character string or a $-notated parameter name
+_UnsignedInt_:: Unsigned integer of 32 bits or a $-notated parameter name
+_UnsignedShort_:: Unsigned integer of 16 bits or a $-notated parameter name
+
+=== Building semantics with UML
+
+With types and objects, sentences can build strong semantics that describe the domain knowledge precisely. If we are talking about instances, we say an instance of a specific type. For example: an instance of type _FileHeader_, or an object of class _FileHeader_. Also "a FileHeader" means an object of class _FileHeader_. Also compositions, relations, realizations and generalizations create good domain knowledge. For example "A _ScenarioObject_ is considered an _Entity_" can be deduced from the interface realization relation between _ScenarioObject_ and _Entity_ (see <<Interfaces and realization-relationships>>).
+
+=== Inheritance relationships
+
+Inheritance is a relationship between two classes or two interfaces. In general, one class can inherit properties and behavior from a base class. In data models, only attributes can be inherited. Inheritance is considered not such critical and sometimes not desirable. In fact, many real data systems like relational databases, ANSI C or Apache-Thrift do not support inheritance out of the box. The {THIS_STANDARD} data model does not use inheritance at the moment. A union like approach is used that is characterized by the choice constructs of the underlying schema. It is subject of discussion to introduce inheritance in the future.
+
+=== Composition and aggregation relationships
+
+When properties are not simple attributes of an enumeration type or a simple type, they form relations between classes. The relation that is most frequently used in {THIS_STANDARD} is a composition relation. Beyond the composition relation, there the aggregation relation has similar semantics. Both define an association between a containing class and a contained class. These two types of relation are drawn as a line with a diamond at the end of the containing class. A composition relationship's diamond is filled, an aggregation is not.
+
+The difference between these two kinds of relationships is as follows: The contained instance in a composition relationship is a part of the containing instance: If the containing instance is deleted, the contained instance no longer exists. Therefore, composition means an object may only be contained in one other object. An aggregation relationship is one of shared objects. This means, multiple objects may aggregate the same object. By consequence, an aggregated object still exists, even if the aggregating object is deleted.
+
+The {THIS_STANDARD} data model is originally derived from an XML schema. In this hierarchical data structure, only compositions are used, since a child element cannot exist without the presence of its parent element. In a hierarchical data system, aggregations cannot be expressed. Being compatible to the XML schema is the reason, {THIS_STANDARD} uses exclusively composition relations.
+
+Composition relations can be expressed as "owns" or "has" relations from the containing instance to the contained instance. Or "is owned by" or "is part of" from the contained instance to the containing instance.
+
+Cardinality seen from the contained instance to the containing element is always exactly one. A contained instance is part of exactly one containing instance. On the other hand, there are no restrictions for the cardinalities (upper, lower) seen from the containing instance to the contained instance. The cardinalities are annotated at the contained class.
+
+Compositions are considered properties of the containing class. Therefore, each composition has a name that is annotated at the contained class end of the association.
+
+Constraints: the name of an association must be unique among the attribute names and any association, for which the containing class is the containing class or referencing class. Name follows the lower-camel-case notation.
+
+
+----
+lower-camel-case notation pattern: [a-z][A-Za-z0-9]*
+----
+
+[#fig-4]
+.Compositions
+image::image7.png[image]
+
+=== References
+
+As aggregations and composition relations, a reference is an association between two classes or between a class and an interface. They are drawn as an arrow from the referencing type to the referenced type. The referencing type is always a class. The referenced type can be a class or an interface.
+
+References are considered "references" or "points to" relations from the referencing instance to the referenced instance. Or, from the referenced instance to the referencing instance they form a "pointed by" or "referenced by" relation.
+
+Cardinalities, seen from the referenced type are restricted by the fact, that the presence of a referenced instance is independent from the instance that is referencing it. So, the minimum cardinality must be zero. The maximum cardinality, if not restricted by some domain constraints is unbounded. In {THIS_STANDARD} so far, the cardinalities from the referenced type to the referencing class are always 0..*. The upper and lower cardinality seen from the referencing class to the referenced class are not restricted. These are annotated at the referenced class.
+
+References are considered properties of the referencing class. Therefore, each reference has a name that is annotated at the referenced class.
+
+In a pure hierarchical data model, like XML, references cannot be expressed without the presence of constraints. Often, in these kinds of data models or data storing systems, references are expressed as symbolic links, either from the referencing instance to the referenced instance or vice-versa. In systems where the referencing instances and the referenced instances are identified by primary keys, these are used to express the symbolic link between the instances. In relational data base systems, foreign keys of the referencing table row are incorporated in the referenced table row. In XML, the primary key of the referenced element is often expressed in a sub-element of the referencing element.
+
+Without references, the data model would form a pure hierarchy. With the presence of references, the character of the data model becomes that of a network.
+
+Constraints: the name of the association must be unique among the attribute names and any association, for which the referencing class is the containing class or referencing class. Name follows the lower-camel-case notation.
+
+----
+lower-camel-case notation pattern: [a-z][A-Za-z0-9]*
+----
+
+[#fig-5]
+.References
+image::image8.png[image]
+
+=== Packages
+
+Packages are model elements in UML. A package is used to group elements in mid-size and large models. A package may contain other packages. Packages form dependencies which are implied by the elements the packages contain.
+
+Currently, the packages in {THIS_STANDARD} are used to separate the different types and model elements like diagrams. It is subject of discussion reorganizing packaging to domain specific packages in the future. Packages like "_Common_", "_Actions_" or "_Conditions_" can rather be used to express domain specific dependencies than technical naming like "Enums", "Diagrams" and "Classes" which simply organize types of model elements.
+
+=== Constraints
+
+Defining constraints in UML is not supported very well. Neither by language elements nor by the UML tools, like Enterprise Architect. There is a constraint definition language that is called OCL (Object Constraint Language). Though, it is a formal way to define constraints, tools lack to support OCL well. There is some authoring support, but there are barely good parsers that allow automatic validation or code generation for programming languages. Also, there is no support for validating model instances with these constraints.
+
+Taking these drawbacks into account, {THIS_STANDARD} takes this approach:
+
+* UML model elements are used to constrain the model as precise and restricted as possible. For example using string datatype instead of any or setting cardinality precisely are UML specific instruments to restrict a model properly. Also take into account that UML provides explicit and expressive model elements that already imply constraints. Example: A UML model provides an explicit reference as a model element instead of a foreign key constraint that is used in a RDBMS. Or cardinality is provided where NOT NULL constraints are used in RDBMS systems.
+
+* UML profiles can be used to add constrains to a model. For example adding a \<<PrimaryKey>> stereotype to an attribute would indicate uniqueness in a certain namespace. Of course, as any user defined stereotype, the semantics must be defined properly.
+* Where UML is not sufficient to validate a model instance properly, checker rules are established to restrict a model and define validity. Checker rules are textual descriptions that use semantics from UML to describe restrictions. The benefit of human readable outscores the advantages that derive from a formal language that is not supported very well. Checker rules can be formally implemented by any programming language and have been proven to be practical for other standards (e.g. ODX cite:[odx]).
+
+* Checker rules can be categorized, to indicate groups of constraints. Like RDBMS define UNIQUE constraints or PRIMARY KEY constraints, {THIS_STANDARD} could benefit from such a categorization.
+
+=== Summary
+
+Here's a summary of the model elements that are described in the {THIS_STANDARD} UML data model.
+
+* Classes (considered Types)
+* Interfaces (considered Types)
+* Enumerations (considered Types)
+* Primitive Types (considered Types)
+* Attributes (considered Properties of type Enumerations or Primitive Type)
+* Enumeration Literals
+* Composition Relationships (considered Associations and Properties of the containing class)
+* Reference Relationships (considered Associations and Properties of the referencing class)
+* Interface Implementation Relationships (considered an Association)
+* Inheritance Relationships (not used in the absence of inheritance, considered an Association)
+
+* Aggregation Relationships (not used)

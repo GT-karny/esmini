@@ -1,0 +1,83 @@
+
+
+= UML profiles
+
+== Introduction
+
+In addition to the UML model elements, a domain can add semantics to an UML model. In contrary to the standard UML model elements like classes or interfaces, a domain can fully determine the semantics of the additional information. Usually this semantic is encoded with stereotypes. Stereotypes are named markers that can be applied to standard UML model elements like classes, interfaces, attributes.
+
+The presence of these markers allows than to encode a domain specific information that can be formally exploited by technical systems. These technical systems can be transformation machines or generators. They may also help to visualize semantics in class diagrams.
+
+Beyond the dual information whether a stereotype is applied or not, a stereotype can include name-value-pairs that carry further information. These are called tagged-values.
+
+In {THIS_STANDARD}, stereotypes mainly decode information how to transform the existing UML into an XML-schema.
+
+== Defining a profile
+
+When defining a profile, stereotype definitions and tagged-value definitions are created. Also, it is defined to which standard UML elements a stereotype can be applied to. The following steps are necessary for each stereotype.
+
+* Define the stereotype with its name
+* Add tagged-value definitions to that stereotype (define name and datatype)
+* Define to which UML model elements the author of the model can apply the stereotype. Quite often, a stereotype can be applied to multiple model-elements like classes and interfaces.
+
+== Applied profile example
+
+In {THIS_STANDARD}, stereotypes are mainly used to transform the existing model into an XML-schema. The transformation uses the applied stereotypes and tagged-values to add specific information to the transformation rules. The following example shows the stereotypes \<<XSDcomplexType>> \<<XSDgroup>> and \<<enumeration>> that help the transformation to decide to which XML schema element a class or an enumeration should be transformed to.
+
+[#fig-6]
+.Stereotypes that provide information for UML-to-XSD transformation.
+image::image9.png[image]
+
+== EA specific profile
+
+The following stereotypes are relevant for the EA internal transformation to an XML schema.
+
+
+[#tab-table-1]
+.Stereotypes of the EA specific profile "UML Profile for XSD Schema"
+[cols="30,30,40",options="header"]
+|===
+|Stereotype Name |Applicable to |Semantic
+|XSDschema |Package |Marks a package as a source for XML-schema generation.
+|XSDgroup |Class |Class will be transformed to an ``xsd:group``
+|XSDtopLevelElement |Class |Class is used to create the root element of the XML.
+|XSDcomplexType |Class |Creates a ``xsd:complexType`` from a class
+|XSDattribute |Class |Creates a ``xsd:attribute`` from a property.
+|===
+
+[#fig-7]
+.The EA specific profile "UML Profile for XSD Schema"
+image::image10.png[image]
+
+For several reasons, more information is necessary for the UML-to-XSD transformation process and for a better understanding of the model.
+
+Therefore, in an {THIS_STANDARD} specific profile stereotypes are introduced to add semantic to the model.
+
+== {THIS_STANDARD} specific profile
+
+
+[#tab-table-2]
+.Stereotypes of the {THIS_STANDARD} specific profile
+[cols="30,30,40",options="header"]
+|===
+|Stereotype Name |Applicable to |Semantic
+|XSDschema |Package |Marks a package as a source for XML-schema generation.
+|XSDgroup |Class |Class will be transformed to an ``xsd:group``
+|XSDtopLevelElement |Class |Class is used to create the root element of the XML.
+|XSDcomplexType |Class |Creates a ``xsd:complexType`` from a class
+|XSDattribute |Property, AssociationEnd |Creates a ``xsd:attribute`` from a property.
+|XSDelement |Association |Creates a ``xsd:element`` from a property. The property `position` defines the position in the xsd model-group (sequence, all, choice). It is a positive unique number in the class that starts with 1. `position` is important for parsing and validating the model-group ``xsd:sequence``. Otherwise it enables the xsd generation to create textual xsd files where ``xsd:sequence``, ``xsd:choice`` and ``xsd:all`` definitions appear always in the same order.
+|XSDunwrapped |Association |Marks an association as an unwrapped list in XSD. The name of the XSD Element that is used for the list items is given in the tag xsdElementName.
+|XSDwrapped |Association |Marks an association as wrapped list in XSD. He tags wrapperMin and wrapperMax are the cardinality the wrapper is included with.
+|XSDwrapperType |Class |If an element is used within a wrapped list, it defines its wrapping complex type in XML. The XSD transformation will create a complex type. For the creation of such a type the tags: xsdWrapperType, xsdWrapperElementName, min and max.
+|transient |Interface, Association |Marks that an interface or an association will not be transformed into an XML-schema.
+|nameRef |Association |This is added to a reference to imply that the association represents a property that is transformed in a ``xsd:attribute``. The tagged-value xsdType carries the target datatype of for the ``xsd:attribute``. E.g. string. Only string datatype is used so far for {THIS_STANDARD}.
+|xor |Association |Any composition of a union is marked with the stereotype xor. It visualizes the information that only one of the properties can be used at any given time. The containing class of such a composition must be tagged with the stereotype \<<union>>
+|union |Class |Marks a class as a union like structure. Union like means that it acts as a container for many compositions. The class is not allowed to act as a referencing class for a reference. Any containing compositions of such a class must be tagged with the \<<xor>>.
+|deprecated |Association, Class, Interface, Property, Enumeration, EnumerationLiteral |Data structures and associations in UML can be marked as \<<deprecated>>. The use of deprecated data structures or associations is then discouraged to be used in model instances. The tagged-value `withVersion` defines the first version that deprecates the data structure or association. `comment` as a tagged value could define a hint what should be used in the future.
+|===
+
+
+[#fig-8]
+.The {THIS_STANDARD} specific profile
+image::image11.png[image]

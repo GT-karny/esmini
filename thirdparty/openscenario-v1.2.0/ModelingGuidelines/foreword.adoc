@@ -1,0 +1,17 @@
+
+
+[preface]
+[#top-foreword]
+= Foreword
+
+A UML model should describe the domain aspects in a technology and platform independent manor (PIM, Platform Independent Model). The UML focuses on the domain concepts, not on the aspect how instances of the model are transported, exchanged, or stored.
+
+E.g. whether the lists are mapped to unwrapped or a wrapped list in the XSD file is not a domain specific aspect, but a question of how to map the data model to the XML technology. So, the UML model should abstract from these aspects.
+
+Modelling from the scratch would prefer this approach. First create the platform independent model (PIM) and then generate an XSD representation out of the model (PSM, Platform Specific Model). In these terms, the {THIS_STANDARD} UML modeling is also a concession to the fact that the approach was vice-versa. The UML model is deduced out of the original XSD version 0.9.1. and it respects that it is important to draw the line back to the original XSD.
+
+{THIS_STANDARD} chooses to add specific information to the platform independent model to enable a transformation to XSD and the XML technology. This is done with the help of stereotypes (e.g. \<<XSDcomplexType>>)
+
+The XSD transformation is considered such important, that the rules for transformation are part of the model. Nevertheless, the aspect of domain concepts and XSD mapping are strictly separated by the model itself (PIM) and the decorating aspects of how the model is transformed to the XML technology (stereotypes).
+
+So, in these terms, the {THIS_STANDARD} UML model is a platform independent model that is decorated with stereotypes allowing the unambiguous transformation to XSD. By simply removing the XSD stereotypes from the model, you can extract the PIM and transforming this model in any other technology.

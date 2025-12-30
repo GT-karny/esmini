@@ -1,0 +1,81 @@
+
+
+[appendix]
+= XSD generation approaches in EA
+There are different approaches to generate an XML schema from an Enterprise Architect model. Three approaches have been evaluated in respect to their complexity, their number of transformation steps and the comprehensiveness to the model architect.
+
+== Standard transformation to XSD
+
+Enterprise Architect is using the XSD profile to feed its own generator with the information needed to create an XML-schema out of an UML model (see cite:[ea]). Unfortunately, the EA specific transformation is not able to generate complex XML-schema mapping with all the information that we need for {THIS_STANDARD}.
+
+These features are not supported by the standard transformation:
+
+* To translate references into ``xsd:attributes`` that hold the foreign keys of the referenced instance.
+* To translate naming conventions (translate names of associations from lower-camel-case to become an upper-camel-case element name in XML schema).
+* To imply rules for PrimitiveTypes and Enumerations that allow the use of $-notated parameters.
+* To create complex type (xsd:complexType) with simpleContent (xsd:simpleContent)
+
+To be still able to use the standard UML-to-XSD transformation, its input must be prepared to fit in a first step. The input of this pre-transformation is our EA-UML-model. The output is a UML-model that fits the requirements for the input of the UML-to-XSD standard transformation. The pre-transformation can be defined in Enterprise Architect as a model-to-model transformation.
+
+[#fig-22]
+.Steps of a UML-to-XSD transformation
+image::image30.png[image]
+
+The model-to-model transformation does the following:
+
+* Eliminate any interface that has the stereotype \<<transient>> applied.
+* Eliminate any association that has the stereotype \<<transient>> applied.
+* Eliminate any reference that has the stereotype \<<namedRef>> applied. Instead create an attribute on the referencing class that has the same name as the association. The type of the attribute is the value of the tagged-value "xsdType". (Currently only the type "string" is useful).
+* Change the name of every association from lower-camel-case notation to upper-camel-case notation. In this way, a generated ``xsd:element`` or ``xsd:group`` will be transformed into upper-camel-case. Attributes stay with the lower-camel-case notation to be transformed into ``xsd:attribute``.
+* Eliminate any \<<xor>> and \<<union>> stereotype.
+* Eliminate package "Diagrams" (Not used for XSD Creation)
+* Restructure Packages Move any type from package "Class", "Enums", "Interfaces" into the package OpenSCENARIO. Remove the empty packages. This must be done because the EA Transformation creates an XML schema for every package by default. We want anything in one package.
+* Add a class with the name "parameter". Apply stereotype \<<XSDsimpleType>>. Add a generalization from class "``xsd:string``". Set the tagged-values:
+* derivation: "restricted"
+* pattern: $[A-Za-z_][A-Za-z0-9_]*
+
+Make classes for primitive union types. Here example: Boolean
+
+* Rename Boolean type to BooleanTemp
+* Add a Class Boolean Apply Stereotype \<<XsdUnion>>
+* Add a generalization from class parameter
+* Add a generalization from class xsd:boolean
+* Reconnect any attribute from BooleanTemp to Boolean
+* Eliminate BooleanTemp
+
+Make the same for all enumerations. Here example: _StoryboardElementState_
+
+* Rename StoryboardElementState to StoryboardElementStateTemp
+* Add a class StoryboardElementState. Apply stereotype \<<XSDunion>>
+* Add a generalization from class parameter
+* Add a generalization from StoryboardElementStateTemp
+* Reconnect any attribute from StoryboardElementStateTemp to StoryboardElementState.
+
+Though the pre-transformation was implemented successfully, it is still not possible, to generate complex types with simple content within the EA XSD transformation. Another XSLT that transforms the output would solve the problem (post-processing).
+
+This method was discarded due to the following facts:
+
+* Three transformations must be executed. Pre-transformation, EA XSD transformation and finally an XSLT transformation. Two must be completely engineered (pre-transformation with transformation templates and XSLT as post processing). Further, the EA XSD transformation is not documented very well.
+* The process overall is highly intransparent over the three steps. It spans three technologies (EA Model-to-Model transformation, EA-XSD transformation, XSLT). Only XSLT is non-proprietary.
+* The proprietary EA transformations are not very well documented and incorporate some undocumented "magic" in some steps.
+
+== Code generation with templates
+
+With code templates, EA provides code generation capability. There have been successfully implemented code templates to generate valid XSD.
+
+Nevertheless, the approach was discarded due to these drawbacks:
+
+* EA uses "languages" like Java, C\++, C' to generate code. A language must have been defined "OSC" and the model must be prepared for this.
+* Usually Enterprise Architect assumes that every class is generated into its own file. XSD should generate into one file. To achieve this, every class in the model must define the same file name to generate into the same file.
+* The main reason was that the connectors that are transformed into XSD elements cannot be sorted with the EA template language. So, there was no possibility to reproduce ``xsd:sequences`` from the original XSD.
+
+With these drawbacks, this very complex and incomprehensive approach was discarded in favor of the Enterprise Architect scripting approach.
+
+== Enterprise Architect script execution
+
+Writing a JScript from the scratch was the approach that was chosen to generate the XSD in one single step. It is by far the most transparent way to generate XSD and uses the well documented object API to the Enterprise Architect model. This approach is also encouraged in the newer versions of Enterprise Architect.
+
+The script gives a complete understanding how the transformation is done and can be debugged. It represents a general approach within the modeling rules that are described in this document. No hidden Enterprise Architect magic and no extra steps to generate XSD.
+
+Scripting enables the validation of modeling rules described in this document and the creation of useful error messages when the modeling rules are violated. E.g.: If the user has not defined a name for a connector or has not defined appropriate cardinality.
+

@@ -1,0 +1,19 @@
+
+
+= Documentation guidelines
+
+The UML model is documented in Enterprise Architect (EA). Model elements are separated in these folders and packages:
+
+----
+ASAM                    - Root node for all model elements
+    OpenSCENARIO        - All types and class specific diagrams.
+        Classes         - All class types
+        Diagrams        - All class specific diagrams. One diagram per class
+        Enums           - All enumerations
+        Interfaces      - All interfaces
+        PrimitiveTypes  - All primitive datatypes.
+----
+
+[#fig-9]
+.Enterprise Architect Model Elements
+image::image12.png[image]

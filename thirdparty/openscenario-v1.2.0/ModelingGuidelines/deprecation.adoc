@@ -1,0 +1,63 @@
+
+
+= Deprecation
+
+When moving forward to next versions, deprecation is a strategy that ensures downward compatibility. It is used for minor versions that do not allow incompatible changes as deprecation guarantees that old instances are still valid and semantically correct with a new version. This respects user's and tool provider's investment and helps to manage a smooth transfer between versions.
+
+Once a data structure or association is deprecated its usage is discouraged in a model instance. They are marked to be unsupported in the future, usually in the next major version.
+
+== Deprecation in the UML model
+
+Deprecation is applied to the data structures and associations as the stereotype \<<deprecated>>. This stereotype can be applied to classes, interfaces, properties, associations, enumerations and enumeration literals. The tagged-value with version specifies the first version that deprecates the data structure or association.
+
+== Deprecation strategies
+
+* Whenever a type (class, interface or enumeration) is deprecated, all types that use the deprecated type must also deprecate its properties or association that uses that type.
+* If a property is replaced by another property, the deprecated property must ensure to be optional. If it used to be required, it must be changed to optional. This change (required to optional) does lower the restrictions which is a downward compatible change. The new property must also be optional, so the old property and the new property can be used in an xor style.
+* The same applies to associations.
+
+[#fig-20]
+.Applying the stereotype in Enterprise Architect
+image::image31.png[image]
+
+
+[#fig-21]
+.Example of a deprecated class (Association must be deprecated, too)
+image::image32.png[image]
+
+
+== Deprecation in the XSD schema
+
+The xml representation of a model instance should be still valid while using deprecated elements. As the XML platform does not support a deprecation mechanism, the xsd validation will not reveal the use of deprecated elements.
+
+Instead the deprecation should be documented in a formal way as an annotation in the XSD.
+
+[source%nowrap,xml,linenums]
+----
+<xsd:simpleType name="ConditionEdge">
+    <xsd:annotation>
+        <xsd:appinfo>deprecated</xsd:appinfo>
+    </xsd:annotation>
+    <xsd:union>
+        <xsd:simpleType>
+            <xsd:restriction base="xsd:string">
+                <xsd:enumeration value="falling"/>
+                <xsd:enumeration value="none"/>
+                <xsd:enumeration value="rising"/>
+                <xsd:enumeration value="risingOrFalling"/>
+            </xsd:restriction>
+            </xsd:simpleType>
+            <xsd:simpleType>
+        	    <xsd:restriction base="parameter"/>
+            </xsd:simpleType>
+    </xsd:union>
+</xsd:simpleType>
+----
+
+== Limitations of deprecation
+
+Deprecation can be applied to data structures and associations. It cannot be applied to changes where cardinalities are changed to be more restrictive towards a new version. A list that allows [0..\*] members cannot be changed to a list that is restricted to [1..*] items. This incompatible change will not be solved with deprecation.
+
+== Strict validation for version v1.1
+
+To enable strict version v1.1.1 validation, the schema ``OpenSCENARIO_StrictValidation_1_1_1.xsd`` for version v1.1.1 is delivered. In this schema, simply all deprecated artifacts from the original schema ``OpenSCENARIO.xsd`` were removed by applying an XSLT-transformation to the original schema.
