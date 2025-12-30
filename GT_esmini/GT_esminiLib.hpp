@@ -11,6 +11,16 @@
 
 #pragma once
 
+#if defined(_WIN32)
+#ifdef GT_ESMINI_EXPORTS
+#define GT_ESMINI_API __declspec(dllexport)
+#else
+#define GT_ESMINI_API __declspec(dllimport)
+#endif
+#else
+#define GT_ESMINI_API
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -26,7 +36,7 @@ extern "C"
      * @param disable_ctrls Controller disable flag
      * @return 0: success, -1: failure
      */
-    int GT_Init(const char* oscFilename, int disable_ctrls);
+    GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls);
 
     /**
      * @brief GT_esmini update function (called after esmini's SE_Step)
@@ -36,7 +46,7 @@ extern "C"
      * 
      * @param dt Delta time (seconds)
      */
-    void GT_Step(double dt);
+    GT_ESMINI_API void GT_Step(double dt);
 
     /**
      * @brief Enable AutoLight for GT_esmini
@@ -44,7 +54,7 @@ extern "C"
      * Phase 1: Stub implementation
      * Phase 3: Implement AutoLight enable logic
      */
-    void GT_EnableAutoLight();
+    GT_ESMINI_API void GT_EnableAutoLight();
 
     /**
      * @brief GT_esmini cleanup
@@ -52,7 +62,7 @@ extern "C"
      * Phase 1: Stub implementation
      * Phase 3: Implement resource cleanup logic
      */
-    void GT_Close();
+    GT_ESMINI_API void GT_Close();
 
 #ifdef __cplusplus
 }

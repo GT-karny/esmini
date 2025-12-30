@@ -34,6 +34,24 @@ namespace gt_esmini
 
         virtual ~GT_ScenarioReader();
 
+    public:
+        /**
+         * @brief Parse OSC Private Action (overrides parent class method via name hiding)
+         * 
+         * Checks for AppearanceAction and delegates to ParseAppearanceAction.
+         * All other actions are delegated to parent class implementation.
+         * 
+         * Phase 2: Implement to support AppearanceAction
+         * 
+         * @param actionNode PrivateAction XML node
+         * @param object Target object
+         * @param parent Parent event
+         * @return Parsed OSCPrivateAction
+         */
+        scenarioengine::OSCPrivateAction* parseOSCPrivateAction(pugi::xml_node           actionNode,
+                                                                scenarioengine::Object*  object,
+                                                                scenarioengine::Event*   parent);
+
     protected:
         /**
          * @brief Parse LightStateAction

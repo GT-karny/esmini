@@ -43,52 +43,220 @@ GT_esminiは、esminiにライト機能を追加する拡張モジュールで�
 
 ## ビルド方法
 
-### 前提条件
+### Build Instructions
 
-- CMake 3.10以上
-- C++14対応コンパイラ（Visual Studio 2017以上、GCC 7以上、Clang 5以上）
-- esmini本体のビルド環境
+This section provides detailed, step-by-step instructions for building GT_esmini. These instructions have been verified to work successfully.
 
-### ビルド手順
+### Prerequisites
 
-#### Windows (Visual Studio)
+#### Windows
+
+- **Visual Studio 2022** (Community, Professional, or Enterprise)
+  - Install "Desktop development with C++" workload
+  - CMake is included with Visual Studio 2022
+- **Git** (for cloning the repository)
+
+#### Linux/macOS
+
+- **CMake** 3.15 or higher
+- **C++ compiler** with C++17 support (GCC 7+, Clang 5+)
+- **Git**
+
+### Step-by-Step Build Instructions
+
+#### Windows with Visual Studio 2022
+
+**Step 1: Open PowerShell**
+
+Open PowerShell (not Command Prompt) in your preferred location.
+
+**Step 2: Navigate to esmini repository**
 
 ```powershell
-# ビルドディレクトリの作成
 cd e:\Repository\GT_esmini\esmini
-mkdir build
-cd build
-
-# CMake設定（Visual Studio 2019の例）
-cmake .. -G "Visual Studio 16 2019" -A x64
-
-# ビルド
-cmake --build . --config Release
-
-# または Visual Studio で build\esmini.sln を開いてビルド
 ```
 
-#### Windows (MinGW)
+**Step 3: Create and enter build directory**
 
-```bash
-cd e:\Repository\GT_esmini\esmini
-mkdir build
+```powershell
+# Create build directory if it doesn't exist
+if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
+
+# Enter build directory
 cd build
-cmake .. -G "MinGW Makefiles"
+```
+
+**Step 4: Configure with CMake**
+
+Use Visual Studio 2022's bundled CMake:
+
+```powershell
+# Add CMake to PATH for this session
+$env:Path = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:Path
+
+# Configure the project
+cmake .. -G "Visual Studio 17 2022" -A x64
+```
+
+**Expected output:**
+- CMake will download external dependencies (OSG, OSI, SUMO, etc.) - this takes several minutes on first run
+- You should see "Build files have been written to: E:/Repository/GT_esmini/esmini/build"
+
+**Step 5: Build GT_esmini**
+
+```powershell
+# Build only GT_esmini library (faster)
+cmake --build . --config Release --target GT_esminiLib
+
+# OR build everything (takes longer)
 cmake --build . --config Release
 ```
 
-#### Linux / macOS
+**Expected output:**
+- Compilation progress messages
+- "GT_esminiLib.vcxproj -> E:\Repository\GT_esmini\esmini\build\GT_esmini\Release\GT_esminiLib.dll"
+
+**Step 6: Verify build success**
+
+```powershell
+# Check if GT_esmini libraries were created
+Get-ChildItem -Path ".\GT_esmini\Release" -Filter "GT_esminiLib*"
+```
+
+**Expected files:**
+- `GT_esminiLib.dll` (shared library)
+- `GT_esminiLib.lib` (import library)
+- `GT_esminiLib_static.lib` (static library)
+
+#### Linux/macOS
+
+**Step 1: Navigate to esmini repository**
 
 ```bash
 cd /path/to/GT_esmini/esmini
-mkdir build
-cd build
-cmake ..
-make -j$(nproc)
 ```
 
-### ビルド成果物
+**Step 2: Create and enter build directory**
+
+```bash
+mkdir -p build
+cd build
+```
+
+**Step 3: Configure with CMake**
+
+```bash
+cmake ..
+```
+
+**Step 4: Build GT_esmini**
+
+```bash
+# Build only GT_esmini library
+cmake --build . --config Release --target GT_esminiLib
+
+# OR build everything
+cmake --build . --config Release
+```
+
+**Step 5: Verify build success**
+
+```bash
+# Check if GT_esmini libraries were created
+ls -lh GT_esmini/libGT_esminiLib*
+```
+
+**Expected files:**
+- `libGT_esminiLib.so` (shared library)
+- `libGT_esminiLib_static.a` (static library)
+
+### Troubleshooting
+
+#### Issue: CMake not found
+
+**Windows:**
+```powershell
+# Verify Visual Studio 2022 installation
+Test-Path "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.exe"
+
+# If false, install Visual Studio 2022 Community Edition
+# Download from: https://visualstudio.microsoft.com/downloads/
+```
+
+**Linux/macOS:**
+```bash
+# Install CMake
+# Ubuntu/Debian:
+sudo apt-get install cmake
+
+# macOS:
+brew install cmake
+```
+
+#### Issue: Build fails with encoding errors
+
+**Solution:** All source code comments should be in English. If you see encoding-related errors, check that all `.cpp` and `.hpp` files in `GT_esmini/` directory use English comments only.
+
+#### Issue: "storyBoard_" undefined identifier
+
+**Solution:** This was fixed in Phase 1. Make sure you have the latest version where `ExtraAction.cpp` uses `parent_` instead of `storyBoard_`.
+
+#### Issue: ActionType::PRIVATE not found
+
+**Solution:** This was fixed in Phase 1. Make sure `ExtraAction.cpp` uses `ActionType::USER_DEFINED` instead of `ActionType::PRIVATE`.
+
+### Build Configuration Options
+
+GT_esmini inherits build options from esmini. Common options:
+
+```powershell
+# Disable OSG (OpenSceneGraph) visualization
+cmake .. -G "Visual Studio 17 2022" -A x64 -DUSE_OSG=OFF
+
+# Disable OSI (Open Simulation Interface)
+cmake .. -G "Visual Studio 17 2022" -A x64 -DUSE_OSI=OFF
+
+# Disable SUMO integration
+cmake .. -G "Visual Studio 17 2022" -A x64 -DUSE_SUMO=OFF
+```
+
+### Clean Build
+
+If you encounter issues, try a clean build:
+
+**Windows:**
+```powershell
+# Remove build directory
+cd e:\Repository\GT_esmini\esmini
+Remove-Item -Recurse -Force build
+
+# Start fresh from Step 3
+```
+
+**Linux/macOS:**
+```bash
+# Remove build directory
+cd /path/to/GT_esmini/esmini
+rm -rf build
+
+# Start fresh from Step 2
+```
+
+### Next Steps
+
+After successful build:
+
+1. **Test esmini functionality** to ensure GT_esmini didn't break existing features:
+   ```powershell
+   cd build\bin
+   .\esmini.exe --osc ..\..\resources\xosc\cut-in.xosc --window 60 60 800 400
+   ```
+
+2. **Proceed to Phase 2** implementation (LightStateAction parsing)
+
+3. **Create test scenarios** with LightStateAction elements
+
+## ビルド成果物
 
 ビルドが成功すると、以下のファイルが生成されます：
 
