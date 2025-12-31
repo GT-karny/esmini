@@ -13,7 +13,7 @@
 #include "CommonMini.hpp"
 #include "OSIReporter.hpp"
 #include "OSITrafficCommand.hpp"
-#include "ExtraEntities.hpp"
+// #include "ExtraEntities.hpp"
 #include <cmath>
 #include <string>
 #include <utility>
@@ -94,7 +94,20 @@ using namespace scenarioengine;
 static OSIGroundTruth      osiGroundTruth;
 static OSIRoadLane         osiRoadLane;
 static OSIRoadLaneBoundary osiRoadLaneBoundary;
+
 static OSITrafficCommand   osiTrafficCommand;
+
+// GT_esmini: Hook for external light state provider
+#include <functional>
+#include "ExtraEntities.hpp"
+
+// Use void* and int to avoid header dependency issues in function signature
+static std::function<::gt_esmini::LightState(void*, int)> g_LightStateProvider;
+
+void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider)
+{
+    g_LightStateProvider = provider;
+}
 
 // ScenarioGateway
 
@@ -925,97 +938,9 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
     scenarioengine::Object* obj = scenario_engine_->entities_.GetObjectById(objectState->state_.info.id);
     if (obj && obj->GetType() == scenarioengine::Object::Type::VEHICLE)
     {
-        auto vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-        // Use UserData to retrieve extension (cross-module compatible)
-        auto ext = static_cast<gt_esmini::VehicleLightExtension*>(vehicle->GetUserData());
-        if (ext)
-        {
-             auto classification = obj_osi_internal.mobj->mutable_vehicle_classification();
-             auto light_state = classification->mutable_light_state();
+        // Hook removed
 
-             // Helper lambda to check state
-             auto is_on = [&](gt_esmini::VehicleLightType type) {
-                 return ext->GetLightState(type).mode != gt_esmini::LightState::Mode::OFF;
-             };
-             
-             // Indicators
-             if (is_on(gt_esmini::VehicleLightType::INDICATOR_LEFT) && is_on(gt_esmini::VehicleLightType::INDICATOR_RIGHT))
-             {
-                 light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_WARNING);
-             }
-             else if (is_on(gt_esmini::VehicleLightType::INDICATOR_LEFT))
-             {
-                 light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_LEFT);
-             }
-             else if (is_on(gt_esmini::VehicleLightType::INDICATOR_RIGHT))
-             {
-                 light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_RIGHT);
-             }
-             else
-             {
-                 light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OFF);
-             }
 
-             // Brake Lights
-             if (is_on(gt_esmini::VehicleLightType::BRAKE_LIGHTS))
-             {
-                 light_state->set_brake_light_state(osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_NORMAL);
-             }
-             else
-             {
-                 light_state->set_brake_light_state(osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_OFF); 
-             }
-
-             // Head Lights (Low Beam)
-             if (is_on(gt_esmini::VehicleLightType::LOW_BEAM))
-             {
-                 light_state->set_head_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
-             }
-             else
-             {
-                 light_state->set_head_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
-             }
-
-             // High Beam
-             if (is_on(gt_esmini::VehicleLightType::HIGH_BEAM))
-             {
-                 light_state->set_high_beam(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
-             }
-             else
-             {
-                 light_state->set_high_beam(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
-             }
-
-             // Fog Lights
-             if (is_on(gt_esmini::VehicleLightType::FOG_LIGHTS) || is_on(gt_esmini::VehicleLightType::FOG_LIGHTS_FRONT))
-             {
-                 light_state->set_front_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
-             }
-             else
-             {
-                 light_state->set_front_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
-             }
-
-             // Rear Fog
-             if (is_on(gt_esmini::VehicleLightType::FOG_LIGHTS) || is_on(gt_esmini::VehicleLightType::FOG_LIGHTS_REAR))
-             {
-                 light_state->set_rear_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
-             }
-             else
-             {
-                 light_state->set_rear_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
-             }
-             
-             // Reverse Lights
-             if (is_on(gt_esmini::VehicleLightType::REVERSING_LIGHTS))
-             {
-                 light_state->set_reversing_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
-             }
-             else
-             {
-                 light_state->set_reversing_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
-             }
-        }
     }
 
     // Set OSI Moving Object Type and Classification
@@ -1070,6 +995,103 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                       objectState->state_.info.obj_category,
                       Vehicle::Category2String(objectState->state_.info.obj_category));
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_UNKNOWN);
+        }
+
+        // GT_esmini: Update OSI light state using hook callback
+        if (g_LightStateProvider)
+        {
+            // Get Object pointer using the correct method
+            scenarioengine::Object* obj = scenario_engine_->entities_.GetObjectById(objectState->state_.info.id);
+            if (obj && obj->GetType() == scenarioengine::Object::Type::VEHICLE)
+            {
+                auto* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
+                auto* classification = obj_osi_internal.mobj->mutable_vehicle_classification();
+                auto* light_state = classification->mutable_light_state();
+
+                // Helper lambda to check light state using the provider hook
+                auto is_on = [&](::gt_esmini::VehicleLightType type) -> bool {
+                    auto state = g_LightStateProvider(static_cast<void*>(vehicle), static_cast<int>(type));
+                    return state.mode != ::gt_esmini::LightState::Mode::OFF;
+                };
+
+                // Indicators
+                if (is_on(::gt_esmini::VehicleLightType::INDICATOR_LEFT) && is_on(::gt_esmini::VehicleLightType::INDICATOR_RIGHT))
+                {
+                    light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_WARNING);
+                }
+                else if (is_on(::gt_esmini::VehicleLightType::INDICATOR_LEFT))
+                {
+                    light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_LEFT);
+                }
+                else if (is_on(::gt_esmini::VehicleLightType::INDICATOR_RIGHT))
+                {
+                    light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_RIGHT);
+                }
+                else
+                {
+                    light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OFF);
+                }
+
+                // Brake Lights
+                if (is_on(::gt_esmini::VehicleLightType::BRAKE_LIGHTS))
+                {
+                    light_state->set_brake_light_state(osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_NORMAL);
+                }
+                else
+                {
+                    light_state->set_brake_light_state(osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_OFF);
+                }
+
+                // Head Lights (Low Beam)
+                if (is_on(::gt_esmini::VehicleLightType::LOW_BEAM))
+                {
+                    light_state->set_head_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
+                }
+                else
+                {
+                    light_state->set_head_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                }
+
+                // High Beam
+                if (is_on(::gt_esmini::VehicleLightType::HIGH_BEAM))
+                {
+                    light_state->set_high_beam(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
+                }
+                else
+                {
+                    light_state->set_high_beam(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                }
+
+                // Fog Lights (Front)
+                if (is_on(::gt_esmini::VehicleLightType::FOG_LIGHTS) || is_on(::gt_esmini::VehicleLightType::FOG_LIGHTS_FRONT))
+                {
+                    light_state->set_front_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
+                }
+                else
+                {
+                    light_state->set_front_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                }
+
+                // Fog Lights (Rear)
+                if (is_on(::gt_esmini::VehicleLightType::FOG_LIGHTS) || is_on(::gt_esmini::VehicleLightType::FOG_LIGHTS_REAR))
+                {
+                    light_state->set_rear_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
+                }
+                else
+                {
+                    light_state->set_rear_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                }
+
+                // Reversing Lights
+                if (is_on(::gt_esmini::VehicleLightType::REVERSING_LIGHTS))
+                {
+                    light_state->set_reversing_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON);
+                }
+                else
+                {
+                    light_state->set_reversing_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                }
+            }
         }
 
         if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::AMBULANCE))

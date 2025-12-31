@@ -91,6 +91,9 @@ private:
     bool enabled_;
 };
 
+// Hook registration function (externally defined in GT_OSIReporter.cpp part of ScenarioEngine)
+void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
+
 // --- GT_esminiLib C-API Implementation ---
 
 // Basic XOSC sanitizer to allow SE_Init to pass even with unsupported actions
@@ -221,6 +224,21 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
+
+        // 5. Register Hook for OSIReporter
+        // Forward declaration of GT_SetLightStateProvider (defined in GT_OSIReporter.cpp)
+        extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
+        
+        GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
+            auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
+            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+            if (ext) {
+                return ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(t));
+            }
+            gt_esmini::LightState emptyState;
+            emptyState.mode = gt_esmini::LightState::Mode::OFF;
+            return emptyState;
+        });
     }
 
     return 0;

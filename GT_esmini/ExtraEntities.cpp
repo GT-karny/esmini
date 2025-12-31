@@ -9,6 +9,9 @@
  * Copyright (c) 2024 GT_esmini contributors
  */
 
+#ifdef Object
+#undef Object
+#endif
 #include "ExtraEntities.hpp"
 
 namespace gt_esmini
@@ -41,12 +44,6 @@ namespace gt_esmini
         // Phase 1: Stub implementation (Corrected)
         // Phase 2: Add handling for existing extensions
         extensions_[vehicle] = std::unique_ptr<VehicleLightExtension>(ext);
-        
-        // GT_esmini addition: Store pointer in Vehicle userData for cross-module access
-        if (vehicle)
-        {
-            vehicle->SetUserData(ext);
-        }
     }
 
     void VehicleExtensionManager::Clear()

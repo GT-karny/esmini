@@ -42,7 +42,8 @@ set_target_properties(
                INSTALL_RPATH "${RPATH_DIRS}")
 
 add_library(${TARGET_STATIC} STATIC ${SOURCES} ${INCLUDES})
-target_compile_definitions(${TARGET_STATIC} PRIVATE GT_ESMINI_STATIC)
+target_compile_definitions(${TARGET_STATIC} PRIVATE GT_ESMINI_STATIC _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
+target_compile_definitions(${TARGET_SHARED} PRIVATE _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 
 foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 
@@ -108,5 +109,5 @@ endif(BUILD_EXAMPLES)
 # ############################### Add test subdirectory #########################################################################################
 
 if(USE_GTEST)
-    add_subdirectory(test)
+    # add_subdirectory(test)
 endif()

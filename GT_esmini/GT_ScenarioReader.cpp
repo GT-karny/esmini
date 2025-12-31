@@ -9,6 +9,9 @@
  * Copyright (c) 2024 GT_esmini contributors
  */
 
+#ifdef Object
+#undef Object
+#endif
 #include "GT_ScenarioReader.hpp"
 #include "ExtraEntities.hpp"
 #include <vector>
