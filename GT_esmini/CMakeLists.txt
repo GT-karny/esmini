@@ -108,6 +108,36 @@ endif(BUILD_EXAMPLES)
 
 # ############################### Add test subdirectory #########################################################################################
 
-if(USE_GTEST)
-    # add_subdirectory(test)
-endif()
+# if(USE_GTEST)
+#     add_subdirectory(test)
+# endif()
+
+# GT_Sim Executable
+set(GT_SIM_TARGET GT_Sim)
+set(GT_SIM_SOURCES GT_Sim/main.cpp)
+
+add_executable(${GT_SIM_TARGET} ${GT_SIM_SOURCES})
+
+target_link_libraries(${GT_SIM_TARGET} PRIVATE GT_esminiLib)
+
+# Include directories needed for GT_Sim (esminiLib headers)
+target_include_directories(${GT_SIM_TARGET} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${SCENARIO_ENGINE_PATH}/SourceFiles
+    ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
+    ${VIEWER_BASE_PATH}
+    ${PLAYER_BASE_PATH}
+    ${COMMON_MINI_PATH}
+    ${CONTROLLERS_PATH}
+    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib
+)
+
+install(
+    TARGETS ${GT_SIM_TARGET}
+    DESTINATION "${INSTALL_PATH}")
+
+if(BUILD_EXAMPLES)
+    install(
+        TARGETS ${GT_SIM_TARGET}
+        DESTINATION "${CODE_EXAMPLES_BIN_PATH}")
+endif(BUILD_EXAMPLES)

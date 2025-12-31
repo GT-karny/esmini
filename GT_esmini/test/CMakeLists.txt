@@ -32,6 +32,7 @@ target_link_libraries(${LOADER_TARGET} PRIVATE
 )
 target_include_directories(${LOADER_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini
+    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib
 )
 
 # Register Integration Tests

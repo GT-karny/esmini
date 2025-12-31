@@ -39,6 +39,17 @@ extern "C"
      * @return 0: success, -1: failure
      */
     GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls);
+    
+    /**
+     * @brief GT_esmini initialization function with arguments (replaces esmini's SE_InitWithArgs)
+     * 
+     * Parses arguments, sanitizes scenario if needed, and initializes esmini.
+     * 
+     * @param argc Argument count
+     * @param argv Argument vector
+     * @return 0: success, -1: failure
+     */
+    GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[]);
 
     /**
      * @brief GT_esmini update function (called after esmini's SE_Step)

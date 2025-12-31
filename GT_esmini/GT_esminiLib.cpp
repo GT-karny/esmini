@@ -244,6 +244,140 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     return 0;
 }
 
+GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
+{
+    const char* filename = nullptr;
+    
+    // Simple argument parsing to find the filename.
+    // Logic mostly copied from esmini-dyn/main.cpp to identify the filename arg
+    if (argc >= 2)
+    {
+        if (strncmp(argv[1], "--", 2) != 0)
+        {
+             filename = argv[1];
+        }
+        else
+        {
+            // Look for --osc argument if needed, or iterate
+            for(int i=1; i<argc; i++)
+            {
+                if (strcmp(argv[i], "--osc") == 0 && i+1 < argc)
+                {
+                    filename = argv[i+1];
+                    break;
+                }
+            }
+        }
+    }
+
+    // If filename found, sanitized it
+    std::string sanitizedFile;
+    std::vector<const char*> newArgv;
+    std::vector<std::string> argStorage; // to keep strings alive
+
+    if (filename)
+    {
+        sanitizedFile = std::string(filename) + ".temp.xosc";
+        if (!CreateSanitizedScenario(filename, sanitizedFile))
+        {
+             std::cerr << "GT_InitWithArgs: Failed to create sanitized scenario file." << std::endl;
+             // Try proceeding with original filename (might crash if unsupported actions present)
+             sanitizedFile = filename;
+        }
+
+        // Reconstruct argv with sanitized filename
+        for(int i=0; i<argc; i++)
+        {
+            if (filename == argv[i]) // Pointer comparison might work if dealing with original argv. safer to compare string content if distinct? No, argv[i] is ptr.
+            {
+                 // Check if it really is the filename index.
+                 // This is a bit simplistic, but assuming standard usage.
+                 // A more robust way is to just replace the string that matches filename.
+                 // WE assume unique filename path strings for now.
+                 
+                 // However, we can also reconstruct the command line...
+                 // Let's just create a new argv array where we swap the filename.
+            }
+        }
+        
+        // Simpler approach: Copy all args. Swap if match.
+        for(int i=0; i<argc; i++)
+        {
+            if (argv[i] && strcmp(argv[i], filename) == 0)
+            {
+                argStorage.push_back(sanitizedFile);
+                newArgv.push_back(argStorage.back().c_str());
+            }
+            else
+            {
+                newArgv.push_back(argv[i]);
+            }
+        }
+    }
+    else
+    {
+        // No filename found? Pass as is.
+        for(int i=0; i<argc; i++) newArgv.push_back(argv[i]);
+    }
+
+    // 2. Initialize esmini using SE_Init with sanitized args
+    int ret = SE_InitWithArgs(newArgv.size(), newArgv.data());
+    
+    // Clean up temp file (or keep for debug?)
+    // std::remove(sanitizedFile.c_str()); 
+
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+    // 3. Perform Delta Parsing for Extensions using ORIGINAL file
+    if (filename && player && player->scenarioEngine)
+    {
+        // Load ORIGINAL XML
+        pugi::xml_document doc;
+        pugi::xml_parse_result result = doc.load_file(filename);
+        
+        if (result)
+        {
+            auto* scReader = player->scenarioEngine->GetScenarioReader();
+            auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
+            
+            gt_esmini::GT_ScenarioReader reader(
+                &player->scenarioEngine->entities_,
+                catalogs, 
+                &player->scenarioEngine->environment
+            );
+            
+            // Inject actions into Storyboard
+            reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+        }
+        else
+        {
+            std::cerr << "GT_InitWithArgs: Failed to reload XOSC for extensions: " << result.description() << std::endl;
+        }
+
+        // 4. Initialize AutoLightManager
+        AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
+
+        // 5. Register Hook for OSIReporter
+        extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
+        
+        GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
+            auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
+            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+            if (ext) {
+                return ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(t));
+            }
+            gt_esmini::LightState emptyState;
+            emptyState.mode = gt_esmini::LightState::Mode::OFF;
+            return emptyState;
+        });
+    }
+
+    return 0;
+}
+
 GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step

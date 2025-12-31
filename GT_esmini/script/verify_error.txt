@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "verify_osi_lights.py", line 19, in <module>
+    from osi3.osi_groundtruth_pb2 import GroundTruth
+  File "E:\Repository\GT_esmini\esmini\scripts\osi3\osi_groundtruth_pb2.py", line 14, in <module>
+    from osi3 import osi_version_pb2 as osi3_dot_osi__version__pb2
+  File "E:\Repository\GT_esmini\esmini\scripts\osi3\osi_version_pb2.py", line 22, in <module>
+    google_dot_protobuf_dot_descriptor__pb2.FileOptions.RegisterExtension(current_interface_version)
+AttributeError: type object 'FileOptions' has no attribute 'RegisterExtension'
