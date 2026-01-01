@@ -252,6 +252,10 @@ After successful build:
    .\esmini.exe --osc ..\..\resources\xosc\cut-in.xosc --window 60 60 800 400
    ```
 
+   ```
+.\GT_Sim.exe --osc E:\Repository\GT_esmini\esmini\resources\xosc\acc-test.xosc --osi_receiver_ip  127.0.0.1 --autolight --window 60 60 800 400
+   ```
+
 2. **Proceed to Phase 2** implementation (LightStateAction parsing)
 
 3. **Create test scenarios** with LightStateAction elements

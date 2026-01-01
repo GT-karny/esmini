@@ -288,21 +288,6 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         // Reconstruct argv with sanitized filename
         for(int i=0; i<argc; i++)
         {
-            if (filename == argv[i]) // Pointer comparison might work if dealing with original argv. safer to compare string content if distinct? No, argv[i] is ptr.
-            {
-                 // Check if it really is the filename index.
-                 // This is a bit simplistic, but assuming standard usage.
-                 // A more robust way is to just replace the string that matches filename.
-                 // WE assume unique filename path strings for now.
-                 
-                 // However, we can also reconstruct the command line...
-                 // Let's just create a new argv array where we swap the filename.
-            }
-        }
-        
-        // Simpler approach: Copy args but skip custom ones and filename match
-        for(int i=0; i<argc; i++)
-        {
             if (argv[i] && strcmp(argv[i], filename) == 0)
             {
                 argStorage.push_back(sanitizedFile);
@@ -311,26 +296,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             // Filter custom arguments that esmini doesn't recognize
             else if (argv[i] && (strcmp(argv[i], "--autolight") == 0 || strcmp(argv[i], "--osi") == 0)) 
             {
-                // Skip this argument. If it takes a value (like --osi <ip>), we might need to skip next too?
-                // main.cpp:
-                // --osi <ip>
-                // --autolight (no value)
-                
                 if (strcmp(argv[i], "--osi") == 0)
                 {
-                    // Skip next arg too if it exists (the IP)
-                    // But wait, --osi loop in main uses GetOptionValue which checks i+1.
-                    // Here we are iterating. If current is --osi, we must skip next one too if it is the value.
-                    // BUT, does esmini use --osi? NO.
-                    // Does it use --osi_receiver_ip? YES.
-                    // If user passed --osi_receiver_ip, we keep it.
-                    // If user passed --osi, we skip it AND its value.
-                    
-                    // We need a robust skip mechanism.
-                    // Let's just track if we are skipping value.
                     i++; // Skip the IP argument
                 }
-                // --autolight is flag only, so just skip.
             }
             else
             {
