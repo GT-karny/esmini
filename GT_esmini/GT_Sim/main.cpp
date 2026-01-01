@@ -69,10 +69,27 @@ int main(int argc, const char* argv[])
         SE_OpenOSISocket(osiIp);
     }
 
+    // 4. Frequency Control (default 100Hz)
+    double frequency = 100.0;
+    const char* hzStr = GetOptionValue(argc, argv, "--hz");
+    if (hzStr)
+    {
+        frequency = std::stod(hzStr);
+        if (frequency <= 0.0) frequency = 100.0;
+    }
+    printf("GT_Sim: Running at %.1f Hz\n", frequency);
+
+    double dt = 1.0 / frequency;
+    using Clock = std::chrono::steady_clock;
+    auto next_target_time = Clock::now();
+
+    // Stats
+    long long delayed_frames = 0;
+
     // Set a flag to signal simulation loop to quit
     bool quit = false;
 
-    // 4. Main Loop
+    // 5. Main Loop
     while (!quit)
     {
         // Check standard quit flag (e.g. from window close or end of scenario)
@@ -83,15 +100,39 @@ int main(int argc, const char* argv[])
         }
 
         // Stepping
-        // GT_Step(dt) wraps SE_StepDT(dt) and AutoLightManager::Update(dt).
-        // It returns void.
-        GT_Step(0.01); 
+        GT_Step(dt); 
 
-        // Check if we need to sleep to maintain real-time roughly
-        // (SE_StepDT doesn't sleep)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
+        // Real-time pacing
+        next_target_time += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(dt));
+        auto now = Clock::now();
+
+        if (now > next_target_time)
+        {
+            // We are late
+            auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(now - next_target_time).count();
+            
+            // Count delayed frames if delay is significant (>2ms)
+            if (delay > 2) 
+            {
+                delayed_frames++;
+            }
+
+            // If the delay is huge, we might want to reset.
+            if (delay > 1000) 
+            {
+                // Only log critical slips
+                printf("GT_Sim Warning: Huge delay (>1s), resyncing clock.\n");
+                next_target_time = now;
+            }
+        }
+        else
+        {
+            // Sleep until next target
+            std::this_thread::sleep_until(next_target_time);
+        }
     }
 
+    printf("Total delayed frames: %lld\n", delayed_frames);
     GT_Close();
     return 0;
 }
