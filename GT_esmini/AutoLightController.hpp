@@ -125,6 +125,17 @@ namespace gt_esmini
         static constexpr double REVERSAL_MIN_ACTIVE = 0.15;   // s (Min duration after fast reversal)
 
         static constexpr double T_CENTER_HOLD = 0.5; // Stay in center for this long -> OFF
-        static constexpr double T_CENTER_EPS = 0.1;  // Near center thresholdn to confirm center/OFF)
+        static constexpr double T_CENTER_EPS = 0.1;  // Near center threshold
+
+        // Junction Prediction Constants
+        static constexpr double JUNCTION_LOOKAHEAD = 35.0;      // m
+        static constexpr double JUNCTION_TURN_THRESHOLD = 0.20; // rad (~11 deg)
+        static constexpr double JUNCTION_BLINK_DIST = 30.0;     // m (Start blinking if closer than this)
+
+        // Helper to detect future turn at junction
+        // Returns: 0=None, 1=Left, -1=Right
+        int DetectJunctionTurn(double lookahead);
+
     };
-}
+} // namespace gt_esmini
+

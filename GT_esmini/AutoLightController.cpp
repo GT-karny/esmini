@@ -14,6 +14,7 @@
 #endif
 #include "AutoLightController.hpp"
 #include <cmath>
+#include <algorithm>
 
 namespace gt_esmini
 {
@@ -363,6 +364,40 @@ namespace gt_esmini
                  prepareTimerLeft_ = 0.0;
                  prepareTimerRight_ = 0.0;
             }
+
+            // Priority 2: Junction Turn Prediction
+            // If lateral motion didn't trigger, check for upcoming junction turn.
+            if (indicatorState_ == IndicatorState::OFF)
+            {
+                int turnDir = 0;
+                // Scan from 5m to LOOKAHEAD to find the nearest junction/turn
+                for (double d = 5.0; d <= JUNCTION_LOOKAHEAD; d += 5.0)
+                {
+                    int res = DetectJunctionTurn(d);
+                    if (res != 0)
+                    {
+                         // Found a turn. Is it close enough to blink?
+                         if (d <= JUNCTION_BLINK_DIST)
+                         {
+                             turnDir = res;
+                         }
+                         break; // Found the nearest feature, stop scanning
+                    }
+                }
+
+                if (turnDir == 1) // Left
+                {
+                     indicatorState_ = IndicatorState::ACTIVE_LEFT; // Use ACTIVE to stay on while stopped
+                     indicatorTimer_ = MIN_INDICATOR_DURATION; 
+                     centerHoldTimer_ = 0.0;
+                }
+                else if (turnDir == -1) // Right
+                {
+                     indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+                     indicatorTimer_ = MIN_INDICATOR_DURATION;
+                     centerHoldTimer_ = 0.0;
+                }
+            }
             break;
         }
         case IndicatorState::PREPARE_LEFT:
@@ -481,7 +516,16 @@ namespace gt_esmini
              }
 
              // 4. Turn OFF? (Return to Center)
-             if (std::abs(t) < T_CENTER_EPS)
+             // Only cancel if:
+             // A. We are centered (t < EPS)
+             // B. Min duration expired
+             // C. NOT in a junction (don't cancel mid-turn)
+             // D. NOT approaching a left turn (don't cancel while waiting at light)
+             
+             bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == 1); // 1 = Left
+             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != -1);
+
+             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
              {
                   centerHoldTimer_ += dt;
              }
@@ -532,7 +576,10 @@ namespace gt_esmini
              }
 
              // 3. Turn OFF?
-             if (std::abs(t) < T_CENTER_EPS)
+             bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == -1); // -1 = Right
+             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != -1);
+
+             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
              {
                   centerHoldTimer_ += dt;
              }
@@ -568,4 +615,35 @@ namespace gt_esmini
         lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, leftState);
         lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, rightState);
     }
-}
+
+    // End of UpdateIndicators, continuing namespace...
+
+    int AutoLightController::DetectJunctionTurn(double lookahead)
+    {
+        if (!vehicle_) return 0;
+
+        roadmanager::RoadProbeInfo info;
+        auto ret = vehicle_->pos_.GetProbeInfo(lookahead, &info, roadmanager::Position::LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER);
+
+        if (ret != roadmanager::Position::ReturnCode::OK)
+        {
+             return 0;
+        }
+
+        if (info.road_lane_info.junctionId == -1)
+        {
+            return 0; 
+        }
+
+        double relH = info.relative_h; 
+        
+        // Threshold check
+        int res = 0;
+        if (relH > JUNCTION_TURN_THRESHOLD) res = 1;
+        else if (relH < -JUNCTION_TURN_THRESHOLD) res = -1;
+
+        return res;
+    }
+
+
+} // namespace gt_esmini
