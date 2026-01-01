@@ -54,12 +54,12 @@ namespace gt_esmini
         /**
          * @brief Control brake lights based on deceleration
          */
-        void UpdateBrakeLights();
+        void UpdateBrakeLights(double dt, double currentSpeed);
         
         /**
          * @brief Control indicators based on lane changes and turns
          */
-        void UpdateIndicators();
+        void UpdateIndicators(double dt);
         
         /**
          * @brief Control reversing lights based on speed
@@ -71,8 +71,28 @@ namespace gt_esmini
         int prevLaneId_;
         double laneChangeStartTime_;
         bool isInLaneChange_;
+
+        // Brake Light Logic
+        double smoothedAcc_;
+        LightState::Mode lastBrakeState_;
+
+        // Indicator Logic
+        enum class IndicatorState { OFF, LEFT_ACTIVE, RIGHT_ACTIVE };
+        IndicatorState indicatorState_;
+        double indicatorTimer_;        // Counts down minimum active time
+        double laneChangeDetectTime_;  // Debounce for LC start
         
+        // Robustness
+        double timeSinceLastUpdate_;   // For frequency limiting
+
         // Thresholds
-        const double BRAKE_DECELERATION_THRESHOLD = -0.98; // -0.1G [m/s^2]
+        static constexpr double BRAKE_ON_THRESHOLD = -1.2;  // m/s^2 (Hysteresis ON)
+        static constexpr double BRAKE_OFF_THRESHOLD = -0.5; // m/s^2 (Hysteresis OFF)
+        static constexpr double ACC_SMOOTHING_ALPHA = 0.2;  // EMA factor assuming ~60Hz
+        
+        static constexpr double MIN_INDICATOR_DURATION = 2.0; // Seconds
+        static constexpr double STEER_THRESHOLD = 0.08;      // rad check
+        static constexpr double YAW_RATE_THRESHOLD = 0.05;   // rad/s check
+        static constexpr double UPDATE_INTERVAL = 0.05;      // 20Hz
     };
 }

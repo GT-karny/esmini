@@ -24,7 +24,13 @@ namespace gt_esmini
           prevSpeed_(0.0), 
           prevLaneId_(0), 
           laneChangeStartTime_(-1.0), 
-          isInLaneChange_(false)
+          isInLaneChange_(false),
+          smoothedAcc_(0.0),
+          lastBrakeState_(LightState::Mode::OFF),
+          indicatorState_(IndicatorState::OFF),
+          indicatorTimer_(0.0),
+          laneChangeDetectTime_(0.0),
+          timeSinceLastUpdate_(0.0)
     {
         if (vehicle_)
         {
@@ -49,42 +55,85 @@ namespace gt_esmini
             return;
         }
 
-        // 1. Reversing Lights
+        // Frequency Limiting
+        timeSinceLastUpdate_ += dt;
+        if (timeSinceLastUpdate_ < UPDATE_INTERVAL)
+        {
+            return;
+        }
+        
+        // Use accumulated time as effective dt for this step
+        double stepDt = timeSinceLastUpdate_;
+        
+        // 1. Reversing Lights (Can run every frame or less freq, less freq is fine)
         UpdateReversingLights();
 
         // 2. Brake Lights
-        // Calculate acceleration if not available directly
-        // Note: (v - v0)/dt
         double speed = vehicle_->GetSpeed();
-        double acceleration = 0.0;
-        if (dt > 0.0001)
-        {
-            acceleration = (speed - prevSpeed_) / dt;
-        }
-        
-        // Check for brake lights
-        if (acceleration < BRAKE_DECELERATION_THRESHOLD)
-        {
-            LightState state;
-            state.mode = LightState::Mode::ON;
-            lightExt_->SetLightState(VehicleLightType::BRAKE_LIGHTS, state);
-        }
-        else
-        {
-            // Only turn off if currently ON (to allow manual override? No, override policy says AutoLight re-applies)
-            // But we should check if we turned it ON before?
-            // Simple logic: Apply state based on physics.
-             LightState state;
-             state.mode = LightState::Mode::OFF;
-             lightExt_->SetLightState(VehicleLightType::BRAKE_LIGHTS, state);
-        }
+        UpdateBrakeLights(stepDt, speed);
         
         // 3. Indicators
-        UpdateIndicators();
+        UpdateIndicators(stepDt);
 
         // Update state
         prevSpeed_ = speed;
         prevLaneId_ = vehicle_->pos_.GetLaneId();
+        
+        // Reset timer
+        timeSinceLastUpdate_ = 0.0;
+    }
+
+    void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)
+    {
+        // 1. Calculate raw acceleration
+        double rawAcc = 0.0;
+        if (dt > 0.0001)
+        {
+            rawAcc = (currentSpeed - prevSpeed_) / dt;
+        }
+
+        // 2. Apply smoothing (EMA)
+        smoothedAcc_ = ACC_SMOOTHING_ALPHA * rawAcc + (1.0 - ACC_SMOOTHING_ALPHA) * smoothedAcc_;
+
+        // 3. Low speed disable logic (don't react to noise when almost stopped)
+        // However, if we are braking to a stop, we want lights ON.
+        // But if stopped, rawAcc might be 0.
+        // Let's keep logic simple: if speed is very low, assume stopped/parking -> OFF? 
+        // Or hold last state? Real cars keep brake light if pedal pressed.
+        // We don't have pedal info, only motion. 
+        // If v ~= 0 and acc ~= 0, likely stopped. Turn OFF brake lights? 
+        // (Unless stopped at light... but we can't know. Default to OFF for stopped to avoid stuck lights).
+        if (currentSpeed < 0.1 && std::abs(rawAcc) < 0.1)
+        {
+             smoothedAcc_ = 0.0; // Reset
+        }
+
+        // 4. Hysteresis Logic
+        LightState::Mode desiredState = lastBrakeState_;
+
+        if (lastBrakeState_ == LightState::Mode::OFF)
+        {
+            if (smoothedAcc_ < BRAKE_ON_THRESHOLD)
+            {
+                desiredState = LightState::Mode::ON;
+            }
+        }
+        else // Currently ON
+        {
+            if (smoothedAcc_ > BRAKE_OFF_THRESHOLD)
+            {
+                desiredState = LightState::Mode::OFF;
+            }
+        }
+
+        // 5. Edge Triggered Update
+        if (desiredState != lastBrakeState_)
+        {
+            LightState state;
+            state.mode = desiredState;
+            lightExt_->SetLightState(VehicleLightType::BRAKE_LIGHTS, state);
+            lastBrakeState_ = desiredState;
+        }
     }
 
     void AutoLightController::UpdateReversingLights()
@@ -125,99 +174,102 @@ namespace gt_esmini
         }
     }
 
-    void AutoLightController::UpdateIndicators()
+    void AutoLightController::UpdateIndicators(double dt)
     {
+        // Inputs
+        double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
+        id_t junctionId = vehicle_->pos_.GetJunctionId();
         int currentLaneId = vehicle_->pos_.GetLaneId();
         
-        // Lane Change Detection (Simple)
+        // --- 1. Event Detection ---
+        bool turnLeft = false;
+        bool turnRight = false;
+        
+        // A. Intersection / Steering Logic
+        if (steer > STEER_THRESHOLD) turnLeft = true;
+        else if (steer < -STEER_THRESHOLD) turnRight = true;
+        
+        // B. Lane Change Logic (Simple Lane ID Check for now, improved later with Lateral Velocity if needed)
+        // Note: Lane ID based detection is edge-triggered.
         if (currentLaneId != prevLaneId_)
         {
-            // Changed lane.
-            // Determine direction.
-            // Positive lane ID: left is increasing ID (usually? Depends on country/ODR).
-            // OpenDRIVE:
-            // Right lanes: -1, -2, -3 (Decrease goes Right, Increase goes Left towards 0)
-            // Left lanes: 1, 2, 3 (Increase goes Left, Decrease goes Right towards 0)
-            // It's complicated.
-            // Let's derive from Lateral Offset 't'.
+            // Determine direction based on ODR logic
+            // Assuming standard ODR: Left is t+, Right is t-
+            // RHT: -1 (Right) -> -2 (Right LC) ? No, -2 is further right.
+            // Lane ID magnitude increases outwards from center.
+            // Right lanes (neg): -1 -> -2 (Right), -2 -> -1 (Left)
+            // Left lanes (pos): 1 -> 2 (Left), 2 -> 1 (Right)
             
-            // If we simply detect change, it's too late compared to "start" of valid LC.
-            // But better than nothing.
+            bool isRightSide = (prevLaneId_ < 0);
+            bool isLeftSide = (prevLaneId_ > 0);
             
-            // NOTE: A more robust way is assuming standard OpenDRIVE lane numbering:
-            // -1 -> -2 (Right LC)
-            // -2 -> -1 (Left LC)
-            // 1 -> 2 (Left LC)
-            // 2 -> 1 (Right LC)
-            
-            bool leftLC = false;
-            bool rightLC = false;
-            
-            if (currentLaneId < 0 && prevLaneId_ < 0) {
-                 if (currentLaneId < prevLaneId_) rightLC = true; // -1 -> -2
-                 else leftLC = true; // -2 -> -1
-            } else if (currentLaneId > 0 && prevLaneId_ > 0) {
-                 if (currentLaneId > prevLaneId_) leftLC = true; // 1 -> 2
-                 else rightLC = true; // 2 -> 1
+            if (isRightSide)
+            {
+                if (currentLaneId < prevLaneId_) turnRight = true; // -1 to -2
+                else if (currentLaneId > prevLaneId_) turnLeft = true; // -2 to -1
             }
-            
-            // Flash for a short duration?
-            // Since we are stateless, we need a timer.
-            // But we don't have a timer easily injected here except members.
-            // Let's assume we just trigger it for now, but without a timer it will spark once.
-            
-            // Ideal: Set "BlinkerState" with a duration.
-            // But LightState in ExtraAction has flashingOnDuration, but that is frequency.
-            // We need "Active Duration".
-            
-            // For now, let's implement Junction turning instead which is continuous.
+            else if (isLeftSide)
+            {
+                if (currentLaneId > prevLaneId_) turnLeft = true; // 1 to 2
+                else if (currentLaneId < prevLaneId_) turnRight = true; // 2 to 1
+            }
+            // Reset timer to keep signal active for a minimum duration after LC event
+             indicatorTimer_ = MIN_INDICATOR_DURATION;
         }
+
+        // --- 2. State Machine Update ---
         
-        id_t junctionId = vehicle_->pos_.GetJunctionId();
-        if (junctionId != -1)
+        // If an active turn event is detected, refresh validity
+        if (turnLeft) 
         {
-             // In Junction
-             // Check relative heading to road?
-             // Or use Steering Wheel Angle?
-             double steer = vehicle_->GetWheelAngle(); // Radians. Positive Left?
-             
-             // Threshold for indicator
-             const double STEER_THRESHOLD = 0.1; // rad approx 5.7 deg
-             
-             if (steer > STEER_THRESHOLD)
-             {
-                 LightState state;
-                 state.mode = LightState::Mode::FLASHING;
-                 lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, state);
-                 
-                 state.mode = LightState::Mode::OFF;
-                 lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, state);
-             }
-             else if (steer < -STEER_THRESHOLD)
-             {
-                 LightState state;
-                 state.mode = LightState::Mode::OFF;
-                 lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, state);
-                 
-                 state.mode = LightState::Mode::FLASHING;
-                 lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, state);
-             }
-             else
-             {
-                 // Turn off if in junction going straight?
-                 LightState state;
-                 state.mode = LightState::Mode::OFF;
-                 lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, state);
-                 lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, state);
-             }
+            indicatorState_ = IndicatorState::LEFT_ACTIVE;
+            indicatorTimer_ = MIN_INDICATOR_DURATION; // Keep refreshing while turning
+        }
+        else if (turnRight) 
+        {
+            indicatorState_ = IndicatorState::RIGHT_ACTIVE;
+            indicatorTimer_ = MIN_INDICATOR_DURATION;
         }
         else
         {
-            // Not in junction, turn off indicators (unless LC logic added later with timer)
-             LightState state;
-             state.mode = LightState::Mode::OFF;
-             lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, state);
-             lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, state);
+            // No active input this frame.
+            // Check timer.
+            if (indicatorTimer_ > 0.0)
+            {
+                indicatorTimer_ -= dt;
+                if (indicatorTimer_ <= 0.0)
+                {
+                    indicatorState_ = IndicatorState::OFF;
+                }
+            }
+            else
+            {
+                 indicatorState_ = IndicatorState::OFF;
+            }
         }
+        
+        // --- 3. Output Application (Edge + Continuous State) ---
+        // AutoLight applies state continuously if it thinks it should be ON, 
+        // to override potentially stale states?
+        // Or should we respect Arbitration?
+        // Proposal: Apply state derived from FSM.
+        
+        LightState leftState;
+        LightState rightState;
+        leftState.mode = LightState::Mode::OFF;
+        rightState.mode = LightState::Mode::OFF;
+        
+        if (indicatorState_ == IndicatorState::LEFT_ACTIVE)
+        {
+            leftState.mode = LightState::Mode::FLASHING;
+        }
+        else if (indicatorState_ == IndicatorState::RIGHT_ACTIVE)
+        {
+            rightState.mode = LightState::Mode::FLASHING;
+        }
+        
+        // Apply to extension
+        lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, leftState);
+        lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, rightState);
     }
 }

@@ -66,7 +66,7 @@ def print_vehicle_light_state(obj) -> bool:
     print(f"  Vehicle ID {obj_id}:")
     print(f"    Brake Light:     {ls.brake_light_state} ({brake_name})")
     print(f"    Indicator:       {ls.indicator_state} ({ind_name})")
-    #print(f"    Reversing Light: {ls.reversing_light} ({gen_name(ls.reversing_light)})")
+    print(f"    Reversing Light: {ls.reversing_light} ({gen_name(ls.reversing_light)})")
     #print(f"    Head Light:      {ls.head_light} ({gen_name(ls.head_light)})")
     #print(f"    High Beam:       {ls.high_beam} ({gen_name(ls.high_beam)})")
     #print(f"    Front Fog:       {ls.front_fog_light} ({gen_name(ls.front_fog_light)})")

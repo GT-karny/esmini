@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "verify_osi_lights.py", line 141, in <module>
-    success = receive_osi_udp(args.host, args.port, args.timeout)
-  File "verify_osi_lights.py", line 97, in receive_osi_udp
-    print(f"  Light state data found: {'\u2713 YES' if light_state_found else '\u2717 NO'}")
-UnicodeEncodeError: 'cp932' codec can't encode character '\u2717' in position 26: illegal multibyte sequence

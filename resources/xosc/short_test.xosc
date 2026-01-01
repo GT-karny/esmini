@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="0" date="2024-01-01T10:00:00" description="Short test" author="GT"/>
+   <ParameterDeclarations/>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/curve_r100.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car">
+            <BoundingBox>
+                <Center x="1.5" y="0.0" z="0.9"/>
+                <Dimensions width="2.1" length="4.5" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69.444" maxAcceleration="200" maxDeceleration="10.0"/>
+            <Axles>
+                <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="3.1" positionZ="0.3"/>
+                <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+            </Axles>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="10"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="Story">
+         <Act name="Act">
+            <ManeuverGroup maximumExecutionCount="1" name="ManeuverGroup">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="Start" delay="0" conditionEdge="rising">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+            <StopTrigger>
+                <ConditionGroup>
+                   <Condition name="Stop" delay="0" conditionEdge="rising">
+                      <ByValueCondition>
+                         <SimulationTimeCondition value="2.0" rule="greaterThan"/>
+                      </ByValueCondition>
+                   </Condition>
+                </ConditionGroup>
+            </StopTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+        <ConditionGroup>
+           <Condition name="Quit" delay="0" conditionEdge="rising">
+              <ByValueCondition>
+                 <SimulationTimeCondition value="2.0" rule="greaterThan"/>
+              </ByValueCondition>
+           </Condition>
+        </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

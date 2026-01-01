@@ -1,9 +1,0 @@
-Listening for OSI messages on 127.0.0.1:48198
-Waiting for data... (timeout: {timeout}s)
---------------------------------------------------------------------------------
-
-Timeout after 60s
---------------------------------------------------------------------------------
-
-Summary:
-  Total messages received: 0
