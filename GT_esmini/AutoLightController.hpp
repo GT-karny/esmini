@@ -13,6 +13,8 @@
 
 #include "Entities.hpp"  // esmini
 #include "ExtraEntities.hpp"  // GT_esmini extension
+#include <deque>
+#include <utility> // for std::pair
 
 namespace gt_esmini
 {
@@ -69,12 +71,13 @@ namespace gt_esmini
         // State variables for logic
         double prevSpeed_;
         int prevLaneId_;
-        double laneChangeStartTime_;
-        bool isInLaneChange_;
-
-        // Brake Light Logic
+        // Brake Light Logic (Policy A+)
         double smoothedAcc_;
         LightState::Mode lastBrakeState_;
+        double brakeLatchTimer_;
+        
+        // Speed History for Brake Event Detection (Time, Speed)
+        std::deque<std::pair<double, double>> speedHistory_;
 
         // Indicator Logic
         enum class IndicatorState { OFF, LEFT_ACTIVE, RIGHT_ACTIVE };
@@ -86,9 +89,13 @@ namespace gt_esmini
         double timeSinceLastUpdate_;   // For frequency limiting
 
         // Thresholds
-        static constexpr double BRAKE_ON_THRESHOLD = -1.2;  // m/s^2 (Hysteresis ON)
-        static constexpr double BRAKE_OFF_THRESHOLD = -0.5; // m/s^2 (Hysteresis OFF)
-        static constexpr double ACC_SMOOTHING_ALPHA = 0.2;  // EMA factor assuming ~60Hz
+        static constexpr double BRAKE_ON_THRESHOLD = -1.2;     // m/s^2 (Hard Decel Trigger)
+        static constexpr double STOP_SPEED_THRESHOLD = 0.1;    // m/s (Stop Hold)
+        static constexpr double BRAKE_LATCH_TIME = 0.7;        // s (Minimum ON time)
+        static constexpr double BRAKE_EVENT_WINDOW = 0.3;      // s (Delta V window)
+        static constexpr double BRAKE_EVENT_DV = 0.4;          // m/s (Delta V threshold for ON)
+        
+        static constexpr double ACC_SMOOTHING_ALPHA = 0.1;     // EMA factor (Lower is smoother)
         
         static constexpr double MIN_INDICATOR_DURATION = 2.0; // Seconds
         static constexpr double STEER_THRESHOLD = 0.08;      // rad check

@@ -22,11 +22,10 @@ namespace gt_esmini
           lightExt_(lightExt), 
           enabled_(false), // Default disabled, enabled by manager
           prevSpeed_(0.0), 
-          prevLaneId_(0), 
-          laneChangeStartTime_(-1.0), 
-          isInLaneChange_(false),
+          prevLaneId_(0),
           smoothedAcc_(0.0),
           lastBrakeState_(LightState::Mode::OFF),
+          brakeLatchTimer_(0.0),
           indicatorState_(IndicatorState::OFF),
           indicatorTimer_(0.0),
           laneChangeDetectTime_(0.0),
@@ -83,6 +82,7 @@ namespace gt_esmini
         timeSinceLastUpdate_ = 0.0;
     }
 
+
     void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)
     {
         // 1. Calculate raw acceleration
@@ -94,39 +94,94 @@ namespace gt_esmini
 
         // 2. Apply smoothing (EMA)
         smoothedAcc_ = ACC_SMOOTHING_ALPHA * rawAcc + (1.0 - ACC_SMOOTHING_ALPHA) * smoothedAcc_;
-
-        // 3. Low speed disable logic (don't react to noise when almost stopped)
-        // However, if we are braking to a stop, we want lights ON.
-        // But if stopped, rawAcc might be 0.
-        // Let's keep logic simple: if speed is very low, assume stopped/parking -> OFF? 
-        // Or hold last state? Real cars keep brake light if pedal pressed.
-        // We don't have pedal info, only motion. 
-        // If v ~= 0 and acc ~= 0, likely stopped. Turn OFF brake lights? 
-        // (Unless stopped at light... but we can't know. Default to OFF for stopped to avoid stuck lights).
-        if (currentSpeed < 0.1 && std::abs(rawAcc) < 0.1)
-        {
-             smoothedAcc_ = 0.0; // Reset
+        
+        // 3. Update Speed History
+        // We need to store speed to look back 'BRAKE_EVENT_WINDOW' seconds.
+        // Since we update at 'dt' (which is ~0.05s due to frequency limit), we can assume timestamps.
+        // Or store simple pairs <age, speed> where age increments? 
+        // Better: store current speed. We need to look back ~0.3s.
+        // If dt is variable, we should be careful.
+        // Let's assume we push {dt_duration, speed}.
+        // But easier is simple ring buffer if we assume fixed step, but we don't assume fixed step completely.
+        // Let's just push speed and keep track of total time in deque is not trivial without timestamps.
+        // Okay, simpler: SpeedHistory stores pairs of {accumulated_dt, speed}.
+        
+        speedHistory_.push_back({dt, currentSpeed});
+        
+        // Clean up old history (> BRAKE_EVENT_WINDOW + margin)
+        double totalHistoryTime = 0.0;
+        // Iterate reverse to sum up time? No, forward.
+        // But popping front is hard if we don't track total.
+        // Let's just pop until total time is less than say 0.5s?
+        // Actually, we need to Traverse from back to find the sample at T_window.
+        
+        // Let's limit size to 20 samples (1s at 20Hz)
+        while (speedHistory_.size() > 20) {
+            speedHistory_.pop_front();
         }
 
-        // 4. Hysteresis Logic
+        // 4. Detect Brake Event (Delta V)
+        bool brakeEvent = false;
+        
+        // Look back BRAKE_EVENT_WINDOW seconds (0.3s)
+        double timeSum = 0.0;
+        double pastSpeed = currentSpeed; 
+        bool foundPast = false;
+        
+        for (auto it = speedHistory_.rbegin(); it != speedHistory_.rend(); ++it)
+        {
+            timeSum += it->first; // dt
+            if (timeSum >= BRAKE_EVENT_WINDOW)
+            {
+                pastSpeed = it->second; // speed at that time
+                foundPast = true;
+                break;
+            }
+        }
+        
+        if (foundPast)
+        {
+            double dv = currentSpeed - pastSpeed;
+            if (dv < -BRAKE_EVENT_DV)
+            {
+                brakeEvent = true;
+            }
+        }
+        
+        // 5. Update Latch Timer
+        if (brakeLatchTimer_ > 0.0)
+        {
+            brakeLatchTimer_ -= dt;
+        }
+        
+        if (brakeEvent)
+        {
+            brakeLatchTimer_ = BRAKE_LATCH_TIME;
+        }
+
+        // 6. Logic: Policy A+ (Stop Hold + Latch + Decel)
+        
+        // Condition 1: Stop Hold (Vehicle is stopped or almost stopped)
+        bool isStopped = (currentSpeed < STOP_SPEED_THRESHOLD);
+        
+        // Condition 2: Latch Active (Recent Brake Event)
+        bool isLatched = (brakeLatchTimer_ > 0.0);
+        
+        // Condition 3: Hard Deceleration (Safety fallback)
+        bool isHardBraking = (smoothedAcc_ < BRAKE_ON_THRESHOLD);
+        
         LightState::Mode desiredState = lastBrakeState_;
 
-        if (lastBrakeState_ == LightState::Mode::OFF)
+        if (isStopped || isLatched || isHardBraking)
         {
-            if (smoothedAcc_ < BRAKE_ON_THRESHOLD)
-            {
-                desiredState = LightState::Mode::ON;
-            }
+            desiredState = LightState::Mode::ON;
         }
-        else // Currently ON
+        else
         {
-            if (smoothedAcc_ > BRAKE_OFF_THRESHOLD)
-            {
-                desiredState = LightState::Mode::OFF;
-            }
+            desiredState = LightState::Mode::OFF;
         }
 
-        // 5. Edge Triggered Update
+        // 7. Edge Triggered Update
         if (desiredState != lastBrakeState_)
         {
             LightState state;
