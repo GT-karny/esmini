@@ -29,7 +29,9 @@ namespace gt_esmini
           indicatorState_(IndicatorState::OFF),
           indicatorTimer_(0.0),
           prev_t_(0.0),
-          prepareTimer_(0.0),
+          prepareTimerLeft_(0.0),
+          prepareTimerRight_(0.0),
+          prepareOffTimer_(0.0),
           centerHoldTimer_(0.0),
           timeSinceLastUpdate_(0.0)
     {
@@ -236,6 +238,7 @@ namespace gt_esmini
     {
         // Inputs
         double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
+        id_t junctionId = vehicle_->pos_.GetJunctionId();
         int currentLaneId = vehicle_->pos_.GetLaneId();
         double t = vehicle_->pos_.GetOffset(); // Lane Center Offset (Positive Left)
         
@@ -243,165 +246,279 @@ namespace gt_esmini
         double t_dot = 0.0;
         if (dt > 0.0001)
         {
-             // Note: t jumps when LaneID changes. Avoid spurious t_dot.
              if (currentLaneId == prevLaneId_)
              {
                  t_dot = (t - prev_t_) / dt;
              }
              else
              {
-                 // Lane ID changed this step. t_dot calculation is invalid across the jump.
-                 // We rely on the state machine transition triggered by lane ID change.
+                 // Lane Change Jump: Reset t_dot or assume consistent direction?
+                 // We rely on FSM + Position check for direction.
                  t_dot = 0.0; 
              }
         }
-
+        
         // --- Event Detection ---
         bool steerLeft = (steer > STEER_THRESHOLD);
         bool steerRight = (steer < -STEER_THRESHOLD);
         
+        // Lane Change Logic
         bool laneChanged = (currentLaneId != prevLaneId_);
-        // Delta LaneID > 0 implies Left move, < 0 implies Right move (in standard OpenDRIVE lane numbering)
-        // Example: -1 -> -2 (Right), -2 -> -1 (Left). 1 -> 2 (Left), 2 -> 1 (Right).
-        bool laneChgLeft = laneChanged && (currentLaneId - prevLaneId_ > 0);
-        bool laneChgRight = laneChanged && (currentLaneId - prevLaneId_ < 0);
-        // Special case: Crossing center (1 <-> -1). 
-        // 1 -> -1: diff -2 (Right). Correct.
-        // -1 -> 1: diff +2 (Left). Correct.
+        bool laneChgLeft = false;
+        bool laneChgRight = false;
+
+        if (laneChanged)
+        {
+            // Robust Direction Detection based on User Feedback
+            // "Prioritize t sign after lane change"
+            // Left Move (Right->Left relative) -> New t is Negative (Right side of new lane)
+            // Right Move (Left->Right relative) -> New t is Positive (Left side of new lane)
+            // Note: Standard OpenDRIVE: Lane width > 0 usually?
+            // Left Lane (ID > 0): Center to Left. Entering from Right -> t < 0.
+            // Right Lane (ID < 0): Center to Right. Entering from Left -> t > 0.
+            // Wait, Right Lane (ID < 0) has t increasing Leftwards (towards center).
+            // So if I move Right (away from center), t becomes more negative?
+            // No, OpenDRIVE t axis is always orthogonal to s. Standard: Left is positive t.
+            // Lane Center Offset:
+            // "Offset from lane center".
+            // Left Move (to lane with more positive t):
+            // I am at +1.75 (Lane 1 Left Edge). Enter Lane 2 Right Edge (-1.75).
+            // So Left Move -> New t is Negative.
+            // Right Move (to lane with more negative t):
+            // I am at -1.75 (Lane 1 High Edge? No).
+            // Lane 1 Center t=1.75. Current t=0 (center).
+            // Right edge of Lane 1 is at t=0 (Road Ref)? No.
+            // Let's assume t (Offset) is local.
+            if (t < -0.5) laneChgLeft = true;
+            else if (t > 0.5) laneChgRight = true;
+            else
+            {
+                 // Fallback to LaneID diff if t is near 0 (perfect fit?)
+                 if (currentLaneId - prevLaneId_ > 0) laneChgLeft = true;
+                 else if (currentLaneId - prevLaneId_ < 0) laneChgRight = true;
+            }
+        }
 
         // --- FSM Update ---
         
-        // 0. Update Timers
+        // 0. Update Output Timer
         if (indicatorTimer_ > 0.0) indicatorTimer_ -= dt;
 
-        // 1. Steering Override (Junction Turns) - Immediate ACTIVE
-        if (steerLeft)
+        // 1. Steering Override (Junction Only)
+        // User Requirement: "junctionId != -1"
+        // Also keep override logic simple.
+        
+        bool inJunction = (junctionId != -1);
+        
+        if (inJunction)
         {
-             indicatorState_ = IndicatorState::ACTIVE_LEFT;
-             indicatorTimer_ = MIN_INDICATOR_DURATION; // Keep refreshing
+            if (steerLeft)
+            {
+                 indicatorState_ = IndicatorState::ACTIVE_LEFT;
+                 indicatorTimer_ = MIN_INDICATOR_DURATION; 
+                 centerHoldTimer_ = 0.0; // Reset
+            }
+            else if (steerRight)
+            {
+                 indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+                 indicatorTimer_ = MIN_INDICATOR_DURATION;
+                 centerHoldTimer_ = 0.0; // Reset
+            }
+            // If no steer but in junction, retain state or fall to FSM?
+            // Fall to FSM allows cancellation if driving straignt in junction.
         }
-        else if (steerRight)
+
+        switch (indicatorState_)
         {
-             indicatorState_ = IndicatorState::ACTIVE_RIGHT;
-             indicatorTimer_ = MIN_INDICATOR_DURATION; // Keep refreshing
+        case IndicatorState::OFF:
+        {
+            // Transition to PREPARE?
+            bool preLeft = (t_dot > TDOT_PREARM && t > T_PREARM_MIN);
+            bool preRight = (t_dot < -TDOT_PREARM && t < -T_PREARM_MIN); 
+            
+            if (preLeft)
+            {
+                 prepareTimerLeft_ += dt;
+                 prepareTimerRight_ = 0.0; // Reset other
+                 if (prepareTimerLeft_ > T_PREARM_TIME)
+                 {
+                      indicatorState_ = IndicatorState::PREPARE_LEFT;
+                      prepareTimerLeft_ = 0.0;
+                      indicatorTimer_ = MIN_INDICATOR_DURATION; // Set min duration on entry
+                 }
+            }
+            else if (preRight)
+            {
+                 prepareTimerRight_ += dt;
+                 prepareTimerLeft_ = 0.0; // Reset other
+                 if (prepareTimerRight_ > T_PREARM_TIME)
+                 {
+                      indicatorState_ = IndicatorState::PREPARE_RIGHT;
+                      prepareTimerRight_ = 0.0;
+                      indicatorTimer_ = MIN_INDICATOR_DURATION; // Set min duration on entry
+                 }
+            }
+            else
+            {
+                 prepareTimerLeft_ = 0.0;
+                 prepareTimerRight_ = 0.0;
+            }
+            break;
         }
-        else
+        case IndicatorState::PREPARE_LEFT:
         {
-            // 2. Predictive Lane Change FSM
-            switch (indicatorState_)
+            // Trigger ACTIVE?
+            if (laneChgLeft || t > T_ACTIVE_MIN)
             {
-            case IndicatorState::OFF:
-            {
-                // Transition to PREPARE?
-                // Condition: t_dot large AND t large (in same direction)
-                // PREPARE_LEFT: t_dot > Threshold && t > Threshold
-                bool preLeft = (t_dot > TDOT_PREARM && t > T_PREARM_MIN);
-                bool preRight = (t_dot < -TDOT_PREARM && t < -T_PREARM_MIN); 
-                
-                if (preLeft)
-                {
-                     prepareTimer_ += dt;
-                     if (prepareTimer_ > T_PREARM_TIME)
-                     {
-                          indicatorState_ = IndicatorState::PREPARE_LEFT;
-                          prepareTimer_ = 0.0;
-                          indicatorTimer_ = MIN_INDICATOR_DURATION; // Initial duration
-                     }
-                }
-                else if (preRight)
-                {
-                     prepareTimer_ += dt;
-                     if (prepareTimer_ > T_PREARM_TIME)
-                     {
-                          indicatorState_ = IndicatorState::PREPARE_RIGHT;
-                          prepareTimer_ = 0.0;
-                          indicatorTimer_ = MIN_INDICATOR_DURATION; // Initial duration
-                     }
-                }
-                else
-                {
-                     prepareTimer_ = 0.0;
-                }
-                break;
+                indicatorState_ = IndicatorState::ACTIVE_LEFT;
+                indicatorTimer_ = MIN_INDICATOR_DURATION; // Refresh/Latch
+                centerHoldTimer_ = 0.0; // Reset Hold Timer
+                prepareOffTimer_ = 0.0; // Reset Cancel Timer
             }
-            case IndicatorState::PREPARE_LEFT:
+            // Cancel?
+            // Condition: Time-based stable cancel condition
+            // Uses ABS values for robust cancellation near 0
+            else 
             {
-                // Trigger ACTIVE?
-                // Condition: Lane Change detected OR t > T_ACTIVE_MIN
-                if (laneChgLeft || t > T_ACTIVE_MIN)
-                {
-                    indicatorState_ = IndicatorState::ACTIVE_LEFT;
-                    indicatorTimer_ = MIN_INDICATOR_DURATION; // Refresh/Latch
-                }
-                // Cancel?
-                // If moving back to center (t_dot < 0) AND t < T_PREARM_MIN (back in safe zone)
-                else if (t_dot < 0 && t < T_PREARM_MIN)
-                {
-                    indicatorState_ = IndicatorState::OFF;
-                }
-                break;
-            }
-            case IndicatorState::PREPARE_RIGHT:
-            {
-                 // Trigger ACTIVE?
-                 if (laneChgRight || t < -T_ACTIVE_MIN)
+                 if (std::abs(t_dot) < TDOT_CANCEL && std::abs(t) < T_CANCEL_MIN)
                  {
-                     indicatorState_ = IndicatorState::ACTIVE_RIGHT;
-                     indicatorTimer_ = MIN_INDICATOR_DURATION; // Refresh/Latch
-                 }
-                 // Cancel?
-                 else if (t_dot > 0 && t > -T_PREARM_MIN)
-                 {
-                     indicatorState_ = IndicatorState::OFF;
-                 }
-                 break;
-            }
-            case IndicatorState::ACTIVE_LEFT:
-            {
-                 // Turn OFF?
-                 // Condition: Vehicle is centered in lane (t ~ 0) for some time, AND minimum duration expired.
-                 // Note: During LC, t transitions from high to low (new lane).
-                 // We wait for it to settle near 0.
-                 
-                 if (std::abs(t) < T_CENTER_EPS)
-                 {
-                      centerHoldTimer_ += dt;
+                      prepareOffTimer_ += dt;
                  }
                  else
                  {
-                      centerHoldTimer_ = 0.0;
+                      prepareOffTimer_ = 0.0;
                  }
                  
-                 if (centerHoldTimer_ > T_CENTER_HOLD && indicatorTimer_ <= 0.0)
+                 // Execute Cancel only if timer expired AND min duration expired
+                 if (prepareOffTimer_ > T_CANCEL_TIME && indicatorTimer_ <= 0.0)
                  {
                       indicatorState_ = IndicatorState::OFF;
-                      centerHoldTimer_ = 0.0;
+                      prepareOffTimer_ = 0.0;
                  }
-                 break;
             }
-            case IndicatorState::ACTIVE_RIGHT:
-            {
-                 if (std::abs(t) < T_CENTER_EPS)
+            break;
+        }
+        case IndicatorState::PREPARE_RIGHT:
+        {
+             // Trigger ACTIVE?
+             if (laneChgRight || t < -T_ACTIVE_MIN)
+             {
+                 indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+                 indicatorTimer_ = MIN_INDICATOR_DURATION; // Refresh/Latch
+                 centerHoldTimer_ = 0.0;
+                 prepareOffTimer_ = 0.0;
+             }
+             // Cancel?
+             else 
+             {
+                 if (std::abs(t_dot) < TDOT_CANCEL && std::abs(t) < T_CANCEL_MIN)
                  {
-                      centerHoldTimer_ += dt;
+                      prepareOffTimer_ += dt;
                  }
                  else
                  {
-                      centerHoldTimer_ = 0.0;
+                      prepareOffTimer_ = 0.0;
                  }
                  
-                 if (centerHoldTimer_ > T_CENTER_HOLD && indicatorTimer_ <= 0.0)
+                 if (prepareOffTimer_ > T_CANCEL_TIME && indicatorTimer_ <= 0.0)
                  {
                       indicatorState_ = IndicatorState::OFF;
-                      centerHoldTimer_ = 0.0;
+                      prepareOffTimer_ = 0.0;
                  }
-                 break;
-            }
-            }
+             }
+             break;
+        }
+        case IndicatorState::ACTIVE_LEFT:
+        {
+             // 1. Check for Direction Reversal (Start of Right Turn)
+             // Only if minimum time expired (allowed to switch)
+             // Note: User requested transition even if ACTIVE.
+             if (indicatorTimer_ <= 0.0)
+             {
+                 // Relaxed condition: Rely on t_dot (intent) even if still on Left side
+                 bool preRight = (t_dot < -TDOT_PREARM); 
+                 if (preRight)
+                 {
+                     prepareTimerRight_ += dt;
+                     if (prepareTimerRight_ > T_PREARM_TIME)
+                     {
+                         indicatorState_ = IndicatorState::PREPARE_RIGHT;
+                         prepareTimerRight_ = 0.0;
+                         indicatorTimer_ = MIN_INDICATOR_DURATION; 
+                         centerHoldTimer_ = 0.0; 
+                         prepareOffTimer_ = 0.0;
+                         break; // Exit case
+                     }
+                 }
+                 else
+                 {
+                     prepareTimerRight_ = 0.0;
+                 }
+             }
+
+             // 2. Turn OFF? (Return to Center)
+             if (std::abs(t) < T_CENTER_EPS)
+             {
+                  centerHoldTimer_ += dt;
+             }
+             else
+             {
+                  centerHoldTimer_ = 0.0;
+             }
+             
+             if (centerHoldTimer_ > T_CENTER_HOLD && indicatorTimer_ <= 0.0)
+             {
+                  indicatorState_ = IndicatorState::OFF;
+                  centerHoldTimer_ = 0.0;
+             }
+             break;
+        }
+        case IndicatorState::ACTIVE_RIGHT:
+        {
+             // 1. Check for Direction Reversal (Start of Left Turn)
+             if (indicatorTimer_ <= 0.0)
+             {
+                 // Relaxed condition
+                 bool preLeft = (t_dot > TDOT_PREARM); 
+                 if (preLeft)
+                 {
+                     prepareTimerLeft_ += dt;
+                     if (prepareTimerLeft_ > T_PREARM_TIME)
+                     {
+                         indicatorState_ = IndicatorState::PREPARE_LEFT;
+                         prepareTimerLeft_ = 0.0;
+                         indicatorTimer_ = MIN_INDICATOR_DURATION; 
+                         centerHoldTimer_ = 0.0; 
+                         prepareOffTimer_ = 0.0;
+                         break; // Exit case
+                     }
+                 }
+                 else
+                 {
+                     prepareTimerLeft_ = 0.0;
+                 }
+             }
+
+             // 2. Turn OFF?
+             if (std::abs(t) < T_CENTER_EPS)
+             {
+                  centerHoldTimer_ += dt;
+             }
+             else
+             {
+                  centerHoldTimer_ = 0.0;
+             }
+             
+             if (centerHoldTimer_ > T_CENTER_HOLD && indicatorTimer_ <= 0.0)
+             {
+                  indicatorState_ = IndicatorState::OFF;
+                  centerHoldTimer_ = 0.0;
+             }
+             break;
+        }
         }
         
         // --- Output Application ---
-        
         LightState leftState;
         LightState rightState;
         leftState.mode = LightState::Mode::OFF;

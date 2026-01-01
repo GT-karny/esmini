@@ -86,7 +86,9 @@ namespace gt_esmini
 
         // Predictive Turn Signal State
         double prev_t_;             // Previous lateral offset (t)
-        double prepareTimer_;       // Timer for PREPARE state persistence
+        double prepareTimerLeft_;   // Timer for PREPARE LEFT
+        double prepareTimerRight_;  // Timer for PREPARE RIGHT
+        double prepareOffTimer_;    // Timer for PREPARE -> OFF (Cancel)
         double centerHoldTimer_;    // Timer for detecting return to center (ACTIVE -> OFF)
         
         // Robustness
@@ -110,6 +112,11 @@ namespace gt_esmini
         static constexpr double TDOT_PREARM = 0.25;    // m/s (Lateral velocity threshold for PREPARE)
         static constexpr double T_PREARM_MIN = 0.20;   // m (Lateral offset threshold for PREPARE)
         static constexpr double T_PREARM_TIME = 0.2;   // s (Duration to confirm PREPARE)
+        
+        static constexpr double TDOT_CANCEL = 0.1;     // m/s (Cancel threshold)
+        static constexpr double T_CANCEL_MIN = 0.1;    // m (Cancel threshold)
+        static constexpr double T_CANCEL_TIME = 0.5;   // s (Duration to confirm Cancel)
+
         static constexpr double T_ACTIVE_MIN = 0.45;   // m (Lateral offset threshold for ACTIVE)
         static constexpr double T_CENTER_EPS = 0.15;   // m (Return to center threshold)
         static constexpr double T_CENTER_HOLD = 0.4;   // s (Duration to confirm center/OFF)
