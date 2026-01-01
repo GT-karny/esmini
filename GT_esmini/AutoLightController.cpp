@@ -28,7 +28,9 @@ namespace gt_esmini
           brakeLatchTimer_(0.0),
           indicatorState_(IndicatorState::OFF),
           indicatorTimer_(0.0),
-          laneChangeDetectTime_(0.0),
+          prev_t_(0.0),
+          prepareTimer_(0.0),
+          centerHoldTimer_(0.0),
           timeSinceLastUpdate_(0.0)
     {
         if (vehicle_)
@@ -77,6 +79,7 @@ namespace gt_esmini
         // Update state
         prevSpeed_ = speed;
         prevLaneId_ = vehicle_->pos_.GetLaneId();
+        prev_t_ = vehicle_->pos_.GetOffset();
         
         // Reset timer
         timeSinceLastUpdate_ = 0.0;
@@ -233,97 +236,186 @@ namespace gt_esmini
     {
         // Inputs
         double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
-        id_t junctionId = vehicle_->pos_.GetJunctionId();
         int currentLaneId = vehicle_->pos_.GetLaneId();
+        double t = vehicle_->pos_.GetOffset(); // Lane Center Offset (Positive Left)
         
-        // --- 1. Event Detection ---
-        bool turnLeft = false;
-        bool turnRight = false;
-        
-        // A. Intersection / Steering Logic
-        if (steer > STEER_THRESHOLD) turnLeft = true;
-        else if (steer < -STEER_THRESHOLD) turnRight = true;
-        
-        // B. Lane Change Logic (Simple Lane ID Check for now, improved later with Lateral Velocity if needed)
-        // Note: Lane ID based detection is edge-triggered.
-        if (currentLaneId != prevLaneId_)
+        // Calculate t_dot
+        double t_dot = 0.0;
+        if (dt > 0.0001)
         {
-            // Determine direction based on ODR logic
-            // Assuming standard ODR: Left is t+, Right is t-
-            // RHT: -1 (Right) -> -2 (Right LC) ? No, -2 is further right.
-            // Lane ID magnitude increases outwards from center.
-            // Right lanes (neg): -1 -> -2 (Right), -2 -> -1 (Left)
-            // Left lanes (pos): 1 -> 2 (Left), 2 -> 1 (Right)
-            
-            bool isRightSide = (prevLaneId_ < 0);
-            bool isLeftSide = (prevLaneId_ > 0);
-            
-            if (isRightSide)
-            {
-                if (currentLaneId < prevLaneId_) turnRight = true; // -1 to -2
-                else if (currentLaneId > prevLaneId_) turnLeft = true; // -2 to -1
-            }
-            else if (isLeftSide)
-            {
-                if (currentLaneId > prevLaneId_) turnLeft = true; // 1 to 2
-                else if (currentLaneId < prevLaneId_) turnRight = true; // 2 to 1
-            }
-            // Reset timer to keep signal active for a minimum duration after LC event
-             indicatorTimer_ = MIN_INDICATOR_DURATION;
+             // Note: t jumps when LaneID changes. Avoid spurious t_dot.
+             if (currentLaneId == prevLaneId_)
+             {
+                 t_dot = (t - prev_t_) / dt;
+             }
+             else
+             {
+                 // Lane ID changed this step. t_dot calculation is invalid across the jump.
+                 // We rely on the state machine transition triggered by lane ID change.
+                 t_dot = 0.0; 
+             }
         }
 
-        // --- 2. State Machine Update ---
+        // --- Event Detection ---
+        bool steerLeft = (steer > STEER_THRESHOLD);
+        bool steerRight = (steer < -STEER_THRESHOLD);
         
-        // If an active turn event is detected, refresh validity
-        if (turnLeft) 
+        bool laneChanged = (currentLaneId != prevLaneId_);
+        // Delta LaneID > 0 implies Left move, < 0 implies Right move (in standard OpenDRIVE lane numbering)
+        // Example: -1 -> -2 (Right), -2 -> -1 (Left). 1 -> 2 (Left), 2 -> 1 (Right).
+        bool laneChgLeft = laneChanged && (currentLaneId - prevLaneId_ > 0);
+        bool laneChgRight = laneChanged && (currentLaneId - prevLaneId_ < 0);
+        // Special case: Crossing center (1 <-> -1). 
+        // 1 -> -1: diff -2 (Right). Correct.
+        // -1 -> 1: diff +2 (Left). Correct.
+
+        // --- FSM Update ---
+        
+        // 0. Update Timers
+        if (indicatorTimer_ > 0.0) indicatorTimer_ -= dt;
+
+        // 1. Steering Override (Junction Turns) - Immediate ACTIVE
+        if (steerLeft)
         {
-            indicatorState_ = IndicatorState::LEFT_ACTIVE;
-            indicatorTimer_ = MIN_INDICATOR_DURATION; // Keep refreshing while turning
+             indicatorState_ = IndicatorState::ACTIVE_LEFT;
+             indicatorTimer_ = MIN_INDICATOR_DURATION; // Keep refreshing
         }
-        else if (turnRight) 
+        else if (steerRight)
         {
-            indicatorState_ = IndicatorState::RIGHT_ACTIVE;
-            indicatorTimer_ = MIN_INDICATOR_DURATION;
+             indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+             indicatorTimer_ = MIN_INDICATOR_DURATION; // Keep refreshing
         }
         else
         {
-            // No active input this frame.
-            // Check timer.
-            if (indicatorTimer_ > 0.0)
+            // 2. Predictive Lane Change FSM
+            switch (indicatorState_)
             {
-                indicatorTimer_ -= dt;
-                if (indicatorTimer_ <= 0.0)
+            case IndicatorState::OFF:
+            {
+                // Transition to PREPARE?
+                // Condition: t_dot large AND t large (in same direction)
+                // PREPARE_LEFT: t_dot > Threshold && t > Threshold
+                bool preLeft = (t_dot > TDOT_PREARM && t > T_PREARM_MIN);
+                bool preRight = (t_dot < -TDOT_PREARM && t < -T_PREARM_MIN); 
+                
+                if (preLeft)
+                {
+                     prepareTimer_ += dt;
+                     if (prepareTimer_ > T_PREARM_TIME)
+                     {
+                          indicatorState_ = IndicatorState::PREPARE_LEFT;
+                          prepareTimer_ = 0.0;
+                          indicatorTimer_ = MIN_INDICATOR_DURATION; // Initial duration
+                     }
+                }
+                else if (preRight)
+                {
+                     prepareTimer_ += dt;
+                     if (prepareTimer_ > T_PREARM_TIME)
+                     {
+                          indicatorState_ = IndicatorState::PREPARE_RIGHT;
+                          prepareTimer_ = 0.0;
+                          indicatorTimer_ = MIN_INDICATOR_DURATION; // Initial duration
+                     }
+                }
+                else
+                {
+                     prepareTimer_ = 0.0;
+                }
+                break;
+            }
+            case IndicatorState::PREPARE_LEFT:
+            {
+                // Trigger ACTIVE?
+                // Condition: Lane Change detected OR t > T_ACTIVE_MIN
+                if (laneChgLeft || t > T_ACTIVE_MIN)
+                {
+                    indicatorState_ = IndicatorState::ACTIVE_LEFT;
+                    indicatorTimer_ = MIN_INDICATOR_DURATION; // Refresh/Latch
+                }
+                // Cancel?
+                // If moving back to center (t_dot < 0) AND t < T_PREARM_MIN (back in safe zone)
+                else if (t_dot < 0 && t < T_PREARM_MIN)
                 {
                     indicatorState_ = IndicatorState::OFF;
                 }
+                break;
             }
-            else
+            case IndicatorState::PREPARE_RIGHT:
             {
-                 indicatorState_ = IndicatorState::OFF;
+                 // Trigger ACTIVE?
+                 if (laneChgRight || t < -T_ACTIVE_MIN)
+                 {
+                     indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+                     indicatorTimer_ = MIN_INDICATOR_DURATION; // Refresh/Latch
+                 }
+                 // Cancel?
+                 else if (t_dot > 0 && t > -T_PREARM_MIN)
+                 {
+                     indicatorState_ = IndicatorState::OFF;
+                 }
+                 break;
+            }
+            case IndicatorState::ACTIVE_LEFT:
+            {
+                 // Turn OFF?
+                 // Condition: Vehicle is centered in lane (t ~ 0) for some time, AND minimum duration expired.
+                 // Note: During LC, t transitions from high to low (new lane).
+                 // We wait for it to settle near 0.
+                 
+                 if (std::abs(t) < T_CENTER_EPS)
+                 {
+                      centerHoldTimer_ += dt;
+                 }
+                 else
+                 {
+                      centerHoldTimer_ = 0.0;
+                 }
+                 
+                 if (centerHoldTimer_ > T_CENTER_HOLD && indicatorTimer_ <= 0.0)
+                 {
+                      indicatorState_ = IndicatorState::OFF;
+                      centerHoldTimer_ = 0.0;
+                 }
+                 break;
+            }
+            case IndicatorState::ACTIVE_RIGHT:
+            {
+                 if (std::abs(t) < T_CENTER_EPS)
+                 {
+                      centerHoldTimer_ += dt;
+                 }
+                 else
+                 {
+                      centerHoldTimer_ = 0.0;
+                 }
+                 
+                 if (centerHoldTimer_ > T_CENTER_HOLD && indicatorTimer_ <= 0.0)
+                 {
+                      indicatorState_ = IndicatorState::OFF;
+                      centerHoldTimer_ = 0.0;
+                 }
+                 break;
+            }
             }
         }
         
-        // --- 3. Output Application (Edge + Continuous State) ---
-        // AutoLight applies state continuously if it thinks it should be ON, 
-        // to override potentially stale states?
-        // Or should we respect Arbitration?
-        // Proposal: Apply state derived from FSM.
+        // --- Output Application ---
         
         LightState leftState;
         LightState rightState;
         leftState.mode = LightState::Mode::OFF;
         rightState.mode = LightState::Mode::OFF;
         
-        if (indicatorState_ == IndicatorState::LEFT_ACTIVE)
+        if (indicatorState_ == IndicatorState::ACTIVE_LEFT || indicatorState_ == IndicatorState::PREPARE_LEFT)
         {
-            leftState.mode = LightState::Mode::FLASHING;
+             leftState.mode = LightState::Mode::FLASHING;
         }
-        else if (indicatorState_ == IndicatorState::RIGHT_ACTIVE)
+        else if (indicatorState_ == IndicatorState::ACTIVE_RIGHT || indicatorState_ == IndicatorState::PREPARE_RIGHT)
         {
-            rightState.mode = LightState::Mode::FLASHING;
+             rightState.mode = LightState::Mode::FLASHING;
         }
         
-        // Apply to extension
         lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, leftState);
         lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, rightState);
     }

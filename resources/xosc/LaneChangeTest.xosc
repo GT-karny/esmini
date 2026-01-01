@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="0"
+               date="2024-01-01T10:00:00"
+               description="Test Predictive Turn Signals"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="HostVehicle" parameterType="string" value="car_white"/>
+      <ParameterDeclaration name="Speed" parameterType="double" value="30"/>
+   </ParameterDeclarations>
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../xosc/Catalogs/Vehicles"/>
+      </VehicleCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/straight_500m.xodr"/>
+      <SceneGraphFile filepath="../models/straight_500m.osgb"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+        <CatalogReference catalogName="VehicleCatalog" entryName="$HostVehicle"/>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="${$Speed / 3.6}"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="LaneChangeStory">
+         <Act name="LaneChangeAct">
+            <ManeuverGroup maximumExecutionCount="1" name="LaneChangeSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="LeftChangeManeuver">
+                  <Event name="LeftChange" priority="overwrite">
+                     <Action name="LaneChangeLeft">
+                        <PrivateAction>
+                           <LateralAction>
+                              <LaneChangeAction>
+                                 <LaneChangeActionDynamics dynamicsShape="sinusoidal" value="4.0" dynamicsDimension="time"/>
+                                 <LaneChangeTarget>
+                                    <AbsoluteTargetLane value="1"/>
+                                 </LaneChangeTarget>
+                              </LaneChangeAction>
+                           </LateralAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TimeTrigger" delay="0" conditionEdge="rising">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="2.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+               <Maneuver name="RightChangeManeuver">
+                  <Event name="RightChange" priority="overwrite">
+                     <Action name="LaneChangeRight">
+                        <PrivateAction>
+                           <LateralAction>
+                              <LaneChangeAction>
+                                 <LaneChangeActionDynamics dynamicsShape="sinusoidal" value="4.0" dynamicsDimension="time"/>
+                                 <LaneChangeTarget>
+                                    <AbsoluteTargetLane value="-1"/>
+                                 </LaneChangeTarget>
+                              </LaneChangeAction>
+                           </LateralAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TimeTrigger2" delay="0" conditionEdge="rising">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="10.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+         </Act>
+      </Story>
+      <StopTrigger>
+        <ConditionGroup>
+           <Condition name="TimeTriggerStop" delay="0" conditionEdge="rising">
+              <ByValueCondition>
+                 <SimulationTimeCondition value="20.0" rule="greaterThan"/>
+              </ByValueCondition>
+           </Condition>
+        </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

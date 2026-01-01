@@ -80,10 +80,14 @@ namespace gt_esmini
         std::deque<std::pair<double, double>> speedHistory_;
 
         // Indicator Logic
-        enum class IndicatorState { OFF, LEFT_ACTIVE, RIGHT_ACTIVE };
+        enum class IndicatorState { OFF, PREPARE_LEFT, PREPARE_RIGHT, ACTIVE_LEFT, ACTIVE_RIGHT };
         IndicatorState indicatorState_;
         double indicatorTimer_;        // Counts down minimum active time
-        double laneChangeDetectTime_;  // Debounce for LC start
+
+        // Predictive Turn Signal State
+        double prev_t_;             // Previous lateral offset (t)
+        double prepareTimer_;       // Timer for PREPARE state persistence
+        double centerHoldTimer_;    // Timer for detecting return to center (ACTIVE -> OFF)
         
         // Robustness
         double timeSinceLastUpdate_;   // For frequency limiting
@@ -101,5 +105,13 @@ namespace gt_esmini
         static constexpr double STEER_THRESHOLD = 0.08;      // rad check
         static constexpr double YAW_RATE_THRESHOLD = 0.05;   // rad/s check
         static constexpr double UPDATE_INTERVAL = 0.05;      // 20Hz
+
+        // Predictive Turn Signal Constants
+        static constexpr double TDOT_PREARM = 0.25;    // m/s (Lateral velocity threshold for PREPARE)
+        static constexpr double T_PREARM_MIN = 0.20;   // m (Lateral offset threshold for PREPARE)
+        static constexpr double T_PREARM_TIME = 0.2;   // s (Duration to confirm PREPARE)
+        static constexpr double T_ACTIVE_MIN = 0.45;   // m (Lateral offset threshold for ACTIVE)
+        static constexpr double T_CENTER_EPS = 0.15;   // m (Return to center threshold)
+        static constexpr double T_CENTER_HOLD = 0.4;   // s (Duration to confirm center/OFF)
     };
 }
