@@ -430,33 +430,57 @@ namespace gt_esmini
         }
         case IndicatorState::ACTIVE_LEFT:
         {
-             // 1. Check for Direction Reversal (Start of Right Turn)
-             // Only if minimum time expired (allowed to switch)
-             // Note: User requested transition even if ACTIVE.
-             if (indicatorTimer_ <= 0.0)
+             // 1. Immediate Reversal (Level 1: Lane Change Event)
+             // If we just changed into the RIGHT lane (or any lane to the right), switch immediately.
+             if (laneChgRight)
              {
-                 // Relaxed condition: Rely on t_dot (intent) even if still on Left side
-                 bool preRight = (t_dot < -TDOT_PREARM); 
-                 if (preRight)
-                 {
-                     prepareTimerRight_ += dt;
-                     if (prepareTimerRight_ > T_PREARM_TIME)
-                     {
-                         indicatorState_ = IndicatorState::PREPARE_RIGHT;
-                         prepareTimerRight_ = 0.0;
-                         indicatorTimer_ = MIN_INDICATOR_DURATION; 
-                         centerHoldTimer_ = 0.0; 
-                         prepareOffTimer_ = 0.0;
-                         break; // Exit case
-                     }
-                 }
-                 else
-                 {
-                     prepareTimerRight_ = 0.0;
-                 }
+                 indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+                 indicatorTimer_ = MIN_INDICATOR_DURATION; // Latch for visibility
+                 centerHoldTimer_ = 0.0;
+                 prepareOffTimer_ = 0.0;
+                 prepareTimerLeft_ = 0.0;
+                 prepareTimerRight_ = 0.0;
+                 break;
              }
 
-             // 2. Turn OFF? (Return to Center)
+             // 2. Immediate Reversal (Level 2: Strong Lateral Motion)
+             // Override min duration if strong evidence exists.
+             bool strongReversal = (t_dot < -REVERSAL_TDOT && t < -REVERSAL_T_MIN);
+             if (strongReversal)
+             {
+                 prepareTimerRight_ += dt;
+                 // If evidence persists, force switch
+                 if (prepareTimerRight_ > REVERSAL_CONFIRM_TIME)
+                 {
+                     // Decide: PREPARE or direct ACTIVE? 
+                     // Since signal is strong, PREPARE is safer but fast.
+                     indicatorState_ = IndicatorState::PREPARE_RIGHT; 
+                     
+                     // Ensure min duration for new state, but allow fast switch if needed later
+                     indicatorTimer_ = std::max(indicatorTimer_, REVERSAL_MIN_ACTIVE); 
+                     
+                     prepareTimerRight_ = 0.0;
+                     centerHoldTimer_ = 0.0; 
+                     prepareOffTimer_ = 0.0;
+                     break; 
+                 }
+             }
+             else
+             {
+                 prepareTimerRight_ = 0.0;
+             }
+             
+             // 3. Normal Direction Reversal (Weak/Early detection)
+             // Only if min duration expired
+             if (indicatorTimer_ <= 0.0)
+             {
+                 // Standard pre-arm (already covered by Level 2 mostly, but keep for lower thresholds if needed)
+                 // Actually, Level 2 covers the "Emergency/Fast" case. 
+                 // If we want slow reversal, we can add it here, or rely on Level 2 thresholds being tuned well.
+                 // For now, let's stick to Level 2 as the main reversal path to avoid complexity.
+             }
+
+             // 4. Turn OFF? (Return to Center)
              if (std::abs(t) < T_CENTER_EPS)
              {
                   centerHoldTimer_ += dt;
@@ -475,31 +499,39 @@ namespace gt_esmini
         }
         case IndicatorState::ACTIVE_RIGHT:
         {
-             // 1. Check for Direction Reversal (Start of Left Turn)
-             if (indicatorTimer_ <= 0.0)
+             // 1. Immediate Reversal (Level 1: Lane Change Event)
+             if (laneChgLeft)
              {
-                 // Relaxed condition
-                 bool preLeft = (t_dot > TDOT_PREARM); 
-                 if (preLeft)
-                 {
-                     prepareTimerLeft_ += dt;
-                     if (prepareTimerLeft_ > T_PREARM_TIME)
-                     {
-                         indicatorState_ = IndicatorState::PREPARE_LEFT;
-                         prepareTimerLeft_ = 0.0;
-                         indicatorTimer_ = MIN_INDICATOR_DURATION; 
-                         centerHoldTimer_ = 0.0; 
-                         prepareOffTimer_ = 0.0;
-                         break; // Exit case
-                     }
-                 }
-                 else
-                 {
-                     prepareTimerLeft_ = 0.0;
-                 }
+                 indicatorState_ = IndicatorState::ACTIVE_LEFT;
+                 indicatorTimer_ = MIN_INDICATOR_DURATION; 
+                 centerHoldTimer_ = 0.0;
+                 prepareOffTimer_ = 0.0;
+                 prepareTimerLeft_ = 0.0;
+                 prepareTimerRight_ = 0.0;
+                 break;
              }
 
-             // 2. Turn OFF?
+             // 2. Immediate Reversal (Level 2: Strong Lateral Motion)
+             bool strongReversal = (t_dot > REVERSAL_TDOT && t > REVERSAL_T_MIN);
+             if (strongReversal)
+             {
+                 prepareTimerLeft_ += dt;
+                 if (prepareTimerLeft_ > REVERSAL_CONFIRM_TIME)
+                 {
+                     indicatorState_ = IndicatorState::PREPARE_LEFT;
+                     indicatorTimer_ = std::max(indicatorTimer_, REVERSAL_MIN_ACTIVE);
+                     prepareTimerLeft_ = 0.0;
+                     centerHoldTimer_ = 0.0; 
+                     prepareOffTimer_ = 0.0;
+                     break; 
+                 }
+             }
+             else
+             {
+                 prepareTimerLeft_ = 0.0;
+             }
+
+             // 3. Turn OFF?
              if (std::abs(t) < T_CENTER_EPS)
              {
                   centerHoldTimer_ += dt;

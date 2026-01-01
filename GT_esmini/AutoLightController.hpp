@@ -118,7 +118,13 @@ namespace gt_esmini
         static constexpr double T_CANCEL_TIME = 0.5;   // s (Duration to confirm Cancel)
 
         static constexpr double T_ACTIVE_MIN = 0.45;   // m (Lateral offset threshold for ACTIVE)
-        static constexpr double T_CENTER_EPS = 0.15;   // m (Return to center threshold)
-        static constexpr double T_CENTER_HOLD = 0.4;   // s (Duration to confirm center/OFF)
+        // Reversal Logic Constants
+        static constexpr double REVERSAL_CONFIRM_TIME = 0.12; // s (approx 2-3 frames at 20Hz)
+        static constexpr double REVERSAL_TDOT = 0.30;         // m/s (Strong lateral velocity)
+        static constexpr double REVERSAL_T_MIN = 0.18;        // m (Significant lateral offset)
+        static constexpr double REVERSAL_MIN_ACTIVE = 0.15;   // s (Min duration after fast reversal)
+
+        static constexpr double T_CENTER_HOLD = 0.5; // Stay in center for this long -> OFF
+        static constexpr double T_CENTER_EPS = 0.1;  // Near center thresholdn to confirm center/OFF)
     };
 }
