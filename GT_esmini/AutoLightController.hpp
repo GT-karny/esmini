@@ -90,6 +90,7 @@ namespace gt_esmini
         double prepareTimerRight_;  // Timer for PREPARE RIGHT
         double prepareOffTimer_;    // Timer for PREPARE -> OFF (Cancel)
         double centerHoldTimer_;    // Timer for detecting return to center (ACTIVE -> OFF)
+        int lastJunctionId_;      // To detect junction exit event
         
         // Robustness
         double timeSinceLastUpdate_;   // For frequency limiting

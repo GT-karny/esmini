@@ -34,6 +34,7 @@ namespace gt_esmini
           prepareTimerRight_(0.0),
           prepareOffTimer_(0.0),
           centerHoldTimer_(0.0),
+          lastJunctionId_(-1),
           timeSinceLastUpdate_(0.0)
     {
         if (vehicle_)
@@ -242,6 +243,18 @@ namespace gt_esmini
         id_t junctionId = vehicle_->pos_.GetJunctionId();
         int currentLaneId = vehicle_->pos_.GetLaneId();
         double t = vehicle_->pos_.GetOffset(); // Lane Center Offset (Positive Left)
+        
+        // [User Request] Immediate Cancellation on Junction Exit
+        bool justExitedJunction = (lastJunctionId_ != -1 && junctionId == -1);
+        if (justExitedJunction)
+        {
+             if (indicatorState_ == IndicatorState::ACTIVE_LEFT || indicatorState_ == IndicatorState::ACTIVE_RIGHT)
+             {
+                  indicatorState_ = IndicatorState::OFF;
+                  centerHoldTimer_ = 0.0;
+                  indicatorTimer_ = 0.0; 
+             }
+        }
         
         // Calculate t_dot
         double t_dot = 0.0;
@@ -624,6 +637,9 @@ namespace gt_esmini
         
         lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, leftState);
         lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, rightState);
+
+        // Update Junction History
+        lastJunctionId_ = junctionId;
     }
 
     // End of UpdateIndicators, continuing namespace...
