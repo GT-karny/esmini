@@ -42,6 +42,7 @@ int main(int argc, const char* argv[])
         printf("Usage: GT_Sim <osc filename> [options]\n");
         printf("Options:\n");
         printf("  --autolight          Enable AutoLight functionality\n");
+        printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
         printf("  --osi <ip>           Enable OSI output to specified IP\n");
         printf("  ... [See esmini documentation for other arguments]\n");
         return -1;

@@ -23,6 +23,7 @@
 #include <functional>
 #include <string>
 #include <iostream>
+#include <cstdio>
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -39,10 +40,24 @@ public:
         controllers_.clear();
         if (!entities) return;
 
+        // Auto-detect Ego vehicle (Host Vehicle) as the first object in the list
+        // This corresponds to OSI Host Vehicle ID logic
+        if (!entities->object_.empty())
+        {
+            egoId_ = entities->object_.front()->GetId();
+        }
+
         for (auto* obj : entities->object_)
         {
             if (obj && obj->type_ == scenarioengine::Object::Type::VEHICLE)
             {
+                // Skip AutoLight for Ego vehicle if egoless mode is enabled
+                if (egoless_ && obj->GetId() == egoId_)
+                {
+                    std::cout << "AutoLight: Skipping Ego vehicle (ID: " << egoId_ << ")" << std::endl;
+                    continue;
+                }
+
                 scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
                 
                 // Ensure VehicleLightExtension exists
@@ -57,6 +72,11 @@ public:
                 controllers_.push_back(std::make_unique<gt_esmini::AutoLightController>(vehicle, ext));
             }
         }
+    }
+
+    void SetEgoless(bool egoless)
+    {
+        egoless_ = egoless;
     }
 
     void Enable(bool enable)
@@ -85,10 +105,12 @@ public:
     }
 
 private:
-    AutoLightManager() : enabled_(false) {}
+    AutoLightManager() : enabled_(false), egoless_(false), egoId_(-1) {}
     
     std::vector<std::unique_ptr<gt_esmini::AutoLightController>> controllers_;
     bool enabled_;
+    bool egoless_;
+    int egoId_;
 };
 
 // Hook registration function (externally defined in GT_OSIReporter.cpp part of ScenarioEngine)
@@ -186,8 +208,8 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0); 
     
-    // Clean up temp file (or keep for debug?)
-    // std::remove(sanitizedFile.c_str()); 
+    // Clean up temp file
+    std::remove(sanitizedFile.c_str()); 
 
     if (ret != 0)
     {
@@ -294,8 +316,13 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 newArgv.push_back(argStorage.back().c_str());
             }
             // Filter custom arguments that esmini doesn't recognize
-            else if (argv[i] && (strcmp(argv[i], "--autolight") == 0 || strcmp(argv[i], "--osi") == 0 || strcmp(argv[i], "--hz") == 0)) 
+            else if (argv[i] && (strcmp(argv[i], "--autolight") == 0 || strcmp(argv[i], "--autolight-egoless") == 0 || strcmp(argv[i], "--osi") == 0 || strcmp(argv[i], "--hz") == 0)) 
             {
+                if (strcmp(argv[i], "--autolight-egoless") == 0)
+                {
+                    AutoLightManager::Instance().SetEgoless(true);
+                }
+
                 if (strcmp(argv[i], "--osi") == 0 || strcmp(argv[i], "--hz") == 0)
                 {
                     i++; // Skip the argument value (IP or frequency)
