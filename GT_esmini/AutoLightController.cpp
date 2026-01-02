@@ -370,35 +370,43 @@ namespace gt_esmini
             if (indicatorState_ == IndicatorState::OFF)
             {
                 int turnDir = 0;
-                // Scan from 5m to LOOKAHEAD to find the nearest junction/turn
-                for (double d = 5.0; d <= JUNCTION_LOOKAHEAD; d += 5.0)
+                double nearestTurnDist = 1e9;
+
+                // Scan from 2m to LOOKAHEAD to find the nearest junction/turn (Fine-grained)
+                for (double d = 2.0; d <= JUNCTION_LOOKAHEAD; d += 2.0)
                 {
                     int res = DetectJunctionTurn(d);
                     if (res != 0)
                     {
-                         // Found a turn. Is it close enough to blink?
-                         if (d <= JUNCTION_BLINK_DIST)
+                         if (d < nearestTurnDist)
                          {
+                             nearestTurnDist = d;
                              turnDir = res;
                          }
-                         break; // Found the nearest feature, stop scanning
+                         // Found nearest, break (scanning from near to far)
+                         break; 
                     }
                 }
-
-                if (turnDir == 1) // Left
+                
+                if (nearestTurnDist <= JUNCTION_BLINK_DIST)
                 {
-                     indicatorState_ = IndicatorState::ACTIVE_LEFT; // Use ACTIVE to stay on while stopped
-                     indicatorTimer_ = MIN_INDICATOR_DURATION; 
-                     centerHoldTimer_ = 0.0;
-                }
-                else if (turnDir == -1) // Right
-                {
-                     indicatorState_ = IndicatorState::ACTIVE_RIGHT;
-                     indicatorTimer_ = MIN_INDICATOR_DURATION;
-                     centerHoldTimer_ = 0.0;
+                     if (turnDir == 1) // Left
+                     {
+                          indicatorState_ = IndicatorState::ACTIVE_LEFT;
+                          indicatorTimer_ = MIN_INDICATOR_DURATION; 
+                          centerHoldTimer_ = 0.0;
+                     }
+                     else if (turnDir == -1) // Right
+                     {
+                          indicatorState_ = IndicatorState::ACTIVE_RIGHT;
+                          indicatorTimer_ = MIN_INDICATOR_DURATION;
+                          centerHoldTimer_ = 0.0;
+                     }
                 }
             }
             break;
+
+
         }
         case IndicatorState::PREPARE_LEFT:
         {
@@ -523,7 +531,8 @@ namespace gt_esmini
              // D. NOT approaching a left turn (don't cancel while waiting at light)
              
              bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == 1); // 1 = Left
-             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != -1);
+             // Safe ID check
+             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
 
              if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
              {
@@ -577,7 +586,8 @@ namespace gt_esmini
 
              // 3. Turn OFF?
              bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == -1); // -1 = Right
-             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != -1);
+             // Safe ID check
+             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
 
              if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
              {
@@ -618,32 +628,214 @@ namespace gt_esmini
 
     // End of UpdateIndicators, continuing namespace...
 
+    // Safe invalid ID constant
+    static constexpr id_t NO_JUNCTION_ID = static_cast<id_t>(-1);
+
+    static inline double NormalizeAngle(double a)
+    {
+        while (a > M_PI)  a -= 2.0 * M_PI;
+        while (a < -M_PI) a += 2.0 * M_PI;
+        return a;
+    }
+
     int AutoLightController::DetectJunctionTurn(double lookahead)
     {
         if (!vehicle_) return 0;
 
         roadmanager::RoadProbeInfo info;
-        auto ret = vehicle_->pos_.GetProbeInfo(lookahead, &info, roadmanager::Position::LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER);
+        auto ret = vehicle_->pos_.GetProbeInfo(
+            lookahead, &info,
+            roadmanager::Position::LookAheadMode::LOOKAHEADMODE_AT_LANE_CENTER);
 
-        if (ret != roadmanager::Position::ReturnCode::OK)
+        // Allow any success code, but we focus on explicit choice
+        // if ((int)ret < 0) return 0; // Commented out to allow override even if probe failed? No, keep safety.
+        if ((int)ret < 0) return 0;
+
+        // [GT_esmini] Phase 4: Route-Aware Logic (Client-Side)
+        // Check if the vehicle has an assigned route and override the geometric probe result
+        bool routeOverride = false;
+        if (vehicle_->pos_.GetRoute() && vehicle_->pos_.GetRoute()->IsValid())
+        {
+            const auto& wps = vehicle_->pos_.GetRoute()->minimal_waypoints_;
+            id_t currentRoadId = vehicle_->pos_.GetTrackId();
+
+            for (size_t i = 0; i < wps.size(); ++i)
+            {
+                if (wps[i].GetTrackId() == currentRoadId)
+                {
+                    // Found current road in route. Check for next road.
+                    if (i + 1 < wps.size())
+                    {
+                        const auto& nextWp = wps[i+1];
+                        // Only override if the road ID is different (and valid)
+                        if (nextWp.GetTrackId() != currentRoadId)
+                        {
+                            info.road_lane_info.roadId = nextWp.GetTrackId();
+                            info.road_lane_info.laneId = nextWp.GetLaneId();
+                            routeOverride = true;
+                            
+                            // Debug Log for Route Override
+                            static double accR = 0.0;
+                            accR += 0.05;
+                            if (accR > 0.5) {
+                                accR = 0.0;
+                                printf("[JUNC_ROUTE] Overrided Probe with Route: RoadId=%d LaneId=%d\n", 
+                                    (int)nextWp.GetTrackId(), nextWp.GetLaneId());
+                            }
+                        }
+                    }
+                    break; 
+                }
+            }
+        }
+
+        // junctionId check (unsigned -1 protection)
+        const bool probeInJunction = (info.road_lane_info.junctionId != NO_JUNCTION_ID);
+
+        // Only proceed if we have made a junction choice (probe is on the connecting road)
+        static constexpr int PROBE_MADE_JUNCTION_CHOICE = 2;
+        // Proceed if Probe made a choice OR if we Overrided it with Route (assuming Route implies a valid path)
+        const bool choiceMade = ((int)ret == PROBE_MADE_JUNCTION_CHOICE) || routeOverride;
+        
+        if (!choiceMade) return 0;
+
+        // Debug: Check Strategy and Angle unconditionally
+        static double accS2 = 0.0;
+        accS2 += 0.05;
+        if (accS2 > 0.5) {
+            accS2 = 0.0;
+            printf("[JUNC_DEBUG] Strat=%d Angle=%.2f\n", 
+                (int)vehicle_->GetJunctionSelectorStrategy(),
+                vehicle_->GetJunctionSelectorAngle());
+        }
+
+        // 0. Check Vehicle Route/Junction Strategy (Priority Over Probe)
+        // If the vehicle is following a route, the ScenarioEngine sets the JunctionSelectorAngle.
+        // We trust this intent more than the geometric probe which defaults to straight if route is ambiguous to it.
+        if (vehicle_->GetJunctionSelectorStrategy() == roadmanager::Junction::JunctionStrategyType::SELECTOR_ANGLE)
+        {
+            double selectorAngle = vehicle_->GetJunctionSelectorAngle();
+            double diff = NormalizeAngle(selectorAngle); // Angle is relative to incoming road (0 = Straight)
+            
+            // Debug Log for Strategy
+            static double accS = 0.0;
+            accS += 0.05; 
+            if (accS > 0.5) {
+                accS = 0.0;
+                printf("[JUNC_STRAT] ret=%d jid=%lld angle=%.2f diff=%.2f\n",
+                       (int)ret, (long long)info.road_lane_info.junctionId, selectorAngle, diff);
+            }
+
+            constexpr double threshold = 0.10; 
+            if (diff > threshold) return 1;      // Left
+            else if (diff < -threshold) return -1; // Right
+            return 0; // Straight
+        }
+
+        // 1. Current Heading
+        const double currentH = vehicle_->pos_.GetDrivingDirection();
+        
+        // 2. Target Heading Analysis (Full Link Logic)
+        double targetH = info.road_lane_info.heading; // Default to probe point tangent
+        bool succResolved = false;
+        
+        // The probe is on the Connecting Road. 
+        roadmanager::Road *connRoad = vehicle_->pos_.GetRoadById(info.road_lane_info.roadId);
+        
+        int succIdVal = -1;
+        int contactPointVal = -1; // Debug
+        int linkTypeVal = 0; // Debug
+        
+        if (connRoad)
+        {
+            // Determine Direction of Travel to find Exit Link
+            // Lane ID < 0: Travel with S (Exit is Successor)
+            // Lane ID > 0: Travel against S (Exit is Predecessor)
+            // Lane ID = 0: Center (Invalid for driving, but assume Successor?)
+            bool withS = (info.road_lane_info.laneId < 0);
+            roadmanager::LinkType targetLinkType = withS ? roadmanager::SUCCESSOR : roadmanager::PREDECESSOR;
+            linkTypeVal = withS ? 1 : -1;
+
+            roadmanager::RoadLink *link = connRoad->GetLink(targetLinkType);
+            
+            if (link && link->GetElementType() == roadmanager::RoadLink::ELEMENT_TYPE_ROAD)
+            {
+                id_t succId = link->GetElementId();
+                succIdVal = (int)succId;
+                
+                // Determine Contact Point (Start vs End)
+                // If ContactPoint is START: Connected Road starts at s=0.
+                // If ContactPoint is END: Connected Road ends at s=Length.
+                roadmanager::ContactPointType cp = link->GetContactPointType();
+                contactPointVal = (int)cp;
+                
+                double sPos = 0.0;
+                bool enterAtEnd = (cp == roadmanager::CONTACT_POINT_END);
+                
+                if (enterAtEnd)
+                {
+                    // Need Road Length to get position at End
+                    roadmanager::Road *succRoad = vehicle_->pos_.GetRoadById(succId);
+                    if (succRoad)
+                    {
+                        sPos = succRoad->GetLength();
+                    }
+                }
+                
+                // Calculate Heading at that point
+                roadmanager::Position succPos(succId, sPos, 0.0);
+                succPos.SetTrackPos(succId, sPos, 0.0);
+                double baseH = succPos.GetH(); // Tangent at sPos (Usually points in S-increasing direction)
+                
+                // Direction Logic:
+                // We need the heading of the "Traffic Flow" at that point.
+                // If we enter at Start, we drive 0->L (With S). Heading = Tangent.
+                // If we enter at End, we drive L->0 (Against S). Heading = Tangent + PI.
+                // Note: This implies the *Destination* road is also RHT (Lanes < 0).
+                // If Destination is LHT (Lanes > 0), this logic might flip? 
+                // But generally, driving L->0 means "Against S", regardless of Lane ID?
+                // Yes, physically moving L->0 is against tangent.
+                
+                if (enterAtEnd)
+                {
+                    baseH += M_PI;
+                }
+                
+                targetH = baseH;
+                succResolved = true;
+            }
+        }
+        
+        if (!succResolved)
         {
              return 0;
         }
 
-        if (info.road_lane_info.junctionId == -1)
-        {
-            return 0; 
+        double diff = NormalizeAngle(targetH - currentH);
+
+        // Debug Log
+        static double acc = 0.0;
+        acc += 0.05; 
+        if (acc > 0.5) {
+            acc = 0.0;
+            // lnk: 1=Succ, -1=Pred
+            printf("[JUNC_LINK] d=%.1f ret=%d jid=%lld roadId=%d ln=%d lnk=%d succId=%d cp=%d curH=%.2f tgtH=%.2f diff=%.3f\n",
+                   lookahead, (int)ret,
+                   (long long)info.road_lane_info.junctionId,
+                   (int)info.road_lane_info.roadId,
+                   (int)info.road_lane_info.laneId,
+                   linkTypeVal,
+                   succIdVal, contactPointVal,
+                   currentH, targetH, diff);
         }
 
-        double relH = info.relative_h; 
-        
-        // Threshold check
-        int res = 0;
-        if (relH > JUNCTION_TURN_THRESHOLD) res = 1;
-        else if (relH < -JUNCTION_TURN_THRESHOLD) res = -1;
+        constexpr double threshold = 0.10; 
+        if (diff > threshold) return 1;      // Left
+        else if (diff < -threshold) return -1; // Right
 
-        return res;
+        return 0;
     }
+
 
 
 } // namespace gt_esmini

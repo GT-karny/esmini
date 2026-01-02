@@ -353,6 +353,19 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
 
+        // Check for --autolight argument in original argv
+        bool autoLightEnabled = false;
+        for(int i=0; i<argc; i++) {
+            if(argv[i] && strcmp(argv[i], "--autolight") == 0) {
+                autoLightEnabled = true;
+                break;
+            }
+        }
+        if (autoLightEnabled) {
+             AutoLightManager::Instance().Enable(true);
+             std::cout << "GT_Init: AutoLight enabled via argument." << std::endl;
+        }
+
         // 5. Register Hook for OSIReporter
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
         
