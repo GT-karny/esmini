@@ -103,7 +103,7 @@ namespace gt_esmini
         
         static constexpr double ACC_SMOOTHING_ALPHA = 0.1;     // EMA factor (Lower is smoother)
         
-        static constexpr double MIN_INDICATOR_DURATION = 2.0; // Seconds
+        static constexpr double MIN_INDICATOR_DURATION = 0.0; // Seconds (User Request: Immediate OFF)
         static constexpr double STEER_THRESHOLD = 0.08;      // rad check
         static constexpr double YAW_RATE_THRESHOLD = 0.05;   // rad/s check
         static constexpr double UPDATE_INTERVAL = 0.05;      // 20Hz

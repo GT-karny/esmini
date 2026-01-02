@@ -675,6 +675,7 @@ namespace gt_esmini
                             routeOverride = true;
                             
                             // Debug Log for Route Override
+                            /*
                             static double accR = 0.0;
                             accR += 0.05;
                             if (accR > 0.5) {
@@ -682,6 +683,7 @@ namespace gt_esmini
                                 printf("[JUNC_ROUTE] Overrided Probe with Route: RoadId=%d LaneId=%d\n", 
                                     (int)nextWp.GetTrackId(), nextWp.GetLaneId());
                             }
+                            */
                         }
                     }
                     break; 
@@ -700,6 +702,7 @@ namespace gt_esmini
         if (!choiceMade) return 0;
 
         // Debug: Check Strategy and Angle unconditionally
+        /*
         static double accS2 = 0.0;
         accS2 += 0.05;
         if (accS2 > 0.5) {
@@ -708,6 +711,7 @@ namespace gt_esmini
                 (int)vehicle_->GetJunctionSelectorStrategy(),
                 vehicle_->GetJunctionSelectorAngle());
         }
+        */
 
         // 0. Check Vehicle Route/Junction Strategy (Priority Over Probe)
         // If the vehicle is following a route, the ScenarioEngine sets the JunctionSelectorAngle.
@@ -718,6 +722,7 @@ namespace gt_esmini
             double diff = NormalizeAngle(selectorAngle); // Angle is relative to incoming road (0 = Straight)
             
             // Debug Log for Strategy
+            /*
             static double accS = 0.0;
             accS += 0.05; 
             if (accS > 0.5) {
@@ -725,6 +730,7 @@ namespace gt_esmini
                 printf("[JUNC_STRAT] ret=%d jid=%lld angle=%.2f diff=%.2f\n",
                        (int)ret, (long long)info.road_lane_info.junctionId, selectorAngle, diff);
             }
+            */
 
             constexpr double threshold = 0.10; 
             if (diff > threshold) return 1;      // Left
@@ -814,6 +820,7 @@ namespace gt_esmini
         double diff = NormalizeAngle(targetH - currentH);
 
         // Debug Log
+        /*
         static double acc = 0.0;
         acc += 0.05; 
         if (acc > 0.5) {
@@ -828,6 +835,7 @@ namespace gt_esmini
                    succIdVal, contactPointVal,
                    currentH, targetH, diff);
         }
+        */
 
         constexpr double threshold = 0.10; 
         if (diff > threshold) return 1;      // Left
