@@ -118,6 +118,9 @@ gt_esmini::GT_ScenarioReader
 **主な変更点:**
 - `UpdateOSIMovingObject`関数にライト状態の出力処理を追加
 - `VehicleExtensionManager`を使用してライト状態を取得
+- **[New]** デュアル軌道ロジックの実装:
+    - Ghostオブジェクトの`trail_`から`future_trajectory`をサンプリング
+    - Egoオブジェクト用にGhostへのリカバリスプラインを生成・出力
 
 **実装ファイル:**
 - `GT_OSIReporter.cpp`

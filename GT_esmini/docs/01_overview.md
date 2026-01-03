@@ -45,6 +45,14 @@ OpenSCENARIO v1.2で定義されている`LightStateAction`をサポートしま
 - AutoLightで点灯していたライトも、`LightStateAction`で消灯可能
 - `LightStateAction`で設定された状態は、次のAutoLight更新まで保持されます
 
+### 3. OSIデュアル軌道レポート (Dual Trajectory Reporting)
+
+FMU連携強化のため、車両の「理想軌道（Ghost）」と「制御軌道（Ego）」をOSI経由で同時に出力する機能です。
+- **Ghost Trajectory**: シナリオで定義された理想的なリファレンスパス
+- **Ego Trajectory**: Ghostへ復帰するための動的生成パス（リカバリスプライン）
+
+これにより、外部コントローラーは「目標とすべき理想軌道」と「現在の制御計画」の両方を参照可能になります。
+
 ## esmini本体との関係
 
 GT_esminiは、esminiの**拡張モジュール**として設計されています。以下の特徴があります：
