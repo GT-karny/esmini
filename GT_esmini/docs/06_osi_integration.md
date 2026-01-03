@@ -175,6 +175,34 @@ python osi_receiver.py
 - [サンプルシナリオ](07_examples.md) - OSI使用例
 - [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
 
+## デュアル軌道ロジック (Dual Trajectory Logic)
+
+GT_esminiは、FMU連携強化のために、OSIの`future_trajectory`フィールドを使用したデュアル軌道レポート機能を実装しています。これにより、理想的な経路（ゴースト）と実際の制御計画（自車）の両方を外部システムに送信できます。
+
+1. **ゴーストオブジェクト（理想軌道）**
+   - **ソース**: シナリオで定義された自身の `trail_` (PolyLineBase)。
+   - **内容**: シナリオ通りの理想的な将来位置。
+   - **生成方法**: 現在時刻から一定時間先（例：10秒先）までの点をサンプリングして予測。
+
+2. **自車（Ego）オブジェクト（リカバリ軌道）**
+   - **ソース**: 自車位置からゴースト位置への動的スプライン。
+   - **内容**: ゴーストの軌道に復帰するための経路。
+   - **生成方法**: **3次エルミートスプライン (Cubic Hermite Spline)** を使用して、現在の自車位置・方位と、ゴーストの現在位置・方位を滑らかに接続。
+
+### future_trajectory フィールドの詳細
+
+`osi3::MovingObject` メッセージの `future_trajectory` (repeated `osi3::StatePoint`) に以下の値が格納されます。
+
+| フィールド | 型 | 説明 |
+|------------|----|------|
+| `timestamp` | `osi3::Timestamp` | 予測点の時刻（シミュレーション時刻 + 先読み時間）。ナノ秒単位まで設定。 |
+| `position` | `osi3::Vector3d` | **x, y**: 軌道上の座標<br>**z**: 現在の路面高さ (Ego) または トレイルの高さ (Ghost) |
+| `orientation` | `osi3::Orientation3d` | **yaw**: 軌道の接線方向（Heading）<br>**roll, pitch**: 0 (現在は計算簡略化のため0固定) |
+
+**サンプリング仕様:**
+- **Ghost**: 0.5秒間隔で20点（10秒先まで）
+- **Ego**: 自車からゴーストまでの区間を20点で分割（可変dt）
+
 ## 関連ドキュメント
 
 - [Open Simulation Interface](https://github.com/OpenSimulationInterface/open-simulation-interface) - OSI公式リポジトリ

@@ -1094,6 +1094,127 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
             }
         }
 
+        // [New] Generate Future Trajectory
+        if (this->scenario_engine_)
+        {
+            int id = objectState->state_.info.id;
+            scenarioengine::Object* targetObj = this->scenario_engine_->entities_.GetObjectById(id);
+
+            if (targetObj)
+            {
+                // CASE 1: Ghost Object (Report its own future trajectory)
+                // targetObj->isGhost_ determines if it IS a ghost? Or logic check.
+                // Entities.hpp says isGhost_ is a member.
+                // Or check controllers specific type if needed.
+                // The original code checked: ctrl_type == GHOST_RESERVED_TYPE
+                
+                // Let's rely on simple checks suitable for the context.
+                // Check if it's the Ghost object itself.
+                bool is_ghost = false;
+                // Method 1: Check driver_id / ctrl_type from objectState (which is reliable for current frame)
+                if (objectState->state_.info.ctrl_type == Controller::Type::GHOST_RESERVED_TYPE) {
+                    is_ghost = true;
+                }
+                
+                if (is_ghost)
+                {
+                    // Sample future points from trail_
+                    double current_time = this->scenario_engine_->getSimulationTime(); 
+                    
+                    if (targetObj->trail_.GetNumberOfVertices() > 0)
+                    {
+                        int samples = 20;
+                        double dt = 0.5; 
+
+                         for(int i=1; i<=samples; ++i)
+                        {
+                            double t_future = current_time + i*dt;
+                            roadmanager::TrajVertex v;
+                            idx_t index = -1; // Removed scenarioengine:: qualifier if idx_t is global
+                            
+                            if (targetObj->trail_.FindPointAtTime(t_future, v, index) == 0) 
+                            {
+                                auto* point = obj_osi_internal.mobj->add_future_trajectory();
+                                point->mutable_timestamp()->set_seconds((long long)t_future);
+                                point->mutable_timestamp()->set_nanos((int)((t_future - (long long)t_future) * 1e9));
+                                
+                                point->mutable_position()->set_x(v.x);
+                                point->mutable_position()->set_y(v.y);
+                                point->mutable_position()->set_z(v.z);
+                                
+                                point->mutable_orientation()->set_yaw(v.h);
+                                point->mutable_orientation()->set_roll(0); 
+                                point->mutable_orientation()->set_pitch(0);
+                            }
+                        }
+                    }
+                }
+                // CASE 2: Ego Object (Report Spline to Ghost)
+                else if (targetObj->ghost_)
+                {
+                    // p0 from objectState (which uses roadmanager::Position)
+                    double p0_x = objectState->state_.pos.GetX();
+                    double p0_y = objectState->state_.pos.GetY();
+                    double h0   = objectState->state_.pos.GetH();
+
+                    // p1 from Ghost Object
+                    // targetObj->ghost_ is Object*. Object has pos_ member.
+                    double p1_x = targetObj->ghost_->pos_.GetX();
+                    double p1_y = targetObj->ghost_->pos_.GetY();
+                    double h1   = targetObj->ghost_->pos_.GetH();
+
+                    double dx = p1_x - p0_x;
+                    double dy = p1_y - p0_y;
+                    double dist = std::sqrt(dx*dx + dy*dy);
+                    
+                    if (dist > 1.0) 
+                    {
+                        double scale = dist; 
+                        
+                        double m0_x = std::cos(h0) * scale;
+                        double m0_y = std::sin(h0) * scale;
+                        double m1_x = std::cos(h1) * scale;
+                        double m1_y = std::sin(h1) * scale;
+
+                        int samples = 20; 
+                        double dt = 0.1; 
+                        double start_time = objectState->state_.info.timeStamp;
+
+                        for(int i=1; i<=samples; ++i)
+                        {
+                            double t = (double)i / (double)samples; 
+                            double t2 = t * t;
+                            double t3 = t2 * t;
+
+                            double h00 = 2*t3 - 3*t2 + 1;
+                            double h10 = t3 - 2*t2 + t;
+                            double h01 = -2*t3 + 3*t2;
+                            double h11 = t3 - t2;
+
+                            double x = h00*p0_x + h10*m0_x + h01*p1_x + h11*m1_x;
+                            double y = h00*p0_y + h10*m0_y + h01*p1_y + h11*m1_y;
+                            
+                            double x_d = (6*t2 - 6*t)*p0_x + (3*t2 - 4*t + 1)*m0_x + (-6*t2 + 6*t)*p1_x + (3*t2 - 2*t)*m1_x;
+                            double y_d = (6*t2 - 6*t)*p0_y + (3*t2 - 4*t + 1)*m0_y + (-6*t2 + 6*t)*p1_y + (3*t2 - 2*t)*m1_y;
+                            double h = std::atan2(y_d, x_d);
+
+                            auto* point = obj_osi_internal.mobj->add_future_trajectory();
+                            point->mutable_timestamp()->set_seconds((long long)(start_time + i*dt)); 
+                            point->mutable_timestamp()->set_nanos((int)(((start_time + i*dt) - (long long)(start_time + i*dt)) * 1e9));
+                            
+                            point->mutable_position()->set_x(x);
+                            point->mutable_position()->set_y(y);
+                            point->mutable_position()->set_z(objectState->state_.pos.GetZ()); 
+                            
+                            point->mutable_orientation()->set_yaw(h);
+                            point->mutable_orientation()->set_roll(0);
+                            point->mutable_orientation()->set_pitch(0);
+                        }
+                    }
+                }
+            }
+        }
+
         if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::AMBULANCE))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_AMBULANCE);
