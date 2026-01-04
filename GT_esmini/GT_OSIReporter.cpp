@@ -13,6 +13,7 @@
 #include "CommonMini.hpp"
 #include "OSIReporter.hpp"
 #include "OSITrafficCommand.hpp"
+#include "../EnvironmentSimulator/Modules/ScenarioEngine/OSCTypeDefs/OSCPrivateAction.hpp"
 // #include "ExtraEntities.hpp"
 #include <cmath>
 #include <string>
@@ -926,6 +927,103 @@ int OSIReporter::UpdateOSIStationaryObject(ObjectState *objectState)
     return 1;
 }
 
+// [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
+static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState, scenarioengine::ScenarioEngine* scenario_engine)
+{
+    if (!scenario_engine) return;
+    int id = objectState->state_.info.id;
+    auto* simObj = scenario_engine->entities_.GetObjectById(id);
+    if (!simObj) return;
+
+    // Shadow simulation: Clone current position
+    // This maintains the current Route info if assigned
+    roadmanager::Position ghostPos = simObj->pos_;
+
+    // Introspect active actions to find LatLaneChangeAction
+    scenarioengine::LatLaneChangeAction* activeLcAction = nullptr;
+    auto privateActions = simObj->getPrivateActions();
+    
+    // Simple check for first active LaneChangeAction
+    for (auto* action : privateActions)
+    {
+         if (action->Type2Str() == "LaneChangeAction")
+         {
+             activeLcAction = static_cast<scenarioengine::LatLaneChangeAction*>(action);
+             break; 
+         }
+    }
+
+    double current_time = scenario_engine->getSimulationTime();
+    int samples = 20;
+    double dt = 0.5;
+
+    for (int i = 1; i <= samples; ++i)
+    {
+        double t_future = current_time + i * dt;
+        double dt_step = dt;
+        
+        // Use current speed for projection (simplified constant speed model)
+        double speed = simObj->GetSpeed(); 
+        
+        double ds = speed * dt_step;
+        
+        // Lateral Logic (Lane Change)
+        double dLaneOffset = 0.0;
+        
+        // If we have an active lane change, calculate the desired offset for this time step
+        if (activeLcAction)
+        {
+            // Create a temp dynamics object to evaluate at future time
+            // TransitionDynamics state: param_val_ is current progress.
+            // We assume dimension is TIME for most LC actions.
+            // If DISTANCE, we would use ds.
+            
+            scenarioengine::OSCPrivateAction::TransitionDynamics futureDynamics = activeLcAction->transition_;
+            
+            // Advance the dynamics state
+            // Note: This is an approximation. We assume linear time progression.
+            // If dimension is RATE, it's more complex, but standard LC uses TIME or DISTANCE.
+            if (futureDynamics.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::TIME)
+            {
+                futureDynamics.Step(i * dt); // Step by delta from NOW
+            }
+            else if (futureDynamics.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE)
+            {
+                futureDynamics.Step(i * ds); // Step by delta distance
+            }
+            
+            // Evaluate gives the absolute offset value at that time
+            double desiredOffset = futureDynamics.Evaluate();
+            
+            // MoveAlongS accepts delta offset, but we want to force the offset or move towards it.
+            // However, MoveAlongS with dLaneOffset adds to current. 
+            // ghostPos.SetLanePos with offset is better, but MoveAlongS handles road compilation.
+            // Strategy: Calculate delta needed from CURRENT ghostPos offset to DESIRED offset.
+            // Note: ghostPos is updated in each step of this loop.
+            double currentGhostOffset = ghostPos.GetOffset(); // GetOffset() is available in Position
+            dLaneOffset = desiredOffset - currentGhostOffset; 
+        }
+
+        // Move the ghost position forward
+        // junctionSelectorAngle = -1.0 (random) -> ideally should be guided by Route if present.
+        // If Route is assigned, MoveAlongS will prioritize it automatically if updateRoute=true.
+        ghostPos.MoveAlongS(ds, dLaneOffset, -1.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true);
+        
+        // Add point to OSI message
+        auto* point = obj_osi_internal.mobj->add_future_trajectory();
+        point->mutable_timestamp()->set_seconds((long long)t_future);
+        point->mutable_timestamp()->set_nanos((int)((t_future - (long long)t_future) * 1e9));
+        
+        point->mutable_position()->set_x(ghostPos.GetX());
+        point->mutable_position()->set_y(ghostPos.GetY());
+        point->mutable_position()->set_z(ghostPos.GetZ());
+        
+        point->mutable_orientation()->set_yaw(ghostPos.GetH());
+        point->mutable_orientation()->set_roll(ghostPos.GetR()); 
+        point->mutable_orientation()->set_pitch(ghostPos.GetP());
+    }
+}
+
 int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
 {
     // Create OSI Moving object
@@ -1148,6 +1246,11 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                             }
                         }
                     }
+                    else
+                    {
+                        // [GT_MOD] Fallback: Generate projected trajectory if trail is empty
+                        GenerateProjectedTrajectory(objectState, this->scenario_engine_);
+                    }
                 }
                 // CASE 2: Ego Object (Report Spline to Ghost)
                 else if (targetObj->ghost_)
@@ -1210,6 +1313,22 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                             point->mutable_orientation()->set_roll(0);
                             point->mutable_orientation()->set_pitch(0);
                         }
+                    }
+                }
+                else
+                {
+                    // [GT_MOD] Universal Fallback: Optimized
+                    // Only generate for Ego/External/Interactive vehicles to save performance.
+                    // ID 0 is typically Ego.
+                    int ctrlType = objectState->state_.info.ctrl_type;
+                    bool isEgoOrExternal = (objectState->state_.info.id == 0) ||
+                                           (ctrlType == scenarioengine::Controller::CONTROLLER_TYPE_EXTERNAL) ||
+                                           (ctrlType == scenarioengine::Controller::CONTROLLER_TYPE_UDP_DRIVER) ||
+                                           (ctrlType == scenarioengine::Controller::CONTROLLER_TYPE_INTERACTIVE);
+
+                    if (isEgoOrExternal)
+                    {
+                        GenerateProjectedTrajectory(objectState, this->scenario_engine_);
                     }
                 }
             }
