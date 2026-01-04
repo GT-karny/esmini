@@ -27,6 +27,7 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 8. **[アーキテクチャ](08_architecture.md)** - 設計思想と内部構造
 9. **[トラブルシューティング](09_troubleshooting.md)** - よくある問題と解決方法
 10. **[APIリファレンス](10_api_reference.md)** - 関数とデータ型の完全なリファレンス
+14. **[外部制御](14_external_control.md)** - FMI/外部アプリによる制御設定とゴースト機能
 
 ## 推奨される読む順序
 
