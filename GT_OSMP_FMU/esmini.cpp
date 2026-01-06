@@ -303,6 +303,75 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
             {
                 SE_ReportObjectVel(obj_id, 0, obj.base().velocity().x(), obj.base().velocity().y(), obj.base().velocity().z());
             }
+
+            // [GT_MOD] START: Inject Light State from OSI TrafficUpdate
+            if (obj.has_vehicle_classification() && obj.vehicle_classification().has_light_state())
+            {
+                const auto& ls = obj.vehicle_classification().light_state();
+
+                // 1. Indicators (Left/Right/Hazard)
+                // GT_esmini Types: 8=Left, 9=Right. Mode: 0=Off, 1=On, 2=Flash
+                int indLeft = 0; // Off
+                int indRight = 0; // Off
+                
+                auto ind = ls.indicator_state();
+                if (ind == osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_LEFT)
+                {
+                    indLeft = 2; // Flashing
+                }
+                else if (ind == osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_RIGHT)
+                {
+                    indRight = 2; // Flashing
+                }
+                else if (ind == osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_WARNING)
+                {
+                    indLeft = 2; // Hazard
+                    indRight = 2;
+                }
+                
+                GT_SetExternalLightState(obj_id, 8, indLeft);
+                GT_SetExternalLightState(obj_id, 9, indRight);
+
+                // 2. Brake Lights
+                // GT_esmini Type: 6
+                int brake = 0;
+                // Check if Brake Light State is Normal or Strong
+                auto brk = ls.brake_light_state();
+                if (brk == osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_NORMAL ||
+                    brk == osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_STRONG)
+                {
+                    brake = 1; // On
+                }
+                GT_SetExternalLightState(obj_id, 6, brake);
+
+                // 3. Reversing Lights
+                // GT_esmini Type: 10
+                int reverse = 0;
+                auto rev = ls.reversing_light();
+                if (rev == osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON)
+                {
+                    reverse = 1;
+                }
+                 GT_SetExternalLightState(obj_id, 10, reverse);
+
+                // 4. Headlights (Low/High)
+                // GT_esmini: 1=LowBeam, 2=HighBeam
+                // OSI: head_light, high_beam (GenericLightState)
+                int lowBeam = 0;
+                if (ls.head_light() == osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON)
+                {
+                    lowBeam = 1;
+                }
+                GT_SetExternalLightState(obj_id, 1, lowBeam);
+
+                int highBeam = 0;
+                if (ls.high_beam() == osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON)
+                {
+                    highBeam = 1;
+                }
+                GT_SetExternalLightState(obj_id, 2, highBeam);
+            }
+            // [GT_MOD] END
         }
     }
     else

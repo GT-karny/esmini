@@ -451,3 +451,29 @@ GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType)
     }
     return -1; // Vehicle not found
 }
+
+GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mode)
+{
+    if (!player || !player->scenarioEngine) return;
+
+    for (auto* obj : player->scenarioEngine->entities_.object_)
+    {
+        if (obj->id_ == vehicleId && obj->type_ == scenarioengine::Object::Type::VEHICLE)
+        {
+            scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
+            
+            // Ensure extension exists
+            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+            if (!ext)
+            {
+                ext = new gt_esmini::VehicleLightExtension(vehicle);
+                gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+            }
+
+            gt_esmini::LightState state;
+            state.mode = static_cast<gt_esmini::LightState::Mode>(mode);
+            ext->SetLightState(static_cast<gt_esmini::VehicleLightType>(lightType), state);
+            return;
+        }
+    }
+}

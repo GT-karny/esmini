@@ -86,7 +86,10 @@ extern "C"
      *        6: Brake, 7: Warning, 8: IndicatorLeft, 9: IndicatorRight, 10: Reversing, ...
      * @return 0: Off, 1: On, 2: Flashing, -1: Error/Vehicle Not Found/No Extension
      */
-    GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType);
+    // Set light state for a vehicle (for external controllers like FMU)
+GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mode);
+
+GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType);
 
 #ifdef __cplusplus
 }

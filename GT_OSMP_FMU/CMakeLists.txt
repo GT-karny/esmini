@@ -71,7 +71,7 @@ elseif(LINUX)
     endif()
 endif()
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(LINK_WITH_SHARED_OSI
     OFF
@@ -110,6 +110,14 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../E
                     ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osi/${EXT_INCL_DIR}/include
                     # [GT_MOD] START: Add GT_esmini include
                     ${CMAKE_CURRENT_SOURCE_DIR}/../GT_esmini
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/CommonMini
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/ScenarioEngine/OSCTypeDefs
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/PlayerBase
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/ViewerBase
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/Controllers
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/RoadManager
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../externals/pugixml
                     # [GT_MOD] END
                     )
 
@@ -134,9 +142,16 @@ link_directories(
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../externals/fmi2/headers)
 
-add_library(${TARGET} SHARED esmini.cpp)
+add_library(${TARGET} SHARED esmini.cpp
+    ../GT_esmini/GT_esminiLib.cpp
+    ../GT_esmini/ExtraEntities.cpp
+    ../GT_esmini/AutoLightController.cpp
+    ../GT_esmini/GT_ScenarioReader.cpp
+    ../GT_esmini/ExtraAction.cpp
+)
 set_target_properties(${TARGET} PROPERTIES PREFIX "")
 target_compile_definitions(${TARGET} PRIVATE "FMU_SHARED_OBJECT")
+target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
 
 if(STATIC_LINKING)
     message("Link esmini statically")
@@ -166,10 +181,7 @@ if(STATIC_LINKING)
     endif()
     target_link_libraries(
         ${TARGET}
-        # [GT_MOD] START: Link GT_esminiLib instead of esminiLib
-        PRIVATE GT_esminiLib_static${LIB_POSTFIX}
-        # [GT_MOD] END
-                PlayerBase${LIB_POSTFIX}
+        PRIVATE PlayerBase${LIB_POSTFIX}
                 ScenarioEngine${LIB_POSTFIX}
                 Controllers${LIB_POSTFIX}
                 ViewerBase${LIB_POSTFIX}
