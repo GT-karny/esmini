@@ -10,6 +10,7 @@
 | [`GT_Step`](#gt_step) | シミュレーションステップの実行 |
 | [`GT_EnableAutoLight`](#gt_enableautolight) | AutoLight機能の有効化 |
 | [`GT_GetLightState`](#gt_getlightstate) | ライト状態の取得 |
+| [`GT_SetExternalLightState`](#gt_setexternallightstate) | 外部からのライト状態設定 |
 | [`GT_Close`](#gt_close) | GT_esminiのクリーンアップ |
 
 ---
@@ -230,6 +231,44 @@ else if (brakeLight == -1)
 
 - `vehicleId`は、`SE_GetObjectId`で取得した値を使用してください
 - 無効な`lightType`を指定した場合、`-1`が返されます
+
+---
+
+## GT_SetExternalLightState
+
+指定した車両のライト状態を外部から設定します。主にFMUや外部コントローラーからの入力反映に使用されます。
+
+### シグネチャ
+
+```c
+void GT_SetExternalLightState(int vehicleId, int lightType, int mode);
+```
+
+### パラメータ
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| `vehicleId` | `int` | 車両ID（`SE_GetObjectId`で取得） |
+| `lightType` | `int` | ライトタイプ（`GT_GetLightState`と同じ値） |
+| `mode` | `int` | ライトモード（0: OFF, 1: ON, 2: FLASHING） |
+
+### 戻り値
+
+なし
+
+### 説明
+
+この関数は、`VehicleLightExtension`を介してライト状態を更新します。該当車両にExtensionが存在しない場合は自動的に作成されます。
+
+### 使用例
+
+```cpp
+// 車両ID 0 のブレーキランプを点灯させる
+GT_SetExternalLightState(0, 6, 1);
+
+// 車両ID 1 の左ウィンカーを点滅させる
+GT_SetExternalLightState(1, 8, 2);
+```
 
 ---
 

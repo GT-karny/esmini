@@ -32,6 +32,23 @@ GT_esminiは、`MovingObject`メッセージの`VehicleClassification.LightState
 | ON | `*_STATE_NORMAL` または `*_STATE_ON` |
 | FLASHING | `*_STATE_FLASHING` |
 
+## OSI入力からのライト制御
+
+GT_OSMP_FMUは、OSI `TrafficUpdate` メッセージを介して外部からライト状態の制御を受け取ることができます。これにより、外部のコントローラーやシミュレーターがesmini内の車両のライトを操作可能になります。
+
+### サポートされているOSI入力フィールド
+
+`MovingObject.vehicle_classification.light_state` 内の以下のフィールドがサポートされています：
+
+| OSI フィールド | 型 | 動作 |
+|---------------|---|------|
+| `indicator_state` | `IndicatorState` | `LEFT`/`RIGHT` で点滅、`WARNING` でハザード点滅 |
+| `brake_light_state` | `BrakeLightState` | `NORMAL` または `STRONG` で点灯 |
+| `reversing_light` | `GenericLightState` | `ON` で点灯 |
+| `head_light` | `GenericLightState` | `ON` でロービーム点灯 |
+| `high_beam` | `GenericLightState` | `ON` でハイビーム点灯 |
+
+
 ## GT_OSIReporterの役割
 
 GT_esminiは、`GT_OSIReporter`を使用してOSI出力にライト状態を追加します。
