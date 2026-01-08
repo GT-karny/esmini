@@ -34,7 +34,7 @@ GT_esmini_Release/
 
 3.  **実行方法**:
     - ユーザーは `bin/GT_Sim.exe` を実行します。
-    - 引数でシナリオパスを指定する場合: `GT_Sim.exe ../scenarios/demo.xosc`
+    - 引数でシナリオパスを指定する場合: `GT_Sim.exe --osc ../scenarios/demo.xosc`
 
 ## 作成手順（例）
 

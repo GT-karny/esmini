@@ -39,7 +39,7 @@ int main(int argc, const char* argv[])
 {
     if (argc < 2)
     {
-        printf("Usage: GT_Sim <osc filename> [options]\n");
+        printf("Usage: GT_Sim --osc <osc filename> [options]\n");
         printf("Options:\n");
         printf("  --autolight          Enable AutoLight functionality\n");
         printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");

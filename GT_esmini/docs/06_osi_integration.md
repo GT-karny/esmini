@@ -48,6 +48,28 @@ GT_OSMP_FMUは、OSI `TrafficUpdate` メッセージを介して外部からラ�
 | `head_light` | `GenericLightState` | `ON` でロービーム点灯 |
 | `high_beam` | `GenericLightState` | `ON` でハイビーム点灯 |
 
+### TrafficUpdateによる位置・回転の更新
+
+OSI `TrafficUpdate` メッセージを受信すると、以下の処理が行われます：
+
+1.  **6自由度 (6DOF) 対応**:
+    -   位置 (Position): `x`, `y`, `z`
+    -   回転 (Orientation): `yaw` (Heading), `pitch`, `roll`
+    -   これら全ての要素が `esmini` の車両状態に反映されます。
+
+2.  **座標系の補正 (Reference Point Adjustment)**:
+    -   OSIの位置は通常「Bounding Boxの中心」ですが、`esmini` は「Reference Point (後車軸中心の路面投影点など)」を使用します。
+    -   FMU内部で、車両固有のオフセット (`centerOffset`) と回転角を用いて、OSIの中心座標から `esmini` のReference Pointを逆算・補正して適用します。
+    -   式 (簡易版):
+        -   `X_ref = X_osi - Rotated(Offset).x`
+        -   `Y_ref = Y_osi - Rotated(Offset).y`
+        -   `Z_ref = Z_osi - Offset.z`
+
+3.  **Road Snap (自動吸着) の無効化**:
+    -   `TrafficUpdate` で位置が更新される際、`esmini` 本来の機能である「路面への自動吸着 (Zスナップ)」は **無効化** されます。
+    -   これにより、外部物理シミュレータが計算した正確な3D挙動 (ピッチング、ロール、ジャンプ等) がそのまま再現されます。
+    -   **注意**: 外部シミュレータが適切なZ座標と姿勢を提供する必要があります。Z=0などが送られると、車両が地下に埋まる等の表示不正が発生します。
+
 
 ## GT_OSIReporterの役割
 

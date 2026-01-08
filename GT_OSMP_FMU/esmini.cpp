@@ -287,17 +287,26 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
             if (obj.base().has_orientation())
             {
                 vehicleState.h = (float)obj.base().orientation().yaw();
+                vehicleState.p = (float)obj.base().orientation().pitch();
+                vehicleState.r = (float)obj.base().orientation().roll();
             }
 
             if (obj.base().has_position())
             {
+                // Correct OSI center position to esmini reference point (Rear Axle)
+                // Ref_Point = OSI_Position - Rotate(Center_Offset)
+                // Apply 2D rotation for X/Y offsets (assuming Yaw is dominant)
                 vehicleState.x =
-                    obj.base().position().x() - vehicleState.centerOffsetX * cos(vehicleState.h) - vehicleState.centerOffsetY * sin(vehicleState.h);
+                    obj.base().position().x() - (vehicleState.centerOffsetX * cos(vehicleState.h) - vehicleState.centerOffsetY * sin(vehicleState.h));
                 vehicleState.y =
-                    obj.base().position().y() - vehicleState.centerOffsetX * sin(vehicleState.h) - vehicleState.centerOffsetY * cos(vehicleState.h);
+                    obj.base().position().y() - (vehicleState.centerOffsetX * sin(vehicleState.h) + vehicleState.centerOffsetY * cos(vehicleState.h));
+                
+                // Apply Z offset correction (simplified subtraction)
+                vehicleState.z = obj.base().position().z() - vehicleState.centerOffsetZ;
             }
 
-            SE_ReportObjectPosXYH(obj_id, 0, vehicleState.x, vehicleState.y, vehicleState.h);
+            // Report full 6DOF position/rotation
+            SE_ReportObjectPos(obj_id, 0, vehicleState.x, vehicleState.y, vehicleState.z, vehicleState.h, vehicleState.p, vehicleState.r);
 
             if (obj.base().has_velocity())
             {
