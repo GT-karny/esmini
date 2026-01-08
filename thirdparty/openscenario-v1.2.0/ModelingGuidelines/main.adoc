@@ -1,0 +1,49 @@
+
+// don't change this
+:revnumber: --localbuild--
+:revdate: {docdate}
+
+// ASAM resources
+:asciidoc-resources: ../../.asam_resources
+include::{asciidoc-resources}/preamble.adoc[]
+// attention: bibtex requires pathing relative to asciidoc command, not main.adoc!
+:bibtex-file: additional_content/ModelingGuidelines/bibliography.bib
+
+// OpenSCENARIO 
+:THIS_STANDARD: ASAM OpenSCENARIO
+:description: Dynamic content in driving simulation
+
+
+= {THIS_STANDARD}: Modeling Guidelines
+
+
+[IMPORTANT] 
+.Disclaimer
+==== 
+This document is the copyrighted property of ASAM e.V. 
+ 
+Any use is limited to the scope described in the license terms (https://www.asam.net/license). 
+In alteration to the regular license terms, ASAM allows unrestricted distribution of this standard. 
+§2 (1) of ASAM's regular https://www.asam.net/license[license terms] is therefore substituted by the following clause: "The licensor grants everyone a basic, non-exclusive and unlimited license to use the standard {THIS_STANDARD}". 
+====
+
+:imagesdir: images
+
+include::foreword.adoc[leveloffset=+1]
+include::introduction.adoc[leveloffset=+1]
+include::class_diagrams.adoc[leveloffset=+1]
+include::uml_profiles.adoc[leveloffset=+1]
+include::documentation_guidelines.adoc[leveloffset=+1]
+include::mapping_to_xml.adoc[leveloffset=+1]
+include::xsd_transformation.adoc[leveloffset=+1]
+include::deprecation.adoc[leveloffset=+1]
+
+[bibliography]
+== Bibliography
+bibliography::[]
+
+include::list_of_figures.adoc[leveloffset=+1]
+include::list_of_tables.adoc[leveloffset=+1]
+
+// Appendix
+include::xsd_generation.adoc[leveloffset=+1]

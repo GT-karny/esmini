@@ -1,0 +1,303 @@
+
+= Mapping to XML
+
+The UML Profile will help to define a valid and unambiguous transformation into an XML schema.
+
+== Description of the XSD transformation
+
+The model is fed into the XSD Transformation (for detailed transformation information see <<XSD transformation>> ). Here is the schematic overview:
+
+Classes with \<<XSDcomplexType>> applied are transformed into ``xsd:complexType``.
+
+* The name of the complexType is the name of the class.
+
+* Attributes with \<<XSDattribute>> applied, are transformed into ``xsd:attribute``s.
+* Compositions for which the class acts as the containing class will be transformed into ``xsd:element`` or ``xsd:group``. ``xsd:element`` is used when the contained class has \<<XSDgroup>> applied. The _ref_ value will be the class name of the contained class. xsd:group is used when the contained class has \<<XSDcomplexType>> applied. The type value will be the class name of the contained class.
+* The minOccurs, maxOccurs are set to the corresponding cardinalities. They are discarded when the standard value is "1".
+
+* The tagged-value modelGroup is taken to decide whether the xsd:elements are enclosed into ``xsd:choice`` (value:choice), ``xsd:sequence`` (value: sequence) or ``xsd:all`` (value:all).
+
+Classes with \<<XSDgroup>> applied are transformed into xsd:group
+
+* The name of the ``xsd:group`` is the name of the class.
+
+* Compositions for which the class acts as the containing class will be transformed into ``xsd:element`` or ``xsd:group``. ``xsd:element`` is used when the contained class has \<<XSDgroup>> applied. The _ref_ value will be the class name of the contained class. ``xsd:group`` is used when the contained class has \<<XSDcomplexType>> applied. The type value will be the class name of the contained class.
+* The minOccurs, maxOccurs are set to the corresponding cardinalities.
+
+* The tagged-value modelGroup is taken to decide whether the ``xsd:element``s are enclosed into ``xsd:choice`` (value:choice), ``xsd:sequence`` (value: sequence) or ``xsd:all`` (value:all).
+
+Classes with \<<XSDsimpleType>> applied are transformed into ``xsd:simpleType``.
+
+* Base class is set after the generalized class (e.g. ``xsd:string``)
+
+* Restriction etc. is set after the tagged-value "restriction"
+
+Classes with \<<enumeration>> applied are transformed into ``xsd:simpleType``.
+
+* Xsd:restriction's base is always ``xsd:string``
+
+* The enumeration literals are transformed into a list of xsd:enumeration with the value set to the name of the symbolic name of the enumeration literal.
+
+Classes with \<<XSDsimpleContent>> applied are transformed into ``xsd:complexType`` with simple content (see _CustomCommandAction_ as an example).
+
+* The tags umlPropertyName and xsdType are used to define the simple content.
+
+Classes with \<<transient>> applied are not transformed into the schema.
+
+References with \<<nameRef>> applied are transformed into attributes of their referencing classes.
+
+For Classes with \<<XSDwrapperType>> applied a wrapper is generated. See ParameterDeclaration: A complex type is generated in XSD (see _ParameterDeclarations_ as an example).
+
+List associations with \<<XSDunwrapped>> applied are using the xsdElementName tag for using an appropriate list element name in the schema.
+
+List associations with \<<XSDwrapped>> are reconnected to the wrapper complex type.
+
+The mapping rules can be looked up in detail in the chapter .
+
+== Ordering XML elements
+
+In contrary to UML, XSD and XML imply an order for the occurrences of elements. This is true if _sequence_ is used in the XSD file.
+
+[source%nowrap,xml,linenums]
+----
+<xsd:group name="ScenarioDefinition">
+  <xsd:sequence>
+    <xsd:element name="ParameterDeclarations" type="ParameterDeclarations" minOccurs="0"/>
+    <xsd:element name="CatalogLocations" type="CatalogLocations"/>
+    <xsd:element name="RoadNetwork" type="RoadNetwork"/>
+    <xsd:element name="Entities" type="Entities"/>
+    <xsd:element name="Storyboard" type="Storyboard"/>
+  </xsd:sequence>
+...
+----
+
+
+To ensure the right order for element generation, Enterprise Architect provides a mechanism to add a tag called position to the source role of an association.
+
+[#fig-10]
+.The _position_ tag that ensures the element generation order.
+image::image14.png[image,width=604]
+
+
+Please note: To ensure element generation order, all "outgoing" compositions of a class (see <<Composition and aggregation relationships>>) must define a position tag as shown. The _position_ tag values among these compositions of a class must start with 1 and must be in consecutive order. "Outgoing" means any association, for which the class is the containing class. Above, ScenarioDefinition is the containing class for the associations named _parameterDeclarations_, _catalogLocations_, _roadNetwork_, _entities_, _storyboard_.
+
+[#fig-11]
+.Associations of the containing class ScenarioDefinition
+image::image15.png[image]
+
+
+== Mapping of lists
+
+Neither in UML nor in XSD a generic list type exists. In UML, a list is basically a property or an association for which the maximum cardinality is greater than one. In XSD, lists are usually defined as XSD elements with maxOccurs greater than one.
+
+=== Wrapped lists in XML
+
+It is a good practice to wrap list elements into an element that represents the list in XML. The following example shows a list of _ParameterDeclaration_ elements those are wrapped by a _ParameterDeclarations_ Element.
+
+[source%nowrap,xml,linenums]
+----
+<ParameterDeclarations>
+  <ParameterDeclaration name="$HostVehicle" parameterType="string" value="car_white"/>
+  <ParameterDeclaration name="$TargetVehicle" parameterType="string" value="car_red"/>
+  <ParameterDeclaration name="$EgoStartS" parameterType="double" value="50"/>
+  <ParameterDeclaration name="$HeadwayTime_LaneChange" parameterType="double" value="0.4"/>
+  <ParameterDeclaration name="$HeadwayTime_Brake" parameterType="double" value="1.0"/>
+</ParameterDeclarations>
+----
+
+
+Next example shows, how this is modelled in XSD. _ParameterDeclarations_ represents the explicit complex type of the list. _ParameterDeclaration_ represents the type of the list elements.
+
+[source%nowrap,xml,linenums]
+----
+<xsd:complexType name="ParameterDeclarations">
+  <xsd:sequence>
+    <xsd:element name="ParameterDeclaration" minOccurs="0"
+      maxOccurs="unbound" type="ParameterDeclaration"/>
+  </xsd:sequence>
+</xsd:complexType>
+
+<xsd:complexType name="ParameterDeclaration">
+  <xsd:attribute name="parameterType" type="ParameterType" use="required"/>
+  <xsd:attribute name="value" type="String" use="required"/>
+  <xsd:attributeGroup ref="Identifier"/>
+</xsd:complexType>
+----
+
+So, basically, if a complex type wants to declare a wrapped list of _ParameterDeclaration_ elements, the complex type _ParameterDeclarations_ can be used.
+
+[source%nowrap,xml,linenums]
+----
+<xsd:complexType name="Vehicle">
+  <xsd:all>
+    <xsd:element name="ParameterDeclarations" type="ParameterDeclarations" minOccurs="0"/>
+    <xsd:element name="BoundingBox" type="BoundingBox"/>
+    <xsd:element name="Performance" type="Performance"/>
+    <xsd:element name="Axles" type="Axles"/>
+    <xsd:element name="Properties" type="Properties"/>
+  </xsd:all>
+  <xsd:attribute name="vehicleCategory" type="VehicleCategory" use="required"/>
+  <xsd:attributeGroup ref="Identifier"/>
+</xsd:complexType>
+----
+
+
+=== Unwrapped lists in XML
+
+Sometimes, unwrapped lists are preferred in the schema. In an unwrapped list, the elements are enumerated among with other elements which are enclosed in the common parent element. In the following example, the complex type _Maneuver_ is a composition of _ParameterDeclarations_ and a list of elements named _Event_. Please note that the complex type _Maneuver_ acts as an enclosing composition of two types (_ParameterDeclarations_, list of _Event_), not as a wrapper for an exclusive list type.
+
+[source%nowrap,xml,linenums]
+----
+<xsd:complexType name="Maneuver">
+  <xsd:sequence>
+    <xsd:element name="ParameterDeclarations" type="ParameterDeclarations" minOccurs="0"/>
+    <xsd:element name="Event" maxOccurs="unbounded" type="Event"/>
+  </xsd:sequence>
+  <xsd:attributeGroup ref="Identifier"/>
+</xsd:complexType>
+----
+
+The next example shows the usage of unwrapped lists. Note that in an unwrapped list, the list elements (_Event_) and other elements (_ParameterDeclarations_) are enumerated in a common parent element (_Maneuver_). Also, the parent element may have attributes defined.
+
+[source%nowrap,xml,linenums]
+----
+<Maneuver name="CutInManeuver">
+  <ParameterDeclarations>
+  <Event name="OverTakerStartSpeedEvent" priority="override">
+  <Event name="CutInEvent" priority="override">
+</Maneuver>
+----
+
+
+
+=== Abstracting from wrapped and unwrapped lists in UML
+
+As already mentioned, the UML model focuses on the on the domain concepts, not on the aspect how instances of the documents are transported, exchanged, or stored. Therefore, lists in UML should abstract from the fact how they are mapped to an XSD.
+
+Whether the lists are mapped to unwrapped or a wrapped list (see <<Wrapped lists in XML>> and <<Unwrapped lists in XML>>) is not a domain specific aspect, but a question of how to map the data model to an XSD file.
+
+=== Mismatch of unwrapped lists and UML property names
+
+Modeling unwrapped lists in XSD to properties in a UML model inevitably results in a mismatch between the element name in the XSD and property name in the UML. If we are regarding the maneuver example, the element name of the unwrapped list is _Event_. The list is represented by the list element (_Event_) that can occur multiple times.
+
+If you are modeling such a list as a property/association in UML you would rather choose the name of such a property as _Events_ (plural). So, there is the mismatch between the XSD describing a single Element (singular _Event_) and the UML model describing the property as a list of items (_Events_).
+
+Neither solution is applicable and comprehensive: If you name the element in XML _Events_ this is not very comprehensive, cause every list item rather represents a single event. If the name of the property in the UML is _Event,_ you would rather assume that the property represents a single item. Look at the documentation in this case: "The property event represents a list of events." This looks weird and incomprehensive.
+
+
+=== UML modeling of unwrapped lists
+
+As a solution a new stereotype \<<XSDunwrapped>> is introduced. The UML model defines a list and names it accordingly with its plural representation (e.g. _events_). The \<<XSDunwrapped>> transports the following information:
+
+* The transformation instructs the XSD transformation that the property is transformed into XSD by using the pattern of an unwrapped list (see <<Unwrapped lists in XML>>).
+
+* The tagged value _xsdElementName_ is a property of the stereotype holding the name of the element name that is used in the XSD__.__
+
+So as an example:
+
+* Name the list of events in the _Maneuver_ class _events_. The naming is consistent with the fact that it represents a list of Event instances.
+
+* Add the stereotype \<<XSDunwrapped>> to the property/association to instruct the XSD transformation, that the unwrapped list pattern is used (see <<Unwrapped lists in XML>>).
+
+* The stereotype \<<XSDunwrapped>> has a property _xsdElementName._ Assign it to the value 'Event' to make sure that _Event_ is used in the XSD as the element name. _Event_ is consistent with the fact that an _Event_ element describes a single item.
+
+=== Wrapped lists and the introduction of unnecessary classes in UML
+
+As unwrapped lists result in a naming mismatches between UML and XSD, wrapped lists are leading to unnecessary classes when not designed properly.
+
+Take the example _ParameterDeclarations_.
+
+[source%nowrap,xml,linenums]
+----
+<xsd:complexType name="ParameterDeclarations">
+  <xsd:sequence>
+    <xsd:element name="ParameterDeclaration" minOccurs="0"
+      maxOccurs="unbound" type="ParameterDeclaration"/>
+  </xsd:sequence>
+</xsd:complexType>
+
+<xsd:complexType name="ParameterDeclaration">
+  <xsd:attribute name="parameterType" type="ParameterType" use="required"/>
+  <xsd:attribute name="value" type="String" use="required"/>
+  <xsd:attributeGroup ref="Identifier"/>
+</xsd:complexType>
+----
+
+
+If we take the XSD as a starting point we see that wrapped lists result in two complex types (_ParameterDeclarations_, _ParameterDeclaration_). So as a designer, we could be tempted to create two UML classes. One named ``ParameterDeclarations`` and one named ``ParameterDeclaration``.
+
+This would force the UML design into:
+
+Wherever the designer wants to define a property that represents a list of _ParameterDeclaration_ instances, the indirection of using a _ParameterDeclarations_ must be taken. The only reason for this is not that your domains demands such an indirection, but the representation in XSD as a wrapped list demands it.
+
+[#fig-12]
+.Indirection
+image::image21.png[image]
+
+So, creating two classes in UML out of the wrapped list pattern has these drawbacks:
+
+* You are introducing an indirection (_ParameterDeclarations_) that obfuscates your intention of designing a list (list of _ParameterDeclaration_ instances)
+
+* You are inconsistent and dependent on the fact how the list is mapped to a technology (XSD, either wrapped or unwrapped). A wrapped list demands an extra class and indirection, an unwrapped list does not.
+
+* You are introducing an additional class _ParameterDeclarations_ that does not add additional knowledge to your domain model. This is the definition of noise.
+
+This would couple domain decision (I want a list) to a technology decision (how do I want the list to be represented in XML).
+
+So, the design issue is 'How can we consistently define a property as a list without being dependent how it is mapped to XSD?'
+
+=== UML modeling of wrapped lists
+
+Again, we introduce a stereotype (\<<XSDwrapped>>) to cleanly separate domain decisions from technology mapping decisions. Very consistently you would first define a property the same way as you would do it as an unwrapped list. For example: In the class _Vehicle_, you would define a list of _ParameterDeclaration_.
+
+The stereotype \<<XSDwrapped>> would mark this list to be transformed to XSD using the wrapped list pattern (see <<Wrapped lists in XML>>).
+
+[#fig-13]
+.Without indirection
+image::image22.png[image]
+
+The class _ParameterDeclarations_ would not exist in the UML model. No indirections, no noise, no inconsistencies.
+
+But when the complex type _ParameterDeclarations_ exists in the XSD: How it is created and how does the XSD transformation know which wrapper that should be used?
+
+*The stereotype \<<XSDwrapperType>>*
+
+As an instruction to the XSD transformation, every class that is used in a wrapped list (e.g. _ParameterDeclaration_) is decorated with the \<<XSDwrapperType>> stereotype. This instructs the XSD transformation that a complex type (_ParameterDeclarations_) as a wrapper is created in the XSD. The tags of the stereotype describe the information that is needed to create such a wrapper.
+
+For example: The type _ParameterDeclaration_ defines its wrapping complex type _ParameterDeclarations_ with these tags:
+
+[source%nowrap,xml,linenums]
+----
+<xsd:complexType name="ParameterDeclarations"> // <1>
+  <xsd:sequence>
+    <xsd:element name="ParameterDeclaration" // <2>
+                 minOccurs="0" // <3>
+                 maxOccurs="unbound" // <4>
+                 type="ParameterDeclaration"/>
+  </xsd:sequence>
+</xsd:complexType>
+----
+<1> xsdWrapperType: _ParameterDeclarations_
+<2> xsdWrapperElementName: _ParameterDeclaration_
+<3> min: "0"
+<4> max: "unbounded"
+
+=== Conclusion
+
+With the introduction of the three stereotypes \<<XSDwrapped>>, \<<XSDunwrapped>> and \<<XSDwrapperType>> it is possible to strictly separate domain concepts from technology mapping instruction. List properties can be defined in a consistent way, independent from the aspects, how they are mapped into XSD (wrapped or unwrapped). Once the properties are defined, the technology mapping instructions can be added independently by decorating the properties with stereotypes (\<<XSDwrapped>>, \<<XSDunwrapped>>).
+
+With the strict separation these issues are solved:
+
+* The domain concept of defining a list is consistent and independent of the aspect whether the list is transformed into a wrapped or an unwrapped list.
+
+* Unwrapped lists: The mismatch between the element name in the XSD and property name in the UML is resolved (singular in XSD vs plural in UML)
+
+* Wrapped lists: Indirection and extra classes like (_ParameterDeclarations_) are no longer needed in the UML Model, while still being able to have them in XSD.
+
+The following example shows the class _Maneuver_. It is a composite of an unwrapped list (property event) and a wrapped list property _parameterDeclarations_.
+
+[#fig-14]
+.Class Maneuver as a composite of a wrapped list and a unwrapped list.
+image::image24.png[image]
+
+Reference: wrapped list stereotype is also a concept that drives the UML-To-XML transformation in the ODX Standard cite:[odx].

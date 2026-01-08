@@ -1,0 +1,7 @@
+
+
+= Introduction
+
+== Overview
+
+The Unified Modeling Language (UML) is used to define the {THIS_STANDARD} data model formally and unambiguously. It enhances readability by graphical data model diagrams. A short introduction to UML is given in this document. Only those aspects of UML are described that are used in the {THIS_STANDARD} data model. Specifically, from the large set of available UML diagrams, only class diagrams for data modeling are applied.

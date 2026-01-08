@@ -21,6 +21,13 @@ file(
     "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/*.[hc]pp"
     "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/*.[hc]")
 
+# GT_esmini Modification: Swap OSIReporter
+if(USE_OSI)
+    message(STATUS "GT_esmini: Swapping OSIReporter.cpp with GT_OSIReporter.cpp")
+    list(REMOVE_ITEM SRC_SOURCEFILES "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/OSIReporter.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter.cpp")
+endif()
+
 if(NOT
    USE_OSI)
     list(
@@ -65,6 +72,7 @@ target_link_libraries(
 target_include_directories(
     ${TARGET}
     PRIVATE ${SCENARIO_ENGINE_PATH}/SourceFiles
+            "${CMAKE_SOURCE_DIR}/GT_esmini"
             ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
             ${COMMON_MINI_PATH}
             ${CONTROLLERS_PATH}

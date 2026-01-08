@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test AutoLight Brake Hysteresis -->
+<!-- Car accelerates then brakes with various profiles -->
+
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2024-01-01T10:00:00"
+               description="Test AutoLight Brake Hysteresis"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="HostVehicle" parameterType="string" value="car_white"/>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="60"/> <!-- km/h -->
+   </ParameterDeclarations>
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../xosc/Catalogs/Vehicles"/>
+      </VehicleCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/straight_500m.xodr"/>
+      <SceneGraphFile filepath="../models/straight_500m.osgb"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <CatalogReference catalogName="VehicleCatalog" entryName="$HostVehicle"/>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="${$EgoSpeed / 3.6}"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="BrakeTestStory">
+         <Act name="BrakeTestAct">
+            <ManeuverGroup maximumExecutionCount="1" name="BrakeSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="BrakeManeuver">
+                  
+                  <!-- 1. Mild Decel (-0.8) -> Should NOT trigger brake light (Threshold -1.2) -->
+                  <Event name="MildDecelEvent" priority="overwrite">
+                     <Action name="MildDecelAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="-0.8" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="15"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="Time1" delay="0" conditionEdge="rising">
+                             <ByValueCondition>
+                                <SimulationTimeCondition value="2" rule="greaterThan"/>
+                             </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+
+                  <!-- 2. Strong Decel (-2.0) -> Should trigger brake light -->
+                  <Event name="StrongDecelEvent" priority="overwrite">
+                     <Action name="StrongDecelAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="-2.0" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="5"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="Time2" delay="0" conditionEdge="rising">
+                             <ByValueCondition>
+                                <SimulationTimeCondition value="6" rule="greaterThan"/>
+                             </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+
+                  <!-- 3. Hysteresis Test: Release brake slightly (-0.7) -> Should STAY ON (Off Threshold -0.5) -->
+                  <!-- Note: Since we are at low speed, we need to be careful not to stop. -->
+                  <!-- Let's accelerate back up first quickly to test hysteresis from high speed if needed, but here we challenge the logic -->
+                  <!-- Actually, constant deceleration is easier to control. -->
+                  <!-- Let's do: Strong Decel -> Moderate Decel -> Coast -->
+                  
+                  <!-- Accelerate again to setup Hysteresis check -->
+                  <Event name="AccelEvent" priority="overwrite">
+                      <Action name="AccelAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="5.0" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="30"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                      </Action>
+                      <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="Time3" delay="0" conditionEdge="rising">
+                             <ByValueCondition>
+                                <SimulationTimeCondition value="8" rule="greaterThan"/>
+                             </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                      </StartTrigger>
+                  </Event>
+
+                  <!-- 4. Hysteresis Check Sequence -->
+                  <!-- Trigger ON with -1.5 -->
+                  <Event name="HysteresisOnEvent" priority="overwrite">
+                     <Action name="HysteresisOnAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="-1.5" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="10"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="Time4" delay="0" conditionEdge="rising">
+                             <ByValueCondition>
+                                <SimulationTimeCondition value="12" rule="greaterThan"/>
+                             </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  
+                  <!-- Reduce decel to -0.6 (still negative, but > -1.2). Lights should STAY ON because < -0.5 -->
+                  <Event name="HysteresisHoldEvent" priority="overwrite">
+                     <Action name="HysteresisHoldAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="-0.6" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="Time5" delay="0" conditionEdge="rising">
+                             <ByValueCondition>
+                                <SimulationTimeCondition value="14" rule="greaterThan"/>
+                             </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+          <ConditionGroup>
+             <Condition name="StopCondition" delay="5" conditionEdge="rising">
+                <ByValueCondition>
+                   <SimulationTimeCondition value="20" rule="greaterThan"/>
+                </ByValueCondition>
+             </Condition>
+          </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

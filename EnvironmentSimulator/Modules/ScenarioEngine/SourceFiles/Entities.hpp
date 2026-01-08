@@ -701,6 +701,7 @@ namespace scenarioengine
         bool                     is_active_;
         std::string              model3d_full_path_;
         std::vector<std::string> source_reference_;
+
     };
 
     class Vehicle : public Object
