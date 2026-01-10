@@ -351,6 +351,19 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         return ret;
     }
 
+    // [GT_MOD] DIAGNOSTIC & FIX: Check and Reset QuitFlag
+    int postSeInitQuit = SE_GetQuitFlag();
+    if (postSeInitQuit) {
+        std::cout << "GT_InitWithArgs: WARNING: SE_InitWithArgs returned 0 but QuitFlag is " << postSeInitQuit << ". Forcing reset." << std::endl;
+        if (player) {
+            player->SetQuitRequest(false);
+            std::cout << "GT_InitWithArgs: QuitFlag forced to 0." << std::endl;
+        }
+    } else {
+        std::cout << "GT_InitWithArgs: SE_InitWithArgs OK. QuitFlag=0." << std::endl;
+    }
+    // [GT_MOD] END
+
     // 3. Perform Delta Parsing for Extensions using ORIGINAL file
     if (filename && player && player->scenarioEngine)
     {
@@ -406,7 +419,15 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             emptyState.mode = gt_esmini::LightState::Mode::OFF;
             return emptyState;
         });
+
     }
+
+    // [GT_MOD] DIAGNOSTIC
+    int finalQuit = SE_GetQuitFlag();
+    if (finalQuit) {
+        std::cerr << "GT_InitWithArgs: CRITICAL! QuitFlag=" << finalQuit << " at end of GT_InitWithArgs." << std::endl;
+    }
+    // [GT_MOD] END
 
     return 0;
 }

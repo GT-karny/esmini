@@ -227,4 +227,8 @@ protected:
     //bool get_fmi_traffic_command_update_in(osi3::TrafficCommandUpdate& data);     //TODO: Wait for OSI update
     void set_fmi_traffic_command_out(const osi3::TrafficCommand& data);
     void reset_fmi_traffic_command_out();
+
+    /* Helper for OSI output */
+    void update_osmp_output(double time);
+    fmi2Real m_startTime;
 };

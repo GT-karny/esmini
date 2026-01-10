@@ -345,7 +345,7 @@ int OSIReporter::UpdateOSIGroundTruth(const std::vector<std::unique_ptr<ObjectSt
         switch (static_update_mode_)
         {
             case OSIStaticReportMode::DEFAULT:  // Only log and transmit dynamic ground truth
-                if (IsFileOpen() || GetUDPClientStatus() == 0)
+                 if (IsFileOpen() || GetUDPClientStatus() == 0)
                 {
                     SerializeDynamicData();
                 }
@@ -356,18 +356,12 @@ int OSIReporter::UpdateOSIGroundTruth(const std::vector<std::unique_ptr<ObjectSt
                 }
                 break;
             case OSIStaticReportMode::API:  // Log dynamic ground truth, serialize and transmit combined ground truth
-                if (IsFileOpen() || GetUDPClientStatus() == 0)
-                {
-                    SerializeDynamicData();
-                }
+                SerializeDynamicData();
 
                 obj_osi_external.gt->MergeFrom(*obj_osi_internal.static_gt);  // Merge for API
                 break;
             case OSIStaticReportMode::API_AND_LOG:  // Log combined ground truth, serialze and transmit combined ground truth
-                if (IsFileOpen() || GetUDPClientStatus() == 0)
-                {
-                    SerializeDynamicAndStaticData();
-                }
+                SerializeDynamicAndStaticData();
 
                 obj_osi_external.gt->MergeFrom(*obj_osi_internal.static_gt);  // Merge for API
                 break;

@@ -152,6 +152,7 @@ add_library(${TARGET} SHARED esmini.cpp
 set_target_properties(${TARGET} PROPERTIES PREFIX "")
 target_compile_definitions(${TARGET} PRIVATE "FMU_SHARED_OBJECT")
 target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
+target_compile_definitions(${TARGET} PRIVATE _USE_OSI)
 
 if(STATIC_LINKING)
     message("Link esmini statically")
