@@ -352,7 +352,14 @@ fmi2Status EsminiOsiSource::doExitInitializationMode()
         for(const auto* arg : argvVector) debugArgs += std::string(arg) + " ";
         normal_log("OSMP", "Initializing with args: %s", debugArgs.c_str());
 
-        if (GT_InitWithArgs(argc, argvVector.data()) != 0)
+
+        // [GT_MOD] START: Initialize the scenario
+
+        std::cerr << "[FMU] BEFORE GT_InitWithArgs" << std::endl;
+        int rc = GT_InitWithArgs(argc, argvVector.data());
+        std::cerr << "[FMU] AFTER GT_InitWithArgs rc=" << rc << std::endl;
+
+        if (rc != 0)
         {
             std::cerr << "Failed to initialize the scenario (GT_InitWithArgs)" << std::endl;
             normal_log("OSMP", "GT_InitWithArgs failed");
@@ -409,7 +416,16 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
     {
         for (const auto& obj : traffic_update.update())
         {
-            const int              obj_id = (int)obj.id().value();
+            // [GT_MOD] ID Resolution
+            int obj_id = GT_GetLocalIdFromGlobalId((int)obj.id().value());
+            if (obj_id == -1)
+            {
+                // Only log once per ID to avoid flooding? Or just log warn.
+                // Use static set to log once?
+                // For now, log to cerr (visible in console)
+                // std::cerr << "[OSMP] Warning: OSI Global ID " << obj.id().value() << " not found in esmini." << std::endl;
+                continue; 
+            }
             SE_ScenarioObjectState vehicleState;
             SE_GetObjectState(obj_id, &vehicleState);
             if (obj.base().has_orientation())

@@ -24,6 +24,7 @@
 #include <string>
 #include <iostream>
 #include <cstdio>
+#include <osi_groundtruth.pb.h>
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -268,6 +269,10 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 
 GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 {
+    std::cerr << "[GT_esmini] GT_InitWithArgs called with argc=" << argc << std::endl;
+    if (argc > 0 && argv) {
+        std::cerr << "[GT_esmini] argv[0]=" << (argv[0] ? argv[0] : "NULL") << std::endl;
+    }
     const char* filename = nullptr;
     
     // Simple argument parsing to find the filename.
@@ -299,6 +304,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
     if (filename)
     {
+        std::cerr << "[GT_esmini] Sanitizing filename: " << filename << std::endl;
         sanitizedFile = std::string(filename) + ".temp.xosc";
         if (!CreateSanitizedScenario(filename, sanitizedFile))
         {
@@ -341,7 +347,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     }
 
     // 2. Initialize esmini using SE_Init with sanitized args
+    std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
     int ret = SE_InitWithArgs(newArgv.size(), newArgv.data());
+    std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
     
     // Clean up temp file (or keep for debug?)
     // std::remove(sanitizedFile.c_str()); 
@@ -497,4 +505,43 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
             return;
         }
     }
+}
+
+GT_ESMINI_API int GT_GetLocalIdFromGlobalId(int global_id)
+{
+    // Access Raw OSI data via esmini API
+    const char* rawPtr = SE_GetOSIGroundTruthRaw();
+    if (!rawPtr) return -1;
+
+    // Cast to osi3::GroundTruth*
+    // Note: esminiLib returns the internal pointer which is osi3::GroundTruth*
+    const osi3::GroundTruth* gt = reinterpret_cast<const osi3::GroundTruth*>(rawPtr);
+
+    // Search Moving Objects
+    // OSI IDs are generally uint64, esmini global_id is int (but stored as uint64 in OSI)
+    for (int i = 0; i < gt->moving_object_size(); ++i) {
+        const auto& obj = gt->moving_object(i);
+        if (obj.id().value() == (uint64_t)global_id) {
+             // Found object, parse source_reference for Local ID
+             for (int j=0; j < obj.source_reference_size(); ++j) {
+                 const auto& ref = obj.source_reference(j);
+                 for (int k=0; k < ref.identifier_size(); ++k) {
+                     const std::string& id_str = ref.identifier(k);
+                     // Format created in OSIReporter.cpp: "entity_id:{id}"
+                     if (id_str.find("entity_id:") == 0) {
+                         try {
+                             return std::stoi(id_str.substr(10));
+                         } catch (...) {
+                             return -1;
+                         }
+                     }
+                 }
+             }
+        }
+    }
+    
+    // Also check Stationary Objects if necessary, but TrafficUpdates typically target MovingObjects
+    // (Vehicles, Pedestrians)
+    
+    return -1;
 }

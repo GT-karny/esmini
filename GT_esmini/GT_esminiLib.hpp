@@ -91,6 +91,13 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
 
 GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType);
 
+    /**
+     * Get Local ID from Global ID using OSI GroundTruth
+     * @param global_id The global ID to search for
+     * @return The local ID if found, -1 if not found
+     */
+    GT_ESMINI_API int GT_GetLocalIdFromGlobalId(int global_id);
+
 #ifdef __cplusplus
 }
 #endif
