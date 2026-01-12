@@ -311,11 +311,25 @@ fmi2Status EsminiOsiSource::doExitInitializationMode()
         size_t start = 0, end = 0;
         bool hasOsc = false;
         
+        // [GT_MOD] OSI UDP Support: Variable to capture OSI IP
+        std::string osiIp;
+        
         while ((end = esmini_args.find(' ', start)) != size_t(-1))
         {
             std::string arg = esmini_args.substr(start, end - start);
             if (!arg.empty()) {
                 if (arg == "--osc") hasOsc = true;
+                
+                // [GT_MOD] OSI UDP Support: Check for --osi argument
+                if (arg == "--osi") {
+                    // Get next token as IP address
+                    size_t nextStart = end + 1;
+                    size_t nextEnd = esmini_args.find(' ', nextStart);
+                    if (nextEnd == size_t(-1)) nextEnd = esmini_args.length();
+                    osiIp = esmini_args.substr(nextStart, nextEnd - nextStart);
+                    normal_log("OSMP", "Captured OSI IP: %s", osiIp.c_str());
+                }
+                
                 args.push_back(arg);
             }
             start = end + 1;
@@ -368,6 +382,12 @@ fmi2Status EsminiOsiSource::doExitInitializationMode()
         else
         {
             normal_log("OSMP", "GT_InitWithArgs succeeded");
+            
+            // [GT_MOD] OSI UDP Support: Open OSI socket if requested
+            if (!osiIp.empty()) {
+                normal_log("OSMP", "Opening OSI socket to: %s", osiIp.c_str());
+                SE_OpenOSISocket(osiIp.c_str());
+            }
         }
         
         // [GT_MOD] DIAGNOSTIC: Check QuitFlag immediately after Init
