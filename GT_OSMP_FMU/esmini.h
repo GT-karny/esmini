@@ -66,7 +66,10 @@ using namespace std;
 
 /* Real Variables */
 #define FMI_REAL_LAST_IDX 0
-#define FMI_REAL_VARS (FMI_REAL_LAST_IDX+1)
+#define FMI_REAL_GENERIC_START_IDX (FMI_REAL_LAST_IDX + 1)
+#define FMI_REAL_GENERIC_COUNT 50
+#define FMI_REAL_GENERIC_END_IDX (FMI_REAL_GENERIC_START_IDX + FMI_REAL_GENERIC_COUNT - 1)
+#define FMI_REAL_VARS (FMI_REAL_GENERIC_END_IDX + 1)
 
 /* String Variables */
 #define FMI_STRING_XOSC_PATH_IDX 0
@@ -79,6 +82,7 @@ using namespace std;
 #include <string>
 #include <cstdarg>
 #include <set>
+#include <map>
 
 #undef min
 #undef max
@@ -209,6 +213,10 @@ protected:
     string* lastBufferSVOut;
     string* currentBufferTCOut;
     string* lastBufferTCOut;
+
+    // [GT_MOD] Parameter Mapping
+    std::map<int, std::string> parameter_map_;
+    // [GT_MOD] END
 
     /* Simple Accessors */
     fmi2Boolean fmi_valid() { return boolean_vars[FMI_BOOLEAN_VALID_IDX]; }

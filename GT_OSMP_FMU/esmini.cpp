@@ -56,6 +56,7 @@
 #include <cmath>
 
 using namespace std;
+#include <sstream>
 
 #ifdef PRIVATE_LOG_PATH
 ofstream COSMPDummySource::private_log_file;
@@ -253,6 +254,46 @@ fmi2Status EsminiOsiSource::doInit()
     /* Strings */
     for (int i = 0; i < FMI_STRING_VARS; i++)
         string_vars[i] = "";
+
+    // [GT_MOD] Load Parameter Mapping
+    parameter_map_.clear();
+    std::string param_file = "fmu_parameters.txt";
+    // Check local directory matching xosc path or resource location might be better, 
+    // but for now check current working directory (simple).
+    std::ifstream file(param_file);
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            // Simple parsing: ID, Name
+            std::stringstream ss(line);
+            std::string segment;
+            std::vector<std::string> seglist;
+            while(std::getline(ss, segment, ',')) {
+                 seglist.push_back(segment);
+            }
+            if(seglist.size() >= 2) {
+                try {
+                    int vr = std::stoi(seglist[0]);
+                    std::string name = seglist[1];
+                    // Trim whitespace
+                    size_t first = name.find_first_not_of(" \t\n\r");
+                    if (first != std::string::npos) {
+                        size_t last = name.find_last_not_of(" \t\n\r");
+                        name = name.substr(first, (last - first + 1));
+                    }
+                    
+                    parameter_map_[vr] = name;
+                    normal_log("OSMP", "Mapped VR %d to Parameter '%s'", vr, name.c_str());
+                } catch (...) {
+                     normal_log("OSMP", "Failed to parse line in fmu_parameters.txt: %s", line.c_str());
+                }
+            }
+        }
+        file.close();
+    } else {
+         normal_log("OSMP", "No fmu_parameters.txt found. Generic parameter mapping skipped.");
+    }
+    // [GT_MOD] END
 
     return fmi2OK;
 }
@@ -821,8 +862,20 @@ fmi2Status EsminiOsiSource::SetReal(const fmi2ValueReference vr[], size_t nvr, c
     fmi_verbose_log("fmi2SetReal(...)");
     for (size_t i = 0; i < nvr; i++)
     {
-        if (vr[i] < FMI_REAL_VARS)
+        if (vr[i] < FMI_REAL_VARS) {
             real_vars[vr[i]] = value[i];
+            
+            // [GT_MOD] Apply Parameter if mapped
+            if (parameter_map_.find(vr[i]) != parameter_map_.end()) {
+                std::string paramName = parameter_map_[vr[i]];
+                // Set parameter in esmini
+                // Note: esmini parameters are global/shared.
+                SE_SetParameterDouble(paramName.c_str(), value[i]);
+                // Log verbose
+                // fmi_verbose_log("SetReal: Mapped VR %d -> %s = %f", vr[i], paramName.c_str(), value[i]);
+            }
+            // [GT_MOD] END
+        }
         else
             return fmi2Error;
     }
