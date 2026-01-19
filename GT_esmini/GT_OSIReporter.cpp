@@ -14,11 +14,13 @@
 #include "OSIReporter.hpp"
 #include "OSITrafficCommand.hpp"
 #include "../EnvironmentSimulator/Modules/ScenarioEngine/OSCTypeDefs/OSCPrivateAction.hpp"
+#include "../EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp"
 // #include "ExtraEntities.hpp"
 #include <cmath>
 #include <string>
 #include <utility>
 #include <array>
+#include <map>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -922,86 +924,227 @@ int OSIReporter::UpdateOSIStationaryObject(ObjectState *objectState)
 }
 
 // [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
+// [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
 static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState, scenarioengine::ScenarioEngine* scenario_engine)
 {
     if (!scenario_engine) return;
     int id = objectState->state_.info.id;
+    
+    // [GT_MOD] State Memory for Speed Actions (Sustain WaitOnRed)
+    static std::map<int, double> lastTargetSpeedMap;
+
     auto* simObj = scenario_engine->entities_.GetObjectById(id);
     if (!simObj) return;
 
     // Shadow simulation: Clone current position
     // This maintains the current Route info if assigned
+    // Shadow simulation: Clone current position
+    // This maintains the current Route info if assigned
     roadmanager::Position ghostPos = simObj->pos_;
 
-    // Introspect active actions to find LatLaneChangeAction
+    // [GT_MOD] Inject Route: Ensure ghost position has the route for correct branching at junctions
+    if (simObj->pos_.GetRoute())
+    {
+        // [GT_MOD] Clone Route to prevent shared state corruption and double-free
+    // ghostPos modifies the route (advances waypoints) during prediction. 
+    // If we share the pointer, simObj's route state gets corrupted (e.g. skips turns).
+    if (simObj->pos_.GetRoute())
+    {
+        roadmanager::Route* clonedRoute = new roadmanager::Route();
+        clonedRoute->CopyFrom(*simObj->pos_.GetRoute());
+        ghostPos.SetRoute(clonedRoute); 
+        // ghostPos now owns clonedRoute and will delete it in its destructor.
+    }
+    }
+
+    // Introspect active actions
     scenarioengine::LatLaneChangeAction* activeLcAction = nullptr;
+    scenarioengine::LongSpeedAction* activeSpeedAction = nullptr;
+    
     auto privateActions = simObj->getPrivateActions();
     
-    // Simple check for first active LaneChangeAction
     for (auto* action : privateActions)
     {
-         if (action->Type2Str() == "LaneChangeAction")
+         std::string typeStr = action->Type2Str();
+         if (typeStr == "LaneChangeAction" && !activeLcAction)
          {
              activeLcAction = static_cast<scenarioengine::LatLaneChangeAction*>(action);
-             break; 
          }
+         else if (typeStr == "SpeedAction" && !activeSpeedAction)
+         {
+             activeSpeedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
+         }
+    }
+
+    // [GT_MOD] Fallback Speed Flag
+    double fallbackSpeed = 0.0;
+    bool useFallback = false;
+
+    if (activeSpeedAction)
+    {
+        // Case 1: Active Speed Action -> Update Memory
+        if (activeSpeedAction->target_)
+        {
+            lastTargetSpeedMap[id] = activeSpeedAction->target_->GetValue();
+        }
+    }
+    else
+    {
+        // Fallback: If no active SpeedAction found, check:
+        // 1. Memory (Last known target)
+        // 2. Init actions (History)
+        // 3. Default to 0.0 (Stop) - Physical speed is NOT used as fallback.
+        
+        if (lastTargetSpeedMap.count(id))
+        {
+             // Case 2: Use Memory
+             fallbackSpeed = lastTargetSpeedMap[id];
+             useFallback = true;
+        }
+        else
+        {
+             // Case 3: Check Init Actions
+             for (auto* action : simObj->initActions_)
+             {
+                 std::string typeStr = action->Type2Str();
+                 if (typeStr == "SpeedAction")
+                 {
+                     activeSpeedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
+                 }
+             }
+
+             if (activeSpeedAction)
+             {
+                 // Found Init Action -> Update Memory and Use it
+                 if (activeSpeedAction->target_)
+                 {
+                     lastTargetSpeedMap[id] = activeSpeedAction->target_->GetValue();
+                 }
+             }
+             else
+             {
+                 // Case 4: No definition -> Stop
+                 fallbackSpeed = 0.0;
+                 useFallback = true;
+             }
+        }
+    }
+
+    // Shadow copy of speed action dynamics state if available
+    scenarioengine::OSCPrivateAction::TransitionDynamics speedDynamics;
+    bool usingSpeedAction = false;
+    double debugTargetSpeed = -1.0; 
+
+    if (activeSpeedAction)
+    {
+        speedDynamics = activeSpeedAction->transition_;
+        usingSpeedAction = true;
+
+        // [GT_MOD] Fix static trajectory:
+        // Identify intended target speed and reset dynamics to predict path from CURRENT speed to TARGET.
+        if (activeSpeedAction->target_)
+        {
+            double targetSpeed = activeSpeedAction->target_->GetValue();
+            double currentSpeed = simObj->GetSpeed();
+            debugTargetSpeed = targetSpeed;
+
+            // Re-initialize dynamics relative to current physical state
+            // [GT_MOD] Reset() is crucial to clear 'param_val_' (elapsed time).
+            // This ensures we predict a fresh transition from Current to Target over the original Duration/Shape,
+            // avoiding "Instant Jump" if the action was previously completed.
+            speedDynamics.Reset();
+            speedDynamics.SetStartVal(currentSpeed);
+            speedDynamics.SetTargetVal(targetSpeed);
+            // Ensure internal rate/parameters are updated
+            speedDynamics.UpdateRate();
+        }
     }
 
     double current_time = scenario_engine->getSimulationTime();
     int samples = 20;
     double dt = 0.5;
 
+    // [GT_DEBUG] Log once per second or frame (limiting output slightly effectively by loop)
+    // Actually, just log every time for now since we are stuck.
+    // printf("GT_DEBUG: Obj %d, ActiveSpeedAction: %d\n", id, usingSpeedAction);
+
     for (int i = 1; i <= samples; ++i)
     {
         double t_future = current_time + i * dt;
         double dt_step = dt;
         
-        // Use current speed for projection (simplified constant speed model)
-        double speed = simObj->GetSpeed(); 
-        
+        // Calculate speed for this step
+        double speed = 0.0; 
+
+        if (usingSpeedAction)
+        {
+            // Advance the dynamics state to predict future speed
+            if (activeSpeedAction->transition_.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::TIME)
+            {
+                speedDynamics.Step(dt_step); 
+            }
+            else if (activeSpeedAction->transition_.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE)
+            {
+                // Note: using 'speed' here is circular if speed is not yet set. 
+                // However, for trajectory prediction, we validly use the PREVIOUS step's speed or current state evaluation.
+                // But Evaluate() returns the speed for the CURRENT state.
+                // We should use the speed from *previous* evaluation for distance step.
+                // Assuming constant acc over step effectively.
+                double currentEvalSpeed = speedDynamics.Evaluate();
+                speedDynamics.Step(currentEvalSpeed * dt_step); 
+            }
+            // Update speed from dynamics
+            speed = speedDynamics.Evaluate();
+        }
+        else if (useFallback)
+        {
+            speed = fallbackSpeed;
+        }
+        else
+        {
+            // Should not be reached given logic above, but safely 0.0
+            speed = 0.0;
+        }
+
         double ds = speed * dt_step;
+        
+        // [GT_DEBUG] Trace speed calculation
+        if (i == 1) {
+             printf("GT_DEBUG: Step 1, Speed: %.2f, ds: %.2f, UsingAction: %d, Tgt: %.2f\n", speed, ds, usingSpeedAction, debugTargetSpeed);
+        }
         
         // Lateral Logic (Lane Change)
         double dLaneOffset = 0.0;
         
-        // If we have an active lane change, calculate the desired offset for this time step
         if (activeLcAction)
         {
-            // Create a temp dynamics object to evaluate at future time
-            // TransitionDynamics state: param_val_ is current progress.
-            // We assume dimension is TIME for most LC actions.
-            // If DISTANCE, we would use ds.
-            
             scenarioengine::OSCPrivateAction::TransitionDynamics futureDynamics = activeLcAction->transition_;
-            
-            // Advance the dynamics state
-            // Note: This is an approximation. We assume linear time progression.
-            // If dimension is RATE, it's more complex, but standard LC uses TIME or DISTANCE.
             if (futureDynamics.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::TIME)
             {
-                futureDynamics.Step(i * dt); // Step by delta from NOW
+                futureDynamics.Step(i * dt);
             }
             else if (futureDynamics.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE)
             {
-                futureDynamics.Step(i * ds); // Step by delta distance
+                futureDynamics.Step(i * ds);
             }
-            
-            // Evaluate gives the absolute offset value at that time
             double desiredOffset = futureDynamics.Evaluate();
-            
-            // MoveAlongS accepts delta offset, but we want to force the offset or move towards it.
-            // However, MoveAlongS with dLaneOffset adds to current. 
-            // ghostPos.SetLanePos with offset is better, but MoveAlongS handles road compilation.
-            // Strategy: Calculate delta needed from CURRENT ghostPos offset to DESIRED offset.
-            // Note: ghostPos is updated in each step of this loop.
-            double currentGhostOffset = ghostPos.GetOffset(); // GetOffset() is available in Position
+            double currentGhostOffset = ghostPos.GetOffset(); 
             dLaneOffset = desiredOffset - currentGhostOffset; 
         }
 
         // Move the ghost position forward
-        // junctionSelectorAngle = -1.0 (random) -> ideally should be guided by Route if present.
-        // If Route is assigned, MoveAlongS will prioritize it automatically if updateRoute=true.
-        ghostPos.MoveAlongS(ds, dLaneOffset, -1.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true);
+        auto ret = ghostPos.MoveAlongS(ds, dLaneOffset, -1.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true);
+        
+        // [GT_MOD] Fallback
+        if (static_cast<int>(ret) < 0) 
+        {
+             // [GT_DEBUG]
+             if (i == 1) printf("GT_DEBUG: MoveAlongS failed (ret=%d), trying fallback.\n", static_cast<int>(ret));
+             ret = ghostPos.MoveAlongS(ds, dLaneOffset, -1.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, false);
+             if (static_cast<int>(ret) < 0 && i == 1) {
+                 printf("GT_DEBUG: Fallback MoveAlongS also failed (ret=%d).\n", static_cast<int>(ret));
+             }
+        }
         
         // Add point to OSI message
         auto* point = obj_osi_internal.mobj->add_future_trajectory();
@@ -1247,68 +1390,7 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                     }
                 }
                 // CASE 2: Ego Object (Report Spline to Ghost)
-                else if (targetObj->ghost_)
-                {
-                    // p0 from objectState (which uses roadmanager::Position)
-                    double p0_x = objectState->state_.pos.GetX();
-                    double p0_y = objectState->state_.pos.GetY();
-                    double h0   = objectState->state_.pos.GetH();
 
-                    // p1 from Ghost Object
-                    // targetObj->ghost_ is Object*. Object has pos_ member.
-                    double p1_x = targetObj->ghost_->pos_.GetX();
-                    double p1_y = targetObj->ghost_->pos_.GetY();
-                    double h1   = targetObj->ghost_->pos_.GetH();
-
-                    double dx = p1_x - p0_x;
-                    double dy = p1_y - p0_y;
-                    double dist = std::sqrt(dx*dx + dy*dy);
-                    
-                    if (dist > 1.0) 
-                    {
-                        double scale = dist; 
-                        
-                        double m0_x = std::cos(h0) * scale;
-                        double m0_y = std::sin(h0) * scale;
-                        double m1_x = std::cos(h1) * scale;
-                        double m1_y = std::sin(h1) * scale;
-
-                        int samples = 20; 
-                        double dt = 0.1; 
-                        double start_time = objectState->state_.info.timeStamp;
-
-                        for(int i=1; i<=samples; ++i)
-                        {
-                            double t = (double)i / (double)samples; 
-                            double t2 = t * t;
-                            double t3 = t2 * t;
-
-                            double h00 = 2*t3 - 3*t2 + 1;
-                            double h10 = t3 - 2*t2 + t;
-                            double h01 = -2*t3 + 3*t2;
-                            double h11 = t3 - t2;
-
-                            double x = h00*p0_x + h10*m0_x + h01*p1_x + h11*m1_x;
-                            double y = h00*p0_y + h10*m0_y + h01*p1_y + h11*m1_y;
-                            
-                            double x_d = (6*t2 - 6*t)*p0_x + (3*t2 - 4*t + 1)*m0_x + (-6*t2 + 6*t)*p1_x + (3*t2 - 2*t)*m1_x;
-                            double y_d = (6*t2 - 6*t)*p0_y + (3*t2 - 4*t + 1)*m0_y + (-6*t2 + 6*t)*p1_y + (3*t2 - 2*t)*m1_y;
-                            double h = std::atan2(y_d, x_d);
-
-                            auto* point = obj_osi_internal.mobj->add_future_trajectory();
-                            point->mutable_timestamp()->set_seconds((long long)(start_time + i*dt)); 
-                            point->mutable_timestamp()->set_nanos((int)(((start_time + i*dt) - (long long)(start_time + i*dt)) * 1e9));
-                            
-                            point->mutable_position()->set_x(x);
-                            point->mutable_position()->set_y(y);
-                            point->mutable_position()->set_z(objectState->state_.pos.GetZ()); 
-                            
-                            point->mutable_orientation()->set_yaw(h);
-                            point->mutable_orientation()->set_roll(0);
-                            point->mutable_orientation()->set_pitch(0);
-                        }
-                    }
-                }
                 else
                 {
                     // [GT_MOD] Universal Fallback: Optimized
@@ -1322,6 +1404,69 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
 
                     if (isEgoOrExternal)
                     {
+                        // [GT_MOD] LOGIC FIX: Prevent "Wrong Road Snap" (e.g. Road 7 vs Road 13 in Junction 4)
+                        // If vehicle snaps to a road NOT in the route, try to find a better road THAT IS in the route.
+                        if (targetObj && targetObj->pos_.GetRoute() && targetObj->pos_.GetRoute()->IsValid())
+                        {
+                            id_t currentRoadId = targetObj->pos_.GetTrackId();
+                            
+                            // Check if current road is in the route
+                            bool roadOnRoute = false;
+                            const auto& waypoints = targetObj->pos_.GetRoute()->minimal_waypoints_;
+                            
+                            for (const auto& wp : waypoints)
+                            {
+                                if (wp.GetTrackId() == currentRoadId)
+                                {
+                                    roadOnRoute = true;
+                                    break;
+                                }
+                            }
+
+                            // If snapped to a wrong road (e.g. Road 7), attempt to recover
+                            if (!roadOnRoute && !waypoints.empty())
+                            {
+                                double bestT = 1e9;
+                                id_t bestRoadId = -1;
+                                
+                                double curX = targetObj->pos_.GetX();
+                                double curY = targetObj->pos_.GetY();
+                                double curZ = targetObj->pos_.GetZ();
+
+                                // Search for closest road among route waypoints
+                                for (const auto& wp : waypoints)
+                                {
+                                    id_t candidateId = wp.GetTrackId();
+                                    
+                                    // Use a temporary position to probe the candidate road
+                                    roadmanager::Position tempPos;
+                                    // XYZ2TrackPos: mode=UNDEFINED (defaults), connectedOnly=false, roadId=candidateId, CheckOverlapping=false, AlongRoute=false(since check specific)
+                                    tempPos.XYZ2TrackPos(curX, curY, curZ, roadmanager::Position::PosMode::UNDEFINED, false, candidateId);
+                                    
+                                    // Check lateral offset magnitude
+                                    double t = std::abs(tempPos.GetT());
+                                    
+                                    // Check if valid match (XYZ2TrackPos returns valid S for the road?)
+                                    // It clamps S if out of bounds usually.
+                                    // We use T as metric.
+                                    if (t < bestT)
+                                    {
+                                        bestT = t;
+                                        bestRoadId = candidateId;
+                                    }
+                                }
+
+                                // Threshold: 5m tolerance (same lane or adjacent)
+                                // If we found a much better road on the route, force snap to it.
+                                if (bestRoadId != -1 && bestRoadId != currentRoadId && bestT < 5.0)
+                                {
+                                    // Apply correction to the ACTUAL object state
+                                    // This fixes "Entity Ego" behavior for the NEXT frame and current reporting
+                                    targetObj->pos_.XYZ2TrackPos(curX, curY, curZ, roadmanager::Position::PosMode::UNDEFINED, false, bestRoadId);
+                                }
+                            }
+                        }
+
                         GenerateProjectedTrajectory(objectState, this->scenario_engine_);
                     }
                 }

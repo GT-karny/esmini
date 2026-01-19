@@ -471,24 +471,69 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
     }
     normal_log("OSMP", "doCalc called. Time: %f, Step: %f, PreQuit: %d", currentCommunicationPoint, communicationStepSize, preQuitFlag);
 
-    // Handle OSI TrafficUpdate input
+    // [GT_MOD] Store OSI updates to separate input parsing from application
+    // This allows us to apply updates AFTER the simulation step, preventing
+    // esmini's internal physics from overwriting the external position.
+    std::vector<osi3::MovingObject> pending_updates;
     osi3::TrafficUpdate traffic_update;
+    // Handle OSI TrafficUpdate input
     if (get_fmi_traffic_update_in(traffic_update))
     {
         for (const auto& obj : traffic_update.update())
         {
+            pending_updates.push_back(obj);
+        }
+    }
+    else
+    {
+        normal_log("OSMP", "No TrafficUpdate received.");
+    }
+
+    // Run simulation step
+    // [GT_MOD] START: Use GT_Step to update AutoLight logic
+    // Ensure OSI report mode is set for the step
+    SE_SetOSIStaticReportMode(SE_OSIStaticReportMode::API);
+    
+    // [GT_MOD] DIAGNOSTIC LOG
+    std::cout << "[OSMP] Calling GT_Step with dt: " << communicationStepSize << " at time " << currentCommunicationPoint << std::endl;
+    normal_log("OSMP", "Calling GT_Step with dt: %f", communicationStepSize);
+    
+    GT_Step((double)communicationStepSize);
+    
+    int quitFlag = SE_GetQuitFlag();
+    
+    // [GT_MOD] DIAGNOSTIC LOG
+    std::cout << "[OSMP] GT_Step returned. QuitFlag: " << quitFlag << std::endl;
+    normal_log("OSMP", "GT_Step returned. QuitFlag: %d", quitFlag);
+    
+    if (quitFlag) 
+    {
+       std::cerr << "[OSMP] Esmini reported QuitFlag=" << quitFlag << " after GT_Step." << std::endl;
+       // doCalc checks it at line 506 (originally 505)
+    } 
+
+    // [GT_MOD] Apply OSI updates (Post-Correction)
+    for (const auto& obj : pending_updates)
+    {
             // [GT_MOD] ID Resolution
             int obj_id = GT_GetLocalIdFromGlobalId((int)obj.id().value());
+            
+             // [GT_MOD] DIAGNOSTIC: Log received OSI Position
+             if (obj.base().has_position()) {
+                 std::cout << "[OSMP] Rx Update for GlobalID " << obj.id().value() 
+                           << " (LocalID " << obj_id << ") Pos: (" 
+                           << obj.base().position().x() << ", " 
+                           << obj.base().position().y() << ")" << std::endl;
+             }
+
             if (obj_id == -1)
             {
-                // Only log once per ID to avoid flooding? Or just log warn.
-                // Use static set to log once?
-                // For now, log to cerr (visible in console)
-                // std::cerr << "[OSMP] Warning: OSI Global ID " << obj.id().value() << " not found in esmini." << std::endl;
                 continue; 
             }
             SE_ScenarioObjectState vehicleState;
+            // Get state AFTER step (e.g. at s=10 if stuck)
             SE_GetObjectState(obj_id, &vehicleState);
+
             if (obj.base().has_orientation())
             {
                 vehicleState.h = (float)obj.base().orientation().yaw();
@@ -510,7 +555,7 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
                 vehicleState.z = obj.base().position().z() - vehicleState.centerOffsetZ;
             }
 
-            // Report full 6DOF position/rotation
+            // Report full 6DOF position/rotation (Overwrites esmini state)
             SE_ReportObjectPos(obj_id, 0, vehicleState.x, vehicleState.y, vehicleState.z, vehicleState.h, vehicleState.p, vehicleState.r);
 
             if (obj.base().has_velocity())
@@ -585,37 +630,9 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
                 }
                 GT_SetExternalLightState(obj_id, 2, highBeam);
             }
-            // [GT_MOD] END
-        }
+            // [GT_MOD] END Logic
     }
-    else
-    {
-        normal_log("OSMP", "No TrafficUpdate received.");
-    }
-
-    // Run simulation step
-    // [GT_MOD] START: Use GT_Step to update AutoLight logic
-    // Ensure OSI report mode is set for the step
-    SE_SetOSIStaticReportMode(SE_OSIStaticReportMode::API);
-    
-    // [GT_MOD] DIAGNOSTIC LOG
-    std::cout << "[OSMP] Calling GT_Step with dt: " << communicationStepSize << " at time " << currentCommunicationPoint << std::endl;
-    normal_log("OSMP", "Calling GT_Step with dt: %f", communicationStepSize);
-    
-    GT_Step((double)communicationStepSize);
-    
-    int quitFlag = SE_GetQuitFlag();
-    
-    // [GT_MOD] DIAGNOSTIC LOG
-    std::cout << "[OSMP] GT_Step returned. QuitFlag: " << quitFlag << std::endl;
-    normal_log("OSMP", "GT_Step returned. QuitFlag: %d", quitFlag);
-    
-    if (quitFlag) 
-    {
-       std::cerr << "[OSMP] Esmini reported QuitFlag=" << quitFlag << " after GT_Step." << std::endl;
-       // doCalc checks it at line 506 (originally 505)
-    } 
-    // [GT_MOD] END
+    // [GT_MOD] END Processor
 
     update_osmp_output(currentCommunicationPoint + communicationStepSize);
     if (SE_GetQuitFlag() > 0) {
