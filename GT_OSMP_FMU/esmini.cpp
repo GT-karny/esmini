@@ -560,7 +560,7 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
 
             if (obj.base().has_velocity())
             {
-                SE_ReportObjectVel(obj_id, 0, obj.base().velocity().x(), obj.base().velocity().y(), obj.base().velocity().z());
+                GT_ReportObjectVel(obj_id, 0, obj.base().velocity().x(), obj.base().velocity().y(), obj.base().velocity().z());
             }
 
             // [GT_MOD] START: Inject Light State from OSI TrafficUpdate

@@ -89,7 +89,20 @@ extern "C"
     // Set light state for a vehicle (for external controllers like FMU)
 GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mode);
 
-GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType);
+    GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType);
+
+    /**
+     * Report object velocity (GT extension with speed sync)
+     * This function wraps SE_ReportObjectVel and additionally updates the scalar speed.
+     * 
+     * @param object_id ID of the object
+     * @param timestamp Timestamp (currently unused)
+     * @param x_vel Velocity X component (global coordinates)
+     * @param y_vel Velocity Y component (global coordinates)
+     * @param z_vel Velocity Z component (global coordinates)
+     * @return 0 on success, -1 on failure
+     */
+    GT_ESMINI_API int GT_ReportObjectVel(int object_id, float timestamp, float x_vel, float y_vel, float z_vel);
 
     /**
      * Get Local ID from Global ID using OSI GroundTruth

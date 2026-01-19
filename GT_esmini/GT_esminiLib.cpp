@@ -545,3 +545,36 @@ GT_ESMINI_API int GT_GetLocalIdFromGlobalId(int global_id)
     
     return -1;
 }
+
+GT_ESMINI_API int GT_ReportObjectVel(int object_id, float timestamp, float x_vel, float y_vel, float z_vel)
+{
+    // Call original esminiLib function to update velocity vector
+    int ret = SE_ReportObjectVel(object_id, timestamp, x_vel, y_vel, z_vel);
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+    // [GT_MOD] Sync scalar speed to match velocity vector magnitude
+    float speed = std::sqrt(x_vel * x_vel + y_vel * y_vel + z_vel * z_vel);
+    
+    // Update speed via ScenarioGateway and Object
+    if (player && player->scenarioGateway)
+    {
+        player->scenarioGateway->updateObjectSpeed(object_id, 0.0, speed);
+    }
+    
+    // Also update Object directly (for callback context)
+    Object* obj = nullptr;
+    if (player && player->scenarioEngine)
+    {
+        obj = player->scenarioEngine->entities_.GetObjectById(object_id);
+        if (obj)
+        {
+            obj->SetSpeed(speed);
+        }
+    }
+
+    return 0;
+}
+
