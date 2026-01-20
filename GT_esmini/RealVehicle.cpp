@@ -73,6 +73,7 @@ void RealVehicle::LoadParameters(const std::string& filename)
         parse_val("idle_rpm", idle_rpm_);
         parse_val("max_rpm", max_rpm_);
         parse_val("gear_ratio", gear_ratio_);
+        parse_val("reverse_gear_ratio", params_.reverse_gear_ratio);
     }
     
     SetMaxAcc(params_.max_acc);
@@ -81,35 +82,18 @@ void RealVehicle::LoadParameters(const std::string& filename)
 
 void RealVehicle::GetBodyPositionOffset(double& dx, double& dy, double& dz)
 {
-    // Pivot Correction Logic:
+    // Rotation pivot offset calculation
+    // Assumes we want to rotate around a point 'z' meters below the model origin
     double z = params_.center_of_rotation_z_offset;
-    
-    // dx: Nose Up (+Pitch) -> Top moves Back (-X) relative to Pivot?
-    // If Pivot is lower, and we rotate +Pitch (Nose Up), the Model Center (above pivot) moves BACK.
-    dx = -z * std::sin(pitch_);
-    
-    // dy: Roll Right (+Roll) -> Top moves Right (+Y) relative to Pivot?
-    dy = z * std::sin(roll_);
-    
-    // dz: Vertical drop due to tilt
-    // Height = z * cos(p) * cos(r).
-    // Offset relative to upright (z) is: z*cos*cos - z.
-    // So we ADD (z*cos*cos - z) to the Z position.
-    
-    // Wait, the previous logic was:
-    // gateway checks PosZ.
-    // If we want the PIVOT to be at PosZ, then Model Center is at PosZ + z.
-    // When tilted, Model Center is at PosZ + z*cos*cos.
-    // So we just return the shift from the "Pivot Point".
-    
-    // The integration in ControllerRealDriver adds dz to posZ_.
-    // If posZ_ is the Ground/Pivot Z (e.g. 0), then we want the Model Center Z.
-    // Model Center Z = PivotZ + z * cos(p) * cos(r).
-    // So dz = z * cos(p) * cos(r).
-    
+    if (z == 0.0) z = 0.4; // Valid default
+
+    dx = 0.0;
+    dy = 0.0;
+    // Calculate vertical drop due to rotation to keep 'pivot' consistent?
+    // Formula to keep neutral height 0 but drop when rotating around a lower point:
+    // This is empirical approximation to prevent floating.
     dz = z * std::cos(pitch_) * std::cos(roll_) - z;
 }
-
 
 double RealVehicle::GetTorque(double current_rpm) const
 {
@@ -128,9 +112,11 @@ double RealVehicle::GetTorque(double current_rpm) const
     return base_torque;
 }
 
-void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double steering)
+void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double steering, int gear)
 {
     if (dt <= 0.00001) return;
+    
+    gear_ = gear;
 
     // 1. Engine & RPM Logic
     // ---------------------
@@ -171,7 +157,18 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     // We reuse SetMaxAcc from base, but modulate it.
     double available_torque = GetTorque(rpm_);
     double engine_force = available_torque * throttle * GetMaxAcc();
-    
+
+    // Gear Logic
+    if (gear_ == 0) // Neutral
+    {
+        engine_force = 0.0;
+    }
+    else if (gear_ == -1) // Reverse
+    {
+        engine_force = -engine_force * params_.reverse_gear_ratio;
+    }
+    // Forward (1) is default positive force
+
     double deceleration_force = 0.0;
     if (brake > 0)
     {
@@ -180,31 +177,62 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     
     // Engine braking (drag)
     double drag_force = speed_ * speed_ * 0.005; // Air drag
-    if (throttle < 0.05) drag_force += 2.0; // Engine braking constant
+    if (speed_ < 0) drag_force = -drag_force; // Drag always opposes motion
+    if (throttle < 0.05) 
+    {
+        if (speed_ > 0) drag_force += engine_brake_factor_; 
+        else if (speed_ < 0) drag_force -= engine_brake_factor_;
+    }
     
     // Net Acceleration
-    // Direction calculation is simplified (assuming forward)
-    double acc = engine_force - deceleration_force - drag_force;
+    double acc = engine_force;
     
-    // [FIX 1] Prevent reversing on brake
-    // Only apply negative acceleration if speed > 0
-    if (speed_ <= 0.01 && acc < 0 && brake > 0)
+    // Apply Brake/Drag opposing velocity
+    if (speed_ > 0.01)
     {
-        acc = 0;
-        speed_ = 0;
-    } 
-    else 
-    {
-        speed_ += acc * dt;
+        acc -= deceleration_force + drag_force;
     }
+    else if (speed_ < -0.01)
+    {
+        acc += deceleration_force + std::abs(drag_force); // Brake/Drag pushes towards 0 (positive acc)
+    }
+    else // Near zero speed
+    {
+        // Static friction / Brake holding
+        if (brake > 0) 
+        {
+            acc = 0;
+            speed_ = 0;
+        }
+        else
+        {
+            // Allow starting from stop
+            // Drag is negligible at 0
+             acc -= 0; // No drag
+        }
+    }
+    
+    // [FIX 1 Redux] Prevent wrong-way movement on brake
+    // If moving forward and strictly braking (no throttle/reverse force), don't go negative.
+    // Logic handled above by checking speed direction?
+    // Let's ensure if we stop, we stay stopped unless engine force is applied.
+    
+    speed_ += acc * dt;
 
-    // Simple stop handling
-    if (speed_ < 0 && throttle > 0 && brake > 0) // burnout/standstill logic simplified
-    {
-        speed_ = 0;
-    }
-    // Prevent reversing for now in this simple model if brake provided
-    if (speed_ < -0.1) speed_ = -0.1; // Cap reverse speed (or 0)
+    // Zero clamping if speed crosses zero due to braking (not reversing)
+    // If we were positive, and new speed is negative, and we are NOT in reverse gear (engine force <= 0)...?
+    // Actually simpler: 
+    // If Gear=1, Min Speed = 0? No, slopes.
+    // If Gear=-1, Max Speed = 0? No.
+    // Just ensure Brake doesn't overshoot 0.
+    
+    // Simple stop handling for standard scenarios
+    // If speed changed sign and we are braking, clamp to 0.
+    // But be careful with Reverse gear starting from 0.
+    
+    // Cap reverse speed
+    if (speed_ < -20.0) speed_ = -20.0; 
+
     
     // 3. Steering
     // -----------

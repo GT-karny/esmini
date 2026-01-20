@@ -33,6 +33,9 @@ namespace gt_esmini
             double throttle;
             double brake;
             double steering;
+            int    gear = 1;
+            int    lightMask = 0;
+            double engineBrake;
         } input_;
 
         // Parsing helper for UDP packet (reusing structure from UDPDriverController conceptually)
@@ -54,6 +57,9 @@ namespace gt_esmini
             double throttle;
             double brake;
             double steeringAngle; // Negative = Right in python script?
+            double gear;          // -1, 0, 1
+            unsigned int lightMask; // Bitmask for lights
+            double engineBrake;
         };
         #pragma pack(pop)
     };

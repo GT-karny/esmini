@@ -2,6 +2,7 @@
 #include "logger.hpp"
 #include "ScenarioGateway.hpp"
 #include "Entities.hpp"
+#include "ExtraEntities.hpp" // For Light Extension
 
 namespace gt_esmini
 {
@@ -26,10 +27,7 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     // Also check "Port" parameter which might be an offset or absolute
     if (args && args->properties && args->properties->ValueExists("Port"))
     {
-         int p = strtol(args->properties->GetValueStr("Port").c_str(), nullptr, 10);
-         // If Port is small (like 0, 1), treat as offset to BasePort?
-         // UDPDriver logic: port_ = basePort_ + object_->GetId(); OR specific port.
-         // Let's implement similar logic in Activate() or here.
+         // int p = strtol(args->properties->GetValueStr("Port").c_str(), nullptr, 10);
          // Storing explicit port for now if needed.
     }
 }
@@ -87,6 +85,9 @@ void ControllerRealDriver::Step(double timeStep)
                 input_.throttle = packet.throttle;
                 input_.brake = packet.brake;
                 input_.steering = packet.steeringAngle; // Python sends -wheel_angle
+                input_.gear = static_cast<int>(packet.gear); // Double to Int conversion
+                input_.lightMask = static_cast<int>(packet.lightMask);
+                input_.engineBrake = packet.engineBrake;
                 res = r;
             }
             else
@@ -97,8 +98,10 @@ void ControllerRealDriver::Step(double timeStep)
     }
 
     // 2. Update Physics
+    real_vehicle_.SetEngineBrakeFactor(input_.engineBrake);
     
-    real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering);
+    
+    real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
 
     // 3. Update Simulation Object
     if (object_ && gateway_)
@@ -137,6 +140,41 @@ void ControllerRealDriver::Step(double timeStep)
             real_vehicle_.GetPitch(),
             real_vehicle_.GetRoll()
         );
+        
+        // 4. Update Lights (Extensions)
+        auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
+        if (vehicle)
+        {
+            auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+            if (ext)
+            {
+                // Helper lambda
+                auto set_light = [&](VehicleLightType type, bool on) {
+                    LightState s;
+                    s.mode = on ? LightState::Mode::ON : LightState::Mode::OFF;
+                    ext->SetLightState(type, s);
+                };
+                
+                int mask = input_.lightMask;
+                
+                // Manual Lights from UDP
+                set_light(VehicleLightType::LOW_BEAM,      (mask & 1));
+                set_light(VehicleLightType::HIGH_BEAM,     (mask & 2));
+                set_light(VehicleLightType::INDICATOR_LEFT,(mask & 4));
+                set_light(VehicleLightType::INDICATOR_RIGHT,(mask & 8));
+                set_light(VehicleLightType::WARNING_LIGHTS,(mask & 16));
+                set_light(VehicleLightType::FOG_LIGHTS_FRONT,(mask & 32));
+                set_light(VehicleLightType::FOG_LIGHTS_REAR, (mask & 64));
+                
+                // Auto Lights (Logic)
+                // Brake Light
+                set_light(VehicleLightType::BRAKE_LIGHTS, (input_.brake > 0.05)); // Threshold
+                
+                // Reverse Light
+                set_light(VehicleLightType::REVERSING_LIGHTS, (input_.gear == -1));
+            }
+        }
+
         
         // Hack: To allow terrain following for Z, we should probably read Z back from object 
         // after esmini might have snapped it? Or RealVehicle needs to know Z.
