@@ -923,7 +923,26 @@ int OSIReporter::UpdateOSIStationaryObject(ObjectState *objectState)
     return 1;
 }
 
-// [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
+// [GT_MOD] Helper function to get target lane ID from route for a given road
+static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, int roadId)
+{
+    if (!route || !route->IsValid())
+    {
+        return 0; // Default to lane 0 if no route
+    }
+
+    // Search for the road in route waypoints
+    for (size_t i = 0; i < route->minimal_waypoints_.size(); i++)
+    {
+        if (route->minimal_waypoints_[i].GetTrackId() == roadId)
+        {
+            return route->minimal_waypoints_[i].GetLaneId();
+        }
+    }
+
+    return 0; // Not found in route, default to lane 0
+}
+
 // [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
 static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState, scenarioengine::ScenarioEngine* scenario_engine)
 {
@@ -942,6 +961,18 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
     // This maintains the current Route info if assigned
     roadmanager::Position ghostPos = simObj->pos_;
 
+    // [GT_MOD] CRITICAL FIX: Reset lateral offset to 0.0
+    // Real vehicle might be offset due to PID deviation (e.g. cutting corners).
+    // If we keep this offset, ghostPos might snap to wrong lane (e.g. sidewalk)
+    // or generate a trajectory that maintains this offset.
+    // We force the ghost vehicle to start at the center of its current lane.
+    if (std::abs(ghostPos.GetOffset()) > 0.001)
+    {
+        ghostPos.SetLanePos(ghostPos.GetTrackId(), ghostPos.GetLaneId(), ghostPos.GetS(), 0.0);
+        // Also fix heading to align with road
+        ghostPos.SetHeadingRelative(0.0);
+    }
+
     // [GT_MOD] Inject Route: Ensure ghost position has the route for correct branching at junctions
     if (simObj->pos_.GetRoute())
     {
@@ -955,6 +986,43 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
         ghostPos.SetRoute(clonedRoute); 
         // ghostPos now owns clonedRoute and will delete it in its destructor.
     }
+    }
+
+    // [GT_MOD] Debug: Log trajectory state AFTER route cloning
+    printf("GT_TRAJ: After clone - roadId=%d, laneId=%d, hasRoute=%d\n",
+        ghostPos.GetTrackId(), ghostPos.GetLaneId(),
+        (ghostPos.GetRoute() && ghostPos.GetRoute()->IsValid()) ? 1 : 0);
+    if (ghostPos.GetRoute() && ghostPos.GetRoute()->IsValid())
+    {
+        printf("GT_TRAJ: Route waypoints=%d\n", (int)ghostPos.GetRoute()->minimal_waypoints_.size());
+        for (size_t i = 0; i < ghostPos.GetRoute()->minimal_waypoints_.size() && i < 5; i++)
+        {
+            printf("GT_TRAJ:   WP[%d] roadId=%d, laneId=%d\n", 
+                (int)i, ghostPos.GetRoute()->minimal_waypoints_[i].GetTrackId(),
+                ghostPos.GetRoute()->minimal_waypoints_[i].GetLaneId());
+        }
+        
+        // [GT_MOD] CRITICAL FIX: Correct ghostPos lane ID to match route
+        // Problem: PID control causes vehicle to deviate from lane center, causing esmini
+        // to snap to wrong lane (e.g. lane 1 instead of lane -1). This causes MoveAlongS
+        // to select wrong road at junctions (e.g. road 16 instead of road 13).
+        // Solution: Find current waypoint in route and force ghostPos to use that lane ID.
+        int currentRoadId = ghostPos.GetTrackId();
+        for (const auto& wp : ghostPos.GetRoute()->minimal_waypoints_)
+        {
+            if (wp.GetTrackId() == currentRoadId)
+            {
+                int routeLaneId = wp.GetLaneId();
+                int currentLaneId = ghostPos.GetLaneId();
+                if (routeLaneId != currentLaneId)
+                {
+                    printf("GT_TRAJ: Correcting ghostPos lane: %d -> %d (route)\n", 
+                        currentLaneId, routeLaneId);
+                    ghostPos.SetLanePos(currentRoadId, routeLaneId, ghostPos.GetS(), 0.0);
+                }
+                break;
+            }
+        }
     }
 
     // Introspect active actions
@@ -1131,8 +1199,17 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
             double currentGhostOffset = ghostPos.GetOffset(); 
             dLaneOffset = desiredOffset - currentGhostOffset; 
         }
+        else
+        {
+            // [GT_MOD] Default behavior: Steer back to lane center and align heading
+            // If not changing lanes, we want trajectory to be centered and parallel to lane.
+            dLaneOffset = -ghostPos.GetOffset();
+            ghostPos.SetHeadingRelative(0.0);
+        }
+
 
         // Move the ghost position forward
+        int prevRoadId = ghostPos.GetTrackId();
         auto ret = ghostPos.MoveAlongS(ds, dLaneOffset, -1.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true);
         
         // [GT_MOD] Fallback
@@ -1144,6 +1221,28 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
              if (static_cast<int>(ret) < 0 && i == 1) {
                  printf("GT_DEBUG: Fallback MoveAlongS also failed (ret=%d).\n", static_cast<int>(ret));
              }
+        }
+        
+        // [GT_MOD] Detect road transition and correct lane ID based on route
+        int currentRoadId = ghostPos.GetTrackId();
+        if (currentRoadId != prevRoadId && ghostPos.GetRoute())
+        {
+            // Road transition detected (Junction passed)
+            int targetLaneId = GetTargetLaneIdFromRoute(ghostPos.GetRoute(), currentRoadId);
+            int currentLaneId = ghostPos.GetLaneId();
+            
+            if (targetLaneId != currentLaneId)
+            {
+                // Correct to target lane from route
+                double currentS = ghostPos.GetS();
+                ghostPos.SetLanePos(currentRoadId, targetLaneId, currentS, 0.0);
+                
+                // Debug log
+                if (i == 1) {
+                    printf("GT_TRAJ: Road transition %d->%d, Lane corrected %d->%d\n",
+                        prevRoadId, currentRoadId, currentLaneId, targetLaneId);
+                }
+            }
         }
         
         // Add point to OSI message
@@ -1427,7 +1526,7 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                             if (!roadOnRoute && !waypoints.empty())
                             {
                                 double bestT = 1e9;
-                                id_t bestRoadId = -1;
+                                id_t bestRoadId = 0;  // Use 0 instead of -1 for unsigned type
                                 
                                 double curX = targetObj->pos_.GetX();
                                 double curY = targetObj->pos_.GetY();
