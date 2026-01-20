@@ -146,6 +146,8 @@ add_library(${TARGET} SHARED esmini.cpp
     ../GT_esmini/GT_esminiLib.cpp
     ../GT_esmini/ExtraEntities.cpp
     ../GT_esmini/AutoLightController.cpp
+    ../GT_esmini/RealVehicle.cpp
+    ../GT_esmini/ControllerRealDriver.cpp
     ../GT_esmini/GT_ScenarioReader.cpp
     ../GT_esmini/ExtraAction.cpp
 )
