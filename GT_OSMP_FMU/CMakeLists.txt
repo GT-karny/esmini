@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-set(TARGET esmini)
+set(TARGET esmini_fmu)
 project(${TARGET})
 
 execute_process(
@@ -146,12 +146,16 @@ add_library(${TARGET} SHARED esmini.cpp
     ../GT_esmini/GT_esminiLib.cpp
     ../GT_esmini/ExtraEntities.cpp
     ../GT_esmini/AutoLightController.cpp
+    ../GT_esmini/RealVehicle.cpp
+    ../GT_esmini/ControllerRealDriver.cpp
     ../GT_esmini/GT_ScenarioReader.cpp
     ../GT_esmini/ExtraAction.cpp
 )
 set_target_properties(${TARGET} PROPERTIES PREFIX "")
 target_compile_definitions(${TARGET} PRIVATE "FMU_SHARED_OBJECT")
+set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "esmini")
 target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
+target_compile_definitions(${TARGET} PRIVATE _USE_OSI)
 
 if(STATIC_LINKING)
     message("Link esmini statically")
@@ -173,7 +177,9 @@ if(STATIC_LINKING)
     set(FMT_SHARED OFF)
     set(CMAKE_POSITION_INDEPENDENT_CODE
         ON)
-    add_subdirectory(../externals/fmt fmt)
+    if(NOT TARGET fmt)
+        add_subdirectory(../externals/fmt fmt)
+    endif()
 
     if(LINUX)
         # add link lib for missing filesystem functions in case gcc 7.5 is usedAdd commentMore actions

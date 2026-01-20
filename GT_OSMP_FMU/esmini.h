@@ -66,7 +66,10 @@ using namespace std;
 
 /* Real Variables */
 #define FMI_REAL_LAST_IDX 0
-#define FMI_REAL_VARS (FMI_REAL_LAST_IDX+1)
+#define FMI_REAL_GENERIC_START_IDX (FMI_REAL_LAST_IDX + 1)
+#define FMI_REAL_GENERIC_COUNT 50
+#define FMI_REAL_GENERIC_END_IDX (FMI_REAL_GENERIC_START_IDX + FMI_REAL_GENERIC_COUNT - 1)
+#define FMI_REAL_VARS (FMI_REAL_GENERIC_END_IDX + 1)
 
 /* String Variables */
 #define FMI_STRING_XOSC_PATH_IDX 0
@@ -79,6 +82,7 @@ using namespace std;
 #include <string>
 #include <cstdarg>
 #include <set>
+#include <map>
 
 #undef min
 #undef max
@@ -210,6 +214,10 @@ protected:
     string* currentBufferTCOut;
     string* lastBufferTCOut;
 
+    // [GT_MOD] Parameter Mapping
+    std::map<int, std::string> parameter_map_;
+    // [GT_MOD] END
+
     /* Simple Accessors */
     fmi2Boolean fmi_valid() { return boolean_vars[FMI_BOOLEAN_VALID_IDX]; }
     void set_fmi_valid(fmi2Boolean value) { boolean_vars[FMI_BOOLEAN_VALID_IDX]=value; }
@@ -227,4 +235,8 @@ protected:
     //bool get_fmi_traffic_command_update_in(osi3::TrafficCommandUpdate& data);     //TODO: Wait for OSI update
     void set_fmi_traffic_command_out(const osi3::TrafficCommand& data);
     void reset_fmi_traffic_command_out();
+
+    /* Helper for OSI output */
+    void update_osmp_output(double time);
+    fmi2Real m_startTime;
 };

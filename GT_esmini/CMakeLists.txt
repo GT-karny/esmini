@@ -15,6 +15,8 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/ExtraEntities.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_ScenarioReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.cpp)
 
 set(INCLUDES
@@ -22,6 +24,8 @@ set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/ExtraEntities.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_ScenarioReader.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.hpp)
 
 # ############################### Creating library ##################################################################################################

@@ -41,3 +41,4 @@ CMakeUserPresets.json
 EnvironmentSimulator/Libraries/esminiJS/example/esmini.js
 venv/
 build/
+*.temp.xosc

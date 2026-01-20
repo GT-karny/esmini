@@ -399,8 +399,10 @@ static int InitScenario()
     // Create scenario engine
     try
     {
+        fprintf(stderr, "[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n");
         // Initialize the scenario engine and viewer
         player     = new ScenarioPlayer(argc_, argv_);
+        fprintf(stderr, "[esminiLib] InitScenario: Calling player->Init()...\n");
         int retval = player->Init();
         if (retval == -1)
         {
@@ -572,6 +574,7 @@ extern "C"
 
     SE_DLL_API int SE_InitWithArgs(int argc, const char *argv[])
     {
+        fprintf(stderr, "[esminiLib] SE_InitWithArgs called. argc=%d\n", argc);
         if (argv && !strncmp(argv[0], "--", 2))
         {
             // Application name argument missing. Add something.
@@ -580,9 +583,11 @@ extern "C"
 
         for (int i = 0; i < argc; i++)
         {
+            if (argv[i]) fprintf(stderr, "[esminiLib] Arg[%d]: %s\n", i, argv[i]);
             AddArgument(argv[i], false);
         }
 
+        fprintf(stderr, "[esminiLib] Calling InitScenario...\n");
         return InitScenario();
     }
 

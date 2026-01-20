@@ -303,4 +303,5 @@ set(EXTERNALS_FMT_PATH
 
 add_subdirectory(EnvironmentSimulator)
 add_subdirectory(GT_esmini)
+add_subdirectory(GT_OSMP_FMU)
 

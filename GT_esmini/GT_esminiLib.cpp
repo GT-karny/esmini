@@ -24,6 +24,10 @@
 #include <string>
 #include <iostream>
 #include <cstdio>
+#include <osi_groundtruth.pb.h>
+
+#include "ControllerRealDriver.hpp"
+
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -205,6 +209,9 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
          return -1;
     }
 
+    // 1.5 Register Custom Controller
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0); 
     
@@ -268,6 +275,10 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 
 GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 {
+    std::cerr << "[GT_esmini] GT_InitWithArgs called with argc=" << argc << std::endl;
+    if (argc > 0 && argv) {
+        std::cerr << "[GT_esmini] argv[0]=" << (argv[0] ? argv[0] : "NULL") << std::endl;
+    }
     const char* filename = nullptr;
     
     // Simple argument parsing to find the filename.
@@ -299,6 +310,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
     if (filename)
     {
+        std::cerr << "[GT_esmini] Sanitizing filename: " << filename << std::endl;
         sanitizedFile = std::string(filename) + ".temp.xosc";
         if (!CreateSanitizedScenario(filename, sanitizedFile))
         {
@@ -340,8 +352,13 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         for(int i=0; i<argc; i++) newArgv.push_back(argv[i]);
     }
 
+    // 1.5 Register Custom Controller
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+
     // 2. Initialize esmini using SE_Init with sanitized args
+    std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
     int ret = SE_InitWithArgs(newArgv.size(), newArgv.data());
+    std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
     
     // Clean up temp file (or keep for debug?)
     // std::remove(sanitizedFile.c_str()); 
@@ -350,6 +367,19 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     {
         return ret;
     }
+
+    // [GT_MOD] DIAGNOSTIC & FIX: Check and Reset QuitFlag
+    int postSeInitQuit = SE_GetQuitFlag();
+    if (postSeInitQuit) {
+        std::cout << "GT_InitWithArgs: WARNING: SE_InitWithArgs returned 0 but QuitFlag is " << postSeInitQuit << ". Forcing reset." << std::endl;
+        if (player) {
+            player->SetQuitRequest(false);
+            std::cout << "GT_InitWithArgs: QuitFlag forced to 0." << std::endl;
+        }
+    } else {
+        std::cout << "GT_InitWithArgs: SE_InitWithArgs OK. QuitFlag=0." << std::endl;
+    }
+    // [GT_MOD] END
 
     // 3. Perform Delta Parsing for Extensions using ORIGINAL file
     if (filename && player && player->scenarioEngine)
@@ -406,7 +436,15 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             emptyState.mode = gt_esmini::LightState::Mode::OFF;
             return emptyState;
         });
+
     }
+
+    // [GT_MOD] DIAGNOSTIC
+    int finalQuit = SE_GetQuitFlag();
+    if (finalQuit) {
+        std::cerr << "GT_InitWithArgs: CRITICAL! QuitFlag=" << finalQuit << " at end of GT_InitWithArgs." << std::endl;
+    }
+    // [GT_MOD] END
 
     return 0;
 }
@@ -477,3 +515,75 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
         }
     }
 }
+
+GT_ESMINI_API int GT_GetLocalIdFromGlobalId(int global_id)
+{
+    // Access Raw OSI data via esmini API
+    const char* rawPtr = SE_GetOSIGroundTruthRaw();
+    if (!rawPtr) return -1;
+
+    // Cast to osi3::GroundTruth*
+    // Note: esminiLib returns the internal pointer which is osi3::GroundTruth*
+    const osi3::GroundTruth* gt = reinterpret_cast<const osi3::GroundTruth*>(rawPtr);
+
+    // Search Moving Objects
+    // OSI IDs are generally uint64, esmini global_id is int (but stored as uint64 in OSI)
+    for (int i = 0; i < gt->moving_object_size(); ++i) {
+        const auto& obj = gt->moving_object(i);
+        if (obj.id().value() == (uint64_t)global_id) {
+             // Found object, parse source_reference for Local ID
+             for (int j=0; j < obj.source_reference_size(); ++j) {
+                 const auto& ref = obj.source_reference(j);
+                 for (int k=0; k < ref.identifier_size(); ++k) {
+                     const std::string& id_str = ref.identifier(k);
+                     // Format created in OSIReporter.cpp: "entity_id:{id}"
+                     if (id_str.find("entity_id:") == 0) {
+                         try {
+                             return std::stoi(id_str.substr(10));
+                         } catch (...) {
+                             return -1;
+                         }
+                     }
+                 }
+             }
+        }
+    }
+    
+    // Also check Stationary Objects if necessary, but TrafficUpdates typically target MovingObjects
+    // (Vehicles, Pedestrians)
+    
+    return -1;
+}
+
+GT_ESMINI_API int GT_ReportObjectVel(int object_id, float timestamp, float x_vel, float y_vel, float z_vel)
+{
+    // Call original esminiLib function to update velocity vector
+    int ret = SE_ReportObjectVel(object_id, timestamp, x_vel, y_vel, z_vel);
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+    // [GT_MOD] Sync scalar speed to match velocity vector magnitude
+    float speed = std::sqrt(x_vel * x_vel + y_vel * y_vel + z_vel * z_vel);
+    
+    // Update speed via ScenarioGateway and Object
+    if (player && player->scenarioGateway)
+    {
+        player->scenarioGateway->updateObjectSpeed(object_id, 0.0, speed);
+    }
+    
+    // Also update Object directly (for callback context)
+    Object* obj = nullptr;
+    if (player && player->scenarioEngine)
+    {
+        obj = player->scenarioEngine->entities_.GetObjectById(object_id);
+        if (obj)
+        {
+            obj->SetSpeed(speed);
+        }
+    }
+
+    return 0;
+}
+
