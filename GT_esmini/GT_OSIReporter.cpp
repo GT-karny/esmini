@@ -1342,10 +1342,29 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                 auto* classification = obj_osi_internal.mobj->mutable_vehicle_classification();
                 auto* light_state = classification->mutable_light_state();
 
+                // Clear/initialize all light states to OFF/default before setting
+                light_state->Clear();
+                light_state->set_indicator_state(osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OFF);
+                light_state->set_brake_light_state(osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_OFF);
+                light_state->set_head_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                light_state->set_high_beam(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                light_state->set_reversing_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                light_state->set_front_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+                light_state->set_rear_fog_light(osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF);
+
                 // Helper lambda to check light state using the provider hook
                 auto is_on = [&](::gt_esmini::VehicleLightType type) -> bool {
                     auto state = g_LightStateProvider(static_cast<void*>(vehicle), static_cast<int>(type));
-                    return state.mode != ::gt_esmini::LightState::Mode::OFF;
+                    bool result = (state.mode != ::gt_esmini::LightState::Mode::OFF);
+
+                    // Debug log (only log occasionally to reduce spam)
+                    static int log_counter = 0;
+                    if (log_counter++ % 100 == 0)
+                    {
+                        LOG_DEBUG("Light check: type={} mode={} result={}", static_cast<int>(type), static_cast<int>(state.mode), result);
+                    }
+
+                    return result;
                 };
 
                 // Indicators

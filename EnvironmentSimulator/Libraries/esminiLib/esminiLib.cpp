@@ -1604,17 +1604,39 @@ extern "C"
     SE_DLL_API int SE_OpenOSISocket(const char *ipaddr)
     {
 #ifdef _USE_OSI
+        LOG_INFO("SE_OpenOSISocket: _USE_OSI is DEFINED");
         if (player == nullptr)
         {
+            LOG_ERROR("SE_OpenOSISocket: player is nullptr!");
             return -1;
         }
 
-        player->osiReporter->OpenSocket(ipaddr);
-#else
-        (void)ipaddr;
-#endif  // _USE_OSI
+        if (player->osiReporter == nullptr)
+        {
+            LOG_ERROR("SE_OpenOSISocket: osiReporter is nullptr!");
+            return -1;
+        }
 
-        return 0;
+        // Set OSI frequency to 1 (send every frame) if not already set
+        if (player->osiReporter->GetOSIFrequency() == 0)
+        {
+            LOG_INFO("SE_OpenOSISocket: OSI frequency was 0, setting to 1 (send every frame)");
+            player->osiReporter->SetOSIFrequency(1);
+        }
+        else
+        {
+            LOG_INFO("SE_OpenOSISocket: OSI frequency already set to {}", player->osiReporter->GetOSIFrequency());
+        }
+
+        LOG_INFO("SE_OpenOSISocket: Calling OpenSocket({})", ipaddr);
+        int result = player->osiReporter->OpenSocket(ipaddr);
+        LOG_INFO("SE_OpenOSISocket: OpenSocket returned {}", result);
+        return result;
+#else
+        LOG_WARN("SE_OpenOSISocket: _USE_OSI is NOT DEFINED - OSI support is disabled!");
+        (void)ipaddr;
+        return -1;
+#endif  // _USE_OSI
     }
 
     SE_DLL_API void SE_SetOSIStaticReportMode(SE_OSIStaticReportMode mode)
