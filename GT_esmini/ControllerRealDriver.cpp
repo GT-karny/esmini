@@ -1,4 +1,5 @@
 #include "ControllerRealDriver.hpp"
+#include <windows.h> // For GetModuleFileName
 #include "logger.hpp"
 #include "ScenarioGateway.hpp"
 #include "Entities.hpp"
@@ -11,6 +12,25 @@ scenarioengine::Controller* InstantiateControllerRealDriver(void* args)
 {
     scenarioengine::Controller::InitArgs* initArgs = static_cast<scenarioengine::Controller::InitArgs*>(args);
     return new ControllerRealDriver(initArgs);
+}
+
+// Helper to get directory of current module/executable
+std::string GetCurrentModuleDirectory()
+{
+    char buffer[MAX_PATH];
+    // Get path of current process executable
+    // If we wanted the DLL path specifically (if this code is in a DLL), we would need the HMODULE.
+    // NULL gets the path of the exe (e.g. GT_Sim.exe or Python.exe)
+    if (GetModuleFileNameA(NULL, buffer, MAX_PATH) != 0)
+    {
+        std::string path(buffer);
+        size_t last_slash = path.find_last_of("\\/");
+        if (last_slash != std::string::npos)
+        {
+            return path.substr(0, last_slash);
+        }
+    }
+    return ".";
 }
 
 ControllerRealDriver::ControllerRealDriver(InitArgs* args)
@@ -39,31 +59,65 @@ ControllerRealDriver::~ControllerRealDriver()
 
 int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
+    LOG_INFO("RealDriverController::Activate() called");
+
     if (object_)
     {
         // Calculate port: BasePort + Object ID (simple logic)
         // Or read from params if specific
         int final_port = port_ + object_->GetId();
-        
+
         if (!udpServer_ || udpServer_->GetPort() != final_port)
         {
              if (udpServer_) delete udpServer_;
              udpServer_ = new UDPServer(static_cast<unsigned short>(final_port), 1); // Asynchronous non-blocking
              LOG_INFO("RealDriverController listening on port {}", final_port);
         }
-        
+
+        // Register VehicleLightExtension for light state management
+        auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
+        LOG_INFO("RealDriverController: Vehicle cast result: {}", (vehicle ? "SUCCESS" : "FAILED"));
+
+        if (vehicle)
+        {
+            auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+            LOG_INFO("RealDriverController: GetExtension result: {}", (ext ? "ALREADY EXISTS" : "NULL - will create"));
+
+            if (!ext)
+            {
+                ext = new VehicleLightExtension(vehicle);
+                VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+                LOG_INFO("RealDriverController: Registered VehicleLightExtension for vehicle ID {}", vehicle->GetId());
+            }
+            else
+            {
+                LOG_INFO("RealDriverController: VehicleLightExtension already exists for vehicle ID {}", vehicle->GetId());
+            }
+        }
+        else
+        {
+            LOG_WARN("RealDriverController: Failed to cast object to Vehicle type");
+        }
+
         // Initialize RealVehicle state from Object
         real_vehicle_.Reset();
         real_vehicle_.SetPos(object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(), object_->pos_.GetH());
         real_vehicle_.SetSpeed(object_->GetSpeed());
-        
+
         // If object has bounding box, set length
         real_vehicle_.SetLength(object_->boundingbox_.dimensions_.length_);
-        
+
         // Tuning: Load External Param File
-        real_vehicle_.LoadParameters("real_vehicle_params.json");
+        // Construct absolute path based on executable location
+        std::string exeDir = GetCurrentModuleDirectory();
+        std::string paramFile = exeDir + "/real_vehicle_params.json";
+
+        // Log for debugging
+        LOG_INFO("RealDriver: Loading params from {}", paramFile);
+
+        real_vehicle_.LoadParameters(paramFile);
     }
-    
+
     return Controller::Activate(mode);
 }
 
