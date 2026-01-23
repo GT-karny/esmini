@@ -27,7 +27,10 @@
 #include <osi_groundtruth.pb.h>
 
 #include "ControllerRealDriver.hpp"
+#include "GT_HostVehicleReporter.hpp"
 
+// Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
+namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -268,6 +271,22 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
             emptyState.mode = gt_esmini::LightState::Mode::OFF;
             return emptyState;
         });
+
+        // 6. Register OSIReporter for global access (for Light state)
+#ifdef _USE_OSI
+        extern void GT_SetCurrentOSIReporter(OSIReporter* reporter);
+        if (player->osiReporter)
+        {
+            GT_SetCurrentOSIReporter(player->osiReporter);
+        }
+#endif  // _USE_OSI
+
+        // 7. Initialize GT_HostVehicleReporter (separated from OSIReporter)
+        {
+            std::string exeDir = gt_esmini::GetCurrentModuleDirectory();
+            std::string configFile = exeDir + "/host_vehicle_config.json";
+            gt_esmini::GT_HostVehicleReporter::Instance().Init(48199, configFile);
+        }
     }
 
     return 0;
@@ -303,6 +322,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         }
     }
 
+    // Capture OSI IP if provided
+    std::string osiTargetIp = "";
+
     // If filename found, sanitized it
     std::string sanitizedFile;
     std::vector<const char*> newArgv;
@@ -335,9 +357,17 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                     AutoLightManager::Instance().SetEgoless(true);
                 }
 
-                if (strcmp(argv[i], "--osi") == 0 || strcmp(argv[i], "--hz") == 0)
+                if (strcmp(argv[i], "--osi") == 0)
                 {
-                    i++; // Skip the argument value (IP or frequency)
+                    if (i + 1 < argc)
+                    {
+                        osiTargetIp = argv[i+1];
+                        i++; // Skip the IP
+                    }
+                }
+                else if (strcmp(argv[i], "--hz") == 0)
+                {
+                    i++; // Skip the frequency
                 }
             }
             else
@@ -425,7 +455,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
         // 5. Register Hook for OSIReporter
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
-        
+
         GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
             auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
             auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
@@ -437,6 +467,21 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             return emptyState;
         });
 
+        // 6. Register OSIReporter for global access (for Light state)
+#ifdef _USE_OSI
+        extern void GT_SetCurrentOSIReporter(OSIReporter* reporter);
+        if (player->osiReporter)
+        {
+            GT_SetCurrentOSIReporter(player->osiReporter);
+        }
+#endif  // _USE_OSI
+
+        // 7. Initialize GT_HostVehicleReporter (separated from OSIReporter)
+        {
+            std::string exeDir = gt_esmini::GetCurrentModuleDirectory();
+            std::string configFile = exeDir + "/host_vehicle_config.json";
+            gt_esmini::GT_HostVehicleReporter::Instance().Init(48199, configFile, osiTargetIp);
+        }
     }
 
     // [GT_MOD] DIAGNOSTIC
@@ -456,6 +501,103 @@ GT_ESMINI_API void GT_Step(double dt)
 
     // Update AutoLight
     AutoLightManager::Instance().Update(dt);
+
+    // Update HostVehicleData (using separated GT_HostVehicleReporter)
+#ifdef _USE_OSI
+    if (player && player->scenarioGateway && player->scenarioEngine &&
+        gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
+    {
+        auto& hvReporter = gt_esmini::GT_HostVehicleReporter::Instance();
+
+        // Get ego vehicle (first object) via ScenarioGateway
+        ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+        if (egoState)
+        {
+            int vehicleId = egoState->state_.info.id;
+
+            // Clear ADAS functions from previous frame
+            hvReporter.ClearADASFunctions(vehicleId);
+
+            // Try to get RealDriverController and pass input data to HostVehicleReporter
+            Object* egoObject = player->scenarioEngine->entities_.GetObjectById(vehicleId);
+            if (egoObject)
+            {
+                Controller* ctrl = egoObject->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME);
+                if (ctrl)
+                {
+                    // Cast to RealDriverController
+                    gt_esmini::ControllerRealDriver* realDriver =
+                        dynamic_cast<gt_esmini::ControllerRealDriver*>(ctrl);
+
+                    if (realDriver)
+                    {
+                        // Get input data from controller
+                        double throttle, brake, steering;
+                        int gear, lightMask;
+                        realDriver->GetInputsForOSI(throttle, brake, steering, gear, lightMask);
+
+                        // Get powertrain data
+                        double rpm, torque;
+                        realDriver->GetPowertrainForOSI(rpm, torque);
+
+                        // Pass to GT_HostVehicleReporter
+                        hvReporter.SetInputs(vehicleId, throttle, brake, steering, gear);
+                        hvReporter.SetLights(vehicleId, lightMask);
+                        hvReporter.SetPowertrain(vehicleId, rpm, torque);
+
+                        // Get and pass ADAS data (OSI compliant function names)
+                        unsigned int adasEnabled, adasAvailable;
+                        realDriver->GetADASForOSI(adasEnabled, adasAvailable);
+
+                        // Map bits to OSI ADAS function names (24 types based on OSI VehicleAutomatedDrivingFunction_Name)
+                        static const char* adasNames[] = {
+                            "BLIND_SPOT_WARNING",                  // 0x00000001
+                            "FORWARD_COLLISION_WARNING",           // 0x00000002
+                            "LANE_DEPARTURE_WARNING",              // 0x00000004
+                            "PARKING_COLLISION_WARNING",           // 0x00000008
+                            "REAR_CROSS_TRAFFIC_WARNING",          // 0x00000010
+                            "AUTOMATIC_EMERGENCY_BRAKING",         // 0x00000020
+                            "AUTOMATIC_EMERGENCY_STEERING",        // 0x00000040
+                            "REVERSE_AUTOMATIC_EMERGENCY_BRAKING", // 0x00000080
+                            "ADAPTIVE_CRUISE_CONTROL",             // 0x00000100
+                            "LANE_KEEPING_ASSIST",                 // 0x00000200
+                            "ACTIVE_DRIVING_ASSISTANCE",           // 0x00000400
+                            "BACKUP_CAMERA",                       // 0x00000800
+                            "SURROUND_VIEW_CAMERA",                // 0x00001000
+                            "NIGHT_VISION",                        // 0x00002000
+                            "HEAD_UP_DISPLAY",                     // 0x00004000
+                            "ACTIVE_PARKING_ASSISTANCE",           // 0x00008000
+                            "REMOTE_PARKING_ASSISTANCE",           // 0x00010000
+                            "TRAILER_ASSISTANCE",                  // 0x00020000
+                            "AUTOMATIC_HIGH_BEAMS",                // 0x00040000
+                            "DRIVER_MONITORING",                   // 0x00080000
+                            "URBAN_DRIVING",                       // 0x00100000
+                            "HIGHWAY_AUTOPILOT",                   // 0x00200000
+                            "CRUISE_CONTROL",                      // 0x00400000
+                            "SPEED_LIMIT_CONTROL",                 // 0x00800000
+                        };
+
+                        for (int i = 0; i < 24; i++)
+                        {
+                            unsigned int bit = 1u << i;
+                            bool enabled = (adasEnabled & bit) != 0;
+                            bool available = (adasAvailable & bit) != 0;
+
+                            if (enabled || available)
+                            {
+                                hvReporter.AddADASFunction(vehicleId, adasNames[i], enabled, available);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update HostVehicleData for ego vehicle and send
+            hvReporter.UpdateFromObjectState(egoState);
+            hvReporter.Send();
+        }
+    }
+#endif  // _USE_OSI
 }
 
 GT_ESMINI_API void GT_EnableAutoLight()
@@ -585,5 +727,81 @@ GT_ESMINI_API int GT_ReportObjectVel(int object_id, float timestamp, float x_vel
     }
 
     return 0;
+}
+
+// =====================================
+// HostVehicleData APIs
+// =====================================
+
+GT_ESMINI_API void GT_SetHostVehicleInputs(int vehicle_id, double throttle, double brake, double steering, int gear)
+{
+#ifdef _USE_OSI
+    if (gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
+    {
+        // If vehicle_id is -1, use the first vehicle (ego)
+        int actual_id = vehicle_id;
+        if (actual_id < 0 && player && player->scenarioGateway)
+        {
+            ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+            if (egoState)
+            {
+                actual_id = egoState->state_.info.id;
+            }
+        }
+
+        if (actual_id >= 0)
+        {
+            gt_esmini::GT_HostVehicleReporter::Instance().SetInputs(actual_id, throttle, brake, steering, gear);
+        }
+    }
+#endif
+}
+
+GT_ESMINI_API void GT_SetHostVehicleLights(int vehicle_id, int light_mask)
+{
+#ifdef _USE_OSI
+    if (gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
+    {
+        // If vehicle_id is -1, use the first vehicle (ego)
+        int actual_id = vehicle_id;
+        if (actual_id < 0 && player && player->scenarioGateway)
+        {
+            ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+            if (egoState)
+            {
+                actual_id = egoState->state_.info.id;
+            }
+        }
+
+        if (actual_id >= 0)
+        {
+            gt_esmini::GT_HostVehicleReporter::Instance().SetLights(actual_id, light_mask);
+        }
+    }
+#endif
+}
+
+GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque)
+{
+#ifdef _USE_OSI
+    if (gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
+    {
+        // If vehicle_id is -1, use the first vehicle (ego)
+        int actual_id = vehicle_id;
+        if (actual_id < 0 && player && player->scenarioGateway)
+        {
+            ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+            if (egoState)
+            {
+                actual_id = egoState->state_.info.id;
+            }
+        }
+
+        if (actual_id >= 0)
+        {
+            gt_esmini::GT_HostVehicleReporter::Instance().SetPowertrain(actual_id, rpm, torque);
+        }
+    }
+#endif
 }
 

@@ -23,6 +23,11 @@ namespace gt_esmini
             return CONTROLLER_REAL_DRIVER_TYPE_NAME;
         }
 
+        // Getters for OSI HostVehicleData (used by GT_Step)
+        void GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const;
+        void GetPowertrainForOSI(double& rpm, double& torque) const;
+        void GetADASForOSI(unsigned int& enabledMask, unsigned int& availableMask) const;
+
     private:
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;
@@ -36,6 +41,8 @@ namespace gt_esmini
             int    gear = 1;
             int    lightMask = 0;
             double engineBrake;
+            unsigned int adasEnabledMask = 0;   // ADAS enabled state bitmask
+            unsigned int adasAvailableMask = 0; // ADAS available state bitmask
         } input_;
 
         // Parsing helper for UDP packet (reusing structure from UDPDriverController conceptually)
@@ -50,16 +57,19 @@ namespace gt_esmini
        // But waiting for full packet definition... let's just use raw struct here for simplicity
         #pragma pack(push, 1)
         struct UDPPacket {
-            unsigned int version;
+            unsigned int version;       // Version 1 = original, Version 2 = with ADAS
             unsigned int inputMode;
             unsigned int objectId;
             unsigned int frameNumber;
             double throttle;
             double brake;
-            double steeringAngle; // Negative = Right in python script?
-            double gear;          // -1, 0, 1
-            unsigned int lightMask; // Bitmask for lights
+            double steeringAngle;       // Negative = Right in python script?
+            double gear;                // -1, 0, 1
+            unsigned int lightMask;     // Bitmask for lights
             double engineBrake;
+            // Version 2+ fields:
+            unsigned int adasEnabledMask;   // ADAS enabled state bitmask (OSI compliant)
+            unsigned int adasAvailableMask; // ADAS available state bitmask
         };
         #pragma pack(pop)
     };

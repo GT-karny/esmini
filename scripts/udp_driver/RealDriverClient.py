@@ -2,6 +2,35 @@ import socket
 import struct
 import time
 
+# OSI compliant ADAS function bitmask definitions
+# Based on OSI HostVehicleData_VehicleAutomatedDrivingFunction_Name enum
+ADAS_FUNCTIONS = {
+    'blind_spot_warning':              0x00000001,
+    'forward_collision_warning':       0x00000002,
+    'lane_departure_warning':          0x00000004,
+    'parking_collision_warning':       0x00000008,
+    'rear_cross_traffic_warning':      0x00000010,
+    'automatic_emergency_braking':     0x00000020,
+    'automatic_emergency_steering':    0x00000040,
+    'reverse_auto_emergency_braking':  0x00000080,
+    'adaptive_cruise_control':         0x00000100,
+    'lane_keeping_assist':             0x00000200,
+    'active_driving_assistance':       0x00000400,
+    'backup_camera':                   0x00000800,
+    'surround_view_camera':            0x00001000,
+    'night_vision':                    0x00002000,
+    'head_up_display':                 0x00004000,
+    'active_parking_assistance':       0x00008000,
+    'remote_parking_assistance':       0x00010000,
+    'trailer_assistance':              0x00020000,
+    'automatic_high_beams':            0x00040000,
+    'driver_monitoring':               0x00080000,
+    'urban_driving':                   0x00100000,
+    'highway_autopilot':               0x00200000,
+    'cruise_control':                  0x00400000,
+    'speed_limit_control':             0x00800000,
+}
+
 class RealDriverClient:
     """
     Client for controlling esmini RealDriverController via UDP.
@@ -41,7 +70,12 @@ class RealDriverClient:
         # Engine Brake (Default 2.0 -> now 0.49/0.05G requested, stick to API default or user controlled)
         # We start with 0.49 to match C++ default if not set.
         self.engine_brake = 0.49
-        
+
+        # ADAS state (OSI compliant bitmasks)
+        # Bit positions defined in ADAS_FUNCTIONS dictionary
+        self.adas_enabled_mask = 0    # Which ADAS functions are currently active
+        self.adas_available_mask = 0  # Which ADAS functions are available
+
 
     def set_controls(self, throttle, brake, steering):
         """
@@ -110,40 +144,81 @@ class RealDriverClient:
         else:
             print(f"Unknown light type: {light_type}")
 
+    def set_adas_function(self, function_name, enabled, available=True):
+        """
+        Set ADAS function state.
+
+        Args:
+            function_name (str): OSI compliant function name (e.g., 'adaptive_cruise_control', 'lane_keeping_assist')
+                                 See ADAS_FUNCTIONS dictionary for full list.
+            enabled (bool): Whether function is currently active
+            available (bool): Whether function is available (default True)
+        """
+        if function_name in ADAS_FUNCTIONS:
+            bit = ADAS_FUNCTIONS[function_name]
+            if enabled:
+                self.adas_enabled_mask |= bit
+            else:
+                self.adas_enabled_mask &= ~bit
+
+            if available:
+                self.adas_available_mask |= bit
+            else:
+                self.adas_available_mask &= ~bit
+        else:
+            print(f"Unknown ADAS function: {function_name}")
+            print(f"Available functions: {list(ADAS_FUNCTIONS.keys())}")
+
+    def set_adas_masks(self, enabled_mask, available_mask):
+        """
+        Set ADAS masks directly.
+
+        Args:
+            enabled_mask (int): Bitmask for enabled ADAS functions
+            available_mask (int): Bitmask for available ADAS functions
+        """
+        self.adas_enabled_mask = int(enabled_mask)
+        self.adas_available_mask = int(available_mask)
+
     def send_update(self):
         """
         Send the current control state to esmini via UDP.
         Should be called periodically (e.g., 50Hz).
+        Sends version 2 packet with ADAS fields.
         """
         try:
-            # Format: <iiiiddddId
-            # int: version (1)
+            # Format: <iiiiddddIdII (Version 2)
+            # int: version (2)
             # int: inputMode (0 = driverInput)
             # int: objectId
             # int: frameNumber
             # double: throttle
             # double: brake
-            # double: steering 
+            # double: steering
             # double: gear
             # uint: lightMask
             # double: engineBrake
-            
-            packed_data = struct.pack('<iiiiddddId', 
-                                      1,                  # Version
-                                      0,                  # InputMode (0=Driver)
-                                      self.object_id, 
-                                      self.frame_number, 
-                                      self.throttle, 
-                                      self.brake, 
-                                      self.steering,      
+            # uint: adasEnabledMask (NEW in v2)
+            # uint: adasAvailableMask (NEW in v2)
+
+            packed_data = struct.pack('<iiiiddddIdII',
+                                      2,                       # Version (2 = with ADAS)
+                                      0,                       # InputMode (0=Driver)
+                                      self.object_id,
+                                      self.frame_number,
+                                      self.throttle,
+                                      self.brake,
+                                      self.steering,
                                       float(self.gear),
                                       self.light_mask,
-                                      self.engine_brake
+                                      self.engine_brake,
+                                      self.adas_enabled_mask,   # NEW
+                                      self.adas_available_mask  # NEW
                                       )
-            
+
             self.sock.sendto(packed_data, (self.ip, self.port))
             self.frame_number += 1
-            
+
         except Exception as e:
             print(f"Error sending UDP: {e}")
 

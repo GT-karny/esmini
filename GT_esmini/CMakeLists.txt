@@ -17,6 +17,8 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.cpp)
 
 set(INCLUDES
@@ -26,6 +28,8 @@ set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.hpp)
 
 # ############################### Creating library ##################################################################################################
@@ -91,6 +95,7 @@ foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 
     if(USE_OSI)
         target_link_libraries(${TARGET} PRIVATE ${OSI_LIBRARIES})
+        target_compile_definitions(${TARGET} PRIVATE _USE_OSI)
     endif()
 
     disable_static_analysis(${TARGET})

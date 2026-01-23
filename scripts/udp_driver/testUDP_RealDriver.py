@@ -2,7 +2,24 @@ import tkinter as tk
 from tkinter import ttk
 import argparse
 import time
-from RealDriverClient import RealDriverClient
+from RealDriverClient import RealDriverClient, ADAS_FUNCTIONS
+
+# OSI compliant ADAS function labels for GUI (commonly used subset)
+ADAS_GUI_FUNCTIONS = {
+    # key: (display_label, osi_function_name)
+    'acc': ('ACC (Adaptive Cruise)', 'adaptive_cruise_control'),
+    'cc':  ('Cruise Control', 'cruise_control'),
+    'lka': ('LKA (Lane Keep)', 'lane_keeping_assist'),
+    'ldw': ('LDW (Lane Departure)', 'lane_departure_warning'),
+    'aeb': ('AEB (Emergency Brake)', 'automatic_emergency_braking'),
+    'bsw': ('BSW (Blind Spot)', 'blind_spot_warning'),
+    'fcw': ('FCW (Forward Collision)', 'forward_collision_warning'),
+    'ada': ('Active Driving Assist', 'active_driving_assistance'),
+    'hap': ('Highway Autopilot', 'highway_autopilot'),
+    'apa': ('Active Parking', 'active_parking_assistance'),
+    'ahb': ('Auto High Beams', 'automatic_high_beams'),
+    'dm':  ('Driver Monitoring', 'driver_monitoring'),
+}
 
 class RealDriverGUI:
     def __init__(self, root, client):
@@ -27,6 +44,11 @@ class RealDriverGUI:
             'fog_front': tk.BooleanVar(value=False),
             'fog_rear': tk.BooleanVar(value=False)
         }
+
+        # ADAS variables (OSI compliant function names)
+        self.adas_vars = {}
+        for key, (label, osi_name) in ADAS_GUI_FUNCTIONS.items():
+            self.adas_vars[osi_name] = tk.BooleanVar(value=False)
 
         self.create_widgets()
         self.update_loop()
@@ -77,6 +99,18 @@ class RealDriverGUI:
             for c, (label, key) in enumerate(row_items):
                 ttk.Checkbutton(light_frame, text=label, variable=self.light_vars[key]).grid(row=r, column=c, padx=5, sticky="w")
 
+        # ADAS Functions Frame (OSI compliant)
+        adas_frame = ttk.LabelFrame(self.root, text="ADAS Functions (OSI)", padding=10)
+        adas_frame.pack(fill="x", padx=10, pady=5)
+
+        # Layout: 3 columns for ADAS checkboxes
+        items = list(ADAS_GUI_FUNCTIONS.items())
+        for i, (key, (label, osi_name)) in enumerate(items):
+            row = i // 3
+            col = i % 3
+            ttk.Checkbutton(adas_frame, text=label,
+                            variable=self.adas_vars[osi_name]).grid(row=row, column=col, sticky="w", padx=5, pady=2)
+
         # Quit Button
         ttk.Button(self.root, text="Quit", command=self.root.destroy).pack(pady=10)
 
@@ -101,6 +135,10 @@ class RealDriverGUI:
         # Update lights
         for key, var in self.light_vars.items():
             self.client.set_light_state(key, var.get())
+
+        # Update ADAS functions (OSI compliant)
+        for osi_name, var in self.adas_vars.items():
+            self.client.set_adas_function(osi_name, var.get(), available=True)
 
         # Send packet
         self.client.send_update()

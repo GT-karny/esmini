@@ -111,6 +111,36 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API int GT_GetLocalIdFromGlobalId(int global_id);
 
+    // =====================================
+    // HostVehicleData APIs
+    // =====================================
+
+    /**
+     * Set host vehicle inputs for OSI HostVehicleData output
+     * @param vehicle_id Vehicle ID (use -1 for first/ego vehicle)
+     * @param throttle Throttle position [0.0, 1.0]
+     * @param brake Brake position [0.0, 1.0]
+     * @param steering Steering input (will be converted to wheel angle using config ratio)
+     * @param gear Gear: -1=Reverse, 0=Neutral, 1+=Forward
+     */
+    GT_ESMINI_API void GT_SetHostVehicleInputs(int vehicle_id, double throttle, double brake, double steering, int gear);
+
+    /**
+     * Set host vehicle light mask for OSI HostVehicleData output
+     * @param vehicle_id Vehicle ID (use -1 for first/ego vehicle)
+     * @param light_mask Bitmask: bit0=LowBeam, bit1=HighBeam, bit2=IndicatorLeft, bit3=IndicatorRight,
+     *                   bit4=Warning, bit5=FogFront, bit6=FogRear
+     */
+    GT_ESMINI_API void GT_SetHostVehicleLights(int vehicle_id, int light_mask);
+
+    /**
+     * Set host vehicle powertrain data for OSI HostVehicleData output
+     * @param vehicle_id Vehicle ID (use -1 for first/ego vehicle)
+     * @param rpm Engine RPM
+     * @param torque Engine torque [Nm]
+     */
+    GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque);
+
 #ifdef __cplusplus
 }
 #endif

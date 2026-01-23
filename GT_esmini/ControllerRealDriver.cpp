@@ -4,6 +4,7 @@
 #include "ScenarioGateway.hpp"
 #include "Entities.hpp"
 #include "ExtraEntities.hpp" // For Light Extension
+#include "TerrainTracker.hpp" // For terrain tracking
 
 namespace gt_esmini
 {
@@ -73,6 +74,10 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
              udpServer_ = new UDPServer(static_cast<unsigned short>(final_port), 1); // Asynchronous non-blocking
              LOG_INFO("RealDriverController listening on port {}", final_port);
         }
+        else
+        {
+             LOG_INFO("RealDriverController already listening on port {}", final_port);
+        }
 
         // Register VehicleLightExtension for light state management
         auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
@@ -123,6 +128,9 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
 
 void ControllerRealDriver::Step(double timeStep)
 {
+    // Note: TerrainTracker::UpdateAllVehicleTerrain() is now called from GT_Step()
+    // to avoid dependency issues with ScenarioEngine access
+
     // 1. Receive UDP Network Data
     if (udpServer_)
     {
@@ -132,8 +140,18 @@ void ControllerRealDriver::Step(double timeStep)
         while (true)
         {
             int r = udpServer_->Receive(reinterpret_cast<char*>(&packet), sizeof(packet));
-            if (r > 0) 
+            
+            // [DEBUG] Diagnostic logging
+            static int poll_counter = 0;
+            if (poll_counter++ % 100 == 0) {
+                 LOG_INFO("RealDriverController: Polling UDP... Res={}", r);
+            }
+
+            if (r > 0)
             {
+                // [DEBUG] Log received packet size
+                LOG_INFO("RealDriverController: Received UDP packet, size={}, version={}", r, packet.version);
+
                 // Basic validation: check size or version if strictly needed
                 // For now assumes matching struct
                 input_.throttle = packet.throttle;
@@ -142,6 +160,20 @@ void ControllerRealDriver::Step(double timeStep)
                 input_.gear = static_cast<int>(packet.gear); // Double to Int conversion
                 input_.lightMask = static_cast<int>(packet.lightMask);
                 input_.engineBrake = packet.engineBrake;
+
+                // Version 2+ fields: ADAS state (OSI compliant bitmasks)
+                if (packet.version >= 2)
+                {
+                    input_.adasEnabledMask = packet.adasEnabledMask;
+                    input_.adasAvailableMask = packet.adasAvailableMask;
+                }
+                else
+                {
+                    // Default for version 1 packets
+                    input_.adasEnabledMask = 0;
+                    input_.adasAvailableMask = 0;
+                }
+
                 res = r;
             }
             else
@@ -153,9 +185,33 @@ void ControllerRealDriver::Step(double timeStep)
 
     // 2. Update Physics
     real_vehicle_.SetEngineBrakeFactor(input_.engineBrake);
-    
-    
+
+    // [GT_MOD] Read terrain attitude from Object (set by TerrainTracker)
+    // NOTE: Only use object_->pos_ values if TerrainTracker is enabled.
+    // If disabled, object_->pos_.GetP()/GetR() returns the PREVIOUS frame's combined
+    // pitch/roll (set by us), which causes a feedback loop and runaway rotation.
+    double terrain_pitch = 0.0;
+    double terrain_roll = 0.0;
+    if (TerrainTracker::IsEnabled()) {
+        terrain_pitch = object_->pos_.GetP();
+        terrain_roll = object_->pos_.GetR();
+    }
+
+    // Pass to RealVehicle before UpdatePhysics
+    real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
+
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
+
+    // [DEBUG] Log throttle and speed
+    static int step_counter = 0;
+    if (step_counter++ % 50 == 0) {
+        LOG_INFO("RealDriver: throttle={:.2f} brake={:.2f} gear={} speed={:.2f}",
+                 input_.throttle, input_.brake, input_.gear, real_vehicle_.speed_);
+    }
+
+    // [GT_MOD] Get combined attitude (terrain + dynamic) and update Object
+    double combined_pitch, combined_roll;
+    real_vehicle_.GetCombinedAttitude(combined_pitch, combined_roll);
 
     // 3. Update Simulation Object
     if (object_ && gateway_)
@@ -184,15 +240,15 @@ void ControllerRealDriver::Step(double timeStep)
         // Update Wheel Angle (for visualization)
         gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
         
-        // Update Pitch & Roll (Extended Physics!)
+        // Update Pitch & Roll (Extended Physics with Terrain!)
         // Apply Z update with pivot offset
         gateway_->updateObjectWorldPos(object_->id_, 0.0,
             real_vehicle_.posX_ + w_dx,
             real_vehicle_.posY_ + w_dy,
             real_vehicle_.posZ_ + dz, // Apply pivot vertical offset
             real_vehicle_.heading_,
-            real_vehicle_.GetPitch(),
-            real_vehicle_.GetRoll()
+            combined_pitch,  // Terrain + Dynamic
+            combined_roll    // Terrain + Dynamic
         );
         
         // 4. Update Lights (Extensions)
@@ -230,7 +286,7 @@ void ControllerRealDriver::Step(double timeStep)
         }
 
         
-        // Hack: To allow terrain following for Z, we should probably read Z back from object 
+        // Hack: To allow terrain following for Z, we should probably read Z back from object
         // after esmini might have snapped it? Or RealVehicle needs to know Z.
         // For simple rollout: Let's assume flat ground or rely on slight Z updates if any.
         // Better: Read current Z from object state (which might be updated by road query if enabled?)
@@ -238,8 +294,30 @@ void ControllerRealDriver::Step(double timeStep)
         // To do terrain following properly, we need to query road/terrain Z at (X, Y).
         // For MVP, we pass Z=0 or current Z.
     }
-    
+
     Controller::Step(timeStep);
+}
+
+// Getter for input data (used by GT_Step for HostVehicleData)
+void ControllerRealDriver::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const
+{
+    throttle = input_.throttle;
+    brake = input_.brake;
+    steering = input_.steering;
+    gear = input_.gear;
+    lightMask = input_.lightMask;
+}
+
+void ControllerRealDriver::GetPowertrainForOSI(double& rpm, double& torque) const
+{
+    rpm = real_vehicle_.GetRPM();
+    torque = real_vehicle_.GetTorqueOutput();
+}
+
+void ControllerRealDriver::GetADASForOSI(unsigned int& enabledMask, unsigned int& availableMask) const
+{
+    enabledMask = input_.adasEnabledMask;
+    availableMask = input_.adasAvailableMask;
 }
 
 } // namespace gt_esmini
