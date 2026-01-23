@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import argparse
 import time
-from RealDriverClient import RealDriverClient, ADAS_FUNCTIONS
+from RealDriverClient import RealDriverClient, LightMode, IndicatorMode
 
 # OSI compliant ADAS function labels for GUI (commonly used subset)
 ADAS_GUI_FUNCTIONS = {
@@ -20,6 +20,18 @@ ADAS_GUI_FUNCTIONS = {
     'ahb': ('Auto High Beams', 'automatic_high_beams'),
     'dm':  ('Driver Monitoring', 'driver_monitoring'),
 }
+
+# State mapping for GUI
+ADAS_STATES = {
+    "UNKNOWN": 0,
+    "OTHER": 1,
+    "ERRORED": 2,
+    "UNAVAILABLE": 3,
+    "AVAILABLE": 4,
+    "STANDBY": 5,
+    "ACTIVE": 6
+}
+ADAS_STATE_NAMES = list(ADAS_STATES.keys())
 
 class RealDriverGUI:
     def __init__(self, root, client):
@@ -46,9 +58,10 @@ class RealDriverGUI:
         }
 
         # ADAS variables (OSI compliant function names)
+        # Using StringVar to store selected state name from Combobox
         self.adas_vars = {}
         for key, (label, osi_name) in ADAS_GUI_FUNCTIONS.items():
-            self.adas_vars[osi_name] = tk.BooleanVar(value=False)
+            self.adas_vars[osi_name] = tk.StringVar(value="UNKNOWN")
 
         self.create_widgets()
         self.update_loop()
@@ -66,8 +79,7 @@ class RealDriverGUI:
         ttk.Label(control_frame, text="Brake").grid(row=1, column=0, sticky="e")
         ttk.Scale(control_frame, from_=0.0, to=1.0, variable=self.brake_var, orient="horizontal", length=200).grid(row=1, column=1, padx=10)
 
-        # Steering (Note: esmini usually expects negative value for Left turn if using standard coord, 
-        # but let's keep -1.0 to 1.0 and let the user adjust visually)
+        # Steering
         ttk.Label(control_frame, text="Steering").grid(row=2, column=0, sticky="e")
         ttk.Scale(control_frame, from_=-1.0, to=1.0, variable=self.steer_var, orient="horizontal", length=200).grid(row=2, column=1, padx=10)
         
@@ -103,24 +115,28 @@ class RealDriverGUI:
         adas_frame = ttk.LabelFrame(self.root, text="ADAS Functions (OSI)", padding=10)
         adas_frame.pack(fill="x", padx=10, pady=5)
 
-        # Layout: 3 columns for ADAS checkboxes
+        # Layout: Grid of Label + Combobox
         items = list(ADAS_GUI_FUNCTIONS.items())
+        cols = 3
+        
         for i, (key, (label, osi_name)) in enumerate(items):
-            row = i // 3
-            col = i % 3
-            ttk.Checkbutton(adas_frame, text=label,
-                            variable=self.adas_vars[osi_name]).grid(row=row, column=col, sticky="w", padx=5, pady=2)
+            row = i // cols
+            col = i % cols
+            
+            frame = ttk.Frame(adas_frame)
+            frame.grid(row=row, column=col, sticky="w", padx=10, pady=5)
+            
+            ttk.Label(frame, text=label).pack(anchor="w")
+            
+            cb = ttk.Combobox(frame, textvariable=self.adas_vars[osi_name], values=ADAS_STATE_NAMES, state="readonly", width=12)
+            cb.pack(anchor="w")
 
         # Quit Button
         ttk.Button(self.root, text="Quit", command=self.root.destroy).pack(pady=10)
 
     def update_loop(self):
         # Update client controls
-        # Note: Original script passed NEGATIVE steering angle. 
-        # If the simulator expects positive=LEFT, and slider is -1(Left)..1(Right), we might need logic.
-        # Usually: standard X-Y plane, Angle increases CounterClockwise (Left).
-        # Slider Left (-1) -> Angle (+1).
-        # Let's apply negate to match typical steering wheel logic (Left turn = positive angle).
+        # Negate steering to match typical Logic (Left = Positive)
         steer_input = -self.steer_var.get() 
 
         self.client.set_controls(
@@ -132,13 +148,36 @@ class RealDriverGUI:
         self.client.set_gear(self.gear_var.get())
         self.client.set_engine_brake(self.engine_brake_var.get())
 
-        # Update lights
-        for key, var in self.light_vars.items():
-            self.client.set_light_state(key, var.get())
+        # Update lights using High-Level API
+        # Headlights
+        if self.light_vars['high'].get():
+            self.client.set_headlights(LightMode.HIGH)
+        elif self.light_vars['low'].get():
+            self.client.set_headlights(LightMode.LOW)
+        else:
+            self.client.set_headlights(LightMode.OFF)
+
+        # Indicators
+        if self.light_vars['hazard'].get():
+            self.client.set_indicators(IndicatorMode.HAZARD)
+        elif self.light_vars['left'].get():
+            self.client.set_indicators(IndicatorMode.LEFT)
+        elif self.light_vars['right'].get():
+            self.client.set_indicators(IndicatorMode.RIGHT)
+        else:
+            self.client.set_indicators(IndicatorMode.OFF)
+
+        # Fog Lights
+        self.client.set_fog_lights(
+            front=self.light_vars['fog_front'].get(),
+            rear=self.light_vars['fog_rear'].get()
+        )
 
         # Update ADAS functions (OSI compliant)
         for osi_name, var in self.adas_vars.items():
-            self.client.set_adas_function(osi_name, var.get(), available=True)
+            state_str = var.get()
+            state_int = ADAS_STATES.get(state_str, 0)
+            self.client.set_adas_function(osi_name, state_int)
 
         # Send packet
         self.client.send_update()

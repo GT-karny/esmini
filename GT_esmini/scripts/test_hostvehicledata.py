@@ -76,18 +76,28 @@ class HostVehicleDataReceiver:
                 print(f"[ERROR] Size mismatch: header says {size}, got {len(frame)}")
                 return None, 0
 
-            if counter == 1:  # New message
-                complete_msg = b''
-                next_index = 1
-
-            # Compose complete message
-            if counter == 1 or abs(counter) == next_index:
+            # Handle different counter values:
+            # counter == 0: Single packet (entire message)
+            # counter == 1: First part of multi-part message
+            # counter == N (N > 1): Middle part
+            # counter == -N: Last part (negative indicates end)
+            if counter == 0:
+                # Single packet - entire message in one
+                complete_msg = frame
+                done = True
+            elif counter == 1:
+                # First part of multi-part message
+                complete_msg = frame
+                next_index = 2
+            elif abs(counter) == next_index:
+                # Subsequent part
                 complete_msg += frame
                 next_index += 1
-                if counter < 0 or counter == 0:  # Negative or 0 indicates end/single
+                if counter < 0:  # Negative indicates last part
                     done = True
             else:
-                next_index = 1  # Out of sync, reset
+                # Out of sync, reset
+                next_index = 1
 
         # Parse protobuf if available
         if PROTOBUF_AVAILABLE:
@@ -153,10 +163,11 @@ def adas_state_to_string(state):
     states = {
         0: "UNKNOWN",
         1: "OTHER",
-        2: "UNAVAILABLE",
-        3: "AVAILABLE",
-        4: "ACTIVE",
-        5: "SUSPENDED"
+        2: "ERRORED",
+        3: "UNAVAILABLE",
+        4: "AVAILABLE",
+        5: "STANDBY",
+        6: "ACTIVE"
     }
     return states.get(state, f"UNKNOWN({state})")
 

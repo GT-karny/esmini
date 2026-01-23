@@ -221,6 +221,13 @@ void GT_HostVehicleReporter::SetLights(int vehicle_id, int light_mask)
     cache.light_mask = light_mask;
 }
 
+void GT_HostVehicleReporter::SetBaseHostVehicleData(int vehicle_id, const osi3::HostVehicleData& data)
+{
+    auto& cache = input_cache_[vehicle_id];
+    cache.base_data = data;
+    cache.has_base_data = true;
+}
+
 void GT_HostVehicleReporter::SetPowertrain(int vehicle_id, double rpm, double torque)
 {
     auto& cache = input_cache_[vehicle_id];
@@ -228,7 +235,7 @@ void GT_HostVehicleReporter::SetPowertrain(int vehicle_id, double rpm, double to
     cache.torque = torque;
 }
 
-void GT_HostVehicleReporter::AddADASFunction(int vehicle_id, const std::string& function_name, bool is_enabled, bool is_available)
+void GT_HostVehicleReporter::AddADASFunction(int vehicle_id, const std::string& function_name, int state)
 {
     auto& cache = input_cache_[vehicle_id];
 
@@ -238,8 +245,7 @@ void GT_HostVehicleReporter::AddADASFunction(int vehicle_id, const std::string& 
     {
         if (func.name == function_name)
         {
-            func.is_enabled = is_enabled;
-            func.is_available = is_available;
+            func.state = state;
             found = true;
             break;
         }
@@ -249,8 +255,7 @@ void GT_HostVehicleReporter::AddADASFunction(int vehicle_id, const std::string& 
     {
         InputCache::ADASFunction func;
         func.name = function_name;
-        func.is_enabled = is_enabled;
-        func.is_available = is_available;
+        func.state = state;
         cache.adas_functions.push_back(func);
     }
 }
@@ -278,10 +283,22 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
 
     // Create HostVehicleData message
     osi3::HostVehicleData hv_data;
+    
+    int vehicle_id = egoState->state_.info.id;
+    bool has_base = false;
 
-    int vehicle_id = egoState->state_.info.g_id;
+    // 0. Init from Base Data if available
+    if (input_cache_.count(vehicle_id) > 0)
+    {
+        auto& cache = input_cache_[vehicle_id];
+        if (cache.has_base_data)
+        {
+            hv_data = cache.base_data;
+            has_base = true;
+        }
+    }
 
-    // 1. Location (position, velocity, orientation)
+    // 1. Location (position, velocity, orientation) - Always OVERWRITE base data simulation state
     auto* location = hv_data.mutable_location();
 
     location->mutable_position()->set_x(egoState->state_.pos.GetX());
@@ -297,11 +314,19 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
     location->mutable_orientation()->set_roll(egoState->state_.pos.GetR());
 
     // 2. Vehicle Basics (operating state)
-    auto* basics = hv_data.mutable_vehicle_basics();
-    basics->set_operating_state(osi3::HostVehicleData_VehicleBasics_OperatingState_OPERATING_STATE_DRIVING);
+    // If not set by base, set default
+    if (!has_base)
+    {
+        auto* basics = hv_data.mutable_vehicle_basics();
+        basics->set_operating_state(osi3::HostVehicleData_VehicleBasics_OperatingState_OPERATING_STATE_DRIVING);
+    }
 
     // 3. Vehicle inputs (steering, throttle, brake, gear)
-    if (input_cache_.count(vehicle_id) > 0)
+    // Only if NOT using base data or if we want to force overrides?
+    // If using base data, we assume base data + controller injection is correct.
+    // If NOT using base data (legacy path), we construct from cache.
+    
+    if (!has_base && input_cache_.count(vehicle_id) > 0)
     {
         auto& input = input_cache_[vehicle_id];
 
@@ -329,7 +354,15 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
     }
 
     // 4. ADAS functions
-    if (input_cache_.count(vehicle_id) > 0)
+    // If has_base, ADAS functions are likely already in hv_data from python.
+    // However, if we added extra via AddADASFunction API, we might want to append?
+    // Current usage seems to favor HVD fully driving it if present.
+    // But for legacy compatibility or hybrid use, we should add if not present.
+    // For now, let's assume if base_data is present, it claims full ADAS state ownership, 
+    // OR we append `input.adas_functions` if they differ.
+    // Given the prompt "Python sends HostVehicleData wholly", we rely on hv_data.
+    
+    if (!has_base && input_cache_.count(vehicle_id) > 0)
     {
         auto& input = input_cache_[vehicle_id];
         for (const auto& func : input.adas_functions)
@@ -341,19 +374,9 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
             adas_func->set_name(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER);
             adas_func->set_custom_name(func.name);
 
-            // Set state based on enabled/available
-            if (func.is_enabled)
-            {
-                adas_func->set_state(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_ACTIVE);
-            }
-            else if (func.is_available)
-            {
-                adas_func->set_state(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_AVAILABLE);
-            }
-            else
-            {
-                adas_func->set_state(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_UNAVAILABLE);
-            }
+            // Set state based on integer state
+            // Cast int to proper OSI Enum type
+            adas_func->set_state(static_cast<osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State>(func.state));
         }
     }
 

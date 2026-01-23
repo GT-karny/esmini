@@ -150,6 +150,8 @@ add_library(${TARGET} SHARED esmini.cpp
     ../GT_esmini/ControllerRealDriver.cpp
     ../GT_esmini/GT_ScenarioReader.cpp
     ../GT_esmini/ExtraAction.cpp
+    ../GT_esmini/TerrainTracker.cpp
+    ../GT_esmini/GT_HostVehicleReporter.cpp
 )
 set_target_properties(${TARGET} PROPERTIES PREFIX "")
 target_compile_definitions(${TARGET} PRIVATE "FMU_SHARED_OBJECT")

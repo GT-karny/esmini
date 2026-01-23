@@ -546,46 +546,46 @@ GT_ESMINI_API void GT_Step(double dt)
                         hvReporter.SetPowertrain(vehicleId, rpm, torque);
 
                         // Get and pass ADAS data (OSI compliant function names)
-                        unsigned int adasEnabled, adasAvailable;
-                        realDriver->GetADASForOSI(adasEnabled, adasAvailable);
+                        std::vector<int> adasStates;
+                        realDriver->GetADASStates(adasStates);
 
                         // Map bits to OSI ADAS function names (24 types based on OSI VehicleAutomatedDrivingFunction_Name)
                         static const char* adasNames[] = {
-                            "BLIND_SPOT_WARNING",                  // 0x00000001
-                            "FORWARD_COLLISION_WARNING",           // 0x00000002
-                            "LANE_DEPARTURE_WARNING",              // 0x00000004
-                            "PARKING_COLLISION_WARNING",           // 0x00000008
-                            "REAR_CROSS_TRAFFIC_WARNING",          // 0x00000010
-                            "AUTOMATIC_EMERGENCY_BRAKING",         // 0x00000020
-                            "AUTOMATIC_EMERGENCY_STEERING",        // 0x00000040
-                            "REVERSE_AUTOMATIC_EMERGENCY_BRAKING", // 0x00000080
-                            "ADAPTIVE_CRUISE_CONTROL",             // 0x00000100
-                            "LANE_KEEPING_ASSIST",                 // 0x00000200
-                            "ACTIVE_DRIVING_ASSISTANCE",           // 0x00000400
-                            "BACKUP_CAMERA",                       // 0x00000800
-                            "SURROUND_VIEW_CAMERA",                // 0x00001000
-                            "NIGHT_VISION",                        // 0x00002000
-                            "HEAD_UP_DISPLAY",                     // 0x00004000
-                            "ACTIVE_PARKING_ASSISTANCE",           // 0x00008000
-                            "REMOTE_PARKING_ASSISTANCE",           // 0x00010000
-                            "TRAILER_ASSISTANCE",                  // 0x00020000
-                            "AUTOMATIC_HIGH_BEAMS",                // 0x00040000
-                            "DRIVER_MONITORING",                   // 0x00080000
-                            "URBAN_DRIVING",                       // 0x00100000
-                            "HIGHWAY_AUTOPILOT",                   // 0x00200000
-                            "CRUISE_CONTROL",                      // 0x00400000
-                            "SPEED_LIMIT_CONTROL",                 // 0x00800000
+                            "BLIND_SPOT_WARNING",                  // 0
+                            "FORWARD_COLLISION_WARNING",           // 1
+                            "LANE_DEPARTURE_WARNING",              // 2
+                            "PARKING_COLLISION_WARNING",           // 3
+                            "REAR_CROSS_TRAFFIC_WARNING",          // 4
+                            "AUTOMATIC_EMERGENCY_BRAKING",         // 5
+                            "AUTOMATIC_EMERGENCY_STEERING",        // 6
+                            "REVERSE_AUTOMATIC_EMERGENCY_BRAKING", // 7
+                            "ADAPTIVE_CRUISE_CONTROL",             // 8
+                            "LANE_KEEPING_ASSIST",                 // 9
+                            "ACTIVE_DRIVING_ASSISTANCE",           // 10
+                            "BACKUP_CAMERA",                       // 11
+                            "SURROUND_VIEW_CAMERA",                // 12
+                            "NIGHT_VISION",                        // 13
+                            "HEAD_UP_DISPLAY",                     // 14
+                            "ACTIVE_PARKING_ASSISTANCE",           // 15
+                            "REMOTE_PARKING_ASSISTANCE",           // 16
+                            "TRAILER_ASSISTANCE",                  // 17
+                            "AUTOMATIC_HIGH_BEAMS",                // 18
+                            "DRIVER_MONITORING",                   // 19
+                            "URBAN_DRIVING",                       // 20
+                            "HIGHWAY_AUTOPILOT",                   // 21
+                            "CRUISE_CONTROL",                      // 22
+                            "SPEED_LIMIT_CONTROL",                 // 23
                         };
 
-                        for (int i = 0; i < 24; i++)
+                        // Process states if vector is populated
+                        if (adasStates.size() >= 24)
                         {
-                            unsigned int bit = 1u << i;
-                            bool enabled = (adasEnabled & bit) != 0;
-                            bool available = (adasAvailable & bit) != 0;
-
-                            if (enabled || available)
+                            for (int i = 0; i < 24; i++)
                             {
-                                hvReporter.AddADASFunction(vehicleId, adasNames[i], enabled, available);
+                                int state = adasStates[i];
+                                // Report if state is relevant (e.g., typically we report everything, 
+                                // but 0=UNKNOWN could be skipped if desired. For full visibility, report all.)
+                                hvReporter.AddADASFunction(vehicleId, adasNames[i], state);
                             }
                         }
                     }

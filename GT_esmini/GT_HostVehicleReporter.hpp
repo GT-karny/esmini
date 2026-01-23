@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include "osi_hostvehicledata.pb.h"
 
 namespace gt_esmini
 {
@@ -49,6 +50,15 @@ public:
     void LoadConfig(const std::string& config_file);
 
     /**
+     * Set base HostVehicleData (from ControllerRealDriver for example)
+     * This allows external sources to provide the full HVD structure, which 
+     * will then be updated with simulation specific data (position, speed) before sending.
+     * @param vehicle_id Vehicle ID
+     * @param data The base HostVehicleData
+     */
+    void SetBaseHostVehicleData(int vehicle_id, const osi3::HostVehicleData& data);
+
+    /**
      * Set host vehicle control inputs
      * @param vehicle_id Vehicle ID
      * @param throttle Throttle input [0, 1]
@@ -77,10 +87,9 @@ public:
      * Add or update ADAS function state
      * @param vehicle_id Vehicle ID
      * @param function_name OSI function name (e.g., "ADAPTIVE_CRUISE_CONTROL")
-     * @param is_enabled Whether the function is currently enabled
-     * @param is_available Whether the function is available
+     * @param state OSI function state (0-6)
      */
-    void AddADASFunction(int vehicle_id, const std::string& function_name, bool is_enabled, bool is_available = true);
+    void AddADASFunction(int vehicle_id, const std::string& function_name, int state);
 
     /**
      * Clear all ADAS functions for a vehicle (call before updating each frame)
@@ -154,10 +163,13 @@ private:
         struct ADASFunction
         {
             std::string name;
-            bool is_enabled;
-            bool is_available;
+            int state;
         };
         std::vector<ADASFunction> adas_functions;
+
+        // Base Data provided by Controller (optional)
+        bool has_base_data = false;
+        osi3::HostVehicleData base_data;
     };
 
     std::map<int, InputCache> input_cache_;
