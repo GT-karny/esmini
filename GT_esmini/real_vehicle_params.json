@@ -10,5 +10,9 @@
     "steer_gain": 0.7,
     "max_acc": 12.0,
     "max_speed": 60.0,
-    "reverse_gear_ratio": 1.5
+    "reverse_gear_ratio": 1.5,
+
+    "understeer_factor": 0.0015,
+    "critical_speed": 30.0,
+    "max_understeer_reduction": 0.6
 }

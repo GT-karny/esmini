@@ -6,8 +6,11 @@
 - [ピッチ/ロール（車体姿勢）パラメータ](#ピッチロール車体姿勢パラメータ)
 - [最大値制限パラメータ](#最大値制限パラメータ)
 - [ステアリングパラメータ](#ステアリングパラメータ)
+- [アンダーステアパラメータ](#アンダーステアパラメータ)
 - [速度・加速度パラメータ](#速度加速度パラメータ)
 - [ギア比パラメータ](#ギア比パラメータ)
+- [Terrain Tracking（地形追跡）機能](#terrain-tracking地形追跡機能)
+- [実行時オプション設定](#実行時オプション設定)
 - [調整例](#調整例)
 
 ---
@@ -25,6 +28,15 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 - **剛性（Stiffness）**: バネの硬さ。値が大きいほど素早く元の姿勢に戻ろうとする
 - **減衰（Damping）**: ダンパーの強さ。値が大きいほど振動を早く抑える
 - **外力（Forcing）**: 加速度やカーブによって生じる慣性力
+
+### ピッチ/ロールの2つの成分
+
+車両のピッチ/ロールは以下の2つの成分から構成されます：
+
+1. **動的成分（Dynamic）**: 加速・減速・カーブによる慣性力で発生（自車のみ）
+2. **地形成分（Terrain）**: OpenDRIVEの道路形状から計算（全車両）
+
+最終的な姿勢 = 動的成分 + 地形成分
 
 ---
 
@@ -231,6 +243,108 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 
 ---
 
+## アンダーステアパラメータ
+
+高速走行時に、タイヤのグリップ限界によってステアリング効果が減少する現象（アンダーステア）をシミュレートします。
+
+### 物理モデル
+
+```
+速度比 = 現在速度 / 臨界速度
+アンダーステア係数 = understeer_factor × (速度比² - 1)
+グリップ係数 = 1 / (1 + アンダーステア係数)
+実効ステアリング角 = 入力ステアリング角 × グリップ係数
+```
+
+臨界速度を超えると、速度の2乗に比例してステアリング効果が減少します。
+
+---
+
+### `understeer_factor` （アンダーステア係数）
+**デフォルト値**: `0.0015`
+
+**役割**: 速度によるステアリング効果の減少率
+
+**効果**:
+- **大きくする** → 高速時にステアリングが効きにくくなる（強いアンダーステア）
+  - 高速コーナーで曲がりにくい
+  - より安全で安定した挙動
+- **小さくする** → 高速時でもステアリングが効く
+  - ニュートラルな挙動
+  - レスポンシブな操作感
+- **0.0に設定** → アンダーステア無効（常に100%ステアリング効果）
+
+**推奨範囲**: `0.0005 ~ 0.003`
+
+**調整例**:
+```json
+"understeer_factor": 0.002    // 強いアンダーステア（SUV風）
+"understeer_factor": 0.001    // 軽いアンダーステア
+"understeer_factor": 0.0      // 無効（理想的なグリップ）
+```
+
+---
+
+### `critical_speed` （臨界速度）
+**デフォルト値**: `30.0` m/s（約108 km/h）
+
+**役割**: アンダーステアが発生し始める速度閾値
+
+**効果**:
+- **大きくする** → より高速になるまでアンダーステアが発生しない
+  - 市街地走行には影響しない
+- **小さくする** → 低速からアンダーステアが発生
+  - 常にアンダーステア傾向
+
+**推奨範囲**: `20.0 ~ 50.0` m/s（72～180 km/h）
+
+**調整例**:
+```json
+"critical_speed": 40.0   // 高速道路向け（144 km/h から効く）
+"critical_speed": 25.0   // 一般道向け（90 km/h から効く）
+```
+
+---
+
+### `max_understeer_reduction` （最大アンダーステア減少率）
+**デフォルト値**: `0.6`
+
+**役割**: ステアリング効果の最大減少量（0～1の範囲）
+
+**効果**:
+- **大きくする** → 超高速時にステアリングがほぼ効かなくなる
+  - 0.8 = 最大80%減少（20%しか効かない）
+- **小さくする** → 超高速時でも一定のステアリング効果を維持
+  - 0.3 = 最大30%減少（70%は効く）
+
+**推奨範囲**: `0.3 ~ 0.8`
+
+**調整例**:
+```json
+"max_understeer_reduction": 0.7   // 強い制限（安全重視）
+"max_understeer_reduction": 0.4   // 軽い制限（スポーツ走行向け）
+```
+
+---
+
+### アンダーステアの効果グラフ
+
+```
+ステアリング効果 (%)
+100% |────────┐
+     |        ╲
+ 70% |         ╲
+     |          ╲────────── (max_understeer_reduction = 0.3)
+ 50% |
+     |            ╲────────  (max_understeer_reduction = 0.5)
+ 30% |
+     |              ╲──────  (max_understeer_reduction = 0.7)
+     |__________________|___|______
+                  臨界速度  速度 →
+```
+
+---
+
 ## 速度・加速度パラメータ
 
 ### `max_acc` （最大加速度）
@@ -308,6 +422,144 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 
 ---
 
+## Terrain Tracking（地形追跡）機能
+
+### 概要
+
+OpenDRIVEの道路形状（高さ、勾配、傾斜）を4輪位置で読み取り、車両の姿勢に反映する機能です。
+
+**対象**: 全車両（RealDriverコントローラを使用していない車両も含む）
+
+### 動作原理
+
+1. 各車両の4輪位置（前後左右）をグローバル座標で計算
+2. 各輪位置でOpenDRIVEの道路高さを取得
+3. 4点の高さから車両のピッチとロールを幾何学的に計算
+4. 車両オブジェクトの姿勢を更新
+
+```
+        前輪
+      FL ─── FR
+       │     │
+       │     │
+      RL ─── RR
+        後輪
+
+ピッチ = atan2(前輪平均高さ - 後輪平均高さ, ホイールベース)
+ロール = atan2(右輪平均高さ - 左輪平均高さ, トラック幅)
+```
+
+### 車両寸法の計算
+
+```cpp
+front_axle_dist = wheelbase * 0.6    // 前輪距離（重心から）
+rear_axle_dist  = wheelbase * 0.4    // 後輪距離（重心から）
+track_width     = width * 0.85       // トラック幅
+```
+
+### 特徴
+
+- **OSG Viewerに反映**: 地形に沿った車両傾斜が可視化される
+- **静止車両はスキップ**: 速度0.01 m/s以下の車両は処理をスキップ（性能最適化）
+- **全車両対応**: NPC車両やTrafficManager制御の車両も地形追跡される
+
+### 自車（RealDriver）の特別処理
+
+RealDriverコントローラを使用する自車のみ：
+
+```
+最終ピッチ = 地形ピッチ + 動的ピッチ（加速による傾き）
+最終ロール = 地形ロール + 動的ロール（横Gによる傾き）
+```
+
+他車は地形成分のみが適用されます。
+
+---
+
+## 実行時オプション設定
+
+### パラメータファイルの配置
+
+`real_vehicle_params.json`は以下の順序で検索されます：
+
+1. **実行ファイルと同じディレクトリ** （優先）
+2. カレントディレクトリ
+
+```
+GT_Sim.exe
+real_vehicle_params.json  ← ここに配置
+```
+
+### コマンドライン実行例
+
+```bash
+# 基本実行
+./GT_Sim.exe --osc scenarios/my_scenario.xosc
+
+# ウィンドウなしで実行（ヘッドレス）
+./GT_Sim.exe --osc scenarios/my_scenario.xosc --headless
+
+# OSI出力を有効化
+./GT_Sim.exe --osc scenarios/my_scenario.xosc --osi_file output.osi
+
+# 固定タイムステップで実行
+./GT_Sim.exe --osc scenarios/my_scenario.xosc --fixed_timestep 0.01
+```
+
+### OpenSCENARIO（xosc）での設定
+
+#### RealDriverコントローラの設定
+
+```xml
+<PrivateAction>
+    <ControllerAction>
+        <AssignControllerAction>
+            <Controller name="RealDriver">
+                <Properties>
+                    <!-- UDP通信設定 -->
+                    <Property name="port" value="25252"/>
+
+                    <!-- パラメータファイルパス（オプション）-->
+                    <Property name="configFile" value="my_custom_params.json"/>
+                </Properties>
+            </Controller>
+        </AssignControllerAction>
+        <ActivateControllerAction longitudinal="true" lateral="true"/>
+    </ControllerAction>
+</PrivateAction>
+```
+
+#### コントローラプロパティ一覧
+
+| プロパティ | デフォルト | 説明 |
+|-----------|-----------|------|
+| `port` | `25252` | UDP通信ポート |
+| `configFile` | `real_vehicle_params.json` | パラメータファイルパス |
+
+### Terrain Trackingの有効/無効
+
+コード内で `TerrainTracker::SetEnabled(false)` を呼び出すことで無効化できます。
+
+現在、xoscやコマンドラインからの切り替えは未実装です。必要な場合はコードを修正してください。
+
+```cpp
+// TerrainTrackerを無効化する例（ControllerRealDriver.cpp内）
+gt_esmini::TerrainTracker::SetEnabled(false);
+```
+
+### デバッグ用の出力確認
+
+ログ出力で動作を確認できます：
+
+```cpp
+// RealVehicle.cpp内でパラメータ読み込み時に出力
+LOG("RealVehicle: Loaded parameters from %s", config_path.c_str());
+LOG("  understeer_factor: %.4f", params_.understeer_factor);
+LOG("  critical_speed: %.1f m/s", params_.critical_speed);
+```
+
+---
+
 ## 調整例
 
 ### 例1: スポーツカー風セッティング
@@ -327,7 +579,11 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
     "steer_gain": 0.85,
     "max_acc": 18.0,
     "max_speed": 80.0,
-    "reverse_gear_ratio": 1.3
+    "reverse_gear_ratio": 1.3,
+
+    "understeer_factor": 0.001,
+    "critical_speed": 40.0,
+    "max_understeer_reduction": 0.4
 }
 ```
 
@@ -336,6 +592,7 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 - 高剛性・高減衰で素早く安定
 - 高加速・高最高速
 - やや敏感なステアリング
+- 軽いアンダーステア（高速でもコントロール可能）
 
 ---
 
@@ -356,7 +613,11 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
     "steer_gain": 0.55,
     "max_acc": 8.0,
     "max_speed": 40.0,
-    "reverse_gear_ratio": 2.0
+    "reverse_gear_ratio": 2.0,
+
+    "understeer_factor": 0.002,
+    "critical_speed": 25.0,
+    "max_understeer_reduction": 0.7
 }
 ```
 
@@ -366,6 +627,7 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 - 控えめな加速と最高速
 - 鈍感で安定したステアリング
 - 強力なバック
+- 強いアンダーステア（安全重視）
 
 ---
 
@@ -386,7 +648,11 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
     "steer_gain": 0.7,
     "max_acc": 12.0,
     "max_speed": 60.0,
-    "reverse_gear_ratio": 1.5
+    "reverse_gear_ratio": 1.5,
+
+    "understeer_factor": 0.0015,
+    "critical_speed": 30.0,
+    "max_understeer_reduction": 0.6
 }
 ```
 
@@ -395,6 +661,7 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 - バランスの取れた応答性
 - 実用的な加速と最高速
 - 扱いやすいステアリング
+- 自然なアンダーステア
 
 ---
 
@@ -415,7 +682,11 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
     "steer_gain": 0.6,
     "max_acc": 7.0,
     "max_speed": 35.0,
-    "reverse_gear_ratio": 1.8
+    "reverse_gear_ratio": 1.8,
+
+    "understeer_factor": 0.0025,
+    "critical_speed": 20.0,
+    "max_understeer_reduction": 0.8
 }
 ```
 
@@ -424,6 +695,41 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 - 低減衰で振動が続く
 - 控えめな性能
 - クラシックな「船」のような乗り心地
+- 非常に強いアンダーステア
+
+---
+
+### 例5: レーシングカー風セッティング（アンダーステア無効）
+
+理想的なグリップでシャープな挙動
+
+```json
+{
+    "pitch_stiffness": 15.0,
+    "pitch_damping": 5.0,
+    "roll_stiffness": 20.0,
+    "roll_damping": 8.0,
+    "mass_height": 0.01,
+    "center_of_rotation_z_offset": 0.25,
+    "max_pitch_deg": 3.0,
+    "max_roll_deg": 3.0,
+    "steer_gain": 1.0,
+    "max_acc": 20.0,
+    "max_speed": 100.0,
+    "reverse_gear_ratio": 1.0,
+
+    "understeer_factor": 0.0,
+    "critical_speed": 50.0,
+    "max_understeer_reduction": 0.0
+}
+```
+
+**特徴**:
+- 極めて小さいロールとピッチ
+- 超高剛性でフラットな姿勢
+- 最高レベルの加速と最高速
+- 敏感なステアリング
+- アンダーステア無効（完璧なグリップ）
 
 ---
 
@@ -452,6 +758,11 @@ RealVehicleは**バネ-ダンパーモデル**を使用して車体の前後傾�
 - 高速走行が多い → `steer_gain`を小さく（安定）
 - 狭い道や急カーブが多い → `steer_gain`を大きく（敏感）
 
+### 6. アンダーステアを調整する時
+- 安全重視 → `understeer_factor`を大きく、`critical_speed`を小さく
+- スポーツ走行 → `understeer_factor`を小さく、`critical_speed`を大きく
+- 完全無効 → `understeer_factor = 0.0`
+
 ---
 
 ## 技術的な注意事項
@@ -468,6 +779,18 @@ double pitch_acc = (-pitch_stiffness * pitch_angle)
 - 臨界減衰条件: `damping ≈ 2 × sqrt(stiffness)`
 - オーバーダンピング（振動なし、遅い）: `damping > 2 × sqrt(stiffness)`
 - アンダーダンピング（振動あり、速い）: `damping < 2 × sqrt(stiffness)`
+
+### アンダーステアモデルの数式
+
+```cpp
+if (speed_abs > critical_speed) {
+    double speed_ratio = speed_abs / critical_speed;
+    double understeer_coeff = understeer_factor * (speed_ratio * speed_ratio - 1.0);
+    understeer_coeff = std::min(understeer_coeff, max_understeer_reduction);
+    double grip_factor = 1.0 / (1.0 + understeer_coeff);
+    target_wheel_angle *= grip_factor;
+}
+```
 
 ### エンジンブレーキ
 
@@ -490,6 +813,9 @@ double pitch_acc = (-pitch_stiffness * pitch_angle)
 | max_pitch_deg | ピッチ制限 | より傾ける | 傾きを抑える |
 | max_roll_deg | ロール制限 | より傾ける | 傾きを抑える |
 | steer_gain | ステアリング感度 | 敏感 | 鈍感 |
+| **understeer_factor** | アンダーステア強度 | 高速で曲がりにくい | よく曲がる |
+| **critical_speed** | アンダーステア開始速度 | 高速で発生 | 低速で発生 |
+| **max_understeer_reduction** | 最大減少率 | ほぼ曲がらない | 一定量は曲がる |
 | max_acc | 加速力 | 速く加速 | 遅く加速 |
 | max_speed | 最高速 | 高速まで出る | 低速で頭打ち |
 | reverse_gear_ratio | バック力 | 強力 | 弱い |
@@ -501,8 +827,11 @@ double pitch_acc = (-pitch_stiffness * pitch_angle)
 - [GT_esmini/RealVehicle.cpp](GT_esmini/RealVehicle.cpp) - 物理シミュレーション実装
 - [GT_esmini/RealVehicle.hpp](GT_esmini/RealVehicle.hpp) - クラス定義
 - [GT_esmini/ControllerRealDriver.cpp](GT_esmini/ControllerRealDriver.cpp) - UDP入力とパラメータ読み込み
+- [GT_esmini/TerrainTracker.hpp](GT_esmini/TerrainTracker.hpp) - 地形追跡クラス定義
+- [GT_esmini/TerrainTracker.cpp](GT_esmini/TerrainTracker.cpp) - 地形追跡実装
 
 ---
 
 ## 変更履歴
+- 2026-01-22: アンダーステアパラメータ、Terrain Tracking機能、実行時オプション設定を追加
 - 2026-01-21: 初版作成

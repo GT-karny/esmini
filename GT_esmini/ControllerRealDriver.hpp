@@ -3,6 +3,8 @@
 #include "Controller.hpp"
 #include "RealVehicle.hpp"
 #include "UDP.hpp"
+#include "GT_UDP.hpp"
+#include "osi_hostvehicledata.pb.h"
 
 #define CONTROLLER_REAL_DRIVER_TYPE_NAME "RealDriverController"
 #define DEFAULT_REAL_DRIVER_PORT         53995 
@@ -23,10 +25,27 @@ namespace gt_esmini
             return CONTROLLER_REAL_DRIVER_TYPE_NAME;
         }
 
+        // Getters for OSI HostVehicleData (used by GT_Step)
+        void GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const;
+        void GetPowertrainForOSI(double& rpm, double& torque) const;
+        void GetADASStates(std::vector<int>& states) const;
+        
+        // New: Get the full cached HostVehicleData (partially filled from UDP)
+        const osi3::HostVehicleData& GetCachedHostVehicleData() const { return cached_hvd_; }
+
     private:
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;
         int          port_;
+        
+        // UDP Client for sending target speed
+        GT_UDP_Sender* udpClient_;
+        std::string  clientAddr_;
+        int          clientPort_;
+        
+        // Target speed detection (similar to ControllerACC)
+        double       setSpeed_;      // Target speed from SpeedAction
+        double       currentSpeed_;  // Previous speed for change detection
         
         struct DriverInput
         {
@@ -36,32 +55,14 @@ namespace gt_esmini
             int    gear = 1;
             int    lightMask = 0;
             double engineBrake;
+            std::vector<int> adasStates; // Full OSI states for each function
         } input_;
 
-        // Parsing helper for UDP packet (reusing structure from UDPDriverController conceptually)
-        // We will assume same packet format: 
-        /*
-        typedef struct {
-            double throttle;       // range [0, 1]
-            double brake;          // range [0, 1]
-            double steeringAngle;  // range [-pi/2, pi/2]
-        } DMMSGDriverInput;
-        */
-       // But waiting for full packet definition... let's just use raw struct here for simplicity
-        #pragma pack(push, 1)
-        struct UDPPacket {
-            unsigned int version;
-            unsigned int inputMode;
-            unsigned int objectId;
-            unsigned int frameNumber;
-            double throttle;
-            double brake;
-            double steeringAngle; // Negative = Right in python script?
-            double gear;          // -1, 0, 1
-            unsigned int lightMask; // Bitmask for lights
-            double engineBrake;
-        };
-        #pragma pack(pop)
+        // Cached HostVehicleData from UDP
+        osi3::HostVehicleData cached_hvd_;
+        
+        // Buffer for receiving UDP data
+        std::vector<char> udp_buffer_;
     };
 
     scenarioengine::Controller* InstantiateControllerRealDriver(void* args);

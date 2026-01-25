@@ -112,6 +112,19 @@ void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)>
     g_LightStateProvider = provider;
 }
 
+// Global OSIReporter pointer for access from Controllers
+static OSIReporter* g_current_osi_reporter_ = nullptr;
+
+void GT_SetCurrentOSIReporter(OSIReporter* reporter)
+{
+    g_current_osi_reporter_ = reporter;
+}
+
+OSIReporter* GT_GetCurrentOSIReporter()
+{
+    return g_current_osi_reporter_;
+}
+
 // ScenarioGateway
 
 OSIReporter::OSIReporter(ScenarioEngine *scenarioengine)
@@ -4219,3 +4232,4 @@ osi3::TrafficLight_Classification_Mode OSIReporter::LampModeMap(roadmanager::Sig
             return osi3::TrafficLight_Classification_Mode_MODE_UNKNOWN;
     }
 }
+

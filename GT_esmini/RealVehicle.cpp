@@ -74,8 +74,13 @@ void RealVehicle::LoadParameters(const std::string& filename)
         parse_val("max_rpm", max_rpm_);
         parse_val("gear_ratio", gear_ratio_);
         parse_val("reverse_gear_ratio", params_.reverse_gear_ratio);
+
+        // Understeer parameters
+        parse_val("understeer_factor", params_.understeer_factor);
+        parse_val("critical_speed", params_.critical_speed);
+        parse_val("max_understeer_reduction", params_.max_understeer_reduction);
     }
-    
+
     SetMaxAcc(params_.max_acc);
     SetMaxSpeed(params_.max_speed);
 }
@@ -108,8 +113,20 @@ double RealVehicle::GetTorque(double current_rpm) const
     // Peak torque at 50% RPM range
     // 4 * x * (1-x) gives parabola 0->1->0
     // Allow some torque at idle and redline
-    double base_torque = 0.4 + 0.6 * (4.0 * normalized_rpm * (1.0 - normalized_rpm)); 
+    double base_torque = 0.4 + 0.6 * (4.0 * normalized_rpm * (1.0 - normalized_rpm));
     return base_torque;
+}
+
+void RealVehicle::SetTerrainAttitude(double pitch, double roll)
+{
+    terrain_pitch_ = pitch;
+    terrain_roll_ = roll;
+}
+
+void RealVehicle::GetCombinedAttitude(double& pitch, double& roll) const
+{
+    pitch = terrain_pitch_ + dynamic_pitch_;
+    roll = terrain_roll_ + dynamic_roll_;
 }
 
 void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double steering, int gear)
@@ -241,7 +258,19 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     
     double steer_max = params_.steer_gain; // Configurable
     double target_wheel_angle = -steering * steer_max; // - because left is positive in math usually, steering input might be reversed
-    
+
+    // Apply speed-dependent understeer
+    if (params_.understeer_factor > 0.0) {
+        double speed_abs = std::abs(speed_);
+        if (speed_abs > params_.critical_speed) {
+            double speed_ratio = speed_abs / params_.critical_speed;
+            double understeer_coeff = params_.understeer_factor * (speed_ratio * speed_ratio - 1.0);
+            understeer_coeff = std::min(understeer_coeff, params_.max_understeer_reduction);
+            double grip_factor = 1.0 / (1.0 + understeer_coeff);
+            target_wheel_angle *= grip_factor;
+        }
+    }
+
     // Simple steering lag/rate limit
     double steer_rate = 5.0; // rad/s
     double diff = target_wheel_angle - wheelAngle_;
@@ -288,25 +317,29 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     // Force:
     double pitch_forcing = -params_.mass_height * long_acc; 
     
-    double pitch_acc = (-params_.pitch_stiffness * pitch_) - (params_.pitch_damping * pitch_rate_) + pitch_forcing;
+    double pitch_acc = (-params_.pitch_stiffness * dynamic_pitch_) - (params_.pitch_damping * pitch_rate_) + pitch_forcing;
     pitch_rate_ += pitch_acc * dt;
-    pitch_ += pitch_rate_ * dt;
-    
+    dynamic_pitch_ += pitch_rate_ * dt;
+
     // Roll Logic
     // Left Turn (Yaw Rate > 0) -> Centrifugal Force to Right -> Body Rolls to Right (+Roll).
     // User says inverted. So Left Turn -> Roll Left (-Roll)?
     // I will FLIP the sign of forcing.
-    double roll_forcing = params_.mass_height * lat_acc;  
-    
-    double roll_acc = (-params_.roll_stiffness * roll_) - (params_.roll_damping * roll_rate_) + roll_forcing;
+    double roll_forcing = params_.mass_height * lat_acc;
+
+    double roll_acc = (-params_.roll_stiffness * dynamic_roll_) - (params_.roll_damping * roll_rate_) + roll_forcing;
     roll_rate_ += roll_acc * dt;
-    roll_ += roll_rate_ * dt;
-    
-    // Clamp angles
+    dynamic_roll_ += roll_rate_ * dt;
+
+    // Clamp dynamic angles
     double lim_p = params_.max_pitch_deg * M_PI / 180.0;
     double lim_r = params_.max_roll_deg * M_PI / 180.0;
-    pitch_ = Clamp(pitch_, -lim_p, lim_p);
-    roll_ = Clamp(roll_, -lim_r, lim_r);
+    dynamic_pitch_ = Clamp(dynamic_pitch_, -lim_p, lim_p);
+    dynamic_roll_ = Clamp(dynamic_roll_, -lim_r, lim_r);
+
+    // Combined attitude (terrain + dynamic)
+    pitch_ = terrain_pitch_ + dynamic_pitch_;
+    roll_ = terrain_roll_ + dynamic_roll_;
     
     // Damping/Restitution is handled by the -k*x and -c*v terms automatically.
     // It will oscillate and settle naturally.

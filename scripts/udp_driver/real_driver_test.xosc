@@ -27,6 +27,7 @@
               <!-- Directly defining the controller with the registered Type Name -->
               <Controller name="RealDriverController">
                  <Properties>
+                     <Property name="module" value="RealDriverController" />
                      <Property name="BasePort" value="53995" />
                      <!-- RealDriverController specific properties if any -->
                  </Properties>

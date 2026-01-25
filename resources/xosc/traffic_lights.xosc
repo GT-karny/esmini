@@ -92,7 +92,7 @@
                <PrivateAction>
                   <TeleportAction>
                      <Position>
-                        <LanePosition roadId="3" laneId="-1" offset="0" s="10"/>
+                        <LanePosition roadId="3" laneId="-1" offset="0" s="11"/>
                      </Position>
                   </TeleportAction>
                </PrivateAction>
@@ -300,7 +300,39 @@
                         </ConditionGroup>
                      </StartTrigger>
                   </Event>
-                  <Event name="DriveOnGreenEvent" priority="overwrite" maximumExecutionCount="1">
+                  <Event name="WaitOnRedEvent" priority="override" maximumExecutionCount="1">
+                     <Action name="WaitOnRedAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0.0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="WaitOnRedCondition" delay="0" conditionEdge="none">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="any">
+                                     <EntityRef entityRef="Ego"/>
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <DistanceCondition value="7.0" freespace="false" rule="lessThan" relativeDistanceType="longitudinal" coordinateSystem="road">
+                                          <Position>
+                                             <LanePosition roadId="3" laneId="-1" s="109.0" offset="0.0"/>
+                                          </Position>
+                                    </DistanceCondition>
+                                 </EntityCondition>
+                              </ByEntityCondition>   
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="DriveOnGreenEvent" priority="override" maximumExecutionCount="1">
                      <Action name="DriveOnGreenAction">
                         <PrivateAction>
                            <LongitudinalAction>
