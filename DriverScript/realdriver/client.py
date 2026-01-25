@@ -1,22 +1,9 @@
 import socket
 import struct
 import time
-import sys
-import os
 
-# Add parent directory to path to find osi3 module which is in ../osi3 relative to this script
-current_dir = os.path.dirname(os.path.abspath(__file__))
-scripts_dir = os.path.join(current_dir, '..')
-if scripts_dir not in sys.path:
-    sys.path.append(scripts_dir)
-
-try:
-    from osi3 import osi_hostvehicledata_pb2
-    from osi3.osi_hostvehicledata_pb2 import HostVehicleData
-except ImportError:
-    print("Error: Could not import osi_hostvehicledata_pb2. Make sure it generated and in python path.")
-    # Fallback class for IDE linting if needed, but runtime will fail
-    HostVehicleData = None
+from osi3 import osi_hostvehicledata_pb2
+from osi3.osi_hostvehicledata_pb2 import HostVehicleData
 
 # Enums for high-level API
 class LightMode:
@@ -35,32 +22,32 @@ class RealDriverClient:
     Client for controlling esmini RealDriverController via UDP using OSI HostVehicleData.
     Sends a 4-byte LightMask followed by serialized HostVehicleData.
     """
-    
+
     def __init__(self, ip="127.0.0.1", port=53995):
         """
         Initialize the RealDriverClient.
-        
+
         Args:
             ip (str): IP address of the esmini host.
             port (int): Port number (default 53995).
         """
         self.ip = ip
         self.port = port
-        
+
         print(f"RealDriverClient: Target IP={self.ip}, Port={self.port}")
-        
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
+
         # Initialize HostVehicleData
         self.hvd = HostVehicleData()
-        
+
         # Initialize basic fields
         self.hvd.vehicle_basics.operating_state = osi_hostvehicledata_pb2.HostVehicleData.VehicleBasics.OPERATING_STATE_DRIVING
         self.hvd.vehicle_powertrain.gear_transmission = 1
         self.hvd.vehicle_steering.vehicle_steering_wheel.angle = 0.0
-        
+
         self.frame_number = 0
-        
+
         # Light Mask (32-bit integer)
         # Bit 0: Low Beam
         # Bit 1: High Beam
@@ -74,7 +61,7 @@ class RealDriverClient:
     def set_controls(self, throttle, brake, steering):
         """
         Set driving controls.
-        
+
         Args:
             throttle (float): 0.0 to 1.0
             brake (float): 0.0 to 1.0
@@ -87,7 +74,7 @@ class RealDriverClient:
     def set_gear(self, gear):
         """
         Set transmission gear.
-        
+
         Args:
             gear (int): 1 for Drive, 0 for Neutral, -1 for Reverse
         """
@@ -110,7 +97,7 @@ class RealDriverClient:
     def set_headlights(self, mode):
         """
         Set headlight mode.
-        
+
         Args:
             mode (LightMode): OFF, LOW, or HIGH
         """
@@ -129,7 +116,7 @@ class RealDriverClient:
     def set_indicators(self, mode):
         """
         Set indicator mode.
-        
+
         Args:
             mode (IndicatorMode): OFF, LEFT, RIGHT, HAZARD
         """
@@ -148,7 +135,7 @@ class RealDriverClient:
     def set_fog_lights(self, front=None, rear=None):
         """
         Set fog lights state.
-        
+
         Args:
             front (bool, optional): State of front fog lights.
             rear (bool, optional): State of rear fog lights.
@@ -195,7 +182,7 @@ class RealDriverClient:
                 func.state = state
                 found = True
                 break
-        
+
         if not found:
             func = self.hvd.vehicle_automated_driving_function.add()
             func.name = osi_hostvehicledata_pb2.HostVehicleData.VehicleAutomatedDrivingFunction.NAME_OTHER
@@ -210,14 +197,14 @@ class RealDriverClient:
         try:
             # Serialize HVD
             hvd_data = self.hvd.SerializeToString()
-            
+
             # Create Packet: [LightMask (4 bytes)] + [HVD Data]
             # using 'i' for signed int (matches C++ int), little-endian
             packet = struct.pack('<i', self.light_mask) + hvd_data
-            
+
             # Send
             self.sock.sendto(packet, (self.ip, self.port))
-            
+
             if self.frame_number % 50 == 0:
                 print(f"UDP Sent (Frame {self.frame_number}): Port={self.port}, Thr={self.hvd.vehicle_powertrain.pedal_position_acceleration:.2f}, Brk={self.hvd.vehicle_brake_system.pedal_position_brake:.2f}")
 
@@ -229,4 +216,3 @@ class RealDriverClient:
     def close(self):
         """Close the UDP socket."""
         self.sock.close()
-

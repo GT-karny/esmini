@@ -17,6 +17,7 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.cpp)
@@ -28,6 +29,7 @@ set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.hpp)
@@ -150,3 +152,16 @@ if(BUILD_EXAMPLES)
         TARGETS ${GT_SIM_TARGET}
         DESTINATION "${CODE_EXAMPLES_BIN_PATH}")
 endif(BUILD_EXAMPLES)
+
+# ############################### DriverScript DLL Copy ############################################################################################
+# Copy esminiRMLib to DriverScript/bin/ for Python script distribution
+
+add_custom_command(
+    TARGET ${TARGET_SHARED}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/DriverScript/bin"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "$<TARGET_FILE:esminiRMLib>"
+        "${CMAKE_SOURCE_DIR}/DriverScript/bin/"
+    COMMENT "Copying esminiRMLib to DriverScript/bin/"
+)

@@ -38,7 +38,12 @@ std::string GetCurrentModuleDirectory()
 ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     : Controller(args),
       udpServer_(nullptr),
-      port_(DEFAULT_REAL_DRIVER_PORT)
+      udpClient_(nullptr),
+      port_(DEFAULT_REAL_DRIVER_PORT),
+      clientAddr_("127.0.0.1"),
+      clientPort_(DEFAULT_REAL_DRIVER_PORT + 1000),  // Default: 54995
+      setSpeed_(0.0),
+      currentSpeed_(0.0)
 {
     // Check if port is overridden in parameters
     if (args && args->properties && args->properties->ValueExists("BasePort"))
@@ -53,6 +58,16 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
          // Storing explicit port for now if needed.
     }
     
+    // UDP Client configuration for sending target speed
+    if (args && args->properties && args->properties->ValueExists("ClientAddr"))
+    {
+        clientAddr_ = args->properties->GetValueStr("ClientAddr");
+    }
+    if (args && args->properties && args->properties->ValueExists("ClientPort"))
+    {
+        clientPort_ = strtol(args->properties->GetValueStr("ClientPort").c_str(), nullptr, 10);
+    }
+    
     // Resize buffer for OSI messages (64KB should be sufficient for HostVehicleData)
     udp_buffer_.resize(65536);
 }
@@ -60,6 +75,7 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
 ControllerRealDriver::~ControllerRealDriver()
 {
     if (udpServer_) delete udpServer_;
+    if (udpClient_) delete udpClient_;
 }
 
 int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
@@ -68,18 +84,22 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
 
     if (object_)
     {
-        // Calculate port: BasePort + Object ID (simple logic)
-        // Or read from params if specific
-        int final_port = port_ + object_->GetId();
+        // [Logic Change] Use fixed port, do NOT add object ID.
+        // This simplifies control (always target specific port 53995)
+        int final_port = port_;
 
         if (!udpServer_ || udpServer_->GetPort() != final_port)
         {
              if (udpServer_) delete udpServer_;
              udpServer_ = new UDPServer(static_cast<unsigned short>(final_port), 1); // Asynchronous non-blocking
+             
+             // [DEBUG] Explicitly print port to console
+             std::cout << "RealDriverController: LISTENING ON PORT " << final_port << " (FIXED PORT)" << std::endl;
              LOG_INFO("RealDriverController listening on port {}", final_port);
         }
         else
         {
+             std::cout << "RealDriverController: ALREADY LISTENING ON PORT " << final_port << std::endl;
              LOG_INFO("RealDriverController already listening on port {}", final_port);
         }
 
@@ -108,6 +128,13 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
             LOG_WARN("RealDriverController: Failed to cast object to Vehicle type");
         }
 
+        // Initialize UDP Client for sending target speed
+        if (!udpClient_)
+        {
+            udpClient_ = new GT_UDP_Sender(clientPort_, clientAddr_);
+            LOG_INFO("RealDriverController: UDP client sending to {}:{}", clientAddr_, clientPort_);
+        }
+        
         // Initialize RealVehicle state from Object
         real_vehicle_.Reset();
         real_vehicle_.SetPos(object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(), object_->pos_.GetH());
@@ -115,6 +142,11 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
 
         // If object has bounding box, set length
         real_vehicle_.SetLength(object_->boundingbox_.dimensions_.length_);
+
+        // Initialize target speed detection
+        currentSpeed_ = object_->GetSpeed();
+        setSpeed_ = object_->GetSpeed();
+        LOG_INFO("RealDriver: Initial target speed: {:.2f} m/s", setSpeed_);
 
         // Tuning: Load External Param File
         // Construct absolute path based on executable location
@@ -135,6 +167,14 @@ void ControllerRealDriver::Step(double timeStep)
     // Note: TerrainTracker::UpdateAllVehicleTerrain() is now called from GT_Step()
     // to avoid dependency issues with ScenarioEngine access
 
+    // 0. Detect target speed changes (similar to ControllerACC)
+    if (abs(object_->GetSpeed() - currentSpeed_) > 1e-3)
+    {
+        LOG_INFO("RealDriver: New target speed detected: {:.2f} m/s (was {:.2f} m/s)", 
+                 object_->GetSpeed(), setSpeed_);
+        setSpeed_ = object_->GetSpeed();
+    }
+
     // 1. Receive UDP Network Data
     if (udpServer_)
     {
@@ -146,8 +186,21 @@ void ControllerRealDriver::Step(double timeStep)
             
             // [DEBUG] Diagnostic logging
             static int poll_counter = 0;
-            if (poll_counter++ % 100 == 0 && r > 0) {
+            // Print every 100 polling attempts (approx 1 sec), regardless of result
+            if (poll_counter++ % 100 == 0) {
                  LOG_INFO("RealDriverController: Polling UDP... Res={}", r);
+            }
+
+            // [DEBUG] WSAGetLastError for diagnosis
+            if (r < 0) {
+#ifdef _WIN32
+                int err = WSAGetLastError();
+                static int last_err = 0;
+                if (err != last_err || poll_counter % 500 == 0) {
+                    LOG_INFO("RealDriverController: Recv failed, WSAError={}", err);
+                    last_err = err;
+                }
+#endif
             }
 
             if (r > 0)
@@ -162,6 +215,22 @@ void ControllerRealDriver::Step(double timeStep)
                     // Parse Protobuf (offset by 4 bytes)
                     if (cached_hvd_.ParseFromArray(udp_buffer_.data() + 4, r - 4))
                     {
+                        // [DEBUG] Log successful parse
+                         static int log_counter = 0;
+                         if (log_counter++ % 50 == 0) {
+                             std::cout << "RealDriverController: Packet Received (" << r << " bytes). LightMask=" << input_.lightMask << std::endl;
+                             if (cached_hvd_.has_vehicle_powertrain()) {
+                                 std::cout << "  - Throttle: " << cached_hvd_.vehicle_powertrain().pedal_position_acceleration() 
+                                           << " Gear: " << cached_hvd_.vehicle_powertrain().gear_transmission() << std::endl;
+                             }
+                             if (cached_hvd_.has_vehicle_brake_system()) {
+                                 std::cout << "  - Brake: " << cached_hvd_.vehicle_brake_system().pedal_position_brake() << std::endl;
+                             }
+                             if (cached_hvd_.has_vehicle_steering()) {
+                                 std::cout << "  - Steer: " << cached_hvd_.vehicle_steering().vehicle_steering_wheel().angle() << std::endl;
+                             }
+                         }
+
                         // Extract inputs for RealVehicle Simulation
                         if (cached_hvd_.has_vehicle_powertrain())
                         {
@@ -242,11 +311,13 @@ void ControllerRealDriver::Step(double timeStep)
                     else
                     {
                         LOG_ERROR("RealDriverController: Failed to parse HostVehicleData");
+                        std::cerr << "RealDriverController: Failed to parse HostVehicleData (" << (r-4) << " bytes)" << std::endl;
                     }
                 }
                 else
                 {
                      LOG_WARN("RealDriverController: Packet too small ({})", r);
+                     std::cerr << "RealDriverController: Packet too small (" << r << " bytes)" << std::endl;
                 }
                 
                 res = r;
@@ -274,11 +345,40 @@ void ControllerRealDriver::Step(double timeStep)
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
 
+    // Update current speed for next change detection
+    currentSpeed_ = real_vehicle_.speed_;
+
+    // Send target speed via UDP (separate packet)
+    if (udpClient_)
+    {
+        // Packet structure: [Type: 1 byte = 1] + [setSpeed_: 8 bytes double]
+        // Use pragma pack to avoid padding
+#pragma pack(push, 1)
+        struct TargetSpeedPacket {
+            uint8_t type;
+            double targetSpeed;
+        } packet;
+#pragma pack(pop)
+        
+        packet.type = 1;  // Type identifier for target speed
+        packet.targetSpeed = setSpeed_;
+        
+        int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
+        if (sent != sizeof(packet))
+        {
+            static int error_counter = 0;
+            if (error_counter++ % 100 == 0)
+            {
+                LOG_WARN("RealDriver: Failed to send target speed (sent {} bytes, expected {})", sent, sizeof(packet));
+            }
+        }
+    }
+
     // [DEBUG] Log throttle and speed
     static int step_counter = 0;
     if (step_counter++ % 50 == 0) {
-        LOG_INFO("RealDriver: throttle={:.2f} brake={:.2f} gear={} speed={:.2f}",
-                 input_.throttle, input_.brake, input_.gear, real_vehicle_.speed_);
+        LOG_INFO("RealDriver: throttle={:.2f} brake={:.2f} gear={} speed={:.2f} target={:.2f}",
+                 input_.throttle, input_.brake, input_.gear, real_vehicle_.speed_, setSpeed_);
     }
     
     // Inject Physics Results back into Cached HVD

@@ -3,6 +3,7 @@
 #include "Controller.hpp"
 #include "RealVehicle.hpp"
 #include "UDP.hpp"
+#include "GT_UDP.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #define CONTROLLER_REAL_DRIVER_TYPE_NAME "RealDriverController"
@@ -24,8 +25,6 @@ namespace gt_esmini
             return CONTROLLER_REAL_DRIVER_TYPE_NAME;
         }
 
-#include "osi_hostvehicledata.pb.h"
-
         // Getters for OSI HostVehicleData (used by GT_Step)
         void GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const;
         void GetPowertrainForOSI(double& rpm, double& torque) const;
@@ -38,6 +37,15 @@ namespace gt_esmini
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;
         int          port_;
+        
+        // UDP Client for sending target speed
+        GT_UDP_Sender* udpClient_;
+        std::string  clientAddr_;
+        int          clientPort_;
+        
+        // Target speed detection (similar to ControllerACC)
+        double       setSpeed_;      // Target speed from SpeedAction
+        double       currentSpeed_;  // Previous speed for change detection
         
         struct DriverInput
         {

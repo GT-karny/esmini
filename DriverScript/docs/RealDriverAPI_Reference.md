@@ -4,7 +4,7 @@
 
 ## 概要
 
-- **ファイル名**: `RealDriverClient.py`
+- **パッケージ名**: `realdriver`
 - **クラス名**: `RealDriverClient`
 - **通信方式**: UDP (struct.packによるバイナリパケット送信)
 - **パケット構造**: `[LightMask (4 bytes, int32)] + [HostVehicleData (Protobuf Serialized)]`
@@ -14,7 +14,7 @@
 ### 初期化
 
 ```python
-from RealDriverClient import RealDriverClient, LightMode, IndicatorMode
+from realdriver import RealDriverClient, LightMode, IndicatorMode
 
 client = RealDriverClient(ip="127.0.0.1", port=53995, object_id=0)
 ```
@@ -154,7 +154,7 @@ UDPソケットを閉じます。
 
 ```python
 import time
-from RealDriverClient import RealDriverClient, LightMode, IndicatorMode
+from realdriver import RealDriverClient, LightMode, IndicatorMode
 
 def main():
     # クライアントの作成

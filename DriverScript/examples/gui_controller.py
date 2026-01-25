@@ -1,8 +1,16 @@
+#!/usr/bin/env python3
+"""
+RealDriver GUI Controller
+
+A Tkinter-based GUI for controlling esmini RealDriverController via UDP.
+"""
+
 import tkinter as tk
 from tkinter import ttk
 import argparse
 import time
-from RealDriverClient import RealDriverClient, LightMode, IndicatorMode
+
+from realdriver import RealDriverClient, LightMode, IndicatorMode
 
 # OSI compliant ADAS function labels for GUI (commonly used subset)
 ADAS_GUI_FUNCTIONS = {
@@ -45,7 +53,7 @@ class RealDriverGUI:
         self.steer_var = tk.DoubleVar(value=0.0)
         self.gear_var = tk.IntVar(value=1) # 1: D, 0: N, -1: R
         self.engine_brake_var = tk.DoubleVar(value=0.49) # Default 0.49
-        
+
         # Light variables
         self.light_vars = {
             'low': tk.BooleanVar(value=False),
@@ -74,7 +82,7 @@ class RealDriverGUI:
         # Throttle
         ttk.Label(control_frame, text="Throttle").grid(row=0, column=0, sticky="e")
         ttk.Scale(control_frame, from_=0.0, to=1.0, variable=self.throttle_var, orient="horizontal", length=200).grid(row=0, column=1, padx=10)
-        
+
         # Brake
         ttk.Label(control_frame, text="Brake").grid(row=1, column=0, sticky="e")
         ttk.Scale(control_frame, from_=0.0, to=1.0, variable=self.brake_var, orient="horizontal", length=200).grid(row=1, column=1, padx=10)
@@ -82,7 +90,7 @@ class RealDriverGUI:
         # Steering
         ttk.Label(control_frame, text="Steering").grid(row=2, column=0, sticky="e")
         ttk.Scale(control_frame, from_=-1.0, to=1.0, variable=self.steer_var, orient="horizontal", length=200).grid(row=2, column=1, padx=10)
-        
+
         # Engine Brake
         ttk.Label(control_frame, text="Eng Brake (m/s2)").grid(row=3, column=0, sticky="e")
         ttk.Scale(control_frame, from_=0.0, to=5.0, variable=self.engine_brake_var, orient="horizontal", length=200).grid(row=3, column=1, padx=10)
@@ -91,7 +99,7 @@ class RealDriverGUI:
         # Gear
         gear_frame = ttk.LabelFrame(self.root, text="Gear", padding=10)
         gear_frame.pack(fill="x", padx=10, pady=5)
-        
+
         ttk.Radiobutton(gear_frame, text="Reverse (R)", variable=self.gear_var, value=-1).pack(side="left", padx=10)
         ttk.Radiobutton(gear_frame, text="Neutral (N)", variable=self.gear_var, value=0).pack(side="left", padx=10)
         ttk.Radiobutton(gear_frame, text="Drive (D)", variable=self.gear_var, value=1).pack(side="left", padx=10)
@@ -118,16 +126,16 @@ class RealDriverGUI:
         # Layout: Grid of Label + Combobox
         items = list(ADAS_GUI_FUNCTIONS.items())
         cols = 3
-        
+
         for i, (key, (label, osi_name)) in enumerate(items):
             row = i // cols
             col = i % cols
-            
+
             frame = ttk.Frame(adas_frame)
             frame.grid(row=row, column=col, sticky="w", padx=10, pady=5)
-            
+
             ttk.Label(frame, text=label).pack(anchor="w")
-            
+
             cb = ttk.Combobox(frame, textvariable=self.adas_vars[osi_name], values=ADAS_STATE_NAMES, state="readonly", width=12)
             cb.pack(anchor="w")
 
@@ -137,14 +145,14 @@ class RealDriverGUI:
     def update_loop(self):
         # Update client controls
         # Negate steering to match typical Logic (Left = Positive)
-        steer_input = -self.steer_var.get() 
+        steer_input = -self.steer_var.get()
 
         self.client.set_controls(
             throttle=self.throttle_var.get(),
             brake=self.brake_var.get(),
-            steering=steer_input 
+            steering=steer_input
         )
-        
+
         self.client.set_gear(self.gear_var.get())
         self.client.set_engine_brake(self.engine_brake_var.get())
 
@@ -190,7 +198,7 @@ def main():
     parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
     parser.add_argument("--port", type=int, default=53995, help="Base Port")
     parser.add_argument("--id", type=int, default=0, help="Object ID")
-    
+
     args = parser.parse_args()
 
     # Init Client
@@ -199,7 +207,7 @@ def main():
     # Init GUI
     root = tk.Tk()
     app = RealDriverGUI(root, client)
-    
+
     try:
         root.mainloop()
     finally:
