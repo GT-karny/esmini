@@ -22,6 +22,7 @@ namespace gt_esmini
         uint32_t roadId;
         double s;
         int32_t laneId;
+        double laneOffset;  // Offset from lane center (meters)
     };
 
     class ControllerRealDriver : public scenarioengine::Controller

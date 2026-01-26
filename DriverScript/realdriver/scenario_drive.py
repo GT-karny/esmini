@@ -66,7 +66,7 @@ class ScenarioDriveController:
                  target_speed_port: int = 54995,
                  gt_lib_path: Optional[str] = None,
                  steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
-                 speed_pid: Tuple[float, float, float] = (0.5, 0.01, 0.05),
+                 speed_pid: Tuple[float, float, float] = (0.8, 0.02, 0.1),  # Increased gains for better braking
                  lane_change_time: float = 5.0,
                  lookahead_distance: float = 5.0):
         """
@@ -261,7 +261,8 @@ class ScenarioDriveController:
         if current_pos_data:
             # Lane offset: positive = left of lane center
             # We want to steer right (negative) if we're left of center
-            lane_offset_error = -current_pos_data.laneOffset * 0.1  # Scaled contribution
+            # Use stronger correction (0.5) to properly center the vehicle in lane
+            lane_offset_error = -current_pos_data.laneOffset * 0.5
 
         # Combined error with lookahead
         total_error = heading_error + lane_offset_error
@@ -332,7 +333,7 @@ class ScenarioDriveController:
         if next_wp.lane_id != current_lane:
             # Check distance to waypoint
             dist = current_pos.distance_to(next_wp)
-            lane_change_dist = max(self.lane_change_time * self._last_speed, 25.0)
+            lane_change_dist = max(self.lane_change_time * self._last_speed, 15.0)  # Reduced from 25m for better intersection handling
 
             if dist < lane_change_dist:
                 return True

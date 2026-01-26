@@ -31,6 +31,7 @@ class Waypoint:
         road_id: OpenDRIVE road ID (-1 if unknown)
         s: Road s-coordinate (meters along road)
         lane_id: Lane ID (negative = right side, positive = left side)
+        lane_offset: Offset from lane center (meters, positive = left)
     """
     x: float
     y: float
@@ -38,6 +39,7 @@ class Waypoint:
     road_id: int = -1
     s: float = 0.0
     lane_id: int = 0
+    lane_offset: float = 0.0
 
     def distance_to(self, other: 'Waypoint') -> float:
         """Calculate Euclidean distance to another waypoint."""
@@ -65,10 +67,10 @@ class Waypoint:
 
 # Waypoint packet format for UDP
 # [Type: uint8 = 2][CurrentIndex: uint32][Count: uint32][Waypoints...]
-# Each waypoint: [x: double][y: double][h: double][roadId: uint32][s: double][laneId: int32]
+# Each waypoint: [x: double][y: double][h: double][roadId: uint32][s: double][laneId: int32][laneOffset: double]
 WAYPOINT_PACKET_TYPE = 2
-WAYPOINT_STRUCT_FORMAT = '<dddidf'  # Adjusted to use 'i' for int32 roadId
-WAYPOINT_STRUCT_SIZE = 40  # 8+8+8+4+8+4 bytes
+WAYPOINT_STRUCT_FORMAT = '<dddIdid'  # x, y, h, roadId, s, laneId, laneOffset
+WAYPOINT_STRUCT_SIZE = 48  # 8+8+8+4+8+4+8 bytes
 
 
 def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
@@ -100,13 +102,13 @@ def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
     waypoints = []
     offset = 9
     for _ in range(count):
-        x, y, h, road_id, s, lane_id = struct.unpack(
-            '<dddIdi',
+        x, y, h, road_id, s, lane_id, lane_offset = struct.unpack(
+            '<dddIdid',
             data[offset:offset + WAYPOINT_STRUCT_SIZE]
         )
         waypoints.append(Waypoint(
             x=x, y=y, h=h,
-            road_id=road_id, s=s, lane_id=lane_id
+            road_id=road_id, s=s, lane_id=lane_id, lane_offset=lane_offset
         ))
         offset += WAYPOINT_STRUCT_SIZE
 
@@ -272,7 +274,7 @@ class WaypointManager:
         if current_pos.road_id != waypoint.road_id or current_pos.road_id < 0:
             # Different road or unknown - use distance check
             dist = current_pos.distance_to(waypoint)
-            if dist < 5.0:  # Close enough threshold
+            if dist < 2.0:  # Close enough threshold (reduced from 5.0 for better precision)
                 # Check lane
                 if current_pos.lane_id == waypoint.lane_id or waypoint.lane_id == 0:
                     return WaypointStatus.PASSED

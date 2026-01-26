@@ -599,6 +599,13 @@ int OSIReporter::UpdateOSIDynamicGroundTruth(const std::vector<std::unique_ptr<O
         obj_osi_internal.dynamic_gt->mutable_timestamp()->set_nanos(static_cast<uint32_t>(0));
     }
 
+    // Set host_vehicle_id to the first object (Ego vehicle)
+    if (!objectState.empty())
+    {
+        obj_osi_internal.dynamic_gt->mutable_host_vehicle_id()->set_value(
+            objectState.front()->state_.info.g_id);
+    }
+
     // Set OSI Moving Object Position
     // As OSI defines the origin of the object coordinates in the center of the bounding box and esmini (as OpenSCENARIO)
     // at the center of the rear axle, the position needs to be transformed.

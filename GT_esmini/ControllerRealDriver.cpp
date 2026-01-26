@@ -1,5 +1,6 @@
 #include "ControllerRealDriver.hpp"
 #include <windows.h> // For GetModuleFileName
+#include <cmath>     // For std::sqrt, std::atan2, M_PI
 #include "logger.hpp"
 #include "ScenarioGateway.hpp"
 #include "Entities.hpp"
@@ -602,6 +603,7 @@ void ControllerRealDriver::ExtractWaypoints()
         data.roadId = static_cast<uint32_t>(wp.GetTrackId());
         data.s = wp.GetS();
         data.laneId = wp.GetLaneId();
+        data.laneOffset = wp.GetOffset();  // Extract lane offset from lane center
         waypoints_.push_back(data);
     }
 
@@ -615,35 +617,56 @@ void ControllerRealDriver::SendWaypointsUDP()
         return;
     }
 
-    // Update current waypoint index based on vehicle position
+    // Update current waypoint index based on vehicle position using distance-based tracking
     if (object_ && !waypoints_.empty())
     {
-        double vehicleS = object_->pos_.GetS();
-        int vehicleRoadId = object_->pos_.GetTrackId();
+        double vehicleX = object_->pos_.GetX();
+        double vehicleY = object_->pos_.GetY();
+        double vehicleH = object_->pos_.GetH();
 
         // Find current waypoint (first waypoint ahead of vehicle)
         for (size_t i = currentWaypointIndex_; i < waypoints_.size(); ++i)
         {
-            if (waypoints_[i].roadId == static_cast<uint32_t>(vehicleRoadId))
+            // Calculate distance to waypoint
+            double dx = waypoints_[i].x - vehicleX;
+            double dy = waypoints_[i].y - vehicleY;
+            double dist = std::sqrt(dx * dx + dy * dy);
+
+            // Check if waypoint is close enough to consider
+            if (dist < 10.0)  // Within 10m
             {
-                if (waypoints_[i].s > vehicleS - 1.0)  // 1m tolerance
+                // Check if waypoint is behind us by comparing heading
+                double headingToWp = std::atan2(dy, dx);
+                double angleDiff = headingToWp - vehicleH;
+
+                // Normalize angle to [-PI, PI]
+                while (angleDiff > M_PI) angleDiff -= 2 * M_PI;
+                while (angleDiff < -M_PI) angleDiff += 2 * M_PI;
+
+                // If waypoint is more than 90 degrees behind us, it's passed
+                if (std::abs(angleDiff) > M_PI / 2)
                 {
-                    currentWaypointIndex_ = static_cast<int>(i);
-                    break;
+                    // Waypoint is behind us, advance to next
+                    currentWaypointIndex_ = static_cast<int>(i) + 1;
+                    continue;
                 }
             }
-            else if (i > currentWaypointIndex_)
-            {
-                // Different road, assume we've passed to next road
-                currentWaypointIndex_ = static_cast<int>(i);
-                break;
-            }
+
+            // Found a valid waypoint ahead
+            currentWaypointIndex_ = static_cast<int>(i);
+            break;
+        }
+
+        // Clamp index to valid range
+        if (currentWaypointIndex_ >= static_cast<int>(waypoints_.size()))
+        {
+            currentWaypointIndex_ = static_cast<int>(waypoints_.size()) - 1;
         }
     }
 
     // Packet structure:
     // [Type: 1 byte = 2] + [CurrentIndex: 4 bytes] + [Count: 4 bytes] + [Waypoints...]
-    // Each waypoint: [x: 8][y: 8][h: 8][roadId: 4][s: 8][laneId: 4] = 40 bytes
+    // Each waypoint: [x: 8][y: 8][h: 8][roadId: 4][s: 8][laneId: 4][laneOffset: 8] = 48 bytes
 
 #pragma pack(push, 1)
     struct WaypointPacketHeader {

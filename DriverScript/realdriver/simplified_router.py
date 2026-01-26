@@ -86,7 +86,7 @@ class SimplifiedRouter:
             return []
 
         # Check if start and target are on the same road
-        if start_pos.road_id == target_pos.road_id:
+        if start_pos.roadId == target_pos.roadId:
             # Simple case: generate waypoints along the same road
             return self._generate_waypoints_same_road(
                 start_pos, target_pos, waypoint_spacing
@@ -316,6 +316,9 @@ class SimplifiedRouter:
             lane_id=start_pos.laneId
         ))
 
+        # Create a position handle for coordinate conversion
+        pos_handle = self.rm.CreatePosition()
+
         # Generate waypoints for intermediate roads
         for i, (road_id, lane_id) in enumerate(road_path[1:-1], start=1):
             road_length = self._get_road_length(road_id)
@@ -324,16 +327,23 @@ class SimplifiedRouter:
             num_waypoints = max(1, int(road_length / spacing))
             for j in range(1, num_waypoints + 1):
                 s = (j / num_waypoints) * road_length
-                # Note: We would need to use RM_SetLanePosition to get accurate world coords
-                # For now, we just store road coordinates
-                waypoints.append(Waypoint(
-                    x=0.0,  # Would need lookup
-                    y=0.0,
-                    h=0.0,
-                    road_id=road_id,
-                    s=s,
-                    lane_id=lane_id
-                ))
+                # Use RM_SetLanePosition to get accurate world coordinates
+                res = self.rm.SetLanePosition(pos_handle, road_id, lane_id, 0.0, s, True)
+                if res >= 0:
+                    res, pos_data = self.rm.GetPositionData(pos_handle)
+                    if res >= 0:
+                        waypoints.append(Waypoint(
+                            x=pos_data.x,
+                            y=pos_data.y,
+                            h=pos_data.h,
+                            road_id=road_id,
+                            s=s,
+                            lane_id=lane_id
+                        ))
+                    else:
+                        print(f"[WARN] SimplifiedRouter: Failed to get position data for road {road_id} s={s}")
+                else:
+                    print(f"[WARN] SimplifiedRouter: Failed to set lane position for road {road_id} s={s}")
 
         # End waypoint
         waypoints.append(Waypoint(
