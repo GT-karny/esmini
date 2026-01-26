@@ -39,25 +39,30 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     : Controller(args),
       udpServer_(nullptr),
       udpClient_(nullptr),
+      waypointClient_(nullptr),
       port_(DEFAULT_REAL_DRIVER_PORT),
       clientAddr_("127.0.0.1"),
       clientPort_(DEFAULT_REAL_DRIVER_PORT + 1000),  // Default: 54995
+      waypointPort_(DEFAULT_REAL_DRIVER_PORT + 1001), // Default: 54996
       setSpeed_(0.0),
-      currentSpeed_(0.0)
+      currentSpeed_(0.0),
+      sendWaypoints_(false),
+      currentWaypointIndex_(0),
+      waypointsExtracted_(false)
 {
     // Check if port is overridden in parameters
     if (args && args->properties && args->properties->ValueExists("BasePort"))
     {
         port_ = strtol(args->properties->GetValueStr("BasePort").c_str(), nullptr, 10);
     }
-    
+
     // Also check "Port" parameter which might be an offset or absolute
     if (args && args->properties && args->properties->ValueExists("Port"))
     {
          // int p = strtol(args->properties->GetValueStr("Port").c_str(), nullptr, 10);
          // Storing explicit port for now if needed.
     }
-    
+
     // UDP Client configuration for sending target speed
     if (args && args->properties && args->properties->ValueExists("ClientAddr"))
     {
@@ -67,7 +72,18 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     {
         clientPort_ = strtol(args->properties->GetValueStr("ClientPort").c_str(), nullptr, 10);
     }
-    
+
+    // Optional: Waypoint sending configuration
+    if (args && args->properties && args->properties->ValueExists("SendWaypoints"))
+    {
+        std::string val = args->properties->GetValueStr("SendWaypoints");
+        sendWaypoints_ = (val == "true" || val == "1" || val == "True");
+    }
+    if (args && args->properties && args->properties->ValueExists("WaypointPort"))
+    {
+        waypointPort_ = strtol(args->properties->GetValueStr("WaypointPort").c_str(), nullptr, 10);
+    }
+
     // Resize buffer for OSI messages (64KB should be sufficient for HostVehicleData)
     udp_buffer_.resize(65536);
 }
@@ -76,6 +92,7 @@ ControllerRealDriver::~ControllerRealDriver()
 {
     if (udpServer_) delete udpServer_;
     if (udpClient_) delete udpClient_;
+    if (waypointClient_) delete waypointClient_;
 }
 
 int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
@@ -134,7 +151,14 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
             udpClient_ = new GT_UDP_Sender(clientPort_, clientAddr_);
             LOG_INFO("RealDriverController: UDP client sending to {}:{}", clientAddr_, clientPort_);
         }
-        
+
+        // Initialize UDP Client for sending waypoints (optional)
+        if (sendWaypoints_ && !waypointClient_)
+        {
+            waypointClient_ = new GT_UDP_Sender(waypointPort_, clientAddr_);
+            LOG_INFO("RealDriverController: Waypoint UDP client sending to {}:{}", clientAddr_, waypointPort_);
+        }
+
         // Initialize RealVehicle state from Object
         real_vehicle_.Reset();
         real_vehicle_.SetPos(object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(), object_->pos_.GetH());
@@ -359,10 +383,10 @@ void ControllerRealDriver::Step(double timeStep)
             double targetSpeed;
         } packet;
 #pragma pack(pop)
-        
+
         packet.type = 1;  // Type identifier for target speed
         packet.targetSpeed = setSpeed_;
-        
+
         int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
         if (sent != sizeof(packet))
         {
@@ -372,6 +396,20 @@ void ControllerRealDriver::Step(double timeStep)
                 LOG_WARN("RealDriver: Failed to send target speed (sent {} bytes, expected {})", sent, sizeof(packet));
             }
         }
+    }
+
+    // Send waypoints via UDP (optional, for Python fallback)
+    if (sendWaypoints_)
+    {
+        // Extract waypoints on first step
+        if (!waypointsExtracted_)
+        {
+            ExtractWaypoints();
+            waypointsExtracted_ = true;
+        }
+
+        // Send waypoints periodically
+        SendWaypointsUDP();
     }
 
     // [DEBUG] Log throttle and speed
@@ -524,6 +562,123 @@ void ControllerRealDriver::GetPowertrainForOSI(double& rpm, double& torque) cons
 void ControllerRealDriver::GetADASStates(std::vector<int>& states) const
 {
     states = input_.adasStates;
+}
+
+void ControllerRealDriver::ExtractWaypoints()
+{
+    waypoints_.clear();
+    currentWaypointIndex_ = 0;
+
+    if (!object_)
+    {
+        LOG_WARN("RealDriver: No object to extract waypoints from");
+        return;
+    }
+
+    // Try to get route from object's assigned route
+    roadmanager::Route* route = object_->pos_.GetRoute();
+    if (!route)
+    {
+        LOG_INFO("RealDriver: No route assigned to object - waypoints not sent");
+        return;
+    }
+
+    // Get all waypoints from the route
+    const std::vector<roadmanager::Position>& routeWaypoints = route->all_waypoints_;
+
+    if (routeWaypoints.empty())
+    {
+        LOG_INFO("RealDriver: Route has no waypoints");
+        return;
+    }
+
+    // Convert to WaypointData format
+    for (const auto& wp : routeWaypoints)
+    {
+        WaypointData data;
+        data.x = wp.GetX();
+        data.y = wp.GetY();
+        data.h = wp.GetH();
+        data.roadId = static_cast<uint32_t>(wp.GetTrackId());
+        data.s = wp.GetS();
+        data.laneId = wp.GetLaneId();
+        waypoints_.push_back(data);
+    }
+
+    LOG_INFO("RealDriver: Extracted {} waypoints from route", waypoints_.size());
+}
+
+void ControllerRealDriver::SendWaypointsUDP()
+{
+    if (!waypointClient_ || waypoints_.empty())
+    {
+        return;
+    }
+
+    // Update current waypoint index based on vehicle position
+    if (object_ && !waypoints_.empty())
+    {
+        double vehicleS = object_->pos_.GetS();
+        int vehicleRoadId = object_->pos_.GetTrackId();
+
+        // Find current waypoint (first waypoint ahead of vehicle)
+        for (size_t i = currentWaypointIndex_; i < waypoints_.size(); ++i)
+        {
+            if (waypoints_[i].roadId == static_cast<uint32_t>(vehicleRoadId))
+            {
+                if (waypoints_[i].s > vehicleS - 1.0)  // 1m tolerance
+                {
+                    currentWaypointIndex_ = static_cast<int>(i);
+                    break;
+                }
+            }
+            else if (i > currentWaypointIndex_)
+            {
+                // Different road, assume we've passed to next road
+                currentWaypointIndex_ = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+
+    // Packet structure:
+    // [Type: 1 byte = 2] + [CurrentIndex: 4 bytes] + [Count: 4 bytes] + [Waypoints...]
+    // Each waypoint: [x: 8][y: 8][h: 8][roadId: 4][s: 8][laneId: 4] = 40 bytes
+
+#pragma pack(push, 1)
+    struct WaypointPacketHeader {
+        uint8_t type;
+        uint32_t currentIndex;
+        uint32_t count;
+    };
+#pragma pack(pop)
+
+    size_t headerSize = sizeof(WaypointPacketHeader);
+    size_t waypointSize = sizeof(WaypointData);
+    size_t totalSize = headerSize + waypoints_.size() * waypointSize;
+
+    // Allocate buffer
+    std::vector<char> buffer(totalSize);
+
+    // Fill header
+    WaypointPacketHeader* header = reinterpret_cast<WaypointPacketHeader*>(buffer.data());
+    header->type = 2;  // Type identifier for waypoints
+    header->currentIndex = static_cast<uint32_t>(currentWaypointIndex_);
+    header->count = static_cast<uint32_t>(waypoints_.size());
+
+    // Copy waypoints
+    memcpy(buffer.data() + headerSize, waypoints_.data(), waypoints_.size() * waypointSize);
+
+    // Send
+    int sent = waypointClient_->Send(buffer.data(), static_cast<int>(totalSize));
+    if (sent != static_cast<int>(totalSize))
+    {
+        static int error_counter = 0;
+        if (error_counter++ % 100 == 0)
+        {
+            LOG_WARN("RealDriver: Failed to send waypoints (sent {} bytes, expected {})", sent, totalSize);
+        }
+    }
 }
 
 } // namespace gt_esmini
