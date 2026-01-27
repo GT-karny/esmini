@@ -226,34 +226,35 @@ class ScenarioDriveController:
                     # [PLANNING] Generate Dense Route
                     # Only replan if we have enough waypoints and position is valid
                     current_pos = None
-                    # We need current_pos for routing start. 
-                    # Use last known ego pos? Or just use waypoints?
-                    # calculate_route_from_waypoints handles start from WP[0] if current_pos is None or far.
-                    # But we usually have self._last_ego_pos from update loop.
                     
                     start_pos = getattr(self, '_last_ego_pos', None)
                     if start_pos and waypoints:
-                        # print(f"[INFO] Replanning route with {len(waypoints)} sparse waypoints...")
-                        dense_route = self.router.calculate_route_from_waypoints(start_pos, waypoints, step_size=1.0)
-                        # print(f"[INFO] Generated dense route with {len(dense_route)} points")
+                        # [FIX] Use UDP index to ignore passed waypoints.
+                        # Otherwise, we plan a path back to WP[0] (U-Turn).
+                        future_wps = waypoints[index:]
                         
-                        # Update manager
-                        # We need to map UDP index to Dense index? 
-                        # UDP Index typically 0 or 1.
-                        # For now, reset index to 0 or find closest point
-                        self.waypoint_mgr.set_calculated_waypoints(dense_route)
-                        
-                        # Find closest point on new route to set index
-                        if start_pos:
-                            min_dist = float('inf')
-                            closest_idx = 0
-                            # Search in first 50 points to save time
-                            for i, wp in enumerate(dense_route[:50]):
-                                d = start_pos.distance_to(wp)
-                                if d < min_dist:
-                                    min_dist = d
-                                    closest_idx = i
-                            self.waypoint_mgr.current_index = closest_idx
+                        if future_wps:
+                            # print(f"[INFO] Replanning route with {len(future_wps)} future sparse waypoints...")
+                            dense_route = self.router.calculate_route_from_waypoints(start_pos, future_wps, step_size=1.0)
+                            # print(f"[INFO] Generated dense route with {len(dense_route)} points")
+                            
+                            if dense_route:
+                                self.waypoint_mgr.set_calculated_waypoints(dense_route)
+                                
+                                # Find closest point to snap index
+                                min_dist = float('inf')
+                                closest_idx = 0
+                                # Search window can be small since we start from ego pos
+                                check_len = min(100, len(dense_route))
+                                for i in range(check_len):
+                                    d = start_pos.distance_to(dense_route[i])
+                                    if d < min_dist:
+                                        min_dist = d
+                                        closest_idx = i
+                                self.waypoint_mgr.current_index = closest_idx
+                        else:
+                            # Completed or no future WPs
+                            pass
                     else:
                         # Fallback if no ego pos yet
                         self.waypoint_mgr.receive_from_udp(data)
@@ -323,6 +324,48 @@ class ScenarioDriveController:
 
         return pos_data
 
+    def _calculate_cross_track_error(self, current_pos: Waypoint, waypoints: List[Waypoint], index: int) -> float:
+        """
+        Calculate Cross Track Error (XTE) relative to the path segment being traversed.
+        Segment is defined as Waypoint[index-1] -> Waypoint[index].
+        Positive XTE = Left of path.
+        """
+        if index == 0:
+            # Special case: approaching first waypoint.
+            # Use checks to see if we have enough points
+            if len(waypoints) < 2:
+                return 0.0
+            p1 = waypoints[0]
+            p2 = waypoints[1] # Use first segment direction
+            # If we are travelling TO WP[0], and we assume path starts at WP[0]... 
+            # Actually, typically index=0 means we are going TO WP[0].
+            # But in Dense Route, WP[0] is usually Current Pos/Start.
+            # So we pass it immediately and go to index=1.
+            # If we are effectively at index=0, XTE isn't well defined unless we have a 'previous'.
+            # Let's fallback to 0 or use first segment.
+            # Using first segment (0->1) is safer for orientation.
+        else:
+            p1 = waypoints[index - 1]
+            p2 = waypoints[index]
+
+        # Path vector
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        len_sq = dx * dx + dy * dy
+        
+        if len_sq < 0.001:
+            return 0.0
+
+        # Vector from p1 to car
+        cx = current_pos.x - p1.x
+        cy = current_pos.y - p1.y
+
+        # Cross product in 2D: cp = dx * cy - dy * cx
+        cross_prod = dx * cy - dy * cx
+        xte = cross_prod / math.sqrt(len_sq)
+        
+        return xte
+
     def _calculate_steering(self, current_pos, current_pos_data, target_wp: Waypoint,
                             dt: float) -> float:
         """Calculate steering output toward target waypoint."""
@@ -341,17 +384,11 @@ class ScenarioDriveController:
         idx = self.waypoint_mgr.current_index
         
         # [FIX] Dynamic Lookahead to prevent corner cutting.
-        # Fixed 10m is too large for tight turns (causes driving on sidewalk).
-        # Use simple V * k heuristic clamped to [min, max]
-        # Low speed (turn) -> Short lookahead (3m) -> Tight tracking
-        # High speed -> Long lookahead (10m) -> Stability
         current_speed = getattr(self, '_last_speed', 5.0)
         dynamic_lookahead = max(3.0, min(current_speed * 0.7, 10.0))
-        # Keep explicit param if it's smaller? No, let dynamic override.
         lookahead = dynamic_lookahead
         
         # Scan forward
-        accumulated_dist = 0.0
         for i in range(idx, len(wps)):
             dist = current_pos.distance_to(wps[i])
             if dist >= lookahead:
@@ -369,13 +406,22 @@ class ScenarioDriveController:
         while heading_error < -math.pi:
             heading_error += 2 * math.pi
 
-        # Add lane offset correction if available (Stanley Stability)
-        lane_offset_error = 0.0
-        if current_pos_data:
-            # Lane offset: positive = left of lane center
-            # We want to steer right if we're left of center
-            # Strong gain for strict lane keeping
-            lane_offset_error = -current_pos_data.laneOffset * 0.8 
+        # [FIX] Geometric Lane Offset (XTE)
+        # Instead of relying on RMLib (which might snap to wrong road ID at junctions),
+        # calculate XTE relative to the Dense Route itself.
+        # This decouples control from map topology matching errors.
+        xte = self._calculate_cross_track_error(current_pos, wps, idx)
+        
+        # Lane offset: positive XTE = left of path.
+        # We want to steer right (-steering input? NO, +steering -> Right per Analysis?)
+        # Wait, Step 215 Analysis: 
+        # "Steering (Python) +1 -> Turn LEFT."
+        # "Steering (Python) -1 -> Turn RIGHT."
+        # Left of Lane (Offset > 0). Convert to Right Turn.
+        # Right Turn = Negative Input.
+        # So Offset > 0 -> Error < 0.
+        # So Error = -Offset * Gain.
+        lane_offset_error = -xte * 0.8
 
         # Combined error
         total_error = heading_error + lane_offset_error
@@ -388,11 +434,13 @@ class ScenarioDriveController:
             self._steering_log_counter = 0
         self._steering_log_counter += 1
         if self._steering_log_counter % 20 == 0:  # ~Every 0.4s
-             print(f"[DEBUG_STEER] Offset={current_pos_data.laneOffset if current_pos_data else 0:.3f}, "
+             tgt_info = f"{wps[idx].road_id}/{wps[idx].lane_id}" if idx < len(wps) else "End"
+             cur_info = f"{current_pos_data.roadId}/{current_pos_data.laneId}" if current_pos_data else "None"
+             print(f"[DEBUG_STEER] XTE={xte:.3f}, "
                    f"HeadErr={heading_error:.3f}, "
                    f"LaneErr={lane_offset_error:.3f}, "
-                   f"Total={total_error:.3f}, "
-                   f"Out={steering:.3f}")
+                   f"Out={steering:.3f}, "
+                   f"Tgt={tgt_info}, Cur={cur_info}")
         
         return steering
 
@@ -518,20 +566,24 @@ class ScenarioDriveController:
              # Try to densify
              if hasattr(self, '_last_ego_pos') and self._last_ego_pos:
                  print(f"[INFO] Late-triggering Dense Route with {len(self.waypoint_mgr.waypoints)} sparse WPs...")
-                 dense_route = self.router.calculate_route_from_waypoints(self._last_ego_pos, self.waypoint_mgr.waypoints, step_size=1.0)
-                 if len(dense_route) > len(self.waypoint_mgr.waypoints):
-                     print(f"[INFO] Successfully generated dense route ({len(dense_route)} pts)")
-                     self.waypoint_mgr.set_calculated_waypoints(dense_route) # This changes source to 'calculated'
-                     
-                     # Sync index
-                     min_dist = float('inf')
-                     closest_idx = 0
-                     for i, wp in enumerate(dense_route[:50]):
-                         d = self._last_ego_pos.distance_to(wp)
-                         if d < min_dist:
-                             min_dist = d
-                             closest_idx = i
-                     self.waypoint_mgr.current_index = closest_idx
+                 # [FIX] Use current index to slice passed waypoints for late trigger too.
+                 idx = self.waypoint_mgr.current_index
+                 future_wps = self.waypoint_mgr.waypoints[idx:]
+                 if future_wps:
+                     dense_route = self.router.calculate_route_from_waypoints(self._last_ego_pos, future_wps, step_size=1.0)
+                     if len(dense_route) > len(self.waypoint_mgr.waypoints):
+                         print(f"[INFO] Successfully generated dense route ({len(dense_route)} pts)")
+                         self.waypoint_mgr.set_calculated_waypoints(dense_route) # This changes source to 'calculated'
+                         
+                         # Sync index
+                         min_dist = float('inf')
+                         closest_idx = 0
+                         for i, wp in enumerate(dense_route[:50]):
+                             d = self._last_ego_pos.distance_to(wp)
+                             if d < min_dist:
+                                 min_dist = d
+                                 closest_idx = i
+                         self.waypoint_mgr.current_index = closest_idx
 
         # Get current target waypoint
         target_wp = self.waypoint_mgr.get_current_waypoint()
