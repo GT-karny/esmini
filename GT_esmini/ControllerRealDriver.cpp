@@ -7,6 +7,9 @@
 #include "ExtraEntities.hpp" // For Light Extension
 #include "TerrainTracker.hpp" // For terrain tracking
 #include "GT_HostVehicleReporter.hpp"
+#include "Storyboard.hpp"      // For Event
+#include "OSCPrivateAction.hpp" // For LongSpeedAction
+#include "Action.hpp"          // For OSCAction::ActionType
 
 namespace gt_esmini
 {
@@ -187,17 +190,76 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
     return Controller::Activate(mode);
 }
 
+double ControllerRealDriver::GetTargetSpeedFromActions()
+{
+    double targetSpeed = setSpeed_;  // Default is current set value
+
+    if (!object_) return targetSpeed;
+
+    // 1. Search initActions_ for running LongSpeedAction
+    for (auto* action : object_->initActions_)
+    {
+        if (action->action_type_ == scenarioengine::OSCAction::ActionType::LONG_SPEED &&
+            action->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        {
+            auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
+            if (speedAction->target_)
+            {
+                if (speedAction->target_->type_ == scenarioengine::LongSpeedAction::Target::TargetType::ABSOLUTE_SPEED)
+                {
+                    targetSpeed = speedAction->target_->value_;
+                }
+                else  // RELATIVE_SPEED
+                {
+                    targetSpeed = object_->GetSpeed() + speedAction->target_->value_;
+                }
+            }
+        }
+    }
+
+    // 2. Search objectEvents_ for running LongSpeedAction
+    for (auto* event : object_->objectEvents_)
+    {
+        for (auto* action : event->action_)
+        {
+            if (action->GetBaseType() == scenarioengine::OSCAction::BaseType::PRIVATE)
+            {
+                auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+                if (pa->action_type_ == scenarioengine::OSCAction::ActionType::LONG_SPEED &&
+                    pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+                {
+                    auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(pa);
+                    if (speedAction->target_)
+                    {
+                        if (speedAction->target_->type_ == scenarioengine::LongSpeedAction::Target::TargetType::ABSOLUTE_SPEED)
+                        {
+                            targetSpeed = speedAction->target_->value_;
+                        }
+                        else
+                        {
+                            targetSpeed = object_->GetSpeed() + speedAction->target_->value_;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return targetSpeed;
+}
+
 void ControllerRealDriver::Step(double timeStep)
 {
     // Note: TerrainTracker::UpdateAllVehicleTerrain() is now called from GT_Step()
     // to avoid dependency issues with ScenarioEngine access
 
-    // 0. Detect target speed changes (similar to ControllerACC)
-    if (abs(object_->GetSpeed() - currentSpeed_) > 1e-3)
+    // 0. Detect target speed changes from SpeedActions
+    double newTargetSpeed = GetTargetSpeedFromActions();
+    if (abs(newTargetSpeed - setSpeed_) > 1e-3)
     {
-        LOG_INFO("RealDriver: New target speed detected: {:.2f} m/s (was {:.2f} m/s)", 
-                 object_->GetSpeed(), setSpeed_);
-        setSpeed_ = object_->GetSpeed();
+        LOG_INFO("RealDriver: New target speed from action: {:.2f} m/s (was {:.2f} m/s)",
+                 newTargetSpeed, setSpeed_);
+        setSpeed_ = newTargetSpeed;
     }
 
     // 1. Receive UDP Network Data
@@ -608,6 +670,14 @@ void ControllerRealDriver::ExtractWaypoints()
     }
 
     LOG_INFO("RealDriver: Extracted {} waypoints from route", waypoints_.size());
+
+    // Debug: Log each waypoint's details
+    for (size_t i = 0; i < waypoints_.size(); ++i)
+    {
+        LOG_INFO("  WP[{}]: x={:.2f}, y={:.2f}, h={:.2f}, roadId={}, s={:.2f}, laneId={}",
+                 i, waypoints_[i].x, waypoints_[i].y, waypoints_[i].h,
+                 waypoints_[i].roadId, waypoints_[i].s, waypoints_[i].laneId);
+    }
 }
 
 void ControllerRealDriver::SendWaypointsUDP()
@@ -691,6 +761,13 @@ void ControllerRealDriver::SendWaypointsUDP()
 
     // Copy waypoints
     memcpy(buffer.data() + headerSize, waypoints_.data(), waypoints_.size() * waypointSize);
+
+    // Debug: Log waypoint sending status (every 50 frames)
+    static int send_counter = 0;
+    if (send_counter++ % 50 == 0)
+    {
+        LOG_INFO("RealDriver: Sending waypoints, currentIndex={}/{}", currentWaypointIndex_, waypoints_.size());
+    }
 
     // Send
     int sent = waypointClient_->Send(buffer.data(), static_cast<int>(totalSize));

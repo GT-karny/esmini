@@ -64,6 +64,7 @@ class ScenarioDriveController:
                  xodr_path: str,
                  ego_id: int = 0,
                  target_speed_port: int = 54995,
+                 waypoint_port: int = 54996,
                  gt_lib_path: Optional[str] = None,
                  steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
                  speed_pid: Tuple[float, float, float] = (0.8, 0.02, 0.1),  # Increased gains for better braking
@@ -77,6 +78,7 @@ class ScenarioDriveController:
             xodr_path: Path to OpenDRIVE map file (.xodr)
             ego_id: Object ID of the ego vehicle in OSI GroundTruth
             target_speed_port: UDP port for receiving target speed
+            waypoint_port: UDP port for receiving waypoints from esmini
             gt_lib_path: Path to GT_esminiLib.dll (optional, for routing)
             steering_pid: PID gains for steering (kp, ki, kd)
             speed_pid: PID gains for speed control (kp, ki, kd)
@@ -129,6 +131,20 @@ class ScenarioDriveController:
         # UDP receiver for target speed
         self._target_speed_sock = None
         self._setup_target_speed_receiver(target_speed_port)
+
+        # UDP receiver for waypoints (from C++ ControllerRealDriver)
+        self._waypoint_sock = None
+        self._setup_waypoint_receiver(waypoint_port)
+
+    def _setup_waypoint_receiver(self, port: int):
+        """Setup UDP receiver for waypoints."""
+        try:
+            self._waypoint_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._waypoint_sock.bind(("127.0.0.1", port))
+            self._waypoint_sock.setblocking(False)
+            print(f"[INFO] ScenarioDrive: Listening for waypoints on port {port}")
+        except Exception as e:
+            print(f"[WARN] ScenarioDrive: Failed to setup waypoint receiver: {e}")
 
     def _setup_target_speed_receiver(self, port: int):
         """Setup UDP receiver for target speed."""
@@ -187,6 +203,20 @@ class ScenarioDriveController:
             pass  # No data available
         except Exception as e:
             pass  # Ignore errors
+
+    def _receive_waypoints(self):
+        """Receive waypoints from UDP (non-blocking)."""
+        if self._waypoint_sock is None:
+            return
+
+        try:
+            while True:
+                data, _ = self._waypoint_sock.recvfrom(8192)  # Larger buffer for waypoints
+                self.waypoint_mgr.receive_from_udp(data)
+        except BlockingIOError:
+            pass  # No data available
+        except Exception as e:
+            print(f"[WARN] ScenarioDrive: Error receiving waypoints: {e}")
 
     def _extract_ego_from_ground_truth(self, ground_truth) -> Optional[Waypoint]:
         """Extract ego vehicle state from OSI GroundTruth."""
@@ -247,8 +277,29 @@ class ScenarioDriveController:
                             dt: float) -> float:
         """Calculate steering output toward target waypoint."""
         # Calculate heading error
-        heading_to_target = current_pos.heading_to(target_wp)
-        heading_error = heading_to_target - current_pos.h
+        # [FIX] Use Lookahead Road Heading (Path Following with Anticipation)
+        # This aligns with user suggestion to "refer to outgoing road".
+        # We query the road geometry slightly ahead to anticipate curves.
+        target_heading = None
+        
+        if current_pos_data:
+             # Use lookahead_distance (default 10m in main)
+             res, lane_info = self.rm_lib.GetLaneInfo(self._pos_handle, self.lookahead_distance)
+             if res == 0:
+                 target_heading = lane_info.heading
+                 # Also update lane offset error to use lookahead? 
+                 # Standard Stanley uses current offset, but lookahead offset (Pure Pursuit style) is robust.
+                 # Let's stick to Current Offset + Lookahead Heading for stability + anticipation.
+             else:
+                 # Fallback to current heading if lookahead fails
+                 target_heading = current_pos_data.h
+        
+        if target_heading is not None:
+             heading_error = target_heading - current_pos.h
+        else:
+             # Fallback to distant target vector (Distant Waypoint)
+             heading_to_target = current_pos.heading_to(target_wp)
+             heading_error = heading_to_target - current_pos.h
 
         # Normalize to [-pi, pi]
         while heading_error > math.pi:
@@ -260,9 +311,10 @@ class ScenarioDriveController:
         lane_offset_error = 0.0
         if current_pos_data:
             # Lane offset: positive = left of lane center
-            # We want to steer right (negative) if we're left of center
-            # Use stronger correction (0.5) to properly center the vehicle in lane
-            lane_offset_error = -current_pos_data.laneOffset * 0.5
+            # We want to steer right if we're left of center
+            # With RealVehicle.cpp sign convention: positive steering → right turn
+            # Use moderate correction (0.3) to center the vehicle in lane
+            lane_offset_error = -current_pos_data.laneOffset * 0.3
 
         # Combined error with lookahead
         total_error = heading_error + lane_offset_error
@@ -270,6 +322,17 @@ class ScenarioDriveController:
         # Update PID
         steering = self.steering_pid.update(total_error, dt)
 
+        # [DEBUG]
+        if not hasattr(self, '_steering_log_counter'):
+            self._steering_log_counter = 0
+        self._steering_log_counter += 1
+        if self._steering_log_counter % 20 == 0:  # ~Every 0.4s
+             print(f"[DEBUG_STEER] Offset={current_pos_data.laneOffset if current_pos_data else 0:.3f}, "
+                   f"HeadErr={heading_error:.3f}, "
+                   f"LaneErr={lane_offset_error:.3f}, "
+                   f"Total={total_error:.3f}, "
+                   f"Out={steering:.3f}")
+        
         return steering
 
     def _calculate_lane_change_steering(self, current_pos, target_lane: int,
@@ -354,6 +417,9 @@ class ScenarioDriveController:
         if dt <= 0:
             return None, None, None
 
+        # Receive waypoints from UDP (before target speed)
+        self._receive_waypoints()
+
         # Receive target speed from UDP
         self._receive_target_speed()
 
@@ -387,21 +453,32 @@ class ScenarioDriveController:
         # Get current target waypoint
         target_wp = self.waypoint_mgr.get_current_waypoint()
         if target_wp is None:
-            print("[INFO] ScenarioDrive: All waypoints completed")
+            print(f"[INFO] ScenarioDrive: All waypoints completed (index={self.waypoint_mgr.current_index}, total={len(self.waypoint_mgr.waypoints)})")
             return None, None, None
 
         # Check waypoint status
         status = self.waypoint_mgr.get_waypoint_status(current_pos, target_wp)
 
+        # Debug: Log waypoint status periodically
+        if not hasattr(self, '_status_log_counter'):
+            self._status_log_counter = 0
+        self._status_log_counter += 1
+        if self._status_log_counter % 50 == 0:
+            dist = current_pos.distance_to(target_wp)
+            print(f"[DEBUG] WP status={status.name}, idx={self.waypoint_mgr.current_index}, "
+                  f"dist={dist:.1f}m, cur=({current_pos.x:.1f},{current_pos.y:.1f}), "
+                  f"tgt=({target_wp.x:.1f},{target_wp.y:.1f})")
+
         if status == WaypointStatus.PASSED:
             # Advance to next waypoint
+            print(f"[DEBUG] Waypoint {self.waypoint_mgr.current_index} PASSED, advancing...")
             if not self.waypoint_mgr.advance():
-                print("[INFO] ScenarioDrive: Final waypoint reached")
+                print(f"[INFO] ScenarioDrive: Final waypoint reached (index={self.waypoint_mgr.current_index})")
                 return None, None, None
             target_wp = self.waypoint_mgr.get_current_waypoint()
         elif status == WaypointStatus.MISSED:
             # Recalculate route if possible
-            print("[WARN] ScenarioDrive: Waypoint missed, advancing")
+            print(f"[WARN] ScenarioDrive: Waypoint {self.waypoint_mgr.current_index} missed, advancing")
             self.waypoint_mgr.advance()
             target_wp = self.waypoint_mgr.get_current_waypoint()
 
@@ -451,6 +528,8 @@ class ScenarioDriveController:
         """Clean up resources."""
         if self._target_speed_sock:
             self._target_speed_sock.close()
+        if self._waypoint_sock:
+            self._waypoint_sock.close()
         if hasattr(self, 'rm_lib') and self.rm_lib:
             try:
                 self.rm_lib.Close()

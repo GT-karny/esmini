@@ -165,7 +165,6 @@ def main():
                               f"Thr: {throttle:.2f} | Brk: {brake:.2f}")
 
                     # --- 5. Send Controls via RealDriverClient ---
-                    # Note: Negate steering to compensate for sign inversion
                     client.set_controls(throttle, brake, -steering)
                     client.set_gear(1)  # Drive
                     client.send_update()

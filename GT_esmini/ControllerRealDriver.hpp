@@ -52,6 +52,8 @@ namespace gt_esmini
         void ExtractWaypoints();
         // Send waypoints via UDP
         void SendWaypointsUDP();
+        // Get target speed from running SpeedActions
+        double GetTargetSpeedFromActions();
 
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;

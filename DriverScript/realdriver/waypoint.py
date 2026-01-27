@@ -171,6 +171,15 @@ class WaypointManager:
             if not self._user_waypoints and not self._calculated_waypoints:
                 self._current_index = index
                 self._source = 'udp'
+
+            # Debug: Log received waypoints (first time only)
+            if not hasattr(self, '_udp_logged') or not self._udp_logged:
+                print(f"[UDP] Received {len(waypoints)} waypoints, currentIndex={index}")
+                for i, wp in enumerate(waypoints):
+                    marker = ">>>" if i == index else "   "
+                    print(f"  {marker}WP[{i}]: x={wp.x:.2f}, y={wp.y:.2f}, road={wp.road_id}, lane={wp.lane_id}")
+                self._udp_logged = True
+
             return True
         except ValueError as e:
             print(f"[WARN] WaypointManager: Failed to parse UDP waypoints: {e}")
@@ -274,7 +283,7 @@ class WaypointManager:
         if current_pos.road_id != waypoint.road_id or current_pos.road_id < 0:
             # Different road or unknown - use distance check
             dist = current_pos.distance_to(waypoint)
-            if dist < 2.0:  # Close enough threshold (reduced from 5.0 for better precision)
+            if dist < 5.0:  # Close enough threshold for waypoint detection
                 # Check lane
                 if current_pos.lane_id == waypoint.lane_id or waypoint.lane_id == 0:
                     return WaypointStatus.PASSED
