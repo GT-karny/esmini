@@ -15,6 +15,28 @@ static OpenDrive* GetODR()
     return Position::GetOpenDrive();
 }
 
+GT_RM_DLL_API int GT_RM_Init(const char* odrFilename)
+{
+    if (!odrFilename)
+    {
+        return -1;
+    }
+
+    // Load OpenDRIVE file using Position::LoadOpenDrive
+    // This sets the global OpenDrive instance that GetODR() returns
+    if (!Position::LoadOpenDrive(odrFilename))
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
+GT_RM_DLL_API void GT_RM_Close()
+{
+    // The OpenDrive instance is managed statically by Position class
+    // No explicit cleanup needed, but we could add it if necessary
+}
 GT_RM_DLL_API int GT_RM_GetRoadSuccessor(uint32_t roadId, GT_RM_RoadLinkInfo* linkInfo)
 {
     if (!linkInfo) return -1;

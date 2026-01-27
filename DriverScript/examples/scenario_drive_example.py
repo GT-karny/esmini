@@ -50,8 +50,8 @@ def main():
                         help="Object ID (Ego)")
     parser.add_argument("--lib_path", type=str, default="./bin/esminiRMLib.dll",
                         help="Path to esminiRMLib.dll")
-    parser.add_argument("--gt_lib_path", type=str, default=None,
-                        help="Path to GT_esminiLib.dll (optional, for routing)")
+    parser.add_argument("--gt_lib_path", type=str, default="./bin/GT_esminiLib.dll",
+                        help="Path to GT_esminiLib.dll (for routing)")
     parser.add_argument("--xodr_path", type=str, required=True,
                         help="Path to OpenDRIVE map file (.xodr)")
     parser.add_argument("--target_speed", type=float, default=10.0,
@@ -165,6 +165,14 @@ def main():
                               f"Thr: {throttle:.2f} | Brk: {brake:.2f}")
 
                     # --- 5. Send Controls via RealDriverClient ---
+                    # Note: esmini steering convention: +1 = right, -1 = left
+                    # But our PID: positive error (target on right) = positive output = want to turn right
+                    # So we need to negate: PID +1 -> Steer -1 (left turn in esmini)
+                    # Wait, that's backwards. Let's think again:
+                    # heading_error = heading_to_target - current_heading
+                    # If target is to the LEFT, heading_to_target > current_heading, heading_error > 0
+                    # To correct, we want to turn LEFT (negative steering in esmini)
+                    # So: steering = -PID_output
                     client.set_controls(throttle, brake, -steering)
                     client.set_gear(1)  # Drive
                     client.send_update()

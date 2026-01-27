@@ -51,6 +51,19 @@ extern "C"
 #endif
 
     /**
+     * Initialize GT_esminiRMLib with an OpenDRIVE file.
+     * This loads the road network into the internal RoadManager.
+     * @param odrFilename Path to the OpenDRIVE (.xodr) file
+     * @return 0 on success, -1 on failure
+     */
+    GT_RM_DLL_API int GT_RM_Init(const char* odrFilename);
+
+    /**
+     * Close GT_esminiRMLib and release resources.
+     */
+    GT_RM_DLL_API void GT_RM_Close();
+
+    /**
      * Get the successor link of a road.
      * @param roadId The road ID
      * @param linkInfo Output: Link information

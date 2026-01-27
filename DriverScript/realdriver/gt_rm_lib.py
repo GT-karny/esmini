@@ -103,6 +103,14 @@ class GTEsminiRMLib:
 
     def _setup_signatures(self):
         """Setup function signatures for ctypes."""
+        # GT_RM_Init
+        self.lib.GT_RM_Init.argtypes = [ctypes.c_char_p]
+        self.lib.GT_RM_Init.restype = ctypes.c_int
+
+        # GT_RM_Close
+        self.lib.GT_RM_Close.argtypes = []
+        self.lib.GT_RM_Close.restype = None
+
         # GT_RM_GetRoadSuccessor
         self.lib.GT_RM_GetRoadSuccessor.argtypes = [
             ctypes.c_uint32,
@@ -156,6 +164,27 @@ class GTEsminiRMLib:
         # GT_RM_GetRoadLength
         self.lib.GT_RM_GetRoadLength.argtypes = [ctypes.c_uint32]
         self.lib.GT_RM_GetRoadLength.restype = ctypes.c_double
+
+    def init(self, odr_path: str) -> int:
+        """
+        Initialize GT_esminiRMLib with an OpenDRIVE file.
+
+        Args:
+            odr_path: Path to the OpenDRIVE (.xodr) file
+
+        Returns:
+            0 on success, -1 on failure
+        """
+        result = self.lib.GT_RM_Init(odr_path.encode('utf-8'))
+        if result == 0:
+            print(f"[INFO] GT_esminiRMLib: Loaded {odr_path}")
+        else:
+            print(f"[ERROR] GT_esminiRMLib: Failed to load {odr_path}")
+        return result
+
+    def close(self):
+        """Close GT_esminiRMLib and release resources."""
+        self.lib.GT_RM_Close()
 
     def get_road_successor(self, road_id: int) -> Optional[RoadLinkInfo]:
         """
@@ -280,6 +309,27 @@ class GTEsminiRMLib:
                 connecting_roads.append(road_id.value)
         return connecting_roads
 
+    def get_junction_connections_from_road_with_contact(self, junction_id: int,
+                                                         incoming_road_id: int) -> List[Tuple[int, int]]:
+        """
+        Get all connecting road IDs and their contactPoints from a specific incoming road through a junction.
+
+        Args:
+            junction_id: The junction ID
+            incoming_road_id: The incoming road ID
+
+        Returns:
+            List of (connecting_road_id, contact_point) tuples
+            contact_point: GT_RM_CONTACT_POINT_START(1) or GT_RM_CONTACT_POINT_END(2)
+        """
+        # Use the full connection info to get contactPoint
+        all_connections = self.get_junction_connections(junction_id)
+        result = []
+        for conn in all_connections:
+            if conn.incoming_road_id == incoming_road_id:
+                result.append((conn.connecting_road_id, conn.contact_point))
+        return result
+
     def get_num_roads(self) -> int:
         """
         Get the number of roads in the loaded OpenDRIVE.
@@ -334,7 +384,7 @@ class GTEsminiRMLib:
         """
         return self.lib.GT_RM_GetRoadLength(road_id)
 
-    def get_connected_roads(self, road_id: int, direction: str = 'both') -> List[Tuple[int, str]]:
+    def get_connected_roads(self, road_id: int, direction: str = 'both') -> List[Tuple[int, str, int]]:
         """
         Get roads connected to a given road.
 
@@ -343,7 +393,8 @@ class GTEsminiRMLib:
             direction: 'successor', 'predecessor', or 'both'
 
         Returns:
-            List of (connected_road_id, connection_type) tuples
+            List of (connected_road_id, connection_type, contact_point) tuples
+            contact_point: 0=unknown, 1=start, 2=end
         """
         connected = []
 
@@ -351,20 +402,20 @@ class GTEsminiRMLib:
             succ = self.get_road_successor(road_id)
             if succ:
                 if succ.is_road:
-                    connected.append((succ.element_id, 'successor'))
+                    connected.append((succ.element_id, 'successor', succ.contact_point))
                 elif succ.is_junction:
-                    # Get all connecting roads through junction
-                    for conn_road_id in self.get_junction_connections_from_road(succ.element_id, road_id):
-                        connected.append((conn_road_id, 'junction_successor'))
+                    # Get all connecting roads through junction with contactPoint
+                    for conn_road_id, contact_pt in self.get_junction_connections_from_road_with_contact(succ.element_id, road_id):
+                        connected.append((conn_road_id, 'junction_successor', contact_pt))
 
         if direction in ('predecessor', 'both'):
             pred = self.get_road_predecessor(road_id)
             if pred:
                 if pred.is_road:
-                    connected.append((pred.element_id, 'predecessor'))
+                    connected.append((pred.element_id, 'predecessor', pred.contact_point))
                 elif pred.is_junction:
-                    # Get all connecting roads through junction
-                    for conn_road_id in self.get_junction_connections_from_road(pred.element_id, road_id):
-                        connected.append((conn_road_id, 'junction_predecessor'))
+                    # Get all connecting roads through junction with contactPoint
+                    for conn_road_id, contact_pt in self.get_junction_connections_from_road_with_contact(pred.element_id, road_id):
+                        connected.append((conn_road_id, 'junction_predecessor', contact_pt))
 
         return connected

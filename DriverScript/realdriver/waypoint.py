@@ -281,11 +281,67 @@ class WaypointManager:
         Returns:
             WaypointStatus enum value
         """
+        # Calculate distance
+        dist = current_pos.distance_to(waypoint)
+
+        # Debug logging (periodic)
+        if not hasattr(self, '_wp_status_log_counter'):
+            self._wp_status_log_counter = 0
+        self._wp_status_log_counter += 1
+        log_now = (self._wp_status_log_counter % 100 == 0)
+        
+        if log_now:
+            print(f"[DEBUG_WP_STATUS] cur_road={current_pos.road_id}, wp_road={waypoint.road_id}, "
+                  f"cur_s={current_pos.s:.1f}, wp_s={waypoint.s:.1f}, "
+                  f"cur_lane={current_pos.lane_id}, wp_lane={waypoint.lane_id}, dist={dist:.1f}")
+
         # Check if on same road
         if current_pos.road_id != waypoint.road_id or current_pos.road_id < 0:
-            # Different road or unknown - use distance check
-            dist = current_pos.distance_to(waypoint)
-            if dist < 5.0:  # Close enough threshold for waypoint detection
+            # Different road or unknown
+            
+            # [FIX] Track minimum distance to detect when we've passed the waypoint
+            # This is crucial for junction transitions where road IDs differ
+            if not hasattr(self, '_min_dist_to_wp'):
+                self._min_dist_to_wp = {}
+            
+            wp_key = (waypoint.x, waypoint.y)  # Use position as key
+            
+            if wp_key not in self._min_dist_to_wp:
+                self._min_dist_to_wp[wp_key] = dist
+            else:
+                # Update minimum distance
+                if dist < self._min_dist_to_wp[wp_key]:
+                    self._min_dist_to_wp[wp_key] = dist
+            
+            # Check if we've passed the waypoint by monitoring distance increase
+            # If we got close and are now moving away, we've passed it
+            min_dist = self._min_dist_to_wp.get(wp_key, dist)
+            # [FIX] Relaxed threshold: 10m instead of 5m for junction areas
+            if min_dist < 10.0 and dist > min_dist + 3.0:
+                # We got within 10m and are now moving away by 3m - consider it passed
+                del self._min_dist_to_wp[wp_key]  # Clean up
+                return WaypointStatus.PASSED
+            
+            # [FIX] Also check if waypoint is clearly behind us based on heading
+            # Calculate angle from car to waypoint
+            dx = waypoint.x - current_pos.x
+            dy = waypoint.y - current_pos.y
+            angle_to_wp = math.atan2(dy, dx)
+            angle_diff = angle_to_wp - current_pos.h
+            # Normalize to [-pi, pi]
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            
+            # If waypoint is more than 90 degrees behind us and we're more than 5m away, skip it
+            if abs(angle_diff) > math.pi / 2 and dist > 5.0:
+                if wp_key in self._min_dist_to_wp:
+                    del self._min_dist_to_wp[wp_key]
+                return WaypointStatus.PASSED
+            
+            # Original close proximity check
+            if dist < 1.5:  # [FIX] Tighter threshold for Dense Route (1m spacing) matches
                 # Check lane
                 if current_pos.lane_id == waypoint.lane_id or waypoint.lane_id == 0:
                     return WaypointStatus.PASSED
@@ -298,6 +354,9 @@ class WaypointManager:
             passed = current_pos.s > waypoint.s - 1.0  # 1m tolerance
         else:
             passed = current_pos.s < waypoint.s + 1.0
+
+        if log_now:
+            print(f"[DEBUG_WP_STATUS] Same road check: passed={passed}")
 
         if passed:
             # Check lane

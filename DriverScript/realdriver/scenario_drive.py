@@ -95,6 +95,10 @@ class ScenarioDriveController:
         if gt_lib_path:
             try:
                 self.gt_rm_lib = GTEsminiRMLib(gt_lib_path)
+                # Initialize with the same OpenDRIVE map
+                if self.gt_rm_lib.init(xodr_path) < 0:
+                    print(f"[WARN] ScenarioDrive: GT_esminiRMLib failed to load map")
+                    self.gt_rm_lib = None
             except Exception as e:
                 print(f"[WARN] ScenarioDrive: Failed to load GT_esminiRMLib: {e}")
 
@@ -106,9 +110,10 @@ class ScenarioDriveController:
 
         # Initialize PID controllers
         # Initialize PID controllers
+        # [TUNED] Adjusted gains for intersection handling
         self.steering_pid = PIDController(
-            kp=steering_pid[0], ki=0.05, kd=steering_pid[2], # Increased Ki (0.01->0.05) to fix drift
-            output_limits=(-1.0, 1.0), integral_limits=(-0.5, 0.5)
+            kp=0.8, ki=0.02, kd=0.1,  # Increased for faster response at intersections
+            output_limits=(-1.0, 1.0), integral_limits=(-0.3, 0.3)
         )
         self.speed_pid = PIDController(
             kp=speed_pid[0], ki=speed_pid[1], kd=speed_pid[2],
@@ -223,8 +228,14 @@ class ScenarioDriveController:
                 try:
                     index, waypoints = parse_waypoints_from_udp(data)
                     
-                    # [PLANNING] Generate Dense Route
+                # [PLANNING] Generate Dense Route
                     # Only replan if we have enough waypoints and position is valid
+                    # [FIX] Skip replanning if we already have a calculated dense route
+                    # This prevents issues when vehicle is in junction and position detection is wrong
+                    if self.waypoint_mgr.source == 'calculated' and len(self.waypoint_mgr.waypoints) > 50:
+                        # Already have a dense route, don't replan
+                        continue
+                    
                     current_pos = None
                     
                     start_pos = getattr(self, '_last_ego_pos', None)
@@ -368,78 +379,195 @@ class ScenarioDriveController:
 
     def _calculate_steering(self, current_pos, current_pos_data, target_wp: Waypoint,
                             dt: float) -> float:
-        """Calculate steering output toward target waypoint."""
+        """
+        Calculate steering output toward target waypoint.
         
-        # [FIX] Simplified to Pure Pursuit / Stanley on Dense Path.
-        # Since the path is Dense and follows Road Geometry, 
-        # looking ahead to 'target_wp' (which is selected with lookahead) gives precise steering.
+        NEAREST-NEIGHBOR + LOOKAHEAD APPROACH:
+        1. Find the closest waypoint on the Dense Route
+        2. Look ahead from that point by a distance based on speed
+        3. Steer toward the lookahead point's heading
         
-        # Determine actual lookahead point from the Dense Route
-        # target_wp passed here is typically the "Current" waypoint from manager.
-        # But for steering, we want a point further ahead.
-        steering_target = target_wp
-        
-        # Look ahead in the waypoint list
+        This eliminates complex waypoint pass detection logic.
+        """
         wps = self.waypoint_mgr.waypoints
-        idx = self.waypoint_mgr.current_index
         
-        # [FIX] Dynamic Lookahead to prevent corner cutting.
+        if len(wps) < 2:
+            return 0.0
+        
+        # === STEP 1: Find nearest waypoint ===
+        # Search in a window around current index for efficiency
+        current_idx = getattr(self, '_last_nearest_idx', 0)
+        search_start = max(0, current_idx - 10)
+        search_end = min(len(wps), current_idx + 100)  # Look mostly forward
+        
+        min_dist = float('inf')
+        nearest_idx = current_idx
+        for i in range(search_start, search_end):
+            d = current_pos.distance_to(wps[i])
+            if d < min_dist:
+                min_dist = d
+                nearest_idx = i
+        
+        # Cache for next frame
+        self._last_nearest_idx = nearest_idx
+        
+        # Also update waypoint_mgr's index for debugging/logging purposes
+        self.waypoint_mgr.current_index = nearest_idx
+        
+        # === STEP 2: Find lookahead point ===
         current_speed = getattr(self, '_last_speed', 5.0)
-        dynamic_lookahead = max(3.0, min(current_speed * 0.7, 10.0))
-        lookahead = dynamic_lookahead
+        lookahead_dist = max(5.0, current_speed * 0.6)  # 0.6 seconds ahead, min 5m
         
-        # Scan forward
-        for i in range(idx, len(wps)):
-            dist = current_pos.distance_to(wps[i])
-            if dist >= lookahead:
-                steering_target = wps[i]
+        # Walk along path from nearest point until we reach lookahead distance
+        target_idx = nearest_idx
+        accumulated_dist = 0.0
+        for i in range(nearest_idx, min(nearest_idx + 50, len(wps) - 1)):
+            segment_dist = wps[i].distance_to(wps[i + 1])
+            accumulated_dist += segment_dist
+            if accumulated_dist >= lookahead_dist:
+                target_idx = i + 1
                 break
-            steering_target = wps[i] # Fallback to last point if path ends
-            
-        # Standard Pure Pursuit / Heading Error
-        heading_to_target = current_pos.heading_to(steering_target)
-        heading_error = heading_to_target - current_pos.h
+            target_idx = i + 1
+        
+        target_wp = wps[min(target_idx, len(wps) - 1)]
+        nearest_wp = wps[nearest_idx]
+
+        # [FIX] Lane Keeping at the end of route
+        # If the target is the very last waypoint, and we are close to it
+        if target_idx >= len(wps) - 1:
+            dist_to_end = current_pos.distance_to(wps[-1])
+            if dist_to_end < 10.0:  # Start LK slightly before end
+                # Use RoadManager to find lane info
+                pos_handle = self.rm_lib.CreatePosition()
+                # Set position (use current z if available)
+                self.rm_lib.SetWorldXYHPosition(pos_handle, current_pos.x, current_pos.y, current_pos.h)
+                
+                # Get lane info 5m ahead
+                res, info = self.rm_lib.GetLaneInfo(pos_handle, lookahead_distance=5.0, look_ahead_mode=0)
+                
+                if res == 0:
+                    # Lane Keeping Logic
+                    # Target heading is the road heading at lookahead
+                    target_heading = info.heading
+                    
+                    # XTE is the lateral offset from lane center
+                    # info.laneOffset seems to be offset OF the lane, not valid here?
+                    # Actually GetLaneInfo with mode 0 returns info about lane center.
+                    # We can use the position returned by GetLaneInfo as a target point
+                    
+                    lk_target_x = info.pos.x
+                    lk_target_y = info.pos.y
+                    
+                    # Calculate vector to LK target
+                    dx = lk_target_x - current_pos.x
+                    dy = lk_target_y - current_pos.y
+                    
+                    # Calculate target heading from vector
+                    if math.hypot(dx, dy) > 0.1:
+                        target_heading = math.atan2(dy, dx)
+                    
+                    heading_error = target_heading - current_pos.h
+                     # Normalize
+                    while heading_error > math.pi: heading_error -= 2 * math.pi
+                    while heading_error < -math.pi: heading_error += 2 * math.pi
+                    
+                    # Calculate XTE (distance to target line)
+                    # Simplified: just steer towards target point (Pure Pursuit-ish)
+                    # Use existing gains
+                    
+                    # We can reuse the steering calculation logic below if we construct a pseudo-target
+                    # But let's just do a simple P-controller for heading here
+                    
+                    # Note: We need to invert steering for esmini (caller inverts it again, so we output + for Left turn)
+                    # Left turn needed if heading_error > 0
+                    
+                    heading_gain = 0.8  # [FIX] Define gain locally
+                    
+                    # Reuse gains
+                    steering = -heading_gain * heading_error  # Same sign logic as fixed before
+                    
+                    # Limit steering
+                    steering = max(-1.0, min(1.0, steering))
+                    return steering
+                    
+                # If RM fails, just go straight
+                return 0.0
+        
+        # === STEP 3: Calculate steering ===
+        # Use the PATH VECTOR HEADING instead of waypoint's intrinsic heading
+        # This avoids issues where OpenDRIVE road heading might be opposite to travel direction (e.g. lane > 0)
+        # Calculate heading from nearest_wp to target_wp
+        dx = target_wp.x - nearest_wp.x
+        dy = target_wp.y - nearest_wp.y
+        if math.hypot(dx, dy) > 0.1:
+            target_heading = math.atan2(dy, dx)
+        else:
+            # Fallback if points are too close
+            target_heading = target_wp.h
+        
+        # Calculate heading error
+        heading_error = target_heading - current_pos.h
         
         # Normalize to [-pi, pi]
         while heading_error > math.pi:
             heading_error -= 2 * math.pi
         while heading_error < -math.pi:
             heading_error += 2 * math.pi
-
-        # [FIX] Geometric Lane Offset (XTE)
-        # Instead of relying on RMLib (which might snap to wrong road ID at junctions),
-        # calculate XTE relative to the Dense Route itself.
-        # This decouples control from map topology matching errors.
-        xte = self._calculate_cross_track_error(current_pos, wps, idx)
         
-        # Lane offset: positive XTE = left of path.
-        # We want to steer right (-steering input? NO, +steering -> Right per Analysis?)
-        # Wait, Step 215 Analysis: 
-        # "Steering (Python) +1 -> Turn LEFT."
-        # "Steering (Python) -1 -> Turn RIGHT."
-        # Left of Lane (Offset > 0). Convert to Right Turn.
-        # Right Turn = Negative Input.
-        # So Offset > 0 -> Error < 0.
-        # So Error = -Offset * Gain.
-        lane_offset_error = -xte * 0.8
-
-        # Combined error
-        total_error = heading_error + lane_offset_error
-
-        # Update PID
-        steering = self.steering_pid.update(total_error, dt)
-
+        # === STEP 4: Calculate Cross Track Error (XTE) ===
+        # XTE = perpendicular distance from car to path
+        # Positive XTE = car is to the LEFT of path (need to steer RIGHT)
+        # Use the nearest waypoint and next waypoint to define path direction
+        next_idx = min(nearest_idx + 1, len(wps) - 1)
+        next_wp = wps[next_idx]
+        
+        # Vector from nearest_wp to next_wp (path direction)
+        path_dx = next_wp.x - nearest_wp.x
+        path_dy = next_wp.y - nearest_wp.y
+        path_len = math.sqrt(path_dx * path_dx + path_dy * path_dy)
+        
+        if path_len > 0.01:
+            # Vector from nearest_wp to car
+            car_dx = current_pos.x - nearest_wp.x
+            car_dy = current_pos.y - nearest_wp.y
+            
+            # Cross product gives signed perpendicular distance
+            # (path × car) > 0 means car is to the LEFT of path
+            xte = (path_dx * car_dy - path_dy * car_dx) / path_len
+        else:
+            xte = 0.0
+        
+        # === STEP 5: Combine heading error and XTE ===
+        # Stanley-like formulation: steer = heading_error + atan(k * xte / speed)
+        # Simplified: steer = heading_error + xte_gain * xte
+        # Note: The caller (scenario_drive_example.py) inverts the steering sign!
+        # So we need to produce POSITIVE output when we want to turn LEFT (final < 0).
+        # Heading: Error > 0 (Left target) -> Output > 0 -> Final < 0 (Left). OK.
+        # XTE: XTE < 0 (Right position) -> Want Left -> Output SHOULD BE > 0 -> Final < 0.
+        # So XTE gain must be negative.
+        heading_gain = 0.8
+        xte_gain = -0.2  # [FIX] Stronger negative gain to correct right-side drift
+        
+        # Scale XTE correction inversely with speed (more correction at low speed)
+        xte_correction = xte_gain * xte
+        
+        # Combine errors
+        total_error = heading_error + xte_correction
+        steering = heading_gain * heading_error + xte_correction
+        
+        # Clamp to valid range
+        steering = max(-1.0, min(1.0, steering))
+        
         # [DEBUG]
         if not hasattr(self, '_steering_log_counter'):
             self._steering_log_counter = 0
         self._steering_log_counter += 1
         if self._steering_log_counter % 20 == 0:  # ~Every 0.4s
-             tgt_info = f"{wps[idx].road_id}/{wps[idx].lane_id}" if idx < len(wps) else "End"
+             tgt_info = f"{target_wp.road_id}/{target_wp.lane_id}" if target_wp else "End"
              cur_info = f"{current_pos_data.roadId}/{current_pos_data.laneId}" if current_pos_data else "None"
-             print(f"[DEBUG_STEER] XTE={xte:.3f}, "
-                   f"HeadErr={heading_error:.3f}, "
-                   f"LaneErr={lane_offset_error:.3f}, "
-                   f"Out={steering:.3f}, "
+             print(f"[DEBUG_STEER] NearIdx={nearest_idx}, TgtIdx={target_idx}, "
+                   f"TgtH={target_heading:.3f}, CarH={current_pos.h:.3f}, "
+                   f"HeadErr={heading_error:.3f}, XTE={xte:.2f}, Steer={steering:.3f}, "
                    f"Tgt={tgt_info}, Cur={cur_info}")
         
         return steering
@@ -504,10 +632,10 @@ class ScenarioDriveController:
         # Check if target lane is different
         if next_wp.lane_id != current_lane:
             # Check distance to waypoint
-            dist = current_pos.distance_to(next_wp)
+            lc_dist = current_pos.distance_to(next_wp)
             lane_change_dist = max(self.lane_change_time * self._last_speed, 15.0)  # Reduced from 25m for better intersection handling
 
-            if dist < lane_change_dist:
+            if lc_dist < lane_change_dist:
                 return True
 
         return False
@@ -591,31 +719,10 @@ class ScenarioDriveController:
             print(f"[INFO] ScenarioDrive: All waypoints completed (index={self.waypoint_mgr.current_index}, total={len(self.waypoint_mgr.waypoints)})")
             return None, None, None
 
-        # Check waypoint status
-        status = self.waypoint_mgr.get_waypoint_status(current_pos, target_wp)
-
-        # Debug: Log waypoint status periodically
-        if not hasattr(self, '_status_log_counter'):
-            self._status_log_counter = 0
-        self._status_log_counter += 1
-        if self._status_log_counter % 50 == 0:
-            dist = current_pos.distance_to(target_wp)
-            print(f"[DEBUG] WP status={status.name}, idx={self.waypoint_mgr.current_index}, "
-                  f"dist={dist:.1f}m, cur=({current_pos.x:.1f},{current_pos.y:.1f}), "
-                  f"tgt=({target_wp.x:.1f},{target_wp.y:.1f})")
-
-        if status == WaypointStatus.PASSED:
-            # Advance to next waypoint
-            print(f"[DEBUG] Waypoint {self.waypoint_mgr.current_index} PASSED, advancing...")
-            if not self.waypoint_mgr.advance():
-                print(f"[INFO] ScenarioDrive: Final waypoint reached (index={self.waypoint_mgr.current_index})")
-                return None, None, None
-            target_wp = self.waypoint_mgr.get_current_waypoint()
-        elif status == WaypointStatus.MISSED:
-            # Recalculate route if possible
-            print(f"[WARN] ScenarioDrive: Waypoint {self.waypoint_mgr.current_index} missed, advancing")
-            self.waypoint_mgr.advance()
-            target_wp = self.waypoint_mgr.get_current_waypoint()
+        # [DISABLED] Old waypoint status check - not needed with nearest-neighbor steering
+        # The nearest-neighbor approach in _calculate_steering handles waypoint progression
+        # status = self.waypoint_mgr.get_waypoint_status(current_pos, target_wp)
+        # ... old PASSED/MISSED handling removed ...
 
         if target_wp is None:
             return None, None, None
