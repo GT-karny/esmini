@@ -94,19 +94,72 @@ class SimplifiedRouter:
 
         # Different roads: use A* pathfinding
         if self.gt_rm is None:
-            print("[WARN] SimplifiedRouter: GT_esminiRMLib not available for cross-road routing")
-            # Fallback: just return start and target
+            # Fallback for when GT lib is not available - try straight line?
+            # Or just return start/target?
+            # print("[WARN] SimplifiedRouter: GT_esminiRMLib not available for cross-road routing")
             return [start, target]
 
         road_path = self._find_road_path(start_pos, target_pos)
         if not road_path:
-            print("[WARN] SimplifiedRouter: No path found between roads")
+            # print("[WARN] SimplifiedRouter: No path found between roads")
             return []
 
         # Generate waypoints along the road path
         return self._generate_waypoints_along_path(
             road_path, start_pos, target_pos, waypoint_spacing
         )
+
+    def calculate_route_from_waypoints(self, current_pos: Waypoint, waypoints: List[Waypoint], 
+                                      step_size: float = 1.0) -> List[Waypoint]:
+        """
+        Calculate a dense route from a list of sparse waypoints.
+        
+        Args:
+            current_pos: Current vehicle position
+            waypoints: List of sparse waypoints (from UDP)
+            step_size: Spacing for dense waypoints (meters)
+            
+        Returns:
+            List of dense waypoints
+        """
+        if not waypoints:
+            return []
+            
+        dense_route = []
+        
+        # Add current pos as start if close to first waypoint?
+        # Actually, route should start from current pos to WP[0], then WP[0]->WP[1]...
+        
+        # 1. Segment: Current -> WP[0]
+        # Only if WP[0] is somewhat far away (> 5m), otherwise skip to avoid jitter
+        if current_pos.distance_to(waypoints[0]) > 5.0:
+            segment = self.calculate_path(current_pos, waypoints[0], step_size)
+            dense_route.extend(segment[:-1]) # Exclude end to avoid duplicate with next start
+        
+        # 2. Segments: WP[i] -> WP[i+1]
+        for i in range(len(waypoints) - 1):
+            start_wp = waypoints[i]
+            end_wp = waypoints[i+1]
+            
+            segment = self.calculate_path(start_wp, end_wp, step_size)
+            if segment:
+                if i < len(waypoints) - 2:
+                    dense_route.extend(segment[:-1])
+                else:
+                    dense_route.extend(segment) # Include end for last segment
+            else:
+                # Fallback if pathfinding fails: just add the point
+                dense_route.append(start_wp)
+        
+        # Add last waypoint if not included
+        if dense_route and dense_route[-1] != waypoints[-1]:
+             dense_route.append(waypoints[-1])
+             
+        # If route is empty (e.g. single WP close by), just return WPs
+        if not dense_route:
+            return list(waypoints)
+            
+        return dense_route
 
     def _get_road_position(self, wp: Waypoint) -> Optional[RM_PositionData]:
         """Get road position data for a waypoint."""

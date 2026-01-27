@@ -105,8 +105,9 @@ class ScenarioDriveController:
         self.waypoint_mgr = WaypointManager()
 
         # Initialize PID controllers
+        # Initialize PID controllers
         self.steering_pid = PIDController(
-            kp=steering_pid[0], ki=steering_pid[1], kd=steering_pid[2],
+            kp=steering_pid[0], ki=0.05, kd=steering_pid[2], # Increased Ki (0.01->0.05) to fix drift
             output_limits=(-1.0, 1.0), integral_limits=(-0.5, 0.5)
         )
         self.speed_pid = PIDController(
@@ -212,7 +213,54 @@ class ScenarioDriveController:
         try:
             while True:
                 data, _ = self._waypoint_sock.recvfrom(8192)  # Larger buffer for waypoints
-                self.waypoint_mgr.receive_from_udp(data)
+                # Check if data changed to avoid relpanning every frame
+                if hasattr(self, '_last_udp_data') and self._last_udp_data == data:
+                     continue
+                self._last_udp_data = data
+                
+                # Parse
+                from .waypoint import parse_waypoints_from_udp
+                try:
+                    index, waypoints = parse_waypoints_from_udp(data)
+                    
+                    # [PLANNING] Generate Dense Route
+                    # Only replan if we have enough waypoints and position is valid
+                    current_pos = None
+                    # We need current_pos for routing start. 
+                    # Use last known ego pos? Or just use waypoints?
+                    # calculate_route_from_waypoints handles start from WP[0] if current_pos is None or far.
+                    # But we usually have self._last_ego_pos from update loop.
+                    
+                    start_pos = getattr(self, '_last_ego_pos', None)
+                    if start_pos and waypoints:
+                        # print(f"[INFO] Replanning route with {len(waypoints)} sparse waypoints...")
+                        dense_route = self.router.calculate_route_from_waypoints(start_pos, waypoints, step_size=1.0)
+                        # print(f"[INFO] Generated dense route with {len(dense_route)} points")
+                        
+                        # Update manager
+                        # We need to map UDP index to Dense index? 
+                        # UDP Index typically 0 or 1.
+                        # For now, reset index to 0 or find closest point
+                        self.waypoint_mgr.set_calculated_waypoints(dense_route)
+                        
+                        # Find closest point on new route to set index
+                        if start_pos:
+                            min_dist = float('inf')
+                            closest_idx = 0
+                            # Search in first 50 points to save time
+                            for i, wp in enumerate(dense_route[:50]):
+                                d = start_pos.distance_to(wp)
+                                if d < min_dist:
+                                    min_dist = d
+                                    closest_idx = i
+                            self.waypoint_mgr.current_index = closest_idx
+                    else:
+                        # Fallback if no ego pos yet
+                        self.waypoint_mgr.receive_from_udp(data)
+                        
+                except ValueError as e:
+                    print(f"[WARN] ScenarioDrive: Failed to parse UDP waypoints: {e}")
+
         except BlockingIOError:
             pass  # No data available
         except Exception as e:
@@ -248,8 +296,8 @@ class ScenarioDriveController:
 
         speed = math.sqrt(vel.x**2 + vel.y**2)
         self._last_speed = speed
-
-        return Waypoint(
+        
+        wp = Waypoint(
             x=pos.x,
             y=pos.y,
             h=ori.yaw,
@@ -257,6 +305,8 @@ class ScenarioDriveController:
             s=0.0,
             lane_id=0
         )
+        self._last_ego_pos = wp # Cache for replanning
+        return wp
 
     def _get_position_data(self, wp: Waypoint):
         """Get road position data for a waypoint using RMLib."""
@@ -276,47 +326,58 @@ class ScenarioDriveController:
     def _calculate_steering(self, current_pos, current_pos_data, target_wp: Waypoint,
                             dt: float) -> float:
         """Calculate steering output toward target waypoint."""
-        # Calculate heading error
-        # [FIX] Use Lookahead Road Heading (Path Following with Anticipation)
-        # This aligns with user suggestion to "refer to outgoing road".
-        # We query the road geometry slightly ahead to anticipate curves.
-        target_heading = None
         
-        if current_pos_data:
-             # Use lookahead_distance (default 10m in main)
-             res, lane_info = self.rm_lib.GetLaneInfo(self._pos_handle, self.lookahead_distance)
-             if res == 0:
-                 target_heading = lane_info.heading
-                 # Also update lane offset error to use lookahead? 
-                 # Standard Stanley uses current offset, but lookahead offset (Pure Pursuit style) is robust.
-                 # Let's stick to Current Offset + Lookahead Heading for stability + anticipation.
-             else:
-                 # Fallback to current heading if lookahead fails
-                 target_heading = current_pos_data.h
+        # [FIX] Simplified to Pure Pursuit / Stanley on Dense Path.
+        # Since the path is Dense and follows Road Geometry, 
+        # looking ahead to 'target_wp' (which is selected with lookahead) gives precise steering.
         
-        if target_heading is not None:
-             heading_error = target_heading - current_pos.h
-        else:
-             # Fallback to distant target vector (Distant Waypoint)
-             heading_to_target = current_pos.heading_to(target_wp)
-             heading_error = heading_to_target - current_pos.h
-
+        # Determine actual lookahead point from the Dense Route
+        # target_wp passed here is typically the "Current" waypoint from manager.
+        # But for steering, we want a point further ahead.
+        steering_target = target_wp
+        
+        # Look ahead in the waypoint list
+        wps = self.waypoint_mgr.waypoints
+        idx = self.waypoint_mgr.current_index
+        
+        # [FIX] Dynamic Lookahead to prevent corner cutting.
+        # Fixed 10m is too large for tight turns (causes driving on sidewalk).
+        # Use simple V * k heuristic clamped to [min, max]
+        # Low speed (turn) -> Short lookahead (3m) -> Tight tracking
+        # High speed -> Long lookahead (10m) -> Stability
+        current_speed = getattr(self, '_last_speed', 5.0)
+        dynamic_lookahead = max(3.0, min(current_speed * 0.7, 10.0))
+        # Keep explicit param if it's smaller? No, let dynamic override.
+        lookahead = dynamic_lookahead
+        
+        # Scan forward
+        accumulated_dist = 0.0
+        for i in range(idx, len(wps)):
+            dist = current_pos.distance_to(wps[i])
+            if dist >= lookahead:
+                steering_target = wps[i]
+                break
+            steering_target = wps[i] # Fallback to last point if path ends
+            
+        # Standard Pure Pursuit / Heading Error
+        heading_to_target = current_pos.heading_to(steering_target)
+        heading_error = heading_to_target - current_pos.h
+        
         # Normalize to [-pi, pi]
         while heading_error > math.pi:
             heading_error -= 2 * math.pi
         while heading_error < -math.pi:
             heading_error += 2 * math.pi
 
-        # Add lane offset correction if available
+        # Add lane offset correction if available (Stanley Stability)
         lane_offset_error = 0.0
         if current_pos_data:
             # Lane offset: positive = left of lane center
             # We want to steer right if we're left of center
-            # With RealVehicle.cpp sign convention: positive steering → right turn
-            # Use moderate correction (0.3) to center the vehicle in lane
-            lane_offset_error = -current_pos_data.laneOffset * 0.3
+            # Strong gain for strict lane keeping
+            lane_offset_error = -current_pos_data.laneOffset * 0.8 
 
-        # Combined error with lookahead
+        # Combined error
         total_error = heading_error + lane_offset_error
 
         # Update PID
@@ -449,6 +510,28 @@ class ScenarioDriveController:
                 print("[WARN] ScenarioDrive: No route configured, skipping control output")
                 self._no_route_warned = True
             return None, None, None
+
+        # [FIX] Ensure Dense Route is generated if we have Sparse UDP waypoints
+        # The UDP callback might miss this if Ego Pos wasn't ready.
+        # Check if we are using UDP source and have very few waypoints (Sparse)
+        if self.waypoint_mgr.source == 'udp' and len(self.waypoint_mgr.waypoints) < 10:
+             # Try to densify
+             if hasattr(self, '_last_ego_pos') and self._last_ego_pos:
+                 print(f"[INFO] Late-triggering Dense Route with {len(self.waypoint_mgr.waypoints)} sparse WPs...")
+                 dense_route = self.router.calculate_route_from_waypoints(self._last_ego_pos, self.waypoint_mgr.waypoints, step_size=1.0)
+                 if len(dense_route) > len(self.waypoint_mgr.waypoints):
+                     print(f"[INFO] Successfully generated dense route ({len(dense_route)} pts)")
+                     self.waypoint_mgr.set_calculated_waypoints(dense_route) # This changes source to 'calculated'
+                     
+                     # Sync index
+                     min_dist = float('inf')
+                     closest_idx = 0
+                     for i, wp in enumerate(dense_route[:50]):
+                         d = self._last_ego_pos.distance_to(wp)
+                         if d < min_dist:
+                             min_dist = d
+                             closest_idx = i
+                     self.waypoint_mgr.current_index = closest_idx
 
         # Get current target waypoint
         target_wp = self.waypoint_mgr.get_current_waypoint()

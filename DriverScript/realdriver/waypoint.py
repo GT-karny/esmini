@@ -67,11 +67,11 @@ class Waypoint:
 
 # Waypoint packet format for UDP
 # [Type: uint8 = 2][CurrentIndex: uint32][Count: uint32][Waypoints...]
-# Each waypoint: [x: double][y: double][h: double][roadId: uint32][s: double][laneId: int32][laneOffset: double]
+# Each waypoint: [x: double][y: double][h: double][roadId: uint32][PADDING: 4b][s: double][laneId: int32][PADDING: 4b][laneOffset: double]
+# Note: C++ struct alignment inserts padding before doubles if previous members are 4-byte aligned.
 WAYPOINT_PACKET_TYPE = 2
-WAYPOINT_STRUCT_FORMAT = '<dddIdid'  # x, y, h, roadId, s, laneId, laneOffset
-WAYPOINT_STRUCT_SIZE = 48  # 8+8+8+4+8+4+8 bytes
-
+WAYPOINT_STRUCT_FORMAT = '<dddI4xdi4xd'  # x, y, h, roadId, pad, s, laneId, pad, laneOffset
+WAYPOINT_STRUCT_SIZE = 56  # 48 + 8 bytes padding
 
 def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
     """
@@ -102,8 +102,10 @@ def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
     waypoints = []
     offset = 9
     for _ in range(count):
+        # Only unpack the fields we need, ignore padding
+        # Note: struct.unpack with 'x' skips bytes
         x, y, h, road_id, s, lane_id, lane_offset = struct.unpack(
-            '<dddIdid',
+            WAYPOINT_STRUCT_FORMAT,
             data[offset:offset + WAYPOINT_STRUCT_SIZE]
         )
         waypoints.append(Waypoint(
