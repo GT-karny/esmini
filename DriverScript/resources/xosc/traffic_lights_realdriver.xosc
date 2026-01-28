@@ -293,6 +293,86 @@
                      </StartTrigger>
                   </Event>
                </Maneuver>
+               <Maneuver name="StopOnRedManeuver">
+                  <Event name="StopOnRedEvent" priority="overwrite" maximumExecutionCount="1">
+                     <Action name="StopOnYellowAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="${$RedLightDistance - 6}" dynamicsDimension="distance"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0.0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TrafficLightYellow" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <TrafficSignalCondition name="1" state="$TrafficLightYellow"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="WaitOnRedEvent" priority="override" maximumExecutionCount="1">
+                     <Action name="WaitOnRedAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0.0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="WaitOnRedCondition" delay="0" conditionEdge="none">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="any">
+                                     <EntityRef entityRef="Ego"/>
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <DistanceCondition value="7.0" freespace="false" rule="lessThan" relativeDistanceType="longitudinal" coordinateSystem="road">
+                                          <Position>
+                                             <LanePosition roadId="3" laneId="-1" s="109.0" offset="0.0"/>
+                                          </Position>
+                                    </DistanceCondition>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="DriveOnGreenEvent" priority="override" maximumExecutionCount="1">
+                     <Action name="DriveOnGreenAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="5" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="13.889"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TrafficLightGreen" delay="0.5" conditionEdge="rising">
+                              <ByValueCondition>
+                                 <TrafficSignalCondition name="1" state="$TrafficLightGreen"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
             </ManeuverGroup>
             <ManeuverGroup maximumExecutionCount="1" name="WalkOnGreenManueverGroup1">
                <Actors selectTriggeringEntities="false">
