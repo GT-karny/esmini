@@ -94,7 +94,7 @@ def main():
             target_speed_port=args.target_speed_port,
             gt_lib_path=args.gt_lib_path,
             steering_pid=(1.5, 0.01, 0.1),
-            speed_pid=(0.5, 0.01, 0.05),
+            speed_pid=(0.3, 0.01, 0.0),  # Reduced gains, removed D-term for stability
             lane_change_time=5.0,
             lookahead_distance=10.0
         )

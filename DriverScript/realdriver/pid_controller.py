@@ -33,6 +33,11 @@ class PIDController:
         self._integral = 0.0
         self._last_error = 0.0
         self._last_time = None
+        
+        # Debug values
+        self.last_p = 0.0
+        self.last_i = 0.0
+        self.last_d = 0.0
 
     def update(self, error, dt):
         """
@@ -66,6 +71,11 @@ class PIDController:
         d_term = 0.0
         if self._last_time is not None:
              d_term = self.kd * (error - self._last_error) / dt
+
+        # Store debug values
+        self.last_p = p_term
+        self.last_i = i_term
+        self.last_d = d_term
 
         # Store state for next update
         self._last_error = error

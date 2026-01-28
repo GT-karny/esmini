@@ -53,7 +53,7 @@ namespace gt_esmini
         // Send waypoints via UDP
         void SendWaypointsUDP();
         // Get target speed from running SpeedActions
-        double GetTargetSpeedFromActions();
+        double GetTargetSpeedFromActions(bool* hasRunningAction = nullptr);
 
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;

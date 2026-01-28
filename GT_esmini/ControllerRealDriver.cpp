@@ -199,11 +199,16 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
     return Controller::Activate(mode);
 }
 
-double ControllerRealDriver::GetTargetSpeedFromActions()
+double ControllerRealDriver::GetTargetSpeedFromActions(bool* hasRunningAction)
 {
     double targetSpeed = setSpeed_;  // Default is current set value
+    bool found = false;
 
-    if (!object_) return targetSpeed;
+    if (!object_)
+    {
+        if (hasRunningAction) *hasRunningAction = false;
+        return targetSpeed;
+    }
 
     // 1. Search initActions_ for running LongSpeedAction
     for (auto* action : object_->initActions_)
@@ -214,6 +219,7 @@ double ControllerRealDriver::GetTargetSpeedFromActions()
             auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
             if (speedAction->target_)
             {
+                found = true;
                 if (speedAction->target_->type_ == scenarioengine::LongSpeedAction::Target::TargetType::ABSOLUTE_SPEED)
                 {
                     targetSpeed = speedAction->target_->value_;
@@ -240,6 +246,7 @@ double ControllerRealDriver::GetTargetSpeedFromActions()
                     auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(pa);
                     if (speedAction->target_)
                     {
+                        found = true;
                         if (speedAction->target_->type_ == scenarioengine::LongSpeedAction::Target::TargetType::ABSOLUTE_SPEED)
                         {
                             targetSpeed = speedAction->target_->value_;
@@ -254,6 +261,7 @@ double ControllerRealDriver::GetTargetSpeedFromActions()
         }
     }
 
+    if (hasRunningAction) *hasRunningAction = found;
     return targetSpeed;
 }
 
@@ -263,10 +271,13 @@ void ControllerRealDriver::Step(double timeStep)
     // to avoid dependency issues with ScenarioEngine access
 
     // 0. Detect target speed changes from SpeedActions
-    // [GT_MOD] FIX: Use object_->GetSpeed() change detection like ControllerACC
-    // When a SpeedAction runs, esmini updates object_->speed_ internally.
-    // By detecting this change, we capture the target speed even after the action completes.
-    // The previous GetTargetSpeedFromActions() only found RUNNING actions, missing completed ones.
+    // [GT_MOD] FIX: Check for RUNNING SpeedActions to conditionally skip gateway speed overwrite.
+    // When a SpeedAction with dynamics (linear ramp) is RUNNING, we must NOT overwrite
+    // object_->speed_ via gateway, otherwise the SpeedAction's ramp cannot advance properly
+    // (feedback loop: controller resets speed to 0 each frame, SpeedAction can only produce tiny increments).
+    bool hasRunningSpeedAction = false;
+    GetTargetSpeedFromActions(&hasRunningSpeedAction);
+
     double objectSpeed = object_->GetSpeed();
     if (abs(objectSpeed - currentSpeed_) > 1e-3)
     {
@@ -560,7 +571,14 @@ void ControllerRealDriver::Step(double timeStep)
             real_vehicle_.heading_);
             
         // Update Speed
-        gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
+        // [GT_MOD] FIX: Skip gateway speed overwrite when a SpeedAction with dynamics is RUNNING.
+        // This allows the SpeedAction's ramp to advance correctly (object_->speed_ preserves the ramp value).
+        // Without this, the controller resets object_->speed_ to real_vehicle_.speed_ (~0) each frame,
+        // causing the SpeedAction to produce only tiny speed increments (maxAcceleration * dt).
+        if (!hasRunningSpeedAction)
+        {
+            gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
+        }
         
         // Update Wheel Angle (for visualization)
         gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);

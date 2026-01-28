@@ -827,8 +827,9 @@ class ScenarioDriveController:
             self._speed_log_counter = 0
         self._speed_log_counter += 1
         if self._speed_log_counter % 20 == 0:
-            print(f"[DEBUG_SPEED] target={self.target_speed:.2f}, current={current_speed:.2f}, "
-                  f"error={speed_error:.2f}, PID={control:.3f}, thr={throttle:.2f}, brk={brake:.2f}")
+            print(f"[DEBUG_SPEED] dt={dt*1000:.1f}ms, target={self.target_speed:.2f}, current={current_speed:.2f}, "
+                  f"error={speed_error:.2f}, PID={control:.3f} (P={self.speed_pid.last_p:.3f}, I={self.speed_pid.last_i:.3f}, D={self.speed_pid.last_d:.3f}), "
+                  f"thr={throttle:.2f}, brk={brake:.2f}")
 
         return throttle, brake
 
