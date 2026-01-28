@@ -47,6 +47,49 @@ class ControlOutput:
                    math.isnan(self.brake))
 
 
+@dataclass
+class SteeringConfig:
+    """
+    Steering controller tuning parameters.
+    
+    Adjust these values to tune the steering behavior.
+    All parameters are collected here for easy modification.
+    """
+    # === Curvature Detection ===
+    curvature_sample_dist: float = 10.0  # Distance ahead to sample curvature (m)
+    
+    # === Anticipatory Steering (Pre-steer before curves) ===
+    anticipate_start_dist: float = 25.0  # Start looking for curves this far ahead (m)
+    anticipate_end_dist: float = 8.0     # Stop anticipation at this distance (m), handoff to normal control
+    anticipate_min_heading: float = 0.1  # Minimum heading change to trigger anticipation (rad, ~5.7°)
+    anticipate_max_gain: float = 0.15    # Maximum anticipatory steering gain
+    
+    # === Lookahead Point ===
+    lookahead_time: float = 0.6          # Base lookahead time (seconds ahead)
+    lookahead_min_dist: float = 3.0      # Minimum lookahead distance (m)
+    lookahead_curvature_scale: float = 10.0  # Curvature scaling factor for lookahead reduction
+    lookahead_min_factor: float = 0.4    # Minimum lookahead factor (40% of base in tight curves)
+    
+    # === Heading Control ===
+    heading_gain: float = 0.8            # Proportional gain for heading error
+    
+    # === Cross-Track Error (XTE) ===
+    xte_base_gain: float = -0.35         # Base XTE gain (negative for correct direction)
+    xte_speed_min_factor: float = 0.5    # Minimum speed factor for XTE scaling
+    xte_speed_max_factor: float = 1.5    # Maximum speed factor for XTE scaling
+    xte_speed_reference: float = 10.0    # Reference speed for XTE scaling (m/s)
+    xte_nonlinear_threshold: float = 1.0 # XTE threshold for non-linear correction (m)
+    xte_nonlinear_multiplier: float = 1.5  # Extra correction when XTE > threshold
+    
+    # === Steering Smoothing ===
+    smoothing_factor: float = 0.3        # Low-pass filter factor (0=none, 1=max)
+
+
+# Default steering configuration - modify this for tuning
+DEFAULT_STEERING_CONFIG = SteeringConfig()
+
+
+
 class ScenarioDriveController:
     """
     Scenario-driven autonomous controller that follows waypoints
@@ -69,7 +112,8 @@ class ScenarioDriveController:
                  steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
                  speed_pid: Tuple[float, float, float] = (0.8, 0.02, 0.1),  # Increased gains for better braking
                  lane_change_time: float = 5.0,
-                 lookahead_distance: float = 5.0):
+                 lookahead_distance: float = 5.0,
+                 steering_config: Optional[SteeringConfig] = None):
         """
         Initialize ScenarioDriveController.
 
@@ -84,6 +128,7 @@ class ScenarioDriveController:
             speed_pid: PID gains for speed control (kp, ki, kd)
             lane_change_time: Time to complete a lane change (seconds)
             lookahead_distance: Lookahead distance for steering (meters)
+            steering_config: Steering tuning parameters (uses defaults if None)
         """
         # Initialize RoadManager
         self.rm_lib = EsminiRMLib(lib_path)
@@ -120,6 +165,9 @@ class ScenarioDriveController:
             output_limits=(-1.0, 1.0), integral_limits=(-0.5, 0.5)
         )
 
+        # Steering configuration (tuning parameters)
+        self.steer_cfg = steering_config if steering_config else DEFAULT_STEERING_CONFIG
+
         # Parameters
         self.ego_id = ego_id
         self.lane_change_time = lane_change_time
@@ -133,6 +181,7 @@ class ScenarioDriveController:
         self._lane_change_target = 0
         self._pos_handle = self.rm_lib.CreatePosition()
         self._no_route_warned = False
+
 
         # UDP receiver for target speed
         self._target_speed_sock = None
@@ -419,15 +468,15 @@ class ScenarioDriveController:
         # Look at heading changes in upcoming waypoints to detect curves
         current_speed = getattr(self, '_last_speed', 5.0)
         
-        # Calculate curvature by measuring heading change over distance
+        # Calculate curvature by measuring heading change over distance (for lookahead adjustment)
+        cfg = self.steer_cfg
         curvature = 0.0
-        curvature_sample_dist = 10.0  # Look 10m ahead for curvature
         curvature_sample_idx = nearest_idx
         sample_dist = 0.0
         
         for i in range(nearest_idx, min(nearest_idx + 20, len(wps) - 1)):
             sample_dist += wps[i].distance_to(wps[i + 1])
-            if sample_dist >= curvature_sample_dist:
+            if sample_dist >= cfg.curvature_sample_dist:
                 curvature_sample_idx = i + 1
                 break
             curvature_sample_idx = i + 1
@@ -441,14 +490,48 @@ class ScenarioDriveController:
             # Curvature = heading change per meter
             curvature = abs(heading_diff) / sample_dist
         
+        # === STEP 2.5: Anticipatory Steering - Look further ahead for curves ===
+        # This allows gradual pre-steering before entering a curve
+        
+        # Find waypoint at anticipation distance
+        anticipate_idx = nearest_idx
+        anticipate_dist = 0.0
+        for i in range(nearest_idx, min(nearest_idx + 60, len(wps) - 1)):
+            anticipate_dist += wps[i].distance_to(wps[i + 1])
+            if anticipate_dist >= cfg.anticipate_start_dist:
+                anticipate_idx = i + 1
+                break
+            anticipate_idx = i + 1
+        
+        # Calculate heading change to anticipation point
+        anticipate_heading_diff = 0.0
+        if anticipate_idx > nearest_idx and anticipate_dist >= cfg.anticipate_end_dist:
+            anticipate_heading_diff = wps[anticipate_idx].h - wps[nearest_idx].h
+            # Normalize
+            while anticipate_heading_diff > math.pi: anticipate_heading_diff -= 2 * math.pi
+            while anticipate_heading_diff < -math.pi: anticipate_heading_diff += 2 * math.pi
+        
+        # Calculate anticipatory steering
+        # Blend based on distance: stronger when closer to curve, zero when far away
+        if abs(anticipate_heading_diff) > cfg.anticipate_min_heading:
+            # As we get closer to the curve, increase the anticipatory steering
+            blend_factor = max(0.0, min(1.0, 
+                (cfg.anticipate_start_dist - anticipate_dist) / 
+                (cfg.anticipate_start_dist - cfg.anticipate_end_dist)))
+            # Gentle anticipatory gain - starts small and increases
+            anticipate_gain = cfg.anticipate_max_gain * blend_factor
+            self._anticipate_steering = anticipate_heading_diff * anticipate_gain
+        else:
+            self._anticipate_steering = 0.0
+        
         # === STEP 3: Find lookahead point (curvature-aware) ===
         # Reduce lookahead in curves for tighter tracking
-        base_lookahead = current_speed * 0.6  # 0.6 seconds ahead
+        base_lookahead = current_speed * cfg.lookahead_time
         
         # Curvature-based reduction: high curvature = shorter lookahead
-        # curvature > 0.05 rad/m is a tight curve (~20m radius)
-        curvature_factor = max(0.4, 1.0 - curvature * 10.0)  # Min 40% of base
-        lookahead_dist = max(3.0, base_lookahead * curvature_factor)  # Min 3m
+        curvature_factor = max(cfg.lookahead_min_factor, 
+                               1.0 - curvature * cfg.lookahead_curvature_scale)
+        lookahead_dist = max(cfg.lookahead_min_dist, base_lookahead * curvature_factor)
         
         # Walk along path from nearest point until we reach lookahead distance
         target_idx = nearest_idx
@@ -464,8 +547,9 @@ class ScenarioDriveController:
         target_wp = wps[min(target_idx, len(wps) - 1)]
         nearest_wp = wps[nearest_idx]
         
-        # Store curvature for feedforward steering
+        # Store curvature for reference
         self._current_curvature = curvature
+
 
 
         # [FIX] Lane Keeping at the end of route
@@ -581,35 +665,39 @@ class ScenarioDriveController:
         # Heading: Error > 0 (Left target) -> Output > 0 -> Final < 0 (Left). OK.
         # XTE: XTE < 0 (Right position) -> Want Left -> Output SHOULD BE > 0 -> Final < 0.
         # So XTE gain must be negative.
-        heading_gain = 0.8
         
         # [IMPROVED] Stronger XTE gain with speed-based scaling for faster lane centering
         # At high speed, reduce XTE correction to avoid oscillation
         # At low speed or after tight turns, apply stronger correction
-        base_xte_gain = -0.35  # Increased from -0.2 for faster centering
-        speed_factor = max(0.5, min(1.5, 10.0 / max(current_speed, 1.0)))  # Stronger at lower speeds
-        xte_gain = base_xte_gain * speed_factor
+        speed_factor = max(cfg.xte_speed_min_factor, 
+                          min(cfg.xte_speed_max_factor, 
+                              cfg.xte_speed_reference / max(current_speed, 1.0)))
+        xte_gain = cfg.xte_base_gain * speed_factor
         
         # Apply non-linear XTE correction: stronger when far from center
-        if abs(xte) > 1.0:
+        if abs(xte) > cfg.xte_nonlinear_threshold:
             # Extra correction when significantly off-center
-            xte_correction = xte_gain * xte * 1.5
+            xte_correction = xte_gain * xte * cfg.xte_nonlinear_multiplier
         else:
             xte_correction = xte_gain * xte
         
-        # Combine heading error and XTE correction
-        steering = heading_gain * heading_error + xte_correction
+        # Get anticipatory steering (calculated earlier)
+        anticipate_steering = getattr(self, '_anticipate_steering', 0.0)
+        
+        # Combine: heading error + XTE correction + anticipatory steering
+        steering = cfg.heading_gain * heading_error + xte_correction + anticipate_steering
         
         # === STEP 6: Steering Smoothing ===
         # Apply low-pass filter to reduce oscillations, especially at path transitions
         # This prevents sudden steering changes when waypoint curvature changes abruptly
         last_steering = getattr(self, '_last_steering', steering)
-        smoothing_factor = 0.3  # 0 = no smoothing, 1 = full smoothing (never changes)
-        steering = steering * (1 - smoothing_factor) + last_steering * smoothing_factor
+        steering = steering * (1 - cfg.smoothing_factor) + last_steering * cfg.smoothing_factor
         self._last_steering = steering
+
         
         # Clamp to valid range
         steering = max(-1.0, min(1.0, steering))
+
 
 
 
