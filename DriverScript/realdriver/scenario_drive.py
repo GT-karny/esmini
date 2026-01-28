@@ -250,6 +250,7 @@ class ScenarioDriveController:
                             # print(f"[INFO] Generated dense route with {len(dense_route)} points")
                             
                             if dense_route:
+                                print(f"[INFO] UDP: Generated dense route with {len(dense_route)} waypoints from {len(future_wps)} sparse WPs")
                                 self.waypoint_mgr.set_calculated_waypoints(dense_route)
                                 
                                 # Find closest point to snap index
@@ -414,9 +415,40 @@ class ScenarioDriveController:
         # Also update waypoint_mgr's index for debugging/logging purposes
         self.waypoint_mgr.current_index = nearest_idx
         
-        # === STEP 2: Find lookahead point ===
+        # === STEP 2: Calculate path curvature ahead ===
+        # Look at heading changes in upcoming waypoints to detect curves
         current_speed = getattr(self, '_last_speed', 5.0)
-        lookahead_dist = max(5.0, current_speed * 0.6)  # 0.6 seconds ahead, min 5m
+        
+        # Calculate curvature by measuring heading change over distance
+        curvature = 0.0
+        curvature_sample_dist = 10.0  # Look 10m ahead for curvature
+        curvature_sample_idx = nearest_idx
+        sample_dist = 0.0
+        
+        for i in range(nearest_idx, min(nearest_idx + 20, len(wps) - 1)):
+            sample_dist += wps[i].distance_to(wps[i + 1])
+            if sample_dist >= curvature_sample_dist:
+                curvature_sample_idx = i + 1
+                break
+            curvature_sample_idx = i + 1
+        
+        if curvature_sample_idx > nearest_idx and sample_dist > 0:
+            # Calculate heading change
+            heading_diff = wps[curvature_sample_idx].h - wps[nearest_idx].h
+            # Normalize
+            while heading_diff > math.pi: heading_diff -= 2 * math.pi
+            while heading_diff < -math.pi: heading_diff += 2 * math.pi
+            # Curvature = heading change per meter
+            curvature = abs(heading_diff) / sample_dist
+        
+        # === STEP 3: Find lookahead point (curvature-aware) ===
+        # Reduce lookahead in curves for tighter tracking
+        base_lookahead = current_speed * 0.6  # 0.6 seconds ahead
+        
+        # Curvature-based reduction: high curvature = shorter lookahead
+        # curvature > 0.05 rad/m is a tight curve (~20m radius)
+        curvature_factor = max(0.4, 1.0 - curvature * 10.0)  # Min 40% of base
+        lookahead_dist = max(3.0, base_lookahead * curvature_factor)  # Min 3m
         
         # Walk along path from nearest point until we reach lookahead distance
         target_idx = nearest_idx
@@ -431,6 +463,10 @@ class ScenarioDriveController:
         
         target_wp = wps[min(target_idx, len(wps) - 1)]
         nearest_wp = wps[nearest_idx]
+        
+        # Store curvature for feedforward steering
+        self._current_curvature = curvature
+
 
         # [FIX] Lane Keeping at the end of route
         # If the target is the very last waypoint, and we are close to it
@@ -546,17 +582,37 @@ class ScenarioDriveController:
         # XTE: XTE < 0 (Right position) -> Want Left -> Output SHOULD BE > 0 -> Final < 0.
         # So XTE gain must be negative.
         heading_gain = 0.8
-        xte_gain = -0.2  # [FIX] Stronger negative gain to correct right-side drift
         
-        # Scale XTE correction inversely with speed (more correction at low speed)
-        xte_correction = xte_gain * xte
+        # [IMPROVED] Stronger XTE gain with speed-based scaling for faster lane centering
+        # At high speed, reduce XTE correction to avoid oscillation
+        # At low speed or after tight turns, apply stronger correction
+        base_xte_gain = -0.35  # Increased from -0.2 for faster centering
+        speed_factor = max(0.5, min(1.5, 10.0 / max(current_speed, 1.0)))  # Stronger at lower speeds
+        xte_gain = base_xte_gain * speed_factor
         
-        # Combine errors
-        total_error = heading_error + xte_correction
+        # Apply non-linear XTE correction: stronger when far from center
+        if abs(xte) > 1.0:
+            # Extra correction when significantly off-center
+            xte_correction = xte_gain * xte * 1.5
+        else:
+            xte_correction = xte_gain * xte
+        
+        # Combine heading error and XTE correction
         steering = heading_gain * heading_error + xte_correction
+        
+        # === STEP 6: Steering Smoothing ===
+        # Apply low-pass filter to reduce oscillations, especially at path transitions
+        # This prevents sudden steering changes when waypoint curvature changes abruptly
+        last_steering = getattr(self, '_last_steering', steering)
+        smoothing_factor = 0.3  # 0 = no smoothing, 1 = full smoothing (never changes)
+        steering = steering * (1 - smoothing_factor) + last_steering * smoothing_factor
+        self._last_steering = steering
         
         # Clamp to valid range
         steering = max(-1.0, min(1.0, steering))
+
+
+
         
         # [DEBUG]
         if not hasattr(self, '_steering_log_counter'):

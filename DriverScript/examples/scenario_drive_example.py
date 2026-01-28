@@ -35,6 +35,14 @@ def create_sample_waypoints():
 
 
 def main():
+    # Calculate script directory for relative paths
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Go up to DriverScript directory, then to bin
+    bin_dir = os.path.normpath(os.path.join(script_dir, "..", "bin"))
+    default_lib_path = os.path.join(bin_dir, "esminiRMLib.dll")
+    default_gt_lib_path = os.path.join(bin_dir, "GT_esminiLib.dll")
+
     parser = argparse.ArgumentParser(
         description="ScenarioDrive Controller Example - Autonomous waypoint following"
     )
@@ -48,9 +56,9 @@ def main():
                         help="UDP port for receiving target speed from esmini")
     parser.add_argument("--id", type=int, default=0,
                         help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default="./bin/esminiRMLib.dll",
+    parser.add_argument("--lib_path", type=str, default=default_lib_path,
                         help="Path to esminiRMLib.dll")
-    parser.add_argument("--gt_lib_path", type=str, default="./bin/GT_esminiLib.dll",
+    parser.add_argument("--gt_lib_path", type=str, default=default_gt_lib_path,
                         help="Path to GT_esminiLib.dll (for routing)")
     parser.add_argument("--xodr_path", type=str, required=True,
                         help="Path to OpenDRIVE map file (.xodr)")
@@ -65,6 +73,7 @@ def main():
                         help="Target Y coordinate (for target mode)")
 
     args = parser.parse_args()
+
 
     # 1. Initialize RealDriverClient
     print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port}")
