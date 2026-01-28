@@ -258,7 +258,11 @@ class ScenarioDriveController:
             while True:
                 data, _ = self._target_speed_sock.recvfrom(1024)
                 if len(data) == 9 and data[0] == 1:
-                    self.target_speed = struct.unpack('<d', data[1:9])[0]
+                    new_target = struct.unpack('<d', data[1:9])[0]
+                    # [DEBUG] Log when target speed changes significantly
+                    if abs(new_target - self.target_speed) > 0.1:
+                        print(f"[DEBUG_PY] Target speed CHANGED: {self.target_speed:.2f} -> {new_target:.2f} m/s")
+                    self.target_speed = new_target
         except BlockingIOError:
             pass  # No data available
         except Exception as e:
@@ -817,6 +821,14 @@ class ScenarioDriveController:
             # Decelerate
             throttle = 0.0
             brake = min(1.0, -control)
+
+        # [DEBUG] Log speed control values every 20 frames
+        if not hasattr(self, '_speed_log_counter'):
+            self._speed_log_counter = 0
+        self._speed_log_counter += 1
+        if self._speed_log_counter % 20 == 0:
+            print(f"[DEBUG_SPEED] target={self.target_speed:.2f}, current={current_speed:.2f}, "
+                  f"error={speed_error:.2f}, PID={control:.3f}, thr={throttle:.2f}, brk={brake:.2f}")
 
         return throttle, brake
 

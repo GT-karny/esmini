@@ -90,6 +90,15 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
 
     // Resize buffer for OSI messages (64KB should be sufficient for HostVehicleData)
     udp_buffer_.resize(65536);
+
+    // [GT_MOD] FIX: Set default mode to ADDITIVE like ControllerACC
+    // In ADDITIVE mode, SpeedActions from the scenario are applied to object_->speed_
+    // In OVERRIDE mode (default), actions are blocked and the controller has full control
+    // We need ADDITIVE to detect red light stop actions from scenarios
+    if (args && args->properties && !args->properties->ValueExists("mode"))
+    {
+        mode_ = ControlOperationMode::MODE_ADDITIVE;
+    }
 }
 
 ControllerRealDriver::~ControllerRealDriver()
@@ -254,12 +263,17 @@ void ControllerRealDriver::Step(double timeStep)
     // to avoid dependency issues with ScenarioEngine access
 
     // 0. Detect target speed changes from SpeedActions
-    double newTargetSpeed = GetTargetSpeedFromActions();
-    if (abs(newTargetSpeed - setSpeed_) > 1e-3)
+    // [GT_MOD] FIX: Use object_->GetSpeed() change detection like ControllerACC
+    // When a SpeedAction runs, esmini updates object_->speed_ internally.
+    // By detecting this change, we capture the target speed even after the action completes.
+    // The previous GetTargetSpeedFromActions() only found RUNNING actions, missing completed ones.
+    double objectSpeed = object_->GetSpeed();
+    if (abs(objectSpeed - currentSpeed_) > 1e-3)
     {
-        LOG_INFO("RealDriver: New target speed from action: {:.2f} m/s (was {:.2f} m/s)",
-                 newTargetSpeed, setSpeed_);
-        setSpeed_ = newTargetSpeed;
+        LOG_INFO("RealDriver: Detected speed change from scenario: {:.2f} -> {:.2f} m/s",
+                 currentSpeed_, objectSpeed);
+        setSpeed_ = objectSpeed;
+        currentSpeed_ = objectSpeed;
     }
 
     // 1. Receive UDP Network Data
@@ -449,6 +463,14 @@ void ControllerRealDriver::Step(double timeStep)
 
         packet.type = 1;  // Type identifier for target speed
         packet.targetSpeed = setSpeed_;
+
+        // [DEBUG] Log target speed being sent every 50 frames
+        static int send_log_counter = 0;
+        if (send_log_counter++ % 50 == 0)
+        {
+            std::cout << "[DEBUG_CPP] Sending target_speed=" << setSpeed_ 
+                      << " m/s, current_speed=" << real_vehicle_.speed_ << " m/s" << std::endl;
+        }
 
         int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
         if (sent != sizeof(packet))
