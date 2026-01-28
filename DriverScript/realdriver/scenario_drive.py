@@ -59,10 +59,10 @@ class SteeringConfig:
     curvature_sample_dist: float = 10.0  # Distance ahead to sample curvature (m)
     
     # === Anticipatory Steering (Pre-steer before curves) ===
-    anticipate_start_dist: float = 25.0  # Start looking for curves this far ahead (m)
-    anticipate_end_dist: float = 8.0     # Stop anticipation at this distance (m), handoff to normal control
+    anticipate_start_dist: float = 10.0  # Start looking for curves this far ahead (m)
+    anticipate_end_dist: float = 0.0     # Stop anticipation at this distance (m), handoff to normal control
     anticipate_min_heading: float = 0.1  # Minimum heading change to trigger anticipation (rad, ~5.7°)
-    anticipate_max_gain: float = 0.15    # Maximum anticipatory steering gain
+    anticipate_max_gain: float = 0.7    # Maximum anticipatory steering gain
     
     # === Lookahead Point ===
     lookahead_time: float = 0.6          # Base lookahead time (seconds ahead)
@@ -81,8 +81,13 @@ class SteeringConfig:
     xte_nonlinear_threshold: float = 1.0 # XTE threshold for non-linear correction (m)
     xte_nonlinear_multiplier: float = 1.5  # Extra correction when XTE > threshold
     
+    # === Vehicle Geometry ===
+    front_axle_offset: float = 3       # Distance from CG/rear axle to front axle (m)
+                                          # Track path with front, not center
+    
     # === Steering Smoothing ===
     smoothing_factor: float = 0.3        # Low-pass filter factor (0=none, 1=max)
+
 
 
 # Default steering configuration - modify this for tuning
@@ -444,7 +449,25 @@ class ScenarioDriveController:
         if len(wps) < 2:
             return 0.0
         
-        # === STEP 1: Find nearest waypoint ===
+        # Get config
+        cfg = self.steer_cfg
+        
+        # === Project tracking point to front axle ===
+        # Instead of tracking with vehicle center, track with front axle
+        # This prevents the front corner from cutting inside on turns
+        front_x = current_pos.x + cfg.front_axle_offset * math.cos(current_pos.h)
+        front_y = current_pos.y + cfg.front_axle_offset * math.sin(current_pos.h)
+        
+        # Create a temporary position object for front axle tracking
+        class FrontPos:
+            def __init__(self, x, y, h):
+                self.x, self.y, self.h = x, y, h
+            def distance_to(self, wp):
+                return math.sqrt((self.x - wp.x)**2 + (self.y - wp.y)**2)
+        
+        front_pos = FrontPos(front_x, front_y, current_pos.h)
+        
+        # === STEP 1: Find nearest waypoint to FRONT AXLE ===
         # Search in a window around current index for efficiency
         current_idx = getattr(self, '_last_nearest_idx', 0)
         search_start = max(0, current_idx - 10)
@@ -453,10 +476,11 @@ class ScenarioDriveController:
         min_dist = float('inf')
         nearest_idx = current_idx
         for i in range(search_start, search_end):
-            d = current_pos.distance_to(wps[i])
+            d = front_pos.distance_to(wps[i])
             if d < min_dist:
                 min_dist = d
                 nearest_idx = i
+
         
         # Cache for next frame
         self._last_nearest_idx = nearest_idx
@@ -491,38 +515,60 @@ class ScenarioDriveController:
             curvature = abs(heading_diff) / sample_dist
         
         # === STEP 2.5: Anticipatory Steering - Look further ahead for curves ===
-        # This allows gradual pre-steering before entering a curve
+        # Scan all waypoints within anticipation window to find where curve begins
+        # This fixes the issue where we only checked heading at 25m and missed curves
         
-        # Find waypoint at anticipation distance
-        anticipate_idx = nearest_idx
-        anticipate_dist = 0.0
+        curve_start_dist = None  # Distance to where curve begins
+        curve_heading_diff = 0.0  # Total heading change through the curve
+        prev_heading = wps[nearest_idx].h
+        scan_dist = 0.0
+        
         for i in range(nearest_idx, min(nearest_idx + 60, len(wps) - 1)):
-            anticipate_dist += wps[i].distance_to(wps[i + 1])
-            if anticipate_dist >= cfg.anticipate_start_dist:
-                anticipate_idx = i + 1
-                break
-            anticipate_idx = i + 1
-        
-        # Calculate heading change to anticipation point
-        anticipate_heading_diff = 0.0
-        if anticipate_idx > nearest_idx and anticipate_dist >= cfg.anticipate_end_dist:
-            anticipate_heading_diff = wps[anticipate_idx].h - wps[nearest_idx].h
-            # Normalize
-            while anticipate_heading_diff > math.pi: anticipate_heading_diff -= 2 * math.pi
-            while anticipate_heading_diff < -math.pi: anticipate_heading_diff += 2 * math.pi
+            scan_dist += wps[i].distance_to(wps[i + 1])
+            if scan_dist > cfg.anticipate_start_dist:
+                break  # Stop scanning beyond anticipation distance
+            
+            # Check heading change from previous waypoint
+            curr_heading = wps[i + 1].h
+            delta_h = curr_heading - prev_heading
+            while delta_h > math.pi: delta_h -= 2 * math.pi
+            while delta_h < -math.pi: delta_h += 2 * math.pi
+            
+            # Detect curve start (significant heading change rate)
+            segment_len = wps[i].distance_to(wps[i + 1])
+            if segment_len > 0.001:
+                heading_rate = abs(delta_h) / segment_len
+                # Threshold: ~1.1 degrees per meter indicates curve start (lowered from 2°/m)
+                if heading_rate > 0.02 and curve_start_dist is None:
+                    curve_start_dist = scan_dist
+                
+                # Accumulate total heading change in curve
+                if curve_start_dist is not None:
+                    curve_heading_diff += delta_h
+            
+            prev_heading = curr_heading
         
         # Calculate anticipatory steering
-        # Blend based on distance: stronger when closer to curve, zero when far away
-        if abs(anticipate_heading_diff) > cfg.anticipate_min_heading:
-            # As we get closer to the curve, increase the anticipatory steering
-            blend_factor = max(0.0, min(1.0, 
-                (cfg.anticipate_start_dist - anticipate_dist) / 
-                (cfg.anticipate_start_dist - cfg.anticipate_end_dist)))
-            # Gentle anticipatory gain - starts small and increases
+        # Only activate if we detected a curve within anticipation window
+        if curve_start_dist is not None and abs(curve_heading_diff) > cfg.anticipate_min_heading:
+            # Blend based on distance to curve: stronger when closer
+            # At 25m -> 0%, at 8m -> 100%
+            if curve_start_dist <= cfg.anticipate_end_dist:
+                blend_factor = 1.0  # Already at curve entry, max anticipation
+            elif curve_start_dist >= cfg.anticipate_start_dist:
+                blend_factor = 0.0  # Too far, no anticipation
+            else:
+                blend_factor = (cfg.anticipate_start_dist - curve_start_dist) / \
+                              (cfg.anticipate_start_dist - cfg.anticipate_end_dist)
+            
+            # Apply anticipatory gain
             anticipate_gain = cfg.anticipate_max_gain * blend_factor
-            self._anticipate_steering = anticipate_heading_diff * anticipate_gain
+            self._anticipate_steering = curve_heading_diff * anticipate_gain
+            self._curve_detected = True  # Flag for adaptive smoothing
         else:
             self._anticipate_steering = 0.0
+            self._curve_detected = False
+
         
         # === STEP 3: Find lookahead point (curvature-aware) ===
         # Reduce lookahead in curves for tighter tracking
@@ -647,9 +693,9 @@ class ScenarioDriveController:
         path_len = math.sqrt(path_dx * path_dx + path_dy * path_dy)
         
         if path_len > 0.01:
-            # Vector from nearest_wp to car
-            car_dx = current_pos.x - nearest_wp.x
-            car_dy = current_pos.y - nearest_wp.y
+            # Vector from nearest_wp to FRONT AXLE (not car center)
+            car_dx = front_pos.x - nearest_wp.x
+            car_dy = front_pos.y - nearest_wp.y
             
             # Cross product gives signed perpendicular distance
             # (path × car) > 0 means car is to the LEFT of path
@@ -689,9 +735,17 @@ class ScenarioDriveController:
         
         # === STEP 6: Steering Smoothing ===
         # Apply low-pass filter to reduce oscillations, especially at path transitions
-        # This prevents sudden steering changes when waypoint curvature changes abruptly
+        # REDUCE smoothing during curves for faster response
         last_steering = getattr(self, '_last_steering', steering)
-        steering = steering * (1 - cfg.smoothing_factor) + last_steering * cfg.smoothing_factor
+        curve_detected = getattr(self, '_curve_detected', False)
+        
+        # Use less smoothing during curves for more responsive steering
+        if curve_detected or curvature > 0.02 or abs(anticipate_steering) > 0.05:
+            effective_smoothing = cfg.smoothing_factor * 0.3  # 30% of normal smoothing in curves
+        else:
+            effective_smoothing = cfg.smoothing_factor
+        
+        steering = steering * (1 - effective_smoothing) + last_steering * effective_smoothing
         self._last_steering = steering
 
         
@@ -709,10 +763,11 @@ class ScenarioDriveController:
         if self._steering_log_counter % 20 == 0:  # ~Every 0.4s
              tgt_info = f"{target_wp.road_id}/{target_wp.lane_id}" if target_wp else "End"
              cur_info = f"{current_pos_data.roadId}/{current_pos_data.laneId}" if current_pos_data else "None"
+             antic_str = f"Antic={anticipate_steering:.3f}" if anticipate_steering != 0 else ""
              print(f"[DEBUG_STEER] NearIdx={nearest_idx}, TgtIdx={target_idx}, "
                    f"TgtH={target_heading:.3f}, CarH={current_pos.h:.3f}, "
                    f"HeadErr={heading_error:.3f}, XTE={xte:.2f}, Steer={steering:.3f}, "
-                   f"Tgt={tgt_info}, Cur={cur_info}")
+                   f"Tgt={tgt_info}, Cur={cur_info} {antic_str}")
         
         return steering
 
