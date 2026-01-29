@@ -325,16 +325,16 @@ class ScenarioDriveController:
                   f"(index={self.waypoint_mgr.current_index}, total={len(self.waypoint_mgr.waypoints)})")
             return None, None, None
 
-        # Calculate steering
-        steering = self.lateral.update(state, dt)
+        # Calculate steering (use _from_state since we already extracted state)
+        steering = self.lateral.update_from_state(state, dt)
 
         # Handle lane change (check and apply offset)
         lc_offset, _, indicator = self.lateral.update_lane_change(state, dt)
         if self.lateral.get_lane_change_state() == LaneChangeState.LANE_CHANGING:
             steering += lc_offset
 
-        # Calculate throttle/brake
-        lon_output = self.longitudinal.update(state.speed, dt)
+        # Calculate throttle/brake (use _from_speed since we have speed)
+        lon_output = self.longitudinal.update_from_speed(state.speed, dt)
 
         return steering, lon_output.throttle, lon_output.brake
 

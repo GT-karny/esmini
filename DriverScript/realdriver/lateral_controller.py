@@ -3,6 +3,14 @@ Lateral Controller Module
 
 Provides standalone lateral (steering) control for waypoint following.
 Implements curvature-aware Pure Pursuit with anticipatory steering.
+
+Simple API (recommended):
+    controller = LateralController(rm_lib=rm_lib, ego_id=0)
+    controller.set_waypoints(waypoints)
+    steering = controller.update(ground_truth, dt)
+
+Advanced API (direct VehicleState input):
+    steering = controller.update_from_state(vehicle_state, dt)
 """
 
 import math
@@ -11,7 +19,7 @@ from enum import Enum
 from typing import Optional, List, Tuple, TYPE_CHECKING
 
 from .waypoint import Waypoint, WaypointManager
-from .vehicle_state import VehicleState
+from .vehicle_state import VehicleState, VehicleStateExtractor
 
 if TYPE_CHECKING:
     from .rm_lib import EsminiRMLib
@@ -82,16 +90,20 @@ class LateralController:
     - Adaptive lookahead based on speed and curvature
     - Steering smoothing
 
-    Example:
-        controller = LateralController(rm_lib=rm_lib)
+    Simple API (recommended):
+        controller = LateralController(rm_lib=rm_lib, ego_id=0)
         controller.set_waypoints(waypoints)
 
-        # In control loop:
-        steering = controller.update(vehicle_state, dt)
+        # In control loop - pass GroundTruth directly:
+        steering = controller.update(ground_truth, dt)
+
+    Advanced API (direct VehicleState input):
+        steering = controller.update_from_state(vehicle_state, dt)
     """
 
     def __init__(self,
                  rm_lib: Optional['EsminiRMLib'] = None,
+                 ego_id: int = 0,
                  config: Optional[LateralConfig] = None,
                  waypoint_mgr: Optional[WaypointManager] = None):
         """
@@ -99,12 +111,17 @@ class LateralController:
 
         Args:
             rm_lib: RoadManager instance (optional, for road-aware features)
+            ego_id: Object ID of the ego vehicle in OSI GroundTruth
             config: Steering tuning parameters
             waypoint_mgr: Waypoint manager (created internally if None)
         """
         self.rm_lib = rm_lib
         self.config = config or DEFAULT_LATERAL_CONFIG
         self.waypoint_mgr = waypoint_mgr or WaypointManager()
+
+        # Internal state extractor for GroundTruth parsing
+        self._state_extractor = VehicleStateExtractor(ego_id)
+        self._last_state: Optional[VehicleState] = None
 
         # Position handle for RM queries
         self._pos_handle = -1
@@ -174,9 +191,40 @@ class LateralController:
         """Current detected path curvature."""
         return self._current_curvature
 
-    def update(self, state: VehicleState, dt: float) -> float:
+    @property
+    def last_state(self) -> Optional[VehicleState]:
+        """Last processed vehicle state (for debugging)."""
+        return self._last_state
+
+    def update(self, ground_truth, dt: float) -> float:
         """
-        Calculate steering output.
+        Calculate steering output from OSI GroundTruth.
+
+        This is the recommended API - pass GroundTruth directly.
+
+        Args:
+            ground_truth: OSI GroundTruth protobuf message
+            dt: Time step (seconds)
+
+        Returns:
+            Steering value in range [-1.0, 1.0]
+        """
+        state = self._state_extractor.extract(ground_truth)
+        if state is None:
+            return 0.0
+
+        # Enrich with road data if RoadManager is available
+        if self.rm_lib:
+            state = self._state_extractor.enrich_with_road_data(state, self.rm_lib)
+
+        self._last_state = state
+        return self.update_from_state(state, dt)
+
+    def update_from_state(self, state: VehicleState, dt: float) -> float:
+        """
+        Calculate steering output from VehicleState directly.
+
+        Advanced API for cases where you manage VehicleState externally.
 
         Args:
             state: Current vehicle state
@@ -187,6 +235,8 @@ class LateralController:
         """
         if dt <= 0:
             return 0.0
+
+        self._last_state = state
 
         wps = self.waypoint_mgr.waypoints
         if len(wps) < 2:

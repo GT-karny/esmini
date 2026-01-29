@@ -9,6 +9,8 @@ independently. This example shows how to:
 2. Use only longitudinal control (throttle/brake) with external steering
 3. Combine both for full autonomous control
 
+Key feature: Controllers accept OSI GroundTruth directly - no manual state extraction needed!
+
 This approach is more flexible than ScenarioDriveController when you need to:
 - Swap out just the longitudinal controller
 - Use a different steering algorithm
@@ -26,12 +28,9 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(script_dir))
 
 from realdriver import (
-    # Modular controllers (NEW)
+    # Modular controllers (NEW) - accept GroundTruth directly
     LateralController,
     LongitudinalController,
-    VehicleStateExtractor,
-    LateralConfig,
-    LongitudinalConfig,
     # UDP receivers
     WaypointReceiver,
     TargetSpeedReceiver,
@@ -40,8 +39,6 @@ from realdriver import (
     OSIReceiverWrapper,
     # Road Manager
     EsminiRMLib,
-    # Waypoint
-    Waypoint,
 )
 
 
@@ -50,23 +47,17 @@ def example_lateral_only():
     print("\n=== Lateral Control Only Example ===")
     print("Steering follows waypoints, throttle is fixed.")
 
-    # This would be your initialization
-    # lateral = LateralController(rm_lib=rm_lib)
-    # lateral.set_waypoints(waypoints)
-    #
-    # In control loop:
-    #   steering = lateral.update(state, dt)
-    #   throttle = 0.3  # Fixed
-    #   brake = 0.0
-
     print("Code pattern:")
     print("""
-    lateral = LateralController(rm_lib=rm_lib)
+    # Initialize with ego_id
+    lateral = LateralController(rm_lib=rm_lib, ego_id=0)
     lateral.set_waypoints(waypoints)
 
     while running:
-        state = extractor.extract(ground_truth)
-        steering = lateral.update(state, dt)
+        gt = osi_rx.receive()
+
+        # Pass GroundTruth directly - no manual state extraction!
+        steering = lateral.update(gt, dt)
 
         # Use fixed or external throttle
         client.set_controls(throttle=0.3, brake=0.0, steering=-steering)
@@ -78,22 +69,17 @@ def example_longitudinal_only():
     print("\n=== Longitudinal Control Only Example ===")
     print("Speed follows target, steering is from external source.")
 
-    # This would be your initialization
-    # longitudinal = LongitudinalController()
-    # longitudinal.set_target_speed(10.0)
-    #
-    # In control loop:
-    #   output = longitudinal.update(current_speed, dt)
-    #   steering = external_steering_source()
-
     print("Code pattern:")
     print("""
-    longitudinal = LongitudinalController()
+    # Initialize with ego_id
+    longitudinal = LongitudinalController(ego_id=0)
     longitudinal.set_target_speed(10.0)  # 10 m/s
 
     while running:
-        state = extractor.extract(ground_truth)
-        output = longitudinal.update(state.speed, dt)
+        gt = osi_rx.receive()
+
+        # Pass GroundTruth directly - no manual state extraction!
+        output = longitudinal.update(gt, dt)
 
         # Use external steering (e.g., human input, other controller)
         steering = get_external_steering()
@@ -112,24 +98,42 @@ def example_combined():
     rm_lib = EsminiRMLib(lib_path)
     rm_lib.Init(xodr_path)
 
-    extractor = VehicleStateExtractor(ego_id=0)
-    lateral = LateralController(rm_lib=rm_lib)
-    longitudinal = LongitudinalController()
+    # Pass ego_id to constructor - controllers handle state extraction internally
+    lateral = LateralController(rm_lib=rm_lib, ego_id=0)
+    longitudinal = LongitudinalController(ego_id=0)
 
     lateral.set_waypoints(waypoints)
     longitudinal.set_target_speed(10.0)
 
     while running:
-        # Extract vehicle state
-        state = extractor.extract(ground_truth)
-        state = extractor.enrich_with_road_data(state, rm_lib)
+        gt = osi_rx.receive()
 
-        # Calculate control outputs independently
-        steering = lateral.update(state, dt)
-        lon_out = longitudinal.update(state.speed, dt)
+        # Simply pass GroundTruth to both controllers
+        steering = lateral.update(gt, dt)
+        lon_out = longitudinal.update(gt, dt)
 
         # Send to vehicle
         client.set_controls(lon_out.throttle, lon_out.brake, -steering)
+    """)
+
+
+def example_advanced():
+    """Example: Advanced usage with manual state extraction."""
+    print("\n=== Advanced Usage (Manual State Extraction) ===")
+    print("For cases where you need direct control over VehicleState.")
+
+    print("Code pattern:")
+    print("""
+    from realdriver import VehicleStateExtractor
+
+    # Extract state manually
+    extractor = VehicleStateExtractor(ego_id=0)
+    state = extractor.extract(gt)
+    state = extractor.enrich_with_road_data(state, rm_lib)
+
+    # Use _from_state / _from_speed methods
+    steering = lateral.update_from_state(state, dt)
+    lon_out = longitudinal.update_from_speed(state.speed, dt)
     """)
 
 
@@ -156,6 +160,7 @@ def main():
         example_lateral_only()
         example_longitudinal_only()
         example_combined()
+        example_advanced()
         print("\n" + "=" * 60)
         print("Run with actual connection by providing --lib_path and --xodr_path")
         print("=" * 60)
@@ -183,10 +188,9 @@ def main():
     osi_rx = OSIReceiverWrapper(port=args.osi_port)
     osi_rx.receiver.udp_receiver.sock.settimeout(0.1)
 
-    # Initialize modular components
-    extractor = VehicleStateExtractor(ego_id=args.id)
-    lateral = LateralController(rm_lib=rm_lib)
-    longitudinal = LongitudinalController()
+    # Initialize modular components - pass ego_id, controllers handle state extraction internally
+    lateral = LateralController(rm_lib=rm_lib, ego_id=args.id)
+    longitudinal = LongitudinalController(ego_id=args.id)
 
     # Optional: UDP receivers for external control
     speed_receiver = TargetSpeedReceiver(args.target_speed_port)
@@ -217,16 +221,6 @@ def main():
                 dt = 0.001
 
             if ground_truth is not None:
-                # Extract vehicle state
-                state = extractor.extract(ground_truth)
-                if state is None:
-                    if frame_number % 100 == 0:
-                        print("Waiting for ego vehicle...")
-                    frame_number += 1
-                    continue
-
-                state = extractor.enrich_with_road_data(state, rm_lib)
-
                 # Check for UDP updates
                 udp_speed = speed_receiver.receive_all()
                 if udp_speed is not None:
@@ -237,16 +231,16 @@ def main():
                     index, waypoints = udp_wp
                     lateral.set_waypoints(waypoints[index:])
 
-                # Calculate control
+                # Calculate control - pass GroundTruth directly!
                 steering = 0.0
                 if lateral.has_route:
-                    steering = lateral.update(state, dt)
+                    steering = lateral.update(ground_truth, dt)
 
-                lon_out = longitudinal.update(state.speed, dt)
+                lon_out = longitudinal.update(ground_truth, dt)
 
-                # Print status
+                # Print status (use last_speed from controller)
                 if frame_number % 20 == 0:
-                    print(f"Speed: {state.speed:.2f}/{longitudinal.target_speed:.2f} m/s | "
+                    print(f"Speed: {longitudinal.last_speed:.2f}/{longitudinal.target_speed:.2f} m/s | "
                           f"Steer: {steering:.3f} | "
                           f"Thr: {lon_out.throttle:.2f} | Brk: {lon_out.brake:.2f}")
 

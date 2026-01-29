@@ -30,6 +30,9 @@ from .longitudinal_controller import (
     LongitudinalController, LongitudinalConfig, LongitudinalOutput,
     DEFAULT_LONGITUDINAL_CONFIG
 )
+from .acc_controller import (
+    ACCController, ACCConfig, LeadVehicleInfo, DEFAULT_ACC_CONFIG
+)
 from .udp_receivers import WaypointReceiver, TargetSpeedReceiver
 
 # Combined controller (backward compatible)
@@ -68,6 +71,12 @@ __all__ = [
     'LongitudinalConfig',
     'LongitudinalOutput',
     'DEFAULT_LONGITUDINAL_CONFIG',
+
+    # ACC Controller (NEW)
+    'ACCController',
+    'ACCConfig',
+    'LeadVehicleInfo',
+    'DEFAULT_ACC_CONFIG',
 
     # UDP Receivers (NEW)
     'WaypointReceiver',
