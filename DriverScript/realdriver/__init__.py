@@ -33,6 +33,11 @@ from .longitudinal_controller import (
 from .acc_controller import (
     ACCController, ACCConfig, LeadVehicleInfo, DEFAULT_ACC_CONFIG
 )
+from .lane_change_controller import (
+    LaneChangeController, LaneChangeConfig, LaneChangeOutput,
+    LaneChangeState as LCState, AdjacentVehicleInfo, SafetyCheckResult,
+    DEFAULT_LANE_CHANGE_CONFIG
+)
 from .udp_receivers import WaypointReceiver, TargetSpeedReceiver
 
 # Combined controller (backward compatible)
@@ -77,6 +82,15 @@ __all__ = [
     'ACCConfig',
     'LeadVehicleInfo',
     'DEFAULT_ACC_CONFIG',
+
+    # Lane Change Controller (NEW)
+    'LaneChangeController',
+    'LaneChangeConfig',
+    'LaneChangeOutput',
+    'LCState',
+    'AdjacentVehicleInfo',
+    'SafetyCheckResult',
+    'DEFAULT_LANE_CHANGE_CONFIG',
 
     # UDP Receivers (NEW)
     'WaypointReceiver',
