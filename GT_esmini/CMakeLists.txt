@@ -20,7 +20,8 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiRMLib.cpp)
 
 set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/ExtraAction.hpp
@@ -32,7 +33,8 @@ set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiRMLib.hpp)
 
 # ############################### Creating library ##################################################################################################
 
