@@ -45,6 +45,29 @@ typedef struct
     int      contactPoint;     // Contact point type
 } GT_RM_JunctionConnection;
 
+// Road Signal information structure
+typedef struct
+{
+    int id;
+    double s;
+    double t;
+    double x;
+    double y;
+    double z;
+    double h;
+    double p;
+    double r;
+    char type[64];
+    char subtype[64];
+    char country[64];
+    double value;
+    char unit[64];
+    char text[128];
+    bool isDynamic;
+    double height;
+    double width;
+} GT_RM_RoadSignalInfo;
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -137,6 +160,22 @@ extern "C"
      * @return Road length in meters, or -1 if road not found
      */
     GT_RM_DLL_API double GT_RM_GetRoadLength(uint32_t roadId);
+
+    /**
+     * Get the number of signals on a road.
+     * @param roadId The road ID
+     * @return Number of signals, or -1 if road not found
+     */
+    GT_RM_DLL_API int GT_RM_GetRoadSignalCount(uint32_t roadId);
+
+    /**
+     * Get signal information by index.
+     * @param roadId The road ID
+     * @param index Signal index (0-based)
+     * @param signalInfo Output: Signal information
+     * @return 0 on success, -1 if road not found, -2 if index out of range
+     */
+    GT_RM_DLL_API int GT_RM_GetRoadSignal(uint32_t roadId, int index, GT_RM_RoadSignalInfo* signalInfo);
 
 #ifdef __cplusplus
 }

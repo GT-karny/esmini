@@ -6,6 +6,7 @@
 
 #include "GT_esminiRMLib.hpp"
 #include "RoadManager.hpp"
+#include <cstring>
 
 using namespace roadmanager;
 
@@ -242,4 +243,72 @@ GT_RM_DLL_API double GT_RM_GetRoadLength(uint32_t roadId)
     if (!road) return -1.0;
 
     return road->GetLength();
+}
+
+GT_RM_DLL_API int GT_RM_GetRoadSignalCount(uint32_t roadId)
+{
+    OpenDrive* odr = GetODR();
+    if (!odr) return -1;
+
+    Road* road = odr->GetRoadById(static_cast<id_t>(roadId));
+    if (!road) return -1;
+
+    return static_cast<int>(road->GetNumberOfSignals());
+}
+
+GT_RM_DLL_API int GT_RM_GetRoadSignal(uint32_t roadId, int index, GT_RM_RoadSignalInfo* signalInfo)
+{
+    if (!signalInfo) return -1;
+
+    OpenDrive* odr = GetODR();
+    if (!odr) return -1;
+
+    Road* road = odr->GetRoadById(static_cast<id_t>(roadId));
+    if (!road) return -1;
+
+    if (index < 0 || index >= static_cast<int>(road->GetNumberOfSignals())) return -2;
+
+    Signal* signal = road->GetSignal(static_cast<idx_t>(index));
+    if (!signal) return -1;
+
+    signalInfo->id = signal->GetId();
+    signalInfo->s = signal->GetS();
+    signalInfo->t = signal->GetT();
+
+    // Calculate world position
+    Position pos;
+    // We suppress error checking here since some signals might be slightly off-road or on invalid lanes
+    // but SetTrackPos usually initializes basic coords anyway.
+    pos.SetTrackPos(static_cast<id_t>(roadId), signalInfo->s, signalInfo->t);
+
+    signalInfo->x = pos.GetX();
+    signalInfo->y = pos.GetY();
+    signalInfo->z = pos.GetZ() + signal->GetZOffset();
+
+    signalInfo->h = pos.GetH() + signal->GetHOffset();
+    signalInfo->p = pos.GetP() + signal->GetPitch();
+    signalInfo->r = pos.GetR() + signal->GetRoll();
+
+    strncpy(signalInfo->type, signal->GetType().c_str(), 63);
+    signalInfo->type[63] = '\0';
+
+    strncpy(signalInfo->subtype, signal->GetSubType().c_str(), 63);
+    signalInfo->subtype[63] = '\0';
+
+    strncpy(signalInfo->country, signal->GetCountry().c_str(), 63);
+    signalInfo->country[63] = '\0';
+
+    signalInfo->value = signal->GetValue();
+
+    strncpy(signalInfo->unit, signal->GetUnit().c_str(), 63);
+    signalInfo->unit[63] = '\0';
+
+    strncpy(signalInfo->text, signal->GetText().c_str(), 127);
+    signalInfo->text[127] = '\0';
+
+    signalInfo->isDynamic = signal->IsDynamic();
+    signalInfo->height = signal->GetHeight();
+    signalInfo->width = signal->GetWidth();
+
+    return 0;
 }
