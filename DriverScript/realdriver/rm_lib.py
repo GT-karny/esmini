@@ -102,6 +102,10 @@ class EsminiRMLib:
         self.lib.RM_GetLaneInfo.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.POINTER(RM_RoadLaneInfo), ctypes.c_int, ctypes.c_bool]
         self.lib.RM_GetLaneInfo.restype = ctypes.c_int
 
+        # int RM_SetLanePosition(int handle, int roadId, int laneId, float laneOffset, float s, bool align);
+        self.lib.RM_SetLanePosition.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_bool]
+        self.lib.RM_SetLanePosition.restype = ctypes.c_int
+
     def Init(self, odr_filename):
         """Initialize RoadManager with ODR file."""
         return self.lib.RM_Init(odr_filename.encode('utf-8'))
@@ -136,3 +140,20 @@ class EsminiRMLib:
         data = RM_RoadLaneInfo()
         res = self.lib.RM_GetLaneInfo(handle, lookahead_distance, ctypes.byref(data), look_ahead_mode, in_road_driving_direction)
         return res, data
+
+    def SetLanePosition(self, handle, road_id, lane_id, lane_offset, s, align=True):
+        """
+        Set position from road coordinates (lane-based).
+
+        Args:
+            handle: Position handle
+            road_id: Road ID
+            lane_id: Lane ID
+            lane_offset: Lateral offset from lane center (meters)
+            s: Distance along road (meters)
+            align: Align to road direction
+
+        Returns:
+            0 on success, -1 on failure
+        """
+        return self.lib.RM_SetLanePosition(handle, road_id, lane_id, lane_offset, s, align)

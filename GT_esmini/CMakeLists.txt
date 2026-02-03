@@ -156,7 +156,7 @@ if(BUILD_EXAMPLES)
 endif(BUILD_EXAMPLES)
 
 # ############################### DriverScript DLL Copy ############################################################################################
-# Copy esminiRMLib to DriverScript/bin/ for Python script distribution
+# Copy esminiRMLib and GT_esminiLib to DriverScript/bin/ for Python script distribution
 
 add_custom_command(
     TARGET ${TARGET_SHARED}
@@ -165,5 +165,8 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy
         "$<TARGET_FILE:esminiRMLib>"
         "${CMAKE_SOURCE_DIR}/DriverScript/bin/"
-    COMMENT "Copying esminiRMLib to DriverScript/bin/"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "$<TARGET_FILE:${TARGET_SHARED}>"
+        "${CMAKE_SOURCE_DIR}/DriverScript/bin/"
+    COMMENT "Copying esminiRMLib and GT_esminiLib to DriverScript/bin/"
 )

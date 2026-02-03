@@ -17,6 +17,7 @@ setup(
     python_requires=">=3.8",
     install_requires=[
         "protobuf>=6.30.2",
+        "logidrivepy",
     ],
     extras_require={
         "examples": [

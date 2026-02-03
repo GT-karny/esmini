@@ -1,11 +1,15 @@
 #include "ControllerRealDriver.hpp"
 #include <windows.h> // For GetModuleFileName
+#include <cmath>     // For std::sqrt, std::atan2, M_PI
 #include "logger.hpp"
 #include "ScenarioGateway.hpp"
 #include "Entities.hpp"
 #include "ExtraEntities.hpp" // For Light Extension
 #include "TerrainTracker.hpp" // For terrain tracking
 #include "GT_HostVehicleReporter.hpp"
+#include "Storyboard.hpp"      // For Event
+#include "OSCPrivateAction.hpp" // For LongSpeedAction
+#include "Action.hpp"          // For OSCAction::ActionType
 
 namespace gt_esmini
 {
@@ -39,25 +43,30 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     : Controller(args),
       udpServer_(nullptr),
       udpClient_(nullptr),
+      waypointClient_(nullptr),
       port_(DEFAULT_REAL_DRIVER_PORT),
       clientAddr_("127.0.0.1"),
       clientPort_(DEFAULT_REAL_DRIVER_PORT + 1000),  // Default: 54995
+      waypointPort_(DEFAULT_REAL_DRIVER_PORT + 1001), // Default: 54996
       setSpeed_(0.0),
-      currentSpeed_(0.0)
+      currentSpeed_(0.0),
+      sendWaypoints_(false),
+      currentWaypointIndex_(0),
+      waypointsExtracted_(false)
 {
     // Check if port is overridden in parameters
     if (args && args->properties && args->properties->ValueExists("BasePort"))
     {
         port_ = strtol(args->properties->GetValueStr("BasePort").c_str(), nullptr, 10);
     }
-    
+
     // Also check "Port" parameter which might be an offset or absolute
     if (args && args->properties && args->properties->ValueExists("Port"))
     {
          // int p = strtol(args->properties->GetValueStr("Port").c_str(), nullptr, 10);
          // Storing explicit port for now if needed.
     }
-    
+
     // UDP Client configuration for sending target speed
     if (args && args->properties && args->properties->ValueExists("ClientAddr"))
     {
@@ -67,15 +76,36 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     {
         clientPort_ = strtol(args->properties->GetValueStr("ClientPort").c_str(), nullptr, 10);
     }
-    
+
+    // Optional: Waypoint sending configuration
+    if (args && args->properties && args->properties->ValueExists("SendWaypoints"))
+    {
+        std::string val = args->properties->GetValueStr("SendWaypoints");
+        sendWaypoints_ = (val == "true" || val == "1" || val == "True");
+    }
+    if (args && args->properties && args->properties->ValueExists("WaypointPort"))
+    {
+        waypointPort_ = strtol(args->properties->GetValueStr("WaypointPort").c_str(), nullptr, 10);
+    }
+
     // Resize buffer for OSI messages (64KB should be sufficient for HostVehicleData)
     udp_buffer_.resize(65536);
+
+    // [GT_MOD] FIX: Set default mode to ADDITIVE like ControllerACC
+    // In ADDITIVE mode, SpeedActions from the scenario are applied to object_->speed_
+    // In OVERRIDE mode (default), actions are blocked and the controller has full control
+    // We need ADDITIVE to detect red light stop actions from scenarios
+    if (args && args->properties && !args->properties->ValueExists("mode"))
+    {
+        mode_ = ControlOperationMode::MODE_ADDITIVE;
+    }
 }
 
 ControllerRealDriver::~ControllerRealDriver()
 {
     if (udpServer_) delete udpServer_;
     if (udpClient_) delete udpClient_;
+    if (waypointClient_) delete waypointClient_;
 }
 
 int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
@@ -134,7 +164,14 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
             udpClient_ = new GT_UDP_Sender(clientPort_, clientAddr_);
             LOG_INFO("RealDriverController: UDP client sending to {}:{}", clientAddr_, clientPort_);
         }
-        
+
+        // Initialize UDP Client for sending waypoints (optional)
+        if (sendWaypoints_ && !waypointClient_)
+        {
+            waypointClient_ = new GT_UDP_Sender(waypointPort_, clientAddr_);
+            LOG_INFO("RealDriverController: Waypoint UDP client sending to {}:{}", clientAddr_, waypointPort_);
+        }
+
         // Initialize RealVehicle state from Object
         real_vehicle_.Reset();
         real_vehicle_.SetPos(object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(), object_->pos_.GetH());
@@ -162,17 +199,92 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
     return Controller::Activate(mode);
 }
 
+double ControllerRealDriver::GetTargetSpeedFromActions(bool* hasRunningAction)
+{
+    double targetSpeed = setSpeed_;  // Default is current set value
+    bool found = false;
+
+    if (!object_)
+    {
+        if (hasRunningAction) *hasRunningAction = false;
+        return targetSpeed;
+    }
+
+    // 1. Search initActions_ for running LongSpeedAction
+    for (auto* action : object_->initActions_)
+    {
+        if (action->action_type_ == scenarioengine::OSCAction::ActionType::LONG_SPEED &&
+            action->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        {
+            auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
+            if (speedAction->target_)
+            {
+                found = true;
+                if (speedAction->target_->type_ == scenarioengine::LongSpeedAction::Target::TargetType::ABSOLUTE_SPEED)
+                {
+                    targetSpeed = speedAction->target_->value_;
+                }
+                else  // RELATIVE_SPEED
+                {
+                    targetSpeed = object_->GetSpeed() + speedAction->target_->value_;
+                }
+            }
+        }
+    }
+
+    // 2. Search objectEvents_ for running LongSpeedAction
+    for (auto* event : object_->objectEvents_)
+    {
+        for (auto* action : event->action_)
+        {
+            if (action->GetBaseType() == scenarioengine::OSCAction::BaseType::PRIVATE)
+            {
+                auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+                if (pa->action_type_ == scenarioengine::OSCAction::ActionType::LONG_SPEED &&
+                    pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+                {
+                    auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(pa);
+                    if (speedAction->target_)
+                    {
+                        found = true;
+                        if (speedAction->target_->type_ == scenarioengine::LongSpeedAction::Target::TargetType::ABSOLUTE_SPEED)
+                        {
+                            targetSpeed = speedAction->target_->value_;
+                        }
+                        else
+                        {
+                            targetSpeed = object_->GetSpeed() + speedAction->target_->value_;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (hasRunningAction) *hasRunningAction = found;
+    return targetSpeed;
+}
+
 void ControllerRealDriver::Step(double timeStep)
 {
     // Note: TerrainTracker::UpdateAllVehicleTerrain() is now called from GT_Step()
     // to avoid dependency issues with ScenarioEngine access
 
-    // 0. Detect target speed changes (similar to ControllerACC)
-    if (abs(object_->GetSpeed() - currentSpeed_) > 1e-3)
+    // 0. Detect target speed changes from SpeedActions
+    // [GT_MOD] FIX: Check for RUNNING SpeedActions to conditionally skip gateway speed overwrite.
+    // When a SpeedAction with dynamics (linear ramp) is RUNNING, we must NOT overwrite
+    // object_->speed_ via gateway, otherwise the SpeedAction's ramp cannot advance properly
+    // (feedback loop: controller resets speed to 0 each frame, SpeedAction can only produce tiny increments).
+    bool hasRunningSpeedAction = false;
+    GetTargetSpeedFromActions(&hasRunningSpeedAction);
+
+    double objectSpeed = object_->GetSpeed();
+    if (abs(objectSpeed - currentSpeed_) > 1e-3)
     {
-        LOG_INFO("RealDriver: New target speed detected: {:.2f} m/s (was {:.2f} m/s)", 
-                 object_->GetSpeed(), setSpeed_);
-        setSpeed_ = object_->GetSpeed();
+        LOG_INFO("RealDriver: Detected speed change from scenario: {:.2f} -> {:.2f} m/s",
+                 currentSpeed_, objectSpeed);
+        setSpeed_ = objectSpeed;
+        currentSpeed_ = objectSpeed;
     }
 
     // 1. Receive UDP Network Data
@@ -359,10 +471,18 @@ void ControllerRealDriver::Step(double timeStep)
             double targetSpeed;
         } packet;
 #pragma pack(pop)
-        
+
         packet.type = 1;  // Type identifier for target speed
         packet.targetSpeed = setSpeed_;
-        
+
+        // [DEBUG] Log target speed being sent every 50 frames
+        static int send_log_counter = 0;
+        if (send_log_counter++ % 50 == 0)
+        {
+            std::cout << "[DEBUG_CPP] Sending target_speed=" << setSpeed_ 
+                      << " m/s, current_speed=" << real_vehicle_.speed_ << " m/s" << std::endl;
+        }
+
         int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
         if (sent != sizeof(packet))
         {
@@ -372,6 +492,20 @@ void ControllerRealDriver::Step(double timeStep)
                 LOG_WARN("RealDriver: Failed to send target speed (sent {} bytes, expected {})", sent, sizeof(packet));
             }
         }
+    }
+
+    // Send waypoints via UDP (optional, for Python fallback)
+    if (sendWaypoints_)
+    {
+        // Extract waypoints on first step
+        if (!waypointsExtracted_)
+        {
+            ExtractWaypoints();
+            waypointsExtracted_ = true;
+        }
+
+        // Send waypoints periodically
+        SendWaypointsUDP();
     }
 
     // [DEBUG] Log throttle and speed
@@ -437,7 +571,14 @@ void ControllerRealDriver::Step(double timeStep)
             real_vehicle_.heading_);
             
         // Update Speed
-        gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
+        // [GT_MOD] FIX: Skip gateway speed overwrite when a SpeedAction with dynamics is RUNNING.
+        // This allows the SpeedAction's ramp to advance correctly (object_->speed_ preserves the ramp value).
+        // Without this, the controller resets object_->speed_ to real_vehicle_.speed_ (~0) each frame,
+        // causing the SpeedAction to produce only tiny speed increments (maxAcceleration * dt).
+        if (!hasRunningSpeedAction)
+        {
+            gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
+        }
         
         // Update Wheel Angle (for visualization)
         gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
@@ -524,6 +665,160 @@ void ControllerRealDriver::GetPowertrainForOSI(double& rpm, double& torque) cons
 void ControllerRealDriver::GetADASStates(std::vector<int>& states) const
 {
     states = input_.adasStates;
+}
+
+void ControllerRealDriver::ExtractWaypoints()
+{
+    waypoints_.clear();
+    currentWaypointIndex_ = 0;
+
+    if (!object_)
+    {
+        LOG_WARN("RealDriver: No object to extract waypoints from");
+        return;
+    }
+
+    // Try to get route from object's assigned route
+    roadmanager::Route* route = object_->pos_.GetRoute();
+    if (!route)
+    {
+        LOG_INFO("RealDriver: No route assigned to object - waypoints not sent");
+        return;
+    }
+
+    // Get all waypoints from the route
+    const std::vector<roadmanager::Position>& routeWaypoints = route->all_waypoints_;
+
+    if (routeWaypoints.empty())
+    {
+        LOG_INFO("RealDriver: Route has no waypoints");
+        return;
+    }
+
+    // Convert to WaypointData format
+    for (const auto& wp : routeWaypoints)
+    {
+        WaypointData data;
+        data.x = wp.GetX();
+        data.y = wp.GetY();
+        data.h = wp.GetH();
+        data.roadId = static_cast<uint32_t>(wp.GetTrackId());
+        data.s = wp.GetS();
+        data.laneId = wp.GetLaneId();
+        data.laneOffset = wp.GetOffset();  // Extract lane offset from lane center
+        waypoints_.push_back(data);
+    }
+
+    LOG_INFO("RealDriver: Extracted {} waypoints from route", waypoints_.size());
+
+    // Debug: Log each waypoint's details
+    for (size_t i = 0; i < waypoints_.size(); ++i)
+    {
+        LOG_INFO("  WP[{}]: x={:.2f}, y={:.2f}, h={:.2f}, roadId={}, s={:.2f}, laneId={}",
+                 i, waypoints_[i].x, waypoints_[i].y, waypoints_[i].h,
+                 waypoints_[i].roadId, waypoints_[i].s, waypoints_[i].laneId);
+    }
+}
+
+void ControllerRealDriver::SendWaypointsUDP()
+{
+    if (!waypointClient_ || waypoints_.empty())
+    {
+        return;
+    }
+
+    // Update current waypoint index based on vehicle position using distance-based tracking
+    if (object_ && !waypoints_.empty())
+    {
+        double vehicleX = object_->pos_.GetX();
+        double vehicleY = object_->pos_.GetY();
+        double vehicleH = object_->pos_.GetH();
+
+        // Find current waypoint (first waypoint ahead of vehicle)
+        for (size_t i = currentWaypointIndex_; i < waypoints_.size(); ++i)
+        {
+            // Calculate distance to waypoint
+            double dx = waypoints_[i].x - vehicleX;
+            double dy = waypoints_[i].y - vehicleY;
+            double dist = std::sqrt(dx * dx + dy * dy);
+
+            // Check if waypoint is close enough to consider
+            if (dist < 10.0)  // Within 10m
+            {
+                // Check if waypoint is behind us by comparing heading
+                double headingToWp = std::atan2(dy, dx);
+                double angleDiff = headingToWp - vehicleH;
+
+                // Normalize angle to [-PI, PI]
+                while (angleDiff > M_PI) angleDiff -= 2 * M_PI;
+                while (angleDiff < -M_PI) angleDiff += 2 * M_PI;
+
+                // If waypoint is more than 90 degrees behind us, it's passed
+                if (std::abs(angleDiff) > M_PI / 2)
+                {
+                    // Waypoint is behind us, advance to next
+                    currentWaypointIndex_ = static_cast<int>(i) + 1;
+                    continue;
+                }
+            }
+
+            // Found a valid waypoint ahead
+            currentWaypointIndex_ = static_cast<int>(i);
+            break;
+        }
+
+        // Clamp index to valid range
+        if (currentWaypointIndex_ >= static_cast<int>(waypoints_.size()))
+        {
+            currentWaypointIndex_ = static_cast<int>(waypoints_.size()) - 1;
+        }
+    }
+
+    // Packet structure:
+    // [Type: 1 byte = 2] + [CurrentIndex: 4 bytes] + [Count: 4 bytes] + [Waypoints...]
+    // Each waypoint: [x: 8][y: 8][h: 8][roadId: 4][s: 8][laneId: 4][laneOffset: 8] = 48 bytes
+
+#pragma pack(push, 1)
+    struct WaypointPacketHeader {
+        uint8_t type;
+        uint32_t currentIndex;
+        uint32_t count;
+    };
+#pragma pack(pop)
+
+    size_t headerSize = sizeof(WaypointPacketHeader);
+    size_t waypointSize = sizeof(WaypointData);
+    size_t totalSize = headerSize + waypoints_.size() * waypointSize;
+
+    // Allocate buffer
+    std::vector<char> buffer(totalSize);
+
+    // Fill header
+    WaypointPacketHeader* header = reinterpret_cast<WaypointPacketHeader*>(buffer.data());
+    header->type = 2;  // Type identifier for waypoints
+    header->currentIndex = static_cast<uint32_t>(currentWaypointIndex_);
+    header->count = static_cast<uint32_t>(waypoints_.size());
+
+    // Copy waypoints
+    memcpy(buffer.data() + headerSize, waypoints_.data(), waypoints_.size() * waypointSize);
+
+    // Debug: Log waypoint sending status (every 50 frames)
+    static int send_counter = 0;
+    if (send_counter++ % 50 == 0)
+    {
+        LOG_INFO("RealDriver: Sending waypoints, currentIndex={}/{}", currentWaypointIndex_, waypoints_.size());
+    }
+
+    // Send
+    int sent = waypointClient_->Send(buffer.data(), static_cast<int>(totalSize));
+    if (sent != static_cast<int>(totalSize))
+    {
+        static int error_counter = 0;
+        if (error_counter++ % 100 == 0)
+        {
+            LOG_WARN("RealDriver: Failed to send waypoints (sent {} bytes, expected {})", sent, totalSize);
+        }
+    }
 }
 
 } // namespace gt_esmini
