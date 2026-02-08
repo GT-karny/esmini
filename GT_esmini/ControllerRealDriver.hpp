@@ -54,6 +54,8 @@ namespace gt_esmini
         void SendWaypointsUDP();
         // Get target speed from running SpeedActions
         double GetTargetSpeedFromActions(bool* hasRunningAction = nullptr);
+        // Check if a LaneChangeAction is currently running on this object
+        bool HasRunningLaneChangeAction();
 
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;
@@ -75,6 +77,9 @@ namespace gt_esmini
         std::vector<WaypointData> waypoints_;
         int          currentWaypointIndex_;
         bool         waypointsExtracted_;
+
+        // LaneChangeAction cooperative control
+        bool         wasLaneChanging_ = false;  // Track previous frame state for re-sync
 
         struct DriverInput
         {

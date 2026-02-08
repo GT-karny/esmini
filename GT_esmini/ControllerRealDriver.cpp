@@ -265,6 +265,39 @@ double ControllerRealDriver::GetTargetSpeedFromActions(bool* hasRunningAction)
     return targetSpeed;
 }
 
+bool ControllerRealDriver::HasRunningLaneChangeAction()
+{
+    if (!object_) return false;
+
+    // 1. Search initActions_ for running LaneChangeAction
+    for (auto* action : object_->initActions_)
+    {
+        if (action->action_type_ == scenarioengine::OSCAction::ActionType::LAT_LANE_CHANGE &&
+            action->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        {
+            return true;
+        }
+    }
+
+    // 2. Search objectEvents_ for running LaneChangeAction
+    for (auto* event : object_->objectEvents_)
+    {
+        for (auto* action : event->action_)
+        {
+            if (action->GetBaseType() == scenarioengine::OSCAction::BaseType::PRIVATE)
+            {
+                auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+                if (pa->action_type_ == scenarioengine::OSCAction::ActionType::LAT_LANE_CHANGE &&
+                    pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void ControllerRealDriver::Step(double timeStep)
 {
     // Note: TerrainTracker::UpdateAllVehicleTerrain() is now called from GT_Step()
@@ -277,6 +310,11 @@ void ControllerRealDriver::Step(double timeStep)
     // (feedback loop: controller resets speed to 0 each frame, SpeedAction can only produce tiny increments).
     bool hasRunningSpeedAction = false;
     GetTargetSpeedFromActions(&hasRunningSpeedAction);
+
+    // [GT_MOD] FIX: Check for RUNNING LaneChangeAction to conditionally skip gateway position overwrite.
+    // When a LaneChangeAction is RUNNING, we let the scenario engine control lateral position
+    // while RealDriver continues to provide speed control.
+    bool hasRunningLaneChange = HasRunningLaneChangeAction();
 
     double objectSpeed = object_->GetSpeed();
     if (abs(objectSpeed - currentSpeed_) > 1e-3)
@@ -565,11 +603,17 @@ void ControllerRealDriver::Step(double timeStep)
         double w_dy = dx * std::sin(h) + dy * std::cos(h);
         
         // Update Position & Heading
-        gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, 
-            real_vehicle_.posX_ + w_dx, 
-            real_vehicle_.posY_ + w_dy, 
-            real_vehicle_.heading_);
-            
+        // [GT_MOD] FIX: Skip position/heading overwrite when a LaneChangeAction is RUNNING.
+        // This lets the scenario engine control lateral movement (lane change) while
+        // RealDriver continues to provide speed control via updateObjectSpeed().
+        if (!hasRunningLaneChange)
+        {
+            gateway_->updateObjectWorldPosXYH(object_->id_, 0.0,
+                real_vehicle_.posX_ + w_dx,
+                real_vehicle_.posY_ + w_dy,
+                real_vehicle_.heading_);
+        }
+
         // Update Speed
         // [GT_MOD] FIX: Skip gateway speed overwrite when a SpeedAction with dynamics is RUNNING.
         // This allows the SpeedAction's ramp to advance correctly (object_->speed_ preserves the ramp value).
@@ -579,20 +623,42 @@ void ControllerRealDriver::Step(double timeStep)
         {
             gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
         }
-        
+
         // Update Wheel Angle (for visualization)
-        gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
-        
+        if (!hasRunningLaneChange)
+        {
+            gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
+        }
+
         // Update Pitch & Roll (Extended Physics with Terrain!)
         // Apply Z update with pivot offset
-        gateway_->updateObjectWorldPos(object_->id_, 0.0,
-            real_vehicle_.posX_ + w_dx,
-            real_vehicle_.posY_ + w_dy,
-            real_vehicle_.posZ_ + dz, // Apply pivot vertical offset
-            real_vehicle_.heading_,
-            combined_pitch,  // Terrain + Dynamic
-            combined_roll    // Terrain + Dynamic
-        );
+        if (!hasRunningLaneChange)
+        {
+            gateway_->updateObjectWorldPos(object_->id_, 0.0,
+                real_vehicle_.posX_ + w_dx,
+                real_vehicle_.posY_ + w_dy,
+                real_vehicle_.posZ_ + dz, // Apply pivot vertical offset
+                real_vehicle_.heading_,
+                combined_pitch,  // Terrain + Dynamic
+                combined_roll    // Terrain + Dynamic
+            );
+        }
+
+        // [GT_MOD] Re-sync RealVehicle state when LaneChangeAction completes.
+        // During lane change, scenario engine controls position. When it ends,
+        // we must sync internal physics state to prevent position jump on handback.
+        if (wasLaneChanging_ && !hasRunningLaneChange)
+        {
+            LOG_INFO("RealDriver: LaneChange completed, re-syncing physics state");
+            real_vehicle_.SetPos(
+                object_->pos_.GetX(),
+                object_->pos_.GetY(),
+                object_->pos_.GetZ(),
+                object_->pos_.GetH()
+            );
+            real_vehicle_.SetSpeed(object_->GetSpeed());
+        }
+        wasLaneChanging_ = hasRunningLaneChange;
         
         // 4. Update Lights (Extensions)
         auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
@@ -682,7 +748,47 @@ void ControllerRealDriver::ExtractWaypoints()
     roadmanager::Route* route = object_->pos_.GetRoute();
     if (!route)
     {
-        LOG_INFO("RealDriver: No route assigned to object - waypoints not sent");
+        // [GT_MOD] Fallback: generate waypoints by stepping forward along the road
+        // using MoveAlongS(), which automatically follows successor links and junctions.
+        LOG_INFO("RealDriver: No route assigned, generating fallback waypoints by road-following");
+
+        roadmanager::Position pos = object_->pos_;
+        double step = 5.0;        // 5m intervals
+        double total_dist = 500.0; // Generate for 500m ahead
+
+        for (double d = 0; d < total_dist; d += step)
+        {
+            WaypointData data;
+            data.x = pos.GetX();
+            data.y = pos.GetY();
+            data.h = pos.GetH();
+            data.roadId = static_cast<uint32_t>(pos.GetTrackId());
+            data.s = pos.GetS();
+            data.laneId = pos.GetLaneId();
+            data.laneOffset = pos.GetOffset();
+            waypoints_.push_back(data);
+
+            // Advance along road (follows successor links and junctions automatically)
+            roadmanager::Position::ReturnCode rc = pos.MoveAlongS(step);
+            if (static_cast<int>(rc) < 0)
+            {
+                LOG_INFO("RealDriver: Road-following stopped at d={:.1f}m (rc={})", d, static_cast<int>(rc));
+                break;
+            }
+        }
+
+        LOG_INFO("RealDriver: Generated {} fallback waypoints by road-following", waypoints_.size());
+
+        // Debug: Log first and last waypoints
+        if (!waypoints_.empty())
+        {
+            auto& first = waypoints_.front();
+            auto& last = waypoints_.back();
+            LOG_INFO("  First WP: x={:.2f}, y={:.2f}, roadId={}, s={:.2f}, laneId={}",
+                     first.x, first.y, first.roadId, first.s, first.laneId);
+            LOG_INFO("  Last  WP: x={:.2f}, y={:.2f}, roadId={}, s={:.2f}, laneId={}",
+                     last.x, last.y, last.roadId, last.s, last.laneId);
+        }
         return;
     }
 
