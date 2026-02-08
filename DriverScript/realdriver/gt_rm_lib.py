@@ -56,6 +56,29 @@ class JunctionConnection:
     contact_point: int  # GT_RM_CONTACT_POINT_*
 
 
+@dataclass
+class RoadSignalInfo:
+    """Road signal information."""
+    id: int
+    s: float
+    t: float
+    x: float
+    y: float
+    z: float
+    h: float
+    p: float
+    r: float
+    type: str
+    subtype: str
+    country: str
+    value: float
+    unit: str
+    text: str
+    is_dynamic: bool
+    height: float
+    width: float
+
+
 # C structure definitions
 class GT_RM_RoadLinkInfo(ctypes.Structure):
     _fields_ = [
@@ -70,6 +93,29 @@ class GT_RM_JunctionConnection(ctypes.Structure):
         ("incomingRoadId", ctypes.c_uint32),
         ("connectingRoadId", ctypes.c_uint32),
         ("contactPoint", ctypes.c_int)
+    ]
+
+
+class GT_RM_RoadSignalInfo(ctypes.Structure):
+    _fields_ = [
+        ("id", ctypes.c_int),
+        ("s", ctypes.c_double),
+        ("t", ctypes.c_double),
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+        ("z", ctypes.c_double),
+        ("h", ctypes.c_double),
+        ("p", ctypes.c_double),
+        ("r", ctypes.c_double),
+        ("type", ctypes.c_char * 64),
+        ("subtype", ctypes.c_char * 64),
+        ("country", ctypes.c_char * 64),
+        ("value", ctypes.c_double),
+        ("unit", ctypes.c_char * 64),
+        ("text", ctypes.c_char * 128),
+        ("isDynamic", ctypes.c_bool),
+        ("height", ctypes.c_double),
+        ("width", ctypes.c_double)
     ]
 
 
@@ -164,6 +210,18 @@ class GTEsminiRMLib:
         # GT_RM_GetRoadLength
         self.lib.GT_RM_GetRoadLength.argtypes = [ctypes.c_uint32]
         self.lib.GT_RM_GetRoadLength.restype = ctypes.c_double
+
+        # GT_RM_GetRoadSignalCount
+        self.lib.GT_RM_GetRoadSignalCount.argtypes = [ctypes.c_uint32]
+        self.lib.GT_RM_GetRoadSignalCount.restype = ctypes.c_int
+
+        # GT_RM_GetRoadSignal
+        self.lib.GT_RM_GetRoadSignal.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_int,
+            ctypes.POINTER(GT_RM_RoadSignalInfo)
+        ]
+        self.lib.GT_RM_GetRoadSignal.restype = ctypes.c_int
 
     def init(self, odr_path: str) -> int:
         """
@@ -383,6 +441,76 @@ class GTEsminiRMLib:
             Road length in meters, or -1 if road not found
         """
         return self.lib.GT_RM_GetRoadLength(road_id)
+
+    def get_road_signal_count(self, road_id: int) -> int:
+        """
+        Get the number of signals on a road.
+
+        Args:
+            road_id: The road ID
+
+        Returns:
+            Number of signals, or -1 if road not found
+        """
+        return self.lib.GT_RM_GetRoadSignalCount(road_id)
+
+    def get_road_signal(self, road_id: int, index: int) -> Optional[RoadSignalInfo]:
+        """
+        Get signal information by index.
+
+        Args:
+            road_id: The road ID
+            index: Signal index (0-based)
+
+        Returns:
+            RoadSignalInfo if found, None otherwise
+        """
+        signal_info = GT_RM_RoadSignalInfo()
+        result = self.lib.GT_RM_GetRoadSignal(road_id, index, ctypes.byref(signal_info))
+
+        if result == 0:
+            return RoadSignalInfo(
+                id=signal_info.id,
+                s=signal_info.s,
+                t=signal_info.t,
+                x=signal_info.x,
+                y=signal_info.y,
+                z=signal_info.z,
+                h=signal_info.h,
+                p=signal_info.p,
+                r=signal_info.r,
+                type=signal_info.type.decode('utf-8', errors='replace'),
+                subtype=signal_info.subtype.decode('utf-8', errors='replace'),
+                country=signal_info.country.decode('utf-8', errors='replace'),
+                value=signal_info.value,
+                unit=signal_info.unit.decode('utf-8', errors='replace'),
+                text=signal_info.text.decode('utf-8', errors='replace'),
+                is_dynamic=signal_info.isDynamic,
+                height=signal_info.height,
+                width=signal_info.width
+            )
+        return None
+
+    def get_all_road_signals(self, road_id: int) -> List[RoadSignalInfo]:
+        """
+        Get all signals on a road.
+
+        Args:
+            road_id: The road ID
+
+        Returns:
+            List of RoadSignalInfo objects
+        """
+        count = self.get_road_signal_count(road_id)
+        if count <= 0:
+            return []
+
+        signals = []
+        for i in range(count):
+            signal = self.get_road_signal(road_id, i)
+            if signal:
+                signals.append(signal)
+        return signals
 
     def get_connected_roads(self, road_id: int, direction: str = 'both') -> List[Tuple[int, str, int]]:
         """
