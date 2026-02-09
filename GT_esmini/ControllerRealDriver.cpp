@@ -265,9 +265,9 @@ double ControllerRealDriver::GetTargetSpeedFromActions(bool* hasRunningAction)
     return targetSpeed;
 }
 
-bool ControllerRealDriver::HasRunningLaneChangeAction()
+scenarioengine::LatLaneChangeAction* ControllerRealDriver::GetRunningLaneChangeAction()
 {
-    if (!object_) return false;
+    if (!object_) return nullptr;
 
     // 1. Search initActions_ for running LaneChangeAction
     for (auto* action : object_->initActions_)
@@ -275,7 +275,7 @@ bool ControllerRealDriver::HasRunningLaneChangeAction()
         if (action->action_type_ == scenarioengine::OSCAction::ActionType::LAT_LANE_CHANGE &&
             action->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
         {
-            return true;
+            return static_cast<scenarioengine::LatLaneChangeAction*>(action);
         }
     }
 
@@ -290,12 +290,12 @@ bool ControllerRealDriver::HasRunningLaneChangeAction()
                 if (pa->action_type_ == scenarioengine::OSCAction::ActionType::LAT_LANE_CHANGE &&
                     pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
                 {
-                    return true;
+                    return static_cast<scenarioengine::LatLaneChangeAction*>(pa);
                 }
             }
         }
     }
-    return false;
+    return nullptr;
 }
 
 void ControllerRealDriver::Step(double timeStep)
@@ -311,10 +311,22 @@ void ControllerRealDriver::Step(double timeStep)
     bool hasRunningSpeedAction = false;
     GetTargetSpeedFromActions(&hasRunningSpeedAction);
 
-    // [GT_MOD] FIX: Check for RUNNING LaneChangeAction to conditionally skip gateway position overwrite.
-    // When a LaneChangeAction is RUNNING, we let the scenario engine control lateral position
-    // while RealDriver continues to provide speed control.
-    bool hasRunningLaneChange = HasRunningLaneChangeAction();
+    // [GT_MOD] Check for RUNNING LaneChangeAction to detect lane change transitions
+    // and regenerate waypoints for smooth target transition.
+    auto* runningLaneChangeAction = GetRunningLaneChangeAction();
+    bool hasRunningLaneChange = (runningLaneChangeAction != nullptr);
+
+    // [DIAG] LC 前後のみ詳細ログ出力
+    if (wasLaneChanging_ || hasRunningLaneChange) {
+        LOG_INFO("[DIAG] LC_STATE wasLC={} hasLC={}", wasLaneChanging_, hasRunningLaneChange);
+        LOG_INFO("[DIAG] object_pos  x={:.3f} y={:.3f} h={:.4f} lane={} s={:.2f}",
+                 object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetH(),
+                 object_->pos_.GetLaneId(), object_->pos_.GetS());
+        LOG_INFO("[DIAG] real_vehicle x={:.3f} y={:.3f} h={:.4f} speed={:.2f}",
+                 real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_, real_vehicle_.speed_);
+        LOG_INFO("[DIAG] steering_in={:.4f} wheelAngle={:.4f}",
+                 input_.steering, real_vehicle_.wheelAngle_);
+    }
 
     double objectSpeed = object_->GetSpeed();
     if (abs(objectSpeed - currentSpeed_) > 1e-3)
@@ -334,25 +346,6 @@ void ControllerRealDriver::Step(double timeStep)
         {
             int r = udpServer_->Receive(udp_buffer_.data(), static_cast<int>(udp_buffer_.size()));
             
-            // [DEBUG] Diagnostic logging
-            static int poll_counter = 0;
-            // Print every 100 polling attempts (approx 1 sec), regardless of result
-            if (poll_counter++ % 100 == 0) {
-                 LOG_INFO("RealDriverController: Polling UDP... Res={}", r);
-            }
-
-            // [DEBUG] WSAGetLastError for diagnosis
-            if (r < 0) {
-#ifdef _WIN32
-                int err = WSAGetLastError();
-                static int last_err = 0;
-                if (err != last_err || poll_counter % 500 == 0) {
-                    LOG_INFO("RealDriverController: Recv failed, WSAError={}", err);
-                    last_err = err;
-                }
-#endif
-            }
-
             if (r > 0)
             {
                 // New Packet Structure: [LightMask (4 bytes)] + [HostVehicleData]
@@ -514,13 +507,6 @@ void ControllerRealDriver::Step(double timeStep)
         packet.targetSpeed = setSpeed_;
 
         // [DEBUG] Log target speed being sent every 50 frames
-        static int send_log_counter = 0;
-        if (send_log_counter++ % 50 == 0)
-        {
-            std::cout << "[DEBUG_CPP] Sending target_speed=" << setSpeed_ 
-                      << " m/s, current_speed=" << real_vehicle_.speed_ << " m/s" << std::endl;
-        }
-
         int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
         if (sent != sizeof(packet))
         {
@@ -546,13 +532,6 @@ void ControllerRealDriver::Step(double timeStep)
         SendWaypointsUDP();
     }
 
-    // [DEBUG] Log throttle and speed
-    static int step_counter = 0;
-    if (step_counter++ % 50 == 0) {
-        LOG_INFO("RealDriver: throttle={:.2f} brake={:.2f} gear={} speed={:.2f} target={:.2f}",
-                 input_.throttle, input_.brake, input_.gear, real_vehicle_.speed_, setSpeed_);
-    }
-    
     // Inject Physics Results back into Cached HVD
     if (cached_hvd_.has_vehicle_powertrain())
     {
@@ -589,76 +568,63 @@ void ControllerRealDriver::Step(double timeStep)
     // 3. Update Simulation Object
     if (object_ && gateway_)
     {
+        // [GT_MOD] Detect lane change start → regenerate waypoints with smooth transition.
+        // Python steering priority: real_vehicle_ always drives visible position,
+        // waypoints provide smooth target for Python to steer towards.
+        if (!wasLaneChanging_ && hasRunningLaneChange)
+        {
+            if (runningLaneChangeAction && runningLaneChangeAction->target_)
+            {
+                int targetLaneId = runningLaneChangeAction->target_->value_;
+                double duration  = runningLaneChangeAction->transition_.GetParamTargetVal();
+                LOG_INFO("RealDriver: LaneChange starting, target lane={}, duration={:.1f}s",
+                         targetLaneId, duration);
+                RegenerateWaypointsForLaneChange(targetLaneId, duration);
+            }
+        }
+        wasLaneChanging_ = hasRunningLaneChange;
+
+        // --- Always write real_vehicle_ to gateway (Python steering priority) ---
         // Calculate visual/physical pivot offset
         double dx, dy, dz;
         real_vehicle_.GetBodyPositionOffset(dx, dy, dz);
-        
-        // Rotate offset by Heading to match world frame alignment?
-        // Offsets dx, dy from GetBodyPositionOffset are in "Vehicle Frame" (X-forward, Y-left).
-        // We need to rotate them by Heading to get World Offsets.
+
+        // Rotate offset by Heading to match world frame alignment.
         double h = real_vehicle_.heading_;
-        // Note: Using stored h instead of object_->pos_.GetH() to ensure consistency with real_vehicle_ state
-        
         double w_dx = dx * std::cos(h) - dy * std::sin(h);
         double w_dy = dx * std::sin(h) + dy * std::cos(h);
-        
+
         // Update Position & Heading
-        // [GT_MOD] FIX: Skip position/heading overwrite when a LaneChangeAction is RUNNING.
-        // This lets the scenario engine control lateral movement (lane change) while
-        // RealDriver continues to provide speed control via updateObjectSpeed().
-        if (!hasRunningLaneChange)
-        {
-            gateway_->updateObjectWorldPosXYH(object_->id_, 0.0,
-                real_vehicle_.posX_ + w_dx,
-                real_vehicle_.posY_ + w_dy,
-                real_vehicle_.heading_);
+        gateway_->updateObjectWorldPosXYH(object_->id_, 0.0,
+            real_vehicle_.posX_ + w_dx,
+            real_vehicle_.posY_ + w_dy,
+            real_vehicle_.heading_);
+
+        // [DIAG] gateway 書き込み値（LC中のみ）
+        if (wasLaneChanging_ || hasRunningLaneChange) {
+            LOG_INFO("[DIAG] GW_WRITE x={:.3f} y={:.3f} h={:.4f}",
+                     real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
         }
 
         // Update Speed
         // [GT_MOD] FIX: Skip gateway speed overwrite when a SpeedAction with dynamics is RUNNING.
-        // This allows the SpeedAction's ramp to advance correctly (object_->speed_ preserves the ramp value).
-        // Without this, the controller resets object_->speed_ to real_vehicle_.speed_ (~0) each frame,
-        // causing the SpeedAction to produce only tiny speed increments (maxAcceleration * dt).
         if (!hasRunningSpeedAction)
         {
             gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
         }
 
         // Update Wheel Angle (for visualization)
-        if (!hasRunningLaneChange)
-        {
-            gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
-        }
+        gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
 
         // Update Pitch & Roll (Extended Physics with Terrain!)
-        // Apply Z update with pivot offset
-        if (!hasRunningLaneChange)
-        {
-            gateway_->updateObjectWorldPos(object_->id_, 0.0,
-                real_vehicle_.posX_ + w_dx,
-                real_vehicle_.posY_ + w_dy,
-                real_vehicle_.posZ_ + dz, // Apply pivot vertical offset
-                real_vehicle_.heading_,
-                combined_pitch,  // Terrain + Dynamic
-                combined_roll    // Terrain + Dynamic
-            );
-        }
-
-        // [GT_MOD] Re-sync RealVehicle state when LaneChangeAction completes.
-        // During lane change, scenario engine controls position. When it ends,
-        // we must sync internal physics state to prevent position jump on handback.
-        if (wasLaneChanging_ && !hasRunningLaneChange)
-        {
-            LOG_INFO("RealDriver: LaneChange completed, re-syncing physics state");
-            real_vehicle_.SetPos(
-                object_->pos_.GetX(),
-                object_->pos_.GetY(),
-                object_->pos_.GetZ(),
-                object_->pos_.GetH()
-            );
-            real_vehicle_.SetSpeed(object_->GetSpeed());
-        }
-        wasLaneChanging_ = hasRunningLaneChange;
+        gateway_->updateObjectWorldPos(object_->id_, 0.0,
+            real_vehicle_.posX_ + w_dx,
+            real_vehicle_.posY_ + w_dy,
+            real_vehicle_.posZ_ + dz, // Apply pivot vertical offset
+            real_vehicle_.heading_,
+            combined_pitch,  // Terrain + Dynamic
+            combined_roll    // Terrain + Dynamic
+        );
         
         // 4. Update Lights (Extensions)
         auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
@@ -836,9 +802,12 @@ void ControllerRealDriver::SendWaypointsUDP()
     // Update current waypoint index based on vehicle position using distance-based tracking
     if (object_ && !waypoints_.empty())
     {
-        double vehicleX = object_->pos_.GetX();
-        double vehicleY = object_->pos_.GetY();
-        double vehicleH = object_->pos_.GetH();
+        // [GT_MOD] Use real_vehicle_ position, NOT object_->pos_.
+        // object_->pos_ is overwritten by LaneChangeAction during StoryBoard.Step(),
+        // so it contains the action trajectory, not the actual driven position.
+        double vehicleX = real_vehicle_.posX_;
+        double vehicleY = real_vehicle_.posY_;
+        double vehicleH = real_vehicle_.heading_;
 
         // Find current waypoint (first waypoint ahead of vehicle)
         for (size_t i = currentWaypointIndex_; i < waypoints_.size(); ++i)
@@ -878,6 +847,19 @@ void ControllerRealDriver::SendWaypointsUDP()
         {
             currentWaypointIndex_ = static_cast<int>(waypoints_.size()) - 1;
         }
+
+        // [DIAG] LC 中のウェイポイントインデックス追跡
+        if (wasLaneChanging_) {
+            int idx = currentWaypointIndex_;
+            if (idx >= 0 && idx < static_cast<int>(waypoints_.size())) {
+                LOG_INFO("[DIAG] WP idx={}/{} wp_xy=({:.2f},{:.2f}) vehicle_xy=({:.2f},{:.2f}) dist={:.2f}",
+                         idx, static_cast<int>(waypoints_.size()),
+                         waypoints_[idx].x, waypoints_[idx].y,
+                         vehicleX, vehicleY,
+                         std::sqrt((waypoints_[idx].x - vehicleX) * (waypoints_[idx].x - vehicleX) +
+                                   (waypoints_[idx].y - vehicleY) * (waypoints_[idx].y - vehicleY)));
+            }
+        }
     }
 
     // Packet structure:
@@ -908,12 +890,7 @@ void ControllerRealDriver::SendWaypointsUDP()
     // Copy waypoints
     memcpy(buffer.data() + headerSize, waypoints_.data(), waypoints_.size() * waypointSize);
 
-    // Debug: Log waypoint sending status (every 50 frames)
-    static int send_counter = 0;
-    if (send_counter++ % 50 == 0)
-    {
-        LOG_INFO("RealDriver: Sending waypoints, currentIndex={}/{}", currentWaypointIndex_, waypoints_.size());
-    }
+
 
     // Send
     int sent = waypointClient_->Send(buffer.data(), static_cast<int>(totalSize));
@@ -925,6 +902,69 @@ void ControllerRealDriver::SendWaypointsUDP()
             LOG_WARN("RealDriver: Failed to send waypoints (sent {} bytes, expected {})", sent, totalSize);
         }
     }
+}
+
+void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, double transitionDuration)
+{
+    waypoints_.clear();
+    currentWaypointIndex_ = 0;
+
+    if (!object_) return;
+
+    double speed = std::max(object_->GetSpeed(), 5.0); // Minimum 5 m/s for calculation
+    double transitionDist = speed * transitionDuration;
+    double step = 5.0;        // 5m intervals
+    double totalDist = 500.0; // Generate 500m ahead
+
+    // [GT_MOD] Use real_vehicle_ position as base, NOT object_->pos_.
+    // object_->pos_ may already be overwritten by LaneChangeAction at this point.
+    roadmanager::Position posBase;
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+                              roadmanager::Position::PosMode::H_ABS);
+    int currentLaneId = posBase.GetLaneId();
+
+    for (double d = 0; d < totalDist; d += step)
+    {
+        double progress = (transitionDist > 0) ? std::min(d / transitionDist, 1.0) : 1.0;
+        double factor = 0.5 * (1.0 - std::cos(M_PI * progress)); // sinusoidal interpolation
+
+        // Compute position in current lane and target lane at same s value
+        roadmanager::Position posCur, posTgt;
+        posCur.SetLanePos(posBase.GetTrackId(), currentLaneId, posBase.GetS(), 0);
+        posTgt.SetLanePos(posBase.GetTrackId(), targetLaneId,  posBase.GetS(), 0);
+
+        WaypointData wp;
+        wp.x = posCur.GetX() * (1.0 - factor) + posTgt.GetX() * factor;
+        wp.y = posCur.GetY() * (1.0 - factor) + posTgt.GetY() * factor;
+        // [GT_MOD] Interpolate heading with angle wrapping (not just target heading)
+        double hCur = posCur.GetH();
+        double hTgt = posTgt.GetH();
+        double hDiff = hTgt - hCur;
+        while (hDiff > M_PI)  hDiff -= 2.0 * M_PI;
+        while (hDiff < -M_PI) hDiff += 2.0 * M_PI;
+        wp.h = hCur + factor * hDiff;
+        wp.roadId = static_cast<uint32_t>(posBase.GetTrackId());
+        wp.s = posBase.GetS();
+        wp.laneId = targetLaneId;
+        wp.laneOffset = 0;
+        waypoints_.push_back(wp);
+
+        // Advance to next s position along road
+        roadmanager::Position::ReturnCode rc = posBase.MoveAlongS(step);
+        if (static_cast<int>(rc) < 0) break;
+    }
+
+    LOG_INFO("RealDriver: Regenerated {} waypoints for lane change (target lane {})",
+             waypoints_.size(), targetLaneId);
+
+    // [DIAG] 最初の5個のウェイポイントを表示
+    for (size_t i = 0; i < std::min(waypoints_.size(), size_t(5)); ++i) {
+        LOG_INFO("[DIAG] WP_GEN[{}] x={:.2f} y={:.2f} h={:.4f} s={:.1f} lane={}",
+                 i, waypoints_[i].x, waypoints_[i].y, waypoints_[i].h,
+                 waypoints_[i].s, waypoints_[i].laneId);
+    }
+    LOG_INFO("[DIAG] WP_GEN base: posBase roadId={} laneId={} s={:.2f}",
+             posBase.GetTrackId(), currentLaneId, posBase.GetS());
 }
 
 } // namespace gt_esmini

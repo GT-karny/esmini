@@ -8,6 +8,8 @@
 #include "RoadManager.hpp"
 #include <vector>
 
+namespace scenarioengine { class LatLaneChangeAction; }
+
 #define CONTROLLER_REAL_DRIVER_TYPE_NAME "RealDriverController"
 #define DEFAULT_REAL_DRIVER_PORT         53995
 
@@ -54,8 +56,10 @@ namespace gt_esmini
         void SendWaypointsUDP();
         // Get target speed from running SpeedActions
         double GetTargetSpeedFromActions(bool* hasRunningAction = nullptr);
-        // Check if a LaneChangeAction is currently running on this object
-        bool HasRunningLaneChangeAction();
+        // Get running LaneChangeAction (or nullptr if none)
+        scenarioengine::LatLaneChangeAction* GetRunningLaneChangeAction();
+        // Regenerate waypoints with smooth sinusoidal transition to target lane
+        void RegenerateWaypointsForLaneChange(int targetLaneId, double transitionDuration);
 
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;

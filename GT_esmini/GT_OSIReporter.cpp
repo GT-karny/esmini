@@ -1008,20 +1008,8 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
     }
     }
 
-    // [GT_MOD] Debug: Log trajectory state AFTER route cloning
-    printf("GT_TRAJ: After clone - roadId=%d, laneId=%d, hasRoute=%d\n",
-        ghostPos.GetTrackId(), ghostPos.GetLaneId(),
-        (ghostPos.GetRoute() && ghostPos.GetRoute()->IsValid()) ? 1 : 0);
     if (ghostPos.GetRoute() && ghostPos.GetRoute()->IsValid())
     {
-        printf("GT_TRAJ: Route waypoints=%d\n", (int)ghostPos.GetRoute()->minimal_waypoints_.size());
-        for (size_t i = 0; i < ghostPos.GetRoute()->minimal_waypoints_.size() && i < 5; i++)
-        {
-            printf("GT_TRAJ:   WP[%d] roadId=%d, laneId=%d\n", 
-                (int)i, ghostPos.GetRoute()->minimal_waypoints_[i].GetTrackId(),
-                ghostPos.GetRoute()->minimal_waypoints_[i].GetLaneId());
-        }
-        
         // [GT_MOD] CRITICAL FIX: Correct ghostPos lane ID to match route
         // Problem: PID control causes vehicle to deviate from lane center, causing esmini
         // to snap to wrong lane (e.g. lane 1 instead of lane -1). This causes MoveAlongS
@@ -1036,8 +1024,6 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
                 int currentLaneId = ghostPos.GetLaneId();
                 if (routeLaneId != currentLaneId)
                 {
-                    printf("GT_TRAJ: Correcting ghostPos lane: %d -> %d (route)\n", 
-                        currentLaneId, routeLaneId);
                     ghostPos.SetLanePos(currentRoadId, routeLaneId, ghostPos.GetS(), 0.0);
                 }
                 break;
@@ -1196,11 +1182,6 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
 
         double ds = speed * dt_step;
         
-        // [GT_DEBUG] Trace speed calculation
-        if (i == 1) {
-             printf("GT_DEBUG: Step 1, Speed: %.2f, ds: %.2f, UsingAction: %d, Tgt: %.2f\n", speed, ds, usingSpeedAction, debugTargetSpeed);
-        }
-        
         // Lateral Logic (Lane Change)
         double dLaneOffset = 0.0;
         
@@ -1235,12 +1216,7 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
         // [GT_MOD] Fallback
         if (static_cast<int>(ret) < 0) 
         {
-             // [GT_DEBUG]
-             if (i == 1) printf("GT_DEBUG: MoveAlongS failed (ret=%d), trying fallback.\n", static_cast<int>(ret));
              ret = ghostPos.MoveAlongS(ds, dLaneOffset, -1.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, false);
-             if (static_cast<int>(ret) < 0 && i == 1) {
-                 printf("GT_DEBUG: Fallback MoveAlongS also failed (ret=%d).\n", static_cast<int>(ret));
-             }
         }
         
         // [GT_MOD] Detect road transition and correct lane ID based on route
@@ -1256,12 +1232,6 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
                 // Correct to target lane from route
                 double currentS = ghostPos.GetS();
                 ghostPos.SetLanePos(currentRoadId, targetLaneId, currentS, 0.0);
-                
-                // Debug log
-                if (i == 1) {
-                    printf("GT_TRAJ: Road transition %d->%d, Lane corrected %d->%d\n",
-                        prevRoadId, currentRoadId, currentLaneId, targetLaneId);
-                }
             }
         }
         
