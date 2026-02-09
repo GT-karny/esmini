@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Controller.hpp"
+#include "Action.hpp"
 #include "RealVehicle.hpp"
 #include "UDP.hpp"
 #include "GT_UDP.hpp"
@@ -8,7 +9,16 @@
 #include "RoadManager.hpp"
 #include <vector>
 
-namespace scenarioengine { class LatLaneChangeAction; }
+namespace scenarioengine {
+class OSCPrivateAction;
+class LatLaneChangeAction;
+class LatLaneOffsetAction;
+class LongDistanceAction;
+class LongSpeedProfileAction;
+class FollowTrajectoryAction;
+class SynchronizeAction;
+class AssignRouteAction;
+}
 
 #define CONTROLLER_REAL_DRIVER_TYPE_NAME "RealDriverController"
 #define DEFAULT_REAL_DRIVER_PORT         53995
@@ -58,8 +68,21 @@ namespace gt_esmini
         double GetTargetSpeedFromActions(bool* hasRunningAction = nullptr);
         // Get running LaneChangeAction (or nullptr if none)
         scenarioengine::LatLaneChangeAction* GetRunningLaneChangeAction();
+        // Get first running private action of a specific type
+        scenarioengine::OSCPrivateAction* GetRunningPrivateActionByType(scenarioengine::OSCAction::ActionType type);
+        // Additional supported actions
+        scenarioengine::LatLaneOffsetAction* GetRunningLaneOffsetAction();
+        scenarioengine::LongDistanceAction* GetRunningLongDistanceAction();
+        scenarioengine::LongSpeedProfileAction* GetRunningSpeedProfileAction();
+        scenarioengine::FollowTrajectoryAction* GetRunningFollowTrajectoryAction();
+        scenarioengine::SynchronizeAction* GetRunningSynchronizeAction();
+        scenarioengine::AssignRouteAction* GetRunningAssignRouteAction();
         // Regenerate waypoints with smooth sinusoidal transition to target lane
         void RegenerateWaypointsForLaneChange(int targetLaneId, double transitionDuration);
+        // Regenerate waypoints for lane offset transition
+        void RegenerateWaypointsForLaneOffset(double targetOffset, double transitionDistance);
+        // Regenerate waypoints from FollowTrajectory action
+        void RegenerateWaypointsForTrajectory(scenarioengine::FollowTrajectoryAction* action);
 
         RealVehicle  real_vehicle_;
         UDPServer*   udpServer_;
@@ -81,9 +104,13 @@ namespace gt_esmini
         std::vector<WaypointData> waypoints_;
         int          currentWaypointIndex_;
         bool         waypointsExtracted_;
+        const roadmanager::Route* lastObservedRoute_ = nullptr;
 
         // LaneChangeAction cooperative control
         bool         wasLaneChanging_ = false;  // Track previous frame state for re-sync
+        bool         wasLaneOffsetting_ = false;
+        bool         wasFollowingTrajectory_ = false;
+        bool         wasAssigningRoute_ = false;
 
         struct DriverInput
         {
