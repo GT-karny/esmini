@@ -270,8 +270,15 @@ class LateralController:
         curvature = self._calculate_curvature(wps, nearest_idx, cfg.curvature_sample_dist)
         self._current_curvature = curvature
 
+        lane_change_like_segment = self._is_lane_change_like_segment(wps, nearest_idx)
+
         # === STEP 2.5: Anticipatory steering ===
-        self._calculate_anticipatory_steering(wps, nearest_idx, state.speed, cfg)
+        if lane_change_like_segment:
+            # During lane transition we avoid pre-steer to prevent double-peak steering.
+            self._anticipate_steering = 0.0
+            self._curve_detected = False
+        else:
+            self._calculate_anticipatory_steering(wps, nearest_idx, state.speed, cfg)
 
         # === STEP 3: Find lookahead point ===
         base_lookahead = state.speed * cfg.lookahead_time
@@ -346,7 +353,9 @@ class LateralController:
 
         # === STEP 7: Apply smoothing ===
         curve_detected = self._curve_detected
-        if curve_detected or curvature > 0.02 or abs(anticipate_steering) > 0.05:
+        if lane_change_like_segment or self._lane_change_state != LaneChangeState.LANE_KEEP:
+            effective_smoothing = max(cfg.smoothing_factor, 0.65)
+        elif curve_detected or curvature > 0.02 or abs(anticipate_steering) > 0.05:
             effective_smoothing = cfg.smoothing_factor * 0.3
         else:
             effective_smoothing = cfg.smoothing_factor
@@ -367,6 +376,20 @@ class LateralController:
                       f"HeadErr={heading_error:.3f}, XTE={xte:.2f}, Steer={steering:.3f} {antic_str}")
 
         return steering
+
+    def _is_lane_change_like_segment(self, wps: List[Waypoint], nearest_idx: int) -> bool:
+        """
+        Detect if upcoming route points represent a lane transition.
+        """
+        end_idx = min(nearest_idx + 40, len(wps) - 1)
+        base_lane = wps[nearest_idx].lane_id
+        for i in range(nearest_idx, end_idx + 1):
+            wp = wps[i]
+            if wp.lane_id != base_lane:
+                return True
+            if abs(wp.lane_offset) > 0.2:
+                return True
+        return False
 
     def _calculate_curvature(self, wps: List[Waypoint], start_idx: int,
                              sample_dist: float) -> float:
