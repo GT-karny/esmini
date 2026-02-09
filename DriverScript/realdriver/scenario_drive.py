@@ -154,6 +154,7 @@ class ScenarioDriveController:
         self._last_ego_pos: Optional[Waypoint] = None
         self._no_route_warned = False
         self._pending_target: Optional[Waypoint] = None
+        self._last_udp_waypoint_sig = None
 
         # For backward compatibility
         self.waypoint_mgr = self.lateral.waypoint_mgr
@@ -210,9 +211,27 @@ class ScenarioDriveController:
 
         index, waypoints = result
 
-        # Skip replanning if we already have a calculated dense route
-        if self.waypoint_mgr.source == 'calculated' and len(self.waypoint_mgr.waypoints) > 50:
+        # Skip if waypoint geometry is unchanged (index-only updates should not trigger replanning).
+        # The signature intentionally ignores currentIndex to avoid per-frame replans.
+        if not waypoints:
             return
+        sample_ids = [0, len(waypoints) // 4, len(waypoints) // 2, (3 * len(waypoints)) // 4, len(waypoints) - 1]
+        sig = [len(waypoints)]
+        for i in sample_ids:
+            wp = waypoints[i]
+            sig.append((
+                round(wp.x, 2),
+                round(wp.y, 2),
+                round(wp.h, 3),
+                int(wp.road_id),
+                int(wp.lane_id),
+                round(wp.s, 1),
+                round(wp.lane_offset, 2),
+            ))
+        sig_tuple = tuple(sig)
+        if sig_tuple == self._last_udp_waypoint_sig:
+            return
+        self._last_udp_waypoint_sig = sig_tuple
 
         if self._last_ego_pos and waypoints:
             # Use UDP index to ignore passed waypoints

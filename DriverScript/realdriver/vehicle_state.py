@@ -82,19 +82,10 @@ class VehicleStateExtractor:
 
         ego_obj = None
 
-        # 1. Try specified ego_id
-        for obj in ground_truth.moving_object:
-            if obj.id.value == self.ego_id:
-                ego_obj = obj
-                break
-
-        # 2. Fallback to host_vehicle_id
-        if ego_obj is None and ground_truth.HasField('host_vehicle_id'):
-            host_id = ground_truth.host_vehicle_id.value
-            for obj in ground_truth.moving_object:
-                if obj.id.value == host_id:
-                    ego_obj = obj
-                    break
+        # Always use the first moving object (index 0) as Ego Vehicle
+        # ignoring ego_id and host_vehicle_id
+        if len(ground_truth.moving_object) > 0:
+            ego_obj = ground_truth.moving_object[0]
 
         if ego_obj is None:
             return None

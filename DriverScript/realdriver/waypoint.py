@@ -112,6 +112,8 @@ def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
             x=x, y=y, h=h,
             road_id=road_id, s=s, lane_id=lane_id, lane_offset=lane_offset
         ))
+        if abs(lane_offset) > 0.01 and len(waypoints) < 5:
+             print(f"[DEBUG_UDP] WP[{len(waypoints)-1}] lane_offset={lane_offset:.3f}")
         offset += WAYPOINT_STRUCT_SIZE
 
     return current_index, waypoints
