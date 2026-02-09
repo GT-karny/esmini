@@ -234,10 +234,14 @@ class SimplifiedRouter:
             # If waypoint already has valid road coordinates, use them directly
             if wp.road_id >= 0 and wp.s >= 0 and wp.lane_id != 0:
                 # Use SetLanePosition to get position data for the specified road
-                res = self.rm.SetLanePosition(pos_handle, wp.road_id, wp.lane_id, 0.0, wp.s, True)
+                if abs(wp.lane_offset) > 0.01:
+                    print(f"[DEBUG_ROUTER] Calling SetLanePos with offset={wp.lane_offset:.3f}")
+                res = self.rm.SetLanePosition(pos_handle, wp.road_id, wp.lane_id, wp.lane_offset, wp.s, True)
                 if res >= 0:
                     res, pos_data = self.rm.GetPositionData(pos_handle)
                     if res >= 0:
+                        if abs(wp.lane_offset) > 0.01:
+                             print(f"[DEBUG_ROUTER] GetPosData returned offset={pos_data.laneOffset:.3f}")
                         return pos_data
                 # If SetLanePosition fails, fall back to world coordinates
 
@@ -402,17 +406,32 @@ class SimplifiedRouter:
             s_start = start_pos.s
             s_end = target_pos.s
 
+        # Calculate offset interpolation
+        start_offset = start_pos.laneOffset
+        target_offset = target_pos.laneOffset
+        total_dist = abs(s_end - s_start)
+        
         # Generate waypoints
         pos_handle = self.rm.CreatePosition()
         if pos_handle < 0:
             return [Waypoint(x=target_pos.x, y=target_pos.y, h=target_pos.h,
                             road_id=target_pos.roadId, s=target_pos.s,
-                            lane_id=target_pos.laneId)]
+                            lane_id=target_pos.laneId, lane_offset=target_pos.laneOffset)]
 
         s = s_start
         while (direction > 0 and s < s_end) or (direction < 0 and s > s_end):
+            # Interpolate offset
+            if total_dist > 0.001:
+                factor = abs(s - s_start) / total_dist
+                current_offset = start_offset + factor * (target_offset - start_offset)
+            else:
+                current_offset = start_offset
+            
+            # Force log
+            print(f"[DEBUG] InterpOffset s={s:.1f} offset={current_offset:.3f}")
+
             # Use SetLanePosition to get correct position for each s value
-            res = self.rm.SetLanePosition(pos_handle, road_id, lane_id, 0.0, s, True)
+            res = self.rm.SetLanePosition(pos_handle, road_id, lane_id, current_offset, s, True)
             if res >= 0:
                 res, pos_data = self.rm.GetPositionData(pos_handle)
                 if res >= 0:
@@ -422,7 +441,8 @@ class SimplifiedRouter:
                         h=pos_data.h,
                         road_id=road_id,
                         s=s,
-                        lane_id=lane_id
+                        lane_id=lane_id,
+                        lane_offset=current_offset
                     ))
 
             s += direction * spacing
