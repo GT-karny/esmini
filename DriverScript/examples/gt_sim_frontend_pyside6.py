@@ -44,6 +44,24 @@ def _safe_split(arg_line: str) -> list[str]:
     return shlex.split(arg_line, posix=False)
 
 
+def _has_option(args: list[str], opt: str) -> bool:
+    return opt in args
+
+
+def _strip_option(args: list[str], opt: str) -> list[str]:
+    out: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == opt:
+            i += 1
+            if i < len(args) and not args[i].startswith("--"):
+                i += 1
+            continue
+        out.append(args[i])
+        i += 1
+    return out
+
+
 class LauncherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -158,12 +176,16 @@ class LauncherWindow(QMainWindow):
         options_grid.addWidget(self.threads_checkbox, 4, 0, 1, 4)
 
         self.script_args_edit = QLineEdit()
-        options_grid.addWidget(QLabel("Python script args"), 5, 0)
-        options_grid.addWidget(self.script_args_edit, 5, 1, 1, 3)
+        self.auto_xodr_checkbox = QCheckBox("Auto add --xodr_path from scenario")
+        self.auto_xodr_checkbox.setChecked(True)
+        options_grid.addWidget(self.auto_xodr_checkbox, 5, 0, 1, 4)
+
+        options_grid.addWidget(QLabel("Python script args"), 6, 0)
+        options_grid.addWidget(self.script_args_edit, 6, 1, 1, 3)
 
         self.gtsim_extra_args_edit = QLineEdit()
-        options_grid.addWidget(QLabel("GT_Sim extra args"), 6, 0)
-        options_grid.addWidget(self.gtsim_extra_args_edit, 6, 1, 1, 3)
+        options_grid.addWidget(QLabel("GT_Sim extra args"), 7, 0)
+        options_grid.addWidget(self.gtsim_extra_args_edit, 7, 1, 1, 3)
 
         root.addWidget(options_group)
 
@@ -335,7 +357,64 @@ class LauncherWindow(QMainWindow):
         if not scenario or not os.path.exists(scenario):
             self._error_dialog("Scenario path is invalid.")
             return False
+        dep_errors = self._check_scenario_dependencies(scenario)
+        if dep_errors:
+            msg = "Scenario dependency check failed:\n- " + "\n- ".join(dep_errors[:8])
+            self._error_dialog(msg)
+            self._append_gtsim_log(msg)
+            return False
         return True
+
+    def _check_scenario_dependencies(self, scenario_path: str) -> list[str]:
+        errors: list[str] = []
+        try:
+            tree = ET.parse(scenario_path)
+            root = tree.getroot()
+            scenario_dir = os.path.dirname(os.path.abspath(scenario_path))
+
+            catalog_dirs: list[str] = []
+            cat_locations = root.find("CatalogLocations")
+            if cat_locations is not None:
+                for cat in list(cat_locations):
+                    directory = cat.find("Directory")
+                    if directory is None:
+                        continue
+                    path = (directory.get("path") or "").strip()
+                    if not path:
+                        continue
+                    abs_dir = path if os.path.isabs(path) else os.path.normpath(os.path.join(scenario_dir, path))
+                    catalog_dirs.append(abs_dir)
+
+            catalog_refs = root.findall(".//CatalogReference")
+            if catalog_refs and not catalog_dirs:
+                errors.append("CatalogReference exists but CatalogLocations/Directory is missing.")
+                return errors
+
+            for ref in catalog_refs:
+                catalog_name = (ref.get("catalogName") or "").strip()
+                if not catalog_name:
+                    continue
+                candidates = [catalog_name]
+                if not catalog_name.lower().endswith(".xosc"):
+                    candidates.append(f"{catalog_name}.xosc")
+                found = False
+                for base in catalog_dirs:
+                    for name in candidates:
+                        if os.path.exists(os.path.join(base, name)):
+                            found = True
+                            break
+                    if found:
+                        break
+                if not found:
+                    if catalog_dirs:
+                        errors.append(
+                            f"Catalog '{catalog_name}' not found in: {', '.join(catalog_dirs)}"
+                        )
+                    else:
+                        errors.append(f"Catalog '{catalog_name}' not found.")
+        except Exception as exc:
+            errors.append(f"Failed to parse scenario: {exc}")
+        return errors
 
     def _get_target_scenario(self) -> str:
         source = self.scenario_edit.text().strip()
@@ -382,16 +461,24 @@ class LauncherWindow(QMainWindow):
         props = controller.find("Properties")
         if props is None:
             props = ET.SubElement(controller, "Properties")
-        base_port = str(self.base_port_spin.value())
-        base_port_prop = None
-        for prop in props.findall("Property"):
-            if prop.get("name") == "BasePort":
-                base_port_prop = prop
-                break
-        if base_port_prop is None:
-            base_port_prop = ET.SubElement(props, "Property")
-            base_port_prop.set("name", "BasePort")
-        base_port_prop.set("value", base_port)
+
+        def _set_prop(name: str, value: str) -> None:
+            target = None
+            for prop in props.findall("Property"):
+                if prop.get("name") == name:
+                    target = prop
+                    break
+            if target is None:
+                target = ET.SubElement(props, "Property")
+                target.set("name", name)
+            target.set("value", value)
+
+        base_port_i = self.base_port_spin.value()
+        _set_prop("esminiController", "RealDriverController")
+        _set_prop("BasePort", str(base_port_i))
+        _set_prop("ClientPort", str(base_port_i + 1000))
+        _set_prop("SendWaypoints", "true")
+        _set_prop("WaypointPort", str(base_port_i + 1001))
 
         storyboard = root.find("Storyboard")
         if storyboard is None:
@@ -459,6 +546,85 @@ class LauncherWindow(QMainWindow):
         args += _safe_split(self.gtsim_extra_args_edit.text())
         return args
 
+    def _resolve_logicfile_xodr(self, scenario_path: str) -> str:
+        if not scenario_path or not os.path.exists(scenario_path):
+            return ""
+        try:
+            tree = ET.parse(scenario_path)
+            root = tree.getroot()
+            logic = root.find("RoadNetwork/LogicFile")
+            if logic is None:
+                return ""
+            logic_fp = logic.get("filepath", "").strip()
+            if not logic_fp:
+                return ""
+            if os.path.isabs(logic_fp):
+                return logic_fp if os.path.exists(logic_fp) else ""
+            abs_fp = os.path.normpath(os.path.join(os.path.dirname(scenario_path), logic_fp))
+            return abs_fp if os.path.exists(abs_fp) else ""
+        except Exception:
+            return ""
+
+    def _build_python_args(self) -> list[str]:
+        script = self.script_edit.text().strip()
+        extra_args = _safe_split(self.script_args_edit.text())
+        args = []
+
+        py = self.python_path_edit.text().strip()
+        if os.path.basename(py).lower().startswith("python"):
+            # Force unbuffered stdio so logs are visible in real time from QProcess.
+            args.append("-u")
+
+        supports_xodr = False
+        supports_mode = False
+        try:
+            with open(script, "r", encoding="utf-8", errors="ignore") as f:
+                src = f.read()
+            supports_xodr = "--xodr_path" in src
+            supports_mode = "--mode" in src
+        except Exception:
+            pass
+
+        scenario_path = self.scenario_edit.text().strip()
+        xodr_path = self._resolve_logicfile_xodr(scenario_path)
+
+        if self.auto_xodr_checkbox.isChecked() and supports_xodr and xodr_path and not _has_option(extra_args, "--xodr_path"):
+            extra_args += ["--xodr_path", xodr_path]
+            self._append_python_log(f"Auto-added --xodr_path from scenario LogicFile: {xodr_path}")
+        elif self.auto_xodr_checkbox.isChecked() and supports_xodr and not _has_option(extra_args, "--xodr_path"):
+            raise RuntimeError(
+                "Failed to resolve --xodr_path from selected Scenario (.xosc). "
+                "Select a valid scenario with <RoadNetwork><LogicFile ...>, or set --xodr_path manually."
+            )
+
+        if not supports_mode and _has_option(extra_args, "--mode"):
+            extra_args = _strip_option(extra_args, "--mode")
+            self._append_python_log(
+                "Removed --mode argument because selected script does not define --mode."
+            )
+
+        script_basename = os.path.basename(script).lower()
+        if script_basename == "scenario_drive_example.py":
+            if not _has_option(extra_args, "--mode"):
+                self._append_python_log(
+                    "Hint: scenario_drive_example.py default mode is 'waypoints'. "
+                    "Use '--mode udp' if you want route/waypoints from ControllerRealDriver."
+                )
+
+        args += [script] + extra_args
+        return args
+
+    def _resolve_python_workdir(self, script_path: str) -> str:
+        script_dir = os.path.dirname(script_path) or os.getcwd()
+
+        # Prefer DriverScript root when running examples that use ./bin relative paths.
+        # e.g. lkas_example.py default --lib_path is ./bin/esminiRMLib.dll
+        parent_dir = os.path.dirname(script_dir)
+        if os.path.exists(os.path.join(parent_dir, "bin", "esminiRMLib.dll")):
+            return parent_dir
+
+        return script_dir
+
     def start_python_process(self) -> None:
         if self.python_proc.state() != QProcess.NotRunning:
             self._append_python_log("Python is already running.")
@@ -468,16 +634,16 @@ class LauncherWindow(QMainWindow):
 
         py = self.python_path_edit.text().strip()
         script = self.script_edit.text().strip()
-        extra_args = _safe_split(self.script_args_edit.text())
-        args = []
-        if os.path.basename(py).lower().startswith("python"):
-            # Force unbuffered stdio so logs are visible in real time from QProcess.
-            args.append("-u")
-        args += [script] + extra_args
+        try:
+            args = self._build_python_args()
+        except Exception as exc:
+            self._error_dialog(f"Failed to prepare Python args: {exc}")
+            self._append_python_log(f"Failed to prepare Python args: {exc}")
+            return
 
         self.python_proc.setProgram(py)
         self.python_proc.setArguments(args)
-        self.python_proc.setWorkingDirectory(os.path.dirname(script) or os.getcwd())
+        self.python_proc.setWorkingDirectory(self._resolve_python_workdir(script))
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         self.python_proc.setProcessEnvironment(env)
@@ -572,6 +738,7 @@ class LauncherWindow(QMainWindow):
         self.script_edit.setText(self.settings.value("script_path", ""))
         self.script_args_edit.setText(self.settings.value("script_args", ""))
         self.gtsim_extra_args_edit.setText(self.settings.value("gtsim_extra_args", ""))
+        self.auto_xodr_checkbox.setChecked(self.settings.value("auto_xodr", True, type=bool))
 
         self.realdriver_checkbox.setChecked(self.settings.value("realdriver_on", True, type=bool))
         self.entity_name_edit.setText(self.settings.value("entity_name", "Ego"))
@@ -591,6 +758,7 @@ class LauncherWindow(QMainWindow):
         self.settings.setValue("script_path", self.script_edit.text().strip())
         self.settings.setValue("script_args", self.script_args_edit.text().strip())
         self.settings.setValue("gtsim_extra_args", self.gtsim_extra_args_edit.text().strip())
+        self.settings.setValue("auto_xodr", self.auto_xodr_checkbox.isChecked())
 
         self.settings.setValue("realdriver_on", self.realdriver_checkbox.isChecked())
         self.settings.setValue("entity_name", self.entity_name_edit.text().strip())
