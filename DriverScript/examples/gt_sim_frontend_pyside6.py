@@ -5,18 +5,20 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, QSettings, QTimer
+from PySide6.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -44,6 +46,18 @@ def _safe_split(arg_line: str) -> list[str]:
     return shlex.split(arg_line, posix=False)
 
 
+def _default_scenario_folder() -> str:
+    candidate = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "resources", "xosc")
+    )
+    return candidate if os.path.isdir(candidate) else ""
+
+
+def _default_script_folder() -> str:
+    candidate = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
+    return candidate if os.path.isdir(candidate) else ""
+
+
 def _has_option(args: list[str], opt: str) -> bool:
     return opt in args
 
@@ -62,11 +76,96 @@ def _strip_option(args: list[str], opt: str) -> list[str]:
     return out
 
 
+class SettingsDialog(QDialog):
+    """Non-modal dialog for executable paths and run options."""
+
+    def __init__(self, launcher: "LauncherWindow") -> None:
+        super().__init__(launcher)
+        self.setWindowTitle("Settings")
+        self.resize(620, 480)
+        self._setup_ui(launcher)
+
+    def _setup_ui(self, launcher: "LauncherWindow") -> None:
+        layout = QVBoxLayout(self)
+
+        # --- Executable Paths ---
+        paths_group = QGroupBox("Executable Paths")
+        paths_layout = QVBoxLayout(paths_group)
+
+        gt_sim_row = QHBoxLayout()
+        gt_sim_row.addWidget(QLabel("GT_Sim.exe"))
+        gt_sim_row.addWidget(launcher.gt_sim_path_edit, 1)
+        gt_sim_row.addWidget(launcher.gt_sim_browse_btn)
+        paths_layout.addLayout(gt_sim_row)
+
+        py_row = QHBoxLayout()
+        py_row.addWidget(QLabel("Python"))
+        py_row.addWidget(launcher.python_path_edit, 1)
+        py_row.addWidget(launcher.python_browse_btn)
+        paths_layout.addLayout(py_row)
+
+        layout.addWidget(paths_group)
+
+        # --- Run Options ---
+        options_group = QGroupBox("Run Options")
+        options_grid = QGridLayout(options_group)
+
+        options_grid.addWidget(launcher.realdriver_checkbox, 0, 0, 1, 2)
+
+        options_grid.addWidget(QLabel("Target Entity"), 1, 0)
+        options_grid.addWidget(launcher.entity_name_edit, 1, 1)
+
+        options_grid.addWidget(QLabel("BasePort"), 1, 2)
+        options_grid.addWidget(launcher.base_port_spin, 1, 3)
+
+        options_grid.addWidget(QLabel("--osi"), 2, 0)
+        options_grid.addWidget(launcher.osi_edit, 2, 1)
+
+        options_grid.addWidget(QLabel("--hz"), 2, 2)
+        options_grid.addWidget(launcher.hz_spin, 2, 3)
+
+        window_row = QHBoxLayout()
+        window_row.addWidget(QLabel("x"))
+        window_row.addWidget(launcher.win_x_spin)
+        window_row.addWidget(QLabel("y"))
+        window_row.addWidget(launcher.win_y_spin)
+        window_row.addWidget(QLabel("w"))
+        window_row.addWidget(launcher.win_w_spin)
+        window_row.addWidget(QLabel("h"))
+        window_row.addWidget(launcher.win_h_spin)
+        options_grid.addWidget(QLabel("--window"), 3, 0)
+        options_grid.addLayout(window_row, 3, 1, 1, 3)
+
+        options_grid.addWidget(launcher.threads_checkbox, 4, 0, 1, 4)
+
+        options_grid.addWidget(launcher.auto_xodr_checkbox, 5, 0, 1, 4)
+
+        options_grid.addWidget(QLabel("Python script args"), 6, 0)
+        options_grid.addWidget(launcher.script_args_edit, 6, 1, 1, 3)
+
+        options_grid.addWidget(QLabel("GT_Sim extra args"), 7, 0)
+        options_grid.addWidget(launcher.gtsim_extra_args_edit, 7, 1, 1, 3)
+
+        layout.addWidget(options_group)
+
+        # --- Close button ---
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.hide)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+        self.hide()
+
+
 class LauncherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("GT_Sim Frontend (PySide6)")
-        self.resize(1100, 760)
+        self.resize(1000, 700)
 
         self.settings = QSettings("GT_esmini", "GT_Sim_Frontend")
         self.python_proc = QProcess(self)
@@ -85,66 +184,28 @@ class LauncherWindow(QMainWindow):
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
 
-        paths_group = QGroupBox("Paths")
-        paths_form = QFormLayout(paths_group)
-
+        # --- Settings widgets (created here, laid out in SettingsDialog) ---
         self.gt_sim_path_edit = QLineEdit()
         self.gt_sim_browse_btn = QPushButton("Browse...")
-        gt_sim_row = QHBoxLayout()
-        gt_sim_row.addWidget(self.gt_sim_path_edit)
-        gt_sim_row.addWidget(self.gt_sim_browse_btn)
-        paths_form.addRow("GT_Sim.exe", gt_sim_row)
 
         self.python_path_edit = QLineEdit()
         self.python_browse_btn = QPushButton("Browse...")
-        py_row = QHBoxLayout()
-        py_row.addWidget(self.python_path_edit)
-        py_row.addWidget(self.python_browse_btn)
-        paths_form.addRow("Python", py_row)
-
-        self.scenario_edit = QLineEdit()
-        self.scenario_browse_btn = QPushButton("Browse...")
-        scenario_row = QHBoxLayout()
-        scenario_row.addWidget(self.scenario_edit)
-        scenario_row.addWidget(self.scenario_browse_btn)
-        paths_form.addRow("Scenario (.xosc)", scenario_row)
-
-        self.script_edit = QLineEdit()
-        self.script_browse_btn = QPushButton("Browse...")
-        script_row = QHBoxLayout()
-        script_row.addWidget(self.script_edit)
-        script_row.addWidget(self.script_browse_btn)
-        paths_form.addRow("RealDriver Python Script", script_row)
-
-        root.addWidget(paths_group)
-
-        options_group = QGroupBox("Run Options")
-        options_grid = QGridLayout(options_group)
 
         self.realdriver_checkbox = QCheckBox("Use RealDriver temp scenario")
         self.realdriver_checkbox.setChecked(True)
-        options_grid.addWidget(self.realdriver_checkbox, 0, 0, 1, 2)
 
         self.entity_name_edit = QLineEdit("Ego")
-        options_grid.addWidget(QLabel("Target Entity"), 1, 0)
-        options_grid.addWidget(self.entity_name_edit, 1, 1)
 
         self.base_port_spin = QSpinBox()
         self.base_port_spin.setRange(1, 65535)
         self.base_port_spin.setValue(53995)
-        options_grid.addWidget(QLabel("BasePort"), 1, 2)
-        options_grid.addWidget(self.base_port_spin, 1, 3)
 
         self.osi_edit = QLineEdit("127.0.0.1")
-        options_grid.addWidget(QLabel("--osi"), 2, 0)
-        options_grid.addWidget(self.osi_edit, 2, 1)
 
         self.hz_spin = QDoubleSpinBox()
         self.hz_spin.setRange(0.1, 1000.0)
         self.hz_spin.setDecimals(1)
         self.hz_spin.setValue(100.0)
-        options_grid.addWidget(QLabel("--hz"), 2, 2)
-        options_grid.addWidget(self.hz_spin, 2, 3)
 
         self.win_x_spin = QSpinBox()
         self.win_x_spin.setRange(-1, 10000)
@@ -159,36 +220,81 @@ class LauncherWindow(QMainWindow):
         self.win_h_spin.setRange(-1, 10000)
         self.win_h_spin.setValue(720)
 
-        window_row = QHBoxLayout()
-        window_row.addWidget(QLabel("x"))
-        window_row.addWidget(self.win_x_spin)
-        window_row.addWidget(QLabel("y"))
-        window_row.addWidget(self.win_y_spin)
-        window_row.addWidget(QLabel("w"))
-        window_row.addWidget(self.win_w_spin)
-        window_row.addWidget(QLabel("h"))
-        window_row.addWidget(self.win_h_spin)
-        options_grid.addWidget(QLabel("--window"), 3, 0)
-        options_grid.addLayout(window_row, 3, 1, 1, 3)
-
         self.threads_checkbox = QCheckBox("Use --threads (viewer separate thread)")
         self.threads_checkbox.setChecked(True)
-        options_grid.addWidget(self.threads_checkbox, 4, 0, 1, 4)
 
         self.script_args_edit = QLineEdit()
         self.auto_xodr_checkbox = QCheckBox("Auto add --xodr_path from scenario")
         self.auto_xodr_checkbox.setChecked(True)
-        options_grid.addWidget(self.auto_xodr_checkbox, 5, 0, 1, 4)
-
-        options_grid.addWidget(QLabel("Python script args"), 6, 0)
-        options_grid.addWidget(self.script_args_edit, 6, 1, 1, 3)
 
         self.gtsim_extra_args_edit = QLineEdit()
-        options_grid.addWidget(QLabel("GT_Sim extra args"), 7, 0)
-        options_grid.addWidget(self.gtsim_extra_args_edit, 7, 1, 1, 3)
 
-        root.addWidget(options_group)
+        # --- Top bar with Settings button ---
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()
+        self.settings_btn = QPushButton("Settings...")
+        self.settings_btn.setFixedWidth(100)
+        top_bar.addWidget(self.settings_btn)
+        root.addLayout(top_bar)
 
+        # --- Scenario & Script file selection (side-by-side) ---
+        file_sel_layout = QHBoxLayout()
+
+        # Scenario column
+        scenario_group = QGroupBox("Scenario (.xosc)")
+        scenario_col = QVBoxLayout(scenario_group)
+
+        self.scenario_folder_edit = QLineEdit()
+        self.scenario_folder_btn = QPushButton("Folder...")
+        sc_folder_row = QHBoxLayout()
+        sc_folder_row.addWidget(self.scenario_folder_edit, 1)
+        sc_folder_row.addWidget(self.scenario_folder_btn)
+        scenario_col.addLayout(sc_folder_row)
+
+        self.scenario_list = QListWidget()
+        self.scenario_list.setMinimumHeight(100)
+        scenario_col.addWidget(self.scenario_list, 1)
+
+        self.scenario_edit = QLineEdit()
+        self.scenario_edit.setReadOnly(True)
+        self.scenario_edit.setPlaceholderText("Select from list above, or Browse...")
+        self.scenario_browse_btn = QPushButton("Browse...")
+        sc_sel_row = QHBoxLayout()
+        sc_sel_row.addWidget(self.scenario_edit, 1)
+        sc_sel_row.addWidget(self.scenario_browse_btn)
+        scenario_col.addLayout(sc_sel_row)
+
+        file_sel_layout.addWidget(scenario_group)
+
+        # Script column
+        script_group = QGroupBox("RealDriver Python Script")
+        script_col = QVBoxLayout(script_group)
+
+        self.script_folder_edit = QLineEdit()
+        self.script_folder_btn = QPushButton("Folder...")
+        sr_folder_row = QHBoxLayout()
+        sr_folder_row.addWidget(self.script_folder_edit, 1)
+        sr_folder_row.addWidget(self.script_folder_btn)
+        script_col.addLayout(sr_folder_row)
+
+        self.script_list = QListWidget()
+        self.script_list.setMinimumHeight(100)
+        script_col.addWidget(self.script_list, 1)
+
+        self.script_edit = QLineEdit()
+        self.script_edit.setReadOnly(True)
+        self.script_edit.setPlaceholderText("Select from list above, or Browse...")
+        self.script_browse_btn = QPushButton("Browse...")
+        sr_sel_row = QHBoxLayout()
+        sr_sel_row.addWidget(self.script_edit, 1)
+        sr_sel_row.addWidget(self.script_browse_btn)
+        script_col.addLayout(sr_sel_row)
+
+        file_sel_layout.addWidget(script_group)
+
+        root.addLayout(file_sel_layout, 1)
+
+        # --- Process Control ---
         buttons_group = QGroupBox("Process Control")
         buttons_layout = QGridLayout(buttons_group)
 
@@ -213,6 +319,7 @@ class LauncherWindow(QMainWindow):
 
         root.addWidget(buttons_group)
 
+        # --- Logs ---
         logs_group = QGroupBox("Logs")
         logs_layout = QVBoxLayout(logs_group)
 
@@ -230,10 +337,23 @@ class LauncherWindow(QMainWindow):
 
         root.addWidget(logs_group, 1)
 
+        # --- Create SettingsDialog (widgets are reparented into it) ---
+        self._settings_dialog = SettingsDialog(self)
+
+        # --- Signal connections ---
+        self.settings_btn.clicked.connect(self._open_settings)
+
         self.gt_sim_browse_btn.clicked.connect(self._browse_gt_sim)
         self.python_browse_btn.clicked.connect(self._browse_python)
         self.scenario_browse_btn.clicked.connect(self._browse_scenario)
         self.script_browse_btn.clicked.connect(self._browse_script)
+
+        self.scenario_folder_btn.clicked.connect(self._browse_scenario_folder)
+        self.script_folder_btn.clicked.connect(self._browse_script_folder)
+        self.scenario_folder_edit.editingFinished.connect(self._refresh_scenario_list)
+        self.script_folder_edit.editingFinished.connect(self._refresh_script_list)
+        self.scenario_list.currentItemChanged.connect(self._on_scenario_selected)
+        self.script_list.currentItemChanged.connect(self._on_script_selected)
 
         self.start_python_btn.clicked.connect(self.start_python_process)
         self.stop_python_btn.clicked.connect(self.stop_python_process)
@@ -261,33 +381,123 @@ class LauncherWindow(QMainWindow):
         self.python_proc.finished.connect(self._on_python_finished)
         self.gtsim_proc.finished.connect(self._on_gtsim_finished)
 
+    def _open_settings(self) -> None:
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
+
     def _browse_gt_sim(self) -> None:
+        parent = self._settings_dialog if self._settings_dialog.isVisible() else self
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select GT_Sim.exe", self.gt_sim_path_edit.text(), "Executables (*.exe);;All Files (*)"
+            parent, "Select GT_Sim.exe", self.gt_sim_path_edit.text(), "Executables (*.exe);;All Files (*)"
         )
         if path:
             self.gt_sim_path_edit.setText(path)
 
     def _browse_python(self) -> None:
+        parent = self._settings_dialog if self._settings_dialog.isVisible() else self
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Python", self.python_path_edit.text(), "Executables (*.exe);;All Files (*)"
+            parent, "Select Python", self.python_path_edit.text(), "Executables (*.exe);;All Files (*)"
         )
         if path:
             self.python_path_edit.setText(path)
 
     def _browse_scenario(self) -> None:
+        start_dir = self.scenario_folder_edit.text().strip() or self.scenario_edit.text().strip()
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Scenario", self.scenario_edit.text(), "OpenSCENARIO (*.xosc);;All Files (*)"
+            self, "Select Scenario", start_dir, "OpenSCENARIO (*.xosc);;All Files (*)"
         )
         if path:
             self.scenario_edit.setText(path)
+            folder = os.path.dirname(path)
+            if folder != self.scenario_folder_edit.text().strip():
+                self.scenario_folder_edit.setText(folder)
+                self._refresh_scenario_list()
+            else:
+                self._select_current_in_list(self.scenario_list, path)
 
     def _browse_script(self) -> None:
+        start_dir = self.script_folder_edit.text().strip() or self.script_edit.text().strip()
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Python Script", self.script_edit.text(), "Python (*.py);;All Files (*)"
+            self, "Select Python Script", start_dir, "Python (*.py);;All Files (*)"
         )
         if path:
             self.script_edit.setText(path)
+            folder = os.path.dirname(path)
+            if folder != self.script_folder_edit.text().strip():
+                self.script_folder_edit.setText(folder)
+                self._refresh_script_list()
+            else:
+                self._select_current_in_list(self.script_list, path)
+
+    def _browse_scenario_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Scenario Folder", self.scenario_folder_edit.text()
+        )
+        if folder:
+            self.scenario_folder_edit.setText(folder)
+            self._refresh_scenario_list()
+
+    def _browse_script_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Script Folder", self.script_folder_edit.text()
+        )
+        if folder:
+            self.script_folder_edit.setText(folder)
+            self._refresh_script_list()
+
+    def _refresh_scenario_list(self) -> None:
+        self.scenario_list.clear()
+        folder = self.scenario_folder_edit.text().strip()
+        if not folder or not os.path.isdir(folder):
+            return
+        for name in sorted(os.listdir(folder)):
+            if not name.lower().endswith(".xosc"):
+                continue
+            if name.endswith("_realdriver_temp.xosc"):
+                continue
+            full_path = os.path.join(folder, name)
+            if os.path.isfile(full_path):
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, full_path)
+                self.scenario_list.addItem(item)
+        self._select_current_in_list(self.scenario_list, self.scenario_edit.text().strip())
+
+    def _refresh_script_list(self) -> None:
+        self.script_list.clear()
+        folder = self.script_folder_edit.text().strip()
+        if not folder or not os.path.isdir(folder):
+            return
+        for name in sorted(os.listdir(folder)):
+            if not name.lower().endswith(".py"):
+                continue
+            if name == "gt_sim_frontend_pyside6.py":
+                continue
+            full_path = os.path.join(folder, name)
+            if os.path.isfile(full_path):
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, full_path)
+                self.script_list.addItem(item)
+        self._select_current_in_list(self.script_list, self.script_edit.text().strip())
+
+    def _select_current_in_list(self, list_widget: QListWidget, current_path: str) -> None:
+        if not current_path:
+            return
+        current_norm = os.path.normpath(current_path)
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            item_path = os.path.normpath(item.data(Qt.ItemDataRole.UserRole))
+            if item_path == current_norm:
+                list_widget.setCurrentItem(item)
+                return
+
+    def _on_scenario_selected(self, current: QListWidgetItem, _previous: QListWidgetItem) -> None:
+        if current is not None:
+            self.scenario_edit.setText(current.data(Qt.ItemDataRole.UserRole))
+
+    def _on_script_selected(self, current: QListWidgetItem, _previous: QListWidgetItem) -> None:
+        if current is not None:
+            self.script_edit.setText(current.data(Qt.ItemDataRole.UserRole))
 
     def _append_log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
@@ -515,12 +725,38 @@ class LauncherWindow(QMainWindow):
 
         src_dir = os.path.dirname(os.path.abspath(src_path))
         base_name = os.path.splitext(os.path.basename(src_path))[0]
-        out_path = os.path.join(src_dir, f"{base_name}_realdriver_temp.xosc")
+        temp_dir = os.path.join(src_dir, ".gt_sim_temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        self._absolutize_scenario_paths(root, src_dir)
+        out_path = os.path.join(temp_dir, f"{base_name}_realdriver_temp.xosc")
 
         tree.write(out_path, encoding="utf-8", xml_declaration=True)
         self.last_temp_xosc = out_path
         self._append_log(f"Generated temp scenario: {out_path}")
         return out_path
+
+    def _absolutize_scenario_paths(self, root: ET.Element, base_dir: str) -> None:
+        logic = root.find("RoadNetwork/LogicFile")
+        if logic is not None:
+            fp = logic.get("filepath", "")
+            if fp and not os.path.isabs(fp):
+                logic.set("filepath", os.path.normpath(os.path.join(base_dir, fp)))
+
+        scene = root.find("RoadNetwork/SceneGraphFile")
+        if scene is not None:
+            fp = scene.get("filepath", "")
+            if fp and not os.path.isabs(fp):
+                scene.set("filepath", os.path.normpath(os.path.join(base_dir, fp)))
+
+        cat_locs = root.find("CatalogLocations")
+        if cat_locs is not None:
+            for cat in list(cat_locs):
+                directory = cat.find("Directory")
+                if directory is None:
+                    continue
+                path = directory.get("path", "")
+                if path and not os.path.isabs(path):
+                    directory.set("path", os.path.normpath(os.path.join(base_dir, path)))
 
     def _build_gtsim_args(self) -> list[str]:
         scenario_path = self._get_target_scenario()
@@ -734,8 +970,16 @@ class LauncherWindow(QMainWindow):
     def _load_settings(self) -> None:
         self.gt_sim_path_edit.setText(self.settings.value("gt_sim_path", _default_gt_sim_path()))
         self.python_path_edit.setText(self.settings.value("python_path", sys.executable))
+
+        self.scenario_folder_edit.setText(
+            self.settings.value("scenario_folder", _default_scenario_folder())
+        )
+        self.script_folder_edit.setText(
+            self.settings.value("script_folder", _default_script_folder())
+        )
         self.scenario_edit.setText(self.settings.value("scenario_path", ""))
         self.script_edit.setText(self.settings.value("script_path", ""))
+
         self.script_args_edit.setText(self.settings.value("script_args", ""))
         self.gtsim_extra_args_edit.setText(self.settings.value("gtsim_extra_args", ""))
         self.auto_xodr_checkbox.setChecked(self.settings.value("auto_xodr", True, type=bool))
@@ -751,9 +995,14 @@ class LauncherWindow(QMainWindow):
         self.win_h_spin.setValue(self.settings.value("win_h", 720, type=int))
         self.threads_checkbox.setChecked(self.settings.value("threads", True, type=bool))
 
+        self._refresh_scenario_list()
+        self._refresh_script_list()
+
     def _save_settings(self) -> None:
         self.settings.setValue("gt_sim_path", self.gt_sim_path_edit.text().strip())
         self.settings.setValue("python_path", self.python_path_edit.text().strip())
+        self.settings.setValue("scenario_folder", self.scenario_folder_edit.text().strip())
+        self.settings.setValue("script_folder", self.script_folder_edit.text().strip())
         self.settings.setValue("scenario_path", self.scenario_edit.text().strip())
         self.settings.setValue("script_path", self.script_edit.text().strip())
         self.settings.setValue("script_args", self.script_args_edit.text().strip())

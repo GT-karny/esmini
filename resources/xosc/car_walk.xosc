@@ -7,8 +7,8 @@
         </VehicleCatalog>
     </CatalogLocations>
     <RoadNetwork>
-        <LogicFile filepath="c:/eknabe1/GIT/esmini_dev/resources/xodr/straight_500m.xodr"/>
-        <SceneGraphFile filepath="c:/eknabe1/GIT/esmini_dev/resources/models/straight_500m.osgb"/>
+        <LogicFile filepath="../xodr/straight_500m.xodr"/>
+        <SceneGraphFile filepath="../models/straight_500m.osgb"/>
     </RoadNetwork>
     <Entities>
         <ScenarioObject name="car1">
