@@ -12,6 +12,7 @@ from socket import socket, AF_INET, SOCK_DGRAM
 import struct
 
 from osi3.osi_groundtruth_pb2 import GroundTruth
+from google.protobuf.message import DecodeError
 
 input_modes = {
   'driverInput': 1,
@@ -60,7 +61,7 @@ class OSIReceiver():
 
     def receive(self):
         done = False
-        next_index = 1
+        next_index = None
         complete_msg = b''
 
         # Large nessages might be split in multiple parts
@@ -69,6 +70,9 @@ class OSIReceiver():
         while not done:
             # receive header
             msg = self.udp_receiver.receive()
+            if len(msg) < 8:
+                # Invalid packet, skip and wait for next part.
+                continue
 
             # extract message parts
             header_size = 4 + 4  # counter(int) + size(unsigned int)
@@ -77,23 +81,34 @@ class OSIReceiver():
 
             if not (len(frame) == size == len(msg)-8):
                 print('Error: Unexpected invalid lengths')
-                return
-
-            if counter == 1:  # new message
                 complete_msg = b''
-                next_index = 1
+                next_index = None
+                continue
+
+            # esmini packet counters may be either 0-based or 1-based.
+            # Negative counter indicates last chunk.
+            index = abs(counter)
+            if next_index is None:
+                if index not in (0, 1):
+                    continue
+                next_index = index
+                complete_msg = b''
 
             # Compose complete message
-            if counter == 1 or abs(counter) == next_index:
+            if index == next_index:
                 complete_msg += frame
                 next_index += 1
                 if counter < 0:  # negative counter number indicates end of message
                     done = True
             else:
-                next_index = 1   # out of sync, reset
+                complete_msg = b''
+                next_index = None   # out of sync, reset
 
         # Parse and return message
-        self.osi_msg.ParseFromString(complete_msg)
+        try:
+            self.osi_msg.ParseFromString(complete_msg)
+        except DecodeError:
+            return None
         return self.osi_msg
 
     def close(self):

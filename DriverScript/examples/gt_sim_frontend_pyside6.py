@@ -87,10 +87,13 @@ class SettingsDialog(QDialog):
 
     def _setup_ui(self, launcher: "LauncherWindow") -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
 
         # --- Executable Paths ---
         paths_group = QGroupBox("Executable Paths")
         paths_layout = QVBoxLayout(paths_group)
+        paths_layout.setSpacing(10)
 
         gt_sim_row = QHBoxLayout()
         gt_sim_row.addWidget(QLabel("GT_Sim.exe"))
@@ -109,6 +112,8 @@ class SettingsDialog(QDialog):
         # --- Run Options ---
         options_group = QGroupBox("Run Options")
         options_grid = QGridLayout(options_group)
+        options_grid.setHorizontalSpacing(12)
+        options_grid.setVerticalSpacing(10)
 
         options_grid.addWidget(launcher.realdriver_checkbox, 0, 0, 1, 2)
 
@@ -150,6 +155,7 @@ class SettingsDialog(QDialog):
 
         # --- Close button ---
         close_btn = QPushButton("Close")
+        close_btn.setProperty("role", "secondary")
         close_btn.clicked.connect(self.hide)
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -181,8 +187,11 @@ class LauncherWindow(QMainWindow):
 
     def _setup_ui(self) -> None:
         central = QWidget(self)
+        central.setObjectName("mainPanel")
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
+        root.setContentsMargins(22, 18, 22, 20)
+        root.setSpacing(14)
 
         # --- Settings widgets (created here, laid out in SettingsDialog) ---
         self.gt_sim_path_edit = QLineEdit()
@@ -229,116 +238,170 @@ class LauncherWindow(QMainWindow):
 
         self.gtsim_extra_args_edit = QLineEdit()
 
-        # --- Top bar with Settings button ---
+        # --- Header bar ---
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(12)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(1)
+        title = QLabel("GT_Sim Control Center")
+        title.setObjectName("appTitle")
+        subtitle = QLabel("Launch and monitor Python controller + GT_Sim from one console")
+        subtitle.setObjectName("appSubtitle")
+        title_col.addWidget(title)
+        title_col.addWidget(subtitle)
+        top_bar.addLayout(title_col)
         top_bar.addStretch()
         self.settings_btn = QPushButton("Settings...")
-        self.settings_btn.setFixedWidth(100)
+        self.settings_btn.setProperty("role", "secondary")
+        self.settings_btn.setFixedWidth(120)
         top_bar.addWidget(self.settings_btn)
         root.addLayout(top_bar)
 
-        # --- Scenario & Script file selection (side-by-side) ---
-        file_sel_layout = QHBoxLayout()
+        # --- Main content row ---
+        content_row = QHBoxLayout()
+        content_row.setSpacing(14)
 
-        # Scenario column
+        # Left: scenario/script selection
+        selection_group = QGroupBox("Inputs")
+        selection_col = QVBoxLayout(selection_group)
+        selection_col.setSpacing(12)
+
         scenario_group = QGroupBox("Scenario (.xosc)")
         scenario_col = QVBoxLayout(scenario_group)
+        scenario_col.setSpacing(8)
 
         self.scenario_folder_edit = QLineEdit()
+        self.scenario_folder_edit.setPlaceholderText("Scenario folder")
         self.scenario_folder_btn = QPushButton("Folder...")
+        self.scenario_folder_btn.setProperty("role", "secondary")
         sc_folder_row = QHBoxLayout()
         sc_folder_row.addWidget(self.scenario_folder_edit, 1)
         sc_folder_row.addWidget(self.scenario_folder_btn)
         scenario_col.addLayout(sc_folder_row)
 
         self.scenario_list = QListWidget()
-        self.scenario_list.setMinimumHeight(100)
+        self.scenario_list.setMinimumHeight(170)
         scenario_col.addWidget(self.scenario_list, 1)
 
         self.scenario_edit = QLineEdit()
         self.scenario_edit.setReadOnly(True)
         self.scenario_edit.setPlaceholderText("Select from list above, or Browse...")
         self.scenario_browse_btn = QPushButton("Browse...")
+        self.scenario_browse_btn.setProperty("role", "secondary")
         sc_sel_row = QHBoxLayout()
         sc_sel_row.addWidget(self.scenario_edit, 1)
         sc_sel_row.addWidget(self.scenario_browse_btn)
         scenario_col.addLayout(sc_sel_row)
 
-        file_sel_layout.addWidget(scenario_group)
-
-        # Script column
         script_group = QGroupBox("RealDriver Python Script")
         script_col = QVBoxLayout(script_group)
+        script_col.setSpacing(8)
 
         self.script_folder_edit = QLineEdit()
+        self.script_folder_edit.setPlaceholderText("Script folder")
         self.script_folder_btn = QPushButton("Folder...")
+        self.script_folder_btn.setProperty("role", "secondary")
         sr_folder_row = QHBoxLayout()
         sr_folder_row.addWidget(self.script_folder_edit, 1)
         sr_folder_row.addWidget(self.script_folder_btn)
         script_col.addLayout(sr_folder_row)
 
         self.script_list = QListWidget()
-        self.script_list.setMinimumHeight(100)
+        self.script_list.setMinimumHeight(170)
         script_col.addWidget(self.script_list, 1)
 
         self.script_edit = QLineEdit()
         self.script_edit.setReadOnly(True)
         self.script_edit.setPlaceholderText("Select from list above, or Browse...")
         self.script_browse_btn = QPushButton("Browse...")
+        self.script_browse_btn.setProperty("role", "secondary")
         sr_sel_row = QHBoxLayout()
         sr_sel_row.addWidget(self.script_edit, 1)
         sr_sel_row.addWidget(self.script_browse_btn)
         script_col.addLayout(sr_sel_row)
 
-        file_sel_layout.addWidget(script_group)
+        selection_col.addWidget(scenario_group)
+        selection_col.addWidget(script_group)
 
-        root.addLayout(file_sel_layout, 1)
+        content_row.addWidget(selection_group, 3)
 
-        # --- Process Control ---
-        buttons_group = QGroupBox("Process Control")
-        buttons_layout = QGridLayout(buttons_group)
+        # Right: control/status
+        control_group = QGroupBox("Runtime")
+        control_layout = QVBoxLayout(control_group)
+        control_layout.setSpacing(12)
 
         self.start_python_btn = QPushButton("Start Python")
+        self.start_python_btn.setProperty("role", "success")
         self.stop_python_btn = QPushButton("Stop Python")
+        self.stop_python_btn.setProperty("role", "danger-secondary")
         self.start_gtsim_btn = QPushButton("Start GT_Sim")
+        self.start_gtsim_btn.setProperty("role", "success")
         self.stop_gtsim_btn = QPushButton("Stop GT_Sim")
+        self.stop_gtsim_btn.setProperty("role", "danger-secondary")
         self.start_all_btn = QPushButton("Start All (Python -> GT_Sim)")
+        self.start_all_btn.setProperty("role", "primary")
         self.stop_all_btn = QPushButton("Stop All")
+        self.stop_all_btn.setProperty("role", "danger")
 
-        buttons_layout.addWidget(self.start_python_btn, 0, 0)
-        buttons_layout.addWidget(self.stop_python_btn, 0, 1)
-        buttons_layout.addWidget(self.start_gtsim_btn, 1, 0)
-        buttons_layout.addWidget(self.stop_gtsim_btn, 1, 1)
-        buttons_layout.addWidget(self.start_all_btn, 2, 0)
-        buttons_layout.addWidget(self.stop_all_btn, 2, 1)
+        btn_grid = QGridLayout()
+        btn_grid.setHorizontalSpacing(8)
+        btn_grid.setVerticalSpacing(8)
+        btn_grid.addWidget(self.start_python_btn, 0, 0)
+        btn_grid.addWidget(self.stop_python_btn, 0, 1)
+        btn_grid.addWidget(self.start_gtsim_btn, 1, 0)
+        btn_grid.addWidget(self.stop_gtsim_btn, 1, 1)
+        btn_grid.addWidget(self.start_all_btn, 2, 0, 1, 2)
+        btn_grid.addWidget(self.stop_all_btn, 3, 0, 1, 2)
+        control_layout.addLayout(btn_grid)
+
+        status_title = QLabel("Process Status")
+        status_title.setObjectName("statusTitle")
+        control_layout.addWidget(status_title)
 
         self.python_status = QLabel("Python: stopped")
+        self.python_status.setProperty("status", "stopped")
         self.gtsim_status = QLabel("GT_Sim: stopped")
-        buttons_layout.addWidget(self.python_status, 3, 0)
-        buttons_layout.addWidget(self.gtsim_status, 3, 1)
+        self.gtsim_status.setProperty("status", "stopped")
+        control_layout.addWidget(self.python_status)
+        control_layout.addWidget(self.gtsim_status)
+        control_layout.addStretch()
 
-        root.addWidget(buttons_group)
+        content_row.addWidget(control_group, 2)
+        root.addLayout(content_row, 3)
 
         # --- Logs ---
-        logs_group = QGroupBox("Logs")
+        logs_group = QGroupBox("Live Logs")
         logs_layout = QVBoxLayout(logs_group)
+        logs_layout.setSpacing(10)
 
+        log_row = QHBoxLayout()
+        log_row.setSpacing(10)
+
+        python_log_group = QGroupBox("Python Log")
+        py_log_layout = QVBoxLayout(python_log_group)
         self.python_log_view = QPlainTextEdit()
+        self.python_log_view.setObjectName("pythonLog")
         self.python_log_view.setReadOnly(True)
         self.python_log_view.setPlaceholderText("Python process log")
-        logs_layout.addWidget(QLabel("Python"))
-        logs_layout.addWidget(self.python_log_view, 1)
+        py_log_layout.addWidget(self.python_log_view, 1)
+        log_row.addWidget(python_log_group, 1)
 
+        gtsim_log_group = QGroupBox("GT_Sim Log")
+        gt_log_layout = QVBoxLayout(gtsim_log_group)
         self.gtsim_log_view = QPlainTextEdit()
+        self.gtsim_log_view.setObjectName("gtsimLog")
         self.gtsim_log_view.setReadOnly(True)
         self.gtsim_log_view.setPlaceholderText("GT_Sim process log")
-        logs_layout.addWidget(QLabel("GT_Sim"))
-        logs_layout.addWidget(self.gtsim_log_view, 1)
+        gt_log_layout.addWidget(self.gtsim_log_view, 1)
+        log_row.addWidget(gtsim_log_group, 1)
 
-        root.addWidget(logs_group, 1)
+        logs_layout.addLayout(log_row, 1)
+
+        root.addWidget(logs_group, 4)
 
         # --- Create SettingsDialog (widgets are reparented into it) ---
         self._settings_dialog = SettingsDialog(self)
+        self._apply_theme()
 
         # --- Signal connections ---
         self.settings_btn.clicked.connect(self._open_settings)
@@ -361,6 +424,175 @@ class LauncherWindow(QMainWindow):
         self.stop_gtsim_btn.clicked.connect(self.stop_gtsim_process)
         self.start_all_btn.clicked.connect(self.start_all_processes)
         self.stop_all_btn.clicked.connect(self.stop_all_processes)
+
+    def _apply_theme(self) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        app.setStyleSheet(
+            """
+            QWidget {
+                color: #e7ebf3;
+                font-size: 13px;
+                background-color: #0f141c;
+            }
+            QMainWindow, QDialog {
+                background-color: #0f141c;
+            }
+            QWidget#mainPanel {
+                background-color: #0f141c;
+            }
+            QLabel#appTitle {
+                font-size: 22px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                color: #f4f7ff;
+            }
+            QLabel#appSubtitle {
+                font-size: 12px;
+                color: #99a7bf;
+            }
+            QLabel#statusTitle {
+                font-size: 12px;
+                font-weight: 600;
+                color: #9fb0ca;
+                padding-top: 4px;
+            }
+            QGroupBox {
+                font-size: 14px;
+                font-weight: 600;
+                border: 1px solid #2d3748;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding: 12px 12px 12px 12px;
+                background-color: #161d27;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                color: #c7d2e5;
+            }
+            QLineEdit, QListWidget, QPlainTextEdit, QSpinBox, QDoubleSpinBox {
+                background-color: #1b2431;
+                border: 1px solid #364155;
+                border-radius: 8px;
+                padding: 7px 9px;
+                selection-background-color: #2e7de9;
+                selection-color: #f9fbff;
+            }
+            QLineEdit:focus, QListWidget:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+                border: 1px solid #4a90ff;
+            }
+            QListWidget {
+                outline: 0;
+            }
+            QListWidget::item {
+                padding: 6px;
+                border-radius: 6px;
+                margin: 1px 2px;
+            }
+            QListWidget::item:selected {
+                background-color: #2f4568;
+                color: #f4f7ff;
+            }
+            QPlainTextEdit#pythonLog, QPlainTextEdit#gtsimLog {
+                font-family: Consolas, "Courier New", monospace;
+                font-size: 12px;
+                line-height: 1.35;
+                background-color: #111924;
+            }
+            QPushButton {
+                border: 1px solid #3a465c;
+                border-radius: 8px;
+                padding: 8px 12px;
+                background-color: #253042;
+                color: #ebf2ff;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #2d3a50;
+            }
+            QPushButton:pressed {
+                background-color: #212b3b;
+            }
+            QPushButton:disabled {
+                color: #7d8ba2;
+                background-color: #1f2734;
+                border-color: #323c4e;
+            }
+            QPushButton[role="secondary"] {
+                background-color: #202b3b;
+                border-color: #334158;
+            }
+            QPushButton[role="primary"] {
+                background-color: #3578e5;
+                border-color: #3578e5;
+                color: #ffffff;
+            }
+            QPushButton[role="primary"]:hover {
+                background-color: #4a89ec;
+            }
+            QPushButton[role="success"] {
+                background-color: #198754;
+                border-color: #198754;
+                color: #f4fffb;
+            }
+            QPushButton[role="success"]:hover {
+                background-color: #1ea766;
+            }
+            QPushButton[role="danger"] {
+                background-color: #c54444;
+                border-color: #c54444;
+                color: #ffffff;
+            }
+            QPushButton[role="danger"]:hover {
+                background-color: #d14f4f;
+            }
+            QPushButton[role="danger-secondary"] {
+                background-color: #4d2d35;
+                border-color: #7c3f4e;
+                color: #ffd7de;
+            }
+            QLabel[status="running"] {
+                background-color: #14392d;
+                color: #aef5cf;
+                border: 1px solid #1f7f55;
+                border-radius: 7px;
+                padding: 6px 9px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QLabel[status="stopped"] {
+                background-color: #3d1f26;
+                color: #ffbec9;
+                border: 1px solid #8a3f52;
+                border-radius: 7px;
+                padding: 6px 9px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QCheckBox {
+                spacing: 7px;
+            }
+            QCheckBox::indicator {
+                width: 15px;
+                height: 15px;
+                border-radius: 4px;
+                border: 1px solid #5b6b86;
+                background: #1b2431;
+            }
+            QCheckBox::indicator:checked {
+                background: #377ce9;
+                border: 1px solid #377ce9;
+            }
+            """
+        )
+
+    def _refresh_dynamic_style(self, widget: QWidget) -> None:
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
 
     def _connect_processes(self) -> None:
         self.python_proc.readyReadStandardOutput.connect(
@@ -541,8 +773,12 @@ class LauncherWindow(QMainWindow):
         self.start_all_btn.setEnabled(not (py_running and gt_running))
         self.stop_all_btn.setEnabled(py_running or gt_running)
 
-        self.python_status.setText(f"Python: {'running' if py_running else 'stopped'}")
-        self.gtsim_status.setText(f"GT_Sim: {'running' if gt_running else 'stopped'}")
+        self.python_status.setText(f"Python: {'RUNNING' if py_running else 'STOPPED'}")
+        self.gtsim_status.setText(f"GT_Sim: {'RUNNING' if gt_running else 'STOPPED'}")
+        self.python_status.setProperty("status", "running" if py_running else "stopped")
+        self.gtsim_status.setProperty("status", "running" if gt_running else "stopped")
+        self._refresh_dynamic_style(self.python_status)
+        self._refresh_dynamic_style(self.gtsim_status)
 
     def _error_dialog(self, message: str) -> None:
         QMessageBox.critical(self, "Error", message)
@@ -660,12 +896,14 @@ class LauncherWindow(QMainWindow):
                 raise RuntimeError("No ScenarioObject found in Entities.")
             target_name = target_obj.get("name", "Ego")
 
-        obj_ctrl = target_obj.find("ObjectController")
-        if obj_ctrl is None:
-            obj_ctrl = ET.SubElement(target_obj, "ObjectController")
-        controller = obj_ctrl.find("Controller")
-        if controller is None:
-            controller = ET.SubElement(obj_ctrl, "Controller")
+        # Replace any existing ObjectController definitions so esmini picks RealDriver.
+        # esmini parser reads the first child under ObjectController; appending a new
+        # Controller next to an existing CatalogReference does not override it.
+        for existing_obj_ctrl in list(target_obj.findall("ObjectController")):
+            target_obj.remove(existing_obj_ctrl)
+
+        obj_ctrl = ET.SubElement(target_obj, "ObjectController")
+        controller = ET.SubElement(obj_ctrl, "Controller")
         controller.set("name", "RealDriverController")
 
         props = controller.find("Properties")
