@@ -8,8 +8,11 @@
 | スクリプト名 | 概要 |
 | :--- | :--- |
 | `scenario_drive_example.py` | ウェイポイント追従と速度制御を行う、最も一般的なシナリオ走行のサンプルです。 |
+| `scenario_acc_example.py` | シナリオルート追従 + ACC（先行車追従）のサンプルです。 |
 | `lane_change_example.py` | 安全確認を行いながら車線変更を行うイベント駆動型制御のサンプルです。 |
 | `modular_control_example.py` | 横方向（ステアリング）と縦方向（速度）の制御を独立して組み合わせる方法を示します。 |
+| `acc_lkas_example.py` | ACC（先行車追従）+ LKAS（車線維持）のシンプル版サンプルです。 |
+| `acc_lkas_rm_example.py` | ACC + LKAS の RoadManager 連携版サンプルです。車線ベースの高精度な先行車検出を行います。 |
 | `lkas_example.py` | RoadManagerを使用した車線維持支援 (LKAS) のサンプルです。 |
 | `gui_controller.py` | Tkinterを使用したGUIで、esmini上の車両を手動操作するクライアントです。 |
 | `debug_route_plot.py` | esminiRMLibを使用して、計算された経路や道路形状を可視化するデバッグツールです。 |
@@ -36,6 +39,28 @@ python scenario_drive_example.py --xodr_path <path_to_xodr> [options]
     *   `target`: `--target_x`, `--target_y` で指定された座標への経路を自動計算して追従します。
     *   `udp`: esmini本体からのUDPパケットによるウェイポイント指示を待ち受けます。
 *   `--target_speed`: 目標巡航速度 [m/s]。
+*   `--id`: 制御対象の車両ID (デフォルト: 0)。
+
+---
+
+### `scenario_acc_example.py`
+
+`ScenarioDriveController` によるシナリオルート追従と `ACCController` による先行車追従を組み合わせたサンプルです。
+`scenario_drive_example.py` をベースに、縦制御を ACC に置き換えています。
+
+*   **横制御**: `ScenarioDriveController` のステアリング出力を使用（ウェイポイント追従）。
+*   **縦制御**: `ACCController` の throttle/brake 出力を使用。前方車両がいれば車間距離を保って追従し、いなければ目標速度でクルーズします。
+*   **目標速度**: `ScenarioDriveController` が内部で GT_Sim から UDP 受信した値を `ACCController` に同期します。
+
+**使用方法:**
+```bash
+python scenario_acc_example.py --xodr_path <path_to_xodr> [options]
+```
+
+**主な引数:**
+*   `--xodr_path`: (必須) OpenDRIVE (.xodr) ファイルへのパス。
+*   `--mode`: 動作モードを指定します（`waypoints`, `target`, `udp`）。`scenario_drive_example.py` と同じ。
+*   `--target_speed`: デフォルト目標速度 [m/s]。GT_Sim から UDP で上書きされます。
 *   `--id`: 制御対象の車両ID (デフォルト: 0)。
 
 ---
@@ -73,6 +98,50 @@ python modular_control_example.py --xodr_path <path_to_xodr> [options]
 **特徴:**
 *   ステアリング制御のみ、または速度制御のみを個別にテスト可能。
 *   外部からのUDP入力（速度、ウェイポイント）を個別に受け付ける実装例を含みます。
+
+---
+
+### `acc_lkas_example.py`
+
+ACC（アダプティブクルーズコントロール）と LKAS（車線維持アシスト）を組み合わせたシンプル版サンプルです。
+各コントローラは独立して動作し、それぞれの基本的な使い方を理解できる構成になっています。
+
+*   **縦制御**: `ACCController` を OSI-onlyモード（`rm_lib=None`）で使用。座標変換ベースで先行車を検出します。
+*   **横制御**: `LKASController` が内部で RoadManager を初期化・管理し、車線維持を行います。
+*   **目標速度**: GT_Sim から UDP（デフォルト: ポート54995）で受信。受信がない場合は `--target_speed` のデフォルト値を使用します。
+
+**使用方法:**
+```bash
+python acc_lkas_example.py --xodr_path <path_to_xodr> [options]
+```
+
+**主な引数:**
+*   `--xodr_path`: (必須) OpenDRIVE (.xodr) ファイルへのパス。
+*   `--target_speed`: デフォルト目標速度 [m/s] (デフォルト: 10.0)。UDP受信で上書きされます。
+*   `--target_speed_port`: 目標速度受信用UDPポート (デフォルト: 54995)。
+*   `--id`: 制御対象の車両ID (デフォルト: 0)。
+
+---
+
+### `acc_lkas_rm_example.py`
+
+ACC + LKAS の RoadManager 連携版サンプルです。
+LKAS が初期化した RoadManager インスタンスを ACC にも渡して共有することで、車線ベースの高精度な先行車検出を実現します。
+
+*   **縦制御**: `ACCController` を RoadManager モード（`rm_lib=lkas.rm_lib`）で使用。同じ道路・同じ車線上の先行車を正確に判定します。
+*   **横制御**: シンプル版と同じ `LKASController` による車線維持。
+*   **目標速度**: シンプル版と同じ UDP 受信方式。
+
+シンプル版 (`acc_lkas_example.py`) との違い:
+*   ACC の先行車検出が座標変換ベースから車線ベースに変わり、対向車や隣接車線の車両を誤検出しにくくなります。
+*   初期化時に `ACCController(rm_lib=lkas.rm_lib)` として RoadManager を共有します。
+
+**使用方法:**
+```bash
+python acc_lkas_rm_example.py --xodr_path <path_to_xodr> [options]
+```
+
+**主な引数:** `acc_lkas_example.py` と同じ。
 
 ---
 
