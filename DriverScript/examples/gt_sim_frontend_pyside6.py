@@ -532,6 +532,11 @@ class LauncherWindow(QMainWindow):
                 color: #9fb0ca;
                 font-size: 12px;
             }
+            QLabel#argspecDesc {
+                color: #8ea0bc;
+                font-size: 11px;
+                padding-top: 1px;
+            }
             QGroupBox#argspecGroup {
                 margin-top: 8px;
                 padding-top: 10px;
@@ -944,6 +949,7 @@ class LauncherWindow(QMainWindow):
             label = name[2:].replace("_", " ")
             label = label[:1].upper() + label[1:]
             help_text = str(spec.get("help", "")).strip()
+            description_text = str(spec.get("description", "")).strip() or help_text
             arg_type = str(spec.get("type", "str")).strip().lower()
             choices = spec.get("choices")
             default = restored.get(name, spec.get("default"))
@@ -985,7 +991,17 @@ class LauncherWindow(QMainWindow):
             if help_text:
                 widget.setToolTip(help_text)
             self.script_arg_widgets[name] = widget
-            self.python_argspec_form.addRow(QLabel(label), widget)
+            container = QWidget()
+            container_layout = QVBoxLayout(container)
+            container_layout.setContentsMargins(0, 0, 0, 0)
+            container_layout.setSpacing(1)
+            container_layout.addWidget(widget)
+            if description_text:
+                desc = QLabel(description_text)
+                desc.setObjectName("argspecDesc")
+                desc.setWordWrap(True)
+                container_layout.addWidget(desc)
+            self.python_argspec_form.addRow(QLabel(label), container)
 
     def _capture_script_arg_values(self) -> dict:
         values: dict[str, object] = {}

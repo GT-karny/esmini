@@ -76,7 +76,7 @@ def _build_arg_parser() -> Tuple[argparse.ArgumentParser, List[Dict]]:
     parser = argparse.ArgumentParser(description="NaturalDriver Controller Example")
     specs: List[Dict] = []
 
-    def add(name: str, **kwargs) -> None:
+    def add(name: str, description: str = "", **kwargs) -> None:
         parser.add_argument(name, **kwargs)
         spec = {
             "name": name,
@@ -84,6 +84,7 @@ def _build_arg_parser() -> Tuple[argparse.ArgumentParser, List[Dict]]:
             "default": kwargs.get("default"),
             "required": bool(kwargs.get("required", False)),
             "help": kwargs.get("help", ""),
+            "description": description.strip() or kwargs.get("help", ""),
         }
         choices = kwargs.get("choices")
         if choices is not None:
@@ -93,25 +94,25 @@ def _build_arg_parser() -> Tuple[argparse.ArgumentParser, List[Dict]]:
             spec["path_kind"] = "file"
         specs.append(spec)
 
-    add("--ip", type=str, default="127.0.0.1", help="esmini host IP")
-    add("--port", type=int, default=53995, help="RealDriver base port")
-    add("--osi_port", type=int, default=48198, help="OSI UDP port")
-    add("--id", type=int, default=0, help="Ego object ID")
-    add("--target_speed", type=float, default=15.0, help="Desired speed [m/s]")
-    add("--desired_distance", type=float, default=20.0, help="IDM desired distance s0 [m]")
-    add("--desired_thw", type=float, default=2.0, help="IDM desired time headway T [s]")
-    add("--xodr_path", type=str, default=None, help="OpenDRIVE map path (.xodr)")
-    add("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll")
-    add("--lc_ttc_threshold", type=float, default=1.5, help="Lane-change TTC safety threshold [s]")
-    add("--lc_min_gap_front", type=float, default=8.0, help="Lane-change minimum front gap [m]")
-    add("--lc_min_gap_rear", type=float, default=6.0, help="Lane-change minimum rear gap [m]")
-    add("--lc_steering_gain", type=float, default=0.18, help="Lane-change steering gain")
-    add("--lc_base_blend", type=float, default=0.15, help="Blend ratio of base lane-centering during lane change [0-1]")
-    add("--lc_wp_dt", type=float, default=0.1, help="Lane-change waypoint time step [s]")
-    add("--lc_wp_horizon", type=float, default=5.0, help="Lane-change waypoint horizon [s]")
-    add("--lc_wp_lookahead", type=float, default=10.0, help="Lane-change waypoint lookahead distance [m]")
-    add("--base_wp_lookahead", type=float, default=12.0, help="Base lane-keeping waypoint lookahead distance [m]")
-    add("--base_wp_gain", type=float, default=0.30, help="Base lane-keeping waypoint steering gain")
+    add("--ip", type=str, default="127.0.0.1", help="esmini host IP", description="RealDriver UDPの接続先IPアドレスです。")
+    add("--port", type=int, default=53995, help="RealDriver base port", description="RealDriver通信用のベースポート番号です。")
+    add("--osi_port", type=int, default=48198, help="OSI UDP port", description="OSI GroundTruthを受信するUDPポートです。")
+    add("--id", type=int, default=0, help="Ego object ID", description="制御対象車両（Ego）のオブジェクトIDです。")
+    add("--target_speed", type=float, default=15.0, help="Desired speed [m/s]", description="目標巡航速度[m/s]。大きいほど速く走行します。")
+    add("--desired_distance", type=float, default=20.0, help="IDM desired distance s0 [m]", description="先行車との最低距離[m]（IDM s0）です。")
+    add("--desired_thw", type=float, default=2.0, help="IDM desired time headway T [s]", description="目標時間車間[s]（IDM T）です。")
+    add("--xodr_path", type=str, default=None, help="OpenDRIVE map path (.xodr)", description="道路形状を使うためのOpenDRIVEファイルパスです。")
+    add("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll", description="RoadManager DLL（esminiRMLib.dll）のパスです。")
+    add("--lc_ttc_threshold", type=float, default=1.5, help="Lane-change TTC safety threshold [s]", description="車線変更を許可するTTCしきい値[s]です。")
+    add("--lc_min_gap_front", type=float, default=8.0, help="Lane-change minimum front gap [m]", description="車線変更先の前方最小ギャップ[m]です。")
+    add("--lc_min_gap_rear", type=float, default=6.0, help="Lane-change minimum rear gap [m]", description="車線変更先の後方最小ギャップ[m]です。")
+    add("--lc_steering_gain", type=float, default=0.18, help="Lane-change steering gain", description="車線変更時の操舵ゲインです。")
+    add("--lc_base_blend", type=float, default=0.15, help="Blend ratio of base lane-centering during lane change [0-1]", description="車線変更中に通常レーン追従を混ぜる比率[0-1]です。")
+    add("--lc_wp_dt", type=float, default=0.1, help="Lane-change waypoint time step [s]", description="車線変更ウェイポイントの時間刻み[s]です。")
+    add("--lc_wp_horizon", type=float, default=5.0, help="Lane-change waypoint horizon [s]", description="車線変更ウェイポイントの予測時間[s]です。")
+    add("--lc_wp_lookahead", type=float, default=10.0, help="Lane-change waypoint lookahead distance [m]", description="車線変更追従の先読み距離[m]です。")
+    add("--base_wp_lookahead", type=float, default=12.0, help="Base lane-keeping waypoint lookahead distance [m]", description="通常レーン追従の先読み距離[m]です。")
+    add("--base_wp_gain", type=float, default=0.30, help="Base lane-keeping waypoint steering gain", description="通常レーン追従の操舵ゲインです。")
     parser.add_argument("--dump-argspec", action="store_true", help=argparse.SUPPRESS)
     return parser, specs
 
@@ -120,7 +121,7 @@ def main() -> int:
     parser, arg_specs = _build_arg_parser()
     args = parser.parse_args()
     if args.dump_argspec:
-        print(json.dumps(arg_specs, ensure_ascii=False))
+        print(json.dumps(arg_specs, ensure_ascii=True))
         return 0
 
     from realdriver import (
