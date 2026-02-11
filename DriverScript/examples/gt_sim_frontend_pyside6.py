@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import json
 import os
 import shlex
+import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -11,18 +13,21 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QFormLayout,
     QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QComboBox,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -82,7 +87,7 @@ class SettingsDialog(QDialog):
     def __init__(self, launcher: "LauncherWindow") -> None:
         super().__init__(launcher)
         self.setWindowTitle("Settings")
-        self.resize(620, 480)
+        self.resize(760, 620)
         self._setup_ui(launcher)
 
     def _setup_ui(self, launcher: "LauncherWindow") -> None:
@@ -145,11 +150,21 @@ class SettingsDialog(QDialog):
 
         options_grid.addWidget(launcher.auto_xodr_checkbox, 5, 0, 1, 4)
 
-        options_grid.addWidget(QLabel("Python script args"), 6, 0)
+        options_grid.addWidget(QLabel("Python extra args"), 6, 0)
         options_grid.addWidget(launcher.script_args_edit, 6, 1, 1, 3)
 
         options_grid.addWidget(QLabel("GT_Sim extra args"), 7, 0)
         options_grid.addWidget(launcher.gtsim_extra_args_edit, 7, 1, 1, 3)
+
+        options_grid.addWidget(QLabel("Python --ip"), 8, 0)
+        options_grid.addWidget(launcher.py_arg_ip_edit, 8, 1)
+        options_grid.addWidget(QLabel("Python --port"), 8, 2)
+        options_grid.addWidget(launcher.py_arg_port_spin, 8, 3)
+
+        options_grid.addWidget(QLabel("Python --osi_port"), 9, 0)
+        options_grid.addWidget(launcher.py_arg_osi_port_spin, 9, 1)
+        options_grid.addWidget(QLabel("Python --id"), 9, 2)
+        options_grid.addWidget(launcher.py_arg_id_spin, 9, 3)
 
         layout.addWidget(options_group)
 
@@ -179,6 +194,17 @@ class LauncherWindow(QMainWindow):
         self.last_temp_xosc = ""
         self.pending_start_all = False
         self.start_all_wait_ms = 800
+        self.script_argspec: list[dict] = []
+        self.script_arg_widgets: dict[str, QWidget] = {}
+        self.script_arg_values_by_script: dict[str, dict] = {}
+        self.hidden_script_arg_names = {
+            "--ip",
+            "--port",
+            "--osi_port",
+            "--id",
+            "--xodr_path",
+            "--lib_path",
+        }
 
         self._setup_ui()
         self._connect_processes()
@@ -233,6 +259,40 @@ class LauncherWindow(QMainWindow):
         self.threads_checkbox.setChecked(True)
 
         self.script_args_edit = QLineEdit()
+        self.script_args_edit.setPlaceholderText("Manual override / extra flags")
+
+        self.py_arg_ip_edit = QLineEdit("127.0.0.1")
+        self.py_arg_port_spin = QSpinBox()
+        self.py_arg_port_spin.setRange(1, 65535)
+        self.py_arg_port_spin.setValue(53995)
+        self.py_arg_osi_port_spin = QSpinBox()
+        self.py_arg_osi_port_spin.setRange(1, 65535)
+        self.py_arg_osi_port_spin.setValue(48198)
+        self.py_arg_id_spin = QSpinBox()
+        self.py_arg_id_spin.setRange(0, 1000000)
+        self.py_arg_id_spin.setValue(0)
+
+        self.python_argspec_group = QGroupBox("Python Script Arguments (Auto)")
+        self.python_argspec_group.setObjectName("argspecGroup")
+        argspec_layout = QVBoxLayout(self.python_argspec_group)
+        argspec_layout.setContentsMargins(8, 8, 8, 8)
+        argspec_layout.setSpacing(6)
+        self.python_argspec_hint = QLabel("Select a script to load argument fields.")
+        self.python_argspec_hint.setObjectName("argspecHint")
+        argspec_layout.addWidget(self.python_argspec_hint)
+
+        self.python_argspec_form_widget = QWidget()
+        self.python_argspec_form = QFormLayout(self.python_argspec_form_widget)
+        self.python_argspec_form.setContentsMargins(0, 0, 0, 0)
+        self.python_argspec_form.setHorizontalSpacing(8)
+        self.python_argspec_form.setVerticalSpacing(6)
+
+        self.python_argspec_scroll = QScrollArea()
+        self.python_argspec_scroll.setWidgetResizable(True)
+        self.python_argspec_scroll.setMinimumHeight(170)
+        self.python_argspec_scroll.setWidget(self.python_argspec_form_widget)
+        argspec_layout.addWidget(self.python_argspec_scroll, 1)
+
         self.auto_xodr_checkbox = QCheckBox("Auto add --xodr_path from scenario")
         self.auto_xodr_checkbox.setChecked(True)
 
@@ -280,18 +340,13 @@ class LauncherWindow(QMainWindow):
         scenario_col.addLayout(sc_folder_row)
 
         self.scenario_list = QListWidget()
-        self.scenario_list.setMinimumHeight(170)
+        self.scenario_list.setSpacing(0)
+        self.scenario_list.setMinimumHeight(250)
         scenario_col.addWidget(self.scenario_list, 1)
 
         self.scenario_edit = QLineEdit()
         self.scenario_edit.setReadOnly(True)
-        self.scenario_edit.setPlaceholderText("Select from list above, or Browse...")
-        self.scenario_browse_btn = QPushButton("Browse...")
-        self.scenario_browse_btn.setProperty("role", "secondary")
-        sc_sel_row = QHBoxLayout()
-        sc_sel_row.addWidget(self.scenario_edit, 1)
-        sc_sel_row.addWidget(self.scenario_browse_btn)
-        scenario_col.addLayout(sc_sel_row)
+        self.scenario_edit.hide()
 
         script_group = QGroupBox("RealDriver Python Script")
         script_col = QVBoxLayout(script_group)
@@ -307,18 +362,13 @@ class LauncherWindow(QMainWindow):
         script_col.addLayout(sr_folder_row)
 
         self.script_list = QListWidget()
-        self.script_list.setMinimumHeight(170)
+        self.script_list.setSpacing(0)
+        self.script_list.setMinimumHeight(250)
         script_col.addWidget(self.script_list, 1)
 
         self.script_edit = QLineEdit()
         self.script_edit.setReadOnly(True)
-        self.script_edit.setPlaceholderText("Select from list above, or Browse...")
-        self.script_browse_btn = QPushButton("Browse...")
-        self.script_browse_btn.setProperty("role", "secondary")
-        sr_sel_row = QHBoxLayout()
-        sr_sel_row.addWidget(self.script_edit, 1)
-        sr_sel_row.addWidget(self.script_browse_btn)
-        script_col.addLayout(sr_sel_row)
+        self.script_edit.hide()
 
         selection_col.addWidget(scenario_group)
         selection_col.addWidget(script_group)
@@ -346,24 +396,46 @@ class LauncherWindow(QMainWindow):
         btn_grid = QGridLayout()
         btn_grid.setHorizontalSpacing(8)
         btn_grid.setVerticalSpacing(8)
-        btn_grid.addWidget(self.start_python_btn, 0, 0)
-        btn_grid.addWidget(self.stop_python_btn, 0, 1)
-        btn_grid.addWidget(self.start_gtsim_btn, 1, 0)
-        btn_grid.addWidget(self.stop_gtsim_btn, 1, 1)
-        btn_grid.addWidget(self.start_all_btn, 2, 0, 1, 2)
-        btn_grid.addWidget(self.stop_all_btn, 3, 0, 1, 2)
+        status_col = QVBoxLayout()
+        status_col.setSpacing(12)
+
+        py_status_row = QHBoxLayout()
+        py_status_row.setSpacing(6)
+        self.python_status_lamp = QLabel()
+        self.python_status_lamp.setObjectName("statusLamp")
+        self.python_status_lamp.setFixedSize(14, 14)
+        self.python_status_lamp.setProperty("status", "stopped")
+        py_status_name = QLabel("Python")
+        py_status_name.setObjectName("statusName")
+        py_status_row.addWidget(self.python_status_lamp)
+        py_status_row.addWidget(py_status_name)
+        py_status_row.addStretch()
+
+        gt_status_row = QHBoxLayout()
+        gt_status_row.setSpacing(6)
+        self.gtsim_status_lamp = QLabel()
+        self.gtsim_status_lamp.setObjectName("statusLamp")
+        self.gtsim_status_lamp.setFixedSize(14, 14)
+        self.gtsim_status_lamp.setProperty("status", "stopped")
+        gt_status_name = QLabel("GT_Sim")
+        gt_status_name.setObjectName("statusName")
+        gt_status_row.addWidget(self.gtsim_status_lamp)
+        gt_status_row.addWidget(gt_status_name)
+        gt_status_row.addStretch()
+
+        status_col.addLayout(py_status_row)
+        status_col.addLayout(gt_status_row)
+        status_col.addStretch()
+
+        btn_grid.addLayout(status_col, 0, 0, 2, 1)
+        btn_grid.addWidget(self.start_python_btn, 0, 1)
+        btn_grid.addWidget(self.stop_python_btn, 0, 2)
+        btn_grid.addWidget(self.start_gtsim_btn, 1, 1)
+        btn_grid.addWidget(self.stop_gtsim_btn, 1, 2)
+        btn_grid.addWidget(self.start_all_btn, 2, 0, 1, 3)
+        btn_grid.addWidget(self.stop_all_btn, 3, 0, 1, 3)
         control_layout.addLayout(btn_grid)
-
-        status_title = QLabel("Process Status")
-        status_title.setObjectName("statusTitle")
-        control_layout.addWidget(status_title)
-
-        self.python_status = QLabel("Python: stopped")
-        self.python_status.setProperty("status", "stopped")
-        self.gtsim_status = QLabel("GT_Sim: stopped")
-        self.gtsim_status.setProperty("status", "stopped")
-        control_layout.addWidget(self.python_status)
-        control_layout.addWidget(self.gtsim_status)
+        control_layout.addWidget(self.python_argspec_group, 1)
         control_layout.addStretch()
 
         content_row.addWidget(control_group, 2)
@@ -408,8 +480,6 @@ class LauncherWindow(QMainWindow):
 
         self.gt_sim_browse_btn.clicked.connect(self._browse_gt_sim)
         self.python_browse_btn.clicked.connect(self._browse_python)
-        self.scenario_browse_btn.clicked.connect(self._browse_scenario)
-        self.script_browse_btn.clicked.connect(self._browse_script)
 
         self.scenario_folder_btn.clicked.connect(self._browse_scenario_folder)
         self.script_folder_btn.clicked.connect(self._browse_script_folder)
@@ -417,6 +487,7 @@ class LauncherWindow(QMainWindow):
         self.script_folder_edit.editingFinished.connect(self._refresh_script_list)
         self.scenario_list.currentItemChanged.connect(self._on_scenario_selected)
         self.script_list.currentItemChanged.connect(self._on_script_selected)
+        self.python_path_edit.editingFinished.connect(self._reload_script_argspec)
 
         self.start_python_btn.clicked.connect(self.start_python_process)
         self.stop_python_btn.clicked.connect(self.stop_python_process)
@@ -452,11 +523,18 @@ class LauncherWindow(QMainWindow):
                 font-size: 12px;
                 color: #99a7bf;
             }
-            QLabel#statusTitle {
+            QLabel#statusName {
+                color: #c6d4ea;
                 font-size: 12px;
                 font-weight: 600;
+            }
+            QLabel#argspecHint {
                 color: #9fb0ca;
-                padding-top: 4px;
+                font-size: 12px;
+            }
+            QGroupBox#argspecGroup {
+                margin-top: 8px;
+                padding-top: 10px;
             }
             QGroupBox {
                 font-size: 14px;
@@ -488,9 +566,9 @@ class LauncherWindow(QMainWindow):
                 outline: 0;
             }
             QListWidget::item {
-                padding: 6px;
-                border-radius: 6px;
-                margin: 1px 2px;
+                padding: 1px 5px;
+                border-radius: 4px;
+                margin: 0px 1px;
             }
             QListWidget::item:selected {
                 background-color: #2f4568;
@@ -554,23 +632,65 @@ class LauncherWindow(QMainWindow):
                 border-color: #7c3f4e;
                 color: #ffd7de;
             }
-            QLabel[status="running"] {
-                background-color: #14392d;
-                color: #aef5cf;
-                border: 1px solid #1f7f55;
-                border-radius: 7px;
-                padding: 6px 9px;
-                font-size: 12px;
-                font-weight: 700;
+            QPushButton[role="success"][tone="strong"] {
+                background-color: #1fa866;
+                border-color: #2dd687;
+                color: #f7fffb;
             }
-            QLabel[status="stopped"] {
-                background-color: #3d1f26;
-                color: #ffbec9;
-                border: 1px solid #8a3f52;
+            QPushButton[role="success"][tone="muted"] {
+                background-color: #2c5d49;
+                border-color: #386c57;
+                color: #b6d2c7;
+            }
+            QPushButton[role="danger-secondary"][tone="strong"] {
+                background-color: #8c3e51;
+                border-color: #bb5c74;
+                color: #ffe4ea;
+            }
+            QPushButton[role="danger-secondary"][tone="muted"] {
+                background-color: #4a3940;
+                border-color: #5d4a52;
+                color: #c7b2b8;
+            }
+            QPushButton[role="primary"][tone="strong"] {
+                background-color: #3f86ff;
+                border-color: #69a0ff;
+                color: #ffffff;
+            }
+            QPushButton[role="primary"][tone="muted"] {
+                background-color: #3c4f71;
+                border-color: #4f6388;
+                color: #c1cee4;
+            }
+            QPushButton[role="danger"][tone="strong"] {
+                background-color: #d45454;
+                border-color: #e77676;
+                color: #ffffff;
+            }
+            QPushButton[role="danger"][tone="muted"] {
+                background-color: #614249;
+                border-color: #755259;
+                color: #ceb7bd;
+            }
+            QPushButton[role][tone]:disabled {
+                color: #c9d2e4;
+            }
+            QLabel#statusLamp {
+                min-width: 14px;
+                max-width: 14px;
+                min-height: 14px;
+                max-height: 14px;
                 border-radius: 7px;
-                padding: 6px 9px;
-                font-size: 12px;
-                font-weight: 700;
+                border: 1px solid #495469;
+                background-color: #5a6579;
+            }
+            QLabel#statusLamp[status="running"] {
+                background-color: #1ed47f;
+                border: 1px solid #77f1bd;
+            }
+            QLabel#statusLamp[status="stopped"] {
+                background-color: #cc4f67;
+                border: 1px solid #f699ab;
             }
             QCheckBox {
                 spacing: 7px;
@@ -727,9 +847,233 @@ class LauncherWindow(QMainWindow):
         if current is not None:
             self.scenario_edit.setText(current.data(Qt.ItemDataRole.UserRole))
 
-    def _on_script_selected(self, current: QListWidgetItem, _previous: QListWidgetItem) -> None:
+    def _on_script_selected(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
+        if previous is not None:
+            prev_path = previous.data(Qt.ItemDataRole.UserRole)
+            if isinstance(prev_path, str) and prev_path:
+                self.script_arg_values_by_script[os.path.normpath(prev_path)] = (
+                    self._capture_script_arg_values()
+                )
         if current is not None:
-            self.script_edit.setText(current.data(Qt.ItemDataRole.UserRole))
+            script_path = current.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(script_path, str):
+                script_path = ""
+            self.script_edit.setText(script_path)
+            self._load_script_argspec(script_path)
+        else:
+            self.script_edit.clear()
+            self._load_script_argspec("")
+
+    def _reload_script_argspec(self) -> None:
+        self._load_script_argspec(self.script_edit.text().strip())
+
+    def _clear_script_argspec_form(self) -> None:
+        while self.python_argspec_form.rowCount() > 0:
+            self.python_argspec_form.removeRow(0)
+        self.script_arg_widgets = {}
+        self.script_argspec = []
+
+    def _load_script_argspec(self, script_path: str) -> None:
+        self._clear_script_argspec_form()
+        script_path = os.path.normpath(script_path.strip()) if script_path else ""
+        if not script_path:
+            self.python_argspec_hint.setText("Select a script to load argument fields.")
+            return
+        if not os.path.exists(script_path):
+            self.python_argspec_hint.setText("Selected script path is invalid.")
+            return
+
+        py = self.python_path_edit.text().strip()
+        if not py or not os.path.exists(py):
+            py = sys.executable
+
+        cmd = [py, "-u", script_path, "--dump-argspec"]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=4,
+                cwd=self._resolve_python_workdir(script_path),
+                check=False,
+            )
+        except Exception as exc:
+            self.python_argspec_hint.setText("Failed to load script args metadata.")
+            self._append_python_log(f"Failed to load argspec: {exc}")
+            return
+
+        if result.returncode != 0:
+            self.python_argspec_hint.setText("Script does not provide GUI arg metadata.")
+            stderr = result.stderr.strip()
+            if stderr:
+                self._append_python_log(f"[argspec] {stderr}")
+            return
+
+        raw = result.stdout.strip()
+        if not raw:
+            self.python_argspec_hint.setText("No arg metadata returned from script.")
+            return
+
+        try:
+            specs = json.loads(raw)
+        except Exception as exc:
+            self.python_argspec_hint.setText("Invalid args metadata format from script.")
+            self._append_python_log(f"Failed to parse argspec JSON: {exc}")
+            return
+        if not isinstance(specs, list):
+            self.python_argspec_hint.setText("Invalid args metadata payload.")
+            return
+
+        self.script_argspec = specs
+        restored = self.script_arg_values_by_script.get(script_path, {})
+        self._build_script_argspec_form(specs, restored)
+        self.python_argspec_hint.setText(
+            f"Loaded {len(self.script_arg_widgets)} args from {os.path.basename(script_path)}"
+        )
+
+    def _build_script_argspec_form(self, specs: list[dict], restored: dict) -> None:
+        for spec in specs:
+            if not isinstance(spec, dict):
+                continue
+            name = str(spec.get("name", "")).strip()
+            if not name.startswith("--"):
+                continue
+            if name in self.hidden_script_arg_names:
+                continue
+
+            label = name[2:].replace("_", " ")
+            label = label[:1].upper() + label[1:]
+            help_text = str(spec.get("help", "")).strip()
+            arg_type = str(spec.get("type", "str")).strip().lower()
+            choices = spec.get("choices")
+            default = restored.get(name, spec.get("default"))
+
+            widget: QWidget
+            if isinstance(choices, list) and choices:
+                combo = QComboBox()
+                for choice in choices:
+                    combo.addItem(str(choice))
+                if default is not None:
+                    idx = combo.findText(str(default))
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+                widget = combo
+            elif arg_type == "int":
+                spin = QSpinBox()
+                spin.setRange(-1_000_000, 1_000_000)
+                spin.setValue(int(default) if default is not None else 0)
+                widget = spin
+            elif arg_type == "float":
+                spin = QDoubleSpinBox()
+                spin.setRange(-1_000_000.0, 1_000_000.0)
+                spin.setDecimals(4)
+                spin.setSingleStep(0.1)
+                spin.setValue(float(default) if default is not None else 0.0)
+                widget = spin
+            elif arg_type == "bool":
+                check = QCheckBox()
+                check.setChecked(bool(default))
+                widget = check
+            else:
+                line = QLineEdit()
+                if default is not None:
+                    line.setText(str(default))
+                if spec.get("ui") == "path":
+                    line.setPlaceholderText("Path")
+                widget = line
+
+            if help_text:
+                widget.setToolTip(help_text)
+            self.script_arg_widgets[name] = widget
+            self.python_argspec_form.addRow(QLabel(label), widget)
+
+    def _capture_script_arg_values(self) -> dict:
+        values: dict[str, object] = {}
+        for name, widget in self.script_arg_widgets.items():
+            if isinstance(widget, QCheckBox):
+                values[name] = widget.isChecked()
+            elif isinstance(widget, QSpinBox):
+                values[name] = widget.value()
+            elif isinstance(widget, QDoubleSpinBox):
+                values[name] = widget.value()
+            elif isinstance(widget, QComboBox):
+                values[name] = widget.currentText()
+            elif isinstance(widget, QLineEdit):
+                values[name] = widget.text().strip()
+        return values
+
+    def _collect_script_argspec_args(self) -> list[str]:
+        args: list[str] = []
+        spec_by_name: dict[str, dict] = {}
+        for spec in self.script_argspec:
+            if isinstance(spec, dict):
+                name = str(spec.get("name", "")).strip()
+                if name:
+                    spec_by_name[name] = spec
+
+        scenario_path = self.scenario_edit.text().strip()
+        auto_xodr_path = self._resolve_logicfile_xodr(scenario_path)
+        script_path = self.script_edit.text().strip()
+        auto_lib_path = self._resolve_default_lib_path_for_script(script_path)
+        hidden_values = {
+            "--ip": self.py_arg_ip_edit.text().strip(),
+            "--port": str(self.py_arg_port_spin.value()),
+            "--osi_port": str(self.py_arg_osi_port_spin.value()),
+            "--id": str(self.py_arg_id_spin.value()),
+            "--xodr_path": auto_xodr_path if self.auto_xodr_checkbox.isChecked() else "",
+            "--lib_path": auto_lib_path,
+        }
+        for name in self.hidden_script_arg_names:
+            if name not in spec_by_name:
+                continue
+            value = hidden_values.get(name, "").strip()
+            if value:
+                args += [name, value]
+
+        for spec in self.script_argspec:
+            if not isinstance(spec, dict):
+                continue
+            name = str(spec.get("name", "")).strip()
+            if name in self.hidden_script_arg_names:
+                continue
+            if name not in self.script_arg_widgets:
+                continue
+            arg_type = str(spec.get("type", "str")).strip().lower()
+            widget = self.script_arg_widgets[name]
+            default = spec.get("default")
+
+            if isinstance(widget, QCheckBox):
+                checked = widget.isChecked()
+                if checked and not bool(default):
+                    args.append(name)
+                continue
+
+            if isinstance(widget, QSpinBox):
+                value = widget.value()
+                if default is None or int(default) != value:
+                    args += [name, str(value)]
+                continue
+
+            if isinstance(widget, QDoubleSpinBox):
+                value = widget.value()
+                if default is None or abs(float(default) - value) > 1e-9:
+                    args += [name, str(value)]
+                continue
+
+            if isinstance(widget, QComboBox):
+                value = widget.currentText().strip()
+                if value and (default is None or str(default) != value):
+                    args += [name, value]
+                continue
+
+            if isinstance(widget, QLineEdit):
+                value = widget.text().strip()
+                if not value:
+                    continue
+                if arg_type == "str" and default is not None and str(default).strip() == value:
+                    continue
+                args += [name, value]
+        return args
 
     def _append_log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
@@ -773,12 +1117,26 @@ class LauncherWindow(QMainWindow):
         self.start_all_btn.setEnabled(not (py_running and gt_running))
         self.stop_all_btn.setEnabled(py_running or gt_running)
 
-        self.python_status.setText(f"Python: {'RUNNING' if py_running else 'STOPPED'}")
-        self.gtsim_status.setText(f"GT_Sim: {'RUNNING' if gt_running else 'STOPPED'}")
-        self.python_status.setProperty("status", "running" if py_running else "stopped")
-        self.gtsim_status.setProperty("status", "running" if gt_running else "stopped")
-        self._refresh_dynamic_style(self.python_status)
-        self._refresh_dynamic_style(self.gtsim_status)
+        self.start_python_btn.setProperty("tone", "strong" if not py_running else "muted")
+        self.stop_python_btn.setProperty("tone", "strong" if py_running else "muted")
+        self.start_gtsim_btn.setProperty("tone", "strong" if not gt_running else "muted")
+        self.stop_gtsim_btn.setProperty("tone", "strong" if gt_running else "muted")
+        self.start_all_btn.setProperty("tone", "strong" if not (py_running and gt_running) else "muted")
+        self.stop_all_btn.setProperty("tone", "strong" if (py_running or gt_running) else "muted")
+
+        self._refresh_dynamic_style(self.start_python_btn)
+        self._refresh_dynamic_style(self.stop_python_btn)
+        self._refresh_dynamic_style(self.start_gtsim_btn)
+        self._refresh_dynamic_style(self.stop_gtsim_btn)
+        self._refresh_dynamic_style(self.start_all_btn)
+        self._refresh_dynamic_style(self.stop_all_btn)
+
+        self.python_status_lamp.setProperty("status", "running" if py_running else "stopped")
+        self.gtsim_status_lamp.setProperty("status", "running" if gt_running else "stopped")
+        self.python_status_lamp.setToolTip(f"Python: {'RUNNING' if py_running else 'STOPPED'}")
+        self.gtsim_status_lamp.setToolTip(f"GT_Sim: {'RUNNING' if gt_running else 'STOPPED'}")
+        self._refresh_dynamic_style(self.python_status_lamp)
+        self._refresh_dynamic_style(self.gtsim_status_lamp)
 
     def _error_dialog(self, message: str) -> None:
         QMessageBox.critical(self, "Error", message)
@@ -1039,9 +1397,17 @@ class LauncherWindow(QMainWindow):
         except Exception:
             return ""
 
+    def _resolve_default_lib_path_for_script(self, script_path: str) -> str:
+        if not script_path:
+            return ""
+        script_dir = os.path.dirname(os.path.abspath(script_path))
+        candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "esminiRMLib.dll"))
+        return candidate if os.path.exists(candidate) else ""
+
     def _build_python_args(self) -> list[str]:
         script = self.script_edit.text().strip()
-        extra_args = _safe_split(self.script_args_edit.text())
+        dynamic_args = self._collect_script_argspec_args()
+        extra_args = dynamic_args + _safe_split(self.script_args_edit.text())
         args = []
 
         py = self.python_path_edit.text().strip()
@@ -1219,6 +1585,17 @@ class LauncherWindow(QMainWindow):
         self.script_edit.setText(self.settings.value("script_path", ""))
 
         self.script_args_edit.setText(self.settings.value("script_args", ""))
+        raw_dynamic = self.settings.value("script_arg_values_json", "{}")
+        try:
+            parsed = json.loads(raw_dynamic) if isinstance(raw_dynamic, str) else {}
+            if isinstance(parsed, dict):
+                normalized: dict[str, dict] = {}
+                for key, value in parsed.items():
+                    if isinstance(key, str) and isinstance(value, dict):
+                        normalized[os.path.normpath(key)] = value
+                self.script_arg_values_by_script = normalized
+        except Exception:
+            self.script_arg_values_by_script = {}
         self.gtsim_extra_args_edit.setText(self.settings.value("gtsim_extra_args", ""))
         self.auto_xodr_checkbox.setChecked(self.settings.value("auto_xodr", True, type=bool))
 
@@ -1232,9 +1609,14 @@ class LauncherWindow(QMainWindow):
         self.win_w_spin.setValue(self.settings.value("win_w", 1280, type=int))
         self.win_h_spin.setValue(self.settings.value("win_h", 720, type=int))
         self.threads_checkbox.setChecked(self.settings.value("threads", True, type=bool))
+        self.py_arg_ip_edit.setText(self.settings.value("py_arg_ip", "127.0.0.1"))
+        self.py_arg_port_spin.setValue(self.settings.value("py_arg_port", 53995, type=int))
+        self.py_arg_osi_port_spin.setValue(self.settings.value("py_arg_osi_port", 48198, type=int))
+        self.py_arg_id_spin.setValue(self.settings.value("py_arg_id", 0, type=int))
 
         self._refresh_scenario_list()
         self._refresh_script_list()
+        self._load_script_argspec(self.script_edit.text().strip())
 
     def _save_settings(self) -> None:
         self.settings.setValue("gt_sim_path", self.gt_sim_path_edit.text().strip())
@@ -1244,6 +1626,12 @@ class LauncherWindow(QMainWindow):
         self.settings.setValue("scenario_path", self.scenario_edit.text().strip())
         self.settings.setValue("script_path", self.script_edit.text().strip())
         self.settings.setValue("script_args", self.script_args_edit.text().strip())
+        current_script = self.script_edit.text().strip()
+        if current_script:
+            self.script_arg_values_by_script[os.path.normpath(current_script)] = (
+                self._capture_script_arg_values()
+            )
+        self.settings.setValue("script_arg_values_json", json.dumps(self.script_arg_values_by_script))
         self.settings.setValue("gtsim_extra_args", self.gtsim_extra_args_edit.text().strip())
         self.settings.setValue("auto_xodr", self.auto_xodr_checkbox.isChecked())
 
@@ -1257,6 +1645,10 @@ class LauncherWindow(QMainWindow):
         self.settings.setValue("win_w", self.win_w_spin.value())
         self.settings.setValue("win_h", self.win_h_spin.value())
         self.settings.setValue("threads", self.threads_checkbox.isChecked())
+        self.settings.setValue("py_arg_ip", self.py_arg_ip_edit.text().strip())
+        self.settings.setValue("py_arg_port", self.py_arg_port_spin.value())
+        self.settings.setValue("py_arg_osi_port", self.py_arg_osi_port_spin.value())
+        self.settings.setValue("py_arg_id", self.py_arg_id_spin.value())
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.pending_start_all = False

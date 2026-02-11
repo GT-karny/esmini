@@ -40,23 +40,13 @@ Key Arguments:
 """
 
 import argparse
+import json
 import math
 import os
 import socket
 import sys
 import time
-
-from realdriver import (
-    EsminiRMLib,
-    IndicatorMode,
-    LaneChangeConfig,
-    LaneChangeController,
-    NaturalDriverConfig,
-    NaturalDriverController,
-    OSIReceiverWrapper,
-    RealDriverClient,
-    VehicleStateExtractor,
-)
+from typing import Dict, List, Tuple
 
 
 def _default_lib_path() -> str:
@@ -72,28 +62,78 @@ def _normalize_angle(angle: float) -> float:
     return angle
 
 
-def main() -> int:
+def _arg_type_name(arg_type) -> str:
+    if arg_type is int:
+        return "int"
+    if arg_type is float:
+        return "float"
+    if arg_type is bool:
+        return "bool"
+    return "str"
+
+
+def _build_arg_parser() -> Tuple[argparse.ArgumentParser, List[Dict]]:
     parser = argparse.ArgumentParser(description="NaturalDriver Controller Example")
-    parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini host IP")
-    parser.add_argument("--port", type=int, default=53995, help="RealDriver base port")
-    parser.add_argument("--osi_port", type=int, default=48198, help="OSI UDP port")
-    parser.add_argument("--id", type=int, default=0, help="Ego object ID")
-    parser.add_argument("--target_speed", type=float, default=15.0, help="Desired speed [m/s]")
-    parser.add_argument("--desired_distance", type=float, default=20.0, help="IDM desired distance s0 [m]")
-    parser.add_argument("--desired_thw", type=float, default=2.0, help="IDM desired time headway T [s]")
-    parser.add_argument("--xodr_path", type=str, default=None, help="OpenDRIVE map path (.xodr)")
-    parser.add_argument("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll")
-    parser.add_argument("--lc_ttc_threshold", type=float, default=1.5, help="Lane-change TTC safety threshold [s]")
-    parser.add_argument("--lc_min_gap_front", type=float, default=8.0, help="Lane-change minimum front gap [m]")
-    parser.add_argument("--lc_min_gap_rear", type=float, default=6.0, help="Lane-change minimum rear gap [m]")
-    parser.add_argument("--lc_steering_gain", type=float, default=0.18, help="Lane-change steering gain")
-    parser.add_argument("--lc_base_blend", type=float, default=0.15, help="Blend ratio of base lane-centering during lane change [0-1]")
-    parser.add_argument("--lc_wp_dt", type=float, default=0.1, help="Lane-change waypoint time step [s]")
-    parser.add_argument("--lc_wp_horizon", type=float, default=5.0, help="Lane-change waypoint horizon [s]")
-    parser.add_argument("--lc_wp_lookahead", type=float, default=10.0, help="Lane-change waypoint lookahead distance [m]")
-    parser.add_argument("--base_wp_lookahead", type=float, default=12.0, help="Base lane-keeping waypoint lookahead distance [m]")
-    parser.add_argument("--base_wp_gain", type=float, default=0.30, help="Base lane-keeping waypoint steering gain")
+    specs: List[Dict] = []
+
+    def add(name: str, **kwargs) -> None:
+        parser.add_argument(name, **kwargs)
+        spec = {
+            "name": name,
+            "type": _arg_type_name(kwargs.get("type", str)),
+            "default": kwargs.get("default"),
+            "required": bool(kwargs.get("required", False)),
+            "help": kwargs.get("help", ""),
+        }
+        choices = kwargs.get("choices")
+        if choices is not None:
+            spec["choices"] = list(choices)
+        if name in ("--xodr_path", "--lib_path"):
+            spec["ui"] = "path"
+            spec["path_kind"] = "file"
+        specs.append(spec)
+
+    add("--ip", type=str, default="127.0.0.1", help="esmini host IP")
+    add("--port", type=int, default=53995, help="RealDriver base port")
+    add("--osi_port", type=int, default=48198, help="OSI UDP port")
+    add("--id", type=int, default=0, help="Ego object ID")
+    add("--target_speed", type=float, default=15.0, help="Desired speed [m/s]")
+    add("--desired_distance", type=float, default=20.0, help="IDM desired distance s0 [m]")
+    add("--desired_thw", type=float, default=2.0, help="IDM desired time headway T [s]")
+    add("--xodr_path", type=str, default=None, help="OpenDRIVE map path (.xodr)")
+    add("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll")
+    add("--lc_ttc_threshold", type=float, default=1.5, help="Lane-change TTC safety threshold [s]")
+    add("--lc_min_gap_front", type=float, default=8.0, help="Lane-change minimum front gap [m]")
+    add("--lc_min_gap_rear", type=float, default=6.0, help="Lane-change minimum rear gap [m]")
+    add("--lc_steering_gain", type=float, default=0.18, help="Lane-change steering gain")
+    add("--lc_base_blend", type=float, default=0.15, help="Blend ratio of base lane-centering during lane change [0-1]")
+    add("--lc_wp_dt", type=float, default=0.1, help="Lane-change waypoint time step [s]")
+    add("--lc_wp_horizon", type=float, default=5.0, help="Lane-change waypoint horizon [s]")
+    add("--lc_wp_lookahead", type=float, default=10.0, help="Lane-change waypoint lookahead distance [m]")
+    add("--base_wp_lookahead", type=float, default=12.0, help="Base lane-keeping waypoint lookahead distance [m]")
+    add("--base_wp_gain", type=float, default=0.30, help="Base lane-keeping waypoint steering gain")
+    parser.add_argument("--dump-argspec", action="store_true", help=argparse.SUPPRESS)
+    return parser, specs
+
+
+def main() -> int:
+    parser, arg_specs = _build_arg_parser()
     args = parser.parse_args()
+    if args.dump_argspec:
+        print(json.dumps(arg_specs, ensure_ascii=False))
+        return 0
+
+    from realdriver import (
+        EsminiRMLib,
+        IndicatorMode,
+        LaneChangeConfig,
+        LaneChangeController,
+        NaturalDriverConfig,
+        NaturalDriverController,
+        OSIReceiverWrapper,
+        RealDriverClient,
+        VehicleStateExtractor,
+    )
 
     rm_lib = None
     if args.xodr_path:
