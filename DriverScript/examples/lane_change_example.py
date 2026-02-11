@@ -40,6 +40,10 @@ from realdriver import (
     # Road Manager
     EsminiRMLib,
 )
+try:
+    from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
+except ImportError:
+    from argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 
 
 def print_safety_check(safety, direction):
@@ -78,7 +82,17 @@ def main():
     parser.add_argument("--xodr_path", type=str, default=None, help="Path to OpenDRIVE map file")
     parser.add_argument("--target_speed", type=float, default=15.0, help="Target speed in m/s")
     parser.add_argument("--demo", action="store_true", help="Run demonstration without connecting")
+    add_dump_argspec_option(parser)
     args = parser.parse_args()
+    if maybe_dump_argspec(
+        args,
+        parser,
+        ui_hints={
+            "--xodr_path": {"ui": "path", "path_kind": "file"},
+            "--lib_path": {"ui": "path", "path_kind": "file"},
+        },
+    ):
+        return 0
 
     if args.demo:
         print("=" * 60)

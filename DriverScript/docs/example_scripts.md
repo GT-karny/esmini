@@ -3,6 +3,9 @@
 このドキュメントでは、`DriverScript/examples` フォルダ内のサンプルコードについて解説します。
 これらのサンプルは、`RealDriver` モジュールを使用して esmini 上の車両を制御する方法を示しています。
 
+補足: GT_Sim Frontend の自動引数UIで使う `--dump-argspec` の仕様は
+`DriverScript/docs/python_argspec_grammar.md` を参照してください。
+
 ## 1. サンプル一覧
 
 | スクリプト名 | 概要 |

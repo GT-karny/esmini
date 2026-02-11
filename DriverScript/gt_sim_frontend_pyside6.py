@@ -52,15 +52,27 @@ def _safe_split(arg_line: str) -> list[str]:
 
 
 def _default_scenario_folder() -> str:
-    candidate = os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "resources", "xosc")
-    )
-    return candidate if os.path.isdir(candidate) else ""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.normpath(os.path.join(base_dir, "..", "resources", "xosc")),
+        os.path.normpath(os.path.join(base_dir, "..", "..", "resources", "xosc")),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return ""
 
 
 def _default_script_folder() -> str:
-    candidate = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
-    return candidate if os.path.isdir(candidate) else ""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.normpath(os.path.join(base_dir, "examples")),
+        os.path.normpath(base_dir),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return ""
 
 
 def _has_option(args: list[str], opt: str) -> bool:
@@ -166,6 +178,9 @@ class SettingsDialog(QDialog):
         options_grid.addWidget(QLabel("Python --id"), 9, 2)
         options_grid.addWidget(launcher.py_arg_id_spin, 9, 3)
 
+        options_grid.addWidget(QLabel("Python --target_speed_port"), 10, 0)
+        options_grid.addWidget(launcher.py_arg_target_speed_port_spin, 10, 1)
+
         layout.addWidget(options_group)
 
         # --- Close button ---
@@ -202,8 +217,10 @@ class LauncherWindow(QMainWindow):
             "--port",
             "--osi_port",
             "--id",
+            "--target_speed_port",
             "--xodr_path",
             "--lib_path",
+            "--gt_lib_path",
         }
 
         self._setup_ui()
@@ -271,6 +288,9 @@ class LauncherWindow(QMainWindow):
         self.py_arg_id_spin = QSpinBox()
         self.py_arg_id_spin.setRange(0, 1000000)
         self.py_arg_id_spin.setValue(0)
+        self.py_arg_target_speed_port_spin = QSpinBox()
+        self.py_arg_target_speed_port_spin.setRange(1, 65535)
+        self.py_arg_target_speed_port_spin.setValue(54995)
 
         self.python_argspec_group = QGroupBox("Python Script Arguments (Auto)")
         self.python_argspec_group.setObjectName("argspecGroup")
@@ -907,6 +927,28 @@ class LauncherWindow(QMainWindow):
             self._append_python_log(f"Failed to load argspec: {exc}")
             return
 
+        # Some scripts validate required args before dump handling.
+        # Retry with auto-resolved --xodr_path when required.
+        if result.returncode != 0:
+            stderr_lower = (result.stderr or "").lower()
+            needs_xodr = "--xodr_path" in stderr_lower and "required" in stderr_lower
+            if needs_xodr:
+                scenario_path = self.scenario_edit.text().strip()
+                auto_xodr = self._resolve_logicfile_xodr(scenario_path)
+                if auto_xodr:
+                    retry_cmd = [py, "-u", script_path, "--dump-argspec", "--xodr_path", auto_xodr]
+                    try:
+                        result = subprocess.run(
+                            retry_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=4,
+                            cwd=self._resolve_python_workdir(script_path),
+                            check=False,
+                        )
+                    except Exception:
+                        pass
+
         if result.returncode != 0:
             self.python_argspec_hint.setText("Script does not provide GUI arg metadata.")
             stderr = result.stderr.strip()
@@ -1031,13 +1073,16 @@ class LauncherWindow(QMainWindow):
         auto_xodr_path = self._resolve_logicfile_xodr(scenario_path)
         script_path = self.script_edit.text().strip()
         auto_lib_path = self._resolve_default_lib_path_for_script(script_path)
+        auto_gt_lib_path = self._resolve_default_gt_lib_path_for_script(script_path)
         hidden_values = {
             "--ip": self.py_arg_ip_edit.text().strip(),
             "--port": str(self.py_arg_port_spin.value()),
             "--osi_port": str(self.py_arg_osi_port_spin.value()),
             "--id": str(self.py_arg_id_spin.value()),
+            "--target_speed_port": str(self.py_arg_target_speed_port_spin.value()),
             "--xodr_path": auto_xodr_path if self.auto_xodr_checkbox.isChecked() else "",
             "--lib_path": auto_lib_path,
+            "--gt_lib_path": auto_gt_lib_path,
         }
         for name in self.hidden_script_arg_names:
             if name not in spec_by_name:
@@ -1420,6 +1465,13 @@ class LauncherWindow(QMainWindow):
         candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "esminiRMLib.dll"))
         return candidate if os.path.exists(candidate) else ""
 
+    def _resolve_default_gt_lib_path_for_script(self, script_path: str) -> str:
+        if not script_path:
+            return ""
+        script_dir = os.path.dirname(os.path.abspath(script_path))
+        candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "GT_esminiLib.dll"))
+        return candidate if os.path.exists(candidate) else ""
+
     def _build_python_args(self) -> list[str]:
         script = self.script_edit.text().strip()
         dynamic_args = self._collect_script_argspec_args()
@@ -1629,6 +1681,9 @@ class LauncherWindow(QMainWindow):
         self.py_arg_port_spin.setValue(self.settings.value("py_arg_port", 53995, type=int))
         self.py_arg_osi_port_spin.setValue(self.settings.value("py_arg_osi_port", 48198, type=int))
         self.py_arg_id_spin.setValue(self.settings.value("py_arg_id", 0, type=int))
+        self.py_arg_target_speed_port_spin.setValue(
+            self.settings.value("py_arg_target_speed_port", 54995, type=int)
+        )
 
         self._refresh_scenario_list()
         self._refresh_script_list()
@@ -1665,6 +1720,7 @@ class LauncherWindow(QMainWindow):
         self.settings.setValue("py_arg_port", self.py_arg_port_spin.value())
         self.settings.setValue("py_arg_osi_port", self.py_arg_osi_port_spin.value())
         self.settings.setValue("py_arg_id", self.py_arg_id_spin.value())
+        self.settings.setValue("py_arg_target_speed_port", self.py_arg_target_speed_port_spin.value())
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.pending_start_all = False

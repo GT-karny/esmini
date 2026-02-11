@@ -39,6 +39,10 @@ from realdriver import (
     Waypoint,
     OSIReceiverWrapper,
 )
+try:
+    from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
+except ImportError:
+    from argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 
 
 def create_sample_waypoints():
@@ -88,8 +92,19 @@ def main():
                         help="Target X coordinate (for target mode)")
     parser.add_argument("--target_y", type=float, default=0.0,
                         help="Target Y coordinate (for target mode)")
+    add_dump_argspec_option(parser)
 
     args = parser.parse_args()
+    if maybe_dump_argspec(
+        args,
+        parser,
+        ui_hints={
+            "--xodr_path": {"ui": "path", "path_kind": "file"},
+            "--lib_path": {"ui": "path", "path_kind": "file"},
+            "--gt_lib_path": {"ui": "path", "path_kind": "file"},
+        },
+    ):
+        return 0
 
     # --- 1. Initialize RealDriverClient ---
     print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port}")

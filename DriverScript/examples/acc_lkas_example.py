@@ -30,6 +30,10 @@ from realdriver import (
     LKASController,
     TargetSpeedReceiver,
 )
+try:
+    from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
+except ImportError:
+    from argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 
 
 def main():
@@ -56,8 +60,18 @@ def main():
                         help="Path to OpenDRIVE map file (.xodr)")
     parser.add_argument("--target_speed", type=float, default=10.0,
                         help="Default target speed in m/s (used until UDP overrides)")
+    add_dump_argspec_option(parser)
 
     args = parser.parse_args()
+    if maybe_dump_argspec(
+        args,
+        parser,
+        ui_hints={
+            "--xodr_path": {"ui": "path", "path_kind": "file"},
+            "--lib_path": {"ui": "path", "path_kind": "file"},
+        },
+    ):
+        return 0
 
     # --- 1. Initialize RealDriverClient ---
     print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port}")
