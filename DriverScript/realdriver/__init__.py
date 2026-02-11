@@ -38,6 +38,14 @@ from .lane_change_controller import (
     LaneChangeState as LCState, AdjacentVehicleInfo, SafetyCheckResult,
     DEFAULT_LANE_CHANGE_CONFIG
 )
+from .natural_driver_controller import (
+    NaturalDriverController,
+    NaturalDriverConfig,
+    NaturalDriverOutput,
+    NaturalDriverState,
+    LaneChangeRequest,
+    DEFAULT_NATURAL_DRIVER_CONFIG,
+)
 from .udp_receivers import WaypointReceiver, TargetSpeedReceiver
 
 # Combined controller (backward compatible)
@@ -91,6 +99,14 @@ __all__ = [
     'AdjacentVehicleInfo',
     'SafetyCheckResult',
     'DEFAULT_LANE_CHANGE_CONFIG',
+
+    # Natural Driver Controller (NEW)
+    'NaturalDriverController',
+    'NaturalDriverConfig',
+    'NaturalDriverOutput',
+    'NaturalDriverState',
+    'LaneChangeRequest',
+    'DEFAULT_NATURAL_DRIVER_CONFIG',
 
     # UDP Receivers (NEW)
     'WaypointReceiver',
