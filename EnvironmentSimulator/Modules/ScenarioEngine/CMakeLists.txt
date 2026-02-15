@@ -27,6 +27,8 @@ if(USE_OSI)
     list(REMOVE_ITEM SRC_SOURCEFILES "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/OSIReporter.cpp")
     list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter.cpp")
     list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter_Environment.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter_Sensor.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter_Traffic.cpp")
 endif()
 
 if(NOT

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OSIReporter.hpp"
+#include <string>
 
 struct OsiInternalObjects
 {
@@ -24,3 +25,11 @@ struct OsiExternalObjects
 
 extern OsiInternalObjects obj_osi_internal;
 extern OsiExternalObjects obj_osi_external;
+
+struct OsiTrafficCommandBuffer
+{
+    std::string  traffic_command;
+    unsigned int size;
+};
+
+extern OsiTrafficCommandBuffer osiTrafficCommand;
