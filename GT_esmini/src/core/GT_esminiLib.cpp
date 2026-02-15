@@ -352,7 +352,16 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 newArgv.push_back(argStorage.back().c_str());
             }
             // Filter custom arguments that esmini doesn't recognize
-            else if (argv[i] && (strcmp(argv[i], "--autolight") == 0 || strcmp(argv[i], "--autolight-egoless") == 0 || strcmp(argv[i], "--osi") == 0 || strcmp(argv[i], "--hz") == 0)) 
+            else if (argv[i] &&
+                     (strcmp(argv[i], "--autolight") == 0 ||
+                      strcmp(argv[i], "--autolight-egoless") == 0 ||
+                      strcmp(argv[i], "--osi") == 0 ||
+                      strcmp(argv[i], "--hz") == 0 ||
+                      strcmp(argv[i], "--video_capture") == 0 ||
+                      strcmp(argv[i], "--video_headless") == 0 ||
+                      strcmp(argv[i], "--video_window") == 0 ||
+                      strcmp(argv[i], "--video_frames") == 0 ||
+                      strcmp(argv[i], "--video_prefix") == 0))
             {
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
@@ -370,6 +379,14 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 else if (strcmp(argv[i], "--hz") == 0)
                 {
                     i++; // Skip the frequency
+                }
+                else if (strcmp(argv[i], "--video_window") == 0)
+                {
+                    i += 2; // Skip width and height
+                }
+                else if (strcmp(argv[i], "--video_frames") == 0 || strcmp(argv[i], "--video_prefix") == 0)
+                {
+                    i++; // Skip single value
                 }
             }
             else

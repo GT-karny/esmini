@@ -178,6 +178,43 @@ def compare_with_golden(actual_kpi: Dict[str, Any], golden_file: Path, threshold
     return {"golden_available": True, "pass": ok, "details": details}
 
 
+def read_video_info(feature_dir: Path) -> Dict[str, Any]:
+    frame_count = 0
+    frame_count_path = feature_dir / "frame_count.txt"
+    if frame_count_path.exists():
+        try:
+            frame_count = int(frame_count_path.read_text(encoding="utf-8", errors="ignore").strip())
+        except ValueError:
+            frame_count = 0
+    else:
+        frame_count = len(list(feature_dir.glob("screen_shot_*.tga")))
+
+    mp4_path = feature_dir / "result.mp4"
+    mp4_available = mp4_path.exists()
+
+    gtsim_exit_code = None
+    gtsim_exit_path = feature_dir / "gtsim_exit_code.txt"
+    if gtsim_exit_path.exists():
+        try:
+            gtsim_exit_code = int(gtsim_exit_path.read_text(encoding="utf-8", errors="ignore").strip())
+        except ValueError:
+            gtsim_exit_code = None
+
+    video_error = ""
+    video_error_path = feature_dir / "video_error.txt"
+    if video_error_path.exists():
+        video_error = video_error_path.read_text(encoding="utf-8", errors="ignore").strip()
+
+    return {
+        "generation_method": "gtsim_direct",
+        "frame_count": frame_count,
+        "mp4_available": mp4_available,
+        "mp4_path": "result.mp4" if mp4_available else "",
+        "gtsim_exit_code": gtsim_exit_code,
+        "video_error": video_error,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--matrix", required=True)
@@ -255,6 +292,7 @@ def main() -> int:
             "required_modules_cpp": feat.get("required_modules_cpp", []),
             "required_modules_py": feat.get("required_modules_py", []),
             "validation_points": feat.get("validation_points", []),
+            "video": read_video_info(fdir),
         }
 
         if args.update_golden:

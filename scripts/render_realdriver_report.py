@@ -42,16 +42,20 @@ def main() -> int:
         road_summary = "<br/>".join(esc(s) for s in road_summary_parts) if road_summary_parts else "-"
 
         fid = r.get("id")
-        video_rel = Path(str(fid)) / "result.mp4"
-        video_abs = run_dir / video_rel
-        video_error_abs = run_dir / str(fid) / "video_error.txt"
-        if video_abs.exists():
-            video_cell = f"<a href=\"{esc(video_rel.as_posix())}\">result.mp4</a>"
-        elif video_error_abs.exists():
-            err = video_error_abs.read_text(encoding="utf-8", errors="ignore").strip()
-            video_cell = f"<span class=\"warn\">N/A</span><br/>{esc(err)}"
+        video = r.get("video", {}) or {}
+        frame_count = int(video.get("frame_count", 0) or 0)
+        mp4_available = bool(video.get("mp4_available", False))
+        mp4_name = video.get("mp4_path", "result.mp4") or "result.mp4"
+        video_error = str(video.get("video_error", "") or "")
+        video_error_first = video_error.splitlines()[0] if video_error else ""
+        video_rel = Path(str(fid)) / mp4_name
+
+        if mp4_available:
+            video_cell = f"<a href=\"{esc(video_rel.as_posix())}\">{esc(mp4_name)}</a><br/>frames={frame_count}"
+        elif video_error_first:
+            video_cell = f"<span class=\"warn\">N/A</span><br/>frames={frame_count}<br/>{esc(video_error_first)}"
         else:
-            video_cell = "-"
+            video_cell = f"N/A<br/>frames={frame_count}"
 
         rows.append(
             "<tr>"

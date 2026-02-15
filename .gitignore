@@ -44,3 +44,10 @@ build/
 *.temp.xosc
 .gt_sim_temp/
 artifacts/realdriver_features/
+artifacts/
+screen_shot_*.tga
+result.mp4
+video_encode.log
+video_error.txt
+frame_count.txt
+gtsim_exit_code.txt

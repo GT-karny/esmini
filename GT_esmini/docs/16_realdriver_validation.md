@@ -47,3 +47,63 @@ This document describes the RealDriver validation framework introduced for GT_es
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -UpdateGolden
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -Hz 100 -EnableVideo $true
 ```
+
+## Test procedure (recommended)
+
+1. Build `GT_Sim` (Release):
+
+```powershell
+cmake --build build --config Release --target GT_Sim
+```
+
+2. Run RealDriver feature tests with 100Hz baseline and video enabled:
+
+```powershell
+pwsh -NoProfile -File ./scripts/run_realdriver_feature_tests.ps1 `
+  -BuildDir build `
+  -SimPath ./build/GT_esmini/Release/GT_Sim.exe `
+  -Hz 100 `
+  -EnableVideo:$true
+```
+
+3. Open the generated report:
+
+- `artifacts/realdriver_features/<run_id>/report.html`
+- `artifacts/realdriver_features/<run_id>/summary.json`
+
+4. Check each scenario row in `report.html`:
+
+- `PASS/FAIL`
+- `検証観点` (expected behavior being validated)
+- `Road KPI要約` (`roadId/laneId/s/t` based summary)
+- `Video` (`result.mp4` link, or first-line error reason)
+
+## Prerequisites and fallback behavior
+
+- PowerShell 7 is recommended.
+- `ffmpeg` is required for MP4 conversion.
+  - If `ffmpeg` is unavailable, test execution continues and `video_error.txt` is written.
+- Feature matrix loading supports JSON first, then YAML.
+  - If `ConvertFrom-Yaml` is unavailable, JSON format still works.
+- Resources are resolved with absolute paths and catalog paths are auto-added from:
+  - `resources/xosc/Catalogs/*`
+
+## Output files per feature
+
+Each feature directory (`artifacts/realdriver_features/<run_id>/Fxx/`) contains:
+
+- `stdout.txt` (GT_Sim log)
+- `sim.dat`, `sim.csv` (simulation and extended CSV)
+- `gtsim_exit_code.txt`
+- `frame_count.txt`
+- `result.mp4` (when conversion succeeded)
+- `video_encode.log` / `video_error.txt` (when relevant)
+
+## Common troubleshooting
+
+- `Video` shows N/A and `frame_count=0`:
+  - Check `stdout.txt` and `video_error.txt` first.
+  - Verify OSG-enabled `GT_Sim` build and `--video_capture` execution path.
+- `result.mp4` missing but frames exist:
+  - Check `video_encode.log`.
+  - Verify `ffmpeg` executable is available in `PATH`.
