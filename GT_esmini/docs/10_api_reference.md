@@ -48,7 +48,7 @@ int GT_Init(const char* oscFilename, int disable_ctrls);
 ### 使用例
 
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 int main()
 {
@@ -369,7 +369,7 @@ struct LightState
 ### 完全な例
 
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include <iostream>
 
 int main(int argc, char** argv)

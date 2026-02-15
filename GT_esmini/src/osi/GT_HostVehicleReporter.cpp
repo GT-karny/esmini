@@ -9,7 +9,7 @@
  * Copyright (c) 2024 GT_esmini contributors
  */
 
-#include "GT_HostVehicleReporter.hpp"
+#include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "CommonMini.hpp"
 #include "osi_hostvehicledata.pb.h"
 

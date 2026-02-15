@@ -2,9 +2,9 @@
 
 #include "Controller.hpp"
 #include "Action.hpp"
-#include "RealVehicle.hpp"
+#include "gt_esmini/control/RealVehicle.hpp"
 #include "UDP.hpp"
-#include "GT_UDP.hpp"
+#include "gt_esmini/io/GT_UDP.hpp"
 #include "osi_hostvehicledata.pb.h"
 #include "RoadManager.hpp"
 #include <vector>
@@ -25,6 +25,11 @@ class AssignRouteAction;
 
 namespace gt_esmini
 {
+    class DriverInputReceiver;
+    class VehicleStateUpdater;
+    class EsminiStateApplier;
+    class ControlDecisionEngine;
+
     // Waypoint structure for UDP transmission
     struct WaypointData
     {
@@ -60,6 +65,11 @@ namespace gt_esmini
         const osi3::HostVehicleData& GetCachedHostVehicleData() const { return cached_hvd_; }
 
     private:
+        friend class DriverInputReceiver;
+        friend class VehicleStateUpdater;
+        friend class EsminiStateApplier;
+        friend class ControlDecisionEngine;
+
         struct RunningActionState
         {
             scenarioengine::LatLaneChangeAction* laneChange = nullptr;
@@ -164,6 +174,11 @@ namespace gt_esmini
 
         // Buffer for receiving UDP data
         std::vector<char> udp_buffer_;
+
+        DriverInputReceiver* driver_input_receiver_ = nullptr;
+        VehicleStateUpdater* vehicle_state_updater_ = nullptr;
+        EsminiStateApplier* esmini_state_applier_ = nullptr;
+        ControlDecisionEngine* control_decision_engine_ = nullptr;
     };
 
     scenarioengine::Controller* InstantiateControllerRealDriver(void* args);

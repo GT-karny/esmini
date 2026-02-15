@@ -9,8 +9,8 @@
  * Copyright (c) 2024 GT_esmini contributors
  */
 
-#include "ExtraAction.hpp"
-#include "ExtraEntities.hpp"
+#include "gt_esmini/scenario/ExtraAction.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "Entities.hpp"
 #include "logger.hpp"
 

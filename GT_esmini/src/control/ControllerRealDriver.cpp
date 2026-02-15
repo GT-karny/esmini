@@ -1,14 +1,19 @@
-#include "ControllerRealDriver.hpp"
-#include "ControllerRealDriverUtils.hpp"
+#include "gt_esmini/control/ControllerRealDriver.hpp"
+#include "gt_esmini/control/ControllerRealDriverUtils.hpp"
+#include "gt_esmini/control/DriverInputReceiver.hpp"
+#include "gt_esmini/control/VehicleStateUpdater.hpp"
+#include "gt_esmini/control/EsminiStateApplier.hpp"
+#include "gt_esmini/control/ControlDecisionEngine.hpp"
+#include "gt_esmini/core/ConfigLoader.hpp"
 #include <windows.h> // For GetModuleFileName
 #include <cmath>     // For std::sqrt, std::atan2, M_PI
 #include <algorithm>
 #include "logger.hpp"
 #include "ScenarioGateway.hpp"
 #include "Entities.hpp"
-#include "ExtraEntities.hpp" // For Light Extension
-#include "TerrainTracker.hpp" // For terrain tracking
-#include "GT_HostVehicleReporter.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp" // For Light Extension
+#include "gt_esmini/control/TerrainTracker.hpp" // For terrain tracking
+#include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "Storyboard.hpp"      // For Event
 #include "OSCPrivateAction.hpp" // For LongSpeedAction
 #include "Action.hpp"          // For OSCAction::ActionType
@@ -91,7 +96,11 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
       currentSpeed_(0.0),
       sendWaypoints_(false),
       currentWaypointIndex_(0),
-      waypointsExtracted_(false)
+      waypointsExtracted_(false),
+      driver_input_receiver_(new DriverInputReceiver()),
+      vehicle_state_updater_(new VehicleStateUpdater()),
+      esmini_state_applier_(new EsminiStateApplier()),
+      control_decision_engine_(new ControlDecisionEngine())
 {
     // Check if port is overridden in parameters
     if (args && args->properties && args->properties->ValueExists("BasePort"))
@@ -145,6 +154,10 @@ ControllerRealDriver::~ControllerRealDriver()
     if (udpServer_) delete udpServer_;
     if (udpClient_) delete udpClient_;
     if (waypointClient_) delete waypointClient_;
+    delete driver_input_receiver_;
+    delete vehicle_state_updater_;
+    delete esmini_state_applier_;
+    delete control_decision_engine_;
 }
 
 int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
@@ -228,7 +241,8 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
         // Tuning: Load External Param File
         // Construct absolute path based on executable location
         std::string exeDir = GetCurrentModuleDirectory();
-        std::string paramFile = exeDir + "/real_vehicle_params.json";
+        ConfigLoader config_loader;
+        std::string paramFile = config_loader.ResolveConfigPath(exeDir, "real_vehicle_params.json");
 
         // Log for debugging
         LOG_INFO("RealDriver: Loading params from {}", paramFile);
@@ -734,9 +748,9 @@ void ControllerRealDriver::Step(double timeStep)
     const RunningActionState preStepState = GetRunningActionState();
     const ActionFlags previousFlags{wasLaneChanging_, wasLaneOffsetting_, wasFollowingTrajectory_, wasAssigningRoute_};
 
-    UpdateSetSpeedFromScenarioObject();
-    ReceiveLatestUdpInput();
-    UpdateVehiclePhysics(timeStep);
+    control_decision_engine_->UpdateSetSpeed(*this);
+    driver_input_receiver_->Receive(*this);
+    vehicle_state_updater_->UpdatePhysics(*this, timeStep);
     SendTargetSpeedPacket();
     MaybeSendWaypoints();
     UpdateCachedPowertrain();
@@ -749,7 +763,7 @@ void ControllerRealDriver::Step(double timeStep)
     if (object_ && gateway_)
     {
         HandlePathActions(preStepState, previousFlags, "");
-        SyncGatewayObjectState(combined_pitch, combined_roll, preStepState.hasRunningScenarioLongAction);
+        esmini_state_applier_->Apply(*this, combined_pitch, combined_roll, preStepState.hasRunningScenarioLongAction);
         UpdateVehicleLights();
     }
 

@@ -53,7 +53,7 @@
 ### C++コード
 
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include <iostream>
 
 int main()
@@ -117,7 +117,7 @@ AutoLight機能を使用して、車両の減速時にブレーキランプを�
 
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include <iostream>
 
 int main()
@@ -187,7 +187,7 @@ AutoLightを有効にしつつ、特定のタイミングでLightStateActionを�
 ### C++コード
 
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include <iostream>
 
 int main()
@@ -240,7 +240,7 @@ OSI UDPソケットを使用して、ライト状態を外部ツールに送信�
 
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include <iostream>
 
 int main()

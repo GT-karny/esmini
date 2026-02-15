@@ -12,7 +12,7 @@
 #pragma once
 
 #include "Entities.hpp"  // Include esmini's Entities.hpp
-#include "ExtraAction.hpp"
+#include "gt_esmini/scenario/ExtraAction.hpp"
 #include <map>
 #include <memory>
 

@@ -1,3 +1,5 @@
 build/
 script/venv/
+scripts/.venv/
+scripts/**/__pycache__/
 *.temp.xosc

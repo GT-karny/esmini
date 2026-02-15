@@ -4,7 +4,7 @@
  * Implementation of road connection query functions.
  */
 
-#include "GT_esminiRMLib.hpp"
+#include "gt_esmini/core/GT_esminiRMLib.hpp"
 #include "RoadManager.hpp"
 #include <cstring>
 

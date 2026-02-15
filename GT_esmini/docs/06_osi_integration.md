@@ -91,7 +91,7 @@ GT_esminiは、`GT_OSIReporter`を使用してOSI出力にライト状態を追�
 
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 int main()
 {

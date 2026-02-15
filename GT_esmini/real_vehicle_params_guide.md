@@ -824,11 +824,11 @@ if (speed_abs > critical_speed) {
 
 ## 関連ファイル
 
-- [GT_esmini/RealVehicle.cpp](GT_esmini/RealVehicle.cpp) - 物理シミュレーション実装
-- [GT_esmini/RealVehicle.hpp](GT_esmini/RealVehicle.hpp) - クラス定義
-- [GT_esmini/ControllerRealDriver.cpp](GT_esmini/ControllerRealDriver.cpp) - UDP入力とパラメータ読み込み
-- [GT_esmini/TerrainTracker.hpp](GT_esmini/TerrainTracker.hpp) - 地形追跡クラス定義
-- [GT_esmini/TerrainTracker.cpp](GT_esmini/TerrainTracker.cpp) - 地形追跡実装
+- [GT_esmini/src/control/RealVehicle.cpp](GT_esmini/src/control/RealVehicle.cpp) - 物理シミュレーション実装
+- [GT_esmini/include/gt_esmini/control/RealVehicle.hpp](GT_esmini/include/gt_esmini/control/RealVehicle.hpp) - クラス定義
+- [GT_esmini/src/control/ControllerRealDriver.cpp](GT_esmini/src/control/ControllerRealDriver.cpp) - UDP入力とパラメータ読み込み
+- [GT_esmini/include/gt_esmini/control/TerrainTracker.hpp](GT_esmini/include/gt_esmini/control/TerrainTracker.hpp) - 地形追跡クラス定義
+- [GT_esmini/src/control/TerrainTracker.cpp](GT_esmini/src/control/TerrainTracker.cpp) - 地形追跡実装
 
 ---
 

@@ -11,12 +11,13 @@
 
 // Include esminiLib.cpp to access static 'player' and 'scenarioEngine'
 // This effectively compiles esminiLib code as part of this module
-#include "../EnvironmentSimulator/Libraries/esminiLib/esminiLib.cpp"
+#include "../../../EnvironmentSimulator/Libraries/esminiLib/esminiLib.cpp"
 
-#include "GT_esminiLib.hpp"
-#include "GT_ScenarioReader.hpp"
-#include "AutoLightController.hpp"
-#include "ExtraEntities.hpp" // For VehicleExtensionManager
+#include <gt_esmini/core/GT_esminiLib.hpp>
+#include "gt_esmini/core/ConfigLoader.hpp"
+#include "gt_esmini/scenario/GT_ScenarioReader.hpp"
+#include "gt_esmini/control/AutoLightController.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp" // For VehicleExtensionManager
 
 #include <vector>
 #include <memory>
@@ -26,8 +27,8 @@
 #include <cstdio>
 #include <osi_groundtruth.pb.h>
 
-#include "ControllerRealDriver.hpp"
-#include "GT_HostVehicleReporter.hpp"
+#include "gt_esmini/control/ControllerRealDriver.hpp"
+#include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -284,7 +285,8 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         // 7. Initialize GT_HostVehicleReporter (separated from OSIReporter)
         {
             std::string exeDir = gt_esmini::GetCurrentModuleDirectory();
-            std::string configFile = exeDir + "/host_vehicle_config.json";
+            gt_esmini::ConfigLoader config_loader;
+            std::string configFile = config_loader.ResolveConfigPath(exeDir, "host_vehicle_config.json");
             gt_esmini::GT_HostVehicleReporter::Instance().Init(48199, configFile);
         }
     }
@@ -479,7 +481,8 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         // 7. Initialize GT_HostVehicleReporter (separated from OSIReporter)
         {
             std::string exeDir = gt_esmini::GetCurrentModuleDirectory();
-            std::string configFile = exeDir + "/host_vehicle_config.json";
+            gt_esmini::ConfigLoader config_loader;
+            std::string configFile = config_loader.ResolveConfigPath(exeDir, "host_vehicle_config.json");
             gt_esmini::GT_HostVehicleReporter::Instance().Init(48199, configFile, osiTargetIp);
         }
     }

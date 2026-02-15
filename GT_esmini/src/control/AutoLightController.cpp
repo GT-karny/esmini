@@ -12,7 +12,7 @@
 #ifdef Object
 #undef Object
 #endif
-#include "AutoLightController.hpp"
+#include "gt_esmini/control/AutoLightController.hpp"
 #include <cmath>
 #include <algorithm>
 

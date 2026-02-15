@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "GT_ScenarioReader.hpp"
-#include "ExtraAction.hpp"
+#include "gt_esmini/scenario/GT_ScenarioReader.hpp"
+#include "gt_esmini/scenario/ExtraAction.hpp"
 #include "pugixml.hpp"
 #include <iostream>
 

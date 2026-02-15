@@ -18,7 +18,7 @@ unittest(${UNIT_TEST_TARGET} "${UNIT_TEST_SOURCES}"
 )
 
 target_include_directories(${UNIT_TEST_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/GT_esmini
+    ${CMAKE_SOURCE_DIR}/GT_esmini/include
 )
 
 # Integration Test Loader
@@ -32,7 +32,7 @@ target_link_libraries(${LOADER_TARGET} PRIVATE
     ${TARGET_SHARED} # Link against GT_esminiLib DLL/LIB
 )
 target_include_directories(${LOADER_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/GT_esmini
+    ${CMAKE_SOURCE_DIR}/GT_esmini/include
     ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib
 )
 

@@ -13,6 +13,7 @@
 
 #include "UDP.hpp"
 #include "ScenarioGateway.hpp"
+#include "gt_esmini/osi/IHostVehicleDataProvider.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -27,7 +28,7 @@ namespace gt_esmini
  * This class handles OSI HostVehicleData independently from OSIReporter,
  * allowing for clean separation of GT_esmini extensions from core esmini code.
  */
-class GT_HostVehicleReporter
+class GT_HostVehicleReporter : public IHostVehicleDataProvider
 {
 public:
     /**
@@ -102,12 +103,12 @@ public:
      * @param egoState Pointer to ego vehicle ObjectState
      * @return 0 on success, -1 on error
      */
-    int UpdateFromObjectState(const scenarioengine::ObjectState* egoState);
+    int UpdateFromObjectState(const scenarioengine::ObjectState* egoState) override;
 
     /**
      * Send HostVehicleData via UDP
      */
-    void Send();
+    void Send() override;
 
     /**
      * Check if initialized

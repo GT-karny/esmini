@@ -77,7 +77,7 @@ GT_esminiは、2つの使用方法を提供します：
 
 **オプション1: GT_Init を使用（推奨）**
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 // GT_ScenarioReaderを使用してLightStateAction対応
 GT_Init("scenario.xosc", 0);
@@ -94,7 +94,7 @@ GT_Close();
 **オプション2: SE_Init を使用（既存機能のみ）**
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 // esmini本体の機能のみ使用
 SE_Init("scenario.xosc", 0);

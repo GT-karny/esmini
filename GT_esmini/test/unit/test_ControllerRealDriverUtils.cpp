@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
-#include "ControllerRealDriverUtils.hpp"
+#include "gt_esmini/control/ControllerRealDriverUtils.hpp"
 
 namespace gt_esmini::realdetail
 {

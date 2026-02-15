@@ -2,6 +2,11 @@
 
 set(TARGET_SHARED GT_esminiLib)
 set(TARGET_STATIC GT_esminiLib_static)
+set(GT_CORE_TARGET gt_core)
+set(GT_IO_TARGET gt_io)
+set(GT_SCENARIO_TARGET gt_scenario)
+set(GT_CONTROL_TARGET gt_control)
+set(GT_OSI_TARGET gt_osi)
 
 # ############################### Loading desired rules ##############################################################################################
 
@@ -10,36 +15,78 @@ include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_iwyu.cmake)
 
 # ############################### Setting target files ###############################################################################################
 
-set(SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/ExtraAction.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ExtraEntities.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_ScenarioReader.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiRMLib.cpp)
+set(GT_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/GT_esminiLib.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/GT_esminiRMLib.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/ConfigLoader.cpp)
 
-set(INCLUDES
-    ${CMAKE_CURRENT_SOURCE_DIR}/ExtraAction.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ExtraEntities.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_ScenarioReader.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriverUtils.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiLib.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GT_esminiRMLib.hpp)
+set(GT_CORE_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/GT_esminiLib.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/GT_esminiRMLib.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/ConfigLoader.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IConfigLoader.hpp)
+
+set(GT_IO_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_UDP.cpp)
+
+set(GT_IO_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/io/GT_UDP.hpp)
+
+set(GT_SCENARIO_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraAction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraEntities.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/GT_ScenarioReader.cpp)
+
+set(GT_SCENARIO_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraAction.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraEntities.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/GT_ScenarioReader.hpp)
+
+set(GT_CONTROL_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/AutoLightController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/RealVehicle.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerRealDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/TerrainTracker.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/DriverInputReceiver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehicleStateUpdater.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/EsminiStateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp)
+
+set(GT_CONTROL_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/RealVehicle.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRealDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRealDriverUtils.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/TerrainTracker.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/DriverInputReceiver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp)
+
+set(GT_OSI_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/GT_HostVehicleReporter.cpp)
+
+set(GT_OSI_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/GT_HostVehicleReporter.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IHostVehicleDataProvider.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IGroundTruthPublisher.hpp)
 
 # ############################### Creating library ##################################################################################################
+add_library(${GT_CORE_TARGET} STATIC ${GT_CORE_SOURCES} ${GT_CORE_HEADERS})
+add_library(${GT_IO_TARGET} STATIC ${GT_IO_SOURCES} ${GT_IO_HEADERS})
+add_library(${GT_SCENARIO_TARGET} STATIC ${GT_SCENARIO_SOURCES} ${GT_SCENARIO_HEADERS})
+add_library(${GT_CONTROL_TARGET} STATIC ${GT_CONTROL_SOURCES} ${GT_CONTROL_HEADERS})
+add_library(${GT_OSI_TARGET} STATIC ${GT_OSI_SOURCES} ${GT_OSI_HEADERS})
 
-add_library(${TARGET_SHARED} SHARED ${SOURCES} ${INCLUDES})
+set(GT_INTERNAL_TARGETS
+    ${GT_CORE_TARGET}
+    ${GT_IO_TARGET}
+    ${GT_SCENARIO_TARGET}
+    ${GT_CONTROL_TARGET}
+    ${GT_OSI_TARGET})
+
+add_library(${TARGET_SHARED} SHARED)
+add_library(${TARGET_STATIC} STATIC)
 
 # embed $origin (location of exe file) as execution dyn lib search paths
 set(RPATH_DIRS "$ORIGIN")
@@ -54,11 +101,10 @@ set_target_properties(
     PROPERTIES BUILD_WITH_INSTALL_RPATH true
                INSTALL_RPATH "${RPATH_DIRS}")
 
-add_library(${TARGET_STATIC} STATIC ${SOURCES} ${INCLUDES})
 target_compile_definitions(${TARGET_STATIC} PRIVATE GT_ESMINI_STATIC _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 target_compile_definitions(${TARGET_SHARED} PRIVATE _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 
-foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
+foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC})
 
     target_link_libraries(${TARGET} PRIVATE project_options)
 
@@ -70,7 +116,8 @@ foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
                 ${PLAYER_BASE_PATH}
                 ${COMMON_MINI_PATH}
                 ${CONTROLLERS_PATH}
-                ${CMAKE_CURRENT_SOURCE_DIR})
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
     target_include_directories(
         ${TARGET}
@@ -80,18 +127,8 @@ foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
                ${EXTERNALS_OSG_INCLUDES}
                ${EXTERNALS_PUGIXML_PATH})
 
-    target_link_libraries(
-        ${TARGET}
-        PRIVATE PlayerBase
-                ScenarioEngine
-                CommonMini
-                Controllers
-                RoadManager
-                ${TIME_LIB}
-                ${SOCK_LIB})
-
     if(USE_OSG)
-        target_link_libraries(${TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+        target_link_libraries(${TARGET} PRIVATE ${OSG_LIBRARIES})
     endif()
 
     if(USE_SUMO)
@@ -107,6 +144,83 @@ foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
     disable_iwyu(${TARGET})
 
 endforeach()
+
+target_include_directories(${TARGET_SHARED} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(${TARGET_STATIC} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_link_libraries(${GT_IO_TARGET} PRIVATE ${GT_CORE_TARGET} ${SOCK_LIB})
+target_link_libraries(${GT_SCENARIO_TARGET} PRIVATE ${GT_CORE_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
+target_link_libraries(${GT_CONTROL_TARGET} PRIVATE
+    ${GT_CORE_TARGET}
+    ${GT_IO_TARGET}
+    ${GT_SCENARIO_TARGET}
+    PlayerBase
+    ScenarioEngine
+    CommonMini
+    Controllers
+    RoadManager
+    ${TIME_LIB}
+    ${SOCK_LIB})
+target_link_libraries(${GT_OSI_TARGET} PRIVATE ${GT_CORE_TARGET} ${GT_SCENARIO_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
+if(USE_OSG)
+    target_link_libraries(${GT_CONTROL_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+    target_link_libraries(${GT_OSI_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+endif()
+
+target_sources(${TARGET_SHARED} PRIVATE
+    ${GT_CORE_SOURCES}
+    ${GT_IO_SOURCES}
+    ${GT_SCENARIO_SOURCES}
+    ${GT_CONTROL_SOURCES}
+    ${GT_OSI_SOURCES}
+    ${GT_CORE_HEADERS}
+    ${GT_IO_HEADERS}
+    ${GT_SCENARIO_HEADERS}
+    ${GT_CONTROL_HEADERS}
+    ${GT_OSI_HEADERS})
+target_sources(${TARGET_STATIC} PRIVATE
+    ${GT_CORE_SOURCES}
+    ${GT_IO_SOURCES}
+    ${GT_SCENARIO_SOURCES}
+    ${GT_CONTROL_SOURCES}
+    ${GT_OSI_SOURCES}
+    ${GT_CORE_HEADERS}
+    ${GT_IO_HEADERS}
+    ${GT_SCENARIO_HEADERS}
+    ${GT_CONTROL_HEADERS}
+    ${GT_OSI_HEADERS})
+
+target_link_libraries(${TARGET_SHARED} PRIVATE
+    PlayerBase
+    ScenarioEngine
+    CommonMini
+    Controllers
+    RoadManager
+    ${TIME_LIB}
+    ${SOCK_LIB})
+target_link_libraries(${TARGET_STATIC} PRIVATE
+    PlayerBase
+    ScenarioEngine
+    CommonMini
+    Controllers
+    RoadManager
+    ${TIME_LIB}
+    ${SOCK_LIB})
+
+if(USE_OSG)
+    target_link_libraries(${TARGET_SHARED} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+    target_link_libraries(${TARGET_STATIC} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+endif()
+
+if(USE_SUMO)
+    target_link_libraries(${TARGET_SHARED} PRIVATE ${SUMO_LIBRARIES})
+    target_link_libraries(${TARGET_STATIC} PRIVATE ${SUMO_LIBRARIES})
+endif()
+
+if(USE_OSI)
+    target_link_libraries(${TARGET_SHARED} PRIVATE ${OSI_LIBRARIES})
+    target_link_libraries(${TARGET_STATIC} PRIVATE ${OSI_LIBRARIES})
+endif()
 
 # ############################### Install############################################################################################################
 
@@ -141,7 +255,7 @@ target_link_libraries(${GT_SIM_TARGET} PRIVATE GT_esminiLib)
 
 # Include directories needed for GT_Sim (esminiLib headers)
 target_include_directories(${GT_SIM_TARGET} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${SCENARIO_ENGINE_PATH}/SourceFiles
     ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
     ${VIEWER_BASE_PATH}

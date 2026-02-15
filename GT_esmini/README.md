@@ -49,3 +49,18 @@ ADAS/AD開発向けに、OSI (Open Simulation Interface) 出力を強化して�
 ## ビルド・導入
 
 ルートディレクトリの `CLAUDE.md` または `README.md` (esmini本体) のビルド手順を参照してください。本モジュールはルートのビルドプロセスに自動的に含まれます。
+
+## フォルダ構成 (Refactored)
+
+- `include/gt_esmini/core`: 公開C APIと共通抽象 (`IConfigLoader`)
+- `include/gt_esmini/scenario`: OpenSCENARIO拡張
+- `include/gt_esmini/io`: UDP I/O
+- `include/gt_esmini/control`: 制御/物理/姿勢更新
+- `include/gt_esmini/osi`: OSI/HostVehicleData連携
+- `src/{core,scenario,io,control,osi}`: 実装本体
+- `config/`: 実行時設定 (`real_vehicle_params.json`, `host_vehicle_config.json`)
+
+## include規約
+
+- 外部利用コード: `#include <gt_esmini/core/GT_esminiLib.hpp>`
+- GT_esmini内部: `#include "gt_esmini/..."`

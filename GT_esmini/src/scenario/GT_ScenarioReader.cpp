@@ -12,8 +12,8 @@
 #ifdef Object
 #undef Object
 #endif
-#include "GT_ScenarioReader.hpp"
-#include "ExtraEntities.hpp"
+#include "gt_esmini/scenario/GT_ScenarioReader.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp"
 #include <vector>
 #include <string>
 

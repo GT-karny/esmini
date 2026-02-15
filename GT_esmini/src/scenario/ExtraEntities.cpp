@@ -12,7 +12,7 @@
 #ifdef Object
 #undef Object
 #endif
-#include "ExtraEntities.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp"
 
 namespace gt_esmini
 {

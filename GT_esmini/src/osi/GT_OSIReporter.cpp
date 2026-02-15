@@ -14,9 +14,9 @@
 #include "OSIReporter.hpp"
 #include "GT_OSIReporter_Internals.hpp"
 #include "OSITrafficCommand.hpp"
-#include "../EnvironmentSimulator/Modules/ScenarioEngine/OSCTypeDefs/OSCPrivateAction.hpp"
-#include "../EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp"
-// #include "ExtraEntities.hpp"
+#include "OSCPrivateAction.hpp"
+#include "RoadManager.hpp"
+// #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include <cmath>
 #include <string>
 #include <utility>

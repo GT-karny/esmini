@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OSIReporter.hpp"
-#include "../../ExtraEntities.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp"
 #include <functional>
 #include <string>
 

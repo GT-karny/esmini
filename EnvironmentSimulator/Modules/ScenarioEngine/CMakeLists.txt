@@ -78,7 +78,7 @@ target_link_libraries(
 target_include_directories(
     ${TARGET}
     PRIVATE ${SCENARIO_ENGINE_PATH}/SourceFiles
-            "${CMAKE_SOURCE_DIR}/GT_esmini"
+            "${CMAKE_SOURCE_DIR}/GT_esmini/include"
             ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
             ${COMMON_MINI_PATH}
             ${CONTROLLERS_PATH}

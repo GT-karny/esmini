@@ -1,4 +1,4 @@
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include "esminiLib.hpp"  // For OSI functions: SE_OpenOSISocket, SE_UpdateOSI, SE_CloseOSISocket
 #include <iostream>
 #include <thread>

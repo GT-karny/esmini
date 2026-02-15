@@ -19,7 +19,7 @@ GT_esminiの拡張機能がこのFMUに含まれるかどうかは、実装方�
 
 GT_esminiの全機能をFMUでも使用可能にするためには、`OSMP_FMU/esmini.cpp` に対して以下の改修が必要です。
 
-1.  **ヘッダーの変更**: `#include "esminiLib.hpp"` に加えて `#include "GT_esminiLib.hpp"` を追加。
+1.  **ヘッダーの変更**: `#include "esminiLib.hpp"` に加えて `#include <gt_esmini/core/GT_esminiLib.hpp>` を追加。
 2.  **初期化ロジックの変更**:
     - `doExitInitializationMode` 内の `SE_Init` 呼び出しを `GT_Init` に変更。
     - または、`SE_Init` の後に `GT_EnableAutoLight` などを呼び出すロジックを追加。

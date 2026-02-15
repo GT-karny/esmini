@@ -12,7 +12,7 @@
 #pragma once
 
 #include "Entities.hpp"  // esmini
-#include "ExtraEntities.hpp"  // GT_esmini extension
+#include "gt_esmini/scenario/ExtraEntities.hpp"  // GT_esmini extension
 #include <deque>
 #include <utility> // for std::pair
 

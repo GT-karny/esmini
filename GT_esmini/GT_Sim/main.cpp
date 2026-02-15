@@ -2,7 +2,7 @@
  * GT_Sim - Real-time execution wrapper for GT_esmini
  */
 
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include "esminiLib.hpp"
 #include <iostream>
 #include <vector>

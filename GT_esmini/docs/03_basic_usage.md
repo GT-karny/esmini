@@ -25,7 +25,7 @@ GT_esminiには、2つの初期化方法があります。
 `GT_Init`を使用すると、LightStateActionのパース機能を含むすべてのGT_esmini機能が利用できます。
 
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 int main()
 {
@@ -67,7 +67,7 @@ esmini本体の`SE_Init`を使用し、GT_esmini機能を追加で有効化し�
 
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 int main()
 {
@@ -163,7 +163,7 @@ esmini本体のAPIを使用して、車両状態を取得できます：
 
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 // 初期化
 GT_Init("scenario.xosc", 0);
@@ -281,7 +281,7 @@ OSI (Open Simulation Interface) 出力を使用する場合：
 
 ```cpp
 #include "esminiLib.hpp"
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 
 // 初期化
 GT_Init("scenario.xosc", 0);
@@ -313,7 +313,7 @@ GT_Close();
 以下は、GT_esminiを使用した完全な例です：
 
 ```cpp
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include "esminiLib.hpp"
 #include <iostream>
 #include <chrono>

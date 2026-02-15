@@ -12,7 +12,7 @@
 #pragma once
 
 #include "ScenarioReader.hpp"  // esmini core
-#include "ExtraAction.hpp"     // GT_esmini extension
+#include "gt_esmini/scenario/ExtraAction.hpp"     // GT_esmini extension
 
 namespace gt_esmini
 {

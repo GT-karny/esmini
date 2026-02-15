@@ -2,6 +2,13 @@
 
 GT_esminiの内部構造とデータフローを可視化します。
 
+## Refactor Notes (2026)
+
+- ソース配置は `src/{core,scenario,io,control,osi}` に統一。
+- ヘッダは `include/gt_esmini/...` 配下に統一。
+- HostVehicleDataは `osi` モジュール責務として管理。
+- 設定ファイルは `GT_esmini/config/` へ移動。
+
 ## 1. System Context Diagram (システム概要)
 
 GT_esminiは`esmini`を拡張し、外部コントローラ(RealDriver)やOSI出力機能を提供します。
