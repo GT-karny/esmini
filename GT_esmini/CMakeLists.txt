@@ -30,6 +30,7 @@ set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/AutoLightController.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/RealVehicle.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ControllerRealDriverUtils.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_UDP.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/TerrainTracker.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/GT_HostVehicleReporter.hpp

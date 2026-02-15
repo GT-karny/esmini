@@ -60,6 +60,42 @@ namespace gt_esmini
         const osi3::HostVehicleData& GetCachedHostVehicleData() const { return cached_hvd_; }
 
     private:
+        struct RunningActionState
+        {
+            scenarioengine::LatLaneChangeAction* laneChange = nullptr;
+            scenarioengine::LatLaneOffsetAction* laneOffset = nullptr;
+            scenarioengine::FollowTrajectoryAction* followTrajectory = nullptr;
+            scenarioengine::AssignRouteAction* assignRoute = nullptr;
+            scenarioengine::LongDistanceAction* longDistance = nullptr;
+            scenarioengine::LongSpeedProfileAction* speedProfile = nullptr;
+            scenarioengine::SynchronizeAction* synchronize = nullptr;
+            bool hasRunningScenarioLongAction = false;
+        };
+
+        struct ActionFlags
+        {
+            bool laneChanging = false;
+            bool laneOffsetting = false;
+            bool followingTrajectory = false;
+            bool assigningRoute = false;
+        };
+
+        RunningActionState GetRunningActionState();
+        void UpdateSetSpeedFromScenarioObject();
+        void ReceiveLatestUdpInput();
+        bool ParseDriverInputPacket(int packetSize);
+        void UpdateVehiclePhysics(double timeStep);
+        void SendTargetSpeedPacket();
+        void MaybeSendWaypoints();
+        void UpdateCachedPowertrain();
+        void UpdateHostVehicleReporter() const;
+        bool HandlePathActions(const RunningActionState& state, const ActionFlags& previousFlags, const char* phaseLabel);
+        void SyncGatewayObjectState(double combinedPitch, double combinedRoll, bool blockSpeedUpdate);
+        void SyncObjectPoseFromRealVehicle();
+        void UpdateVehicleLights();
+        void RefreshWaypointsOnRoutePointerChange();
+        static ActionFlags ToActionFlags(const RunningActionState& state);
+
         // Extract waypoints from object's route (if available)
         void ExtractWaypoints();
         // Send waypoints via UDP

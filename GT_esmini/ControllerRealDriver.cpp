@@ -1,4 +1,5 @@
 #include "ControllerRealDriver.hpp"
+#include "ControllerRealDriverUtils.hpp"
 #include <windows.h> // For GetModuleFileName
 #include <cmath>     // For std::sqrt, std::atan2, M_PI
 #include <algorithm>
@@ -14,6 +15,43 @@
 
 namespace gt_esmini
 {
+namespace
+{
+WaypointData MakeWaypointFromPosition(const roadmanager::Position& pos, double laneOffsetOverride)
+{
+    WaypointData wp;
+    wp.x = pos.GetX();
+    wp.y = pos.GetY();
+    wp.h = pos.GetH();
+    wp.roadId = static_cast<uint32_t>(pos.GetTrackId());
+    wp.s = pos.GetS();
+    wp.laneId = pos.GetLaneId();
+    wp.laneOffset = laneOffsetOverride;
+    return wp;
+}
+
+double ResolveLaneOffsetTarget(const scenarioengine::LatLaneOffsetAction& action, double currentOffset)
+{
+    double targetOffset = currentOffset;
+    if (!action.target_)
+    {
+        return targetOffset;
+    }
+
+    if (action.target_->type_ == scenarioengine::LatLaneOffsetAction::Target::Type::ABSOLUTE_OFFSET)
+    {
+        return action.target_->value_;
+    }
+
+    auto* targetRel = static_cast<scenarioengine::LatLaneOffsetAction::TargetRelative*>(action.target_.get());
+    double refOffset = currentOffset;
+    if (targetRel && targetRel->object_)
+    {
+        refOffset = targetRel->object_->pos_.GetOffset();
+    }
+    return refOffset + action.target_->value_;
+}
+}  // namespace
 
 scenarioengine::Controller* InstantiateControllerRealDriver(void* args)
 {
@@ -315,35 +353,45 @@ scenarioengine::AssignRouteAction* ControllerRealDriver::GetRunningAssignRouteAc
         GetRunningPrivateActionByType(scenarioengine::OSCAction::ActionType::ASSIGN_ROUTE));
 }
 
-void ControllerRealDriver::Step(double timeStep)
+ControllerRealDriver::RunningActionState ControllerRealDriver::GetRunningActionState()
 {
-    // Note: TerrainTracker::UpdateAllVehicleTerrain() is now called from GT_Step()
-    // to avoid dependency issues with ScenarioEngine access
+    RunningActionState state;
+    GetTargetSpeedFromActions(&state.hasRunningScenarioLongAction);
 
-    // 0. Detect scenario actions. Running longitudinal actions must block gateway speed overwrite,
-    // otherwise scenario dynamics are suppressed by controller-written speed.
-    bool hasRunningScenarioLongAction = false;
-    GetTargetSpeedFromActions(&hasRunningScenarioLongAction);
-    auto* runningLongDistanceAction = GetRunningLongDistanceAction();
-    auto* runningSpeedProfileAction = GetRunningSpeedProfileAction();
-    auto* runningSynchronizeAction = GetRunningSynchronizeAction();
-    hasRunningScenarioLongAction =
-        hasRunningScenarioLongAction ||
-        (runningLongDistanceAction != nullptr) ||
-        (runningSpeedProfileAction != nullptr) ||
-        (runningSynchronizeAction != nullptr);
+    state.longDistance = GetRunningLongDistanceAction();
+    state.speedProfile = GetRunningSpeedProfileAction();
+    state.synchronize = GetRunningSynchronizeAction();
+    state.hasRunningScenarioLongAction =
+        state.hasRunningScenarioLongAction ||
+        (state.longDistance != nullptr) ||
+        (state.speedProfile != nullptr) ||
+        (state.synchronize != nullptr);
 
-    // [GT_MOD] Check for running path/lateral actions to regenerate waypoints on start.
-    auto* runningLaneChangeAction = GetRunningLaneChangeAction();
-    bool hasRunningLaneChange = (runningLaneChangeAction != nullptr);
-    auto* runningLaneOffsetAction = GetRunningLaneOffsetAction();
-    bool hasRunningLaneOffset = (runningLaneOffsetAction != nullptr);
-    auto* runningFollowTrajectoryAction = GetRunningFollowTrajectoryAction();
-    bool hasRunningFollowTrajectory = (runningFollowTrajectoryAction != nullptr);
-    auto* runningAssignRouteAction = GetRunningAssignRouteAction();
-    bool hasRunningAssignRoute = (runningAssignRouteAction != nullptr);
+    state.laneChange = GetRunningLaneChangeAction();
+    state.laneOffset = GetRunningLaneOffsetAction();
+    state.followTrajectory = GetRunningFollowTrajectoryAction();
+    state.assignRoute = GetRunningAssignRouteAction();
+    return state;
+}
 
-    double objectSpeed = object_->GetSpeed();
+ControllerRealDriver::ActionFlags ControllerRealDriver::ToActionFlags(const RunningActionState& state)
+{
+    ActionFlags flags;
+    flags.laneChanging = (state.laneChange != nullptr);
+    flags.laneOffsetting = (state.laneOffset != nullptr);
+    flags.followingTrajectory = (state.followTrajectory != nullptr);
+    flags.assigningRoute = (state.assignRoute != nullptr);
+    return flags;
+}
+
+void ControllerRealDriver::UpdateSetSpeedFromScenarioObject()
+{
+    if (!object_)
+    {
+        return;
+    }
+
+    const double objectSpeed = object_->GetSpeed();
     if (std::abs(objectSpeed - currentSpeed_) > 1e-3)
     {
         LOG_INFO("RealDriver: Detected speed change from scenario: {:.2f} -> {:.2f} m/s",
@@ -351,571 +399,384 @@ void ControllerRealDriver::Step(double timeStep)
         setSpeed_ = objectSpeed;
         currentSpeed_ = objectSpeed;
     }
+}
 
-    // 1. Receive UDP Network Data
-    if (udpServer_)
+bool ControllerRealDriver::ParseDriverInputPacket(int packetSize)
+{
+    if (packetSize < 4)
     {
-        int res = 0;
-        // Drain queue, get latest
-        while (true)
+        LOG_WARN("RealDriverController: Packet too small ({})", packetSize);
+        std::cerr << "RealDriverController: Packet too small (" << packetSize << " bytes)" << std::endl;
+        return false;
+    }
+
+    int* maskPtr = reinterpret_cast<int*>(udp_buffer_.data());
+    input_.lightMask = *maskPtr;
+    if (!cached_hvd_.ParseFromArray(udp_buffer_.data() + 4, packetSize - 4))
+    {
+        LOG_ERROR("RealDriverController: Failed to parse HostVehicleData");
+        std::cerr << "RealDriverController: Failed to parse HostVehicleData (" << (packetSize - 4) << " bytes)" << std::endl;
+        return false;
+    }
+
+    static int log_counter = 0;
+    if (log_counter++ % 50 == 0)
+    {
+        std::cout << "RealDriverController: Packet Received (" << packetSize
+                  << " bytes). LightMask=" << input_.lightMask << std::endl;
+    }
+
+    if (cached_hvd_.has_vehicle_powertrain())
+    {
+        input_.throttle = cached_hvd_.vehicle_powertrain().pedal_position_acceleration();
+        input_.gear = cached_hvd_.vehicle_powertrain().gear_transmission();
+    }
+    else
+    {
+        input_.throttle = 0.0;
+        input_.gear = 1;
+    }
+
+    if (cached_hvd_.has_vehicle_brake_system())
+    {
+        input_.brake = cached_hvd_.vehicle_brake_system().pedal_position_brake();
+    }
+
+    if (cached_hvd_.has_vehicle_steering() && cached_hvd_.vehicle_steering().has_vehicle_steering_wheel())
+    {
+        input_.steering = cached_hvd_.vehicle_steering().vehicle_steering_wheel().angle();
+    }
+
+    input_.engineBrake = 0.49;
+    input_.adasStates.assign(realdetail::kAdasFunctionCount, 0);
+    for (const auto& func : cached_hvd_.vehicle_automated_driving_function())
+    {
+        if (func.custom_name().empty())
         {
-            int r = udpServer_->Receive(udp_buffer_.data(), static_cast<int>(udp_buffer_.size()));
-            
-            if (r > 0)
-            {
-                // New Packet Structure: [LightMask (4 bytes)] + [HostVehicleData]
-                if (r >= 4)
-                {
-                    // Extract Light Mask (Little Endian int32)
-                    int* maskPtr = reinterpret_cast<int*>(udp_buffer_.data());
-                    input_.lightMask = *maskPtr;
-                    
-                    // Parse Protobuf (offset by 4 bytes)
-                    if (cached_hvd_.ParseFromArray(udp_buffer_.data() + 4, r - 4))
-                    {
-                        // [DEBUG] Log successful parse
-                         static int log_counter = 0;
-                         if (log_counter++ % 50 == 0) {
-                             std::cout << "RealDriverController: Packet Received (" << r << " bytes). LightMask=" << input_.lightMask << std::endl;
-                             if (cached_hvd_.has_vehicle_powertrain()) {
-                                 std::cout << "  - Throttle: " << cached_hvd_.vehicle_powertrain().pedal_position_acceleration() 
-                                           << " Gear: " << cached_hvd_.vehicle_powertrain().gear_transmission() << std::endl;
-                             }
-                             if (cached_hvd_.has_vehicle_brake_system()) {
-                                 std::cout << "  - Brake: " << cached_hvd_.vehicle_brake_system().pedal_position_brake() << std::endl;
-                             }
-                             if (cached_hvd_.has_vehicle_steering()) {
-                                 std::cout << "  - Steer: " << cached_hvd_.vehicle_steering().vehicle_steering_wheel().angle() << std::endl;
-                             }
-                         }
-
-                        // Extract inputs for RealVehicle Simulation
-                        if (cached_hvd_.has_vehicle_powertrain())
-                        {
-                            input_.throttle = cached_hvd_.vehicle_powertrain().pedal_position_acceleration();
-                            input_.gear = cached_hvd_.vehicle_powertrain().gear_transmission();
-                        }
-                        else
-                        {
-                            input_.throttle = 0;
-                            input_.gear = 1;
-                        }
-                        
-                        if (cached_hvd_.has_vehicle_brake_system())
-                        {
-                             input_.brake = cached_hvd_.vehicle_brake_system().pedal_position_brake();
-                        }
-                        
-                        if (cached_hvd_.has_vehicle_steering() && cached_hvd_.vehicle_steering().has_vehicle_steering_wheel())
-                        {
-                            input_.steering = cached_hvd_.vehicle_steering().vehicle_steering_wheel().angle();
-                        }
-                        
-                        // Engine Brake: Custom/Default
-                        input_.engineBrake = 0.49; 
-
-                        // Extract ADAS States
-                        input_.adasStates.assign(24, 0); // Initialize with 0 (UNKNOWN)
-                        
-                        // Map standard OSI AutomatedDrivingFunction names to our internal index 0..23
-                        // Simple mapper helper
-                        auto mapAdasFuncToRemove = [](const std::string& name) -> int {
-                             // This should match the array in GT_esminiLib.cpp
-                             if (name == "BLIND_SPOT_WARNING") return 0;
-                             if (name == "FORWARD_COLLISION_WARNING") return 1;
-                             if (name == "LANE_DEPARTURE_WARNING") return 2;
-                             if (name == "PARKING_COLLISION_WARNING") return 3;
-                             if (name == "REAR_CROSS_TRAFFIC_WARNING") return 4;
-                             if (name == "AUTOMATIC_EMERGENCY_BRAKING") return 5;
-                             if (name == "AUTOMATIC_EMERGENCY_STEERING") return 6;
-                             if (name == "REVERSE_AUTOMATIC_EMERGENCY_BRAKING") return 7;
-                             if (name == "ADAPTIVE_CRUISE_CONTROL") return 8;
-                             if (name == "LANE_KEEPING_ASSIST") return 9;
-                             if (name == "ACTIVE_DRIVING_ASSISTANCE") return 10;
-                             if (name == "BACKUP_CAMERA") return 11;
-                             if (name == "SURROUND_VIEW_CAMERA") return 12;
-                             if (name == "NIGHT_VISION") return 13;
-                             if (name == "HEAD_UP_DISPLAY") return 14;
-                             if (name == "ACTIVE_PARKING_ASSISTANCE") return 15;
-                             if (name == "REMOTE_PARKING_ASSISTANCE") return 16;
-                             if (name == "TRAILER_ASSISTANCE") return 17;
-                             if (name == "AUTOMATIC_HIGH_BEAMS") return 18;
-                             if (name == "DRIVER_MONITORING") return 19;
-                             if (name == "URBAN_DRIVING") return 20;
-                             if (name == "HIGHWAY_AUTOPILOT") return 21;
-                             if (name == "CRUISE_CONTROL") return 22;
-                             if (name == "SPEED_LIMIT_CONTROL") return 23;
-                             return -1;
-                        };
-
-                        for (const auto& func : cached_hvd_.vehicle_automated_driving_function())
-                        {
-                            std::string lookupName;
-                            // Prefer Custom Name if set, otherwise try to use Enum name if necessary
-                            // In proto3, string fields are empty if not set, no has_ method.
-                            if (!func.custom_name().empty()) {
-                                lookupName = func.custom_name();
-                            } else {
-                                // Fallback or handling for standard name enum if needed
-                            }
-                            
-                            std::transform(lookupName.begin(), lookupName.end(), lookupName.begin(), ::toupper);
-                            int idx = mapAdasFuncToRemove(lookupName);
-                            if (idx >= 0 && idx < 24) {
-                                input_.adasStates[idx] = static_cast<int>(func.state());
-                            }
-                        }
-                    }
-                    else
-                    {
-                        LOG_ERROR("RealDriverController: Failed to parse HostVehicleData");
-                        std::cerr << "RealDriverController: Failed to parse HostVehicleData (" << (r-4) << " bytes)" << std::endl;
-                    }
-                }
-                else
-                {
-                     LOG_WARN("RealDriverController: Packet too small ({})", r);
-                     std::cerr << "RealDriverController: Packet too small (" << r << " bytes)" << std::endl;
-                }
-                
-                res = r;
-            }
-            else
-            {
-                break;
-            }
+            continue;
+        }
+        const int idx = realdetail::MapAdasFunctionNameToIndex(func.custom_name());
+        if (idx >= 0 && idx < static_cast<int>(realdetail::kAdasFunctionCount))
+        {
+            input_.adasStates[idx] = static_cast<int>(func.state());
         }
     }
 
-    // 2. Update Physics
+    return true;
+}
+
+void ControllerRealDriver::ReceiveLatestUdpInput()
+{
+    if (!udpServer_)
+    {
+        return;
+    }
+
+    while (true)
+    {
+        const int received = udpServer_->Receive(udp_buffer_.data(), static_cast<int>(udp_buffer_.size()));
+        if (received <= 0)
+        {
+            break;
+        }
+        ParseDriverInputPacket(received);
+    }
+}
+
+void ControllerRealDriver::UpdateVehiclePhysics(double timeStep)
+{
     real_vehicle_.SetEngineBrakeFactor(input_.engineBrake);
 
-    // [GT_MOD] Read terrain attitude from Object (set by TerrainTracker)
     double terrain_pitch = 0.0;
     double terrain_roll = 0.0;
-    if (TerrainTracker::IsEnabled()) {
+    if (object_ && TerrainTracker::IsEnabled())
+    {
         terrain_pitch = object_->pos_.GetP();
         terrain_roll = object_->pos_.GetR();
     }
-
-    // Pass to RealVehicle before UpdatePhysics
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
-    // [DEBUG] Monitor Steering Rate
     static double last_steering_debug = 0.0;
-    double steering_rate = (input_.steering - last_steering_debug) / (timeStep > 0 ? timeStep : 0.01);
-    if (std::abs(steering_rate) > 8.0 && wasLaneChanging_) { // High rate check
-        LOG_WARN("RealDriver: [DEBUG] High Steering Rate detected: {:.2f}/s (Last={:.3f}, Curr={:.3f})", 
+    const double steering_rate = (input_.steering - last_steering_debug) / (timeStep > 0 ? timeStep : 0.01);
+    if (std::abs(steering_rate) > 8.0 && wasLaneChanging_)
+    {
+        LOG_WARN("RealDriver: [DEBUG] High Steering Rate detected: {:.2f}/s (Last={:.3f}, Curr={:.3f})",
                  steering_rate, last_steering_debug, input_.steering);
     }
     last_steering_debug = input_.steering;
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
-
-    // Update current speed for next change detection
     currentSpeed_ = real_vehicle_.speed_;
+}
 
-    // Send target speed via UDP (separate packet)
-    if (udpClient_)
+void ControllerRealDriver::SendTargetSpeedPacket()
+{
+    if (!udpClient_)
     {
-        // Packet structure: [Type: 1 byte = 1] + [setSpeed_: 8 bytes double]
-        // Use pragma pack to avoid padding
+        return;
+    }
+
 #pragma pack(push, 1)
-        struct TargetSpeedPacket {
-            uint8_t type;
-            double targetSpeed;
-        } packet;
+    struct TargetSpeedPacket {
+        uint8_t type;
+        double targetSpeed;
+    } packet;
 #pragma pack(pop)
 
-        packet.type = 1;  // Type identifier for target speed
-        packet.targetSpeed = setSpeed_;
-
-        // [DEBUG] Log target speed being sent every 50 frames
-        int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
-        if (sent != sizeof(packet))
+    packet.type = 1;
+    packet.targetSpeed = setSpeed_;
+    const int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
+    if (sent != sizeof(packet))
+    {
+        static int error_counter = 0;
+        if (error_counter++ % 100 == 0)
         {
-            static int error_counter = 0;
-            if (error_counter++ % 100 == 0)
-            {
-                LOG_WARN("RealDriver: Failed to send target speed (sent {} bytes, expected {})", sent, sizeof(packet));
-            }
+            LOG_WARN("RealDriver: Failed to send target speed (sent {} bytes, expected {})", sent, sizeof(packet));
         }
     }
+}
 
-    // Send waypoints via UDP (optional, for Python fallback)
-    if (sendWaypoints_)
+void ControllerRealDriver::MaybeSendWaypoints()
+{
+    if (!sendWaypoints_)
     {
-        // Extract waypoints on first step
-        if (!waypointsExtracted_)
-        {
-            ExtractWaypoints();
-            waypointsExtracted_ = true;
-        }
+        return;
+    }
+    if (!waypointsExtracted_)
+    {
+        ExtractWaypoints();
+        waypointsExtracted_ = true;
+    }
+    SendWaypointsUDP();
+}
 
-        // Send waypoints periodically
-        SendWaypointsUDP();
+void ControllerRealDriver::UpdateCachedPowertrain()
+{
+    auto* powertrain = cached_hvd_.mutable_vehicle_powertrain();
+    if (powertrain->motor_size() == 0)
+    {
+        powertrain->add_motor();
     }
 
-    // Inject Physics Results back into Cached HVD
-    if (cached_hvd_.has_vehicle_powertrain())
-    {
-        // Ensure motor exists
-        if (cached_hvd_.vehicle_powertrain().motor_size() == 0)
-        {
-            cached_hvd_.mutable_vehicle_powertrain()->add_motor();
-        }
-        
-        auto* motor = cached_hvd_.mutable_vehicle_powertrain()->mutable_motor(0);
-        motor->set_rpm(real_vehicle_.GetRPM());
-        motor->set_torque(real_vehicle_.GetTorqueOutput());
-    }
-    else
-    {
-        // Create if missing
-        auto* pt = cached_hvd_.mutable_vehicle_powertrain();
-        auto* motor = pt->add_motor();
-        motor->set_rpm(real_vehicle_.GetRPM());
-        motor->set_torque(real_vehicle_.GetTorqueOutput());
-    }
-    
-    // PASS DATA TO REPORTER
-    // Assuming object_->GetId() is the vehicle ID
+    auto* motor = powertrain->mutable_motor(0);
+    motor->set_rpm(real_vehicle_.GetRPM());
+    motor->set_torque(real_vehicle_.GetTorqueOutput());
+}
+
+void ControllerRealDriver::UpdateHostVehicleReporter() const
+{
     if (object_)
     {
         GT_HostVehicleReporter::Instance().SetBaseHostVehicleData(object_->GetId(), cached_hvd_);
     }
+}
 
-    // [GT_MOD] Get combined attitude (terrain + dynamic) and update Object
-    double combined_pitch, combined_roll;
+bool ControllerRealDriver::HandlePathActions(
+    const RunningActionState& state, const ActionFlags& previousFlags, const char* phaseLabel)
+{
+    bool pathActionStarted = false;
+
+    if (!previousFlags.followingTrajectory && state.followTrajectory)
+    {
+        LOG_INFO("RealDriver: {}FollowTrajectory detected, converting trajectory to waypoints", phaseLabel);
+        RegenerateWaypointsForTrajectory(state.followTrajectory);
+        state.followTrajectory->End();
+        LOG_INFO("RealDriver: {}FollowTrajectory action force-completed", phaseLabel);
+        pathActionStarted = true;
+    }
+
+    if (!pathActionStarted && !previousFlags.laneChanging && state.laneChange && state.laneChange->target_)
+    {
+        const int targetLaneId = state.laneChange->target_->value_;
+        const double duration = state.laneChange->transition_.GetParamTargetVal();
+        LOG_INFO("RealDriver: {}LaneChange detected, target lane={}, duration={:.1f}s",
+                 phaseLabel, targetLaneId, duration);
+        RegenerateWaypointsForLaneChange(targetLaneId, duration);
+        state.laneChange->End();
+        LOG_INFO("RealDriver: {}LaneChange action force-completed", phaseLabel);
+        pathActionStarted = true;
+    }
+
+    if (!pathActionStarted && !previousFlags.laneOffsetting && state.laneOffset)
+    {
+        const double currentOffset = object_ ? object_->pos_.GetOffset() : 0.0;
+        const double targetOffset = ResolveLaneOffsetTarget(*state.laneOffset, currentOffset);
+        const double paramValue = state.laneOffset->transition_.GetParamTargetVal();
+        const double speedForTime = object_ ? std::max(object_->GetSpeed(), 5.0) : 5.0;
+        const double deltaOffset = std::abs(targetOffset - currentOffset);
+        const double transitionDistance = realdetail::ComputeLaneOffsetTransitionDistance(
+            state.laneOffset->transition_.dimension_, paramValue, speedForTime, deltaOffset);
+
+        LOG_INFO("RealDriver: {}LaneOffset detected, target offset={:.2f}m, transition distance={:.1f}m",
+                 phaseLabel, targetOffset, transitionDistance);
+        RegenerateWaypointsForLaneOffset(targetOffset, transitionDistance);
+        state.laneOffset->End();
+        LOG_INFO("RealDriver: {}LaneOffset action force-completed", phaseLabel);
+        pathActionStarted = true;
+    }
+
+    if (!pathActionStarted && !previousFlags.assigningRoute && state.assignRoute)
+    {
+        LOG_INFO("RealDriver: {}AssignRoute detected, refreshing route waypoints", phaseLabel);
+        ExtractWaypoints();
+        waypointsExtracted_ = true;
+        state.assignRoute->End();
+        LOG_INFO("RealDriver: {}AssignRoute action force-completed", phaseLabel);
+        pathActionStarted = true;
+    }
+
+    return pathActionStarted;
+}
+
+void ControllerRealDriver::SyncObjectPoseFromRealVehicle()
+{
+    if (!object_)
+    {
+        return;
+    }
+
+    double dx, dy, dz_unused;
+    real_vehicle_.GetBodyPositionOffset(dx, dy, dz_unused);
+    const double h = real_vehicle_.heading_;
+    const double w_dx = dx * std::cos(h) - dy * std::sin(h);
+    const double w_dy = dx * std::sin(h) + dy * std::cos(h);
+    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
+    object_->SetDirtyBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
+}
+
+void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double combinedRoll, bool blockSpeedUpdate)
+{
+    if (!object_ || !gateway_)
+    {
+        return;
+    }
+
+    double dx, dy, dz;
+    real_vehicle_.GetBodyPositionOffset(dx, dy, dz);
+    const double h = real_vehicle_.heading_;
+    const double w_dx = dx * std::cos(h) - dy * std::sin(h);
+    const double w_dy = dx * std::sin(h) + dy * std::cos(h);
+
+    gateway_->updateObjectWorldPosXYH(
+        object_->id_, 0.0, real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
+    if (!blockSpeedUpdate)
+    {
+        gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
+    }
+    gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
+    gateway_->updateObjectWorldPos(
+        object_->id_,
+        0.0,
+        real_vehicle_.posX_ + w_dx,
+        real_vehicle_.posY_ + w_dy,
+        real_vehicle_.posZ_ + dz,
+        real_vehicle_.heading_,
+        combinedPitch,
+        combinedRoll);
+
+    SyncObjectPoseFromRealVehicle();
+}
+
+void ControllerRealDriver::UpdateVehicleLights()
+{
+    if (!object_)
+    {
+        return;
+    }
+
+    auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
+    if (!vehicle)
+    {
+        return;
+    }
+
+    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+    if (!ext)
+    {
+        return;
+    }
+
+    auto set_light = [&](VehicleLightType type, bool on) {
+        LightState s;
+        s.mode = on ? LightState::Mode::ON : LightState::Mode::OFF;
+        ext->SetLightState(type, s);
+    };
+
+    const int mask = input_.lightMask;
+    set_light(VehicleLightType::LOW_BEAM, (mask & 1));
+    set_light(VehicleLightType::HIGH_BEAM, (mask & 2));
+    set_light(VehicleLightType::INDICATOR_LEFT, (mask & 4));
+    set_light(VehicleLightType::INDICATOR_RIGHT, (mask & 8));
+    set_light(VehicleLightType::FOG_LIGHTS, (mask & 16));
+    set_light(VehicleLightType::BRAKE_LIGHTS, (input_.brake > 0.05));
+    set_light(VehicleLightType::REVERSING_LIGHTS, (input_.gear == -1));
+}
+
+void ControllerRealDriver::RefreshWaypointsOnRoutePointerChange()
+{
+    if (!object_)
+    {
+        return;
+    }
+
+    const roadmanager::Route* currentRoute = object_->pos_.GetRoute();
+    if (currentRoute != nullptr && currentRoute != lastObservedRoute_)
+    {
+        LOG_INFO("RealDriver: Detected route change, refreshing route waypoints");
+        ExtractWaypoints();
+        waypointsExtracted_ = true;
+    }
+    lastObservedRoute_ = currentRoute;
+}
+
+void ControllerRealDriver::Step(double timeStep)
+{
+    const RunningActionState preStepState = GetRunningActionState();
+    const ActionFlags previousFlags{wasLaneChanging_, wasLaneOffsetting_, wasFollowingTrajectory_, wasAssigningRoute_};
+
+    UpdateSetSpeedFromScenarioObject();
+    ReceiveLatestUdpInput();
+    UpdateVehiclePhysics(timeStep);
+    SendTargetSpeedPacket();
+    MaybeSendWaypoints();
+    UpdateCachedPowertrain();
+    UpdateHostVehicleReporter();
+
+    double combined_pitch = 0.0;
+    double combined_roll = 0.0;
     real_vehicle_.GetCombinedAttitude(combined_pitch, combined_roll);
 
-    // 3. Update Simulation Object
     if (object_ && gateway_)
     {
-        // Detect start of path-relevant actions and convert them to waypoint targets.
-        // Priority: FollowTrajectory > LaneChange > LaneOffset > AssignRoute.
-        bool pathActionStarted = false;
-        if (!wasFollowingTrajectory_ && hasRunningFollowTrajectory && runningFollowTrajectoryAction)
-        {
-            LOG_INFO("RealDriver: FollowTrajectory starting, converting trajectory to waypoints");
-            RegenerateWaypointsForTrajectory(runningFollowTrajectoryAction);
-            runningFollowTrajectoryAction->End();
-            LOG_INFO("RealDriver: FollowTrajectory action force-completed (waypoints provide target)");
-            pathActionStarted = true;
-        }
-        if (!pathActionStarted && !wasLaneChanging_ && hasRunningLaneChange)
-        {
-            if (runningLaneChangeAction && runningLaneChangeAction->target_)
-            {
-                int targetLaneId = runningLaneChangeAction->target_->value_;
-                double duration  = runningLaneChangeAction->transition_.GetParamTargetVal();
-                LOG_INFO("RealDriver: LaneChange starting, target lane={}, duration={:.1f}s",
-                         targetLaneId, duration);
-                RegenerateWaypointsForLaneChange(targetLaneId, duration);
-
-                // [GT_MOD] Force-complete the action to prevent it from writing to object_->pos_.
-                // Python steering priority: real_vehicle_ drives position via waypoints,
-                // the action's direct pos writes cause 3D viewer oscillation.
-                runningLaneChangeAction->End();
-                LOG_INFO("RealDriver: LaneChange action force-completed (waypoints provide target)");
-                pathActionStarted = true;
-            }
-        }
-        if (!pathActionStarted && !wasLaneOffsetting_ && hasRunningLaneOffset && runningLaneOffsetAction)
-        {
-            double currentOffset = object_->pos_.GetOffset();
-            double targetOffset  = currentOffset;
-
-            if (runningLaneOffsetAction->target_)
-            {
-                if (runningLaneOffsetAction->target_->type_ == scenarioengine::LatLaneOffsetAction::Target::Type::ABSOLUTE_OFFSET)
-                {
-                    targetOffset = runningLaneOffsetAction->target_->value_;
-                }
-                else
-                {
-                    auto* targetRel = static_cast<scenarioengine::LatLaneOffsetAction::TargetRelative*>(
-                        runningLaneOffsetAction->target_.get());
-                    double refOffset = currentOffset;
-                    if (targetRel && targetRel->object_)
-                    {
-                        refOffset = targetRel->object_->pos_.GetOffset();
-                    }
-                    targetOffset = refOffset + runningLaneOffsetAction->target_->value_;
-                }
-            }
-
-            double transitionDistance = 20.0;
-            const double paramValue   = runningLaneOffsetAction->transition_.GetParamTargetVal();
-            const double speedForTime = std::max(object_->GetSpeed(), 5.0);
-            const double deltaOffset  = std::abs(targetOffset - currentOffset);
-
-            switch (runningLaneOffsetAction->transition_.dimension_)
-            {
-                case scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE:
-                    transitionDistance = std::max(paramValue, 5.0);
-                    break;
-                case scenarioengine::OSCPrivateAction::DynamicsDimension::TIME:
-                    transitionDistance = speedForTime * std::max(paramValue, 0.1);
-                    break;
-                case scenarioengine::OSCPrivateAction::DynamicsDimension::RATE:
-                    transitionDistance = speedForTime * (deltaOffset / std::max(paramValue, 0.1));
-                    break;
-                default:
-                    transitionDistance = 20.0;
-                    break;
-            }
-
-            LOG_INFO("RealDriver: LaneOffset starting, target offset={:.2f}m, transition distance={:.1f}m",
-                     targetOffset, transitionDistance);
-            RegenerateWaypointsForLaneOffset(targetOffset, transitionDistance);
-            runningLaneOffsetAction->End();
-            LOG_INFO("RealDriver: LaneOffset action force-completed (waypoints provide target)");
-            pathActionStarted = true;
-        }
-        if (!pathActionStarted && !wasAssigningRoute_ && hasRunningAssignRoute && runningAssignRouteAction)
-        {
-            LOG_INFO("RealDriver: AssignRoute starting, refreshing route waypoints");
-            ExtractWaypoints();
-            waypointsExtracted_ = true;
-            runningAssignRouteAction->End();
-            LOG_INFO("RealDriver: AssignRoute action force-completed (waypoints extracted)");
-            pathActionStarted = true;
-        }
-
-        wasLaneChanging_ = hasRunningLaneChange;
-        wasLaneOffsetting_ = hasRunningLaneOffset;
-        wasFollowingTrajectory_ = hasRunningFollowTrajectory;
-        wasAssigningRoute_ = hasRunningAssignRoute;
-
-        // --- Always write real_vehicle_ to gateway (Python steering priority) ---
-        // Calculate visual/physical pivot offset
-        double dx, dy, dz;
-        real_vehicle_.GetBodyPositionOffset(dx, dy, dz);
-
-        // Rotate offset by Heading to match world frame alignment.
-        double h = real_vehicle_.heading_;
-        double w_dx = dx * std::cos(h) - dy * std::sin(h);
-        double w_dy = dx * std::sin(h) + dy * std::cos(h);
-
-        // Update Position & Heading
-        gateway_->updateObjectWorldPosXYH(object_->id_, 0.0,
-            real_vehicle_.posX_ + w_dx,
-            real_vehicle_.posY_ + w_dy,
-            real_vehicle_.heading_);
-
-        // Update Speed
-        // Skip speed overwrite while scenario longitudinal actions are active.
-        if (!hasRunningScenarioLongAction)
-        {
-            gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
-        }
-
-        // Update Wheel Angle (for visualization)
-        gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
-
-        // Update Pitch & Roll (Extended Physics with Terrain!)
-        gateway_->updateObjectWorldPos(object_->id_, 0.0,
-            real_vehicle_.posX_ + w_dx,
-            real_vehicle_.posY_ + w_dy,
-            real_vehicle_.posZ_ + dz, // Apply pivot vertical offset
-            real_vehicle_.heading_,
-            combined_pitch,  // Terrain + Dynamic
-            combined_roll    // Terrain + Dynamic
-        );
-
-        // [GT_MOD] Sync object_->pos_ with real_vehicle_ for viewer consistency.
-        // The 3D viewer (OSG) reads object_->pos_ directly for rendering.
-        // Without this, scenario actions (LaneChangeAction etc.) could leave
-        // stale trajectory data in object_->pos_, causing visual oscillation.
-        object_->pos_.SetInertiaPos(
-            real_vehicle_.posX_ + w_dx,
-            real_vehicle_.posY_ + w_dy,
-            real_vehicle_.heading_);
-        object_->SetDirtyBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
-
-        // 4. Update Lights (Extensions)
-        auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
-        if (vehicle)
-        {
-            auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (ext)
-            {
-                // Helper lambda
-                auto set_light = [&](VehicleLightType type, bool on) {
-                    LightState s;
-                    s.mode = on ? LightState::Mode::ON : LightState::Mode::OFF;
-                    ext->SetLightState(type, s);
-                };
-                
-                int mask = input_.lightMask;
-                
-                // Manual Lights from UDP (Bit Mapping)
-                // Bit 0: Low Beam
-                set_light(VehicleLightType::LOW_BEAM,      (mask & 1));
-                // Bit 1: High Beam
-                set_light(VehicleLightType::HIGH_BEAM,     (mask & 2));
-                // Bit 2: Indicator Left
-                set_light(VehicleLightType::INDICATOR_LEFT,(mask & 4));
-                // Bit 3: Indicator Right
-                set_light(VehicleLightType::INDICATOR_RIGHT,(mask & 8));
-                
-                // Bit 4: Fog Front
-                // Bit 5: Fog Rear
-                // Mapped to FOG_LIGHTS (General) and specific if available in enum
-                // Checking GT_esminiLib.hpp/VehicleLightExtension definition:
-                // Typically FOG_LIGHTS is generic. Let's use it for Front.
-                // If FOG_LIGHTS_REAR exists, use it.
-                // Assuming VehicleLightType matches standard esmini/OpenDRIVE types + extensions
-                set_light(VehicleLightType::FOG_LIGHTS,      (mask & 16)); // Front
-                // set_light(VehicleLightType::FOG_LIGHTS_REAR, (mask & 32)); // Check if enum exists? 
-                
-                // Bit 8: License Plate
-                // set_light(VehicleLightType::??? ); // Need to check if available internal type
-                
-                // Auto Lights (Logic)
-                // Brake Light (Auto from Brake Input)
-                set_light(VehicleLightType::BRAKE_LIGHTS, (input_.brake > 0.05)); // Threshold
-                
-                // Reverse Light (Auto from Gear)
-                set_light(VehicleLightType::REVERSING_LIGHTS, (input_.gear == -1));
-            }
-        }
+        HandlePathActions(preStepState, previousFlags, "");
+        SyncGatewayObjectState(combined_pitch, combined_roll, preStepState.hasRunningScenarioLongAction);
+        UpdateVehicleLights();
     }
+
+    const ActionFlags preFlags = ToActionFlags(preStepState);
+    wasLaneChanging_ = preFlags.laneChanging;
+    wasLaneOffsetting_ = preFlags.laneOffsetting;
+    wasFollowingTrajectory_ = preFlags.followingTrajectory;
+    wasAssigningRoute_ = preFlags.assigningRoute;
 
     Controller::Step(timeStep);
 
-    // AssignRouteAction can complete within one storyboard step.
-    // Detect route pointer changes and refresh waypoints even if no RUNNING state is observed.
-    if (object_)
-    {
-        const roadmanager::Route* currentRoute = object_->pos_.GetRoute();
-        if (currentRoute != nullptr && currentRoute != lastObservedRoute_)
-        {
-            LOG_INFO("RealDriver: Detected route change, refreshing route waypoints");
-            ExtractWaypoints();
-            waypointsExtracted_ = true;
-        }
-        lastObservedRoute_ = currentRoute;
-    }
+    RefreshWaypointsOnRoutePointerChange();
 
-    // Re-check action state after Storyboard step.
-    // This avoids one-frame delay when actions transition to RUNNING inside Controller::Step().
-    auto* postStepLaneChangeAction = GetRunningLaneChangeAction();
-    bool hasPostStepLaneChange = (postStepLaneChangeAction != nullptr);
-    auto* postStepLaneOffsetAction = GetRunningLaneOffsetAction();
-    bool hasPostStepLaneOffset = (postStepLaneOffsetAction != nullptr);
-    auto* postStepFollowTrajectoryAction = GetRunningFollowTrajectoryAction();
-    bool hasPostStepFollowTrajectory = (postStepFollowTrajectoryAction != nullptr);
-    auto* postStepAssignRouteAction = GetRunningAssignRouteAction();
-    bool hasPostStepAssignRoute = (postStepAssignRouteAction != nullptr);
-
-    bool postPathActionStarted = false;
-    if (!wasFollowingTrajectory_ && hasPostStepFollowTrajectory && postStepFollowTrajectoryAction)
-    {
-        LOG_INFO("RealDriver: Post-step FollowTrajectory detected");
-        RegenerateWaypointsForTrajectory(postStepFollowTrajectoryAction);
-        postStepFollowTrajectoryAction->End();
-        LOG_INFO("RealDriver: Post-step FollowTrajectory action force-completed");
-        postPathActionStarted = true;
-    }
-    if (!postPathActionStarted && !wasLaneChanging_ && hasPostStepLaneChange)
-    {
-        if (postStepLaneChangeAction && postStepLaneChangeAction->target_)
-        {
-            int targetLaneId = postStepLaneChangeAction->target_->value_;
-            double duration  = postStepLaneChangeAction->transition_.GetParamTargetVal();
-            LOG_INFO("RealDriver: Post-step LaneChange detected, target lane={}, duration={:.1f}s",
-                     targetLaneId, duration);
-            RegenerateWaypointsForLaneChange(targetLaneId, duration);
-            postStepLaneChangeAction->End();
-            LOG_INFO("RealDriver: Post-step LaneChange action force-completed");
-            postPathActionStarted = true;
-        }
-    }
-    if (!postPathActionStarted && !wasLaneOffsetting_ && hasPostStepLaneOffset && postStepLaneOffsetAction)
-    {
-        double currentOffset = object_ ? object_->pos_.GetOffset() : 0.0;
-        double targetOffset  = currentOffset;
-
-        if (postStepLaneOffsetAction->target_)
-        {
-            if (postStepLaneOffsetAction->target_->type_ == scenarioengine::LatLaneOffsetAction::Target::Type::ABSOLUTE_OFFSET)
-            {
-                targetOffset = postStepLaneOffsetAction->target_->value_;
-            }
-            else
-            {
-                auto* targetRel = static_cast<scenarioengine::LatLaneOffsetAction::TargetRelative*>(
-                    postStepLaneOffsetAction->target_.get());
-                double refOffset = currentOffset;
-                if (targetRel && targetRel->object_)
-                {
-                    refOffset = targetRel->object_->pos_.GetOffset();
-                }
-                targetOffset = refOffset + postStepLaneOffsetAction->target_->value_;
-            }
-        }
-
-        double transitionDistance = 20.0;
-        const double paramValue   = postStepLaneOffsetAction->transition_.GetParamTargetVal();
-        const double speedForTime = std::max(object_->GetSpeed(), 5.0);
-        const double deltaOffset  = std::abs(targetOffset - currentOffset);
-
-        switch (postStepLaneOffsetAction->transition_.dimension_)
-        {
-            case scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE:
-                transitionDistance = std::max(paramValue, 5.0);
-                break;
-            case scenarioengine::OSCPrivateAction::DynamicsDimension::TIME:
-                transitionDistance = speedForTime * std::max(paramValue, 0.1);
-                break;
-            case scenarioengine::OSCPrivateAction::DynamicsDimension::RATE:
-                transitionDistance = speedForTime * (deltaOffset / std::max(paramValue, 0.1));
-                break;
-            default:
-                transitionDistance = 20.0;
-                break;
-        }
-
-        LOG_INFO("RealDriver: Post-step LaneOffset detected, target offset={:.2f}m, transition distance={:.1f}m",
-                 targetOffset, transitionDistance);
-        RegenerateWaypointsForLaneOffset(targetOffset, transitionDistance);
-        postStepLaneOffsetAction->End();
-        LOG_INFO("RealDriver: Post-step LaneOffset action force-completed");
-        postPathActionStarted = true;
-    }
-    if (!postPathActionStarted && !wasAssigningRoute_ && hasPostStepAssignRoute && postStepAssignRouteAction)
-    {
-        LOG_INFO("RealDriver: Post-step AssignRoute detected, refreshing route waypoints");
-        ExtractWaypoints();
-        waypointsExtracted_ = true;
-        postStepAssignRouteAction->End();
-        LOG_INFO("RealDriver: Post-step AssignRoute action force-completed");
-        postPathActionStarted = true;
-    }
-
+    const RunningActionState postStepState = GetRunningActionState();
+    const ActionFlags preControllerStepFlags{wasLaneChanging_, wasLaneOffsetting_, wasFollowingTrajectory_, wasAssigningRoute_};
+    const bool postPathActionStarted = HandlePathActions(postStepState, preControllerStepFlags, "Post-step ");
     if (postPathActionStarted && object_)
     {
-        // Keep object pose synced in the same frame to avoid transient trajectory artifacts.
-        double dx, dy, dz_unused;
-        real_vehicle_.GetBodyPositionOffset(dx, dy, dz_unused);
-        double h = real_vehicle_.heading_;
-        double w_dx = dx * std::cos(h) - dy * std::sin(h);
-        double w_dy = dx * std::sin(h) + dy * std::cos(h);
-        object_->pos_.SetInertiaPos(
-            real_vehicle_.posX_ + w_dx,
-            real_vehicle_.posY_ + w_dy,
-            real_vehicle_.heading_);
-        object_->SetDirtyBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
+        SyncObjectPoseFromRealVehicle();
     }
 
-    wasLaneChanging_ = hasPostStepLaneChange;
-    wasLaneOffsetting_ = hasPostStepLaneOffset;
-    wasFollowingTrajectory_ = hasPostStepFollowTrajectory;
-    wasAssigningRoute_ = hasPostStepAssignRoute;
+    const ActionFlags postFlags = ToActionFlags(postStepState);
+    wasLaneChanging_ = postFlags.laneChanging;
+    wasLaneOffsetting_ = postFlags.laneOffsetting;
+    wasFollowingTrajectory_ = postFlags.followingTrajectory;
+    wasAssigningRoute_ = postFlags.assigningRoute;
 }
-
 // Getter for input data (used by GT_Step for HostVehicleData)
 void ControllerRealDriver::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const
 {
@@ -958,20 +819,12 @@ void ControllerRealDriver::ExtractWaypoints()
         LOG_INFO("RealDriver: No route assigned, generating fallback waypoints by road-following");
 
         roadmanager::Position pos = object_->pos_;
-        double step = 5.0;        // 5m intervals
-        double total_dist = 500.0; // Generate for 500m ahead
+        const double step = realdetail::kWaypointStep;                 // 5m intervals
+        const double total_dist = realdetail::kWaypointTotalDistance;  // Generate for 500m ahead
 
         for (double d = 0; d < total_dist; d += step)
         {
-            WaypointData data;
-            data.x = pos.GetX();
-            data.y = pos.GetY();
-            data.h = pos.GetH();
-            data.roadId = static_cast<uint32_t>(pos.GetTrackId());
-            data.s = pos.GetS();
-            data.laneId = pos.GetLaneId();
-            data.laneOffset = pos.GetOffset();
-            waypoints_.push_back(data);
+            waypoints_.push_back(MakeWaypointFromPosition(pos, pos.GetOffset()));
 
             // Advance along road (follows successor links and junctions automatically)
             roadmanager::Position::ReturnCode rc = pos.MoveAlongS(step);
@@ -1010,15 +863,7 @@ void ControllerRealDriver::ExtractWaypoints()
     // Convert to WaypointData format
     for (const auto& wp : routeWaypoints)
     {
-        WaypointData data;
-        data.x = wp.GetX();
-        data.y = wp.GetY();
-        data.h = wp.GetH();
-        data.roadId = static_cast<uint32_t>(wp.GetTrackId());
-        data.s = wp.GetS();
-        data.laneId = wp.GetLaneId();
-        data.laneOffset = wp.GetOffset();  // Extract lane offset from lane center
-        waypoints_.push_back(data);
+        waypoints_.push_back(MakeWaypointFromPosition(wp, wp.GetOffset()));  // lane offset from lane center
     }
 
     LOG_INFO("RealDriver: Extracted {} waypoints from route", waypoints_.size());
@@ -1055,18 +900,14 @@ void ControllerRealDriver::SendWaypointsUDP()
             // Calculate distance to waypoint
             double dx = waypoints_[i].x - vehicleX;
             double dy = waypoints_[i].y - vehicleY;
-            double dist = std::sqrt(dx * dx + dy * dy);
+            const double dist = realdetail::Distance2D(vehicleX, vehicleY, waypoints_[i].x, waypoints_[i].y);
 
             // Check if waypoint is close enough to consider
-            if (dist < 10.0)  // Within 10m
+            if (dist < realdetail::kNearbyWaypointThreshold)  // Within 10m
             {
                 // Check if waypoint is behind us by comparing heading
-                double headingToWp = std::atan2(dy, dx);
-                double angleDiff = headingToWp - vehicleH;
-
-                // Normalize angle to [-PI, PI]
-                while (angleDiff > M_PI) angleDiff -= 2 * M_PI;
-                while (angleDiff < -M_PI) angleDiff += 2 * M_PI;
+                const double headingToWp = std::atan2(dy, dx);
+                const double angleDiff = realdetail::NormalizeAngle(headingToWp - vehicleH);
 
                 // If waypoint is more than 90 degrees behind us, it's passed
                 if (std::abs(angleDiff) > M_PI / 2)
@@ -1143,28 +984,20 @@ void ControllerRealDriver::RegenerateWaypointsForLaneOffset(double targetOffset,
     posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
                               roadmanager::Position::PosMode::H_ABS);
     const double startOffset = posBase.GetOffset();
-    const double step = 5.0;
-    const double totalDist = 500.0;
+    const double step = realdetail::kWaypointStep;
+    const double totalDist = realdetail::kWaypointTotalDistance;
     const double distForTransition = std::max(transitionDistance, 1.0);
 
     for (double d = 0.0; d < totalDist; d += step)
     {
         const double progress = std::min(d / distForTransition, 1.0);
-        const double factor =
-            progress * progress * progress * (progress * (progress * 6.0 - 15.0) + 10.0);
+        const double factor = realdetail::SmootherStep(progress);
         const double laneOffset = startOffset + (targetOffset - startOffset) * factor;
 
         roadmanager::Position offsetPos;
         offsetPos.SetLanePos(posBase.GetTrackId(), posBase.GetLaneId(), posBase.GetS(), laneOffset);
 
-        WaypointData wp;
-        wp.x = offsetPos.GetX();
-        wp.y = offsetPos.GetY();
-        wp.h = offsetPos.GetH();
-        wp.roadId = static_cast<uint32_t>(offsetPos.GetTrackId());
-        wp.s = offsetPos.GetS();
-        wp.laneId = offsetPos.GetLaneId();
-        wp.laneOffset = laneOffset;
+        WaypointData wp = MakeWaypointFromPosition(offsetPos, laneOffset);
         waypoints_.push_back(wp);
 
         roadmanager::Position::ReturnCode rc = posBase.MoveAlongS(step);
@@ -1189,7 +1022,7 @@ void ControllerRealDriver::RegenerateWaypointsForTrajectory(scenarioengine::Foll
         return;
     }
 
-    const double step = 5.0;
+    const double step = realdetail::kWaypointStep;
     const double length = std::max(action->traj_->GetLength(), step);
 
     for (double s = 0.0; s <= length; s += step)
@@ -1244,8 +1077,8 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
 
     double speed = std::max(object_->GetSpeed(), 5.0); // Minimum 5 m/s for calculation
     double transitionDist = speed * transitionDuration;
-    double step = 5.0;        // 5m intervals
-    double totalDist = 500.0; // Generate 500m ahead
+    const double step = realdetail::kWaypointStep;                 // 5m intervals
+    const double totalDist = realdetail::kWaypointTotalDistance;   // Generate 500m ahead
 
     // [GT_MOD] Use real_vehicle_ position as base, NOT object_->pos_.
     // object_->pos_ may already be overwritten by LaneChangeAction at this point.
@@ -1264,7 +1097,7 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
         // Cubic (SmoothStep) has non-zero jerk at start/end. 
         // Quintic (t^3 * (6t^2 - 15t + 10)) ensures zero acceleration at endpoints (C2 continuous),
         // providing the smoothest natural motion for a lane change.
-        double factor = progress * progress * progress * (progress * (progress * 6.0 - 15.0) + 10.0);
+        double factor = realdetail::SmootherStep(progress);
 
         // Compute position in current lane and target lane at same s value
         roadmanager::Position posCur, posTgt;
@@ -1277,9 +1110,7 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
         // [GT_MOD] Interpolate heading with angle wrapping (not just target heading)
         double hCur = posCur.GetH();
         double hTgt = posTgt.GetH();
-        double hDiff = hTgt - hCur;
-        while (hDiff > M_PI)  hDiff -= 2.0 * M_PI;
-        while (hDiff < -M_PI) hDiff += 2.0 * M_PI;
+        double hDiff = realdetail::NormalizeAngle(hTgt - hCur);
         wp.h = hCur + factor * hDiff;
         wp.roadId = static_cast<uint32_t>(posBase.GetTrackId());
         wp.s = posBase.GetS();
@@ -1289,8 +1120,7 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
         // This is crucial for the Python router to know we are not AT the lane center yet.
         // Logic: Higher LaneID is to the Left (e.g. +2 > +1 > -1 > -2).
         // If Target > Start (Left move), Start is to the Right -> Negative Offset.
-        double lateralDist = std::sqrt(std::pow(posCur.GetX() - posTgt.GetX(), 2) + 
-                                       std::pow(posCur.GetY() - posTgt.GetY(), 2));
+        double lateralDist = realdetail::Distance2D(posCur.GetX(), posCur.GetY(), posTgt.GetX(), posTgt.GetY());
         double sign = (currentLaneId < targetLaneId) ? -1.0 : 1.0;
         wp.laneOffset = lateralDist * sign * (1.0 - factor);
 
@@ -1313,16 +1143,11 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
 
     // [DEBUG] Check for sharp turns in generated waypoints
     for (size_t i = 0; i < waypoints_.size() - 1; ++i) {
-        double dh = waypoints_[i+1].h - waypoints_[i].h;
-        // Normalize angle difference
-        while (dh > M_PI) dh -= 2*M_PI;
-        while (dh < -M_PI) dh += 2*M_PI;
-        
-        double dist = std::sqrt(std::pow(waypoints_[i+1].x - waypoints_[i].x, 2) + 
-                                std::pow(waypoints_[i+1].y - waypoints_[i].y, 2));
+        double dh = realdetail::NormalizeAngle(waypoints_[i+1].h - waypoints_[i].h);
+        double dist = realdetail::Distance2D(waypoints_[i].x, waypoints_[i].y, waypoints_[i+1].x, waypoints_[i+1].y);
 
         // Warn if heading change is > 5 degrees (0.087 rad) over a short distance
-        if (dist > 0.1 && std::abs(dh) > 0.087) { 
+        if (dist > 0.1 && std::abs(dh) > realdetail::kSharpTurnWarnRad) { 
              LOG_WARN("RealDriver: [DEBUG] Sharp turn at WP[{}] (d~{:.1f}): dh={:.3f} rad ({:.1f} deg), dist={:.2f}m", 
                       i, i * step, dh, dh * 180.0 / M_PI, dist);
         }
