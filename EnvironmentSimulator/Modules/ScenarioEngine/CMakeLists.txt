@@ -26,6 +26,7 @@ if(USE_OSI)
     message(STATUS "GT_esmini: Swapping OSIReporter.cpp with GT_OSIReporter.cpp")
     list(REMOVE_ITEM SRC_SOURCEFILES "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/OSIReporter.cpp")
     list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter_Environment.cpp")
 endif()
 
 if(NOT
