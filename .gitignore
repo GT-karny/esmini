@@ -43,3 +43,4 @@ venv/
 build/
 *.temp.xosc
 .gt_sim_temp/
+artifacts/realdriver_features/

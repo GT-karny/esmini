@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-02-15T00:00:00" description="F09 follow trajectory" author="GT_esmini"/>
+  <ParameterDeclarations/>
+  <CatalogLocations>
+    <VehicleCatalog><Directory path="../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
+  </CatalogLocations>
+  <RoadNetwork>
+    <LogicFile filepath="../../resources/xodr/fabriksgatan.xodr"/>
+    <SceneGraphFile filepath="../../resources/models/fabriksgatan.osgb"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+      <ObjectController>
+        <Controller name="RealDriverController">
+          <Properties>
+            <Property name="esminiController" value="RealDriverController"/>
+            <Property name="BasePort" value="53995"/>
+            <Property name="ClientAddr" value="127.0.0.1"/>
+            <Property name="ClientPort" value="54995"/>
+            <Property name="SendWaypoints" value="true"/>
+            <Property name="WaypointPort" value="54996"/>
+          </Properties>
+        </Controller>
+      </ObjectController>
+    </ScenarioObject>
+    
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><LanePosition roadId="0" laneId="-1" offset="0" s="20"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="10.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+          <PrivateAction><ActivateControllerAction longitudinal="true" lateral="true"/></PrivateAction>
+        </Private>
+        
+      </Actions>
+    </Init>
+    <Story name="RealDriverFeatureStory">
+      <Act name="Act1">
+        <ManeuverGroup maximumExecutionCount="1" name="MG1">
+          <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+          <Maneuver name="M1">
+            <Event name="FeatureEvent" priority="overwrite">
+              <Action name="FeatureAction"><PrivateAction><RoutingAction><FollowTrajectoryAction><TrajectoryRef><Trajectory name="T1" closed="false"><ParameterDeclarations/><Shape><Polyline><Vertex><Position><WorldPosition x="40.0" y="-1.53" h="0.0"/></Position></Vertex><Vertex><Position><WorldPosition x="80.0" y="-1.53" h="0.0"/></Position></Vertex><Vertex><Position><WorldPosition x="120.0" y="1.53" h="0.2"/></Position></Vertex></Polyline></Shape></Trajectory></TrajectoryRef><TimeReference><None/></TimeReference><TrajectoryFollowingMode followingMode="position"/></FollowTrajectoryAction></RoutingAction></PrivateAction></Action>
+              <StartTrigger><ConditionGroup><Condition name="StartFeature" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="1.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+        <StartTrigger><ConditionGroup><Condition name="StartAct" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+      </Act>
+    </Story>
+    <StopTrigger><ConditionGroup><Condition name="StopAt10s" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="10.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StopTrigger>
+  </Storyboard>
+</OpenSCENARIO>

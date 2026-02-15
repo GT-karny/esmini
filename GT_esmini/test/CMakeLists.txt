@@ -6,6 +6,8 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ControllerRealDriverUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_LonProfilePlanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_LonProfilePlannerModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_ControllerRealDriverUtilsModule.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
@@ -63,3 +65,4 @@ foreach(SCENARIO ${SCENARIO_FILES})
 endforeach()
 
 message(STATUS "GT_esmini: Added ${UNIT_TEST_TARGET} and ${LOADER_TARGET}")
+
