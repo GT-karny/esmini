@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -33,6 +31,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+try:
+    from .runtime_api import GTSimArgsRequest, GTExecutionPlanner, PythonArgsRequest
+except ImportError:
+    from runtime_api import GTSimArgsRequest, GTExecutionPlanner, PythonArgsRequest
+
 
 def _default_gt_sim_path() -> str:
     candidates = [
@@ -43,12 +46,6 @@ def _default_gt_sim_path() -> str:
         if os.path.exists(path):
             return os.path.abspath(path)
     return os.path.abspath(candidates[0])
-
-
-def _safe_split(arg_line: str) -> list[str]:
-    if not arg_line.strip():
-        return []
-    return shlex.split(arg_line, posix=False)
 
 
 def _default_scenario_folder() -> str:
@@ -73,24 +70,6 @@ def _default_script_folder() -> str:
         if os.path.isdir(candidate):
             return candidate
     return ""
-
-
-def _has_option(args: list[str], opt: str) -> bool:
-    return opt in args
-
-
-def _strip_option(args: list[str], opt: str) -> list[str]:
-    out: list[str] = []
-    i = 0
-    while i < len(args):
-        if args[i] == opt:
-            i += 1
-            if i < len(args) and not args[i].startswith("--"):
-                i += 1
-            continue
-        out.append(args[i])
-        i += 1
-    return out
 
 
 class SettingsDialog(QDialog):
@@ -222,6 +201,7 @@ class LauncherWindow(QMainWindow):
             "--lib_path",
             "--gt_lib_path",
         }
+        self.exec_planner = GTExecutionPlanner(on_log=self._append_log)
 
         self._setup_ui()
         self._connect_processes()
@@ -1205,333 +1185,89 @@ class LauncherWindow(QMainWindow):
     def _validate_paths_for_python(self) -> bool:
         py = self.python_path_edit.text().strip()
         script = self.script_edit.text().strip()
-        if not py or not os.path.exists(py):
-            self._error_dialog("Python path is invalid.")
-            return False
-        if not script or not os.path.exists(script):
-            self._error_dialog("RealDriver Python script path is invalid.")
+        try:
+            self.exec_planner.validate_python_paths(py, script)
+        except ValueError as exc:
+            self._error_dialog(str(exc))
             return False
         return True
 
     def _validate_paths_for_gtsim(self) -> bool:
         sim = self.gt_sim_path_edit.text().strip()
         scenario = self.scenario_edit.text().strip()
-        if not sim or not os.path.exists(sim):
-            self._error_dialog("GT_Sim.exe path is invalid.")
-            return False
-        if not scenario or not os.path.exists(scenario):
-            self._error_dialog("Scenario path is invalid.")
-            return False
-        dep_errors = self._check_scenario_dependencies(scenario)
-        if dep_errors:
-            msg = "Scenario dependency check failed:\n- " + "\n- ".join(dep_errors[:8])
+        try:
+            self.exec_planner.validate_gtsim_paths(sim, scenario)
+        except ValueError as exc:
+            msg = str(exc)
             self._error_dialog(msg)
             self._append_gtsim_log(msg)
             return False
         return True
 
     def _check_scenario_dependencies(self, scenario_path: str) -> list[str]:
-        errors: list[str] = []
-        try:
-            tree = ET.parse(scenario_path)
-            root = tree.getroot()
-            scenario_dir = os.path.dirname(os.path.abspath(scenario_path))
-
-            catalog_dirs: list[str] = []
-            cat_locations = root.find("CatalogLocations")
-            if cat_locations is not None:
-                for cat in list(cat_locations):
-                    directory = cat.find("Directory")
-                    if directory is None:
-                        continue
-                    path = (directory.get("path") or "").strip()
-                    if not path:
-                        continue
-                    abs_dir = path if os.path.isabs(path) else os.path.normpath(os.path.join(scenario_dir, path))
-                    catalog_dirs.append(abs_dir)
-
-            catalog_refs = root.findall(".//CatalogReference")
-            if catalog_refs and not catalog_dirs:
-                errors.append("CatalogReference exists but CatalogLocations/Directory is missing.")
-                return errors
-
-            for ref in catalog_refs:
-                catalog_name = (ref.get("catalogName") or "").strip()
-                if not catalog_name:
-                    continue
-                candidates = [catalog_name]
-                if not catalog_name.lower().endswith(".xosc"):
-                    candidates.append(f"{catalog_name}.xosc")
-                found = False
-                for base in catalog_dirs:
-                    for name in candidates:
-                        if os.path.exists(os.path.join(base, name)):
-                            found = True
-                            break
-                    if found:
-                        break
-                if not found:
-                    if catalog_dirs:
-                        errors.append(
-                            f"Catalog '{catalog_name}' not found in: {', '.join(catalog_dirs)}"
-                        )
-                    else:
-                        errors.append(f"Catalog '{catalog_name}' not found.")
-        except Exception as exc:
-            errors.append(f"Failed to parse scenario: {exc}")
-        return errors
+        return self.exec_planner.check_scenario_dependencies(scenario_path)
 
     def _get_target_scenario(self) -> str:
         source = self.scenario_edit.text().strip()
-        if not self.realdriver_checkbox.isChecked():
-            return source
-        return self._generate_temp_realdriver_scenario(source)
+        return self.exec_planner.get_target_scenario(
+            source_path=source,
+            realdriver_enabled=self.realdriver_checkbox.isChecked(),
+            entity_name=self.entity_name_edit.text().strip(),
+            base_port=self.base_port_spin.value(),
+        )
 
     def _generate_temp_realdriver_scenario(self, src_path: str) -> str:
-        tree = ET.parse(src_path)
-        root = tree.getroot()
-
-        entities = root.find("Entities")
-        if entities is None:
-            raise RuntimeError("Entities node is missing in scenario.")
-
-        target_name = self.entity_name_edit.text().strip() or "Ego"
-        target_obj = None
-        for obj in entities.findall("ScenarioObject"):
-            if obj.get("name") == target_name:
-                target_obj = obj
-                break
-
-        if target_obj is None:
-            for obj in entities.findall("ScenarioObject"):
-                if obj.get("name") == "Ego":
-                    target_obj = obj
-                    target_name = "Ego"
-                    break
-
-        if target_obj is None:
-            target_obj = entities.find("ScenarioObject")
-            if target_obj is None:
-                raise RuntimeError("No ScenarioObject found in Entities.")
-            target_name = target_obj.get("name", "Ego")
-
-        # Replace any existing ObjectController definitions so esmini picks RealDriver.
-        # esmini parser reads the first child under ObjectController; appending a new
-        # Controller next to an existing CatalogReference does not override it.
-        for existing_obj_ctrl in list(target_obj.findall("ObjectController")):
-            target_obj.remove(existing_obj_ctrl)
-
-        obj_ctrl = ET.SubElement(target_obj, "ObjectController")
-        controller = ET.SubElement(obj_ctrl, "Controller")
-        controller.set("name", "RealDriverController")
-
-        props = controller.find("Properties")
-        if props is None:
-            props = ET.SubElement(controller, "Properties")
-
-        def _set_prop(name: str, value: str) -> None:
-            target = None
-            for prop in props.findall("Property"):
-                if prop.get("name") == name:
-                    target = prop
-                    break
-            if target is None:
-                target = ET.SubElement(props, "Property")
-                target.set("name", name)
-            target.set("value", value)
-
-        base_port_i = self.base_port_spin.value()
-        _set_prop("esminiController", "RealDriverController")
-        _set_prop("BasePort", str(base_port_i))
-        _set_prop("ClientPort", str(base_port_i + 1000))
-        _set_prop("SendWaypoints", "true")
-        _set_prop("WaypointPort", str(base_port_i + 1001))
-
-        storyboard = root.find("Storyboard")
-        if storyboard is None:
-            raise RuntimeError("Storyboard node is missing in scenario.")
-        init = storyboard.find("Init")
-        if init is None:
-            init = ET.SubElement(storyboard, "Init")
-        actions = init.find("Actions")
-        if actions is None:
-            actions = ET.SubElement(init, "Actions")
-
-        target_private = None
-        for private in actions.findall("Private"):
-            if private.get("entityRef") == target_name:
-                target_private = private
-                break
-        if target_private is None:
-            target_private = ET.SubElement(actions, "Private")
-            target_private.set("entityRef", target_name)
-
-        activate_exists = False
-        for private_action in target_private.findall("PrivateAction"):
-            activate = private_action.find("ActivateControllerAction")
-            if activate is not None:
-                activate.set("longitudinal", "true")
-                activate.set("lateral", "true")
-                activate_exists = True
-                break
-        if not activate_exists:
-            private_action = ET.SubElement(target_private, "PrivateAction")
-            activate = ET.SubElement(private_action, "ActivateControllerAction")
-            activate.set("longitudinal", "true")
-            activate.set("lateral", "true")
-
-        src_dir = os.path.dirname(os.path.abspath(src_path))
-        base_name = os.path.splitext(os.path.basename(src_path))[0]
-        temp_dir = os.path.join(src_dir, ".gt_sim_temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        self._absolutize_scenario_paths(root, src_dir)
-        out_path = os.path.join(temp_dir, f"{base_name}_realdriver_temp.xosc")
-
-        tree.write(out_path, encoding="utf-8", xml_declaration=True)
-        self.last_temp_xosc = out_path
-        self._append_log(f"Generated temp scenario: {out_path}")
+        out_path = self.exec_planner.generate_temp_realdriver_scenario(
+            src_path=src_path,
+            entity_name=self.entity_name_edit.text().strip(),
+            base_port=self.base_port_spin.value(),
+        )
+        self.last_temp_xosc = self.exec_planner.last_temp_xosc
         return out_path
 
-    def _absolutize_scenario_paths(self, root: ET.Element, base_dir: str) -> None:
-        logic = root.find("RoadNetwork/LogicFile")
-        if logic is not None:
-            fp = logic.get("filepath", "")
-            if fp and not os.path.isabs(fp):
-                logic.set("filepath", os.path.normpath(os.path.join(base_dir, fp)))
-
-        scene = root.find("RoadNetwork/SceneGraphFile")
-        if scene is not None:
-            fp = scene.get("filepath", "")
-            if fp and not os.path.isabs(fp):
-                scene.set("filepath", os.path.normpath(os.path.join(base_dir, fp)))
-
-        cat_locs = root.find("CatalogLocations")
-        if cat_locs is not None:
-            for cat in list(cat_locs):
-                directory = cat.find("Directory")
-                if directory is None:
-                    continue
-                path = directory.get("path", "")
-                if path and not os.path.isabs(path):
-                    directory.set("path", os.path.normpath(os.path.join(base_dir, path)))
-
     def _build_gtsim_args(self) -> list[str]:
-        scenario_path = self._get_target_scenario()
-        args = ["--osc", scenario_path]
-
-        osi_value = self.osi_edit.text().strip()
-        if osi_value:
-            args += ["--osi", osi_value]
-
-        args += ["--hz", f"{self.hz_spin.value():.1f}"]
-
-        args += [
-            "--window",
-            str(self.win_x_spin.value()),
-            str(self.win_y_spin.value()),
-            str(self.win_w_spin.value()),
-            str(self.win_h_spin.value()),
-        ]
-
-        if self.threads_checkbox.isChecked():
-            args.append("--threads")
-
-        args += _safe_split(self.gtsim_extra_args_edit.text())
+        req = GTSimArgsRequest(
+            scenario_path=self.scenario_edit.text().strip(),
+            realdriver_enabled=self.realdriver_checkbox.isChecked(),
+            entity_name=self.entity_name_edit.text().strip(),
+            base_port=self.base_port_spin.value(),
+            osi=self.osi_edit.text().strip(),
+            hz=self.hz_spin.value(),
+            window=(
+                self.win_x_spin.value(),
+                self.win_y_spin.value(),
+                self.win_w_spin.value(),
+                self.win_h_spin.value(),
+            ),
+            use_threads=self.threads_checkbox.isChecked(),
+            extra_args_line=self.gtsim_extra_args_edit.text(),
+        )
+        args = self.exec_planner.build_gtsim_args(req)
+        self.last_temp_xosc = self.exec_planner.last_temp_xosc
         return args
 
     def _resolve_logicfile_xodr(self, scenario_path: str) -> str:
-        if not scenario_path or not os.path.exists(scenario_path):
-            return ""
-        try:
-            tree = ET.parse(scenario_path)
-            root = tree.getroot()
-            logic = root.find("RoadNetwork/LogicFile")
-            if logic is None:
-                return ""
-            logic_fp = logic.get("filepath", "").strip()
-            if not logic_fp:
-                return ""
-            if os.path.isabs(logic_fp):
-                return logic_fp if os.path.exists(logic_fp) else ""
-            abs_fp = os.path.normpath(os.path.join(os.path.dirname(scenario_path), logic_fp))
-            return abs_fp if os.path.exists(abs_fp) else ""
-        except Exception:
-            return ""
+        return self.exec_planner.resolve_logicfile_xodr(scenario_path)
 
     def _resolve_default_lib_path_for_script(self, script_path: str) -> str:
-        if not script_path:
-            return ""
-        script_dir = os.path.dirname(os.path.abspath(script_path))
-        candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "esminiRMLib.dll"))
-        return candidate if os.path.exists(candidate) else ""
+        return self.exec_planner.resolve_default_lib_path_for_script(script_path)
 
     def _resolve_default_gt_lib_path_for_script(self, script_path: str) -> str:
-        if not script_path:
-            return ""
-        script_dir = os.path.dirname(os.path.abspath(script_path))
-        candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "GT_esminiLib.dll"))
-        return candidate if os.path.exists(candidate) else ""
+        return self.exec_planner.resolve_default_gt_lib_path_for_script(script_path)
 
     def _build_python_args(self) -> list[str]:
-        script = self.script_edit.text().strip()
-        dynamic_args = self._collect_script_argspec_args()
-        extra_args = dynamic_args + _safe_split(self.script_args_edit.text())
-        args = []
-
-        py = self.python_path_edit.text().strip()
-        if os.path.basename(py).lower().startswith("python"):
-            # Force unbuffered stdio so logs are visible in real time from QProcess.
-            args.append("-u")
-
-        supports_xodr = False
-        supports_mode = False
-        try:
-            with open(script, "r", encoding="utf-8", errors="ignore") as f:
-                src = f.read()
-            supports_xodr = "--xodr_path" in src
-            supports_mode = "--mode" in src
-        except Exception:
-            pass
-
-        scenario_path = self.scenario_edit.text().strip()
-        xodr_path = self._resolve_logicfile_xodr(scenario_path)
-
-        if self.auto_xodr_checkbox.isChecked() and supports_xodr and xodr_path and not _has_option(extra_args, "--xodr_path"):
-            extra_args += ["--xodr_path", xodr_path]
-            self._append_python_log(f"Auto-added --xodr_path from scenario LogicFile: {xodr_path}")
-        elif self.auto_xodr_checkbox.isChecked() and supports_xodr and not _has_option(extra_args, "--xodr_path"):
-            raise RuntimeError(
-                "Failed to resolve --xodr_path from selected Scenario (.xosc). "
-                "Select a valid scenario with <RoadNetwork><LogicFile ...>, or set --xodr_path manually."
-            )
-
-        if not supports_mode and _has_option(extra_args, "--mode"):
-            extra_args = _strip_option(extra_args, "--mode")
-            self._append_python_log(
-                "Removed --mode argument because selected script does not define --mode."
-            )
-
-        script_basename = os.path.basename(script).lower()
-        if script_basename == "scenario_drive_example.py":
-            if not _has_option(extra_args, "--mode"):
-                self._append_python_log(
-                    "Hint: scenario_drive_example.py default mode is 'waypoints'. "
-                    "Use '--mode udp' if you want route/waypoints from ControllerRealDriver."
-                )
-
-        args += [script] + extra_args
-        return args
+        req = PythonArgsRequest(
+            python_executable=self.python_path_edit.text().strip(),
+            script_path=self.script_edit.text().strip(),
+            scenario_path=self.scenario_edit.text().strip(),
+            dynamic_args=self._collect_script_argspec_args(),
+            extra_args_line=self.script_args_edit.text(),
+            auto_xodr=self.auto_xodr_checkbox.isChecked(),
+        )
+        return self.exec_planner.build_python_args(req, on_log=self._append_python_log)
 
     def _resolve_python_workdir(self, script_path: str) -> str:
-        script_dir = os.path.dirname(script_path) or os.getcwd()
-
-        # Prefer DriverScript root when running examples that use ./bin relative paths.
-        # e.g. lkas_example.py default --lib_path is ./bin/esminiRMLib.dll
-        parent_dir = os.path.dirname(script_dir)
-        if os.path.exists(os.path.join(parent_dir, "bin", "esminiRMLib.dll")):
-            return parent_dir
-
-        return script_dir
+        return self.exec_planner.resolve_python_workdir(script_path)
 
     def start_python_process(self) -> None:
         if self.python_proc.state() != QProcess.NotRunning:
