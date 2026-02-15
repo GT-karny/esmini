@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
 """
-ScenarioDrive Controller Example
+ScenarioDrive + ACC サンプルスクリプト
 
-Demonstrates using the ScenarioDriveController for autonomous waypoint
-following with speed control, similar to esmini's ControllerFollowRoute.
+ScenarioDriveController によるシナリオルート追従と、
+ACCController による先行車追従を組み合わせたサンプルです。
 
-Usage modes:
-1. User-specified waypoints: Provide explicit waypoints via set_waypoints()
-2. Auto-calculated route: Set a target position and calculate route via set_target()
-3. UDP waypoints: Receive waypoints from esmini ControllerRealDriver (fallback)
+- 横制御: ScenarioDriveController のステアリング出力を使用（ウェイポイント追従）
+- 縦制御: ACCController の throttle/brake 出力を使用（先行車追従）
+- 目標速度: GT_Sim から UDP 受信（ScenarioDriveController 経由で同期）
+
+scenario_drive_example.py との違い:
+    - 縦制御が単純なPID速度制御からACCに置き換わっている
+    - 前方に車両がいれば車間距離を保って追従
+    - 前方車両がいなければ目標速度でクルーズ
+
+使用方法:
+    python scenario_acc_example.py --xodr_path <path_to_xodr> [options]
+
+    # ウェイポイント指定モード（デフォルト）
+    python scenario_acc_example.py --xodr_path map.xodr --mode waypoints
+
+    # ターゲット座標への自動ルート計算モード
+    python scenario_acc_example.py --xodr_path map.xodr --mode target --target_x 300 --target_y 0
+
+    # esmini からの UDP ウェイポイント受信モード
+    python scenario_acc_example.py --xodr_path map.xodr --mode udp
 """
 
 import time
@@ -19,8 +35,9 @@ import sys
 from realdriver import (
     RealDriverClient,
     ScenarioDriveController,
+    ACCController,
     Waypoint,
-    OSIReceiverWrapper
+    OSIReceiverWrapper,
 )
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
@@ -48,7 +65,7 @@ def main():
     default_gt_lib_path = os.path.join(bin_dir, "GT_esminiLib.dll")
 
     parser = argparse.ArgumentParser(
-        description="ScenarioDrive Controller Example - Autonomous waypoint following"
+        description="ScenarioDrive + ACC Example - シナリオルート追従 + 先行車追従"
     )
     parser.add_argument("--ip", type=str, default="127.0.0.1",
                         help="esmini Host IP")
@@ -57,7 +74,7 @@ def main():
     parser.add_argument("--osi_port", type=int, default=48198,
                         help="OSI Port")
     parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="UDP port for receiving target speed from esmini")
+                        help="UDP port for receiving target speed from GT_Sim")
     parser.add_argument("--id", type=int, default=0,
                         help="Object ID (Ego)")
     parser.add_argument("--lib_path", type=str, default=default_lib_path,
@@ -67,7 +84,7 @@ def main():
     parser.add_argument("--xodr_path", type=str, required=True,
                         help="Path to OpenDRIVE map file (.xodr)")
     parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s (used if UDP not available)")
+                        help="Default target speed in m/s (used until UDP overrides)")
     parser.add_argument("--mode", type=str, default="waypoints",
                         choices=["waypoints", "target", "udp"],
                         help="Control mode: waypoints=explicit, target=auto-route, udp=from esmini")
@@ -89,17 +106,16 @@ def main():
     ):
         return 0
 
-
-    # 1. Initialize RealDriverClient
+    # --- 1. Initialize RealDriverClient ---
     print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port}")
     client = RealDriverClient(args.ip, args.port)
 
-    # 2. Initialize OSI Receiver
+    # --- 2. Initialize OSI Receiver ---
     print(f"Initializing OSI Receiver on port {args.osi_port}")
     osi_rx = OSIReceiverWrapper(port=args.osi_port)
     osi_rx.receiver.udp_receiver.sock.settimeout(0.1)
 
-    # 3. Initialize ScenarioDriveController
+    # --- 3. Initialize ScenarioDriveController (横制御: ルート追従) ---
     print(f"Initializing ScenarioDrive Controller with map: {args.xodr_path}")
     try:
         controller = ScenarioDriveController(
@@ -109,9 +125,9 @@ def main():
             target_speed_port=args.target_speed_port,
             gt_lib_path=args.gt_lib_path,
             steering_pid=(1.5, 0.01, 0.1),
-            speed_pid=(0.3, 0.01, 0.0),  # Reduced gains, removed D-term for stability
+            speed_pid=(0.3, 0.01, 0.0),
             lane_change_time=5.0,
-            lookahead_distance=10.0
+            lookahead_distance=10.0,
         )
     except Exception as e:
         print(f"Failed to initialize ScenarioDrive Controller: {e}")
@@ -119,7 +135,12 @@ def main():
         client.close()
         return 1
 
-    # 4. Set waypoints based on mode
+    # --- 4. Initialize ACC Controller (縦制御: 先行車追従) ---
+    # ScenarioDriveController の RoadManager を共有して車線ベースの先行車検出を使用
+    print("Initializing ACC Controller (RoadManager-linked)")
+    acc = ACCController(ego_id=args.id, rm_lib=controller.rm_lib)
+
+    # --- 5. Set waypoints based on mode ---
     if args.mode == "waypoints":
         print("Mode: User-specified waypoints")
         waypoints = create_sample_waypoints()
@@ -136,8 +157,9 @@ def main():
         print("Mode: Waiting for waypoints from UDP")
         print("  (Waypoints will be received from esmini ControllerRealDriver)")
 
-    # Set default target speed (can be overridden by UDP)
+    # --- 6. Set default target speed ---
     controller.set_target_speed(args.target_speed)
+    acc.set_target_speed(args.target_speed)
     print(f"Default target speed: {args.target_speed} m/s")
 
     print("\nStarting control loop. Press Ctrl+C to stop.")
@@ -149,7 +171,7 @@ def main():
         no_route_warning_shown = False
 
         while True:
-            # --- 1. Get raw OSI GroundTruth ---
+            # --- Receive OSI GroundTruth ---
             try:
                 ground_truth = osi_rx.receiver.receive()
             except socket.timeout:
@@ -163,42 +185,45 @@ def main():
 
             if ground_truth is not None:
                 try:
-                    # --- 2. Update ScenarioDrive Controller ---
-                    steering, throttle, brake = controller.update(ground_truth, dt)
+                    # --- ScenarioDriveController: ステアリング取得 ---
+                    # update() は内部で目標速度のUDP受信も行う
+                    steering, _throttle, _brake = controller.update(ground_truth, dt)
 
-                    # --- 3. Handle no-route case ---
+                    # --- Handle no-route case ---
                     if steering is None:
                         if not no_route_warning_shown:
                             print("[WARN] No route configured - controls not output")
                             no_route_warning_shown = True
-                        # Send neutral controls to keep vehicle stopped
-                        client.set_controls(0.0, 0.5, 0.0)  # Apply some brake
+                        client.set_controls(0.0, 0.5, 0.0)
                         client.set_gear(1)
                         client.send_update()
                         frame_number += 1
                         continue
 
-                    no_route_warning_shown = False  # Reset warning flag
+                    no_route_warning_shown = False
 
-                    # --- 4. Print status ---
+                    # --- ACC: 目標速度を同期し、縦制御を実行 ---
+                    # ScenarioDriveController が UDP で受信した目標速度を ACC にも反映
+                    acc.set_target_speed(controller.target_speed)
+                    lon_output = acc.update(ground_truth, dt)
+
+                    # --- Print status ---
                     if frame_number % 20 == 0:
                         speed = controller._last_speed
                         target_spd = controller.target_speed
+                        lead = acc.lead_vehicle
+                        lead_str = (f"lead: gap={lead.gap_distance:.1f}m, "
+                                    f"spd={lead.lead_speed:.1f}m/s"
+                                    if lead else "lead: none")
                         print(f"Speed: {speed:.2f}/{target_spd:.2f} m/s | "
                               f"Steer: {steering:.3f} | "
-                              f"Thr: {throttle:.2f} | Brk: {brake:.2f}")
+                              f"Thr: {lon_output.throttle:.2f} | "
+                              f"Brk: {lon_output.brake:.2f} | "
+                              f"{lead_str}")
 
-                    # --- 5. Send Controls via RealDriverClient ---
-                    # Note: esmini steering convention: +1 = right, -1 = left
-                    # But our PID: positive error (target on right) = positive output = want to turn right
-                    # So we need to negate: PID +1 -> Steer -1 (left turn in esmini)
-                    # Wait, that's backwards. Let's think again:
-                    # heading_error = heading_to_target - current_heading
-                    # If target is to the LEFT, heading_to_target > current_heading, heading_error > 0
-                    # To correct, we want to turn LEFT (negative steering in esmini)
-                    # So: steering = -PID_output
-                    client.set_controls(throttle, brake, -steering)
-                    client.set_gear(1)  # Drive
+                    # --- Send Controls ---
+                    client.set_controls(lon_output.throttle, lon_output.brake, -steering)
+                    client.set_gear(1)
                     client.send_update()
 
                 except Exception as e:

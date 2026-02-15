@@ -11,6 +11,10 @@ import argparse
 import time
 
 from realdriver import RealDriverClient, LightMode, IndicatorMode
+try:
+    from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
+except ImportError:
+    from argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 
 # OSI compliant ADAS function labels for GUI (commonly used subset)
 ADAS_GUI_FUNCTIONS = {
@@ -198,8 +202,11 @@ def main():
     parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
     parser.add_argument("--port", type=int, default=53995, help="Base Port")
     parser.add_argument("--id", type=int, default=0, help="Object ID")
+    add_dump_argspec_option(parser)
 
     args = parser.parse_args()
+    if maybe_dump_argspec(args, parser):
+        return 0
 
     # Init Client
     client = RealDriverClient(args.ip, args.port)

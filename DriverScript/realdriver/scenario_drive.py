@@ -359,8 +359,10 @@ class ScenarioDriveController:
 
     def close(self) -> None:
         """Clean up resources."""
-        self._speed_receiver.close()
-        self._waypoint_receiver.close()
+        if hasattr(self, '_speed_receiver') and self._speed_receiver:
+            self._speed_receiver.close()
+        if hasattr(self, '_waypoint_receiver') and self._waypoint_receiver:
+            self._waypoint_receiver.close()
         if hasattr(self, 'rm_lib') and self.rm_lib:
             try:
                 self.rm_lib.Close()
@@ -369,7 +371,10 @@ class ScenarioDriveController:
 
     def __del__(self):
         """Destructor."""
-        self.close()
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # === Backward compatibility properties ===
 

@@ -55,6 +55,10 @@ class LaneChangeConfig:
     # === Lane change execution parameters ===
     lane_change_duration: float = 4.0    # Time to complete lane change (seconds)
     steering_gain: float = 0.3           # Steering gain (max amplitude)
+    wp_time_step: float = 0.1            # Time step for waypoint generation [s]
+    wp_horizon_sec: float = 5.0          # Generation horizon [s]
+    wp_lookahead: float = 10.0           # Lookahead distance for waypoint tracking [m]
+    wp_complete_dist: float = 2.0        # Distance threshold to consider waypoint reached [m]
 
     # === Detection parameters ===
     detection_range_front: float = 100.0 # Front detection range (m)
@@ -179,6 +183,7 @@ class LaneChangeController:
         # Position handles for RoadManager queries
         self._ego_pos_handle = rm_lib.CreatePosition()
         self._target_pos_handle = rm_lib.CreatePosition()
+        self._path_pos_handle = rm_lib.CreatePosition()
 
         # State management
         self._state = LaneChangeState.IDLE
@@ -190,6 +195,9 @@ class LaneChangeController:
         self._last_ego_state: Optional[VehicleState] = None
         self._last_safety_check: Optional[SafetyCheckResult] = None
         self._adjacent_vehicles: List[AdjacentVehicleInfo] = []
+        self._lc_waypoints: List[Tuple[float, float]] = []
+        self._lc_wp_index: int = 0
+        self._execution_time: float = 0.0
 
         # Longitudinal control
         self._speed_pid = PIDController(
@@ -437,13 +445,22 @@ class LaneChangeController:
                 )
 
             # Safety OK - start executing
+            if not self._generate_lane_change_waypoints(ego_state, target_lane):
+                self._state = LaneChangeState.ABORTED
+                return LaneChangeOutput(
+                    throttle=0.0, brake=0.0, steering=0.0,
+                    is_active=False, completed=False, aborted=True,
+                    indicator=indicator, state=LaneChangeState.ABORTED
+                )
             self._state = LaneChangeState.EXECUTING
             self._progress = 0.0
+            self._execution_time = 0.0
             if self._debug_enabled:
-                print(f"[DEBUG_LC] Lane change started: {self._direction}, target_lane={target_lane}")
+                print(f"[DEBUG_LC] Lane change started: {self._direction}, target_lane={target_lane}, wp={len(self._lc_waypoints)}")
 
         # EXECUTING state - perform lane change
         if self._state == LaneChangeState.EXECUTING:
+            self._execution_time += dt
             # Update adjacent vehicles for continuous safety monitoring
             self._adjacent_vehicles = self._detect_adjacent_vehicles(
                 ground_truth, ego_state, self._target_lane_id
@@ -463,29 +480,32 @@ class LaneChangeController:
                         indicator=indicator, state=LaneChangeState.ABORTED
                     )
 
-            # Calculate steering
+            # Calculate steering by following generated target-lane waypoints.
             steering = self._calculate_steering(ego_state, dt)
 
             # Calculate longitudinal control
             throttle, brake = self._calculate_longitudinal(ego_state, dt)
 
-            # Check completion
-            if self._progress >= 1.0:
-                # Additional check: verify we're in target lane
-                if ego_state.lane_id == self._target_lane_id:
-                    self._state = LaneChangeState.COMPLETED
-                    if self._debug_enabled:
-                        print(f"[DEBUG_LC] Lane change completed")
-                else:
-                    # Not yet in target lane - extend execution
-                    pass
+            # Check completion: reached end of waypoint plan and in target lane.
+            if self._lc_wp_index >= len(self._lc_waypoints) and ego_state.lane_id == self._target_lane_id:
+                self._state = LaneChangeState.COMPLETED
+                if self._debug_enabled:
+                    print(f"[DEBUG_LC] Lane change completed")
+            elif self._execution_time > self.config.lane_change_duration * 2.5:
+                # Fail-safe timeout if path following cannot complete.
+                self._state = LaneChangeState.ABORTED
+                return LaneChangeOutput(
+                    throttle=0.0, brake=0.0, steering=0.0,
+                    is_active=False, completed=False, aborted=True,
+                    indicator=indicator, state=LaneChangeState.ABORTED
+                )
 
             # Debug logging
             if self._debug_enabled:
                 self._log_counter += 1
                 if self._log_counter % 20 == 0:
                     print(f"[DEBUG_LC] Progress={self._progress:.2f}, Steer={steering:.3f}, "
-                          f"Lane={ego_state.lane_id}, Target={self._target_lane_id}")
+                          f"Lane={ego_state.lane_id}, Target={self._target_lane_id}, WpIdx={self._lc_wp_index}/{len(self._lc_waypoints)}")
 
             return LaneChangeOutput(
                 throttle=throttle,
@@ -520,6 +540,11 @@ class LaneChangeController:
         return self._direction
 
     @property
+    def target_lane_id(self) -> Optional[int]:
+        """Current lane-change target lane ID."""
+        return self._target_lane_id
+
+    @property
     def progress(self) -> float:
         """Current progress (0.0 to 1.0)."""
         return self._progress
@@ -544,9 +569,12 @@ class LaneChangeController:
         self._direction = None
         self._target_lane_id = None
         self._progress = 0.0
+        self._execution_time = 0.0
         self._last_ego_state = None
         self._last_safety_check = None
         self._adjacent_vehicles = []
+        self._lc_waypoints = []
+        self._lc_wp_index = 0
         self._speed_pid.reset()
 
     def enable_debug(self, enabled: bool = True) -> None:
@@ -606,7 +634,24 @@ class LaneChangeController:
         """
         cfg = self.config
         adjacent = []
-        ego_id = self._state_extractor.ego_id
+        ego_id = None
+
+        # Resolve ego object ID robustly:
+        # 1) configured ego_id if present in frame
+        # 2) host_vehicle_id if present in frame
+        # 3) otherwise use geometric proximity fallback below
+        configured_ego_id = self._state_extractor.ego_id
+        for obj in ground_truth.moving_object:
+            if obj.id.value == configured_ego_id:
+                ego_id = configured_ego_id
+                break
+
+        if ego_id is None and ground_truth.HasField('host_vehicle_id'):
+            host_id = ground_truth.host_vehicle_id.value
+            for obj in ground_truth.moving_object:
+                if obj.id.value == host_id:
+                    ego_id = host_id
+                    break
 
         for obj in ground_truth.moving_object:
             if obj.id.value == ego_id:
@@ -616,6 +661,11 @@ class LaneChangeController:
             target_pos = obj.base.position
             target_ori = obj.base.orientation
             target_vel = obj.base.velocity
+
+            # Guard against self-detection when IDs are inconsistent.
+            # If object is essentially at ego pose, ignore it.
+            if math.hypot(target_pos.x - ego_state.x, target_pos.y - ego_state.y) < 0.5:
+                continue
 
             self.rm_lib.SetWorldXYZHPosition(
                 self._target_pos_handle,
@@ -633,13 +683,15 @@ class LaneChangeController:
 
             # Check if in target lane (with tolerance)
             if pos_data.laneId != target_lane_id:
-                # Also check adjacent tolerance
-                lateral_diff = abs(pos_data.laneOffset - ego_state.lane_offset)
-                if lateral_diff > cfg.lateral_tolerance * 2:
-                    continue
+                continue
 
             # Calculate longitudinal distance
             ds = pos_data.s - ego_state.s
+
+            # Ignore near-zero longitudinal overlap to avoid false rear-gap=0 events
+            # from object-ID mismatches or numerical jitter.
+            if abs(ds) < 0.5:
+                continue
 
             # Check range
             if ds > cfg.detection_range_front or ds < -cfg.detection_range_rear:
@@ -698,11 +750,119 @@ class LaneChangeController:
             else:
                 return float('inf')
 
+    def _generate_lane_change_waypoints(self, ego_state: VehicleState, target_lane_id: int) -> bool:
+        """
+        Generate a short lane-change waypoint path.
+
+        Waypoints are created by blending current-lane center and target-lane center
+        with a smoothstep profile. This enforces an explicit lateral transition path
+        instead of only chasing far points on the target lane.
+
+        Returns:
+            True if waypoints were generated successfully.
+        """
+        if ego_state.road_id < 0:
+            return False
+
+        dt_wp = max(0.05, self.config.wp_time_step)
+        horizon = max(1.0, self.config.wp_horizon_sec)
+        n_wp = max(4, int(round(horizon / dt_wp)))
+        forward_speed = max(self.config.min_speed_for_lc, ego_state.speed)
+        road_length = float(self.rm_lib.GetRoadLength(ego_state.road_id))
+        start_s = max(0.0, ego_state.s)
+
+        self._lc_waypoints = []
+        self._lc_wp_index = 0
+
+        for i in range(1, n_wp + 1):
+            t = i * dt_wp
+            s = start_s + forward_speed * t
+            if road_length > 0.0 and s >= road_length:
+                break
+
+            res_cur = self.rm_lib.SetLanePosition(
+                self._path_pos_handle,
+                ego_state.road_id,
+                ego_state.lane_id,
+                0.0,
+                s,
+                True
+            )
+            if res_cur < 0:
+                break
+
+            res_cur, cur_pos = self.rm_lib.GetPositionData(self._path_pos_handle)
+            if res_cur < 0:
+                break
+
+            res_tgt = self.rm_lib.SetLanePosition(
+                self._path_pos_handle,
+                ego_state.road_id,
+                target_lane_id,
+                0.0,
+                s,
+                True
+            )
+            if res_tgt < 0:
+                break
+
+            res_tgt, tgt_pos = self.rm_lib.GetPositionData(self._path_pos_handle)
+            if res_tgt < 0:
+                break
+
+            # Smoothstep blend: 3a^2 - 2a^3
+            alpha = i / float(n_wp)
+            blend = (3.0 * alpha * alpha) - (2.0 * alpha * alpha * alpha)
+            wx = (1.0 - blend) * float(cur_pos.x) + blend * float(tgt_pos.x)
+            wy = (1.0 - blend) * float(cur_pos.y) + blend * float(tgt_pos.y)
+            self._lc_waypoints.append((wx, wy))
+
+        return len(self._lc_waypoints) >= 3
+
+    @staticmethod
+    def _normalize_angle(angle: float) -> float:
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
+
+    def _update_waypoint_progress(self, ego_state: VehicleState) -> None:
+        if not self._lc_waypoints:
+            self._lc_wp_index = 0
+            self._progress = 0.0
+            return
+
+        reach_dist = max(0.5, self.config.wp_complete_dist)
+        while self._lc_wp_index < len(self._lc_waypoints):
+            wx, wy = self._lc_waypoints[self._lc_wp_index]
+            dist = math.hypot(wx - ego_state.x, wy - ego_state.y)
+            if dist <= reach_dist:
+                self._lc_wp_index += 1
+            else:
+                break
+
+        self._progress = min(1.0, self._lc_wp_index / max(1, len(self._lc_waypoints)))
+
+    def _select_lookahead_waypoint(self, ego_state: VehicleState) -> Optional[Tuple[float, float]]:
+        if self._lc_wp_index >= len(self._lc_waypoints):
+            return None
+
+        # Stronger pull at LC start, smoother tracking near completion.
+        progress = max(0.0, min(1.0, self._progress))
+        lookahead = max(1.0, self.config.wp_lookahead * (0.6 + 0.4 * progress))
+        for idx in range(self._lc_wp_index, len(self._lc_waypoints)):
+            wx, wy = self._lc_waypoints[idx]
+            if math.hypot(wx - ego_state.x, wy - ego_state.y) >= lookahead:
+                return wx, wy
+
+        return self._lc_waypoints[-1]
+
     def _calculate_steering(self, ego_state: VehicleState, dt: float) -> float:
         """
-        Calculate steering command for lane change.
+        Calculate steering command for lane change waypoint tracking.
 
-        Uses sinusoidal profile for smooth lane change.
+        Uses pure-pursuit-like heading error control towards lookahead waypoint.
 
         Args:
             ego_state: Current ego vehicle state
@@ -711,19 +871,19 @@ class LaneChangeController:
         Returns:
             Steering value [-1.0, 1.0]
         """
-        cfg = self.config
+        _ = dt
+        self._update_waypoint_progress(ego_state)
+        target_wp = self._select_lookahead_waypoint(ego_state)
+        if target_wp is None:
+            return 0.0
 
-        # Update progress
-        self._progress += dt / cfg.lane_change_duration
-        self._progress = min(1.0, self._progress)
+        wx, wy = target_wp
+        target_heading = math.atan2(wy - ego_state.y, wx - ego_state.x)
+        heading_error = self._normalize_angle(target_heading - ego_state.h)
 
-        # Direction sign
-        direction_sign = 1.0 if self._direction == 'left' else -1.0
-
-        # Sinusoidal profile: 0 -> peak -> 0
-        steering = direction_sign * cfg.steering_gain * math.sin(self._progress * math.pi)
-
-        return max(-1.0, min(1.0, steering))
+        # Map heading error to steering command and clamp.
+        steer = self.config.steering_gain * (heading_error / (math.pi / 4.0))
+        return max(-1.0, min(1.0, steer))
 
     def _calculate_longitudinal(
         self,

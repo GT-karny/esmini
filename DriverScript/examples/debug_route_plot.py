@@ -13,13 +13,28 @@ from realdriver.rm_lib import EsminiRMLib
 from realdriver.gt_rm_lib import GTEsminiRMLib
 from realdriver.simplified_router import SimplifiedRouter
 from realdriver.waypoint import Waypoint
+try:
+    from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
+except ImportError:
+    from argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 
 def main():
     parser = argparse.ArgumentParser(description="Debug Route Plotter")
     parser.add_argument("--xodr_path", required=True, help="Path to OpenDRIVE map")
     parser.add_argument("--lib_path", default=r"E:\Repository\GT_esmini\esmini\DriverScript\bin\esminiRMLib.dll", help="Path to esminiRMLib.dll")
     parser.add_argument("--gt_lib_path", default=r"E:\Repository\GT_esmini\esmini\DriverScript\bin\GT_esminiLib.dll", help="Path to GT_esminiRMLib.dll")
+    add_dump_argspec_option(parser)
     args = parser.parse_args()
+    if maybe_dump_argspec(
+        args,
+        parser,
+        ui_hints={
+            "--xodr_path": {"ui": "path", "path_kind": "file"},
+            "--lib_path": {"ui": "path", "path_kind": "file"},
+            "--gt_lib_path": {"ui": "path", "path_kind": "file"},
+        },
+    ):
+        return 0
 
     print(f"Loading map: {args.xodr_path}")
     
