@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OSIReporter.hpp"
+#include "../../ExtraEntities.hpp"
+#include <functional>
 #include <string>
 
 struct OsiInternalObjects
@@ -25,6 +27,7 @@ struct OsiExternalObjects
 
 extern OsiInternalObjects obj_osi_internal;
 extern OsiExternalObjects obj_osi_external;
+extern std::function<::gt_esmini::LightState(void*, int)> g_LightStateProvider;
 
 struct OsiTrafficCommandBuffer
 {
