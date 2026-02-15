@@ -1,6 +1,12 @@
 #include "gt_esmini/control/realdriver/RealDriverCoordinator.hpp"
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
+#include "gt_esmini/control/ControlDecisionEngine.hpp"
+#include "gt_esmini/control/DriverInputReceiver.hpp"
+#include "gt_esmini/control/EsminiStateApplier.hpp"
+#include "gt_esmini/control/VehicleStateUpdater.hpp"
+#include "gt_esmini/control/realdriver/DriverOutputPort.hpp"
+#include "gt_esmini/control/realdriver/LatPathPlanner.hpp"
 
 namespace gt_esmini
 {

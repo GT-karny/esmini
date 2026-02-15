@@ -133,7 +133,8 @@ foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC}
         PUBLIC ${ROAD_MANAGER_PATH}
                ${EXTERNALS_OSI_INCLUDES}
                ${EXTERNALS_OSG_INCLUDES}
-               ${EXTERNALS_PUGIXML_PATH})
+               ${EXTERNALS_PUGIXML_PATH}
+               ${EXTERNALS_FMT_INCLUDES})
 
     if(USE_OSG)
         target_link_libraries(${TARGET} PRIVATE ${OSG_LIBRARIES})
@@ -151,6 +152,10 @@ foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC}
     disable_static_analysis(${TARGET})
     disable_iwyu(${TARGET})
 
+endforeach()
+
+foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS})
+    target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
 endforeach()
 
 target_include_directories(${TARGET_SHARED} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
