@@ -7,6 +7,7 @@ param(
     [switch]$UpdateGolden,
     [string]$GoldenRoot = "golden/realdriver_features",
     [string]$SimPath = "",
+    [string]$ReplayerPath = "",
     [int]$Hz = 100,
     [bool]$EnableVideo = $true,
     [switch]$KeepFrames,
@@ -15,8 +16,31 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Read-StructuredFile {
+    param([string]$Path)
+
+    $raw = Get-Content -Path $Path -Raw
+
+    try {
+        return $raw | ConvertFrom-Json
+    }
+    catch {
+        # continue to YAML parsing
+    }
+
+    $yamlCmd = Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue
+    if ($yamlCmd) {
+        return $raw | ConvertFrom-Yaml
+    }
+
+    throw "Cannot parse '$Path'. The file is not JSON and ConvertFrom-Yaml is unavailable. Install powershell-yaml module."
+}
+
 if (-not (Test-Path $MatrixPath)) { throw "Matrix file not found: $MatrixPath" }
 if (-not (Test-Path $ThresholdPath)) { throw "Threshold file not found: $ThresholdPath" }
+
+$repoRoot = (Get-Location).Path
+$outputRootAbs = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRoot))
 
 if (-not $SimPath) {
     $candidates = @(
@@ -33,6 +57,26 @@ if (-not $SimPath) {
 }
 if (-not $SimPath -or -not (Test-Path $SimPath)) {
     throw "GT_Sim not found. Specify -SimPath explicitly."
+}
+$simExe = (Resolve-Path $SimPath).Path
+
+if ($EnableVideo -and -not $ReplayerPath) {
+    $replayerCandidates = @(
+        (Join-Path $BuildDir "EnvironmentSimulator/Applications/replayer/Release/replayer.exe"),
+        (Join-Path $BuildDir "EnvironmentSimulator/Applications/replayer/Release/replayer"),
+        (Join-Path $BuildDir "EnvironmentSimulator/Applications/replayer/Debug/replayer.exe"),
+        (Join-Path $BuildDir "EnvironmentSimulator/Applications/replayer/Debug/replayer"),
+        "bin/replayer.exe",
+        "bin/replayer"
+    )
+    foreach ($c in $replayerCandidates) {
+        if (Test-Path $c) { $ReplayerPath = $c; break }
+    }
+}
+
+$replayerExe = $null
+if ($EnableVideo -and $ReplayerPath -and (Test-Path $ReplayerPath)) {
+    $replayerExe = (Resolve-Path $ReplayerPath).Path
 }
 if ($Hz -le 0) {
     throw "Invalid Hz: $Hz (must be > 0)"
@@ -54,18 +98,23 @@ if ($EnableVideo) {
 }
 
 $runId = Get-Date -Format "yyyyMMdd-HHmmss"
-$runDir = Join-Path $OutputRoot $runId
+$runDir = Join-Path $outputRootAbs $runId
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
-$matrix = Get-Content $MatrixPath -Raw | ConvertFrom-Yaml
+$matrix = Read-StructuredFile -Path $MatrixPath
 $features = $matrix.features
 
 Write-Host "[RealDriver] Run ID: $runId"
-Write-Host "[RealDriver] GT_Sim: $SimPath"
+Write-Host "[RealDriver] GT_Sim: $simExe"
 Write-Host "[RealDriver] Frequency: $Hz Hz"
 if ($EnableVideo) {
     if ($ffmpegPath) {
-        Write-Host "[RealDriver] Video: enabled ($WindowSize, ffmpeg=$ffmpegPath)"
+        if ($replayerExe) {
+            Write-Host "[RealDriver] Video: enabled via replayer ($WindowSize, ffmpeg=$ffmpegPath)"
+        }
+        else {
+            Write-Host "[RealDriver] Video: enabled but replayer not found (MP4 conversion will be skipped)"
+        }
     }
     else {
         Write-Host "[RealDriver] Video: enabled ($WindowSize), ffmpeg not found (MP4 conversion will be skipped)"
@@ -91,16 +140,20 @@ foreach ($f in $features) {
     $args = @(
         "--osc", $absScenario,
         "--hz", "$Hz",
-        "--path", (Resolve-Path "resources/xodr").Path,
-        "--path", (Resolve-Path "resources/xosc").Path,
-        "--path", (Resolve-Path "resources").Path
+        "--path", (Resolve-Path (Join-Path $repoRoot "resources/xodr")).Path,
+        "--path", (Resolve-Path (Join-Path $repoRoot "resources/xosc")).Path,
+        "--path", (Resolve-Path (Join-Path $repoRoot "resources")).Path
     )
+    $catalogRoot = Join-Path $repoRoot "resources/xosc/Catalogs"
+    if (Test-Path $catalogRoot) {
+        $catalogDirs = Get-ChildItem -Path $catalogRoot -Directory -ErrorAction SilentlyContinue
+        foreach ($catalogDir in $catalogDirs) {
+            $args += @("--path", $catalogDir.FullName)
+        }
+    }
     if ($EnableVideo) {
-        $args += @(
-            "--window", "0", "0", "$windowWidth", "$windowHeight",
-            "--headless",
-            "--capture_screen"
-        )
+        # Keep GT_Sim run graphics-agnostic for portability; video is rendered from sim.dat via replayer.
+        $args += @("--headless")
     }
     if ($f.run_args) {
         $args += $f.run_args.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
@@ -108,7 +161,7 @@ foreach ($f in $features) {
 
     Push-Location $fdir
     try {
-        & (Resolve-Path $SimPath).Path @args *> $logPath
+        & $simExe @args *> $logPath
         $simExit = $LASTEXITCODE
         if ($simExit -ne 0) {
             "GT_Sim exited with code $simExit" | Out-File -Encoding utf8 (Join-Path $fdir "runner_error.txt")
@@ -132,6 +185,25 @@ d.close()
     }
 
     if ($EnableVideo) {
+        if (-not (Test-Path (Join-Path $fdir "sim.dat"))) {
+            "sim.dat not found. Video generation skipped." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
+        }
+        elseif (-not $replayerExe) {
+            "replayer not found. Video generation skipped." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
+        }
+        else {
+            Push-Location $fdir
+            try {
+                & $replayerExe --file "sim.dat" --res_path (Resolve-Path (Join-Path $repoRoot "resources")).Path --window 0 0 "$windowWidth" "$windowHeight" --headless --capture_screen --quit_at_end *> "replayer.log"
+                if ($LASTEXITCODE -ne 0) {
+                    "replayer failed with code $LASTEXITCODE" | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
+                }
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
         $frames = Get-ChildItem -Path $fdir -Filter "screen_shot_*.tga" -File -ErrorAction SilentlyContinue
         if ($frames -and $frames.Count -gt 0) {
             if ($ffmpegPath) {
@@ -146,16 +218,16 @@ d.close()
                     Pop-Location
                 }
             }
-            else {
+            elseif (-not (Test-Path (Join-Path $fdir "video_error.txt"))) {
                 "ffmpeg not found. MP4 conversion skipped." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
             }
-
-            if (-not $KeepFrames) {
-                Remove-Item -Path (Join-Path $fdir "screen_shot_*.tga") -Force -ErrorAction SilentlyContinue
-            }
         }
-        elseif ($ffmpegPath) {
-            "No screen capture frames found. Check GT_Sim output and capture options." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
+        elseif (-not (Test-Path (Join-Path $fdir "video_error.txt"))) {
+            "No screen capture frames found after replayer run." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
+        }
+
+        if (-not $KeepFrames) {
+            Remove-Item -Path (Join-Path $fdir "screen_shot_*.tga") -Force -ErrorAction SilentlyContinue
         }
     }
 }
