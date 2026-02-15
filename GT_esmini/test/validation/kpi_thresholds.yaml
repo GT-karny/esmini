@@ -4,7 +4,10 @@
     "speed_rmse_mps": 0.30,
     "event_time_error_s": 0.10,
     "light_match_ratio": 1.0,
-    "collision_count": 0
+    "collision_count": 0,
+    "road_s_end_delta_m": 1.0,
+    "road_s_progress_delta_m": 1.0,
+    "road_t_abs_max_delta_m": 0.25
   },
   "feature_overrides": {
     "F04": {"require_type3_profile": true, "min_profile_points": 2},

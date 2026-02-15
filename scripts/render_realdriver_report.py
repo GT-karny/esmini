@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
 from pathlib import Path
+
+
+def esc(text: str) -> str:
+    return html.escape(text, quote=True)
 
 
 def main() -> int:
@@ -21,7 +26,45 @@ def main() -> int:
         status = "PASS" if r.get("pass") else "FAIL"
         miss = ", ".join(r.get("missing_required_patterns", [])) or "-"
         forb = ", ".join(r.get("hit_forbidden_patterns", [])) or "-"
-        rows.append(f"<tr><td>{r['id']}</td><td>{r.get('name','')}</td><td>{status}</td><td>{miss}</td><td>{forb}</td></tr>")
+        validation_points = r.get("validation_points", [])
+        points_text = "<br/>".join([f"- {esc(str(p))}" for p in validation_points]) if validation_points else "-"
+
+        road_kpi = r.get("road_kpi", {}) or {}
+        road_summary_parts = []
+        if road_kpi.get("lane_id_end") is not None:
+            road_summary_parts.append(f"lane_end={road_kpi.get('lane_id_end')}")
+        if road_kpi.get("lane_change_count") is not None:
+            road_summary_parts.append(f"lane_changes={road_kpi.get('lane_change_count')}")
+        if road_kpi.get("s_progress_m") is not None:
+            road_summary_parts.append(f"s_progress={float(road_kpi.get('s_progress_m')):.2f}m")
+        if road_kpi.get("t_abs_max_m") is not None:
+            road_summary_parts.append(f"|t|max={float(road_kpi.get('t_abs_max_m')):.2f}m")
+        road_summary = "<br/>".join(esc(s) for s in road_summary_parts) if road_summary_parts else "-"
+
+        fid = r.get("id")
+        video_rel = Path(str(fid)) / "result.mp4"
+        video_abs = run_dir / video_rel
+        video_error_abs = run_dir / str(fid) / "video_error.txt"
+        if video_abs.exists():
+            video_cell = f"<a href=\"{esc(video_rel.as_posix())}\">result.mp4</a>"
+        elif video_error_abs.exists():
+            err = video_error_abs.read_text(encoding="utf-8", errors="ignore").strip()
+            video_cell = f"<span class=\"warn\">N/A</span><br/>{esc(err)}"
+        else:
+            video_cell = "-"
+
+        rows.append(
+            "<tr>"
+            f"<td>{esc(str(r.get('id', '')))}</td>"
+            f"<td>{esc(str(r.get('name', '')))}</td>"
+            f"<td>{status}</td>"
+            f"<td>{video_cell}</td>"
+            f"<td>{points_text}</td>"
+            f"<td>{road_summary}</td>"
+            f"<td>{esc(miss)}</td>"
+            f"<td>{esc(forb)}</td>"
+            "</tr>"
+        )
 
     html = f"""
 <!doctype html>
@@ -32,8 +75,9 @@ def main() -> int:
   <style>
     body {{ font-family: Segoe UI, sans-serif; margin: 20px; }}
     table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+    th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; vertical-align: top; }}
     th {{ background: #f3f3f3; }}
+    .warn {{ color: #b94a00; font-weight: 600; }}
   </style>
 </head>
 <body>
@@ -41,7 +85,18 @@ def main() -> int:
   <p>Overall: <b>{'PASS' if summary.get('overall_pass') else 'FAIL'}</b></p>
   <p>Passed: {summary.get('passed_count')}/{summary.get('feature_count')}</p>
   <table>
-    <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Missing Required</th><th>Forbidden Hits</th></tr></thead>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Status</th>
+        <th>Video</th>
+        <th>検証観点</th>
+        <th>Road KPI要約</th>
+        <th>Missing Required</th>
+        <th>Forbidden Hits</th>
+      </tr>
+    </thead>
     <tbody>
       {''.join(rows)}
     </tbody>
