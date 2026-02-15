@@ -42,3 +42,4 @@ EnvironmentSimulator/Libraries/esminiJS/example/esmini.js
 venv/
 build/
 *.temp.xosc
+.gt_sim_temp/

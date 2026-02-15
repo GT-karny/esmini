@@ -37,9 +37,11 @@ target_include_directories(${LOADER_TARGET} PRIVATE
 
 # Register Integration Tests
 file(GLOB SCENARIO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/scenarios/*.xosc")
+set(SCENARIO_INDEX 0)
 foreach(SCENARIO ${SCENARIO_FILES})
     get_filename_component(TEST_NAME ${SCENARIO} NAME_WE)
-    add_test(NAME Integration_${TEST_NAME} COMMAND ${LOADER_TARGET} ${SCENARIO})
+    add_test(NAME GT_esmini_Integration_${TEST_NAME}_${SCENARIO_INDEX} COMMAND ${LOADER_TARGET} ${SCENARIO})
+    math(EXPR SCENARIO_INDEX "${SCENARIO_INDEX} + 1")
 endforeach()
 
 message(STATUS "GT_esmini: Added ${UNIT_TEST_TARGET} and ${LOADER_TARGET}")

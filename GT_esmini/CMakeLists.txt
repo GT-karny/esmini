@@ -121,9 +121,14 @@ endif(BUILD_EXAMPLES)
 
 # ############################### Add test subdirectory #########################################################################################
 
-# if(USE_GTEST)
-#     add_subdirectory(test)
-# endif()
+option(GT_ESMINI_ENABLE_TESTS "Build GT_esmini unit and integration tests" ${BUILD_TESTING})
+if(GT_ESMINI_ENABLE_TESTS)
+    if(USE_GTEST AND BUILD_TESTING)
+        add_subdirectory(test)
+    else()
+        message(STATUS "GT_esmini tests requested but USE_GTEST=OFF or BUILD_TESTING=OFF; skipping GT_esmini/test")
+    endif()
+endif()
 
 # GT_Sim Executable
 set(GT_SIM_TARGET GT_Sim)
