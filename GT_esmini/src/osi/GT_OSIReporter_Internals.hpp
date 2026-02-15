@@ -32,4 +32,25 @@ struct OsiTrafficCommandBuffer
     unsigned int size;
 };
 
+struct OsiGroundTruthBuffer
+{
+    std::string  ground_truth;
+    unsigned int size;
+};
+
+struct OsiRoadLaneBuffer
+{
+    std::string  osi_lane_info;
+    unsigned int size;
+};
+
+struct OsiRoadLaneBoundaryBuffer
+{
+    std::string  osi_lane_boundary_info;
+    unsigned int size;
+};
+
 extern OsiTrafficCommandBuffer osiTrafficCommand;
+extern OsiGroundTruthBuffer osiGroundTruth;
+extern OsiRoadLaneBuffer osiRoadLane;
+extern OsiRoadLaneBoundaryBuffer osiRoadLaneBoundary;
