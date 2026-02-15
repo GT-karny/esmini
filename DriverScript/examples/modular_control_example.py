@@ -33,7 +33,7 @@ from realdriver import (
     LongitudinalController,
     # UDP receivers
     WaypointReceiver,
-    TargetSpeedReceiver,
+    LongitudinalProfileReceiver,
     # Communication
     RealDriverClient,
     OSIReceiverWrapper,
@@ -207,7 +207,7 @@ def main():
     longitudinal = LongitudinalController(ego_id=args.id)
 
     # Optional: UDP receivers for external control
-    speed_receiver = TargetSpeedReceiver(args.target_speed_port)
+    speed_receiver = LongitudinalProfileReceiver(args.target_speed_port)
     waypoint_receiver = WaypointReceiver(args.waypoint_port)
 
     # Set initial target speed
@@ -236,9 +236,9 @@ def main():
 
             if ground_truth is not None:
                 # Check for UDP updates
-                udp_speed = speed_receiver.receive_all()
-                if udp_speed is not None:
-                    longitudinal.set_target_speed(udp_speed)
+                udp_profile = speed_receiver.receive_all()
+                if udp_profile:
+                    longitudinal.set_target_speed(udp_profile[0].v_target)
 
                 udp_wp = waypoint_receiver.receive_all()
                 if udp_wp is not None:

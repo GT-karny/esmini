@@ -46,6 +46,10 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/AutoLightController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/RealVehicle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerRealDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/DriverOutputPort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/LatPathPlanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/LonProfilePlanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/RealDriverCoordinator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/TerrainTracker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/DriverInputReceiver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehicleStateUpdater.cpp
@@ -57,6 +61,10 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/RealVehicle.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRealDriver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRealDriverUtils.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/DriverOutputPort.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/LatPathPlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/LonProfilePlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/RealDriverCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/TerrainTracker.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/DriverInputReceiver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp

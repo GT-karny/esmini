@@ -20,7 +20,7 @@ classDiagram
       -ReceiveLatestUdpInput()
       -ParseDriverInputPacket(packetSize)
       -UpdateVehiclePhysics(timeStep)
-      -SendTargetSpeedPacket()
+      -SendLongitudinalProfile()
       -MaybeSendWaypoints()
       -UpdateCachedPowertrain()
       -UpdateHostVehicleReporter()
@@ -88,7 +88,7 @@ sequenceDiagram
     C->>DE: UpdateSetSpeed(*this)
     C->>DR: Receive(*this)
     C->>VS: UpdatePhysics(*this, timeStep)
-    C->>C: SendTargetSpeedPacket()
+    C->>C: SendLongitudinalProfile()
     C->>C: MaybeSendWaypoints()
     C->>C: UpdateCachedPowertrain()
     C->>C: UpdateHostVehicleReporter()
@@ -208,7 +208,7 @@ flowchart TD
 `ControllerRealDriver` と DriverScript は、UDPで双方向に接続されます。
 
 - C++受信: `DriverScript/realdriver/client.py` (`RealDriverClient.send_update`)
-- C++送信(目標速度): `DriverScript/realdriver/udp_receivers.py` (`TargetSpeedReceiver`)
+- C++送信(目標速度): `DriverScript/realdriver/udp_receivers.py` (`LongitudinalProfileReceiver`)
 - C++送信(ウェイポイント): `DriverScript/realdriver/udp_receivers.py` (`WaypointReceiver`)
 - Python統合制御: `DriverScript/realdriver/scenario_drive.py` (`ScenarioDriveController`)
 
@@ -217,7 +217,7 @@ flowchart LR
     subgraph PY[DriverScript Python]
         RC[RealDriverClient]
         SR[ScenarioDriveController]
-        TSR[TargetSpeedReceiver]
+        TSR[LongitudinalProfileReceiver]
         WPR[WaypointReceiver]
     end
 
@@ -227,7 +227,7 @@ flowchart LR
     end
 
     RC -- "UDP BasePort (default 53995)\n[lightMask:int32 + HostVehicleData protobuf]" --> CRD
-    CRD -- "UDP ClientPort (default 54995)\n[type=1 + targetSpeed:double]" --> TSR
+    CRD -- "UDP ClientPort (default 54995)\n[type=3 + count + \(t_offset,v_target,a_max,j_max\)\*N]" --> TSR
     CRD -- "UDP WaypointPort (default 54996)\n[type=2 + currentIndex + waypoint array]" --> WPR
     TSR --> SR
     WPR --> SR
@@ -243,7 +243,7 @@ sequenceDiagram
     participant RC as RealDriverClient
     participant CRD as ControllerRealDriver
     participant SR as ScenarioDriveController
-    participant TS as TargetSpeedReceiver
+    participant TS as LongitudinalProfileReceiver
     participant WP as WaypointReceiver
 
     loop each frame
@@ -257,7 +257,7 @@ sequenceDiagram
         PY->>RC: send_update()
         RC->>CRD: [lightMask + HostVehicleData]
         CRD->>CRD: ParseDriverInputPacket + UpdateVehiclePhysics
-        CRD->>TS: SendTargetSpeedPacket(type=1)
+        CRD->>TS: SendLongitudinalProfile\(type=3\)
         CRD->>WP: SendWaypointsUDP(type=2, if enabled)
     end
 ```
@@ -267,8 +267,8 @@ sequenceDiagram
 - RealDriver input packet (Python -> C++):
   - `int32 lightMask` + `HostVehicleData protobuf bytes`
   - 実装: `DriverScript/realdriver/client.py`, `GT_esmini/src/control/ControllerRealDriver.cpp`
-- TargetSpeed packet (C++ -> Python):
-  - `uint8 type=1` + `double targetSpeed` (9 bytes)
+- LongitudinalProfile packet (C++ -> Python):
+  - `uint8 type=3` + `uint32 count` + `(double t_offset, double v_target, double a_max, double j_max) * N`
   - 実装: `GT_esmini/src/control/ControllerRealDriver.cpp`, `DriverScript/realdriver/udp_receivers.py`
 - Waypoint packet (C++ -> Python):
   - `uint8 type=2` + `uint32 currentIndex` + `uint32 count` + waypoint struct配列

@@ -21,7 +21,7 @@ from .simplified_router import SimplifiedRouter
 from .vehicle_state import VehicleState, VehicleStateExtractor
 from .lateral_controller import LateralController, LateralConfig, LaneChangeState
 from .longitudinal_controller import LongitudinalController, LongitudinalConfig
-from .udp_receivers import WaypointReceiver, TargetSpeedReceiver
+from .udp_receivers import WaypointReceiver, LongitudinalProfileReceiver
 
 try:
     from osi3.osi_groundtruth_pb2 import GroundTruth
@@ -144,7 +144,7 @@ class ScenarioDriveController:
         )
 
         # UDP receivers
-        self._speed_receiver = TargetSpeedReceiver(target_speed_port)
+        self._lon_profile_receiver = LongitudinalProfileReceiver(target_speed_port)
         self._waypoint_receiver = WaypointReceiver(waypoint_port)
 
         # State
@@ -195,9 +195,10 @@ class ScenarioDriveController:
         self.longitudinal.set_target_speed(speed)
 
     def _receive_target_speed(self) -> None:
-        """Receive target speed from UDP."""
-        speed = self._speed_receiver.receive_all()
-        if speed is not None:
+        """Receive longitudinal profile from UDP and pick current target speed."""
+        profile = self._lon_profile_receiver.receive_all()
+        if profile:
+            speed = profile[0].v_target
             if abs(speed - self.target_speed) > 0.1:
                 print(f"[DEBUG_PY] Target speed CHANGED: {self.target_speed:.2f} -> {speed:.2f} m/s")
             self.target_speed = speed
@@ -359,8 +360,8 @@ class ScenarioDriveController:
 
     def close(self) -> None:
         """Clean up resources."""
-        if hasattr(self, '_speed_receiver') and self._speed_receiver:
-            self._speed_receiver.close()
+        if hasattr(self, '_lon_profile_receiver') and self._lon_profile_receiver:
+            self._lon_profile_receiver.close()
         if hasattr(self, '_waypoint_receiver') and self._waypoint_receiver:
             self._waypoint_receiver.close()
         if hasattr(self, 'rm_lib') and self.rm_lib:

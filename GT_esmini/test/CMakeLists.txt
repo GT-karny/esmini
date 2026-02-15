@@ -5,6 +5,7 @@ include(${CMAKE_SOURCE_DIR}/support/cmake/common/unittest.cmake)
 set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ControllerRealDriverUtils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_LonProfilePlanner.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

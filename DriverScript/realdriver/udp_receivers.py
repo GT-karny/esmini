@@ -1,111 +1,85 @@
 """
 UDP Receivers Module
 
-Provides standalone UDP receivers for waypoints and target speed,
-decoupled from the controller logic.
+Provides standalone UDP receivers for waypoints and longitudinal profiles.
 """
 
 import socket
-import struct
 from typing import Optional, Tuple, List
 
 from .waypoint import Waypoint, parse_waypoints_from_udp
+from .protocol.lon_profile import LonProfilePoint, parse_lon_profile_packet, interpolate_speed
 
 
-class TargetSpeedReceiver:
+class LongitudinalProfileReceiver:
     """
-    UDP receiver for target speed commands.
-
-    Listens for target speed packets from esmini ControllerRealDriver.
+    UDP receiver for longitudinal profile packets (type=3).
 
     Packet format:
-        - byte 0: packet type (1 = target speed)
-        - bytes 1-8: double (little-endian) speed in m/s
-
-    Example:
-        receiver = TargetSpeedReceiver(port=54995)
-
-        # In control loop:
-        speed = receiver.receive()  # Returns None if no data
-        if speed is not None:
-            controller.set_target_speed(speed)
+        - byte 0: packet type (3)
+        - bytes 1-4: uint32 point count
+        - repeated points: (t_offset, v_target, a_max, j_max) as little-endian doubles
     """
 
-    PACKET_TYPE = 1
-    PACKET_SIZE = 9
+    PACKET_TYPE = 3
 
     def __init__(self, port: int = 54995, host: str = "127.0.0.1"):
-        """
-        Initialize target speed receiver.
-
-        Args:
-            port: UDP port to listen on
-            host: Host address to bind to
-        """
         self.port = port
         self.host = host
         self._sock: Optional[socket.socket] = None
-        self._last_speed: Optional[float] = None
+        self._last_profile: List[LonProfilePoint] = []
 
         self._setup_socket()
 
     def _setup_socket(self) -> None:
-        """Setup UDP socket."""
         try:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._sock.bind((self.host, self.port))
             self._sock.setblocking(False)
-            print(f"[INFO] TargetSpeedReceiver: Listening on {self.host}:{self.port}")
+            print(f"[INFO] LongitudinalProfileReceiver: Listening on {self.host}:{self.port}")
         except Exception as e:
-            print(f"[WARN] TargetSpeedReceiver: Failed to setup socket: {e}")
+            print(f"[WARN] LongitudinalProfileReceiver: Failed to setup socket: {e}")
             self._sock = None
 
-    def receive(self) -> Optional[float]:
-        """
-        Receive target speed from UDP (non-blocking).
-
-        Returns:
-            Target speed in m/s if received, None if no data available
-        """
+    def receive(self) -> Optional[List[LonProfilePoint]]:
         if self._sock is None:
             return None
 
         try:
             while True:
-                data, _ = self._sock.recvfrom(1024)
-                if len(data) == self.PACKET_SIZE and data[0] == self.PACKET_TYPE:
-                    speed = struct.unpack('<d', data[1:9])[0]
-                    self._last_speed = speed
-                    return speed
+                data, _ = self._sock.recvfrom(65535)
+                try:
+                    profile = parse_lon_profile_packet(data)
+                    self._last_profile = profile
+                    return profile
+                except ValueError:
+                    continue
         except BlockingIOError:
-            pass  # No data available
+            pass
         except Exception:
-            pass  # Ignore errors
+            pass
 
         return None
 
-    def receive_all(self) -> Optional[float]:
-        """
-        Receive all pending packets and return the latest speed.
-
-        Returns:
-            Latest target speed in m/s if any received, None otherwise
-        """
-        latest_speed = None
+    def receive_all(self) -> Optional[List[LonProfilePoint]]:
+        latest = None
         while True:
-            speed = self.receive()
-            if speed is None:
+            profile = self.receive()
+            if profile is None:
                 break
-            latest_speed = speed
-        return latest_speed
+            latest = profile
+        return latest
 
     @property
-    def last_speed(self) -> Optional[float]:
-        """Last received speed value."""
-        return self._last_speed
+    def last_profile(self) -> List[LonProfilePoint]:
+        return self._last_profile
+
+    def speed_at(self, t_offset: float = 0.0) -> Optional[float]:
+        if not self._last_profile:
+            return None
+        return interpolate_speed(self._last_profile, t_offset)
 
     def close(self) -> None:
-        """Close the UDP socket."""
         if self._sock:
             try:
                 self._sock.close()
@@ -124,25 +98,9 @@ class WaypointReceiver:
     Listens for waypoint packets from esmini ControllerRealDriver.
 
     Packet format: See waypoint.parse_waypoints_from_udp()
-
-    Example:
-        receiver = WaypointReceiver(port=54996)
-
-        # In control loop:
-        result = receiver.receive()
-        if result is not None:
-            index, waypoints = result
-            controller.set_waypoints(waypoints[index:])
     """
 
     def __init__(self, port: int = 54996, host: str = "127.0.0.1"):
-        """
-        Initialize waypoint receiver.
-
-        Args:
-            port: UDP port to listen on
-            host: Host address to bind to
-        """
         self.port = port
         self.host = host
         self._sock: Optional[socket.socket] = None
@@ -153,7 +111,6 @@ class WaypointReceiver:
         self._setup_socket()
 
     def _setup_socket(self) -> None:
-        """Setup UDP socket."""
         try:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._sock.bind((self.host, self.port))
@@ -164,21 +121,13 @@ class WaypointReceiver:
             self._sock = None
 
     def receive(self) -> Optional[Tuple[int, List[Waypoint]]]:
-        """
-        Receive waypoints from UDP (non-blocking).
-
-        Returns:
-            Tuple of (current_waypoint_index, waypoints) if received,
-            None if no new data available
-        """
         if self._sock is None:
             return None
 
         try:
             while True:
-                data, _ = self._sock.recvfrom(8192)
+                data, _ = self._sock.recvfrom(65535)
 
-                # Skip if same as last data (avoid reprocessing)
                 if data == self._last_data:
                     continue
 
@@ -193,19 +142,13 @@ class WaypointReceiver:
                     print(f"[WARN] WaypointReceiver: Parse error: {e}")
 
         except BlockingIOError:
-            pass  # No data available
+            pass
         except Exception as e:
             print(f"[WARN] WaypointReceiver: Error receiving: {e}")
 
         return None
 
     def receive_all(self) -> Optional[Tuple[int, List[Waypoint]]]:
-        """
-        Receive all pending packets and return the latest waypoints.
-
-        Returns:
-            Latest (index, waypoints) if any received, None otherwise
-        """
         latest = None
         while True:
             result = self.receive()
@@ -216,16 +159,13 @@ class WaypointReceiver:
 
     @property
     def last_index(self) -> int:
-        """Last received waypoint index."""
         return self._last_index
 
     @property
     def last_waypoints(self) -> List[Waypoint]:
-        """Last received waypoint list."""
         return self._last_waypoints
 
     def close(self) -> None:
-        """Close the UDP socket."""
         if self._sock:
             try:
                 self._sock.close()

@@ -7,6 +7,7 @@
 #include "gt_esmini/io/GT_UDP.hpp"
 #include "osi_hostvehicledata.pb.h"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/realdriver/LonProfilePlanner.hpp"
 #include <vector>
 
 namespace scenarioengine {
@@ -29,6 +30,9 @@ namespace gt_esmini
     class VehicleStateUpdater;
     class EsminiStateApplier;
     class ControlDecisionEngine;
+    class DriverOutputPort;
+    class LatPathPlanner;
+    class RealDriverCoordinator;
 
     // Waypoint structure for UDP transmission
     struct WaypointData
@@ -69,6 +73,10 @@ namespace gt_esmini
         friend class VehicleStateUpdater;
         friend class EsminiStateApplier;
         friend class ControlDecisionEngine;
+        friend class LonProfilePlanner;
+        friend class DriverOutputPort;
+        friend class LatPathPlanner;
+        friend class RealDriverCoordinator;
 
         struct RunningActionState
         {
@@ -95,7 +103,6 @@ namespace gt_esmini
         void ReceiveLatestUdpInput();
         bool ParseDriverInputPacket(int packetSize);
         void UpdateVehiclePhysics(double timeStep);
-        void SendTargetSpeedPacket();
         void MaybeSendWaypoints();
         void UpdateCachedPowertrain();
         void UpdateHostVehicleReporter() const;
@@ -179,6 +186,10 @@ namespace gt_esmini
         VehicleStateUpdater* vehicle_state_updater_ = nullptr;
         EsminiStateApplier* esmini_state_applier_ = nullptr;
         ControlDecisionEngine* control_decision_engine_ = nullptr;
+        DriverOutputPort* driver_output_port_ = nullptr;
+        LonProfilePlanner* lon_profile_planner_ = nullptr;
+        LatPathPlanner* lat_path_planner_ = nullptr;
+        RealDriverCoordinator* coordinator_ = nullptr;
     };
 
     scenarioengine::Controller* InstantiateControllerRealDriver(void* args);

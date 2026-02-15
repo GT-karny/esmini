@@ -4,6 +4,9 @@
 #include "gt_esmini/control/VehicleStateUpdater.hpp"
 #include "gt_esmini/control/EsminiStateApplier.hpp"
 #include "gt_esmini/control/ControlDecisionEngine.hpp"
+#include "gt_esmini/control/realdriver/DriverOutputPort.hpp"
+#include "gt_esmini/control/realdriver/LatPathPlanner.hpp"
+#include "gt_esmini/control/realdriver/RealDriverCoordinator.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include <windows.h> // For GetModuleFileName
 #include <cmath>     // For std::sqrt, std::atan2, M_PI
@@ -56,6 +59,32 @@ double ResolveLaneOffsetTarget(const scenarioengine::LatLaneOffsetAction& action
     }
     return refOffset + action.target_->value_;
 }
+
+double DetermineAdaptiveStep(const roadmanager::Position& pos, bool actionPath)
+{
+    const double baseStep = actionPath ? 2.0 : realdetail::kWaypointStep;
+
+    roadmanager::Position p1 = pos;
+    roadmanager::Position p2 = pos;
+    if (static_cast<int>(p1.MoveAlongS(1.0)) < 0 || static_cast<int>(p2.MoveAlongS(2.0)) < 0)
+    {
+        return baseStep;
+    }
+
+    const double dh = std::abs(realdetail::NormalizeAngle(p2.GetH() - p1.GetH()));
+    constexpr double kStep2Threshold = 3.0 * M_PI / 180.0;
+    constexpr double kStep1Threshold = 8.0 * M_PI / 180.0;
+
+    if (dh > kStep1Threshold)
+    {
+        return 1.0;
+    }
+    if (dh > kStep2Threshold)
+    {
+        return 2.0;
+    }
+    return baseStep;
+}
 }  // namespace
 
 scenarioengine::Controller* InstantiateControllerRealDriver(void* args)
@@ -100,7 +129,11 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
       driver_input_receiver_(new DriverInputReceiver()),
       vehicle_state_updater_(new VehicleStateUpdater()),
       esmini_state_applier_(new EsminiStateApplier()),
-      control_decision_engine_(new ControlDecisionEngine())
+      control_decision_engine_(new ControlDecisionEngine()),
+      driver_output_port_(new DriverOutputPort()),
+      lon_profile_planner_(new LonProfilePlanner()),
+      lat_path_planner_(new LatPathPlanner()),
+      coordinator_(new RealDriverCoordinator())
 {
     // Check if port is overridden in parameters
     if (args && args->properties && args->properties->ValueExists("BasePort"))
@@ -158,6 +191,10 @@ ControllerRealDriver::~ControllerRealDriver()
     delete vehicle_state_updater_;
     delete esmini_state_applier_;
     delete control_decision_engine_;
+    delete driver_output_port_;
+    delete lon_profile_planner_;
+    delete lat_path_planner_;
+    delete coordinator_;
 }
 
 int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
@@ -523,33 +560,6 @@ void ControllerRealDriver::UpdateVehiclePhysics(double timeStep)
     currentSpeed_ = real_vehicle_.speed_;
 }
 
-void ControllerRealDriver::SendTargetSpeedPacket()
-{
-    if (!udpClient_)
-    {
-        return;
-    }
-
-#pragma pack(push, 1)
-    struct TargetSpeedPacket {
-        uint8_t type;
-        double targetSpeed;
-    } packet;
-#pragma pack(pop)
-
-    packet.type = 1;
-    packet.targetSpeed = setSpeed_;
-    const int sent = udpClient_->Send(reinterpret_cast<char*>(&packet), sizeof(packet));
-    if (sent != sizeof(packet))
-    {
-        static int error_counter = 0;
-        if (error_counter++ % 100 == 0)
-        {
-            LOG_WARN("RealDriver: Failed to send target speed (sent {} bytes, expected {})", sent, sizeof(packet));
-        }
-    }
-}
-
 void ControllerRealDriver::MaybeSendWaypoints()
 {
     if (!sendWaypoints_)
@@ -745,51 +755,7 @@ void ControllerRealDriver::RefreshWaypointsOnRoutePointerChange()
 
 void ControllerRealDriver::Step(double timeStep)
 {
-    const RunningActionState preStepState = GetRunningActionState();
-    const ActionFlags previousFlags{wasLaneChanging_, wasLaneOffsetting_, wasFollowingTrajectory_, wasAssigningRoute_};
-
-    control_decision_engine_->UpdateSetSpeed(*this);
-    driver_input_receiver_->Receive(*this);
-    vehicle_state_updater_->UpdatePhysics(*this, timeStep);
-    SendTargetSpeedPacket();
-    MaybeSendWaypoints();
-    UpdateCachedPowertrain();
-    UpdateHostVehicleReporter();
-
-    double combined_pitch = 0.0;
-    double combined_roll = 0.0;
-    real_vehicle_.GetCombinedAttitude(combined_pitch, combined_roll);
-
-    if (object_ && gateway_)
-    {
-        HandlePathActions(preStepState, previousFlags, "");
-        esmini_state_applier_->Apply(*this, combined_pitch, combined_roll, preStepState.hasRunningScenarioLongAction);
-        UpdateVehicleLights();
-    }
-
-    const ActionFlags preFlags = ToActionFlags(preStepState);
-    wasLaneChanging_ = preFlags.laneChanging;
-    wasLaneOffsetting_ = preFlags.laneOffsetting;
-    wasFollowingTrajectory_ = preFlags.followingTrajectory;
-    wasAssigningRoute_ = preFlags.assigningRoute;
-
-    Controller::Step(timeStep);
-
-    RefreshWaypointsOnRoutePointerChange();
-
-    const RunningActionState postStepState = GetRunningActionState();
-    const ActionFlags preControllerStepFlags{wasLaneChanging_, wasLaneOffsetting_, wasFollowingTrajectory_, wasAssigningRoute_};
-    const bool postPathActionStarted = HandlePathActions(postStepState, preControllerStepFlags, "Post-step ");
-    if (postPathActionStarted && object_)
-    {
-        SyncObjectPoseFromRealVehicle();
-    }
-
-    const ActionFlags postFlags = ToActionFlags(postStepState);
-    wasLaneChanging_ = postFlags.laneChanging;
-    wasLaneOffsetting_ = postFlags.laneOffsetting;
-    wasFollowingTrajectory_ = postFlags.followingTrajectory;
-    wasAssigningRoute_ = postFlags.assigningRoute;
+    coordinator_->RunFrame(*this, timeStep);
 }
 // Getter for input data (used by GT_Step for HostVehicleData)
 void ControllerRealDriver::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const
@@ -833,12 +799,12 @@ void ControllerRealDriver::ExtractWaypoints()
         LOG_INFO("RealDriver: No route assigned, generating fallback waypoints by road-following");
 
         roadmanager::Position pos = object_->pos_;
-        const double step = realdetail::kWaypointStep;                 // 5m intervals
         const double total_dist = realdetail::kWaypointTotalDistance;  // Generate for 500m ahead
-
-        for (double d = 0; d < total_dist; d += step)
+        double d = 0.0;
+        while (d < total_dist)
         {
             waypoints_.push_back(MakeWaypointFromPosition(pos, pos.GetOffset()));
+            const double step = DetermineAdaptiveStep(pos, false);
 
             // Advance along road (follows successor links and junctions automatically)
             roadmanager::Position::ReturnCode rc = pos.MoveAlongS(step);
@@ -847,6 +813,7 @@ void ControllerRealDriver::ExtractWaypoints()
                 LOG_INFO("RealDriver: Road-following stopped at d={:.1f}m (rc={})", d, static_cast<int>(rc));
                 break;
             }
+            d += step;
         }
 
         LOG_INFO("RealDriver: Generated {} fallback waypoints by road-following", waypoints_.size());
@@ -998,12 +965,12 @@ void ControllerRealDriver::RegenerateWaypointsForLaneOffset(double targetOffset,
     posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
                               roadmanager::Position::PosMode::H_ABS);
     const double startOffset = posBase.GetOffset();
-    const double step = realdetail::kWaypointStep;
     const double totalDist = realdetail::kWaypointTotalDistance;
     const double distForTransition = std::max(transitionDistance, 1.0);
 
-    for (double d = 0.0; d < totalDist; d += step)
+    for (double d = 0.0; d < totalDist;)
     {
+        const double step = DetermineAdaptiveStep(posBase, true);
         const double progress = std::min(d / distForTransition, 1.0);
         const double factor = realdetail::SmootherStep(progress);
         const double laneOffset = startOffset + (targetOffset - startOffset) * factor;
@@ -1019,6 +986,7 @@ void ControllerRealDriver::RegenerateWaypointsForLaneOffset(double targetOffset,
         {
             break;
         }
+        d += step;
     }
 
     LOG_INFO("RealDriver: Regenerated {} waypoints for lane offset transition (start={:.2f}m target={:.2f}m)",
@@ -1036,14 +1004,14 @@ void ControllerRealDriver::RegenerateWaypointsForTrajectory(scenarioengine::Foll
         return;
     }
 
-    const double step = realdetail::kWaypointStep;
-    const double length = std::max(action->traj_->GetLength(), step);
+    const double length = std::max(action->traj_->GetLength(), realdetail::kWaypointStep);
 
-    for (double s = 0.0; s <= length; s += step)
+    for (double s = 0.0; s <= length;)
     {
         roadmanager::TrajVertex tv;
         if (action->traj_->shape_->Evaluate(s, roadmanager::Shape::TrajectoryParamType::TRAJ_PARAM_TYPE_S, tv) != 0)
         {
+            s += 2.0;
             continue;
         }
 
@@ -1070,6 +1038,10 @@ void ControllerRealDriver::RegenerateWaypointsForTrajectory(scenarioengine::Foll
         }
 
         waypoints_.push_back(wp);
+
+        roadmanager::Position probe;
+        probe.SetInertiaPosMode(tv.x, tv.y, tv.h_true, roadmanager::Position::PosMode::H_ABS);
+        s += DetermineAdaptiveStep(probe, true);
     }
 
     if (waypoints_.empty())
@@ -1091,7 +1063,6 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
 
     double speed = std::max(object_->GetSpeed(), 5.0); // Minimum 5 m/s for calculation
     double transitionDist = speed * transitionDuration;
-    const double step = realdetail::kWaypointStep;                 // 5m intervals
     const double totalDist = realdetail::kWaypointTotalDistance;   // Generate 500m ahead
 
     // [GT_MOD] Use real_vehicle_ position as base, NOT object_->pos_.
@@ -1104,8 +1075,9 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
     LOG_INFO("RealDriver: [DEBUG] LaneChange Start - Vehicle LaneOffset={:.3f}, Speed={:.2f}, TgtLane={}", 
              posBase.GetOffset(), speed, targetLaneId);
 
-    for (double d = 0; d < totalDist; d += step)
+    for (double d = 0; d < totalDist;)
     {
+        const double step = DetermineAdaptiveStep(posBase, true);
         double progress = (transitionDist > 0) ? std::min(d / transitionDist, 1.0) : 1.0;
         // [GT_MOD] Use SmootherStep (Quintic Hermite) interpolation for even smoother steering.
         // Cubic (SmoothStep) has non-zero jerk at start/end. 
@@ -1147,6 +1119,7 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
         // Advance to next s position along road
         roadmanager::Position::ReturnCode rc = posBase.MoveAlongS(step);
         if (static_cast<int>(rc) < 0) break;
+        d += step;
 
         // [DEBUG] Log first few interpolation points
         if (d < 25.0) {
@@ -1163,7 +1136,7 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
         // Warn if heading change is > 5 degrees (0.087 rad) over a short distance
         if (dist > 0.1 && std::abs(dh) > realdetail::kSharpTurnWarnRad) { 
              LOG_WARN("RealDriver: [DEBUG] Sharp turn at WP[{}] (d~{:.1f}): dh={:.3f} rad ({:.1f} deg), dist={:.2f}m", 
-                      i, i * step, dh, dh * 180.0 / M_PI, dist);
+                      i, i * realdetail::kWaypointStep, dh, dh * 180.0 / M_PI, dist);
         }
     }
 
