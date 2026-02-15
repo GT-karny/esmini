@@ -517,10 +517,11 @@ real_vehicle_params.json  ← ここに配置
             <Controller name="RealDriver">
                 <Properties>
                     <!-- UDP通信設定 -->
-                    <Property name="port" value="25252"/>
-
-                    <!-- パラメータファイルパス（オプション）-->
-                    <Property name="configFile" value="my_custom_params.json"/>
+                    <Property name="BasePort" value="53995"/>
+                    <Property name="ClientAddr" value="127.0.0.1"/>
+                    <Property name="ClientPort" value="54995"/>
+                    <Property name="WaypointPort" value="54996"/>
+                    <Property name="SendWaypoints" value="true"/>
                 </Properties>
             </Controller>
         </AssignControllerAction>
@@ -533,8 +534,11 @@ real_vehicle_params.json  ← ここに配置
 
 | プロパティ | デフォルト | 説明 |
 |-----------|-----------|------|
-| `port` | `25252` | UDP通信ポート |
-| `configFile` | `real_vehicle_params.json` | パラメータファイルパス |
+| `BasePort` | `53995` | Python -> C++ の入力UDPポート |
+| `ClientAddr` | `127.0.0.1` | C++ -> Python の送信先IP |
+| `ClientPort` | `54995` | `type=3` 縦方向プロファイル送信先ポート |
+| `WaypointPort` | `54996` | `type=2` waypoint送信先ポート |
+| `SendWaypoints` | `false` | waypoint送信の有効/無効 |
 
 ### Terrain Trackingの有効/無効
 

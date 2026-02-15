@@ -16,14 +16,13 @@
 ```python
 from realdriver import RealDriverClient, LightMode, IndicatorMode
 
-client = RealDriverClient(ip="127.0.0.1", port=53995, object_id=0)
+client = RealDriverClient(ip="127.0.0.1", port=53995)
 ```
 
 | 引数 | 型 | デフォルト | 説明 |
 | :--- | :--- | :--- | :--- |
 | `ip` | `str` | `"127.0.0.1"` | esminiが動作しているホストのIPアドレス |
-| `port` | `int` | `53995` | ベースポート番号。実際の送信ポートは `port + object_id` になります。 |
-| `object_id` | `int` | `0` | 制御対象の車両ID (OSI/OpenSCENARIO上のID) |
+| `port` | `int` | `53995` | RealDriverController の入力UDPポート (`BasePort`) |
 
 ---
 
@@ -158,7 +157,7 @@ from realdriver import RealDriverClient, LightMode, IndicatorMode
 
 def main():
     # クライアントの作成
-    client = RealDriverClient(ip="127.0.0.1", port=53995, object_id=0)
+    client = RealDriverClient(ip="127.0.0.1", port=53995)
     
     print("Connecting to esmini...")
 
@@ -202,33 +201,19 @@ if __name__ == "__main__":
 
 ---
 
-## 目標速度の受信
+## 縦方向プロファイルの受信 (`type=3`)
 
-ControllerRealDriverは、SpeedActionなどで設定された目標速度を別パケットで送信します。
+ControllerRealDriver は単一速度 (`type=1`) ではなく、時系列の縦方向速度プロファイル (`type=3`) を送信します。
 
-### パケット構造
+### パケット構造 (`type=3`)
 
 | フィールド | サイズ | 型 | 説明 |
 | :--- | :--- | :--- | :--- |
-| `Type` | 1 byte | `uint8` | パケットタイプ識別子 (値: `1`) |
-| `targetSpeed` | 8 bytes | `double` | 目標速度 (m/s) |
+| `Type` | 1 byte | `uint8` | パケットタイプ識別子 (値: `3`) |
+| `count` | 4 bytes | `uint32` | プロファイル点数 |
+| `points` | `count * 32` bytes | struct array | `(t_offset, v_target, a_max, j_max)` を `double` 4つで表現 |
 
-**合計サイズ**: 9 bytes
-
-### 受信スクリプト
-
-目標速度を受信するには、`receive_target_speed.py`を使用します。
-
-```bash
-cd scripts/driver_script
-python receive_target_speed.py [port]
-```
-
-| 引数 | デフォルト | 説明 |
-| :--- | :--- | :--- |
-| `port` | `54995` | 受信ポート番号 |
-
-### 設定方法
+### 設定方法（OpenSCENARIO）
 
 OpenSCENARIOでControllerのプロパティを設定：
 
@@ -242,29 +227,28 @@ OpenSCENARIOでControllerのプロパティを設定：
 </Controller>
 ```
 
-### 出力例
-
-```
-Listening for target speed on 127.0.0.1:54995
-Waiting for packets...
-
-Target Speed: 20.00 m/s (72.00 km/h)
-Target Speed: 15.00 m/s (54.00 km/h)
-```
-
-### Pythonでの受信例
+### Pythonでの受信例（推奨）
 
 ```python
-import socket
-import struct
+from realdriver.udp_receivers import LongitudinalProfileReceiver
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(("127.0.0.1", 54995))
+receiver = LongitudinalProfileReceiver(port=54995, host="127.0.0.1")
 
 while True:
-    data, addr = sock.recvfrom(1024)
-    
-    if len(data) == 9 and data[0] == 1:  # Type = 1
-        target_speed = struct.unpack('d', data[1:9])[0]
-        print(f"Target Speed: {target_speed:.2f} m/s")
+    profile = receiver.receive_all()
+    if profile:
+        # 現在時刻の目標速度
+        v_now = profile[0].v_target
+        print(f"v_now={v_now:.2f} m/s, points={len(profile)}")
 ```
+
+### 補間例
+
+```python
+from realdriver.protocol.lon_profile import interpolate_speed
+
+v_300ms = interpolate_speed(profile, 0.3)
+```
+
+Note:
+- `type=1` target speed packet は廃止済みです。

@@ -1,8 +1,9 @@
-# ControllerRealDriver Logic (Mermaid)
+# ControllerRealDriver Logic (Current)
 
 Target files:
 - `GT_esmini/include/gt_esmini/control/ControllerRealDriver.hpp`
 - `GT_esmini/src/control/ControllerRealDriver.cpp`
+- `GT_esmini/src/control/realdriver/*.cpp`
 
 ## 1. Component Structure
 
@@ -17,16 +18,7 @@ classDiagram
       +GetCachedHostVehicleData()
       -GetRunningActionState()
       -HandlePathActions(...)
-      -ReceiveLatestUdpInput()
-      -ParseDriverInputPacket(packetSize)
-      -UpdateVehiclePhysics(timeStep)
-      -SendLongitudinalProfile()
       -MaybeSendWaypoints()
-      -UpdateCachedPowertrain()
-      -UpdateHostVehicleReporter()
-      -SyncGatewayObjectState(...)
-      -SyncObjectPoseFromRealVehicle()
-      -UpdateVehicleLights()
       -ExtractWaypoints()
       -SendWaypointsUDP()
       -RegenerateWaypointsForLaneChange(...)
@@ -34,23 +26,23 @@ classDiagram
       -RegenerateWaypointsForTrajectory(...)
     }
 
+    class RealDriverCoordinator
     class DriverInputReceiver
     class VehicleStateUpdater
-    class EsminiStateApplier
     class ControlDecisionEngine
-    class RealVehicle
-    class UDPServer
-    class GT_UDP_Sender
-    class HostVehicleData
+    class LonProfilePlanner
+    class DriverOutputPort
+    class LatPathPlanner
+    class EsminiStateApplier
 
-    ControllerRealDriver --> DriverInputReceiver : Receive()
-    ControllerRealDriver --> VehicleStateUpdater : UpdatePhysics()
-    ControllerRealDriver --> EsminiStateApplier : Apply()
-    ControllerRealDriver --> ControlDecisionEngine : UpdateSetSpeed()
-    ControllerRealDriver --> RealVehicle : owns
-    ControllerRealDriver --> UDPServer : receive driver UDP
-    ControllerRealDriver --> GT_UDP_Sender : send target speed / waypoints
-    ControllerRealDriver --> HostVehicleData : cached_hvd_
+    ControllerRealDriver --> RealDriverCoordinator : orchestrates frame
+    RealDriverCoordinator --> ControlDecisionEngine : setSpeed update
+    RealDriverCoordinator --> DriverInputReceiver : UDP input receive
+    RealDriverCoordinator --> VehicleStateUpdater : RealVehicle physics
+    RealDriverCoordinator --> LonProfilePlanner : build type=3 profile
+    RealDriverCoordinator --> DriverOutputPort : send type=3
+    RealDriverCoordinator --> LatPathPlanner : LAT action selection
+    RealDriverCoordinator --> EsminiStateApplier : gateway/object sync
 ```
 
 ## 2. Activation Flow
@@ -59,220 +51,154 @@ classDiagram
 flowchart TD
     A[Activate] --> B{object exists}
     B -- No --> Z[Return base activate]
-    B -- Yes --> C[Configure UDP server with fixed base port]
-    C --> D[Ensure vehicle light extension]
-    D --> E[Create UDP client for target speed]
-    E --> F{send waypoints enabled}
-    F -- Yes --> G[Create waypointClient_]
-    F -- No --> H[Skip]
-    G --> I[Initialize real vehicle from object state]
-    H --> I
-    I --> J[Initialize set speed and current speed]
-    J --> K[Remember last observed route]
-    K --> L[Load real vehicle params json]
-    L --> Z
+    B -- Yes --> C[Create UDP server on BasePort]
+    C --> D[Create UDP sender for type=3 profile]
+    D --> E{SendWaypoints enabled}
+    E -- Yes --> F[Create waypoint sender]
+    E -- No --> G[Skip]
+    F --> H[Init RealVehicle from object]
+    G --> H
+    H --> I[Init setSpeed/currentSpeed]
+    I --> J[Load real_vehicle_params.json]
+    J --> Z
 ```
 
-## 3. Main Step Loop
+Notes:
+- Base input port default: `53995`
+- Longitudinal output port default: `54995`
+- Waypoint output port default: `54996`
+- Current implementation uses fixed base port behavior (no `object_id` port offset).
+
+## 3. Per-frame Flow (`Step`)
 
 ```mermaid
 sequenceDiagram
     participant C as ControllerRealDriver
+    participant R as RealDriverCoordinator
     participant DE as ControlDecisionEngine
-    participant DR as DriverInputReceiver
+    participant IN as DriverInputReceiver
     participant VS as VehicleStateUpdater
+    participant LP as LonProfilePlanner
+    participant OUT as DriverOutputPort
+    participant LAT as LatPathPlanner
     participant EA as EsminiStateApplier
-    participant GW as ScenarioGateway/Object
 
-    C->>C: preStepState = GetRunningActionState()
-    C->>DE: UpdateSetSpeed(*this)
-    C->>DR: Receive(*this)
-    C->>VS: UpdatePhysics(*this, timeStep)
-    C->>C: SendLongitudinalProfile()
-    C->>C: MaybeSendWaypoints()
-    C->>C: UpdateCachedPowertrain()
-    C->>C: UpdateHostVehicleReporter()
-    C->>C: real_vehicle_.GetCombinedAttitude()
+    C->>R: RunFrame(*this, timeStep)
+    R->>DE: UpdateSetSpeed(controller)
+    R->>IN: Receive(controller)
+    R->>VS: UpdatePhysics(controller, timeStep)
+    R->>LP: BuildProfile(currentSpeed, setSpeed)
+    R->>OUT: SendLonProfile(type=3)
+    R->>C: MaybeSendWaypoints(type=2, optional)
+    R->>C: UpdateCachedPowertrain()
+    R->>C: UpdateHostVehicleReporter()
     alt object_ && gateway_
-        C->>C: HandlePathActions(preStepState, previousFlags, "")
-        C->>EA: Apply(*this, pitch, roll, hasRunningScenarioLongAction)
-        C->>C: UpdateVehicleLights()
+        R->>LAT: HandleActions(controller, "")
+        R->>EA: Apply(controller, pitch, roll, hasRunningScenarioLongAction)
+        R->>C: UpdateVehicleLights()
     end
-    C->>C: Update was* flags from preStepState
-    C->>C: Controller::Step(timeStep)
-    C->>C: RefreshWaypointsOnRoutePointerChange()
-    C->>C: postStepState = GetRunningActionState()
-    C->>C: postStarted = HandlePathActions(postStepState, preControllerStepFlags, "Post-step ")
-    alt postStarted && object_
-        C->>GW: SyncObjectPoseFromRealVehicle()
-    end
-    C->>C: Update was* flags from postStepState
+    R->>C: Controller::Step(timeStep)
+    R->>C: RefreshWaypointsOnRoutePointerChange()
 ```
 
-## 4. Path Action Priority (`HandlePathActions`)
+## 4. LAT Action Selection
+
+`LatPathPlanner::HandleActions` performs domain-first selection:
+
+1. Collect currently RUNNING LAT actions:
+   - `FollowTrajectory`
+   - `LaneChange`
+   - `LaneOffset`
+   - `AssignRoute`
+2. Select exactly one action by newest action id (`GetId()` max).
+3. Build one-action state and call `ControllerRealDriver::HandlePathActions`.
+
+Important:
+- Legacy hard-coded priority (`FollowTrajectory > LaneChange > LaneOffset > AssignRoute`) is not used in the selector.
+- Effective behavior is "newest started action wins" (id-based).
+
+## 5. LaneOffset Transition Distance
+
+`ControllerRealDriver::HandlePathActions` computes lane offset transition distance as:
+
+- `DISTANCE`: `max(paramValue, 5.0)`
+- `TIME`: `max(objectSpeed, 5.0) * max(paramValue, 0.1)`
+- `RATE`: `max(objectSpeed, 5.0) * (deltaOffset / max(paramValue, 0.1))`
+
+where:
+- `deltaOffset = abs(targetOffset - currentOffset)`
+- `objectSpeed` is current object speed.
+
+## 6. Waypoint Generation / Sampling
 
 ```mermaid
 flowchart TD
-    S[Start] --> A{new follow trajectory}
-    A -- Yes --> A1[RegenerateWaypointsForTrajectory]
-    A1 --> A2[End action]
-    A2 --> R[return true]
-    A -- No --> B{new lane change with target}
-    B -- Yes --> B1[RegenerateWaypointsForLaneChange]
-    B1 --> B2[End action]
-    B2 --> R
-    B -- No --> C{new lane offset}
-    C -- Yes --> C1[ResolveLaneOffsetTarget]
-    C1 --> C2[Compute transition distance]
-    C2 --> C3[RegenerateWaypointsForLaneOffset]
-    C3 --> C4[End action]
-    C4 --> R
-    C -- No --> D{new assign route}
-    D -- Yes --> D1[ExtractWaypoints]
-    D1 --> D2[mark waypoints extracted true]
-    D2 --> D3[End action]
-    D3 --> R
-    D -- No --> E[return false]
-```
-
-## 5. UDP Receive/Parse Pipeline
-
-```mermaid
-flowchart TD
-    A[Receive latest UDP input] --> B{udp server exists}
-    B -- No --> Z[Return]
-    B -- Yes --> C[Loop receive from udpServer]
-    C --> D{received greater than zero}
-    D -- No --> Z
-    D -- Yes --> E[Parse driver input packet]
-    E --> F{packet size valid and protobuf ok}
-    F -- No --> C
-    F -- Yes --> G[Read lightMask from first 4 bytes]
-    G --> H[Parse cached host vehicle data]
-    H --> I[Extract throttle/brake/steering/gear]
-    I --> J[engineBrake fixed to 0.49]
-    J --> K[Map ADAS names to state array]
-    K --> C
-```
-
-## 6. Waypoint Send/Generation Logic
-
-```mermaid
-flowchart TD
-    A[Maybe send waypoints] --> B{send waypoints}
-    B -- No --> Z[Return]
-    B -- Yes --> C{waypoints already extracted}
-    C -- No --> D[Extract waypoints and mark extracted]
-    C -- Yes --> E[SendWaypointsUDP]
-    D --> E
-    E --> F{waypoint client exists and waypoints not empty?}
-    F -- No --> Z
-    F -- Yes --> G[Update current waypoint index from real vehicle pose]
-    G --> H[Build packet type=2 + index + count + waypoint array]
-    H --> I[Send via waypointClient_]
-```
-
-```mermaid
-flowchart TD
-    A[Extract/Regenerate waypoints] --> B{Source type}
-    B -->|Assigned Route| C[Convert route waypoints to waypoint data]
-    B -->|No Route| D[Fallback road following in 5m steps]
-    B -->|LaneChange action| E[SmootherStep interpolation between lanes]
-    B -->|LaneOffset action| F[SmootherStep interpolation of lane offset]
-    B -->|FollowTrajectory action| G[Sample trajectory by s]
-    C --> H[waypoints ready]
+    A[Need waypoints] --> B{Source}
+    B -->|Assigned Route| C[Convert route->WaypointData]
+    B -->|No route| D[Fallback road-follow with MoveAlongS]
+    B -->|FollowTrajectory| E[Trajectory evaluate and map to road]
+    B -->|LaneChange| F[SmootherStep lateral blend]
+    B -->|LaneOffset| G[SmootherStep offset transition]
+    C --> H[Adaptive step sampling]
     D --> H
     E --> H
     F --> H
     G --> H
 ```
 
-## 7. Longitudinal Action Handling Summary
+Adaptive step rule:
+- Base: `5m`
+- Action path base (`FollowTrajectory` / `LaneChange` / `LaneOffset`): `2m`
+- If heading delta `> 3 deg`: `2m`
+- If heading delta `> 8 deg`: `1m`
 
-```mermaid
-flowchart TD
-    A[Get target speed from actions] --> B{long speed running}
-    B -- Yes --> C{absolute or relative}
-    C --> C1[Set target speed]
-    B -- No --> D[Keep set speed]
-    C1 --> E{profile distance or synchronize running}
-    D --> E
-    E -- Yes --> F[targetSpeed equals current object speed]
-    E -- No --> G[Keep previous target speed]
-    F --> H[has running action true]
-    G --> I[running action true only for long speed]
-```
+## 7. UDP Packet Formats
+
+### 7.1 Input (Python -> C++)
+- `[int32 lightMask][HostVehicleData protobuf bytes]`
+
+### 7.2 Output Waypoint (C++ -> Python)
+- `type=2`
+- Header: `[u8 type][u32 currentIndex][u32 count]`
+- Body: waypoint array (`WaypointData` binary layout)
+- Current Python parser expects `56 bytes / waypoint` (`<dddI4xdi4xd`)
+
+### 7.3 Output Longitudinal Profile (C++ -> Python)
+- `type=3`
+- Header: `[u8 type][u32 count]`
+- Point: `(double t_offset, double v_target, double a_max, double j_max)`
+- Current planner default: horizon `3.0s`, `20` points, `0.15s` spacing
+- Sent every frame
+
+Removed:
+- `type=1` (single target speed) is not used.
 
 ## 8. DriverScript Integration
 
-`ControllerRealDriver` と DriverScript は、UDPで双方向に接続されます。
-
-- C++受信: `DriverScript/realdriver/client.py` (`RealDriverClient.send_update`)
-- C++送信(目標速度): `DriverScript/realdriver/udp_receivers.py` (`LongitudinalProfileReceiver`)
-- C++送信(ウェイポイント): `DriverScript/realdriver/udp_receivers.py` (`WaypointReceiver`)
-- Python統合制御: `DriverScript/realdriver/scenario_drive.py` (`ScenarioDriveController`)
+- Input sender: `DriverScript/realdriver/client.py` (`RealDriverClient`)
+- Type=3 receiver: `DriverScript/realdriver/udp_receivers.py` (`LongitudinalProfileReceiver`)
+- Type=2 receiver: `DriverScript/realdriver/udp_receivers.py` (`WaypointReceiver`)
+- Profile parse/interpolation: `DriverScript/realdriver/protocol/lon_profile.py`
 
 ```mermaid
 flowchart LR
-    subgraph PY[DriverScript Python]
+    subgraph PY[DriverScript]
         RC[RealDriverClient]
-        SR[ScenarioDriveController]
-        TSR[LongitudinalProfileReceiver]
-        WPR[WaypointReceiver]
+        LR[LongitudinalProfileReceiver]
+        WR[WaypointReceiver]
     end
 
-    subgraph CPP[GT_esmini C++]
-        CRD[ControllerRealDriver]
-        SG[Scenario/Gateway]
+    subgraph CPP[GT_esmini]
+        CRD[ControllerRealDriver + Coordinator]
     end
 
-    RC -- "UDP BasePort (default 53995)\n[lightMask:int32 + HostVehicleData protobuf]" --> CRD
-    CRD -- "UDP ClientPort (default 54995)\n[type=3 + count + \(t_offset,v_target,a_max,j_max\)\*N]" --> TSR
-    CRD -- "UDP WaypointPort (default 54996)\n[type=2 + currentIndex + waypoint array]" --> WPR
-    TSR --> SR
-    WPR --> SR
-    SR -- "throttle/brake/steering/gear via RealDriverClient" --> RC
-    CRD --> SG
+    RC -- "[lightMask + HVD]" --> CRD
+    CRD -- "type=3 lon profile" --> LR
+    CRD -- "type=2 waypoints" --> WR
 ```
 
-## 9. End-to-End Runtime Loop (with DriverScript)
+## 9. Notes
 
-```mermaid
-sequenceDiagram
-    participant PY as DriverScript Control Loop
-    participant RC as RealDriverClient
-    participant CRD as ControllerRealDriver
-    participant SR as ScenarioDriveController
-    participant TS as LongitudinalProfileReceiver
-    participant WP as WaypointReceiver
-
-    loop each frame
-        PY->>SR: update(ground_truth, dt)
-        SR->>TS: receive_all()
-        TS-->>SR: latest target speed (optional)
-        SR->>WP: receive()
-        WP-->>SR: currentIndex + waypoints (optional)
-        SR-->>PY: steering/throttle/brake
-        PY->>RC: set_controls(...) / set_gear(...)
-        PY->>RC: send_update()
-        RC->>CRD: [lightMask + HostVehicleData]
-        CRD->>CRD: ParseDriverInputPacket + UpdateVehiclePhysics
-        CRD->>TS: SendLongitudinalProfile\(type=3\)
-        CRD->>WP: SendWaypointsUDP(type=2, if enabled)
-    end
-```
-
-## 10. Packet Compatibility Notes
-
-- RealDriver input packet (Python -> C++):
-  - `int32 lightMask` + `HostVehicleData protobuf bytes`
-  - 実装: `DriverScript/realdriver/client.py`, `GT_esmini/src/control/ControllerRealDriver.cpp`
-- LongitudinalProfile packet (C++ -> Python):
-  - `uint8 type=3` + `uint32 count` + `(double t_offset, double v_target, double a_max, double j_max) * N`
-  - 実装: `GT_esmini/src/control/ControllerRealDriver.cpp`, `DriverScript/realdriver/udp_receivers.py`
-- Waypoint packet (C++ -> Python):
-  - `uint8 type=2` + `uint32 currentIndex` + `uint32 count` + waypoint struct配列
-  - Python側は `DriverScript/realdriver/waypoint.py` で C++構造体アライメントを考慮して `56 bytes/waypoint` として解析
-
-注意:
-- 現在の `ControllerRealDriver` は固定ポート運用（`BasePort` をそのまま使用）で、`object_id` 加算はしていません。
+- `ControllerRealDriver` still owns many helper methods, but frame orchestration moved to `RealDriverCoordinator`.
+- `LonProfilePlanner` currently performs linear interpolation from current speed to set speed with fixed accel/jerk limits.
+- `LatPathPlanner` is responsible only for action selection; detailed waypoint regeneration remains in `ControllerRealDriver`.

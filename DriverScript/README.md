@@ -19,12 +19,14 @@ pip install -e .
 ```
 DriverScript/
 ├── realdriver/          # コアライブラリ
+│   ├── control/         # 制御ロジック群（lateral/longitudinal など）
+│   ├── planning/        # 経路・ウェイポイント関連
+│   ├── io/              # I/O層
+│   ├── model/           # データモデル
+│   ├── protocol/        # UDP packet codec (type=2/type=3)
 │   ├── client.py        # RealDriverClient (UDP制御クライアント)
-│   ├── osi_receiver.py  # OSI GroundTruth 受信ラッパー
-│   ├── udp_common.py    # UDP/OSI共通ユーティリティ
-│   ├── pid_controller.py # PID制御器
-│   ├── rm_lib.py        # esminiRMLib.dll ラッパー
-│   └── lkas.py          # LKAS コントローラ
+│   ├── udp_receivers.py # type=2/type=3 受信
+│   └── osi_receiver.py  # OSI GroundTruth 受信ラッパー
 ├── osi3/                # OSI Protobufモジュール
 ├── examples/            # サンプルスクリプト
 │   ├── gui_controller.py    # Tkinter GUI コントローラ
@@ -82,6 +84,8 @@ python examples/lkas_example.py --xodr_path <path/to/map.xodr> --lib_path ./bin/
 | ポート | 方向 | 用途 |
 |--------|------|------|
 | 53995 | 送信 | RealDriver制御 (HostVehicleData) |
+| 54995 | 受信 | Longitudinal profile (`type=3`) |
+| 54996 | 受信 | Waypoint (`type=2`) |
 | 48198 | 受信 | OSI出力 (GroundTruth) |
 
 ## ドキュメント

@@ -14,7 +14,8 @@
 | `lkas.py` | RoadManagerを使用して車線維持支援 (LKAS) を行う独立したコントローラです。 |
 | `pid_controller.py` | 汎用的なPID制御の実装を提供するユーティリティモジュールです。 |
 | `client.py` | esmini本体に対してUDP経由で制御コマンド（HVD）を送信するクライアントです。 |
-| `udp_receivers.py` | 外部からのウェイポイントや目標速度のUDPパケットを受信するモジュールです。 |
+| `udp_receivers.py` | 外部からのウェイポイント(`type=2`)や縦方向プロファイル(`type=3`)のUDPパケットを受信するモジュールです。 |
+| `protocol/lon_profile.py` | 縦方向プロファイル(`type=3`)パケットのデコードと線形補間を提供します。 |
 | `osi_receiver.py` | esminiから送られてくるOSI GroundTruthデータを受信・パースするラッパクラスです。 |
 | `vehicle_state.py` | OSI GroundTruthから自車状態（位置、速度など）を抽出し、道路座標データで拡張するクラスを提供します。 |
 | `waypoint.py` | ウェイポイントのデータ構造および、複数ソース（ユーザー指定、計算、UDP）からのウェイポイント管理を行います。 |
@@ -84,6 +85,18 @@
     *   目的地を設定し、自動的に経路計算を行います。
 *   `update(ground_truth, dt: float) -> Tuple[float, float, float]`
     *   メインループ用関数。ステアリング、スロットル、ブレーキの3つの値を返します。
+
+### `udp_receivers.py`
+
+**`class LongitudinalProfileReceiver`**
+*   `receive_all() -> list[LonProfilePoint] | None`
+    *   `type=3` パケットを受信し、最新の縦方向プロファイルを返します。
+*   `speed_at(t_offset: float = 0.0) -> float | None`
+    *   受信済みプロファイルから補間速度を返します。
+
+**`class WaypointReceiver`**
+*   `receive_all() -> tuple[int, list[Waypoint]] | None`
+    *   `type=2` パケットを受信し、最新の waypoint 列を返します。
 
 ### `client.py`
 
