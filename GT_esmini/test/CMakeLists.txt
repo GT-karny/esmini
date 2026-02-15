@@ -35,13 +35,29 @@ target_include_directories(${LOADER_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini/include
     ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib
 )
+add_custom_command(
+    TARGET ${LOADER_TARGET}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:${TARGET_SHARED}>
+        $<TARGET_FILE_DIR:${LOADER_TARGET}>
+    COMMENT "Copying GT_esminiLib runtime DLL beside GT_Loader"
+)
 
 # Register Integration Tests
 file(GLOB SCENARIO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/scenarios/*.xosc")
+list(FILTER SCENARIO_FILES EXCLUDE REGEX "\\.temp\\.xosc$")
 set(SCENARIO_INDEX 0)
 foreach(SCENARIO ${SCENARIO_FILES})
     get_filename_component(TEST_NAME ${SCENARIO} NAME_WE)
-    add_test(NAME GT_esmini_Integration_${TEST_NAME}_${SCENARIO_INDEX} COMMAND ${LOADER_TARGET} ${SCENARIO})
+    add_test(
+        NAME GT_esmini_Integration_${TEST_NAME}_${SCENARIO_INDEX}
+        COMMAND ${LOADER_TARGET}
+                ${SCENARIO}
+                --path ${CMAKE_SOURCE_DIR}/resources/xodr
+                --path ${CMAKE_SOURCE_DIR}/resources/xosc
+                --path ${CMAKE_SOURCE_DIR}/resources
+    )
     math(EXPR SCENARIO_INDEX "${SCENARIO_INDEX} + 1")
 endforeach()
 
