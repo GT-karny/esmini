@@ -26,6 +26,8 @@ def main() -> int:
         status = "PASS" if r.get("pass") else "FAIL"
         miss = ", ".join(r.get("missing_required_patterns", [])) or "-"
         forb = ", ".join(r.get("hit_forbidden_patterns", [])) or "-"
+        kpi_checks = r.get("kpi_checks", {}) or {}
+        kpi_check_details = kpi_checks.get("details", []) or []
         validation_points = r.get("validation_points", [])
         points_text = "<br/>".join([f"- {esc(str(p))}" for p in validation_points]) if validation_points else "-"
 
@@ -40,9 +42,32 @@ def main() -> int:
         if road_kpi.get("t_abs_max_m") is not None:
             road_summary_parts.append(f"|t|max={float(road_kpi.get('t_abs_max_m')):.2f}m")
         road_summary = "<br/>".join(esc(s) for s in road_summary_parts) if road_summary_parts else "-"
+        kpi_failed = [d for d in kpi_check_details if not d.get("pass", True)]
+        if kpi_failed:
+            kpi_text_parts = []
+            for d in kpi_failed:
+                metric = d.get("metric", "")
+                actual = d.get("actual")
+                constraints = []
+                if "min" in d:
+                    constraints.append(f">={d['min']}")
+                if "max" in d:
+                    constraints.append(f"<={d['max']}")
+                if "equals" in d:
+                    constraints.append(f"=={d['equals']}")
+                if "target" in d:
+                    constraints.append(f"{d['target']}±{d.get('tolerance', 0)}")
+                if "in" in d:
+                    constraints.append(f"in {d['in']}")
+                constraint_text = ", ".join(constraints) if constraints else d.get("reason", "check_failed")
+                kpi_text_parts.append(f"{metric}: actual={actual} (expect {constraint_text})")
+            kpi_text = "<br/>".join(esc(x) for x in kpi_text_parts)
+        else:
+            kpi_text = "PASS"
 
         fid = r.get("id")
         video = r.get("video", {}) or {}
+        driver = r.get("driverscript", {}) or {}
         frame_count = int(video.get("frame_count", 0) or 0)
         mp4_available = bool(video.get("mp4_available", False))
         mp4_name = video.get("mp4_path", "result.mp4") or "result.mp4"
@@ -57,14 +82,29 @@ def main() -> int:
         else:
             video_cell = f"N/A<br/>frames={frame_count}"
 
+        if driver.get("enabled"):
+            out_name = str(driver.get("stdout_path", "") or "")
+            err_name = str(driver.get("stderr_path", "") or "")
+            links = []
+            if out_name:
+                links.append(f"<a href=\"{esc((Path(str(fid)) / out_name).as_posix())}\">stdout</a>")
+            if err_name:
+                links.append(f"<a href=\"{esc((Path(str(fid)) / err_name).as_posix())}\">stderr</a>")
+            code_text = esc(str(driver.get("exit_code", "")))
+            driver_cell = f"exit={code_text}" + (f"<br/>{' | '.join(links)}" if links else "")
+        else:
+            driver_cell = "N/A"
+
         rows.append(
             "<tr>"
             f"<td>{esc(str(r.get('id', '')))}</td>"
             f"<td>{esc(str(r.get('name', '')))}</td>"
             f"<td>{status}</td>"
             f"<td>{video_cell}</td>"
+            f"<td>{driver_cell}</td>"
             f"<td>{points_text}</td>"
             f"<td>{road_summary}</td>"
+            f"<td>{kpi_text}</td>"
             f"<td>{esc(miss)}</td>"
             f"<td>{esc(forb)}</td>"
             "</tr>"
@@ -95,8 +135,10 @@ def main() -> int:
         <th>Name</th>
         <th>Status</th>
         <th>Video</th>
+        <th>DriverScript</th>
         <th>検証観点</th>
         <th>Road KPI要約</th>
+        <th>KPI Checks</th>
         <th>Missing Required</th>
         <th>Forbidden Hits</th>
       </tr>

@@ -1,6 +1,7 @@
 param(
     [string]$BuildDir = "build",
-    [string]$PythonExe = "python",
+    [string]$VenvDir = "venv",
+    [string]$PythonExe = "",
     [string]$MatrixPath = "GT_esmini/test/validation/realdriver_feature_matrix.yaml",
     [string]$ThresholdPath = "GT_esmini/test/validation/kpi_thresholds.yaml",
     [string]$OutputRoot = "artifacts/realdriver_features",
@@ -10,7 +11,13 @@ param(
     [int]$Hz = 100,
     [bool]$EnableVideo = $true,
     [switch]$KeepFrames,
-    [string]$WindowSize = "1280x720"
+    [string]$WindowSize = "1280x720",
+    [bool]$EnableDriverScript = $true,
+    [string]$DriverScriptPath = "DriverScript/examples/scenario_drive_example.py",
+    [string]$DriverScriptExtraArgs = "",
+    [int]$DriverStartupWaitSec = 2,
+    [string]$DriverScriptOsiReceiverIp = "127.0.0.1",
+    [int]$DriverScriptOsiPort = 48198
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,21 +42,58 @@ function Read-StructuredFile {
     throw "Cannot parse '$Path'. The file is not JSON and ConvertFrom-Yaml is unavailable. Install powershell-yaml module."
 }
 
+function Resolve-VenvPython {
+    param(
+        [string]$RepoRoot,
+        [string]$VenvDir,
+        [string]$RequestedPython
+    )
+
+    $venvRoot = if ([System.IO.Path]::IsPathRooted($VenvDir)) { $VenvDir } else { Join-Path $RepoRoot $VenvDir }
+    $venvPy = Join-Path $venvRoot "Scripts/python.exe"
+    if (-not (Test-Path $venvPy)) {
+        throw "venv python not found: $venvPy. Run scripts/setup_realdriver_validation_venv.ps1 first."
+    }
+
+    $resolvedVenvPy = (Resolve-Path $venvPy).Path
+    if ([string]::IsNullOrWhiteSpace($RequestedPython)) {
+        return $resolvedVenvPy
+    }
+
+    if (-not (Test-Path $RequestedPython)) {
+        throw "Requested -PythonExe not found: $RequestedPython"
+    }
+    $resolvedRequested = (Resolve-Path $RequestedPython).Path
+    if ($resolvedRequested -ne $resolvedVenvPy) {
+        throw "Python must be venv python. Expected: $resolvedVenvPy, got: $resolvedRequested"
+    }
+    return $resolvedRequested
+}
+
 if (-not (Test-Path $MatrixPath)) { throw "Matrix file not found: $MatrixPath" }
 if (-not (Test-Path $ThresholdPath)) { throw "Threshold file not found: $ThresholdPath" }
 
 $repoRoot = (Get-Location).Path
+$PythonExe = Resolve-VenvPython -RepoRoot $repoRoot -VenvDir $VenvDir -RequestedPython $PythonExe
 $outputRootAbs = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRoot))
 $resourcesRoot = Join-Path $repoRoot "resources"
 $xodrRoot = Join-Path $resourcesRoot "xodr"
 $xoscRoot = Join-Path $resourcesRoot "xosc"
 $catalogRoot = Join-Path $xoscRoot "Catalogs"
+$driverScriptAbs = if ([System.IO.Path]::IsPathRooted($DriverScriptPath)) { $DriverScriptPath } else { Join-Path $repoRoot $DriverScriptPath }
+$driverWorkDir = Join-Path $repoRoot "DriverScript"
+$driverXodrPath = Join-Path $resourcesRoot "xodr/fabriksgatan.xodr"
 
 if (-not (Test-Path $resourcesRoot)) { throw "Resources directory not found: $resourcesRoot" }
 if (-not (Test-Path $xodrRoot)) { throw "OpenDRIVE resource directory not found: $xodrRoot" }
 if (-not (Test-Path $xoscRoot)) { throw "OpenSCENARIO resource directory not found: $xoscRoot" }
 if (-not (Test-Path $catalogRoot)) {
     Write-Warning "Catalog root not found: $catalogRoot (scenario loading may fail if catalogs are referenced)."
+}
+if ($EnableDriverScript) {
+    if (-not (Test-Path $driverScriptAbs)) { throw "DriverScript entrypoint not found: $driverScriptAbs" }
+    if (-not (Test-Path $driverWorkDir)) { throw "DriverScript working directory not found: $driverWorkDir" }
+    if (-not (Test-Path $driverXodrPath)) { throw "OpenDRIVE map for DriverScript not found: $driverXodrPath" }
 }
 
 if (-not $SimPath) {
@@ -97,6 +141,7 @@ $features = $matrix.features
 
 Write-Host "[RealDriver] Run ID: $runId"
 Write-Host "[RealDriver] GT_Sim: $simExe"
+Write-Host "[RealDriver] Python (venv): $PythonExe"
 Write-Host "[RealDriver] Frequency: $Hz Hz"
 if ($EnableVideo) {
     if ($ffmpegPath) {
@@ -109,6 +154,7 @@ if ($EnableVideo) {
 else {
     Write-Host "[RealDriver] Video: disabled"
 }
+Write-Host "[RealDriver] DriverScript: $(if ($EnableDriverScript) { "enabled ($driverScriptAbs)" } else { "disabled" })"
 
 foreach ($f in $features) {
     $fid = $f.id
@@ -145,8 +191,34 @@ foreach ($f in $features) {
             "--video_headless"
         )
     }
+    if ($EnableDriverScript -and $DriverScriptOsiReceiverIp) {
+        $args += @("--osi_receiver_ip", $DriverScriptOsiReceiverIp)
+    }
     if ($f.run_args) {
         $args += $f.run_args.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+    }
+
+    $driverProc = $null
+    if ($EnableDriverScript) {
+        $driverOut = Join-Path $fdir "python_stdout.txt"
+        $driverErr = Join-Path $fdir "python_stderr.txt"
+        $driverArgs = @(
+            "-u",
+            $driverScriptAbs,
+            "--mode", "udp",
+            "--xodr_path", $driverXodrPath,
+            "--port", "53995",
+            "--target_speed_port", "54995",
+            "--osi_port", "$DriverScriptOsiPort"
+        )
+        if ($DriverScriptExtraArgs) {
+            $driverArgs += $DriverScriptExtraArgs.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+        }
+        $driverProc = Start-Process -FilePath $PythonExe -ArgumentList $driverArgs -WorkingDirectory $driverWorkDir -RedirectStandardOutput $driverOut -RedirectStandardError $driverErr -PassThru
+        Start-Sleep -Seconds $DriverStartupWaitSec
+        if ($driverProc.HasExited) {
+            "DriverScript exited early with code $($driverProc.ExitCode)" | Out-File -Encoding utf8 (Join-Path $fdir "runner_error.txt")
+        }
     }
 
     Push-Location $fdir
@@ -160,6 +232,23 @@ foreach ($f in $features) {
     }
     finally {
         Pop-Location
+        if ($driverProc) {
+            if (-not $driverProc.HasExited) {
+                Stop-Process -Id $driverProc.Id -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 250
+            }
+            try {
+                if ($driverProc.HasExited) {
+                    "$($driverProc.ExitCode)" | Out-File -Encoding ascii (Join-Path $fdir "driverscript_exit_code.txt")
+                }
+                else {
+                    "terminated" | Out-File -Encoding ascii (Join-Path $fdir "driverscript_exit_code.txt")
+                }
+            }
+            catch {
+                "unknown" | Out-File -Encoding ascii (Join-Path $fdir "driverscript_exit_code.txt")
+            }
+        }
     }
 
     if (Test-Path (Join-Path $fdir "sim.dat")) {

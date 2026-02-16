@@ -12,6 +12,10 @@ This document describes the RealDriver validation framework introduced for GT_es
 
 - Feature tests run on `GT_Sim` (not `GT_Loader`)
 - Default execution frequency is `--hz 100`
+- Python execution is expected to use validation `venv` (`venv/Scripts/python.exe`)
+- Feature tests launch DriverScript controller in parallel (UDP input to RealDriverController)
+  - `scenario_drive_example.py --mode udp` is launched per feature
+  - `GT_Sim` is started with `--osi_receiver_ip 127.0.0.1` so DriverScript receives OSI updates
 - Each feature run stores:
   - `sim.dat` / `sim.csv` (extended road coordinates)
   - `result.mp4` (when ffmpeg is available)
@@ -31,6 +35,12 @@ This document describes the RealDriver validation framework introduced for GT_es
 - Feature matrix: `GT_esmini/test/validation/realdriver_feature_matrix.yaml`
 - KPI thresholds: `GT_esmini/test/validation/kpi_thresholds.yaml`
 - Native reference policy: `GT_esmini/test/validation/native_reference_policy.yaml`
+- KPI-first validation:
+  - `kpi_thresholds.yaml`:
+    - `baseline_kpi_checks`: common checks applied to all features
+  - `realdriver_feature_matrix.yaml`:
+    - `kpi_checks`: scenario-specific checks (distance, speed profile, arrival conditions)
+  - `required_patterns` are treated as advisory when KPI checks are defined for a feature.
 
 ## Golden policy
 
@@ -38,10 +48,12 @@ This document describes the RealDriver validation framework introduced for GT_es
 - Native controller output is only a reference during golden creation.
 - Daily pass/fail is determined by feature KPI and approved golden values.
 - Road-coordinate KPI (`roadId/laneId/s/t`) is treated as the primary KPI axis.
+- Additional KPI checks from `sim.csv` (e.g. `s_stall_ratio`, `lead_gap_end_m`) are primary pass/fail criteria.
 
 ## Typical usage
 
 ```powershell
+./scripts/setup_realdriver_validation_venv.ps1 -VenvDir venv
 ./scripts/run_realdriver_module_tests.ps1 -BuildDir build
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -UpdateGolden
@@ -59,9 +71,12 @@ cmake --build build --config Release --target GT_Sim
 2. Run RealDriver feature tests with 100Hz baseline and video enabled:
 
 ```powershell
+./scripts/setup_realdriver_validation_venv.ps1 -VenvDir venv
+
 pwsh -NoProfile -File ./scripts/run_realdriver_feature_tests.ps1 `
   -BuildDir build `
   -SimPath ./build/GT_esmini/Release/GT_Sim.exe `
+  -VenvDir venv `
   -Hz 100 `
   -EnableVideo:$true
 ```
@@ -81,6 +96,8 @@ pwsh -NoProfile -File ./scripts/run_realdriver_feature_tests.ps1 `
 ## Prerequisites and fallback behavior
 
 - PowerShell 7 is recommended.
+- Validation venv should exist (`venv/Scripts/python.exe`).
+- If missing, run `./scripts/setup_realdriver_validation_venv.ps1 -VenvDir venv`.
 - `ffmpeg` is required for MP4 conversion.
   - If `ffmpeg` is unavailable, test execution continues and `video_error.txt` is written.
 - Feature matrix loading supports JSON first, then YAML.

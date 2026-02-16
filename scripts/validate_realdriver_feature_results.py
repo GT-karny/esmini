@@ -3,8 +3,9 @@ import argparse
 import json
 import re
 from collections import Counter
+import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import yaml  # type: ignore
@@ -84,6 +85,21 @@ def select_ego_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return [r for r in rows if _parse_int(r.get("id")) == target_id]
 
 
+def _best_non_ego_rows(rows: List[Dict[str, str]], ego_id: int) -> Tuple[Optional[int], List[Dict[str, str]]]:
+    id_to_rows: Dict[int, List[Dict[str, str]]] = {}
+    for row in rows:
+        row_id = _parse_int(row.get("id"))
+        if row_id is None or row_id == ego_id:
+            continue
+        id_to_rows.setdefault(row_id, []).append(row)
+
+    if not id_to_rows:
+        return None, []
+
+    best_id = max(id_to_rows.items(), key=lambda kv: len(kv[1]))[0]
+    return best_id, id_to_rows[best_id]
+
+
 def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     k: Dict[str, Any] = {}
     csv_path = feature_dir / "sim.csv"
@@ -91,6 +107,9 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     ego_rows = select_ego_rows(rows)
     if not ego_rows:
         return k
+    ego_id = _parse_int(ego_rows[0].get("id"))
+    if ego_id is None:
+        ego_id = 0
 
     times = [_parse_float(r.get("time")) for r in ego_rows]
     speeds = [_parse_float(r.get("speed")) for r in ego_rows]
@@ -135,7 +154,123 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     if road_ids:
         k["road_id_mode"] = Counter(road_ids).most_common(1)[0][0]
 
+    # Detect "moving in XY while road-progress s is frozen" -> often indicates
+    # path/control breakage near/off road.
+    s_stall_time = 0.0
+    duration = 0.0
+    xy_path_length = 0.0
+    s_stall_eps_m = 1e-4
+    xy_move_eps_m = 0.02
+    speed_gate_mps = 2.0
+    for prev_row, row in zip(ego_rows, ego_rows[1:]):
+        prev_t = _parse_float(prev_row.get("time"))
+        t = _parse_float(row.get("time"))
+        prev_s = _parse_float(prev_row.get("s"))
+        s = _parse_float(row.get("s"))
+        prev_x = _parse_float(prev_row.get("x"))
+        x = _parse_float(row.get("x"))
+        prev_y = _parse_float(prev_row.get("y"))
+        y = _parse_float(row.get("y"))
+        prev_speed = _parse_float(prev_row.get("speed"))
+
+        if None in (prev_t, t, prev_s, s, prev_x, x, prev_y, y, prev_speed):
+            continue
+
+        dt = max(0.0, t - prev_t)
+        duration += dt
+        dxy = math.hypot(x - prev_x, y - prev_y)
+        xy_path_length += dxy
+        if abs(s - prev_s) < s_stall_eps_m and dxy > xy_move_eps_m and abs(prev_speed) > speed_gate_mps:
+            s_stall_time += dt
+
+    if duration > 0.0:
+        k["s_stall_time_s"] = s_stall_time
+        k["s_stall_ratio"] = s_stall_time / duration
+    k["xy_path_length_m"] = xy_path_length
+
+    if speeds:
+        k["speed_span_mps"] = max(speeds) - min(speeds)
+
+    lead_id, lead_rows = _best_non_ego_rows(rows, ego_id)
+    if lead_id is not None and lead_rows:
+        lead_by_time = {}
+        for row in lead_rows:
+            t = _parse_float(row.get("time"))
+            s = _parse_float(row.get("s"))
+            if t is None or s is None:
+                continue
+            lead_by_time[round(t, 3)] = s
+
+        gaps = []
+        for row in ego_rows:
+            t = _parse_float(row.get("time"))
+            ego_s = _parse_float(row.get("s"))
+            if t is None or ego_s is None:
+                continue
+            lead_s = lead_by_time.get(round(t, 3))
+            if lead_s is None:
+                continue
+            gaps.append(lead_s - ego_s)
+
+        if gaps:
+            k["lead_id"] = lead_id
+            k["lead_gap_min_m"] = min(gaps)
+            k["lead_gap_max_m"] = max(gaps)
+            k["lead_gap_end_m"] = gaps[-1]
+            k["lead_gap_mean_m"] = sum(gaps) / len(gaps)
+
     return k
+
+
+def evaluate_kpi_checks(
+    kpi: Dict[str, Any],
+    checks: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    details: List[Dict[str, Any]] = []
+    all_ok = True
+
+    for raw_check in checks:
+        check = dict(raw_check)
+        metric = str(check.get("metric", ""))
+        actual = kpi.get(metric)
+
+        detail: Dict[str, Any] = {"metric": metric, "actual": actual}
+        ok = True
+
+        if actual is None:
+            ok = False
+            detail["reason"] = "metric_missing"
+        else:
+            if "min" in check:
+                min_value = float(check["min"])
+                detail["min"] = min_value
+                ok = ok and float(actual) >= min_value
+            if "max" in check:
+                max_value = float(check["max"])
+                detail["max"] = max_value
+                ok = ok and float(actual) <= max_value
+            if "equals" in check:
+                expected = check["equals"]
+                detail["equals"] = expected
+                ok = ok and (actual == expected)
+            if "in" in check:
+                values = list(check["in"])
+                detail["in"] = values
+                ok = ok and (actual in values)
+            if "target" in check:
+                target = float(check["target"])
+                tol = float(check.get("tolerance", 0.0))
+                diff = abs(float(actual) - target)
+                detail["target"] = target
+                detail["tolerance"] = tol
+                detail["abs_error"] = diff
+                ok = ok and diff <= tol
+
+        detail["pass"] = ok
+        details.append(detail)
+        all_ok = all_ok and ok
+
+    return {"pass": all_ok, "details": details}
 
 
 def compare_with_golden(actual_kpi: Dict[str, Any], golden_file: Path, thresholds: Dict[str, Any]) -> Dict[str, Any]:
@@ -215,6 +350,25 @@ def read_video_info(feature_dir: Path) -> Dict[str, Any]:
     }
 
 
+def read_driverscript_info(feature_dir: Path) -> Dict[str, Any]:
+    exit_code_raw = ""
+    exit_code_path = feature_dir / "driverscript_exit_code.txt"
+    if exit_code_path.exists():
+        exit_code_raw = exit_code_path.read_text(encoding="utf-8", errors="ignore").strip()
+
+    stdout_path = feature_dir / "python_stdout.txt"
+    stderr_path = feature_dir / "python_stderr.txt"
+    stdout_exists = stdout_path.exists()
+    stderr_exists = stderr_path.exists()
+
+    return {
+        "enabled": stdout_exists or stderr_exists or bool(exit_code_raw),
+        "exit_code": exit_code_raw,
+        "stdout_path": "python_stdout.txt" if stdout_exists else "",
+        "stderr_path": "python_stderr.txt" if stderr_exists else "",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--matrix", required=True)
@@ -225,7 +379,9 @@ def main() -> int:
     args = parser.parse_args()
 
     matrix = load_yaml(Path(args.matrix))
-    thresholds = load_yaml(Path(args.thresholds)).get("defaults", {})
+    threshold_config = load_yaml(Path(args.thresholds))
+    thresholds = threshold_config.get("defaults", {})
+    baseline_kpi_checks = threshold_config.get("baseline_kpi_checks", [])
     run_dir = Path(args.run_dir)
     golden_root = Path(args.golden_root)
 
@@ -249,10 +405,16 @@ def main() -> int:
                 hit_forbidden.append(pat)
 
         kpi = compute_kpis(fdir)
+        feature_kpi_checks = list(baseline_kpi_checks) + list(feat.get("kpi_checks", []))
+        kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         golden_file = golden_root / fid / "kpi_reference.json"
         golden_cmp = compare_with_golden(kpi, golden_file, thresholds)
 
-        passed = (len(missing_required) == 0 and len(hit_forbidden) == 0 and golden_cmp["pass"])
+        # KPI is the primary verdict axis; required log patterns remain advisory
+        # when explicit KPI checks are configured.
+        require_log_patterns = len(feature_kpi_checks) == 0
+        logs_ok = (len(missing_required) == 0) if require_log_patterns else True
+        passed = (logs_ok and len(hit_forbidden) == 0 and golden_cmp["pass"] and kpi_eval["pass"])
         overall_pass = overall_pass and passed
 
         road_kpi = {
@@ -285,6 +447,7 @@ def main() -> int:
             "pass": passed,
             "missing_required_patterns": missing_required,
             "hit_forbidden_patterns": hit_forbidden,
+            "kpi_checks": kpi_eval,
             "kpi": kpi,
             "golden": golden_cmp,
             "road_kpi": road_kpi,
@@ -293,6 +456,7 @@ def main() -> int:
             "required_modules_py": feat.get("required_modules_py", []),
             "validation_points": feat.get("validation_points", []),
             "video": read_video_info(fdir),
+            "driverscript": read_driverscript_info(fdir),
         }
 
         if args.update_golden:
