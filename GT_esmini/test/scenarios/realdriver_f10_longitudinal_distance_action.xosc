@@ -31,11 +31,11 @@
     <Init>
       <Actions>
         <Private entityRef="Ego">
-          <PrivateAction><TeleportAction><Position><LanePosition roadId="0" laneId="-1" offset="0" s="20"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><TeleportAction><Position><LanePosition roadId="2" laneId="-1" offset="0" s="20"/></Position></TeleportAction></PrivateAction>
           <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="10.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
           <PrivateAction><ActivateControllerAction longitudinal="true" lateral="true"/></PrivateAction>
         </Private>
-        <Private entityRef="Lead"><PrivateAction><TeleportAction><Position><LanePosition roadId="0" laneId="-1" offset="0" s="70"/></Position></TeleportAction></PrivateAction><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="8.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Private>
+        <Private entityRef="Lead"><PrivateAction><TeleportAction><Position><LanePosition roadId="2" laneId="-1" offset="0" s="70"/></Position></TeleportAction></PrivateAction><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="8.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Private>
       </Actions>
     </Init>
     <Story name="RealDriverFeatureStory">
@@ -55,3 +55,4 @@
     <StopTrigger><ConditionGroup><Condition name="StopAt10s" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="10.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StopTrigger>
   </Storyboard>
 </OpenSCENARIO>
+

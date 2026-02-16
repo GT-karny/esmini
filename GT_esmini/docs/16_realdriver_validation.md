@@ -40,6 +40,7 @@ This document describes the RealDriver validation framework introduced for GT_es
     - `baseline_kpi_checks`: common checks applied to all features
   - `realdriver_feature_matrix.yaml`:
     - `kpi_checks`: scenario-specific checks (distance, speed profile, arrival conditions)
+    - `kpi_checks_any`: OR-based checks where any one condition is sufficient
   - `required_patterns` are treated as advisory when KPI checks are defined for a feature.
 
 ## Golden policy
@@ -49,6 +50,10 @@ This document describes the RealDriver validation framework introduced for GT_es
 - Daily pass/fail is determined by feature KPI and approved golden values.
 - Road-coordinate KPI (`roadId/laneId/s/t`) is treated as the primary KPI axis.
 - Additional KPI checks from `sim.csv` (e.g. `s_stall_ratio`, `lead_gap_end_m`) are primary pass/fail criteria.
+- Additional derived KPI examples:
+  - `t_span_m` (`t_max_m - t_min_m`)
+  - `speed_end_mps`
+  - `lead_gap_start_m`
 
 ## Typical usage
 

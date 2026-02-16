@@ -28,6 +28,8 @@ def main() -> int:
         forb = ", ".join(r.get("hit_forbidden_patterns", [])) or "-"
         kpi_checks = r.get("kpi_checks", {}) or {}
         kpi_check_details = kpi_checks.get("details", []) or []
+        kpi_checks_any = r.get("kpi_checks_any", {}) or {}
+        kpi_check_any_details = kpi_checks_any.get("details", []) or []
         validation_points = r.get("validation_points", [])
         points_text = "<br/>".join([f"- {esc(str(p))}" for p in validation_points]) if validation_points else "-"
 
@@ -43,8 +45,11 @@ def main() -> int:
             road_summary_parts.append(f"|t|max={float(road_kpi.get('t_abs_max_m')):.2f}m")
         road_summary = "<br/>".join(esc(s) for s in road_summary_parts) if road_summary_parts else "-"
         kpi_failed = [d for d in kpi_check_details if not d.get("pass", True)]
+        kpi_any_failed = [d for d in kpi_check_any_details if not d.get("pass", True)]
+
+        kpi_text_parts = []
         if kpi_failed:
-            kpi_text_parts = []
+            kpi_text_parts.append("AND checks:")
             for d in kpi_failed:
                 metric = d.get("metric", "")
                 actual = d.get("actual")
@@ -61,9 +66,28 @@ def main() -> int:
                     constraints.append(f"in {d['in']}")
                 constraint_text = ", ".join(constraints) if constraints else d.get("reason", "check_failed")
                 kpi_text_parts.append(f"{metric}: actual={actual} (expect {constraint_text})")
-            kpi_text = "<br/>".join(esc(x) for x in kpi_text_parts)
-        else:
-            kpi_text = "PASS"
+
+        if kpi_check_any_details:
+            any_status = "PASS" if kpi_checks_any.get("pass", False) else "FAIL"
+            kpi_text_parts.append(f"ANY checks: {any_status}")
+            for d in kpi_any_failed:
+                metric = d.get("metric", "")
+                actual = d.get("actual")
+                constraints = []
+                if "min" in d:
+                    constraints.append(f">={d['min']}")
+                if "max" in d:
+                    constraints.append(f"<={d['max']}")
+                if "equals" in d:
+                    constraints.append(f"=={d['equals']}")
+                if "target" in d:
+                    constraints.append(f"{d['target']}±{d.get('tolerance', 0)}")
+                if "in" in d:
+                    constraints.append(f"in {d['in']}")
+                constraint_text = ", ".join(constraints) if constraints else d.get("reason", "check_failed")
+                kpi_text_parts.append(f"{metric}: actual={actual} (expect {constraint_text})")
+
+        kpi_text = "<br/>".join(esc(x) for x in kpi_text_parts) if kpi_text_parts else "PASS"
 
         fid = r.get("id")
         video = r.get("video", {}) or {}

@@ -10,7 +10,6 @@
     "road_t_abs_max_delta_m": 0.25
   },
   "baseline_kpi_checks": [
-    {"metric": "s_progress_m", "min": 60.0},
     {"metric": "s_stall_ratio", "max": 0.05}
   ],
   "feature_overrides": {

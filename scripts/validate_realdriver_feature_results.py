@@ -121,6 +121,7 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     if speeds:
         k["speed_min_mps"] = min(speeds)
         k["speed_max_mps"] = max(speeds)
+        k["speed_end_mps"] = _parse_float(ego_rows[-1].get("speed"))
 
     lane_ids = [_parse_int(r.get("laneId")) for r in ego_rows]
     lane_ids = [l for l in lane_ids if l is not None]
@@ -147,6 +148,7 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     if t_values:
         k["t_min_m"] = min(t_values)
         k["t_max_m"] = max(t_values)
+        k["t_span_m"] = max(t_values) - min(t_values)
         k["t_abs_max_m"] = max(abs(v) for v in t_values)
 
     road_ids = [_parse_int(r.get("roadId")) for r in ego_rows]
@@ -214,6 +216,7 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
 
         if gaps:
             k["lead_id"] = lead_id
+            k["lead_gap_start_m"] = gaps[0]
             k["lead_gap_min_m"] = min(gaps)
             k["lead_gap_max_m"] = max(gaps)
             k["lead_gap_end_m"] = gaps[-1]
@@ -271,6 +274,30 @@ def evaluate_kpi_checks(
         all_ok = all_ok and ok
 
     return {"pass": all_ok, "details": details}
+
+
+def evaluate_kpi_checks_any(
+    kpi: Dict[str, Any],
+    checks_any: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not checks_any:
+        return {"pass": True, "details": [], "mode": "any", "matched_count": 0}
+
+    details: List[Dict[str, Any]] = []
+    matched = 0
+    for raw_check in checks_any:
+        single_eval = evaluate_kpi_checks(kpi, [dict(raw_check)])
+        detail = single_eval["details"][0]
+        details.append(detail)
+        if detail.get("pass", False):
+            matched += 1
+
+    return {
+        "pass": matched > 0,
+        "details": details,
+        "mode": "any",
+        "matched_count": matched,
+    }
 
 
 def compare_with_golden(actual_kpi: Dict[str, Any], golden_file: Path, thresholds: Dict[str, Any]) -> Dict[str, Any]:
@@ -407,6 +434,8 @@ def main() -> int:
         kpi = compute_kpis(fdir)
         feature_kpi_checks = list(baseline_kpi_checks) + list(feat.get("kpi_checks", []))
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
+        feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
+        kpi_any_eval = evaluate_kpi_checks_any(kpi, feature_kpi_checks_any)
         golden_file = golden_root / fid / "kpi_reference.json"
         golden_cmp = compare_with_golden(kpi, golden_file, thresholds)
 
@@ -414,7 +443,7 @@ def main() -> int:
         # when explicit KPI checks are configured.
         require_log_patterns = len(feature_kpi_checks) == 0
         logs_ok = (len(missing_required) == 0) if require_log_patterns else True
-        passed = (logs_ok and len(hit_forbidden) == 0 and golden_cmp["pass"] and kpi_eval["pass"])
+        passed = (logs_ok and len(hit_forbidden) == 0 and golden_cmp["pass"] and kpi_eval["pass"] and kpi_any_eval["pass"])
         overall_pass = overall_pass and passed
 
         road_kpi = {
@@ -448,6 +477,7 @@ def main() -> int:
             "missing_required_patterns": missing_required,
             "hit_forbidden_patterns": hit_forbidden,
             "kpi_checks": kpi_eval,
+            "kpi_checks_any": kpi_any_eval,
             "kpi": kpi,
             "golden": golden_cmp,
             "road_kpi": road_kpi,
