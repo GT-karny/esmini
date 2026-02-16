@@ -9,6 +9,13 @@ def esc(text: str) -> str:
     return html.escape(text, quote=True)
 
 
+def render_list_cell(items: object) -> str:
+    values = list(items) if isinstance(items, list) else []
+    if not values:
+        return "-"
+    return "<br/>".join([f"- {esc(str(v))}" for v in values])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", required=True)
@@ -31,7 +38,11 @@ def main() -> int:
         kpi_checks_any = r.get("kpi_checks_any", {}) or {}
         kpi_check_any_details = kpi_checks_any.get("details", []) or []
         validation_points = r.get("validation_points", [])
-        points_text = "<br/>".join([f"- {esc(str(p))}" for p in validation_points]) if validation_points else "-"
+        points_text = render_list_cell(validation_points)
+        expected_behavior = r.get("expected_behavior_nl") or validation_points
+        judgement_criteria = r.get("judgement_criteria_nl", [])
+        expected_behavior_text = render_list_cell(expected_behavior)
+        judgement_criteria_text = render_list_cell(judgement_criteria)
 
         road_kpi = r.get("road_kpi", {}) or {}
         road_summary_parts = []
@@ -126,6 +137,8 @@ def main() -> int:
             f"<td>{status}</td>"
             f"<td>{video_cell}</td>"
             f"<td>{driver_cell}</td>"
+            f"<td>{expected_behavior_text}</td>"
+            f"<td>{judgement_criteria_text}</td>"
             f"<td>{points_text}</td>"
             f"<td>{road_summary}</td>"
             f"<td>{kpi_text}</td>"
@@ -160,6 +173,8 @@ def main() -> int:
         <th>Status</th>
         <th>Video</th>
         <th>DriverScript</th>
+        <th>期待挙動（自然言語）</th>
+        <th>判定基準（自然言語+数値）</th>
         <th>検証観点</th>
         <th>Road KPI要約</th>
         <th>KPI Checks</th>

@@ -112,16 +112,34 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         ego_id = 0
 
     times = [_parse_float(r.get("time")) for r in ego_rows]
-    speeds = [_parse_float(r.get("speed")) for r in ego_rows]
     times = [t for t in times if t is not None]
-    speeds = [s for s in speeds if s is not None]
+
+    # Authoritative speed for validation:
+    # derive actual speed from XY displacement over time instead of trusting
+    # object speed column, which can diverge from RealVehicle physics state.
+    actual_speeds: List[float] = []
+    for prev_row, row in zip(ego_rows, ego_rows[1:]):
+        prev_t = _parse_float(prev_row.get("time"))
+        t = _parse_float(row.get("time"))
+        prev_x = _parse_float(prev_row.get("x"))
+        x = _parse_float(row.get("x"))
+        prev_y = _parse_float(prev_row.get("y"))
+        y = _parse_float(row.get("y"))
+        if None in (prev_t, t, prev_x, x, prev_y, y):
+            continue
+        dt = t - prev_t
+        if dt <= 0.0:
+            continue
+        dxy = math.hypot(x - prev_x, y - prev_y)
+        actual_speeds.append(dxy / dt)
 
     if times:
         k["duration_s"] = max(times)
-    if speeds:
-        k["speed_min_mps"] = min(speeds)
-        k["speed_max_mps"] = max(speeds)
-        k["speed_end_mps"] = _parse_float(ego_rows[-1].get("speed"))
+    if actual_speeds:
+        k["speed_source"] = "xy_derivative"
+        k["speed_min_mps"] = min(actual_speeds)
+        k["speed_max_mps"] = max(actual_speeds)
+        k["speed_end_mps"] = actual_speeds[-1]
 
     lane_ids = [_parse_int(r.get("laneId")) for r in ego_rows]
     lane_ids = [l for l in lane_ids if l is not None]
@@ -173,16 +191,15 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         x = _parse_float(row.get("x"))
         prev_y = _parse_float(prev_row.get("y"))
         y = _parse_float(row.get("y"))
-        prev_speed = _parse_float(prev_row.get("speed"))
-
-        if None in (prev_t, t, prev_s, s, prev_x, x, prev_y, y, prev_speed):
+        if None in (prev_t, t, prev_s, s, prev_x, x, prev_y, y):
             continue
 
         dt = max(0.0, t - prev_t)
         duration += dt
         dxy = math.hypot(x - prev_x, y - prev_y)
+        actual_speed = (dxy / dt) if dt > 0.0 else 0.0
         xy_path_length += dxy
-        if abs(s - prev_s) < s_stall_eps_m and dxy > xy_move_eps_m and abs(prev_speed) > speed_gate_mps:
+        if abs(s - prev_s) < s_stall_eps_m and dxy > xy_move_eps_m and abs(actual_speed) > speed_gate_mps:
             s_stall_time += dt
 
     if duration > 0.0:
@@ -190,8 +207,8 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         k["s_stall_ratio"] = s_stall_time / duration
     k["xy_path_length_m"] = xy_path_length
 
-    if speeds:
-        k["speed_span_mps"] = max(speeds) - min(speeds)
+    if actual_speeds:
+        k["speed_span_mps"] = max(actual_speeds) - min(actual_speeds)
 
     lead_id, lead_rows = _best_non_ego_rows(rows, ego_id)
     if lead_id is not None and lead_rows:
@@ -298,6 +315,60 @@ def evaluate_kpi_checks_any(
         "mode": "any",
         "matched_count": matched,
     }
+
+
+def _fmt_num(value: Any) -> str:
+    if isinstance(value, float):
+        text = f"{value:.6f}".rstrip("0").rstrip(".")
+        return text if text else "0"
+    return str(value)
+
+
+def _describe_check_nl(check: Dict[str, Any]) -> str:
+    metric = str(check.get("metric", "unknown_metric"))
+    parts: List[str] = []
+    if "target" in check:
+        target = _fmt_num(check.get("target"))
+        tol = _fmt_num(check.get("tolerance", 0))
+        parts.append(f"{metric} が {target}±{tol} の範囲に入ること")
+    if "equals" in check:
+        parts.append(f"{metric} が {_fmt_num(check.get('equals'))} に一致すること")
+    if "min" in check:
+        parts.append(f"{metric} が {_fmt_num(check.get('min'))} 以上であること")
+    if "max" in check:
+        parts.append(f"{metric} が {_fmt_num(check.get('max'))} 以下であること")
+    if "in" in check:
+        values = ", ".join(_fmt_num(v) for v in list(check.get("in", [])))
+        parts.append(f"{metric} が [{values}] のいずれかであること")
+    return "かつ ".join(parts) if parts else f"{metric} の条件を満たすこと"
+
+
+def build_judgement_criteria_nl(
+    feat: Dict[str, Any],
+    and_checks: List[Dict[str, Any]],
+    any_checks: List[Dict[str, Any]],
+) -> List[str]:
+    criteria: List[str] = []
+
+    required_patterns = list(feat.get("required_patterns", []))
+    forbidden_patterns = list(feat.get("forbidden_patterns", []))
+    if required_patterns:
+        patterns = " / ".join(str(p) for p in required_patterns)
+        criteria.append(f"ログに次の必須パターンが出現すること: {patterns}")
+    if forbidden_patterns:
+        patterns = " / ".join(str(p) for p in forbidden_patterns)
+        criteria.append(f"ログに次の禁止パターンが出現しないこと: {patterns}")
+
+    for check in and_checks:
+        criteria.append(_describe_check_nl(dict(check)))
+
+    if any_checks:
+        any_text = "、または ".join(_describe_check_nl(dict(check)) for check in any_checks)
+        criteria.append(f"次のいずれかを満たすこと: {any_text}")
+
+    if not criteria:
+        criteria.append("ログとKPIに重大な異常がなく、シナリオを完走すること。")
+    return criteria
 
 
 def compare_with_golden(actual_kpi: Dict[str, Any], golden_file: Path, thresholds: Dict[str, Any]) -> Dict[str, Any]:
@@ -436,6 +507,12 @@ def main() -> int:
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
         kpi_any_eval = evaluate_kpi_checks_any(kpi, feature_kpi_checks_any)
+        expected_behavior_nl = list(feat.get("expected_behavior_nl", [])) or list(feat.get("validation_points", []))
+        judgement_criteria_nl = list(feat.get("judgement_criteria_nl", [])) or build_judgement_criteria_nl(
+            feat=feat,
+            and_checks=feature_kpi_checks,
+            any_checks=feature_kpi_checks_any,
+        )
         golden_file = golden_root / fid / "kpi_reference.json"
         golden_cmp = compare_with_golden(kpi, golden_file, thresholds)
 
@@ -485,6 +562,8 @@ def main() -> int:
             "required_modules_cpp": feat.get("required_modules_cpp", []),
             "required_modules_py": feat.get("required_modules_py", []),
             "validation_points": feat.get("validation_points", []),
+            "expected_behavior_nl": expected_behavior_nl,
+            "judgement_criteria_nl": judgement_criteria_nl,
             "video": read_video_info(fdir),
             "driverscript": read_driverscript_info(fdir),
         }

@@ -25,10 +25,15 @@ This document describes the RealDriver validation framework introduced for GT_es
 
 - `report.html` now shows these columns per scenario:
   - `Video`: link to `result.mp4`
+  - `期待挙動（自然言語）`: timeline-based behavior description per scenario
+  - `判定基準（自然言語+数値）`: pass/fail criteria in plain language with KPI thresholds
   - `検証観点`: human-readable validation points from feature matrix
   - `Road KPI要約`: lane/s/t based KPI summary
-- Validation points are defined in:
-  - `GT_esmini/test/validation/realdriver_feature_matrix.yaml` (`validation_points`)
+- Scenario narratives and criteria are defined in:
+  - `GT_esmini/test/validation/realdriver_feature_matrix.yaml`
+    - `expected_behavior_nl` (timeline natural language)
+    - `judgement_criteria_nl` (natural language + KPI thresholds)
+    - `validation_points` (legacy compatibility field)
 
 ## Configuration
 
@@ -41,6 +46,8 @@ This document describes the RealDriver validation framework introduced for GT_es
   - `realdriver_feature_matrix.yaml`:
     - `kpi_checks`: scenario-specific checks (distance, speed profile, arrival conditions)
     - `kpi_checks_any`: OR-based checks where any one condition is sufficient
+    - `expected_behavior_nl`: timeline-based narrative (e.g. "開始5秒で停止。3秒後、4秒かけて40km/hへ加速")
+    - `judgement_criteria_nl`: natural-language pass criteria with numeric thresholds
   - `required_patterns` are treated as advisory when KPI checks are defined for a feature.
 
 ## Golden policy
@@ -94,6 +101,8 @@ pwsh -NoProfile -File ./scripts/run_realdriver_feature_tests.ps1 `
 4. Check each scenario row in `report.html`:
 
 - `PASS/FAIL`
+- `期待挙動（自然言語）` (timeline narrative of intended behavior)
+- `判定基準（自然言語+数値）` (human-readable criteria with thresholds)
 - `検証観点` (expected behavior being validated)
 - `Road KPI要約` (`roadId/laneId/s/t` based summary)
 - `Video` (`result.mp4` link, or first-line error reason)

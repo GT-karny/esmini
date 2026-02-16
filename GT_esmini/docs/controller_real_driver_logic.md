@@ -202,3 +202,69 @@ flowchart LR
 - `ControllerRealDriver` still owns many helper methods, but frame orchestration moved to `RealDriverCoordinator`.
 - `LonProfilePlanner` currently performs linear interpolation from current speed to set speed with fixed accel/jerk limits.
 - `LatPathPlanner` is responsible only for action selection; detailed waypoint regeneration remains in `ControllerRealDriver`.
+
+## 10. Target vs Actual Speed Model
+
+This controller uses two distinct speed domains by design:
+
+- Target domain (`setSpeed_`): intended speed used to generate type=3 profile.
+- Actual domain (`real_vehicle_.speed_`): physics result from UDP driver inputs.
+
+### 10.1 Target domain (`setSpeed_`)
+
+- Field definition: `setSpeed_` in `ControllerRealDriver`.
+- Initialization in `Activate()`:
+  - `currentSpeed_ = object_->GetSpeed()`
+  - `setSpeed_ = object_->GetSpeed()`
+- Per-frame update path:
+  - `RealDriverCoordinator::RunFrame()` calls `ControlDecisionEngine::UpdateSetSpeed()`
+  - `ControlDecisionEngine::UpdateSetSpeed()` calls `ControllerRealDriver::UpdateSetSpeedFromScenarioObject()`
+  - `UpdateSetSpeedFromScenarioObject()` reads `object_->GetSpeed()` and updates `setSpeed_` on change.
+
+Implication:
+- Target speed tracking is object/scenario-side driven unless overridden by active action handling.
+
+### 10.2 Actual domain (`real_vehicle_.speed_`)
+
+- Physics update path:
+  - UDP packet -> `ParseDriverInputPacket()` -> `input_.throttle/brake/steering/gear`
+  - `UpdateVehiclePhysics()` -> `real_vehicle_.UpdatePhysics(...)`
+  - `currentSpeed_ = real_vehicle_.speed_`
+
+Implication:
+- Actual speed is input/vehicle-dynamics driven, independent from `object_->GetSpeed()` at that instant.
+
+### 10.3 Where the two domains meet
+
+- Type=3 profile generation uses both values per frame:
+  - `BuildProfile(currentSpeed_, setSpeed_)`
+  - then sent by `DriverOutputPort::SendLonProfile()`.
+- In Python `ScenarioDriveController`, the profile is received and converted into controller target speed, then PID computes throttle/brake from:
+  - `speed_error = target_speed - current_speed`.
+
+So longitudinal control loop is:
+
+`C++ actual(currentSpeed_) + C++ target(setSpeed_) -> type=3 profile -> Python target_speed -> Python throttle/brake -> UDP -> C++ physics(actual)`
+
+### 10.4 Synchronization gate (`blockSpeedUpdate`)
+
+`SyncGatewayObjectState(..., blockSpeedUpdate)` conditionally mirrors actual speed back to scenario object:
+
+- `blockSpeedUpdate == false`: `gateway_->updateObjectSpeed(..., real_vehicle_.speed_)`
+- `blockSpeedUpdate == true`: speed mirror is skipped.
+
+`blockSpeedUpdate` is driven by `hasRunningScenarioLongAction` (from `GetRunningActionState()`), which becomes true when longitudinal scenario actions are running (including SpeedAction / LongDistance / SpeedProfile / Synchronize).
+
+Implication:
+- During blocked intervals, object/scenario speed can diverge from actual physics speed.
+- If target-domain updates still read `object_->GetSpeed()` in that window, target and actual can drift and then reconnect abruptly when action state changes.
+
+### 10.5 Key references
+
+- `GT_esmini/src/control/realdriver/RealDriverCoordinator.cpp`
+- `GT_esmini/src/control/ControlDecisionEngine.cpp`
+- `GT_esmini/src/control/ControllerRealDriver.cpp`
+- `GT_esmini/src/control/realdriver/LonProfilePlanner.cpp`
+- `GT_esmini/src/control/realdriver/DriverOutputPort.cpp`
+- `DriverScript/realdriver/scenario_drive.py`
+- `DriverScript/realdriver/longitudinal_controller.py`

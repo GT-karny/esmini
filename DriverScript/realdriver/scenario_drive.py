@@ -198,7 +198,9 @@ class ScenarioDriveController:
         """Receive longitudinal profile from UDP and pick current target speed."""
         profile = self._lon_profile_receiver.receive_all()
         if profile:
-            speed = profile[0].v_target
+            # Use the terminal speed of the profile as control target.
+            # profile[0] is the current-speed anchor and causes target~=current.
+            speed = profile[-1].v_target
             if abs(speed - self.target_speed) > 0.1:
                 print(f"[DEBUG_PY] Target speed CHANGED: {self.target_speed:.2f} -> {speed:.2f} m/s")
             self.target_speed = speed

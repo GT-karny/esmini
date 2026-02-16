@@ -130,3 +130,39 @@ sequenceDiagram
 
     Note over esmini: Simulation Loop End
 ```
+
+## 4. Longitudinal Data Domains (Target vs Actual)
+
+RealDriverの縦制御には、速度の値系が2つあります。
+
+- Target値系 (`setSpeed_`):
+  - 目標速度。シナリオ/オブジェクト速度を起点に更新される。
+  - `LonProfilePlanner` に入力され、type=3プロファイルとしてPythonへ送信される。
+- Actual値系 (`real_vehicle_.speed_`):
+  - UDP入力（throttle/brake/gear）と車両物理で更新される実運動速度。
+  - `UpdateVehiclePhysics()` で更新される。
+
+```mermaid
+flowchart LR
+    A[Scenario object speed] --> B[Target setSpeed]
+    C[UDP input controls] --> D[RealVehicle physics update]
+    D --> E[Actual real_vehicle speed]
+    B --> F[BuildProfile with current and target]
+    E --> F
+    F --> G[Type3 UDP profile]
+    G --> H[Python target speed]
+    H --> I[Python PID]
+    I --> J[UDP control packet]
+    J --> D
+```
+
+### Synchronization Gate
+
+`SyncGatewayObjectState(..., blockSpeedUpdate)` により、`real_vehicle_.speed_` を `object` 側へ反映するかを切り替える。
+
+- `blockSpeedUpdate=false`: `object` へ実速度を同期
+- `blockSpeedUpdate=true`: 同期しない（値系が一時的に乖離し得る）
+
+このゲートは、実行中の縦アクション状態（`hasRunningScenarioLongAction`）で決まる。
+
+そのため、設計上は「target値系」と「actual値系」が常に同一とは限らない。
