@@ -28,6 +28,10 @@
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
+
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+#include "gt_esmini/control/ControllerPythonDriver.hpp"
+#endif
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
@@ -213,12 +217,15 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
          return -1;
     }
 
-    // 1.5 Register Custom Controller
+    // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+#endif
 
     // 2. Initialize esmini using SE_Init with sanitized file
-    int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0); 
-    
+    int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
+
     // Clean up temp file
     std::remove(sanitizedFile.c_str()); 
 
@@ -401,8 +408,11 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         for(int i=0; i<argc; i++) newArgv.push_back(argv[i]);
     }
 
-    // 1.5 Register Custom Controller
+    // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+#endif
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
@@ -538,38 +548,39 @@ GT_ESMINI_API void GT_Step(double dt)
             // Clear ADAS functions from previous frame
             hvReporter.ClearADASFunctions(vehicleId);
 
-            // Try to get RealDriverController and pass input data to HostVehicleReporter
+            // Try to get RealDriverController (or PythonDriverController) and pass input data to HostVehicleReporter
             Object* egoObject = player->scenarioEngine->entities_.GetObjectById(vehicleId);
             if (egoObject)
             {
                 Controller* ctrl = egoObject->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME);
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+                if (!ctrl)
+                {
+                    ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
+                }
+#endif
                 if (ctrl)
                 {
-                    // Cast to RealDriverController
-                    gt_esmini::ControllerRealDriver* realDriver =
-                        dynamic_cast<gt_esmini::ControllerRealDriver*>(ctrl);
+                    auto pushControllerState = [&](auto* concreteCtrl) {
+                        if (!concreteCtrl)
+                        {
+                            return;
+                        }
 
-                    if (realDriver)
-                    {
-                        // Get input data from controller
                         double throttle, brake, steering;
                         int gear, lightMask;
-                        realDriver->GetInputsForOSI(throttle, brake, steering, gear, lightMask);
+                        concreteCtrl->GetInputsForOSI(throttle, brake, steering, gear, lightMask);
 
-                        // Get powertrain data
                         double rpm, torque;
-                        realDriver->GetPowertrainForOSI(rpm, torque);
+                        concreteCtrl->GetPowertrainForOSI(rpm, torque);
 
-                        // Pass to GT_HostVehicleReporter
                         hvReporter.SetInputs(vehicleId, throttle, brake, steering, gear);
                         hvReporter.SetLights(vehicleId, lightMask);
                         hvReporter.SetPowertrain(vehicleId, rpm, torque);
 
-                        // Get and pass ADAS data (OSI compliant function names)
                         std::vector<int> adasStates;
-                        realDriver->GetADASStates(adasStates);
+                        concreteCtrl->GetADASStates(adasStates);
 
-                        // Map bits to OSI ADAS function names (24 types based on OSI VehicleAutomatedDrivingFunction_Name)
                         static const char* adasNames[] = {
                             "BLIND_SPOT_WARNING",                  // 0
                             "FORWARD_COLLISION_WARNING",           // 1
@@ -597,18 +608,25 @@ GT_ESMINI_API void GT_Step(double dt)
                             "SPEED_LIMIT_CONTROL",                 // 23
                         };
 
-                        // Process states if vector is populated
                         if (adasStates.size() >= 24)
                         {
                             for (int i = 0; i < 24; i++)
                             {
-                                int state = adasStates[i];
-                                // Report if state is relevant (e.g., typically we report everything, 
-                                // but 0=UNKNOWN could be skipped if desired. For full visibility, report all.)
-                                hvReporter.AddADASFunction(vehicleId, adasNames[i], state);
+                                hvReporter.AddADASFunction(vehicleId, adasNames[i], adasStates[i]);
                             }
                         }
+                    };
+
+                    if (auto* realDriver = dynamic_cast<gt_esmini::ControllerRealDriver*>(ctrl))
+                    {
+                        pushControllerState(realDriver);
                     }
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+                    else if (auto* pythonDriver = dynamic_cast<gt_esmini::ControllerPythonDriver*>(ctrl))
+                    {
+                        pushControllerState(pythonDriver);
+                    }
+#endif
                 }
             }
 

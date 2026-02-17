@@ -13,6 +13,24 @@ set(GT_OSI_TARGET gt_osi)
 include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_static_analysis.cmake)
 include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_iwyu.cmake)
 
+# ############################### Embedded Python option #############################################################################################
+
+option(GT_ENABLE_EMBEDDED_PYTHON "Enable embedded Python interpreter support for PythonDriverController" OFF)
+
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    # Prefer bundled embeddable Python.
+    set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
+    if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+        set(Python3_ROOT_DIR "${GT_EMBEDDED_PYTHON_HOME}" CACHE PATH "Embedded Python root")
+        set(Python3_FIND_STRATEGY LOCATION)
+        set(Python3_FIND_REGISTRY NEVER)
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Development)
+    message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, version ${Python3_VERSION})")
+    message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
+    message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
+endif()
+
 # ############################### Setting target files ###############################################################################################
 
 set(GT_CORE_SOURCES
@@ -70,6 +88,18 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp)
+
+# Embedded Python controller sources (conditionally added)
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    list(APPEND GT_CONTROL_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerPythonDriver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverBridge.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverCoordinator.cpp)
+    list(APPEND GT_CONTROL_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+endif()
 
 set(GT_OSI_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/GT_HostVehicleReporter.cpp)
@@ -233,6 +263,25 @@ endif()
 if(USE_OSI)
     target_link_libraries(${TARGET_SHARED} PRIVATE ${OSI_LIBRARIES})
     target_link_libraries(${TARGET_STATIC} PRIVATE ${OSI_LIBRARIES})
+endif()
+
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
+        target_link_libraries(${TARGET} PRIVATE Python3::Python)
+        target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
+        if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+            target_compile_definitions(${TARGET} PRIVATE GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
+        endif()
+    endforeach()
+    # Also add compile definition to gt_core (for GT_esminiLib.cpp registration)
+    target_compile_definitions(${GT_CORE_TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
+    # Add esminiLib include path for SE_GetOSIGroundTruth / SE_GetODRFilename
+    target_include_directories(${GT_CONTROL_TARGET} PRIVATE
+        ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
+    target_include_directories(${TARGET_SHARED} PRIVATE
+        ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
+    target_include_directories(${TARGET_STATIC} PRIVATE
+        ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
 endif()
 
 # ############################### Install############################################################################################################

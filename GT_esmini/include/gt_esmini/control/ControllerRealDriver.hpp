@@ -77,6 +77,9 @@ namespace gt_esmini
         friend class DriverOutputPort;
         friend class LatPathPlanner;
         friend class RealDriverCoordinator;
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+        friend class PythonDriverCoordinator;
+#endif
 
         struct RunningActionState
         {
