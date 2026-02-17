@@ -117,6 +117,19 @@ def _nearest_series_value(series: List[Tuple[float, float]], ts: float) -> Optio
     return next_v
 
 
+def _moving_average_series(series: List[Tuple[float, float]], half_window: int = 5) -> List[Tuple[float, float]]:
+    if not series:
+        return []
+    out: List[Tuple[float, float]] = []
+    for idx, (ts, _) in enumerate(series):
+        lo = max(0, idx - half_window)
+        hi = min(len(series), idx + half_window + 1)
+        window = series[lo:hi]
+        mean_v = sum(v for _, v in window) / float(len(window))
+        out.append((ts, mean_v))
+    return out
+
+
 def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     k: Dict[str, Any] = {}
     csv_path = feature_dir / "sim.csv"
@@ -136,6 +149,7 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     # object speed column, which can diverge from RealVehicle physics state.
     actual_speeds: List[float] = []
     signed_speeds: List[float] = []
+    actual_speed_series: List[Tuple[float, float]] = []
     signed_speed_series: List[Tuple[float, float]] = []
     for prev_row, row in zip(ego_rows, ego_rows[1:]):
         prev_t = _parse_float(prev_row.get("time"))
@@ -152,7 +166,9 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         if dt <= 0.0:
             continue
         dxy = math.hypot(x - prev_x, y - prev_y)
-        actual_speeds.append(dxy / dt)
+        actual_speed = dxy / dt
+        actual_speeds.append(actual_speed)
+        actual_speed_series.append((t, actual_speed))
         if None not in (prev_s, s):
             signed_speed = (s - prev_s) / dt
             signed_speeds.append(signed_speed)
@@ -293,12 +309,15 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
 
     osi_lights_csv_path = feature_dir / "osi_lights.csv"
     light_rows = parse_csv_rows(osi_lights_csv_path)
-    signed_accel_series: List[Tuple[float, float]] = []
-    for (t0, v0), (t1, v1) in zip(signed_speed_series, signed_speed_series[1:]):
+    smoothed_actual_speed_series = _moving_average_series(actual_speed_series, half_window=5)
+    baseline_samples = [v for _, v in smoothed_actual_speed_series[:50]]
+    baseline_speed = (sum(baseline_samples) / float(len(baseline_samples))) if baseline_samples else 0.0
+    actual_accel_series: List[Tuple[float, float]] = []
+    for (t0, v0), (t1, v1) in zip(smoothed_actual_speed_series, smoothed_actual_speed_series[1:]):
         dt = t1 - t0
         if dt <= 0.0:
             continue
-        signed_accel_series.append((t1, (v1 - v0) / dt))
+        actual_accel_series.append((t1, (v1 - v0) / dt))
 
     reverse_window_samples = 0
     reverse_on_in_reverse_window = 0
@@ -320,9 +339,17 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
             if reverse_on:
                 reverse_on_in_reverse_window += 1
 
-        # Braking window: forward motion with deceleration.
-        signed_accel = _nearest_series_value(signed_accel_series, ts)
-        if signed_speed >= 0.5 and signed_accel is not None and signed_accel <= -0.2:
+        # Braking window: forward motion with clearly negative longitudinal accel.
+        # Use XY-speed derivative instead of ds/dt second derivative to avoid s-quantization artifacts.
+        longitudinal_accel = _nearest_series_value(actual_accel_series, ts)
+        smoothed_speed = _nearest_series_value(smoothed_actual_speed_series, ts)
+        if (
+            signed_speed >= 0.5
+            and longitudinal_accel is not None
+            and smoothed_speed is not None
+            and longitudinal_accel <= -0.5
+            and smoothed_speed <= (baseline_speed - 0.3)
+        ):
             braking_window_samples += 1
             if brake_on:
                 brake_on_in_braking_window += 1
