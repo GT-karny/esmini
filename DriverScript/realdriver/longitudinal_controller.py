@@ -32,6 +32,7 @@ class LongitudinalConfig:
     pid_kd: float = 0.1
     output_limits: Tuple[float, float] = (-1.0, 1.0)
     integral_limits: Tuple[float, float] = (-0.5, 0.5)
+    reverse_deadband_mps: float = 0.2
 
 
 DEFAULT_LONGITUDINAL_CONFIG = LongitudinalConfig()
@@ -106,16 +107,16 @@ class LongitudinalController:
     @target_speed.setter
     def target_speed(self, value: float) -> None:
         """Set target speed in m/s."""
-        self._target_speed = max(0.0, value)
+        self._target_speed = float(value)
 
     def set_target_speed(self, speed: float) -> None:
         """
         Set target speed.
 
         Args:
-            speed: Target speed in m/s (clamped to >= 0)
+            speed: Target speed in m/s
         """
-        self._target_speed = max(0.0, speed)
+        self._target_speed = float(speed)
 
     def update(self, ground_truth, dt: float) -> LongitudinalOutput:
         """
@@ -154,7 +155,16 @@ class LongitudinalController:
             return LongitudinalOutput(throttle=0.0, brake=0.0)
 
         self._last_speed = current_speed
-        speed_error = self._target_speed - current_speed
+        target_speed = self._target_speed
+        deadband = max(0.0, self.config.reverse_deadband_mps)
+
+        # Reverse mode compares speed magnitudes so controller can generate
+        # positive throttle while transmission gear is set to reverse.
+        if target_speed < -deadband:
+            speed_error = abs(target_speed) - abs(current_speed)
+        else:
+            speed_error = target_speed - current_speed
+
         control = self.pid.update(speed_error, dt)
 
         if control >= 0:

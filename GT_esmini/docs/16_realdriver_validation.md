@@ -15,7 +15,7 @@ This document describes the RealDriver validation framework introduced for GT_es
 - Python execution is expected to use validation `venv` (`venv/Scripts/python.exe`)
 - Feature tests launch DriverScript controller in parallel (UDP input to RealDriverController)
   - `scenario_drive_example.py --mode udp` is launched per feature
-  - `GT_Sim` is started with `--osi_receiver_ip 127.0.0.1` so DriverScript receives OSI updates
+  - `GT_Sim` is started with `--osi 127.0.0.1` so DriverScript receives OSI updates
 - Each feature run stores:
   - `sim.dat` / `sim.csv` (extended road coordinates)
   - `result.mp4` (when ffmpeg is available)
@@ -60,7 +60,23 @@ This document describes the RealDriver validation framework introduced for GT_es
 - Additional derived KPI examples:
   - `t_span_m` (`t_max_m - t_min_m`)
   - `speed_end_mps`
+  - `signed_speed_min_mps` (signed speed from `ds/dt`, used for reverse detection)
   - `lead_gap_start_m`
+
+## F03 policy (brake/reverse lights)
+
+- `F03` validates both behavior and reflection:
+  - behavior: vehicle transitions to reverse (`signed_speed_min_mps <= -0.5`)
+  - reflection: OSI `light_state` reports brake/reversing lights as expected
+- F03 run enables DriverScript reverse profile handling only for this scenario:
+  - `driverscript_extra_args: --allow_reverse_from_profile`
+- F03 also stores OSI light metrics under feature output:
+  - `osi_light_metrics.json` (required KPI source)
+  - `osi_lights.csv` (sample-level debug log)
+- Ego identification rule for light metrics:
+  - Must use `GroundTruth.host_vehicle_id` to select ego `moving_object`
+  - Do not assume `moving_object` index `0` or `id=0`
+  - `moving_object.id` can change per scenario/run
 
 ## Typical usage
 
@@ -129,6 +145,7 @@ Each feature directory (`artifacts/realdriver_features/<run_id>/Fxx/`) contains:
 - `frame_count.txt`
 - `result.mp4` (when conversion succeeded)
 - `video_encode.log` / `video_error.txt` (when relevant)
+- `osi_light_metrics.json` / `osi_lights.csv` (when scenario enables OSI light metric collection, e.g. F03)
 
 ## Common troubleshooting
 

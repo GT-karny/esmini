@@ -43,9 +43,17 @@
         <ManeuverGroup maximumExecutionCount="1" name="MG1">
           <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
           <Maneuver name="M1">
-            <Event name="FeatureEvent" priority="overwrite">
-              <Action name="FeatureAction"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="linear" dynamicsDimension="time" value="2.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action>
-              <StartTrigger><ConditionGroup><Condition name="StartFeature" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="1.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+            <Event name="DecelerateToStop" priority="overwrite">
+              <Action name="DecelerateAction"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="linear" dynamicsDimension="time" value="2.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action>
+              <StartTrigger><ConditionGroup><Condition name="StartDecel" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="1.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+            </Event>
+            <Event name="StartReverse" priority="overwrite">
+              <Action name="ReverseAction"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="-2.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action>
+              <StartTrigger><ConditionGroup><Condition name="StartReverseAt4s" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="4.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+            </Event>
+            <Event name="StopAfterReverse" priority="overwrite">
+              <Action name="StopAction"><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="linear" dynamicsDimension="time" value="1.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="0.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction></Action>
+              <StartTrigger><ConditionGroup><Condition name="StopReverseAt7s" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="7.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
             </Event>
           </Maneuver>
         </ManeuverGroup>

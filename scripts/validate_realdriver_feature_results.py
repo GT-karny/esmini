@@ -118,6 +118,7 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     # derive actual speed from XY displacement over time instead of trusting
     # object speed column, which can diverge from RealVehicle physics state.
     actual_speeds: List[float] = []
+    signed_speeds: List[float] = []
     for prev_row, row in zip(ego_rows, ego_rows[1:]):
         prev_t = _parse_float(prev_row.get("time"))
         t = _parse_float(row.get("time"))
@@ -125,6 +126,8 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         x = _parse_float(row.get("x"))
         prev_y = _parse_float(prev_row.get("y"))
         y = _parse_float(row.get("y"))
+        prev_s = _parse_float(prev_row.get("s"))
+        s = _parse_float(row.get("s"))
         if None in (prev_t, t, prev_x, x, prev_y, y):
             continue
         dt = t - prev_t
@@ -132,6 +135,8 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
             continue
         dxy = math.hypot(x - prev_x, y - prev_y)
         actual_speeds.append(dxy / dt)
+        if None not in (prev_s, s):
+            signed_speeds.append((s - prev_s) / dt)
 
     if times:
         k["duration_s"] = max(times)
@@ -140,6 +145,11 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         k["speed_min_mps"] = min(actual_speeds)
         k["speed_max_mps"] = max(actual_speeds)
         k["speed_end_mps"] = actual_speeds[-1]
+    if signed_speeds:
+        k["signed_speed_source"] = "s_derivative"
+        k["signed_speed_min_mps"] = min(signed_speeds)
+        k["signed_speed_max_mps"] = max(signed_speeds)
+        k["signed_speed_end_mps"] = signed_speeds[-1]
 
     lane_ids = [_parse_int(r.get("laneId")) for r in ego_rows]
     lane_ids = [l for l in lane_ids if l is not None]
@@ -239,6 +249,28 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
             k["lead_gap_end_m"] = gaps[-1]
             k["lead_gap_mean_m"] = sum(gaps) / len(gaps)
 
+    osi_light_metrics_path = feature_dir / "osi_light_metrics.json"
+    if osi_light_metrics_path.exists():
+        try:
+            light_metrics = json.loads(osi_light_metrics_path.read_text(encoding="utf-8"))
+            if isinstance(light_metrics, dict):
+                for key in (
+                    "brake_on_ratio",
+                    "reverse_on_ratio",
+                    "brake_on_duration_s",
+                    "reverse_on_duration_s",
+                    "light_state_observed",
+                    "host_vehicle_id_seen",
+                    "host_vehicle_id_last",
+                    "host_vehicle_match_frames",
+                    "unmatched_frames",
+                    "moving_object_ids_seen",
+                ):
+                    if key in light_metrics:
+                        k[key] = light_metrics[key]
+        except json.JSONDecodeError:
+            pass
+
     return k
 
 
@@ -287,6 +319,16 @@ def evaluate_kpi_checks(
                 ok = ok and diff <= tol
 
         detail["pass"] = ok
+        if not ok and metric in {"light_state_observed", "brake_on_ratio", "reverse_on_ratio"}:
+            for diag_key in (
+                "host_vehicle_id_seen",
+                "host_vehicle_id_last",
+                "host_vehicle_match_frames",
+                "unmatched_frames",
+                "moving_object_ids_seen",
+            ):
+                if diag_key in kpi:
+                    detail[diag_key] = kpi[diag_key]
         details.append(detail)
         all_ok = all_ok and ok
 

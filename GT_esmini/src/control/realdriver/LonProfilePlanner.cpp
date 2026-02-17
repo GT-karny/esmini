@@ -15,8 +15,8 @@ std::vector<LonProfilePoint> LonProfilePlanner::BuildProfile(double current_spee
     std::vector<LonProfilePoint> profile;
     profile.reserve(kPoints);
 
-    const double v0 = std::max(0.0, current_speed);
-    const double v1 = std::max(0.0, target_speed);
+    const double v0 = current_speed;
+    const double v1 = target_speed;
 
     for (int i = 0; i < kPoints; ++i)
     {

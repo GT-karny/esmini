@@ -86,7 +86,8 @@ class ScenarioDriveController:
                  speed_pid: Tuple[float, float, float] = (0.8, 0.02, 0.1),
                  lane_change_time: float = 5.0,
                  lookahead_distance: float = 5.0,
-                 steering_config: Optional[LateralConfig] = None):
+                 steering_config: Optional[LateralConfig] = None,
+                 allow_reverse_from_profile: bool = False):
         """
         Initialize ScenarioDriveController.
 
@@ -155,6 +156,7 @@ class ScenarioDriveController:
         self._no_route_warned = False
         self._pending_target: Optional[Waypoint] = None
         self._last_udp_waypoint_sig = None
+        self.allow_reverse_from_profile = allow_reverse_from_profile
 
         # For backward compatibility
         self.waypoint_mgr = self.lateral.waypoint_mgr
@@ -201,6 +203,8 @@ class ScenarioDriveController:
             # Use the terminal speed of the profile as control target.
             # profile[0] is the current-speed anchor and causes target~=current.
             speed = profile[-1].v_target
+            if not self.allow_reverse_from_profile and speed < 0.0:
+                speed = 0.0
             if abs(speed - self.target_speed) > 0.1:
                 print(f"[DEBUG_PY] Target speed CHANGED: {self.target_speed:.2f} -> {speed:.2f} m/s")
             self.target_speed = speed

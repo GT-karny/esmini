@@ -192,13 +192,17 @@ foreach ($f in $features) {
         )
     }
     if ($EnableDriverScript -and $DriverScriptOsiReceiverIp) {
-        $args += @("--osi_receiver_ip", $DriverScriptOsiReceiverIp)
+        $args += @("--osi", $DriverScriptOsiReceiverIp)
     }
     if ($f.run_args) {
         $args += $f.run_args.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
     }
 
     $driverProc = $null
+    $collectOsiLightMetrics = $false
+    if ($null -ne $f.collect_osi_light_metrics) {
+        $collectOsiLightMetrics = [bool]$f.collect_osi_light_metrics
+    }
     if ($EnableDriverScript) {
         $driverOut = Join-Path $fdir "python_stdout.txt"
         $driverErr = Join-Path $fdir "python_stderr.txt"
@@ -211,8 +215,19 @@ foreach ($f in $features) {
             "--target_speed_port", "54995",
             "--osi_port", "$DriverScriptOsiPort"
         )
+        if ($collectOsiLightMetrics) {
+            $driverArgs += @(
+                "--collect_osi_light_metrics",
+                "--light_metrics_out", (Join-Path $fdir "osi_light_metrics.json"),
+                "--light_metrics_csv_out", (Join-Path $fdir "osi_lights.csv"),
+                "--max_runtime_s", "14.0"
+            )
+        }
         if ($DriverScriptExtraArgs) {
             $driverArgs += $DriverScriptExtraArgs.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+        }
+        if ($f.driverscript_extra_args) {
+            $driverArgs += $f.driverscript_extra_args.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
         }
         $driverProc = Start-Process -FilePath $PythonExe -ArgumentList $driverArgs -WorkingDirectory $driverWorkDir -RedirectStandardOutput $driverOut -RedirectStandardError $driverErr -PassThru
         Start-Sleep -Seconds $DriverStartupWaitSec
@@ -233,7 +248,7 @@ foreach ($f in $features) {
     finally {
         Pop-Location
         if ($driverProc) {
-            if (-not $driverProc.HasExited) {
+            if (-not $driverProc.WaitForExit(5000)) {
                 Stop-Process -Id $driverProc.Id -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Milliseconds 250
             }

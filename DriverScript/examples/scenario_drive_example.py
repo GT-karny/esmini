@@ -15,6 +15,8 @@ import time
 import argparse
 import socket
 import sys
+import os
+from pathlib import Path
 
 from realdriver import (
     RealDriverClient,
@@ -26,6 +28,14 @@ try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
     from argspec_utils import add_dump_argspec_option, maybe_dump_argspec
+
+try:
+    from scripts.collect_osi_light_metrics import OsiLightMetricsCollector
+except ImportError:
+    repo_scripts = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts"))
+    if repo_scripts not in sys.path:
+        sys.path.insert(0, repo_scripts)
+    from collect_osi_light_metrics import OsiLightMetricsCollector
 
 
 def create_sample_waypoints():
@@ -40,7 +50,6 @@ def create_sample_waypoints():
 
 def main():
     # Calculate script directory for relative paths
-    import os
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Go up to DriverScript directory, then to bin
     bin_dir = os.path.normpath(os.path.join(script_dir, "..", "bin"))
@@ -75,6 +84,16 @@ def main():
                         help="Target X coordinate (for target mode)")
     parser.add_argument("--target_y", type=float, default=0.0,
                         help="Target Y coordinate (for target mode)")
+    parser.add_argument("--allow_reverse_from_profile", action="store_true",
+                        help="Allow negative target speed from UDP profile and use reverse gear")
+    parser.add_argument("--collect_osi_light_metrics", action="store_true",
+                        help="Collect brake/reverse light metrics from received OSI GroundTruth")
+    parser.add_argument("--light_metrics_out", type=str, default="",
+                        help="Output JSON path for OSI light metrics")
+    parser.add_argument("--light_metrics_csv_out", type=str, default="",
+                        help="Optional output CSV path for OSI light samples")
+    parser.add_argument("--max_runtime_s", type=float, default=0.0,
+                        help="Exit loop after this many seconds (0=run until interrupted)")
     add_dump_argspec_option(parser)
 
     args = parser.parse_args()
@@ -111,7 +130,8 @@ def main():
             steering_pid=(1.5, 0.01, 0.1),
             speed_pid=(0.3, 0.01, 0.0),  # Reduced gains, removed D-term for stability
             lane_change_time=5.0,
-            lookahead_distance=10.0
+            lookahead_distance=10.0,
+            allow_reverse_from_profile=args.allow_reverse_from_profile,
         )
     except Exception as e:
         print(f"Failed to initialize ScenarioDrive Controller: {e}")
@@ -142,13 +162,19 @@ def main():
 
     print("\nStarting control loop. Press Ctrl+C to stop.")
     print("-" * 60)
+    light_metrics = OsiLightMetricsCollector() if args.collect_osi_light_metrics else None
 
     try:
         last_time = time.time()
+        start_time = last_time
         frame_number = 0
         no_route_warning_shown = False
+        current_gear = 1
+        reverse_deadband_mps = 0.2
 
         while True:
+            if args.max_runtime_s > 0.0 and (time.time() - start_time) >= args.max_runtime_s:
+                break
             # --- 1. Get raw OSI GroundTruth ---
             try:
                 ground_truth = osi_rx.receiver.receive()
@@ -162,6 +188,8 @@ def main():
                 dt = 0.001
 
             if ground_truth is not None:
+                if light_metrics is not None:
+                    light_metrics.observe(ground_truth)
                 try:
                     # --- 2. Update ScenarioDrive Controller ---
                     steering, throttle, brake = controller.update(ground_truth, dt)
@@ -173,7 +201,7 @@ def main():
                             no_route_warning_shown = True
                         # Send neutral controls to keep vehicle stopped
                         client.set_controls(0.0, 0.5, 0.0)  # Apply some brake
-                        client.set_gear(1)
+                        client.set_gear(current_gear)
                         client.send_update()
                         frame_number += 1
                         continue
@@ -197,14 +225,20 @@ def main():
                     # If target is to the LEFT, heading_to_target > current_heading, heading_error > 0
                     # To correct, we want to turn LEFT (negative steering in esmini)
                     # So: steering = -PID_output
+                    target_speed = controller.target_speed
+                    if args.allow_reverse_from_profile:
+                        if target_speed < -reverse_deadband_mps:
+                            current_gear = -1
+                        elif target_speed > reverse_deadband_mps:
+                            current_gear = 1
                     client.set_controls(throttle, brake, -steering)
-                    client.set_gear(1)  # Drive
+                    client.set_gear(current_gear)
                     client.send_update()
 
                 except Exception as e:
                     print(f"Controller Error: {e}")
                     client.set_controls(0.0, 0.5, 0.0)
-                    client.set_gear(1)
+                    client.set_gear(current_gear)
                     client.send_update()
 
             else:
@@ -212,7 +246,7 @@ def main():
                 if frame_number % 100 == 0:
                     print("Waiting for OSI GroundTruth...")
                 client.set_controls(0.0, 0.0, 0.0)
-                client.set_gear(1)
+                client.set_gear(current_gear)
                 client.send_update()
 
             frame_number += 1
@@ -220,6 +254,13 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
+        if light_metrics is not None and args.light_metrics_out:
+            json_out = os.path.abspath(args.light_metrics_out)
+            csv_out = os.path.abspath(args.light_metrics_csv_out) if args.light_metrics_csv_out else None
+            light_metrics.write_outputs(
+                json_out=Path(json_out),
+                csv_out=Path(csv_out) if csv_out else None,
+            )
         print("Closing connections...")
         controller.close()
         osi_rx.close()
