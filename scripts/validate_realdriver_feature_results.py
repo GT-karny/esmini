@@ -2,6 +2,7 @@
 import argparse
 import json
 import re
+from bisect import bisect_left
 from collections import Counter
 import math
 from pathlib import Path
@@ -100,6 +101,22 @@ def _best_non_ego_rows(rows: List[Dict[str, str]], ego_id: int) -> Tuple[Optiona
     return best_id, id_to_rows[best_id]
 
 
+def _nearest_series_value(series: List[Tuple[float, float]], ts: float) -> Optional[float]:
+    if not series:
+        return None
+    times = [t for t, _ in series]
+    idx = bisect_left(times, ts)
+    if idx <= 0:
+        return series[0][1]
+    if idx >= len(series):
+        return series[-1][1]
+    prev_t, prev_v = series[idx - 1]
+    next_t, next_v = series[idx]
+    if abs(ts - prev_t) <= abs(next_t - ts):
+        return prev_v
+    return next_v
+
+
 def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     k: Dict[str, Any] = {}
     csv_path = feature_dir / "sim.csv"
@@ -119,6 +136,7 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     # object speed column, which can diverge from RealVehicle physics state.
     actual_speeds: List[float] = []
     signed_speeds: List[float] = []
+    signed_speed_series: List[Tuple[float, float]] = []
     for prev_row, row in zip(ego_rows, ego_rows[1:]):
         prev_t = _parse_float(prev_row.get("time"))
         t = _parse_float(row.get("time"))
@@ -136,7 +154,9 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         dxy = math.hypot(x - prev_x, y - prev_y)
         actual_speeds.append(dxy / dt)
         if None not in (prev_s, s):
-            signed_speeds.append((s - prev_s) / dt)
+            signed_speed = (s - prev_s) / dt
+            signed_speeds.append(signed_speed)
+            signed_speed_series.append((t, signed_speed))
 
     if times:
         k["duration_s"] = max(times)
@@ -271,6 +291,49 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
+    osi_lights_csv_path = feature_dir / "osi_lights.csv"
+    light_rows = parse_csv_rows(osi_lights_csv_path)
+    signed_accel_series: List[Tuple[float, float]] = []
+    for (t0, v0), (t1, v1) in zip(signed_speed_series, signed_speed_series[1:]):
+        dt = t1 - t0
+        if dt <= 0.0:
+            continue
+        signed_accel_series.append((t1, (v1 - v0) / dt))
+
+    reverse_window_samples = 0
+    reverse_on_in_reverse_window = 0
+    braking_window_samples = 0
+    brake_on_in_braking_window = 0
+    for row in light_rows:
+        ts = _parse_float(row.get("timestamp_s"))
+        if ts is None or ts < 0.0:
+            continue
+        signed_speed = _nearest_series_value(signed_speed_series, ts)
+        if signed_speed is None:
+            continue
+        brake_on = _parse_int(row.get("brake_on")) == 1
+        reverse_on = _parse_int(row.get("reverse_on")) == 1
+
+        # Reverse window: actual reverse motion region only.
+        if signed_speed <= -0.5:
+            reverse_window_samples += 1
+            if reverse_on:
+                reverse_on_in_reverse_window += 1
+
+        # Braking window: forward motion with deceleration.
+        signed_accel = _nearest_series_value(signed_accel_series, ts)
+        if signed_speed >= 0.5 and signed_accel is not None and signed_accel <= -0.2:
+            braking_window_samples += 1
+            if brake_on:
+                brake_on_in_braking_window += 1
+
+    if reverse_window_samples > 0:
+        k["reverse_on_ratio_in_reverse_window"] = float(reverse_on_in_reverse_window) / float(reverse_window_samples)
+    if braking_window_samples > 0:
+        k["brake_on_ratio_in_braking_window"] = float(brake_on_in_braking_window) / float(braking_window_samples)
+    k["reverse_window_samples"] = reverse_window_samples
+    k["braking_window_samples"] = braking_window_samples
+
     return k
 
 
@@ -319,13 +382,21 @@ def evaluate_kpi_checks(
                 ok = ok and diff <= tol
 
         detail["pass"] = ok
-        if not ok and metric in {"light_state_observed", "brake_on_ratio", "reverse_on_ratio"}:
+        if not ok and metric in {
+            "light_state_observed",
+            "brake_on_ratio",
+            "reverse_on_ratio",
+            "brake_on_ratio_in_braking_window",
+            "reverse_on_ratio_in_reverse_window",
+        }:
             for diag_key in (
                 "host_vehicle_id_seen",
                 "host_vehicle_id_last",
                 "host_vehicle_match_frames",
                 "unmatched_frames",
                 "moving_object_ids_seen",
+                "reverse_window_samples",
+                "braking_window_samples",
             ):
                 if diag_key in kpi:
                     detail[diag_key] = kpi[diag_key]

@@ -68,6 +68,10 @@ This document describes the RealDriver validation framework introduced for GT_es
 - `F03` validates both behavior and reflection:
   - behavior: vehicle transitions to reverse (`signed_speed_min_mps <= -0.5`)
   - reflection: OSI `light_state` reports brake/reversing lights as expected
+- F03 light KPI is window-based (not full-runtime ratio):
+  - reverse window: samples where signed speed indicates reverse motion
+  - braking window: samples where forward motion with deceleration is detected
+  - KPI: `reverse_on_ratio_in_reverse_window`, `brake_on_ratio_in_braking_window`
 - F03 run enables DriverScript reverse profile handling only for this scenario:
   - `driverscript_extra_args: --allow_reverse_from_profile`
 - F03 also stores OSI light metrics under feature output:
