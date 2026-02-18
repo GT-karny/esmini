@@ -13,6 +13,14 @@ Legacy Combined API (for backward compatibility):
     - ScenarioDriveController: Combined lateral + longitudinal control
 """
 
+import warnings
+
+warnings.warn(
+    "realdriver package is deprecated. Use pythondriver for PythonDriverController (embedded) integrations.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from .client import RealDriverClient, LightMode, IndicatorMode
 from .osi_receiver import OSIReceiverWrapper
 from .udp_common import UdpSender, UdpReceiver, OSIReceiver

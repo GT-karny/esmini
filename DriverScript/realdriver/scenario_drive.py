@@ -11,6 +11,7 @@ directly for more flexibility.
 """
 
 import math
+import warnings
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -87,7 +88,8 @@ class ScenarioDriveController:
                  lane_change_time: float = 5.0,
                  lookahead_distance: float = 5.0,
                  steering_config: Optional[LateralConfig] = None,
-                 allow_reverse_from_profile: bool = False):
+                 allow_reverse_from_profile: bool = False,
+                 mode: str = "udp"):
         """
         Initialize ScenarioDriveController.
 
@@ -104,6 +106,16 @@ class ScenarioDriveController:
             lookahead_distance: Lookahead distance for steering (meters) - ignored, use steering_config
             steering_config: Steering tuning parameters (uses defaults if None)
         """
+        self.mode = mode
+        if self.mode not in ("udp", "embedded"):
+            raise ValueError(f"Unsupported mode: {self.mode}")
+        if self.mode == "udp":
+            warnings.warn(
+                "ScenarioDriveController(mode='udp') is deprecated. Use pythondriver embedded mode.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         # Initialize RoadManager
         self.rm_lib = EsminiRMLib(lib_path)
         if self.rm_lib.Init(xodr_path) < 0:
@@ -144,9 +156,9 @@ class ScenarioDriveController:
             )
         )
 
-        # UDP receivers
-        self._lon_profile_receiver = LongitudinalProfileReceiver(target_speed_port)
-        self._waypoint_receiver = WaypointReceiver(waypoint_port)
+        # UDP receivers (deprecated path)
+        self._lon_profile_receiver = LongitudinalProfileReceiver(target_speed_port) if self.mode == "udp" else None
+        self._waypoint_receiver = WaypointReceiver(waypoint_port) if self.mode == "udp" else None
 
         # State
         self.ego_id = ego_id
@@ -157,6 +169,7 @@ class ScenarioDriveController:
         self._pending_target: Optional[Waypoint] = None
         self._last_udp_waypoint_sig = None
         self.allow_reverse_from_profile = allow_reverse_from_profile
+        self._embedded_frame_data = None
 
         # For backward compatibility
         self.waypoint_mgr = self.lateral.waypoint_mgr
@@ -198,6 +211,21 @@ class ScenarioDriveController:
 
     def _receive_target_speed(self) -> None:
         """Receive longitudinal profile from UDP and pick current target speed."""
+        if self.mode == "embedded":
+            profile = []
+            if self._embedded_frame_data:
+                profile = self._embedded_frame_data.get("lon_profile", []) or []
+            if profile:
+                speed = profile[-1].get("v_target", self.target_speed)
+                if not self.allow_reverse_from_profile and speed < 0.0:
+                    speed = 0.0
+                self.target_speed = speed
+                self.longitudinal.set_target_speed(speed)
+            return
+
+        if self._lon_profile_receiver is None:
+            return
+
         profile = self._lon_profile_receiver.receive_all()
         if profile:
             # Use the terminal speed of the profile as control target.
@@ -212,6 +240,32 @@ class ScenarioDriveController:
 
     def _receive_waypoints(self) -> None:
         """Receive waypoints from UDP and generate dense route."""
+        if self.mode == "embedded":
+            if not self._embedded_frame_data:
+                return
+            frame_waypoints = self._embedded_frame_data.get("waypoints", []) or []
+            if not frame_waypoints:
+                return
+            waypoints = [
+                Waypoint(
+                    x=wp.get("x", 0.0),
+                    y=wp.get("y", 0.0),
+                    h=wp.get("h", 0.0),
+                    road_id=wp.get("road_id", -1),
+                    s=wp.get("s", 0.0),
+                    lane_id=wp.get("lane_id", 0),
+                    lane_offset=wp.get("lane_offset", 0.0),
+                )
+                for wp in frame_waypoints
+            ]
+            index = int(self._embedded_frame_data.get("waypoint_index", 0))
+            self.lateral.set_calculated_waypoints(waypoints)
+            self.waypoint_mgr.current_index = max(0, min(index, max(0, len(waypoints) - 1)))
+            return
+
+        if self._waypoint_receiver is None:
+            return
+
         result = self._waypoint_receiver.receive()
         if result is None:
             return
@@ -363,6 +417,10 @@ class ScenarioDriveController:
         lon_output = self.longitudinal.update_from_speed(state.speed, dt)
 
         return steering, lon_output.throttle, lon_output.brake
+
+    def set_embedded_frame_data(self, frame_data: dict) -> None:
+        """Provide frame payload from PythonDriverBridge in embedded mode."""
+        self._embedded_frame_data = frame_data
 
     def close(self) -> None:
         """Clean up resources."""

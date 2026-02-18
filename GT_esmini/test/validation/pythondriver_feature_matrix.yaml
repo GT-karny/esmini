@@ -1,0 +1,589 @@
+{
+  "metadata": {
+    "controller": "PythonDriverController",
+    "source_matrix": "GT_esmini\\test\\validation\\realdriver_feature_matrix.yaml",
+    "migration_map": {
+      "io_layer_udp": [
+        "client.py",
+        "udp_common.py",
+        "udp_receivers.py",
+        "osi_receiver.py"
+      ],
+      "control_logic_reused": [
+        "lateral_controller.py",
+        "longitudinal_controller.py",
+        "acc_controller.py",
+        "lane_change_controller.py",
+        "lkas.py",
+        "scenario_drive.py"
+      ],
+      "model_helpers": [
+        "vehicle_state.py",
+        "waypoint.py",
+        "simplified_router.py",
+        "rm_lib.py",
+        "gt_rm_lib.py"
+      ]
+    },
+    "acceptance_gate": "no crash / no data handoff breakage"
+  },
+  "features": [
+    {
+      "id": "F01",
+      "name": "UDP input decode",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f01_udp_input_decode.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "Failed to parse HostVehicleData",
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "ControlDecisionEngine"
+      ],
+      "required_modules_py": [
+        "pythondriver.client"
+      ],
+      "validation_points": [
+        "RealDriverControllerが初期化されUDP入力を受信できる",
+        "HostVehicleDataのパース失敗ログが出ない"
+      ],
+      "expected_behavior_nl": [
+        "開始直後にRealDriverControllerが起動し、UDP入力を継続的に受信する。",
+        "10秒間の走行中に入力デコード失敗で制御が途切れない。"
+      ],
+      "judgement_criteria_nl": [
+        "ログに 'RealDriverController' が出現し、コントローラ初期化が確認できる。",
+        "ログに 'Failed to parse HostVehicleData' が1回も出ないこと。"
+      ],
+      "kpi_checks": [],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F02",
+      "name": "LightMask mapping",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f02_lightmask_mapping.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "Failed to parse HostVehicleData",
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "ControllerRealDriverUtils"
+      ],
+      "required_modules_py": [
+        "pythondriver.client"
+      ],
+      "validation_points": [
+        "ライトマスク入力がRealDriverControllerで解釈される",
+        "HostVehicleDataデコードエラーが発生しない"
+      ],
+      "expected_behavior_nl": [
+        "開始後数秒以内にライトマスク入力が取り込まれ、ライト状態へ反映される。",
+        "シナリオ終了まで入力デコードエラーなく制御が継続する。"
+      ],
+      "judgement_criteria_nl": [
+        "ログに 'RealDriverController' が出現し、入力処理経路が有効であること。",
+        "ログに 'Failed to parse HostVehicleData' が1回も出ないこと。"
+      ],
+      "kpi_checks": [],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F03",
+      "name": "Auto brake/reverse lights",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f03_brake_reverse_auto_light.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "Failed to parse HostVehicleData",
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "ControllerRealDriverUtils"
+      ],
+      "required_modules_py": [
+        "pythondriver.client"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "停止後に後退へ遷移し、signed速度で逆方向走行が確認できる",
+        "OSI GroundTruthのbrake/reverse lightが期待通り反映される",
+        "不正パケット由来の失敗ログが出ない"
+      ],
+      "expected_behavior_nl": [
+        "開始後に減速して停止し、その後に後退状態へ遷移する。",
+        "後退中はreversing light、減速中はbrake lightがOSI GroundTruthへ反映される。",
+        "シナリオ終端では車速がほぼゼロまで低下する。"
+      ],
+      "judgement_criteria_nl": [
+        "終了時速度 speed_end_mps が 0.5 m/s 以下であること。",
+        "最小符号付き速度 signed_speed_min_mps が -0.5 m/s 以下であること。",
+        "後退窓で reverse_on_ratio_in_reverse_window が 0.9 以上、減速窓で brake_on_ratio_in_braking_window が 0.9 以上であること。",
+        "light_state_observed が true であること。",
+        "ログに 'Failed to parse HostVehicleData' が1回も出ないこと。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F04",
+      "name": "Longitudinal profile output type=3",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f04_lon_profile_output.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "Failed to send longitudinal profile",
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LonProfilePlanner",
+        "DriverOutputPort"
+      ],
+      "required_modules_py": [
+        "pythondriver.protocol.lon_profile",
+        "pythondriver.udp_receivers"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "type=3縦方向プロファイルがUDP送信される",
+        "縦プロファイル送信失敗ログが出ない"
+      ],
+      "expected_behavior_nl": [
+        "開始直後から type=3 の縦方向プロファイルがUDP送信される。",
+        "走行中に加減速が発生し、速度プロファイルが平坦にならない。"
+      ],
+      "judgement_criteria_nl": [
+        "速度変動幅 speed_span_mps が 4.0 m/s 以上であること。",
+        "ログに 'UDP client sending to' が出現すること。",
+        "ログに 'Failed to send longitudinal profile' が1回も出ないこと。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F05",
+      "name": "Waypoint output type=2",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f05_waypoint_output.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LatPathPlanner"
+      ],
+      "required_modules_py": [
+        "pythondriver.waypoint",
+        "pythondriver.udp_receivers"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "type=2ウェイポイントがUDP送信される",
+        "道路座標系でEgoの進行（s_progress_m）が継続する"
+      ],
+      "expected_behavior_nl": [
+        "開始後に type=2 ウェイポイント送信が始まり、Egoは同一車線で前進を継続する。",
+        "10秒走行で道路座標 s が十分に増加する。"
+      ],
+      "judgement_criteria_nl": [
+        "lane_change_count が 0 回で、不要な車線変更がないこと。",
+        "s_progress_m が 40.0 m 以上で、前進が継続していること。",
+        "ログに 'Waypoint UDP client sending to' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F06",
+      "name": "AssignRoute handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f06_assign_route.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LatPathPlanner"
+      ],
+      "required_modules_py": [
+        "pythondriver.scenario_drive"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "AssignRouteActionが検出・処理される",
+        "経路に沿って道路座標sが前進する"
+      ],
+      "expected_behavior_nl": [
+        "開始後にAssignRouteActionが検出され、指定経路に沿って走行を継続する。",
+        "シナリオ中は余計な車線変更を行わず、前方へ進行する。"
+      ],
+      "judgement_criteria_nl": [
+        "lane_change_count が 0 回であること。",
+        "s_progress_m が 40.0 m 以上であること。",
+        "ログに 'AssignRoute' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F07",
+      "name": "LaneChange handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f07_lane_change.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LatPathPlanner",
+        "VehicleStateUpdater"
+      ],
+      "required_modules_py": [
+        "pythondriver.lane_change_controller"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "LaneChangeActionが発火し目標車線への遷移が開始される",
+        "lane_change_count >= 1 かつ lane_id_end が期待に一致する"
+      ],
+      "expected_behavior_nl": [
+        "開始後にLaneChangeActionが発火し、Egoが隣接車線へ遷移を開始する。",
+        "終了時には目標車線へ乗り移って走行を維持する。"
+      ],
+      "judgement_criteria_nl": [
+        "lane_change_count が 1 回以上であること。",
+        "終了車線 lane_id_end が -2 に一致すること。",
+        "ログに 'LaneChange' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F08",
+      "name": "LaneOffset handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f08_lane_offset.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LatPathPlanner"
+      ],
+      "required_modules_py": [
+        "pythondriver.lateral_controller"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "LaneOffsetActionが実行される",
+        "t_abs_max_m が閾値内で目標オフセット到達傾向を示す"
+      ],
+      "expected_behavior_nl": [
+        "開始後にLaneOffsetActionが適用され、同一車線内で横オフセットを変化させる。",
+        "車線を跨がずに横方向変位が明確に発生する。"
+      ],
+      "judgement_criteria_nl": [
+        "lane_change_count が 0 回であること。",
+        "横変位幅 t_span_m が 0.5 m 以上であること。",
+        "ログに 'LaneOffset' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F09",
+      "name": "FollowTrajectory handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f09_follow_trajectory.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LatPathPlanner"
+      ],
+      "required_modules_py": [
+        "pythondriver.lateral_controller"
+      ],
+      "kpi_checks_any": [],
+      "validation_points": [
+        "FollowTrajectoryActionが検出・適用される",
+        "道路座標とログから追従完了方向の挙動を確認する"
+      ],
+      "expected_behavior_nl": [
+        "開始後にFollowTrajectoryActionが適用され、定義軌道に沿うよう横方向制御が変化する。",
+        "軌道追従の過程で横変位の増加または車線遷移のどちらかが観測される。"
+      ],
+      "judgement_criteria_nl": [
+        "次のいずれかを満たすこと: t_span_m が 0.3 m 以上、または lane_change_count が 1 回以上。",
+        "ログに 'FollowTrajectory' が出現すること。"
+      ],
+      "kpi_checks": []
+    },
+    {
+      "id": "F10",
+      "name": "LongitudinalDistanceAction handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f10_longitudinal_distance_action.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "ControlDecisionEngine",
+        "VehicleStateUpdater"
+      ],
+      "required_modules_py": [
+        "pythondriver.acc_controller"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "LongitudinalDistanceActionが実行される",
+        "速度KPIと道路座標進行が破綻していない"
+      ],
+      "expected_behavior_nl": [
+        "開始後にLongitudinalDistanceActionが有効化され、先行車との車間を維持するよう速度調整する。",
+        "終盤では目標車間付近へ収束し、異常な逆走をしない。"
+      ],
+      "judgement_criteria_nl": [
+        "終了車間 lead_gap_end_m が 12.0±6.0 m に入ること。",
+        "最小速度 speed_min_mps が 0.0 m/s 以上であること。",
+        "ログに 'LongitudinalDistanceAction' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F11",
+      "name": "SpeedProfileAction handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f11_speed_profile_action.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "ControlDecisionEngine",
+        "LonProfilePlanner"
+      ],
+      "required_modules_py": [
+        "pythondriver.longitudinal_controller"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "SpeedProfileActionが検出・反映される",
+        "speed_min/max がgolden閾値内に収まる"
+      ],
+      "expected_behavior_nl": [
+        "開始後にSpeedProfileActionが反映され、目標速度に向けて加速する。",
+        "走行中に加減速が入り、速度プロファイルの変化が明確に現れる。"
+      ],
+      "judgement_criteria_nl": [
+        "最高速度 speed_max_mps が 11.0 m/s 以上であること。",
+        "速度変動幅 speed_span_mps が 4.5 m/s 以上であること。",
+        "ログに 'SpeedProfileAction' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F12",
+      "name": "SynchronizeAction handling",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f12_synchronize_action.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "ControlDecisionEngine"
+      ],
+      "required_modules_py": [
+        "pythondriver.scenario_drive"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "SynchronizeActionが実行される",
+        "ターゲット到達時の道路座標差分が閾値内である"
+      ],
+      "expected_behavior_nl": [
+        "開始後にSynchronizeActionが発火し、対象車との相対位置を合わせるよう速度調整する。",
+        "終盤では目標車間5m付近へ近づき、負速度には入らない。"
+      ],
+      "judgement_criteria_nl": [
+        "終了車間 lead_gap_end_m が 5.0±3.0 m に入ること。",
+        "最小速度 speed_min_mps が 0.0 m/s 以上であること。",
+        "ログに 'Synchronize' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F13",
+      "name": "HostVehicleData and ADAS passthrough",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f13_hvd_adas_passthrough.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "Failed to parse HostVehicleData",
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "DriverInputReceiver",
+        "VehicleStateUpdater"
+      ],
+      "required_modules_py": [
+        "pythondriver.client"
+      ],
+      "validation_points": [
+        "HostVehicleData/ADAS情報が受信・中継される",
+        "HostVehicleDataパース失敗が発生しない"
+      ],
+      "expected_behavior_nl": [
+        "開始直後からHostVehicleDataとADAS情報が受信され、制御系へ中継される。",
+        "シナリオ終了までパースエラーなく連続処理される。"
+      ],
+      "judgement_criteria_nl": [
+        "ログに 'RealDriverController' が出現し、受信処理が開始されること。",
+        "ログに 'Failed to parse HostVehicleData' が1回も出ないこと。"
+      ],
+      "kpi_checks": [],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F14",
+      "name": "DriverScript longitudinal/ACC",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f14_driverscript_acc.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LonProfilePlanner",
+        "DriverOutputPort"
+      ],
+      "required_modules_py": [
+        "pythondriver.acc_controller",
+        "pythondriver.longitudinal_controller"
+      ],
+      "validation_points": [
+        "DriverScript由来のACC/縦制御が適用される",
+        "速度KPIおよび道路座標進行が安定している"
+      ],
+      "expected_behavior_nl": [
+        "開始後にDriverScript由来ACCが有効化され、先行車追従に応じて加減速する。",
+        "10秒走行で道路座標 s が増加し続け、停止や逆走に陥らない。"
+      ],
+      "judgement_criteria_nl": [
+        "ログに 'RealDriverController' が出現すること。",
+        "前進量 s_progress_m が正で、走行が継続していること。",
+        "速度指標（speed_min_mps, speed_max_mps）が異常値にならないこと。"
+      ],
+      "kpi_checks": [],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F15",
+      "name": "DriverScript lateral/LKAS/lane-change",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f15_driverscript_lateral_lkas.xosc",
+      "run_args": "--record sim.dat --log_level info",
+      "required_patterns": [
+        "PythonDriverController"
+      ],
+      "forbidden_patterns": [
+        "PYTHON INITIALIZATION FAILED",
+        "Python bridge is not initialized",
+        "PythonDriverController: Python initialization failed",
+        "PythonDriverController: step\\(\\) failed"
+      ],
+      "required_modules_cpp": [
+        "LatPathPlanner",
+        "VehicleStateUpdater"
+      ],
+      "required_modules_py": [
+        "pythondriver.lkas",
+        "pythondriver.lateral_controller",
+        "pythondriver.lane_change_controller"
+      ],
+      "kpi_checks": [],
+      "validation_points": [
+        "DriverScript由来のLKAS/車線変更制御が適用される",
+        "lane_change_count・lane_id_end・t_abs_max_m が期待挙動を示す"
+      ],
+      "expected_behavior_nl": [
+        "開始後にLKAS制御で車線中央追従を行い、指示タイミングで車線変更を開始する。",
+        "終了時には目標車線へ遷移して横制御が安定する。"
+      ],
+      "judgement_criteria_nl": [
+        "lane_change_count が 1 回以上であること。",
+        "終了車線 lane_id_end が -2 に一致すること。",
+        "ログに 'RealDriverController' が出現すること。"
+      ],
+      "kpi_checks_any": []
+    }
+  ]
+}

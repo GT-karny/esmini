@@ -1,93 +1,83 @@
-# DriverScript - RealDriver Python Package
+# DriverScript
 
-esmini RealDriverController を外部アプリケーションから制御するためのPythonパッケージです。
+`DriverScript` contains Python-side controllers for GT_esmini.
 
-## インストール
+## Status
+
+- `pythondriver`: recommended for `PythonDriverController` (embedded, synchronous per frame)
+- `realdriver`: deprecated (maintenance-only, UDP-based compatibility path)
+
+`realdriver` can still be imported, but it emits `DeprecationWarning`.
+
+## Install
 
 ```bash
 cd DriverScript
 pip install -e .
 ```
 
-## 依存関係
+## Packages
 
-- Python >= 3.8
-- protobuf >= 6.30.2
+### `pythondriver` (recommended)
 
-## パッケージ構成
-
-```
-DriverScript/
-├── realdriver/          # コアライブラリ
-│   ├── control/         # 制御ロジック群（lateral/longitudinal など）
-│   ├── planning/        # 経路・ウェイポイント関連
-│   ├── io/              # I/O層
-│   ├── model/           # データモデル
-│   ├── protocol/        # UDP packet codec (type=2/type=3)
-│   ├── client.py        # RealDriverClient (UDP制御クライアント)
-│   ├── udp_receivers.py # type=2/type=3 受信
-│   └── osi_receiver.py  # OSI GroundTruth 受信ラッパー
-├── osi3/                # OSI Protobufモジュール
-├── examples/            # サンプルスクリプト
-│   ├── gui_controller.py    # Tkinter GUI コントローラ
-│   └── lkas_example.py      # LKAS + RealDriver サンプル
-├── docs/                # ドキュメント
-│   └── RealDriverAPI_Reference.md
-└── bin/                 # esminiRMLib.dll (ビルド時に自動配置)
-```
-
-## 使用方法
-
-### 基本的な使用例
+Embedded API contract:
 
 ```python
-from realdriver import RealDriverClient, LightMode, IndicatorMode
-
-# クライアント作成
-client = RealDriverClient(ip="127.0.0.1", port=53995)
-
-# 制御ループ
-for _ in range(100):
-    client.set_controls(throttle=0.5, brake=0.0, steering=0.0)
-    client.set_gear(1)  # Drive
-    client.set_headlights(LightMode.LOW)
-    client.send_update()
-    time.sleep(0.02)  # 50Hz
-
-client.close()
+class EmbeddedController:
+    def init(self, config: dict) -> None: ...
+    def step(self, frame_data: dict) -> dict: ...
+    def close(self) -> None: ...
 ```
 
-### GUIコントローラの起動
+Default script/class:
+
+- `DriverScript/pythondriver/examples/scenario_drive_embedded.py`
+- `EmbeddedController`
+
+Returned dict keys from `step()`:
+
+- `throttle` (float)
+- `brake` (float)
+- `steering` (float)
+- `gear` (int)
+- `light_mask` (int)
+- `engine_brake` (float)
+- `adas_states` (list[int])
+
+### `realdriver` (deprecated)
+
+Legacy UDP path. Keep only for backward compatibility.
+
+- `mode="udp"` remains available with deprecation warning
+- `mode="embedded"` is available in `realdriver.scenario_drive` as a bridge path during migration
+
+## OpenSCENARIO Controller Properties
+
+Use these properties for embedded controller execution:
+
+```xml
+<Property name="esminiController" value="PythonDriverController"/>
+<Property name="PythonScript" value="DriverScript/pythondriver/examples/scenario_drive_embedded.py"/>
+<Property name="PythonClass" value="EmbeddedController"/>
+<Property name="PythonHome" value=""/>
+```
+
+UDP properties (`BasePort`, `ClientPort`, `SendWaypoints`, `WaypointPort`) are not used by `PythonDriverController`.
+
+## Migration Tool (`RealDriverController` -> `PythonDriverController`)
 
 ```bash
-python examples/gui_controller.py --ip 127.0.0.1 --port 53995
+python scripts/migrate_realdriver_to_pythondriver.py GT_esmini/test/scenarios/realdriver_f*.xosc --output-dir GT_esmini/test/scenarios --patch-out artifacts/pythondriver_xosc_migration.patch
 ```
 
-### LKASサンプルの起動
+Behavior:
 
-```bash
-python examples/lkas_example.py --xodr_path <path/to/map.xodr> --lib_path ./bin/esminiRMLib.dll
-```
+- rewrites `RealDriverController` to `PythonDriverController`
+- removes UDP properties
+- injects default `PythonScript` / `PythonClass` / `PythonHome` if missing
 
-## 主要クラス
+## Troubleshooting
 
-| クラス | 説明 |
-|--------|------|
-| `RealDriverClient` | UDP経由でesminiを制御するクライアント |
-| `OSIReceiverWrapper` | OSI GroundTruthを受信してEgo車両状態を取得 |
-| `EsminiRMLib` | esminiRMLib.dll のctypesラッパー |
-| `LKASController` | 車線維持支援コントローラ |
-| `PIDController` | 汎用PID制御器 |
-
-## ポート設定
-
-| ポート | 方向 | 用途 |
-|--------|------|------|
-| 53995 | 送信 | RealDriver制御 (HostVehicleData) |
-| 54995 | 受信 | Longitudinal profile (`type=3`) |
-| 54996 | 受信 | Waypoint (`type=2`) |
-| 48198 | 受信 | OSI出力 (GroundTruth) |
-
-## ドキュメント
-
-詳細なAPIリファレンスは [docs/RealDriverAPI_Reference.md](docs/RealDriverAPI_Reference.md) を参照してください。
+- `PythonScript` path invalid: controller init fails at scenario start
+- `import osi3` / `import google.protobuf` fails: ensure embedded/runtime Python has matching packages
+- missing keys in `step()` return dict: bridge should report explicit error
