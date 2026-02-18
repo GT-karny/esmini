@@ -27,6 +27,16 @@ def main() -> int:
         raise FileNotFoundError(f"summary.json not found: {summary_path}")
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    video_cfg = summary.get("video_config", {}) or {}
+    video_cfg_text = ""
+    if video_cfg.get("enabled"):
+        video_cfg_text = (
+            f"Video mode: {video_cfg.get('mode', '-')}, "
+            f"encoder: {video_cfg.get('encoder_resolved', video_cfg.get('encoder_requested', '-'))}, "
+            f"fps: {video_cfg.get('output_fps', '-')}, "
+            f"jobs: {video_cfg.get('parallel_jobs', '-')}, "
+            f"policy: {video_cfg.get('generate_for', '-')}"
+        )
 
     rows = []
     for r in summary.get("results", []):
@@ -38,6 +48,8 @@ def main() -> int:
         kpi_checks_any = r.get("kpi_checks_any", {}) or {}
         kpi_check_any_details = kpi_checks_any.get("details", []) or []
         validation_points = r.get("validation_points", [])
+        validation_goal = str(r.get("validation_goal", "") or "")
+        failure_reasons = r.get("failure_reasons", [])
         points_text = render_list_cell(validation_points)
         expected_behavior = r.get("expected_behavior_nl") or validation_points
         judgement_criteria = r.get("judgement_criteria_nl", [])
@@ -137,11 +149,13 @@ def main() -> int:
             f"<td>{status}</td>"
             f"<td>{video_cell}</td>"
             f"<td>{driver_cell}</td>"
+            f"<td>{esc(validation_goal) if validation_goal else '-'}</td>"
             f"<td>{expected_behavior_text}</td>"
             f"<td>{judgement_criteria_text}</td>"
             f"<td>{points_text}</td>"
             f"<td>{road_summary}</td>"
             f"<td>{kpi_text}</td>"
+            f"<td>{render_list_cell(failure_reasons)}</td>"
             f"<td>{esc(miss)}</td>"
             f"<td>{esc(forb)}</td>"
             "</tr>"
@@ -165,6 +179,7 @@ def main() -> int:
   <h1>RealDriver Feature Report</h1>
   <p>Overall: <b>{'PASS' if summary.get('overall_pass') else 'FAIL'}</b></p>
   <p>Passed: {summary.get('passed_count')}/{summary.get('feature_count')}</p>
+  <p>{esc(video_cfg_text) if video_cfg_text else ''}</p>
   <table>
     <thead>
       <tr>
@@ -173,11 +188,13 @@ def main() -> int:
         <th>Status</th>
         <th>Video</th>
         <th>DriverScript</th>
+        <th>Validation Goal</th>
         <th>期待挙動（自然言語）</th>
         <th>判定基準（自然言語+数値）</th>
         <th>検証観点</th>
         <th>Road KPI要約</th>
         <th>KPI Checks</th>
+        <th>Failure Reasons</th>
         <th>Missing Required</th>
         <th>Forbidden Hits</th>
       </tr>

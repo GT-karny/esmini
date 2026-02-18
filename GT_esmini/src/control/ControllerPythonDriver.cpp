@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <windows.h>
 
 namespace gt_esmini
@@ -147,12 +148,55 @@ int ControllerPythonDriver::Activate(const ControlActivationMode (&mode)[static_
     real_vehicle_.LoadParameters(paramFile);
 
     resolved_script_path_ = python_script_path_;
-    const bool is_absolute =
-        (!resolved_script_path_.empty() && resolved_script_path_[0] == '/') ||
-        (resolved_script_path_.size() > 1 && resolved_script_path_[1] == ':');
-    if (!resolved_script_path_.empty() && !is_absolute)
+    if (!resolved_script_path_.empty())
     {
-        resolved_script_path_ = exeDir + "/" + resolved_script_path_;
+        namespace fs = std::filesystem;
+        fs::path candidate = fs::path(resolved_script_path_);
+        if (!candidate.is_absolute())
+        {
+            // Resolve relative script path with robust fallbacks.
+            // 1) current working directory (where GT_Sim is launched)
+            // 2) executable directory
+            // 3) parent directories of executable directory (typical build tree)
+            if (fs::exists(candidate))
+            {
+                candidate = fs::absolute(candidate);
+            }
+            else
+            {
+                fs::path exe_path = fs::path(exeDir);
+                fs::path from_exe = exe_path / candidate;
+                if (fs::exists(from_exe))
+                {
+                    candidate = from_exe;
+                }
+                else
+                {
+                    fs::path probe = exe_path;
+                    bool found = false;
+                    for (int i = 0; i < 6; ++i)
+                    {
+                        probe = probe.parent_path();
+                        if (probe.empty())
+                        {
+                            break;
+                        }
+                        fs::path p = probe / candidate;
+                        if (fs::exists(p))
+                        {
+                            candidate = p;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                    {
+                        candidate = fs::absolute(candidate);
+                    }
+                }
+            }
+        }
+        resolved_script_path_ = candidate.lexically_normal().string();
     }
 
     if (python_home_.empty())

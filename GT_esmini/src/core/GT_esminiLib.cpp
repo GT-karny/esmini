@@ -364,6 +364,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--autolight-egoless") == 0 ||
                       strcmp(argv[i], "--osi") == 0 ||
                       strcmp(argv[i], "--hz") == 0 ||
+                      strcmp(argv[i], "--no_realtime") == 0 ||
                       strcmp(argv[i], "--video_capture") == 0 ||
                       strcmp(argv[i], "--video_headless") == 0 ||
                       strcmp(argv[i], "--video_window") == 0 ||

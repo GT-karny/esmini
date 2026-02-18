@@ -9,7 +9,20 @@ param(
     [string]$GoldenRoot = "golden/pythondriver_features",
     [string]$SimPath = "",
     [int]$Hz = 100,
+    [bool]$NoRealtime = $true,
     [bool]$EnableVideo = $true,
+    [ValidateSet("off", "balanced", "fastest")]
+    [string]$VideoMode = "fastest",
+    [int]$VideoOutputFps = 0,
+    [string]$VideoPreset = "",
+    [int]$VideoCrf = -1,
+    [ValidateSet("auto", "libx264", "h264_nvenc")]
+    [string]$VideoEncoder = "auto",
+    [int]$VideoParallelJobs = 0,
+    [ValidateSet("all", "fail_only", "list")]
+    [string]$GenerateVideoFor = "all",
+    [string]$VideoFeatureIds = "",
+    [bool]$KeepRawFrames = $false,
     [switch]$KeepFrames,
     [string]$WindowSize = "1280x720",
     [bool]$EnableDriverScript = $false,
@@ -70,6 +83,65 @@ function Resolve-VenvPython {
     return $resolvedRequested
 }
 
+function Resolve-VideoEncoder {
+    param(
+        [string]$RequestedEncoder,
+        [string]$FfmpegPath
+    )
+
+    if ($RequestedEncoder -ne "auto") {
+        return $RequestedEncoder
+    }
+
+    if (-not $FfmpegPath) {
+        return "libx264"
+    }
+
+    try {
+        $encText = & $FfmpegPath -hide_banner -encoders 2>$null | Out-String
+        if ($encText -match "h264_nvenc") {
+            return "h264_nvenc"
+        }
+    }
+    catch {
+        # fall back to CPU encoder
+    }
+    return "libx264"
+}
+
+function Invoke-VideoEncode {
+    param(
+        [string]$FfmpegPath,
+        [string]$FeatureDir,
+        [int]$InputHz,
+        [int]$OutputFps,
+        [string]$Encoder,
+        [string]$Preset,
+        [int]$Crf
+    )
+
+    $vf = if ($OutputFps -gt 0) { "fps=$OutputFps,format=yuv420p" } else { "format=yuv420p" }
+    $args = @("-y", "-framerate", "$InputHz", "-i", "screen_shot_%05d.tga", "-vf", $vf)
+
+    if ($Encoder -eq "h264_nvenc") {
+        # Keep this conservative for broad compatibility.
+        $args += @("-c:v", "h264_nvenc", "-preset", "fast", "-cq", "$Crf")
+    }
+    else {
+        $args += @("-c:v", "libx264", "-preset", $Preset, "-crf", "$Crf")
+    }
+    $args += "result.mp4"
+
+    Push-Location $FeatureDir
+    try {
+        & $FfmpegPath @args *> "video_encode.log"
+        return $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 if (-not (Test-Path $MatrixPath)) { throw "Matrix file not found: $MatrixPath" }
 if (-not (Test-Path $ThresholdPath)) { throw "Threshold file not found: $ThresholdPath" }
 
@@ -83,6 +155,7 @@ $catalogRoot = Join-Path $xoscRoot "Catalogs"
 $driverScriptAbs = if ([System.IO.Path]::IsPathRooted($DriverScriptPath)) { $DriverScriptPath } else { Join-Path $repoRoot $DriverScriptPath }
 $driverWorkDir = Join-Path $repoRoot "DriverScript"
 $driverXodrPath = Join-Path $resourcesRoot "xodr/fabriksgatan.xodr"
+$embeddedPythonHome = Join-Path $repoRoot "thirdparty/python-embed/python-3.12.10-embed-amd64"
 
 if (-not (Test-Path $resourcesRoot)) { throw "Resources directory not found: $resourcesRoot" }
 if (-not (Test-Path $xodrRoot)) { throw "OpenDRIVE resource directory not found: $xodrRoot" }
@@ -94,6 +167,11 @@ if ($EnableDriverScript) {
     if (-not (Test-Path $driverScriptAbs)) { throw "DriverScript entrypoint not found: $driverScriptAbs" }
     if (-not (Test-Path $driverWorkDir)) { throw "DriverScript working directory not found: $driverWorkDir" }
     if (-not (Test-Path $driverXodrPath)) { throw "OpenDRIVE map for DriverScript not found: $driverXodrPath" }
+}
+
+# Ensure python312.dll can be resolved when GT_ENABLE_EMBEDDED_PYTHON=ON builds are used.
+if (Test-Path (Join-Path $embeddedPythonHome "python312.dll")) {
+    $env:PATH = "$embeddedPythonHome;$env:PATH"
 }
 
 if (-not $SimPath) {
@@ -132,29 +210,79 @@ if ($EnableVideo) {
     }
 }
 
+$keepFramesEffective = $KeepRawFrames -or $KeepFrames.IsPresent
+$videoEnabledEffective = $EnableVideo -and ($VideoMode -ne "off")
+
+if ($videoEnabledEffective) {
+    if ($VideoMode -eq "fastest") {
+        if ($VideoOutputFps -le 0) { $VideoOutputFps = 20 }
+        if ([string]::IsNullOrWhiteSpace($VideoPreset)) { $VideoPreset = "ultrafast" }
+        if ($VideoCrf -lt 0) { $VideoCrf = 28 }
+    }
+    elseif ($VideoMode -eq "balanced") {
+        if ($VideoOutputFps -le 0) { $VideoOutputFps = 30 }
+        if ([string]::IsNullOrWhiteSpace($VideoPreset)) { $VideoPreset = "veryfast" }
+        if ($VideoCrf -lt 0) { $VideoCrf = 23 }
+    }
+
+    if ($VideoOutputFps -le 0) { $VideoOutputFps = [Math]::Min($Hz, 30) }
+    if ($VideoCrf -lt 0) { $VideoCrf = 23 }
+    if ([string]::IsNullOrWhiteSpace($VideoPreset)) { $VideoPreset = "veryfast" }
+}
+
+if ($VideoParallelJobs -le 0) {
+    $logicalCpus = [Environment]::ProcessorCount
+    $VideoParallelJobs = [Math]::Min(4, [Math]::Max(1, [int][Math]::Floor($logicalCpus / 2)))
+}
+
 $runId = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDir = Join-Path $outputRootAbs $runId
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
 $matrix = Read-StructuredFile -Path $MatrixPath
 $features = $matrix.features
+$resolvedVideoEncoder = "libx264"
 
 Write-Host "[RealDriver] Run ID: $runId"
 Write-Host "[RealDriver] GT_Sim: $simExe"
 Write-Host "[RealDriver] Python (venv): $PythonExe"
+if (Test-Path (Join-Path $embeddedPythonHome "python312.dll")) {
+    Write-Host "[RealDriver] Embedded Python DLL path enabled: $embeddedPythonHome"
+}
 Write-Host "[RealDriver] Frequency: $Hz Hz"
-if ($EnableVideo) {
+Write-Host "[RealDriver] Execution mode: $(if ($NoRealtime) { "fastest (no realtime pacing)" } else { "realtime pacing" })"
+if ($videoEnabledEffective) {
+    $resolvedVideoEncoder = Resolve-VideoEncoder -RequestedEncoder $VideoEncoder -FfmpegPath $ffmpegPath
+    $videoConfig = [ordered]@{
+        enabled = $true
+        mode = $VideoMode
+        output_fps = $VideoOutputFps
+        preset = $VideoPreset
+        crf = $VideoCrf
+        encoder_requested = $VideoEncoder
+        encoder_resolved = $resolvedVideoEncoder
+        parallel_jobs = $VideoParallelJobs
+        generate_for = $GenerateVideoFor
+        feature_ids = $VideoFeatureIds
+    }
+    ($videoConfig | ConvertTo-Json -Depth 4) | Out-File -Encoding utf8 (Join-Path $runDir "video_config.json")
     if ($ffmpegPath) {
-        Write-Host "[RealDriver] Video: enabled via GT_Sim direct capture ($WindowSize, ffmpeg=$ffmpegPath)"
+        Write-Host "[RealDriver] Video: enabled ($VideoMode, encoder=$resolvedVideoEncoder, fps=$VideoOutputFps, jobs=$VideoParallelJobs)"
+        Write-Host "[RealDriver] Video backend: GT_Sim direct capture ($WindowSize, ffmpeg=$ffmpegPath)"
     }
     else {
         Write-Host "[RealDriver] Video: enabled ($WindowSize), ffmpeg not found (MP4 conversion will be skipped)"
     }
 }
+elseif ($EnableVideo) {
+    Write-Host "[RealDriver] Video: disabled by VideoMode=off"
+}
 else {
     Write-Host "[RealDriver] Video: disabled"
 }
 Write-Host "[RealDriver] DriverScript: $(if ($EnableDriverScript) { "enabled ($driverScriptAbs)" } else { "disabled" })"
+
+$videoJobs = New-Object System.Collections.ArrayList
 
 foreach ($f in $features) {
     $fid = $f.id
@@ -176,13 +304,16 @@ foreach ($f in $features) {
         "--path", (Resolve-Path $xoscRoot).Path,
         "--path", (Resolve-Path $resourcesRoot).Path
     )
+    if ($NoRealtime) {
+        $args += "--no_realtime"
+    }
     if (Test-Path $catalogRoot) {
         $catalogDirs = Get-ChildItem -Path $catalogRoot -Directory -ErrorAction SilentlyContinue
         foreach ($catalogDir in $catalogDirs) {
             $args += @("--path", $catalogDir.FullName)
         }
     }
-    if ($EnableVideo) {
+    if ($videoEnabledEffective) {
         $args += @(
             "--video_capture",
             "--video_window", "$windowWidth", "$windowHeight",
@@ -279,41 +410,165 @@ d.close()
         & $PythonExe -c $py *> (Join-Path $fdir "dat_convert.log")
     }
 
-    if ($EnableVideo) {
+    if ($videoEnabledEffective) {
         $frames = Get-ChildItem -Path $fdir -Filter "screen_shot_*.tga" -File -ErrorAction SilentlyContinue
         $frameCount = if ($frames) { $frames.Count } else { 0 }
         "$frameCount" | Out-File -Encoding ascii (Join-Path $fdir "frame_count.txt")
 
+        $videoErrorPath = Join-Path $fdir "video_error.txt"
+        if (Test-Path $videoErrorPath) {
+            Remove-Item -Path $videoErrorPath -Force -ErrorAction SilentlyContinue
+        }
+
+        $job = [ordered]@{
+            id = $fid
+            feature_dir = (Resolve-Path $fdir).Path
+            frame_count = $frameCount
+            can_convert = ($frameCount -gt 0 -and -not [string]::IsNullOrWhiteSpace($ffmpegPath))
+        }
+        [void]$videoJobs.Add([pscustomobject]$job)
+
         if ($frameCount -eq 0) {
-            "No captured frames found from GT_Sim direct capture." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
+            "No captured frames found from GT_Sim direct capture." | Out-File -Encoding utf8 $videoErrorPath
         }
         elseif (-not $ffmpegPath) {
-            "ffmpeg not found. MP4 conversion skipped." | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
-        }
-
-        if ($frames -and $frames.Count -gt 0) {
-            if ($ffmpegPath) {
-                Push-Location $fdir
-                try {
-                    & $ffmpegPath -y -framerate "$Hz" -i "screen_shot_%05d.tga" -c:v libx264 -vf "format=yuv420p" -crf 18 "result.mp4" *> "video_encode.log"
-                    if ($LASTEXITCODE -ne 0) {
-                        "ffmpeg conversion failed with code $LASTEXITCODE" | Out-File -Encoding utf8 (Join-Path $fdir "video_error.txt")
-                    }
-                }
-                finally {
-                    Pop-Location
-                }
-            }
-        }
-
-        if (-not $KeepFrames) {
-            Remove-Item -Path (Join-Path $fdir "screen_shot_*.tga") -Force -ErrorAction SilentlyContinue
+            "ffmpeg not found. MP4 conversion skipped." | Out-File -Encoding utf8 $videoErrorPath
         }
     }
 }
 
 $u = @()
 if ($UpdateGolden) { $u += '--update-golden' }
+
+if ($videoEnabledEffective -and $videoJobs.Count -gt 0) {
+    ($videoJobs | ConvertTo-Json -Depth 4) | Out-File -Encoding utf8 (Join-Path $runDir "video_jobs.json")
+
+    $targetIds = New-Object System.Collections.Generic.HashSet[string]
+    if ($GenerateVideoFor -eq "all") {
+        foreach ($v in $videoJobs) { [void]$targetIds.Add([string]$v.id) }
+    }
+    elseif ($GenerateVideoFor -eq "list") {
+        foreach ($id in ($VideoFeatureIds -split ",")) {
+            $trimmed = $id.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                [void]$targetIds.Add($trimmed)
+            }
+        }
+    }
+    elseif ($GenerateVideoFor -eq "fail_only") {
+        & $PythonExe scripts/validate_realdriver_feature_results.py --matrix $MatrixPath --thresholds $ThresholdPath --run-dir $runDir --golden-root $GoldenRoot
+        $preSummaryPath = Join-Path $runDir "summary.json"
+        if (Test-Path $preSummaryPath) {
+            $preSummary = Get-Content -Raw -Path $preSummaryPath | ConvertFrom-Json
+            foreach ($r in $preSummary.results) {
+                if (-not [bool]$r.pass) {
+                    [void]$targetIds.Add([string]$r.id)
+                }
+            }
+        }
+    }
+
+    $convertJobs = @()
+    foreach ($v in $videoJobs) {
+        $featureDir = [string]$v.feature_dir
+        $videoErrorPath = Join-Path $featureDir "video_error.txt"
+        $shouldGenerate = $targetIds.Contains([string]$v.id)
+        $canConvert = [bool]$v.can_convert
+
+        if (-not $shouldGenerate) {
+            "Video generation skipped by policy: $GenerateVideoFor" | Out-File -Encoding utf8 $videoErrorPath
+            continue
+        }
+        if (-not $canConvert) {
+            if (-not (Test-Path $videoErrorPath)) {
+                "Video generation skipped (conversion prerequisites not met)." | Out-File -Encoding utf8 $videoErrorPath
+            }
+            continue
+        }
+
+        $convertJobs += $v
+    }
+
+        if ($convertJobs.Count -gt 0) {
+            $running = @()
+            $completedResults = @()
+            foreach ($jobDef in $convertJobs) {
+                while ($running.Count -ge $VideoParallelJobs) {
+                    $finished = Wait-Job -Job $running -Any
+                    $jobResult = Receive-Job -Job $finished
+                    Remove-Job -Job $finished -Force
+                    if ($jobResult) {
+                        $completedResults += $jobResult
+                    }
+                    $running = @($running | Where-Object { $_.Id -ne $finished.Id })
+                }
+
+            $psJob = Start-Job -ScriptBlock {
+                param($ffmpegPathArg, $featureDirArg, $hzArg, $videoOutputFpsArg, $encoderArg, $presetArg, $crfArg)
+                $exitCode = 0
+                Push-Location $featureDirArg
+                try {
+                    $vf = if ($videoOutputFpsArg -gt 0) { "fps=$videoOutputFpsArg,format=yuv420p" } else { "format=yuv420p" }
+                    $args = @("-y", "-framerate", "$hzArg", "-i", "screen_shot_%05d.tga", "-vf", $vf)
+                    if ($encoderArg -eq "h264_nvenc") {
+                        $args += @("-c:v", "h264_nvenc", "-preset", "fast", "-cq", "$crfArg")
+                    } else {
+                        $args += @("-c:v", "libx264", "-preset", $presetArg, "-crf", "$crfArg")
+                    }
+                    $args += "result.mp4"
+                    & $ffmpegPathArg @args *> "video_encode.log"
+                    $exitCode = $LASTEXITCODE
+                }
+                finally {
+                    Pop-Location
+                }
+                [pscustomobject]@{
+                    feature_dir = $featureDirArg
+                    exit_code = $exitCode
+                    encoder = $encoderArg
+                }
+            } -ArgumentList $ffmpegPath, ([string]$jobDef.feature_dir), $Hz, $VideoOutputFps, $resolvedVideoEncoder, $VideoPreset, $VideoCrf
+
+            $running += $psJob
+        }
+
+            if ($running.Count -gt 0) {
+                Wait-Job -Job $running | Out-Null
+                foreach ($j in $running) {
+                    $result = Receive-Job -Job $j
+                    Remove-Job -Job $j -Force
+                    if ($result) {
+                        $completedResults += $result
+                    }
+                }
+            }
+
+            foreach ($result in $completedResults) {
+                $featureDir = [string]$result.feature_dir
+                $videoErrorPath = Join-Path $featureDir "video_error.txt"
+                $logPath = Join-Path $featureDir "video_encode.log"
+                if ([int]$result.exit_code -ne 0) {
+                    if ([string]$result.encoder -eq "h264_nvenc") {
+                        Add-Content -Path $logPath -Value "`n[run_realdriver_feature_tests] NVENC failed, retrying with libx264."
+                        $fallbackExit = Invoke-VideoEncode -FfmpegPath $ffmpegPath -FeatureDir $featureDir -InputHz $Hz -OutputFps $VideoOutputFps -Encoder "libx264" -Preset $VideoPreset -Crf $VideoCrf
+                        if ($fallbackExit -ne 0) {
+                            "ffmpeg conversion failed with code $fallbackExit (fallback libx264)" | Out-File -Encoding utf8 $videoErrorPath
+                        }
+                    }
+                    else {
+                        "ffmpeg conversion failed with code $($result.exit_code)" | Out-File -Encoding utf8 $videoErrorPath
+                    }
+                }
+            }
+        }
+
+    if (-not $keepFramesEffective) {
+        foreach ($v in $videoJobs) {
+            Remove-Item -Path (Join-Path ([string]$v.feature_dir) "screen_shot_*.tga") -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 & $PythonExe scripts/validate_realdriver_feature_results.py --matrix $MatrixPath --thresholds $ThresholdPath --run-dir $runDir --golden-root $GoldenRoot @u
 $validateExit = $LASTEXITCODE
 & $PythonExe scripts/render_realdriver_report.py --run-dir $runDir

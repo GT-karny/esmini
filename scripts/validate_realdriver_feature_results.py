@@ -219,6 +219,13 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     road_ids = [rid for rid in road_ids if rid is not None]
     if road_ids:
         k["road_id_mode"] = Counter(road_ids).most_common(1)[0][0]
+        road_id_change_count = 0
+        prev_road = road_ids[0]
+        for road_id in road_ids[1:]:
+            if road_id != prev_road:
+                road_id_change_count += 1
+                prev_road = road_id
+        k["road_id_change_count"] = road_id_change_count
 
     # Detect "moving in XY while road-progress s is frozen" -> often indicates
     # path/control breakage near/off road.
@@ -255,6 +262,48 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
 
     if actual_speeds:
         k["speed_span_mps"] = max(actual_speeds) - min(actual_speeds)
+        sorted_speeds = sorted(actual_speeds)
+        p90_idx = max(0, min(len(sorted_speeds) - 1, int(0.9 * (len(sorted_speeds) - 1))))
+        v_ref = sorted_speeds[p90_idx]
+        baseline_count = max(5, min(20, len(actual_speeds) // 5))
+        baseline_speed = sum(actual_speeds[:baseline_count]) / float(baseline_count)
+        dv = v_ref - baseline_speed
+        if dv > 1.0 and actual_speed_series:
+            accel_start_threshold = baseline_speed + (0.2 * dv)
+            settle_band = max(0.5, 0.1 * dv)
+
+            accel_start_idx = None
+            for idx, (_, v) in enumerate(actual_speed_series):
+                if v >= accel_start_threshold:
+                    accel_start_idx = idx
+                    break
+
+            settle_idx = None
+            if accel_start_idx is not None:
+                consecutive_target = 8
+                hit = 0
+                for idx in range(accel_start_idx, len(actual_speed_series)):
+                    _, v = actual_speed_series[idx]
+                    if abs(v - v_ref) <= settle_band:
+                        hit += 1
+                        if hit >= consecutive_target:
+                            settle_idx = idx - consecutive_target + 1
+                            break
+                    else:
+                        hit = 0
+
+            if accel_start_idx is not None and settle_idx is not None:
+                t0, v0 = actual_speed_series[accel_start_idx]
+                t_settle, v_settle = actual_speed_series[settle_idx]
+                dt_accel = max(1e-6, t_settle - t0)
+                k["accel_phase_mean_acc"] = (v_settle - v0) / dt_accel
+                k["settle_time_s"] = max(0.0, t_settle - actual_speed_series[0][0])
+                k["overshoot_ratio"] = max(0.0, (max(actual_speeds) - v_ref) / max(1e-6, dv))
+                steady_vals = [v for _, v in actual_speed_series[settle_idx:]]
+                if len(steady_vals) >= 3:
+                    mean_steady = sum(steady_vals) / float(len(steady_vals))
+                    variance = sum((v - mean_steady) ** 2 for v in steady_vals) / float(len(steady_vals))
+                    k["steady_state_std_mps"] = math.sqrt(variance)
 
     lead_id, lead_rows = _best_non_ego_rows(rows, ego_id)
     if lead_id is not None and lead_rows:
@@ -622,6 +671,13 @@ def main() -> int:
     baseline_kpi_checks = threshold_config.get("baseline_kpi_checks", [])
     run_dir = Path(args.run_dir)
     golden_root = Path(args.golden_root)
+    video_config_path = run_dir / "video_config.json"
+    video_config: Dict[str, Any] = {}
+    if video_config_path.exists():
+        try:
+            video_config = json.loads(video_config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            video_config = {}
 
     results = []
     overall_pass = True
@@ -643,7 +699,8 @@ def main() -> int:
                 hit_forbidden.append(pat)
 
         kpi = compute_kpis(fdir)
-        feature_kpi_checks = list(baseline_kpi_checks) + list(feat.get("kpi_checks", []))
+        explicit_feature_checks = list(feat.get("kpi_checks", []))
+        feature_kpi_checks = list(baseline_kpi_checks) + explicit_feature_checks
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
         kpi_any_eval = evaluate_kpi_checks_any(kpi, feature_kpi_checks_any)
@@ -656,12 +713,25 @@ def main() -> int:
         golden_file = golden_root / fid / "kpi_reference.json"
         golden_cmp = compare_with_golden(kpi, golden_file, thresholds)
 
-        # KPI is the primary verdict axis; required log patterns remain advisory
-        # when explicit KPI checks are configured.
-        require_log_patterns = len(feature_kpi_checks) == 0
-        logs_ok = (len(missing_required) == 0) if require_log_patterns else True
-        passed = (logs_ok and len(hit_forbidden) == 0 and golden_cmp["pass"] and kpi_eval["pass"] and kpi_any_eval["pass"])
+        logs_ok = len(missing_required) == 0
+        forbidden_ok = len(hit_forbidden) == 0
+        kpi_definition_ok = len(explicit_feature_checks) > 0
+        passed = (logs_ok and forbidden_ok and kpi_definition_ok and golden_cmp["pass"] and kpi_eval["pass"] and kpi_any_eval["pass"])
         overall_pass = overall_pass and passed
+
+        failure_reasons: List[str] = []
+        if not logs_ok:
+            failure_reasons.append("missing_required_patterns")
+        if not forbidden_ok:
+            failure_reasons.append("hit_forbidden_patterns")
+        if not kpi_definition_ok:
+            failure_reasons.append("kpi_checks_empty")
+        if not kpi_eval["pass"]:
+            failure_reasons.append("kpi_checks_failed")
+        if not kpi_any_eval["pass"]:
+            failure_reasons.append("kpi_checks_any_failed")
+        if not golden_cmp["pass"]:
+            failure_reasons.append("golden_comparison_failed")
 
         road_kpi = {
             "lane_id_start": kpi.get("lane_id_start"),
@@ -702,10 +772,12 @@ def main() -> int:
             "required_modules_cpp": feat.get("required_modules_cpp", []),
             "required_modules_py": feat.get("required_modules_py", []),
             "validation_points": feat.get("validation_points", []),
+            "validation_goal": feat.get("validation_goal", ""),
             "expected_behavior_nl": expected_behavior_nl,
             "judgement_criteria_nl": judgement_criteria_nl,
             "video": read_video_info(fdir),
             "driverscript": read_driverscript_info(fdir),
+            "failure_reasons": failure_reasons,
         }
 
         if args.update_golden:
@@ -721,6 +793,7 @@ def main() -> int:
         "run_dir": str(run_dir),
         "feature_count": len(results),
         "passed_count": sum(1 for r in results if r["pass"]),
+        "video_config": video_config,
         "results": results,
     }
 

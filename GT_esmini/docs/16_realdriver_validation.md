@@ -12,6 +12,8 @@ This document describes the RealDriver validation framework introduced for GT_es
 
 - Feature tests run on `GT_Sim` (not `GT_Loader`)
 - Default execution frequency is `--hz 100`
+- `--hz` only defines simulation step (`dt=1/hz`); to disable wall-clock pacing use `--no_realtime`
+- Video-heavy runs are usually encode-bound (ffmpeg), not simulation-bound
 - Python execution is expected to use validation `venv` (`venv/Scripts/python.exe`)
 - Feature tests launch DriverScript controller in parallel (UDP input to RealDriverController)
   - `scenario_drive_example.py --mode udp` is launched per feature
@@ -30,25 +32,25 @@ This document describes the RealDriver validation framework introduced for GT_es
   - `検証観点`: human-readable validation points from feature matrix
   - `Road KPI要約`: lane/s/t based KPI summary
 - Scenario narratives and criteria are defined in:
-  - `GT_esmini/test/validation/realdriver_feature_matrix.yaml`
+  - `GT_esmini/test/validation/pythondriver_feature_matrix.yaml`
     - `expected_behavior_nl` (timeline natural language)
     - `judgement_criteria_nl` (natural language + KPI thresholds)
     - `validation_points` (legacy compatibility field)
 
 ## Configuration
 
-- Feature matrix: `GT_esmini/test/validation/realdriver_feature_matrix.yaml`
+- Feature matrix: `GT_esmini/test/validation/pythondriver_feature_matrix.yaml`
 - KPI thresholds: `GT_esmini/test/validation/kpi_thresholds.yaml`
 - Native reference policy: `GT_esmini/test/validation/native_reference_policy.yaml`
 - KPI-first validation:
   - `kpi_thresholds.yaml`:
     - `baseline_kpi_checks`: common checks applied to all features
-  - `realdriver_feature_matrix.yaml`:
+  - `pythondriver_feature_matrix.yaml`:
     - `kpi_checks`: scenario-specific checks (distance, speed profile, arrival conditions)
     - `kpi_checks_any`: OR-based checks where any one condition is sufficient
     - `expected_behavior_nl`: timeline-based narrative (e.g. "開始5秒で停止。3秒後、4秒かけて40km/hへ加速")
     - `judgement_criteria_nl`: natural-language pass criteria with numeric thresholds
-  - `required_patterns` are treated as advisory when KPI checks are defined for a feature.
+  - `required_patterns` are always required for pass/fail.
 
 ## Golden policy
 
@@ -90,6 +92,8 @@ This document describes the RealDriver validation framework introduced for GT_es
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -UpdateGolden
 ./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -Hz 100 -EnableVideo $true
+./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -Hz 100 -NoRealtime $true -EnableVideo $false
+./scripts/run_realdriver_feature_tests.ps1 -BuildDir build -Hz 100 -NoRealtime $true -EnableVideo $true -VideoMode fastest -VideoEncoder auto -VideoParallelJobs 4
 ```
 
 ## Test procedure (recommended)
@@ -100,7 +104,7 @@ This document describes the RealDriver validation framework introduced for GT_es
 cmake --build build --config Release --target GT_Sim
 ```
 
-2. Run RealDriver feature tests with 100Hz baseline and video enabled:
+2. Run RealDriver feature tests with 100Hz baseline (fastest mode, no realtime pacing):
 
 ```powershell
 ./scripts/setup_realdriver_validation_venv.ps1 -VenvDir venv
@@ -110,7 +114,11 @@ pwsh -NoProfile -File ./scripts/run_realdriver_feature_tests.ps1 `
   -SimPath ./build/GT_esmini/Release/GT_Sim.exe `
   -VenvDir venv `
   -Hz 100 `
-  -EnableVideo:$true
+  -NoRealtime:$true `
+  -EnableVideo:$true `
+  -VideoMode fastest `
+  -VideoEncoder auto `
+  -VideoParallelJobs 4
 ```
 
 3. Open the generated report:
