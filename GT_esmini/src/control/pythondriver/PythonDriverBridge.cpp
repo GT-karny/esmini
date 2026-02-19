@@ -314,6 +314,82 @@ PyObject* PythonDriverBridge::BuildFrameDict(const PythonFrameData& data)
         Py_DECREF(val);
     }
 
+    {
+        PyObject* generation = PyDict_New();
+        PyObject* val = PyLong_FromUnsignedLongLong(static_cast<unsigned long long>(data.waypoint_generation_version));
+        PyDict_SetItemString(generation, "version", val);
+        Py_DECREF(val);
+        PyDict_SetItemString(dict, "waypoint_generation", generation);
+        Py_DECREF(generation);
+    }
+
+    {
+        PyObject* actions = PyDict_New();
+        PyObject* val = nullptr;
+
+        val = data.actions.assign_route ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "assign_route", val);
+        Py_DECREF(val);
+
+        val = data.actions.lane_change ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "lane_change", val);
+        Py_DECREF(val);
+
+        if (data.actions.has_lane_change_target_lane)
+        {
+            val = PyLong_FromLong(data.actions.lane_change_target_lane);
+        }
+        else
+        {
+            val = Py_None;
+            Py_INCREF(val);
+        }
+        PyDict_SetItemString(actions, "lane_change_target_lane", val);
+        Py_DECREF(val);
+
+        val = data.actions.lane_offset ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "lane_offset", val);
+        Py_DECREF(val);
+
+        if (data.actions.has_lane_offset_target_m)
+        {
+            val = PyFloat_FromDouble(data.actions.lane_offset_target_m);
+        }
+        else
+        {
+            val = Py_None;
+            Py_INCREF(val);
+        }
+        PyDict_SetItemString(actions, "lane_offset_target_m", val);
+        Py_DECREF(val);
+
+        val = data.actions.follow_trajectory ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "follow_trajectory", val);
+        Py_DECREF(val);
+
+        val = data.actions.longitudinal_distance ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "longitudinal_distance", val);
+        Py_DECREF(val);
+
+        val = data.actions.speed_profile ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "speed_profile", val);
+        Py_DECREF(val);
+
+        val = data.actions.synchronize ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(actions, "synchronize", val);
+        Py_DECREF(val);
+
+        PyDict_SetItemString(dict, "actions", actions);
+        Py_DECREF(actions);
+    }
+
     // Longitudinal profile as list of dicts
     {
         PyObject* lp_list = PyList_New(0);
@@ -371,6 +447,16 @@ void PythonDriverBridge::WriteCppToPyTrace(const PythonFrameData& data)
         << ",\"gt_size\":" << data.ground_truth_size
         << ",\"waypoint_count\":" << waypoint_count
         << ",\"waypoint_index\":" << data.waypoint_index
+        << ",\"waypoint_generation_version\":" << data.waypoint_generation_version
+        << ",\"actions\":{"
+        << "\"assign_route\":" << (data.actions.assign_route ? "true" : "false") << ","
+        << "\"lane_change\":" << (data.actions.lane_change ? "true" : "false") << ","
+        << "\"lane_offset\":" << (data.actions.lane_offset ? "true" : "false") << ","
+        << "\"follow_trajectory\":" << (data.actions.follow_trajectory ? "true" : "false") << ","
+        << "\"longitudinal_distance\":" << (data.actions.longitudinal_distance ? "true" : "false") << ","
+        << "\"speed_profile\":" << (data.actions.speed_profile ? "true" : "false") << ","
+        << "\"synchronize\":" << (data.actions.synchronize ? "true" : "false")
+        << "}"
         << ",\"lon_profile_count\":" << lon_profile_count
         << ",\"set_speed\":" << data.set_speed
         << ",\"current_speed\":" << data.current_speed

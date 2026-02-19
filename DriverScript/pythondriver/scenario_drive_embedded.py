@@ -4,30 +4,30 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .adapters import FrameAdapter, OSIAdapter
 from .controller_base import EmbeddedControllerBase
 from .lights import LightState
-from realdriver.lateral_controller import LateralController
-from realdriver.longitudinal_controller import LongitudinalController
-from realdriver.waypoint import Waypoint
+from realdriver.acc_controller import ACCController
+from realdriver.scenario_drive import ScenarioDriveController
 
 
 class ScenarioDriveEmbedded(EmbeddedControllerBase):
-    """Combined lateral + longitudinal controller for embedded runtime."""
+    """ScenarioDrive + ACC composition for embedded runtime."""
 
     def __init__(self) -> None:
         self.ego_id = 0
         self.dt = 0.01
         self._frame_count = 0
-        self._last_waypoint_sig = None
         self._adas_states: List[int] = []
-        self.lateral: LateralController | None = None
-        self.longitudinal: LongitudinalController | None = None
         self._trace_enabled = False
         self._trace_file = None
         self._lights = LightState()
+        self._scenario: Optional[ScenarioDriveController] = None
+        self._acc: Optional[ACCController] = None
+        self._last_wp_generation_version: Optional[int] = None
+        self._last_waypoint_index: int = 0
 
     def init(self, config: Dict[str, Any]) -> None:
         self.dt = float(config.get("dt", 0.01))
@@ -42,77 +42,89 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
             os.makedirs(out_dir, exist_ok=True)
             self._trace_file = open(os.path.join(out_dir, "python_trace.jsonl"), "w", encoding="utf-8")
 
-        self.lateral = LateralController(ego_id=self.ego_id)
-        self.longitudinal = LongitudinalController(ego_id=self.ego_id)
+        bin_dir = os.path.normpath(os.path.join(script_dir, "..", "..", "bin"))
+        lib_path = os.path.join(bin_dir, "esminiRMLib.dll")
+        gt_lib_path = os.path.join(bin_dir, "GT_esminiLib.dll")
+        if not os.path.exists(gt_lib_path):
+            gt_lib_path = None
 
-        # Optional RoadManager assist.
-        try:
-            from realdriver.rm_lib import EsminiRMLib
-
-            lib_path = os.path.join(script_dir, "..", "bin", "esminiRMLib.dll")
-            if os.path.exists(lib_path) and xodr_path:
-                rm_lib = EsminiRMLib(lib_path)
-                rm_lib.Init(xodr_path)
-                self.lateral = LateralController(rm_lib=rm_lib, ego_id=self.ego_id)
-        except Exception:
-            # Keep running without RM binding.
-            pass
-
-    def _update_waypoints(self, waypoints: List[Waypoint], waypoint_index: int) -> None:
-        if self.lateral is None:
-            return
-        if not waypoints:
-            return
-
-        sig = (
-            len(waypoints),
-            round(waypoints[0].x, 3),
-            round(waypoints[0].y, 3),
-            round(waypoints[-1].x, 3),
-            round(waypoints[-1].y, 3),
+        self._scenario = ScenarioDriveController(
+            lib_path=lib_path,
+            xodr_path=xodr_path,
+            ego_id=self.ego_id,
+            gt_lib_path=gt_lib_path,
+            mode="embedded",
         )
-        if sig != self._last_waypoint_sig:
-            self.lateral.set_calculated_waypoints(waypoints)
-            self._last_waypoint_sig = sig
-        self.lateral.current_waypoint_index = waypoint_index
+        self._acc = ACCController(ego_id=self.ego_id, rm_lib=self._scenario.rm_lib)
 
     def _resolve_target_speed(self, lon_profile: List[Dict[str, float]], fallback: float) -> float:
         if lon_profile:
             return float(lon_profile[-1].get("v_target", fallback))
         return float(fallback)
 
+    def _effective_waypoint_index(self, frame_data: Dict[str, Any]) -> int:
+        incoming = int(frame_data.get("waypoint_index", 0))
+        generation = frame_data.get("waypoint_generation", {}) or {}
+        version = int(generation.get("version", -1))
+        if version == self._last_wp_generation_version:
+            return max(self._last_waypoint_index, incoming)
+        return incoming
+
     def step(self, frame_data: Dict[str, Any]) -> Dict[str, Any]:
-        if self.lateral is None or self.longitudinal is None:
+        if self._scenario is None or self._acc is None:
             raise RuntimeError("ScenarioDriveEmbedded is not initialized")
 
         frame = FrameAdapter.from_dict(frame_data)
         gt = OSIAdapter.parse_ground_truth(frame.ground_truth_bytes)
+        dt = frame.dt if frame.dt > 0.0 else self.dt
 
-        self._update_waypoints(frame.waypoints, frame.waypoint_index)
+        effective_frame_data = dict(frame_data)
+        effective_frame_data["waypoint_index"] = self._effective_waypoint_index(frame_data)
+        self._scenario._embedded_frame_data = effective_frame_data
+
+        actions = frame_data.get("actions", {}) or {}
+        use_acc = bool(actions.get("longitudinal_distance")) or bool(actions.get("synchronize"))
+
         target_speed = self._resolve_target_speed(frame.lon_profile, frame.set_speed)
-        self.longitudinal.set_target_speed(target_speed)
+        self._scenario.set_target_speed(target_speed)
+        self._acc.set_target_speed(max(0.0, target_speed))
 
         steering = 0.0
         throttle = 0.0
         brake = 0.0
         if gt is not None:
-            steering = self.lateral.update(gt, frame.dt if frame.dt > 0.0 else self.dt)
-            lon = self.longitudinal.update(gt, frame.dt if frame.dt > 0.0 else self.dt)
-            throttle = lon.throttle
-            brake = lon.brake
+            s_steering, s_throttle, s_brake = self._scenario.update(gt, dt)
+            if s_steering is not None:
+                steering = float(s_steering)
+            if use_acc:
+                acc_out = self._acc.update(gt, dt)
+                throttle = float(acc_out.throttle)
+                brake = float(acc_out.brake)
+            else:
+                throttle = float(s_throttle or 0.0)
+                brake = float(s_brake or 0.0)
+
+        if self._scenario.waypoint_mgr is not None:
+            self._last_waypoint_index = int(self._scenario.waypoint_mgr.current_index)
+        else:
+            self._last_waypoint_index = int(effective_frame_data.get("waypoint_index", 0))
+        generation = frame_data.get("waypoint_generation", {}) or {}
+        self._last_wp_generation_version = int(generation.get("version", -1))
 
         self._frame_count += 1
+        gear = -1 if target_speed < -0.05 else 1
         lights_patch = self._lights.to_patch_dict()
         result = FrameAdapter.to_result(
             throttle=throttle,
             brake=brake,
             steering=steering,
-            gear=1,
+            gear=gear,
             lights=lights_patch,
             engine_brake=0.49,
             adas_states=self._adas_states,
         )
         self._lights.clear_patch()
+
         if self._trace_enabled and self._trace_file is not None:
             self._trace_file.write(
                 json.dumps(
@@ -121,11 +133,16 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
                         "recv": {
                             "gt_bytes_len": len(frame.ground_truth_bytes or b""),
                             "waypoint_count": len(frame.waypoints),
+                            "waypoint_index": int(frame_data.get("waypoint_index", 0)),
+                            "waypoint_index_effective": int(effective_frame_data.get("waypoint_index", 0)),
+                            "waypoint_generation": self._last_wp_generation_version,
                             "lon_profile_count": len(frame.lon_profile),
                             "set_speed": frame.set_speed,
                             "current_speed": frame.current_speed,
                             "dt": frame.dt,
+                            "actions": actions,
                         },
+                        "control_mode": "acc" if use_acc else "scenario_longitudinal",
                         "send": {
                             "throttle": result["throttle"],
                             "brake": result["brake"],
@@ -145,6 +162,10 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         if self._trace_file is not None:
             self._trace_file.close()
             self._trace_file = None
+        if self._scenario is not None:
+            self._scenario.close()
+        self._scenario = None
+        self._acc = None
         return None
 
 

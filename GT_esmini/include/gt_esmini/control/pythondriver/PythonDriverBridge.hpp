@@ -52,11 +52,28 @@ struct PythonDriverInput
 
 struct PythonFrameData
 {
+    struct ActionContext
+    {
+        bool assign_route = false;
+        bool lane_change = false;
+        int lane_change_target_lane = 0;
+        bool has_lane_change_target_lane = false;
+        bool lane_offset = false;
+        double lane_offset_target_m = 0.0;
+        bool has_lane_offset_target_m = false;
+        bool follow_trajectory = false;
+        bool longitudinal_distance = false;
+        bool speed_profile = false;
+        bool synchronize = false;
+    };
+
     std::size_t frame_id = 0;
     const char* ground_truth_bytes = nullptr;
     int         ground_truth_size  = 0;
     const std::vector<WaypointData>*    waypoints     = nullptr;
     int                                 waypoint_index = 0;
+    std::size_t                         waypoint_generation_version = 0;
+    ActionContext                       actions;
     const std::vector<LonProfilePoint>* lon_profile    = nullptr;
     double set_speed     = 0.0;
     double current_speed = 0.0;

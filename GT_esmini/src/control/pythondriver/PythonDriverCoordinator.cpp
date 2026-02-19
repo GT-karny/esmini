@@ -18,9 +18,11 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
 
     // 1. Update target speed from scenario actions
     controller.UpdateSetSpeedFromScenarioObject();
+    controller.EvaluateScenarioActions();
 
     // 2. Ensure waypoints are extracted from route
     controller.EnsureWaypointsExtracted();
+    controller.UpdateCurrentWaypointIndex();
 
     // 3. Build longitudinal speed profile
     const auto lon_profile = controller.lon_profile_planner_->BuildProfile(controller.currentSpeed_, controller.setSpeed_);
@@ -38,6 +40,18 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
     frame_data.ground_truth_size  = gt_size;
     frame_data.waypoints          = &controller.waypoints_;
     frame_data.waypoint_index     = controller.currentWaypointIndex_;
+    frame_data.waypoint_generation_version = controller.waypointGenerationVersion_;
+    frame_data.actions.assign_route = controller.frame_action_context_.assignRoute;
+    frame_data.actions.lane_change = controller.frame_action_context_.laneChange;
+    frame_data.actions.lane_change_target_lane = controller.frame_action_context_.laneChangeTargetLane;
+    frame_data.actions.has_lane_change_target_lane = controller.frame_action_context_.hasLaneChangeTargetLane;
+    frame_data.actions.lane_offset = controller.frame_action_context_.laneOffset;
+    frame_data.actions.lane_offset_target_m = controller.frame_action_context_.laneOffsetTargetM;
+    frame_data.actions.has_lane_offset_target_m = controller.frame_action_context_.hasLaneOffsetTargetM;
+    frame_data.actions.follow_trajectory = controller.frame_action_context_.followTrajectory;
+    frame_data.actions.longitudinal_distance = controller.frame_action_context_.longitudinalDistance;
+    frame_data.actions.speed_profile = controller.frame_action_context_.speedProfile;
+    frame_data.actions.synchronize = controller.frame_action_context_.synchronize;
     frame_data.lon_profile        = &lon_profile;
     frame_data.set_speed          = controller.setSpeed_;
     frame_data.current_speed      = controller.currentSpeed_;

@@ -168,6 +168,8 @@ class ScenarioDriveController:
         self._no_route_warned = False
         self._pending_target: Optional[Waypoint] = None
         self._last_udp_waypoint_sig = None
+        self._last_embedded_waypoint_sig = None
+        self._last_embedded_waypoint_generation_version: Optional[int] = None
         self.allow_reverse_from_profile = allow_reverse_from_profile
         self._embedded_frame_data = None
 
@@ -246,6 +248,8 @@ class ScenarioDriveController:
             frame_waypoints = self._embedded_frame_data.get("waypoints", []) or []
             if not frame_waypoints:
                 return
+            generation = self._embedded_frame_data.get("waypoint_generation", {}) or {}
+            generation_version = int(generation.get("version", -1))
             waypoints = [
                 Waypoint(
                     x=wp.get("x", 0.0),
@@ -258,9 +262,35 @@ class ScenarioDriveController:
                 )
                 for wp in frame_waypoints
             ]
+            sample_ids = [0, len(waypoints) // 4, len(waypoints) // 2, (3 * len(waypoints)) // 4, len(waypoints) - 1]
+            sig = [len(waypoints)]
+            for i in sample_ids:
+                wp = waypoints[i]
+                sig.append((
+                    round(wp.x, 2),
+                    round(wp.y, 2),
+                    round(wp.h, 3),
+                    int(wp.road_id),
+                    int(wp.lane_id),
+                    round(wp.s, 1),
+                    round(wp.lane_offset, 2),
+                ))
+            sig_tuple = tuple(sig)
+            changed = (
+                self._last_embedded_waypoint_generation_version != generation_version
+                or self._last_embedded_waypoint_sig != sig_tuple
+            )
+            if changed:
+                self.lateral.set_calculated_waypoints(waypoints)
+                self._last_embedded_waypoint_sig = sig_tuple
+                self._last_embedded_waypoint_generation_version = generation_version
+
             index = int(self._embedded_frame_data.get("waypoint_index", 0))
-            self.lateral.set_calculated_waypoints(waypoints)
-            self.waypoint_mgr.current_index = max(0, min(index, max(0, len(waypoints) - 1)))
+            if changed:
+                next_index = index
+            else:
+                next_index = max(self.waypoint_mgr.current_index, index)
+            self.waypoint_mgr.current_index = max(0, min(next_index, max(0, len(waypoints) - 1)))
             return
 
         if self._waypoint_receiver is None:

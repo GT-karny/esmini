@@ -72,7 +72,45 @@ private:
         bool manual_on = false;
     };
 
+    struct RunningActionState
+    {
+        scenarioengine::LatLaneChangeAction* laneChange = nullptr;
+        scenarioengine::LatLaneOffsetAction* laneOffset = nullptr;
+        scenarioengine::FollowTrajectoryAction* followTrajectory = nullptr;
+        scenarioengine::AssignRouteAction* assignRoute = nullptr;
+        scenarioengine::LongDistanceAction* longDistance = nullptr;
+        scenarioengine::LongSpeedProfileAction* speedProfile = nullptr;
+        scenarioengine::SynchronizeAction* synchronize = nullptr;
+    };
+
+    struct ActionFlags
+    {
+        bool laneChanging = false;
+        bool laneOffsetting = false;
+        bool followingTrajectory = false;
+        bool assigningRoute = false;
+        bool longitudinalDistance = false;
+        bool speedProfile = false;
+        bool synchronize = false;
+    };
+
+    struct FrameActionContext
+    {
+        bool assignRoute = false;
+        bool laneChange = false;
+        int laneChangeTargetLane = 0;
+        bool hasLaneChangeTargetLane = false;
+        bool laneOffset = false;
+        double laneOffsetTargetM = 0.0;
+        bool hasLaneOffsetTargetM = false;
+        bool followTrajectory = false;
+        bool longitudinalDistance = false;
+        bool speedProfile = false;
+        bool synchronize = false;
+    };
+
     void UpdateSetSpeedFromScenarioObject();
+    void EvaluateScenarioActions();
     void UpdateVehiclePhysics(double timeStep);
     void UpdateCachedPowertrain();
     void UpdateHostVehicleReporter() const;
@@ -85,6 +123,22 @@ private:
     void EnsureWaypointsExtracted();
     void ExtractWaypoints();
     void RefreshWaypointsOnRoutePointerChange();
+    void UpdateCurrentWaypointIndex();
+
+    scenarioengine::OSCPrivateAction* GetRunningPrivateActionByType(scenarioengine::OSCAction::ActionType type);
+    scenarioengine::LatLaneChangeAction* GetRunningLaneChangeAction();
+    scenarioengine::LatLaneOffsetAction* GetRunningLaneOffsetAction();
+    scenarioengine::LongDistanceAction* GetRunningLongDistanceAction();
+    scenarioengine::LongSpeedProfileAction* GetRunningSpeedProfileAction();
+    scenarioengine::FollowTrajectoryAction* GetRunningFollowTrajectoryAction();
+    scenarioengine::SynchronizeAction* GetRunningSynchronizeAction();
+    scenarioengine::AssignRouteAction* GetRunningAssignRouteAction();
+    RunningActionState GetRunningActionState();
+    static ActionFlags ToActionFlags(const RunningActionState& state);
+    bool HandlePathActions(const RunningActionState& state, const ActionFlags& previousFlags, const char* phaseLabel);
+    void RegenerateWaypointsForLaneChange(int targetLaneId, double transitionDuration);
+    void RegenerateWaypointsForLaneOffset(double targetOffset, double transitionDistance);
+    void RegenerateWaypointsForTrajectory(scenarioengine::FollowTrajectoryAction* action);
 
     void FailAndStop(const std::string& message);
     bool HasFatalError() const { return fatal_error_; }
@@ -96,7 +150,16 @@ private:
     std::vector<WaypointData> waypoints_;
     int currentWaypointIndex_ = 0;
     bool waypointsExtracted_  = false;
+    std::size_t waypointGenerationVersion_ = 0;
     const roadmanager::Route* lastObservedRoute_ = nullptr;
+    bool wasLaneChanging_ = false;
+    bool wasLaneOffsetting_ = false;
+    bool wasFollowingTrajectory_ = false;
+    bool wasAssigningRoute_ = false;
+    bool wasLongitudinalDistance_ = false;
+    bool wasSpeedProfile_ = false;
+    bool wasSynchronize_ = false;
+    FrameActionContext frame_action_context_;
     double setSpeed_ = 0.0;
     double currentSpeed_ = 0.0;
 
