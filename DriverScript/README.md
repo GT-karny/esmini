@@ -46,10 +46,10 @@ Returned dict keys from `step()`:
 
 ### `realdriver` (deprecated)
 
-Legacy UDP path. Keep only for backward compatibility.
+Embedded bridge path only.
 
-- `mode="udp"` remains available with deprecation warning
-- `mode="embedded"` is available in `realdriver.scenario_drive` as a bridge path during migration
+- `realdriver.scenario_drive.ScenarioDriveController` is now `mode="embedded"` only
+- Legacy UDP mode has been removed
 
 ## OpenSCENARIO Controller Properties
 
