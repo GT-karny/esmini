@@ -155,6 +155,7 @@ $catalogRoot = Join-Path $xoscRoot "Catalogs"
 $driverScriptAbs = if ([System.IO.Path]::IsPathRooted($DriverScriptPath)) { $DriverScriptPath } else { Join-Path $repoRoot $DriverScriptPath }
 $driverWorkDir = Join-Path $repoRoot "DriverScript"
 $driverXodrPath = Join-Path $resourcesRoot "xodr/fabriksgatan.xodr"
+$osiLightCollectorScript = Join-Path $repoRoot "scripts/collect_osi_light_metrics.py"
 $embeddedPythonHome = Join-Path $repoRoot "thirdparty/python-embed/python-3.12.10-embed-amd64"
 
 if (-not (Test-Path $resourcesRoot)) { throw "Resources directory not found: $resourcesRoot" }
@@ -167,6 +168,9 @@ if ($EnableDriverScript) {
     if (-not (Test-Path $driverScriptAbs)) { throw "DriverScript entrypoint not found: $driverScriptAbs" }
     if (-not (Test-Path $driverWorkDir)) { throw "DriverScript working directory not found: $driverWorkDir" }
     if (-not (Test-Path $driverXodrPath)) { throw "OpenDRIVE map for DriverScript not found: $driverXodrPath" }
+}
+if (-not (Test-Path $osiLightCollectorScript)) {
+    throw "OSI light collector script not found: $osiLightCollectorScript"
 }
 
 # Ensure python312.dll can be resolved when GT_ENABLE_EMBEDDED_PYTHON=ON builds are used.
@@ -295,6 +299,11 @@ foreach ($f in $features) {
         continue
     }
 
+    $collectOsiLightMetrics = $false
+    if ($null -ne $f.collect_osi_light_metrics) {
+        $collectOsiLightMetrics = [bool]$f.collect_osi_light_metrics
+    }
+
     $absScenario = (Resolve-Path $scenario).Path
     $logPath = Join-Path $fdir "stdout.txt"
     $args = @(
@@ -322,7 +331,7 @@ foreach ($f in $features) {
             "--video_headless"
         )
     }
-    if ($EnableDriverScript -and $DriverScriptOsiReceiverIp) {
+    if (($EnableDriverScript -or $collectOsiLightMetrics) -and $DriverScriptOsiReceiverIp) {
         $args += @("--osi", $DriverScriptOsiReceiverIp)
     }
     if ($f.run_args) {
@@ -330,10 +339,27 @@ foreach ($f in $features) {
     }
 
     $driverProc = $null
-    $collectOsiLightMetrics = $false
-    if ($null -ne $f.collect_osi_light_metrics) {
-        $collectOsiLightMetrics = [bool]$f.collect_osi_light_metrics
+    $osiCollectorProc = $null
+    if ($collectOsiLightMetrics) {
+        $collectorOut = Join-Path $fdir "osi_collector_stdout.txt"
+        $collectorErr = Join-Path $fdir "osi_collector_stderr.txt"
+        $collectorArgs = @(
+            "-u",
+            $osiLightCollectorScript,
+            "--host", $DriverScriptOsiReceiverIp,
+            "--port", "$DriverScriptOsiPort",
+            "--timeout", "0.5",
+            "--duration", "12.0",
+            "--json-out", (Join-Path $fdir "osi_light_metrics.json"),
+            "--csv-out", (Join-Path $fdir "osi_lights.csv")
+        )
+        $osiCollectorProc = Start-Process -FilePath $PythonExe -ArgumentList $collectorArgs -WorkingDirectory $repoRoot -RedirectStandardOutput $collectorOut -RedirectStandardError $collectorErr -PassThru
+        Start-Sleep -Milliseconds 500
+        if ($osiCollectorProc.HasExited) {
+            "OSI collector exited early with code $($osiCollectorProc.ExitCode)" | Out-File -Encoding utf8 (Join-Path $fdir "runner_error.txt")
+        }
     }
+
     if ($EnableDriverScript) {
         $driverOut = Join-Path $fdir "python_stdout.txt"
         $driverErr = Join-Path $fdir "python_stderr.txt"
@@ -393,6 +419,23 @@ foreach ($f in $features) {
             }
             catch {
                 "unknown" | Out-File -Encoding ascii (Join-Path $fdir "driverscript_exit_code.txt")
+            }
+        }
+        if ($osiCollectorProc) {
+            if (-not $osiCollectorProc.WaitForExit(20000)) {
+                Stop-Process -Id $osiCollectorProc.Id -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 200
+            }
+            try {
+                if ($osiCollectorProc.HasExited) {
+                    "$($osiCollectorProc.ExitCode)" | Out-File -Encoding ascii (Join-Path $fdir "osi_collector_exit_code.txt")
+                }
+                else {
+                    "terminated" | Out-File -Encoding ascii (Join-Path $fdir "osi_collector_exit_code.txt")
+                }
+            }
+            catch {
+                "unknown" | Out-File -Encoding ascii (Join-Path $fdir "osi_collector_exit_code.txt")
             }
         }
     }

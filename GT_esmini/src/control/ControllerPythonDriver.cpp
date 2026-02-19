@@ -23,6 +23,26 @@ namespace gt_esmini
 {
 namespace
 {
+constexpr int kLightUnset = -1;
+constexpr int kLightAuto = 0;
+constexpr int kLightOff = 1;
+constexpr int kLightOn = 2;
+
+VehicleLightType SlotToVehicleLight(ControllerLightSlot slot)
+{
+    switch (slot)
+    {
+    case ControllerLightSlot::LOW_BEAM: return VehicleLightType::LOW_BEAM;
+    case ControllerLightSlot::HIGH_BEAM: return VehicleLightType::HIGH_BEAM;
+    case ControllerLightSlot::LEFT_INDICATOR: return VehicleLightType::INDICATOR_LEFT;
+    case ControllerLightSlot::RIGHT_INDICATOR: return VehicleLightType::INDICATOR_RIGHT;
+    case ControllerLightSlot::FOG: return VehicleLightType::FOG_LIGHTS;
+    case ControllerLightSlot::BRAKE: return VehicleLightType::BRAKE_LIGHTS;
+    case ControllerLightSlot::REVERSE: return VehicleLightType::REVERSING_LIGHTS;
+    default: return VehicleLightType::LOW_BEAM;
+    }
+}
+
 WaypointData MakeWaypointFromPosition(const roadmanager::Position& pos, double laneOffsetOverride)
 {
     WaypointData wp;
@@ -150,6 +170,12 @@ int ControllerPythonDriver::Activate(const ControlActivationMode (&mode)[static_
     setSpeed_           = object_->GetSpeed();
     lastObservedRoute_  = object_->pos_.GetRoute();
     input_.adasStates.assign(realdetail::kAdasFunctionCount, 0);
+    input_.lights.fill(kLightUnset);
+    for (auto& state : light_runtime_)
+    {
+        state.manual_override = false;
+        state.manual_on = false;
+    }
 
     std::string exeDir = GetCurrentModuleDirectory();
     ConfigLoader config_loader;
@@ -258,7 +284,7 @@ void ControllerPythonDriver::GetInputsForOSI(double& throttle, double& brake, do
     brake     = input_.brake;
     steering  = input_.steering;
     gear      = input_.gear;
-    lightMask = input_.lightMask;
+    lightMask = BuildLightMaskFromExtension();
 }
 
 void ControllerPythonDriver::GetPowertrainForOSI(double& rpm, double& torque) const
@@ -343,20 +369,103 @@ void ControllerPythonDriver::UpdateVehicleLights()
         return;
     }
 
+    ApplyLightPatch();
+
     auto set_light = [&](VehicleLightType type, bool on) {
         LightState state;
         state.mode = on ? LightState::Mode::ON : LightState::Mode::OFF;
         ext->SetLightState(type, state);
     };
 
-    const int mask = input_.lightMask;
-    set_light(VehicleLightType::LOW_BEAM, (mask & 1));
-    set_light(VehicleLightType::HIGH_BEAM, (mask & 2));
-    set_light(VehicleLightType::INDICATOR_LEFT, (mask & 4));
-    set_light(VehicleLightType::INDICATOR_RIGHT, (mask & 8));
-    set_light(VehicleLightType::FOG_LIGHTS, (mask & 16));
-    set_light(VehicleLightType::BRAKE_LIGHTS, (input_.brake > 0.05));
-    set_light(VehicleLightType::REVERSING_LIGHTS, (input_.gear == -1));
+    for (std::size_t i = 0; i < static_cast<std::size_t>(ControllerLightSlot::COUNT); ++i)
+    {
+        if (!light_runtime_[i].manual_override)
+        {
+            continue;
+        }
+        set_light(SlotToVehicleLight(static_cast<ControllerLightSlot>(i)), light_runtime_[i].manual_on);
+    }
+}
+
+void ControllerPythonDriver::ApplyLightPatch()
+{
+    if (!object_)
+    {
+        return;
+    }
+
+    auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
+    if (!vehicle)
+    {
+        return;
+    }
+
+    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+    if (!ext)
+    {
+        return;
+    }
+
+    for (std::size_t i = 0; i < static_cast<std::size_t>(ControllerLightSlot::COUNT); ++i)
+    {
+        const int patch_value = input_.lights[i];
+        if (patch_value == kLightUnset)
+        {
+            continue;
+        }
+
+        const auto slot = static_cast<ControllerLightSlot>(i);
+        if (patch_value == kLightAuto)
+        {
+            light_runtime_[i].manual_override = false;
+            ext->SetManualOverride(SlotToVehicleLight(slot), false);
+        }
+        else if (patch_value == kLightOff || patch_value == kLightOn)
+        {
+            light_runtime_[i].manual_override = true;
+            light_runtime_[i].manual_on = (patch_value == kLightOn);
+            ext->SetManualOverride(SlotToVehicleLight(slot), true);
+        }
+        else
+        {
+            LOG_WARN("PythonDriverController: invalid light patch value {} at index {}", patch_value, i);
+        }
+
+        // Consume per-frame patch (unspecified = no-op on following frames).
+        input_.lights[i] = kLightUnset;
+    }
+}
+
+int ControllerPythonDriver::BuildLightMaskFromExtension() const
+{
+    if (!object_)
+    {
+        return 0;
+    }
+
+    auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
+    if (!vehicle)
+    {
+        return 0;
+    }
+
+    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+    if (!ext)
+    {
+        return 0;
+    }
+
+    auto is_on = [&](VehicleLightType type) -> bool {
+        return ext->GetLightState(type).mode == LightState::Mode::ON;
+    };
+
+    int mask = 0;
+    if (is_on(VehicleLightType::LOW_BEAM)) mask |= 1;
+    if (is_on(VehicleLightType::HIGH_BEAM)) mask |= 2;
+    if (is_on(VehicleLightType::INDICATOR_LEFT)) mask |= 4;
+    if (is_on(VehicleLightType::INDICATOR_RIGHT)) mask |= 8;
+    if (is_on(VehicleLightType::FOG_LIGHTS) || is_on(VehicleLightType::FOG_LIGHTS_FRONT) || is_on(VehicleLightType::FOG_LIGHTS_REAR)) mask |= 16;
+    return mask;
 }
 
 void ControllerPythonDriver::SyncObjectPoseFromRealVehicle()

@@ -54,7 +54,7 @@ class FrameAdapter:
         brake: float,
         steering: float,
         gear: int = 1,
-        light_mask: int = 0,
+        lights: Dict[str, str] | None = None,
         engine_brake: float = 0.49,
         adas_states: List[int] | None = None,
     ) -> Dict[str, Any]:
@@ -63,7 +63,7 @@ class FrameAdapter:
             "brake": float(brake),
             "steering": float(steering),
             "gear": int(gear),
-            "light_mask": int(light_mask),
+            "lights": dict(lights or {}),
             "engine_brake": float(engine_brake),
             "adas_states": list(adas_states or []),
         }

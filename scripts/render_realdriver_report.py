@@ -53,6 +53,12 @@ def main() -> int:
         trace_integrity = bool(r.get("trace_integrity", True))
         trace_stats = r.get("trace_stats", {}) or {}
         trace_mismatch = r.get("trace_mismatch_samples", []) or []
+        light_mapping_integrity = bool(r.get("light_mapping_integrity", True))
+        light_mapping_stats = r.get("light_mapping_stats", {}) or {}
+        light_mapping_mismatch = r.get("light_mapping_mismatch_samples", []) or []
+        autolight_integrity = bool(r.get("autolight_integrity", True))
+        autolight_stats = r.get("autolight_stats", {}) or {}
+        autolight_mismatch = r.get("autolight_mismatch_samples", []) or []
         points_text = render_list_cell(validation_points)
         expected_behavior = r.get("expected_behavior_nl") or validation_points
         judgement_criteria = r.get("judgement_criteria_nl", [])
@@ -126,6 +132,24 @@ def main() -> int:
                 )
             if trace_mismatch:
                 trace_text += "<br/>" + "<br/>".join(esc(str(x)) for x in trace_mismatch[:3])
+        light_mapping_text = "-"
+        if r.get("id") == "F02":
+            light_mapping_text = "PASS" if light_mapping_integrity else "FAIL"
+            if light_mapping_stats:
+                light_mapping_text += "<br/>" + esc(
+                    f"match={light_mapping_stats.get('match_count', '-')}/{light_mapping_stats.get('total_samples', '-')}"
+                )
+            if light_mapping_mismatch:
+                light_mapping_text += "<br/>" + "<br/>".join(esc(str(x)) for x in light_mapping_mismatch[:3])
+        autolight_text = "-"
+        if r.get("id") == "F03":
+            autolight_text = "PASS" if autolight_integrity else "FAIL"
+            if autolight_stats:
+                autolight_text += "<br/>" + esc(
+                    f"lane_changes={autolight_stats.get('lane_change_events', '-')}, reverse_samples={autolight_stats.get('reverse_window_samples', '-')}"
+                )
+            if autolight_mismatch:
+                autolight_text += "<br/>" + "<br/>".join(esc(str(x)) for x in autolight_mismatch[:3])
 
         fid = r.get("id")
         video = r.get("video", {}) or {}
@@ -170,6 +194,8 @@ def main() -> int:
             f"<td>{points_text}</td>"
             f"<td>{road_summary}</td>"
             f"<td>{trace_text}</td>"
+            f"<td>{light_mapping_text}</td>"
+            f"<td>{autolight_text}</td>"
             f"<td>{kpi_text}</td>"
             f"<td>{render_list_cell(failure_reasons)}</td>"
             f"<td>{esc(miss)}</td>"
@@ -210,6 +236,8 @@ def main() -> int:
         <th>検証観点</th>
         <th>Road KPI要約</th>
         <th>Trace Integrity</th>
+        <th>Light Mapping Integrity</th>
+        <th>AutoLight Integrity</th>
         <th>KPI Checks</th>
         <th>Failure Reasons</th>
         <th>Missing Required</th>

@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from .adapters import FrameAdapter, OSIAdapter
 from .controller_base import EmbeddedControllerBase
+from .lights import LightState
 from realdriver.lateral_controller import LateralController
 from realdriver.longitudinal_controller import LongitudinalController
 from realdriver.waypoint import Waypoint
@@ -26,6 +27,7 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         self.longitudinal: LongitudinalController | None = None
         self._trace_enabled = False
         self._trace_file = None
+        self._lights = LightState()
 
     def init(self, config: Dict[str, Any]) -> None:
         self.dt = float(config.get("dt", 0.01))
@@ -100,15 +102,17 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
             brake = lon.brake
 
         self._frame_count += 1
+        lights_patch = self._lights.to_patch_dict()
         result = FrameAdapter.to_result(
             throttle=throttle,
             brake=brake,
             steering=steering,
             gear=1,
-            light_mask=0,
+            lights=lights_patch,
             engine_brake=0.49,
             adas_states=self._adas_states,
         )
+        self._lights.clear_patch()
         if self._trace_enabled and self._trace_file is not None:
             self._trace_file.write(
                 json.dumps(
@@ -127,7 +131,7 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
                             "brake": result["brake"],
                             "steering": result["steering"],
                             "gear": result["gear"],
-                            "light_mask": result["light_mask"],
+                            "lights": result["lights"],
                             "engine_brake": result["engine_brake"],
                         },
                     },

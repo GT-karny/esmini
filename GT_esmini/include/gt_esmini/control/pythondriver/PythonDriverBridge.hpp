@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cstddef>
 #include <vector>
+#include <array>
 
 // Forward declare Python types to avoid including Python.h in headers
 struct _object;
@@ -17,13 +18,33 @@ namespace gt_esmini
 struct WaypointData;
 struct LonProfilePoint;
 
+enum class PythonLightSlot : std::size_t
+{
+    LOW_BEAM = 0,
+    HIGH_BEAM,
+    LEFT_INDICATOR,
+    RIGHT_INDICATOR,
+    FOG,
+    BRAKE,
+    REVERSE,
+    COUNT
+};
+
+struct PythonLightsPatch
+{
+    // -1: not specified, 0: auto, 1: off, 2: on
+    std::array<int, static_cast<std::size_t>(PythonLightSlot::COUNT)> states{
+        -1, -1, -1, -1, -1, -1, -1
+    };
+};
+
 struct PythonDriverInput
 {
     double throttle   = 0.0;
     double brake      = 0.0;
     double steering   = 0.0;
     int    gear       = 1;
-    int    lightMask  = 0;
+    PythonLightsPatch lights;
     double engineBrake = 0.49;
     std::vector<int> adasStates;
     bool   valid      = false;

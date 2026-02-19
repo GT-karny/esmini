@@ -21,29 +21,38 @@
     {
       "id": "F02",
       "name": "LightMask mapping",
-      "validation_goal": "ライト関連入力が制御ループ中に破綻なく処理される",
+      "validation_goal": "Pythonが返す全ライト制御（light_mask + brake/reverse）がOSI出力へ厳密一致で反映される",
       "scenario": "GT_esmini/test/scenarios/pythondriver_f02_lightmask_mapping.xosc",
       "run_args": "--record sim.dat --log_level info",
-      "required_patterns": ["PythonDriverController"],
+      "collect_osi_light_metrics": true,
+      "required_patterns": ["PythonDriverController::Activate\\(\\) called", "PythonDriverBridge: Initialized successfully"],
       "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
       "kpi_checks": [
-        {"metric": "duration_s", "min": 9.0},
-        {"metric": "s_progress_m", "min": 30.0}
+        {"metric": "light_mapping_match_ratio", "equals": 1.0},
+        {"metric": "light_mapping_latency_frames_max", "max": 1},
+        {"metric": "light_mapping_missing_samples", "equals": 0},
+        {"metric": "light_state_observed", "equals": true}
       ],
       "kpi_checks_any": []
     },
     {
       "id": "F03",
       "name": "Auto brake/reverse lights",
-      "validation_goal": "停止→後退遷移に応じてブレーキ/リバースライト状態が正しく反映される",
+      "validation_goal": "AutoLight（Brake/Reverse/Indicator）が手動ライト指定なしで正しく反映される",
       "scenario": "GT_esmini/test/scenarios/pythondriver_f03_brake_reverse_auto_light.xosc",
-      "run_args": "--record sim.dat --log_level info",
+      "run_args": "--record sim.dat --log_level info --autolight",
+      "collect_osi_light_metrics": true,
       "required_patterns": ["PythonDriverController"],
       "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
       "kpi_checks": [
         {"metric": "signed_speed_min_mps", "max": -0.5},
         {"metric": "reverse_on_ratio_in_reverse_window", "min": 0.9},
         {"metric": "brake_on_ratio_in_braking_window", "min": 0.9},
+        {"metric": "indicator_on_ratio_in_lanechange_window", "min": 0.7},
+        {"metric": "indicator_off_ratio_outside_lanechange_window", "min": 0.9},
+        {"metric": "indicator_dominant_side_ratio_in_lanechange_window", "min": 0.8},
+        {"metric": "light_transition_latency_frames_max", "max": 2},
+        {"metric": "light_missing_samples", "equals": 0},
         {"metric": "light_state_observed", "equals": true}
       ],
       "kpi_checks_any": []

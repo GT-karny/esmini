@@ -35,6 +35,7 @@ namespace gt_esmini
                 LightState state;
                 state.mode = LightState::Mode::OFF;
                 lightStates_[static_cast<VehicleLightType>(i)] = state;
+                manualOverrides_[static_cast<VehicleLightType>(i)] = false;
             }
         }
         
@@ -48,6 +49,27 @@ namespace gt_esmini
         void SetLightState(VehicleLightType type, const LightState& state)
         {
             lightStates_[type] = state;
+        }
+
+        /**
+         * @brief Set per-light manual override policy.
+         * @param type Light type
+         * @param enabled true: manual control has priority, false: AutoLight may update
+         */
+        void SetManualOverride(VehicleLightType type, bool enabled)
+        {
+            manualOverrides_[type] = enabled;
+        }
+
+        /**
+         * @brief Check if a light is currently manually overridden.
+         * @param type Light type
+         * @return true if manual override is enabled
+         */
+        bool IsManualOverride(VehicleLightType type) const
+        {
+            auto it = manualOverrides_.find(type);
+            return it != manualOverrides_.end() ? it->second : false;
         }
 
         /**
@@ -81,6 +103,7 @@ namespace gt_esmini
 
         // Hold light states
         std::map<VehicleLightType, LightState> lightStates_;
+        std::map<VehicleLightType, bool>       manualOverrides_;
         bool                                   autoLightEnabled_ = false;
 
     private:

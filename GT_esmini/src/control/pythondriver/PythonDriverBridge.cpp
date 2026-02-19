@@ -12,11 +12,18 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 namespace gt_esmini
 {
 namespace
 {
+constexpr int kLightUnset = -1;
+constexpr int kLightAuto = 0;
+constexpr int kLightOff = 1;
+constexpr int kLightOn = 2;
+
 std::string EscapeJson(const std::string& s)
 {
     std::string out;
@@ -34,6 +41,32 @@ std::string EscapeJson(const std::string& s)
         }
     }
     return out;
+}
+
+const char* LightSlotToKey(PythonLightSlot slot)
+{
+    switch (slot)
+    {
+    case PythonLightSlot::LOW_BEAM: return "low_beam";
+    case PythonLightSlot::HIGH_BEAM: return "high_beam";
+    case PythonLightSlot::LEFT_INDICATOR: return "left_indicator";
+    case PythonLightSlot::RIGHT_INDICATOR: return "right_indicator";
+    case PythonLightSlot::FOG: return "fog";
+    case PythonLightSlot::BRAKE: return "brake";
+    case PythonLightSlot::REVERSE: return "reverse";
+    default: return "unknown";
+    }
+}
+
+const char* LightStateToString(int state)
+{
+    switch (state)
+    {
+    case kLightAuto: return "auto";
+    case kLightOff: return "off";
+    case kLightOn: return "on";
+    default: return "unset";
+    }
 }
 } // namespace
 
@@ -395,14 +428,25 @@ void PythonDriverBridge::WritePyToCppTrace(std::size_t frame_id, PyObject* resul
         << "\"brake\":" << (has_key("brake") ? "true" : "false") << ","
         << "\"steering\":" << (has_key("steering") ? "true" : "false") << ","
         << "\"gear\":" << (has_key("gear") ? "true" : "false") << ","
-        << "\"light_mask\":" << (has_key("light_mask") ? "true" : "false")
+        << "\"lights\":" << (has_key("lights") ? "true" : "false")
         << "}"
         << ",\"parsed\":{"
         << "\"throttle\":" << input.throttle << ","
         << "\"brake\":" << input.brake << ","
         << "\"steering\":" << input.steering << ","
         << "\"gear\":" << input.gear << ","
-        << "\"light_mask\":" << input.lightMask << ","
+        << "\"lights\":{";
+    for (std::size_t i = 0; i < static_cast<std::size_t>(PythonLightSlot::COUNT); ++i)
+    {
+        if (i > 0)
+        {
+            py_to_cpp_trace_ << ",";
+        }
+        const auto slot = static_cast<PythonLightSlot>(i);
+        py_to_cpp_trace_ << "\"" << LightSlotToKey(slot) << "\":\"" << LightStateToString(input.lights.states[i]) << "\"";
+    }
+    py_to_cpp_trace_
+        << "},"
         << "\"engine_brake\":" << input.engineBrake << ","
         << "\"adas_count\":" << input.adasStates.size()
         << "}"
@@ -437,8 +481,67 @@ PythonDriverInput PythonDriverBridge::ParseResult(PyObject* result)
     input.brake       = get_double("brake", 0.0);
     input.steering    = get_double("steering", 0.0);
     input.gear        = get_int("gear", 1);
-    input.lightMask   = get_int("light_mask", 0);
     input.engineBrake = get_double("engine_brake", 0.49);
+
+    PyObject* lights = PyDict_GetItemString(result, "lights"); // borrowed ref
+    if (!lights || !PyDict_Check(lights))
+    {
+        LOG_WARN("PythonDriverBridge: step() result is missing required dict key 'lights'");
+        return input;
+    }
+
+    auto parse_light_state = [&](const char* key, PythonLightSlot slot) -> bool {
+        PyObject* val = PyDict_GetItemString(lights, key); // borrowed ref
+        if (!val)
+        {
+            return true; // not specified: keep unset
+        }
+        if (!PyUnicode_Check(val))
+        {
+            LOG_WARN("PythonDriverBridge: lights.{} must be a string", key);
+            return false;
+        }
+
+        const char* raw = PyUnicode_AsUTF8(val);
+        if (!raw)
+        {
+            return false;
+        }
+
+        std::string token(raw);
+        std::transform(token.begin(), token.end(), token.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const std::size_t idx = static_cast<std::size_t>(slot);
+        if (token == "auto")
+        {
+            input.lights.states[idx] = kLightAuto;
+        }
+        else if (token == "off")
+        {
+            input.lights.states[idx] = kLightOff;
+        }
+        else if (token == "on")
+        {
+            input.lights.states[idx] = kLightOn;
+        }
+        else
+        {
+            LOG_WARN("PythonDriverBridge: lights.{} has invalid value '{}'", key, token);
+            return false;
+        }
+        return true;
+    };
+
+    if (!parse_light_state("low_beam", PythonLightSlot::LOW_BEAM) ||
+        !parse_light_state("high_beam", PythonLightSlot::HIGH_BEAM) ||
+        !parse_light_state("left_indicator", PythonLightSlot::LEFT_INDICATOR) ||
+        !parse_light_state("right_indicator", PythonLightSlot::RIGHT_INDICATOR) ||
+        !parse_light_state("fog", PythonLightSlot::FOG) ||
+        !parse_light_state("brake", PythonLightSlot::BRAKE) ||
+        !parse_light_state("reverse", PythonLightSlot::REVERSE))
+    {
+        return input;
+    }
+
     input.valid       = true;
 
     // Optional: ADAS states

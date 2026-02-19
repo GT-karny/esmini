@@ -65,7 +65,10 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
         controller.input_.brake       = py_input.brake;
         controller.input_.steering    = py_input.steering;
         controller.input_.gear        = py_input.gear;
-        controller.input_.lightMask   = py_input.lightMask;
+        for (std::size_t i = 0; i < static_cast<std::size_t>(ControllerLightSlot::COUNT); ++i)
+        {
+            controller.input_.lights[i] = py_input.lights.states[i];
+        }
         controller.input_.engineBrake = py_input.engineBrake;
         if (!py_input.adasStates.empty())
         {

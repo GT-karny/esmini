@@ -10,6 +10,7 @@
 
 #include <string>
 #include <vector>
+#include <array>
 
 #define CONTROLLER_PYTHON_DRIVER_TYPE_NAME "PythonDriverController"
 
@@ -17,6 +18,18 @@ namespace gt_esmini
 {
 class PythonDriverBridge;
 class PythonDriverCoordinator;
+
+enum class ControllerLightSlot : std::size_t
+{
+    LOW_BEAM = 0,
+    HIGH_BEAM,
+    LEFT_INDICATOR,
+    RIGHT_INDICATOR,
+    FOG,
+    BRAKE,
+    REVERSE,
+    COUNT
+};
 
 class ControllerPythonDriver : public scenarioengine::Controller
 {
@@ -45,9 +58,18 @@ private:
         double brake       = 0.0;
         double steering    = 0.0;
         int    gear        = 1;
-        int    lightMask   = 0;
+        // -1: unspecified, 0: auto, 1: off, 2: on
+        std::array<int, static_cast<std::size_t>(ControllerLightSlot::COUNT)> lights{
+            -1, -1, -1, -1, -1, -1, -1
+        };
         double engineBrake = 0.49;
         std::vector<int> adasStates;
+    };
+
+    struct LightRuntimeState
+    {
+        bool manual_override = false;
+        bool manual_on = false;
     };
 
     void UpdateSetSpeedFromScenarioObject();
@@ -55,8 +77,10 @@ private:
     void UpdateCachedPowertrain();
     void UpdateHostVehicleReporter() const;
     void UpdateVehicleLights();
+    void ApplyLightPatch();
     void SyncObjectPoseFromRealVehicle();
     void SyncGatewayObjectState(double combinedPitch, double combinedRoll);
+    int BuildLightMaskFromExtension() const;
 
     void EnsureWaypointsExtracted();
     void ExtractWaypoints();
@@ -88,6 +112,7 @@ private:
     std::string python_trace_dir_;
     bool fatal_error_ = false;
     std::size_t frame_index_ = 0;
+    std::array<LightRuntimeState, static_cast<std::size_t>(ControllerLightSlot::COUNT)> light_runtime_;
 };
 
 scenarioengine::Controller* InstantiateControllerPythonDriver(void* args);

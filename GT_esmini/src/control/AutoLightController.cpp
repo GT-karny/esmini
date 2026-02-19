@@ -92,6 +92,11 @@ namespace gt_esmini
 
     void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)
     {
+        if (lightExt_->IsManualOverride(VehicleLightType::BRAKE_LIGHTS))
+        {
+            return;
+        }
+
         // 1. Calculate raw acceleration
         double rawAcc = 0.0;
         if (dt > 0.0001)
@@ -200,6 +205,11 @@ namespace gt_esmini
 
     void AutoLightController::UpdateReversingLights()
     {
+        if (lightExt_->IsManualOverride(VehicleLightType::REVERSING_LIGHTS))
+        {
+            return;
+        }
+
         double speed = vehicle_->GetSpeed();
         // Check local speed or gear?
         // OpenSCENARIO usually handles positive speed even for reverse if direction is handled elsewhere?
@@ -238,6 +248,13 @@ namespace gt_esmini
 
     void AutoLightController::UpdateIndicators(double dt)
     {
+        const bool manual_left  = lightExt_->IsManualOverride(VehicleLightType::INDICATOR_LEFT);
+        const bool manual_right = lightExt_->IsManualOverride(VehicleLightType::INDICATOR_RIGHT);
+        if (manual_left || manual_right)
+        {
+            return;
+        }
+
         // Inputs
         double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
         id_t junctionId = vehicle_->pos_.GetJunctionId();
