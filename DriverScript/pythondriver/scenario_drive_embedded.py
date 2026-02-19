@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, List
 
@@ -23,12 +24,21 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         self._adas_states: List[int] = []
         self.lateral: LateralController | None = None
         self.longitudinal: LongitudinalController | None = None
+        self._trace_enabled = False
+        self._trace_file = None
 
     def init(self, config: Dict[str, Any]) -> None:
         self.dt = float(config.get("dt", 0.01))
         self.ego_id = int(config.get("ego_id", 0))
         script_dir = config.get("script_dir", "")
         xodr_path = config.get("xodr_path", "")
+        self._trace_enabled = bool(config.get("trace_enabled", False))
+        trace_dir = str(config.get("trace_dir", "") or "").strip()
+
+        if self._trace_enabled:
+            out_dir = trace_dir or "."
+            os.makedirs(out_dir, exist_ok=True)
+            self._trace_file = open(os.path.join(out_dir, "python_trace.jsonl"), "w", encoding="utf-8")
 
         self.lateral = LateralController(ego_id=self.ego_id)
         self.longitudinal = LongitudinalController(ego_id=self.ego_id)
@@ -90,7 +100,7 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
             brake = lon.brake
 
         self._frame_count += 1
-        return FrameAdapter.to_result(
+        result = FrameAdapter.to_result(
             throttle=throttle,
             brake=brake,
             steering=steering,
@@ -99,11 +109,40 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
             engine_brake=0.49,
             adas_states=self._adas_states,
         )
+        if self._trace_enabled and self._trace_file is not None:
+            self._trace_file.write(
+                json.dumps(
+                    {
+                        "frame_id": frame.frame_id,
+                        "recv": {
+                            "gt_bytes_len": len(frame.ground_truth_bytes or b""),
+                            "waypoint_count": len(frame.waypoints),
+                            "lon_profile_count": len(frame.lon_profile),
+                            "set_speed": frame.set_speed,
+                            "current_speed": frame.current_speed,
+                            "dt": frame.dt,
+                        },
+                        "send": {
+                            "throttle": result["throttle"],
+                            "brake": result["brake"],
+                            "steering": result["steering"],
+                            "gear": result["gear"],
+                            "light_mask": result["light_mask"],
+                            "engine_brake": result["engine_brake"],
+                        },
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
+            )
+        return result
 
     def close(self) -> None:
+        if self._trace_file is not None:
+            self._trace_file.close()
+            self._trace_file = None
         return None
 
 
 class EmbeddedController(ScenarioDriveEmbedded):
     """Default class name expected by xosc (`PythonClass=EmbeddedController`)."""
-

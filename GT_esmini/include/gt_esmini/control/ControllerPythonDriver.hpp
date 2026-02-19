@@ -84,6 +84,8 @@ private:
     std::string python_class_name_ = "EmbeddedController";
     std::string python_home_;
     std::string resolved_script_path_;
+    bool python_trace_enabled_ = false;
+    std::string python_trace_dir_;
     bool fatal_error_ = false;
     std::size_t frame_index_ = 0;
 };

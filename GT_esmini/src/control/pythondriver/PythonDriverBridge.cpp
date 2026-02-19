@@ -9,10 +9,33 @@
 #include "logger.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 namespace gt_esmini
 {
+namespace
+{
+std::string EscapeJson(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s)
+    {
+        switch (c)
+        {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default: out += c; break;
+        }
+    }
+    return out;
+}
+} // namespace
 
 PythonDriverBridge::PythonDriverBridge() = default;
 
@@ -25,12 +48,31 @@ bool PythonDriverBridge::Initialize(
     const std::string& script_path,
     const std::string& class_name,
     const std::string& python_home,
+    bool trace_enabled,
+    const std::string& trace_dir,
     const std::string& xodr_path,
     double dt,
     int ego_id)
 {
     fatal_error_ = false;
     last_error_.clear();
+    trace_enabled_ = trace_enabled;
+    trace_dir_ = trace_dir;
+
+    if (trace_enabled_)
+    {
+        namespace fs = std::filesystem;
+        fs::path out_dir = trace_dir_.empty() ? fs::current_path() : fs::path(trace_dir_);
+        std::error_code ec;
+        fs::create_directories(out_dir, ec);
+        cpp_to_py_trace_.open((out_dir / "cpp_to_py_trace.jsonl").string(), std::ios::out | std::ios::trunc);
+        py_to_cpp_trace_.open((out_dir / "py_to_cpp_trace.jsonl").string(), std::ios::out | std::ios::trunc);
+        if (!cpp_to_py_trace_.is_open() || !py_to_cpp_trace_.is_open())
+        {
+            trace_enabled_ = false;
+            LOG_WARN("PythonDriverBridge: trace requested but failed to open trace files in '{}'", out_dir.string());
+        }
+    }
 
     // 1. Set PYTHONHOME if specified (for embedded / venv support)
     if (!python_home.empty())
@@ -110,6 +152,15 @@ bool PythonDriverBridge::Initialize(
         val = PyLong_FromLong(ego_id);
         PyDict_SetItemString(config, "ego_id", val);
         Py_DECREF(val);
+
+        val = trace_enabled_ ? Py_True : Py_False;
+        Py_INCREF(val);
+        PyDict_SetItemString(config, "trace_enabled", val);
+        Py_DECREF(val);
+
+        val = PyUnicode_FromString(trace_dir_.c_str());
+        PyDict_SetItemString(config, "trace_dir", val);
+        Py_DECREF(val);
     }
 
     PyObject* init_result = PyObject_CallMethod(script_instance_, "init", "O", config);
@@ -138,6 +189,8 @@ PythonDriverInput PythonDriverBridge::CallStep(const PythonFrameData& frame_data
         return input;
     }
 
+    WriteCppToPyTrace(frame_data);
+
     PyObject* frame_dict = BuildFrameDict(frame_data);
     if (!frame_dict)
     {
@@ -153,6 +206,7 @@ PythonDriverInput PythonDriverBridge::CallStep(const PythonFrameData& frame_data
         consecutive_errors_++;
         fatal_error_ = true;
         last_error_  = "step() raised exception";
+        WritePyToCppTrace(frame_data.frame_id, nullptr, input, "step_exception");
         if (consecutive_errors_ == 1 || consecutive_errors_ % 100 == 0)
         {
             LOG_ERROR("PythonDriverBridge: step() exception (#{} consecutive)", consecutive_errors_);
@@ -162,6 +216,7 @@ PythonDriverInput PythonDriverBridge::CallStep(const PythonFrameData& frame_data
 
     consecutive_errors_ = 0;
     input = ParseResult(result);
+    WritePyToCppTrace(frame_data.frame_id, result, input, input.valid ? nullptr : "invalid_result");
     Py_DECREF(result);
     return input;
 }
@@ -256,6 +311,8 @@ PyObject* PythonDriverBridge::BuildFrameDict(const PythonFrameData& data)
     // Scalar values
     {
         PyObject* val;
+        val = PyLong_FromUnsignedLongLong(static_cast<unsigned long long>(data.frame_id));
+        PyDict_SetItemString(dict, "frame_id", val); Py_DECREF(val);
         val = PyFloat_FromDouble(data.set_speed);
         PyDict_SetItemString(dict, "set_speed", val); Py_DECREF(val);
         val = PyFloat_FromDouble(data.current_speed);
@@ -265,6 +322,92 @@ PyObject* PythonDriverBridge::BuildFrameDict(const PythonFrameData& data)
     }
 
     return dict;
+}
+
+void PythonDriverBridge::WriteCppToPyTrace(const PythonFrameData& data)
+{
+    if (!trace_enabled_ || !cpp_to_py_trace_.is_open())
+    {
+        return;
+    }
+
+    const std::size_t waypoint_count = data.waypoints ? data.waypoints->size() : 0U;
+    const std::size_t lon_profile_count = data.lon_profile ? data.lon_profile->size() : 0U;
+    cpp_to_py_trace_
+        << "{\"frame_id\":" << data.frame_id
+        << ",\"gt_size\":" << data.ground_truth_size
+        << ",\"waypoint_count\":" << waypoint_count
+        << ",\"waypoint_index\":" << data.waypoint_index
+        << ",\"lon_profile_count\":" << lon_profile_count
+        << ",\"set_speed\":" << data.set_speed
+        << ",\"current_speed\":" << data.current_speed
+        << ",\"dt\":" << data.dt
+        << "}\n";
+}
+
+void PythonDriverBridge::WritePyToCppTrace(std::size_t frame_id, PyObject* result, const PythonDriverInput& input, const char* error)
+{
+    if (!trace_enabled_ || !py_to_cpp_trace_.is_open())
+    {
+        return;
+    }
+
+    std::vector<std::string> keys;
+    auto has_key = [&](const char* key) -> bool {
+        if (!result || !PyDict_Check(result))
+        {
+            return false;
+        }
+        PyObject* v = PyDict_GetItemString(result, key);
+        return v != nullptr;
+    };
+
+    if (result && PyDict_Check(result))
+    {
+        PyObject *k = nullptr, *v = nullptr;
+        Py_ssize_t pos = 0;
+        while (PyDict_Next(result, &pos, &k, &v))
+        {
+            if (PyUnicode_Check(k))
+            {
+                keys.emplace_back(PyUnicode_AsUTF8(k));
+            }
+        }
+    }
+
+    py_to_cpp_trace_ << "{\"frame_id\":" << frame_id;
+    if (error)
+    {
+        py_to_cpp_trace_ << ",\"error\":\"" << EscapeJson(error) << "\"";
+    }
+    py_to_cpp_trace_ << ",\"result_keys\":[";
+    for (std::size_t i = 0; i < keys.size(); ++i)
+    {
+        if (i > 0)
+        {
+            py_to_cpp_trace_ << ",";
+        }
+        py_to_cpp_trace_ << "\"" << EscapeJson(keys[i]) << "\"";
+    }
+    py_to_cpp_trace_ << "]"
+        << ",\"required_keys\":{"
+        << "\"throttle\":" << (has_key("throttle") ? "true" : "false") << ","
+        << "\"brake\":" << (has_key("brake") ? "true" : "false") << ","
+        << "\"steering\":" << (has_key("steering") ? "true" : "false") << ","
+        << "\"gear\":" << (has_key("gear") ? "true" : "false") << ","
+        << "\"light_mask\":" << (has_key("light_mask") ? "true" : "false")
+        << "}"
+        << ",\"parsed\":{"
+        << "\"throttle\":" << input.throttle << ","
+        << "\"brake\":" << input.brake << ","
+        << "\"steering\":" << input.steering << ","
+        << "\"gear\":" << input.gear << ","
+        << "\"light_mask\":" << input.lightMask << ","
+        << "\"engine_brake\":" << input.engineBrake << ","
+        << "\"adas_count\":" << input.adasStates.size()
+        << "}"
+        << ",\"valid\":" << (input.valid ? "true" : "false")
+        << "}\n";
 }
 
 PythonDriverInput PythonDriverBridge::ParseResult(PyObject* result)
@@ -409,6 +552,14 @@ void PythonDriverBridge::Shutdown()
     initialized_ = false;
     fatal_error_ = false;
     last_error_.clear();
+    if (cpp_to_py_trace_.is_open())
+    {
+        cpp_to_py_trace_.close();
+    }
+    if (py_to_cpp_trace_.is_open())
+    {
+        py_to_cpp_trace_.close();
+    }
 }
 
 } // namespace gt_esmini

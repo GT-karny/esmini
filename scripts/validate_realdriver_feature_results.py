@@ -55,6 +55,24 @@ def parse_csv_rows(csv_path: Path) -> List[Dict[str, str]]:
     return rows
 
 
+def read_jsonl(path: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                obj = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
+    return rows
+
+
 def _parse_int(value: Optional[str]) -> Optional[int]:
     if value is None or value == "":
         return None
@@ -506,6 +524,126 @@ def evaluate_kpi_checks_any(
     }
 
 
+def evaluate_trace_integrity(feature_id: str, feature_dir: Path) -> Dict[str, Any]:
+    if feature_id != "F01":
+        return {
+            "required": False,
+            "pass": True,
+            "stats": {},
+            "mismatch_samples": [],
+        }
+
+    cpp_rows = read_jsonl(feature_dir / "cpp_to_py_trace.jsonl")
+    py_rows = read_jsonl(feature_dir / "py_to_cpp_trace.jsonl")
+    py_script_rows = read_jsonl(feature_dir / "python_trace.jsonl")
+    mismatches: List[str] = []
+
+    if not cpp_rows or not py_rows or not py_script_rows:
+        return {
+            "required": True,
+            "pass": False,
+            "stats": {
+                "cpp_to_py_count": len(cpp_rows),
+                "py_to_cpp_count": len(py_rows),
+                "python_trace_count": len(py_script_rows),
+            },
+            "mismatch_samples": ["trace_missing"],
+        }
+
+    cpp_ids = [int(r.get("frame_id", -1)) for r in cpp_rows]
+    py_ids = [int(r.get("frame_id", -1)) for r in py_rows]
+    py_script_ids = [int(r.get("frame_id", -1)) for r in py_script_rows]
+
+    def _is_strict_sequence(ids: List[int]) -> bool:
+        if not ids:
+            return False
+        start = ids[0]
+        return all(v == start + i for i, v in enumerate(ids))
+
+    if not _is_strict_sequence(cpp_ids):
+        mismatches.append("trace_frame_gap_cpp_to_py")
+    if not _is_strict_sequence(py_ids):
+        mismatches.append("trace_frame_gap_py_to_cpp")
+    if not _is_strict_sequence(py_script_ids):
+        mismatches.append("trace_frame_gap_python_trace")
+
+    if len(cpp_rows) != len(py_rows) or len(cpp_rows) != len(py_script_rows):
+        mismatches.append("trace_count_mismatch")
+    if set(cpp_ids) != set(py_ids) or set(cpp_ids) != set(py_script_ids):
+        mismatches.append("trace_frame_mismatch")
+
+    gt_ok = all(int(r.get("gt_size", 0)) > 0 for r in cpp_rows)
+    waypoints_ok = all(int(r.get("waypoint_count", 0)) > 0 for r in cpp_rows)
+    lon_ok = all(int(r.get("lon_profile_count", 0)) > 0 for r in cpp_rows)
+    if not gt_ok:
+        mismatches.append("trace_payload_missing_gt")
+    if not waypoints_ok:
+        mismatches.append("trace_payload_missing_waypoints")
+    if not lon_ok:
+        mismatches.append("trace_payload_missing_lon_profile")
+
+    required_keys_ok = True
+    for r in py_rows:
+        req = r.get("required_keys", {})
+        if not isinstance(req, dict):
+            required_keys_ok = False
+            break
+        for key in ("throttle", "brake", "steering", "gear", "light_mask"):
+            if req.get(key) is not True:
+                required_keys_ok = False
+                break
+        if not required_keys_ok:
+            break
+    if not required_keys_ok:
+        mismatches.append("trace_result_key_missing")
+
+    range_ok = True
+    for r in py_rows:
+        if r.get("error"):
+            range_ok = False
+            mismatches.append("trace_result_error")
+            break
+        parsed = r.get("parsed", {})
+        if not isinstance(parsed, dict):
+            range_ok = False
+            break
+        throttle = parsed.get("throttle")
+        brake = parsed.get("brake")
+        steering = parsed.get("steering")
+        gear = parsed.get("gear")
+        try:
+            if not (0.0 <= float(throttle) <= 1.0):
+                range_ok = False
+            if not (0.0 <= float(brake) <= 1.0):
+                range_ok = False
+            if not (-1.0 <= float(steering) <= 1.0):
+                range_ok = False
+            if int(gear) < -1:
+                range_ok = False
+        except (TypeError, ValueError):
+            range_ok = False
+        if not range_ok:
+            break
+    if not range_ok:
+        mismatches.append("trace_result_out_of_range")
+
+    stats = {
+        "cpp_to_py_count": len(cpp_rows),
+        "py_to_cpp_count": len(py_rows),
+        "python_trace_count": len(py_script_rows),
+        "gt_positive_ratio": (sum(1 for r in cpp_rows if int(r.get("gt_size", 0)) > 0) / len(cpp_rows)) if cpp_rows else 0.0,
+        "waypoint_positive_ratio": (sum(1 for r in cpp_rows if int(r.get("waypoint_count", 0)) > 0) / len(cpp_rows)) if cpp_rows else 0.0,
+        "lon_profile_positive_ratio": (sum(1 for r in cpp_rows if int(r.get("lon_profile_count", 0)) > 0) / len(cpp_rows)) if cpp_rows else 0.0,
+    }
+
+    return {
+        "required": True,
+        "pass": len(mismatches) == 0,
+        "stats": stats,
+        "mismatch_samples": mismatches[:10],
+    }
+
+
 def _fmt_num(value: Any) -> str:
     if isinstance(value, float):
         text = f"{value:.6f}".rstrip("0").rstrip(".")
@@ -704,6 +842,7 @@ def main() -> int:
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
         kpi_any_eval = evaluate_kpi_checks_any(kpi, feature_kpi_checks_any)
+        trace_eval = evaluate_trace_integrity(fid, fdir)
         expected_behavior_nl = list(feat.get("expected_behavior_nl", [])) or list(feat.get("validation_points", []))
         judgement_criteria_nl = list(feat.get("judgement_criteria_nl", [])) or build_judgement_criteria_nl(
             feat=feat,
@@ -716,7 +855,8 @@ def main() -> int:
         logs_ok = len(missing_required) == 0
         forbidden_ok = len(hit_forbidden) == 0
         kpi_definition_ok = len(explicit_feature_checks) > 0
-        passed = (logs_ok and forbidden_ok and kpi_definition_ok and golden_cmp["pass"] and kpi_eval["pass"] and kpi_any_eval["pass"])
+        trace_ok = trace_eval.get("pass", True)
+        passed = (logs_ok and forbidden_ok and kpi_definition_ok and trace_ok and golden_cmp["pass"] and kpi_eval["pass"] and kpi_any_eval["pass"])
         overall_pass = overall_pass and passed
 
         failure_reasons: List[str] = []
@@ -726,6 +866,9 @@ def main() -> int:
             failure_reasons.append("hit_forbidden_patterns")
         if not kpi_definition_ok:
             failure_reasons.append("kpi_checks_empty")
+        if not trace_ok:
+            failure_reasons.append("trace_integrity_failed")
+            failure_reasons.extend(trace_eval.get("mismatch_samples", []))
         if not kpi_eval["pass"]:
             failure_reasons.append("kpi_checks_failed")
         if not kpi_any_eval["pass"]:
@@ -765,6 +908,9 @@ def main() -> int:
             "hit_forbidden_patterns": hit_forbidden,
             "kpi_checks": kpi_eval,
             "kpi_checks_any": kpi_any_eval,
+            "trace_integrity": trace_eval.get("pass", True),
+            "trace_stats": trace_eval.get("stats", {}),
+            "trace_mismatch_samples": trace_eval.get("mismatch_samples", []),
             "kpi": kpi,
             "golden": golden_cmp,
             "road_kpi": road_kpi,

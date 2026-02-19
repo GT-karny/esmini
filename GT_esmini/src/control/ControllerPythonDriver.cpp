@@ -87,6 +87,15 @@ ControllerPythonDriver::ControllerPythonDriver(InitArgs* args)
         {
             python_home_ = args->properties->GetValueStr("PythonHome");
         }
+        if (args->properties->ValueExists("PythonTrace"))
+        {
+            const std::string trace = args->properties->GetValueStr("PythonTrace");
+            python_trace_enabled_ = (trace == "on" || trace == "ON" || trace == "1" || trace == "true" || trace == "TRUE");
+        }
+        if (args->properties->ValueExists("PythonTraceDir"))
+        {
+            python_trace_dir_ = args->properties->GetValueStr("PythonTraceDir");
+        }
     }
 
     python_bridge_       = new PythonDriverBridge();
@@ -211,7 +220,15 @@ int ControllerPythonDriver::Activate(const ControlActivationMode (&mode)[static_
     const int ego_id = object_->GetId();
     const double nominal_dt = 0.01;
 
-    if (!python_bridge_->Initialize(resolved_script_path_, python_class_name_, python_home_, xodr_path, nominal_dt, ego_id))
+    if (!python_bridge_->Initialize(
+            resolved_script_path_,
+            python_class_name_,
+            python_home_,
+            python_trace_enabled_,
+            python_trace_dir_,
+            xodr_path,
+            nominal_dt,
+            ego_id))
     {
         FailAndStop("PythonDriverController: Python initialization failed (" + python_bridge_->GetLastError() + ")");
     }

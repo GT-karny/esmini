@@ -3,6 +3,8 @@
 #ifdef GT_ENABLE_EMBEDDED_PYTHON
 
 #include <string>
+#include <fstream>
+#include <cstddef>
 #include <vector>
 
 // Forward declare Python types to avoid including Python.h in headers
@@ -29,6 +31,7 @@ struct PythonDriverInput
 
 struct PythonFrameData
 {
+    std::size_t frame_id = 0;
     const char* ground_truth_bytes = nullptr;
     int         ground_truth_size  = 0;
     const std::vector<WaypointData>*    waypoints     = nullptr;
@@ -56,6 +59,8 @@ public:
     bool Initialize(const std::string& script_path,
                     const std::string& class_name,
                     const std::string& python_home,
+                    bool trace_enabled,
+                    const std::string& trace_dir,
                     const std::string& xodr_path,
                     double dt,
                     int ego_id);
@@ -74,6 +79,8 @@ private:
     PyObject* BuildFrameDict(const PythonFrameData& data);
     PythonDriverInput ParseResult(PyObject* result);
     void SetupSysPath(const std::string& script_path, const std::string& python_home);
+    void WriteCppToPyTrace(const PythonFrameData& data);
+    void WritePyToCppTrace(std::size_t frame_id, PyObject* result, const PythonDriverInput& input, const char* error = nullptr);
 
     PyObject* script_module_   = nullptr;
     PyObject* script_instance_ = nullptr;
@@ -82,6 +89,10 @@ private:
     int  consecutive_errors_   = 0;
     bool fatal_error_          = false;
     std::string last_error_;
+    bool trace_enabled_        = false;
+    std::string trace_dir_;
+    std::ofstream cpp_to_py_trace_;
+    std::ofstream py_to_cpp_trace_;
 
     // Store wide string for Py_SetPythonHome lifetime
     std::wstring python_home_wide_;

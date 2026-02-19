@@ -50,6 +50,9 @@ def main() -> int:
         validation_points = r.get("validation_points", [])
         validation_goal = str(r.get("validation_goal", "") or "")
         failure_reasons = r.get("failure_reasons", [])
+        trace_integrity = bool(r.get("trace_integrity", True))
+        trace_stats = r.get("trace_stats", {}) or {}
+        trace_mismatch = r.get("trace_mismatch_samples", []) or []
         points_text = render_list_cell(validation_points)
         expected_behavior = r.get("expected_behavior_nl") or validation_points
         judgement_criteria = r.get("judgement_criteria_nl", [])
@@ -111,6 +114,18 @@ def main() -> int:
                 kpi_text_parts.append(f"{metric}: actual={actual} (expect {constraint_text})")
 
         kpi_text = "<br/>".join(esc(x) for x in kpi_text_parts) if kpi_text_parts else "PASS"
+        trace_text = "-"
+        if r.get("id") == "F01":
+            if trace_integrity:
+                trace_text = "PASS"
+            else:
+                trace_text = "FAIL"
+            if trace_stats:
+                trace_text += "<br/>" + esc(
+                    f"cpp={trace_stats.get('cpp_to_py_count', '-')}, py={trace_stats.get('py_to_cpp_count', '-')}, script={trace_stats.get('python_trace_count', '-')}"
+                )
+            if trace_mismatch:
+                trace_text += "<br/>" + "<br/>".join(esc(str(x)) for x in trace_mismatch[:3])
 
         fid = r.get("id")
         video = r.get("video", {}) or {}
@@ -154,6 +169,7 @@ def main() -> int:
             f"<td>{judgement_criteria_text}</td>"
             f"<td>{points_text}</td>"
             f"<td>{road_summary}</td>"
+            f"<td>{trace_text}</td>"
             f"<td>{kpi_text}</td>"
             f"<td>{render_list_cell(failure_reasons)}</td>"
             f"<td>{esc(miss)}</td>"
@@ -193,6 +209,7 @@ def main() -> int:
         <th>判定基準（自然言語+数値）</th>
         <th>検証観点</th>
         <th>Road KPI要約</th>
+        <th>Trace Integrity</th>
         <th>KPI Checks</th>
         <th>Failure Reasons</th>
         <th>Missing Required</th>

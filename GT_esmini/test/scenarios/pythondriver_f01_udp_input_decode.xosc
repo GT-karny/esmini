@@ -19,6 +19,8 @@
             <Property name="PythonScript" value="DriverScript/pythondriver/examples/scenario_drive_embedded.py" />
             <Property name="PythonClass" value="EmbeddedController" />
             <Property name="PythonHome" value="" />
+            <Property name="PythonTrace" value="on" />
+            <Property name="PythonTraceDir" value="" />
 </Properties>
         </Controller>
       </ObjectController>

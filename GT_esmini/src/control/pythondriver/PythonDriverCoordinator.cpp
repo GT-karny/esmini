@@ -33,6 +33,7 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
     const std::size_t frame_index = controller.NextFrameIndex();
 
     PythonFrameData frame_data;
+    frame_data.frame_id           = frame_index;
     frame_data.ground_truth_bytes = gt_bytes;
     frame_data.ground_truth_size  = gt_size;
     frame_data.waypoints          = &controller.waypoints_;

@@ -10,6 +10,7 @@ from realdriver.waypoint import Waypoint
 
 @dataclass
 class EmbeddedFrame:
+    frame_id: int
     ground_truth_bytes: bytes
     waypoints: List[Waypoint]
     waypoint_index: int
@@ -37,6 +38,7 @@ class FrameAdapter:
         ]
 
         return EmbeddedFrame(
+            frame_id=int(frame_data.get("frame_id", -1)),
             ground_truth_bytes=frame_data.get("ground_truth_bytes") or b"",
             waypoints=waypoints,
             waypoint_index=int(frame_data.get("waypoint_index", 0)),
@@ -65,4 +67,3 @@ class FrameAdapter:
             "engine_brake": float(engine_brake),
             "adas_states": list(adas_states or []),
         }
-

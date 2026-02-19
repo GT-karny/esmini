@@ -7,14 +7,14 @@
     {
       "id": "F01",
       "name": "Embedded input decode",
-      "validation_goal": "PythonDriverControllerがフレーム同期で安定動作し、入力データ断なく走行継続する",
+      "validation_goal": "C++→Python→C++のフレーム単位データ受け渡しが整合し、制御ループが継続動作する",
       "scenario": "GT_esmini/test/scenarios/pythondriver_f01_udp_input_decode.xosc",
       "run_args": "--record sim.dat --log_level info",
-      "required_patterns": ["PythonDriverController"],
+      "required_patterns": ["PythonDriverController::Activate\\(\\) called", "PythonDriverBridge: Initialized successfully"],
       "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
       "kpi_checks": [
         {"metric": "duration_s", "min": 9.0},
-        {"metric": "s_progress_m", "min": 40.0}
+        {"metric": "xy_path_length_m", "min": 50.0}
       ],
       "kpi_checks_any": []
     },
