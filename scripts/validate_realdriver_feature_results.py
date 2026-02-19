@@ -7,6 +7,7 @@ from collections import Counter
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import xml.etree.ElementTree as ET
 
 try:
     import yaml  # type: ignore
@@ -236,6 +237,8 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     road_ids = [_parse_int(r.get("roadId")) for r in ego_rows]
     road_ids = [rid for rid in road_ids if rid is not None]
     if road_ids:
+        k["road_id_start"] = road_ids[0]
+        k["road_id_end"] = road_ids[-1]
         k["road_id_mode"] = Counter(road_ids).most_common(1)[0][0]
         road_id_change_count = 0
         prev_road = road_ids[0]
@@ -521,6 +524,182 @@ def evaluate_kpi_checks_any(
         "details": details,
         "mode": "any",
         "matched_count": matched,
+    }
+
+
+def _local_tag(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _find_children(node: ET.Element, child_name: str) -> List[ET.Element]:
+    return [c for c in list(node) if _local_tag(c.tag) == child_name]
+
+
+def _find_first_child(node: ET.Element, child_name: str) -> Optional[ET.Element]:
+    for c in list(node):
+        if _local_tag(c.tag) == child_name:
+            return c
+    return None
+
+
+def _resolve_scenario_path(scenario_text: str, matrix_path: Path) -> Optional[Path]:
+    scenario = scenario_text.strip()
+    if not scenario:
+        return None
+    candidates = [
+        Path(scenario),
+        matrix_path.parent / scenario,
+        matrix_path.parent.parent / scenario,
+    ]
+    for candidate in candidates:
+        resolved = candidate.resolve() if not candidate.is_absolute() else candidate
+        if resolved.exists():
+            return resolved
+    return None
+
+
+def _extract_assign_route_terminal_waypoint(scenario_path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        root = ET.parse(scenario_path).getroot()
+    except ET.ParseError:
+        return None
+    except OSError:
+        return None
+
+    terminal_waypoint: Optional[Dict[str, Any]] = None
+    for node in root.iter():
+        if _local_tag(node.tag) != "AssignRouteAction":
+            continue
+        route = _find_first_child(node, "Route")
+        if route is None:
+            continue
+        waypoints = _find_children(route, "Waypoint")
+        if not waypoints:
+            continue
+        last_waypoint = waypoints[-1]
+        position = _find_first_child(last_waypoint, "Position")
+        if position is None:
+            continue
+        lane_pos = _find_first_child(position, "LanePosition")
+        if lane_pos is None:
+            continue
+
+        road_id = _parse_int(lane_pos.attrib.get("roadId"))
+        lane_id = _parse_int(lane_pos.attrib.get("laneId"))
+        s_value = _parse_float(lane_pos.attrib.get("s"))
+        if road_id is None or lane_id is None or s_value is None:
+            continue
+        terminal_waypoint = {
+            "road_id": road_id,
+            "lane_id": lane_id,
+            "s": s_value,
+        }
+    return terminal_waypoint
+
+
+def evaluate_assign_route_completion(
+    feature_dir: Path,
+    scenario_path: Path,
+    kpi: Dict[str, Any],
+    s_tolerance_m: float,
+) -> Dict[str, Any]:
+    expected = _extract_assign_route_terminal_waypoint(scenario_path)
+    if expected is None:
+        return {
+            "required": True,
+            "pass": False,
+            "stats": {
+                "scenario_path": str(scenario_path),
+                "s_tolerance_m": s_tolerance_m,
+            },
+            "mismatch_samples": ["assign_route_terminal_waypoint_missing"],
+            "kpi": {
+                "assign_route_expected_waypoint_available": False,
+                "assign_route_final_waypoint_reached": False,
+                "assign_route_s_tolerance_m": s_tolerance_m,
+            },
+        }
+
+    road_end = kpi.get("road_id_end")
+    lane_end = kpi.get("lane_id_end")
+    s_end = kpi.get("s_end_m")
+    road_match = (road_end == expected["road_id"])
+    lane_match = (lane_end == expected["lane_id"])
+    s_abs_error = None
+    s_match = False
+    if s_end is not None:
+        try:
+            s_abs_error = abs(float(s_end) - float(expected["s"]))
+            s_match = s_abs_error <= s_tolerance_m
+        except (TypeError, ValueError):
+            s_abs_error = None
+            s_match = False
+
+    reached = road_match and lane_match and s_match
+    mismatches: List[str] = []
+    if not road_match:
+        mismatches.append("assign_route_end_road_mismatch")
+    if not lane_match:
+        mismatches.append("assign_route_end_lane_mismatch")
+    if not s_match:
+        mismatches.append("assign_route_end_s_mismatch")
+
+    hold_time_s = 0.0
+    rows = parse_csv_rows(feature_dir / "sim.csv")
+    ego_rows = select_ego_rows(rows)
+    if ego_rows:
+        prev_t = None
+        for row in reversed(ego_rows):
+            t = _parse_float(row.get("time"))
+            row_road = _parse_int(row.get("roadId"))
+            row_lane = _parse_int(row.get("laneId"))
+            row_s = _parse_float(row.get("s"))
+            if t is None or row_road is None or row_lane is None or row_s is None:
+                break
+
+            in_target = (
+                row_road == expected["road_id"]
+                and row_lane == expected["lane_id"]
+                and abs(row_s - expected["s"]) <= s_tolerance_m
+            )
+            if not in_target:
+                break
+
+            if prev_t is not None and prev_t > t:
+                hold_time_s += (prev_t - t)
+            prev_t = t
+
+    stats = {
+        "scenario_path": str(scenario_path),
+        "s_tolerance_m": s_tolerance_m,
+        "expected_road_id": expected["road_id"],
+        "expected_lane_id": expected["lane_id"],
+        "expected_s": expected["s"],
+        "actual_road_id_end": road_end,
+        "actual_lane_id_end": lane_end,
+        "actual_s_end": s_end,
+        "actual_s_abs_error_m": s_abs_error,
+        "end_hold_time_s": hold_time_s,
+    }
+
+    return {
+        "required": True,
+        "pass": reached,
+        "stats": stats,
+        "mismatch_samples": mismatches,
+        "kpi": {
+            "assign_route_expected_waypoint_available": True,
+            "assign_route_expected_road_id": expected["road_id"],
+            "assign_route_expected_lane_id": expected["lane_id"],
+            "assign_route_expected_s": expected["s"],
+            "assign_route_actual_road_id_end": road_end,
+            "assign_route_actual_lane_id_end": lane_end,
+            "assign_route_actual_s_end": s_end,
+            "assign_route_final_waypoint_reached": reached,
+            "assign_route_end_s_abs_error_m": s_abs_error,
+            "assign_route_end_hold_time_s": hold_time_s,
+            "assign_route_s_tolerance_m": s_tolerance_m,
+        },
     }
 
 
@@ -1337,9 +1516,11 @@ def main() -> int:
     args = parser.parse_args()
 
     matrix = load_yaml(Path(args.matrix))
+    matrix_path = Path(args.matrix).resolve()
     threshold_config = load_yaml(Path(args.thresholds))
     thresholds = threshold_config.get("defaults", {})
     baseline_kpi_checks = threshold_config.get("baseline_kpi_checks", [])
+    feature_overrides = threshold_config.get("feature_overrides", {})
     run_dir = Path(args.run_dir)
     golden_root = Path(args.golden_root)
     video_config_path = run_dir / "video_config.json"
@@ -1356,6 +1537,7 @@ def main() -> int:
     for feat in matrix.get("features", []):
         fid = feat["id"]
         fdir = run_dir / fid
+        overrides = feature_overrides.get(fid, {})
         stdout_path = fdir / "stdout.txt"
         text = stdout_path.read_text(encoding="utf-8", errors="ignore") if stdout_path.exists() else ""
 
@@ -1380,7 +1562,53 @@ def main() -> int:
         if f03b_autolight_eval.get("kpi"):
             kpi.update(f03b_autolight_eval["kpi"])
         autolight_eval = f03a_autolight_eval if f03a_autolight_eval.get("required", False) else f03b_autolight_eval
+
+        assign_route_eval = {
+            "required": False,
+            "pass": True,
+            "stats": {},
+            "mismatch_samples": [],
+            "kpi": {},
+        }
+        if bool(overrides.get("require_assign_route_completion", False)):
+            scenario_path = _resolve_scenario_path(str(feat.get("scenario", "")), matrix_path)
+            if scenario_path is None:
+                assign_route_eval = {
+                    "required": True,
+                    "pass": False,
+                    "stats": {
+                        "scenario": feat.get("scenario", ""),
+                    },
+                    "mismatch_samples": ["scenario_path_missing"],
+                    "kpi": {
+                        "assign_route_expected_waypoint_available": False,
+                        "assign_route_final_waypoint_reached": False,
+                    },
+                }
+            else:
+                s_tolerance_m = float(overrides.get("assign_route_s_tolerance_m", 5.0))
+                assign_route_eval = evaluate_assign_route_completion(
+                    feature_dir=fdir,
+                    scenario_path=scenario_path,
+                    kpi=kpi,
+                    s_tolerance_m=s_tolerance_m,
+                )
+            if assign_route_eval.get("kpi"):
+                kpi.update(assign_route_eval["kpi"])
+
         explicit_feature_checks = list(feat.get("kpi_checks", []))
+        if assign_route_eval.get("required", False):
+            explicit_feature_checks.extend(
+                [
+                    {"metric": "assign_route_expected_waypoint_available", "equals": True},
+                    {"metric": "assign_route_final_waypoint_reached", "equals": True},
+                ]
+            )
+            min_hold_time = float(overrides.get("assign_route_end_hold_time_s", 0.0))
+            if min_hold_time > 0.0:
+                explicit_feature_checks.append(
+                    {"metric": "assign_route_end_hold_time_s", "min": min_hold_time}
+                )
         feature_kpi_checks = list(baseline_kpi_checks) + explicit_feature_checks
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
@@ -1401,6 +1629,7 @@ def main() -> int:
         trace_ok = trace_eval.get("pass", True)
         light_mapping_ok = f02_light_eval.get("pass", True)
         autolight_ok = autolight_eval.get("pass", True)
+        assign_route_ok = assign_route_eval.get("pass", True)
         passed = (
             logs_ok
             and forbidden_ok
@@ -1408,6 +1637,7 @@ def main() -> int:
             and trace_ok
             and light_mapping_ok
             and autolight_ok
+            and assign_route_ok
             and golden_cmp["pass"]
             and kpi_eval["pass"]
             and kpi_any_eval["pass"]
@@ -1430,6 +1660,9 @@ def main() -> int:
         if not autolight_ok:
             failure_reasons.append("autolight_integrity_failed")
             failure_reasons.extend(autolight_eval.get("mismatch_samples", []))
+        if not assign_route_ok:
+            failure_reasons.append("assign_route_completion_failed")
+            failure_reasons.extend(assign_route_eval.get("mismatch_samples", []))
         if not kpi_eval["pass"]:
             failure_reasons.append("kpi_checks_failed")
         if not kpi_any_eval["pass"]:
@@ -1478,6 +1711,9 @@ def main() -> int:
             "autolight_integrity": autolight_eval.get("pass", True),
             "autolight_stats": autolight_eval.get("stats", {}),
             "autolight_mismatch_samples": autolight_eval.get("mismatch_samples", []),
+            "assign_route_completion_integrity": assign_route_eval.get("pass", True),
+            "assign_route_completion_stats": assign_route_eval.get("stats", {}),
+            "assign_route_completion_mismatch_samples": assign_route_eval.get("mismatch_samples", []),
             "kpi": kpi,
             "golden": golden_cmp,
             "road_kpi": road_kpi,

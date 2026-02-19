@@ -28,8 +28,8 @@
     <Init>
       <Actions>
         <Private entityRef="Ego">
-          <PrivateAction><TeleportAction><Position><LanePosition roadId="240" laneId="-1" offset="0" s="5"/></Position></TeleportAction></PrivateAction>
-          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="9.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+          <PrivateAction><TeleportAction><Position><LanePosition roadId="235" laneId="1" offset="0" s="10"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="8.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
           <PrivateAction><ActivateControllerAction longitudinal="true" lateral="true"/></PrivateAction>
         </Private>
       </Actions>
@@ -40,7 +40,7 @@
           <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
           <Maneuver name="M1">
             <Event name="FeatureEvent" priority="overwrite">
-              <Action name="FeatureAction"><PrivateAction><RoutingAction><AssignRouteAction><Route name="RouteAssign" closed="false"><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="240" laneId="-1" offset="0.0" s="20"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="235" laneId="-1" offset="0.0" s="80"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="235" laneId="-1" offset="0.0" s="120"/></Position></Waypoint></Route></AssignRouteAction></RoutingAction></PrivateAction></Action>
+              <Action name="FeatureAction"><PrivateAction><RoutingAction><AssignRouteAction><Route name="RouteAssign" closed="false"><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="235" laneId="1" offset="0.0" s="30"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="241" laneId="-1" offset="0.0" s="10"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="242" laneId="-1" offset="0.0" s="90"/></Position></Waypoint></Route></AssignRouteAction></RoutingAction></PrivateAction></Action>
               <StartTrigger><ConditionGroup><Condition name="StartFeature" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="1.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
             </Event>
           </Maneuver>

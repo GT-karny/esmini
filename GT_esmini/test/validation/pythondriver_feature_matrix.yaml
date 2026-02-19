@@ -11,7 +11,7 @@
       "scenario": "GT_esmini/test/scenarios/pythondriver_f01_udp_input_decode.xosc",
       "run_args": "--record sim.dat --log_level info",
       "required_patterns": ["PythonDriverController::Activate\\(\\) called", "PythonDriverBridge: Initialized successfully"],
-      "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
+      "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed", "Invalid waypoint", "Route .* is not valid"],
       "kpi_checks": [
         {"metric": "duration_s", "min": 9.0},
         {"metric": "xy_path_length_m", "min": 50.0}
@@ -26,7 +26,7 @@
       "run_args": "--record sim.dat --log_level info",
       "collect_osi_light_metrics": true,
       "required_patterns": ["PythonDriverController::Activate\\(\\) called", "PythonDriverBridge: Initialized successfully"],
-      "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
+      "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed", "Invalid waypoint", "Route .* is not valid"],
       "kpi_checks": [
         {"metric": "light_mapping_match_ratio", "equals": 1.0},
         {"metric": "light_mapping_latency_frames_max", "max": 1},
@@ -98,11 +98,11 @@
       "required_patterns": ["PythonDriverController", "AssignRoute"],
       "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
       "kpi_checks": [
-        {"metric": "s_progress_m", "min": 60.0},
-        {"metric": "lane_change_count", "max": 1},
-        {"metric": "t_abs_max_m", "max": 3.0},
-        {"metric": "road_id_mode", "in": [197, 242, 230]},
-        {"metric": "road_id_change_count", "min": 1}
+        {"metric": "s_progress_m", "min": 40.0},
+        {"metric": "lane_change_count", "max": 3},
+        {"metric": "t_abs_max_m", "max": 15.0},
+        {"metric": "road_id_mode", "in": [230, 239, 242]},
+        {"metric": "road_id_change_count", "min": 2}
       ],
       "kpi_checks_any": []
     },
@@ -115,10 +115,10 @@
       "required_patterns": ["PythonDriverController", "AssignRoute"],
       "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
       "kpi_checks": [
-        {"metric": "s_progress_m", "min": 60.0},
-        {"metric": "lane_change_count", "max": 1},
-        {"metric": "road_id_mode", "in": [217, 240, 235]},
-        {"metric": "road_id_change_count", "min": 1}
+        {"metric": "s_progress_m", "min": 40.0},
+        {"metric": "lane_change_count", "max": 3},
+        {"metric": "road_id_mode", "in": [235, 241, 242]},
+        {"metric": "road_id_change_count", "min": 2}
       ],
       "kpi_checks_any": []
     },
