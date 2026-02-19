@@ -505,7 +505,7 @@ bool ControllerPythonDriver::HandlePathActions(
     if (!pathActionStarted && !previousFlags.assigningRoute && state.assignRoute)
     {
         LOG_INFO("PythonDriverController: {}AssignRoute detected, refreshing route waypoints", phaseLabel);
-        ExtractWaypoints();
+        ExtractWaypoints("AssignRoute action");
         waypointsExtracted_ = true;
         state.assignRoute->End();
         pathActionStarted = true;
@@ -820,7 +820,7 @@ void ControllerPythonDriver::EnsureWaypointsExtracted()
     }
 }
 
-void ControllerPythonDriver::ExtractWaypoints()
+void ControllerPythonDriver::ExtractWaypoints(const char* reason)
 {
     waypoints_.clear();
     currentWaypointIndex_ = 0;
@@ -850,6 +850,14 @@ void ControllerPythonDriver::ExtractWaypoints()
             d += step;
         }
         waypointGenerationVersion_++;
+        if (reason && reason[0] != '\0')
+        {
+            LOG_INFO(
+                "PythonDriverController: AssignRoute waypoint refresh (reason='{}', source='forward_path', count={}, generation={})",
+                reason,
+                waypoints_.size(),
+                waypointGenerationVersion_);
+        }
         return;
     }
 
@@ -860,6 +868,14 @@ void ControllerPythonDriver::ExtractWaypoints()
         waypoints_.push_back(MakeWaypointFromPosition(wp, wp.GetOffset()));
     }
     waypointGenerationVersion_++;
+    if (reason && reason[0] != '\0')
+    {
+        LOG_INFO(
+            "PythonDriverController: AssignRoute waypoint refresh (reason='{}', source='route', count={}, generation={})",
+            reason,
+            waypoints_.size(),
+            waypointGenerationVersion_);
+    }
 }
 
 void ControllerPythonDriver::RefreshWaypointsOnRoutePointerChange()
@@ -872,7 +888,7 @@ void ControllerPythonDriver::RefreshWaypointsOnRoutePointerChange()
     const roadmanager::Route* currentRoute = object_->pos_.GetRoute();
     if (currentRoute != nullptr && currentRoute != lastObservedRoute_)
     {
-        ExtractWaypoints();
+        ExtractWaypoints("AssignRoute route pointer changed");
         waypointsExtracted_ = true;
     }
     lastObservedRoute_ = currentRoute;

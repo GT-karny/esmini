@@ -121,7 +121,7 @@ private:
     int BuildLightMaskFromExtension() const;
 
     void EnsureWaypointsExtracted();
-    void ExtractWaypoints();
+    void ExtractWaypoints(const char* reason = nullptr);
     void RefreshWaypointsOnRoutePointerChange();
     void UpdateCurrentWaypointIndex();
 

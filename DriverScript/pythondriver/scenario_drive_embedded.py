@@ -95,7 +95,8 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         if gt is not None:
             s_steering, s_throttle, s_brake = self._scenario.update(gt, dt)
             if s_steering is not None:
-                steering = float(s_steering)
+                # ScenarioDrive steering sign is opposite to embedded vehicle input convention.
+                steering = -float(s_steering)
             if use_acc:
                 acc_out = self._acc.update(gt, dt)
                 throttle = float(acc_out.throttle)

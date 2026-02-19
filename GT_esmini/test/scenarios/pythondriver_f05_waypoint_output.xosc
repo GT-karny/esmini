@@ -40,7 +40,7 @@
           <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
           <Maneuver name="M1">
             <Event name="FeatureEvent" priority="overwrite">
-              <Action name="FeatureAction"><PrivateAction><RoutingAction><AssignRouteAction><Route name="RouteIntersections" closed="false"><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="197" laneId="-1" offset="0.0" s="40"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="242" laneId="-1" offset="0.0" s="30"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="230" laneId="1" offset="0.0" s="10"/></Position></Waypoint></Route></AssignRouteAction></RoutingAction></PrivateAction></Action>
+              <Action name="FeatureAction"><PrivateAction><RoutingAction><AssignRouteAction><Route name="RouteIntersections" closed="false"><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="197" laneId="-1" offset="0.0" s="40"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="230" laneId="1" offset="0.0" s="10"/></Position></Waypoint><Waypoint routeStrategy="shortest"><Position><LanePosition roadId="242" laneId="-1" offset="0.0" s="30"/></Position></Waypoint></Route></AssignRouteAction></RoutingAction></PrivateAction></Action>
               <StartTrigger><ConditionGroup><Condition name="StartFeature" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="1.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
             </Event>
           </Maneuver>
