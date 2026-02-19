@@ -12,6 +12,8 @@ GT_esmini の現行アーキテクチャ（2026-02時点）をまとめます。
   - `PythonDriverController`（Embedded Python, 同期実行）
 - 互換コントローラ:
   - `RealDriverController`（UDP 外部Python、非推奨・互換用途）
+- ビルドポリシー:
+  - `PythonDriverController` 対応は必須（`GT_ENABLE_EMBEDDED_PYTHON` オプションは廃止）
 
 ## 2. Module Layout
 
@@ -163,3 +165,8 @@ F01はログだけでなく、C++↔Python の直接証跡を必須化。
 - `scripts/run_realdriver_feature_tests.ps1`
 - `scripts/validate_realdriver_feature_results.py`
 - `scripts/render_realdriver_report.py`
+
+## 10. Build Guardrails
+
+- `GT_ENABLE_EMBEDDED_PYTHON` オプションは提供しない（指定した configure はエラー終了する）。
+- `GT_Sim` 起動時に `GT_Sim build: PythonDriverController=ENABLED` を出力し、対応ビルドを判別できる。

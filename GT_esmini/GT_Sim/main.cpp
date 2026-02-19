@@ -106,6 +106,8 @@ static void RenameCapturedFramesIfNeeded(const std::string& prefix)
 
 int main(int argc, const char* argv[])
 {
+    std::cout << "GT_Sim build: PythonDriverController=ENABLED" << std::endl;
+
     const bool helpRequested = HasOption(argc, argv, "--help") || HasOption(argc, argv, "-h");
     const bool hasOsc = HasOption(argc, argv, "--osc");
 

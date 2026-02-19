@@ -35,6 +35,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# NOTE:
+# GT_esmini now requires embedded Python support (PythonDriverController is mandatory).
+# The GT_ENABLE_EMBEDDED_PYTHON option is removed; specifying it is rejected at configure time.
+
 function Read-StructuredFile {
     param([string]$Path)
 

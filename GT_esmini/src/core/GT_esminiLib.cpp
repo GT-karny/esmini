@@ -28,10 +28,7 @@
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
-
-#ifdef GT_ENABLE_EMBEDDED_PYTHON
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
-#endif
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
@@ -219,9 +216,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
-#ifdef GT_ENABLE_EMBEDDED_PYTHON
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
-#endif
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -411,9 +406,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
-#ifdef GT_ENABLE_EMBEDDED_PYTHON
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
-#endif
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
@@ -554,12 +547,10 @@ GT_ESMINI_API void GT_Step(double dt)
             if (egoObject)
             {
                 Controller* ctrl = egoObject->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME);
-#ifdef GT_ENABLE_EMBEDDED_PYTHON
                 if (!ctrl)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
                 }
-#endif
                 if (ctrl)
                 {
                     auto pushControllerState = [&](auto* concreteCtrl) {
@@ -622,12 +613,10 @@ GT_ESMINI_API void GT_Step(double dt)
                     {
                         pushControllerState(realDriver);
                     }
-#ifdef GT_ENABLE_EMBEDDED_PYTHON
                     else if (auto* pythonDriver = dynamic_cast<gt_esmini::ControllerPythonDriver*>(ctrl))
                     {
                         pushControllerState(pythonDriver);
                     }
-#endif
                 }
             }
 
