@@ -65,18 +65,24 @@ This document describes the RealDriver validation framework introduced for GT_es
   - `signed_speed_min_mps` (signed speed from `ds/dt`, used for reverse detection)
   - `lead_gap_start_m`
 
-## F03 policy (brake/reverse lights)
+## F03 policy (deprecated + split)
 
-- `F03` validates both behavior and reflection:
-  - behavior: vehicle transitions to reverse (`signed_speed_min_mps <= -0.5`)
-  - reflection: OSI `light_state` reports brake/reversing lights as expected
-- F03 light KPI is window-based (not full-runtime ratio):
-  - reverse window: samples where signed speed indicates reverse motion
-  - braking window: samples where forward motion with deceleration is detected
-  - KPI: `reverse_on_ratio_in_reverse_window`, `brake_on_ratio_in_braking_window`
-- F03 run enables DriverScript reverse profile handling only for this scenario:
-  - `driverscript_extra_args: --allow_reverse_from_profile`
-- F03 also stores OSI light metrics under feature output:
+- Legacy `F03` is deprecated and removed from matrix execution.
+- Replacement:
+  - `F03A`: AutoLight brake/reverse tracking on reverse/braking windows
+  - `F03B`: AutoLight indicator behavior on junction windows
+- `F03A/F03B` KPI is window-based:
+  - `F03A`:
+    - `reverse_on_ratio_in_reverse_window`
+    - `brake_on_ratio_in_braking_window`
+  - `F03B`:
+    - `indicator_on_ratio_in_junction_window`
+    - `indicator_expected_side_ratio_in_junction_window`
+    - `indicator_off_ratio_outside_junction_window`
+- Both `F03A/F03B` use:
+  - `light_transition_latency_frames_max`
+  - `light_missing_samples`
+- `F03A/F03B` also store OSI light metrics under feature output:
   - `osi_light_metrics.json` (required KPI source)
   - `osi_lights.csv` (sample-level debug log)
 - Ego identification rule for light metrics:
@@ -157,7 +163,7 @@ Each feature directory (`artifacts/realdriver_features/<run_id>/Fxx/`) contains:
 - `frame_count.txt`
 - `result.mp4` (when conversion succeeded)
 - `video_encode.log` / `video_error.txt` (when relevant)
-- `osi_light_metrics.json` / `osi_lights.csv` (when scenario enables OSI light metric collection, e.g. F03)
+- `osi_light_metrics.json` / `osi_lights.csv` (when scenario enables OSI light metric collection, e.g. F02/F03A/F03B)
 
 ## Common troubleshooting
 

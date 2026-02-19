@@ -142,12 +142,20 @@ def main() -> int:
             if light_mapping_mismatch:
                 light_mapping_text += "<br/>" + "<br/>".join(esc(str(x)) for x in light_mapping_mismatch[:3])
         autolight_text = "-"
-        if r.get("id") == "F03":
+        if r.get("id") in ("F03A", "F03B"):
             autolight_text = "PASS" if autolight_integrity else "FAIL"
             if autolight_stats:
-                autolight_text += "<br/>" + esc(
-                    f"lane_changes={autolight_stats.get('lane_change_events', '-')}, reverse_samples={autolight_stats.get('reverse_window_samples', '-')}"
-                )
+                stat_parts = []
+                if autolight_stats.get("reverse_window_samples") is not None:
+                    stat_parts.append(f"reverse_samples={autolight_stats.get('reverse_window_samples', '-')}")
+                if autolight_stats.get("braking_window_samples") is not None:
+                    stat_parts.append(f"brake_samples={autolight_stats.get('braking_window_samples', '-')}")
+                if autolight_stats.get("junction_events") is not None:
+                    stat_parts.append(f"junction_events={autolight_stats.get('junction_events', '-')}")
+                if autolight_stats.get("expected_indicator_side") is not None:
+                    stat_parts.append(f"expected_side={autolight_stats.get('expected_indicator_side', '-')}")
+                if stat_parts:
+                    autolight_text += "<br/>" + esc(", ".join(stat_parts))
             if autolight_mismatch:
                 autolight_text += "<br/>" + "<br/>".join(esc(str(x)) for x in autolight_mismatch[:3])
 

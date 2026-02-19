@@ -36,21 +36,37 @@
       "kpi_checks_any": []
     },
     {
-      "id": "F03",
-      "name": "Auto brake/reverse lights",
-      "validation_goal": "AutoLight（Brake/Reverse/Indicator）が手動ライト指定なしで正しく反映される",
-      "scenario": "GT_esmini/test/scenarios/pythondriver_f03_brake_reverse_auto_light.xosc",
+      "id": "F03A",
+      "name": "AutoLight brake/reverse tracking",
+      "validation_goal": "AutoLight（Brake/Reverse）が手動ライト指定なしで車両挙動へ追従する",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f03a_autolight_brake_reverse.xosc",
       "run_args": "--record sim.dat --log_level info --autolight",
       "collect_osi_light_metrics": true,
       "required_patterns": ["PythonDriverController"],
       "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
       "kpi_checks": [
-        {"metric": "signed_speed_min_mps", "max": -0.5},
         {"metric": "reverse_on_ratio_in_reverse_window", "min": 0.9},
         {"metric": "brake_on_ratio_in_braking_window", "min": 0.9},
-        {"metric": "indicator_on_ratio_in_lanechange_window", "min": 0.7},
-        {"metric": "indicator_off_ratio_outside_lanechange_window", "min": 0.9},
-        {"metric": "indicator_dominant_side_ratio_in_lanechange_window", "min": 0.8},
+        {"metric": "light_transition_latency_frames_max", "max": 2},
+        {"metric": "light_missing_samples", "equals": 0},
+        {"metric": "light_state_observed", "equals": true}
+      ],
+      "kpi_checks_any": []
+    },
+    {
+      "id": "F03B",
+      "name": "AutoLight indicator at junction",
+      "validation_goal": "AutoLight（Indicator）が交差点進入窓で点灯し、窓外で消灯優勢となる",
+      "scenario": "GT_esmini/test/scenarios/pythondriver_f03b_autolight_indicator_route.xosc",
+      "run_args": "--record sim.dat --log_level info --autolight",
+      "collect_osi_light_metrics": true,
+      "expected_indicator_side": "AUTO",
+      "required_patterns": ["PythonDriverController", "AssignRoute"],
+      "forbidden_patterns": ["PYTHON INITIALIZATION FAILED", "Python bridge is not initialized", "PythonDriverController: Python initialization failed", "PythonDriverController: step\\(\\) failed"],
+      "kpi_checks": [
+        {"metric": "indicator_on_ratio_in_junction_window", "min": 0.7},
+        {"metric": "indicator_expected_side_ratio_in_junction_window", "min": 0.8},
+        {"metric": "indicator_off_ratio_outside_junction_window", "min": 0.9},
         {"metric": "light_transition_latency_frames_max", "max": 2},
         {"metric": "light_missing_samples", "equals": 0},
         {"metric": "light_state_observed", "equals": true}

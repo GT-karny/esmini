@@ -848,8 +848,85 @@ def evaluate_f02_light_mapping(feature_id: str, feature_dir: Path) -> Dict[str, 
     }
 
 
-def evaluate_f03_autolight(feature_id: str, feature_dir: Path) -> Dict[str, Any]:
-    if feature_id != "F03":
+def _estimate_osi_dt(osi_rows: List[Dict[str, str]]) -> float:
+    dt_est = 0.01
+    timestamps = [_parse_float(r.get("timestamp_s")) for r in osi_rows]
+    valid_timestamps = [t for t in timestamps if t is not None]
+    if len(valid_timestamps) > 2:
+        diffs = [valid_timestamps[i] - valid_timestamps[i - 1] for i in range(1, len(valid_timestamps))]
+        diffs = [d for d in diffs if d > 0.0]
+        if diffs:
+            dt_est = max(1e-3, sum(diffs) / float(len(diffs)))
+    return dt_est
+
+
+def _python_manual_light_override_count(feature_dir: Path) -> int:
+    trace = read_jsonl(feature_dir / "python_trace.jsonl")
+    count = 0
+    for row in trace:
+        send = row.get("send")
+        lights = send.get("lights") if isinstance(send, dict) else None
+        if isinstance(lights, dict) and len(lights) > 0:
+            count += 1
+    return count
+
+
+def _build_sim_series(sim_rows: List[Dict[str, str]]) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float]], List[float]]:
+    sim_points: List[Tuple[float, float, int]] = []
+    for row in sim_rows:
+        t = _parse_float(row.get("time"))
+        s = _parse_float(row.get("s"))
+        road = _parse_int(row.get("road_id"))
+        if road is None:
+            road = _parse_int(row.get("roadId"))
+        if t is None or s is None or road is None:
+            continue
+        sim_points.append((t, s, road))
+    sim_points.sort(key=lambda x: x[0])
+
+    signed_speed: List[Tuple[float, float]] = []
+    road_change_times: List[float] = []
+    prev_road: Optional[int] = None
+    for i in range(1, len(sim_points)):
+        t0, s0, road0 = sim_points[i - 1]
+        t1, s1, road1 = sim_points[i]
+        dt = t1 - t0
+        if dt > 0.0:
+            signed_speed.append((t1, (s1 - s0) / dt))
+        if prev_road is None:
+            prev_road = road0
+        if road1 != prev_road:
+            road_change_times.append(t1)
+            prev_road = road1
+
+    accel: List[Tuple[float, float]] = []
+    for i in range(1, len(signed_speed)):
+        t0, v0 = signed_speed[i - 1]
+        t1, v1 = signed_speed[i]
+        dt = t1 - t0
+        if dt > 0.0:
+            accel.append((t1, (v1 - v0) / dt))
+    return signed_speed, accel, road_change_times
+
+
+def _compute_light_latency_frames(
+    osi_points: List[Dict[str, Any]],
+    window_starts: List[float],
+    dt_est: float,
+    predicate,
+) -> int:
+    latency_frames_max = 0
+    for t_start in window_starts:
+        candidates = [r for r in osi_points if r["t"] >= t_start and predicate(r)]
+        if not candidates:
+            return 999
+        latency = max(0, int(round((candidates[0]["t"] - t_start) / dt_est)))
+        latency_frames_max = max(latency_frames_max, latency)
+    return latency_frames_max
+
+
+def evaluate_f03a_autolight(feature_id: str, feature_dir: Path, _feature_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    if feature_id != "F03A":
         return {"required": False, "pass": True, "kpi": {}, "stats": {}, "mismatch_samples": []}
 
     sim_rows = parse_csv_rows(feature_dir / "sim.csv")
@@ -859,170 +936,243 @@ def evaluate_f03_autolight(feature_id: str, feature_dir: Path) -> Dict[str, Any]
             "required": True,
             "pass": False,
             "kpi": {
-                "indicator_on_ratio_in_lanechange_window": 0.0,
-                "indicator_off_ratio_outside_lanechange_window": 0.0,
-                "indicator_dominant_side_ratio_in_lanechange_window": 0.0,
+                "reverse_on_ratio_in_reverse_window": 0.0,
+                "brake_on_ratio_in_braking_window": 0.0,
                 "light_transition_latency_frames_max": 999,
                 "light_missing_samples": 1,
+                "light_state_observed": False,
             },
             "stats": {"sim_rows": len(sim_rows), "osi_rows": len(osi_rows)},
             "mismatch_samples": ["autolight_trace_missing"],
         }
 
-    # Build signed speed + lane change events from sim.csv.
-    sim_points: List[Tuple[float, float, int]] = []
-    for r in sim_rows:
-        t = _parse_float(r.get("time"))
-        s = _parse_float(r.get("s"))
-        lane = _parse_int(r.get("lane_id"))
-        if lane is None:
-            lane = _parse_int(r.get("laneId"))
-        if t is None or s is None or lane is None:
-            continue
-        sim_points.append((t, s, lane))
-    sim_points.sort(key=lambda x: x[0])
-
-    signed_speed: List[Tuple[float, float]] = []
-    lane_change_times: List[float] = []
-    prev_lane: Optional[int] = None
-    for i in range(1, len(sim_points)):
-        t0, s0, lane0 = sim_points[i - 1]
-        t1, s1, lane1 = sim_points[i]
-        dt = t1 - t0
-        if dt > 0.0:
-            signed_speed.append((t1, (s1 - s0) / dt))
-        if prev_lane is None:
-            prev_lane = lane0
-        if lane1 != prev_lane:
-            lane_change_times.append(t1)
-            prev_lane = lane1
-
+    signed_speed, accel, _ = _build_sim_series(sim_rows)
     if not signed_speed:
         return {
             "required": True,
             "pass": False,
             "kpi": {
-                "indicator_on_ratio_in_lanechange_window": 0.0,
-                "indicator_off_ratio_outside_lanechange_window": 0.0,
-                "indicator_dominant_side_ratio_in_lanechange_window": 0.0,
+                "reverse_on_ratio_in_reverse_window": 0.0,
+                "brake_on_ratio_in_braking_window": 0.0,
                 "light_transition_latency_frames_max": 999,
                 "light_missing_samples": len(osi_rows),
+                "light_state_observed": True,
             },
             "stats": {"sim_rows": len(sim_rows), "osi_rows": len(osi_rows)},
             "mismatch_samples": ["autolight_signed_speed_missing"],
         }
 
-    dt_est = 0.01
-    timestamps = [_parse_float(r.get("timestamp_s")) for r in osi_rows]
-    valid_timestamps = [t for t in timestamps if t is not None]
-    if len(valid_timestamps) > 2:
-        diffs = [valid_timestamps[i] - valid_timestamps[i - 1] for i in range(1, len(valid_timestamps))]
-        diffs = [d for d in diffs if d > 0.0]
-        if diffs:
-            dt_est = max(1e-3, sum(diffs) / float(len(diffs)))
+    dt_est = _estimate_osi_dt(osi_rows)
+    manual_override_count = _python_manual_light_override_count(feature_dir)
 
     reverse_window_samples = 0
     reverse_on_in_reverse_window = 0
-    reverse_on_outside = 0
-    outside_reverse_samples = 0
-
-    indicator_on_in_lanechange = 0
-    indicator_samples_in_lanechange = 0
-    indicator_left_in_lanechange = 0
-    indicator_right_in_lanechange = 0
-    indicator_off_outside_lanechange = 0
-    outside_lanechange_samples = 0
+    braking_window_samples = 0
+    brake_on_in_braking_window = 0
     light_missing_samples = 0
+    reverse_window_starts: List[float] = []
+    braking_window_starts: List[float] = []
 
-    def _in_lanechange_window(ts: float) -> bool:
-        return any((lc - 1.0) <= ts <= (lc + 1.0) for lc in lane_change_times)
-
-    actual_rows: List[Dict[str, Any]] = []
+    prev_in_reverse = False
+    prev_in_braking = False
+    osi_points: List[Dict[str, Any]] = []
     for row in osi_rows:
         ts = _parse_float(row.get("timestamp_s"))
         if ts is None:
             continue
         s_speed = _nearest_series_value(signed_speed, ts)
+        s_accel = _nearest_series_value(accel, ts)
         if s_speed is None:
             light_missing_samples += 1
             continue
 
-        indicator = str(row.get("indicator_state", "OFF")).upper()
         reverse_on = _parse_int(row.get("reverse_on")) == 1
+        brake_on = _parse_int(row.get("brake_on")) == 1
+        in_reverse = s_speed <= -0.5
+        in_braking = (s_accel is not None) and (s_accel <= -0.5) and (s_speed > 0.5)
 
-        if s_speed <= -0.5:
+        if in_reverse:
             reverse_window_samples += 1
             if reverse_on:
                 reverse_on_in_reverse_window += 1
-        else:
-            outside_reverse_samples += 1
-            if reverse_on:
-                reverse_on_outside += 1
+        if in_braking:
+            braking_window_samples += 1
+            if brake_on:
+                brake_on_in_braking_window += 1
 
-        if _in_lanechange_window(ts):
-            indicator_samples_in_lanechange += 1
-            if indicator != "OFF":
-                indicator_on_in_lanechange += 1
-            if indicator == "LEFT":
-                indicator_left_in_lanechange += 1
-            elif indicator == "RIGHT":
-                indicator_right_in_lanechange += 1
-            elif indicator == "WARNING":
-                indicator_left_in_lanechange += 1
-                indicator_right_in_lanechange += 1
-        else:
-            outside_lanechange_samples += 1
-            if indicator == "OFF":
-                indicator_off_outside_lanechange += 1
+        if in_reverse and not prev_in_reverse:
+            reverse_window_starts.append(ts)
+        if in_braking and not prev_in_braking:
+            braking_window_starts.append(ts)
+        prev_in_reverse = in_reverse
+        prev_in_braking = in_braking
+        osi_points.append({"t": ts, "reverse_on": reverse_on, "brake_on": brake_on})
 
-        actual_rows.append({"t": ts, "indicator": indicator, "reverse_on": reverse_on})
+    reverse_ratio = (float(reverse_on_in_reverse_window) / float(reverse_window_samples)) if reverse_window_samples > 0 else 0.0
+    brake_ratio = (float(brake_on_in_braking_window) / float(braking_window_samples)) if braking_window_samples > 0 else 0.0
 
-    reverse_on_ratio = (float(reverse_on_in_reverse_window) / float(reverse_window_samples)) if reverse_window_samples > 0 else 0.0
-    reverse_off_outside_ratio = (float(outside_reverse_samples - reverse_on_outside) / float(outside_reverse_samples)) if outside_reverse_samples > 0 else 0.0
-    indicator_on_ratio = (float(indicator_on_in_lanechange) / float(indicator_samples_in_lanechange)) if indicator_samples_in_lanechange > 0 else 0.0
-    indicator_off_outside_ratio = (float(indicator_off_outside_lanechange) / float(outside_lanechange_samples)) if outside_lanechange_samples > 0 else 0.0
-
-    dominant_count = max(indicator_left_in_lanechange, indicator_right_in_lanechange)
-    dominant_side_ratio = (float(dominant_count) / float(max(1, indicator_on_in_lanechange))) if indicator_on_in_lanechange > 0 else 0.0
-
-    # latency from lane change window start to first indicator ON
-    latency_frames_max = 0
-    for lc in lane_change_times:
-        window_start = lc - 1.0
-        candidates = [r for r in actual_rows if r["t"] >= window_start and r["t"] <= lc + 1.0 and r["indicator"] != "OFF"]
-        if not candidates:
-            latency_frames_max = 999
-            break
-        latency = max(0, int(round((candidates[0]["t"] - window_start) / dt_est)))
-        latency_frames_max = max(latency_frames_max, latency)
+    reverse_latency = _compute_light_latency_frames(osi_points, reverse_window_starts, dt_est, lambda r: bool(r.get("reverse_on")))
+    brake_latency = _compute_light_latency_frames(osi_points, braking_window_starts, dt_est, lambda r: bool(r.get("brake_on")))
+    latency_frames_max = max(reverse_latency, brake_latency)
 
     mismatches: List[str] = []
+    if manual_override_count > 0:
+        mismatches.append("autolight_manual_override_detected")
     if reverse_window_samples == 0:
         mismatches.append("reverse_window_missing")
-    if indicator_samples_in_lanechange == 0:
-        mismatches.append("lanechange_window_missing")
+    if braking_window_samples == 0:
+        mismatches.append("braking_window_missing")
     if light_missing_samples > 0:
         mismatches.append("light_missing_samples")
+    if latency_frames_max > 2:
+        mismatches.append("light_mapping_latency_exceeded")
 
-    kpi = {
-        "reverse_on_ratio_in_reverse_window": reverse_on_ratio,
-        "reverse_on_ratio_outside_reverse_window": 1.0 - reverse_off_outside_ratio,
-        "indicator_on_ratio_in_lanechange_window": indicator_on_ratio,
-        "indicator_off_ratio_outside_lanechange_window": indicator_off_outside_ratio,
-        "indicator_dominant_side_ratio_in_lanechange_window": dominant_side_ratio,
-        "light_transition_latency_frames_max": latency_frames_max,
-        "light_missing_samples": light_missing_samples,
-    }
-    stats = {
-        "lane_change_events": len(lane_change_times),
-        "reverse_window_samples": reverse_window_samples,
-        "indicator_samples_in_lanechange": indicator_samples_in_lanechange,
-    }
     return {
         "required": True,
-        "pass": len(mismatches) == 0 and latency_frames_max <= 2,
-        "kpi": kpi,
-        "stats": stats,
+        "pass": len(mismatches) == 0,
+        "kpi": {
+            "reverse_on_ratio_in_reverse_window": reverse_ratio,
+            "brake_on_ratio_in_braking_window": brake_ratio,
+            "light_transition_latency_frames_max": latency_frames_max,
+            "light_missing_samples": light_missing_samples,
+            "light_state_observed": len(osi_points) > 0,
+        },
+        "stats": {
+            "reverse_window_samples": reverse_window_samples,
+            "braking_window_samples": braking_window_samples,
+            "manual_override_count": manual_override_count,
+        },
+        "mismatch_samples": mismatches[:10],
+    }
+
+
+def evaluate_f03b_autolight(feature_id: str, feature_dir: Path, feature_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    if feature_id != "F03B":
+        return {"required": False, "pass": True, "kpi": {}, "stats": {}, "mismatch_samples": []}
+
+    sim_rows = parse_csv_rows(feature_dir / "sim.csv")
+    osi_rows = parse_csv_rows(feature_dir / "osi_lights.csv")
+    if not sim_rows or not osi_rows:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {
+                "indicator_on_ratio_in_junction_window": 0.0,
+                "indicator_expected_side_ratio_in_junction_window": 0.0,
+                "indicator_off_ratio_outside_junction_window": 0.0,
+                "light_transition_latency_frames_max": 999,
+                "light_missing_samples": 1,
+                "light_state_observed": False,
+            },
+            "stats": {"sim_rows": len(sim_rows), "osi_rows": len(osi_rows)},
+            "mismatch_samples": ["autolight_trace_missing"],
+        }
+
+    _, _, road_change_times = _build_sim_series(sim_rows)
+    dt_est = _estimate_osi_dt(osi_rows)
+    manual_override_count = _python_manual_light_override_count(feature_dir)
+    expected_side = str(feature_cfg.get("expected_indicator_side", "AUTO") or "AUTO").upper()
+
+    if not road_change_times:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {
+                "indicator_on_ratio_in_junction_window": 0.0,
+                "indicator_expected_side_ratio_in_junction_window": 0.0,
+                "indicator_off_ratio_outside_junction_window": 0.0,
+                "light_transition_latency_frames_max": 999,
+                "light_missing_samples": 0,
+                "light_state_observed": True,
+            },
+            "stats": {"junction_events": 0, "manual_override_count": manual_override_count},
+            "mismatch_samples": ["junction_window_missing"],
+        }
+
+    def _in_junction_window(ts: float) -> bool:
+        return any((j - 1.0) <= ts <= (j + 1.0) for j in road_change_times)
+
+    indicator_on = 0
+    indicator_samples = 0
+    indicator_left = 0
+    indicator_right = 0
+    indicator_off_outside = 0
+    outside_samples = 0
+    light_missing_samples = 0
+    junction_window_starts = [j - 1.0 for j in road_change_times]
+    osi_points: List[Dict[str, Any]] = []
+
+    for row in osi_rows:
+        ts = _parse_float(row.get("timestamp_s"))
+        if ts is None:
+            light_missing_samples += 1
+            continue
+        indicator = str(row.get("indicator_state", "OFF")).upper()
+        if _in_junction_window(ts):
+            indicator_samples += 1
+            if indicator != "OFF":
+                indicator_on += 1
+            if indicator == "LEFT":
+                indicator_left += 1
+            elif indicator == "RIGHT":
+                indicator_right += 1
+            elif indicator == "WARNING":
+                indicator_left += 1
+                indicator_right += 1
+        else:
+            outside_samples += 1
+            if indicator == "OFF":
+                indicator_off_outside += 1
+        osi_points.append({"t": ts, "indicator": indicator})
+
+    indicator_on_ratio = (float(indicator_on) / float(indicator_samples)) if indicator_samples > 0 else 0.0
+    indicator_off_outside_ratio = (float(indicator_off_outside) / float(outside_samples)) if outside_samples > 0 else 0.0
+    if indicator_on > 0:
+        if expected_side == "LEFT":
+            expected_side_ratio = float(indicator_left) / float(indicator_on)
+        elif expected_side == "RIGHT":
+            expected_side_ratio = float(indicator_right) / float(indicator_on)
+        else:
+            expected_side_ratio = float(max(indicator_left, indicator_right)) / float(indicator_on)
+    else:
+        expected_side_ratio = 0.0
+
+    latency_frames_max = _compute_light_latency_frames(
+        osi_points,
+        junction_window_starts,
+        dt_est,
+        lambda r: str(r.get("indicator", "OFF")).upper() != "OFF",
+    )
+
+    mismatches: List[str] = []
+    if manual_override_count > 0:
+        mismatches.append("autolight_manual_override_detected")
+    if indicator_samples == 0:
+        mismatches.append("junction_window_missing")
+    if light_missing_samples > 0:
+        mismatches.append("light_missing_samples")
+    if latency_frames_max > 2:
+        mismatches.append("light_mapping_latency_exceeded")
+    if expected_side in ("LEFT", "RIGHT") and expected_side_ratio < 0.8:
+        mismatches.append("indicator_side_mismatch")
+
+    return {
+        "required": True,
+        "pass": len(mismatches) == 0,
+        "kpi": {
+            "indicator_on_ratio_in_junction_window": indicator_on_ratio,
+            "indicator_expected_side_ratio_in_junction_window": expected_side_ratio,
+            "indicator_off_ratio_outside_junction_window": indicator_off_outside_ratio,
+            "light_transition_latency_frames_max": latency_frames_max,
+            "light_missing_samples": light_missing_samples,
+            "light_state_observed": len(osi_points) > 0,
+        },
+        "stats": {
+            "junction_events": len(road_change_times),
+            "indicator_samples_in_junction": indicator_samples,
+            "manual_override_count": manual_override_count,
+            "expected_indicator_side": expected_side,
+        },
         "mismatch_samples": mismatches[:10],
     }
 
@@ -1223,9 +1373,13 @@ def main() -> int:
         f02_light_eval = evaluate_f02_light_mapping(fid, fdir)
         if f02_light_eval.get("kpi"):
             kpi.update(f02_light_eval["kpi"])
-        f03_autolight_eval = evaluate_f03_autolight(fid, fdir)
-        if f03_autolight_eval.get("kpi"):
-            kpi.update(f03_autolight_eval["kpi"])
+        f03a_autolight_eval = evaluate_f03a_autolight(fid, fdir, feat)
+        if f03a_autolight_eval.get("kpi"):
+            kpi.update(f03a_autolight_eval["kpi"])
+        f03b_autolight_eval = evaluate_f03b_autolight(fid, fdir, feat)
+        if f03b_autolight_eval.get("kpi"):
+            kpi.update(f03b_autolight_eval["kpi"])
+        autolight_eval = f03a_autolight_eval if f03a_autolight_eval.get("required", False) else f03b_autolight_eval
         explicit_feature_checks = list(feat.get("kpi_checks", []))
         feature_kpi_checks = list(baseline_kpi_checks) + explicit_feature_checks
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
@@ -1246,7 +1400,7 @@ def main() -> int:
         kpi_definition_ok = len(explicit_feature_checks) > 0
         trace_ok = trace_eval.get("pass", True)
         light_mapping_ok = f02_light_eval.get("pass", True)
-        autolight_ok = f03_autolight_eval.get("pass", True)
+        autolight_ok = autolight_eval.get("pass", True)
         passed = (
             logs_ok
             and forbidden_ok
@@ -1275,7 +1429,7 @@ def main() -> int:
             failure_reasons.extend(f02_light_eval.get("mismatch_samples", []))
         if not autolight_ok:
             failure_reasons.append("autolight_integrity_failed")
-            failure_reasons.extend(f03_autolight_eval.get("mismatch_samples", []))
+            failure_reasons.extend(autolight_eval.get("mismatch_samples", []))
         if not kpi_eval["pass"]:
             failure_reasons.append("kpi_checks_failed")
         if not kpi_any_eval["pass"]:
@@ -1321,9 +1475,9 @@ def main() -> int:
             "light_mapping_integrity": f02_light_eval.get("pass", True),
             "light_mapping_stats": f02_light_eval.get("stats", {}),
             "light_mapping_mismatch_samples": f02_light_eval.get("mismatch_samples", []),
-            "autolight_integrity": f03_autolight_eval.get("pass", True),
-            "autolight_stats": f03_autolight_eval.get("stats", {}),
-            "autolight_mismatch_samples": f03_autolight_eval.get("mismatch_samples", []),
+            "autolight_integrity": autolight_eval.get("pass", True),
+            "autolight_stats": autolight_eval.get("stats", {}),
+            "autolight_mismatch_samples": autolight_eval.get("mismatch_samples", []),
             "kpi": kpi,
             "golden": golden_cmp,
             "road_kpi": road_kpi,
