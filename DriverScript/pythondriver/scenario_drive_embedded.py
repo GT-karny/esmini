@@ -64,11 +64,28 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
 
     def _effective_waypoint_index(self, frame_data: Dict[str, Any]) -> int:
         incoming = int(frame_data.get("waypoint_index", 0))
+        waypoint_count = len(frame_data.get("waypoints", []) or [])
         generation = frame_data.get("waypoint_generation", {}) or {}
         version = int(generation.get("version", -1))
         if version == self._last_wp_generation_version:
             return max(self._last_waypoint_index, incoming)
+        if waypoint_count > 0 and self._last_waypoint_index > 0 and incoming <= 0:
+            clamped_prev = min(self._last_waypoint_index, waypoint_count - 1)
+            return max(clamped_prev, incoming)
         return incoming
+
+    @staticmethod
+    def _route_endpoint_summary(waypoints: List[Dict[str, Any]]) -> str:
+        if not waypoints:
+            return "none"
+        first = waypoints[0]
+        last = waypoints[-1]
+        return (
+            f"first=({int(first.get('road_id', -1))},{int(first.get('lane_id', 0))},"
+            f"{float(first.get('s', 0.0)):.1f}) "
+            f"last=({int(last.get('road_id', -1))},{int(last.get('lane_id', 0))},"
+            f"{float(last.get('s', 0.0)):.1f})"
+        )
 
     def step(self, frame_data: Dict[str, Any]) -> Dict[str, Any]:
         if self._scenario is None or self._acc is None:
@@ -79,7 +96,19 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         dt = frame.dt if frame.dt > 0.0 else self.dt
 
         effective_frame_data = dict(frame_data)
-        effective_frame_data["waypoint_index"] = self._effective_waypoint_index(frame_data)
+        effective_index = self._effective_waypoint_index(frame_data)
+        effective_frame_data["waypoint_index"] = effective_index
+        generation = frame_data.get("waypoint_generation", {}) or {}
+        generation_version = int(generation.get("version", -1))
+        if generation_version != self._last_wp_generation_version:
+            waypoints = frame_data.get("waypoints", []) or []
+            incoming_index = int(frame_data.get("waypoint_index", 0))
+            print(
+                "[INFO] Embedded: route refresh "
+                f"generation={generation_version} incoming_index={incoming_index} "
+                f"chosen_index={effective_index} route_len={len(waypoints)} "
+                f"{self._route_endpoint_summary(waypoints)}"
+            )
         self._scenario._embedded_frame_data = effective_frame_data
 
         actions = frame_data.get("actions", {}) or {}
@@ -109,8 +138,7 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
             self._last_waypoint_index = int(self._scenario.waypoint_mgr.current_index)
         else:
             self._last_waypoint_index = int(effective_frame_data.get("waypoint_index", 0))
-        generation = frame_data.get("waypoint_generation", {}) or {}
-        self._last_wp_generation_version = int(generation.get("version", -1))
+        self._last_wp_generation_version = generation_version
 
         self._frame_count += 1
         gear = -1 if target_speed < -0.05 else 1

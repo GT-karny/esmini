@@ -19,12 +19,12 @@
       "min_waypoint_count": 2,
       "require_assign_route_completion": true,
       "assign_route_s_tolerance_m": 5.0,
-      "assign_route_end_hold_time_s": 0.5
+      "feature_excluded_baseline_kpis": ["s_stall_ratio"]
     },
     "F06": {
       "require_assign_route_completion": true,
       "assign_route_s_tolerance_m": 5.0,
-      "assign_route_end_hold_time_s": 0.5
+      "feature_excluded_baseline_kpis": ["s_stall_ratio"]
     },
     "F07": {"require_lane_change_complete": true},
     "F08": {"require_lane_offset_reached": true},

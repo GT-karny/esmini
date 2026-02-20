@@ -3,7 +3,7 @@ import argparse
 import json
 import re
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, deque
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -559,14 +559,21 @@ def _resolve_scenario_path(scenario_text: str, matrix_path: Path) -> Optional[Pa
 
 
 def _extract_assign_route_terminal_waypoint(scenario_path: Path) -> Optional[Dict[str, Any]]:
+    waypoints = _extract_assign_route_waypoints(scenario_path)
+    if not waypoints:
+        return None
+    return waypoints[-1]
+
+
+def _extract_assign_route_waypoints(scenario_path: Path) -> List[Dict[str, Any]]:
     try:
         root = ET.parse(scenario_path).getroot()
     except ET.ParseError:
-        return None
+        return []
     except OSError:
-        return None
+        return []
 
-    terminal_waypoint: Optional[Dict[str, Any]] = None
+    assign_route_waypoints: List[Dict[str, Any]] = []
     for node in root.iter():
         if _local_tag(node.tag) != "AssignRouteAction":
             continue
@@ -576,25 +583,298 @@ def _extract_assign_route_terminal_waypoint(scenario_path: Path) -> Optional[Dic
         waypoints = _find_children(route, "Waypoint")
         if not waypoints:
             continue
-        last_waypoint = waypoints[-1]
-        position = _find_first_child(last_waypoint, "Position")
-        if position is None:
-            continue
-        lane_pos = _find_first_child(position, "LanePosition")
-        if lane_pos is None:
-            continue
+        parsed: List[Dict[str, Any]] = []
+        for waypoint in waypoints:
+            position = _find_first_child(waypoint, "Position")
+            if position is None:
+                continue
+            lane_pos = _find_first_child(position, "LanePosition")
+            if lane_pos is None:
+                continue
+            road_id = _parse_int(lane_pos.attrib.get("roadId"))
+            lane_id = _parse_int(lane_pos.attrib.get("laneId"))
+            s_value = _parse_float(lane_pos.attrib.get("s"))
+            if road_id is None or lane_id is None or s_value is None:
+                continue
+            parsed.append(
+                {
+                    "road_id": road_id,
+                    "lane_id": lane_id,
+                    "s": s_value,
+                }
+            )
+        if parsed:
+            assign_route_waypoints = parsed
+    return assign_route_waypoints
 
-        road_id = _parse_int(lane_pos.attrib.get("roadId"))
-        lane_id = _parse_int(lane_pos.attrib.get("laneId"))
-        s_value = _parse_float(lane_pos.attrib.get("s"))
-        if road_id is None or lane_id is None or s_value is None:
+
+def _extract_logic_file_path(scenario_path: Path) -> Optional[Path]:
+    try:
+        root = ET.parse(scenario_path).getroot()
+    except (ET.ParseError, OSError):
+        return None
+
+    logic_path_text: Optional[str] = None
+    for node in root.iter():
+        if _local_tag(node.tag) != "LogicFile":
             continue
-        terminal_waypoint = {
-            "road_id": road_id,
-            "lane_id": lane_id,
-            "s": s_value,
+        candidate = (node.attrib.get("filepath") or "").strip()
+        if candidate:
+            logic_path_text = candidate
+            break
+    if not logic_path_text:
+        return None
+
+    logic_path = Path(logic_path_text)
+    candidates: List[Path] = []
+    if logic_path.is_absolute():
+        candidates.append(logic_path)
+    else:
+        repo_root = Path(__file__).resolve().parents[1]
+        candidates.append((scenario_path.parent / logic_path).resolve())
+        candidates.append((repo_root / logic_path).resolve())
+        parts = list(logic_path.parts)
+        if "resources" in parts:
+            idx = parts.index("resources")
+            candidates.append((repo_root / Path(*parts[idx:])).resolve())
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _build_xodr_index(xodr_path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        root = ET.parse(xodr_path).getroot()
+    except (ET.ParseError, OSError):
+        return None
+
+    drivable_lane_types = {
+        "driving",
+        "entry",
+        "exit",
+        "onramp",
+        "offramp",
+        "connectingramp",
+        "bidirectional",
+        "parking",
+    }
+    roads: Dict[int, Dict[str, Any]] = {}
+    adjacency: Dict[int, set] = {}
+
+    for road in root.findall(".//road"):
+        road_id = _parse_int(road.attrib.get("id"))
+        road_length = _parse_float(road.attrib.get("length"))
+        if road_id is None:
+            continue
+        sections: List[Dict[str, Any]] = []
+        lanes = road.find("lanes")
+        if lanes is not None:
+            for section in lanes.findall("laneSection"):
+                s_start = _parse_float(section.attrib.get("s"))
+                if s_start is None:
+                    continue
+                drivable_ids: set = set()
+                all_ids: set = set()
+                for side_name in ("left", "center", "right"):
+                    side = section.find(side_name)
+                    if side is None:
+                        continue
+                    for lane in side.findall("lane"):
+                        lane_id = _parse_int(lane.attrib.get("id"))
+                        if lane_id is None:
+                            continue
+                        lane_type = str(lane.attrib.get("type", "")).strip().lower()
+                        all_ids.add(lane_id)
+                        if lane_id != 0 and lane_type in drivable_lane_types:
+                            drivable_ids.add(lane_id)
+                sections.append(
+                    {
+                        "s_start": float(s_start),
+                        "drivable_lane_ids": drivable_ids,
+                        "all_lane_ids": all_ids,
+                    }
+                )
+        sections.sort(key=lambda item: item["s_start"])
+        roads[road_id] = {
+            "length": float(road_length) if road_length is not None else None,
+            "sections": sections,
         }
-    return terminal_waypoint
+        adjacency.setdefault(road_id, set())
+
+    for road in root.findall(".//road"):
+        road_id = _parse_int(road.attrib.get("id"))
+        if road_id is None:
+            continue
+        link = road.find("link")
+        if link is None:
+            continue
+        for rel_name in ("predecessor", "successor"):
+            rel = link.find(rel_name)
+            if rel is None:
+                continue
+            if (rel.attrib.get("elementType") or "").strip().lower() != "road":
+                continue
+            other_road = _parse_int(rel.attrib.get("elementId"))
+            if other_road is None:
+                continue
+            adjacency.setdefault(road_id, set()).add(other_road)
+            adjacency.setdefault(other_road, set()).add(road_id)
+
+    for junction in root.findall(".//junction"):
+        for connection in junction.findall("connection"):
+            incoming = _parse_int(connection.attrib.get("incomingRoad"))
+            connecting = _parse_int(connection.attrib.get("connectingRoad"))
+            if incoming is None or connecting is None:
+                continue
+            adjacency.setdefault(incoming, set()).add(connecting)
+            adjacency.setdefault(connecting, set()).add(incoming)
+
+    return {
+        "roads": roads,
+        "adjacency": adjacency,
+    }
+
+
+def _select_lane_section_for_s(road_data: Dict[str, Any], s_value: float) -> Optional[Dict[str, Any]]:
+    sections = road_data.get("sections") or []
+    if not sections:
+        return None
+    selected = sections[0]
+    for section in sections:
+        if s_value + 1e-6 >= float(section["s_start"]):
+            selected = section
+        else:
+            break
+    return selected
+
+
+def _validate_waypoint_on_map(xodr_index: Dict[str, Any], waypoint: Dict[str, Any]) -> Optional[str]:
+    road_id = int(waypoint["road_id"])
+    lane_id = int(waypoint["lane_id"])
+    s_value = float(waypoint["s"])
+
+    roads = xodr_index.get("roads", {})
+    road_data = roads.get(road_id)
+    if road_data is None:
+        return "road_missing"
+    if lane_id == 0:
+        return "lane_zero_not_drivable"
+    road_length = road_data.get("length")
+    if road_length is not None and (s_value < -1e-3 or s_value > float(road_length) + 1e-3):
+        return "s_out_of_range"
+    section = _select_lane_section_for_s(road_data, s_value)
+    if section is None:
+        return "lane_section_missing"
+    if lane_id not in section.get("all_lane_ids", set()):
+        return "lane_missing"
+    if lane_id not in section.get("drivable_lane_ids", set()):
+        return "lane_not_drivable"
+    return None
+
+
+def _roads_connected(xodr_index: Dict[str, Any], start_road: int, end_road: int) -> bool:
+    if start_road == end_road:
+        return True
+    adjacency = xodr_index.get("adjacency", {})
+    if start_road not in adjacency or end_road not in adjacency:
+        return False
+    visited = {start_road}
+    queue = deque([start_road])
+    while queue:
+        cur = queue.popleft()
+        for nxt in adjacency.get(cur, set()):
+            if nxt == end_road:
+                return True
+            if nxt in visited:
+                continue
+            visited.add(nxt)
+            queue.append(nxt)
+    return False
+
+
+def evaluate_assign_route_waypoint_validity(scenario_path: Path) -> Dict[str, Any]:
+    waypoints = _extract_assign_route_waypoints(scenario_path)
+    if not waypoints:
+        return {
+            "pass": False,
+            "stats": {"scenario_path": str(scenario_path)},
+            "mismatch_samples": ["assign_route_waypoints_missing"],
+            "kpi": {
+                "assign_route_waypoint_validity_pass": False,
+                "assign_route_waypoint_invalid_reasons": ["assign_route_waypoints_missing"],
+            },
+        }
+
+    xodr_path = _extract_logic_file_path(scenario_path)
+    if xodr_path is None:
+        return {
+            "pass": False,
+            "stats": {"scenario_path": str(scenario_path)},
+            "mismatch_samples": ["scenario_logic_file_missing"],
+            "kpi": {
+                "assign_route_waypoint_validity_pass": False,
+                "assign_route_waypoint_invalid_reasons": ["scenario_logic_file_missing"],
+            },
+        }
+
+    xodr_index = _build_xodr_index(xodr_path)
+    if xodr_index is None:
+        return {
+            "pass": False,
+            "stats": {
+                "scenario_path": str(scenario_path),
+                "xodr_path": str(xodr_path),
+            },
+            "mismatch_samples": ["xodr_parse_failed"],
+            "kpi": {
+                "assign_route_waypoint_validity_pass": False,
+                "assign_route_waypoint_invalid_reasons": ["xodr_parse_failed"],
+            },
+        }
+
+    mismatches: List[str] = []
+    for idx, waypoint in enumerate(waypoints):
+        invalid_reason = _validate_waypoint_on_map(xodr_index, waypoint)
+        if invalid_reason is not None:
+            mismatches.append(f"waypoint[{idx}]_{invalid_reason}")
+
+    for idx in range(len(waypoints) - 1):
+        current = waypoints[idx]
+        nxt = waypoints[idx + 1]
+        if not _roads_connected(xodr_index, int(current["road_id"]), int(nxt["road_id"])):
+            mismatches.append(
+                f"waypoint_pair[{idx}->{idx + 1}]_roads_not_connected"
+            )
+
+    return {
+        "pass": len(mismatches) == 0,
+        "stats": {
+            "scenario_path": str(scenario_path),
+            "xodr_path": str(xodr_path),
+            "waypoint_count": len(waypoints),
+        },
+        "mismatch_samples": mismatches,
+        "kpi": {
+            "assign_route_waypoint_validity_pass": len(mismatches) == 0,
+            "assign_route_waypoint_invalid_reasons": mismatches,
+        },
+    }
+
+
+def _detect_scenario_stop_reason(feature_dir: Path) -> str:
+    stdout_path = feature_dir / "stdout.txt"
+    if not stdout_path.exists():
+        return "unknown"
+    text = stdout_path.read_text(encoding="utf-8", errors="ignore")
+    if re.search(r"\bStopAtFinalWaypoint:\s*true\b", text):
+        return "reached_final_waypoint"
+    if re.search(r"\bStopOnOffroad:\s*true\b", text):
+        return "offroad"
+    if re.search(r"\bStopAt24s:\s*true\b", text):
+        return "timeout_24s"
+    return "unknown"
 
 
 def evaluate_assign_route_completion(
@@ -603,19 +883,27 @@ def evaluate_assign_route_completion(
     kpi: Dict[str, Any],
     s_tolerance_m: float,
 ) -> Dict[str, Any]:
+    validity_eval = evaluate_assign_route_waypoint_validity(scenario_path)
+    stop_reason = _detect_scenario_stop_reason(feature_dir)
     expected = _extract_assign_route_terminal_waypoint(scenario_path)
     if expected is None:
+        mismatch_samples = ["assign_route_terminal_waypoint_missing"]
+        mismatch_samples.extend(validity_eval.get("mismatch_samples", []))
         return {
             "required": True,
             "pass": False,
             "stats": {
                 "scenario_path": str(scenario_path),
                 "s_tolerance_m": s_tolerance_m,
+                "scenario_stop_reason": stop_reason,
             },
-            "mismatch_samples": ["assign_route_terminal_waypoint_missing"],
+            "mismatch_samples": mismatch_samples,
             "kpi": {
                 "assign_route_expected_waypoint_available": False,
                 "assign_route_final_waypoint_reached": False,
+                "assign_route_waypoint_validity_pass": validity_eval.get("pass", False),
+                "assign_route_waypoint_invalid_reasons": validity_eval.get("mismatch_samples", []),
+                "scenario_stop_reason": stop_reason,
                 "assign_route_s_tolerance_m": s_tolerance_m,
             },
         }
@@ -643,6 +931,8 @@ def evaluate_assign_route_completion(
         mismatches.append("assign_route_end_lane_mismatch")
     if not s_match:
         mismatches.append("assign_route_end_s_mismatch")
+    if not validity_eval.get("pass", False):
+        mismatches.extend(validity_eval.get("mismatch_samples", []))
 
     hold_time_s = 0.0
     rows = parse_csv_rows(feature_dir / "sim.csv")
@@ -680,11 +970,14 @@ def evaluate_assign_route_completion(
         "actual_s_end": s_end,
         "actual_s_abs_error_m": s_abs_error,
         "end_hold_time_s": hold_time_s,
+        "scenario_stop_reason": stop_reason,
+        "waypoint_validity": validity_eval.get("pass", False),
     }
 
+    completion_pass = reached and bool(validity_eval.get("pass", False))
     return {
         "required": True,
-        "pass": reached,
+        "pass": completion_pass,
         "stats": stats,
         "mismatch_samples": mismatches,
         "kpi": {
@@ -698,6 +991,9 @@ def evaluate_assign_route_completion(
             "assign_route_final_waypoint_reached": reached,
             "assign_route_end_s_abs_error_m": s_abs_error,
             "assign_route_end_hold_time_s": hold_time_s,
+            "assign_route_waypoint_validity_pass": validity_eval.get("pass", False),
+            "assign_route_waypoint_invalid_reasons": validity_eval.get("mismatch_samples", []),
+            "scenario_stop_reason": stop_reason,
             "assign_route_s_tolerance_m": s_tolerance_m,
         },
     }
@@ -1602,6 +1898,7 @@ def main() -> int:
                 [
                     {"metric": "assign_route_expected_waypoint_available", "equals": True},
                     {"metric": "assign_route_final_waypoint_reached", "equals": True},
+                    {"metric": "assign_route_waypoint_validity_pass", "equals": True},
                 ]
             )
             min_hold_time = float(overrides.get("assign_route_end_hold_time_s", 0.0))
@@ -1609,7 +1906,12 @@ def main() -> int:
                 explicit_feature_checks.append(
                     {"metric": "assign_route_end_hold_time_s", "min": min_hold_time}
                 )
-        feature_kpi_checks = list(baseline_kpi_checks) + explicit_feature_checks
+        excluded_baseline_kpis = set(str(v) for v in (overrides.get("feature_excluded_baseline_kpis", []) or []))
+        feature_baseline_checks = [
+            check for check in baseline_kpi_checks
+            if str(check.get("metric", "")) not in excluded_baseline_kpis
+        ]
+        feature_kpi_checks = list(feature_baseline_checks) + explicit_feature_checks
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
         kpi_any_eval = evaluate_kpi_checks_any(kpi, feature_kpi_checks_any)

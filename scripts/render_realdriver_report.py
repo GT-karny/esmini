@@ -66,6 +66,7 @@ def main() -> int:
         judgement_criteria_text = render_list_cell(judgement_criteria)
 
         road_kpi = r.get("road_kpi", {}) or {}
+        full_kpi = r.get("kpi", {}) or {}
         road_summary_parts = []
         if road_kpi.get("lane_id_end") is not None:
             road_summary_parts.append(f"lane_end={road_kpi.get('lane_id_end')}")
@@ -75,6 +76,12 @@ def main() -> int:
             road_summary_parts.append(f"s_progress={float(road_kpi.get('s_progress_m')):.2f}m")
         if road_kpi.get("t_abs_max_m") is not None:
             road_summary_parts.append(f"|t|max={float(road_kpi.get('t_abs_max_m')):.2f}m")
+        if full_kpi.get("scenario_stop_reason") is not None:
+            road_summary_parts.append(f"stop_reason={full_kpi.get('scenario_stop_reason')}")
+        if full_kpi.get("assign_route_waypoint_validity_pass") is not None:
+            road_summary_parts.append(
+                f"waypoint_valid={full_kpi.get('assign_route_waypoint_validity_pass')}"
+            )
         road_summary = "<br/>".join(esc(s) for s in road_summary_parts) if road_summary_parts else "-"
         kpi_failed = [d for d in kpi_check_details if not d.get("pass", True)]
         kpi_any_failed = [d for d in kpi_check_any_details if not d.get("pass", True)]
