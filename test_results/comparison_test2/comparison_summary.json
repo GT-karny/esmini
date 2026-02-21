@@ -1,0 +1,30 @@
+{
+  "scenarios": {
+    "straight_500m": {
+      "error": "sim_csv_not_found",
+      "default_result": {
+        "exit_code": 4294967295,
+        "duration": 0.09324789047241211,
+        "sim_csv": null,
+        "python_trace": null,
+        "stdout": "GT_Sim build: PythonDriverController=ENABLED\nesmini GIT REV: N/A\nesmini GIT TAG: N/A\nesmini GIT BRANCH: N/A\nesmini BUILD VERSION: N/A - client build\n[] [info] Ignoring missing default config: E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release\\..\\config.yml\n[] [info] Loaded test_results\\comparison_test2\\xosc\\straight_500m_default.xosc.temp.xosc\n[2026-02-21 23:56:08]\n[] [info] Player options: --osc test_results\\comparison_test2\\xosc\\straight_500m_default.xosc.temp.xosc --camera_mode orbit --headless --info_text 1 --logfile_path log.txt --log_level info --record test_results\\comparison_test2\\default\\straight_500m\\sim.csv --text_scale 1.0 --traj_filter 0.1 \n[] [info] No fixed timestep specified - running in realtime speed\n[] [info] Generated seed 3572412276\n[] [info] Loading test_results/comparison_test2/xosc/straight_500m_default.xosc.temp.xosc (v1.1)\n[] [info] 0 variables\n[] [info] OpenDRIVE file search paths attempted for file straight_500m.xodr:\n[] [info]   ../xodr/straight_500m.xodr\n[] [info]   straight_500m.xodr\n[] [info]   test_results/comparison_test2/xosc/../xodr/straight_500m.xodr\n[] [info]   test_results/comparison_test2/xosc/./straight_500m.xodr\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xodr/../xodr/straight_500m.xodr\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xodr/./straight_500m.xodr\n[] [warn] OpenDRIVE file ../xodr/straight_500m.xodr not located, using specified file path\n[] [error] Failed to locate OpenDRIVE file ../xodr/straight_500m.xodr\n[] [error] Exception: [] [error] Failed to locate OpenDRIVE file ../xodr/straight_500m.xodr\n\n[] [error] Failed to initialize scenario player\nFailed to initialize GT_esmini\n",
+        "stderr": "[GT_esmini] GT_InitWithArgs called with argc=6\n[GT_esmini] argv[0]=build\\GT_esmini\\Release\\GT_Sim.exe\n[GT_esmini] Sanitizing filename: test_results\\comparison_test2\\xosc\\straight_500m_default.xosc\n[GT_esmini] Calling SE_InitWithArgs with 6 args.\n[esminiLib] SE_InitWithArgs called. argc=6\n[esminiLib] Arg[0]: build\\GT_esmini\\Release\\GT_Sim.exe\n[esminiLib] Arg[1]: --osc\n[esminiLib] Arg[2]: test_results\\comparison_test2\\xosc\\straight_500m_default.xosc.temp.xosc\n[esminiLib] Arg[3]: --headless\n[esminiLib] Arg[4]: --record\n[esminiLib] Arg[5]: test_results\\comparison_test2\\default\\straight_500m\\sim.csv\n[esminiLib] Calling InitScenario...\n[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n[esminiLib] InitScenario: Calling player->Init()...\n[GT_esmini] SE_InitWithArgs returned: -1\n"
+      },
+      "python_result": {
+        "exit_code": 4294967295,
+        "duration": 0.09140634536743164,
+        "sim_csv": null,
+        "python_trace": null,
+        "stdout": "GT_Sim build: PythonDriverController=ENABLED\nesmini GIT REV: N/A\nesmini GIT TAG: N/A\nesmini GIT BRANCH: N/A\nesmini BUILD VERSION: N/A - client build\n[] [info] Ignoring missing default config: E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release\\..\\config.yml\n[] [info] Loaded test_results\\comparison_test2\\xosc\\straight_500m_python.xosc.temp.xosc\n[2026-02-21 23:56:08]\n[] [info] Player options: --osc test_results\\comparison_test2\\xosc\\straight_500m_python.xosc.temp.xosc --camera_mode orbit --headless --info_text 1 --logfile_path log.txt --log_level info --record test_results\\comparison_test2\\python\\straight_500m\\sim.csv --text_scale 1.0 --traj_filter 0.1 \n[] [info] No fixed timestep specified - running in realtime speed\n[] [info] Generated seed 1005481129\n[] [info] Loading test_results/comparison_test2/xosc/straight_500m_python.xosc.temp.xosc (v1.1)\n[] [info] 0 variables\n[] [info] OpenDRIVE file search paths attempted for file straight_500m.xodr:\n[] [info]   ../xodr/straight_500m.xodr\n[] [info]   straight_500m.xodr\n[] [info]   test_results/comparison_test2/xosc/../xodr/straight_500m.xodr\n[] [info]   test_results/comparison_test2/xosc/./straight_500m.xodr\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xodr/../xodr/straight_500m.xodr\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xodr/./straight_500m.xodr\n[] [warn] OpenDRIVE file ../xodr/straight_500m.xodr not located, using specified file path\n[] [error] Failed to locate OpenDRIVE file ../xodr/straight_500m.xodr\n[] [error] Exception: [] [error] Failed to locate OpenDRIVE file ../xodr/straight_500m.xodr\n\n[] [error] Failed to initialize scenario player\nFailed to initialize GT_esmini\n",
+        "stderr": "[GT_esmini] GT_InitWithArgs called with argc=6\n[GT_esmini] argv[0]=build\\GT_esmini\\Release\\GT_Sim.exe\n[GT_esmini] Sanitizing filename: test_results\\comparison_test2\\xosc\\straight_500m_python.xosc\n[GT_esmini] Calling SE_InitWithArgs with 6 args.\n[esminiLib] SE_InitWithArgs called. argc=6\n[esminiLib] Arg[0]: build\\GT_esmini\\Release\\GT_Sim.exe\n[esminiLib] Arg[1]: --osc\n[esminiLib] Arg[2]: test_results\\comparison_test2\\xosc\\straight_500m_python.xosc.temp.xosc\n[esminiLib] Arg[3]: --headless\n[esminiLib] Arg[4]: --record\n[esminiLib] Arg[5]: test_results\\comparison_test2\\python\\straight_500m\\sim.csv\n[esminiLib] Calling InitScenario...\n[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n[esminiLib] InitScenario: Calling player->Init()...\n[GT_esmini] SE_InitWithArgs returned: -1\n"
+      }
+    }
+  },
+  "summary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "pass_rate": 0.0
+  },
+  "timestamp": "2026-02-21T23:56:08.277035"
+}

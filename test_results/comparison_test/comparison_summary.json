@@ -1,0 +1,30 @@
+{
+  "scenarios": {
+    "straight_500m": {
+      "error": "sim_csv_not_found",
+      "default_result": {
+        "exit_code": 4294967295,
+        "duration": 0.21343755722045898,
+        "sim_csv": null,
+        "python_trace": null,
+        "stdout": "GT_Sim build: PythonDriverController=ENABLED\nesmini GIT REV: N/A\nesmini GIT TAG: N/A\nesmini GIT BRANCH: N/A\nesmini BUILD VERSION: N/A - client build\n[] [info] Ignoring missing default config: E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release\\..\\config.yml\n[2026-02-21 23:53:33]\n[] [info] Player options: --osc test_results\\comparison_test\\xosc\\straight_500m_default.xosc --camera_mode orbit --headless --info_text 1 --logfile_path log.txt --log_level info --record test_results\\comparison_test\\default\\straight_500m\\sim.csv --text_scale 1.0 --traj_filter 0.1 \n[] [info] No fixed timestep specified - running in realtime speed\n[] [info] Generated seed 2512142955\n[] [info] OpenSCENARIO file search paths attempted for file straight_500m_default.xosc:\n[] [info]   test_results\\comparison_test\\xosc\\straight_500m_default.xosc\n[] [info]   straight_500m_default.xosc\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xosc/./test_results\\comparison_test\\xosc\\straight_500m_default.xosc\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xosc/./straight_500m_default.xosc\n[] [warn] OpenSCENARIO file test_results\\comparison_test\\xosc\\straight_500m_default.xosc not located, using specified file path\n[] [error] Couldn't locate OpenSCENARIO file straight_500m_default.xosc\n[0.000] [error] Failed to initialize scenario player\n[0.000] [info] Closing\nFailed to initialize GT_esmini\n",
+        "stderr": "[GT_esmini] GT_InitWithArgs called with argc=6\n[GT_esmini] argv[0]=build\\GT_esmini\\Release\\GT_Sim.exe\n[GT_esmini] Sanitizing filename: test_results\\comparison_test\\xosc\\straight_500m_default.xosc\nGT_InitWithArgs: Failed to create sanitized scenario file.\n[GT_esmini] Calling SE_InitWithArgs with 6 args.\n[esminiLib] SE_InitWithArgs called. argc=6\n[esminiLib] Arg[0]: build\\GT_esmini\\Release\\GT_Sim.exe\n[esminiLib] Arg[1]: --osc\n[esminiLib] Arg[2]: test_results\\comparison_test\\xosc\\straight_500m_default.xosc\n[esminiLib] Arg[3]: --headless\n[esminiLib] Arg[4]: --record\n[esminiLib] Arg[5]: test_results\\comparison_test\\default\\straight_500m\\sim.csv\n[esminiLib] Calling InitScenario...\n[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n[esminiLib] InitScenario: Calling player->Init()...\n[GT_esmini] SE_InitWithArgs returned: -1\n"
+      },
+      "python_result": {
+        "exit_code": 4294967295,
+        "duration": 0.08975458145141602,
+        "sim_csv": null,
+        "python_trace": null,
+        "stdout": "GT_Sim build: PythonDriverController=ENABLED\nesmini GIT REV: N/A\nesmini GIT TAG: N/A\nesmini GIT BRANCH: N/A\nesmini BUILD VERSION: N/A - client build\n[] [info] Ignoring missing default config: E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release\\..\\config.yml\n[2026-02-21 23:53:33]\n[] [info] Player options: --osc test_results\\comparison_test\\xosc\\straight_500m_python.xosc --camera_mode orbit --headless --info_text 1 --logfile_path log.txt --log_level info --record test_results\\comparison_test\\python\\straight_500m\\sim.csv --text_scale 1.0 --traj_filter 0.1 \n[] [info] No fixed timestep specified - running in realtime speed\n[] [info] Generated seed 1762441496\n[] [info] OpenSCENARIO file search paths attempted for file straight_500m_python.xosc:\n[] [info]   test_results\\comparison_test\\xosc\\straight_500m_python.xosc\n[] [info]   straight_500m_python.xosc\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xosc/./test_results\\comparison_test\\xosc\\straight_500m_python.xosc\n[] [info]   E:\\Repository\\GT_esmini\\esmini\\build\\GT_esmini\\Release/../resources/xosc/./straight_500m_python.xosc\n[] [warn] OpenSCENARIO file test_results\\comparison_test\\xosc\\straight_500m_python.xosc not located, using specified file path\n[] [error] Couldn't locate OpenSCENARIO file straight_500m_python.xosc\n[0.000] [error] Failed to initialize scenario player\n[0.000] [info] Closing\nFailed to initialize GT_esmini\n",
+        "stderr": "[GT_esmini] GT_InitWithArgs called with argc=6\n[GT_esmini] argv[0]=build\\GT_esmini\\Release\\GT_Sim.exe\n[GT_esmini] Sanitizing filename: test_results\\comparison_test\\xosc\\straight_500m_python.xosc\nGT_InitWithArgs: Failed to create sanitized scenario file.\n[GT_esmini] Calling SE_InitWithArgs with 6 args.\n[esminiLib] SE_InitWithArgs called. argc=6\n[esminiLib] Arg[0]: build\\GT_esmini\\Release\\GT_Sim.exe\n[esminiLib] Arg[1]: --osc\n[esminiLib] Arg[2]: test_results\\comparison_test\\xosc\\straight_500m_python.xosc\n[esminiLib] Arg[3]: --headless\n[esminiLib] Arg[4]: --record\n[esminiLib] Arg[5]: test_results\\comparison_test\\python\\straight_500m\\sim.csv\n[esminiLib] Calling InitScenario...\n[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n[esminiLib] InitScenario: Calling player->Init()...\n[GT_esmini] SE_InitWithArgs returned: -1\n"
+      }
+    }
+  },
+  "summary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "pass_rate": 0.0
+  },
+  "timestamp": "2026-02-21T23:53:33.593465"
+}

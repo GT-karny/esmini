@@ -1,4 +1,0 @@
-interface:
-  display_name: "esmini PythonDriver Validation"
-  short_description: "Run and assess pythondriver validation"
-  default_prompt: "Use $esmini-pythondriver-validation to validate a pythondriver run directory and summarize failures."

@@ -1,0 +1,120 @@
+# コントローラー比較テストマトリクス
+#
+# PythonDriverControllerとDefaultControllerの動作比較に使用するシナリオを定義。
+# resources/xosc内の既存シナリオを使用して、軌跡精度・速度プロファイル・レーン遵守・ルート完走を検証。
+
+scenarios:
+  - id: straight_500m
+    description: "直進路での基本的な縦方向制御"
+    baseline_xosc: "resources/xosc/straight_500m.xosc"
+    duration: 20.0
+    validation_focus:
+      - "縦方向制御"
+      - "速度プロファイル"
+      - "軌跡精度"
+    expected_behavior:
+      - "Ego車両が20 m/sで直進"
+      - "レーン-1を維持"
+      - "Target車両（静止）との距離を保持"
+    notes: |
+      最もシンプルなシナリオ。縦方向制御の基本検証に最適。
+      straight_500m.xodrは500m直進路で、2車線（-1, -2）を含む。
+
+  - id: lane_change_simple
+    description: "車線変更中の横方向制御"
+    baseline_xosc: "resources/xosc/lane_change_simple.xosc"
+    duration: 30.0
+    validation_focus:
+      - "横方向制御"
+      - "レーン遵守"
+      - "車線変更スムーズさ"
+    expected_behavior:
+      - "Lane -1からLane 1への車線変更"
+      - "25 m/sで加速"
+      - "道路終端で繰り返し（2回実行）"
+    notes: |
+      curve_r100.xodr（半径100mカーブ）を使用。
+      LaneChangeActionの正弦波形状（sinusoidal、4秒）でスムーズな遷移。
+      EndOfRoad条件でテレポートして繰り返す設計。
+
+  - id: speed_profile
+    description: "速度プロファイル追従"
+    baseline_xosc: "resources/xosc/speed-profile.xosc"
+    duration: 25.0
+    validation_focus:
+      - "速度プロファイル"
+      - "縦方向制御"
+      - "加減速精度"
+    expected_behavior:
+      - "Car1が複数waypoint速度プロファイルを追従"
+      - "Car2が異なるプロファイルを並走"
+      - "DynamicConstraints内で加減速"
+    notes: |
+      OSC 1.2 SpeedProfileActionを使用。
+      複数の速度ウェイポイント（時間・位置・速度）を定義。
+      PythonDriverがSpeedProfileActionを正しく処理できるかを検証。
+
+  - id: lane_change
+    description: "標準車線変更シナリオ"
+    baseline_xosc: "resources/xosc/lane_change.xosc"
+    duration: 20.0
+    validation_focus:
+      - "レーン遵守"
+      - "軌跡精度"
+      - "車線変更タイミング"
+    expected_behavior:
+      - "標準的な車線変更マニューバ"
+      - "適切なタイミングで車線変更開始"
+      - "目標レーンに正しく到達"
+    notes: |
+      lane_change_simpleより複雑な条件を含む標準シナリオ。
+      実際の道路状況に近い車線変更動作を検証。
+
+defaults:
+  timeout: 60
+  python_script: "DriverScript/pythondriver/scenario_drive_embedded.py"
+  python_class: "EmbeddedController"
+  python_trace_enabled: true
+  python_trace_dir: ""
+  python_home: ""
+
+  # GT_Sim実行オプション
+  gt_sim_args:
+    - "--headless"
+    - "--record"
+    - "sim.csv"
+
+  # 比較実行設定
+  generate_plots: true
+  generate_html_report: true
+  save_raw_data: true
+
+# シナリオ選択フィルタ（オプション）
+# コマンドライン引数で特定シナリオのみ実行可能
+scenario_tags:
+  quick:
+    - straight_500m
+  lateral:
+    - lane_change_simple
+    - lane_change
+  longitudinal:
+    - straight_500m
+    - speed_profile
+  all:
+    - straight_500m
+    - lane_change_simple
+    - speed_profile
+    - lane_change
+
+# 出力設定
+output:
+  base_dir: "test_results/comparison"
+  timestamp_format: "%Y%m%d_%H%M%S"
+  subdirs:
+    xosc: "xosc"
+    default: "default"
+    python: "python"
+    plots: "plots"
+  files:
+    summary: "comparison_summary.json"
+    report: "comparison_report.html"

@@ -1,4 +1,0 @@
-interface:
-  display_name: "esmini Feature Validity Gate"
-  short_description: "Prevent pass!=functional-validity mistakes in feature validation"
-  default_prompt: "Evaluate whether each feature truly achieves intended behavior, not just KPI pass."
