@@ -16,7 +16,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
-        "protobuf>=6.30.2",
+        "protobuf>=5.26.0",
         "logidrivepy",
     ],
     extras_require={

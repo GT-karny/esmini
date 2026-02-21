@@ -51,3 +51,4 @@ video_encode.log
 video_error.txt
 frame_count.txt
 gtsim_exit_code.txt
+.venv/
