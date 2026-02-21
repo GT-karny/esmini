@@ -369,6 +369,10 @@ def run_comparison_suite(
         # PythonDriverControllerバリアント: ベースラインと同じディレクトリに生成（相対パス解決のため）
         python_xosc = baseline_xosc.parent / f"{scenario_id}_python.xosc"
 
+        # トレース出力先ディレクトリを事前作成（絶対パス指定のため）
+        python_result_dir = output_dir / "python" / scenario_id
+        python_result_dir.mkdir(parents=True, exist_ok=True)
+
         print(f"\nXOSCバリアント生成...")
         print(f"  DefaultController: 元のXOSCを使用 ({baseline_xosc})")
         generate_python_variant(
@@ -377,6 +381,7 @@ def run_comparison_suite(
             python_script=defaults.get("python_script", "DriverScript/pythondriver/scenario_drive_embedded.py"),
             python_class=defaults.get("python_class", "EmbeddedController"),
             python_trace=defaults.get("python_trace_enabled", True),
+            python_trace_dir=str(python_result_dir.resolve()),
             verbose=verbose
         )
 
@@ -396,7 +401,6 @@ def run_comparison_suite(
 
         # PythonDriverController実行
         print(f"\nPythonDriverController実行...")
-        python_result_dir = output_dir / "python" / scenario_id
         python_result = run_scenario(
             python_xosc,
             python_result_dir,
@@ -407,6 +411,20 @@ def run_comparison_suite(
 
         if python_result["exit_code"] != 0:
             print(f"  警告: PythonDriverController終了コード={python_result['exit_code']}")
+
+        # トレースファイル検証
+        if verbose:
+            expected_traces = [
+                python_result_dir / "python_trace.jsonl",
+                python_result_dir / "cpp_to_py_trace.jsonl",
+                python_result_dir / "py_to_cpp_trace.jsonl",
+            ]
+            for trace in expected_traces:
+                if trace.exists():
+                    line_count = sum(1 for _ in open(trace, 'r', encoding='utf-8'))
+                    print(f"  [OK] {trace.name}: {line_count}行, {trace.stat().st_size}バイト")
+                else:
+                    print(f"  [WARN] {trace.name}: 未生成")
 
         # メトリクス計算
         print(f"\nメトリクス計算...")
