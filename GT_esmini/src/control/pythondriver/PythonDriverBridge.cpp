@@ -728,41 +728,48 @@ void PythonDriverBridge::SetupSysPath(const std::string& script_path, const std:
 
 void PythonDriverBridge::Shutdown()
 {
-    if (script_instance_)
+    // Only clean up Python objects if interpreter is still initialized
+    if (Py_IsInitialized())
     {
-        // Call close() if the method exists
-        if (PyObject_HasAttrString(script_instance_, "close"))
+        if (script_instance_)
         {
-            PyObject* r = PyObject_CallMethod(script_instance_, "close", nullptr);
-            if (r)
+            // Call close() if the method exists
+            if (PyObject_HasAttrString(script_instance_, "close"))
             {
-                Py_DECREF(r);
+                PyObject* r = PyObject_CallMethod(script_instance_, "close", nullptr);
+                if (r)
+                {
+                    Py_DECREF(r);
+                }
+                else
+                {
+                    PyErr_Print();
+                }
             }
-            else
-            {
-                PyErr_Print();
-            }
+            Py_DECREF(script_instance_);
+            script_instance_ = nullptr;
         }
-        Py_DECREF(script_instance_);
-        script_instance_ = nullptr;
-    }
 
-    if (script_module_)
+        if (script_module_)
+        {
+            Py_DECREF(script_module_);
+            script_module_ = nullptr;
+        }
+    }
+    else
     {
-        Py_DECREF(script_module_);
+        // Python interpreter already finalized, just null out the pointers without calling Python API
+        script_instance_ = nullptr;
         script_module_ = nullptr;
     }
 
-    if (interpreter_owned_ && Py_IsInitialized())
+    // Clear any pending Python errors before finalization
+    if (Py_IsInitialized())
     {
-        Py_FinalizeEx();
-        interpreter_owned_ = false;
-        LOG_INFO("PythonDriverBridge: Python interpreter finalized");
+        PyErr_Clear();
     }
 
-    initialized_ = false;
-    fatal_error_ = false;
-    last_error_.clear();
+    // Close trace files BEFORE Python finalization to avoid access violations during DLL unload
     if (cpp_to_py_trace_.is_open())
     {
         cpp_to_py_trace_.close();
@@ -771,6 +778,25 @@ void PythonDriverBridge::Shutdown()
     {
         py_to_cpp_trace_.close();
     }
+
+    // Finalize Python interpreter with error handling
+    if (interpreter_owned_ && Py_IsInitialized())
+    {
+        int finalize_result = Py_FinalizeEx();
+        if (finalize_result < 0)
+        {
+            LOG_ERROR("PythonDriverBridge: Python finalization encountered errors");
+        }
+        else
+        {
+            LOG_INFO("PythonDriverBridge: Python interpreter finalized successfully");
+        }
+        interpreter_owned_ = false;
+    }
+
+    initialized_ = false;
+    fatal_error_ = false;
+    last_error_.clear();
 }
 
 } // namespace gt_esmini
