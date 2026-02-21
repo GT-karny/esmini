@@ -678,9 +678,23 @@ void PythonDriverBridge::SetupSysPath(const std::string& script_path, const std:
         }
     }
 
-    // 4. If using embedded Python, add site-packages path
+    // 4. If using embedded Python, add python312.zip (critical for encodings module)
+    //    Py_SetPythonHome() disables python312._pth processing, so we must manually add
+    //    the standard library ZIP to sys.path
     if (!python_home.empty())
     {
+        fs::path python_zip = fs::path(python_home) / "python312.zip";
+        if (fs::exists(python_zip))
+        {
+            // Add at the beginning to match python312._pth behavior
+            paths_to_add.insert(paths_to_add.begin(), python_zip.string());
+        }
+        else
+        {
+            LOG_WARN("PythonDriverBridge: python312.zip not found at '{}', encodings module may fail", python_zip.string());
+        }
+
+        // Also add site-packages path
         fs::path site_packages = fs::path(python_home) / "Lib" / "site-packages";
         if (fs::exists(site_packages))
         {
@@ -690,6 +704,14 @@ void PythonDriverBridge::SetupSysPath(const std::string& script_path, const std:
 
     // Build Python code to add paths to sys.path
     std::string code = "import sys\n";
+
+    // Remove incorrect python312.zip path added by Py_Initialize()
+    // (Py_Initialize adds <executable_dir>/python312.zip, but we need <python_home>/python312.zip)
+    if (!python_home.empty())
+    {
+        code += "sys.path = [p for p in sys.path if not p.endswith('python312.zip')]\n";
+    }
+
     for (const auto& p : paths_to_add)
     {
         // Normalize path separators for Python

@@ -6,9 +6,9 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from .adapters import FrameAdapter, OSIAdapter
-from .controller_base import EmbeddedControllerBase
-from .lights import LightState
+from pythondriver.adapters import FrameAdapter, OSIAdapter
+from pythondriver.controller_base import EmbeddedControllerBase
+from pythondriver.lights import LightState
 from realdriver.acc_controller import ACCController
 from realdriver.scenario_drive import ScenarioDriveController
 
