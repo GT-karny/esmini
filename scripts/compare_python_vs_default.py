@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from validate_realdriver_feature_results import load_yaml
 from scenario_generator import generate_default_variant, generate_python_variant
 from comparison_kpis import compare_all_metrics
+from dat import DATFile
 
 try:
     from plot_comparison import generate_all_plots
@@ -446,10 +447,43 @@ def run_comparison_suite(
         # メトリクス計算
         print(f"\nメトリクス計算...")
         if default_result["sim_dat"] and python_result["sim_dat"]:
-            metrics = compare_all_metrics(
-                default_result["sim_dat"],
-                python_result["sim_dat"]
-            )
+            # .datファイルを拡張CSVに変換
+            if verbose:
+                print(f"  .dat → CSV変換中...")
+
+            try:
+                # DefaultController結果を変換
+                dat_default = DATFile(str(default_result["sim_dat"]), extended=True)
+                dat_default.save_csv(extended=True, include_file_refs=True)
+                dat_default.close()
+
+                # PythonDriverController結果を変換
+                dat_python = DATFile(str(python_result["sim_dat"]), extended=True)
+                dat_python.save_csv(extended=True, include_file_refs=True)
+                dat_python.close()
+
+                # 変換後のCSVファイルパスを更新
+                # save_csv()は元のファイル名の拡張子を.csvに変更して保存する
+                default_csv = default_result["sim_dat"].with_suffix('.csv')
+                python_csv = python_result["sim_dat"].with_suffix('.csv')
+
+                if verbose:
+                    print(f"  DefaultController CSV: {default_csv}")
+                    print(f"  PythonDriverController CSV: {python_csv}")
+
+            except Exception as e:
+                print(f"  [ERROR] .dat変換失敗: {e}")
+                results[scenario_id] = {
+                    "error": "dat_conversion_failed",
+                    "details": str(e),
+                    "default_result": default_result,
+                    "python_result": python_result,
+                }
+                failed += 1
+                continue
+
+            # CSVファイルでメトリクス計算
+            metrics = compare_all_metrics(default_csv, python_csv)
 
             # 閾値評価
             evaluation = evaluate_against_thresholds(metrics, thresholds, scenario_id)
