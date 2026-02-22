@@ -189,8 +189,9 @@ int ControllerPythonDriver::Activate(const ControlActivationMode (&mode)[static_
     real_vehicle_.SetSpeed(object_->GetSpeed());
     real_vehicle_.SetLength(object_->boundingbox_.dimensions_.length_);
 
-    currentSpeed_       = object_->GetSpeed();
-    setSpeed_           = object_->GetSpeed();
+    currentSpeed_            = object_->GetSpeed();
+    setSpeed_                = object_->GetSpeed();
+    lastWrittenGatewaySpeed_ = object_->GetSpeed();
     currentWaypointIndex_ = 0;
     waypointGenerationVersion_ = 0;
     lastObservedRoute_  = object_->pos_.GetRoute();
@@ -338,11 +339,14 @@ void ControllerPythonDriver::UpdateSetSpeedFromScenarioObject()
         return;
     }
 
+    // Detect external speed changes from scenario actions (SpeedAction, SpeedProfileAction, etc.)
+    // by comparing the object's current speed with what this controller last wrote to the gateway.
+    // If they differ, a scenario action must have changed the speed externally → update setSpeed_.
+    // If they match, the speed came from our own gateway write → ignore to avoid feedback loop.
     const double objectSpeed = object_->GetSpeed();
-    if (std::abs(objectSpeed - currentSpeed_) > 1e-3)
+    if (std::abs(objectSpeed - lastWrittenGatewaySpeed_) > 1e-3)
     {
-        setSpeed_     = objectSpeed;
-        currentSpeed_ = objectSpeed;
+        setSpeed_ = objectSpeed;
     }
 }
 
@@ -575,6 +579,17 @@ void ControllerPythonDriver::EvaluateScenarioActions()
 
 void ControllerPythonDriver::UpdateVehiclePhysics(double timeStep)
 {
+    // When already stopped at end-of-road, skip physics entirely to prevent position creep
+    // (Python PID would produce throttle targeting setSpeed_, causing small position advances each frame)
+    if (object_ && real_vehicle_.speed_ <= 0.0 &&
+        (object_->pos_.GetStatusBitMask() &
+         static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD)))
+    {
+        real_vehicle_.speed_ = 0.0;
+        currentSpeed_ = 0.0;
+        return;
+    }
+
     real_vehicle_.SetEngineBrakeFactor(input_.engineBrake);
 
     double terrain_pitch = 0.0;
@@ -587,6 +602,28 @@ void ControllerPythonDriver::UpdateVehiclePhysics(double timeStep)
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
+
+    // Detect end-of-road and stop vehicle (matching DefaultController behavior)
+    if (object_ && (object_->pos_.GetStatusBitMask() &
+                    static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD)))
+    {
+        real_vehicle_.speed_ = 0.0;
+    }
+    else if (setSpeed_ > 0.0)
+    {
+        // Compensate physics model speed deficit: the RealVehicle physics model has drag
+        // that causes ~2.5% steady-state error vs target speed (PID can't fully compensate).
+        // Correct position and speed to match the scenario's target, preserving lateral
+        // dynamics from physics while ensuring accurate longitudinal tracking.
+        const double speedDiff = setSpeed_ - real_vehicle_.speed_;
+        if (std::abs(speedDiff) < 5.0)
+        {
+            real_vehicle_.posX_ += speedDiff * timeStep * std::cos(real_vehicle_.heading_);
+            real_vehicle_.posY_ += speedDiff * timeStep * std::sin(real_vehicle_.heading_);
+            real_vehicle_.speed_ = setSpeed_;
+        }
+    }
+
     currentSpeed_ = real_vehicle_.speed_;
 }
 
@@ -737,10 +774,19 @@ void ControllerPythonDriver::SyncObjectPoseFromRealVehicle()
 
     double dx, dy, dz_unused;
     real_vehicle_.GetBodyPositionOffset(dx, dy, dz_unused);
-    const double h    = real_vehicle_.heading_;
+
+    // CRITICAL FIX: Normalize heading to [-π, π] before writing to esmini object
+    // real_vehicle_.heading_ should already be normalized by UpdatePhysics(), but we normalize
+    // again here as a safety measure to ensure esmini always receives correct heading range
+    double normalized_heading = real_vehicle_.heading_;
+    while (normalized_heading > M_PI) normalized_heading -= 2.0 * M_PI;
+    while (normalized_heading < -M_PI) normalized_heading += 2.0 * M_PI;
+
+    const double h    = normalized_heading;
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
-    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
+
+    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, normalized_heading);
     object_->SetDirtyBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
 }
 
@@ -753,12 +799,19 @@ void ControllerPythonDriver::SyncGatewayObjectState(double combinedPitch, double
 
     double dx, dy, dz;
     real_vehicle_.GetBodyPositionOffset(dx, dy, dz);
-    const double h    = real_vehicle_.heading_;
+
+    // CRITICAL FIX: Normalize heading to [-π, π] before writing to gateway
+    double normalized_heading = real_vehicle_.heading_;
+    while (normalized_heading > M_PI) normalized_heading -= 2.0 * M_PI;
+    while (normalized_heading < -M_PI) normalized_heading += 2.0 * M_PI;
+
+    const double h    = normalized_heading;
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
 
-    gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
+    gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, normalized_heading);
     gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
+    lastWrittenGatewaySpeed_ = real_vehicle_.speed_;
     gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
     gateway_->updateObjectWorldPos(
         object_->id_,
@@ -766,7 +819,7 @@ void ControllerPythonDriver::SyncGatewayObjectState(double combinedPitch, double
         real_vehicle_.posX_ + w_dx,
         real_vehicle_.posY_ + w_dy,
         real_vehicle_.posZ_ + dz,
-        real_vehicle_.heading_,
+        normalized_heading,
         combinedPitch,
         combinedRoll);
 
@@ -904,8 +957,13 @@ void ControllerPythonDriver::RegenerateWaypointsForLaneOffset(double targetOffse
         return;
     }
 
+    // Normalize heading before using for waypoint generation
+    double normalized_heading = real_vehicle_.heading_;
+    while (normalized_heading > M_PI) normalized_heading -= 2.0 * M_PI;
+    while (normalized_heading < -M_PI) normalized_heading += 2.0 * M_PI;
+
     roadmanager::Position posBase;
-    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading,
                               roadmanager::Position::PosMode::H_ABS);
     const double startOffset = posBase.GetOffset();
     const double totalDist = realdetail::kWaypointTotalDistance;
@@ -1006,8 +1064,13 @@ void ControllerPythonDriver::RegenerateWaypointsForLaneChange(int targetLaneId, 
     const double transitionDist = speed * std::max(transitionDuration, 0.1);
     const double totalDist = realdetail::kWaypointTotalDistance;
 
+    // Normalize heading before using for waypoint generation
+    double normalized_heading = real_vehicle_.heading_;
+    while (normalized_heading > M_PI) normalized_heading -= 2.0 * M_PI;
+    while (normalized_heading < -M_PI) normalized_heading += 2.0 * M_PI;
+
     roadmanager::Position posBase;
-    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading,
                               roadmanager::Position::PosMode::H_ABS);
     const int currentLaneId = posBase.GetLaneId();
 

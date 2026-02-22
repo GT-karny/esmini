@@ -21,6 +21,21 @@ from validate_realdriver_feature_results import (
 )
 
 
+def normalize_angle(angle: float) -> float:
+    """見出し角を[-π, π]に正規化"""
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+
+def angle_difference(a1: float, a2: float) -> float:
+    """2つの見出し角の最短角度差を計算"""
+    diff = a2 - a1
+    return normalize_angle(diff)
+
+
 def interpolate_value(
     t: float,
     times: List[float],
@@ -182,6 +197,8 @@ def compare_trajectories(
             "endpoint_distance": 終点距離 [m],
             "path_length_delta": 経路長の差分 [m],
             "xy_correlation": XY軌跡の相関係数,
+            "heading_rmse": 見出し角のRMSE [rad],
+            "heading_correlation": 見出し角の相関係数,
         }
     """
     default_rows = parse_csv_rows(default_csv)
@@ -197,10 +214,21 @@ def compare_trajectories(
             "endpoint_distance": float('inf'),
             "path_length_delta": float('inf'),
             "xy_correlation": 0.0,
+            "heading_rmse": float('inf'),
+            "heading_correlation": 0.0,
         }
 
     # 時系列をアライメント
     aligned_default, aligned_python = align_time_series(default_ego, python_ego)
+
+    # 見出し角を正規化（2π境界の不連続を除去）
+    for row in aligned_default:
+        if "h" in row:
+            row["h"] = normalize_angle(row["h"])
+
+    for row in aligned_python:
+        if "h" in row:
+            row["h"] = normalize_angle(row["h"])
 
     if not aligned_default or not aligned_python:
         return {
@@ -209,6 +237,8 @@ def compare_trajectories(
             "endpoint_distance": float('inf'),
             "path_length_delta": float('inf'),
             "xy_correlation": 0.0,
+            "heading_rmse": float('inf'),
+            "heading_correlation": 0.0,
         }
 
     # XY座標の差分を計算
@@ -248,12 +278,21 @@ def compare_trajectories(
 
     xy_correlation = (compute_correlation(x_default, x_python) + compute_correlation(y_default, y_python)) / 2.0
 
+    # 見出し角のRMSEと相関係数
+    h_default = [r.get("h", 0.0) for r in aligned_default]
+    h_python = [r.get("h", 0.0) for r in aligned_python]
+    h_errors = [abs(angle_difference(h1, h2)) for h1, h2 in zip(h_default, h_python)]
+    h_rmse = math.sqrt(sum(e ** 2 for e in h_errors) / len(h_errors)) if h_errors else 0.0
+    h_correlation = compute_correlation(h_default, h_python)
+
     return {
         "xy_rmse": xy_rmse,
         "xy_max_deviation": xy_max_deviation,
         "endpoint_distance": endpoint_distance,
         "path_length_delta": path_length_delta,
         "xy_correlation": xy_correlation,
+        "heading_rmse": h_rmse,
+        "heading_correlation": h_correlation,
     }
 
 

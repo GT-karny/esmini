@@ -162,6 +162,7 @@ private:
     FrameActionContext frame_action_context_;
     double setSpeed_ = 0.0;
     double currentSpeed_ = 0.0;
+    double lastWrittenGatewaySpeed_ = 0.0; // Speed written to gateway by this controller
 
     PythonDriverBridge*      python_bridge_      = nullptr;
     PythonDriverCoordinator* python_coordinator_ = nullptr;
