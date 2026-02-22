@@ -82,7 +82,7 @@ defaults:
   gt_sim_args:
     - "--headless"
     - "--record"
-    - "sim.csv"
+    - "sim.dat"
 
   # 比較実行設定
   generate_plots: true

@@ -48,7 +48,7 @@ def run_scenario(
         {
             "exit_code": int,
             "duration": float,
-            "sim_csv": Path,
+            "sim_dat": Path,
             "python_trace": Path | None,
             "stdout": str,
             "stderr": str,
@@ -56,14 +56,14 @@ def run_scenario(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sim_csv = output_dir / "sim.csv"
+    sim_dat = output_dir / "sim.dat"
     python_trace = output_dir / "python_trace.jsonl"
 
     cmd = [
         str(gt_sim_exe),
         "--osc", str(xosc_path),
         "--headless",
-        "--record", str(sim_csv),
+        "--record", str(sim_dat),
     ]
 
     if verbose:
@@ -104,7 +104,7 @@ def run_scenario(
     return {
         "exit_code": exit_code,
         "duration": duration,
-        "sim_csv": sim_csv if sim_csv.exists() else None,
+        "sim_dat": sim_dat if sim_dat.exists() else None,
         "python_trace": python_trace if python_trace.exists() else None,
         "stdout": result.stdout,
         "stderr": result.stderr,
@@ -219,7 +219,74 @@ def generate_html_report(
         output_path: 出力HTMLファイルパス
         matrix_path: マトリクスYAMLパス
         thresholds_path: 閾値YAMLパス
+
+    Raises:
+        ImportError: Jinja2がインストールされていない場合
     """
+    # Jinja2必須チェック
+    try:
+        from jinja2 import Environment
+        import math
+    except ImportError:
+        raise ImportError(
+            "Jinja2が必要です。以下のコマンドでインストールしてください:\n"
+            "pip install jinja2"
+        )
+
+    def safe_format(fmt_spec, value):
+        """
+        安全な数値フォーマット（inf/nan/None/"N/A"対応）
+
+        Jinja2フィルタとして使用: {{ "%.3f"|format(value) }}
+        → safe_format("%.3f", value) として呼び出される
+
+        Args:
+            fmt_spec: フォーマット指定子（例: "%.3f", ".1%"）
+            value: フォーマット対象の値
+
+        Returns:
+            フォーマット済み文字列、またはエラー時は"N/A"
+        """
+        # 既に文字列の場合（clean_inf()で変換済み）
+        if isinstance(value, str):
+            return value
+
+        # Noneの場合
+        if value is None:
+            return "N/A"
+
+        # inf/nanの場合
+        if isinstance(value, (int, float)):
+            if math.isinf(value) or math.isnan(value):
+                return "N/A"
+
+        # 正常な数値の場合
+        try:
+            # fmt_spec が "%.3f" 形式の場合、format()互換に変換
+            if fmt_spec.startswith("%"):
+                # "%"を除去して、format()用の指定子に変換
+                # 例: "%.3f" → ".3f"
+                fmt_spec = fmt_spec[1:]
+
+            return f"{value:{fmt_spec}}"
+        except (ValueError, TypeError, KeyError):
+            return "N/A"
+
+    # inf値をフィルタリング
+    def clean_inf(value):
+        if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
+            return "N/A"
+        return value
+
+    # メトリクスをクリーン化
+    scenarios = comparison_results.get("scenarios", {})
+    for scenario_id, result in scenarios.items():
+        if result.get("metrics"):
+            for category in result["metrics"].values():
+                if isinstance(category, dict):
+                    for key in category:
+                        category[key] = clean_inf(category[key])
+
     # テンプレートファイルを読み込み
     template_path = Path(__file__).parent / "comparison_report_template.html"
 
@@ -227,73 +294,23 @@ def generate_html_report(
         print(f"警告: HTMLテンプレートが見つかりません: {template_path}")
         return
 
-    template = template_path.read_text(encoding='utf-8')
+    template_content = template_path.read_text(encoding='utf-8')
 
-    # Jinja2が利用可能か確認
-    try:
-        from jinja2 import Template
-        import math
+    # Jinja2環境を作成
+    env = Environment()
+    env.filters['format'] = safe_format  # formatフィルタをオーバーライド
 
-        # inf値をフィルタリング
-        def clean_inf(value):
-            if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
-                return "N/A"
-            return value
+    # テンプレートをロード
+    jinja_template = env.from_string(template_content)
 
-        # メトリクスをクリーン化
-        scenarios = comparison_results.get("scenarios", {})
-        for scenario_id, result in scenarios.items():
-            if result.get("metrics"):
-                for category in result["metrics"].values():
-                    if isinstance(category, dict):
-                        for key in category:
-                            category[key] = clean_inf(category[key])
-
-        jinja_template = Template(template)
-        html = jinja_template.render(
-            timestamp=comparison_results.get("timestamp", "不明"),
-            matrix_path=str(matrix_path),
-            thresholds_path=str(thresholds_path),
-            summary=comparison_results.get("summary", {}),
-            scenarios=scenarios
-        )
-    except ImportError:
-        # Jinja2がない場合は簡易置換
-        print("警告: Jinja2がインストールされていません。簡易HTMLレポートを生成します。")
-        print("pip install jinja2 でインストールすることを推奨します。")
-
-        # 簡易版HTMLを生成
-        scenarios_html = ""
-        for scenario_id, result in comparison_results.get("scenarios", {}).items():
-            if result.get("metrics"):
-                pass_status = "[OK] 合格" if result["evaluation"]["pass"] else "[NG] 不合格"
-                scenarios_html += f"""
-                <h2>{scenario_id}</h2>
-                <p><strong>説明:</strong> {result['description']}</p>
-                <p><strong>結果:</strong> {pass_status}</p>
-                <ul>
-                    <li>XY RMSE: {result['metrics']['trajectory']['xy_rmse']:.3f} m</li>
-                    <li>速度RMSE: {result['metrics']['speed']['speed_rmse']:.3f} m/s</li>
-                    <li>Lane ID一致率: {result['metrics']['lane_keeping']['lane_id_match_ratio']:.1%}</li>
-                </ul>
-                """
-
-        html = f"""<!DOCTYPE html>
-<html lang="ja">
-<head><meta charset="UTF-8"><title>比較レポート</title></head>
-<body>
-<h1>コントローラー比較レポート</h1>
-<p>生成日時: {comparison_results.get('timestamp', '不明')}</p>
-<h2>サマリー</h2>
-<ul>
-    <li>総数: {comparison_results['summary']['total']}</li>
-    <li>合格: {comparison_results['summary']['passed']}</li>
-    <li>不合格: {comparison_results['summary']['failed']}</li>
-</ul>
-{scenarios_html}
-</body>
-</html>
-"""
+    # レンダリング
+    html = jinja_template.render(
+        timestamp=comparison_results.get("timestamp", "不明"),
+        matrix_path=str(matrix_path),
+        thresholds_path=str(thresholds_path),
+        summary=comparison_results.get("summary", {}),
+        scenarios=scenarios
+    )
 
     # HTMLを保存
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,10 +445,10 @@ def run_comparison_suite(
 
         # メトリクス計算
         print(f"\nメトリクス計算...")
-        if default_result["sim_csv"] and python_result["sim_csv"]:
+        if default_result["sim_dat"] and python_result["sim_dat"]:
             metrics = compare_all_metrics(
-                default_result["sim_csv"],
-                python_result["sim_csv"]
+                default_result["sim_dat"],
+                python_result["sim_dat"]
             )
 
             # 閾値評価
@@ -467,12 +484,12 @@ def run_comparison_suite(
 
         else:
             results[scenario_id] = {
-                "error": "sim_csv_not_found",
+                "error": "sim_dat_not_found",
                 "default_result": default_result,
                 "python_result": python_result,
             }
             failed += 1
-            print(f"\n[NG] エラー: sim.csvが見つかりません")
+            print(f"\n[NG] エラー: sim.datが見つかりません")
 
     # 総合サマリー
     summary = {
@@ -498,15 +515,15 @@ def run_comparison_suite(
         plots_dir = output_dir / "plots"
         for scenario_id, result in results.items():
             if result.get("metrics") and "default_result" in result and "python_result" in result:
-                default_csv = result["default_result"].get("sim_csv")
-                python_csv = result["python_result"].get("sim_csv")
+                default_dat = result["default_result"].get("sim_dat")
+                python_dat = result["python_result"].get("sim_dat")
 
                 # pathオブジェクトではない場合はスキップ
-                if isinstance(default_csv, Path) and isinstance(python_csv, Path):
-                    if default_csv and default_csv.exists() and python_csv and python_csv.exists():
+                if isinstance(default_dat, Path) and isinstance(python_dat, Path):
+                    if default_dat and default_dat.exists() and python_dat and python_dat.exists():
                         try:
                             from plot_comparison import generate_all_plots
-                            generate_all_plots(scenario_id, default_csv, python_csv, plots_dir)
+                            generate_all_plots(scenario_id, default_dat, python_dat, plots_dir)
                         except Exception as e:
                             print(f"  警告: {scenario_id}のプロット生成に失敗: {e}")
 
