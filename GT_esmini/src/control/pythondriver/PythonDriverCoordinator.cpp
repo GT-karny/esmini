@@ -25,8 +25,9 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
     controller.EnsureWaypointsExtracted();
     controller.UpdateCurrentWaypointIndex();
 
-    // 3. Build longitudinal speed profile
-    const auto lon_profile = controller.lon_profile_planner_->BuildProfile(controller.currentSpeed_, controller.setSpeed_);
+    // 3. Build longitudinal speed profile (stateful: advance internal timer, then build)
+    controller.lon_profile_planner_->Advance(time_step, controller.setSpeed_);
+    const auto lon_profile = controller.lon_profile_planner_->BuildProfile(controller.currentSpeed_);
 
     // 4. Get OSI GroundTruth as serialized bytes
     int gt_size = 0;
@@ -54,7 +55,7 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
     frame_data.actions.speed_profile = controller.frame_action_context_.speedProfile;
     frame_data.actions.synchronize = controller.frame_action_context_.synchronize;
     frame_data.lon_profile        = &lon_profile;
-    frame_data.set_speed          = controller.setSpeed_;
+    frame_data.set_speed          = controller.lon_profile_planner_->GetSmoothedTarget();
     frame_data.current_speed      = controller.currentSpeed_;
     frame_data.dt                 = time_step;
 

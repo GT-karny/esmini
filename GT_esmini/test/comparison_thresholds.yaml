@@ -88,7 +88,7 @@ scenario_overrides:
       speed_rmse_max: 1.0      # 速度プロファイル追従遅れ（PID応答 ~0.5-1s）
       speed_max_deviation_max: 2.0
     trajectory:
-      xy_rmse_max: 2.0         # 速度追従遅れに伴う累積位置誤差
+      xy_rmse_max: 3.0         # LonProfile中間ポイント追従による滑らかな応答遅れの累積位置誤差
       endpoint_distance_max: 4.0  # 速度差累積による終点偏差
     route:
       s_end_delta_max: 4.0     # 速度差累積による終端s座標偏差

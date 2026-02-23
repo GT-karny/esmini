@@ -215,6 +215,7 @@ class ScenarioDriveController:
 
         profile = self._embedded_frame_data.get("lon_profile", []) or []
         if profile:
+            # Use final profile point (= C++ smoothed target, already ramped)
             speed = profile[-1].get("v_target", self.target_speed)
             if not self.allow_reverse_from_profile and speed < 0.0:
                 speed = 0.0

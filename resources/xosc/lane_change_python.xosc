@@ -21,10 +21,10 @@
     <Entities>
         <ScenarioObject name="Ego">
             <CatalogReference catalogName="VehicleCatalog" entryName="$HostVehicle" />
-        <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\lane_change" /></Properties></Controller></ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\lane_change" /></Properties></Controller></ScenarioObject>
+        <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_stateful\python\lane_change" /></Properties></Controller></ObjectController></ScenarioObject>
         <ScenarioObject name="Truck">
             <CatalogReference catalogName="VehicleCatalog" entryName="semi_truck_with_extra_trailer" />
-        <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\lane_change" /></Properties></Controller></ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\lane_change" /></Properties></Controller></ScenarioObject>
+        </ScenarioObject>
     </Entities>
     <Storyboard>
         <Init>
@@ -66,7 +66,7 @@
                             </SpeedAction>
                         </LongitudinalAction>
                     </PrivateAction>
-                <PrivateAction><ActivateControllerAction longitudinal="true" lateral="true" /></PrivateAction></Private>
+                </Private>
             </Actions>
         </Init>
         <Story name="Lane change story">

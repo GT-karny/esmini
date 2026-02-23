@@ -59,6 +59,9 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
 
     def _resolve_target_speed(self, lon_profile: List[Dict[str, float]], fallback: float) -> float:
         if lon_profile:
+            # Use the final profile point (= C++ smoothed target speed).
+            # LonProfilePlanner is stateful and ramps smoothed_target_ using
+            # SpeedAction TransitionDynamics, so profile[-1] is already smooth.
             return float(lon_profile[-1].get("v_target", fallback))
         return float(fallback)
 

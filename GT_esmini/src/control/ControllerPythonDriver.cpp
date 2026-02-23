@@ -401,6 +401,35 @@ void ControllerPythonDriver::DetectSpeedActionTarget()
                          targetSpeed, setSpeed_);
                 setSpeed_ = targetSpeed;
                 processedSpeedActions_.push_back(pa);
+
+                // Extract TransitionDynamics for smooth speed profiling
+                const auto& trans = speedAction->transition_;
+                double duration = trans.GetParamTargetVal();
+                const auto dim = trans.dimension_;
+
+                if (dim == scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE)
+                {
+                    const double avg = (currentSpeed_ + targetSpeed) / 2.0;
+                    duration = (avg > 0.01) ? duration / avg : 3.0;
+                }
+                else if (dim == scenarioengine::OSCPrivateAction::DynamicsDimension::RATE)
+                {
+                    const double diff = std::abs(targetSpeed - currentSpeed_);
+                    duration = (duration > 0.01) ? diff / duration : 3.0;
+                }
+
+                auto shape = gt_esmini::SpeedTransitionShape::LINEAR;
+                const auto esminiShape = trans.shape_;
+                if (esminiShape == scenarioengine::OSCPrivateAction::DynamicsShape::SINUSOIDAL)
+                    shape = gt_esmini::SpeedTransitionShape::SINUSOIDAL;
+                else if (esminiShape == scenarioengine::OSCPrivateAction::DynamicsShape::CUBIC)
+                    shape = gt_esmini::SpeedTransitionShape::CUBIC;
+                else if (esminiShape == scenarioengine::OSCPrivateAction::DynamicsShape::STEP)
+                    shape = gt_esmini::SpeedTransitionShape::STEP;
+
+                LOG_INFO("PythonDriverController: SpeedAction dynamics shape={}, duration={:.2f}s",
+                         static_cast<int>(esminiShape), duration);
+                lon_profile_planner_->SetTargetWithDynamics(targetSpeed, duration, shape);
             }
         }
     }

@@ -32,10 +32,10 @@
                 <Property name="control" value="hybrid" />
             </Properties>
          </Vehicle>
-      <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\straight_500m" /></Properties></Controller></ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\straight_500m" /></Properties></Controller></ScenarioObject>
+      <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_stateful\python\straight_500m" /></Properties></Controller></ObjectController></ScenarioObject>
       <ScenarioObject name="Target">
          <CatalogReference catalogName="VehicleCatalog" entryName="$TargetVehicle" />
-      <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\straight_500m" /></Properties></Controller></ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_final2\python\straight_500m" /></Properties></Controller></ScenarioObject>
+      </ScenarioObject>
    </Entities>
    <Storyboard>
       <Init>
@@ -77,7 +77,7 @@
                      </Position>
                   </TeleportAction>
                </PrivateAction>
-            <PrivateAction><ActivateControllerAction longitudinal="true" lateral="true" /></PrivateAction></Private>
+            </Private>
          </Actions>
       </Init>
 	  <Story name="MyStory">
