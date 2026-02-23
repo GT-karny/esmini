@@ -609,20 +609,6 @@ void ControllerPythonDriver::UpdateVehiclePhysics(double timeStep)
     {
         real_vehicle_.speed_ = 0.0;
     }
-    else if (setSpeed_ > 0.0)
-    {
-        // Compensate physics model speed deficit: the RealVehicle physics model has drag
-        // that causes ~2.5% steady-state error vs target speed (PID can't fully compensate).
-        // Correct position and speed to match the scenario's target, preserving lateral
-        // dynamics from physics while ensuring accurate longitudinal tracking.
-        const double speedDiff = setSpeed_ - real_vehicle_.speed_;
-        if (std::abs(speedDiff) < 5.0)
-        {
-            real_vehicle_.posX_ += speedDiff * timeStep * std::cos(real_vehicle_.heading_);
-            real_vehicle_.posY_ += speedDiff * timeStep * std::sin(real_vehicle_.heading_);
-            real_vehicle_.speed_ = setSpeed_;
-        }
-    }
 
     currentSpeed_ = real_vehicle_.speed_;
 }

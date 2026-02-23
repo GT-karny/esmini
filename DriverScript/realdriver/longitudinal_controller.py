@@ -27,12 +27,16 @@ class LongitudinalConfig:
 
     Adjust these values to tune the speed control behavior.
     """
-    pid_kp: float = 0.8
-    pid_ki: float = 0.02
+    pid_kp: float = 1.2
+    pid_ki: float = 0.08
     pid_kd: float = 0.1
     output_limits: Tuple[float, float] = (-1.0, 1.0)
-    integral_limits: Tuple[float, float] = (-0.5, 0.5)
+    integral_limits: Tuple[float, float] = (-1.0, 1.0)
     reverse_deadband_mps: float = 0.2
+    # Feedforward: compensates for aerodynamic drag so PID only handles transients.
+    # Derived from RealVehicle physics: drag_coeff / (torque_at_redline * max_acc)
+    # = 0.005 / (0.4 * 20) = 0.000625.  At 20 m/s this yields throttle ≈ 0.25.
+    ff_drag_coeff: float = 0.000625
 
 
 DEFAULT_LONGITUDINAL_CONFIG = LongitudinalConfig()
@@ -165,7 +169,16 @@ class LongitudinalController:
         else:
             speed_error = target_speed - current_speed
 
-        control = self.pid.update(speed_error, dt)
+        feedback = self.pid.update(speed_error, dt)
+
+        # Feedforward: base throttle to overcome drag at target speed
+        ff = self.config.ff_drag_coeff * target_speed * target_speed if target_speed > 0 else 0.0
+        control = feedback + ff
+
+        # Conditional integration anti-windup: when the combined output (PID + FF)
+        # saturates, undo the integral accumulation to prevent windup.
+        if abs(control) > 1.0:
+            self.pid._integral -= speed_error * dt
 
         if control >= 0:
             throttle = min(1.0, control)
@@ -180,8 +193,8 @@ class LongitudinalController:
             if self._log_counter % 20 == 0:
                 print(f"[DEBUG_LON] dt={dt*1000:.1f}ms, target={self._target_speed:.2f}, "
                       f"current={current_speed:.2f}, error={speed_error:.2f}, "
-                      f"PID={control:.3f} (P={self.pid.last_p:.3f}, I={self.pid.last_i:.3f}, "
-                      f"D={self.pid.last_d:.3f}), thr={throttle:.2f}, brk={brake:.2f}")
+                      f"FB={feedback:.3f} (P={self.pid.last_p:.3f}, I={self.pid.last_i:.3f}, "
+                      f"D={self.pid.last_d:.3f}), FF={ff:.3f}, thr={throttle:.2f}, brk={brake:.2f}")
 
         return LongitudinalOutput(throttle=throttle, brake=brake)
 

@@ -82,10 +82,11 @@ class ScenarioDriveController:
                  waypoint_port: int = 54996,
                  gt_lib_path: Optional[str] = None,
                  steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
-                 speed_pid: Tuple[float, float, float] = (0.8, 0.02, 0.1),
+                 speed_pid: Optional[Tuple[float, float, float]] = None,
                  lane_change_time: float = 5.0,
                  lookahead_distance: float = 5.0,
                  steering_config: Optional[LateralConfig] = None,
+                 longitudinal_config: Optional[LongitudinalConfig] = None,
                  allow_reverse_from_profile: bool = False,
                  mode: str = "embedded"):
         """
@@ -99,10 +100,11 @@ class ScenarioDriveController:
             waypoint_port: Deprecated, ignored in embedded mode
             gt_lib_path: Path to GT_esminiLib.dll (optional, for routing)
             steering_pid: PID gains for steering (kp, ki, kd) - ignored, use steering_config
-            speed_pid: PID gains for speed control (kp, ki, kd)
+            speed_pid: Deprecated. Use longitudinal_config instead.
             lane_change_time: Time to complete a lane change (seconds)
             lookahead_distance: Lookahead distance for steering (meters) - ignored, use steering_config
             steering_config: Steering tuning parameters (uses defaults if None)
+            longitudinal_config: Longitudinal tuning parameters including PID + feedforward (uses defaults if None)
         """
         if mode != "embedded":
             raise ValueError(
@@ -142,13 +144,19 @@ class ScenarioDriveController:
             config=lateral_config
         )
 
-        self.longitudinal = LongitudinalController(
-            config=LongitudinalConfig(
+        # Longitudinal controller: use explicit config, or build from legacy speed_pid, or use defaults
+        if longitudinal_config is not None:
+            lon_config = longitudinal_config
+        elif speed_pid is not None:
+            lon_config = LongitudinalConfig(
                 pid_kp=speed_pid[0],
                 pid_ki=speed_pid[1],
                 pid_kd=speed_pid[2]
             )
-        )
+        else:
+            lon_config = LongitudinalConfig()
+
+        self.longitudinal = LongitudinalController(config=lon_config)
 
         # State
         self.ego_id = ego_id
@@ -330,12 +338,13 @@ class ScenarioDriveController:
         Returns:
             Tuple of (steering, throttle, brake) or (None, None, None) if no route
         """
-        if dt <= 0:
-            return None, None, None
-
-        # Receive embedded frame data
+        # Always receive embedded frame data (even when dt=0) so that
+        # waypoints and target speed are ready for the first real step.
         self._receive_waypoints()
         self._receive_target_speed()
+
+        if dt <= 0:
+            return None, None, None
 
         # Extract vehicle state
         state = self.state_extractor.extract(ground_truth)

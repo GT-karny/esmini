@@ -163,12 +163,17 @@ def generate_python_variant(
         if controller is not None:
             entity.remove(controller)
 
-    # 各ScenarioObjectにPythonDriverControllerを追加
-    for entity in root.findall(".//ScenarioObject"):
+    # 最初のScenarioObject（Ego/主車両）のみにPythonDriverControllerを追加
+    # 他のオブジェクト（Target等）はDefaultControllerのまま
+    all_entities = root.findall(".//ScenarioObject")
+    if not all_entities:
+        raise ValueError("ScenarioObjectが見つかりません")
+
+    for entity in all_entities[:1]:  # 最初のエンティティのみ
         entity_name = entity.get("name", "Unknown")
 
-        # <ObjectController>要素を作成
-        controller = ET.SubElement(entity, "Controller")
+        # <Controller>要素を作成（entityには追加しない）
+        controller = ET.Element("Controller")
         controller.set("name", "PythonDriverController")
 
         # <Properties>
@@ -221,9 +226,14 @@ def generate_python_variant(
             print(f"  追加: <ObjectController> to entity '{entity_name}'")
 
     # Init/Actions/Private配下に<ActivateControllerAction>を追加
-    # 各Privateセクションを検索
+    # PythonDriverControllerを追加したエンティティのみ
+    ego_name = all_entities[0].get("name", "Unknown") if all_entities else None
     for private in root.findall(".//Init/Actions/Private"):
         entity_ref = private.get("entityRef", "Unknown")
+
+        # Ego（PythonDriverControllerを追加したエンティティ）のみ
+        if entity_ref != ego_name:
+            continue
 
         # 既存の<ActivateControllerAction>を確認
         existing_activate = private.find(".//ActivateControllerAction")

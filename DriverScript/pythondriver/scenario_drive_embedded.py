@@ -93,7 +93,11 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
 
         frame = FrameAdapter.from_dict(frame_data)
         gt = OSIAdapter.parse_ground_truth(frame.ground_truth_bytes)
-        dt = frame.dt if frame.dt > 0.0 else self.dt
+        # Use the dt from the frame as-is.  When C++ sends dt=0 for the
+        # initialisation frame, ScenarioDriveController.update() will load
+        # waypoints/target-speed but skip the PID computation, avoiding a
+        # derivative kick caused by stale OSI velocity in the first frame.
+        dt = frame.dt
 
         effective_frame_data = dict(frame_data)
         effective_index = self._effective_waypoint_index(frame_data)
