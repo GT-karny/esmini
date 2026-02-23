@@ -18,6 +18,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <unordered_map>
 #include <windows.h>
 
 namespace gt_esmini
@@ -347,6 +348,61 @@ void ControllerPythonDriver::UpdateSetSpeedFromScenarioObject()
     if (std::abs(objectSpeed - lastWrittenGatewaySpeed_) > 1e-3)
     {
         setSpeed_ = objectSpeed;
+    }
+}
+
+void ControllerPythonDriver::DetectSpeedActionTarget()
+{
+    // When the controller is in MODE_OVERRIDE on the longitudinal domain,
+    // esmini's LongSpeedAction::Start() immediately calls End(), so the
+    // action never enters RUNNING state.  We scan completed SpeedActions
+    // and read their target speed, updating setSpeed_ when a new one fires.
+    if (!object_)
+    {
+        return;
+    }
+
+    for (auto* event : object_->objectEvents_)
+    {
+        if (!event)
+        {
+            continue;
+        }
+        for (auto* action : event->action_)
+        {
+            if (!action || action->GetBaseType() != scenarioengine::OSCAction::BaseType::PRIVATE)
+            {
+                continue;
+            }
+            auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+            if (pa->action_type_ != scenarioengine::OSCAction::ActionType::LONG_SPEED)
+            {
+                continue;
+            }
+
+            auto state = pa->GetCurrentState();
+            if (state != scenarioengine::StoryBoardElement::State::RUNNING &&
+                state != scenarioengine::StoryBoardElement::State::COMPLETE)
+            {
+                continue;
+            }
+
+            // Skip actions we've already processed.
+            if (std::find(processedSpeedActions_.begin(), processedSpeedActions_.end(), pa) != processedSpeedActions_.end())
+            {
+                continue;
+            }
+
+            auto* speedAction = static_cast<scenarioengine::LongSpeedAction*>(pa);
+            if (speedAction->target_)
+            {
+                const double targetSpeed = speedAction->target_->GetValue();
+                LOG_INFO("PythonDriverController: SpeedAction intercepted (target={:.3f}, previous setSpeed={:.3f})",
+                         targetSpeed, setSpeed_);
+                setSpeed_ = targetSpeed;
+                processedSpeedActions_.push_back(pa);
+            }
+        }
     }
 }
 
@@ -870,12 +926,69 @@ void ControllerPythonDriver::ExtractWaypoints(const char* reason)
     }
 
     roadmanager::Route* route = object_->pos_.GetRoute();
-    if (!route)
-    {
-        lastObservedRoute_ = nullptr;
+    lastObservedRoute_ = route;
 
+    const double total_dist = realdetail::kWaypointTotalDistance;
+
+    if (route)
+    {
+        // Route exists: step along the route using SetPathS() to get
+        // road/s coordinates that correctly follow the assigned route
+        // through junctions.  We manually apply the route waypoint
+        // direction (GetRouteWaypointDir) to flip lane_id and offset
+        // when the route goes against the road reference direction.
+        // This mirrors what SetRouteLanePosition does when the
+        // "align_routepositions" option is enabled.
+        const double route_length = route->GetLength();
+        const double route_s_start = object_->pos_.GetRouteS();
+        const double route_s_end = std::min(route_s_start + total_dist, route_length);
+        const int    lane_id = object_->pos_.GetLaneId();
+        const double lane_offset = object_->pos_.GetOffset();
+
+        // Build road_id → direction map from route waypoints so we can
+        // correctly flip lane_id when the route goes against a road's
+        // reference direction.  GetWaypoint()->GetRouteWaypointDir()
+        // returns the direction of the last-passed waypoint, not of
+        // the current road, so we need our own lookup.
+        std::unordered_map<int, int> road_dir_map;
+        for (size_t i = 0; i < route->all_waypoints_.size(); ++i)
+        {
+            auto& rwp = route->all_waypoints_[i];
+            road_dir_map[rwp.GetTrackId()] = rwp.GetRouteWaypointDir();
+        }
+
+        // Save route state so our traversal doesn't disturb it.
+        const double saved_path_s = route->GetPathS();
+
+        roadmanager::Position pos;
+        for (double rs = route_s_start; rs <= route_s_end; )
+        {
+            route->SetPathS(rs);
+            int road_id = route->GetTrackId();
+            double track_s = route->GetTrackS();
+
+            // Look up the direction for this road from route waypoints.
+            // For junction roads not in the map, default to dir=1.
+            auto it = road_dir_map.find(road_id);
+            int dir = (it != road_dir_map.end()) ? it->second : 1;
+            int sign = (dir >= 0) ? 1 : -1;
+
+            pos.SetLanePos(road_id, sign * lane_id, track_s, sign * lane_offset);
+            pos.SetHeadingRelative(dir >= 0 ? 0.0 : M_PI);
+            waypoints_.push_back(MakeWaypointFromPosition(pos, pos.GetOffset()));
+
+            const double step = DetermineAdaptiveStep(pos);
+            rs += step;
+        }
+
+        // Restore route state.
+        route->SetPathS(saved_path_s);
+    }
+    else
+    {
+        // No route: step forward along the road using MoveAlongS() which
+        // follows road successor links automatically.
         roadmanager::Position pos = object_->pos_;
-        const double total_dist = realdetail::kWaypointTotalDistance;
         double d = 0.0;
         while (d < total_dist)
         {
@@ -888,30 +1001,15 @@ void ControllerPythonDriver::ExtractWaypoints(const char* reason)
             }
             d += step;
         }
-        waypointGenerationVersion_++;
-        if (reason && reason[0] != '\0')
-        {
-            LOG_INFO(
-                "PythonDriverController: AssignRoute waypoint refresh (reason='{}', source='forward_path', count={}, generation={})",
-                reason,
-                waypoints_.size(),
-                waypointGenerationVersion_);
-        }
-        return;
     }
 
-    lastObservedRoute_ = route;
-    const std::vector<roadmanager::Position>& routeWaypoints = route->all_waypoints_;
-    for (const auto& wp : routeWaypoints)
-    {
-        waypoints_.push_back(MakeWaypointFromPosition(wp, wp.GetOffset()));
-    }
     waypointGenerationVersion_++;
     if (reason && reason[0] != '\0')
     {
         LOG_INFO(
-            "PythonDriverController: AssignRoute waypoint refresh (reason='{}', source='route', count={}, generation={})",
+            "PythonDriverController: Waypoint refresh (reason='{}', source='{}', count={}, generation={})",
             reason,
+            route ? "route_dense" : "forward_path",
             waypoints_.size(),
             waypointGenerationVersion_);
     }

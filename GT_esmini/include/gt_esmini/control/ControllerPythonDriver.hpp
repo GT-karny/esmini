@@ -110,6 +110,7 @@ private:
     };
 
     void UpdateSetSpeedFromScenarioObject();
+    void DetectSpeedActionTarget();
     void EvaluateScenarioActions();
     void UpdateVehiclePhysics(double timeStep);
     void UpdateCachedPowertrain();
@@ -163,6 +164,7 @@ private:
     double setSpeed_ = 0.0;
     double currentSpeed_ = 0.0;
     double lastWrittenGatewaySpeed_ = 0.0; // Speed written to gateway by this controller
+    std::vector<const scenarioengine::OSCAction*> processedSpeedActions_; // Track SpeedActions already consumed
 
     PythonDriverBridge*      python_bridge_      = nullptr;
     PythonDriverCoordinator* python_coordinator_ = nullptr;

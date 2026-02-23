@@ -18,6 +18,7 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
 
     // 1. Update target speed from scenario actions
     controller.UpdateSetSpeedFromScenarioObject();
+    controller.DetectSpeedActionTarget();
     controller.EvaluateScenarioActions();
 
     // 2. Ensure waypoints are extracted from route
