@@ -105,6 +105,9 @@ def _build_cmd(
         cmd.extend(["--osi", execution.osi.ip])
     if execution.autolight:
         cmd.append("--autolight")
+    if not execution.headless:
+        w = execution.window
+        cmd.extend(["--window", str(w.x), str(w.y), str(w.w), str(w.h)])
     for arg in execution.extra_args:
         cmd.append(arg)
 

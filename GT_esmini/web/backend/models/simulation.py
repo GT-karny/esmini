@@ -27,6 +27,13 @@ class OsiConfig(BaseModel):
     ip: str = "127.0.0.1"
 
 
+class WindowConfig(BaseModel):
+    x: int = 60
+    y: int = 60
+    w: int = 1280
+    h: int = 720
+
+
 class ExecutionConfig(BaseModel):
     headless: bool = True
     record: bool = True
@@ -35,6 +42,7 @@ class ExecutionConfig(BaseModel):
     timeout: int = 60
     osi: OsiConfig = OsiConfig()
     autolight: bool = False
+    window: WindowConfig = WindowConfig()
     extra_args: list[str] = []
 
 

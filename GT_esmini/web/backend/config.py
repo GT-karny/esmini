@@ -44,14 +44,14 @@ PYTHON_SCRIPT_DIRS = [
 
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
-    "hz": 100,
+    "hz": 120,
     "headless": True,
     "record": True,
-    "no_realtime": True,
+    "no_realtime": False,
     "timeout": 60,
     "osi": {"enabled": False, "ip": "127.0.0.1"},
     "autolight": False,
-    "window": [60, 60, 1280, 720],
+    "window": {"x": 60, "y": 60, "w": 1280, "h": 720},
 }
 
 # Default controller configuration

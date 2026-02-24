@@ -26,7 +26,12 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 async def get_execution_defaults() -> dict[str, Any]:
     """Get default execution parameters."""
     settings = load_settings()
-    return settings.get("execution_defaults", DEFAULT_EXECUTION_PARAMS)
+    defaults = settings.get("execution_defaults", DEFAULT_EXECUTION_PARAMS)
+    # Migrate old array-format window to dict format
+    w = defaults.get("window")
+    if isinstance(w, list) and len(w) == 4:
+        defaults["window"] = {"x": w[0], "y": w[1], "w": w[2], "h": w[3]}
+    return defaults
 
 
 @router.put("/execution-defaults")

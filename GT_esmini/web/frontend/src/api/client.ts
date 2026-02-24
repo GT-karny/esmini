@@ -56,6 +56,13 @@ export interface ControllerConfig {
   };
 }
 
+export interface WindowConfig {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface ExecutionDefaults {
   hz: number;
   headless: boolean;
@@ -64,7 +71,7 @@ export interface ExecutionDefaults {
   timeout: number;
   osi: { enabled: boolean; ip: string };
   autolight: boolean;
-  window: number[];
+  window: WindowConfig;
 }
 
 export interface SimulationRequest {
@@ -78,6 +85,7 @@ export interface SimulationRequest {
     timeout: number;
     osi: { enabled: boolean; ip: string };
     autolight: boolean;
+    window: WindowConfig;
     extra_args: string[];
   };
 }

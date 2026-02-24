@@ -13,14 +13,18 @@ export function NewSimulationPage() {
   const [pythonScript, setPythonScript] = useState('DriverScript/pythondriver/scenario_drive_embedded.py');
   const [pythonClass, setPythonClass] = useState('EmbeddedController');
   const [traceEnabled, setTraceEnabled] = useState(true);
-  const [hz, setHz] = useState(100);
+  const [hz, setHz] = useState(120);
   const [headless, setHeadless] = useState(true);
   const [record, setRecord] = useState(true);
-  const [noRealtime, setNoRealtime] = useState(true);
+  const [noRealtime, setNoRealtime] = useState(false);
   const [timeout, setTimeout_] = useState(60);
   const [osiEnabled, setOsiEnabled] = useState(false);
   const [osiIp, setOsiIp] = useState('127.0.0.1');
   const [autolight, setAutolight] = useState(false);
+  const [winX, setWinX] = useState(60);
+  const [winY, setWinY] = useState(60);
+  const [winW, setWinW] = useState(1280);
+  const [winH, setWinH] = useState(720);
 
   // Queries
   const { data: scenarios } = useQuery({
@@ -49,6 +53,12 @@ export function NewSimulationPage() {
       setOsiEnabled(execDefaults.osi.enabled);
       setOsiIp(execDefaults.osi.ip);
       setAutolight(execDefaults.autolight);
+      if (execDefaults.window) {
+        setWinX(execDefaults.window.x);
+        setWinY(execDefaults.window.y);
+        setWinW(execDefaults.window.w);
+        setWinH(execDefaults.window.h);
+      }
     }
   }, [execDefaults]);
 
@@ -75,6 +85,7 @@ export function NewSimulationPage() {
           timeout,
           osi: { enabled: osiEnabled, ip: osiIp },
           autolight,
+          window: { x: winX, y: winY, w: winW, h: winH },
           extra_args: [],
         },
       }),
@@ -238,6 +249,50 @@ export function NewSimulationPage() {
               </div>
             )}
           </div>
+
+          {!headless && (
+            <div className="mt-4">
+              <h3 className="text-xs text-gray-500 mb-2">Window Position & Size</h3>
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">X</label>
+                  <input
+                    type="number"
+                    value={winX}
+                    onChange={(e) => setWinX(Number(e.target.value))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Y</label>
+                  <input
+                    type="number"
+                    value={winY}
+                    onChange={(e) => setWinY(Number(e.target.value))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Width</label>
+                  <input
+                    type="number"
+                    value={winW}
+                    onChange={(e) => setWinW(Number(e.target.value))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Height</label>
+                  <input
+                    type="number"
+                    value={winH}
+                    onChange={(e) => setWinH(Number(e.target.value))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Submit */}
