@@ -140,6 +140,7 @@ private:
     void RegenerateWaypointsForLaneChange(int targetLaneId, double transitionDuration);
     void RegenerateWaypointsForLaneOffset(double targetOffset, double transitionDistance);
     void RegenerateWaypointsForTrajectory(scenarioengine::FollowTrajectoryAction* action);
+    void ProcessPendingActionEnds();
 
     void FailAndStop(const std::string& message);
     bool HasFatalError() const { return fatal_error_; }
@@ -165,6 +166,13 @@ private:
     double currentSpeed_ = 0.0;
     double lastWrittenGatewaySpeed_ = 0.0; // Speed written to gateway by this controller
     std::vector<const scenarioengine::OSCAction*> processedSpeedActions_; // Track SpeedActions already consumed
+
+    struct PendingActionEnd
+    {
+        scenarioengine::OSCAction* action;
+        double endTime;
+    };
+    std::vector<PendingActionEnd> pendingActionEnds_;
 
     PythonDriverBridge*      python_bridge_      = nullptr;
     PythonDriverCoordinator* python_coordinator_ = nullptr;

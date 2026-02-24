@@ -10,6 +10,7 @@
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 
 #include "Entities.hpp"
+#include "ScenarioEngine.hpp"
 #include "ScenarioGateway.hpp"
 #include "esminiLib.hpp"
 #include "logger.hpp"
@@ -557,7 +558,9 @@ bool ControllerPythonDriver::HandlePathActions(
         LOG_INFO("PythonDriverController: {}FollowTrajectory detected", phaseLabel);
         RegenerateWaypointsForTrajectory(state.followTrajectory);
         waypointsExtracted_ = true;
-        state.followTrajectory->End();
+        // Don't call End() — let the action complete naturally so that
+        // StoryboardElementStateCondition(endTransition) fires at the correct time.
+        // SyncObjectPoseFromRealVehicle() overrides the action's pos writes each frame.
         pathActionStarted = true;
     }
 
@@ -569,7 +572,15 @@ bool ControllerPythonDriver::HandlePathActions(
                  phaseLabel, targetLaneId, duration);
         RegenerateWaypointsForLaneChange(targetLaneId, duration);
         waypointsExtracted_ = true;
-        state.laneChange->End();
+        // Schedule deferred End() after the action's natural duration.
+        // Calling End() immediately would trigger StoryboardElementStateCondition(endTransition)
+        // too early, causing chained events (e.g. LaneOffset) to fire prematurely.
+        if (scenario_engine_)
+        {
+            const double endTime = scenario_engine_->getSimulationTime() + duration;
+            pendingActionEnds_.push_back({state.laneChange, endTime});
+            LOG_INFO("PythonDriverController: Scheduled deferred End() at t={:.3f}", endTime);
+        }
         pathActionStarted = true;
     }
 
@@ -587,7 +598,14 @@ bool ControllerPythonDriver::HandlePathActions(
                  phaseLabel, targetOffset, transitionDistance);
         RegenerateWaypointsForLaneOffset(targetOffset, transitionDistance);
         waypointsExtracted_ = true;
-        state.laneOffset->End();
+        // Schedule deferred End() based on estimated transition time.
+        if (scenario_engine_)
+        {
+            const double estimatedTime = transitionDistance / speedForTime;
+            const double endTime = scenario_engine_->getSimulationTime() + estimatedTime;
+            pendingActionEnds_.push_back({state.laneOffset, endTime});
+            LOG_INFO("PythonDriverController: Scheduled deferred End() at t={:.3f}", endTime);
+        }
         pathActionStarted = true;
     }
 
@@ -603,8 +621,38 @@ bool ControllerPythonDriver::HandlePathActions(
     return pathActionStarted;
 }
 
+void ControllerPythonDriver::ProcessPendingActionEnds()
+{
+    if (pendingActionEnds_.empty() || !scenario_engine_)
+    {
+        return;
+    }
+
+    const double now = scenario_engine_->getSimulationTime();
+    auto it = pendingActionEnds_.begin();
+    while (it != pendingActionEnds_.end())
+    {
+        if (now >= it->endTime)
+        {
+            if (it->action)
+            {
+                LOG_INFO("PythonDriverController: Deferred End() at t={:.3f} (scheduled for t={:.3f})",
+                         now, it->endTime);
+                it->action->End();
+            }
+            it = pendingActionEnds_.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+
 void ControllerPythonDriver::EvaluateScenarioActions()
 {
+    ProcessPendingActionEnds();
+
     const RunningActionState state = GetRunningActionState();
     const ActionFlags previousFlags{
         wasLaneChanging_,
@@ -1169,6 +1217,13 @@ void ControllerPythonDriver::RegenerateWaypointsForLaneChange(int targetLaneId, 
                               roadmanager::Position::PosMode::H_ABS);
     const int currentLaneId = posBase.GetLaneId();
 
+    LOG_INFO("PythonDriverController: LC WP generation: "
+             "realVehicle=({:.3f},{:.3f},h={:.4f}) -> road(track={},lane={},s={:.1f}) "
+             "targetLane={} transitionDist={:.1f}m speed={:.1f}",
+             real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading,
+             posBase.GetTrackId(), currentLaneId, posBase.GetS(),
+             targetLaneId, transitionDist, speed);
+
     for (double d = 0.0; d < totalDist;)
     {
         const double step = DetermineAdaptiveStep(posBase);
@@ -1204,6 +1259,17 @@ void ControllerPythonDriver::RegenerateWaypointsForLaneChange(int targetLaneId, 
     }
 
     waypointGenerationVersion_++;
+
+    if (!waypoints_.empty())
+    {
+        const auto& first = waypoints_.front();
+        const auto& last  = waypoints_.back();
+        LOG_INFO("PythonDriverController: LC WP summary: {} waypoints generated. "
+                 "first=({:.3f},{:.3f},lane={},s={:.1f}) last=({:.3f},{:.3f},lane={},s={:.1f})",
+                 waypoints_.size(),
+                 first.x, first.y, first.laneId, first.s,
+                 last.x, last.y, last.laneId, last.s);
+    }
 }
 
 void ControllerPythonDriver::FailAndStop(const std::string& message)
