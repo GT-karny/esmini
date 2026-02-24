@@ -22,6 +22,10 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 
 7. **[サンプルシナリオ](07_examples.md)** - 実用的な使用例とコードサンプル
 
+### PythonDriverコントローラー
+
+19. **[PythonDriverControllerマニュアル](19_pythondriver_manual.md)** - 組み込みPythonコントローラーの包括的リファレンス
+
 ### リファレンス
 
 8. **[アーキテクチャ](08_architecture.md)** - 設計思想と内部構造
@@ -54,6 +58,12 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 
 1. [OSI連携](06_osi_integration.md) - OSI統合の詳細
 2. [サンプルシナリオ](07_examples.md) - OSI使用例
+
+### PythonDriverControllerを使いたい場合
+
+1. [PythonDriverControllerマニュアル](19_pythondriver_manual.md) - 設定・インターフェース・物理モデル
+2. [システム構造](15_system_structure.md) - アーキテクチャとフレームシーケンス
+3. [PythonDriver検証テスト](17_pythondriver_validation.md) - テスト実行方法
 
 ### 内部構造を理解したい場合
 
