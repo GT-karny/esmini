@@ -11,14 +11,15 @@ namespace gt_esmini
 {
 
 void LonProfilePlanner::SetTargetWithDynamics(double target_speed, double duration,
-                                               SpeedTransitionShape shape)
+                                               SpeedTransitionShape shape,
+                                               double start_speed)
 {
     if (!initialized_)
     {
-        // First explicit target: snap smoothed_target_ to current level before ramping
         initialized_ = true;
     }
-    transition_start_    = smoothed_target_;
+    transition_start_    = (start_speed >= 0.0) ? start_speed : smoothed_target_;
+    smoothed_target_     = transition_start_;
     target_speed_        = target_speed;
     transition_duration_ = std::max(duration, 0.01);
     transition_shape_    = shape;

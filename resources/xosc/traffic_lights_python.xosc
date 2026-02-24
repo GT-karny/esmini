@@ -323,7 +323,7 @@
                                           </Position>
                                     </DistanceCondition>
                                  </EntityCondition>
-                              </ByEntityCondition>   
+                              </ByEntityCondition>
                            </Condition>
                         </ConditionGroup>
                      </StartTrigger>

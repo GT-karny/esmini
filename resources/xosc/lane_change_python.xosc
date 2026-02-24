@@ -21,7 +21,7 @@
     <Entities>
         <ScenarioObject name="Ego">
             <CatalogReference catalogName="VehicleCatalog" entryName="$HostVehicle" />
-        <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_stateful\python\lane_change" /></Properties></Controller></ObjectController></ScenarioObject>
+        <ObjectController><Controller name="PythonDriverController"><Properties><Property name="esminiController" value="PythonDriverController" /><Property name="PythonScript" value="DriverScript/pythondriver/scenario_drive_embedded.py" /><Property name="PythonClass" value="EmbeddedController" /><Property name="PythonHome" value="" /><Property name="PythonTrace" value="on" /><Property name="PythonTraceDir" value="E:\Repository\GT_esmini\esmini\test_results\comparison_latest\python\lane_change" /></Properties></Controller></ObjectController></ScenarioObject>
         <ScenarioObject name="Truck">
             <CatalogReference catalogName="VehicleCatalog" entryName="semi_truck_with_extra_trailer" />
         </ScenarioObject>

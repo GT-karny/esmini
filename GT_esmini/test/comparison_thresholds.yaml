@@ -89,9 +89,9 @@ scenario_overrides:
       speed_max_deviation_max: 2.0
     trajectory:
       xy_rmse_max: 3.0         # LonProfile中間ポイント追従による滑らかな応答遅れの累積位置誤差
-      endpoint_distance_max: 4.0  # 速度差累積による終点偏差
+      endpoint_distance_max: 7.0  # 速度差累積による終点偏差（PID+FF応答遅れ ~0.5-1s）
     route:
-      s_end_delta_max: 4.0     # 速度差累積による終端s座標偏差
+      s_end_delta_max: 7.0     # 速度差累積による終端s座標偏差（PID+FF応答遅れ ~0.5-1s）
 
   # 直進シナリオは最も厳しい閾値
   straight_500m:

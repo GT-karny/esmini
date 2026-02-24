@@ -62,10 +62,47 @@ def interpolate_value(
     return None
 
 
+def find_active_end_time(
+    rows: List[Dict[str, str]],
+    speed_threshold: float = 0.1,
+    hold_seconds: float = 2.0,
+    min_active_speed: float = 1.0,
+) -> Optional[float]:
+    """DefaultControllerが走行後に永続停止した時刻を検出。
+
+    車両が一度 min_active_speed 以上で走行した後、speed_threshold 以下に
+    なり hold_seconds 以上その状態が続いた場合に「永続停止」と判定し、
+    停止開始時刻を返す。初期停止状態は無視する。
+    停止しなかった場合は None を返す（全期間を使用）。
+    """
+    times = [_parse_float(r.get("time", "0")) or 0.0 for r in rows]
+    speeds = [abs(_parse_float(r.get("speed", "0")) or 0.0) for r in rows]
+
+    if not times:
+        return None
+
+    was_active = False
+    stop_start: Optional[float] = None
+    for t, s in zip(times, speeds):
+        if s >= min_active_speed:
+            was_active = True
+            stop_start = None
+        elif was_active and s <= speed_threshold:
+            if stop_start is None:
+                stop_start = t
+            elif t - stop_start >= hold_seconds:
+                return stop_start
+        else:
+            stop_start = None
+
+    return None
+
+
 def align_time_series(
     rows1: List[Dict[str, str]],
     rows2: List[Dict[str, str]],
-    dt: float = 0.01
+    dt: float = 0.01,
+    t_max: Optional[float] = None,
 ) -> Tuple[List[Dict[str, float]], List[Dict[str, float]]]:
     """2つの時系列を共通時間グリッドにアライメント
 
@@ -73,6 +110,7 @@ def align_time_series(
         rows1: 1つ目のCSV行リスト
         rows2: 2つ目のCSV行リスト
         dt: サンプリング間隔 [s]
+        t_max: 比較区間の上限時刻 [s]。Noneの場合は両系列の短い方。
 
     Returns:
         (aligned_rows1, aligned_rows2): アライメント後の行リスト（float値）
@@ -87,6 +125,8 @@ def align_time_series(
     # 共通時間範囲を計算
     t_start = max(times1[0], times2[0])
     t_end = min(times1[-1], times2[-1])
+    if t_max is not None:
+        t_end = min(t_end, t_max)
 
     if t_start >= t_end:
         return [], []
@@ -186,7 +226,8 @@ def compute_correlation(values1: List[float], values2: List[float]) -> float:
 
 def compare_trajectories(
     default_csv: Path,
-    python_csv: Path
+    python_csv: Path,
+    t_max: Optional[float] = None,
 ) -> Dict[str, float]:
     """軌跡を比較
 
@@ -219,7 +260,7 @@ def compare_trajectories(
         }
 
     # 時系列をアライメント
-    aligned_default, aligned_python = align_time_series(default_ego, python_ego)
+    aligned_default, aligned_python = align_time_series(default_ego, python_ego, t_max=t_max)
 
     # 見出し角を正規化（2π境界の不連続を除去）
     for row in aligned_default:
@@ -298,7 +339,8 @@ def compare_trajectories(
 
 def compare_speed_profiles(
     default_csv: Path,
-    python_csv: Path
+    python_csv: Path,
+    t_max: Optional[float] = None,
 ) -> Dict[str, float]:
     """速度プロファイルを比較
 
@@ -325,7 +367,7 @@ def compare_speed_profiles(
         }
 
     # 時系列をアライメント
-    aligned_default, aligned_python = align_time_series(default_ego, python_ego)
+    aligned_default, aligned_python = align_time_series(default_ego, python_ego, t_max=t_max)
 
     if not aligned_default or not aligned_python:
         return {
@@ -373,7 +415,8 @@ def compare_speed_profiles(
 
 def compare_lane_keeping(
     default_csv: Path,
-    python_csv: Path
+    python_csv: Path,
+    t_max: Optional[float] = None,
 ) -> Dict[str, float]:
     """レーン遵守を比較
 
@@ -400,7 +443,7 @@ def compare_lane_keeping(
         }
 
     # 時系列をアライメント
-    aligned_default, aligned_python = align_time_series(default_ego, python_ego)
+    aligned_default, aligned_python = align_time_series(default_ego, python_ego, t_max=t_max)
 
     if not aligned_default or not aligned_python:
         return {
@@ -447,7 +490,8 @@ def compare_lane_keeping(
 
 def compare_route_progress(
     default_csv: Path,
-    python_csv: Path
+    python_csv: Path,
+    t_max: Optional[float] = None,
 ) -> Dict[str, float]:
     """ルート進捗を比較
 
@@ -474,7 +518,7 @@ def compare_route_progress(
         }
 
     # 時系列をアライメント
-    aligned_default, aligned_python = align_time_series(default_ego, python_ego)
+    aligned_default, aligned_python = align_time_series(default_ego, python_ego, t_max=t_max)
 
     if not aligned_default or not aligned_python:
         return {
@@ -523,6 +567,9 @@ def compare_all_metrics(
 ) -> Dict[str, Dict[str, float]]:
     """全メトリクスを比較
 
+    DefaultControllerが途中で永続停止した場合（道路末端到達など）、
+    停止時刻までの区間のみを比較対象とする。
+
     Returns:
         {
             "trajectory": {...},
@@ -531,11 +578,16 @@ def compare_all_metrics(
             "route": {...},
         }
     """
+    # DefaultController の有効区間を検出
+    default_rows = parse_csv_rows(default_csv)
+    default_ego = select_ego_rows(default_rows)
+    t_max = find_active_end_time(default_ego) if default_ego else None
+
     return {
-        "trajectory": compare_trajectories(default_csv, python_csv),
-        "speed": compare_speed_profiles(default_csv, python_csv),
-        "lane_keeping": compare_lane_keeping(default_csv, python_csv),
-        "route": compare_route_progress(default_csv, python_csv),
+        "trajectory": compare_trajectories(default_csv, python_csv, t_max=t_max),
+        "speed": compare_speed_profiles(default_csv, python_csv, t_max=t_max),
+        "lane_keeping": compare_lane_keeping(default_csv, python_csv, t_max=t_max),
+        "route": compare_route_progress(default_csv, python_csv, t_max=t_max),
     }
 
 

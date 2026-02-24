@@ -429,7 +429,7 @@ void ControllerPythonDriver::DetectSpeedActionTarget()
 
                 LOG_INFO("PythonDriverController: SpeedAction dynamics shape={}, duration={:.2f}s",
                          static_cast<int>(esminiShape), duration);
-                lon_profile_planner_->SetTargetWithDynamics(targetSpeed, duration, shape);
+                lon_profile_planner_->SetTargetWithDynamics(targetSpeed, duration, shape, currentSpeed_);
             }
         }
     }
@@ -664,17 +664,6 @@ void ControllerPythonDriver::EvaluateScenarioActions()
 
 void ControllerPythonDriver::UpdateVehiclePhysics(double timeStep)
 {
-    // When already stopped at end-of-road, skip physics entirely to prevent position creep
-    // (Python PID would produce throttle targeting setSpeed_, causing small position advances each frame)
-    if (object_ && real_vehicle_.speed_ <= 0.0 &&
-        (object_->pos_.GetStatusBitMask() &
-         static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD)))
-    {
-        real_vehicle_.speed_ = 0.0;
-        currentSpeed_ = 0.0;
-        return;
-    }
-
     real_vehicle_.SetEngineBrakeFactor(input_.engineBrake);
 
     double terrain_pitch = 0.0;
@@ -687,13 +676,6 @@ void ControllerPythonDriver::UpdateVehiclePhysics(double timeStep)
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
-
-    // Detect end-of-road and stop vehicle (matching DefaultController behavior)
-    if (object_ && (object_->pos_.GetStatusBitMask() &
-                    static_cast<int>(roadmanager::Position::PositionStatusMode::POS_STATUS_END_OF_ROAD)))
-    {
-        real_vehicle_.speed_ = 0.0;
-    }
 
     currentSpeed_ = real_vehicle_.speed_;
 }

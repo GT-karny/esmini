@@ -31,8 +31,11 @@ public:
     std::vector<LonProfilePoint> BuildProfile(double current_speed) const;
 
     /// Set target speed with explicit transition dynamics (from SpeedAction).
+    /// @param start_speed  If >= 0, override the transition start point with the actual vehicle speed
+    ///                     to avoid PID tracking lag from stale smoothed_target_.
     void SetTargetWithDynamics(double target_speed, double duration,
-                               SpeedTransitionShape shape = SpeedTransitionShape::LINEAR);
+                               SpeedTransitionShape shape = SpeedTransitionShape::LINEAR,
+                               double start_speed = -1.0);
 
     /// Advance the internal timer and update smoothed_target_.
     /// @param dt           Frame time step [s]

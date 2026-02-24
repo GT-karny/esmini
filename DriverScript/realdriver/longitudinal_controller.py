@@ -33,10 +33,15 @@ class LongitudinalConfig:
     output_limits: Tuple[float, float] = (-1.0, 1.0)
     integral_limits: Tuple[float, float] = (-1.0, 1.0)
     reverse_deadband_mps: float = 0.2
-    # Feedforward: compensates for aerodynamic drag so PID only handles transients.
-    # Derived from RealVehicle physics: drag_coeff / (torque_at_redline * max_acc)
-    # = 0.005 / (0.4 * 20) = 0.000625.  At 20 m/s this yields throttle ≈ 0.25.
-    ff_drag_coeff: float = 0.000625
+    # RealVehicle physics model parameters for model-based feedforward.
+    # These match the C++ RealVehicle / Vehicle base class defaults.
+    rv_max_acc: float = 20.0
+    rv_max_dec: float = 20.0
+    rv_drag_coeff: float = 0.005
+    rv_engine_brake: float = 0.49
+    rv_idle_rpm: float = 800.0
+    rv_max_rpm: float = 7000.0
+    rv_gear_ratio: float = 3.5
 
 
 DEFAULT_LONGITUDINAL_CONFIG = LongitudinalConfig()
@@ -100,6 +105,7 @@ class LongitudinalController:
         )
 
         self._target_speed = 0.0
+        self._prev_target_speed: Optional[float] = None
         self._debug_enabled = False
         self._log_counter = 0
 
@@ -121,6 +127,39 @@ class LongitudinalController:
             speed: Target speed in m/s
         """
         self._target_speed = float(speed)
+
+    def _compute_torque(self, speed: float) -> float:
+        """Approximate RealVehicle torque at given forward speed."""
+        c = self.config
+        rpm = max(c.rv_idle_rpm, abs(speed) * 60.0 * c.rv_gear_ratio * 2.0)
+        rpm = min(c.rv_max_rpm, rpm)
+        norm = (rpm - c.rv_idle_rpm) / (c.rv_max_rpm - c.rv_idle_rpm)
+        return 0.4 + 0.6 * 4.0 * norm * (1.0 - norm)
+
+    def _compute_feedforward(self, target_speed: float, target_accel: float) -> float:
+        """Model-based feedforward matching RealVehicle physics.
+
+        Accounts for speed-dependent torque curve, aerodynamic drag,
+        and engine braking to provide the correct throttle/brake command
+        for any operating point.
+        """
+        c = self.config
+        abs_speed = abs(target_speed)
+        drag = c.rv_drag_coeff * target_speed * target_speed if target_speed > 0 else 0.0
+        net_force_required = target_accel  # mass = 1
+
+        # Engine brake only applies when speed > ~0.01 in the physics model.
+        # Fade in over 0-1 m/s to avoid creep at standstill.
+        eb = c.rv_engine_brake * min(1.0, abs_speed)
+
+        if net_force_required + drag > 0:
+            # Throttle regime: engine must overcome drag and provide accel
+            torque = self._compute_torque(target_speed)
+            denom = torque * c.rv_max_acc
+            return (net_force_required + drag) / denom if denom > 0.01 else 0.0
+        else:
+            # Brake regime: drag + engine brake assist deceleration
+            return (net_force_required + drag + eb) / c.rv_max_dec
 
     def update(self, ground_truth, dt: float) -> LongitudinalOutput:
         """
@@ -171,8 +210,15 @@ class LongitudinalController:
 
         feedback = self.pid.update(speed_error, dt)
 
-        # Feedforward: base throttle to overcome drag at target speed
-        ff = self.config.ff_drag_coeff * target_speed * target_speed if target_speed > 0 else 0.0
+        # Model-based feedforward: uses RealVehicle physics (torque curve,
+        # drag, engine brake) to predict the correct control for the current
+        # operating point and desired acceleration.
+        target_accel = 0.0
+        if self._prev_target_speed is not None:
+            target_accel = (target_speed - self._prev_target_speed) / dt
+        self._prev_target_speed = target_speed
+
+        ff = self._compute_feedforward(target_speed, target_accel)
         control = feedback + ff
 
         # Conditional integration anti-windup: when the combined output (PID + FF)
@@ -206,6 +252,7 @@ class LongitudinalController:
     def reset(self) -> None:
         """Reset PID state (integral accumulator, derivative history)."""
         self.pid.reset()
+        self._prev_target_speed = None
 
     def enable_debug(self, enabled: bool = True) -> None:
         """Enable/disable debug logging."""
