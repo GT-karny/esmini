@@ -18,9 +18,9 @@ export function NewSimulationPage() {
   const [record, setRecord] = useState(true);
   const [noRealtime, setNoRealtime] = useState(false);
   const [timeout, setTimeout_] = useState(60);
-  const [osiEnabled, setOsiEnabled] = useState(false);
+  const [osiEnabled, setOsiEnabled] = useState(true);
   const [osiIp, setOsiIp] = useState('127.0.0.1');
-  const [autolight, setAutolight] = useState(false);
+  const [autolight, setAutolight] = useState(true);
   const [winX, setWinX] = useState(60);
   const [winY, setWinY] = useState(60);
   const [winW, setWinW] = useState(1280);

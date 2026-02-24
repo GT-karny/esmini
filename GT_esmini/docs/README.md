@@ -43,6 +43,13 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 | [移行ガイド](realdriver/migration_guide.md) | PythonDriverController への移行手順 |
 | [LogiDrivePy](realdriver/logidrivepy.md) | ステアリングコントローラー連携 |
 
+## Web UI / REST API
+
+| ドキュメント | 内容 |
+|:---|:---|
+| [マニュアル](web/manual.md) | セットアップ・起動方法・Web UI の使い方 |
+| [API リファレンス](web/api_reference.md) | 全 REST API エンドポイント仕様 |
+
 ## 外部連携 (Integration)
 
 | ドキュメント | 内容 |

@@ -49,8 +49,8 @@ DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "record": True,
     "no_realtime": False,
     "timeout": 60,
-    "osi": {"enabled": False, "ip": "127.0.0.1"},
-    "autolight": False,
+    "osi": {"enabled": True, "ip": "127.0.0.1"},
+    "autolight": True,
     "window": {"x": 60, "y": 60, "w": 1280, "h": 720},
 }
 
