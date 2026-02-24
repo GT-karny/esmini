@@ -314,12 +314,12 @@ GT_esminiは、通常、ビルドディレクトリから直接使用します�
    .\GT_Loader.exe ..\GT_esmini\test\scenarios\autolight_test.xosc
    ```
 
-3. **基本的な使い方を学ぶ** - [基本的な使い方](03_basic_usage.md)を参照
+3. **基本的な使い方を学ぶ** - [基本的な使い方](basic_usage.md)を参照
 
-4. **サンプルを試す** - [サンプルシナリオ](07_examples.md)を参照
+4. **サンプルを試す** - [サンプルシナリオ](examples.md)を参照
 
 ## 関連ドキュメント
 
-- [概要](01_overview.md) - GT_esminiの全体像
-- [基本的な使い方](03_basic_usage.md) - APIの使用方法
-- [トラブルシューティング](09_troubleshooting.md) - より詳細な問題解決
+- [概要](overview.md) - GT_esminiの全体像
+- [基本的な使い方](basic_usage.md) - APIの使用方法
+- [トラブルシューティング](../troubleshooting.md) - より詳細な問題解決

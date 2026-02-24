@@ -363,11 +363,11 @@ GT_esminiは、以下の点で拡張可能です：
 
 ## 次のステップ
 
-- [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
-- [APIリファレンス](10_api_reference.md) - 関数の詳細仕様
+- [基本的な使い方](../getting-started/basic_usage.md) - GT_esminiの基本
+- [APIリファレンス](api_reference.md) - 関数の詳細仕様
 
 ## 関連ドキュメント
 
-- [概要](01_overview.md) - GT_esminiの全体像
-- [LightStateAction機能](04_light_state_action.md) - ライト制御の詳細
-- [AutoLight機能](05_auto_light.md) - 自動制御の詳細
+- [概要](../getting-started/overview.md) - GT_esminiの全体像
+- [LightStateAction機能](../features/light_state_action.md) - ライト制御の詳細
+- [AutoLight機能](../features/auto_light.md) - 自動制御の詳細

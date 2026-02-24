@@ -418,9 +418,8 @@ pip install -r requirements.txt
 
 ## 関連ドキュメント (Related Documents)
 
-- [16_realdriver_validation.md](16_realdriver_validation.md) - RealDriver (UDP版) の検証テスト
-- [controller_real_driver_logic.md](controller_real_driver_logic.md) - RealDriverコントローラーのロジック
-- [realdriver_protocol_spec.md](realdriver_protocol_spec.md) - RealDriver UDPプロトコル仕様
+- [../realdriver/controller_logic.md](../realdriver/controller_logic.md) - RealDriverコントローラーのロジック
+- [../realdriver/protocol_spec.md](../realdriver/protocol_spec.md) - RealDriver UDPプロトコル仕様
 
 ---
 

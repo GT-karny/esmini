@@ -83,7 +83,7 @@ GT_esminiは、`GT_OSIReporter`を使用してOSI出力にライト状態を追�
 2. `UpdateOSIMovingObject`関数にライト状態の出力処理を追加
 3. ビルドシステムで`OSIReporter.cpp`の代わりに`GT_OSIReporter.cpp`を使用
 
-詳細は[004_build_modifications_traceability.md](file:///e:/Repository/GT_esmini/esmini/plan/004_build_modifications_traceability.md)を参照してください。
+詳細はビルド修正のトレーサビリティドキュメントを参照してください。
 
 ## OSI出力の使用方法
 
@@ -211,8 +211,8 @@ python osi_receiver.py
 
 ## 次のステップ
 
-- [サンプルシナリオ](07_examples.md) - OSI使用例
-- [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
+- [サンプルシナリオ](../getting-started/examples.md) - OSI使用例
+- [基本的な使い方](../getting-started/basic_usage.md) - GT_esminiの基本
 
 ## デュアル軌道ロジック (Dual Trajectory Logic)
 
@@ -245,4 +245,4 @@ GT_esminiは、FMU連携強化のために、OSIの`future_trajectory`フィー�
 ## 関連ドキュメント
 
 - [Open Simulation Interface](https://github.com/OpenSimulationInterface/open-simulation-interface) - OSI公式リポジトリ
-- [アーキテクチャ](08_architecture.md) - GT_OSIReporterの内部構造
+- [アーキテクチャ](../reference/architecture.md) - GT_OSIReporterの内部構造

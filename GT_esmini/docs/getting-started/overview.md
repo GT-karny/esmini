@@ -127,7 +127,7 @@ GT_esminiは、OSI v3.5.0に対応しており、ライト状態をOSI出力に�
 - フォグライト状態 (`GenericLightState`)
 - その他のライト状態
 
-詳細は[OSI連携](06_osi_integration.md)を参照してください。
+詳細は[OSI連携](../integration/osi_integration.md)を参照してください。
 
 ## 実装状況
 
@@ -165,13 +165,13 @@ GT_esminiは、以下のようなシナリオで有用です：
 ## ライセンス
 
 GT_esminiは、Mozilla Public License 2.0の下でライセンスされています。
-詳細は[LICENSE](../../LICENSE)ファイルを参照してください。
+詳細は[LICENSE](../../../LICENSE)ファイルを参照してください。
 
 ## 次のステップ
 
-- [ビルド・インストール](02_build_install.md) - GT_esminiをビルドする
-- [基本的な使い方](03_basic_usage.md) - 最初のプログラムを作成する
-- [サンプルシナリオ](07_examples.md) - 実例から学ぶ
+- [ビルド・インストール](build_install.md) - GT_esminiをビルドする
+- [基本的な使い方](basic_usage.md) - 最初のプログラムを作成する
+- [サンプルシナリオ](examples.md) - 実例から学ぶ
 
 ## 関連リンク
 

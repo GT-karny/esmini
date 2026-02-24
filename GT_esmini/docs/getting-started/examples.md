@@ -349,11 +349,11 @@ GT_esminiには、以下のテストシナリオが含まれています：
 
 ## 次のステップ
 
-- [LightStateAction機能](04_light_state_action.md) - XOSCファイルの詳細
-- [AutoLight機能](05_auto_light.md) - 自動制御の詳細
-- [OSI連携](06_osi_integration.md) - OSI出力の詳細
+- [LightStateAction機能](../features/light_state_action.md) - XOSCファイルの詳細
+- [AutoLight機能](../features/auto_light.md) - 自動制御の詳細
+- [OSI連携](../integration/osi_integration.md) - OSI出力の詳細
 
 ## 関連ドキュメント
 
-- [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
-- [APIリファレンス](10_api_reference.md) - 関数の詳細仕様
+- [基本的な使い方](basic_usage.md) - GT_esminiの基本
+- [APIリファレンス](../reference/api_reference.md) - 関数の詳細仕様

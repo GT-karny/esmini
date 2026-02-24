@@ -14,7 +14,7 @@ GT_esminiは、C言語APIを提供しています。主な関数は以下の通�
 | `GT_GetLightState` | ライト状態の取得（デバッグ用） |
 | `GT_Close` | GT_esminiのクリーンアップ |
 
-詳細は[APIリファレンス](10_api_reference.md)を参照してください。
+詳細は[APIリファレンス](../reference/api_reference.md)を参照してください。
 
 ## 初期化方法
 
@@ -215,7 +215,7 @@ GT_Close();
 - **ウインカー**: 車線変更時、交差点での右左折時に点灯
 - **バックライト**: 後退時（速度が負）に点灯
 
-詳細は[AutoLight機能](05_auto_light.md)を参照してください。
+詳細は[AutoLight機能](../features/auto_light.md)を参照してください。
 
 ## ライト状態の取得
 
@@ -306,7 +306,7 @@ SE_CloseOSISocket();
 GT_Close();
 ```
 
-詳細は[OSI連携](06_osi_integration.md)を参照してください。
+詳細は[OSI連携](../integration/osi_integration.md)を参照してください。
 
 ## 完全な例
 
@@ -416,13 +416,13 @@ cmake --build . --config Release
 
 ## 次のステップ
 
-- [LightStateAction機能](04_light_state_action.md) - シナリオでライトを制御する
-- [AutoLight機能](05_auto_light.md) - 自動ライト制御の詳細
-- [サンプルシナリオ](07_examples.md) - 実用的な使用例
-- [APIリファレンス](10_api_reference.md) - 関数の詳細仕様
+- [LightStateAction機能](../features/light_state_action.md) - シナリオでライトを制御する
+- [AutoLight機能](../features/auto_light.md) - 自動ライト制御の詳細
+- [サンプルシナリオ](examples.md) - 実用的な使用例
+- [APIリファレンス](../reference/api_reference.md) - 関数の詳細仕様
 
 ## 関連ドキュメント
 
-- [概要](01_overview.md) - GT_esminiの全体像
-- [ビルド・インストール](02_build_install.md) - 環境構築
-- [トラブルシューティング](09_troubleshooting.md) - 問題解決
+- [概要](overview.md) - GT_esminiの全体像
+- [ビルド・インストール](build_install.md) - 環境構築
+- [トラブルシューティング](../troubleshooting.md) - 問題解決

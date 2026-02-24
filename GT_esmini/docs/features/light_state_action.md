@@ -284,7 +284,7 @@ GT_EnableAutoLight();
 // - 2秒以降: AutoLightが再び制御を開始（減速時に点灯）
 ```
 
-詳細は[AutoLight機能](05_auto_light.md)を参照してください。
+詳細は[AutoLight機能](auto_light.md)を参照してください。
 
 ## 実行例
 
@@ -357,12 +357,12 @@ GT_esminiには、LightStateActionのテストシナリオが含まれていま�
 
 ## 次のステップ
 
-- [AutoLight機能](05_auto_light.md) - 自動ライト制御の詳細
-- [サンプルシナリオ](07_examples.md) - 実用的な使用例
-- [OSI連携](06_osi_integration.md) - OSI出力でのライト状態
+- [AutoLight機能](auto_light.md) - 自動ライト制御の詳細
+- [サンプルシナリオ](../getting-started/examples.md) - 実用的な使用例
+- [OSI連携](../integration/osi_integration.md) - OSI出力でのライト状態
 
 ## 関連ドキュメント
 
-- [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
-- [APIリファレンス](10_api_reference.md) - 関数の詳細仕様
+- [基本的な使い方](../getting-started/basic_usage.md) - GT_esminiの基本
+- [APIリファレンス](../reference/api_reference.md) - 関数の詳細仕様
 - [OpenSCENARIO v1.2仕様](https://www.asam.net/standards/detail/openscenario/) - 公式仕様書

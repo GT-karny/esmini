@@ -1033,9 +1033,9 @@ Python 例外が発生した場合、`PyErr_Print()` により stderr にスタ�
 
 | ドキュメント | 内容 |
 |---|---|
-| [システム構造](15_system_structure.md) | GT_esmini 全体のアーキテクチャとモジュール構成 |
-| [PythonDriver検証テスト](17_pythondriver_validation.md) | 4段階の検証テスト構造と実行方法 |
-| [シミュレーションデータ形式](18_simulation_data_format.md) | .dat / .csv の形式仕様 |
-| [AutoLight機能](05_auto_light.md) | 自動ライト制御の詳細 |
-| [OSI連携](06_osi_integration.md) | OSI GroundTruth / HostVehicleData の仕様 |
-| [DriverScript README](../../DriverScript/README.md) | Python パッケージの概要と API コントラクト |
+| [システム構造](system_structure.md) | GT_esmini 全体のアーキテクチャとモジュール構成 |
+| [PythonDriver検証テスト](validation_tests.md) | 4段階の検証テスト構造と実行方法 |
+| [シミュレーションデータ形式](simulation_data_format.md) | .dat / .csv の形式仕様 |
+| [AutoLight機能](../features/auto_light.md) | 自動ライト制御の詳細 |
+| [OSI連携](../integration/osi_integration.md) | OSI GroundTruth / HostVehicleData の仕様 |
+| [DriverScript README](../../../DriverScript/README.md) | Python パッケージの概要と API コントラクト |

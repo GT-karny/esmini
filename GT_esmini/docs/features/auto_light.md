@@ -374,12 +374,12 @@ GT_Close();
 
 ## 次のステップ
 
-- [LightStateAction機能](04_light_state_action.md) - シナリオでライトを制御する
-- [サンプルシナリオ](07_examples.md) - AutoLightの実用例
-- [OSI連携](06_osi_integration.md) - OSI出力でのライト状態
+- [LightStateAction機能](light_state_action.md) - シナリオでライトを制御する
+- [サンプルシナリオ](../getting-started/examples.md) - AutoLightの実用例
+- [OSI連携](../integration/osi_integration.md) - OSI出力でのライト状態
 
 ## 関連ドキュメント
 
-- [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
-- [APIリファレンス](10_api_reference.md) - 関数の詳細仕様
-- [アーキテクチャ](08_architecture.md) - AutoLightControllerの内部構造
+- [基本的な使い方](../getting-started/basic_usage.md) - GT_esminiの基本
+- [APIリファレンス](../reference/api_reference.md) - 関数の詳細仕様
+- [アーキテクチャ](../reference/architecture.md) - AutoLightControllerの内部構造

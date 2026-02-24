@@ -1,90 +1,101 @@
 # GT_esmini ドキュメント
 
-GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini) (Environment Simulator Minimalistic) にライト機能を追加する拡張モジュールです。
+GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini) (Environment Simulator Minimalistic) にライト機能・車両制御・OSI出力などを追加する拡張モジュールです。
 
-## ドキュメント一覧
+## 入門 (Getting Started)
 
-このディレクトリには、GT_esminiの使用方法、機能、アーキテクチャに関する包括的なドキュメントが含まれています。
+| ドキュメント | 内容 |
+|:---|:---|
+| [概要](getting-started/overview.md) | GT_esmini の機能と設計思想 |
+| [ビルド・インストール](getting-started/build_install.md) | ビルド手順（Windows / Linux / macOS） |
+| [基本的な使い方](getting-started/basic_usage.md) | API の基本と最初のプログラム |
+| [サンプルシナリオ](getting-started/examples.md) | 実用的な使用例とコードサンプル |
 
-### 入門ガイド
+## 機能ガイド (Features)
 
-1. **[概要](01_overview.md)** - GT_esminiとは何か、何ができるか
-2. **[ビルド・インストール](02_build_install.md)** - ビルド手順とインストール方法
-3. **[基本的な使い方](03_basic_usage.md)** - 最初のステップとAPI使用方法
+| ドキュメント | 内容 |
+|:---|:---|
+| [LightStateAction](features/light_state_action.md) | OpenSCENARIO でのライト制御 |
+| [AutoLight](features/auto_light.md) | 自動ライト制御（ブレーキ灯・ウインカー等） |
 
-### 機能ガイド
+## PythonDriverController (推奨)
 
-4. **[LightStateAction機能](04_light_state_action.md)** - OpenSCENARIOでのライト制御
-5. **[AutoLight機能](05_auto_light.md)** - 自動ライト制御の詳細
-6. **[OSI連携](06_osi_integration.md)** - Open Simulation Interfaceとの統合
+| ドキュメント | 内容 |
+|:---|:---|
+| [マニュアル](pythondriver/manual.md) | 包括的リファレンス（XOSC設定・Python API・物理モデル） |
+| [システム構造](pythondriver/system_structure.md) | アーキテクチャとフレームシーケンス |
+| [車両パラメータ](pythondriver/vehicle_params.md) | RealVehicle 物理パラメータ解説 |
+| [検証テスト](pythondriver/validation_tests.md) | 4段階66テストの構造と実行方法 |
+| [比較テスト](pythondriver/comparison_tests.md) | DefaultController との比較テスト |
+| [データ形式](pythondriver/simulation_data_format.md) | .dat バイナリ形式仕様と CSV 変換 |
+| [信号機修正 + FF制御](pythondriver/signal_fix_and_ff_control.md) | 信号機再発進修正とモデルベースFF制御 |
 
-### 実践ガイド
+## RealDriverController (非推奨・互換用)
 
-7. **[サンプルシナリオ](07_examples.md)** - 実用的な使用例とコードサンプル
+| ドキュメント | 内容 |
+|:---|:---|
+| [概要](realdriver/README.md) | 非推奨注記とナビゲーション |
+| [コントローラーロジック](realdriver/controller_logic.md) | C++ 側のアーキテクチャ |
+| [プロトコル仕様](realdriver/protocol_spec.md) | UDP パケット形式 |
+| [API リファレンス](realdriver/api_reference.md) | Python クライアント API |
+| [モジュール構成](realdriver/modules.md) | Python モジュール一覧 |
+| [サンプルスクリプト](realdriver/example_scripts.md) | 使用例 |
+| [移行ガイド](realdriver/migration_guide.md) | PythonDriverController への移行手順 |
+| [LogiDrivePy](realdriver/logidrivepy.md) | ステアリングコントローラー連携 |
 
-### PythonDriverコントローラー
+## 外部連携 (Integration)
 
-19. **[PythonDriverControllerマニュアル](19_pythondriver_manual.md)** - 組み込みPythonコントローラーの包括的リファレンス
+| ドキュメント | 内容 |
+|:---|:---|
+| [OSI 連携](integration/osi_integration.md) | OSI 統合・デュアル軌跡出力 |
+| [外部制御](integration/external_control.md) | ExternalController / ゴースト設定 |
+| [FMI 調査](integration/fmi_investigation.md) | FMU 対応状況の調査結果 |
+| [TrafficCommand](integration/traffic_command.md) | OSI TrafficCommand 調査 |
+| [外部トリガー](integration/external_trigger.md) | シナリオイベントの外部発火 |
+| [FMU パラメータ制御](integration/fmu_parameter_control.md) | FMI パラメータマッピング |
 
-### リファレンス
+## リファレンス (Reference)
 
-8. **[アーキテクチャ](08_architecture.md)** - 設計思想と内部構造
-9. **[トラブルシューティング](09_troubleshooting.md)** - よくある問題と解決方法
-10. **[APIリファレンス](10_api_reference.md)** - 関数とデータ型の完全なリファレンス
-14. **[外部制御](14_external_control.md)** - FMI/外部アプリによる制御設定とゴースト機能
+| ドキュメント | 内容 |
+|:---|:---|
+| [アーキテクチャ](reference/architecture.md) | 設計思想と内部構造 |
+| [C API リファレンス](reference/api_reference.md) | GT_esminiLib 関数一覧 |
+| [OpenSCENARIO アクション](reference/openscenario_actions.md) | v1.2 走行関連アクション詳細 |
+| [RoadManager API](reference/rm_lib_reference.md) | Python RM ライブラリ |
+| [Python ArgSpec](reference/python_argspec_grammar.md) | GT_Sim Frontend 引数仕様 |
+| [配布ガイド](reference/distribution_guide.md) | リリースパッケージ構成 |
+
+## トラブルシューティング
+
+- [トラブルシューティング](troubleshooting.md) - よくある問題と解決方法
 
 ## 推奨される読む順序
 
-### 初めてGT_esminiを使う場合
+### 初めて GT_esmini を使う場合
 
-1. [概要](01_overview.md) - GT_esminiの全体像を理解
-2. [ビルド・インストール](02_build_install.md) - 環境構築
-3. [基本的な使い方](03_basic_usage.md) - 最初のプログラムを作成
-4. [サンプルシナリオ](07_examples.md) - 実例から学ぶ
+1. [概要](getting-started/overview.md) → 2. [ビルド](getting-started/build_install.md) → 3. [基本的な使い方](getting-started/basic_usage.md) → 4. [サンプル](getting-started/examples.md)
 
-### LightStateActionを使いたい場合
+### PythonDriverController を使いたい場合
 
-1. [LightStateAction機能](04_light_state_action.md) - 機能の詳細
-2. [サンプルシナリオ](07_examples.md) - 実際のXOSCファイル例
-3. [APIリファレンス](10_api_reference.md) - 詳細な仕様
+1. [マニュアル](pythondriver/manual.md) → 2. [システム構造](pythondriver/system_structure.md) → 3. [検証テスト](pythondriver/validation_tests.md)
 
-### AutoLight機能を使いたい場合
+### ライト機能を使いたい場合
 
-1. [AutoLight機能](05_auto_light.md) - 自動制御の仕組み
-2. [基本的な使い方](03_basic_usage.md) - 有効化方法
-3. [サンプルシナリオ](07_examples.md) - 実装例
-
-### OSI出力が必要な場合
-
-1. [OSI連携](06_osi_integration.md) - OSI統合の詳細
-2. [サンプルシナリオ](07_examples.md) - OSI使用例
-
-### PythonDriverControllerを使いたい場合
-
-1. [PythonDriverControllerマニュアル](19_pythondriver_manual.md) - 設定・インターフェース・物理モデル
-2. [システム構造](15_system_structure.md) - アーキテクチャとフレームシーケンス
-3. [PythonDriver検証テスト](17_pythondriver_validation.md) - テスト実行方法
+1. [LightStateAction](features/light_state_action.md) → 2. [AutoLight](features/auto_light.md) → 3. [サンプル](getting-started/examples.md)
 
 ### 内部構造を理解したい場合
 
-1. [アーキテクチャ](08_architecture.md) - 設計思想とコンポーネント
-2. [APIリファレンス](10_api_reference.md) - 詳細な実装仕様
+1. [アーキテクチャ](reference/architecture.md) → 2. [API リファレンス](reference/api_reference.md)
 
-## クイックリンク
+## 外部ドキュメント
 
-- [GT_esmini GitHub リポジトリ](https://github.com/esmini/esmini) (GT_esminiディレクトリ)
+- [GT_OSMP_FMU インターフェース仕様](../../GT_OSMP_FMU/FMU_Interface_Specification.md)
+- [DriverScript README](../../DriverScript/README.md)
 - [esmini 公式ドキュメント](https://esmini.github.io/)
 - [OpenSCENARIO v1.2 仕様](https://www.asam.net/standards/detail/openscenario/)
 - [Open Simulation Interface (OSI)](https://github.com/OpenSimulationInterface/open-simulation-interface)
 
-## 貢献
-
-ドキュメントの改善提案やバグ報告は、GitHubのIssueまたはPull Requestでお願いします。
-
 ## ライセンス
 
-GT_esminiは、Mozilla Public License 2.0の下でライセンスされています。
-詳細は[LICENSE](../../LICENSE)ファイルを参照してください。
-
-- [16_realdriver_validation.md](16_realdriver_validation.md): RealDriver検証基盤
-
+GT_esmini は、Mozilla Public License 2.0 の下でライセンスされています。
+詳細は [LICENSE](../../LICENSE) ファイルを参照してください。

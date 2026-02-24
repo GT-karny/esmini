@@ -348,7 +348,7 @@ AutoLight機能のみを使用する場合は、`SE_Init`でも可能です。
 
 ### Q: AutoLightとLightStateActionを併用できますか？
 
-**A:** はい、可能です。LightStateActionが実行された時点で、AutoLightの状態が上書きされます。詳細は[AutoLight機能](05_auto_light.md)を参照してください。
+**A:** はい、可能です。LightStateActionが実行された時点で、AutoLightの状態が上書きされます。詳細は[AutoLight機能](features/auto_light.md)を参照してください。
 
 ### Q: ライト状態は視覚的に表示されますか？
 
@@ -356,7 +356,7 @@ AutoLight機能のみを使用する場合は、`SE_Init`でも可能です。
 
 ### Q: カスタムライトタイプを追加できますか？
 
-**A:** はい、可能です。`VehicleLightType`列挙型に新しいタイプを追加し、パース処理とOSI出力処理を追加してください。詳細は[アーキテクチャ](08_architecture.md)を参照してください。
+**A:** はい、可能です。`VehicleLightType`列挙型に新しいタイプを追加し、パース処理とOSI出力処理を追加してください。詳細は[アーキテクチャ](reference/architecture.md)を参照してください。
 
 ## サポート
 
@@ -371,10 +371,10 @@ AutoLight機能のみを使用する場合は、`SE_Init`でも可能です。
 
 ## 次のステップ
 
-- [基本的な使い方](03_basic_usage.md) - GT_esminiの基本
-- [サンプルシナリオ](07_examples.md) - 実用的な使用例
+- [基本的な使い方](getting-started/basic_usage.md) - GT_esminiの基本
+- [サンプルシナリオ](getting-started/examples.md) - 実用的な使用例
 
 ## 関連ドキュメント
 
-- [ビルド・インストール](02_build_install.md) - ビルド手順
-- [アーキテクチャ](08_architecture.md) - 内部構造
+- [ビルド・インストール](getting-started/build_install.md) - ビルド手順
+- [アーキテクチャ](reference/architecture.md) - 内部構造

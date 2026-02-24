@@ -421,10 +421,10 @@ int main(int argc, char** argv)
 
 ## 次のステップ
 
-- [基本的な使い方](03_basic_usage.md) - APIの使用方法
-- [サンプルシナリオ](07_examples.md) - 実用的な使用例
+- [基本的な使い方](../getting-started/basic_usage.md) - APIの使用方法
+- [サンプルシナリオ](../getting-started/examples.md) - 実用的な使用例
 
 ## 関連ドキュメント
 
-- [LightStateAction機能](04_light_state_action.md) - ライト制御の詳細
-- [AutoLight機能](05_auto_light.md) - 自動制御の詳細
+- [LightStateAction機能](../features/light_state_action.md) - ライト制御の詳細
+- [AutoLight機能](../features/auto_light.md) - 自動制御の詳細
