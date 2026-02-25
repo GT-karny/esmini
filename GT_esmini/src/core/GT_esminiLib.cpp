@@ -11,7 +11,14 @@
 
 // Include esminiLib.cpp to access static 'player' and 'scenarioEngine'
 // This effectively compiles esminiLib code as part of this module
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4244)  // SE_SOCKET → int narrowing in upstream code
+#endif
 #include "../../../EnvironmentSimulator/Libraries/esminiLib/esminiLib.cpp"
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #include <gt_esmini/core/GT_esminiLib.hpp>
 #include "gt_esmini/core/ConfigLoader.hpp"
