@@ -35,6 +35,31 @@ def main():
     print(f"  Web UI:     http://{args.host}:{args.port}/")
     print()
 
+    # --- Signal handling for clean shutdown ---
+    import atexit
+    import signal
+
+    # Convert SIGBREAK (Windows CTRL_CLOSE_EVENT) to SIGINT
+    # so uvicorn's graceful shutdown path is triggered.
+    if hasattr(signal, "SIGBREAK"):
+        def _on_sigbreak(signum, frame):
+            os.kill(os.getpid(), signal.SIGINT)
+
+        signal.signal(signal.SIGBREAK, _on_sigbreak)
+
+    # atexit fallback: kill orphaned subprocesses if lifespan didn't complete
+    def _atexit_cleanup():
+        try:
+            from GT_esmini.web.backend.services.simulation_runner import kill_all_running
+
+            killed = kill_all_running()
+            if killed:
+                print(f"[atexit] Killed {killed} orphaned GT_Sim process(es)")
+        except Exception:
+            pass  # Module may already be torn down
+
+    atexit.register(_atexit_cleanup)
+
     uvicorn.run(
         "GT_esmini.web.backend.main:app",
         host=args.host,

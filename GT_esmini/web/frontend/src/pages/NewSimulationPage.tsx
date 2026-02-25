@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, type ScriptInfo } from '../api/client';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { api, type ScriptInfo, type SimulationStatus } from '../api/client';
 
 export function NewSimulationPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
 
   // Form state
@@ -21,6 +22,7 @@ export function NewSimulationPage() {
   const [osiEnabled, setOsiEnabled] = useState(true);
   const [osiIp, setOsiIp] = useState('127.0.0.1');
   const [autolight, setAutolight] = useState(true);
+  const [threads, setThreads] = useState(false);
   const [winX, setWinX] = useState(60);
   const [winY, setWinY] = useState(60);
   const [winW, setWinW] = useState(1280);
@@ -42,9 +44,41 @@ export function NewSimulationPage() {
     queryFn: () => api.getExecutionDefaults(),
   });
 
-  // Apply defaults on load
+  // Restore settings from a previous run (re-run flow)
+  const rerunSource = location.state?.rerunFrom as SimulationStatus | undefined;
   useEffect(() => {
-    if (execDefaults) {
+    if (!rerunSource?.options) return;
+
+    setScenarioId(rerunSource.scenario_id);
+    const ctrl = rerunSource.options.controller as Record<string, any> | undefined;
+    if (ctrl) {
+      setControllerType(ctrl.controller_type ?? 'default');
+      if (ctrl.python) {
+        if (ctrl.python.script) setPythonScript(ctrl.python.script);
+        setPythonClass(ctrl.python.python_class ?? ctrl.python['class'] ?? 'EmbeddedController');
+        if (ctrl.python.trace_enabled !== undefined) setTraceEnabled(ctrl.python.trace_enabled);
+      }
+    }
+    const exec = rerunSource.options.execution as Record<string, any> | undefined;
+    if (exec) {
+      if (exec.hz !== undefined) setHz(exec.hz);
+      if (exec.headless !== undefined) setHeadless(exec.headless);
+      if (exec.record !== undefined) setRecord(exec.record);
+      if (exec.no_realtime !== undefined) setNoRealtime(exec.no_realtime);
+      if (exec.timeout !== undefined) setTimeout_(exec.timeout);
+      if (exec.osi) { setOsiEnabled(exec.osi.enabled); setOsiIp(exec.osi.ip); }
+      if (exec.autolight !== undefined) setAutolight(exec.autolight);
+      if (exec.threads !== undefined) setThreads(exec.threads);
+      if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
+    }
+    // Clear consumed state to prevent re-applying on browser Back/Forward
+    window.history.replaceState({}, '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Apply defaults on load (skip if restoring from re-run)
+  useEffect(() => {
+    if (execDefaults && !rerunSource) {
       setHz(execDefaults.hz);
       setHeadless(execDefaults.headless);
       setRecord(execDefaults.record);
@@ -53,6 +87,7 @@ export function NewSimulationPage() {
       setOsiEnabled(execDefaults.osi.enabled);
       setOsiIp(execDefaults.osi.ip);
       setAutolight(execDefaults.autolight);
+      if (execDefaults.threads !== undefined) setThreads(execDefaults.threads);
       if (execDefaults.window) {
         setWinX(execDefaults.window.x);
         setWinY(execDefaults.window.y);
@@ -60,7 +95,7 @@ export function NewSimulationPage() {
         setWinH(execDefaults.window.h);
       }
     }
-  }, [execDefaults]);
+  }, [execDefaults, rerunSource]);
 
   // Submit
   const mutation = useMutation({
@@ -85,6 +120,7 @@ export function NewSimulationPage() {
           timeout,
           osi: { enabled: osiEnabled, ip: osiIp },
           autolight,
+          threads,
           window: { x: winX, y: winY, w: winW, h: winH },
           extra_args: [],
         },
@@ -251,6 +287,12 @@ export function NewSimulationPage() {
           </div>
 
           {!headless && (
+            <>
+            <label className="flex items-center gap-2 text-sm mt-4">
+              <input type="checkbox" checked={threads} onChange={(e) => setThreads(e.target.checked)} className="rounded" />
+              Threaded viewer
+              <span className="text-xs text-gray-500">(OSG viewer in separate thread)</span>
+            </label>
             <div className="mt-4">
               <h3 className="text-xs text-gray-500 mb-2">Window Position & Size</h3>
               <div className="grid grid-cols-4 gap-3">
@@ -292,6 +334,7 @@ export function NewSimulationPage() {
                 </div>
               </div>
             </div>
+            </>
           )}
         </section>
 

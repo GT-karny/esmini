@@ -42,6 +42,7 @@ class ExecutionConfig(BaseModel):
     timeout: int = 60
     osi: OsiConfig = OsiConfig()
     autolight: bool = False
+    threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []
 

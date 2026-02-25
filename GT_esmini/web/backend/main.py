@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,15 +25,62 @@ from GT_esmini.web.backend.api import (
 from GT_esmini.web.backend.db.database import init_db
 from GT_esmini.web.backend.services.grpc_server import start_grpc_server
 
+_logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    await init_db()
+    # --- Startup ---
+    await init_db()  # Also cleans stale DB entries from previous crashes
     grpc_srv = await start_grpc_server(port=50051)
+    _logger.info("GT_Sim Web server started")
     yield
-    # Shutdown
-    await grpc_srv.stop(grace=5)
+    # --- Shutdown ---
+    # Must complete within ~4s on Windows CTRL_CLOSE_EVENT
+    _logger.info("Shutting down GT_Sim Web server...")
+
+    # Phase 1: Kill all running GT_Sim subprocesses (highest priority)
+    from GT_esmini.web.backend.services.simulation_runner import kill_all_running
+
+    kill_count = await asyncio.to_thread(kill_all_running)
+    if kill_count:
+        _logger.info("Killed %d running GT_Sim subprocess(es)", kill_count)
+
+    # Phase 2: Stop all OSI bridges (releases UDP ports)
+    from GT_esmini.web.backend.services.osi_bridge import stop_all_bridges
+
+    bridge_count = await stop_all_bridges()
+    if bridge_count:
+        _logger.info("Stopped %d OSI bridge(s)", bridge_count)
+
+    # Phase 3: Stop gRPC server (reduced grace for Windows deadline)
+    await grpc_srv.stop(grace=2)
+
+    # Phase 4: Mark any remaining running jobs as failed in DB
+    await _mark_stale_jobs()
+
+    _logger.info("Shutdown complete")
+
+
+async def _mark_stale_jobs() -> None:
+    """Mark any still-running DB jobs as failed during shutdown."""
+    from GT_esmini.web.backend.db.database import get_db
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE simulations
+               SET status = 'failed',
+                   error_message = 'Server shut down while job was running',
+                   completed_at = datetime('now'),
+                   pid = NULL
+               WHERE status = 'running'"""
+        )
+        await db.commit()
+        if cursor.rowcount and cursor.rowcount > 0:
+            _logger.info("Marked %d running job(s) as failed", cursor.rowcount)
+    finally:
+        await db.close()
 
 
 app = FastAPI(

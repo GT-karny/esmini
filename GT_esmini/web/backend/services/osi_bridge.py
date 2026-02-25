@@ -220,3 +220,21 @@ async def stop_bridge(job_id: str) -> None:
     if bridge is not None:
         await bridge.stop()
         logger.info("OSI Bridge removed for job %s", job_id)
+
+
+async def stop_all_bridges() -> int:
+    """Stop and remove all active OSI bridges.
+
+    Called during server shutdown. Returns count of bridges stopped.
+    """
+    count = 0
+    for job_id in list(_bridges.keys()):
+        bridge = _bridges.pop(job_id, None)
+        if bridge is not None:
+            try:
+                await bridge.stop()
+                count += 1
+                logger.info("Shutdown: stopped OSI bridge for job %s", job_id)
+            except Exception as e:
+                logger.warning("Error stopping bridge for %s during shutdown: %s", job_id, e)
+    return count

@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 import subprocess
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +36,10 @@ sys.path.insert(0, str(REPO_ROOT / "DriverScript"))
 from runtime_api import GTExecutionPlanner
 
 _planner = GTExecutionPlanner()
+
+# In-memory tracking of running GT_Sim subprocess PIDs
+_running_pids: set[int] = set()
+_running_pids_lock = threading.Lock()
 
 
 def _now_iso() -> str:
@@ -108,6 +115,8 @@ def _build_cmd(
         cmd.extend(["--osi", execution.osi.ip])
     if execution.autolight:
         cmd.append("--autolight")
+    if execution.threads and not execution.headless:
+        cmd.append("--threads")
     if not execution.headless:
         w = execution.window
         cmd.extend(["--window", str(w.x), str(w.y), str(w.w), str(w.h)])
@@ -178,6 +187,8 @@ def _run_subprocess(cmd: list[str], cwd: str, timeout: int):
         stderr=subprocess.PIPE,
     )
     pid = proc.pid
+    with _running_pids_lock:
+        _running_pids.add(pid)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
         return pid, proc.returncode, stdout, stderr, None
@@ -188,6 +199,9 @@ def _run_subprocess(cmd: list[str], cwd: str, timeout: int):
         except subprocess.TimeoutExpired:
             proc.kill()
         return pid, -1, b"", b"", f"Process timed out after {timeout}s"
+    finally:
+        with _running_pids_lock:
+            _running_pids.discard(pid)
 
 
 async def _run_simulation(
@@ -342,9 +356,6 @@ async def list_simulations(
 
 async def cancel_simulation(job_id: str) -> bool:
     """Cancel a running simulation."""
-    import os
-    import signal
-
     sim = await get_simulation_status(job_id)
     if sim is None or sim.status != "running":
         return False
@@ -368,3 +379,23 @@ async def cancel_simulation(job_id: str) -> bool:
         await db.close()
 
     return True
+
+
+def kill_all_running() -> int:
+    """Kill all tracked GT_Sim subprocesses. Returns count killed.
+
+    Synchronous function — safe to call from atexit or via asyncio.to_thread.
+    """
+    killed = 0
+    with _running_pids_lock:
+        pids = list(_running_pids)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            killed += 1
+            _logger.info("Killed GT_Sim subprocess PID %d", pid)
+        except (OSError, ProcessLookupError):
+            pass
+    with _running_pids_lock:
+        _running_pids.clear()
+    return killed

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api, type ResultFile } from '../api/client';
 import { OsiLivePanel } from '../components/OsiLivePanel';
 
@@ -14,6 +14,7 @@ const statusColors: Record<string, string> = {
 
 export function SimulationDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: sim, isLoading: simLoading } = useQuery({
@@ -79,14 +80,24 @@ export function SimulationDetailPage() {
           </div>
         )}
 
-        {sim.status === 'running' && (
-          <button
-            onClick={() => cancelMutation.mutate()}
-            className="mt-3 bg-red-600 hover:bg-red-500 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
-          >
-            Cancel
-          </button>
-        )}
+        <div className="flex gap-2 mt-3">
+          {sim.status === 'running' && (
+            <button
+              onClick={() => cancelMutation.mutate()}
+              className="bg-red-600 hover:bg-red-500 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+          {sim.status !== 'running' && sim.status !== 'queued' && (
+            <button
+              onClick={() => navigate('/simulations/new', { state: { rerunFrom: sim } })}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
+            >
+              Re-run
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Live OSI Data (shown while running) */}

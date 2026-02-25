@@ -34,4 +34,19 @@ async def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.executescript(_SCHEMA)
+        # Mark stale "running" jobs from a previous ungraceful shutdown as failed
+        cursor = await db.execute(
+            """UPDATE simulations
+               SET status = 'failed',
+                   error_message = 'Server restarted (previous session did not shut down cleanly)',
+                   completed_at = datetime('now'),
+                   pid = NULL
+               WHERE status = 'running'"""
+        )
+        if cursor.rowcount and cursor.rowcount > 0:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Cleaned up %d stale 'running' job(s) from previous session",
+                cursor.rowcount,
+            )
         await db.commit()
