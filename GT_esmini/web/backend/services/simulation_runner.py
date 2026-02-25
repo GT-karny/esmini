@@ -18,6 +18,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationRequest,
     SimulationStatus,
 )
+from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 
 # Import scenario_generator for XOSC variant generation
 import sys
@@ -153,7 +154,12 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
         await db.close()
 
     # Launch GT_Sim asynchronously
-    asyncio.create_task(_run_simulation(job_id, cmd, output_dir, req.execution.timeout))
+    asyncio.create_task(
+        _run_simulation(
+            job_id, cmd, output_dir, req.execution.timeout,
+            osi_enabled=req.execution.osi.enabled,
+        )
+    )
 
     return job_id
 
@@ -163,10 +169,19 @@ async def _run_simulation(
     cmd: list[str],
     output_dir: Path,
     timeout: int,
+    osi_enabled: bool = False,
 ) -> None:
     """Execute GT_Sim.exe and update job status on completion."""
     stdout_path = output_dir / "stdout.txt"
     stderr_path = output_dir / "stderr.txt"
+
+    # Start OSI bridge before GT_Sim so UDP listener is ready
+    if osi_enabled:
+        try:
+            await start_bridge(job_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to start OSI bridge for %s: %s", job_id, e)
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -217,6 +232,10 @@ async def _run_simulation(
         status = "failed"
         exit_code = -1
         error_msg = str(e)
+
+    # Stop OSI bridge
+    if osi_enabled:
+        await stop_bridge(job_id)
 
     # Update DB
     db = await get_db()

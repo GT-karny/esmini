@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
 import { api, type ResultFile } from '../api/client';
+import { OsiLivePanel } from '../components/OsiLivePanel';
 
 const statusColors: Record<string, string> = {
   queued: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -87,6 +88,9 @@ export function SimulationDetailPage() {
           </button>
         )}
       </section>
+
+      {/* Live OSI Data (shown while running) */}
+      {sim.status === 'running' && jobId && <OsiLivePanel jobId={jobId} />}
 
       {/* Metrics */}
       {metrics && !('error' in metrics) && (() => {

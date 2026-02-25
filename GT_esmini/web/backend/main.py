@@ -14,20 +14,24 @@ from fastapi.staticfiles import StaticFiles
 from GT_esmini.web.backend.api import (
     config_api,
     controller_config,
+    osi_stream,
     results,
     scenarios,
     scripts,
     simulations,
 )
 from GT_esmini.web.backend.db.database import init_db
+from GT_esmini.web.backend.services.grpc_server import start_grpc_server
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    grpc_srv = await start_grpc_server(port=50051)
     yield
-    # Shutdown (cleanup if needed)
+    # Shutdown
+    await grpc_srv.stop(grace=5)
 
 
 app = FastAPI(
@@ -53,6 +57,8 @@ app.include_router(controller_config.router)
 app.include_router(simulations.router)
 app.include_router(results.router)
 app.include_router(config_api.router)
+# WebSocket must be registered before the SPA catch-all route
+app.include_router(osi_stream.router)
 
 
 @app.get("/api/health")
