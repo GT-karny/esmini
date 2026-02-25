@@ -51,11 +51,19 @@ class _OSIProtocol(asyncio.DatagramProtocol):
             self._reset()
             return
 
+        # counter == 0: single complete message (e.g. HostVehicleData)
+        if counter == 0:
+            self._dispatch(frame)
+            self._reset()
+            return
+
+        # Multi-packet reassembly (GroundTruth): counter starts at 1,
+        # last packet indicated by negative counter.
         index = abs(counter)
         if self._next_index is None:
-            if index not in (0, 1):
+            if index != 1:
                 return
-            self._next_index = index
+            self._next_index = 1
             self._buffer = b""
 
         if index == self._next_index:
