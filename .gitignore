@@ -64,3 +64,4 @@ test_results/
 GT_esmini/web/pyinstaller/dist/
 GT_esmini/web/pyinstaller/build_temp/
 GT_esmini/web/gt_sim.db
+GT_esmini/web/frontend/README.md
