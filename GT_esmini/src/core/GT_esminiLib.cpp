@@ -30,9 +30,13 @@
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
+#include "gt_esmini/osi/HVDEstimator.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
+
+// File-scope HVD estimator for non-GT-controller vehicles
+static gt_esmini::HVDEstimator s_hvdEstimator;
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -533,8 +537,37 @@ GT_ESMINI_API void GT_Step(double dt)
     {
         auto& hvReporter = gt_esmini::GT_HostVehicleReporter::Instance();
 
-        // Get ego vehicle (first object) via ScenarioGateway
-        ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+        // Resolve target vehicle: by name from config, or default to index 0
+        ObjectState* egoState = nullptr;
+        const auto& targetName = hvReporter.GetTargetVehicle();
+        if (!targetName.empty())
+        {
+            int numObjects = player->scenarioGateway->getNumberOfObjects();
+            for (int i = 0; i < numObjects; i++)
+            {
+                ObjectState* state = player->scenarioGateway->getObjectStatePtrByIdx(i);
+                if (state && std::string(state->state_.info.name) == targetName)
+                {
+                    egoState = state;
+                    break;
+                }
+            }
+            if (!egoState)
+            {
+                static bool warnedOnce = false;
+                if (!warnedOnce)
+                {
+                    LOG_WARN("GT_Step: target_vehicle '{}' not found, falling back to index 0", targetName);
+                    warnedOnce = true;
+                }
+                egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+            }
+        }
+        else
+        {
+            egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+        }
+
         if (egoState)
         {
             int vehicleId = egoState->state_.info.id;
@@ -618,9 +651,18 @@ GT_ESMINI_API void GT_Step(double dt)
                         pushControllerState(pythonDriver);
                     }
                 }
+                else
+                {
+                    // No GT custom controller: estimate HVD from observable vehicle state
+                    auto estimated = s_hvdEstimator.Estimate(egoObject, dt);
+                    hvReporter.SetInputs(vehicleId, estimated.throttle, estimated.brake,
+                                         estimated.steering, estimated.gear);
+                    hvReporter.SetLights(vehicleId, estimated.lightMask);
+                    hvReporter.SetPowertrain(vehicleId, estimated.rpm, estimated.torque);
+                }
             }
 
-            // Update HostVehicleData for ego vehicle and send
+            // Update HostVehicleData for target vehicle and send
             hvReporter.UpdateFromObjectState(egoState);
             hvReporter.Send();
         }
@@ -635,6 +677,7 @@ GT_ESMINI_API void GT_EnableAutoLight()
 
 GT_ESMINI_API void GT_Close()
 {
+    s_hvdEstimator.Reset();
     AutoLightManager::Instance().Close();
     SE_Close();
 }

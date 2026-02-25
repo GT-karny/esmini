@@ -197,13 +197,15 @@ void GT_HostVehicleReporter::LoadConfig(const std::string& config_file)
         parse_int("udp_port", config_.udp_port);
         parse_bool("enable_host_vehicle_data", config_.enabled);
         parse_str("target_ip", config_.target_ip);
+        parse_str("target_vehicle", config_.target_vehicle);
     }
 
-    LOG_INFO("GT_HostVehicleReporter: Config loaded: steering_ratio={}, udp_port={}, target_ip={}, enabled={}",
+    LOG_INFO("GT_HostVehicleReporter: Config loaded: steering_ratio={}, udp_port={}, target_ip={}, enabled={}, target_vehicle={}",
              config_.steering_input_to_wheel_ratio,
              config_.udp_port,
              config_.target_ip,
-             config_.enabled);
+             config_.enabled,
+             config_.target_vehicle.empty() ? "(default: index 0)" : config_.target_vehicle);
 }
 
 void GT_HostVehicleReporter::SetInputs(int vehicle_id, double throttle, double brake, double steering, int gear)

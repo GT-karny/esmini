@@ -109,12 +109,14 @@ list(APPEND GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
 
 set(GT_OSI_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/GT_HostVehicleReporter.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/GT_HostVehicleReporter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/HVDEstimator.cpp)
 
 set(GT_OSI_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/GT_HostVehicleReporter.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IHostVehicleDataProvider.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IGroundTruthPublisher.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IGroundTruthPublisher.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/HVDEstimator.hpp)
 
 # ############################### Creating library ##################################################################################################
 add_library(${GT_CORE_TARGET} STATIC ${GT_CORE_SOURCES} ${GT_CORE_HEADERS})
