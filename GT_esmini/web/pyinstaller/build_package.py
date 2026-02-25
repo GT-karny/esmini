@@ -273,7 +273,7 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     log("GT_Sim_Web.bat: created")
 
     _write_pip_helper(pkg_dir)
-    log("pip_install.bat: created")
+    log("pip.bat: created")
 
     # 9. README
     _write_readme(pkg_dir, version)
@@ -301,13 +301,18 @@ pause
 
 def _write_pip_helper(pkg_dir: Path) -> None:
     content = r"""@echo off
-REM Install Python packages for PythonDriverController scripts.
-REM Usage: pip_install.bat <package_name> [...]
-REM Example: pip_install.bat numpy pandas requests
+REM pip wrapper for the embedded Python environment.
+REM Usage: pip.bat <command> [options]
+REM Examples:
+REM   pip.bat install numpy pandas requests
+REM   pip.bat install -r requirements.txt
+REM   pip.bat install --proxy http://proxy:8080 numpy
+REM   pip.bat list
+REM   pip.bat uninstall numpy
 cd /d "%~dp0"
-bin\python.exe -m pip install %*
+bin\python.exe -m pip %*
 """
-    (pkg_dir / "pip_install.bat").write_text(content, encoding="utf-8")
+    (pkg_dir / "pip.bat").write_text(content, encoding="utf-8")
 
 
 def _write_readme(pkg_dir: Path, version: str) -> None:
@@ -332,9 +337,13 @@ data/          - Runtime data, simulation results
 
 Adding Python Packages
 ----------------------
-To install additional Python packages for controller scripts:
+pip.bat is a wrapper for the embedded Python's pip:
 
-    pip_install.bat numpy pandas requests
+    pip.bat install numpy pandas requests
+    pip.bat install -r requirements.txt
+    pip.bat install --proxy http://proxy:8080 numpy
+    pip.bat list
+    pip.bat uninstall numpy
 
 Installed packages are available to all PythonDriverController scripts.
 
