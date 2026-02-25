@@ -22,7 +22,7 @@ export function NewSimulationPage() {
   const [osiEnabled, setOsiEnabled] = useState(true);
   const [osiIp, setOsiIp] = useState('127.0.0.1');
   const [autolight, setAutolight] = useState(true);
-  const [threads, setThreads] = useState(false);
+  const [threads, setThreads] = useState(true);
   const [winX, setWinX] = useState(60);
   const [winY, setWinY] = useState(60);
   const [winW, setWinW] = useState(1280);
