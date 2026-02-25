@@ -197,6 +197,16 @@ async def start_bridge(
     hvd_port: int = 48199,
 ) -> OSIBridge:
     """Create and start an OSI bridge for a simulation job."""
+    # Stop any existing bridges to free ports
+    for old_id in list(_bridges.keys()):
+        old_bridge = _bridges.pop(old_id, None)
+        if old_bridge is not None:
+            try:
+                await old_bridge.stop()
+                logger.info("OSI Bridge stopped stale bridge for job %s", old_id)
+            except Exception:
+                pass
+
     bridge = OSIBridge(gt_port=gt_port, hvd_port=hvd_port)
     await bridge.start()
     _bridges[job_id] = bridge

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { HvdGaugePanel } from './HvdGaugePanel';
 
 interface OsiObject {
   id: number;
@@ -7,6 +8,9 @@ interface OsiObject {
   z: number;
   h: number;
   speed: number;
+  head_light: string;
+  indicator: string;
+  brake_light: string;
 }
 
 interface OsiMessage {
@@ -18,13 +22,35 @@ interface OsiMessage {
   reason?: string;
 }
 
+export interface HvdMessage {
+  type: 'host_vehicle_data';
+  sim_time: number;
+  throttle: number;
+  brake: number;
+  steering_angle: number;
+  gear: number;
+  rpm: number;
+  torque: number;
+  speed: number;
+}
+
+export interface EgoLights {
+  head_light: string;
+  indicator: string;
+  brake_light: string;
+}
+
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+const HVD_THROTTLE_MS = 100; // update HVD gauges at most 10 Hz
 
 export function OsiLivePanel({ jobId }: { jobId: string }) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [data, setData] = useState<OsiMessage | null>(null);
+  const [hvdData, setHvdData] = useState<HvdMessage | null>(null);
   const [frameCount, setFrameCount] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const lastHvdUpdateRef = useRef(0);
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -37,7 +63,7 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
 
     ws.onmessage = (event) => {
       try {
-        const msg: OsiMessage = JSON.parse(event.data);
+        const msg = JSON.parse(event.data);
         if (msg.type === 'end') {
           setStatus('disconnected');
           return;
@@ -46,8 +72,16 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
           setStatus('error');
           return;
         }
-        setData(msg);
-        setFrameCount((c) => c + 1);
+        if (msg.type === 'ground_truth') {
+          setData(msg as OsiMessage);
+          setFrameCount((c) => c + 1);
+        } else if (msg.type === 'host_vehicle_data') {
+          const now = performance.now();
+          if (now - lastHvdUpdateRef.current >= HVD_THROTTLE_MS) {
+            setHvdData(msg as HvdMessage);
+            lastHvdUpdateRef.current = now;
+          }
+        }
       } catch {
         // ignore parse errors
       }
@@ -72,6 +106,15 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
   };
 
   const { color, label } = statusIndicator[status];
+
+  // Extract ego vehicle (first object) light state for the gauge panel
+  const egoLights: EgoLights | null = data && data.objects.length > 0
+    ? {
+        head_light: data.objects[0].head_light ?? 'off',
+        indicator: data.objects[0].indicator ?? 'off',
+        brake_light: data.objects[0].brake_light ?? 'off',
+      }
+    : null;
 
   return (
     <section className="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-4">
@@ -123,6 +166,10 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
       ) : status === 'error' ? (
         <p className="text-red-400 text-sm">Failed to connect to OSI stream</p>
       ) : null}
+
+      {(hvdData || egoLights) && (
+        <HvdGaugePanel hvd={hvdData} lights={egoLights} />
+      )}
     </section>
   );
 }

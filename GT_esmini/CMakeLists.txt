@@ -13,7 +13,23 @@ set(GT_OSI_TARGET gt_osi)
 include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_static_analysis.cmake)
 include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_iwyu.cmake)
 
-# ############################### Embedded Python option #############################################################################################
+# ############################### Mandatory options ##################################################################################################
+
+# OSI support is mandatory for GT_esmini builds (HostVehicleData, GroundTruth).
+if(NOT USE_OSI)
+    message(STATUS "GT_esmini: Forcing USE_OSI=ON (required for GT_esmini)")
+    set(USE_OSI ON CACHE BOOL "Use OSI" FORCE)
+    include(${CMAKE_SOURCE_DIR}/support/cmake/external/osi.cmake)
+    set_osi_libs()
+endif()
+
+# OSG (OpenSceneGraph) is mandatory for GT_esmini builds (3D viewer).
+if(NOT USE_OSG)
+    message(STATUS "GT_esmini: Forcing USE_OSG=ON (required for GT_esmini)")
+    set(USE_OSG ON CACHE BOOL "Use OSG" FORCE)
+    include(${CMAKE_SOURCE_DIR}/support/cmake/external/osg.cmake)
+    set_osg_libs()
+endif()
 
 # PythonDriverController is mandatory for GT_esmini builds.
 # This option is intentionally removed to avoid producing non-PythonDriver binaries.

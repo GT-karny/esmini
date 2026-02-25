@@ -149,27 +149,13 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
         {
             pugi::xml_node next = child.next_sibling();
             std::string name = child.name();
-            if (name == "AppearanceAction" || name == "ParameterDeclarations" && node.name() == "Private") 
+            if (name == "AppearanceAction")
             {
-                // Note: Removing ParameterDeclarations inside Private? No, just AppearanceAction.
-                // Re-aligned logic. Only AppearanceAction causes error in standard reader (PrivateAction).
-                if(name == "AppearanceAction") {
-                    node.remove_child(child);
-                } else {
-                    stripUnsupported(child);
-                }
+                node.remove_child(child);
             }
-            else // Not AppearanceAction
+            else
             {
-                // Specifically look for it.
-                if (name == "AppearanceAction")
-                {
-                    node.remove_child(child);
-                }
-                else
-                {
-                    stripUnsupported(child);
-                }
+                stripUnsupported(child);
             }
             child = next;
         }
@@ -414,7 +400,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
-    int ret = SE_InitWithArgs(newArgv.size(), newArgv.data());
+    int ret = SE_InitWithArgs(static_cast<int>(newArgv.size()), newArgv.data());
     std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
     
     // Clean up temp file (or keep for debug?)
@@ -525,7 +511,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step
-    SE_StepDT(dt);
+    SE_StepDT(static_cast<float>(dt));
 
     // Update AutoLight
     AutoLightManager::Instance().Update(dt);

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -164,6 +166,30 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     return job_id
 
 
+_logger = logging.getLogger(__name__)
+
+
+def _run_subprocess(cmd: list[str], cwd: str, timeout: int):
+    """Run subprocess in a blocking thread (compatible with any event loop)."""
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    pid = proc.pid
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return pid, proc.returncode, stdout, stderr, None
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return pid, -1, b"", b"", f"Process timed out after {timeout}s"
+
+
 async def _run_simulation(
     job_id: str,
     cmd: list[str],
@@ -180,15 +206,13 @@ async def _run_simulation(
         try:
             await start_bridge(job_id)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Failed to start OSI bridge for %s: %s", job_id, e)
+            _logger.warning("Failed to start OSI bridge for %s: %s", job_id, e)
 
+    _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(REPO_ROOT),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Use subprocess.Popen in a thread to avoid Windows event loop issues
+        pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
+            _run_subprocess, cmd, str(REPO_ROOT), timeout,
         )
 
         # Update PID
@@ -196,42 +220,31 @@ async def _run_simulation(
         try:
             await db.execute(
                 "UPDATE simulations SET pid = ? WHERE job_id = ?",
-                (process.pid, job_id),
+                (pid, job_id),
             )
             await db.commit()
         finally:
             await db.close()
 
-        # Wait for completion with timeout
-        try:
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
-            exit_code = process.returncode
+        # Save output
+        stdout_path.write_bytes(stdout_data)
+        stderr_path.write_bytes(stderr_data)
 
-            # Save output
-            stdout_path.write_bytes(stdout_data)
-            stderr_path.write_bytes(stderr_data)
-
-            status = "completed" if exit_code == 0 else "failed"
-            error_msg = None
-            if exit_code != 0:
-                error_msg = stderr_data.decode("utf-8", errors="replace")[:2000]
-
-        except asyncio.TimeoutError:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                process.kill()
+        if timeout_msg:
             status = "timeout"
-            exit_code = -1
-            error_msg = f"Process timed out after {timeout}s"
+            error_msg = timeout_msg
+        elif exit_code == 0:
+            status = "completed"
+            error_msg = None
+        else:
+            status = "failed"
+            error_msg = stderr_data.decode("utf-8", errors="replace")[:2000]
 
     except Exception as e:
         status = "failed"
         exit_code = -1
-        error_msg = str(e)
+        error_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
+        _logger.error("Simulation %s failed: %s", job_id, error_msg, exc_info=True)
 
     # Stop OSI bridge
     if osi_enabled:

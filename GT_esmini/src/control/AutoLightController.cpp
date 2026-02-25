@@ -121,7 +121,6 @@ namespace gt_esmini
         speedHistory_.push_back({dt, currentSpeed});
         
         // Clean up old history (> BRAKE_EVENT_WINDOW + margin)
-        double totalHistoryTime = 0.0;
         // Iterate reverse to sum up time? No, forward.
         // But popping front is hard if we don't track total.
         // Let's just pop until total time is less than say 0.5s?
@@ -562,9 +561,9 @@ namespace gt_esmini
              
              bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == 1); // 1 = Left
              // Safe ID check
-             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
+             bool inJunctionNow = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
 
-             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
+             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunctionNow)
              {
                   centerHoldTimer_ += dt;
              }
@@ -617,9 +616,9 @@ namespace gt_esmini
              // 3. Turn OFF?
              bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == -1); // -1 = Right
              // Safe ID check
-             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
+             bool inJunctionNow = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
 
-             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
+             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunctionNow)
              {
                   centerHoldTimer_ += dt;
              }
@@ -723,9 +722,6 @@ namespace gt_esmini
                 }
             }
         }
-
-        // junctionId check (unsigned -1 protection)
-        const bool probeInJunction = (info.road_lane_info.junctionId != NO_JUNCTION_ID);
 
         // Only proceed if we have made a junction choice (probe is on the connecting road)
         static constexpr int PROBE_MADE_JUNCTION_CHOICE = 2;
