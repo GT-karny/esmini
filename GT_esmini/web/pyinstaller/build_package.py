@@ -192,7 +192,7 @@ def bootstrap_pip(bin_dir: Path) -> None:
 
 def assemble_package(version: str, output_dir: Path) -> Path:
     """Assemble the complete release directory."""
-    pkg_name = f"GT_Sim_Web_v{version}"
+    pkg_name = f"GT_Sim_v{version}"
     pkg_dir = output_dir / pkg_name
 
     if pkg_dir.exists():
@@ -270,7 +270,7 @@ def assemble_package(version: str, output_dir: Path) -> Path:
 
     # 8. Launcher batch files
     _write_launcher(pkg_dir)
-    log("GT_Sim_Web.bat: created")
+    log("GT_Sim.bat: created")
 
     _write_pip_helper(pkg_dir)
     log("pip.bat: created")
@@ -296,7 +296,7 @@ cd /d "%~dp0"
 server\gt_sim_web.exe --host 127.0.0.1 --port 8000
 pause
 """
-    (pkg_dir / "GT_Sim_Web.bat").write_text(content, encoding="utf-8")
+    (pkg_dir / "GT_Sim.bat").write_text(content, encoding="utf-8")
 
 
 def _write_pip_helper(pkg_dir: Path) -> None:
@@ -321,7 +321,7 @@ def _write_readme(pkg_dir: Path, version: str) -> None:
 
 Quick Start
 -----------
-1. Double-click GT_Sim_Web.bat
+1. Double-click GT_Sim.bat
 2. Browser opens at http://127.0.0.1:8000
 3. Press Ctrl+C in the console to stop
 

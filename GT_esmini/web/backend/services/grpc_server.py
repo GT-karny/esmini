@@ -104,7 +104,7 @@ async def start_grpc_server(port: int = 50051) -> grpc.aio.Server:
     server = grpc.aio.server()
     add_GroundTruthServiceServicer_to_server(GroundTruthServiceImpl(), server)
     add_HostVehicleDataServiceServicer_to_server(HostVehicleDataServiceImpl(), server)
-    listen_addr = f"[::]:{port}"
+    listen_addr = f"0.0.0.0:{port}"
     server.add_insecure_port(listen_addr)
     await server.start()
     logger.info("gRPC OSI server started on %s", listen_addr)
