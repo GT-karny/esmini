@@ -7,7 +7,7 @@ ACCController による先行車追従を組み合わせたサンプルです。
 
 - 横制御: ScenarioDriveController のステアリング出力を使用（ウェイポイント追従）
 - 縦制御: ACCController の throttle/brake 出力を使用（先行車追従）
-- 目標速度: GT_Sim から UDP 受信（ScenarioDriveController 経由で同期）
+- 目標速度: ScenarioDriveController へ設定した値を ACC に同期
 
 scenario_drive_example.py との違い:
     - 縦制御が単純なPID速度制御からACCに置き換わっている
@@ -23,8 +23,6 @@ scenario_drive_example.py との違い:
     # ターゲット座標への自動ルート計算モード
     python scenario_acc_example.py --xodr_path map.xodr --mode target --target_x 300 --target_y 0
 
-    # esmini からの UDP ウェイポイント受信モード
-    python scenario_acc_example.py --xodr_path map.xodr --mode udp
 """
 
 import time
@@ -74,7 +72,7 @@ def main():
     parser.add_argument("--osi_port", type=int, default=48198,
                         help="OSI Port")
     parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="UDP port for receiving target speed from GT_Sim")
+                        help="Deprecated: ignored by embedded-only ScenarioDriveController")
     parser.add_argument("--id", type=int, default=0,
                         help="Object ID (Ego)")
     parser.add_argument("--lib_path", type=str, default=default_lib_path,
@@ -84,10 +82,10 @@ def main():
     parser.add_argument("--xodr_path", type=str, required=True,
                         help="Path to OpenDRIVE map file (.xodr)")
     parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s (used until UDP overrides)")
+                        help="Default target speed in m/s")
     parser.add_argument("--mode", type=str, default="waypoints",
-                        choices=["waypoints", "target", "udp"],
-                        help="Control mode: waypoints=explicit, target=auto-route, udp=from esmini")
+                        choices=["waypoints", "target"],
+                        help="Control mode: waypoints=explicit, target=auto-route")
     parser.add_argument("--target_x", type=float, default=300.0,
                         help="Target X coordinate (for target mode)")
     parser.add_argument("--target_y", type=float, default=0.0,
@@ -153,10 +151,6 @@ def main():
         controller.set_target(target)
         print(f"  Target: ({args.target_x}, {args.target_y})")
 
-    elif args.mode == "udp":
-        print("Mode: Waiting for waypoints from UDP")
-        print("  (Waypoints will be received from esmini ControllerRealDriver)")
-
     # --- 6. Set default target speed ---
     controller.set_target_speed(args.target_speed)
     acc.set_target_speed(args.target_speed)
@@ -186,7 +180,6 @@ def main():
             if ground_truth is not None:
                 try:
                     # --- ScenarioDriveController: ステアリング取得 ---
-                    # update() は内部で目標速度のUDP受信も行う
                     steering, _throttle, _brake = controller.update(ground_truth, dt)
 
                     # --- Handle no-route case ---
@@ -203,7 +196,6 @@ def main():
                     no_route_warning_shown = False
 
                     # --- ACC: 目標速度を同期し、縦制御を実行 ---
-                    # ScenarioDriveController が UDP で受信した目標速度を ACC にも反映
                     acc.set_target_speed(controller.target_speed)
                     lon_output = acc.update(ground_truth, dt)
 

@@ -42,3 +42,26 @@ EnvironmentSimulator/Libraries/esminiJS/example/esmini.js
 venv/
 build/
 *.temp.xosc
+.gt_sim_temp/
+artifacts/realdriver_features/
+artifacts/
+screen_shot_*.tga
+result.mp4
+video_encode.log
+video_error.txt
+frame_count.txt
+gtsim_exit_code.txt
+.venv/
+
+# GT_esmini trace files (should be in test_results/)
+/python_trace.jsonl
+/cpp_to_py_trace.jsonl
+/py_to_cpp_trace.jsonl
+
+# Build / packaging artifacts
+dist/
+test_results/
+GT_esmini/web/pyinstaller/dist/
+GT_esmini/web/pyinstaller/build_temp/
+GT_esmini/web/gt_sim.db
+GT_esmini/web/frontend/README.md

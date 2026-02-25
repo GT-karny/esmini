@@ -13,6 +13,14 @@ Legacy Combined API (for backward compatibility):
     - ScenarioDriveController: Combined lateral + longitudinal control
 """
 
+import warnings
+
+warnings.warn(
+    "realdriver package is deprecated. Use pythondriver for PythonDriverController (embedded) integrations.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from .client import RealDriverClient, LightMode, IndicatorMode
 from .osi_receiver import OSIReceiverWrapper
 from .udp_common import UdpSender, UdpReceiver, OSIReceiver
@@ -46,7 +54,7 @@ from .natural_driver_controller import (
     LaneChangeRequest,
     DEFAULT_NATURAL_DRIVER_CONFIG,
 )
-from .udp_receivers import WaypointReceiver, TargetSpeedReceiver
+from .udp_receivers import WaypointReceiver, LongitudinalProfileReceiver
 
 # Combined controller (backward compatible)
 from .scenario_drive import (
@@ -110,7 +118,7 @@ __all__ = [
 
     # UDP Receivers (NEW)
     'WaypointReceiver',
-    'TargetSpeedReceiver',
+    'LongitudinalProfileReceiver',
 
     # Waypoint Management
     'Waypoint',

@@ -67,7 +67,7 @@ def main():
     parser.add_argument("--osi_port", type=int, default=48198,
                         help="OSI Port")
     parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="UDP port for receiving target speed from esmini")
+                        help="Deprecated: ignored by embedded-only ScenarioDriveController")
     parser.add_argument("--id", type=int, default=0,
                         help="Object ID (Ego)")
     parser.add_argument("--lib_path", type=str, default=default_lib_path,
@@ -77,10 +77,10 @@ def main():
     parser.add_argument("--xodr_path", type=str, required=True,
                         help="Path to OpenDRIVE map file (.xodr)")
     parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s (used if UDP not available)")
+                        help="Default target speed in m/s")
     parser.add_argument("--mode", type=str, default="waypoints",
-                        choices=["waypoints", "target", "udp"],
-                        help="Control mode: waypoints=explicit, target=auto-route, udp=from esmini")
+                        choices=["waypoints", "target"],
+                        help="Control mode: waypoints=explicit, target=auto-route")
     parser.add_argument("--target_x", type=float, default=300.0,
                         help="Target X coordinate (for target mode)")
     parser.add_argument("--target_y", type=float, default=0.0,
@@ -154,10 +154,6 @@ def main():
         target = Waypoint(x=args.target_x, y=args.target_y)
         controller.set_target(target)
         print(f"  Target: ({args.target_x}, {args.target_y})")
-
-    elif args.mode == "udp":
-        print("Mode: Waiting for waypoints from UDP")
-        print("  (Waypoints will be received from esmini ControllerRealDriver)")
 
     # Set default target speed
     controller.set_target_speed(args.target_speed)

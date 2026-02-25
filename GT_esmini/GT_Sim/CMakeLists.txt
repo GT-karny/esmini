@@ -22,7 +22,7 @@ target_link_libraries(${TARGET} PRIVATE GT_esminiLib)
 # esminiLib.hpp will need its path visible.
 
 target_include_directories(${TARGET} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${SCENARIO_ENGINE_PATH}/SourceFiles
     ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
     ${VIEWER_BASE_PATH}

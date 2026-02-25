@@ -25,7 +25,13 @@ file(
 if(USE_OSI)
     message(STATUS "GT_esmini: Swapping OSIReporter.cpp with GT_OSIReporter.cpp")
     list(REMOVE_ITEM SRC_SOURCEFILES "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/OSIReporter.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/GT_OSIReporter.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Api.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Environment.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Geometry.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Moving.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Sensor.cpp")
+    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp")
 endif()
 
 if(NOT
@@ -72,7 +78,7 @@ target_link_libraries(
 target_include_directories(
     ${TARGET}
     PRIVATE ${SCENARIO_ENGINE_PATH}/SourceFiles
-            "${CMAKE_SOURCE_DIR}/GT_esmini"
+            "${CMAKE_SOURCE_DIR}/GT_esmini/include"
             ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
             ${COMMON_MINI_PATH}
             ${CONTROLLERS_PATH}

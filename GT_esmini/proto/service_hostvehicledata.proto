@@ -1,0 +1,10 @@
+syntax = "proto2";
+
+package osi.server;
+
+import "osi3/osi_hostvehicledata.proto";
+import "google/protobuf/empty.proto";
+
+service HostVehicleDataService{
+    rpc StreamHostVehicleData(google.protobuf.Empty) returns (stream osi3.HostVehicleData);
+}

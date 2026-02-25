@@ -15,6 +15,8 @@ project(
     LANGUAGES C
               CXX)
 
+include(CTest)
+
 set(ENABLE_COLORED_DIAGNOSTICS
     OFF
     CACHE BOOL
