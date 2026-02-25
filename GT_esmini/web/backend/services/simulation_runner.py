@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import threading
@@ -29,7 +30,7 @@ from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 import sys
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from scenario_generator import generate_default_variant, generate_python_variant
+from scenario_generator import generate_python_variant
 
 # Import GTExecutionPlanner for path absolutization
 sys.path.insert(0, str(REPO_ROOT / "DriverScript"))
@@ -84,10 +85,9 @@ def _prepare_xosc(
         return variant_path
     elif controller.controller_type == "default":
         variant_path = output_dir / f"{scenario_path.stem}_default.xosc"
-        generate_default_variant(
-            baseline_xosc=scenario_path,
-            output_path=variant_path,
-        )
+        # 元のXOSCをそのままコピー（コントローラを削除しない）
+        variant_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(scenario_path, variant_path)
         _absolutize_xosc(variant_path, source_dir)
         return variant_path
     else:
