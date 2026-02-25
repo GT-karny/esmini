@@ -57,3 +57,10 @@ gtsim_exit_code.txt
 /python_trace.jsonl
 /cpp_to_py_trace.jsonl
 /py_to_cpp_trace.jsonl
+
+# Build / packaging artifacts
+dist/
+test_results/
+GT_esmini/web/pyinstaller/dist/
+GT_esmini/web/pyinstaller/build_temp/
+GT_esmini/web/gt_sim.db
