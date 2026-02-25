@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -61,7 +62,11 @@ async def health_check():
 
 
 # Serve frontend static files (production build)
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if getattr(sys, "frozen", False):
+    # PyInstaller: frontend is bundled via --add-data
+    _FRONTEND_DIST = Path(sys._MEIPASS) / "frontend" / "dist"  # type: ignore[attr-defined]
+else:
+    _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _FRONTEND_DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="static")
 
