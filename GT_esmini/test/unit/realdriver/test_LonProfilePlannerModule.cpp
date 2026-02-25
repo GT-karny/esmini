@@ -5,7 +5,9 @@
 TEST(LonProfilePlannerModuleTest, ProfileHasConstantLimits)
 {
     gt_esmini::LonProfilePlanner planner;
-    auto profile = planner.BuildProfile(3.0, 9.0);
+    planner.SetTargetWithDynamics(9.0, 0.01, gt_esmini::SpeedTransitionShape::STEP);
+    planner.Advance(0.01, 9.0);
+    auto profile = planner.BuildProfile(3.0);
 
     ASSERT_FALSE(profile.empty());
     for (const auto& p : profile)
@@ -18,7 +20,9 @@ TEST(LonProfilePlannerModuleTest, ProfileHasConstantLimits)
 TEST(LonProfilePlannerModuleTest, ProfileIsMonotonicWhenAccelerating)
 {
     gt_esmini::LonProfilePlanner planner;
-    auto profile = planner.BuildProfile(1.0, 11.0);
+    planner.SetTargetWithDynamics(11.0, 0.01, gt_esmini::SpeedTransitionShape::STEP);
+    planner.Advance(0.01, 11.0);
+    auto profile = planner.BuildProfile(1.0);
 
     for (size_t i = 1; i < profile.size(); ++i)
     {

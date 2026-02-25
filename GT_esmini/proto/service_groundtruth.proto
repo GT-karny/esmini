@@ -1,0 +1,10 @@
+syntax = "proto2";
+
+package osi.server;
+
+import "osi3/osi_groundtruth.proto";
+import "google/protobuf/empty.proto";
+
+service GroundTruthService{
+    rpc StreamGroundTruth(google.protobuf.Empty) returns (stream osi3.GroundTruth);
+}

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2026-02-18T00:00:00" description="F07 lane change on two-plus-one" author="GT_esmini"/>
+  <ParameterDeclarations/>
+  <CatalogLocations>
+    <VehicleCatalog><Directory path="../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
+  </CatalogLocations>
+  <RoadNetwork>
+    <LogicFile filepath="../../resources/xodr/two_plus_one.xodr"/>
+  </RoadNetwork>
+  <Entities>
+    <ScenarioObject name="Ego">
+      <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+      <ObjectController>
+        <Controller name="PythonDriverController">
+          <Properties>
+            <Property name="esminiController" value="PythonDriverController"/>
+            <Property name="PythonScript" value="DriverScript/pythondriver/examples/scenario_drive_embedded.py"/>
+            <Property name="PythonClass" value="EmbeddedController"/>
+            <Property name="PythonHome" value=""/>
+          </Properties>
+        </Controller>
+      </ObjectController>
+    </ScenarioObject>
+  </Entities>
+  <Storyboard>
+    <Init>
+      <Actions>
+        <Private entityRef="Ego">
+          <PrivateAction><TeleportAction><Position><LanePosition roadId="1" laneId="-1" offset="0" s="70"/></Position></TeleportAction></PrivateAction>
+          <PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/><SpeedActionTarget><AbsoluteTargetSpeed value="15.0"/></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction>
+          <PrivateAction><ActivateControllerAction longitudinal="true" lateral="true"/></PrivateAction>
+        </Private>
+      </Actions>
+    </Init>
+    <Story name="PythonDriverFeatureStory">
+      <Act name="Act1">
+        <ManeuverGroup maximumExecutionCount="1" name="MG1">
+          <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+          <Maneuver name="M1">
+            <Event name="FeatureEvent" priority="overwrite">
+              <Action name="FeatureAction"><PrivateAction><LateralAction><LaneChangeAction><LaneChangeActionDynamics dynamicsShape="sinusoidal" value="3.0" dynamicsDimension="time"/><LaneChangeTarget><AbsoluteTargetLane value="-2"/></LaneChangeTarget></LaneChangeAction></LateralAction></PrivateAction></Action>
+              <StartTrigger><ConditionGroup><Condition name="StartFeature" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="1.5" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+            </Event>
+          </Maneuver>
+        </ManeuverGroup>
+        <StartTrigger><ConditionGroup><Condition name="StartAct" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StartTrigger>
+      </Act>
+    </Story>
+    <StopTrigger><ConditionGroup><Condition name="StopAt10s" delay="0" conditionEdge="rising"><ByValueCondition><SimulationTimeCondition value="10.0" rule="greaterThan"/></ByValueCondition></Condition></ConditionGroup></StopTrigger>
+  </Storyboard>
+</OpenSCENARIO>

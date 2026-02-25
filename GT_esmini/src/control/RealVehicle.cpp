@@ -287,6 +287,14 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     
     vehicle::Vehicle::Update(dt);
 
+    // Normalize heading to [-π, π] for compatibility with esmini's internal calculations
+    // vehicle::Vehicle::Update() normalizes to [0, 2π], but esmini's atan2-based position
+    // calculation expects [-π, π] range to avoid discontinuities at 2π boundary
+    if (heading_ > M_PI)
+    {
+        heading_ -= 2.0 * M_PI;
+    }
+
     // 5. Pitch and Roll (The "Real" part - Spring Damper Model)
     // -----------------------------------
     

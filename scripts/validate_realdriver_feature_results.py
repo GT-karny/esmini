@@ -3,10 +3,11 @@ import argparse
 import json
 import re
 from bisect import bisect_left
-from collections import Counter
+from collections import Counter, deque
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import xml.etree.ElementTree as ET
 
 try:
     import yaml  # type: ignore
@@ -52,6 +53,24 @@ def parse_csv_rows(csv_path: Path) -> List[Dict[str, str]]:
                 continue
             rows.append(dict(zip(header, parts)))
 
+    return rows
+
+
+def read_jsonl(path: Path) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                obj = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
     return rows
 
 
@@ -218,7 +237,16 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
     road_ids = [_parse_int(r.get("roadId")) for r in ego_rows]
     road_ids = [rid for rid in road_ids if rid is not None]
     if road_ids:
+        k["road_id_start"] = road_ids[0]
+        k["road_id_end"] = road_ids[-1]
         k["road_id_mode"] = Counter(road_ids).most_common(1)[0][0]
+        road_id_change_count = 0
+        prev_road = road_ids[0]
+        for road_id in road_ids[1:]:
+            if road_id != prev_road:
+                road_id_change_count += 1
+                prev_road = road_id
+        k["road_id_change_count"] = road_id_change_count
 
     # Detect "moving in XY while road-progress s is frozen" -> often indicates
     # path/control breakage near/off road.
@@ -255,6 +283,48 @@ def compute_kpis(feature_dir: Path) -> Dict[str, Any]:
 
     if actual_speeds:
         k["speed_span_mps"] = max(actual_speeds) - min(actual_speeds)
+        sorted_speeds = sorted(actual_speeds)
+        p90_idx = max(0, min(len(sorted_speeds) - 1, int(0.9 * (len(sorted_speeds) - 1))))
+        v_ref = sorted_speeds[p90_idx]
+        baseline_count = max(5, min(20, len(actual_speeds) // 5))
+        baseline_speed = sum(actual_speeds[:baseline_count]) / float(baseline_count)
+        dv = v_ref - baseline_speed
+        if dv > 1.0 and actual_speed_series:
+            accel_start_threshold = baseline_speed + (0.2 * dv)
+            settle_band = max(0.5, 0.1 * dv)
+
+            accel_start_idx = None
+            for idx, (_, v) in enumerate(actual_speed_series):
+                if v >= accel_start_threshold:
+                    accel_start_idx = idx
+                    break
+
+            settle_idx = None
+            if accel_start_idx is not None:
+                consecutive_target = 8
+                hit = 0
+                for idx in range(accel_start_idx, len(actual_speed_series)):
+                    _, v = actual_speed_series[idx]
+                    if abs(v - v_ref) <= settle_band:
+                        hit += 1
+                        if hit >= consecutive_target:
+                            settle_idx = idx - consecutive_target + 1
+                            break
+                    else:
+                        hit = 0
+
+            if accel_start_idx is not None and settle_idx is not None:
+                t0, v0 = actual_speed_series[accel_start_idx]
+                t_settle, v_settle = actual_speed_series[settle_idx]
+                dt_accel = max(1e-6, t_settle - t0)
+                k["accel_phase_mean_acc"] = (v_settle - v0) / dt_accel
+                k["settle_time_s"] = max(0.0, t_settle - actual_speed_series[0][0])
+                k["overshoot_ratio"] = max(0.0, (max(actual_speeds) - v_ref) / max(1e-6, dv))
+                steady_vals = [v for _, v in actual_speed_series[settle_idx:]]
+                if len(steady_vals) >= 3:
+                    mean_steady = sum(steady_vals) / float(len(steady_vals))
+                    variance = sum((v - mean_steady) ** 2 for v in steady_vals) / float(len(steady_vals))
+                    k["steady_state_std_mps"] = math.sqrt(variance)
 
     lead_id, lead_rows = _best_non_ego_rows(rows, ego_id)
     if lead_id is not None and lead_rows:
@@ -457,6 +527,1131 @@ def evaluate_kpi_checks_any(
     }
 
 
+def _local_tag(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _find_children(node: ET.Element, child_name: str) -> List[ET.Element]:
+    return [c for c in list(node) if _local_tag(c.tag) == child_name]
+
+
+def _find_first_child(node: ET.Element, child_name: str) -> Optional[ET.Element]:
+    for c in list(node):
+        if _local_tag(c.tag) == child_name:
+            return c
+    return None
+
+
+def _resolve_scenario_path(scenario_text: str, matrix_path: Path) -> Optional[Path]:
+    scenario = scenario_text.strip()
+    if not scenario:
+        return None
+    candidates = [
+        Path(scenario),
+        matrix_path.parent / scenario,
+        matrix_path.parent.parent / scenario,
+    ]
+    for candidate in candidates:
+        resolved = candidate.resolve() if not candidate.is_absolute() else candidate
+        if resolved.exists():
+            return resolved
+    return None
+
+
+def _extract_assign_route_terminal_waypoint(scenario_path: Path) -> Optional[Dict[str, Any]]:
+    waypoints = _extract_assign_route_waypoints(scenario_path)
+    if not waypoints:
+        return None
+    return waypoints[-1]
+
+
+def _extract_assign_route_waypoints(scenario_path: Path) -> List[Dict[str, Any]]:
+    try:
+        root = ET.parse(scenario_path).getroot()
+    except ET.ParseError:
+        return []
+    except OSError:
+        return []
+
+    assign_route_waypoints: List[Dict[str, Any]] = []
+    for node in root.iter():
+        if _local_tag(node.tag) != "AssignRouteAction":
+            continue
+        route = _find_first_child(node, "Route")
+        if route is None:
+            continue
+        waypoints = _find_children(route, "Waypoint")
+        if not waypoints:
+            continue
+        parsed: List[Dict[str, Any]] = []
+        for waypoint in waypoints:
+            position = _find_first_child(waypoint, "Position")
+            if position is None:
+                continue
+            lane_pos = _find_first_child(position, "LanePosition")
+            if lane_pos is None:
+                continue
+            road_id = _parse_int(lane_pos.attrib.get("roadId"))
+            lane_id = _parse_int(lane_pos.attrib.get("laneId"))
+            s_value = _parse_float(lane_pos.attrib.get("s"))
+            if road_id is None or lane_id is None or s_value is None:
+                continue
+            parsed.append(
+                {
+                    "road_id": road_id,
+                    "lane_id": lane_id,
+                    "s": s_value,
+                }
+            )
+        if parsed:
+            assign_route_waypoints = parsed
+    return assign_route_waypoints
+
+
+def _extract_logic_file_path(scenario_path: Path) -> Optional[Path]:
+    try:
+        root = ET.parse(scenario_path).getroot()
+    except (ET.ParseError, OSError):
+        return None
+
+    logic_path_text: Optional[str] = None
+    for node in root.iter():
+        if _local_tag(node.tag) != "LogicFile":
+            continue
+        candidate = (node.attrib.get("filepath") or "").strip()
+        if candidate:
+            logic_path_text = candidate
+            break
+    if not logic_path_text:
+        return None
+
+    logic_path = Path(logic_path_text)
+    candidates: List[Path] = []
+    if logic_path.is_absolute():
+        candidates.append(logic_path)
+    else:
+        repo_root = Path(__file__).resolve().parents[1]
+        candidates.append((scenario_path.parent / logic_path).resolve())
+        candidates.append((repo_root / logic_path).resolve())
+        parts = list(logic_path.parts)
+        if "resources" in parts:
+            idx = parts.index("resources")
+            candidates.append((repo_root / Path(*parts[idx:])).resolve())
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _build_xodr_index(xodr_path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        root = ET.parse(xodr_path).getroot()
+    except (ET.ParseError, OSError):
+        return None
+
+    drivable_lane_types = {
+        "driving",
+        "entry",
+        "exit",
+        "onramp",
+        "offramp",
+        "connectingramp",
+        "bidirectional",
+        "parking",
+    }
+    roads: Dict[int, Dict[str, Any]] = {}
+    adjacency: Dict[int, set] = {}
+
+    for road in root.findall(".//road"):
+        road_id = _parse_int(road.attrib.get("id"))
+        road_length = _parse_float(road.attrib.get("length"))
+        if road_id is None:
+            continue
+        sections: List[Dict[str, Any]] = []
+        lanes = road.find("lanes")
+        if lanes is not None:
+            for section in lanes.findall("laneSection"):
+                s_start = _parse_float(section.attrib.get("s"))
+                if s_start is None:
+                    continue
+                drivable_ids: set = set()
+                all_ids: set = set()
+                for side_name in ("left", "center", "right"):
+                    side = section.find(side_name)
+                    if side is None:
+                        continue
+                    for lane in side.findall("lane"):
+                        lane_id = _parse_int(lane.attrib.get("id"))
+                        if lane_id is None:
+                            continue
+                        lane_type = str(lane.attrib.get("type", "")).strip().lower()
+                        all_ids.add(lane_id)
+                        if lane_id != 0 and lane_type in drivable_lane_types:
+                            drivable_ids.add(lane_id)
+                sections.append(
+                    {
+                        "s_start": float(s_start),
+                        "drivable_lane_ids": drivable_ids,
+                        "all_lane_ids": all_ids,
+                    }
+                )
+        sections.sort(key=lambda item: item["s_start"])
+        roads[road_id] = {
+            "length": float(road_length) if road_length is not None else None,
+            "sections": sections,
+        }
+        adjacency.setdefault(road_id, set())
+
+    for road in root.findall(".//road"):
+        road_id = _parse_int(road.attrib.get("id"))
+        if road_id is None:
+            continue
+        link = road.find("link")
+        if link is None:
+            continue
+        for rel_name in ("predecessor", "successor"):
+            rel = link.find(rel_name)
+            if rel is None:
+                continue
+            if (rel.attrib.get("elementType") or "").strip().lower() != "road":
+                continue
+            other_road = _parse_int(rel.attrib.get("elementId"))
+            if other_road is None:
+                continue
+            adjacency.setdefault(road_id, set()).add(other_road)
+            adjacency.setdefault(other_road, set()).add(road_id)
+
+    for junction in root.findall(".//junction"):
+        for connection in junction.findall("connection"):
+            incoming = _parse_int(connection.attrib.get("incomingRoad"))
+            connecting = _parse_int(connection.attrib.get("connectingRoad"))
+            if incoming is None or connecting is None:
+                continue
+            adjacency.setdefault(incoming, set()).add(connecting)
+            adjacency.setdefault(connecting, set()).add(incoming)
+
+    return {
+        "roads": roads,
+        "adjacency": adjacency,
+    }
+
+
+def _select_lane_section_for_s(road_data: Dict[str, Any], s_value: float) -> Optional[Dict[str, Any]]:
+    sections = road_data.get("sections") or []
+    if not sections:
+        return None
+    selected = sections[0]
+    for section in sections:
+        if s_value + 1e-6 >= float(section["s_start"]):
+            selected = section
+        else:
+            break
+    return selected
+
+
+def _validate_waypoint_on_map(xodr_index: Dict[str, Any], waypoint: Dict[str, Any]) -> Optional[str]:
+    road_id = int(waypoint["road_id"])
+    lane_id = int(waypoint["lane_id"])
+    s_value = float(waypoint["s"])
+
+    roads = xodr_index.get("roads", {})
+    road_data = roads.get(road_id)
+    if road_data is None:
+        return "road_missing"
+    if lane_id == 0:
+        return "lane_zero_not_drivable"
+    road_length = road_data.get("length")
+    if road_length is not None and (s_value < -1e-3 or s_value > float(road_length) + 1e-3):
+        return "s_out_of_range"
+    section = _select_lane_section_for_s(road_data, s_value)
+    if section is None:
+        return "lane_section_missing"
+    if lane_id not in section.get("all_lane_ids", set()):
+        return "lane_missing"
+    if lane_id not in section.get("drivable_lane_ids", set()):
+        return "lane_not_drivable"
+    return None
+
+
+def _roads_connected(xodr_index: Dict[str, Any], start_road: int, end_road: int) -> bool:
+    if start_road == end_road:
+        return True
+    adjacency = xodr_index.get("adjacency", {})
+    if start_road not in adjacency or end_road not in adjacency:
+        return False
+    visited = {start_road}
+    queue = deque([start_road])
+    while queue:
+        cur = queue.popleft()
+        for nxt in adjacency.get(cur, set()):
+            if nxt == end_road:
+                return True
+            if nxt in visited:
+                continue
+            visited.add(nxt)
+            queue.append(nxt)
+    return False
+
+
+def evaluate_assign_route_waypoint_validity(scenario_path: Path) -> Dict[str, Any]:
+    waypoints = _extract_assign_route_waypoints(scenario_path)
+    if not waypoints:
+        return {
+            "pass": False,
+            "stats": {"scenario_path": str(scenario_path)},
+            "mismatch_samples": ["assign_route_waypoints_missing"],
+            "kpi": {
+                "assign_route_waypoint_validity_pass": False,
+                "assign_route_waypoint_invalid_reasons": ["assign_route_waypoints_missing"],
+            },
+        }
+
+    xodr_path = _extract_logic_file_path(scenario_path)
+    if xodr_path is None:
+        return {
+            "pass": False,
+            "stats": {"scenario_path": str(scenario_path)},
+            "mismatch_samples": ["scenario_logic_file_missing"],
+            "kpi": {
+                "assign_route_waypoint_validity_pass": False,
+                "assign_route_waypoint_invalid_reasons": ["scenario_logic_file_missing"],
+            },
+        }
+
+    xodr_index = _build_xodr_index(xodr_path)
+    if xodr_index is None:
+        return {
+            "pass": False,
+            "stats": {
+                "scenario_path": str(scenario_path),
+                "xodr_path": str(xodr_path),
+            },
+            "mismatch_samples": ["xodr_parse_failed"],
+            "kpi": {
+                "assign_route_waypoint_validity_pass": False,
+                "assign_route_waypoint_invalid_reasons": ["xodr_parse_failed"],
+            },
+        }
+
+    mismatches: List[str] = []
+    for idx, waypoint in enumerate(waypoints):
+        invalid_reason = _validate_waypoint_on_map(xodr_index, waypoint)
+        if invalid_reason is not None:
+            mismatches.append(f"waypoint[{idx}]_{invalid_reason}")
+
+    for idx in range(len(waypoints) - 1):
+        current = waypoints[idx]
+        nxt = waypoints[idx + 1]
+        if not _roads_connected(xodr_index, int(current["road_id"]), int(nxt["road_id"])):
+            mismatches.append(
+                f"waypoint_pair[{idx}->{idx + 1}]_roads_not_connected"
+            )
+
+    return {
+        "pass": len(mismatches) == 0,
+        "stats": {
+            "scenario_path": str(scenario_path),
+            "xodr_path": str(xodr_path),
+            "waypoint_count": len(waypoints),
+        },
+        "mismatch_samples": mismatches,
+        "kpi": {
+            "assign_route_waypoint_validity_pass": len(mismatches) == 0,
+            "assign_route_waypoint_invalid_reasons": mismatches,
+        },
+    }
+
+
+def _detect_scenario_stop_reason(feature_dir: Path) -> str:
+    stdout_path = feature_dir / "stdout.txt"
+    if not stdout_path.exists():
+        return "unknown"
+    text = stdout_path.read_text(encoding="utf-8", errors="ignore")
+    if re.search(r"\bStopAtFinalWaypoint:\s*true\b", text):
+        return "reached_final_waypoint"
+    if re.search(r"\bStopOnOffroad:\s*true\b", text):
+        return "offroad"
+    if re.search(r"\bStopAt24s:\s*true\b", text):
+        return "timeout_24s"
+    return "unknown"
+
+
+def evaluate_assign_route_completion(
+    feature_dir: Path,
+    scenario_path: Path,
+    kpi: Dict[str, Any],
+    s_tolerance_m: float,
+) -> Dict[str, Any]:
+    validity_eval = evaluate_assign_route_waypoint_validity(scenario_path)
+    stop_reason = _detect_scenario_stop_reason(feature_dir)
+    expected = _extract_assign_route_terminal_waypoint(scenario_path)
+    if expected is None:
+        mismatch_samples = ["assign_route_terminal_waypoint_missing"]
+        mismatch_samples.extend(validity_eval.get("mismatch_samples", []))
+        return {
+            "required": True,
+            "pass": False,
+            "stats": {
+                "scenario_path": str(scenario_path),
+                "s_tolerance_m": s_tolerance_m,
+                "scenario_stop_reason": stop_reason,
+            },
+            "mismatch_samples": mismatch_samples,
+            "kpi": {
+                "assign_route_expected_waypoint_available": False,
+                "assign_route_final_waypoint_reached": False,
+                "assign_route_waypoint_validity_pass": validity_eval.get("pass", False),
+                "assign_route_waypoint_invalid_reasons": validity_eval.get("mismatch_samples", []),
+                "scenario_stop_reason": stop_reason,
+                "assign_route_s_tolerance_m": s_tolerance_m,
+            },
+        }
+
+    road_end = kpi.get("road_id_end")
+    lane_end = kpi.get("lane_id_end")
+    s_end = kpi.get("s_end_m")
+    road_match = (road_end == expected["road_id"])
+    lane_match = (lane_end == expected["lane_id"])
+    s_abs_error = None
+    s_match = False
+    if s_end is not None:
+        try:
+            s_abs_error = abs(float(s_end) - float(expected["s"]))
+            s_match = s_abs_error <= s_tolerance_m
+        except (TypeError, ValueError):
+            s_abs_error = None
+            s_match = False
+
+    reached = road_match and lane_match and s_match
+    mismatches: List[str] = []
+    if not road_match:
+        mismatches.append("assign_route_end_road_mismatch")
+    if not lane_match:
+        mismatches.append("assign_route_end_lane_mismatch")
+    if not s_match:
+        mismatches.append("assign_route_end_s_mismatch")
+    if not validity_eval.get("pass", False):
+        mismatches.extend(validity_eval.get("mismatch_samples", []))
+
+    hold_time_s = 0.0
+    rows = parse_csv_rows(feature_dir / "sim.csv")
+    ego_rows = select_ego_rows(rows)
+    if ego_rows:
+        prev_t = None
+        for row in reversed(ego_rows):
+            t = _parse_float(row.get("time"))
+            row_road = _parse_int(row.get("roadId"))
+            row_lane = _parse_int(row.get("laneId"))
+            row_s = _parse_float(row.get("s"))
+            if t is None or row_road is None or row_lane is None or row_s is None:
+                break
+
+            in_target = (
+                row_road == expected["road_id"]
+                and row_lane == expected["lane_id"]
+                and abs(row_s - expected["s"]) <= s_tolerance_m
+            )
+            if not in_target:
+                break
+
+            if prev_t is not None and prev_t > t:
+                hold_time_s += (prev_t - t)
+            prev_t = t
+
+    stats = {
+        "scenario_path": str(scenario_path),
+        "s_tolerance_m": s_tolerance_m,
+        "expected_road_id": expected["road_id"],
+        "expected_lane_id": expected["lane_id"],
+        "expected_s": expected["s"],
+        "actual_road_id_end": road_end,
+        "actual_lane_id_end": lane_end,
+        "actual_s_end": s_end,
+        "actual_s_abs_error_m": s_abs_error,
+        "end_hold_time_s": hold_time_s,
+        "scenario_stop_reason": stop_reason,
+        "waypoint_validity": validity_eval.get("pass", False),
+    }
+
+    completion_pass = reached and bool(validity_eval.get("pass", False))
+    return {
+        "required": True,
+        "pass": completion_pass,
+        "stats": stats,
+        "mismatch_samples": mismatches,
+        "kpi": {
+            "assign_route_expected_waypoint_available": True,
+            "assign_route_expected_road_id": expected["road_id"],
+            "assign_route_expected_lane_id": expected["lane_id"],
+            "assign_route_expected_s": expected["s"],
+            "assign_route_actual_road_id_end": road_end,
+            "assign_route_actual_lane_id_end": lane_end,
+            "assign_route_actual_s_end": s_end,
+            "assign_route_final_waypoint_reached": reached,
+            "assign_route_end_s_abs_error_m": s_abs_error,
+            "assign_route_end_hold_time_s": hold_time_s,
+            "assign_route_waypoint_validity_pass": validity_eval.get("pass", False),
+            "assign_route_waypoint_invalid_reasons": validity_eval.get("mismatch_samples", []),
+            "scenario_stop_reason": stop_reason,
+            "assign_route_s_tolerance_m": s_tolerance_m,
+        },
+    }
+
+
+def evaluate_trace_integrity(feature_id: str, feature_dir: Path) -> Dict[str, Any]:
+    if feature_id != "F01":
+        return {
+            "required": False,
+            "pass": True,
+            "stats": {},
+            "mismatch_samples": [],
+        }
+
+    cpp_rows = read_jsonl(feature_dir / "cpp_to_py_trace.jsonl")
+    py_rows = read_jsonl(feature_dir / "py_to_cpp_trace.jsonl")
+    py_script_rows = read_jsonl(feature_dir / "python_trace.jsonl")
+    mismatches: List[str] = []
+
+    if not cpp_rows or not py_rows or not py_script_rows:
+        return {
+            "required": True,
+            "pass": False,
+            "stats": {
+                "cpp_to_py_count": len(cpp_rows),
+                "py_to_cpp_count": len(py_rows),
+                "python_trace_count": len(py_script_rows),
+            },
+            "mismatch_samples": ["trace_missing"],
+        }
+
+    cpp_ids = [int(r.get("frame_id", -1)) for r in cpp_rows]
+    py_ids = [int(r.get("frame_id", -1)) for r in py_rows]
+    py_script_ids = [int(r.get("frame_id", -1)) for r in py_script_rows]
+
+    def _is_strict_sequence(ids: List[int]) -> bool:
+        if not ids:
+            return False
+        start = ids[0]
+        return all(v == start + i for i, v in enumerate(ids))
+
+    if not _is_strict_sequence(cpp_ids):
+        mismatches.append("trace_frame_gap_cpp_to_py")
+    if not _is_strict_sequence(py_ids):
+        mismatches.append("trace_frame_gap_py_to_cpp")
+    if not _is_strict_sequence(py_script_ids):
+        mismatches.append("trace_frame_gap_python_trace")
+
+    if len(cpp_rows) != len(py_rows) or len(cpp_rows) != len(py_script_rows):
+        mismatches.append("trace_count_mismatch")
+    if set(cpp_ids) != set(py_ids) or set(cpp_ids) != set(py_script_ids):
+        mismatches.append("trace_frame_mismatch")
+
+    gt_ok = all(int(r.get("gt_size", 0)) > 0 for r in cpp_rows)
+    waypoints_ok = all(int(r.get("waypoint_count", 0)) > 0 for r in cpp_rows)
+    lon_ok = all(int(r.get("lon_profile_count", 0)) > 0 for r in cpp_rows)
+    if not gt_ok:
+        mismatches.append("trace_payload_missing_gt")
+    if not waypoints_ok:
+        mismatches.append("trace_payload_missing_waypoints")
+    if not lon_ok:
+        mismatches.append("trace_payload_missing_lon_profile")
+
+    required_keys_ok = True
+    for r in py_rows:
+        req = r.get("required_keys", {})
+        if not isinstance(req, dict):
+            required_keys_ok = False
+            break
+        for key in ("throttle", "brake", "steering", "gear", "lights"):
+            if req.get(key) is not True:
+                required_keys_ok = False
+                break
+        if not required_keys_ok:
+            break
+    if not required_keys_ok:
+        mismatches.append("trace_result_key_missing")
+
+    range_ok = True
+    for r in py_rows:
+        if r.get("error"):
+            range_ok = False
+            mismatches.append("trace_result_error")
+            break
+        parsed = r.get("parsed", {})
+        if not isinstance(parsed, dict):
+            range_ok = False
+            break
+        throttle = parsed.get("throttle")
+        brake = parsed.get("brake")
+        steering = parsed.get("steering")
+        gear = parsed.get("gear")
+        try:
+            if not (0.0 <= float(throttle) <= 1.0):
+                range_ok = False
+            if not (0.0 <= float(brake) <= 1.0):
+                range_ok = False
+            if not (-1.0 <= float(steering) <= 1.0):
+                range_ok = False
+            if int(gear) < -1:
+                range_ok = False
+        except (TypeError, ValueError):
+            range_ok = False
+        if not range_ok:
+            break
+    if not range_ok:
+        mismatches.append("trace_result_out_of_range")
+
+    stats = {
+        "cpp_to_py_count": len(cpp_rows),
+        "py_to_cpp_count": len(py_rows),
+        "python_trace_count": len(py_script_rows),
+        "gt_positive_ratio": (sum(1 for r in cpp_rows if int(r.get("gt_size", 0)) > 0) / len(cpp_rows)) if cpp_rows else 0.0,
+        "waypoint_positive_ratio": (sum(1 for r in cpp_rows if int(r.get("waypoint_count", 0)) > 0) / len(cpp_rows)) if cpp_rows else 0.0,
+        "lon_profile_positive_ratio": (sum(1 for r in cpp_rows if int(r.get("lon_profile_count", 0)) > 0) / len(cpp_rows)) if cpp_rows else 0.0,
+    }
+
+    return {
+        "required": True,
+        "pass": len(mismatches) == 0,
+        "stats": stats,
+        "mismatch_samples": mismatches[:10],
+    }
+
+
+def _build_expected_light_series(py_trace: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
+    dt_values: List[float] = []
+    expected_series: List[Dict[str, Any]] = []
+    current = {
+        "low_beam": 0,
+        "high_beam": 0,
+        "left_indicator": 0,
+        "right_indicator": 0,
+        "fog": 0,
+    }
+
+    ordered_rows = sorted(py_trace, key=lambda r: int(r.get("frame_id", -1)))
+    for row in ordered_rows:
+        frame_id = int(row.get("frame_id", -1))
+        recv = row.get("recv", {})
+        send = row.get("send", {})
+        if isinstance(recv, dict):
+            try:
+                dt = float(recv.get("dt", 0.0))
+                if dt > 0.0:
+                    dt_values.append(dt)
+            except (TypeError, ValueError):
+                pass
+        if not isinstance(send, dict):
+            continue
+
+        lights = send.get("lights", {})
+        if isinstance(lights, dict):
+            for key in current.keys():
+                val = lights.get(key)
+                if val is None:
+                    continue
+                token = str(val).strip().lower()
+                if token == "on":
+                    current[key] = 1
+                elif token == "off":
+                    current[key] = 0
+                elif token == "auto":
+                    current[key] = 0
+
+        try:
+            brake = float(send.get("brake", 0.0))
+            gear = int(send.get("gear", 1))
+        except (TypeError, ValueError):
+            continue
+
+        if current["left_indicator"] and current["right_indicator"]:
+            indicator = "WARNING"
+        elif current["left_indicator"]:
+            indicator = "LEFT"
+        elif current["right_indicator"]:
+            indicator = "RIGHT"
+        else:
+            indicator = "OFF"
+
+        expected_series.append(
+            {
+                "frame_id": frame_id,
+                "head_light_on": current["low_beam"],
+                "high_beam_on": current["high_beam"],
+                "indicator_state": indicator,
+                "fog_on": current["fog"],
+                "brake_on": int(brake > 0.05),
+                "reverse_on": int(gear == -1),
+            }
+        )
+
+    dt_est = (sum(dt_values) / float(len(dt_values))) if dt_values else 0.01
+    return expected_series, max(dt_est, 1e-3)
+
+
+def evaluate_f02_light_mapping(feature_id: str, feature_dir: Path) -> Dict[str, Any]:
+    if feature_id != "F02":
+        return {"required": False, "pass": True, "kpi": {}, "stats": {}, "mismatch_samples": []}
+
+    py_trace = read_jsonl(feature_dir / "python_trace.jsonl")
+    osi_rows = parse_csv_rows(feature_dir / "osi_lights.csv")
+    mismatches: List[str] = []
+    if not py_trace or not osi_rows:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {"light_mapping_match_ratio": 0.0, "light_mapping_latency_frames_max": 999, "light_mapping_missing_samples": max(1, len(py_trace))},
+            "stats": {"python_trace_count": len(py_trace), "osi_lights_count": len(osi_rows)},
+            "mismatch_samples": ["light_trace_missing"],
+        }
+
+    expected_series, dt_est = _build_expected_light_series(py_trace)
+    if not expected_series:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {"light_mapping_match_ratio": 0.0, "light_mapping_latency_frames_max": 999, "light_mapping_missing_samples": 1},
+            "stats": {"python_trace_count": len(py_trace), "osi_lights_count": len(osi_rows)},
+            "mismatch_samples": ["light_mapping_missing_samples"],
+        }
+
+    actual_series: List[Dict[str, Any]] = []
+    for row in osi_rows:
+        ts = _parse_float(row.get("timestamp_s"))
+        if ts is None:
+            continue
+        actual_series.append(
+            {
+                "t": ts,
+                "head_light_on": int(_parse_int(row.get("head_light_on")) or 0),
+                "high_beam_on": int(_parse_int(row.get("high_beam_on")) or 0),
+                "indicator_state": str(row.get("indicator_state", "UNKNOWN")).upper(),
+                "fog_on": int(_parse_int(row.get("fog_on")) or 0),
+                "brake_on": int(_parse_int(row.get("brake_on")) or 0),
+                "reverse_on": int(_parse_int(row.get("reverse_on")) or 0),
+            }
+        )
+    if not actual_series:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {"light_mapping_match_ratio": 0.0, "light_mapping_latency_frames_max": 999, "light_mapping_missing_samples": len(expected_series)},
+            "stats": {"python_trace_count": len(py_trace), "osi_lights_count": len(osi_rows)},
+            "mismatch_samples": ["light_trace_missing"],
+        }
+
+    actual_series.sort(key=lambda x: float(x["t"]))
+    start_frame = int(expected_series[0]["frame_id"])
+    max_obs_t = float(actual_series[-1]["t"])
+    missing_samples = 0
+    match_count = 0
+    mismatch_details: List[str] = []
+    fields = ("head_light_on", "high_beam_on", "indicator_state", "fog_on", "brake_on", "reverse_on")
+    expected_in_window: List[Dict[str, Any]] = []
+
+    for e in expected_series:
+        frame_id = int(e["frame_id"])
+        t_exp = (frame_id - start_frame) * dt_est
+        if t_exp > (max_obs_t + dt_est):
+            continue
+        expected_in_window.append(e)
+        nearest = min(actual_series, key=lambda a: abs(float(a["t"]) - t_exp))
+        if abs(float(nearest["t"]) - t_exp) > dt_est:
+            missing_samples += 1
+            if len(mismatch_details) < 5:
+                mismatch_details.append(f"missing@frame={frame_id}")
+            continue
+
+        sample_match = True
+        for field in fields:
+            if nearest[field] != e[field]:
+                sample_match = False
+                if len(mismatch_details) < 5:
+                    mismatch_details.append(f"mismatch@frame={frame_id}:{field}:exp={e[field]} actual={nearest[field]}")
+        if sample_match:
+            match_count += 1
+
+    total_samples = len(expected_in_window)
+    match_ratio = (float(match_count) / float(total_samples)) if total_samples > 0 else 0.0
+    latency_frames_max = 0
+    latency_fail = False
+    for field in fields:
+        if not expected_in_window:
+            break
+        prev = expected_in_window[0][field]
+        for e in expected_in_window[1:]:
+            cur = e[field]
+            if cur == prev:
+                continue
+            frame_id = int(e["frame_id"])
+            t_change = (frame_id - start_frame) * dt_est
+            candidates = [a for a in actual_series if float(a["t"]) >= t_change and a[field] == cur]
+            if not candidates:
+                latency_fail = True
+                if len(mismatch_details) < 5:
+                    mismatch_details.append(f"latency_missing:{field}@frame={frame_id}")
+                prev = cur
+                continue
+            t_match = float(candidates[0]["t"])
+            latency_frames = max(0, int(round((t_match - t_change) / dt_est)))
+            latency_frames_max = max(latency_frames_max, latency_frames)
+            prev = cur
+
+    if match_ratio < 1.0:
+        mismatches.append("light_mapping_mismatch")
+    if missing_samples > 0:
+        mismatches.append("light_mapping_missing_samples")
+    if latency_fail or latency_frames_max > 1:
+        mismatches.append("light_mapping_latency_exceeded")
+
+    return {
+        "required": True,
+        "pass": len(mismatches) == 0,
+        "kpi": {
+            "light_mapping_match_ratio": match_ratio,
+            "light_mapping_latency_frames_max": latency_frames_max if not latency_fail else 999,
+            "light_mapping_missing_samples": missing_samples,
+        },
+        "stats": {
+            "python_trace_count": len(py_trace),
+            "osi_lights_count": len(actual_series),
+            "match_count": match_count,
+            "total_samples": total_samples,
+        },
+        "mismatch_samples": (mismatches + mismatch_details)[:10],
+    }
+
+
+def _estimate_osi_dt(osi_rows: List[Dict[str, str]]) -> float:
+    dt_est = 0.01
+    timestamps = [_parse_float(r.get("timestamp_s")) for r in osi_rows]
+    valid_timestamps = [t for t in timestamps if t is not None]
+    if len(valid_timestamps) > 2:
+        diffs = [valid_timestamps[i] - valid_timestamps[i - 1] for i in range(1, len(valid_timestamps))]
+        diffs = [d for d in diffs if d > 0.0]
+        if diffs:
+            dt_est = max(1e-3, sum(diffs) / float(len(diffs)))
+    return dt_est
+
+
+def _python_manual_light_override_count(feature_dir: Path) -> int:
+    trace = read_jsonl(feature_dir / "python_trace.jsonl")
+    count = 0
+    for row in trace:
+        send = row.get("send")
+        lights = send.get("lights") if isinstance(send, dict) else None
+        if isinstance(lights, dict) and len(lights) > 0:
+            count += 1
+    return count
+
+
+def _build_sim_series(sim_rows: List[Dict[str, str]]) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float]], List[float]]:
+    sim_points: List[Tuple[float, float, int]] = []
+    for row in sim_rows:
+        t = _parse_float(row.get("time"))
+        s = _parse_float(row.get("s"))
+        road = _parse_int(row.get("road_id"))
+        if road is None:
+            road = _parse_int(row.get("roadId"))
+        if t is None or s is None or road is None:
+            continue
+        sim_points.append((t, s, road))
+    sim_points.sort(key=lambda x: x[0])
+
+    signed_speed: List[Tuple[float, float]] = []
+    road_change_times: List[float] = []
+    prev_road: Optional[int] = None
+    for i in range(1, len(sim_points)):
+        t0, s0, road0 = sim_points[i - 1]
+        t1, s1, road1 = sim_points[i]
+        dt = t1 - t0
+        if dt > 0.0:
+            signed_speed.append((t1, (s1 - s0) / dt))
+        if prev_road is None:
+            prev_road = road0
+        if road1 != prev_road:
+            road_change_times.append(t1)
+            prev_road = road1
+
+    accel: List[Tuple[float, float]] = []
+    for i in range(1, len(signed_speed)):
+        t0, v0 = signed_speed[i - 1]
+        t1, v1 = signed_speed[i]
+        dt = t1 - t0
+        if dt > 0.0:
+            accel.append((t1, (v1 - v0) / dt))
+    return signed_speed, accel, road_change_times
+
+
+def _compute_light_latency_frames(
+    osi_points: List[Dict[str, Any]],
+    window_starts: List[float],
+    dt_est: float,
+    predicate,
+) -> int:
+    latency_frames_max = 0
+    for t_start in window_starts:
+        candidates = [r for r in osi_points if r["t"] >= t_start and predicate(r)]
+        if not candidates:
+            return 999
+        latency = max(0, int(round((candidates[0]["t"] - t_start) / dt_est)))
+        latency_frames_max = max(latency_frames_max, latency)
+    return latency_frames_max
+
+
+def evaluate_f03a_autolight(feature_id: str, feature_dir: Path, _feature_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    if feature_id != "F03A":
+        return {"required": False, "pass": True, "kpi": {}, "stats": {}, "mismatch_samples": []}
+
+    sim_rows = parse_csv_rows(feature_dir / "sim.csv")
+    osi_rows = parse_csv_rows(feature_dir / "osi_lights.csv")
+    if not sim_rows or not osi_rows:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {
+                "reverse_on_ratio_in_reverse_window": 0.0,
+                "brake_on_ratio_in_braking_window": 0.0,
+                "light_transition_latency_frames_max": 999,
+                "light_missing_samples": 1,
+                "light_state_observed": False,
+            },
+            "stats": {"sim_rows": len(sim_rows), "osi_rows": len(osi_rows)},
+            "mismatch_samples": ["autolight_trace_missing"],
+        }
+
+    signed_speed, accel, _ = _build_sim_series(sim_rows)
+    if not signed_speed:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {
+                "reverse_on_ratio_in_reverse_window": 0.0,
+                "brake_on_ratio_in_braking_window": 0.0,
+                "light_transition_latency_frames_max": 999,
+                "light_missing_samples": len(osi_rows),
+                "light_state_observed": True,
+            },
+            "stats": {"sim_rows": len(sim_rows), "osi_rows": len(osi_rows)},
+            "mismatch_samples": ["autolight_signed_speed_missing"],
+        }
+
+    dt_est = _estimate_osi_dt(osi_rows)
+    manual_override_count = _python_manual_light_override_count(feature_dir)
+
+    reverse_window_samples = 0
+    reverse_on_in_reverse_window = 0
+    braking_window_samples = 0
+    brake_on_in_braking_window = 0
+    light_missing_samples = 0
+    reverse_window_starts: List[float] = []
+    braking_window_starts: List[float] = []
+
+    prev_in_reverse = False
+    prev_in_braking = False
+    osi_points: List[Dict[str, Any]] = []
+    for row in osi_rows:
+        ts = _parse_float(row.get("timestamp_s"))
+        if ts is None:
+            continue
+        s_speed = _nearest_series_value(signed_speed, ts)
+        s_accel = _nearest_series_value(accel, ts)
+        if s_speed is None:
+            light_missing_samples += 1
+            continue
+
+        reverse_on = _parse_int(row.get("reverse_on")) == 1
+        brake_on = _parse_int(row.get("brake_on")) == 1
+        in_reverse = s_speed <= -0.5
+        in_braking = (s_accel is not None) and (s_accel <= -0.5) and (s_speed > 0.5)
+
+        if in_reverse:
+            reverse_window_samples += 1
+            if reverse_on:
+                reverse_on_in_reverse_window += 1
+        if in_braking:
+            braking_window_samples += 1
+            if brake_on:
+                brake_on_in_braking_window += 1
+
+        if in_reverse and not prev_in_reverse:
+            reverse_window_starts.append(ts)
+        if in_braking and not prev_in_braking:
+            braking_window_starts.append(ts)
+        prev_in_reverse = in_reverse
+        prev_in_braking = in_braking
+        osi_points.append({"t": ts, "reverse_on": reverse_on, "brake_on": brake_on})
+
+    reverse_ratio = (float(reverse_on_in_reverse_window) / float(reverse_window_samples)) if reverse_window_samples > 0 else 0.0
+    brake_ratio = (float(brake_on_in_braking_window) / float(braking_window_samples)) if braking_window_samples > 0 else 0.0
+
+    reverse_latency = _compute_light_latency_frames(osi_points, reverse_window_starts, dt_est, lambda r: bool(r.get("reverse_on")))
+    brake_latency = _compute_light_latency_frames(osi_points, braking_window_starts, dt_est, lambda r: bool(r.get("brake_on")))
+    latency_frames_max = max(reverse_latency, brake_latency)
+
+    mismatches: List[str] = []
+    if manual_override_count > 0:
+        mismatches.append("autolight_manual_override_detected")
+    if reverse_window_samples == 0:
+        mismatches.append("reverse_window_missing")
+    if braking_window_samples == 0:
+        mismatches.append("braking_window_missing")
+    if light_missing_samples > 0:
+        mismatches.append("light_missing_samples")
+    if latency_frames_max > 2:
+        mismatches.append("light_mapping_latency_exceeded")
+
+    return {
+        "required": True,
+        "pass": len(mismatches) == 0,
+        "kpi": {
+            "reverse_on_ratio_in_reverse_window": reverse_ratio,
+            "brake_on_ratio_in_braking_window": brake_ratio,
+            "light_transition_latency_frames_max": latency_frames_max,
+            "light_missing_samples": light_missing_samples,
+            "light_state_observed": len(osi_points) > 0,
+        },
+        "stats": {
+            "reverse_window_samples": reverse_window_samples,
+            "braking_window_samples": braking_window_samples,
+            "manual_override_count": manual_override_count,
+        },
+        "mismatch_samples": mismatches[:10],
+    }
+
+
+def evaluate_f03b_autolight(feature_id: str, feature_dir: Path, feature_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    if feature_id != "F03B":
+        return {"required": False, "pass": True, "kpi": {}, "stats": {}, "mismatch_samples": []}
+
+    sim_rows = parse_csv_rows(feature_dir / "sim.csv")
+    osi_rows = parse_csv_rows(feature_dir / "osi_lights.csv")
+    if not sim_rows or not osi_rows:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {
+                "indicator_on_ratio_in_junction_window": 0.0,
+                "indicator_expected_side_ratio_in_junction_window": 0.0,
+                "indicator_off_ratio_outside_junction_window": 0.0,
+                "light_transition_latency_frames_max": 999,
+                "light_missing_samples": 1,
+                "light_state_observed": False,
+            },
+            "stats": {"sim_rows": len(sim_rows), "osi_rows": len(osi_rows)},
+            "mismatch_samples": ["autolight_trace_missing"],
+        }
+
+    _, _, road_change_times = _build_sim_series(sim_rows)
+    dt_est = _estimate_osi_dt(osi_rows)
+    manual_override_count = _python_manual_light_override_count(feature_dir)
+    expected_side = str(feature_cfg.get("expected_indicator_side", "AUTO") or "AUTO").upper()
+
+    if not road_change_times:
+        return {
+            "required": True,
+            "pass": False,
+            "kpi": {
+                "indicator_on_ratio_in_junction_window": 0.0,
+                "indicator_expected_side_ratio_in_junction_window": 0.0,
+                "indicator_off_ratio_outside_junction_window": 0.0,
+                "light_transition_latency_frames_max": 999,
+                "light_missing_samples": 0,
+                "light_state_observed": True,
+            },
+            "stats": {"junction_events": 0, "manual_override_count": manual_override_count},
+            "mismatch_samples": ["junction_window_missing"],
+        }
+
+    def _in_junction_window(ts: float) -> bool:
+        return any((j - 1.0) <= ts <= (j + 1.0) for j in road_change_times)
+
+    indicator_on = 0
+    indicator_samples = 0
+    indicator_left = 0
+    indicator_right = 0
+    indicator_off_outside = 0
+    outside_samples = 0
+    light_missing_samples = 0
+    junction_window_starts = [j - 1.0 for j in road_change_times]
+    osi_points: List[Dict[str, Any]] = []
+
+    for row in osi_rows:
+        ts = _parse_float(row.get("timestamp_s"))
+        if ts is None:
+            light_missing_samples += 1
+            continue
+        indicator = str(row.get("indicator_state", "OFF")).upper()
+        if _in_junction_window(ts):
+            indicator_samples += 1
+            if indicator != "OFF":
+                indicator_on += 1
+            if indicator == "LEFT":
+                indicator_left += 1
+            elif indicator == "RIGHT":
+                indicator_right += 1
+            elif indicator == "WARNING":
+                indicator_left += 1
+                indicator_right += 1
+        else:
+            outside_samples += 1
+            if indicator == "OFF":
+                indicator_off_outside += 1
+        osi_points.append({"t": ts, "indicator": indicator})
+
+    indicator_on_ratio = (float(indicator_on) / float(indicator_samples)) if indicator_samples > 0 else 0.0
+    indicator_off_outside_ratio = (float(indicator_off_outside) / float(outside_samples)) if outside_samples > 0 else 0.0
+    if indicator_on > 0:
+        if expected_side == "LEFT":
+            expected_side_ratio = float(indicator_left) / float(indicator_on)
+        elif expected_side == "RIGHT":
+            expected_side_ratio = float(indicator_right) / float(indicator_on)
+        else:
+            expected_side_ratio = float(max(indicator_left, indicator_right)) / float(indicator_on)
+    else:
+        expected_side_ratio = 0.0
+
+    latency_frames_max = _compute_light_latency_frames(
+        osi_points,
+        junction_window_starts,
+        dt_est,
+        lambda r: str(r.get("indicator", "OFF")).upper() != "OFF",
+    )
+
+    mismatches: List[str] = []
+    if manual_override_count > 0:
+        mismatches.append("autolight_manual_override_detected")
+    if indicator_samples == 0:
+        mismatches.append("junction_window_missing")
+    if light_missing_samples > 0:
+        mismatches.append("light_missing_samples")
+    if latency_frames_max > 2:
+        mismatches.append("light_mapping_latency_exceeded")
+    if expected_side in ("LEFT", "RIGHT") and expected_side_ratio < 0.8:
+        mismatches.append("indicator_side_mismatch")
+
+    return {
+        "required": True,
+        "pass": len(mismatches) == 0,
+        "kpi": {
+            "indicator_on_ratio_in_junction_window": indicator_on_ratio,
+            "indicator_expected_side_ratio_in_junction_window": expected_side_ratio,
+            "indicator_off_ratio_outside_junction_window": indicator_off_outside_ratio,
+            "light_transition_latency_frames_max": latency_frames_max,
+            "light_missing_samples": light_missing_samples,
+            "light_state_observed": len(osi_points) > 0,
+        },
+        "stats": {
+            "junction_events": len(road_change_times),
+            "indicator_samples_in_junction": indicator_samples,
+            "manual_override_count": manual_override_count,
+            "expected_indicator_side": expected_side,
+        },
+        "mismatch_samples": mismatches[:10],
+    }
+
+
 def _fmt_num(value: Any) -> str:
     if isinstance(value, float):
         text = f"{value:.6f}".rstrip("0").rstrip(".")
@@ -617,11 +1812,20 @@ def main() -> int:
     args = parser.parse_args()
 
     matrix = load_yaml(Path(args.matrix))
+    matrix_path = Path(args.matrix).resolve()
     threshold_config = load_yaml(Path(args.thresholds))
     thresholds = threshold_config.get("defaults", {})
     baseline_kpi_checks = threshold_config.get("baseline_kpi_checks", [])
+    feature_overrides = threshold_config.get("feature_overrides", {})
     run_dir = Path(args.run_dir)
     golden_root = Path(args.golden_root)
+    video_config_path = run_dir / "video_config.json"
+    video_config: Dict[str, Any] = {}
+    if video_config_path.exists():
+        try:
+            video_config = json.loads(video_config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            video_config = {}
 
     results = []
     overall_pass = True
@@ -629,6 +1833,7 @@ def main() -> int:
     for feat in matrix.get("features", []):
         fid = feat["id"]
         fdir = run_dir / fid
+        overrides = feature_overrides.get(fid, {})
         stdout_path = fdir / "stdout.txt"
         text = stdout_path.read_text(encoding="utf-8", errors="ignore") if stdout_path.exists() else ""
 
@@ -643,10 +1848,74 @@ def main() -> int:
                 hit_forbidden.append(pat)
 
         kpi = compute_kpis(fdir)
-        feature_kpi_checks = list(baseline_kpi_checks) + list(feat.get("kpi_checks", []))
+        f02_light_eval = evaluate_f02_light_mapping(fid, fdir)
+        if f02_light_eval.get("kpi"):
+            kpi.update(f02_light_eval["kpi"])
+        f03a_autolight_eval = evaluate_f03a_autolight(fid, fdir, feat)
+        if f03a_autolight_eval.get("kpi"):
+            kpi.update(f03a_autolight_eval["kpi"])
+        f03b_autolight_eval = evaluate_f03b_autolight(fid, fdir, feat)
+        if f03b_autolight_eval.get("kpi"):
+            kpi.update(f03b_autolight_eval["kpi"])
+        autolight_eval = f03a_autolight_eval if f03a_autolight_eval.get("required", False) else f03b_autolight_eval
+
+        assign_route_eval = {
+            "required": False,
+            "pass": True,
+            "stats": {},
+            "mismatch_samples": [],
+            "kpi": {},
+        }
+        if bool(overrides.get("require_assign_route_completion", False)):
+            scenario_path = _resolve_scenario_path(str(feat.get("scenario", "")), matrix_path)
+            if scenario_path is None:
+                assign_route_eval = {
+                    "required": True,
+                    "pass": False,
+                    "stats": {
+                        "scenario": feat.get("scenario", ""),
+                    },
+                    "mismatch_samples": ["scenario_path_missing"],
+                    "kpi": {
+                        "assign_route_expected_waypoint_available": False,
+                        "assign_route_final_waypoint_reached": False,
+                    },
+                }
+            else:
+                s_tolerance_m = float(overrides.get("assign_route_s_tolerance_m", 5.0))
+                assign_route_eval = evaluate_assign_route_completion(
+                    feature_dir=fdir,
+                    scenario_path=scenario_path,
+                    kpi=kpi,
+                    s_tolerance_m=s_tolerance_m,
+                )
+            if assign_route_eval.get("kpi"):
+                kpi.update(assign_route_eval["kpi"])
+
+        explicit_feature_checks = list(feat.get("kpi_checks", []))
+        if assign_route_eval.get("required", False):
+            explicit_feature_checks.extend(
+                [
+                    {"metric": "assign_route_expected_waypoint_available", "equals": True},
+                    {"metric": "assign_route_final_waypoint_reached", "equals": True},
+                    {"metric": "assign_route_waypoint_validity_pass", "equals": True},
+                ]
+            )
+            min_hold_time = float(overrides.get("assign_route_end_hold_time_s", 0.0))
+            if min_hold_time > 0.0:
+                explicit_feature_checks.append(
+                    {"metric": "assign_route_end_hold_time_s", "min": min_hold_time}
+                )
+        excluded_baseline_kpis = set(str(v) for v in (overrides.get("feature_excluded_baseline_kpis", []) or []))
+        feature_baseline_checks = [
+            check for check in baseline_kpi_checks
+            if str(check.get("metric", "")) not in excluded_baseline_kpis
+        ]
+        feature_kpi_checks = list(feature_baseline_checks) + explicit_feature_checks
         kpi_eval = evaluate_kpi_checks(kpi, feature_kpi_checks)
         feature_kpi_checks_any = list(feat.get("kpi_checks_any", []))
         kpi_any_eval = evaluate_kpi_checks_any(kpi, feature_kpi_checks_any)
+        trace_eval = evaluate_trace_integrity(fid, fdir)
         expected_behavior_nl = list(feat.get("expected_behavior_nl", [])) or list(feat.get("validation_points", []))
         judgement_criteria_nl = list(feat.get("judgement_criteria_nl", [])) or build_judgement_criteria_nl(
             feat=feat,
@@ -656,12 +1925,52 @@ def main() -> int:
         golden_file = golden_root / fid / "kpi_reference.json"
         golden_cmp = compare_with_golden(kpi, golden_file, thresholds)
 
-        # KPI is the primary verdict axis; required log patterns remain advisory
-        # when explicit KPI checks are configured.
-        require_log_patterns = len(feature_kpi_checks) == 0
-        logs_ok = (len(missing_required) == 0) if require_log_patterns else True
-        passed = (logs_ok and len(hit_forbidden) == 0 and golden_cmp["pass"] and kpi_eval["pass"] and kpi_any_eval["pass"])
+        logs_ok = len(missing_required) == 0
+        forbidden_ok = len(hit_forbidden) == 0
+        kpi_definition_ok = len(explicit_feature_checks) > 0
+        trace_ok = trace_eval.get("pass", True)
+        light_mapping_ok = f02_light_eval.get("pass", True)
+        autolight_ok = autolight_eval.get("pass", True)
+        assign_route_ok = assign_route_eval.get("pass", True)
+        passed = (
+            logs_ok
+            and forbidden_ok
+            and kpi_definition_ok
+            and trace_ok
+            and light_mapping_ok
+            and autolight_ok
+            and assign_route_ok
+            and golden_cmp["pass"]
+            and kpi_eval["pass"]
+            and kpi_any_eval["pass"]
+        )
         overall_pass = overall_pass and passed
+
+        failure_reasons: List[str] = []
+        if not logs_ok:
+            failure_reasons.append("missing_required_patterns")
+        if not forbidden_ok:
+            failure_reasons.append("hit_forbidden_patterns")
+        if not kpi_definition_ok:
+            failure_reasons.append("kpi_checks_empty")
+        if not trace_ok:
+            failure_reasons.append("trace_integrity_failed")
+            failure_reasons.extend(trace_eval.get("mismatch_samples", []))
+        if not light_mapping_ok:
+            failure_reasons.append("light_mapping_integrity_failed")
+            failure_reasons.extend(f02_light_eval.get("mismatch_samples", []))
+        if not autolight_ok:
+            failure_reasons.append("autolight_integrity_failed")
+            failure_reasons.extend(autolight_eval.get("mismatch_samples", []))
+        if not assign_route_ok:
+            failure_reasons.append("assign_route_completion_failed")
+            failure_reasons.extend(assign_route_eval.get("mismatch_samples", []))
+        if not kpi_eval["pass"]:
+            failure_reasons.append("kpi_checks_failed")
+        if not kpi_any_eval["pass"]:
+            failure_reasons.append("kpi_checks_any_failed")
+        if not golden_cmp["pass"]:
+            failure_reasons.append("golden_comparison_failed")
 
         road_kpi = {
             "lane_id_start": kpi.get("lane_id_start"),
@@ -695,6 +2004,18 @@ def main() -> int:
             "hit_forbidden_patterns": hit_forbidden,
             "kpi_checks": kpi_eval,
             "kpi_checks_any": kpi_any_eval,
+            "trace_integrity": trace_eval.get("pass", True),
+            "trace_stats": trace_eval.get("stats", {}),
+            "trace_mismatch_samples": trace_eval.get("mismatch_samples", []),
+            "light_mapping_integrity": f02_light_eval.get("pass", True),
+            "light_mapping_stats": f02_light_eval.get("stats", {}),
+            "light_mapping_mismatch_samples": f02_light_eval.get("mismatch_samples", []),
+            "autolight_integrity": autolight_eval.get("pass", True),
+            "autolight_stats": autolight_eval.get("stats", {}),
+            "autolight_mismatch_samples": autolight_eval.get("mismatch_samples", []),
+            "assign_route_completion_integrity": assign_route_eval.get("pass", True),
+            "assign_route_completion_stats": assign_route_eval.get("stats", {}),
+            "assign_route_completion_mismatch_samples": assign_route_eval.get("mismatch_samples", []),
             "kpi": kpi,
             "golden": golden_cmp,
             "road_kpi": road_kpi,
@@ -702,10 +2023,12 @@ def main() -> int:
             "required_modules_cpp": feat.get("required_modules_cpp", []),
             "required_modules_py": feat.get("required_modules_py", []),
             "validation_points": feat.get("validation_points", []),
+            "validation_goal": feat.get("validation_goal", ""),
             "expected_behavior_nl": expected_behavior_nl,
             "judgement_criteria_nl": judgement_criteria_nl,
             "video": read_video_info(fdir),
             "driverscript": read_driverscript_info(fdir),
+            "failure_reasons": failure_reasons,
         }
 
         if args.update_golden:
@@ -721,6 +2044,7 @@ def main() -> int:
         "run_dir": str(run_dir),
         "feature_count": len(results),
         "passed_count": sum(1 for r in results if r["pass"]),
+        "video_config": video_config,
         "results": results,
     }
 

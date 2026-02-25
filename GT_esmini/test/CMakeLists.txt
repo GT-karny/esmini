@@ -24,6 +24,40 @@ target_include_directories(${UNIT_TEST_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini/include
 )
 
+# PythonDriver Unit Tests (requires Python3::Python target from parent CMakeLists.txt)
+if(TARGET Python3::Python)
+    set(PYTHONDRIVER_TEST_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/pythondriver/test_PythonDriverBridgeLink.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/pythondriver/test_PythonDriverBridge.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/pythondriver/test_DataFlow.cpp
+    )
+    set(PYTHONDRIVER_TEST_TARGET test_PythonDriverBridge)
+
+    unittest(${PYTHONDRIVER_TEST_TARGET} "${PYTHONDRIVER_TEST_SOURCES}"
+        ${TARGET_STATIC}
+        ScenarioEngine
+        CommonMini
+        RoadManager
+        Python3::Python
+        ${FMT_LIBRARIES}
+    )
+
+    target_include_directories(${PYTHONDRIVER_TEST_TARGET} PRIVATE
+        ${CMAKE_SOURCE_DIR}/GT_esmini/include
+    )
+
+    target_compile_definitions(${PYTHONDRIVER_TEST_TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
+
+    # Add GT_EMBEDDED_PYTHON_HOME if available (for embedded Python path in tests)
+    set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
+    if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+        target_compile_definitions(${PYTHONDRIVER_TEST_TARGET} PRIVATE
+            GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
+    endif()
+
+    message(STATUS "GT_esmini: Added ${PYTHONDRIVER_TEST_TARGET} (embedded Python tests)")
+endif()
+
 # Integration Test Loader
 set(LOADER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/integration/GT_Loader.cpp

@@ -197,13 +197,15 @@ void GT_HostVehicleReporter::LoadConfig(const std::string& config_file)
         parse_int("udp_port", config_.udp_port);
         parse_bool("enable_host_vehicle_data", config_.enabled);
         parse_str("target_ip", config_.target_ip);
+        parse_str("target_vehicle", config_.target_vehicle);
     }
 
-    LOG_INFO("GT_HostVehicleReporter: Config loaded: steering_ratio={}, udp_port={}, target_ip={}, enabled={}",
+    LOG_INFO("GT_HostVehicleReporter: Config loaded: steering_ratio={}, udp_port={}, target_ip={}, enabled={}, target_vehicle={}",
              config_.steering_input_to_wheel_ratio,
              config_.udp_port,
              config_.target_ip,
-             config_.enabled);
+             config_.enabled,
+             config_.target_vehicle.empty() ? "(default: index 0)" : config_.target_vehicle);
 }
 
 void GT_HostVehicleReporter::SetInputs(int vehicle_id, double throttle, double brake, double steering, int gear)
@@ -298,7 +300,13 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
         }
     }
 
-    // 1. Location (position, velocity, orientation) - Always OVERWRITE base data simulation state
+    // 1. Timestamp
+    auto* ts = hv_data.mutable_timestamp();
+    double sim_time = egoState->state_.info.timeStamp;
+    ts->set_seconds(static_cast<int64_t>(sim_time));
+    ts->set_nanos(static_cast<int32_t>((sim_time - static_cast<int64_t>(sim_time)) * 1e9));
+
+    // 2. Location (position, velocity, orientation) - Always OVERWRITE base data simulation state
     auto* location = hv_data.mutable_location();
 
     location->mutable_position()->set_x(egoState->state_.pos.GetX());
@@ -322,11 +330,10 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
     }
 
     // 3. Vehicle inputs (steering, throttle, brake, gear)
-    // Only if NOT using base data or if we want to force overrides?
-    // If using base data, we assume base data + controller injection is correct.
-    // If NOT using base data (legacy path), we construct from cache.
-    
-    if (!has_base && input_cache_.count(vehicle_id) > 0)
+    // GT_Step always populates input_cache_ via SetInputs/SetPowertrain for ALL
+    // controller types (DefaultController estimator, RealDriver, PythonDriver).
+    // Always apply these overrides so the HVD message reflects the latest values.
+    if (input_cache_.count(vehicle_id) > 0)
     {
         auto& input = input_cache_[vehicle_id];
 
@@ -344,6 +351,8 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
         brake_system->set_pedal_position_brake(input.brake);  // [0, 1]
 
         // Engine/Motor data (OSI v10: motor is repeated field)
+        // Clear existing motors first (base_data may have stale entries)
+        powertrain->clear_motor();
         if (input.rpm > 0.0 || input.torque != 0.0)
         {
             auto* motor = powertrain->add_motor();
@@ -354,29 +363,21 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
     }
 
     // 4. ADAS functions
-    // If has_base, ADAS functions are likely already in hv_data from python.
-    // However, if we added extra via AddADASFunction API, we might want to append?
-    // Current usage seems to favor HVD fully driving it if present.
-    // But for legacy compatibility or hybrid use, we should add if not present.
-    // For now, let's assume if base_data is present, it claims full ADAS state ownership, 
-    // OR we append `input.adas_functions` if they differ.
-    // Given the prompt "Python sends HostVehicleData wholly", we rely on hv_data.
-    
-    if (!has_base && input_cache_.count(vehicle_id) > 0)
+    // GT_Step populates ADAS via AddADASFunction for all controller types.
+    // Always apply input_cache_ ADAS functions (replaces any from base_data).
+    if (input_cache_.count(vehicle_id) > 0)
     {
         auto& input = input_cache_[vehicle_id];
-        for (const auto& func : input.adas_functions)
+        if (!input.adas_functions.empty())
         {
-            auto* adas_func = hv_data.add_vehicle_automated_driving_function();
-
-            // Map function name to OSI enum
-            // For now, use NAME_OTHER and store custom name
-            adas_func->set_name(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER);
-            adas_func->set_custom_name(func.name);
-
-            // Set state based on integer state
-            // Cast int to proper OSI Enum type
-            adas_func->set_state(static_cast<osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State>(func.state));
+            hv_data.clear_vehicle_automated_driving_function();
+            for (const auto& func : input.adas_functions)
+            {
+                auto* adas_func = hv_data.add_vehicle_automated_driving_function();
+                adas_func->set_name(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER);
+                adas_func->set_custom_name(func.name);
+                adas_func->set_state(static_cast<osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State>(func.state));
+            }
         }
     }
 

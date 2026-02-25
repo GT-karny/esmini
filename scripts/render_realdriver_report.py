@@ -27,6 +27,16 @@ def main() -> int:
         raise FileNotFoundError(f"summary.json not found: {summary_path}")
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    video_cfg = summary.get("video_config", {}) or {}
+    video_cfg_text = ""
+    if video_cfg.get("enabled"):
+        video_cfg_text = (
+            f"Video mode: {video_cfg.get('mode', '-')}, "
+            f"encoder: {video_cfg.get('encoder_resolved', video_cfg.get('encoder_requested', '-'))}, "
+            f"fps: {video_cfg.get('output_fps', '-')}, "
+            f"jobs: {video_cfg.get('parallel_jobs', '-')}, "
+            f"policy: {video_cfg.get('generate_for', '-')}"
+        )
 
     rows = []
     for r in summary.get("results", []):
@@ -38,6 +48,17 @@ def main() -> int:
         kpi_checks_any = r.get("kpi_checks_any", {}) or {}
         kpi_check_any_details = kpi_checks_any.get("details", []) or []
         validation_points = r.get("validation_points", [])
+        validation_goal = str(r.get("validation_goal", "") or "")
+        failure_reasons = r.get("failure_reasons", [])
+        trace_integrity = bool(r.get("trace_integrity", True))
+        trace_stats = r.get("trace_stats", {}) or {}
+        trace_mismatch = r.get("trace_mismatch_samples", []) or []
+        light_mapping_integrity = bool(r.get("light_mapping_integrity", True))
+        light_mapping_stats = r.get("light_mapping_stats", {}) or {}
+        light_mapping_mismatch = r.get("light_mapping_mismatch_samples", []) or []
+        autolight_integrity = bool(r.get("autolight_integrity", True))
+        autolight_stats = r.get("autolight_stats", {}) or {}
+        autolight_mismatch = r.get("autolight_mismatch_samples", []) or []
         points_text = render_list_cell(validation_points)
         expected_behavior = r.get("expected_behavior_nl") or validation_points
         judgement_criteria = r.get("judgement_criteria_nl", [])
@@ -45,6 +66,7 @@ def main() -> int:
         judgement_criteria_text = render_list_cell(judgement_criteria)
 
         road_kpi = r.get("road_kpi", {}) or {}
+        full_kpi = r.get("kpi", {}) or {}
         road_summary_parts = []
         if road_kpi.get("lane_id_end") is not None:
             road_summary_parts.append(f"lane_end={road_kpi.get('lane_id_end')}")
@@ -54,6 +76,12 @@ def main() -> int:
             road_summary_parts.append(f"s_progress={float(road_kpi.get('s_progress_m')):.2f}m")
         if road_kpi.get("t_abs_max_m") is not None:
             road_summary_parts.append(f"|t|max={float(road_kpi.get('t_abs_max_m')):.2f}m")
+        if full_kpi.get("scenario_stop_reason") is not None:
+            road_summary_parts.append(f"stop_reason={full_kpi.get('scenario_stop_reason')}")
+        if full_kpi.get("assign_route_waypoint_validity_pass") is not None:
+            road_summary_parts.append(
+                f"waypoint_valid={full_kpi.get('assign_route_waypoint_validity_pass')}"
+            )
         road_summary = "<br/>".join(esc(s) for s in road_summary_parts) if road_summary_parts else "-"
         kpi_failed = [d for d in kpi_check_details if not d.get("pass", True)]
         kpi_any_failed = [d for d in kpi_check_any_details if not d.get("pass", True)]
@@ -99,6 +127,44 @@ def main() -> int:
                 kpi_text_parts.append(f"{metric}: actual={actual} (expect {constraint_text})")
 
         kpi_text = "<br/>".join(esc(x) for x in kpi_text_parts) if kpi_text_parts else "PASS"
+        trace_text = "-"
+        if r.get("id") == "F01":
+            if trace_integrity:
+                trace_text = "PASS"
+            else:
+                trace_text = "FAIL"
+            if trace_stats:
+                trace_text += "<br/>" + esc(
+                    f"cpp={trace_stats.get('cpp_to_py_count', '-')}, py={trace_stats.get('py_to_cpp_count', '-')}, script={trace_stats.get('python_trace_count', '-')}"
+                )
+            if trace_mismatch:
+                trace_text += "<br/>" + "<br/>".join(esc(str(x)) for x in trace_mismatch[:3])
+        light_mapping_text = "-"
+        if r.get("id") == "F02":
+            light_mapping_text = "PASS" if light_mapping_integrity else "FAIL"
+            if light_mapping_stats:
+                light_mapping_text += "<br/>" + esc(
+                    f"match={light_mapping_stats.get('match_count', '-')}/{light_mapping_stats.get('total_samples', '-')}"
+                )
+            if light_mapping_mismatch:
+                light_mapping_text += "<br/>" + "<br/>".join(esc(str(x)) for x in light_mapping_mismatch[:3])
+        autolight_text = "-"
+        if r.get("id") in ("F03A", "F03B"):
+            autolight_text = "PASS" if autolight_integrity else "FAIL"
+            if autolight_stats:
+                stat_parts = []
+                if autolight_stats.get("reverse_window_samples") is not None:
+                    stat_parts.append(f"reverse_samples={autolight_stats.get('reverse_window_samples', '-')}")
+                if autolight_stats.get("braking_window_samples") is not None:
+                    stat_parts.append(f"brake_samples={autolight_stats.get('braking_window_samples', '-')}")
+                if autolight_stats.get("junction_events") is not None:
+                    stat_parts.append(f"junction_events={autolight_stats.get('junction_events', '-')}")
+                if autolight_stats.get("expected_indicator_side") is not None:
+                    stat_parts.append(f"expected_side={autolight_stats.get('expected_indicator_side', '-')}")
+                if stat_parts:
+                    autolight_text += "<br/>" + esc(", ".join(stat_parts))
+            if autolight_mismatch:
+                autolight_text += "<br/>" + "<br/>".join(esc(str(x)) for x in autolight_mismatch[:3])
 
         fid = r.get("id")
         video = r.get("video", {}) or {}
@@ -137,11 +203,16 @@ def main() -> int:
             f"<td>{status}</td>"
             f"<td>{video_cell}</td>"
             f"<td>{driver_cell}</td>"
+            f"<td>{esc(validation_goal) if validation_goal else '-'}</td>"
             f"<td>{expected_behavior_text}</td>"
             f"<td>{judgement_criteria_text}</td>"
             f"<td>{points_text}</td>"
             f"<td>{road_summary}</td>"
+            f"<td>{trace_text}</td>"
+            f"<td>{light_mapping_text}</td>"
+            f"<td>{autolight_text}</td>"
             f"<td>{kpi_text}</td>"
+            f"<td>{render_list_cell(failure_reasons)}</td>"
             f"<td>{esc(miss)}</td>"
             f"<td>{esc(forb)}</td>"
             "</tr>"
@@ -165,6 +236,7 @@ def main() -> int:
   <h1>RealDriver Feature Report</h1>
   <p>Overall: <b>{'PASS' if summary.get('overall_pass') else 'FAIL'}</b></p>
   <p>Passed: {summary.get('passed_count')}/{summary.get('feature_count')}</p>
+  <p>{esc(video_cfg_text) if video_cfg_text else ''}</p>
   <table>
     <thead>
       <tr>
@@ -173,11 +245,16 @@ def main() -> int:
         <th>Status</th>
         <th>Video</th>
         <th>DriverScript</th>
+        <th>Validation Goal</th>
         <th>期待挙動（自然言語）</th>
         <th>判定基準（自然言語+数値）</th>
         <th>検証観点</th>
         <th>Road KPI要約</th>
+        <th>Trace Integrity</th>
+        <th>Light Mapping Integrity</th>
+        <th>AutoLight Integrity</th>
         <th>KPI Checks</th>
+        <th>Failure Reasons</th>
         <th>Missing Required</th>
         <th>Forbidden Hits</th>
       </tr>

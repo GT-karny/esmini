@@ -106,6 +106,29 @@ static void RenameCapturedFramesIfNeeded(const std::string& prefix)
 
 int main(int argc, const char* argv[])
 {
+    std::cout << "GT_Sim build: PythonDriverController=ENABLED" << std::endl;
+
+    const bool helpRequested = HasOption(argc, argv, "--help") || HasOption(argc, argv, "-h");
+    const bool hasOsc = HasOption(argc, argv, "--osc");
+
+    if (helpRequested && !hasOsc)
+    {
+        printf("Usage: GT_Sim --osc <osc filename> [options]\n");
+        printf("GT_Sim-specific options:\n");
+        printf("  --autolight          Enable AutoLight functionality\n");
+        printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
+        printf("  --osi <ip>           Enable OSI output to specified IP\n");
+        printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
+        printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
+        printf("  --video_capture      Enable direct frame capture in GT_Sim\n");
+        printf("  --video_window <w h> Capture window size (default: 1280 720)\n");
+        printf("  --video_headless     Run capture in headless mode (default: true)\n");
+        printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
+        printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
+        printf("\nSee esmini --help for engine options.\n");
+        return 0;
+    }
+
     if (argc < 2)
     {
         printf("Usage: GT_Sim --osc <osc filename> [options]\n");
@@ -113,6 +136,7 @@ int main(int argc, const char* argv[])
         printf("  --autolight          Enable AutoLight functionality\n");
         printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
         printf("  --osi <ip>           Enable OSI output to specified IP\n");
+        printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
         printf("  --video_capture      Enable direct frame capture in GT_Sim\n");
         printf("  --video_window <w h> Capture window size (default: 1280 720)\n");
         printf("  --video_headless     Run capture in headless mode (default: true)\n");
@@ -222,12 +246,13 @@ int main(int argc, const char* argv[])
     // 4. Frequency Control (default 100Hz)
     double frequency = 100.0;
     const char* hzStr = GetOptionValue(argc, argv, "--hz");
+    const bool noRealtime = HasOption(argc, argv, "--no_realtime");
     if (hzStr)
     {
         frequency = std::stod(hzStr);
         if (frequency <= 0.0) frequency = 100.0;
     }
-    printf("GT_Sim: Running at %.1f Hz\n", frequency);
+    printf("GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", frequency, noRealtime ? "OFF" : "ON");
 
     bool captureRequested = video.enabled;
     bool captureStarted = false;
@@ -274,33 +299,36 @@ int main(int argc, const char* argv[])
             captureRequested = false;
         }
 
-        // Real-time pacing
-        next_target_time += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(dt));
-        auto now = Clock::now();
-
-        if (now > next_target_time)
+        if (!noRealtime)
         {
-            // We are late
-            auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(now - next_target_time).count();
-            
-            // Count delayed frames if delay is significant (>2ms)
-            if (delay > 2) 
-            {
-                delayed_frames++;
-            }
+            // Real-time pacing
+            next_target_time += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(dt));
+            auto now = Clock::now();
 
-            // If the delay is huge, we might want to reset.
-            if (delay > 1000) 
+            if (now > next_target_time)
             {
-                // Only log critical slips
-                printf("GT_Sim Warning: Huge delay (>1s), resyncing clock.\n");
-                next_target_time = now;
+                // We are late
+                auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(now - next_target_time).count();
+                
+                // Count delayed frames if delay is significant (>2ms)
+                if (delay > 2) 
+                {
+                    delayed_frames++;
+                }
+
+                // If the delay is huge, we might want to reset.
+                if (delay > 1000) 
+                {
+                    // Only log critical slips
+                    printf("GT_Sim Warning: Huge delay (>1s), resyncing clock.\n");
+                    next_target_time = now;
+                }
             }
-        }
-        else
-        {
-            // Sleep until next target
-            std::this_thread::sleep_until(next_target_time);
+            else
+            {
+                // Sleep until next target
+                std::this_thread::sleep_until(next_target_time);
+            }
         }
     }
 

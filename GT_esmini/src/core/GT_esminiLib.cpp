@@ -28,10 +28,15 @@
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
+#include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
+#include "gt_esmini/osi/HVDEstimator.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
+
+// File-scope HVD estimator for non-GT-controller vehicles
+static gt_esmini::HVDEstimator s_hvdEstimator;
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -144,27 +149,13 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
         {
             pugi::xml_node next = child.next_sibling();
             std::string name = child.name();
-            if (name == "AppearanceAction" || name == "ParameterDeclarations" && node.name() == "Private") 
+            if (name == "AppearanceAction")
             {
-                // Note: Removing ParameterDeclarations inside Private? No, just AppearanceAction.
-                // Re-aligned logic. Only AppearanceAction causes error in standard reader (PrivateAction).
-                if(name == "AppearanceAction") {
-                    node.remove_child(child);
-                } else {
-                    stripUnsupported(child);
-                }
+                node.remove_child(child);
             }
-            else // Not AppearanceAction
+            else
             {
-                // Specifically look for it.
-                if (name == "AppearanceAction")
-                {
-                    node.remove_child(child);
-                }
-                else
-                {
-                    stripUnsupported(child);
-                }
+                stripUnsupported(child);
             }
             child = next;
         }
@@ -213,12 +204,13 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
          return -1;
     }
 
-    // 1.5 Register Custom Controller
+    // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized file
-    int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0); 
-    
+    int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
+
     // Clean up temp file
     std::remove(sanitizedFile.c_str()); 
 
@@ -357,6 +349,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--autolight-egoless") == 0 ||
                       strcmp(argv[i], "--osi") == 0 ||
                       strcmp(argv[i], "--hz") == 0 ||
+                      strcmp(argv[i], "--no_realtime") == 0 ||
                       strcmp(argv[i], "--video_capture") == 0 ||
                       strcmp(argv[i], "--video_headless") == 0 ||
                       strcmp(argv[i], "--video_window") == 0 ||
@@ -401,12 +394,13 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         for(int i=0; i<argc; i++) newArgv.push_back(argv[i]);
     }
 
-    // 1.5 Register Custom Controller
+    // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
-    int ret = SE_InitWithArgs(newArgv.size(), newArgv.data());
+    int ret = SE_InitWithArgs(static_cast<int>(newArgv.size()), newArgv.data());
     std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
     
     // Clean up temp file (or keep for debug?)
@@ -517,7 +511,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step
-    SE_StepDT(dt);
+    SE_StepDT(static_cast<float>(dt));
 
     // Update AutoLight
     AutoLightManager::Instance().Update(dt);
@@ -529,8 +523,37 @@ GT_ESMINI_API void GT_Step(double dt)
     {
         auto& hvReporter = gt_esmini::GT_HostVehicleReporter::Instance();
 
-        // Get ego vehicle (first object) via ScenarioGateway
-        ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+        // Resolve target vehicle: by name from config, or default to index 0
+        ObjectState* egoState = nullptr;
+        const auto& targetName = hvReporter.GetTargetVehicle();
+        if (!targetName.empty())
+        {
+            int numObjects = player->scenarioGateway->getNumberOfObjects();
+            for (int i = 0; i < numObjects; i++)
+            {
+                ObjectState* state = player->scenarioGateway->getObjectStatePtrByIdx(i);
+                if (state && std::string(state->state_.info.name) == targetName)
+                {
+                    egoState = state;
+                    break;
+                }
+            }
+            if (!egoState)
+            {
+                static bool warnedOnce = false;
+                if (!warnedOnce)
+                {
+                    LOG_WARN("GT_Step: target_vehicle '{}' not found, falling back to index 0", targetName);
+                    warnedOnce = true;
+                }
+                egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+            }
+        }
+        else
+        {
+            egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+        }
+
         if (egoState)
         {
             int vehicleId = egoState->state_.info.id;
@@ -538,38 +561,37 @@ GT_ESMINI_API void GT_Step(double dt)
             // Clear ADAS functions from previous frame
             hvReporter.ClearADASFunctions(vehicleId);
 
-            // Try to get RealDriverController and pass input data to HostVehicleReporter
+            // Try to get RealDriverController (or PythonDriverController) and pass input data to HostVehicleReporter
             Object* egoObject = player->scenarioEngine->entities_.GetObjectById(vehicleId);
             if (egoObject)
             {
                 Controller* ctrl = egoObject->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME);
+                if (!ctrl)
+                {
+                    ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
+                }
                 if (ctrl)
                 {
-                    // Cast to RealDriverController
-                    gt_esmini::ControllerRealDriver* realDriver =
-                        dynamic_cast<gt_esmini::ControllerRealDriver*>(ctrl);
+                    auto pushControllerState = [&](auto* concreteCtrl) {
+                        if (!concreteCtrl)
+                        {
+                            return;
+                        }
 
-                    if (realDriver)
-                    {
-                        // Get input data from controller
                         double throttle, brake, steering;
                         int gear, lightMask;
-                        realDriver->GetInputsForOSI(throttle, brake, steering, gear, lightMask);
+                        concreteCtrl->GetInputsForOSI(throttle, brake, steering, gear, lightMask);
 
-                        // Get powertrain data
                         double rpm, torque;
-                        realDriver->GetPowertrainForOSI(rpm, torque);
+                        concreteCtrl->GetPowertrainForOSI(rpm, torque);
 
-                        // Pass to GT_HostVehicleReporter
                         hvReporter.SetInputs(vehicleId, throttle, brake, steering, gear);
                         hvReporter.SetLights(vehicleId, lightMask);
                         hvReporter.SetPowertrain(vehicleId, rpm, torque);
 
-                        // Get and pass ADAS data (OSI compliant function names)
                         std::vector<int> adasStates;
-                        realDriver->GetADASStates(adasStates);
+                        concreteCtrl->GetADASStates(adasStates);
 
-                        // Map bits to OSI ADAS function names (24 types based on OSI VehicleAutomatedDrivingFunction_Name)
                         static const char* adasNames[] = {
                             "BLIND_SPOT_WARNING",                  // 0
                             "FORWARD_COLLISION_WARNING",           // 1
@@ -597,22 +619,36 @@ GT_ESMINI_API void GT_Step(double dt)
                             "SPEED_LIMIT_CONTROL",                 // 23
                         };
 
-                        // Process states if vector is populated
                         if (adasStates.size() >= 24)
                         {
                             for (int i = 0; i < 24; i++)
                             {
-                                int state = adasStates[i];
-                                // Report if state is relevant (e.g., typically we report everything, 
-                                // but 0=UNKNOWN could be skipped if desired. For full visibility, report all.)
-                                hvReporter.AddADASFunction(vehicleId, adasNames[i], state);
+                                hvReporter.AddADASFunction(vehicleId, adasNames[i], adasStates[i]);
                             }
                         }
+                    };
+
+                    if (auto* realDriver = dynamic_cast<gt_esmini::ControllerRealDriver*>(ctrl))
+                    {
+                        pushControllerState(realDriver);
                     }
+                    else if (auto* pythonDriver = dynamic_cast<gt_esmini::ControllerPythonDriver*>(ctrl))
+                    {
+                        pushControllerState(pythonDriver);
+                    }
+                }
+                else
+                {
+                    // No GT custom controller: estimate HVD from observable vehicle state
+                    auto estimated = s_hvdEstimator.Estimate(egoObject, dt);
+                    hvReporter.SetInputs(vehicleId, estimated.throttle, estimated.brake,
+                                         estimated.steering, estimated.gear);
+                    hvReporter.SetLights(vehicleId, estimated.lightMask);
+                    hvReporter.SetPowertrain(vehicleId, estimated.rpm, estimated.torque);
                 }
             }
 
-            // Update HostVehicleData for ego vehicle and send
+            // Update HostVehicleData for target vehicle and send
             hvReporter.UpdateFromObjectState(egoState);
             hvReporter.Send();
         }
@@ -627,6 +663,7 @@ GT_ESMINI_API void GT_EnableAutoLight()
 
 GT_ESMINI_API void GT_Close()
 {
+    s_hvdEstimator.Reset();
     AutoLightManager::Instance().Close();
     SE_Close();
 }

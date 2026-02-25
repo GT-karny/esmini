@@ -16,7 +16,8 @@ void RealDriverCoordinator::RunFrame(ControllerRealDriver& controller, double ti
     controller.driver_input_receiver_->Receive(controller);
     controller.vehicle_state_updater_->UpdatePhysics(controller, time_step);
 
-    const auto lon_profile = controller.lon_profile_planner_->BuildProfile(controller.currentSpeed_, controller.setSpeed_);
+    controller.lon_profile_planner_->Advance(time_step, controller.setSpeed_);
+    const auto lon_profile = controller.lon_profile_planner_->BuildProfile(controller.currentSpeed_);
     controller.driver_output_port_->SendLonProfile(controller, lon_profile);
 
     controller.MaybeSendWaypoints();

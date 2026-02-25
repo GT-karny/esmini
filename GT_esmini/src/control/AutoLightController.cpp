@@ -92,6 +92,11 @@ namespace gt_esmini
 
     void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)
     {
+        if (lightExt_->IsManualOverride(VehicleLightType::BRAKE_LIGHTS))
+        {
+            return;
+        }
+
         // 1. Calculate raw acceleration
         double rawAcc = 0.0;
         if (dt > 0.0001)
@@ -116,7 +121,6 @@ namespace gt_esmini
         speedHistory_.push_back({dt, currentSpeed});
         
         // Clean up old history (> BRAKE_EVENT_WINDOW + margin)
-        double totalHistoryTime = 0.0;
         // Iterate reverse to sum up time? No, forward.
         // But popping front is hard if we don't track total.
         // Let's just pop until total time is less than say 0.5s?
@@ -200,6 +204,11 @@ namespace gt_esmini
 
     void AutoLightController::UpdateReversingLights()
     {
+        if (lightExt_->IsManualOverride(VehicleLightType::REVERSING_LIGHTS))
+        {
+            return;
+        }
+
         double speed = vehicle_->GetSpeed();
         // Check local speed or gear?
         // OpenSCENARIO usually handles positive speed even for reverse if direction is handled elsewhere?
@@ -238,6 +247,13 @@ namespace gt_esmini
 
     void AutoLightController::UpdateIndicators(double dt)
     {
+        const bool manual_left  = lightExt_->IsManualOverride(VehicleLightType::INDICATOR_LEFT);
+        const bool manual_right = lightExt_->IsManualOverride(VehicleLightType::INDICATOR_RIGHT);
+        if (manual_left || manual_right)
+        {
+            return;
+        }
+
         // Inputs
         double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
         id_t junctionId = vehicle_->pos_.GetJunctionId();
@@ -545,9 +561,9 @@ namespace gt_esmini
              
              bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == 1); // 1 = Left
              // Safe ID check
-             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
+             bool inJunctionNow = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
 
-             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
+             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunctionNow)
              {
                   centerHoldTimer_ += dt;
              }
@@ -600,9 +616,9 @@ namespace gt_esmini
              // 3. Turn OFF?
              bool waitingAtJunction = (DetectJunctionTurn(JUNCTION_LOOKAHEAD) == -1); // -1 = Right
              // Safe ID check
-             bool inJunction = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
+             bool inJunctionNow = (vehicle_ && vehicle_->pos_.GetJunctionId() != static_cast<id_t>(-1));
 
-             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunction)
+             if (std::abs(t) < T_CENTER_EPS && !waitingAtJunction && !inJunctionNow)
              {
                   centerHoldTimer_ += dt;
              }
@@ -706,9 +722,6 @@ namespace gt_esmini
                 }
             }
         }
-
-        // junctionId check (unsigned -1 protection)
-        const bool probeInJunction = (info.road_lane_info.junctionId != NO_JUNCTION_ID);
 
         // Only proceed if we have made a junction choice (probe is on the connecting road)
         static constexpr int PROBE_MADE_JUNCTION_CHOICE = 2;

@@ -11,12 +11,12 @@ from setuptools import setup, find_packages
 setup(
     name="realdriver",
     version="1.0.0",
-    description="UDP client and utilities for controlling esmini RealDriverController",
+    description="Python controllers and utilities for esmini (pythondriver embedded + realdriver legacy)",
     author="GT_esmini Team",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
-        "protobuf>=6.30.2",
+        "protobuf>=5.26.0",
         "logidrivepy",
     ],
     extras_require={

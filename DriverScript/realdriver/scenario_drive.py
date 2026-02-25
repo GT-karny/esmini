@@ -14,14 +14,13 @@ import math
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
-from .waypoint import Waypoint, WaypointManager
+from .waypoint import Waypoint
 from .rm_lib import EsminiRMLib
 from .gt_rm_lib import GTEsminiRMLib
 from .simplified_router import SimplifiedRouter
-from .vehicle_state import VehicleState, VehicleStateExtractor
+from .vehicle_state import VehicleStateExtractor
 from .lateral_controller import LateralController, LateralConfig, LaneChangeState
 from .longitudinal_controller import LongitudinalController, LongitudinalConfig
-from .udp_receivers import WaypointReceiver, LongitudinalProfileReceiver
 
 try:
     from osi3.osi_groundtruth_pb2 import GroundTruth
@@ -61,7 +60,7 @@ class ScenarioDriveController:
     - Waypoint following (lateral control)
     - Speed control (longitudinal control)
     - Explicit lane change handling
-    - Multiple waypoint sources (user, calculated, UDP)
+    - Embedded frame waypoints and longitudinal profile handling
 
     For new code, consider using the individual controllers directly:
 
@@ -83,11 +82,13 @@ class ScenarioDriveController:
                  waypoint_port: int = 54996,
                  gt_lib_path: Optional[str] = None,
                  steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
-                 speed_pid: Tuple[float, float, float] = (0.8, 0.02, 0.1),
+                 speed_pid: Optional[Tuple[float, float, float]] = None,
                  lane_change_time: float = 5.0,
                  lookahead_distance: float = 5.0,
                  steering_config: Optional[LateralConfig] = None,
-                 allow_reverse_from_profile: bool = False):
+                 longitudinal_config: Optional[LongitudinalConfig] = None,
+                 allow_reverse_from_profile: bool = False,
+                 mode: str = "embedded"):
         """
         Initialize ScenarioDriveController.
 
@@ -95,15 +96,22 @@ class ScenarioDriveController:
             lib_path: Path to esminiRMLib.dll
             xodr_path: Path to OpenDRIVE map file (.xodr)
             ego_id: Object ID of the ego vehicle in OSI GroundTruth
-            target_speed_port: UDP port for receiving target speed
-            waypoint_port: UDP port for receiving waypoints from esmini
+            target_speed_port: Deprecated, ignored in embedded mode
+            waypoint_port: Deprecated, ignored in embedded mode
             gt_lib_path: Path to GT_esminiLib.dll (optional, for routing)
             steering_pid: PID gains for steering (kp, ki, kd) - ignored, use steering_config
-            speed_pid: PID gains for speed control (kp, ki, kd)
+            speed_pid: Deprecated. Use longitudinal_config instead.
             lane_change_time: Time to complete a lane change (seconds)
             lookahead_distance: Lookahead distance for steering (meters) - ignored, use steering_config
             steering_config: Steering tuning parameters (uses defaults if None)
+            longitudinal_config: Longitudinal tuning parameters including PID + feedforward (uses defaults if None)
         """
+        if mode != "embedded":
+            raise ValueError(
+                f"Unsupported mode: {mode}. ScenarioDriveController is embedded-only."
+            )
+        self.mode = "embedded"
+
         # Initialize RoadManager
         self.rm_lib = EsminiRMLib(lib_path)
         if self.rm_lib.Init(xodr_path) < 0:
@@ -136,17 +144,19 @@ class ScenarioDriveController:
             config=lateral_config
         )
 
-        self.longitudinal = LongitudinalController(
-            config=LongitudinalConfig(
+        # Longitudinal controller: use explicit config, or build from legacy speed_pid, or use defaults
+        if longitudinal_config is not None:
+            lon_config = longitudinal_config
+        elif speed_pid is not None:
+            lon_config = LongitudinalConfig(
                 pid_kp=speed_pid[0],
                 pid_ki=speed_pid[1],
                 pid_kd=speed_pid[2]
             )
-        )
+        else:
+            lon_config = LongitudinalConfig()
 
-        # UDP receivers
-        self._lon_profile_receiver = LongitudinalProfileReceiver(target_speed_port)
-        self._waypoint_receiver = WaypointReceiver(waypoint_port)
+        self.longitudinal = LongitudinalController(config=lon_config)
 
         # State
         self.ego_id = ego_id
@@ -155,8 +165,10 @@ class ScenarioDriveController:
         self._last_ego_pos: Optional[Waypoint] = None
         self._no_route_warned = False
         self._pending_target: Optional[Waypoint] = None
-        self._last_udp_waypoint_sig = None
+        self._last_embedded_waypoint_sig = None
+        self._last_embedded_waypoint_generation_version: Optional[int] = None
         self.allow_reverse_from_profile = allow_reverse_from_profile
+        self._embedded_frame_data = None
 
         # For backward compatibility
         self.waypoint_mgr = self.lateral.waypoint_mgr
@@ -197,31 +209,22 @@ class ScenarioDriveController:
         self.longitudinal.set_target_speed(speed)
 
     def _receive_target_speed(self) -> None:
-        """Receive longitudinal profile from UDP and pick current target speed."""
-        profile = self._lon_profile_receiver.receive_all()
+        """Receive longitudinal profile from embedded frame payload."""
+        if not self._embedded_frame_data:
+            return
+
+        profile = self._embedded_frame_data.get("lon_profile", []) or []
         if profile:
-            # Use the terminal speed of the profile as control target.
-            # profile[0] is the current-speed anchor and causes target~=current.
-            speed = profile[-1].v_target
+            # Use final profile point (= C++ smoothed target, already ramped)
+            speed = profile[-1].get("v_target", self.target_speed)
             if not self.allow_reverse_from_profile and speed < 0.0:
                 speed = 0.0
-            if abs(speed - self.target_speed) > 0.1:
-                print(f"[DEBUG_PY] Target speed CHANGED: {self.target_speed:.2f} -> {speed:.2f} m/s")
             self.target_speed = speed
             self.longitudinal.set_target_speed(speed)
 
-    def _receive_waypoints(self) -> None:
-        """Receive waypoints from UDP and generate dense route."""
-        result = self._waypoint_receiver.receive()
-        if result is None:
-            return
-
-        index, waypoints = result
-
-        # Skip if waypoint geometry is unchanged (index-only updates should not trigger replanning).
-        # The signature intentionally ignores currentIndex to avoid per-frame replans.
+    def _build_waypoint_signature(self, waypoints: List[Waypoint]) -> Tuple:
         if not waypoints:
-            return
+            return tuple()
         sample_ids = [0, len(waypoints) // 4, len(waypoints) // 2, (3 * len(waypoints)) // 4, len(waypoints) - 1]
         sig = [len(waypoints)]
         for i in sample_ids:
@@ -235,63 +238,95 @@ class ScenarioDriveController:
                 round(wp.s, 1),
                 round(wp.lane_offset, 2),
             ))
-        sig_tuple = tuple(sig)
-        if sig_tuple == self._last_udp_waypoint_sig:
+        return tuple(sig)
+
+    def _find_closest_index(self, ego_pos: Waypoint, waypoints: List[Waypoint], limit: int = 100) -> int:
+        if not waypoints:
+            return 0
+        min_dist = float("inf")
+        closest_idx = 0
+        for i in range(min(limit, len(waypoints))):
+            d = ego_pos.distance_to(waypoints[i])
+            if d < min_dist:
+                min_dist = d
+                closest_idx = i
+        return closest_idx
+
+    def _receive_waypoints(self) -> None:
+        """Receive waypoints from embedded frame payload and keep route dense."""
+        if not self._embedded_frame_data:
             return
-        self._last_udp_waypoint_sig = sig_tuple
 
-        if self._last_ego_pos and waypoints:
-            # Use UDP index to ignore passed waypoints
-            future_wps = waypoints[index:]
+        frame_waypoints = self._embedded_frame_data.get("waypoints", []) or []
+        if not frame_waypoints:
+            return
 
-            if future_wps:
-                dense_route = self.router.calculate_route_from_waypoints(
-                    self._last_ego_pos, future_wps, step_size=1.0
-                )
+        generation = self._embedded_frame_data.get("waypoint_generation", {}) or {}
+        generation_version = int(generation.get("version", -1))
+        incoming_index = int(self._embedded_frame_data.get("waypoint_index", 0))
+        waypoints = [
+            Waypoint(
+                x=wp.get("x", 0.0),
+                y=wp.get("y", 0.0),
+                h=wp.get("h", 0.0),
+                road_id=wp.get("road_id", -1),
+                s=wp.get("s", 0.0),
+                lane_id=wp.get("lane_id", 0),
+                lane_offset=wp.get("lane_offset", 0.0),
+            )
+            for wp in frame_waypoints
+        ]
+        sig_tuple = self._build_waypoint_signature(waypoints)
+        changed = (
+            self._last_embedded_waypoint_generation_version != generation_version
+            or self._last_embedded_waypoint_sig != sig_tuple
+        )
 
-                if dense_route:
-                    print(f"[INFO] UDP: Generated dense route with {len(dense_route)} waypoints "
-                          f"from {len(future_wps)} sparse WPs")
-                    self.lateral.set_calculated_waypoints(dense_route)
+        if changed:
+            next_waypoints = waypoints
+            next_index = max(0, min(incoming_index, max(0, len(waypoints) - 1)))
 
-                    # Find closest point to snap index
-                    min_dist = float('inf')
-                    closest_idx = 0
-                    check_len = min(100, len(dense_route))
-                    for i in range(check_len):
-                        d = self._last_ego_pos.distance_to(dense_route[i])
-                        if d < min_dist:
-                            min_dist = d
-                            closest_idx = i
-                    self.waypoint_mgr.current_index = closest_idx
-        else:
-            # Fallback if no ego pos yet
-            self.waypoint_mgr.receive_from_udp(self._waypoint_receiver._last_data or b'')
-
-    def _ensure_dense_route(self) -> None:
-        """Ensure dense route is generated if we have sparse UDP waypoints."""
-        if self.waypoint_mgr.source == 'udp' and len(self.waypoint_mgr.waypoints) < 10:
-            if self._last_ego_pos:
-                print(f"[INFO] Late-triggering Dense Route with {len(self.waypoint_mgr.waypoints)} sparse WPs...")
-                idx = self.waypoint_mgr.current_index
-                future_wps = self.waypoint_mgr.waypoints[idx:]
+            # AssignRoute results can be sparse; densify to keep lateral stability.
+            if self._last_ego_pos and len(waypoints) < 20:
+                future_wps = waypoints[next_index:]
                 if future_wps:
                     dense_route = self.router.calculate_route_from_waypoints(
                         self._last_ego_pos, future_wps, step_size=1.0
                     )
-                    if len(dense_route) > len(self.waypoint_mgr.waypoints):
-                        print(f"[INFO] Successfully generated dense route ({len(dense_route)} pts)")
-                        self.lateral.set_calculated_waypoints(dense_route)
+                    if dense_route and len(dense_route) > len(future_wps):
+                        next_waypoints = dense_route
+                        next_index = self._find_closest_index(self._last_ego_pos, next_waypoints)
+                        print(
+                            f"[INFO] Embedded: Generated dense route with {len(dense_route)} waypoints "
+                            f"from {len(future_wps)} sparse WPs"
+                        )
 
-                        # Sync index
-                        min_dist = float('inf')
-                        closest_idx = 0
-                        for i, wp in enumerate(dense_route[:50]):
-                            d = self._last_ego_pos.distance_to(wp)
-                            if d < min_dist:
-                                min_dist = d
-                                closest_idx = i
-                        self.waypoint_mgr.current_index = closest_idx
+            self.lateral.set_calculated_waypoints(next_waypoints)
+            self.waypoint_mgr.current_index = max(0, min(next_index, max(0, len(next_waypoints) - 1)))
+            self._last_embedded_waypoint_sig = sig_tuple
+            self._last_embedded_waypoint_generation_version = generation_version
+            return
+
+        max_index = max(0, len(self.waypoint_mgr.waypoints) - 1)
+        self.waypoint_mgr.current_index = max(0, min(max(self.waypoint_mgr.current_index, incoming_index), max_index))
+
+    def _ensure_dense_route(self) -> None:
+        """Ensure sparse route fallback is densified once ego pose becomes available."""
+        if not self._last_ego_pos:
+            return
+        if len(self.waypoint_mgr.waypoints) >= 10:
+            return
+        idx = max(0, min(self.waypoint_mgr.current_index, max(0, len(self.waypoint_mgr.waypoints) - 1)))
+        future_wps = self.waypoint_mgr.waypoints[idx:]
+        if not future_wps:
+            return
+        dense_route = self.router.calculate_route_from_waypoints(
+            self._last_ego_pos, future_wps, step_size=1.0
+        )
+        if dense_route and len(dense_route) > len(future_wps):
+            print(f"[INFO] Embedded: Late densification ({len(dense_route)} pts)")
+            self.lateral.set_calculated_waypoints(dense_route)
+            self.waypoint_mgr.current_index = self._find_closest_index(self._last_ego_pos, dense_route)
 
     def update(self, ground_truth, dt: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """
@@ -304,12 +339,13 @@ class ScenarioDriveController:
         Returns:
             Tuple of (steering, throttle, brake) or (None, None, None) if no route
         """
-        if dt <= 0:
-            return None, None, None
-
-        # Receive UDP data
+        # Always receive embedded frame data (even when dt=0) so that
+        # waypoints and target speed are ready for the first real step.
         self._receive_waypoints()
         self._receive_target_speed()
+
+        if dt <= 0:
+            return None, None, None
 
         # Extract vehicle state
         state = self.state_extractor.extract(ground_truth)
@@ -364,12 +400,12 @@ class ScenarioDriveController:
 
         return steering, lon_output.throttle, lon_output.brake
 
+    def set_embedded_frame_data(self, frame_data: dict) -> None:
+        """Provide frame payload from PythonDriverBridge in embedded mode."""
+        self._embedded_frame_data = frame_data
+
     def close(self) -> None:
         """Clean up resources."""
-        if hasattr(self, '_lon_profile_receiver') and self._lon_profile_receiver:
-            self._lon_profile_receiver.close()
-        if hasattr(self, '_waypoint_receiver') and self._waypoint_receiver:
-            self._waypoint_receiver.close()
         if hasattr(self, 'rm_lib') and self.rm_lib:
             try:
                 self.rm_lib.Close()

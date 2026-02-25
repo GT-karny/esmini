@@ -117,6 +117,12 @@ public:
     bool IsInitialized() const { return initialized_; }
 
     /**
+     * Get target vehicle name for HVD output.
+     * Empty string means use default (index 0).
+     */
+    const std::string& GetTargetVehicle() const { return config_.target_vehicle; }
+
+    /**
      * Get UDP client status
      * @return 0 if OK, -1 if not available
      */
@@ -148,6 +154,7 @@ private:
         int udp_port = 48199;
         std::string target_ip = "127.0.0.1";
         bool enabled = true;
+        std::string target_vehicle = "";  // Object name for HVD target; empty = index 0 (default)
     } config_;
 
     // Input cache per vehicle

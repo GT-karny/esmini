@@ -50,6 +50,12 @@ ADAS/AD開発向けに、OSI (Open Simulation Interface) 出力を強化して�
 
 ルートディレクトリの `CLAUDE.md` または `README.md` (esmini本体) のビルド手順を参照してください。本モジュールはルートのビルドプロセスに自動的に含まれます。
 
+### PythonDriver必須化ポリシー
+
+- `PythonDriverController` は GT_esmini の必須機能です。
+- `GT_ENABLE_EMBEDDED_PYTHON` オプションは廃止され、指定すると CMake configure 時にエラーで停止します。
+- `GT_Sim` 起動時に `GT_Sim build: PythonDriverController=ENABLED` が出力され、PythonDriver対応ビルドであることを確認できます。
+
 ## フォルダ構成 (Refactored)
 
 - `include/gt_esmini/core`: 公開C APIと共通抽象 (`IConfigLoader`)

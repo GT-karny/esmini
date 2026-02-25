@@ -250,14 +250,14 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
         // Initialize UDP Client for sending target speed
         if (!udpClient_)
         {
-            udpClient_ = new GT_UDP_Sender(clientPort_, clientAddr_);
+            udpClient_ = new GT_UDP_Sender(static_cast<unsigned short>(clientPort_), clientAddr_);
             LOG_INFO("RealDriverController: UDP client sending to {}:{}", clientAddr_, clientPort_);
         }
 
         // Initialize UDP Client for sending waypoints (optional)
         if (sendWaypoints_ && !waypointClient_)
         {
-            waypointClient_ = new GT_UDP_Sender(waypointPort_, clientAddr_);
+            waypointClient_ = new GT_UDP_Sender(static_cast<unsigned short>(waypointPort_), clientAddr_);
             LOG_INFO("RealDriverController: Waypoint UDP client sending to {}:{}", clientAddr_, waypointPort_);
         }
 
