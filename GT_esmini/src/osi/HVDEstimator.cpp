@@ -113,8 +113,37 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
         result.brake = 0.0;
     }
 
-    // --- Steering ---
-    result.steering = obj->GetWheelAngle();
+    // --- Pedal smoothing (EMA) ---
+    if (vc.initialized)
+    {
+        result.throttle = kPedalSmoothAlpha * result.throttle + (1.0 - kPedalSmoothAlpha) * vc.prev_throttle;
+        result.brake    = kPedalSmoothAlpha * result.brake + (1.0 - kPedalSmoothAlpha) * vc.prev_brake;
+    }
+    vc.prev_throttle = result.throttle;
+    vc.prev_brake    = result.brake;
+
+    // --- Steering (rate-limited) ---
+    {
+        double raw_steering = obj->GetWheelAngle();
+        if (vc.initialized && dt > 1e-6)
+        {
+            double max_change = kMaxSteerRate * dt;
+            double diff       = raw_steering - vc.prev_steering;
+            if (std::abs(diff) > max_change)
+            {
+                result.steering = vc.prev_steering + (diff > 0.0 ? 1.0 : -1.0) * max_change;
+            }
+            else
+            {
+                result.steering = raw_steering;
+            }
+        }
+        else
+        {
+            result.steering = raw_steering;
+        }
+        vc.prev_steering = result.steering;
+    }
 
     // --- RPM estimation ---
     result.rpm = EstimateRPM(abs_speed);

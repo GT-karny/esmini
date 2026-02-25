@@ -59,8 +59,11 @@ public:
 private:
     struct VehicleCache
     {
-        double prev_speed  = 0.0;
-        bool   initialized = false;
+        double prev_speed    = 0.0;
+        double prev_steering = 0.0;
+        double prev_throttle = 0.0;
+        double prev_brake    = 0.0;
+        bool   initialized   = false;
     };
 
     std::map<int, VehicleCache> cache_;
@@ -74,6 +77,8 @@ private:
     static constexpr double kDefaultMaxDec = 10.0;    // [m/s^2]
     static constexpr double kDragCoeff     = 0.005;
     static constexpr double kSpeedThreshold = 0.01;   // [m/s] threshold for standstill
+    static constexpr double kMaxSteerRate       = 1.5;  // [rad/s] max steering rate limit
+    static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)
 
     double EstimateRPM(double abs_speed) const;
     double EstimateTorque(double rpm) const;

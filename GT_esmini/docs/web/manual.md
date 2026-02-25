@@ -254,3 +254,75 @@ taskkill /PID <PID> /F
 
 シミュレーションが即座に失敗する場合、XOSC 内の相対パス解決に問題がある可能性があります。
 バックエンドが自動的にパスを絶対化しますが、カスタム XOSC では問題が発生することがあります。
+
+---
+
+## 配布パッケージの作成
+
+`GT_esmini/web/pyinstaller/build_package.py` を使用して、スタンドアロンの配布パッケージを作成できます。
+
+### 前提条件
+
+パッケージ化を実行する前に、以下が揃っていることを確認してください。
+
+| 必要なもの | パス | 準備方法 |
+|:---|:---|:---|
+| GT_Sim.exe | `build/GT_esmini/Release/GT_Sim.exe` | CMake ビルド（Release） |
+| GT_esminiLib.dll | `build/GT_esmini/Release/GT_esminiLib.dll` | CMake ビルド（Release） |
+| フロントエンド | `GT_esmini/web/frontend/dist/index.html` | `npm run build`（`--build-frontend` で自動化可） |
+| Embedded Python | `thirdparty/python-embed/python-3.12.10-embed-amd64/` | リポジトリに同梱 |
+| Python 仮想環境 | `DriverScript/.venv/` | `pip install -r DriverScript/requirements.txt` |
+| PyInstaller | `DriverScript/.venv` 内 | `pip install pyinstaller` |
+
+### パッケージ作成コマンド
+
+```powershell
+# リポジトリルートから実行
+# --build-frontend: npm run build を自動実行してから処理（推奨）
+DriverScript\.venv\Scripts\python.exe GT_esmini/web/pyinstaller/build_package.py `
+    --version 0.5.0 `
+    --output dist/ `
+    --build-frontend
+```
+
+| オプション | デフォルト | 説明 |
+|:---|:---|:---|
+| `--version` | `0.1.0` | バージョン文字列（例: `0.5.0`） |
+| `--output` | `dist/` | 出力先ディレクトリ |
+| `--build-frontend` | OFF | `npm run build` を先に実行する |
+| `--skip-pyinstaller` | OFF | PyInstaller ステップをスキップ（再アセンブル時） |
+| `--no-zip` | OFF | ZIP アーカイブの作成をスキップ |
+
+### ビルドのステップ
+
+1. **前提条件チェック** — 必要ファイルの存在確認
+2. **フロントエンドビルド** — `npm run build`（`--build-frontend` 指定時）
+3. **PyInstaller** — Web サーバーを `gt_sim_web.exe` としてフリーズ
+4. **パッケージレイアウトの構築** — 各ファイルを出力ディレクトリに配置
+5. **pip のブートストラップ** — Embedded Python に pip をセットアップ
+6. **ZIP アーカイブ生成** — 配布用 zip を作成
+
+### 出力内容
+
+```
+dist/
+├── GT_Sim_v0.5.0/        # 展開済みパッケージ
+│   ├── GT_Sim.bat         # 起動スクリプト（ダブルクリックで起動）
+│   ├── pip.bat            # pip ラッパー
+│   ├── README.txt         # 使い方
+│   ├── bin/               # GT_Sim.exe、DLL、Embedded Python
+│   ├── server/            # PyInstaller 出力（gt_sim_web.exe）
+│   ├── scripts/           # ユーティリティスクリプト
+│   ├── DriverScript/      # Python コントローラースクリプト
+│   ├── resources/         # シナリオ・道路・3D モデル
+│   ├── config/            # 設定ファイル（編集可能）
+│   └── data/              # 実行時データ・シミュレーション結果
+└── GT_Sim_v0.5.0.zip      # 配布用アーカイブ
+```
+
+### エンドユーザーの使い方
+
+1. ZIP を展開する
+2. `GT_Sim.bat` をダブルクリック
+3. ブラウザが `http://127.0.0.1:8000` で自動的に開く
+4. Ctrl+C でサーバー停止

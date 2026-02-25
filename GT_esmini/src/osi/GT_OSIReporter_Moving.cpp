@@ -18,7 +18,7 @@
 
 constexpr const char *SOURCE_REF_TYPE_OSC = "net.asam.openscenario";
 
-static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, int roadId)
+static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, id_t roadId)
 {
     if (!route || !route->IsValid())
     {
