@@ -6,7 +6,7 @@
 
 #include "esminiLib.hpp"
 // [GT_MOD] START: Include GT extension
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 // [GT_MOD] END
 
 #include "osi_common.pb.h"

@@ -1,14 +1,17 @@
-#include "GT_esminiLib.hpp"
+#include <gt_esmini/core/GT_esminiLib.hpp>
 #include "esminiLib.hpp"  // For OSI functions: SE_OpenOSISocket, SE_UpdateOSI, SE_CloseOSISocket
 #include <iostream>
 #include <thread>
 #include <chrono>
 #include <string>
+#include <vector>
 
 int main(int argc, char** argv)
 {
     std::string xoscFile;
     std::string osiUdp;
+    std::vector<std::string> resourcePaths;
+    std::vector<std::string> extraArgs;
     
     // Parse arguments
     for (int i = 1; i < argc; ++i)
@@ -19,10 +22,18 @@ int main(int argc, char** argv)
         {
             osiUdp = argv[++i];
         }
+        else if (arg == "--path" && i + 1 < argc)
+        {
+            resourcePaths.push_back(argv[++i]);
+        }
         else if (arg == "--window" && i + 4 < argc)
         {
             // Skip window arguments (not used in headless mode)
             i += 4;
+        }
+        else if (arg.find("--") == 0)
+        {
+            extraArgs.push_back(arg);
         }
         else if (arg.find("--") != 0)
         {
@@ -38,10 +49,40 @@ int main(int argc, char** argv)
     
     std::cout << "Loading scenario: " << xoscFile << std::endl;
     
-    // Initialize GT_esmini
-    if (GT_Init(xoscFile.c_str(), 0) != 0)
+    // Build GT_InitWithArgs arguments
+    std::vector<std::string> initArgs;
+    initArgs.emplace_back("GT_Loader");
+    initArgs.emplace_back("--osc");
+    initArgs.emplace_back(xoscFile);
+    initArgs.emplace_back("--headless");
+    for (const auto& pathArg : resourcePaths)
     {
-        std::cerr << "Failed to initialize GT_esmini" << std::endl;
+        initArgs.emplace_back("--path");
+        initArgs.emplace_back(pathArg);
+    }
+    for (const auto& arg : extraArgs)
+    {
+        initArgs.push_back(arg);
+    }
+
+    std::cout << "GT_InitWithArgs argv:";
+    for (const auto& arg : initArgs)
+    {
+        std::cout << " " << arg;
+    }
+    std::cout << std::endl;
+
+    std::vector<const char*> initArgv;
+    initArgv.reserve(initArgs.size());
+    for (const auto& arg : initArgs)
+    {
+        initArgv.push_back(arg.c_str());
+    }
+
+    // Initialize GT_esmini
+    if (GT_InitWithArgs(static_cast<int>(initArgv.size()), initArgv.data()) != 0)
+    {
+        std::cerr << "Failed to initialize GT_esmini with GT_InitWithArgs" << std::endl;
         return 1;
     }
     

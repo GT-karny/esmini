@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "pugixml.hpp"
 #include "logger.hpp"
-#include "GT_ScenarioReader.hpp"
+#include "gt_esmini/scenario/GT_ScenarioReader.hpp"
 
 TEST(SimpleTest, InstantiateReader) {
     gt_esmini::GT_ScenarioReader reader(nullptr, nullptr, nullptr);

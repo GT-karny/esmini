@@ -254,8 +254,52 @@ jobs:
         shell: bash
         run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p
 
+  pythondriver-enforcement:
+    needs: [lint]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/setup_tools_shared
+
+      - name: CMake Configure (default)
+        shell: pwsh
+        run: cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release
+
+      - name: CMake Configure rejects GT_ENABLE_EMBEDDED_PYTHON=OFF
+        shell: bash
+        run: |
+          if cmake -S . -B build_pyoff -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_OSG=OFF -DUSE_OSI=OFF -DUSE_SUMO=OFF -DUSE_IMPLOT=OFF -DGT_ENABLE_EMBEDDED_PYTHON=OFF; then
+            echo "Expected configure failure with -DGT_ENABLE_EMBEDDED_PYTHON=OFF"
+            exit 1
+          fi
+
+      - name: Build GT_Sim
+        shell: bash
+        run: cmake --build build --config Release --target GT_Sim -j 2
+
+      - name: Run PythonDriver scenario and verify no fallback
+        shell: bash
+        run: |
+          ./build/GT_esmini/GT_Sim \
+            --osc GT_esmini/test/scenarios/pythondriver_f01_udp_input_decode.xosc \
+            --headless \
+            --fixed_timestep 0.05 \
+            --path resources/xodr \
+            --path resources/xosc \
+            --path resources > pythondriver_enforcement.log 2>&1
+          grep -q "GT_Sim build: PythonDriverController=ENABLED" pythondriver_enforcement.log
+          grep -q "PythonDriverController::Activate() called" pythondriver_enforcement.log
+          if grep -q "Unsupported controller type: PythonDriverController" pythondriver_enforcement.log; then
+            echo "Unexpected fallback to default controller detected."
+            exit 1
+          fi
+
   release:
-    needs: [test, test-no-external-modules]
+    needs: [test, test-no-external-modules, pythondriver-enforcement]
     if: github.ref_type == 'tag'
 
     strategy:

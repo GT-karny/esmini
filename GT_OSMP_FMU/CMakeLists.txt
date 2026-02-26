@@ -109,7 +109,7 @@ configure_file(modelDescription.in.xml modelDescription.xml @ONLY)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Libraries/esminiLib
                     ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osi/${EXT_INCL_DIR}/include
                     # [GT_MOD] START: Add GT_esmini include
-                    ${CMAKE_CURRENT_SOURCE_DIR}/../GT_esmini
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../GT_esmini/include
                     ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/CommonMini
                     ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles
                     ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Modules/ScenarioEngine/OSCTypeDefs
@@ -143,15 +143,22 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../externals/fmi2/headers)
 
 add_library(${TARGET} SHARED esmini.cpp
-    ../GT_esmini/GT_esminiLib.cpp
-    ../GT_esmini/ExtraEntities.cpp
-    ../GT_esmini/AutoLightController.cpp
-    ../GT_esmini/RealVehicle.cpp
-    ../GT_esmini/ControllerRealDriver.cpp
-    ../GT_esmini/GT_ScenarioReader.cpp
-    ../GT_esmini/ExtraAction.cpp
-    ../GT_esmini/TerrainTracker.cpp
-    ../GT_esmini/GT_HostVehicleReporter.cpp
+    ../GT_esmini/src/core/GT_esminiLib.cpp
+    ../GT_esmini/src/core/GT_esminiRMLib.cpp
+    ../GT_esmini/src/core/ConfigLoader.cpp
+    ../GT_esmini/src/scenario/ExtraEntities.cpp
+    ../GT_esmini/src/scenario/ExtraAction.cpp
+    ../GT_esmini/src/scenario/GT_ScenarioReader.cpp
+    ../GT_esmini/src/control/AutoLightController.cpp
+    ../GT_esmini/src/control/RealVehicle.cpp
+    ../GT_esmini/src/control/ControllerRealDriver.cpp
+    ../GT_esmini/src/control/TerrainTracker.cpp
+    ../GT_esmini/src/control/DriverInputReceiver.cpp
+    ../GT_esmini/src/control/VehicleStateUpdater.cpp
+    ../GT_esmini/src/control/EsminiStateApplier.cpp
+    ../GT_esmini/src/control/ControlDecisionEngine.cpp
+    ../GT_esmini/src/io/GT_UDP.cpp
+    ../GT_esmini/src/osi/GT_HostVehicleReporter.cpp
 )
 set_target_properties(${TARGET} PROPERTIES PREFIX "")
 target_compile_definitions(${TARGET} PRIVATE "FMU_SHARED_OBJECT")

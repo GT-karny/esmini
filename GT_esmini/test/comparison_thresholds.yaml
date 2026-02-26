@@ -1,0 +1,147 @@
+# コントローラー比較テスト合格基準
+#
+# PythonDriverControllerとDefaultControllerの動作比較における
+# メトリクス閾値を定義。全メトリクスが閾値内であれば合格。
+
+# デフォルト閾値（全シナリオ共通）
+defaults:
+  # 軌跡精度メトリクス
+  trajectory:
+    xy_rmse_max: 0.5          # XY座標RMSE最大値 [m]
+    xy_max_deviation_max: 1.0  # XY座標最大偏差 [m]
+    endpoint_distance_max: 2.0 # 終点距離最大値 [m]
+    path_length_delta_max: 3.0 # 経路長差分最大値 [m]
+    xy_correlation_min: 0.95   # XY座標相関係数最小値
+    heading_rmse_max: 0.05     # 見出し角RMSE最大値 [rad] (~2.86度)
+    heading_correlation_min: 0.98  # 見出し角相関係数最小値
+
+  # 速度プロファイルメトリクス
+  speed:
+    speed_rmse_max: 0.3        # 速度RMSE最大値 [m/s]
+    speed_max_deviation_max: 1.0  # 速度最大偏差 [m/s]
+    speed_end_delta_max: 0.5   # 終端速度差分最大値 [m/s]
+    acceleration_correlation_min: 0.90  # 加速度相関係数最小値
+
+  # レーン遵守メトリクス
+  lane_keeping:
+    t_offset_rmse_max: 0.25    # 横方向オフセットRMSE最大値 [m]
+    t_offset_max: 0.5          # 横方向オフセット最大値 [m]
+    lane_id_match_ratio_min: 0.95  # Lane ID一致率最小値（95%以上）
+    lane_change_count_delta_max: 1  # 車線変更回数差分最大値
+
+  # ルート進捗メトリクス
+  route:
+    s_end_delta_max: 1.0       # 終端s座標差分最大値 [m]
+    s_progress_delta_max: 2.0  # s進捗差分最大値 [m]
+    road_id_match_ratio_min: 0.98  # Road ID一致率最小値（98%以上）
+    route_completion_match: true   # ルート完走一致必須
+
+  # 実行メタメトリクス
+  execution:
+    duration_delta_max: 2.0    # 実行時間差分最大値 [s]
+    frame_count_delta_max: 20  # フレーム数差分最大値
+    exit_code_match: true      # 終了コード一致必須（両方とも正常終了）
+
+# シナリオ別オーバーライド
+scenario_overrides:
+  # 車線変更シナリオは横方向偏差を緩和
+  lane_change_simple:
+    trajectory:
+      xy_rmse_max: 5.0         # Pure Pursuit車線変更とesmini内部アルゴリズムの差
+      xy_max_deviation_max: 10.0
+      endpoint_distance_max: 10.0
+      heading_rmse_max: 0.3    # 異なる車線変更曲線による見出し角差
+      heading_correlation_min: 0.70
+    lane_keeping:
+      t_offset_rmse_max: 2.0   # 車線変更中は横方向偏差大
+      t_offset_max: 4.0
+      lane_id_match_ratio_min: 0.70
+    speed:
+      speed_rmse_max: 0.5      # 車線変更中は速度変動も大きい可能性
+      speed_max_deviation_max: 21.0
+    execution:
+      exit_code_match: false    # シナリオがテレポート+繰り返し設計のためタイムアウト可能
+
+  lane_change:
+    trajectory:
+      xy_rmse_max: 5.0         # PythonのPure Pursuit車線変更とesmini内部アルゴリズムの軌跡差
+      xy_max_deviation_max: 10.0
+      endpoint_distance_max: 10.0
+      heading_rmse_max: 0.3    # 異なる車線変更曲線による見出し角差
+      heading_correlation_min: 0.70
+    speed:
+      speed_rmse_max: 0.5      # END_OF_ROAD検出タイミング差
+      speed_max_deviation_max: 21.0
+    lane_keeping:
+      t_offset_rmse_max: 2.0   # 車線変更中はPure Pursuit特有の軌跡で大きく異なる
+      t_offset_max: 4.0
+      lane_id_match_ratio_min: 0.70  # 異なる車線変更タイミング
+    route:
+      s_end_delta_max: 5.0     # シミュレーション終了タイミング差
+      route_completion_match: false  # 終了条件が異なりうる
+
+  # 速度プロファイルシナリオ: 物理モデルベースの制御器は
+  # DefaultControllerのステップ応答速度変化を完全に追従できない。
+  # PIDの応答遅れ（~0.5-1.0s）に起因する速度・軌跡偏差を許容。
+  speed_profile:
+    speed:
+      speed_rmse_max: 1.0      # 速度プロファイル追従遅れ（PID応答 ~0.5-1s）
+      speed_max_deviation_max: 2.0
+    trajectory:
+      xy_rmse_max: 3.0         # LonProfile中間ポイント追従による滑らかな応答遅れの累積位置誤差
+      endpoint_distance_max: 7.0  # 速度差累積による終点偏差（PID+FF応答遅れ ~0.5-1s）
+    route:
+      s_end_delta_max: 7.0     # 速度差累積による終端s座標偏差（PID+FF応答遅れ ~0.5-1s）
+
+  # 直進シナリオは最も厳しい閾値
+  straight_500m:
+    trajectory:
+      xy_rmse_max: 0.3         # 直進のため高精度を期待
+      xy_max_deviation_max: 0.6
+      endpoint_distance_max: 1.0
+      heading_rmse_max: 0.03   # 直進のため見出し角も高精度 (~1.72度)
+    speed:
+      speed_rmse_max: 0.5      # END_OF_ROAD検出の1フレーム差（20m/s×1frame→RMSE≈0.37）
+      speed_max_deviation_max: 21.0  # END_OF_ROAD検出タイミング差で瞬間的に20m/sの差
+    lane_keeping:
+      t_offset_rmse_max: 0.15  # レーンキープも高精度
+      lane_id_match_ratio_min: 0.99  # ほぼ100%一致すべき
+
+# 警告閾値（合否判定には影響しないが、レポートで警告表示）
+warnings:
+  trajectory:
+    xy_rmse_warn: 0.3          # RMSE > 0.3mで警告
+    endpoint_distance_warn: 1.0
+  speed:
+    speed_rmse_warn: 0.2
+  lane_keeping:
+    t_offset_rmse_warn: 0.15
+    lane_id_match_ratio_warn: 0.98
+
+# エラー許容設定
+tolerance:
+  # 浮動小数点数比較の相対誤差許容範囲
+  float_relative_tolerance: 1e-6
+
+  # ゼロ近傍の絶対誤差許容範囲
+  float_absolute_tolerance: 1e-9
+
+  # 時系列アライメント許容時間差 [s]
+  time_alignment_tolerance: 0.01
+
+  # 距離メトリクス計算時の最小サンプル数
+  min_samples_required: 100
+
+# 合格判定ロジック
+pass_criteria:
+  # AND: 全メトリクスが閾値内
+  # ANY: 少なくとも1つのメトリクスが閾値内
+  # WEIGHTED: メトリクスに重み付けして総合評価
+  mode: "AND"
+
+  # WEIGHTED mode用の重み（mode="AND"では無視）
+  weights:
+    trajectory: 0.4
+    speed: 0.3
+    lane_keeping: 0.2
+    route: 0.1

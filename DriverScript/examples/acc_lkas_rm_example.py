@@ -32,7 +32,7 @@ from realdriver import (
     OSIReceiverWrapper,
     ACCController,
     LKASController,
-    TargetSpeedReceiver,
+    LongitudinalProfileReceiver,
 )
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
@@ -112,7 +112,7 @@ def main():
     # --- 5. Initialize Target Speed Receiver ---
     # GT_SimからUDPで目標速度を受信する
     print(f"Listening for target speed on UDP port {args.target_speed_port}")
-    speed_receiver = TargetSpeedReceiver(args.target_speed_port)
+    speed_receiver = LongitudinalProfileReceiver(args.target_speed_port)
 
     print(f"\nDefault target speed: {args.target_speed} m/s")
     print("ACC detection mode: RoadManager (lane-based)")
@@ -138,9 +138,9 @@ def main():
 
             if ground_truth is not None:
                 # --- Receive target speed from GT_Sim ---
-                udp_speed = speed_receiver.receive_all()
-                if udp_speed is not None:
-                    acc.set_target_speed(udp_speed)
+                udp_profile = speed_receiver.receive_all()
+                if udp_profile:
+                    acc.set_target_speed(udp_profile[0].v_target)
 
                 # --- ACC: 縦制御 (throttle, brake) ---
                 lon_output = acc.update(ground_truth, dt)

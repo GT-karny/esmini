@@ -1,0 +1,6 @@
+{
+    "steering_input_to_wheel_ratio": 1.0,
+    "udp_port": 48199,
+    "enable_host_vehicle_data": true,
+    "target_vehicle": ""
+}
