@@ -23,7 +23,7 @@ function NavBar() {
         <span className="text-white font-bold text-lg mr-6">GT_Sim</span>
         <NavLink to="/" className={linkClass} end>Scenarios</NavLink>
         <NavLink to="/simulations" className={linkClass}>Jobs</NavLink>
-        <NavLink to="/simulations/new" className={linkClass}>Run</NavLink>
+        <NavLink to="/simulations/new" className={linkClass}>New Run</NavLink>
       </div>
     </nav>
   );

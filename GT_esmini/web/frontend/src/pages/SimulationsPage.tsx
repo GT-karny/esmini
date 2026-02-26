@@ -1,76 +1,148 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, type SimulationStatus } from '../api/client';
+import { Button } from '../components/ui/Button';
+import { StatusBadge } from '../components/ui/Badge';
+import { TableShell, TableSkeleton } from '../components/ui/Table';
+import { EmptyState } from '../components/ui/EmptyState';
+import { ErrorPanel } from '../components/ui/ErrorPanel';
 
-const statusColors: Record<string, string> = {
-  queued: 'bg-yellow-500/20 text-yellow-400',
-  running: 'bg-blue-500/20 text-blue-400',
-  completed: 'bg-green-500/20 text-green-400',
-  failed: 'bg-red-500/20 text-red-400',
-  cancelled: 'bg-gray-500/20 text-gray-400',
-  timeout: 'bg-orange-500/20 text-orange-400',
-};
+const PAGE_SIZE = 20;
+
+const statusFilters = [
+  { label: 'All', value: '' },
+  { label: 'Running', value: 'running' },
+  { label: 'Completed', value: 'completed' },
+  { label: 'Failed', value: 'failed' },
+] as const;
+
+const columns = [
+  { key: 'id', label: 'Job ID' },
+  { key: 'scenario', label: 'Scenario' },
+  { key: 'controller', label: 'Controller' },
+  { key: 'status', label: 'Status' },
+  { key: 'started', label: 'Started' },
+];
 
 export function SimulationsPage() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['simulations'],
-    queryFn: () => api.getSimulations(),
+  const navigate = useNavigate();
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(0);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['simulations', statusFilter, page],
+    queryFn: () => api.getSimulations(statusFilter || undefined, PAGE_SIZE, page * PAGE_SIZE),
     refetchInterval: 3000,
   });
 
+  const jobs = data?.jobs ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   return (
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Jobs</h1>
-        <Link
-          to="/simulations/new"
-          className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
-        >
-          New Simulation
+        <Link to="/simulations/new">
+          <Button>New Simulation</Button>
         </Link>
       </div>
 
-      {isLoading && <p className="text-gray-400">Loading...</p>}
-      {error && <p className="text-red-400">Error: {String(error)}</p>}
+      {/* Status filter chips */}
+      <div className="flex gap-2 mb-4">
+        {statusFilters.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => { setStatusFilter(f.value); setPage(0); }}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+              statusFilter === f.value
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
-      {data && (
-        <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-gray-400">
-                <th className="text-left px-4 py-3 font-medium">Job ID</th>
-                <th className="text-left px-4 py-3 font-medium">Scenario</th>
-                <th className="text-left px-4 py-3 font-medium">Controller</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="text-left px-4 py-3 font-medium">Started</th>
+      {/* Loading */}
+      {isLoading && <TableSkeleton columns={5} rows={6} />}
+
+      {/* Error */}
+      {error && <ErrorPanel error={error} onRetry={() => refetch()} />}
+
+      {/* Empty */}
+      {data && jobs.length === 0 && (
+        <EmptyState
+          message={statusFilter ? `No ${statusFilter} jobs.` : 'No simulation jobs yet.'}
+          action={
+            statusFilter ? (
+              <Button variant="ghost" size="sm" onClick={() => setStatusFilter('')}>
+                Show all
+              </Button>
+            ) : (
+              <Link to="/simulations/new">
+                <Button size="sm">Run your first simulation</Button>
+              </Link>
+            )
+          }
+        />
+      )}
+
+      {/* Table */}
+      {data && jobs.length > 0 && (
+        <>
+          <TableShell columns={columns}>
+            {jobs.map((job: SimulationStatus) => (
+              <tr
+                key={job.job_id}
+                className="border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer"
+                onClick={() => navigate(`/simulations/${job.job_id}`)}
+              >
+                <td className="px-4 py-3">
+                  <span className="text-blue-400 font-mono">{job.job_id}</span>
+                </td>
+                <td className="px-4 py-3">{job.scenario_id}</td>
+                <td className="px-4 py-3 text-gray-400">{job.controller_type}</td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={job.status} />
+                </td>
+                <td className="px-4 py-3 text-gray-400">
+                  {job.started_at ? new Date(job.started_at).toLocaleTimeString() : '-'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {data.jobs.map((job: SimulationStatus) => (
-                <tr key={job.job_id} className="border-b border-gray-800/50 hover:bg-gray-800/50">
-                  <td className="px-4 py-3">
-                    <Link to={`/simulations/${job.job_id}`} className="text-blue-400 hover:text-blue-300 font-mono">
-                      {job.job_id}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{job.scenario_id}</td>
-                  <td className="px-4 py-3 text-gray-400">{job.controller_type}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusColors[job.status] ?? ''}`}>
-                      {job.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {job.started_at ? new Date(job.started_at).toLocaleTimeString() : '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {data.jobs.length === 0 && (
-            <p className="text-gray-400 text-center py-8">No simulation jobs yet.</p>
+            ))}
+          </TableShell>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 text-sm">
+              <span className="text-gray-500">
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  Prev
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
