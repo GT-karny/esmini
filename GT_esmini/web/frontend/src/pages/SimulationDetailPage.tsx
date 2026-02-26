@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api, type ResultFile } from '../api/client';
@@ -6,7 +5,6 @@ import { OsiLivePanel } from '../components/OsiLivePanel';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/Badge';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { ErrorPanel } from '../components/ui/ErrorPanel';
 
 /* ── Metric label & unit mapping ── */
@@ -42,7 +40,6 @@ export function SimulationDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const { data: sim, isLoading: simLoading, error: simError, refetch: simRefetch } = useQuery({
     queryKey: ['simulation', jobId],
@@ -68,7 +65,6 @@ export function SimulationDetailPage() {
   const cancelMutation = useMutation({
     mutationFn: () => api.cancelSimulation(jobId!),
     onSuccess: () => {
-      setShowCancelConfirm(false);
       queryClient.invalidateQueries({ queryKey: ['simulation', jobId] });
     },
   });
@@ -143,8 +139,13 @@ export function SimulationDetailPage() {
 
         <div className="flex gap-2 mt-3">
           {sim.status === 'running' && (
-            <Button variant="danger" size="sm" onClick={() => setShowCancelConfirm(true)}>
-              Cancel
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+            >
+              {cancelMutation.isPending ? 'Stopping...' : 'Cancel'}
             </Button>
           )}
           {isTerminal && (
@@ -157,17 +158,6 @@ export function SimulationDetailPage() {
           )}
         </div>
       </Card>
-
-      {/* Cancel Confirm Dialog */}
-      <ConfirmDialog
-        open={showCancelConfirm}
-        title="Cancel Simulation"
-        message={`Are you sure you want to cancel job ${sim.job_id}? This cannot be undone.`}
-        confirmLabel="Cancel Simulation"
-        variant="danger"
-        onConfirm={() => cancelMutation.mutate()}
-        onCancel={() => setShowCancelConfirm(false)}
-      />
 
       {/* Live OSI Data (shown while running) */}
       {sim.status === 'running' && jobId && <OsiLivePanel jobId={jobId} />}
