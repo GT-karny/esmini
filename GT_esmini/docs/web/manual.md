@@ -234,6 +234,229 @@ curl -O http://127.0.0.1:8000/api/results/{job_id}/files/sim.dat
 
 `http://127.0.0.1:8000/docs` で Swagger UI にアクセスし、全 API エンドポイントをインタラクティブにテストできます。
 
+## 外部エディタ連携
+
+GT_Sim Web API は、OpenSCENARIO エディタなどの外部アプリケーションからの利用に対応しています。
+シナリオ・道路の動的アップロード、リアルタイム速度制御、gRPC/WebSocket による OSI データストリーミングを組み合わせることで、
+エディタ上でのシナリオ再生ワークフローを実現できます。
+
+### 連携フロー
+
+```
+エディタ                         GT_Sim Web API                    GT_Sim.exe
+  │                                   │                               │
+  ├─ POST /api/roads/upload ─────────>│  .xodr 保存                   │
+  │<── road_id ──────────────────────│                               │
+  │                                   │                               │
+  ├─ POST /api/scenarios/upload ─────>│  .xosc 保存（パス絶対化）      │
+  │<── scenario_id (tmp_xxx) ────────│                               │
+  │                                   │                               │
+  ├─ POST /api/simulations ──────────>│  GT_Sim.exe 起動 ────────────>│
+  │<── job_id ───────────────────────│                               │
+  │                                   │                               │
+  ├─ gRPC StreamGroundTruth ─────────>│<── OSI UDP ──────────────────│
+  │<── GroundTruth stream ───────────│                               │
+  │                                   │                               │
+  ├─ PUT /api/simulations/{id}/speed─>│  Named Pipe ────────────────>│
+  │                                   │  速度変更                      │
+  │                                   │                               │
+  ├─ GET /api/simulations/{id} ──────>│  状態確認                      │
+  │<── completed ────────────────────│                               │
+```
+
+### CORS 設定
+
+外部エディタ（別オリジン）からのアクセスを許可するには、環境変数 `GT_SIM_CORS_ORIGINS` を設定します:
+
+```bash
+# 単一オリジン
+GT_SIM_CORS_ORIGINS=http://localhost:3000
+
+# 複数オリジン（カンマ区切り）
+GT_SIM_CORS_ORIGINS=http://localhost:3000,http://localhost:4200
+```
+
+デフォルトでは `http://localhost:5173` と `http://127.0.0.1:5173`（Vite dev server）のみ許可されています。
+
+### シナリオアップロード API
+
+外部エディタから XOSC XML を直接アップロードして一時シナリオを作成できます。
+
+#### `POST /api/scenarios/upload`
+
+XOSC XML をボディとして送信し、一時シナリオ ID を取得します。
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/scenarios/upload \
+  -H "Content-Type: text/xml" \
+  -d @my_scenario.xosc
+```
+
+**レスポンス** (201):
+
+```json
+{
+  "scenario_id": "tmp_a1b2c3d4e5f6",
+  "entities": [
+    {"name": "Ego", "model": "car_white"},
+    {"name": "Target", "model": "car_red"}
+  ],
+  "road_file": "fabriksgatan.xodr",
+  "expires_at": "2025-01-01T01:00:00"
+}
+```
+
+- `scenario_id` は `tmp_` プレフィックス付きの一時 ID
+- 既存の `POST /api/simulations` にそのまま `scenario_id` として渡せます
+- XML 内の `RoadNetwork/LogicFile/@filepath` や `CatalogLocations` の相対パスは自動的に絶対パスに変換されます
+- 一時シナリオは 1 時間後に自動削除されます
+
+#### `DELETE /api/scenarios/upload/{scenario_id}`
+
+一時シナリオを手動削除します。`tmp_` プレフィックスの ID のみ削除可能です。
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/scenarios/upload/tmp_a1b2c3d4e5f6
+```
+
+### 道路アップロード API
+
+カスタム道路（OpenDRIVE）をアップロードし、シナリオ内で参照できます。
+
+#### `POST /api/roads/upload`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/roads/upload \
+  -H "Content-Type: text/xml" \
+  -d @my_road.xodr
+```
+
+**レスポンス** (201):
+
+```json
+{
+  "road_id": "tmp_road_a1b2c3d4e5f6",
+  "road_path": "/absolute/path/to/tmp_road_a1b2c3d4e5f6.xodr"
+}
+```
+
+返却された `road_path` をアップロードする XOSC の `RoadNetwork/LogicFile/@filepath` に指定することで、
+カスタム道路上でのシミュレーションが可能です。
+
+#### `DELETE /api/roads/upload/{road_id}`
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/roads/upload/tmp_road_a1b2c3d4e5f6
+```
+
+### 速度制御 API
+
+実行中のシミュレーションの再生速度をリアルタイムに変更できます（Windows のみ）。
+Named Pipe を介して GT_Sim プロセスの壁時計ペーシングを制御します。
+シミュレーションの物理 dt には影響せず、再生速度のみが変化します。
+
+#### `PUT /api/simulations/{job_id}/speed`
+
+```bash
+curl -X PUT http://127.0.0.1:8000/api/simulations/{job_id}/speed \
+  -H "Content-Type: application/json" \
+  -d '{"speed_factor": 2.0}'
+```
+
+| パラメータ | 範囲 | 説明 |
+|:---|:---|:---|
+| `speed_factor` | 0.1 〜 100.0 | 再生速度倍率（1.0 = リアルタイム、2.0 = 2倍速） |
+
+**レスポンス** (200):
+
+```json
+{
+  "job_id": "abc123",
+  "speed_factor": 2.0
+}
+```
+
+**注意**: `no_realtime` モードで起動されたシミュレーションには速度制御は効きません（すでに最速実行のため）。
+
+### WebSocket OSI ストリーミング
+
+`/ws/osi/{job_id}` WebSocket エンドポイントで、実行中のシミュレーションの OSI データをリアルタイムに受信できます。
+
+各オブジェクトの JSON には `name` フィールドが含まれ、OpenSCENARIO の Entity 名が取得できます:
+
+```json
+{
+  "timestamp": 1.5,
+  "objects": [
+    {
+      "id": 0,
+      "name": "Ego",
+      "x": 100.0,
+      "y": 50.0,
+      "heading": 1.57,
+      "speed": 15.0
+    }
+  ]
+}
+```
+
+`name` は OSI GroundTruth の `source_reference[type="net.asam.openscenario"].identifier[]` から
+`entity_name:` プレフィックスのエントリをパースして取得しています。
+
+### gRPC OSI ストリーミング
+
+gRPC サーバー（デフォルト: `0.0.0.0:50051`）で以下の 2 つのストリーミング RPC を提供します:
+
+| サービス | RPC | 説明 |
+|:---|:---|:---|
+| `GroundTruthService` | `StreamGroundTruth` | OSI GroundTruth メッセージのサーバーストリーミング |
+| `HostVehicleDataService` | `StreamHostVehicleData` | OSI HostVehicleData メッセージのサーバーストリーミング |
+
+ポートは環境変数 `GT_SIM_GRPC_PORT` で変更可能です（デフォルト: `50051`）。
+
+### エディタ連携の完全な curl 例
+
+```bash
+# 1. 道路アップロード（カスタム道路を使用する場合）
+ROAD_RESP=$(curl -s -X POST http://127.0.0.1:8000/api/roads/upload \
+  -H "Content-Type: text/xml" -d @my_road.xodr)
+ROAD_PATH=$(echo $ROAD_RESP | jq -r '.road_path')
+
+# 2. シナリオアップロード
+SCENARIO_RESP=$(curl -s -X POST http://127.0.0.1:8000/api/scenarios/upload \
+  -H "Content-Type: text/xml" -d @my_scenario.xosc)
+SCENARIO_ID=$(echo $SCENARIO_RESP | jq -r '.scenario_id')
+
+# 3. シミュレーション実行
+JOB_RESP=$(curl -s -X POST http://127.0.0.1:8000/api/simulations \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"scenario_id\": \"$SCENARIO_ID\",
+    \"controller\": {\"controller_type\": \"default\"},
+    \"execution\": {
+      \"headless\": true,
+      \"record\": true,
+      \"hz\": 120,
+      \"no_realtime\": false,
+      \"timeout\": 60,
+      \"osi\": {\"enabled\": true, \"ip\": \"127.0.0.1\"}
+    }
+  }")
+JOB_ID=$(echo $JOB_RESP | jq -r '.job_id')
+
+# 4. 速度変更（2倍速）
+curl -X PUT http://127.0.0.1:8000/api/simulations/$JOB_ID/speed \
+  -H "Content-Type: application/json" -d '{"speed_factor": 2.0}'
+
+# 5. 状態確認
+curl http://127.0.0.1:8000/api/simulations/$JOB_ID
+
+# 6. クリーンアップ（任意、1時間後に自動削除）
+curl -X DELETE http://127.0.0.1:8000/api/scenarios/upload/$SCENARIO_ID
+```
+
+---
+
 ## 設定の永続化
 
 Web UI で変更した実行パラメータやコントローラー設定は `GT_esmini/web/settings.json` に自動保存されます。
