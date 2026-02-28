@@ -71,3 +71,7 @@ class SimulationStatus(BaseModel):
 class SimulationListResponse(BaseModel):
     jobs: list[SimulationStatus]
     total: int
+
+
+class SpeedRequest(BaseModel):
+    speed_factor: float = Field(ge=0.1, le=100.0, description="Speed multiplier (1.0 = realtime)")

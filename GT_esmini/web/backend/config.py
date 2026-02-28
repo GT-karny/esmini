@@ -59,6 +59,8 @@ if PACKAGED:
     SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
     CONFIG_DIR = PACKAGE_ROOT / "config"
     RESULTS_DIR = PACKAGE_ROOT / "data" / "results"
+    TEMP_SCENARIOS_DIR = PACKAGE_ROOT / "data" / "_temp_scenarios"
+    TEMP_ROADS_DIR = PACKAGE_ROOT / "data" / "_temp_roads"
     DB_PATH = PACKAGE_ROOT / "data" / "gt_sim.db"
 else:
     REPO_ROOT = _find_repo_root()
@@ -69,6 +71,8 @@ else:
     SCRIPTS_DIR = REPO_ROOT / "scripts"
     CONFIG_DIR = REPO_ROOT / "GT_esmini" / "config"
     RESULTS_DIR = REPO_ROOT / "test_results" / "web"
+    TEMP_SCENARIOS_DIR = REPO_ROOT / "test_results" / "web" / "_temp_scenarios"
+    TEMP_ROADS_DIR = REPO_ROOT / "test_results" / "web" / "_temp_roads"
     DB_PATH = REPO_ROOT / "GT_esmini" / "web" / "gt_sim.db"
 
 # Ensure scripts/ is importable
@@ -83,6 +87,11 @@ PYTHON_SCRIPT_DIRS = [
     "DriverScript/examples",
     "DriverScript/realdriver",
 ]
+
+TEMP_FILE_TTL_SECONDS = 3600  # 1 hour
+
+# Server ports (overridable via environment variables)
+GRPC_PORT = int(os.environ.get("GT_SIM_GRPC_PORT", "50051"))
 
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
