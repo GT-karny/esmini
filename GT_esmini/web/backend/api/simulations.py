@@ -8,6 +8,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationListResponse,
     SimulationRequest,
     SimulationStatus,
+    SpeedRequest,
 )
 from GT_esmini.web.backend.services import scenario_service, simulation_runner
 
@@ -57,3 +58,24 @@ async def cancel_simulation(job_id: str):
             status_code=400, detail="Job not found or not in running state"
         )
     return {"job_id": job_id, "status": "cancelled"}
+
+
+@router.put("/{job_id}/speed")
+async def set_simulation_speed(job_id: str, body: SpeedRequest):
+    """Change the simulation speed of a running job."""
+    sim = await simulation_runner.get_simulation_status(job_id)
+    if sim is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+    if sim.status != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not running (status: {sim.status})",
+        )
+
+    success = await simulation_runner.set_speed_factor(job_id, body.speed_factor)
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to communicate with simulation process",
+        )
+    return {"job_id": job_id, "speed_factor": body.speed_factor}

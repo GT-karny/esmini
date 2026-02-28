@@ -13,6 +13,11 @@
 #include <chrono>
 #include <algorithm>
 #include <filesystem>
+#include <atomic>
+#include <mutex>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // Helper to check for existence of command line option
 bool HasOption(int argc, const char* argv[], const std::string& option)
@@ -104,6 +109,116 @@ static void RenameCapturedFramesIfNeeded(const std::string& prefix)
     }
 }
 
+#ifdef _WIN32
+struct ControlPipe
+{
+    std::string pipe_name;
+    HANDLE pipe_handle = INVALID_HANDLE_VALUE;
+    std::thread reader_thread;
+    std::atomic<bool> running{false};
+    std::atomic<double> speed_factor{1.0};
+
+    bool Start(const std::string& name)
+    {
+        pipe_name = std::string("\\\\.\\pipe\\") + name;
+        pipe_handle = CreateNamedPipeA(
+            pipe_name.c_str(),
+            PIPE_ACCESS_INBOUND,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            1,    // max instances
+            256,  // out buffer
+            256,  // in buffer
+            100,  // timeout ms
+            NULL);
+
+        if (pipe_handle == INVALID_HANDLE_VALUE)
+        {
+            std::cerr << "GT_Sim: Failed to create control pipe: " << pipe_name << std::endl;
+            return false;
+        }
+
+        running.store(true);
+        reader_thread = std::thread([this]() { ReaderLoop(); });
+        printf("GT_Sim: Control pipe created: %s\n", pipe_name.c_str());
+        return true;
+    }
+
+    void ReaderLoop()
+    {
+        while (running.load())
+        {
+            // Wait for client connection (blocking, but pipe will be closed on Stop)
+            BOOL connected = ConnectNamedPipe(pipe_handle, NULL) ?
+                TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+
+            if (!connected || !running.load()) break;
+
+            // Read commands from connected client
+            char buffer[256];
+            DWORD bytesRead = 0;
+            while (running.load())
+            {
+                BOOL success = ReadFile(pipe_handle, buffer, sizeof(buffer) - 1, &bytesRead, NULL);
+                if (!success || bytesRead == 0) break;
+
+                buffer[bytesRead] = '\0';
+                ProcessCommand(std::string(buffer, bytesRead));
+            }
+
+            DisconnectNamedPipe(pipe_handle);
+        }
+    }
+
+    void ProcessCommand(const std::string& cmd)
+    {
+        // Simple format: "SPEED:2.0\n" or "SPEED:0.5\n"
+        // Parse line by line
+        size_t pos = 0;
+        while (pos < cmd.size())
+        {
+            size_t end = cmd.find('\n', pos);
+            if (end == std::string::npos) end = cmd.size();
+            std::string line = cmd.substr(pos, end - pos);
+            pos = end + 1;
+
+            // Trim carriage return
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty()) continue;
+
+            if (line.rfind("SPEED:", 0) == 0)
+            {
+                try
+                {
+                    double factor = std::stod(line.substr(6));
+                    if (factor > 0.0 && factor <= 100.0)
+                    {
+                        speed_factor.store(factor);
+                        printf("GT_Sim: Speed factor set to %.2f\n", factor);
+                    }
+                }
+                catch (...) {}
+            }
+        }
+    }
+
+    void Stop()
+    {
+        running.store(false);
+        if (pipe_handle != INVALID_HANDLE_VALUE)
+        {
+            // This will unblock ConnectNamedPipe/ReadFile
+            CancelIoEx(pipe_handle, NULL);
+            CloseHandle(pipe_handle);
+            pipe_handle = INVALID_HANDLE_VALUE;
+        }
+        if (reader_thread.joinable())
+        {
+            reader_thread.join();
+        }
+    }
+};
+#endif
+
 int main(int argc, const char* argv[])
 {
     std::cout << "GT_Sim build: PythonDriverController=ENABLED" << std::endl;
@@ -125,6 +240,7 @@ int main(int argc, const char* argv[])
         printf("  --video_headless     Run capture in headless mode (default: true)\n");
         printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
         printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
+        printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
         printf("\nSee esmini --help for engine options.\n");
         return 0;
     }
@@ -142,6 +258,7 @@ int main(int argc, const char* argv[])
         printf("  --video_headless     Run capture in headless mode (default: true)\n");
         printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
         printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
+        printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
         printf("  ... [See esmini documentation for other arguments]\n");
         return -1;
     }
@@ -187,6 +304,11 @@ int main(int argc, const char* argv[])
             video.enabled = true;
             video.prefix = argv[++i];
         }
+        else if (arg == "--control_pipe" && i + 1 < argc)
+        {
+            // Consumed by GT_Sim, not forwarded to esmini
+            i++; // skip value, handled below
+        }
         else
         {
             forwardArgs.emplace_back(arg);
@@ -227,6 +349,16 @@ int main(int argc, const char* argv[])
         printf("Failed to initialize GT_esmini\n");
         return -1;
     }
+
+    // 1.5 Start control pipe if requested
+#ifdef _WIN32
+    ControlPipe controlPipe;
+    const char* pipeName = GetOptionValue(argc, argv, "--control_pipe");
+    if (pipeName)
+    {
+        controlPipe.Start(pipeName);
+    }
+#endif
 
     // 2. Enable AutoLight if requested
     if (HasOption(argc, argv, "--autolight"))
@@ -301,8 +433,14 @@ int main(int argc, const char* argv[])
 
         if (!noRealtime)
         {
-            // Real-time pacing
-            next_target_time += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(dt));
+            // Real-time pacing with speed factor
+#ifdef _WIN32
+            double current_speed = pipeName ? controlPipe.speed_factor.load() : 1.0;
+#else
+            double current_speed = 1.0;
+#endif
+            double wall_dt = dt / current_speed;
+            next_target_time += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(wall_dt));
             auto now = Clock::now();
 
             if (now > next_target_time)
@@ -340,6 +478,14 @@ int main(int argc, const char* argv[])
     }
 
     printf("Total delayed frames: %lld\n", delayed_frames);
+
+#ifdef _WIN32
+    if (pipeName)
+    {
+        controlPipe.Stop();
+    }
+#endif
+
     GT_Close();
     return 0;
 }
