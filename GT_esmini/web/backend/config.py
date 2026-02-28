@@ -90,6 +90,9 @@ PYTHON_SCRIPT_DIRS = [
 
 TEMP_FILE_TTL_SECONDS = 3600  # 1 hour
 
+# Server ports (overridable via environment variables)
+GRPC_PORT = int(os.environ.get("GT_SIM_GRPC_PORT", "50051"))
+
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "hz": 120,

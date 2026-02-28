@@ -24,6 +24,7 @@ from GT_esmini.web.backend.api import (
     scripts,
     simulations,
 )
+from GT_esmini.web.backend.config import GRPC_PORT
 from GT_esmini.web.backend.db.database import init_db
 from GT_esmini.web.backend.services.grpc_server import start_grpc_server
 
@@ -43,7 +44,7 @@ async def lifespan(app: FastAPI):
     if expired_s or expired_r:
         _logger.info("Cleaned up %d expired temp scenario(s) and %d road(s)", expired_s, expired_r)
 
-    grpc_srv = await start_grpc_server(port=50051)
+    grpc_srv = await start_grpc_server(port=GRPC_PORT)
 
     async def _periodic_temp_cleanup():
         while True:

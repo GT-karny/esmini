@@ -29,16 +29,21 @@ GT_esmini/web/
 │   ├── config.py             # パス解決・デフォルト設定
 │   ├── api/                  # API ルーター
 │   │   ├── scenarios.py
+│   │   ├── roads.py
 │   │   ├── scripts.py
 │   │   ├── controller_config.py
 │   │   ├── simulations.py
 │   │   ├── results.py
-│   │   └── config_api.py
+│   │   ├── config_api.py
+│   │   └── osi_stream.py
 │   ├── services/             # ビジネスロジック
 │   │   ├── scenario_service.py
+│   │   ├── road_service.py
 │   │   ├── script_service.py
 │   │   ├── simulation_runner.py
-│   │   └── result_service.py
+│   │   ├── result_service.py
+│   │   ├── grpc_server.py
+│   │   └── osi_bridge.py
 │   ├── models/               # Pydantic スキーマ
 │   └── db/                   # SQLite 管理
 │
@@ -80,13 +85,14 @@ npm run build
 DriverScript\.venv\Scripts\python.exe GT_esmini/web/start_server.py
 ```
 
-起動すると以下の URL でアクセスできます:
+起動すると以下のサービスが利用可能になります:
 
-| URL | 説明 |
-|:---|:---|
-| http://127.0.0.1:8000/ | Web UI |
-| http://127.0.0.1:8000/docs | Swagger UI（API ドキュメント） |
-| http://127.0.0.1:8000/redoc | ReDoc（API ドキュメント） |
+| サービス | アドレス | 説明 |
+|:---|:---|:---|
+| Web UI | http://127.0.0.1:8000/ | ブラウザ UI |
+| Swagger UI | http://127.0.0.1:8000/docs | REST API ドキュメント |
+| ReDoc | http://127.0.0.1:8000/redoc | REST API ドキュメント（別形式） |
+| gRPC OSI | `0.0.0.0:50051` | OSI GroundTruth / HostVehicleData ストリーミング |
 
 ### 起動オプション
 
@@ -96,9 +102,16 @@ python GT_esmini/web/start_server.py --host 0.0.0.0 --port 8080 --reload
 
 | オプション | デフォルト | 説明 |
 |:---|:---|:---|
-| `--host` | `127.0.0.1` | バインドホスト |
-| `--port` | `8000` | バインドポート |
+| `--host` | `127.0.0.1` | REST API バインドホスト |
+| `--port` | `8000` | REST API バインドポート |
 | `--reload` | OFF | ソース変更時に自動リロード（開発用） |
+
+### 環境変数
+
+| 環境変数 | デフォルト | 説明 |
+|:---|:---|:---|
+| `GT_SIM_GRPC_PORT` | `50051` | gRPC サーバーのポート番号 |
+| `GT_SIM_CORS_ORIGINS` | *(なし)* | 追加 CORS オリジン（カンマ区切り、例: `http://localhost:3000`） |
 
 ### 開発モード（フロントエンド Hot Reload）
 
