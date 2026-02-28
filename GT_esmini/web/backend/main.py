@@ -18,6 +18,7 @@ from GT_esmini.web.backend.api import (
     controller_config,
     osi_stream,
     results,
+    roads,
     scenarios,
     scripts,
     simulations,
@@ -32,11 +33,35 @@ _logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # --- Startup ---
     await init_db()  # Also cleans stale DB entries from previous crashes
+
+    # Clean up expired temp files from previous sessions
+    from GT_esmini.web.backend.services.scenario_service import cleanup_expired_scenarios
+    from GT_esmini.web.backend.services.road_service import cleanup_expired_roads
+    expired_s = cleanup_expired_scenarios()
+    expired_r = cleanup_expired_roads()
+    if expired_s or expired_r:
+        _logger.info("Cleaned up %d expired temp scenario(s) and %d road(s)", expired_s, expired_r)
+
     grpc_srv = await start_grpc_server(port=50051)
+
+    async def _periodic_temp_cleanup():
+        while True:
+            await asyncio.sleep(900)  # 15 minutes
+            try:
+                s = cleanup_expired_scenarios()
+                r = cleanup_expired_roads()
+                if s or r:
+                    _logger.info("Periodic cleanup: %d scenario(s), %d road(s)", s, r)
+            except Exception:
+                pass
+
+    cleanup_task = asyncio.create_task(_periodic_temp_cleanup())
+
     _logger.info("GT_Sim Web server started")
     yield
     # --- Shutdown ---
     # Must complete within ~4s on Windows CTRL_CLOSE_EVENT
+    cleanup_task.cancel()
     _logger.info("Shutting down GT_Sim Web server...")
 
     # Phase 1: Kill all running GT_Sim subprocesses (highest priority)
@@ -106,6 +131,7 @@ app.include_router(controller_config.router)
 app.include_router(simulations.router)
 app.include_router(results.router)
 app.include_router(config_api.router)
+app.include_router(roads.router)
 # WebSocket must be registered before the SPA catch-all route
 app.include_router(osi_stream.router)
 
