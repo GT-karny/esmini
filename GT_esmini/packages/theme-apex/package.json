@@ -17,10 +17,10 @@
     "dev": "tsc --project tsconfig.json --watch"
   },
   "dependencies": {
-    "@fontsource/orbitron": "^5.2.8",
     "@fontsource/exo-2": "^5.2.8",
-    "@fontsource/m-plus-1p": "^5.2.9",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/m-plus-1p": "^5.2.9",
+    "@fontsource/orbitron": "^5.2.8",
     "clsx": "^2.1.0",
     "tailwind-merge": "^2.6.0"
   },
@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.3"
   }
 }
