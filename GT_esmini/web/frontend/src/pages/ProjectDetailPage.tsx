@@ -1,32 +1,83 @@
-import { useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GlassPanel } from '@osce/theme-apex';
 import {
   api,
   type ProjectDetail,
   type ProjectFile,
   type ScenarioInfo,
-  type SimulationStatus,
 } from '../api/client';
 import { Button } from '../components/ui/Button';
-import { StatusBadge } from '../components/ui/Badge';
 import { TableShell, TableSkeleton } from '../components/ui/Table';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorPanel } from '../components/ui/ErrorPanel';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { ScenarioListPanel } from '../components/project/ScenarioListPanel';
+import { ScenarioDetailPanel } from '../components/project/ScenarioDetailPanel';
+import { LiveMonitorPanel } from '../components/project/LiveMonitorPanel';
+import { ParameterPanel } from '../components/project/ParameterPanel';
+import { ExecutionPanel } from '../components/project/ExecutionPanel';
 
-type Tab = 'scenarios' | 'files' | 'simulations';
+type Tab = 'scenarios' | 'files';
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>('scenarios');
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
+  const [latestJobId, setLatestJobId] = useState<string | null>(null);
+  const [paramOverrides, setParamOverrides] = useState<Record<string, string>>({});
+
+  // Selected scenario from URL
+  const selectedScenarioFile = searchParams.get('scenario');
 
   const { data: project, isLoading, error, refetch } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => api.getProject(projectId!),
     enabled: !!projectId,
   });
+
+  const { data: scenarios } = useQuery({
+    queryKey: ['project-scenarios', projectId],
+    queryFn: () => api.getProjectScenarios(projectId!),
+    enabled: !!projectId,
+  });
+
+  const selectedScenario = scenarios?.find((s) => s.file === selectedScenarioFile) ?? null;
+
+  // Poll running job status for auto-switch back
+  const { data: runningJobStatus } = useQuery({
+    queryKey: ['simulation', runningJobId],
+    queryFn: () => api.getSimulation(runningJobId!),
+    enabled: !!runningJobId,
+    refetchInterval: 1000,
+  });
+
+  // Auto-switch: when running job completes, clear after 2s
+  useEffect(() => {
+    if (!runningJobStatus) return;
+    const s = runningJobStatus.status;
+    if (s === 'completed' || s === 'failed' || s === 'cancelled' || s === 'timeout') {
+      const timer = globalThis.setTimeout(() => {
+        setRunningJobId(null);
+      }, 2000);
+      return () => globalThis.clearTimeout(timer);
+    }
+  }, [runningJobStatus]);
+
+  const isRunning = !!runningJobId && (
+    runningJobStatus?.status === 'running' || runningJobStatus?.status === 'queued'
+  );
+
+  const handleSelectScenario = (file: string) => {
+    setSearchParams({ scenario: file });
+    setRunningJobId(null);
+  };
+
+  const handleRunning = (jobId: string) => {
+    setRunningJobId(jobId);
+    setLatestJobId(jobId);
+  };
 
   if (isLoading) {
     return (
@@ -43,11 +94,10 @@ export function ProjectDetailPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'scenarios', label: 'Scenarios' },
     { key: 'files', label: 'Files' },
-    { key: 'simulations', label: 'Simulations' },
   ];
 
   return (
-    <div>
+    <div className="h-full flex flex-col">
       {/* Breadcrumb + Title */}
       <div className="flex items-center gap-2 mb-1 text-sm">
         <Link to="/" className="text-text-secondary hover:text-foreground transition-colors">
@@ -62,11 +112,11 @@ export function ProjectDetailPage() {
         )}
       </div>
       {project.description && (
-        <p className="text-text-secondary text-sm mb-4">{project.description}</p>
+        <p className="text-text-secondary text-sm mb-2">{project.description}</p>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-glass-edge">
+      <div className="flex gap-1 mb-3 border-b border-glass-edge shrink-0">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -83,135 +133,112 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'scenarios' && (
-        <ScenariosTab projectId={projectId!} project={project} />
-      )}
-      {tab === 'files' && (
+      {tab === 'scenarios' && scenarios ? (
+        <ScenarioDashboard
+          projectId={projectId!}
+          scenarios={scenarios}
+          selectedScenario={selectedScenario}
+          selectedFile={selectedScenarioFile}
+          onSelectScenario={handleSelectScenario}
+          runningJobId={runningJobId}
+          isRunning={isRunning}
+          latestJobId={latestJobId}
+          paramOverrides={paramOverrides}
+          onParamOverridesChange={setParamOverrides}
+          onRunning={handleRunning}
+        />
+      ) : tab === 'scenarios' ? (
+        <TableSkeleton columns={4} rows={5} />
+      ) : (
         <FilesTab projectId={projectId!} project={project} />
-      )}
-      {tab === 'simulations' && (
-        <SimulationsTab projectId={projectId!} />
       )}
     </div>
   );
 }
 
 /* ================================================================
-   Scenarios Tab
+   Scenario Dashboard (4-panel grid)
    ================================================================ */
 
-function ScenariosTab({ projectId, project }: { projectId: string; project: ProjectDetail }) {
-  const navigate = useNavigate();
+interface ScenarioDashboardProps {
+  projectId: string;
+  scenarios: ScenarioInfo[];
+  selectedScenario: ScenarioInfo | null;
+  selectedFile: string | null;
+  onSelectScenario: (file: string) => void;
+  runningJobId: string | null;
+  isRunning: boolean;
+  latestJobId: string | null;
+  paramOverrides: Record<string, string>;
+  onParamOverridesChange: (overrides: Record<string, string>) => void;
+  onRunning: (jobId: string) => void;
+}
 
-  const { data: scenarios, isLoading, error, refetch } = useQuery({
-    queryKey: ['project-scenarios', projectId],
-    queryFn: () => api.getProjectScenarios(projectId),
-  });
-
-  if (isLoading) return <TableSkeleton columns={4} rows={5} />;
-  if (error) return <ErrorPanel error={error} onRetry={() => refetch()} />;
-  if (!scenarios || scenarios.length === 0) {
-    return (
-      <EmptyState
-        message="No scenarios in this project."
-        action={
-          !project.is_builtin ? (
-            <Button variant="secondary" size="sm" onClick={() => {}}>
-              Upload .xosc files
-            </Button>
-          ) : undefined
-        }
-      />
-    );
+function ScenarioDashboard({
+  projectId,
+  scenarios,
+  selectedScenario,
+  selectedFile,
+  onSelectScenario,
+  runningJobId,
+  isRunning,
+  latestJobId,
+  paramOverrides,
+  onParamOverridesChange,
+  onRunning,
+}: ScenarioDashboardProps) {
+  if (scenarios.length === 0) {
+    return <EmptyState message="No scenarios in this project." />;
   }
 
   return (
-    <div className="space-y-3">
-      {scenarios.map((s) => (
-        <ScenarioCard
-          key={s.file}
-          scenario={s}
-          onRun={() => navigate(`/projects/${projectId}/sim/new?scenario=${encodeURIComponent(s.file)}`)}
+    <div className="grid grid-cols-[280px_1fr] grid-rows-[1fr_1fr] h-[calc(100vh-120px)] gap-0">
+      {/* Top-left: Scenario list */}
+      <div className="border border-glass-edge overflow-hidden">
+        <ScenarioListPanel
+          scenarios={scenarios}
+          selectedFile={selectedFile}
+          onSelect={onSelectScenario}
         />
-      ))}
-    </div>
-  );
-}
-
-function ScenarioCard({ scenario, onRun }: { scenario: ScenarioInfo; onRun: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <GlassPanel className="p-4">
-      <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <button
-            className="text-left cursor-pointer"
-            onClick={() => setExpanded(!expanded)}
-          >
-            <h4 className="font-mono text-sm font-medium">
-              <span className="text-text-tertiary mr-1.5 text-xs">
-                {expanded ? '\u25BC' : '\u25B6'}
-              </span>
-              {scenario.filename}
-            </h4>
-          </button>
-          <div className="flex gap-4 mt-1 text-xs text-text-secondary">
-            {scenario.road_file && (
-              <span>Road: <span className="font-mono">{scenario.road_file}</span></span>
-            )}
-            {scenario.entities.length > 0 && (
-              <span>{scenario.entities.length} entit{scenario.entities.length !== 1 ? 'ies' : 'y'}</span>
-            )}
-            {scenario.params.length > 0 && (
-              <span>{scenario.params.length} param{scenario.params.length !== 1 ? 's' : ''}</span>
-            )}
-          </div>
-        </div>
-        <Button variant="primary" size="sm" onClick={onRun}>Run</Button>
       </div>
 
-      {expanded && (
-        <div className="mt-3 pt-3 border-t border-glass-edge space-y-3 text-sm">
-          {/* Parameters */}
-          {scenario.params.length > 0 && (
-            <div>
-              <h5 className="text-text-secondary text-xs mb-1.5">Parameters</h5>
-              <div className="flex flex-wrap gap-2">
-                {scenario.params.map((p) => (
-                  <span
-                    key={p.name}
-                    className="bg-glass-1 border border-glass-edge px-2 py-0.5 text-xs font-mono"
-                  >
-                    {p.name}
-                    <span className="text-text-tertiary ml-1">={p.value}</span>
-                    <span className="text-text-tertiary ml-1 text-[10px]">({p.type})</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* Top-right: Scenario detail / Live monitor */}
+      <div className="border border-glass-edge border-l-0 overflow-hidden">
+        {isRunning && runningJobId ? (
+          <LiveMonitorPanel jobId={runningJobId} />
+        ) : selectedScenario ? (
+          <ScenarioDetailPanel
+            projectId={projectId}
+            scenario={selectedScenario}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <EmptyState message="Select a scenario to view details" />
+          </div>
+        )}
+      </div>
 
-          {/* Entities */}
-          {scenario.entities.length > 0 && (
-            <div>
-              <h5 className="text-text-secondary text-xs mb-1.5">Entities</h5>
-              <div className="flex flex-wrap gap-2">
-                {scenario.entities.map((e) => (
-                  <span
-                    key={e.name}
-                    className="bg-glass-1 border border-glass-edge px-2 py-0.5 text-xs"
-                  >
-                    {e.name}
-                    {e.model && <span className="text-text-tertiary ml-1">({e.model})</span>}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </GlassPanel>
+      {/* Bottom-left: Parameter panel */}
+      <div className="border border-glass-edge border-t-0 overflow-hidden">
+        <ParameterPanel
+          projectId={projectId}
+          scenario={selectedScenario}
+          paramOverrides={paramOverrides}
+          onParamOverridesChange={onParamOverridesChange}
+        />
+      </div>
+
+      {/* Bottom-right: Execution panel */}
+      <div className="border border-glass-edge border-l-0 border-t-0 overflow-hidden">
+        <ExecutionPanel
+          projectId={projectId}
+          scenario={selectedScenario}
+          paramOverrides={paramOverrides}
+          onRunning={onRunning}
+          latestJobId={latestJobId}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -354,90 +381,6 @@ function FilesTab({ projectId, project }: { projectId: string; project: ProjectD
         onCancel={() => setDeleteTarget(null)}
       />
     </div>
-  );
-}
-
-/* ================================================================
-   Simulations Tab
-   ================================================================ */
-
-function SimulationsTab({ projectId }: { projectId: string }) {
-  const navigate = useNavigate();
-  const [page, setPage] = useState(0);
-  const PAGE_SIZE = 20;
-
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['project-simulations', projectId, page],
-    queryFn: () => api.getSimulations(undefined, PAGE_SIZE, page * PAGE_SIZE, projectId),
-    refetchInterval: 3000,
-  });
-
-  const jobs = data?.jobs ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  const columns = [
-    { key: 'id', label: 'Job ID' },
-    { key: 'scenario', label: 'Scenario' },
-    { key: 'status', label: 'Status' },
-    { key: 'started', label: 'Started' },
-  ];
-
-  if (isLoading) return <TableSkeleton columns={4} rows={5} />;
-  if (error) return <ErrorPanel error={error} onRetry={() => refetch()} />;
-
-  if (jobs.length === 0) {
-    return (
-      <EmptyState
-        message="No simulation jobs for this project yet."
-        action={
-          <Link to={`/projects/${projectId}/sim/new`}>
-            <Button size="sm">Run a simulation</Button>
-          </Link>
-        }
-      />
-    );
-  }
-
-  return (
-    <>
-      <TableShell columns={columns}>
-        {jobs.map((job: SimulationStatus) => (
-          <tr
-            key={job.job_id}
-            className="border-b border-glass-edge/50 hover:bg-glass-hover/30 cursor-pointer"
-            onClick={() => navigate(`/simulations/${job.job_id}`)}
-          >
-            <td className="px-4 py-3">
-              <span className="text-primary font-mono text-sm">{job.job_id}</span>
-            </td>
-            <td className="px-4 py-3 text-sm">{job.scenario_id}</td>
-            <td className="px-4 py-3">
-              <StatusBadge status={job.status} />
-            </td>
-            <td className="px-4 py-3 text-text-secondary text-sm">
-              {job.started_at ? new Date(job.started_at).toLocaleTimeString() : '-'}
-            </td>
-          </tr>
-        ))}
-      </TableShell>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-sm">
-          <span className="text-text-secondary">
-            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-          </span>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-              Prev
-            </Button>
-            <Button variant="secondary" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 
