@@ -45,6 +45,13 @@ export function ProjectDetailPage() {
 
   const selectedScenario = scenarios?.find((s) => s.file === selectedScenarioFile) ?? null;
 
+  // Auto-select first scenario when none selected
+  useEffect(() => {
+    if (scenarios && scenarios.length > 0 && !selectedScenarioFile) {
+      setSearchParams({ scenario: scenarios[0].file }, { replace: true });
+    }
+  }, [scenarios, selectedScenarioFile, setSearchParams]);
+
   // Poll running job status for auto-switch back
   const { data: runningJobStatus } = useQuery({
     queryKey: ['simulation', runningJobId],
@@ -65,9 +72,8 @@ export function ProjectDetailPage() {
     }
   }, [runningJobStatus]);
 
-  const isRunning = !!runningJobId && (
-    runningJobStatus?.status === 'running' || runningJobStatus?.status === 'queued'
-  );
+  // runningJobId is non-null while job is active AND for 2s after completion
+  // (cleared by the timer above), so we use it directly for panel switching
 
   const handleSelectScenario = (file: string) => {
     setSearchParams({ scenario: file });
@@ -141,7 +147,6 @@ export function ProjectDetailPage() {
           selectedFile={selectedScenarioFile}
           onSelectScenario={handleSelectScenario}
           runningJobId={runningJobId}
-          isRunning={isRunning}
           latestJobId={latestJobId}
           paramOverrides={paramOverrides}
           onParamOverridesChange={setParamOverrides}
@@ -167,7 +172,6 @@ interface ScenarioDashboardProps {
   selectedFile: string | null;
   onSelectScenario: (file: string) => void;
   runningJobId: string | null;
-  isRunning: boolean;
   latestJobId: string | null;
   paramOverrides: Record<string, string>;
   onParamOverridesChange: (overrides: Record<string, string>) => void;
@@ -181,7 +185,6 @@ function ScenarioDashboard({
   selectedFile,
   onSelectScenario,
   runningJobId,
-  isRunning,
   latestJobId,
   paramOverrides,
   onParamOverridesChange,
@@ -192,9 +195,9 @@ function ScenarioDashboard({
   }
 
   return (
-    <div className="grid grid-cols-[280px_1fr] grid-rows-[1fr_1fr] h-[calc(100vh-120px)] gap-0">
+    <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[1fr_1fr] md:h-[calc(100vh-120px)] gap-0">
       {/* Top-left: Scenario list */}
-      <div className="border border-glass-edge overflow-hidden">
+      <div className="border border-glass-edge overflow-hidden min-h-[200px]">
         <ScenarioListPanel
           scenarios={scenarios}
           selectedFile={selectedFile}
@@ -203,8 +206,8 @@ function ScenarioDashboard({
       </div>
 
       {/* Top-right: Scenario detail / Live monitor */}
-      <div className="border border-glass-edge border-l-0 overflow-hidden">
-        {isRunning && runningJobId ? (
+      <div className="border border-glass-edge md:border-l-0 overflow-hidden min-h-[250px]">
+        {runningJobId ? (
           <LiveMonitorPanel jobId={runningJobId} />
         ) : selectedScenario ? (
           <ScenarioDetailPanel
@@ -219,7 +222,7 @@ function ScenarioDashboard({
       </div>
 
       {/* Bottom-left: Parameter panel */}
-      <div className="border border-glass-edge border-t-0 overflow-hidden">
+      <div className="border border-glass-edge md:border-t-0 overflow-hidden min-h-[200px]">
         <ParameterPanel
           projectId={projectId}
           scenario={selectedScenario}
@@ -229,7 +232,7 @@ function ScenarioDashboard({
       </div>
 
       {/* Bottom-right: Execution panel */}
-      <div className="border border-glass-edge border-l-0 border-t-0 overflow-hidden">
+      <div className="border border-glass-edge md:border-l-0 md:border-t-0 overflow-hidden min-h-[200px]">
         <ExecutionPanel
           projectId={projectId}
           scenario={selectedScenario}
