@@ -32,6 +32,9 @@ export function ExecutionPanel({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['simulation', activeJobId] });
     },
+    onError: (err: Error) => {
+      console.error('Cancel simulation failed:', err);
+    },
   });
 
   if (!scenario) {

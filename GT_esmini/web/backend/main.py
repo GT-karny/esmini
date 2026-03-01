@@ -49,7 +49,11 @@ async def lifespan(app: FastAPI):
     if expired_s or expired_r:
         _logger.info("Cleaned up %d expired temp scenario(s) and %d road(s)", expired_s, expired_r)
 
-    grpc_srv = await start_grpc_server(port=GRPC_PORT)
+    grpc_srv = None
+    try:
+        grpc_srv = await start_grpc_server(port=GRPC_PORT)
+    except Exception as e:
+        _logger.warning("gRPC server failed to start (port %s): %s — continuing without gRPC", GRPC_PORT, e)
 
     async def _periodic_temp_cleanup():
         while True:
@@ -86,7 +90,8 @@ async def lifespan(app: FastAPI):
         _logger.info("Stopped %d OSI bridge(s)", bridge_count)
 
     # Phase 3: Stop gRPC server (reduced grace for Windows deadline)
-    await grpc_srv.stop(grace=2)
+    if grpc_srv is not None:
+        await grpc_srv.stop(grace=2)
 
     # Phase 4: Mark any remaining running jobs as failed in DB
     await _mark_stale_jobs()
