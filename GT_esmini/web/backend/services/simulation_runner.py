@@ -340,6 +340,7 @@ async def list_simulations(
     project_id: str | None = None,
     limit: int = 20,
     offset: int = 0,
+    scenario_id: str | None = None,
 ) -> tuple[list[SimulationStatus], int]:
     """List simulation jobs with optional filtering."""
     db = await get_db()
@@ -352,6 +353,9 @@ async def list_simulations(
         if project_id:
             conditions.append("project_id = ?")
             params.append(project_id)
+        if scenario_id:
+            conditions.append("scenario_id = ?")
+            params.append(scenario_id)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

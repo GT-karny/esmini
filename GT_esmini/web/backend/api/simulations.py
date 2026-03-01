@@ -49,11 +49,14 @@ async def create_simulation(req: SimulationRequest):
 async def list_simulations(
     status: str | None = None,
     project_id: str | None = None,
+    scenario_id: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ):
     """List simulation jobs."""
-    jobs, total = await simulation_runner.list_simulations(status, project_id, limit, offset)
+    jobs, total = await simulation_runner.list_simulations(
+        status, project_id, limit, offset, scenario_id=scenario_id,
+    )
     return SimulationListResponse(jobs=jobs, total=total)
 
 
