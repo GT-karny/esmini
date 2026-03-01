@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { CursorLight } from '@osce/theme-apex';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ScenariosPage } from './pages/ScenariosPage';
 import { NewSimulationPage } from './pages/NewSimulationPage';
 import { SimulationsPage } from './pages/SimulationsPage';
@@ -13,22 +16,25 @@ const queryClient = new QueryClient({
 
 function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `px-3 py-2 rounded text-sm font-medium transition-colors ${
+    `apex-tab px-3 py-2 text-sm font-medium transition-colors ${
       isActive
-        ? 'bg-white/10 text-white'
-        : 'text-gray-300 hover:text-white hover:bg-white/5'
+        ? 'bg-glass-active text-foreground'
+        : 'text-text-secondary hover:text-foreground hover:bg-glass-hover'
     }`;
 
   return (
-    <nav className="bg-gray-900 border-b border-gray-800">
+    <nav className="glass header-glow relative z-10">
       <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-1">
-        <span className="text-white font-bold text-lg mr-6">GT_Sim</span>
-        <NavLink to="/" className={linkClass} end>Scenarios</NavLink>
+        <span className="font-display text-foreground font-bold text-lg tracking-wider mr-6">
+          GT-SIM
+        </span>
+        <NavLink to="/" className={linkClass} end>Projects</NavLink>
+        <NavLink to="/scenarios" className={linkClass}>Scenarios</NavLink>
         <NavLink to="/simulations" className={linkClass}>Jobs</NavLink>
         <NavLink to="/simulations/new" className={linkClass}>New Run</NavLink>
         <button
           onClick={onSettingsClick}
-          className="ml-auto p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded transition-colors cursor-pointer"
+          className="ml-auto p-2 text-text-secondary hover:text-foreground hover:bg-glass-hover transition-colors cursor-pointer"
           aria-label="Settings"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -47,11 +53,15 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <div className="min-h-screen bg-gray-950 text-gray-100">
+        <CursorLight />
+        <div className="min-h-screen">
           <NavBar onSettingsClick={() => setSettingsOpen(true)} />
           <main className="max-w-7xl mx-auto px-4 py-6">
             <Routes>
-              <Route path="/" element={<ScenariosPage />} />
+              <Route path="/" element={<ProjectsPage />} />
+              <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+              <Route path="/projects/:projectId/sim/new" element={<NewSimulationPage />} />
+              <Route path="/scenarios" element={<ScenariosPage />} />
               <Route path="/simulations" element={<SimulationsPage />} />
               <Route path="/simulations/new" element={<NewSimulationPage />} />
               <Route path="/simulations/:jobId" element={<SimulationDetailPage />} />

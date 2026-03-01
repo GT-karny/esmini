@@ -10,7 +10,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationStatus,
     SpeedRequest,
 )
-from GT_esmini.web.backend.services import scenario_service, simulation_runner
+from GT_esmini.web.backend.services import project_service, scenario_service, simulation_runner
 
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 
@@ -18,7 +18,21 @@ router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 @router.post("", response_model=SimulationStatus)
 async def create_simulation(req: SimulationRequest):
     """Submit a new simulation job."""
-    scenario_path = scenario_service.get_scenario_path(req.scenario_id)
+    scenario_path = None
+
+    # Resolve scenario path: project-based or legacy
+    if req.project_id:
+        proj = await project_service.get_project(req.project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail=f"Project '{req.project_id}' not found")
+        from pathlib import Path
+        candidate = Path(proj.root_path) / req.scenario_id
+        if candidate.is_file():
+            scenario_path = candidate
+
+    if scenario_path is None:
+        scenario_path = scenario_service.get_scenario_path(req.scenario_id)
+
     if scenario_path is None:
         raise HTTPException(
             status_code=404, detail=f"Scenario '{req.scenario_id}' not found"
@@ -33,10 +47,13 @@ async def create_simulation(req: SimulationRequest):
 
 @router.get("", response_model=SimulationListResponse)
 async def list_simulations(
-    status: str | None = None, limit: int = 20, offset: int = 0
+    status: str | None = None,
+    project_id: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
 ):
     """List simulation jobs."""
-    jobs, total = await simulation_runner.list_simulations(status, limit, offset)
+    jobs, total = await simulation_runner.list_simulations(status, project_id, limit, offset)
     return SimulationListResponse(jobs=jobs, total=total)
 
 

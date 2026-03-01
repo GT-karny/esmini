@@ -49,13 +49,16 @@ class ExecutionConfig(BaseModel):
 
 class SimulationRequest(BaseModel):
     scenario_id: str
+    project_id: str | None = None
     controller: ControllerConfig = ControllerConfig()
     execution: ExecutionConfig = ExecutionConfig()
+    param_overrides: dict[str, str] | None = None
 
 
 class SimulationStatus(BaseModel):
     job_id: str
     scenario_id: str
+    project_id: str | None = None
     status: str  # queued | running | completed | failed | cancelled | timeout
     controller_type: str = "default"
     progress_pct: int = 0

@@ -59,9 +59,11 @@ if PACKAGED:
     SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
     CONFIG_DIR = PACKAGE_ROOT / "config"
     RESULTS_DIR = PACKAGE_ROOT / "data" / "results"
+    PROJECTS_DIR = PACKAGE_ROOT / "data" / "projects"
     TEMP_SCENARIOS_DIR = PACKAGE_ROOT / "data" / "_temp_scenarios"
     TEMP_ROADS_DIR = PACKAGE_ROOT / "data" / "_temp_roads"
     DB_PATH = PACKAGE_ROOT / "data" / "gt_sim.db"
+    RESOURCES_DIR = PACKAGE_ROOT / "resources"
 else:
     REPO_ROOT = _find_repo_root()
 
@@ -71,9 +73,11 @@ else:
     SCRIPTS_DIR = REPO_ROOT / "scripts"
     CONFIG_DIR = REPO_ROOT / "GT_esmini" / "config"
     RESULTS_DIR = REPO_ROOT / "test_results" / "web"
+    PROJECTS_DIR = REPO_ROOT / "test_results" / "web" / "projects"
     TEMP_SCENARIOS_DIR = REPO_ROOT / "test_results" / "web" / "_temp_scenarios"
     TEMP_ROADS_DIR = REPO_ROOT / "test_results" / "web" / "_temp_roads"
     DB_PATH = REPO_ROOT / "GT_esmini" / "web" / "gt_sim.db"
+    RESOURCES_DIR = REPO_ROOT / "resources"
 
 # Ensure scripts/ is importable
 if str(SCRIPTS_DIR) not in sys.path:

@@ -104,6 +104,7 @@ def _build_cmd(
     execution: ExecutionConfig,
     output_dir: Path,
     job_id: str | None = None,
+    param_overrides: dict[str, str] | None = None,
 ) -> list[str]:
     """Build GT_Sim command line arguments."""
     cmd = [str(GT_SIM_EXE), "--osc", str(xosc_path)]
@@ -128,6 +129,11 @@ def _build_cmd(
     for arg in execution.extra_args:
         cmd.append(arg)
 
+    # Add parameter overrides
+    if param_overrides:
+        for name, value in param_overrides.items():
+            cmd.extend(["--param", f"{name},{value}"])
+
     # Add control pipe for runtime speed control (Windows only)
     if job_id and os.name == "nt":
         pipe_name = f"gt_sim_{job_id}"
@@ -147,7 +153,10 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir)
 
     # Build command
-    cmd = _build_cmd(xosc_path, req.execution, output_dir, job_id=job_id)
+    cmd = _build_cmd(
+        xosc_path, req.execution, output_dir,
+        job_id=job_id, param_overrides=req.param_overrides,
+    )
 
     # Store job in DB
     options = {
@@ -161,15 +170,17 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     try:
         await db.execute(
             """INSERT INTO simulations
-               (job_id, scenario_id, status, controller_type, options_json, output_dir, started_at)
-               VALUES (?, ?, 'running', ?, ?, ?, ?)""",
+               (job_id, scenario_id, project_id, status, controller_type, options_json, output_dir, started_at, param_overrides)
+               VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)""",
             (
                 job_id,
                 req.scenario_id,
+                req.project_id,
                 req.controller.controller_type,
                 json.dumps(options, ensure_ascii=False),
                 str(output_dir),
                 _now_iso(),
+                json.dumps(req.param_overrides, ensure_ascii=False) if req.param_overrides else None,
             ),
         )
         await db.commit()
@@ -309,6 +320,7 @@ async def get_simulation_status(job_id: str) -> SimulationStatus | None:
         return SimulationStatus(
             job_id=row["job_id"],
             scenario_id=row["scenario_id"],
+            project_id=row["project_id"],
             status=row["status"],
             controller_type=row["controller_type"],
             pid=row["pid"],
@@ -324,16 +336,24 @@ async def get_simulation_status(job_id: str) -> SimulationStatus | None:
 
 
 async def list_simulations(
-    status: str | None = None, limit: int = 20, offset: int = 0
+    status: str | None = None,
+    project_id: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
 ) -> tuple[list[SimulationStatus], int]:
     """List simulation jobs with optional filtering."""
     db = await get_db()
     try:
-        where = ""
+        conditions = []
         params: list = []
         if status:
-            where = "WHERE status = ?"
+            conditions.append("status = ?")
             params.append(status)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         cursor = await db.execute(
             f"SELECT COUNT(*) FROM simulations {where}", params
@@ -354,6 +374,7 @@ async def list_simulations(
                 SimulationStatus(
                     job_id=row["job_id"],
                     scenario_id=row["scenario_id"],
+                    project_id=row["project_id"],
                     status=row["status"],
                     controller_type=row["controller_type"],
                     pid=row["pid"],

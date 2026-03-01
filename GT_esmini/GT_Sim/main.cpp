@@ -51,6 +51,12 @@ static bool ContainsArg(const std::vector<std::string>& args, const std::string&
     return false;
 }
 
+struct ParamOverride
+{
+    std::string name;
+    std::string value;
+};
+
 struct VideoOptions
 {
     bool enabled = false;
@@ -241,6 +247,7 @@ int main(int argc, const char* argv[])
         printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
         printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
         printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
+        printf("  --param <name,val>   Override scenario parameter (repeatable)\n");
         printf("\nSee esmini --help for engine options.\n");
         return 0;
     }
@@ -259,12 +266,14 @@ int main(int argc, const char* argv[])
         printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
         printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
         printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
+        printf("  --param <name,val>   Override scenario parameter (repeatable)\n");
         printf("  ... [See esmini documentation for other arguments]\n");
         return -1;
     }
 
     // Parse GT_Sim-only options and build args forwarded to GT_InitWithArgs.
     VideoOptions video;
+    std::vector<ParamOverride> paramOverrides;
     std::vector<std::string> forwardArgs;
     forwardArgs.emplace_back(argv[0] ? argv[0] : "GT_Sim");
 
@@ -309,6 +318,19 @@ int main(int argc, const char* argv[])
             // Consumed by GT_Sim, not forwarded to esmini
             i++; // skip value, handled below
         }
+        else if (arg == "--param" && i + 1 < argc)
+        {
+            std::string pv = argv[++i];
+            auto commaPos = pv.find(',');
+            if (commaPos != std::string::npos && commaPos > 0)
+            {
+                paramOverrides.push_back({pv.substr(0, commaPos), pv.substr(commaPos + 1)});
+            }
+            else
+            {
+                std::cerr << "GT_Sim Warning: Invalid --param format (expected name,value): " << pv << std::endl;
+            }
+        }
         else
         {
             forwardArgs.emplace_back(arg);
@@ -348,6 +370,64 @@ int main(int argc, const char* argv[])
     {
         printf("Failed to initialize GT_esmini\n");
         return -1;
+    }
+
+    // 1.1 Apply parameter overrides
+    if (!paramOverrides.empty())
+    {
+        // Build name->type map from scenario's ParameterDeclarations
+        // Types: 1=int, 2=double, 3=string, 4=bool
+        int numParams = SE_GetNumberOfParameters();
+        std::vector<std::pair<std::string, int>> paramTypes;
+        for (int pi = 0; pi < numParams; pi++)
+        {
+            int ptype = 0;
+            const char* pname = SE_GetParameterName(pi, &ptype);
+            if (pname) paramTypes.emplace_back(pname, ptype);
+        }
+
+        for (const auto& ov : paramOverrides)
+        {
+            // Find the parameter type
+            int ptype = -1;
+            for (const auto& pt : paramTypes)
+            {
+                if (pt.first == ov.name) { ptype = pt.second; break; }
+            }
+
+            int ret = -1;
+            if (ptype == 1) // int
+            {
+                ret = SE_SetParameterInt(ov.name.c_str(), std::stoi(ov.value));
+            }
+            else if (ptype == 2) // double
+            {
+                ret = SE_SetParameterDouble(ov.name.c_str(), std::stod(ov.value));
+            }
+            else if (ptype == 3) // string
+            {
+                ret = SE_SetParameterString(ov.name.c_str(), ov.value.c_str());
+            }
+            else if (ptype == 4) // bool
+            {
+                bool bval = (ov.value == "true" || ov.value == "1");
+                ret = SE_SetParameterBool(ov.name.c_str(), bval);
+            }
+            else
+            {
+                // Unknown type — try setting as double (common case)
+                ret = SE_SetParameterDouble(ov.name.c_str(), std::stod(ov.value));
+            }
+
+            if (ret == 0)
+            {
+                printf("GT_Sim: Parameter override: %s = %s\n", ov.name.c_str(), ov.value.c_str());
+            }
+            else
+            {
+                std::cerr << "GT_Sim Warning: Failed to set parameter " << ov.name << " = " << ov.value << std::endl;
+            }
+        }
     }
 
     // 1.5 Start control pipe if requested

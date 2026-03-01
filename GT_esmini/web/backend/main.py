@@ -18,6 +18,7 @@ from GT_esmini.web.backend.api import (
     config_api,
     controller_config,
     osi_stream,
+    projects,
     results,
     roads,
     scenarios,
@@ -35,6 +36,10 @@ _logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # --- Startup ---
     await init_db()  # Also cleans stale DB entries from previous crashes
+
+    # Register built-in project (resources/)
+    from GT_esmini.web.backend.services.project_service import ensure_builtin_project
+    await ensure_builtin_project()
 
     # Clean up expired temp files from previous sessions
     from GT_esmini.web.backend.services.scenario_service import cleanup_expired_scenarios
@@ -132,6 +137,7 @@ app.add_middleware(
 )
 
 # Register API routers
+app.include_router(projects.router)
 app.include_router(scenarios.router)
 app.include_router(scripts.router)
 app.include_router(controller_config.router)

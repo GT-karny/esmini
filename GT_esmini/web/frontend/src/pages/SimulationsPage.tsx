@@ -56,10 +56,10 @@ export function SimulationsPage() {
           <button
             key={f.value}
             onClick={() => { setStatusFilter(f.value); setPage(0); }}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+            className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
               statusFilter === f.value
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                ? 'bg-primary/80 text-background glow-edge'
+                : 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground'
             }`}
           >
             {f.label}
@@ -98,18 +98,18 @@ export function SimulationsPage() {
             {jobs.map((job: SimulationStatus) => (
               <tr
                 key={job.job_id}
-                className="border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer"
+                className="border-b border-glass-edge/50 hover:bg-glass-hover/30 cursor-pointer"
                 onClick={() => navigate(`/simulations/${job.job_id}`)}
               >
                 <td className="px-4 py-3">
-                  <span className="text-blue-400 font-mono">{job.job_id}</span>
+                  <span className="text-primary font-mono">{job.job_id}</span>
                 </td>
                 <td className="px-4 py-3">{job.scenario_id}</td>
-                <td className="px-4 py-3 text-gray-400">{job.controller_type}</td>
+                <td className="px-4 py-3 text-text-secondary">{job.controller_type}</td>
                 <td className="px-4 py-3">
                   <StatusBadge status={job.status} />
                 </td>
-                <td className="px-4 py-3 text-gray-400">
+                <td className="px-4 py-3 text-text-secondary">
                   {job.started_at ? new Date(job.started_at).toLocaleTimeString() : '-'}
                 </td>
               </tr>
@@ -119,7 +119,7 @@ export function SimulationsPage() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4 text-sm">
-              <span className="text-gray-500">
+              <span className="text-text-secondary">
                 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
               </span>
               <div className="flex gap-2">

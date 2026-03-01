@@ -99,10 +99,10 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
   }, [connect]);
 
   const statusIndicator: Record<ConnectionStatus, { color: string; label: string }> = {
-    connecting: { color: 'bg-yellow-400', label: 'Connecting' },
-    connected: { color: 'bg-green-400', label: 'Connected' },
-    disconnected: { color: 'bg-gray-400', label: 'Disconnected' },
-    error: { color: 'bg-red-400', label: 'Error' },
+    connecting: { color: 'bg-warning', label: 'Connecting' },
+    connected: { color: 'bg-success', label: 'Connected' },
+    disconnected: { color: 'bg-text-tertiary', label: 'Disconnected' },
+    error: { color: 'bg-destructive', label: 'Error' },
   };
 
   const { color, label } = statusIndicator[status];
@@ -117,14 +117,14 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
     : null;
 
   return (
-    <section className="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-4">
+    <section className="glass p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-medium text-gray-400">Live OSI Data</h2>
+        <h2 className="text-sm font-medium text-text-secondary">Live OSI Data</h2>
         <div className="flex items-center gap-2 text-xs">
           <span className={`inline-block w-2 h-2 rounded-full ${color}`} />
-          <span className="text-gray-500">{label}</span>
+          <span className="text-text-secondary">{label}</span>
           {frameCount > 0 && (
-            <span className="text-gray-600 ml-2">
+            <span className="text-text-tertiary ml-2">
               {frameCount} frames
             </span>
           )}
@@ -133,13 +133,13 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
 
       {data && data.objects.length > 0 ? (
         <>
-          <div className="text-xs text-gray-500 mb-2">
+          <div className="text-xs text-text-secondary mb-2">
             t = {data.sim_time.toFixed(2)}s | {data.object_count} object(s)
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-500 text-xs border-b border-gray-800">
+                <tr className="text-left text-text-secondary text-xs border-b border-glass-edge">
                   <th className="py-1.5 pr-4">ID</th>
                   <th className="py-1.5 pr-4">X</th>
                   <th className="py-1.5 pr-4">Y</th>
@@ -149,8 +149,8 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
               </thead>
               <tbody className="font-mono">
                 {data.objects.map((obj) => (
-                  <tr key={obj.id} className="border-b border-gray-800/50">
-                    <td className="py-1.5 pr-4 text-gray-300">{obj.id}</td>
+                  <tr key={obj.id} className="border-b border-glass-edge/50">
+                    <td className="py-1.5 pr-4 text-foreground">{obj.id}</td>
                     <td className="py-1.5 pr-4">{obj.x.toFixed(2)}</td>
                     <td className="py-1.5 pr-4">{obj.y.toFixed(2)}</td>
                     <td className="py-1.5 pr-4">{obj.speed.toFixed(2)}</td>
@@ -162,9 +162,9 @@ export function OsiLivePanel({ jobId }: { jobId: string }) {
           </div>
         </>
       ) : status === 'connected' ? (
-        <p className="text-gray-500 text-sm">Waiting for OSI data...</p>
+        <p className="text-text-secondary text-sm">Waiting for OSI data...</p>
       ) : status === 'error' ? (
-        <p className="text-red-400 text-sm">Failed to connect to OSI stream</p>
+        <p className="text-destructive text-sm">Failed to connect to OSI stream</p>
       ) : null}
 
       {(hvdData || egoLights) && (

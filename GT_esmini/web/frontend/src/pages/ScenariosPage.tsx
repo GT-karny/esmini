@@ -80,7 +80,7 @@ export function ScenariosPage() {
       )}
 
       {scenarios && scenarios.length > 0 && (
-        <p className="text-gray-500 text-sm mt-4">
+        <p className="text-text-secondary text-sm mt-4">
           {scenarios.length} scenario{scenarios.length !== 1 ? 's' : ''} found
         </p>
       )}
@@ -106,15 +106,15 @@ function ScenarioRow({
   return (
     <>
       <tr
-        className="border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer"
+        className="border-b border-glass-edge/50 hover:bg-glass-hover/30 cursor-pointer"
         onClick={onToggle}
       >
         <td className="px-4 py-3 font-medium">
-          <span className="mr-2 text-gray-500 text-xs">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+          <span className="mr-2 text-text-tertiary text-xs">{isExpanded ? '\u25BC' : '\u25B6'}</span>
           {scenario.id}
         </td>
-        <td className="px-4 py-3 text-gray-400">{scenario.filename}</td>
-        <td className="px-4 py-3 text-right text-gray-400">
+        <td className="px-4 py-3 text-text-secondary">{scenario.filename}</td>
+        <td className="px-4 py-3 text-right text-text-secondary">
           {(scenario.size / 1024).toFixed(1)} KB
         </td>
         <td className="px-4 py-3 text-right">
@@ -132,31 +132,31 @@ function ScenarioRow({
       </tr>
 
       {isExpanded && (
-        <tr className="border-b border-gray-800/50">
-          <td colSpan={4} className="px-4 py-3 bg-gray-800/30">
+        <tr className="border-b border-glass-edge/50">
+          <td colSpan={4} className="px-4 py-3 bg-glass-1/30">
             {!detail ? (
-              <div className="flex gap-2 items-center text-gray-500 text-sm">
-                <div className="w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+              <div className="flex gap-2 items-center text-text-secondary text-sm">
+                <div className="w-3 h-3 border-2 border-text-secondary border-t-transparent rounded-full animate-spin" />
                 Loading details...
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500">Road file: </span>
-                  <span className="text-gray-300 font-mono">{detail.road_file ?? 'N/A'}</span>
+                  <span className="text-text-secondary">Road file: </span>
+                  <span className="text-foreground font-mono">{detail.road_file ?? 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Has controller: </span>
-                  <span className="text-gray-300">{detail.has_controller ? 'Yes' : 'No'}</span>
+                  <span className="text-text-secondary">Has controller: </span>
+                  <span className="text-foreground">{detail.has_controller ? 'Yes' : 'No'}</span>
                 </div>
                 {detail.entities.length > 0 && (
                   <div className="col-span-2">
-                    <span className="text-gray-500 block mb-1">Entities:</span>
+                    <span className="text-text-secondary block mb-1">Entities:</span>
                     <div className="flex flex-wrap gap-2">
                       {detail.entities.map((e) => (
-                        <span key={e.name} className="bg-gray-800 px-2 py-0.5 rounded text-xs text-gray-300">
+                        <span key={e.name} className="bg-glass-1 border border-glass-edge px-2 py-0.5 text-xs text-foreground">
                           {e.name}
-                          {e.vehicle && <span className="text-gray-500 ml-1">({e.vehicle})</span>}
+                          {e.vehicle && <span className="text-text-secondary ml-1">({e.vehicle})</span>}
                         </span>
                       ))}
                     </div>

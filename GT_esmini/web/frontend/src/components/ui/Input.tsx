@@ -1,7 +1,7 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes, ReactNode } from 'react';
 
 const baseInput =
-  'w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors';
+  'w-full bg-glass-1 border border-glass-edge px-3 py-2 text-sm text-foreground focus:outline-none focus:border-glass-edge-active transition-colors placeholder:text-text-tertiary';
 
 interface FieldWrapperProps {
   label?: string;
@@ -12,7 +12,7 @@ interface FieldWrapperProps {
 function FieldWrapper({ label, children, className = '' }: FieldWrapperProps) {
   return (
     <div className={className}>
-      {label && <label className="block text-xs text-gray-500 mb-1">{label}</label>}
+      {label && <label className="block text-xs text-text-secondary mb-1">{label}</label>}
       {children}
     </div>
   );
@@ -68,9 +68,9 @@ interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
 export function Checkbox({ label, description, className = '', ...rest }: CheckboxProps) {
   return (
     <label className={`flex items-center gap-2 text-sm cursor-pointer ${className}`}>
-      <input type="checkbox" className="rounded" {...rest} />
+      <input type="checkbox" {...rest} />
       <span>{label}</span>
-      {description && <span className="text-xs text-gray-500">{description}</span>}
+      {description && <span className="text-xs text-text-tertiary">{description}</span>}
     </label>
   );
 }

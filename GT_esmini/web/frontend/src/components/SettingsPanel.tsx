@@ -36,7 +36,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       {defaults ? (
         <SettingsForm defaults={defaults} onClose={onClose} />
       ) : (
-        <div className="text-sm text-gray-500">Loading...</div>
+        <div className="text-sm text-text-secondary">Loading...</div>
       )}
     </SlidePanel>
   );
@@ -118,7 +118,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
     <div className="space-y-6">
       {/* Section: Execution Defaults */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-400 mb-3">Execution Defaults</h3>
+        <h3 className="text-sm font-semibold text-text-secondary mb-3">Execution Defaults</h3>
 
         {/* Quick Options */}
         <div className="flex flex-wrap gap-x-5 gap-y-3 mb-4">
@@ -133,11 +133,11 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div>
             <NumberInput label="Frequency (Hz)" value={hz} onChange={(e) => setHz(Number(e.target.value))} />
-            {errors.hz && <p className="text-red-400 text-xs mt-1">{errors.hz}</p>}
+            {errors.hz && <p className="text-destructive text-xs mt-1">{errors.hz}</p>}
           </div>
           <div>
             <NumberInput label="Timeout (s)" value={timeout} onChange={(e) => setTimeout_(Number(e.target.value))} />
-            {errors.timeout && <p className="text-red-400 text-xs mt-1">{errors.timeout}</p>}
+            {errors.timeout && <p className="text-destructive text-xs mt-1">{errors.timeout}</p>}
           </div>
         </div>
 
@@ -150,7 +150,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
               onChange={(e) => setOsiIp(e.target.value)}
               className="w-48"
             />
-            {errors.osiIp && <p className="text-red-400 text-xs mt-1">{errors.osiIp}</p>}
+            {errors.osiIp && <p className="text-destructive text-xs mt-1">{errors.osiIp}</p>}
           </div>
         )}
 
@@ -164,7 +164,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
               onChange={(e) => setThreads(e.target.checked)}
             />
             <div>
-              <h4 className="text-xs text-gray-500 mb-2">Window Position & Size</h4>
+              <h4 className="text-xs text-text-secondary mb-2">Window Position & Size</h4>
               <div className="grid grid-cols-4 gap-2">
                 <NumberInput label="X" value={winX} onChange={(e) => setWinX(Number(e.target.value))} />
                 <NumberInput label="Y" value={winY} onChange={(e) => setWinY(Number(e.target.value))} />
@@ -179,7 +179,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
       {/* Future sections can be added here */}
 
       {/* Footer actions */}
-      <div className="flex gap-3 pt-4 border-t border-gray-800">
+      <div className="flex gap-3 pt-4 border-t border-glass-edge">
         <Button variant="ghost" size="sm" onClick={handleReset}>
           Reset
         </Button>
@@ -194,7 +194,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
       </div>
 
       {saveMutation.error && (
-        <p className="text-red-400 text-sm">{String(saveMutation.error)}</p>
+        <p className="text-destructive text-sm">{String(saveMutation.error)}</p>
       )}
     </div>
   );
