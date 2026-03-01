@@ -237,6 +237,11 @@ export const api = {
   getScenarioParams: (projectId: string, scenarioFile: string) =>
     request<ScenarioParam[]>(`/api/projects/${projectId}/scenarios/${scenarioFile}/params`),
 
+  getRoadGeometry: (projectId: string, scenarioFile: string) =>
+    request<{ boundaries: Array<{ road_id: number; type: string; points: [number, number][] }> }>(
+      `/api/projects/${projectId}/scenarios/${scenarioFile}/road-geometry`,
+    ),
+
   getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
     const res = await fetch(`${BASE}/api/projects/${projectId}/scenarios/${scenarioFile}/docs`);
     return res.ok ? res.text() : null;

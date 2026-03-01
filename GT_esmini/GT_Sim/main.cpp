@@ -395,28 +395,38 @@ int main(int argc, const char* argv[])
                 if (pt.first == ov.name) { ptype = pt.second; break; }
             }
 
+            if (ptype < 0)
+            {
+                std::cerr << "GT_Sim Warning: Unknown parameter '" << ov.name << "', skipping override" << std::endl;
+                continue;
+            }
+
             int ret = -1;
-            if (ptype == 1) // int
+            try
             {
-                ret = SE_SetParameterInt(ov.name.c_str(), std::stoi(ov.value));
+                if (ptype == 1) // int
+                {
+                    ret = SE_SetParameterInt(ov.name.c_str(), std::stoi(ov.value));
+                }
+                else if (ptype == 2) // double
+                {
+                    ret = SE_SetParameterDouble(ov.name.c_str(), std::stod(ov.value));
+                }
+                else if (ptype == 3) // string
+                {
+                    ret = SE_SetParameterString(ov.name.c_str(), ov.value.c_str());
+                }
+                else if (ptype == 4) // bool
+                {
+                    bool bval = (ov.value == "true" || ov.value == "1");
+                    ret = SE_SetParameterBool(ov.name.c_str(), bval);
+                }
             }
-            else if (ptype == 2) // double
+            catch (const std::exception& e)
             {
-                ret = SE_SetParameterDouble(ov.name.c_str(), std::stod(ov.value));
-            }
-            else if (ptype == 3) // string
-            {
-                ret = SE_SetParameterString(ov.name.c_str(), ov.value.c_str());
-            }
-            else if (ptype == 4) // bool
-            {
-                bool bval = (ov.value == "true" || ov.value == "1");
-                ret = SE_SetParameterBool(ov.name.c_str(), bval);
-            }
-            else
-            {
-                // Unknown type — try setting as double (common case)
-                ret = SE_SetParameterDouble(ov.name.c_str(), std::stod(ov.value));
+                std::cerr << "GT_Sim Warning: Failed to convert parameter " << ov.name
+                          << " = '" << ov.value << "': " << e.what() << std::endl;
+                continue;
             }
 
             if (ret == 0)

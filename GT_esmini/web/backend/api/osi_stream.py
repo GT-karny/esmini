@@ -27,6 +27,20 @@ _BRAKE_LIGHT_MAP = {0: "off", 1: "off", 2: "off", 3: "normal", 4: "strong"}
 # --- GenericLightState: 3 = ON, everything else = OFF ---
 _GENERIC_LIGHT_ON = 3
 
+# --- MovingObject.Type enum ---
+_MOVING_TYPE_MAP = {
+    0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: "animal",
+}
+
+# --- VehicleClassification.Type enum ---
+_VEHICLE_CLASS_MAP = {
+    0: "unknown", 1: "other", 2: "small_car", 3: "compact_car",
+    4: "medium_car", 5: "luxury_car", 6: "delivery_van", 7: "heavy_truck",
+    8: "semitrailer", 9: "trailer", 10: "motorbike", 11: "bicycle",
+    12: "bus", 13: "tram", 14: "train", 15: "wheelchair",
+    16: "semitractor", 17: "standup_scooter",
+}
+
 
 def _extract_entity_name(obj) -> str:
     """Extract OpenSCENARIO entity name from source_reference identifiers."""
@@ -79,6 +93,19 @@ def _gt_to_json(raw: bytes) -> dict | None:
         vel = obj.base.velocity
         speed = math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)
 
+        # Object type and vehicle classification
+        obj_type = _MOVING_TYPE_MAP.get(obj.type, "unknown")
+        vehicle_class = ""
+        if obj.type == 2 and obj.HasField("vehicle_classification"):
+            vehicle_class = _VEHICLE_CLASS_MAP.get(
+                obj.vehicle_classification.type, "unknown"
+            )
+
+        # Bounding box dimensions
+        dim = obj.base.dimension
+        length = round(dim.length, 2) if dim.length > 0 else 4.0
+        width = round(dim.width, 2) if dim.width > 0 else 2.0
+
         entry = {
             "id": obj.id.value,
             "name": _extract_entity_name(obj),
@@ -87,6 +114,10 @@ def _gt_to_json(raw: bytes) -> dict | None:
             "z": round(pos.z, 3),
             "h": round(ori.yaw, 4),
             "speed": round(speed, 3),
+            "obj_type": obj_type,
+            "vehicle_class": vehicle_class,
+            "length": length,
+            "width": width,
         }
         entry.update(_extract_lights(obj))
         objects.append(entry)

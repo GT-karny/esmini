@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export interface OsiObject {
   id: number;
+  name: string;
   x: number;
   y: number;
   z: number;
@@ -10,6 +11,10 @@ export interface OsiObject {
   head_light: string;
   indicator: string;
   brake_light: string;
+  obj_type: string;
+  vehicle_class: string;
+  length: number;
+  width: number;
 }
 
 export interface HvdData {

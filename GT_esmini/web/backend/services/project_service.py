@@ -475,13 +475,15 @@ def _parse_xosc(xosc_path: Path, rel_path: str) -> ScenarioInfo:
                 has_controller = True
         entities.append({"name": name, "model": model, "controller": controller})
 
-    # ParameterDeclarations
+    # ParameterDeclarations (top-level only — not Story/Act-level params)
     params: list[ScenarioParam] = []
-    for param in root.findall(".//ParameterDeclarations/ParameterDeclaration"):
-        pname = param.get("name", "")
-        ptype = param.get("parameterType", "string")
-        pval = param.get("value", "")
-        params.append(ScenarioParam(name=pname, type=ptype, value=pval))
+    top_pd = root.find("ParameterDeclarations")
+    if top_pd is not None:
+        for param in top_pd.findall("ParameterDeclaration"):
+            pname = param.get("name", "")
+            ptype = param.get("parameterType", "string")
+            pval = param.get("value", "")
+            params.append(ScenarioParam(name=pname, type=ptype, value=pval))
 
     return ScenarioInfo(
         file=rel_path,
@@ -511,12 +513,14 @@ async def get_scenario_params(project_id: str, scenario_file: str) -> list[Scena
         return []
 
     params: list[ScenarioParam] = []
-    for param in xml_root.findall(".//ParameterDeclarations/ParameterDeclaration"):
-        params.append(ScenarioParam(
-            name=param.get("name", ""),
-            type=param.get("parameterType", "string"),
-            value=param.get("value", ""),
-        ))
+    top_pd = xml_root.find("ParameterDeclarations")
+    if top_pd is not None:
+        for param in top_pd.findall("ParameterDeclaration"):
+            params.append(ScenarioParam(
+                name=param.get("name", ""),
+                type=param.get("parameterType", "string"),
+                value=param.get("value", ""),
+            ))
     return params
 
 

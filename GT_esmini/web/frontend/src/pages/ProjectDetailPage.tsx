@@ -266,7 +266,7 @@ function ScenarioDashboard({
       {/* Bottom-left: Scenario detail / Live monitor */}
       <div className="overflow-hidden" style={{ gridArea: '3/1/4/2' }}>
         {runningJobId ? (
-          <LiveMonitorPanel jobId={runningJobId} />
+          <LiveMonitorPanel jobId={runningJobId} projectId={projectId} scenarioFile={selectedFile ?? undefined} />
         ) : selectedScenario ? (
           <ScenarioDetailPanel
             projectId={projectId}

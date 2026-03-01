@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -13,7 +14,9 @@ from GT_esmini.web.backend.models.scenario import (
     VariantRequest,
     VariantResponse,
 )
+from GT_esmini.web.backend.config import SCENARIOS_DIR
 from GT_esmini.web.backend.services import scenario_service
+from GT_esmini.web.backend.services import road_geometry_service
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
@@ -31,6 +34,29 @@ async def get_scenario(scenario_id: str):
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
     return detail
+
+
+@router.get("/{scenario_id}/road-geometry")
+async def get_road_geometry(scenario_id: str):
+    """Extract lane boundary polylines from the scenario's OpenDRIVE file."""
+    detail = scenario_service.get_scenario_detail(scenario_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
+    if not detail.road_file:
+        raise HTTPException(status_code=404, detail="Scenario has no road file")
+
+    # Resolve xodr path (may be relative to SCENARIOS_DIR)
+    road_path = Path(detail.road_file)
+    if not road_path.is_absolute():
+        road_path = (SCENARIOS_DIR / detail.road_file).resolve()
+    if not road_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Road file not found: {detail.road_file}")
+
+    import asyncio
+    geometry = await asyncio.to_thread(
+        road_geometry_service.extract_road_geometry, road_path
+    )
+    return geometry
 
 
 @router.post("/upload", response_model=ScenarioUploadResponse, status_code=201)

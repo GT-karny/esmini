@@ -236,6 +236,51 @@ async def list_scenarios(project_id: str):
     return scenarios
 
 
+@router.get("/{project_id}/scenarios/{scenario_file:path}/road-geometry")
+async def get_road_geometry(project_id: str, scenario_file: str):
+    """Extract lane boundary polylines from the scenario's OpenDRIVE file."""
+    import asyncio
+    from pathlib import Path
+
+    from GT_esmini.web.backend.services import road_geometry_service
+
+    proj = await project_service.get_project(project_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    root = Path(proj.root_path)
+    xosc_path = root / scenario_file
+    if not xosc_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_file}")
+
+    # Parse xosc to find the road file reference
+    import xml.etree.ElementTree as ET
+    try:
+        tree = ET.parse(xosc_path)
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="Failed to parse XOSC")
+
+    logic = tree.getroot().find(".//RoadNetwork/LogicFile")
+    if logic is None:
+        raise HTTPException(status_code=404, detail="No road file in scenario")
+
+    road_filepath = logic.get("filepath", "")
+    if not road_filepath:
+        raise HTTPException(status_code=404, detail="Empty road file path")
+
+    # Resolve relative to xosc parent directory
+    road_path = Path(road_filepath)
+    if not road_path.is_absolute():
+        road_path = (xosc_path.parent / road_filepath).resolve()
+    if not road_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Road file not found: {road_filepath}")
+
+    geometry = await asyncio.to_thread(
+        road_geometry_service.extract_road_geometry, road_path
+    )
+    return geometry
+
+
 @router.get("/{project_id}/scenarios/{scenario_file:path}/docs")
 async def get_scenario_docs(project_id: str, scenario_file: str):
     """Get markdown documentation for a scenario file."""

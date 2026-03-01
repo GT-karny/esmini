@@ -54,6 +54,7 @@ if PACKAGED:
     REPO_ROOT = PACKAGE_ROOT  # alias for downstream compatibility
 
     GT_SIM_EXE = PACKAGE_ROOT / "bin" / "GT_Sim.exe"
+    ESMINI_RM_LIB = PACKAGE_ROOT / "bin" / "esminiRMLib.dll"
     SCENARIOS_DIR = PACKAGE_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = PACKAGE_ROOT / "DriverScript"
     SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
@@ -68,6 +69,7 @@ else:
     REPO_ROOT = _find_repo_root()
 
     GT_SIM_EXE = REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_Sim.exe"
+    ESMINI_RM_LIB = REPO_ROOT / "DriverScript" / "bin" / "esminiRMLib.dll"
     SCENARIOS_DIR = REPO_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = REPO_ROOT / "DriverScript"
     SCRIPTS_DIR = REPO_ROOT / "scripts"

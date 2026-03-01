@@ -1,8 +1,12 @@
+import { useEffect, useState } from 'react';
 import { useOsiStream } from '../../hooks/useOsiStream';
-import { LiveSceneView } from '../LiveSceneView';
+import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
+import { api } from '../../api/client';
 
 interface LiveMonitorPanelProps {
   jobId: string;
+  projectId?: string;
+  scenarioFile?: string;
 }
 
 const statusIndicator: Record<string, { color: string; label: string }> = {
@@ -12,8 +16,20 @@ const statusIndicator: Record<string, { color: string; label: string }> = {
   error: { color: 'bg-destructive', label: 'Error' },
 };
 
-export function LiveMonitorPanel({ jobId }: LiveMonitorPanelProps) {
+export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitorPanelProps) {
   const { status, objects, simTime, hvdData, frameCount } = useOsiStream(jobId);
+
+  // Fetch road geometry once when projectId + scenarioFile are available
+  const [roadGeometry, setRoadGeometry] = useState<RoadGeometry | null>(null);
+  useEffect(() => {
+    if (!projectId || !scenarioFile) return;
+    let cancelled = false;
+    api.getRoadGeometry(projectId, scenarioFile).then(
+      (data) => { if (!cancelled) setRoadGeometry(data); },
+      () => { /* silently ignore — road overlay is optional */ },
+    );
+    return () => { cancelled = true; };
+  }, [projectId, scenarioFile]);
 
   const { color, label } = statusIndicator[status] ?? statusIndicator.connecting;
 
@@ -50,7 +66,7 @@ export function LiveMonitorPanel({ jobId }: LiveMonitorPanelProps) {
 
       {/* 2D scene view */}
       <div className="flex-1 min-h-0 mb-3">
-        <LiveSceneView objects={objects} className="h-full" />
+        <LiveSceneView objects={objects} roadGeometry={roadGeometry} className="h-full" />
       </div>
 
       {/* HVD compact display */}
