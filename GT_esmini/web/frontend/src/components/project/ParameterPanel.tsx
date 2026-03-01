@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, type ScenarioInfo, type ScenarioParam, type ParameterPreset } from '../../api/client';
+import { api, type ScenarioInfo, type ScenarioParam } from '../../api/client';
 import { TextInput, Checkbox } from '../ui/Input';
 import { EmptyState } from '../ui/EmptyState';
+import { PresetSelector } from './PresetSelector';
 
 interface ParameterPanelProps {
   projectId: string;
@@ -25,6 +26,13 @@ export function ParameterPanel({
     queryFn: () => api.getPresets(projectId, scenarioFile),
     enabled: !!scenarioFile,
   });
+
+  // Default values from scenario params
+  const defaultValues = useMemo(() => {
+    const vals: Record<string, string> = {};
+    for (const p of scenarioParams) vals[p.name] = p.value;
+    return vals;
+  }, [scenarioParams]);
 
   // Initialize param overrides when scenario changes
   useEffect(() => {
@@ -57,82 +65,74 @@ export function ParameterPanel({
     );
   }
 
-  const loadPreset = (preset: ParameterPreset) => {
-    onParamOverridesChange({ ...paramOverrides, ...preset.values });
-  };
-
-  const presetList = presets ?? [];
-
   return (
     <div className="h-full overflow-y-auto p-3">
       <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">
         Parameters
       </h3>
 
-      {/* Preset buttons */}
-      {presetList.length > 0 && (
-        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-          <span className="text-text-tertiary text-[10px]">Presets:</span>
-          {presetList.map((p) => (
-            <button
-              key={p.preset_id}
-              onClick={() => loadPreset(p)}
-              className="px-2 py-0.5 text-[11px] bg-glass-1 border border-glass-edge hover:border-glass-edge-mid text-text-secondary hover:text-foreground transition-colors cursor-pointer"
-            >
-              {p.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Preset tabs */}
+      <PresetSelector
+        projectId={projectId}
+        scenarioFile={scenarioFile}
+        presets={presets ?? []}
+        currentValues={paramOverrides}
+        defaultValues={defaultValues}
+        onLoad={onParamOverridesChange}
+      />
 
       {/* Parameter inputs */}
       <div className="space-y-1.5">
-        {scenarioParams.map((p: ScenarioParam) => (
-          <div key={p.name} className="flex items-center gap-2">
-            <span
-              className="text-xs font-mono text-text-secondary w-32 shrink-0 truncate"
-              title={p.name}
-            >
-              {p.name}
-            </span>
-            <span className="text-[10px] text-text-tertiary w-10 shrink-0">{p.type}</span>
-            {p.type === 'boolean' ? (
-              <Checkbox
-                label=""
-                checked={paramOverrides[p.name] === 'true' || paramOverrides[p.name] === '1'}
-                onChange={(e) =>
-                  onParamOverridesChange({
-                    ...paramOverrides,
-                    [p.name]: e.target.checked ? 'true' : 'false',
-                  })
-                }
-              />
-            ) : (
-              <TextInput
-                value={paramOverrides[p.name] ?? p.value}
-                onChange={(e) =>
-                  onParamOverridesChange({
-                    ...paramOverrides,
-                    [p.name]: e.target.value,
-                  })
-                }
-                className="font-mono text-xs"
-                placeholder={p.value}
-              />
-            )}
-            {paramOverrides[p.name] !== undefined && paramOverrides[p.name] !== p.value && (
-              <button
-                onClick={() =>
-                  onParamOverridesChange({ ...paramOverrides, [p.name]: p.value })
-                }
-                className="text-text-tertiary hover:text-foreground text-xs cursor-pointer shrink-0"
-                title="Reset to default"
+        {scenarioParams.map((p: ScenarioParam) => {
+          const isChanged = paramOverrides[p.name] !== undefined && paramOverrides[p.name] !== p.value;
+          return (
+            <div key={p.name} className="flex items-center gap-2">
+              <span
+                className="text-xs font-mono text-text-secondary w-32 shrink-0 truncate"
+                title={p.name}
               >
-                &#x21BA;
-              </button>
-            )}
-          </div>
-        ))}
+                {p.name}
+                {isChanged && <span className="text-warning ml-0.5">*</span>}
+              </span>
+              <span className="text-[10px] text-text-tertiary w-10 shrink-0">{p.type}</span>
+              {p.type === 'boolean' ? (
+                <Checkbox
+                  label=""
+                  checked={paramOverrides[p.name] === 'true' || paramOverrides[p.name] === '1'}
+                  onChange={(e) =>
+                    onParamOverridesChange({
+                      ...paramOverrides,
+                      [p.name]: e.target.checked ? 'true' : 'false',
+                    })
+                  }
+                />
+              ) : (
+                <TextInput
+                  value={paramOverrides[p.name] ?? p.value}
+                  onChange={(e) =>
+                    onParamOverridesChange({
+                      ...paramOverrides,
+                      [p.name]: e.target.value,
+                    })
+                  }
+                  className="font-mono text-xs"
+                  placeholder={p.value}
+                />
+              )}
+              {isChanged && (
+                <button
+                  onClick={() =>
+                    onParamOverridesChange({ ...paramOverrides, [p.name]: p.value })
+                  }
+                  className="text-text-tertiary hover:text-foreground text-xs cursor-pointer shrink-0"
+                  title="Reset to default"
+                >
+                  &#x21BA;
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
