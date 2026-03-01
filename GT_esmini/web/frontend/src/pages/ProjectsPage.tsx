@@ -6,7 +6,6 @@ import { api, type Project } from '../api/client';
 import { Button } from '../components/ui/Button';
 import { TextInput } from '../components/ui/Input';
 import { ErrorPanel } from '../components/ui/ErrorPanel';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export function ProjectsPage() {
   const navigate = useNavigate();

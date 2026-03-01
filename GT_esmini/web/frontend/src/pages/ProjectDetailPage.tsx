@@ -20,7 +20,6 @@ type Tab = 'scenarios' | 'files' | 'simulations';
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('scenarios');
 
   const { data: project, isLoading, error, refetch } = useQuery({
