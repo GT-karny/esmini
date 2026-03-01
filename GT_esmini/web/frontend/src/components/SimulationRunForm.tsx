@@ -17,8 +17,16 @@ export interface SimulationRunFormProps {
   scenarioParams: ScenarioParam[];
   presets: ParameterPreset[];
   compact?: boolean;
+  /** Hide the parameter overrides section (when managed externally) */
+  hideParams?: boolean;
+  /** External param overrides (used when hideParams is true) */
+  externalParamOverrides?: Record<string, string>;
   onSubmitted?: (job: SimulationStatus) => void;
   onNavigateToJob?: (jobId: string) => void;
+  /** Whether a simulation is currently running */
+  isRunning?: boolean;
+  /** Called when Stop is clicked */
+  onStop?: () => void;
   /** Initial options to restore (re-run flow) */
   rerunFrom?: Record<string, unknown>;
 }
@@ -29,8 +37,12 @@ export function SimulationRunForm({
   scenarioParams,
   presets,
   compact = false,
+  hideParams = false,
+  externalParamOverrides,
   onSubmitted,
   onNavigateToJob,
+  isRunning = false,
+  onStop,
   rerunFrom,
 }: SimulationRunFormProps) {
   const queryClient = useQueryClient();
@@ -160,9 +172,10 @@ export function SimulationRunForm({
   // Build overrides that differ from defaults
   const getActiveOverrides = (): Record<string, string> | undefined => {
     if (scenarioParams.length === 0) return undefined;
+    const source = externalParamOverrides ?? paramOverrides;
     const overrides: Record<string, string> = {};
     for (const p of scenarioParams) {
-      const ov = paramOverrides[p.name];
+      const ov = source[p.name];
       if (ov !== undefined && ov !== p.value) {
         overrides[p.name] = ov;
       }
@@ -304,8 +317,8 @@ export function SimulationRunForm({
         </div>
       </Card>
 
-      {/* Parameter Overrides (project context only) */}
-      {projectId && scenarioParams.length > 0 && (
+      {/* Parameter Overrides (project context only, hidden when managed externally) */}
+      {!hideParams && projectId && scenarioParams.length > 0 && (
         <Card title="Parameters" className={cardCls}>
           <div className="space-y-3">
             {/* Preset selector */}
@@ -466,15 +479,26 @@ export function SimulationRunForm({
         )}
       </div>
 
-      {/* Submit */}
-      <Button
-        size={compact ? 'md' : 'lg'}
-        className="w-full"
-        onClick={handleSubmit}
-        disabled={!scenarioFile || mutation.isPending}
-      >
-        {mutation.isPending ? 'Starting...' : 'Run Simulation'}
-      </Button>
+      {/* Submit + Stop */}
+      <div className="flex gap-2">
+        <Button
+          size={compact ? 'md' : 'lg'}
+          className="flex-1"
+          onClick={handleSubmit}
+          disabled={!scenarioFile || mutation.isPending || isRunning}
+        >
+          {mutation.isPending ? 'Starting...' : 'Run Simulation'}
+        </Button>
+        {isRunning && onStop && (
+          <Button
+            size={compact ? 'md' : 'lg'}
+            variant="secondary"
+            onClick={onStop}
+          >
+            Stop
+          </Button>
+        )}
+      </div>
 
       {mutation.error && (
         <p className="text-destructive text-sm">{String(mutation.error)}</p>

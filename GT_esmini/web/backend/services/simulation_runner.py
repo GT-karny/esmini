@@ -403,7 +403,14 @@ async def cancel_simulation(job_id: str) -> bool:
 
     if sim.pid:
         try:
-            os.kill(sim.pid, signal.SIGTERM)
+            if sys.platform == "win32":
+                # Use taskkill to kill the process tree on Windows
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(sim.pid)],
+                    capture_output=True,
+                )
+            else:
+                os.kill(sim.pid, signal.SIGTERM)
         except (OSError, ProcessLookupError):
             pass
 
@@ -432,7 +439,13 @@ def kill_all_running() -> int:
         pids = list(_running_pids)
     for pid in pids:
         try:
-            os.kill(pid, signal.SIGTERM)
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                )
+            else:
+                os.kill(pid, signal.SIGTERM)
             killed += 1
             _logger.info("Killed GT_Sim subprocess PID %d", pid)
         except (OSError, ProcessLookupError):

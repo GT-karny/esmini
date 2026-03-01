@@ -59,7 +59,7 @@ export function InlineSimulationStatus({
         <div className="flex items-center gap-2">
           {(isDone || isFailed) && (
             <Button variant="ghost" size="sm" onClick={onViewDetails}>
-              View Details &rarr;
+              Details &rarr;
             </Button>
           )}
           {isDone && onRerun && (

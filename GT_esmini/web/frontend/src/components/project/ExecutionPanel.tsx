@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type ScenarioInfo, type SimulationStatus } from '../../api/client';
 import { SimulationRunForm } from '../SimulationRunForm';
 import { InlineSimulationStatus } from '../InlineSimulationStatus';
@@ -11,24 +11,27 @@ interface ExecutionPanelProps {
   paramOverrides: Record<string, string>;
   onRunning: (jobId: string) => void;
   latestJobId: string | null;
+  activeJobId: string | null;
 }
 
 export function ExecutionPanel({
   projectId,
   scenario,
-  paramOverrides: _paramOverrides,
+  paramOverrides,
   onRunning,
   latestJobId,
+  activeJobId,
 }: ExecutionPanelProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const scenarioFile = scenario?.file ?? '';
-  const scenarioParams = scenario?.params ?? [];
 
-  const { data: presets } = useQuery({
-    queryKey: ['presets', projectId, scenarioFile],
-    queryFn: () => api.getPresets(projectId, scenarioFile),
-    enabled: !!scenarioFile,
+  const cancelMut = useMutation({
+    mutationFn: () => api.cancelSimulation(activeJobId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['simulation', activeJobId] });
+    },
   });
 
   if (!scenario) {
@@ -59,15 +62,18 @@ export function ExecutionPanel({
         </div>
       )}
 
-      {/* Simulation run form (compact, no parameter section — it's in ParameterPanel) */}
+      {/* Simulation run form (compact, params hidden — managed by ParameterPanel) */}
       <SimulationRunForm
         projectId={projectId}
         scenarioFile={scenarioFile}
-        scenarioParams={scenarioParams}
-        presets={presets ?? []}
+        scenarioParams={scenario.params ?? []}
+        presets={[]}
         compact
+        hideParams
+        externalParamOverrides={paramOverrides}
         onSubmitted={handleSubmitted}
-        onNavigateToJob={(jobId) => navigate(`/simulations/${jobId}`)}
+        isRunning={!!activeJobId}
+        onStop={() => cancelMut.mutate()}
       />
     </div>
   );
