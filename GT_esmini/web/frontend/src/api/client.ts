@@ -190,6 +190,8 @@ export const api = {
       body: JSON.stringify({ name, description }),
     }),
 
+  getProjectTemplateUrl: () => '/api/projects/template/download',
+
   uploadProject: async (file: File, name: string, description = '') => {
     const form = new FormData();
     form.append('file', file);
