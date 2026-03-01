@@ -9,7 +9,10 @@ interface ScenarioListPanelProps {
 export function ScenarioListPanel({ scenarios, selectedFile, onSelect }: ScenarioListPanelProps) {
   return (
     <div className="h-full overflow-y-auto">
-      <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider px-3 py-2 border-b border-glass-edge">
+      <h3 className="flex items-center gap-2 text-sm font-display font-medium text-text-secondary uppercase tracking-wider px-3 py-2 border-b border-glass-edge">
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+          <path d="M2 3h12v1.5H2zm0 4h12v1.5H2zm0 4h8v1.5H2z" />
+        </svg>
         Scenarios
       </h3>
       {scenarios.length === 0 ? (

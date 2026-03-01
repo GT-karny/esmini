@@ -8,7 +8,7 @@ import type {
   ParameterPreset,
 } from '../api/client';
 import { Button } from './ui/Button';
-import { SelectInput, NumberInput, TextInput, Checkbox } from './ui/Input';
+import { SelectInput, NumberInput, TextInput, Checkbox, ToggleSwitch, IconToggle } from './ui/Input';
 import { Card } from './ui/Card';
 
 export interface SimulationRunFormProps {
@@ -240,15 +240,42 @@ export function SimulationRunForm({
 
   const scripts = scriptsData?.scripts ?? [];
 
+  // Option icons (inline SVG, 16x16 viewBox)
+  const iconWindow = headless ? (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+      <path d="M2 3h12v8H2V3zm1 1v6h10V4H3zm2 8h6v1H5v-1z" />
+      <path d="M1.5 1.5l13 13" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+      <path d="M2 3h12v8H2V3zm1 1v6h10V4H3zm2 8h6v1H5v-1z" />
+    </svg>
+  );
+  const iconRecord = (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+      <circle cx="8" cy="8" r="5" />
+    </svg>
+  );
+  const iconFastForward = (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+      <path d="M2 3l6 5-6 5V3zm6 0l6 5-6 5V3z" />
+    </svg>
+  );
+  const iconAutoLight = (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+      <path d="M8 1C5.5 1 4 3 4 5.5c0 1.5.7 2.8 1.5 3.5.5.5.5 1 .5 1.5V12h4v-1.5c0-.5 0-1 .5-1.5.8-.7 1.5-2 1.5-3.5C12 3 10.5 1 8 1zm-1 12h2v1H7v-1z" />
+    </svg>
+  );
+
   // Layout helpers
-  const gap = compact ? 'space-y-3' : 'space-y-4';
   const cardCls = compact ? 'p-3' : '';
 
   return (
-    <div className={gap}>
+    <Card className={cardCls}>
       {/* Controller Selection */}
-      <Card title="Controller" className={cardCls}>
-        <div className={`flex ${compact ? 'gap-2' : 'gap-2'} mb-4`}>
+      <div>
+        <h3 className="text-xs text-text-tertiary mb-2">Controller</h3>
+        <div className="flex gap-2 mb-4">
           <button
             onClick={() => setControllerType('default')}
             className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
@@ -304,22 +331,24 @@ export function SimulationRunForm({
             />
           </div>
         )}
-      </Card>
+      </div>
 
-      {/* Quick Options */}
-      <Card title="Options" className={cardCls}>
-        <div className={`flex flex-wrap ${compact ? 'gap-x-4 gap-y-2' : 'gap-x-6 gap-y-3'}`}>
-          <Checkbox label="Headless" checked={headless} onChange={(e) => setHeadless(e.target.checked)} />
-          <Checkbox label="Record" checked={record} onChange={(e) => setRecord(e.target.checked)} />
-          <Checkbox label="No Realtime" checked={noRealtime} onChange={(e) => setNoRealtime(e.target.checked)} />
-          <Checkbox label="AutoLight" checked={autolight} onChange={(e) => setAutolight(e.target.checked)} />
-          <Checkbox label="OSI Output" checked={osiEnabled} onChange={(e) => setOsiEnabled(e.target.checked)} />
-        </div>
-      </Card>
+      <div className="border-b border-glass-edge my-3" />
+
+      {/* Quick Options (icon toggles) */}
+      <div className="flex items-center gap-2">
+        <IconToggle icon={iconWindow} label="Window" active={!headless} onChange={(v) => setHeadless(!v)} />
+        <IconToggle icon={iconRecord} label="Record" active={record} onChange={setRecord} />
+        <IconToggle icon={iconFastForward} label="No Realtime" active={noRealtime} onChange={setNoRealtime} />
+        <IconToggle icon={iconAutoLight} label="AutoLight" active={autolight} onChange={setAutolight} />
+      </div>
 
       {/* Parameter Overrides (project context only, hidden when managed externally) */}
       {!hideParams && projectId && scenarioParams.length > 0 && (
-        <Card title="Parameters" className={cardCls}>
+        <>
+        <div className="border-b border-glass-edge my-3" />
+        <div>
+          <h3 className="text-xs text-text-tertiary mb-2">Parameters</h3>
           <div className="space-y-3">
             {/* Preset selector */}
             {presets.length > 0 && (
@@ -402,22 +431,30 @@ export function SimulationRunForm({
               )}
             </div>
           </div>
-        </Card>
+        </div>
+        </>
       )}
+
+      <div className="border-b border-glass-edge my-3" />
 
       {/* Advanced Settings (collapsible) */}
       <div>
         <button
           onClick={() => setShowAdvanced((v) => !v)}
-          className="flex items-center gap-2 text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer mb-2"
+          className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer mb-1.5"
         >
-          <span className="text-xs">{showAdvanced ? '\u25BC' : '\u25B6'}</span>
-          Advanced Settings
+          <svg
+            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+            viewBox="0 0 16 16"
+            fill="currentColor"
+          >
+            <path d="M6 3l5 5-5 5V3z" />
+          </svg>
+          Advanced
         </button>
 
         {showAdvanced && (
-          <Card className={cardCls}>
-            <div className="space-y-4">
+            <div className={compact ? 'space-y-3' : 'space-y-4'}>
               <div className={`grid grid-cols-2 ${compact ? 'gap-3' : 'gap-4'}`}>
                 <div>
                   <NumberInput
@@ -457,14 +494,14 @@ export function SimulationRunForm({
 
               {!headless && (
                 <>
-                  <Checkbox
+                  <ToggleSwitch
                     label="Threaded viewer"
-                    description="(OSG viewer in separate thread)"
                     checked={threads}
-                    onChange={(e) => setThreads(e.target.checked)}
+                    onChange={setThreads}
+                    description="(OSG)"
                   />
                   <div>
-                    <h3 className="text-xs text-text-secondary mb-2">Window Position & Size</h3>
+                    <h3 className="text-xs text-text-tertiary mb-1.5">Window Position & Size</h3>
                     <div className="grid grid-cols-4 gap-3">
                       <NumberInput label="X" value={winX} onChange={(e) => setWinX(Number(e.target.value))} />
                       <NumberInput label="Y" value={winY} onChange={(e) => setWinY(Number(e.target.value))} />
@@ -475,9 +512,10 @@ export function SimulationRunForm({
                 </>
               )}
             </div>
-          </Card>
         )}
       </div>
+
+      <div className="border-b border-glass-edge my-3" />
 
       {/* Submit + Stop */}
       <div className="flex gap-2">
@@ -489,20 +527,20 @@ export function SimulationRunForm({
         >
           {mutation.isPending ? 'Starting...' : 'Run Simulation'}
         </Button>
-        {isRunning && onStop && (
-          <Button
-            size={compact ? 'md' : 'lg'}
-            variant="secondary"
-            onClick={onStop}
-          >
-            Stop
-          </Button>
-        )}
+        <Button
+          size={compact ? 'md' : 'lg'}
+          variant="danger"
+          className="flex-1"
+          onClick={onStop}
+          disabled={!isRunning || !onStop}
+        >
+          &#9632; Stop
+        </Button>
       </div>
 
       {mutation.error && (
         <p className="text-destructive text-sm">{String(mutation.error)}</p>
       )}
-    </div>
+    </Card>
   );
 }

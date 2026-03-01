@@ -42,6 +42,10 @@ _planner = GTExecutionPlanner()
 _running_pids: set[int] = set()
 _running_pids_lock = threading.Lock()
 
+# In-memory tracking of job_id -> PID (available immediately on subprocess start)
+_running_jobs: dict[str, int] = {}
+_running_jobs_lock = threading.Lock()
+
 # In-memory tracking of control pipe names per job (for speed control)
 _control_pipes: dict[str, str] = {}  # {job_id: pipe_name}
 _pipes_lock = threading.Lock()
@@ -201,17 +205,22 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
 _logger = logging.getLogger(__name__)
 
 
-def _run_subprocess(cmd: list[str], cwd: str, timeout: int):
-    """Run subprocess in a blocking thread (compatible with any event loop)."""
+def _start_subprocess(cmd: list[str], cwd: str) -> subprocess.Popen:
+    """Start subprocess and return immediately (called in thread)."""
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    pid = proc.pid
     with _running_pids_lock:
-        _running_pids.add(pid)
+        _running_pids.add(proc.pid)
+    return proc
+
+
+def _wait_subprocess(proc: subprocess.Popen, timeout: int):
+    """Wait for an already-started subprocess to complete (called in thread)."""
+    pid = proc.pid
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
         return pid, proc.returncode, stdout, stderr, None
@@ -247,12 +256,15 @@ async def _run_simulation(
 
     _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
-        # Use subprocess.Popen in a thread to avoid Windows event loop issues
-        pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
-            _run_subprocess, cmd, str(REPO_ROOT), timeout,
-        )
+        # Phase 1: Start the subprocess (returns immediately with Popen object)
+        proc = await asyncio.to_thread(_start_subprocess, cmd, str(REPO_ROOT))
+        pid = proc.pid
 
-        # Update PID
+        # Register job_id -> PID mapping immediately (for cancel_simulation)
+        with _running_jobs_lock:
+            _running_jobs[job_id] = pid
+
+        # Write PID to DB immediately (while process is still running)
         db = await get_db()
         try:
             await db.execute(
@@ -262,6 +274,11 @@ async def _run_simulation(
             await db.commit()
         finally:
             await db.close()
+
+        # Phase 2: Wait for completion (blocking, runs in thread)
+        pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
+            _wait_subprocess, proc, timeout,
+        )
 
         # Save output
         stdout_path.write_bytes(stdout_data)
@@ -282,6 +299,9 @@ async def _run_simulation(
         exit_code = -1
         error_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
         _logger.error("Simulation %s failed: %s", job_id, error_msg, exc_info=True)
+    finally:
+        with _running_jobs_lock:
+            _running_jobs.pop(job_id, None)
 
     # Stop OSI bridge
     if osi_enabled:
@@ -401,16 +421,23 @@ async def cancel_simulation(job_id: str) -> bool:
     if sim is None or sim.status != "running":
         return False
 
-    if sim.pid:
+    # Get PID: prefer in-memory dict (always available while running) over DB
+    pid = None
+    with _running_jobs_lock:
+        pid = _running_jobs.get(job_id)
+    if pid is None:
+        pid = sim.pid  # fallback to DB
+
+    if pid:
         try:
             if sys.platform == "win32":
                 # Use taskkill to kill the process tree on Windows
                 subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(sim.pid)],
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
                     capture_output=True,
                 )
             else:
-                os.kill(sim.pid, signal.SIGTERM)
+                os.kill(pid, signal.SIGTERM)
         except (OSError, ProcessLookupError):
             pass
 
@@ -452,6 +479,8 @@ def kill_all_running() -> int:
             pass
     with _running_pids_lock:
         _running_pids.clear()
+    with _running_jobs_lock:
+        _running_jobs.clear()
     return killed
 
 

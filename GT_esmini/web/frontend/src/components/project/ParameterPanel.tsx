@@ -57,7 +57,10 @@ export function ParameterPanel({
   if (scenarioParams.length === 0) {
     return (
       <div className="h-full overflow-y-auto p-3">
-        <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">
+        <h3 className="flex items-center gap-2 text-sm font-display font-medium text-text-secondary uppercase tracking-wider mb-2">
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+            <path d="M4 1v5h2V1zm0 8v7h2V9zM10 1v9h2V1zm0 12v3h2v-3zM3 6h4v2H3zM9 10h4v2H9z" />
+          </svg>
           Parameters
         </h3>
         <p className="text-text-tertiary text-xs">No parameters declared in this scenario.</p>
@@ -67,7 +70,10 @@ export function ParameterPanel({
 
   return (
     <div className="h-full overflow-y-auto p-3">
-      <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">
+      <h3 className="flex items-center gap-2 text-sm font-display font-medium text-text-secondary uppercase tracking-wider mb-2">
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+          <path d="M4 1v5h2V1zm0 8v7h2V9zM10 1v9h2V1zm0 12v3h2v-3zM3 6h4v2H3zM9 10h4v2H9z" />
+        </svg>
         Parameters
       </h3>
 

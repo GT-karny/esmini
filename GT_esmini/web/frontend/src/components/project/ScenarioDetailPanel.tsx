@@ -17,7 +17,14 @@ export function ScenarioDetailPanel({ projectId, scenario }: ScenarioDetailPanel
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <h3 className="text-sm font-medium text-foreground mb-3">{scenario.filename}</h3>
+      <h3 className="flex items-center gap-2 text-sm font-display font-medium text-text-secondary tracking-wider mb-3">
+        <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5">
+          <path d="M3 1h7l3 3v11H3V1z" fill="currentColor" opacity="0.3" />
+          <path d="M3 1h7l3 3v11H3V1zm7 0v3h3" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M5 8h6M5 10.5h6M5 5.5h3" stroke="currentColor" strokeWidth="0.8" />
+        </svg>
+        {scenario.filename}
+      </h3>
 
       {/* Markdown documentation */}
       {docsContent ? (

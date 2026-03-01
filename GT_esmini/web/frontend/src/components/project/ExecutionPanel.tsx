@@ -48,19 +48,12 @@ export function ExecutionPanel({
 
   return (
     <div className="h-full overflow-y-auto p-3">
-      <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">
-        Run Simulation
+      <h3 className="flex items-center gap-2 text-sm font-display font-medium text-text-secondary uppercase tracking-wider mb-2">
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+          <path d="M4 2l10 6-10 6V2z" />
+        </svg>
+        Run
       </h3>
-
-      {/* Latest job status */}
-      {latestJobId && (
-        <div className="mb-3">
-          <InlineSimulationStatus
-            jobId={latestJobId}
-            onViewDetails={() => navigate(`/simulations/${latestJobId}`)}
-          />
-        </div>
-      )}
 
       {/* Simulation run form (compact, params hidden — managed by ParameterPanel) */}
       <SimulationRunForm
@@ -75,6 +68,16 @@ export function ExecutionPanel({
         isRunning={!!activeJobId}
         onStop={() => cancelMut.mutate()}
       />
+
+      {/* Latest job status (below Run/Stop buttons) */}
+      {latestJobId && (
+        <div className="mt-3">
+          <InlineSimulationStatus
+            jobId={latestJobId}
+            onViewDetails={() => navigate(`/simulations/${latestJobId}`)}
+          />
+        </div>
+      )}
     </div>
   );
 }
