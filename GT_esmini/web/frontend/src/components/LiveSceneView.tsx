@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 
 /* ---------- Types ---------- */
 
@@ -280,7 +280,7 @@ function renderShape(
   fill: string,
   stroke: string,
   isEgo: boolean,
-): JSX.Element {
+): ReactElement {
   switch (obj.obj_type) {
     case 'pedestrian': {
       const r = Math.max(0.3, width / 2);
