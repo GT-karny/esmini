@@ -51,8 +51,16 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
   return (
     <nav className="glass header-glow relative z-10 shrink-0">
       <div className="px-6 flex items-center h-11 gap-1">
-        <NavLink to="/" className="font-display text-foreground font-bold text-base tracking-wider mr-4">
-          GT-SIM
+        <NavLink to="/" className="flex items-center gap-2 font-display text-foreground font-bold text-base tracking-wider mr-4">
+          <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5 shrink-0" aria-hidden="true">
+            {/* Road surface */}
+            <path d="M6 16L9 3h2l3 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
+            {/* Center dashed line */}
+            <path d="M10 5v2.5M10 9.5v2.5M10 14v2" stroke="var(--color-primary, #7B88E8)" strokeWidth="0.8" strokeLinecap="round" />
+            {/* Vehicle */}
+            <rect x="7.5" y="7" width="5" height="3" rx="0.8" fill="var(--color-primary, #7B88E8)" opacity="0.85" />
+          </svg>
+          GT-esmini
         </NavLink>
 
         {isProjectPage ? (
