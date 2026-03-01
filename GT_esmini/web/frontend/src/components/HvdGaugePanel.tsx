@@ -31,9 +31,9 @@ function VerticalBarGauge({
   const fillH = clamped * height;
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-gray-500">{label}</span>
+      <span className="text-xs text-text-secondary">{label}</span>
       <svg width="32" height={height} className="rounded overflow-hidden">
-        <rect width="32" height={height} className="fill-gray-800" />
+        <rect width="32" height={height} className="fill-glass-1" />
         <rect
           y={height - fillH}
           width="32"
@@ -41,7 +41,7 @@ function VerticalBarGauge({
           className={fillClass}
         />
       </svg>
-      <span className="text-xs font-mono text-gray-300">
+      <span className="text-xs font-mono text-foreground">
         {(clamped * 100).toFixed(0)}%
       </span>
     </div>
@@ -56,9 +56,9 @@ function SteeringIndicator({ angle }: { angle: number }) {
   const clampedDeg = Math.max(-540, Math.min(540, deg));
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-gray-500">Steering</span>
+      <span className="text-xs text-text-secondary">Steering</span>
       <svg width="64" height="64" viewBox="-32 -32 64 64">
-        <circle r="28" className="fill-none stroke-gray-700" strokeWidth="3" />
+        <circle r="28" className="fill-none stroke-glass-edge" strokeWidth="3" />
         <line
           x1="0" y1="0" x2="0" y2="-24"
           className="stroke-blue-400"
@@ -66,9 +66,9 @@ function SteeringIndicator({ angle }: { angle: number }) {
           strokeLinecap="round"
           transform={`rotate(${clampedDeg})`}
         />
-        <circle r="3" className="fill-gray-500" />
+        <circle r="3" className="fill-text-secondary" />
       </svg>
-      <span className="text-xs font-mono text-gray-300">
+      <span className="text-xs font-mono text-foreground">
         {(angle * 180 / Math.PI).toFixed(1)}&deg;
       </span>
     </div>
@@ -82,18 +82,18 @@ function SpeedDisplay({ speed }: { speed: number }) {
   const barRatio = Math.min(1, kmh / 200);
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-gray-500">Speed</span>
+      <span className="text-xs text-text-secondary">Speed</span>
       <div className="text-2xl font-mono font-bold text-white leading-none">
         {kmh.toFixed(1)}
       </div>
-      <div className="text-[10px] text-gray-600">km/h</div>
-      <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+      <div className="text-[10px] text-text-tertiary">km/h</div>
+      <div className="w-16 h-1.5 bg-glass-1 overflow-hidden">
         <div
           className="h-full bg-cyan-500 rounded-full transition-all duration-150"
           style={{ width: `${barRatio * 100}%` }}
         />
       </div>
-      <span className="text-[10px] font-mono text-gray-500">
+      <span className="text-[10px] font-mono text-text-secondary">
         {speed.toFixed(1)} m/s
       </span>
     </div>
@@ -135,14 +135,14 @@ function ArcGauge({
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-gray-500">{label}</span>
+      <span className="text-xs text-text-secondary">{label}</span>
       <svg width="72" height="52" viewBox="-36 -36 72 36">
-        <path d={bgArc} className="fill-none stroke-gray-700" strokeWidth="4" strokeLinecap="round" />
+        <path d={bgArc} className="fill-none stroke-glass-edge" strokeWidth="4" strokeLinecap="round" />
         <path d={fillArc} className={`fill-none ${arcColor}`} strokeWidth="4" strokeLinecap="round" />
         <line x1="0" y1="0" x2={nx} y2={ny} className={arcColor} strokeWidth="2" strokeLinecap="round" />
-        <circle r="2.5" className="fill-gray-500" />
+        <circle r="2.5" className="fill-text-secondary" />
       </svg>
-      <span className="text-xs font-mono text-gray-300">
+      <span className="text-xs font-mono text-foreground">
         {value.toFixed(0)} {unit}
       </span>
     </div>
@@ -155,8 +155,8 @@ function GearIndicator({ gear }: { gear: number }) {
   const display = gear < 0 ? 'R' : gear === 0 ? 'N' : String(gear);
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-gray-500">Gear</span>
-      <div className="w-10 h-10 flex items-center justify-center bg-gray-800 border border-gray-700 rounded-lg">
+      <span className="text-xs text-text-secondary">Gear</span>
+      <div className="w-10 h-10 flex items-center justify-center bg-glass-1 border border-glass-edge">
         <span className="text-xl font-bold font-mono text-white">{display}</span>
       </div>
     </div>
@@ -176,8 +176,8 @@ function LightDot({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className={`inline-block w-2.5 h-2.5 rounded-full ${active ? activeClass : 'bg-gray-700'}`} />
-      <span className={`text-xs ${active ? 'text-gray-300' : 'text-gray-600'}`}>{label}</span>
+      <span className={`inline-block w-2.5 h-2.5 rounded-full ${active ? activeClass : 'bg-glass-edge'}`} />
+      <span className={`text-xs ${active ? 'text-foreground' : 'text-text-tertiary'}`}>{label}</span>
     </div>
   );
 }
@@ -208,11 +208,11 @@ interface HvdGaugePanelProps {
 
 export function HvdGaugePanel({ hvd, lights }: HvdGaugePanelProps) {
   return (
-    <div className="mt-4 pt-4 border-t border-gray-800">
+    <div className="mt-4 pt-4 border-t border-glass-edge">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-gray-400">Vehicle Telemetry</h3>
+        <h3 className="text-sm font-medium text-text-secondary">Vehicle Telemetry</h3>
         {hvd && (
-          <span className="text-xs text-gray-500">t = {hvd.sim_time.toFixed(2)}s</span>
+          <span className="text-xs text-text-secondary">t = {hvd.sim_time.toFixed(2)}s</span>
         )}
       </div>
 
@@ -229,7 +229,7 @@ export function HvdGaugePanel({ hvd, lights }: HvdGaugePanelProps) {
 
       {lights && (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 mr-1">Lights</span>
+          <span className="text-xs text-text-secondary mr-1">Lights</span>
           <LightIndicators lights={lights} />
         </div>
       )}

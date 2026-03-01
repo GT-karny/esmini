@@ -28,6 +28,16 @@ _BRAKE_LIGHT_MAP = {0: "off", 1: "off", 2: "off", 3: "normal", 4: "strong"}
 _GENERIC_LIGHT_ON = 3
 
 
+def _extract_entity_name(obj) -> str:
+    """Extract OpenSCENARIO entity name from source_reference identifiers."""
+    for ref in obj.source_reference:
+        if ref.type == "net.asam.openscenario":
+            for ident in ref.identifier:
+                if ident.startswith("entity_name:"):
+                    return ident[len("entity_name:"):]
+    return ""
+
+
 def _extract_lights(obj) -> dict:
     """Extract light state strings from a MovingObject's vehicle_classification."""
     head_light = "off"
@@ -71,6 +81,7 @@ def _gt_to_json(raw: bytes) -> dict | None:
 
         entry = {
             "id": obj.id.value,
+            "name": _extract_entity_name(obj),
             "x": round(pos.x, 3),
             "y": round(pos.y, 3),
             "z": round(pos.z, 3),

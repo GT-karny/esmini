@@ -42,6 +42,10 @@ _planner = GTExecutionPlanner()
 _running_pids: set[int] = set()
 _running_pids_lock = threading.Lock()
 
+# In-memory tracking of control pipe names per job (for speed control)
+_control_pipes: dict[str, str] = {}  # {job_id: pipe_name}
+_pipes_lock = threading.Lock()
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -99,6 +103,8 @@ def _build_cmd(
     xosc_path: Path,
     execution: ExecutionConfig,
     output_dir: Path,
+    job_id: str | None = None,
+    param_overrides: dict[str, str] | None = None,
 ) -> list[str]:
     """Build GT_Sim command line arguments."""
     cmd = [str(GT_SIM_EXE), "--osc", str(xosc_path)]
@@ -123,6 +129,18 @@ def _build_cmd(
     for arg in execution.extra_args:
         cmd.append(arg)
 
+    # Add parameter overrides
+    if param_overrides:
+        for name, value in param_overrides.items():
+            cmd.extend(["--param", f"{name},{value}"])
+
+    # Add control pipe for runtime speed control (Windows only)
+    if job_id and os.name == "nt":
+        pipe_name = f"gt_sim_{job_id}"
+        cmd.extend(["--control_pipe", pipe_name])
+        with _pipes_lock:
+            _control_pipes[job_id] = pipe_name
+
     return cmd
 
 
@@ -135,7 +153,10 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir)
 
     # Build command
-    cmd = _build_cmd(xosc_path, req.execution, output_dir)
+    cmd = _build_cmd(
+        xosc_path, req.execution, output_dir,
+        job_id=job_id, param_overrides=req.param_overrides,
+    )
 
     # Store job in DB
     options = {
@@ -149,15 +170,17 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     try:
         await db.execute(
             """INSERT INTO simulations
-               (job_id, scenario_id, status, controller_type, options_json, output_dir, started_at)
-               VALUES (?, ?, 'running', ?, ?, ?, ?)""",
+               (job_id, scenario_id, project_id, status, controller_type, options_json, output_dir, started_at, param_overrides)
+               VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)""",
             (
                 job_id,
                 req.scenario_id,
+                req.project_id,
                 req.controller.controller_type,
                 json.dumps(options, ensure_ascii=False),
                 str(output_dir),
                 _now_iso(),
+                json.dumps(req.param_overrides, ensure_ascii=False) if req.param_overrides else None,
             ),
         )
         await db.commit()
@@ -264,6 +287,10 @@ async def _run_simulation(
     if osi_enabled:
         await stop_bridge(job_id)
 
+    # Clean up control pipe tracking
+    with _pipes_lock:
+        _control_pipes.pop(job_id, None)
+
     # Update DB
     db = await get_db()
     try:
@@ -293,6 +320,7 @@ async def get_simulation_status(job_id: str) -> SimulationStatus | None:
         return SimulationStatus(
             job_id=row["job_id"],
             scenario_id=row["scenario_id"],
+            project_id=row["project_id"],
             status=row["status"],
             controller_type=row["controller_type"],
             pid=row["pid"],
@@ -308,16 +336,24 @@ async def get_simulation_status(job_id: str) -> SimulationStatus | None:
 
 
 async def list_simulations(
-    status: str | None = None, limit: int = 20, offset: int = 0
+    status: str | None = None,
+    project_id: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
 ) -> tuple[list[SimulationStatus], int]:
     """List simulation jobs with optional filtering."""
     db = await get_db()
     try:
-        where = ""
+        conditions = []
         params: list = []
         if status:
-            where = "WHERE status = ?"
+            conditions.append("status = ?")
             params.append(status)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         cursor = await db.execute(
             f"SELECT COUNT(*) FROM simulations {where}", params
@@ -338,6 +374,7 @@ async def list_simulations(
                 SimulationStatus(
                     job_id=row["job_id"],
                     scenario_id=row["scenario_id"],
+                    project_id=row["project_id"],
                     status=row["status"],
                     controller_type=row["controller_type"],
                     pid=row["pid"],
@@ -399,3 +436,47 @@ def kill_all_running() -> int:
     with _running_pids_lock:
         _running_pids.clear()
     return killed
+
+
+async def set_speed_factor(job_id: str, factor: float) -> bool:
+    """Send speed change command to running GT_Sim via Named Pipe."""
+    with _pipes_lock:
+        pipe_name = _control_pipes.get(job_id)
+    if pipe_name is None:
+        return False
+
+    def _write_pipe():
+        import ctypes
+        import ctypes.wintypes as wintypes
+
+        pipe_path = f"\\\\.\\pipe\\{pipe_name}"
+        command = f"SPEED:{factor}\n".encode("utf-8")
+
+        GENERIC_WRITE = 0x40000000
+        OPEN_EXISTING = 3
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateFileW(
+            pipe_path,
+            GENERIC_WRITE,
+            0,  # no sharing
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        )
+        if handle == -1:  # INVALID_HANDLE_VALUE
+            return False
+
+        bytes_written = wintypes.DWORD(0)
+        success = kernel32.WriteFile(
+            handle,
+            command,
+            len(command),
+            ctypes.byref(bytes_written),
+            None,
+        )
+        kernel32.CloseHandle(handle)
+        return bool(success)
+
+    return await asyncio.to_thread(_write_pipe)

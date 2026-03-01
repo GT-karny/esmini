@@ -19,7 +19,29 @@ CREATE TABLE IF NOT EXISTS simulations (
     started_at TEXT,
     completed_at TEXT,
     error_message TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    project_id TEXT,
+    param_overrides TEXT
+);
+
+CREATE TABLE IF NOT EXISTS projects (
+    project_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    is_builtin INTEGER DEFAULT 0,
+    root_path TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS parameter_presets (
+    preset_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    scenario_file TEXT NOT NULL,
+    name TEXT NOT NULL,
+    values_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
 );
 """
 
@@ -30,10 +52,21 @@ async def get_db() -> aiosqlite.Connection:
     return db
 
 
+async def _migrate_simulations_table(db: aiosqlite.Connection) -> None:
+    """Add columns to existing simulations table if missing."""
+    cursor = await db.execute("PRAGMA table_info(simulations)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "project_id" not in columns:
+        await db.execute("ALTER TABLE simulations ADD COLUMN project_id TEXT")
+    if "param_overrides" not in columns:
+        await db.execute("ALTER TABLE simulations ADD COLUMN param_overrides TEXT")
+
+
 async def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.executescript(_SCHEMA)
+        await _migrate_simulations_table(db)
         # Mark stale "running" jobs from a previous ungraceful shutdown as failed
         cursor = await db.execute(
             """UPDATE simulations

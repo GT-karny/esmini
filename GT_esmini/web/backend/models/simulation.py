@@ -49,13 +49,16 @@ class ExecutionConfig(BaseModel):
 
 class SimulationRequest(BaseModel):
     scenario_id: str
+    project_id: str | None = None
     controller: ControllerConfig = ControllerConfig()
     execution: ExecutionConfig = ExecutionConfig()
+    param_overrides: dict[str, str] | None = None
 
 
 class SimulationStatus(BaseModel):
     job_id: str
     scenario_id: str
+    project_id: str | None = None
     status: str  # queued | running | completed | failed | cancelled | timeout
     controller_type: str = "default"
     progress_pct: int = 0
@@ -71,3 +74,7 @@ class SimulationStatus(BaseModel):
 class SimulationListResponse(BaseModel):
     jobs: list[SimulationStatus]
     total: int
+
+
+class SpeedRequest(BaseModel):
+    speed_factor: float = Field(ge=0.1, le=100.0, description="Speed multiplier (1.0 = realtime)")

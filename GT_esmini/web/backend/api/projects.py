@@ -1,0 +1,199 @@
+"""Project management API endpoints."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import FileResponse
+
+from GT_esmini.web.backend.models.project import (
+    ParameterPreset,
+    PresetCreateRequest,
+    PresetUpdateRequest,
+    ProjectCreateRequest,
+    ProjectDetail,
+    ProjectFile,
+    ProjectListItem,
+    ProjectUpdateRequest,
+    ScenarioInfo,
+    ScenarioParam,
+)
+from GT_esmini.web.backend.services import project_service
+
+router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
+# ---------------------------------------------------------------------------
+# Project CRUD
+# ---------------------------------------------------------------------------
+
+@router.get("", response_model=list[ProjectListItem])
+async def list_projects():
+    """List all projects including built-in samples."""
+    return await project_service.list_projects()
+
+
+@router.get("/{project_id}", response_model=ProjectDetail)
+async def get_project(project_id: str):
+    """Get project details."""
+    proj = await project_service.get_project(project_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    return proj
+
+
+@router.post("", response_model=ProjectDetail, status_code=201)
+async def create_project(req: ProjectCreateRequest):
+    """Create a new empty project."""
+    return await project_service.create_project(req)
+
+
+@router.post("/upload", response_model=ProjectDetail, status_code=201)
+async def upload_project(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form(""),
+):
+    """Create a project from a ZIP file upload."""
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="File must be a .zip archive")
+
+    data = await file.read()
+    if len(data) > 100 * 1024 * 1024:  # 100MB limit
+        raise HTTPException(status_code=413, detail="ZIP file too large (max 100MB)")
+
+    try:
+        return await project_service.create_project_from_zip(data, name, description)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{project_id}", response_model=dict)
+async def update_project(project_id: str, req: ProjectUpdateRequest):
+    """Update project metadata (name, description)."""
+    success = await project_service.update_project(project_id, req.name, req.description)
+    if not success:
+        raise HTTPException(
+            status_code=403,
+            detail="Project not found or is read-only (built-in)",
+        )
+    return {"status": "updated"}
+
+
+@router.delete("/{project_id}")
+async def delete_project(project_id: str):
+    """Delete a project and all its files."""
+    success = await project_service.delete_project(project_id)
+    if not success:
+        raise HTTPException(
+            status_code=403,
+            detail="Project not found or is read-only (built-in)",
+        )
+    return {"status": "deleted"}
+
+
+# ---------------------------------------------------------------------------
+# File management
+# ---------------------------------------------------------------------------
+
+@router.get("/{project_id}/files", response_model=list[ProjectFile])
+async def list_files(project_id: str):
+    """List all files in a project."""
+    files = await project_service.list_files(project_id)
+    if files is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    return files
+
+
+@router.post("/{project_id}/files")
+async def upload_file(
+    project_id: str,
+    file: UploadFile = File(...),
+    path: str = Form(""),
+):
+    """Upload a file to a project (add or replace)."""
+    file_path = path if path else (file.filename or "uploaded_file")
+    data = await file.read()
+    success = await project_service.upload_file(project_id, file_path, data)
+    if not success:
+        raise HTTPException(
+            status_code=403,
+            detail="Project not found, is read-only (built-in), or path is invalid",
+        )
+    return {"status": "uploaded", "path": file_path}
+
+
+@router.get("/{project_id}/files/{file_path:path}")
+async def download_file(project_id: str, file_path: str):
+    """Download a file from a project."""
+    abs_path = await project_service.get_file_path(project_id, file_path)
+    if abs_path is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(abs_path), filename=abs_path.name)
+
+
+@router.delete("/{project_id}/files/{file_path:path}")
+async def delete_file(project_id: str, file_path: str):
+    """Delete a file from a project."""
+    success = await project_service.delete_file(project_id, file_path)
+    if not success:
+        raise HTTPException(
+            status_code=403,
+            detail="Project not found, is read-only (built-in), or file not found",
+        )
+    return {"status": "deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Scenarios
+# ---------------------------------------------------------------------------
+
+@router.get("/{project_id}/scenarios", response_model=list[ScenarioInfo])
+async def list_scenarios(project_id: str):
+    """List all xosc scenarios in a project with parsed details."""
+    scenarios = await project_service.list_scenarios(project_id)
+    if scenarios is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    return scenarios
+
+
+@router.get("/{project_id}/scenarios/{scenario_file:path}/params", response_model=list[ScenarioParam])
+async def get_scenario_params(project_id: str, scenario_file: str):
+    """Get ParameterDeclarations from a scenario file."""
+    params = await project_service.get_scenario_params(project_id, scenario_file)
+    if params is None:
+        raise HTTPException(status_code=404, detail="Project or scenario not found")
+    return params
+
+
+# ---------------------------------------------------------------------------
+# Parameter presets
+# ---------------------------------------------------------------------------
+
+@router.get("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=list[ParameterPreset])
+async def list_presets(project_id: str, scenario_file: str):
+    """List parameter presets for a scenario."""
+    return await project_service.list_presets(project_id, scenario_file)
+
+
+@router.post("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=ParameterPreset, status_code=201)
+async def create_preset(project_id: str, scenario_file: str, req: PresetCreateRequest):
+    """Create a parameter preset for a scenario."""
+    return await project_service.create_preset(project_id, scenario_file, req.name, req.values)
+
+
+@router.put("/{project_id}/presets/{preset_id}", response_model=dict)
+async def update_preset(project_id: str, preset_id: str, req: PresetUpdateRequest):
+    """Update a parameter preset."""
+    success = await project_service.update_preset(preset_id, req.name, req.values)
+    if not success:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    return {"status": "updated"}
+
+
+@router.delete("/{project_id}/presets/{preset_id}")
+async def delete_preset(project_id: str, preset_id: str):
+    """Delete a parameter preset."""
+    success = await project_service.delete_preset(preset_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    return {"status": "deleted"}

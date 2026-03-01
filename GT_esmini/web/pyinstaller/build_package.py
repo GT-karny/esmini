@@ -268,6 +268,12 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     (data_dir / "results").mkdir()
     log("data/: created empty")
 
+    # 7b. docs/
+    docs_src = REPO_ROOT / "GT_esmini" / "docs"
+    if docs_src.is_dir():
+        shutil.copytree(docs_src, pkg_dir / "docs", ignore=IGNORE_PATTERNS)
+        log("docs/: copied")
+
     # 8. Launcher batch files
     _write_launcher(pkg_dir)
     log("GT_Sim.bat: created")
@@ -334,6 +340,7 @@ DriverScript/  - Python controller scripts (editable)
 resources/     - Scenarios (.xosc), Roads (.xodr), 3D Models
 config/        - Configuration files (editable)
 data/          - Runtime data, simulation results
+docs/          - Documentation (web/manual.md, API reference, etc.)
 
 Adding Python Packages
 ----------------------
