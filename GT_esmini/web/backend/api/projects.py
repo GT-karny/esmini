@@ -6,7 +6,7 @@ import io
 import zipfile
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from GT_esmini.web.backend import config
 from GT_esmini.web.backend.models.project import (
@@ -234,6 +234,25 @@ async def list_scenarios(project_id: str):
     if scenarios is None:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
     return scenarios
+
+
+@router.get("/{project_id}/scenarios/{scenario_file:path}/docs")
+async def get_scenario_docs(project_id: str, scenario_file: str):
+    """Get markdown documentation for a scenario file."""
+    from pathlib import Path, PurePosixPath
+
+    proj = await project_service.get_project(project_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    stem = PurePosixPath(scenario_file).stem
+    doc_path = Path(proj.root_path) / "docs" / f"{stem}.md"
+
+    if not doc_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Documentation not found for '{stem}'")
+
+    content = doc_path.read_text(encoding="utf-8")
+    return Response(content=content, media_type="text/markdown")
 
 
 @router.get("/{project_id}/scenarios/{scenario_file:path}/params", response_model=list[ScenarioParam])

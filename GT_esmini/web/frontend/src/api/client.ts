@@ -237,6 +237,11 @@ export const api = {
   getScenarioParams: (projectId: string, scenarioFile: string) =>
     request<ScenarioParam[]>(`/api/projects/${projectId}/scenarios/${scenarioFile}/params`),
 
+  getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
+    const res = await fetch(`${BASE}/api/projects/${projectId}/scenarios/${scenarioFile}/docs`);
+    return res.ok ? res.text() : null;
+  },
+
   // Parameter presets
   getPresets: (projectId: string, scenarioFile: string) =>
     request<ParameterPreset[]>(`/api/projects/${projectId}/scenarios/${scenarioFile}/presets`),
@@ -297,9 +302,9 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
-  getSimulations: (status?: string, limit = 20, offset = 0, projectId?: string) =>
+  getSimulations: (status?: string, limit = 20, offset = 0, projectId?: string, scenarioId?: string) =>
     request<{ jobs: SimulationStatus[]; total: number }>(
-      `/api/simulations?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}${projectId ? `&project_id=${projectId}` : ''}`
+      `/api/simulations?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}${projectId ? `&project_id=${projectId}` : ''}${scenarioId ? `&scenario_id=${scenarioId}` : ''}`
     ),
 
   getSimulation: (jobId: string) =>
