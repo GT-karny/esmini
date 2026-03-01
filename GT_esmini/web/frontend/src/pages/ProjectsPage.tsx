@@ -6,7 +6,6 @@ import { api, type Project } from '../api/client';
 import { Button } from '../components/ui/Button';
 import { TextInput } from '../components/ui/Input';
 import { ErrorPanel } from '../components/ui/ErrorPanel';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -27,6 +26,9 @@ export function ProjectsPage() {
           <Button variant="secondary" size="md" onClick={() => setShowUpload(true)}>
             Upload ZIP
           </Button>
+          <a href={api.getProjectTemplateUrl()} download>
+            <Button variant="ghost" size="md">Template</Button>
+          </a>
           <Button variant="primary" size="md" onClick={() => setShowCreate(true)}>
             + New
           </Button>
@@ -177,6 +179,16 @@ function CreateProjectDialog({
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
+        <p className="text-text-tertiary text-xs mt-3">
+          Need a starting point?{' '}
+          <a
+            href={api.getProjectTemplateUrl()}
+            download
+            className="text-primary hover:underline"
+          >
+            Download project template
+          </a>
+        </p>
         {mutation.error && (
           <p className="text-destructive text-xs mt-3">
             {mutation.error instanceof Error ? mutation.error.message : 'Failed to create project'}

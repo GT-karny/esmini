@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse
+import io
+import zipfile
 
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import FileResponse, StreamingResponse
+
+from GT_esmini.web.backend import config
 from GT_esmini.web.backend.models.project import (
     ParameterPreset,
     PresetCreateRequest,
@@ -20,6 +24,82 @@ from GT_esmini.web.backend.models.project import (
 from GT_esmini.web.backend.services import project_service
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
+# ---------------------------------------------------------------------------
+# Project template download (must be defined before /{project_id})
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_README = """\
+# GT-SIM Project Template
+
+## Folder Structure
+
+- `xosc/` — OpenSCENARIO scenario files (.xosc)
+- `xodr/` — OpenDRIVE road network files (.xodr)
+- `docs/` — Scenario documentation (Markdown). Name files to match scenarios (e.g., example.md for example.xosc)
+- `docs/img/` — Images referenced from markdown
+- `catalogs/` — Shared OpenSCENARIO catalogs (Vehicles, Controllers, etc.)
+"""
+
+_TEMPLATE_XOSC = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+  <FileHeader revMajor="1" revMinor="1" date="2024-01-01" description="Template scenario" author="GT-SIM" />
+  <ParameterDeclarations />
+  <CatalogLocations>
+    <VehicleCatalog><Directory path="catalogs/Vehicles" /></VehicleCatalog>
+  </CatalogLocations>
+  <RoadNetwork><LogicFile filepath="xodr/your_road.xodr" /></RoadNetwork>
+  <Entities />
+  <Storyboard>
+    <Init><Actions /></Init>
+    <StopTrigger />
+  </Storyboard>
+</OpenSCENARIO>
+"""
+
+_TEMPLATE_EXAMPLE_MD = """\
+# Example Scenario
+
+Describe your scenario here.
+"""
+
+
+@router.get("/template/download")
+async def download_project_template():
+    """Generate and download a project template ZIP."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("my_project/README.md", _TEMPLATE_README)
+        zf.writestr("my_project/xosc/example.xosc", _TEMPLATE_XOSC)
+        # Empty directories: add entries with trailing slash
+        zf.writestr("my_project/xodr/", "")
+        zf.writestr("my_project/docs/img/", "")
+        zf.writestr("my_project/docs/example.md", _TEMPLATE_EXAMPLE_MD)
+
+        # Copy catalog files from resources
+        catalogs_src = config.RESOURCES_DIR / "xosc" / "Catalogs"
+        catalog_subdirs = [
+            "Vehicles", "Controllers", "Environments",
+            "Maneuvers", "MiscObjects", "Pedestrians", "Routes",
+        ]
+        for subdir in catalog_subdirs:
+            src_dir = catalogs_src / subdir
+            if not src_dir.is_dir():
+                continue
+            for xosc_file in src_dir.glob("*.xosc"):
+                arc_path = f"my_project/catalogs/{subdir}/{xosc_file.name}"
+                zf.write(str(xosc_file), arc_path)
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": "attachment; filename=gt_sim_project_template.zip",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
