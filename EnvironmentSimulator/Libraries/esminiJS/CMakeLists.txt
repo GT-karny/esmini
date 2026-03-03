@@ -112,6 +112,16 @@ list(
     SCENARIOENGINE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../../Modules/ScenarioEngine/SourceFiles/OSITrafficCommand.cpp")
 
+# GT_esmini extension include path (for gt_esmini/scenario/*.hpp)
+set(GT_ESMINI_INCLUDE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/include")
+
+# GT_esmini scenario extension sources (WASM-compatible, no OSI/OSG/Python deps)
+set(GT_SCENARIO_WASM_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/ExtraAction.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/ExtraEntities.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/GT_ScenarioReader.cpp")
+
 include_directories(
     ${SCENARIOENGINE_INCLUDE_DIRS}
     ${CONTROLLERS_INCLUDE_DIR}
@@ -122,6 +132,7 @@ include_directories(
     ${EXPR_INCLUDE_DIR}
     ${FMT_INCLUDE_DIR}
     ${YAML_INCLUDE_DIR}
+    ${GT_ESMINI_INCLUDE_DIR}
     esminijs.hpp)
 
 if(EMSCRIPTEN)
@@ -141,7 +152,8 @@ if(EMSCRIPTEN)
         ${SCENARIOENGINE_SOURCES}
         ${COMMONMINI_SOURCES}
         ${PUGIXML_SOURCES}
-        ${FMT_SOURCES})
+        ${FMT_SOURCES}
+        ${GT_SCENARIO_WASM_SOURCES})
 
     set_target_properties(
         ${TARGET}
