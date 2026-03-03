@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,11 +18,14 @@ from GT_esmini.web.backend.api import (
     config_api,
     controller_config,
     osi_stream,
+    projects,
     results,
+    roads,
     scenarios,
     scripts,
     simulations,
 )
+from GT_esmini.web.backend.config import GRPC_PORT
 from GT_esmini.web.backend.db.database import init_db
 from GT_esmini.web.backend.services.grpc_server import start_grpc_server
 
@@ -32,11 +36,43 @@ _logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # --- Startup ---
     await init_db()  # Also cleans stale DB entries from previous crashes
-    grpc_srv = await start_grpc_server(port=50051)
+
+    # Register built-in project (resources/)
+    from GT_esmini.web.backend.services.project_service import ensure_builtin_project
+    await ensure_builtin_project()
+
+    # Clean up expired temp files from previous sessions
+    from GT_esmini.web.backend.services.scenario_service import cleanup_expired_scenarios
+    from GT_esmini.web.backend.services.road_service import cleanup_expired_roads
+    expired_s = cleanup_expired_scenarios()
+    expired_r = cleanup_expired_roads()
+    if expired_s or expired_r:
+        _logger.info("Cleaned up %d expired temp scenario(s) and %d road(s)", expired_s, expired_r)
+
+    grpc_srv = None
+    try:
+        grpc_srv = await start_grpc_server(port=GRPC_PORT)
+    except Exception as e:
+        _logger.warning("gRPC server failed to start (port %s): %s — continuing without gRPC", GRPC_PORT, e)
+
+    async def _periodic_temp_cleanup():
+        while True:
+            await asyncio.sleep(900)  # 15 minutes
+            try:
+                s = cleanup_expired_scenarios()
+                r = cleanup_expired_roads()
+                if s or r:
+                    _logger.info("Periodic cleanup: %d scenario(s), %d road(s)", s, r)
+            except Exception:
+                pass
+
+    cleanup_task = asyncio.create_task(_periodic_temp_cleanup())
+
     _logger.info("GT_Sim Web server started")
     yield
     # --- Shutdown ---
     # Must complete within ~4s on Windows CTRL_CLOSE_EVENT
+    cleanup_task.cancel()
     _logger.info("Shutting down GT_Sim Web server...")
 
     # Phase 1: Kill all running GT_Sim subprocesses (highest priority)
@@ -54,7 +90,8 @@ async def lifespan(app: FastAPI):
         _logger.info("Stopped %d OSI bridge(s)", bridge_count)
 
     # Phase 3: Stop gRPC server (reduced grace for Windows deadline)
-    await grpc_srv.stop(grace=2)
+    if grpc_srv is not None:
+        await grpc_srv.stop(grace=2)
 
     # Phase 4: Mark any remaining running jobs as failed in DB
     await _mark_stale_jobs()
@@ -90,22 +127,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS for frontend dev server
+# CORS for frontend dev server + external editors (via GT_SIM_CORS_ORIGINS env var)
+_cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_extra_origins = os.environ.get("GT_SIM_CORS_ORIGINS", "")
+if _extra_origins:
+    _cors_origins.extend(o.strip() for o in _extra_origins.split(",") if o.strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Register API routers
+app.include_router(projects.router)
 app.include_router(scenarios.router)
 app.include_router(scripts.router)
 app.include_router(controller_config.router)
 app.include_router(simulations.router)
 app.include_router(results.router)
 app.include_router(config_api.router)
+app.include_router(roads.router)
 # WebSocket must be registered before the SPA catch-all route
 app.include_router(osi_stream.router)
 

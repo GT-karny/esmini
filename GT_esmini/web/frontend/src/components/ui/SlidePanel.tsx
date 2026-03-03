@@ -42,7 +42,7 @@ export function SlidePanel({ open, onClose, title, children }: SlidePanelProps) 
       {/* Panel */}
       <div
         ref={panelRef}
-        className={`fixed top-0 right-0 z-50 h-full w-96 bg-gray-900 border-l border-gray-800 shadow-2xl flex flex-col transition-transform duration-200 ease-out ${
+        className={`fixed top-0 right-0 z-50 h-full w-96 glass border-l border-glass-edge shadow-2xl flex flex-col transition-transform duration-200 ease-out ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
         role="dialog"
@@ -50,11 +50,11 @@ export function SlidePanel({ open, onClose, title, children }: SlidePanelProps) 
         aria-label={title}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 className="text-lg font-bold">{title}</h2>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-glass-edge header-glow">
+          <h2 className="text-lg font-bold font-display">{title}</h2>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1 text-text-secondary hover:text-foreground transition-colors cursor-pointer"
             aria-label="Close"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -64,7 +64,7 @@ export function SlidePanel({ open, onClose, title, children }: SlidePanelProps) 
         </div>
 
         {/* Content (scrollable) */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto panel-scroll px-5 py-4">
           {children}
         </div>
       </div>

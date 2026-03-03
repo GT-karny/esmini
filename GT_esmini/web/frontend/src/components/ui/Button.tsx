@@ -2,13 +2,13 @@ import type { ButtonHTMLAttributes } from 'react';
 
 const variants = {
   primary:
-    'bg-blue-600 hover:bg-blue-500 text-white',
+    'bg-primary/80 hover:bg-primary text-background glow-edge',
   secondary:
-    'bg-gray-800 hover:bg-gray-700 text-gray-300',
+    'bg-glass-1 hover:bg-glass-hover text-text-secondary hover:text-foreground border border-glass-edge',
   danger:
-    'bg-red-600 hover:bg-red-500 text-white',
+    'bg-destructive/80 hover:bg-destructive text-white',
   ghost:
-    'bg-transparent hover:bg-white/5 text-gray-300',
+    'bg-transparent hover:bg-glass-hover text-text-secondary hover:text-foreground',
 } as const;
 
 const sizes = {
@@ -32,7 +32,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`font-medium rounded-lg transition-colors cursor-pointer ${variants[variant]} ${sizes[size]} ${
+      className={`font-medium transition-colors cursor-pointer ${variants[variant]} ${sizes[size]} ${
         disabled ? 'opacity-50 cursor-not-allowed' : ''
       } ${className}`}
       disabled={disabled}

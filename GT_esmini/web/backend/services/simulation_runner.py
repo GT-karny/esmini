@@ -42,6 +42,14 @@ _planner = GTExecutionPlanner()
 _running_pids: set[int] = set()
 _running_pids_lock = threading.Lock()
 
+# In-memory tracking of job_id -> Popen (available immediately on subprocess start)
+_running_procs: dict[str, subprocess.Popen] = {}
+_running_procs_lock = threading.Lock()
+
+# In-memory tracking of control pipe names per job (for speed control)
+_control_pipes: dict[str, str] = {}  # {job_id: pipe_name}
+_pipes_lock = threading.Lock()
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -99,6 +107,8 @@ def _build_cmd(
     xosc_path: Path,
     execution: ExecutionConfig,
     output_dir: Path,
+    job_id: str | None = None,
+    param_overrides: dict[str, str] | None = None,
 ) -> list[str]:
     """Build GT_Sim command line arguments."""
     cmd = [str(GT_SIM_EXE), "--osc", str(xosc_path)]
@@ -123,6 +133,18 @@ def _build_cmd(
     for arg in execution.extra_args:
         cmd.append(arg)
 
+    # Add parameter overrides
+    if param_overrides:
+        for name, value in param_overrides.items():
+            cmd.extend(["--param", f"{name},{value}"])
+
+    # Add control pipe for runtime speed control (Windows only)
+    if job_id and os.name == "nt":
+        pipe_name = f"gt_sim_{job_id}"
+        cmd.extend(["--control_pipe", pipe_name])
+        with _pipes_lock:
+            _control_pipes[job_id] = pipe_name
+
     return cmd
 
 
@@ -135,7 +157,10 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir)
 
     # Build command
-    cmd = _build_cmd(xosc_path, req.execution, output_dir)
+    cmd = _build_cmd(
+        xosc_path, req.execution, output_dir,
+        job_id=job_id, param_overrides=req.param_overrides,
+    )
 
     # Store job in DB
     options = {
@@ -149,15 +174,17 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     try:
         await db.execute(
             """INSERT INTO simulations
-               (job_id, scenario_id, status, controller_type, options_json, output_dir, started_at)
-               VALUES (?, ?, 'running', ?, ?, ?, ?)""",
+               (job_id, scenario_id, project_id, status, controller_type, options_json, output_dir, started_at, param_overrides)
+               VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)""",
             (
                 job_id,
                 req.scenario_id,
+                req.project_id,
                 req.controller.controller_type,
                 json.dumps(options, ensure_ascii=False),
                 str(output_dir),
                 _now_iso(),
+                json.dumps(req.param_overrides, ensure_ascii=False) if req.param_overrides else None,
             ),
         )
         await db.commit()
@@ -178,17 +205,22 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
 _logger = logging.getLogger(__name__)
 
 
-def _run_subprocess(cmd: list[str], cwd: str, timeout: int):
-    """Run subprocess in a blocking thread (compatible with any event loop)."""
+def _start_subprocess(cmd: list[str], cwd: str) -> subprocess.Popen:
+    """Start subprocess and return immediately (called in thread)."""
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    pid = proc.pid
     with _running_pids_lock:
-        _running_pids.add(pid)
+        _running_pids.add(proc.pid)
+    return proc
+
+
+def _wait_subprocess(proc: subprocess.Popen, timeout: int):
+    """Wait for an already-started subprocess to complete (called in thread)."""
+    pid = proc.pid
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
         return pid, proc.returncode, stdout, stderr, None
@@ -224,12 +256,15 @@ async def _run_simulation(
 
     _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
-        # Use subprocess.Popen in a thread to avoid Windows event loop issues
-        pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
-            _run_subprocess, cmd, str(REPO_ROOT), timeout,
-        )
+        # Phase 1: Start the subprocess (returns immediately with Popen object)
+        proc = await asyncio.to_thread(_start_subprocess, cmd, str(REPO_ROOT))
+        pid = proc.pid
 
-        # Update PID
+        # Register job_id -> Popen mapping immediately (for cancel_simulation)
+        with _running_procs_lock:
+            _running_procs[job_id] = proc
+
+        # Write PID to DB immediately (while process is still running)
         db = await get_db()
         try:
             await db.execute(
@@ -239,6 +274,11 @@ async def _run_simulation(
             await db.commit()
         finally:
             await db.close()
+
+        # Phase 2: Wait for completion (blocking, runs in thread)
+        pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
+            _wait_subprocess, proc, timeout,
+        )
 
         # Save output
         stdout_path.write_bytes(stdout_data)
@@ -259,20 +299,31 @@ async def _run_simulation(
         exit_code = -1
         error_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
         _logger.error("Simulation %s failed: %s", job_id, error_msg, exc_info=True)
+    finally:
+        with _running_procs_lock:
+            _running_procs.pop(job_id, None)
 
     # Stop OSI bridge
     if osi_enabled:
         await stop_bridge(job_id)
 
-    # Update DB
+    # Clean up control pipe tracking
+    with _pipes_lock:
+        _control_pipes.pop(job_id, None)
+
+    # Update DB (guard: do not overwrite if already cancelled)
     db = await get_db()
     try:
-        await db.execute(
+        cursor = await db.execute(
             """UPDATE simulations
                SET status = ?, exit_code = ?, completed_at = ?, error_message = ?, pid = NULL
-               WHERE job_id = ?""",
+               WHERE job_id = ? AND status NOT IN ('cancelled')""",
             (status, exit_code, _now_iso(), error_msg, job_id),
         )
+        if cursor.rowcount == 0:
+            _logger.info("Simulation %s: skipped update to '%s' (already cancelled)", job_id, status)
+        else:
+            _logger.info("Simulation %s finished with status '%s'", job_id, status)
         await db.commit()
     finally:
         await db.close()
@@ -293,6 +344,7 @@ async def get_simulation_status(job_id: str) -> SimulationStatus | None:
         return SimulationStatus(
             job_id=row["job_id"],
             scenario_id=row["scenario_id"],
+            project_id=row["project_id"],
             status=row["status"],
             controller_type=row["controller_type"],
             pid=row["pid"],
@@ -308,16 +360,28 @@ async def get_simulation_status(job_id: str) -> SimulationStatus | None:
 
 
 async def list_simulations(
-    status: str | None = None, limit: int = 20, offset: int = 0
+    status: str | None = None,
+    project_id: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    scenario_id: str | None = None,
 ) -> tuple[list[SimulationStatus], int]:
     """List simulation jobs with optional filtering."""
     db = await get_db()
     try:
-        where = ""
+        conditions = []
         params: list = []
         if status:
-            where = "WHERE status = ?"
+            conditions.append("status = ?")
             params.append(status)
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+        if scenario_id:
+            conditions.append("scenario_id = ?")
+            params.append(scenario_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         cursor = await db.execute(
             f"SELECT COUNT(*) FROM simulations {where}", params
@@ -338,6 +402,7 @@ async def list_simulations(
                 SimulationStatus(
                     job_id=row["job_id"],
                     scenario_id=row["scenario_id"],
+                    project_id=row["project_id"],
                     status=row["status"],
                     controller_type=row["controller_type"],
                     pid=row["pid"],
@@ -360,11 +425,57 @@ async def cancel_simulation(job_id: str) -> bool:
     if sim is None or sim.status != "running":
         return False
 
-    if sim.pid:
+    # Get Popen object (preferred) or fall back to PID from DB
+    proc = None
+    with _running_procs_lock:
+        proc = _running_procs.get(job_id)
+
+    if proc is not None:
+        pid = proc.pid
+        # Step 1: Direct kill via process handle (most reliable)
         try:
-            os.kill(sim.pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
-            pass
+            proc.kill()
+            _logger.info("Killed simulation %s (PID %d) via proc.kill()", job_id, pid)
+        except OSError as exc:
+            _logger.warning("proc.kill() failed for %s (PID %d): %s", job_id, pid, exc)
+
+        # Step 2: taskkill /T to also kill child process tree (Windows)
+        if sys.platform == "win32":
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                _logger.debug(
+                    "taskkill tree cleanup for %s (PID %d): %s",
+                    job_id, pid, result.stderr.strip(),
+                )
+    elif sim.pid:
+        # Fallback: kill via PID from DB
+        pid = sim.pid
+        _logger.warning("No Popen for %s, falling back to DB pid %d", job_id, pid)
+        try:
+            if sys.platform == "win32":
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    _logger.warning(
+                        "taskkill fallback failed for %s (PID %d): %s",
+                        job_id, pid, result.stderr.strip(),
+                    )
+                else:
+                    _logger.info("Killed simulation %s (PID %d) via taskkill fallback", job_id, pid)
+            else:
+                os.kill(pid, signal.SIGTERM)
+                _logger.info("Sent SIGTERM to simulation %s (PID %d)", job_id, pid)
+        except (OSError, ProcessLookupError) as exc:
+            _logger.warning("Failed to kill simulation %s (PID %d): %s", job_id, pid, exc)
+    else:
+        _logger.error("No PID available to kill simulation %s", job_id)
 
     db = await get_db()
     try:
@@ -387,15 +498,91 @@ def kill_all_running() -> int:
     Synchronous function — safe to call from atexit or via asyncio.to_thread.
     """
     killed = 0
+
+    # Kill via Popen handles (most reliable)
+    with _running_procs_lock:
+        procs = list(_running_procs.values())
+    for proc in procs:
+        pid = proc.pid
+        try:
+            proc.kill()
+            _logger.info("Killed GT_Sim subprocess PID %d via proc.kill()", pid)
+            killed += 1
+        except OSError as exc:
+            _logger.warning("proc.kill() failed for PID %d: %s", pid, exc)
+        # Also kill child tree on Windows
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                )
+            except OSError:
+                pass
+
+    # Also kill any PIDs tracked only in _running_pids (safety net)
     with _running_pids_lock:
         pids = list(_running_pids)
     for pid in pids:
         try:
-            os.kill(pid, signal.SIGTERM)
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                )
+            else:
+                os.kill(pid, signal.SIGTERM)
             killed += 1
-            _logger.info("Killed GT_Sim subprocess PID %d", pid)
+            _logger.info("Killed GT_Sim subprocess PID %d via taskkill/signal", pid)
         except (OSError, ProcessLookupError):
             pass
+
     with _running_pids_lock:
         _running_pids.clear()
+    with _running_procs_lock:
+        _running_procs.clear()
     return killed
+
+
+async def set_speed_factor(job_id: str, factor: float) -> bool:
+    """Send speed change command to running GT_Sim via Named Pipe."""
+    with _pipes_lock:
+        pipe_name = _control_pipes.get(job_id)
+    if pipe_name is None:
+        return False
+
+    def _write_pipe():
+        import ctypes
+        import ctypes.wintypes as wintypes
+
+        pipe_path = f"\\\\.\\pipe\\{pipe_name}"
+        command = f"SPEED:{factor}\n".encode("utf-8")
+
+        GENERIC_WRITE = 0x40000000
+        OPEN_EXISTING = 3
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateFileW(
+            pipe_path,
+            GENERIC_WRITE,
+            0,  # no sharing
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        )
+        if handle == -1:  # INVALID_HANDLE_VALUE
+            return False
+
+        bytes_written = wintypes.DWORD(0)
+        success = kernel32.WriteFile(
+            handle,
+            command,
+            len(command),
+            ctypes.byref(bytes_written),
+            None,
+        )
+        kernel32.CloseHandle(handle)
+        return bool(success)
+
+    return await asyncio.to_thread(_write_pipe)

@@ -77,6 +77,7 @@ export interface ExecutionDefaults {
 
 export interface SimulationRequest {
   scenario_id: string;
+  project_id?: string;
   controller: ControllerConfig;
   execution: {
     headless: boolean;
@@ -90,11 +91,13 @@ export interface SimulationRequest {
     window: WindowConfig;
     extra_args: string[];
   };
+  param_overrides?: Record<string, string>;
 }
 
 export interface SimulationStatus {
   job_id: string;
   scenario_id: string;
+  project_id: string | null;
   status: string;
   controller_type: string;
   progress_pct: number;
@@ -120,10 +123,150 @@ export interface ResultMeta {
   metrics: Record<string, unknown> | null;
 }
 
+// --- Project types ---
+
+export interface Project {
+  project_id: string;
+  name: string;
+  description: string;
+  is_builtin: boolean;
+  scenario_count: number;
+  road_count: number;
+  file_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectDetail extends Project {
+  root_path: string;
+}
+
+export interface ProjectFile {
+  path: string;
+  name: string;
+  type: string;
+  size: number;
+  modified: string;
+  is_dir: boolean;
+}
+
+export interface ScenarioParam {
+  name: string;
+  type: string;
+  value: string;
+}
+
+export interface ScenarioInfo {
+  file: string;
+  filename: string;
+  road_file: string | null;
+  entities: Array<{ name: string; model: string | null; controller: string | null }>;
+  params: ScenarioParam[];
+  has_controller: boolean;
+}
+
+export interface ParameterPreset {
+  preset_id: string;
+  project_id: string;
+  scenario_file: string;
+  name: string;
+  values: Record<string, string>;
+  created_at: string;
+}
+
 // --- API functions ---
 
 export const api = {
-  // Scenarios
+  // Projects
+  getProjects: () =>
+    request<Project[]>('/api/projects'),
+
+  getProject: (projectId: string) =>
+    request<ProjectDetail>(`/api/projects/${projectId}`),
+
+  createProject: (name: string, description = '') =>
+    request<ProjectDetail>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+
+  getProjectTemplateUrl: () => '/api/projects/template/download',
+
+  uploadProject: async (file: File, name: string, description = '') => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('name', name);
+    form.append('description', description);
+    const res = await fetch('/api/projects/upload', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    return res.json() as Promise<ProjectDetail>;
+  },
+
+  updateProject: (projectId: string, data: { name?: string; description?: string }) =>
+    request<{ status: string }>(`/api/projects/${projectId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteProject: (projectId: string) =>
+    request<{ status: string }>(`/api/projects/${projectId}`, { method: 'DELETE' }),
+
+  // Project files
+  getProjectFiles: (projectId: string) =>
+    request<ProjectFile[]>(`/api/projects/${projectId}/files`),
+
+  uploadProjectFile: async (projectId: string, file: File, path?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (path) form.append('path', path);
+    const res = await fetch(`/api/projects/${projectId}/files`, { method: 'POST', body: form });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    return res.json() as Promise<{ status: string; path: string }>;
+  },
+
+  downloadProjectFile: (projectId: string, filePath: string) =>
+    `/api/projects/${projectId}/files/${filePath}`,
+
+  deleteProjectFile: (projectId: string, filePath: string) =>
+    request<{ status: string }>(`/api/projects/${projectId}/files/${filePath}`, { method: 'DELETE' }),
+
+  // Project scenarios
+  getProjectScenarios: (projectId: string) =>
+    request<ScenarioInfo[]>(`/api/projects/${projectId}/scenarios`),
+
+  getScenarioParams: (projectId: string, scenarioFile: string) =>
+    request<ScenarioParam[]>(`/api/projects/${projectId}/scenarios/${scenarioFile}/params`),
+
+  getRoadGeometry: (projectId: string, scenarioFile: string) =>
+    request<{ boundaries: Array<{ road_id: number; type: string; points: [number, number][] }> }>(
+      `/api/projects/${projectId}/scenarios/${scenarioFile}/road-geometry`,
+    ),
+
+  getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
+    const res = await fetch(`${BASE}/api/projects/${projectId}/scenarios/${scenarioFile}/docs`);
+    return res.ok ? res.text() : null;
+  },
+
+  // Parameter presets
+  getPresets: (projectId: string, scenarioFile: string) =>
+    request<ParameterPreset[]>(`/api/projects/${projectId}/scenarios/${scenarioFile}/presets`),
+
+  createPreset: (projectId: string, scenarioFile: string, name: string, values: Record<string, string>) =>
+    request<ParameterPreset>(`/api/projects/${projectId}/scenarios/${scenarioFile}/presets`, {
+      method: 'POST',
+      body: JSON.stringify({ name, values }),
+    }),
+
+  updatePreset: (projectId: string, presetId: string, data: { name?: string; values?: Record<string, string> }) =>
+    request<{ status: string }>(`/api/projects/${projectId}/presets/${presetId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deletePreset: (projectId: string, presetId: string) =>
+    request<{ status: string }>(`/api/projects/${projectId}/presets/${presetId}`, { method: 'DELETE' }),
+
+  // Scenarios (legacy)
   getScenarios: (search?: string) =>
     request<Scenario[]>(`/api/scenarios${search ? `?search=${encodeURIComponent(search)}` : ''}`),
 
@@ -164,9 +307,9 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
-  getSimulations: (status?: string, limit = 20, offset = 0) =>
+  getSimulations: (status?: string, limit = 20, offset = 0, projectId?: string, scenarioId?: string) =>
     request<{ jobs: SimulationStatus[]; total: number }>(
-      `/api/simulations?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}`
+      `/api/simulations?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}${projectId ? `&project_id=${projectId}` : ''}${scenarioId ? `&scenario_id=${scenarioId}` : ''}`
     ),
 
   getSimulation: (jobId: string) =>

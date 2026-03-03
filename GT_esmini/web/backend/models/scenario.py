@@ -41,3 +41,20 @@ class VariantResponse(BaseModel):
     variant_id: str
     path: str
     variant_type: str
+
+
+class ScenarioUploadEntity(BaseModel):
+    name: str
+    model: str | None = None
+
+
+class ScenarioUploadResponse(BaseModel):
+    scenario_id: str
+    entities: list[ScenarioUploadEntity]
+    road_file: str | None = None
+    expires_at: str
+
+
+class RoadUploadResponse(BaseModel):
+    road_id: str
+    road_path: str

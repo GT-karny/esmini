@@ -73,10 +73,10 @@ export function SimulationDetailPage() {
   if (simLoading) {
     return (
       <div className="max-w-3xl space-y-4">
-        <div className="h-8 w-48 bg-gray-800 rounded animate-pulse" />
-        <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 space-y-3">
+        <div className="h-8 w-48 bg-glass-1 animate-pulse" />
+        <div className="glass p-4 space-y-3">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-4 bg-gray-800 rounded animate-pulse" style={{ width: `${60 + i * 10}%` }} />
+            <div key={i} className="h-4 bg-glass-1 animate-pulse" style={{ width: `${60 + i * 10}%` }} />
           ))}
         </div>
       </div>
@@ -94,22 +94,22 @@ export function SimulationDetailPage() {
     <div className="max-w-3xl">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/simulations" className="text-gray-400 hover:text-white transition-colors">
+        <Link to="/simulations" className="text-text-secondary hover:text-foreground transition-colors">
           &larr;
         </Link>
-        <h1 className="text-2xl font-bold">Job {sim.job_id}</h1>
+        <h1 className="text-2xl font-display font-bold tracking-wide">Job {sim.job_id}</h1>
         <StatusBadge status={sim.status} bordered />
 
         {/* Progress bar (running only) */}
         {sim.status === 'running' && sim.progress_pct > 0 && (
           <div className="flex items-center gap-2 ml-2">
-            <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div className="w-24 h-1.5 bg-glass-1 overflow-hidden">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${Math.min(100, sim.progress_pct)}%` }}
               />
             </div>
-            <span className="text-xs text-gray-500">{sim.progress_pct.toFixed(0)}%</span>
+            <span className="text-xs text-text-secondary">{sim.progress_pct.toFixed(0)}%</span>
           </div>
         )}
       </div>
@@ -117,22 +117,22 @@ export function SimulationDetailPage() {
       {/* Job Info */}
       <Card title="Details" className="mb-4">
         <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt className="text-gray-500">Scenario</dt>
+          <dt className="text-text-secondary">Scenario</dt>
           <dd>{sim.scenario_id}</dd>
-          <dt className="text-gray-500">Controller</dt>
+          <dt className="text-text-secondary">Controller</dt>
           <dd>{sim.controller_type}</dd>
-          <dt className="text-gray-500">Started</dt>
+          <dt className="text-text-secondary">Started</dt>
           <dd>{sim.started_at ? new Date(sim.started_at).toLocaleString() : '-'}</dd>
-          <dt className="text-gray-500">Completed</dt>
+          <dt className="text-text-secondary">Completed</dt>
           <dd>{sim.completed_at ? new Date(sim.completed_at).toLocaleString() : '-'}</dd>
-          <dt className="text-gray-500">Exit Code</dt>
+          <dt className="text-text-secondary">Exit Code</dt>
           <dd>{sim.exit_code ?? '-'}</dd>
-          <dt className="text-gray-500">PID</dt>
+          <dt className="text-text-secondary">PID</dt>
           <dd>{sim.pid ?? '-'}</dd>
         </dl>
 
         {sim.error_message && (
-          <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded text-sm text-red-300 font-mono whitespace-pre-wrap max-h-48 overflow-auto">
+          <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 text-sm text-destructive font-mono whitespace-pre-wrap max-h-48 overflow-auto">
             {sim.error_message}
           </div>
         )}
@@ -173,11 +173,11 @@ export function SimulationDetailPage() {
                 {Object.entries(summary).map(([key, val]) => {
                   const unit = formatMetricUnit(key);
                   return (
-                    <div key={key} className="bg-gray-800/50 rounded p-3">
-                      <div className="text-xs text-gray-500 mb-1">{formatMetricKey(key)}</div>
+                    <div key={key} className="bg-glass-1/50 p-3">
+                      <div className="text-xs text-text-secondary mb-1">{formatMetricKey(key)}</div>
                       <div className="text-lg font-mono">
                         {typeof val === 'number' ? val.toFixed(2) : String(val)}
-                        {unit && <span className="text-xs text-gray-500 ml-1">{unit}</span>}
+                        {unit && <span className="text-xs text-text-secondary ml-1">{unit}</span>}
                       </div>
                     </div>
                   );
@@ -186,11 +186,11 @@ export function SimulationDetailPage() {
             )}
             {finalState && (
               <div className="mt-4">
-                <h3 className="text-xs text-gray-500 mb-2">Final State</h3>
+                <h3 className="text-xs text-text-secondary mb-2">Final State</h3>
                 <div className="grid grid-cols-4 gap-3">
                   {Object.entries(finalState).map(([key, val]) => (
                     <div key={key} className="text-sm">
-                      <span className="text-gray-500">{formatMetricKey(key)}: </span>
+                      <span className="text-text-secondary">{formatMetricKey(key)}: </span>
                       <span className="font-mono">
                         {typeof val === 'number' ? val.toFixed(2) : String(val ?? '-')}
                       </span>
@@ -210,17 +210,17 @@ export function SimulationDetailPage() {
             {resultMeta.files.map((f: ResultFile) => (
               <div key={f.name} className="flex items-center justify-between py-1.5 text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-xs px-1.5 py-0.5 bg-gray-800 rounded">
+                  <span className="text-text-secondary text-xs px-1.5 py-0.5 bg-glass-1">
                     {f.type}
                   </span>
                   <span>{f.name}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-gray-500">{(f.size / 1024).toFixed(1)} KB</span>
+                  <span className="text-text-secondary">{(f.size / 1024).toFixed(1)} KB</span>
                   <a
                     href={`/api/results/${jobId}/files/${f.name}`}
                     download
-                    className="text-blue-400 hover:text-blue-300 text-xs"
+                    className="text-primary hover:text-accent-bright text-xs"
                   >
                     Download
                   </a>
