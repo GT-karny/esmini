@@ -90,11 +90,9 @@ namespace esmini
     OpenScenario::OpenScenario(const std::string &xosc_file, const OpenScenarioConfig &config)
         : xosc_file(xosc_file), config(config), initialized_(false), complete_(false), lastStepResult_(0)
     {
-        std::cout << "xosc file path:" << xosc_file << ",this->xosc_file path:" << this->xosc_file << std::endl;
         this->scenarioEngine  = new scenarioengine::ScenarioEngine(this->xosc_file, false);
         this->scenarioGateway = this->scenarioEngine->getScenarioGateway();
         registerCallbacks();
-        std::cout << "init scenario success" << std::endl;
     }
 
     OpenScenario::~OpenScenario()
@@ -121,8 +119,6 @@ namespace esmini
             _config = *config;
         }
 
-        std::cout << "config:" << _config << std::endl;
-
         std::vector<ScenarioObjectState> objects_sts;
         int                              retval = 0;
         double                           dt;
@@ -139,19 +135,19 @@ namespace esmini
             }
 
             retval = this->scenarioEngine->step(dt);
+            this->scenarioEngine->prepareGroundTruth(dt);
+            this->scenarioGateway->clearDirtyBits();
 
             int numberofObjects = this->scenarioGateway->getNumberOfObjects();
             for (int i = 0; i < numberofObjects; i++)
             {
-                scenarioengine::ObjectState obj_state;
-                if (this->scenarioGateway->getObjectStateById(i, obj_state) != -1)
+                scenarioengine::ObjectState* obj_state_ptr = this->scenarioGateway->getObjectStatePtrByIdx(i);
+                if (obj_state_ptr != nullptr)
                 {
                     ScenarioObjectState state;
-                    copyStateFromScenarioGateway(&state, &obj_state.state_);
+                    copyStateFromScenarioGateway(&state, &obj_state_ptr->state_);
                     objects_sts.push_back(state);
                 }
-
-                this->scenarioEngine->prepareGroundTruth(dt);
             }
             --_config.max_loop;
         }
@@ -179,6 +175,16 @@ namespace esmini
 
         lastStepResult_ = this->scenarioEngine->step(dt);
         initialized_    = true;
+
+        // Finalize ground truth: computes velocities, accelerations, and
+        // updates the ScenarioGateway object states so that getCurrentState()
+        // returns the correct positions for this time step.
+        // This mirrors the ScenarioFrame() flow in playerbase.cpp:
+        //   1. scenarioEngine->step(dt)
+        //   2. scenarioEngine->prepareGroundTruth(dt)
+        //   3. scenarioGateway->clearDirtyBits()
+        this->scenarioEngine->prepareGroundTruth(dt);
+        this->scenarioGateway->clearDirtyBits();
 
         if (lastStepResult_ != 0)
         {
@@ -220,11 +226,12 @@ namespace esmini
 
         for (int i = 0; i < numberofObjects; i++)
         {
-            scenarioengine::ObjectState obj_state;
-            if (this->scenarioGateway->getObjectStateById(i, obj_state) != -1)
+            // Use index-based access (not ID-based) to iterate all objects
+            scenarioengine::ObjectState* obj_state_ptr = this->scenarioGateway->getObjectStatePtrByIdx(i);
+            if (obj_state_ptr != nullptr)
             {
                 ScenarioObjectState state;
-                copyStateFromScenarioGateway(&state, &obj_state.state_);
+                copyStateFromScenarioGateway(&state, &obj_state_ptr->state_);
                 out.push_back(state);
             }
         }
