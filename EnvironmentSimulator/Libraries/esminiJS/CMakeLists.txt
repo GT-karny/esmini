@@ -154,6 +154,7 @@ const char* ESMINI_BUILD_VERSION = \"wasm-1.0\";\n")
     add_executable(
         ${TARGET}
         embind.cpp
+        embind_rm.cpp
         esminijs.cpp
         "${CMAKE_CURRENT_BINARY_DIR}/esmini_version.cpp"
         ${CONTROLLERS_SOURCES}
