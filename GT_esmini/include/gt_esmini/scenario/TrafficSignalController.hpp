@@ -82,11 +82,19 @@ namespace gt_esmini
          */
         const std::string& GetName() const { return name_; }
 
+        /**
+         * @brief Set OpenDRIVE controller reference (optional)
+         * When set, Init() will resolve signal IDs from the OpenDRIVE controller definition.
+         */
+        void SetReference(const std::string& ref) { reference_ = ref; }
+
     private:
         void ApplyCurrentPhaseStates();
+        void ResolveFromODRController(roadmanager::OpenDrive* odr);
 
         std::string                    name_;
         double                         delay_;
+        std::string                    reference_;  // OpenDRIVE controller name (optional)
         std::vector<TrafficSignalPhase> phases_;
 
         // Runtime state

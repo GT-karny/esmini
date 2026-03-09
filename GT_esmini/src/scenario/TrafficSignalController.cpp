@@ -44,6 +44,12 @@ namespace gt_esmini
             return;
         }
 
+        // If reference is set, resolve additional signals from OpenDRIVE controller
+        if (!reference_.empty())
+        {
+            ResolveFromODRController(odr);
+        }
+
         auto dynamicSignals = odr->GetDynamicSignals();
 
         for (const auto& phase : phases_)
@@ -88,8 +94,101 @@ namespace gt_esmini
             ApplyCurrentPhaseStates();
         }
 
-        LOG_INFO("TrafficSignalController '{}' initialized: {} phases, delay={:.1f}s, {} signals resolved",
-                 name_, phases_.size(), delay_, resolvedSignals_.size());
+        LOG_INFO("TrafficSignalController '{}' initialized: {} phases, delay={:.1f}s, {} signals resolved{}",
+                 name_, phases_.size(), delay_, resolvedSignals_.size(),
+                 reference_.empty() ? "" : " (ref=" + reference_ + ")");
+    }
+
+    void OSCTrafficSignalController::ResolveFromODRController(roadmanager::OpenDrive* odr)
+    {
+        // Find OpenDRIVE controller by name
+        roadmanager::Controller* odrCtrl = nullptr;
+        for (unsigned int i = 0; i < odr->GetNumberOfControllers(); i++)
+        {
+            auto* candidate = odr->GetControllerByIdx(static_cast<int>(i));
+            if (candidate && candidate->GetName() == reference_)
+            {
+                odrCtrl = candidate;
+                break;
+            }
+        }
+
+        if (!odrCtrl)
+        {
+            LOG_ERROR("TrafficSignalController '{}': OpenDRIVE controller '{}' not found, falling back to phase-defined signals",
+                      name_, reference_);
+            return;
+        }
+
+        LOG_INFO("TrafficSignalController '{}': resolved OpenDRIVE controller '{}' with {} controls",
+                 name_, reference_, odrCtrl->GetNumberOfControls());
+
+        // Collect all signal IDs already referenced in phases
+        std::unordered_map<int, bool> phaseSignalIds;
+        for (const auto& phase : phases_)
+        {
+            for (const auto& ss : phase.signalStates)
+            {
+                phaseSignalIds[ss.signalId] = true;
+            }
+        }
+
+        // Resolve controller signals and add defaults for unreferenced ones
+        auto dynamicSignals = odr->GetDynamicSignals();
+        for (unsigned int i = 0; i < odrCtrl->GetNumberOfControls(); i++)
+        {
+            auto* ctrl = odrCtrl->GetControl(i);
+            if (!ctrl) continue;
+
+            int sigId = ctrl->signalId_;
+
+            // Resolve TrafficLight pointer
+            if (resolvedSignals_.count(sigId) == 0)
+            {
+                roadmanager::TrafficLight* tl = nullptr;
+                for (auto* signal : dynamicSignals)
+                {
+                    auto* candidate = dynamic_cast<roadmanager::TrafficLight*>(signal);
+                    if (candidate && candidate->GetId() == sigId)
+                    {
+                        tl = candidate;
+                        break;
+                    }
+                }
+
+                if (tl)
+                {
+                    resolvedSignals_[sigId] = tl;
+                    tl->SetHasOSCAction(true);
+                }
+                else
+                {
+                    LOG_WARN("TrafficSignalController '{}': ODR controller signal ID {} not found as dynamic signal", name_, sigId);
+                    continue;
+                }
+            }
+
+            // If signal not referenced in any phase, add all-off default state to each phase
+            if (phaseSignalIds.count(sigId) == 0)
+            {
+                // Build all-off state string based on lamp count
+                auto* tl = resolvedSignals_[sigId];
+                std::string offState;
+                for (int lamp = 0; lamp < static_cast<int>(tl->GetNrLamps()); lamp++)
+                {
+                    if (lamp > 0) offState += ";";
+                    offState += "off";
+                }
+
+                for (auto& phase : phases_)
+                {
+                    phase.signalStates.push_back({sigId, offState});
+                }
+
+                LOG_INFO("TrafficSignalController '{}': added default all-off state for signal {} (from ODR controller '{}')",
+                         name_, sigId, reference_);
+            }
+        }
     }
 
     void OSCTrafficSignalController::Step(double dt)

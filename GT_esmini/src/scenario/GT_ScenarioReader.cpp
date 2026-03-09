@@ -421,6 +421,10 @@ namespace gt_esmini
 
             OSCTrafficSignalController controller(name, delay);
 
+            std::string ref = parameters.ReadAttribute(ctrlNode, "reference");
+            if (!ref.empty())
+                controller.SetReference(ref);
+
             for (pugi::xml_node phaseNode = ctrlNode.child("Phase"); phaseNode;
                  phaseNode = phaseNode.next_sibling("Phase"))
             {
