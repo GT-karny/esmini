@@ -12,6 +12,7 @@
 #pragma once
 
 #include "OSCPrivateAction.hpp"  // Include esmini's OSCPrivateAction.hpp
+#include "OSCGlobalAction.hpp"   // For TrafficSignalControllerAction
 #include <map>
 
 namespace gt_esmini
@@ -84,6 +85,26 @@ namespace gt_esmini
     private:
         double startTime_;
         bool   isTransitioning_;
+    };
+
+    /**
+     * @brief TrafficSignalControllerAction — switches a controller to a named phase
+     *
+     * OpenSCENARIO: InfrastructureAction > TrafficSignalAction > TrafficSignalControllerAction
+     */
+    class GT_TrafficSignalControllerAction : public scenarioengine::OSCGlobalAction
+    {
+    public:
+        GT_TrafficSignalControllerAction(scenarioengine::StoryBoardElement* parent);
+
+        void Start(double simTime) override;
+        void Step(double simTime, double dt) override;
+
+        scenarioengine::OSCGlobalAction* Copy() override;
+        std::string                      Type2Str() override { return "TrafficSignalControllerAction"; }
+
+        std::string controllerRef_;
+        std::string phaseName_;
     };
 
 }  // namespace gt_esmini

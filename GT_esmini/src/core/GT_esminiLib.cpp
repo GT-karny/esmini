@@ -38,6 +38,7 @@
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
+#include "gt_esmini/scenario/TrafficSignalController.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -254,6 +255,9 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
             std::cerr << "GT_Init: Failed to reload XOSC for extensions: " << result.description() << std::endl;
         }
 
+        // 3b. Initialize TrafficSignalControllers
+        gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
+
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
 
@@ -457,6 +461,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             std::cerr << "GT_InitWithArgs: Failed to reload XOSC for extensions: " << result.description() << std::endl;
         }
 
+        // 3b. Initialize TrafficSignalControllers
+        gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
+
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
 
@@ -519,6 +526,9 @@ GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step
     SE_StepDT(static_cast<float>(dt));
+
+    // Update TrafficSignalControllers (auto-cycling)
+    gt_esmini::TrafficSignalControllerManager::Instance().StepAll(dt);
 
     // Update AutoLight
     AutoLightManager::Instance().Update(dt);
@@ -671,6 +681,7 @@ GT_ESMINI_API void GT_EnableAutoLight()
 GT_ESMINI_API void GT_Close()
 {
     s_hvdEstimator.Reset();
+    gt_esmini::TrafficSignalControllerManager::Instance().Clear();
     AutoLightManager::Instance().Close();
     SE_Close();
 }

@@ -12,7 +12,8 @@
 #pragma once
 
 #include "ScenarioReader.hpp"  // esmini core
-#include "gt_esmini/scenario/ExtraAction.hpp"     // GT_esmini extension
+#include "gt_esmini/scenario/ExtraAction.hpp"      // GT_esmini extension
+#include "gt_esmini/scenario/ExtraCondition.hpp"   // GT_esmini conditions
 
 namespace gt_esmini
 {
@@ -90,6 +91,24 @@ namespace gt_esmini
                                                                 scenarioengine::Object*  object,
                                                                 scenarioengine::Event*   parent);
                                                                 
+        /**
+         * @brief Parse TrafficSignalController definitions from RoadNetwork
+         */
+        void ParseTrafficSignalControllers(const pugi::xml_document& doc);
+
+        /**
+         * @brief Parse and inject TrafficSignalControllerAction from a GlobalAction node
+         * @return action pointer if found, nullptr otherwise
+         */
+        GT_TrafficSignalControllerAction* ParseTrafficSignalControllerAction(pugi::xml_node globalActionNode,
+                                                                              scenarioengine::StoryBoardElement* parent);
+
+        /**
+         * @brief Parse and inject TrafficSignalControllerCondition from a Condition node
+         * @return condition pointer if found, nullptr otherwise
+         */
+        TrigByTrafficSignalController* ParseTrafficSignalControllerCondition(pugi::xml_node conditionNode);
+
     private:
         scenarioengine::Entities* entities = nullptr;
     };
