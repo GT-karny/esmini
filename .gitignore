@@ -65,3 +65,7 @@ GT_esmini/web/pyinstaller/dist/
 GT_esmini/web/pyinstaller/build_temp/
 GT_esmini/web/gt_sim.db
 GT_esmini/web/frontend/README.md
+
+# External specs (large, not needed in git)
+thirdparty/opendrive/
+thirdparty/openscenario-v1.2.0/
