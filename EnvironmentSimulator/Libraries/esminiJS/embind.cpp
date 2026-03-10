@@ -74,7 +74,10 @@ namespace esmini
             .function("getCurrentState", &OpenScenario::getCurrentState)
             // StoryBoard introspection
             .function("popStoryBoardEvents", &OpenScenario::popStoryBoardEvents)
-            .function("popConditionEvents", &OpenScenario::popConditionEvents);
+            .function("popConditionEvents", &OpenScenario::popConditionEvents)
+            // Traffic signal introspection
+            .function("getTrafficSignalStates", &OpenScenario::getTrafficSignalStates)
+            .function("getTrafficLightStatesOnly", &OpenScenario::getTrafficLightStatesOnly);
     }
 }  // namespace esmini
 

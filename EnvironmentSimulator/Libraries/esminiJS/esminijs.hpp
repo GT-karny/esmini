@@ -3,6 +3,10 @@
 #include <iomanip>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/val.h>
+#endif
+
 #include "RoadManager.hpp"
 #include "CommonMini.hpp"
 #include "ScenarioEngine.hpp"
@@ -105,6 +109,12 @@ namespace esmini
         // StoryBoard introspection (call after step() to get events since last call)
         std::vector<StoryBoardEvent> popStoryBoardEvents();
         std::vector<ConditionEvent>  popConditionEvents();
+
+#ifdef __EMSCRIPTEN__
+        // Traffic signal introspection
+        emscripten::val getTrafficSignalStates();      // Full info (position + state), call once or on demand
+        emscripten::val getTrafficLightStatesOnly();    // Lightweight: {id, state} only, call every frame
+#endif
 
         OpenScenario(const OpenScenario&)            = delete;
         OpenScenario& operator=(const OpenScenario&) = delete;

@@ -1,7 +1,12 @@
 #include "esminijs.hpp"
 #include "StoryboardElement.hpp"
 #include "OSCCondition.hpp"
+#include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include <iostream>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/val.h>
+#endif
 
 namespace esmini
 {
@@ -186,6 +191,9 @@ namespace esmini
         this->scenarioEngine->prepareGroundTruth(dt);
         this->scenarioGateway->clearDirtyBits();
 
+        // Advance GT_esmini TrafficSignalControllers (auto-cycling phases)
+        gt_esmini::TrafficSignalControllerManager::Instance().StepAll(dt);
+
         if (lastStepResult_ != 0)
         {
             complete_ = true;
@@ -257,5 +265,89 @@ namespace esmini
         events.swap(condEventBuffer_);
         return events;
     }
+
+#ifdef __EMSCRIPTEN__
+    emscripten::val OpenScenario::getTrafficSignalStates()
+    {
+        emscripten::val arr = emscripten::val::array();
+
+        roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+        if (!odr) return arr;
+
+        for (size_t ri = 0; ri < odr->GetNumOfRoads(); ri++)
+        {
+            roadmanager::Road* road = odr->GetRoadByIdx(static_cast<idx_t>(ri));
+            if (!road) continue;
+
+            int roadId = static_cast<int>(road->GetId());
+
+            for (unsigned int si = 0; si < road->GetNumberOfSignals(); si++)
+            {
+                roadmanager::Signal* signal = road->GetSignal(static_cast<idx_t>(si));
+                if (!signal) continue;
+
+                // Calculate world position from road coordinates (same as SE_GetRoadSign)
+                roadmanager::Position pos;
+                pos.SetTrackPos(static_cast<id_t>(roadId), signal->GetS(), signal->GetT());
+
+                emscripten::val obj = emscripten::val::object();
+                obj.set("id", signal->GetId());
+                obj.set("name", signal->GetName());
+                obj.set("roadId", roadId);
+                obj.set("s", signal->GetS());
+                obj.set("t", signal->GetT());
+                obj.set("x", pos.GetX());
+                obj.set("y", pos.GetY());
+                obj.set("z", pos.GetZ() + signal->GetZOffset());
+                obj.set("h", pos.GetH() + signal->GetHOffset());
+                obj.set("zOffset", signal->GetZOffset());
+                obj.set("orientation", signal->GetOrientation() == roadmanager::Signal::Orientation::NEGATIVE ? -1 : 1);
+                obj.set("type", signal->GetType());
+                obj.set("subtype", signal->GetSubType());
+                obj.set("dynamic", signal->IsDynamic());
+                obj.set("height", signal->GetHeight());
+                obj.set("width", signal->GetWidth());
+
+                auto* tl = dynamic_cast<roadmanager::TrafficLight*>(signal);
+                if (tl)
+                {
+                    obj.set("isTrafficLight", true);
+                    obj.set("state", tl->GetStateString());
+                }
+                else
+                {
+                    obj.set("isTrafficLight", false);
+                    obj.set("state", std::string(""));
+                }
+
+                arr.call<void>("push", obj);
+            }
+        }
+
+        return arr;
+    }
+
+    emscripten::val OpenScenario::getTrafficLightStatesOnly()
+    {
+        emscripten::val arr = emscripten::val::array();
+
+        roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+        if (!odr) return arr;
+
+        auto dynamicSignals = odr->GetDynamicSignals();
+        for (auto* signal : dynamicSignals)
+        {
+            auto* tl = dynamic_cast<roadmanager::TrafficLight*>(signal);
+            if (!tl) continue;
+
+            emscripten::val obj = emscripten::val::object();
+            obj.set("id", tl->GetId());
+            obj.set("state", tl->GetStateString());
+            arr.call<void>("push", obj);
+        }
+
+        return arr;
+    }
+#endif
 
 }  // namespace esmini

@@ -141,6 +141,22 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque);
 
+    // =====================================
+    // Traffic Signal State API
+    // =====================================
+
+    /**
+     * Get the current state string of a traffic signal.
+     * State is set by TrafficSignalStateAction or TrafficSignalController during simulation.
+     *
+     * @param road_id    Road ID
+     * @param index      Signal index (0 ~ SE_GetNumberOfRoadSigns(road_id)-1)
+     * @param state      Output buffer for state string (e.g. "red;yellow;green")
+     * @param bufferSize Buffer size
+     * @return 0: success, -1: not found or not a traffic light
+     */
+    GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, int bufferSize);
+
 #ifdef __cplusplus
 }
 #endif

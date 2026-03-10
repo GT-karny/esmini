@@ -118,8 +118,10 @@ set(GT_ESMINI_INCLUDE_DIR
 # GT_esmini scenario extension sources (WASM-compatible, no OSI/OSG/Python deps)
 set(GT_SCENARIO_WASM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/ExtraAction.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/ExtraCondition.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/ExtraEntities.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/GT_ScenarioReader.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/GT_ScenarioReader.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/TrafficSignalController.cpp")
 
 include_directories(
     ${SCENARIOENGINE_INCLUDE_DIRS}

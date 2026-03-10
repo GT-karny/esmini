@@ -856,6 +856,30 @@ GT_ESMINI_API void GT_SetHostVehicleLights(int vehicle_id, int light_mask)
 #endif
 }
 
+GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, int bufferSize)
+{
+    if (!state || bufferSize <= 0) return -1;
+
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    if (!odr) return -1;
+
+    roadmanager::Road* road = odr->GetRoadById(road_id);
+    if (!road) return -1;
+
+    if (index < 0 || index >= static_cast<int>(road->GetNumberOfSignals())) return -1;
+
+    roadmanager::Signal* signal = road->GetSignal(static_cast<idx_t>(index));
+    if (!signal) return -1;
+
+    auto* tl = dynamic_cast<roadmanager::TrafficLight*>(signal);
+    if (!tl) return -1;  // Not a traffic light
+
+    std::string stateStr = tl->GetStateString();
+    strncpy(state, stateStr.c_str(), bufferSize - 1);
+    state[bufferSize - 1] = '\0';
+    return 0;
+}
+
 GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque)
 {
 #ifdef _USE_OSI
