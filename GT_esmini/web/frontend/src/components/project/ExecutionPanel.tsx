@@ -12,6 +12,7 @@ interface ExecutionPanelProps {
   onRunning: (jobId: string) => void;
   latestJobId: string | null;
   activeJobId: string | null;
+  isLocked?: boolean;
 }
 
 export function ExecutionPanel({
@@ -21,6 +22,7 @@ export function ExecutionPanel({
   onRunning,
   latestJobId,
   activeJobId,
+  isLocked,
 }: ExecutionPanelProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -56,6 +58,14 @@ export function ExecutionPanel({
           <path d="M4 2l10 6-10 6V2z" />
         </svg>
         Run
+        {isLocked && (
+          <span className="ml-auto flex items-center gap-1 text-[10px] text-warning normal-case tracking-normal font-normal">
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+              <path d="M8 1a4 4 0 0 0-4 4v2H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-1V5a4 4 0 0 0-4-4zm-2 4a2 2 0 1 1 4 0v2H6V5z" />
+            </svg>
+            {scenario?.filename}
+          </span>
+        )}
       </h3>
 
       {/* Simulation run form (compact, params hidden — managed by ParameterPanel) */}
