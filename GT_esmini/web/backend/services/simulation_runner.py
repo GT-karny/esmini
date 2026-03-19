@@ -38,11 +38,7 @@ from runtime_api import GTExecutionPlanner
 
 _planner = GTExecutionPlanner()
 
-# In-memory tracking of running GT_Sim subprocess PIDs
-_running_pids: set[int] = set()
-_running_pids_lock = threading.Lock()
-
-# In-memory tracking of job_id -> Popen (available immediately on subprocess start)
+# In-memory tracking of job_id -> Popen (registered at subprocess start to avoid race)
 _running_procs: dict[str, subprocess.Popen] = {}
 _running_procs_lock = threading.Lock()
 
@@ -205,16 +201,16 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
 _logger = logging.getLogger(__name__)
 
 
-def _start_subprocess(cmd: list[str], cwd: str) -> subprocess.Popen:
-    """Start subprocess and return immediately (called in thread)."""
+def _start_subprocess(cmd: list[str], cwd: str, job_id: str) -> subprocess.Popen:
+    """Start subprocess and register in _running_procs atomically (called in thread)."""
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    with _running_pids_lock:
-        _running_pids.add(proc.pid)
+    with _running_procs_lock:
+        _running_procs[job_id] = proc
     return proc
 
 
@@ -231,9 +227,6 @@ def _wait_subprocess(proc: subprocess.Popen, timeout: int):
         except subprocess.TimeoutExpired:
             proc.kill()
         return pid, -1, b"", b"", f"Process timed out after {timeout}s"
-    finally:
-        with _running_pids_lock:
-            _running_pids.discard(pid)
 
 
 async def _run_simulation(
@@ -256,13 +249,9 @@ async def _run_simulation(
 
     _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
-        # Phase 1: Start the subprocess (returns immediately with Popen object)
-        proc = await asyncio.to_thread(_start_subprocess, cmd, str(REPO_ROOT))
+        # Phase 1: Start the subprocess (registers in _running_procs atomically)
+        proc = await asyncio.to_thread(_start_subprocess, cmd, str(REPO_ROOT), job_id)
         pid = proc.pid
-
-        # Register job_id -> Popen mapping immediately (for cancel_simulation)
-        with _running_procs_lock:
-            _running_procs[job_id] = proc
 
         # Write PID to DB immediately (while process is still running)
         db = await get_db()
@@ -499,18 +488,18 @@ def kill_all_running() -> int:
     """
     killed = 0
 
-    # Kill via Popen handles (most reliable)
     with _running_procs_lock:
-        procs = list(_running_procs.values())
-    for proc in procs:
+        procs = list(_running_procs.items())
+
+    for job_id, proc in procs:
         pid = proc.pid
         try:
             proc.kill()
-            _logger.info("Killed GT_Sim subprocess PID %d via proc.kill()", pid)
+            _logger.info("Killed GT_Sim subprocess %s (PID %d) via proc.kill()", job_id, pid)
             killed += 1
         except OSError as exc:
-            _logger.warning("proc.kill() failed for PID %d: %s", pid, exc)
-        # Also kill child tree on Windows
+            _logger.warning("proc.kill() failed for %s (PID %d): %s", job_id, pid, exc)
+        # Also kill child process tree on Windows
         if sys.platform == "win32":
             try:
                 subprocess.run(
@@ -520,25 +509,6 @@ def kill_all_running() -> int:
             except OSError:
                 pass
 
-    # Also kill any PIDs tracked only in _running_pids (safety net)
-    with _running_pids_lock:
-        pids = list(_running_pids)
-    for pid in pids:
-        try:
-            if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(pid)],
-                    capture_output=True,
-                )
-            else:
-                os.kill(pid, signal.SIGTERM)
-            killed += 1
-            _logger.info("Killed GT_Sim subprocess PID %d via taskkill/signal", pid)
-        except (OSError, ProcessLookupError):
-            pass
-
-    with _running_pids_lock:
-        _running_pids.clear()
     with _running_procs_lock:
         _running_procs.clear()
     return killed

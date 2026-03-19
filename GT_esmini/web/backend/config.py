@@ -98,6 +98,9 @@ TEMP_FILE_TTL_SECONDS = 3600  # 1 hour
 
 # Server ports (overridable via environment variables)
 GRPC_PORT = int(os.environ.get("GT_SIM_GRPC_PORT", "50051"))
+OSI_GT_PORT = int(os.environ.get("GT_SIM_OSI_GT_PORT", "48198"))
+OSI_HVD_PORT = int(os.environ.get("GT_SIM_OSI_HVD_PORT", "48199"))
+HTTP_PORT = int(os.environ.get("GT_SIM_HTTP_PORT", "8000"))
 
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {

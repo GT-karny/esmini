@@ -13,6 +13,8 @@ from osi3.osi_groundtruth_pb2 import GroundTruth
 from osi3.osi_hostvehicledata_pb2 import HostVehicleData
 from google.protobuf.message import DecodeError
 
+from GT_esmini.web.backend.config import OSI_GT_PORT, OSI_HVD_PORT
+
 logger = logging.getLogger(__name__)
 
 # esmini UDP packet format: [counter: int32][size: uint32][data: bytes]
@@ -105,8 +107,8 @@ class OSIBridge:
 
     def __init__(
         self,
-        gt_port: int = 48198,
-        hvd_port: int = 48199,
+        gt_port: int = OSI_GT_PORT,
+        hvd_port: int = OSI_HVD_PORT,
         bind_ip: str = "127.0.0.1",
         max_queue_size: int = 16,
     ) -> None:
@@ -193,8 +195,8 @@ def get_bridge(job_id: str) -> OSIBridge | None:
 
 async def start_bridge(
     job_id: str,
-    gt_port: int = 48198,
-    hvd_port: int = 48199,
+    gt_port: int = OSI_GT_PORT,
+    hvd_port: int = OSI_HVD_PORT,
 ) -> OSIBridge:
     """Create and start an OSI bridge for a simulation job."""
     # Stop any existing bridges to free ports
