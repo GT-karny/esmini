@@ -245,11 +245,11 @@ def assemble_package(version: str, output_dir: Path) -> Path:
 
     # 5. resources/
     res_dest = pkg_dir / "resources"
-    for subdir in ["xosc", "xodr", "models"]:
+    for subdir in ["xosc", "xodr", "models", "sumo_inputs"]:
         src = REPO_ROOT / "resources" / subdir
         if src.is_dir():
             shutil.copytree(src, res_dest / subdir, ignore=IGNORE_PATTERNS)
-    log("resources/: copied (xosc, xodr, models)")
+    log("resources/: copied (xosc, xodr, models, sumo_inputs)")
 
     # 6. config/
     config_dest = pkg_dir / "config"
@@ -379,8 +379,8 @@ def main() -> None:
     parser.add_argument("--version", default="0.1.0", help="Version string (default: 0.1.0)")
     parser.add_argument("--output", default=str(REPO_ROOT / "dist"), help="Output directory")
     parser.add_argument("--skip-pyinstaller", action="store_true", help="Skip PyInstaller step")
+    parser.add_argument("--skip-frontend", action="store_true", help="Skip frontend build")
     parser.add_argument("--no-zip", action="store_true", help="Skip zip creation")
-    parser.add_argument("--build-frontend", action="store_true", help="Run npm build first")
     args = parser.parse_args()
 
     output_dir = Path(args.output).resolve()
@@ -394,7 +394,7 @@ def main() -> None:
 
     verify_prerequisites()
 
-    if args.build_frontend:
+    if not args.skip_frontend:
         build_frontend()
 
     if not args.skip_pyinstaller:
