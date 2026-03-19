@@ -19,27 +19,14 @@
 #include <windows.h>
 #endif
 
-// Helper to check for existence of command line option
-bool HasOption(int argc, const char* argv[], const std::string& option)
+// Helper to check for existence of command line option (used for pre-parse checks)
+static bool HasOption(int argc, const char* argv[], const std::string& option)
 {
-    for(int i=1; i<argc; i++)
+    for (int i = 1; i < argc; i++)
     {
-        if(argv[i] && option == argv[i]) return true;
+        if (argv[i] && option == argv[i]) return true;
     }
     return false;
-}
-
-// Helper to get value of command line option
-const char* GetOptionValue(int argc, const char* argv[], const std::string& option)
-{
-    for(int i=1; i<argc; i++)
-    {
-        if(argv[i] && option == argv[i] && i+1 < argc)
-        {
-            return argv[i+1];
-        }
-    }
-    return nullptr;
 }
 
 static bool ContainsArg(const std::vector<std::string>& args, const std::string& option)
@@ -57,15 +44,52 @@ struct ParamOverride
     std::string value;
 };
 
-struct VideoOptions
+struct GtSimOptions
 {
-    bool enabled = false;
-    bool headless = true;
-    int width = 1280;
-    int height = 720;
-    int frames = -1;
-    std::string prefix = "screen_shot_";
+    // AutoLight
+    bool autolight = false;
+    bool autolight_egoless = false;
+
+    // OSI
+    std::string osi_ip;  // empty = disabled
+
+    // Timing
+    double frequency = 100.0;
+    bool no_realtime = false;
+
+    // Video capture
+    bool video_enabled = false;
+    bool video_headless = true;
+    int video_width = 1280;
+    int video_height = 720;
+    int video_frames = -1;
+    std::string video_prefix = "screen_shot_";
+
+    // Control pipe (Windows)
+    std::string control_pipe_name;  // empty = disabled
+
+    // Parameter overrides
+    std::vector<ParamOverride> param_overrides;
 };
+
+static void PrintUsage()
+{
+    printf("Usage: GT_Sim --osc <osc filename> [options]\n");
+    printf("GT_Sim-specific options:\n");
+    printf("  --autolight          Enable AutoLight functionality\n");
+    printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
+    printf("  --osi <ip>           Enable OSI output to specified IP\n");
+    printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
+    printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
+    printf("  --video_capture      Enable direct frame capture in GT_Sim\n");
+    printf("  --video_window <w h> Capture window size (default: 1280 720)\n");
+    printf("  --video_headless     Run capture in headless mode (default: true)\n");
+    printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
+    printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
+    printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
+    printf("  --param <name,val>   Override scenario parameter (repeatable)\n");
+    printf("\nSee esmini --help for engine options.\n");
+}
 
 static int CountFramesWithPrefix(const std::string& prefix)
 {
@@ -234,46 +258,18 @@ int main(int argc, const char* argv[])
 
     if (helpRequested && !hasOsc)
     {
-        printf("Usage: GT_Sim --osc <osc filename> [options]\n");
-        printf("GT_Sim-specific options:\n");
-        printf("  --autolight          Enable AutoLight functionality\n");
-        printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
-        printf("  --osi <ip>           Enable OSI output to specified IP\n");
-        printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
-        printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
-        printf("  --video_capture      Enable direct frame capture in GT_Sim\n");
-        printf("  --video_window <w h> Capture window size (default: 1280 720)\n");
-        printf("  --video_headless     Run capture in headless mode (default: true)\n");
-        printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
-        printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
-        printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
-        printf("  --param <name,val>   Override scenario parameter (repeatable)\n");
-        printf("\nSee esmini --help for engine options.\n");
+        PrintUsage();
         return 0;
     }
 
     if (argc < 2)
     {
-        printf("Usage: GT_Sim --osc <osc filename> [options]\n");
-        printf("Options:\n");
-        printf("  --autolight          Enable AutoLight functionality\n");
-        printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
-        printf("  --osi <ip>           Enable OSI output to specified IP\n");
-        printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
-        printf("  --video_capture      Enable direct frame capture in GT_Sim\n");
-        printf("  --video_window <w h> Capture window size (default: 1280 720)\n");
-        printf("  --video_headless     Run capture in headless mode (default: true)\n");
-        printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
-        printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
-        printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
-        printf("  --param <name,val>   Override scenario parameter (repeatable)\n");
-        printf("  ... [See esmini documentation for other arguments]\n");
+        PrintUsage();
         return -1;
     }
 
     // Parse GT_Sim-only options and build args forwarded to GT_InitWithArgs.
-    VideoOptions video;
-    std::vector<ParamOverride> paramOverrides;
+    GtSimOptions opts;
     std::vector<std::string> forwardArgs;
     forwardArgs.emplace_back(argv[0] ? argv[0] : "GT_Sim");
 
@@ -285,38 +281,70 @@ int main(int argc, const char* argv[])
         }
 
         const std::string arg = argv[i];
-        if (arg == "--video_capture")
+
+        // --- GT_Sim-specific options (consumed, NOT forwarded to esmini) ---
+
+        if (arg == "--autolight")
         {
-            video.enabled = true;
+            opts.autolight = true;
+        }
+        else if (arg == "--autolight-egoless")
+        {
+            opts.autolight = true;
+            opts.autolight_egoless = true;
+        }
+        else if (arg == "--osi" && i + 1 < argc)
+        {
+            opts.osi_ip = argv[++i];
+        }
+        else if (arg == "--hz" && i + 1 < argc)
+        {
+            try
+            {
+                opts.frequency = std::stod(argv[++i]);
+                if (opts.frequency <= 0.0) opts.frequency = 100.0;
+            }
+            catch (...)
+            {
+                std::cerr << "GT_Sim Warning: Invalid --hz value, using default 100 Hz" << std::endl;
+                opts.frequency = 100.0;
+            }
+        }
+        else if (arg == "--no_realtime")
+        {
+            opts.no_realtime = true;
+        }
+        else if (arg == "--video_capture")
+        {
+            opts.video_enabled = true;
         }
         else if (arg == "--video_headless")
         {
-            video.headless = true;
+            opts.video_headless = true;
         }
         else if (arg == "--video_window" && i + 2 < argc)
         {
-            video.enabled = true;
-            video.width = std::max(1, std::atoi(argv[++i]));
-            video.height = std::max(1, std::atoi(argv[++i]));
+            opts.video_enabled = true;
+            opts.video_width = std::max(1, std::atoi(argv[++i]));
+            opts.video_height = std::max(1, std::atoi(argv[++i]));
         }
         else if (arg == "--video_frames" && i + 1 < argc)
         {
-            video.enabled = true;
-            video.frames = std::atoi(argv[++i]);
-            if (video.frames == 0)
+            opts.video_enabled = true;
+            opts.video_frames = std::atoi(argv[++i]);
+            if (opts.video_frames == 0)
             {
-                video.frames = -1;
+                opts.video_frames = -1;
             }
         }
         else if (arg == "--video_prefix" && i + 1 < argc)
         {
-            video.enabled = true;
-            video.prefix = argv[++i];
+            opts.video_enabled = true;
+            opts.video_prefix = argv[++i];
         }
         else if (arg == "--control_pipe" && i + 1 < argc)
         {
-            // Consumed by GT_Sim, not forwarded to esmini
-            i++; // skip value, handled below
+            opts.control_pipe_name = argv[++i];
         }
         else if (arg == "--param" && i + 1 < argc)
         {
@@ -324,27 +352,28 @@ int main(int argc, const char* argv[])
             auto commaPos = pv.find(',');
             if (commaPos != std::string::npos && commaPos > 0)
             {
-                paramOverrides.push_back({pv.substr(0, commaPos), pv.substr(commaPos + 1)});
+                opts.param_overrides.push_back({pv.substr(0, commaPos), pv.substr(commaPos + 1)});
             }
             else
             {
                 std::cerr << "GT_Sim Warning: Invalid --param format (expected name,value): " << pv << std::endl;
             }
         }
+        // --- Everything else is forwarded to esmini ---
         else
         {
             forwardArgs.emplace_back(arg);
         }
     }
 
-    if (video.enabled)
+    if (opts.video_enabled)
     {
         const bool hasHeadless = ContainsArg(forwardArgs, "--headless");
         const bool hasWindow = ContainsArg(forwardArgs, "--window");
 
         // Keep --headless before --window: Config::PostProcessArgs removes window
         // options that appear before the last --headless argument.
-        if (video.headless && !hasHeadless)
+        if (opts.video_headless && !hasHeadless)
         {
             forwardArgs.emplace_back("--headless");
         }
@@ -353,8 +382,8 @@ int main(int argc, const char* argv[])
             forwardArgs.emplace_back("--window");
             forwardArgs.emplace_back("0");
             forwardArgs.emplace_back("0");
-            forwardArgs.emplace_back(std::to_string(video.width));
-            forwardArgs.emplace_back(std::to_string(video.height));
+            forwardArgs.emplace_back(std::to_string(opts.video_width));
+            forwardArgs.emplace_back(std::to_string(opts.video_height));
         }
     }
 
@@ -373,7 +402,7 @@ int main(int argc, const char* argv[])
     }
 
     // 1.1 Apply parameter overrides
-    if (!paramOverrides.empty())
+    if (!opts.param_overrides.empty())
     {
         // Build name->type map from scenario's ParameterDeclarations
         // Types: 1=int, 2=double, 3=string, 4=bool
@@ -386,7 +415,7 @@ int main(int argc, const char* argv[])
             if (pname) paramTypes.emplace_back(pname, ptype);
         }
 
-        for (const auto& ov : paramOverrides)
+        for (const auto& ov : opts.param_overrides)
         {
             // Find the parameter type
             int ptype = -1;
@@ -443,75 +472,55 @@ int main(int argc, const char* argv[])
     // 1.5 Start control pipe if requested
 #ifdef _WIN32
     ControlPipe controlPipe;
-    const char* pipeName = GetOptionValue(argc, argv, "--control_pipe");
-    if (pipeName)
+    if (!opts.control_pipe_name.empty())
     {
-        controlPipe.Start(pipeName);
+        controlPipe.Start(opts.control_pipe_name);
     }
 #endif
 
     // 2. Enable AutoLight if requested
-    if (HasOption(argc, argv, "--autolight"))
+    if (opts.autolight)
     {
         printf("GT_Sim: Enabling AutoLight\n");
         GT_EnableAutoLight();
     }
 
     // 3. Open OSI Socket if requested
-    const char* osiIp = GetOptionValue(argc, argv, "--osi");
-    if (osiIp)
+    if (!opts.osi_ip.empty())
     {
-        printf("GT_Sim: Enabling OSI output to %s\n", osiIp);
-        SE_OpenOSISocket(osiIp);
+        printf("GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
+        SE_OpenOSISocket(opts.osi_ip.c_str());
     }
 
-    // 4. Frequency Control (default 100Hz)
-    double frequency = 100.0;
-    const char* hzStr = GetOptionValue(argc, argv, "--hz");
-    const bool noRealtime = HasOption(argc, argv, "--no_realtime");
-    if (hzStr)
-    {
-        frequency = std::stod(hzStr);
-        if (frequency <= 0.0) frequency = 100.0;
-    }
-    printf("GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", frequency, noRealtime ? "OFF" : "ON");
+    // 4. Frequency Control
+    printf("GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", opts.frequency, opts.no_realtime ? "OFF" : "ON");
 
-    bool captureRequested = video.enabled;
+    bool captureRequested = opts.video_enabled;
     bool captureStarted = false;
-    if (video.enabled)
+    if (opts.video_enabled)
     {
-        std::cout << "GT_Sim: Video capture requested (" << video.width << "x" << video.height << ", frames=" << video.frames << ")" << std::endl;
+        std::cout << "GT_Sim: Video capture requested (" << opts.video_width << "x" << opts.video_height
+                  << ", frames=" << opts.video_frames << ")" << std::endl;
     }
 
-    double dt = 1.0 / frequency;
+    double dt = 1.0 / opts.frequency;
     using Clock = std::chrono::steady_clock;
     auto next_target_time = Clock::now();
 
     // Stats
     long long delayed_frames = 0;
 
-    // Set a flag to signal simulation loop to quit
-    bool quit = false;
-
     // 5. Main Loop
-    while (!quit)
+    while (SE_GetQuitFlag() != 1)
     {
-        // Check standard quit flag (e.g. from window close or end of scenario)
-        if (SE_GetQuitFlag() == 1)
-        {
-            quit = true;
-            break;
-        }
-
-        // Stepping
-        GT_Step(dt); 
+        GT_Step(dt);
 
         if (captureRequested && !captureStarted)
         {
-            const int captureRet = SE_SaveImagesToFile(video.frames);
+            const int captureRet = SE_SaveImagesToFile(opts.video_frames);
             if (captureRet != 0)
             {
-                std::cerr << "GT_Sim Warning: SE_SaveImagesToFile(" << video.frames << ") returned " << captureRet << std::endl;
+                std::cerr << "GT_Sim Warning: SE_SaveImagesToFile(" << opts.video_frames << ") returned " << captureRet << std::endl;
             }
             else
             {
@@ -521,11 +530,11 @@ int main(int argc, const char* argv[])
             captureRequested = false;
         }
 
-        if (!noRealtime)
+        if (!opts.no_realtime)
         {
             // Real-time pacing with speed factor
 #ifdef _WIN32
-            double current_speed = pipeName ? controlPipe.speed_factor.load() : 1.0;
+            double current_speed = !opts.control_pipe_name.empty() ? controlPipe.speed_factor.load() : 1.0;
 #else
             double current_speed = 1.0;
 #endif
@@ -537,17 +546,16 @@ int main(int argc, const char* argv[])
             {
                 // We are late
                 auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(now - next_target_time).count();
-                
+
                 // Count delayed frames if delay is significant (>2ms)
-                if (delay > 2) 
+                if (delay > 2)
                 {
                     delayed_frames++;
                 }
 
                 // If the delay is huge, we might want to reset.
-                if (delay > 1000) 
+                if (delay > 1000)
                 {
-                    // Only log critical slips
                     printf("GT_Sim Warning: Huge delay (>1s), resyncing clock.\n");
                     next_target_time = now;
                 }
@@ -560,17 +568,17 @@ int main(int argc, const char* argv[])
         }
     }
 
-    if (video.enabled)
+    if (opts.video_enabled)
     {
         SE_SaveImagesToFile(0);
-        RenameCapturedFramesIfNeeded(video.prefix);
-        std::cout << "GT_Sim: Captured frames = " << CountFramesWithPrefix(video.prefix) << std::endl;
+        RenameCapturedFramesIfNeeded(opts.video_prefix);
+        std::cout << "GT_Sim: Captured frames = " << CountFramesWithPrefix(opts.video_prefix) << std::endl;
     }
 
     printf("Total delayed frames: %lld\n", delayed_frames);
 
 #ifdef _WIN32
-    if (pipeName)
+    if (!opts.control_pipe_name.empty())
     {
         controlPipe.Stop();
     }
