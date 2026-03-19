@@ -10,6 +10,7 @@ import { NewSimulationPage } from './pages/NewSimulationPage';
 import { SimulationsPage } from './pages/SimulationsPage';
 import { SimulationDetailPage } from './pages/SimulationDetailPage';
 import { SettingsPanel } from './components/SettingsPanel';
+import { WindowControls, isElectron } from './components/WindowControls';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5000 } },
@@ -49,7 +50,7 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
   };
 
   return (
-    <nav className="glass header-glow relative z-10 shrink-0">
+    <nav className={`glass header-glow relative z-10 shrink-0${isElectron ? ' app-drag' : ''}`}>
       <div className="px-6 flex items-center h-11 gap-1">
         <NavLink to="/" className="flex items-center gap-2 font-display text-foreground font-bold text-base tracking-wider mr-4">
           <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5 shrink-0" aria-hidden="true">
@@ -103,7 +104,7 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
           </>
         )}
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center">
           <button
             onClick={onSettingsClick}
             className="p-1.5 text-text-secondary hover:text-foreground hover:bg-glass-hover transition-colors cursor-pointer"
@@ -114,6 +115,7 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             </svg>
           </button>
+          <WindowControls />
         </div>
       </div>
     </nav>

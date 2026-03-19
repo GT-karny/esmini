@@ -1,6 +1,20 @@
 @import "@osce/theme-apex/styles";
 @import "tailwindcss";
 
+/* Electron custom titlebar: drag region */
+@layer base {
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+  .app-drag a,
+  .app-drag button,
+  .app-drag input,
+  .app-drag select,
+  .window-control {
+    -webkit-app-region: no-drag;
+  }
+}
+
 /* APEX-themed scrollbars */
 * {
   scrollbar-width: thin;

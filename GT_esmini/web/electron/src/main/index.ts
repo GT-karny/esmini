@@ -24,6 +24,8 @@ function createWindow(serverUrl: string): void {
     height: 900,
     title: 'GT_Sim',
     backgroundColor: '#0a0a0f',
+    frame: false,
+    titleBarStyle: 'hidden',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
@@ -34,6 +36,14 @@ function createWindow(serverUrl: string): void {
   });
 
   mainWindow.loadURL(serverUrl);
+
+  // Forward maximize/unmaximize events to renderer for titlebar button state
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximized');
+  });
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:unmaximized');
+  });
 
   // Show window once content is ready (avoid white flash)
   mainWindow.once('ready-to-show', () => {
@@ -53,10 +63,34 @@ function registerIpcHandlers(): void {
   ipcMain.on('window:setTitle', (_event, title: string) => {
     mainWindow?.setTitle(title);
   });
+
+  ipcMain.on('window:minimize', () => {
+    mainWindow?.minimize();
+  });
+
+  ipcMain.on('window:maximize', () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow?.maximize();
+    }
+  });
+
+  ipcMain.on('window:close', () => {
+    mainWindow?.close();
+  });
+
+  ipcMain.handle('window:isMaximized', () => {
+    return mainWindow?.isMaximized() ?? false;
+  });
 }
 
 function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners('window:setTitle');
+  ipcMain.removeAllListeners('window:minimize');
+  ipcMain.removeAllListeners('window:maximize');
+  ipcMain.removeAllListeners('window:close');
+  ipcMain.removeHandler('window:isMaximized');
 }
 
 // ---------------------------------------------------------------------------

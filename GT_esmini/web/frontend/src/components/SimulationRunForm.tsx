@@ -58,7 +58,7 @@ export function SimulationRunForm({
   // Execution state
   const [hz, setHz] = useState(120);
   const [headless, setHeadless] = useState(true);
-  const [record, setRecord] = useState(true);
+  const [record, setRecord] = useState(false);
   const [noRealtime, setNoRealtime] = useState(false);
   const [timeout, setTimeout_] = useState(60);
   const [osiEnabled, setOsiEnabled] = useState(true);

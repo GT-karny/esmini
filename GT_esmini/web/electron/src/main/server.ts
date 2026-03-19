@@ -26,9 +26,15 @@ interface ServerInfo {
 
 /** Resolve how to launch the FastAPI server depending on environment. */
 function resolveCommand(): { command: string; args: string[]; cwd: string } {
-  const isDev = !process.env.GT_SIM_PACKAGED;
+  // Auto-detect packaged mode: if server/gt_sim_web.exe exists next to the
+  // Electron executable, we're running from a distribution package.
+  const exeDir = path.dirname(process.execPath);
+  const packageRoot = process.env.GT_SIM_PACKAGE_ROOT ?? exeDir;
+  const serverExe = path.join(packageRoot, 'server', 'gt_sim_web.exe');
 
-  if (isDev) {
+  const isPackaged = existsSync(serverExe);
+
+  if (!isPackaged) {
     // Dev mode: use venv Python to run start_server.py
     // __dirname is dist/main/ inside electron dir.
     // Repo root: dist/main -> electron -> web -> GT_esmini -> esmini (4 levels)
@@ -65,14 +71,6 @@ function resolveCommand(): { command: string; args: string[]; cwd: string } {
   }
 
   // Packaged mode: exe is at <package_root>/server/gt_sim_web.exe
-  const exeDir = path.dirname(process.execPath);
-  const packageRoot = process.env.GT_SIM_PACKAGE_ROOT ?? exeDir;
-  const serverExe = path.join(packageRoot, 'server', 'gt_sim_web.exe');
-
-  if (!existsSync(serverExe)) {
-    throw new Error(`Server executable not found: ${serverExe}`);
-  }
-
   return {
     command: serverExe,
     args: ['--host', DEFAULT_HOST, '--port', String(DEFAULT_PORT), '--no-browser'],

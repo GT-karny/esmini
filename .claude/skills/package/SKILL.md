@@ -94,17 +94,19 @@ PyInstallerで作成したサーバーをElectronシェルでラップする。
 cd GT_esmini/web/electron && npm install && npm run build && cd "e:/Repository/GT_esmini/esmini"
 ```
 
-次に electron-builder でパッケージ化:
+次に `@electron/packager` でパッケージ化（`electron-builder` はWindows開発者モード未有効時にwinCodeSignのシンボリックリンクエラーが発生するため使わない）:
 
 ```bash
-cd GT_esmini/web/electron && npx electron-builder --win --x64 && cd "e:/Repository/GT_esmini/esmini"
+cd GT_esmini/web/electron && npx @electron/packager . GT_Sim --platform=win32 --arch=x64 --out=release --overwrite --ignore="node_modules" --ignore="src" --ignore="scripts" --ignore="tsconfig" --ignore="electron-builder.yml" && cd "e:/Repository/GT_esmini/esmini"
 ```
+
+> **重要**: `--ignore` フラグで `node_modules`, `src`, `scripts` 等を除外すること。
+> 除外しないと devDependencies（584MB超）がそのままバンドルされ、パッケージが肥大化する。
 
 ビルド成果物をパッケージディレクトリに統合:
 
 ```bash
-# Electron アプリ本体を配布パッケージのルートにコピー
-cp -r GT_esmini/web/electron/release/win-unpacked/* dist/GT_Sim_v<VERSION>/ 2>/dev/null
+cp -r GT_esmini/web/electron/release/GT_Sim-win32-x64/* dist/GT_Sim_v<VERSION>/ 2>/dev/null
 ```
 
 > **注意**: Electronはデスクトップアプリのシェル（ネイティブウィンドウ）を提供する。
@@ -157,3 +159,5 @@ GT_Sim.exe (Electron)
 - 各ステップは順番に実行する。前のステップが失敗した場合は次に進まない。
 - エラーが発生した場合はログを確認し、原因をユーザーに報告する。
 - **ELECTRON_RUN_AS_NODE**: VS Code内から実行する場合、この環境変数が`1`にセットされているとElectronがNode.jsモードで動作する。Electron起動時は`delete env.ELECTRON_RUN_AS_NODE`が必須（`dev.mjs`では対策済み）。
+- **フロントエンド変更時はPyInstallerも再ビルド必須**: `--skip-pyinstaller` を使うとサーバーexe内のフロントエンドが古いままになる。TSX/CSS変更がある場合はPyInstallerをスキップしないこと。
+- **パッケージビルド前にGT_Sim.exeを停止**: Electronやサーバーが起動中だとDLL/EXEがロックされ `PermissionError` になる。ビルド前にアプリを閉じるようユーザーに伝える。

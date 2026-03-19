@@ -18,6 +18,8 @@ win:
     - target: dir
       arch: x64
   icon: null  # TODO: add icon
+  signDlls: false
+forceCodeSigning: false
 
 # Native modules that must be unpacked from asar
 asar: true
