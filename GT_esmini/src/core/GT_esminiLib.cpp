@@ -233,22 +233,33 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         // Load ORIGINAL XML
         pugi::xml_document doc;
         pugi::xml_parse_result result = doc.load_file(oscFilename);
-        
+
         if (result)
         {
             // Use GT_ScenarioReader to parse extensions
             // Access Catalogs via existing loader because it's private in Engine
             auto* scReader = player->scenarioEngine->GetScenarioReader();
             auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
-            
-            gt_esmini::GT_ScenarioReader reader(
-                &player->scenarioEngine->entities_,
-                catalogs, 
-                &player->scenarioEngine->environment
-            );
-            
-            // Inject actions into Storyboard
-            reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+
+            // Save static parameters/variables (see GT_InitWithArgs for rationale)
+            auto savedParams = scenarioengine::ScenarioReader::parameters;
+            auto savedVars   = scenarioengine::ScenarioReader::variables;
+
+            {
+                gt_esmini::GT_ScenarioReader reader(
+                    &player->scenarioEngine->entities_,
+                    catalogs,
+                    &player->scenarioEngine->environment
+                );
+
+                scenarioengine::ScenarioReader::parameters = savedParams;
+                scenarioengine::ScenarioReader::variables   = savedVars;
+
+                // Inject actions into Storyboard
+                reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+            }
+            scenarioengine::ScenarioReader::parameters = savedParams;
+            scenarioengine::ScenarioReader::variables   = savedVars;
         }
         else
         {
@@ -441,20 +452,36 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         // Load ORIGINAL XML
         pugi::xml_document doc;
         pugi::xml_parse_result result = doc.load_file(filename);
-        
+
         if (result)
         {
             auto* scReader = player->scenarioEngine->GetScenarioReader();
             auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
-            
-            gt_esmini::GT_ScenarioReader reader(
-                &player->scenarioEngine->entities_,
-                catalogs, 
-                &player->scenarioEngine->environment
-            );
-            
-            // Inject actions into Storyboard
-            reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+
+            // Save static parameters/variables: ScenarioReader's constructor and
+            // destructor call Clear() on these statics, which would wipe out the
+            // parameter declarations already loaded by SE_InitWithArgs.  This breaks
+            // ParameterCondition and ParameterAction at runtime.
+            auto savedParams = scenarioengine::ScenarioReader::parameters;
+            auto savedVars   = scenarioengine::ScenarioReader::variables;
+
+            {
+                gt_esmini::GT_ScenarioReader reader(
+                    &player->scenarioEngine->entities_,
+                    catalogs,
+                    &player->scenarioEngine->environment
+                );
+
+                // Restore immediately after construction (constructor cleared them)
+                scenarioengine::ScenarioReader::parameters = savedParams;
+                scenarioengine::ScenarioReader::variables   = savedVars;
+
+                // Inject actions into Storyboard
+                reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+            }
+            // Destructor cleared them again — restore once more
+            scenarioengine::ScenarioReader::parameters = savedParams;
+            scenarioengine::ScenarioReader::variables   = savedVars;
         }
         else
         {
