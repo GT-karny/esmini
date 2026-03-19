@@ -77,13 +77,17 @@ set(GT_IO_HEADERS
 
 set(GT_SCENARIO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraAction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraCondition.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraEntities.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/GT_ScenarioReader.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/GT_ScenarioReader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/TrafficSignalController.cpp)
 
 set(GT_SCENARIO_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraAction.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraCondition.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraEntities.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/GT_ScenarioReader.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/GT_ScenarioReader.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/TrafficSignalController.hpp)
 
 set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/AutoLightController.cpp

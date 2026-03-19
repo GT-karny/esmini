@@ -6,7 +6,6 @@ import json
 import logging
 import shutil
 import uuid
-import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +21,7 @@ from GT_esmini.web.backend.models.project import (
     ScenarioInfo,
     ScenarioParam,
 )
+from GT_esmini.web.backend.services.xosc_parser import parse_xosc
 
 _logger = logging.getLogger(__name__)
 
@@ -441,57 +441,25 @@ async def list_scenarios(project_id: str) -> list[ScenarioInfo] | None:
 
 def _parse_xosc(xosc_path: Path, rel_path: str) -> ScenarioInfo:
     """Parse an XOSC file to extract entities, road file, and parameters."""
-    try:
-        tree = ET.parse(xosc_path)
-        root = tree.getroot()
-    except ET.ParseError:
+    result = parse_xosc(xosc_path)
+    if result is None:
         return ScenarioInfo(file=rel_path, filename=xosc_path.name)
 
-    # Road file
-    road_file = None
-    logic = root.find(".//RoadNetwork/LogicFile")
-    if logic is not None:
-        road_file = logic.get("filepath", "")
-
-    # Entities
-    entities = []
-    has_controller = False
-    for obj in root.findall(".//ScenarioObject"):
-        name = obj.get("name", "Unknown")
-        vehicle_el = obj.find("Vehicle")
-        catalog_ref = obj.find("CatalogReference")
-        model = None
-        if vehicle_el is not None:
-            model = vehicle_el.get("name")
-        elif catalog_ref is not None:
-            model = catalog_ref.get("entryName")
-
-        controller = None
-        obj_ctrl = obj.find("ObjectController")
-        if obj_ctrl is not None:
-            ctrl = obj_ctrl.find("Controller")
-            if ctrl is not None:
-                controller = ctrl.get("name")
-                has_controller = True
-        entities.append({"name": name, "model": model, "controller": controller})
-
-    # ParameterDeclarations (top-level only — not Story/Act-level params)
-    params: list[ScenarioParam] = []
-    top_pd = root.find("ParameterDeclarations")
-    if top_pd is not None:
-        for param in top_pd.findall("ParameterDeclaration"):
-            pname = param.get("name", "")
-            ptype = param.get("parameterType", "string")
-            pval = param.get("value", "")
-            params.append(ScenarioParam(name=pname, type=ptype, value=pval))
-
+    entities = [
+        {"name": e.name, "model": e.vehicle_or_model, "controller": e.controller}
+        for e in result.entities
+    ]
+    params = [
+        ScenarioParam(name=p.name, type=p.type, value=p.value)
+        for p in result.params
+    ]
     return ScenarioInfo(
         file=rel_path,
         filename=xosc_path.name,
-        road_file=road_file,
+        road_file=result.road_file,
         entities=entities,
         params=params,
-        has_controller=has_controller,
+        has_controller=result.has_controller,
     )
 
 
@@ -506,22 +474,14 @@ async def get_scenario_params(project_id: str, scenario_file: str) -> list[Scena
     if not xosc_path.is_file():
         return None
 
-    try:
-        tree = ET.parse(xosc_path)
-        xml_root = tree.getroot()
-    except ET.ParseError:
+    result = parse_xosc(xosc_path)
+    if result is None:
         return []
 
-    params: list[ScenarioParam] = []
-    top_pd = xml_root.find("ParameterDeclarations")
-    if top_pd is not None:
-        for param in top_pd.findall("ParameterDeclaration"):
-            params.append(ScenarioParam(
-                name=param.get("name", ""),
-                type=param.get("parameterType", "string"),
-                value=param.get("value", ""),
-            ))
-    return params
+    return [
+        ScenarioParam(name=p.name, type=p.type, value=p.value)
+        for p in result.params
+    ]
 
 
 # ---------------------------------------------------------------------------

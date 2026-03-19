@@ -8,12 +8,15 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from runtime_api import GTExecutionPlanner
+
 from GT_esmini.web.backend.config import REPO_ROOT, SCENARIOS_DIR, TEMP_FILE_TTL_SECONDS, TEMP_SCENARIOS_DIR
 from GT_esmini.web.backend.models.scenario import (
     ScenarioDetail,
     ScenarioEntity,
     ScenarioListItem,
 )
+from GT_esmini.web.backend.services.xosc_parser import parse_xosc, parse_xosc_from_element
 
 
 def list_scenarios(search: str | None = None) -> list[ScenarioListItem]:
@@ -46,52 +49,25 @@ def get_scenario_detail(scenario_id: str) -> ScenarioDetail | None:
     if not xosc_path.exists():
         return None
 
-    try:
-        tree = ET.parse(xosc_path)
-        root = tree.getroot()
-    except ET.ParseError:
+    result = parse_xosc(xosc_path)
+    if result is None:
         return ScenarioDetail(
             id=scenario_id,
             filename=xosc_path.name,
             path=str(xosc_path.relative_to(REPO_ROOT)),
         )
 
-    # Extract road file
-    road_file = None
-    logic = root.find(".//RoadNetwork/LogicFile")
-    if logic is not None:
-        road_file = logic.get("filepath", "")
-
-    # Extract entities
-    entities: list[ScenarioEntity] = []
-    has_controller = False
-    for obj in root.findall(".//ScenarioObject"):
-        name = obj.get("name", "Unknown")
-        vehicle_el = obj.find("Vehicle")
-        catalog_ref = obj.find("CatalogReference")
-        vehicle = None
-        if vehicle_el is not None:
-            vehicle = vehicle_el.get("name")
-        elif catalog_ref is not None:
-            vehicle = catalog_ref.get("entryName")
-
-        controller = None
-        obj_ctrl = obj.find("ObjectController")
-        if obj_ctrl is not None:
-            ctrl = obj_ctrl.find("Controller")
-            if ctrl is not None:
-                controller = ctrl.get("name")
-                has_controller = True
-
-        entities.append(ScenarioEntity(name=name, vehicle=vehicle, controller=controller))
-
+    entities = [
+        ScenarioEntity(name=e.name, vehicle=e.vehicle_or_model, controller=e.controller)
+        for e in result.entities
+    ]
     return ScenarioDetail(
         id=scenario_id,
         filename=xosc_path.name,
         path=str(xosc_path.relative_to(REPO_ROOT)),
-        road_file=road_file,
+        road_file=result.road_file,
         entities=entities,
-        has_controller=has_controller,
+        has_controller=result.has_controller,
     )
 
 
@@ -114,47 +90,23 @@ def save_temp_scenario(xml_content: str) -> dict:
     scenario_dir.mkdir(parents=True, exist_ok=True)
     xosc_path = scenario_dir / f"{scenario_id}.xosc"
 
-    # Parse XML to extract entities and road file, and absolutize paths
+    # Parse XML to extract entities and road file
     root = ET.fromstring(xml_content)
+    result = parse_xosc_from_element(root)
 
-    # Absolutize RoadNetwork/LogicFile path relative to SCENARIOS_DIR
-    # (since the temp directory won't have the correct relative path structure)
-    logic = root.find(".//RoadNetwork/LogicFile")
-    road_file = None
-    if logic is not None:
-        filepath = logic.get("filepath", "")
-        if filepath:
-            road_file = filepath
-            # If relative path, make absolute relative to SCENARIOS_DIR
-            road_path = Path(filepath)
-            if not road_path.is_absolute():
-                abs_path = (SCENARIOS_DIR / filepath).resolve()
-                logic.set("filepath", str(abs_path))
+    # Capture original road_file before absolutization rewrites it
+    road_file = result.road_file
 
-    # Extract entities
-    entities = []
-    for obj in root.findall(".//ScenarioObject"):
-        name = obj.get("name", "Unknown")
-        vehicle_el = obj.find("Vehicle")
-        catalog_ref = obj.find("CatalogReference")
-        model = None
-        if vehicle_el is not None:
-            model = vehicle_el.get("name")
-        elif catalog_ref is not None:
-            model = catalog_ref.get("entryName")
-        entities.append({"name": name, "model": model})
+    # Absolutize all relative paths (LogicFile, SceneGraphFile, CatalogLocations)
+    # relative to SCENARIOS_DIR, since the temp directory has no correct relative
+    # path structure.
+    GTExecutionPlanner.absolutize_scenario_paths(root, str(SCENARIOS_DIR))
 
-    # Also absolutize CatalogLocations paths
-    for catalog_dir in root.findall(".//CatalogLocations/*/Directory"):
-        dirpath = catalog_dir.get("path", "")
-        if dirpath and not Path(dirpath).is_absolute():
-            abs_path = (SCENARIOS_DIR / dirpath).resolve()
-            catalog_dir.set("path", str(abs_path))
-
-    # Write the (possibly path-modified) XML
+    # Write the path-modified XML
     tree = ET.ElementTree(root)
     tree.write(str(xosc_path), encoding="unicode", xml_declaration=True)
 
+    entities = [{"name": e.name, "model": e.vehicle_or_model} for e in result.entities]
     expires_at = (datetime.now(timezone.utc) + timedelta(seconds=TEMP_FILE_TTL_SECONDS)).isoformat()
 
     return {

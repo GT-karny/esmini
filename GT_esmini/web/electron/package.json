@@ -1,0 +1,21 @@
+{
+  "name": "gt-sim-desktop",
+  "version": "0.7.0",
+  "description": "GT_Sim Desktop Application",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/bundle.mjs",
+    "dist": "node scripts/bundle.mjs && electron-builder",
+    "typecheck": "tsc --noEmit -p tsconfig.main.json"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "@types/node": "^22.0.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "~5.7.0"
+  }
+}

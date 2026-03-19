@@ -3,6 +3,10 @@
 #include <iomanip>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/val.h>
+#endif
+
 #include "RoadManager.hpp"
 #include "CommonMini.hpp"
 #include "ScenarioEngine.hpp"
@@ -12,10 +16,10 @@ namespace esmini
 {
     struct OpenScenarioConfig
     {
-        int    max_loop      = 10e3;       // 最大循环次数
-        double min_time_step = 1.0 / 120;  // 最小的时间步长
-        double max_time_step = 1.0 / 25;   // 最大的时间步长
-        double dt            = 0;          // 时间步长
+        int    max_loop      = 10e3;       // maximum loop count
+        double min_time_step = 1.0 / 120;  // minimum time step
+        double max_time_step = 1.0 / 25;   // maximum time step
+        double dt            = 0;          // time step
 
         friend std::ostream& operator<<(std::ostream& output, const OpenScenarioConfig& config)
         {
@@ -66,14 +70,51 @@ namespace esmini
         }
     };
 
+    // StoryBoard element state change event (captured from scenario execution)
+    struct StoryBoardEvent
+    {
+        std::string name;       // Element name
+        int         type;       // ElementType: 1=STORY_BOARD, 2=STORY, 3=ACT, 4=MANEUVER_GROUP, 5=MANEUVER, 6=EVENT, 7=ACTION
+        int         state;      // State: 0=INIT, 1=STANDBY, 2=RUNNING, 3=COMPLETE
+        std::string fullPath;   // Hierarchical path e.g. "Story1::Act1::ManeuverGroup1::Event1"
+        double      timestamp;  // Simulation time when the event occurred
+    };
+
+    // Condition trigger event
+    struct ConditionEvent
+    {
+        std::string name;       // Condition name
+        double      timestamp;  // Simulation time when the condition was triggered
+    };
+
     class OpenScenario
     {
     public:
         OpenScenario(const std::string& xosc_file, const OpenScenarioConfig& config = OpenScenarioConfig{});
-        // get object state use config
+        ~OpenScenario();
+
+        // Batch execution (existing API)
         std::vector<ScenarioObjectState> get_object_state(const OpenScenarioConfig* config = nullptr);
-        // get object state use second and frame
         std::vector<ScenarioObjectState> get_object_state_by_second(const int second, const int fps = 30);
+
+        // Step execution (new API for editor playback)
+        int    step(double dt);            // Advance one step. Returns 0=OK, -1=scenario ended or error
+        double getSimulationTime() const;  // Current simulation time in seconds
+        int    getNumberOfObjects() const; // Number of entities in the scenario
+        bool   isComplete() const;         // Whether the scenario has finished
+
+        // Get current frame state (call after step())
+        std::vector<ScenarioObjectState> getCurrentState();
+
+        // StoryBoard introspection (call after step() to get events since last call)
+        std::vector<StoryBoardEvent> popStoryBoardEvents();
+        std::vector<ConditionEvent>  popConditionEvents();
+
+#ifdef __EMSCRIPTEN__
+        // Traffic signal introspection
+        emscripten::val getTrafficSignalStates();      // Full info (position + state), call once or on demand
+        emscripten::val getTrafficLightStatesOnly();    // Lightweight: {id, state} only, call every frame
+#endif
 
         OpenScenario(const OpenScenario&)            = delete;
         OpenScenario& operator=(const OpenScenario&) = delete;
@@ -83,5 +124,19 @@ namespace esmini
         OpenScenarioConfig               config;
         scenarioengine::ScenarioEngine*  scenarioEngine;
         scenarioengine::ScenarioGateway* scenarioGateway;
+        bool                             initialized_;  // Whether first step has been performed
+        bool                             complete_;     // Whether scenario has ended
+        int                              lastStepResult_;
+
+        // Event buffers (populated by static callbacks, consumed by pop methods)
+        static std::vector<StoryBoardEvent> sbEventBuffer_;
+        static std::vector<ConditionEvent>  condEventBuffer_;
+
+        // Static callback functions for ScenarioEngine registration
+        static void onStoryBoardElementStateChange(const char* name, int type, int state, const char* full_path);
+        static void onConditionTriggered(const char* name, double timestamp);
+
+        void registerCallbacks();
+        void collectCurrentState(std::vector<ScenarioObjectState>& out);
     };
 }  // namespace esmini

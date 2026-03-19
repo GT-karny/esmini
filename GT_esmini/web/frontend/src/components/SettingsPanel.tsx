@@ -13,7 +13,7 @@ interface SettingsPanelProps {
 const HARDCODED_DEFAULTS: ExecutionDefaults = {
   hz: 120,
   headless: true,
-  record: true,
+  record: false,
   no_realtime: false,
   timeout: 60,
   osi: { enabled: true, ip: '127.0.0.1' },

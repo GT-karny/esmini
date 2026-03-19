@@ -2,14 +2,16 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type {
-  ScriptInfo,
   SimulationStatus,
   ScenarioParam,
   ParameterPreset,
 } from '../api/client';
 import { Button } from './ui/Button';
-import { SelectInput, NumberInput, TextInput, Checkbox, ToggleSwitch, IconToggle } from './ui/Input';
 import { Card } from './ui/Card';
+import { ControllerSection } from './simulation/ControllerSection';
+import { QuickOptionsBar } from './simulation/QuickOptionsBar';
+import { ParameterOverrides } from './simulation/ParameterOverrides';
+import { AdvancedSettings } from './simulation/AdvancedSettings';
 
 export interface SimulationRunFormProps {
   projectId: string;
@@ -56,7 +58,7 @@ export function SimulationRunForm({
   // Execution state
   const [hz, setHz] = useState(120);
   const [headless, setHeadless] = useState(true);
-  const [record, setRecord] = useState(true);
+  const [record, setRecord] = useState(false);
   const [noRealtime, setNoRealtime] = useState(false);
   const [timeout, setTimeout_] = useState(60);
   const [osiEnabled, setOsiEnabled] = useState(true);
@@ -240,280 +242,81 @@ export function SimulationRunForm({
 
   const scripts = scriptsData?.scripts ?? [];
 
-  // Option icons (inline SVG, 16x16 viewBox)
-  const iconWindow = headless ? (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-      <path d="M2 3h12v8H2V3zm1 1v6h10V4H3zm2 8h6v1H5v-1z" />
-      <path d="M1.5 1.5l13 13" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-      <path d="M2 3h12v8H2V3zm1 1v6h10V4H3zm2 8h6v1H5v-1z" />
-    </svg>
-  );
-  const iconRecord = (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-      <circle cx="8" cy="8" r="5" />
-    </svg>
-  );
-  const iconFastForward = (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-      <path d="M2 3l6 5-6 5V3zm6 0l6 5-6 5V3z" />
-    </svg>
-  );
-  const iconAutoLight = (
-    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-      <path d="M8 1C5.5 1 4 3 4 5.5c0 1.5.7 2.8 1.5 3.5.5.5.5 1 .5 1.5V12h4v-1.5c0-.5 0-1 .5-1.5.8-.7 1.5-2 1.5-3.5C12 3 10.5 1 8 1zm-1 12h2v1H7v-1z" />
-    </svg>
-  );
-
-  // Layout helpers
   const cardCls = compact ? 'p-3' : '';
 
   return (
     <Card className={cardCls}>
-      {/* Controller Selection */}
-      <div>
-        <h3 className="text-xs text-text-tertiary mb-2">Controller</h3>
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setControllerType('default')}
-            className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-              controllerType === 'default'
-                ? 'bg-primary/80 text-background glow-edge'
-                : 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground'
-            }`}
-          >
-            Default
-          </button>
-          <button
-            onClick={() => setControllerType('python')}
-            className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-              controllerType === 'python'
-                ? 'bg-primary/80 text-background glow-edge'
-                : 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground'
-            }`}
-          >
-            Python Driver
-          </button>
-        </div>
-
-        {controllerType === 'python' && (
-          <div className="space-y-3">
-            <SelectInput
-              label="Python Script"
-              value={pythonScript}
-              onChange={(e) => {
-                setPythonScript(e.target.value);
-                const script = scripts.find((s: ScriptInfo) => s.path === e.target.value);
-                if (script?.classes.length) setPythonClass(script.classes[0]);
-              }}
-            >
-              {scripts.map((s: ScriptInfo) => (
-                <option key={s.path} value={s.path}>
-                  {s.recommended ? '\u2605 ' : ''}{s.name} ({s.category})
-                </option>
-              ))}
-            </SelectInput>
-            <SelectInput
-              label="Class Name"
-              value={pythonClass}
-              onChange={(e) => setPythonClass(e.target.value)}
-            >
-              {(scripts.find((s: ScriptInfo) => s.path === pythonScript)?.classes ?? []).map((c: string) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </SelectInput>
-            <Checkbox
-              label="Enable trace logging"
-              checked={traceEnabled}
-              onChange={(e) => setTraceEnabled(e.target.checked)}
-            />
-          </div>
-        )}
-      </div>
+      <ControllerSection
+        controllerType={controllerType}
+        setControllerType={setControllerType}
+        pythonScript={pythonScript}
+        setPythonScript={setPythonScript}
+        pythonClass={pythonClass}
+        setPythonClass={setPythonClass}
+        traceEnabled={traceEnabled}
+        setTraceEnabled={setTraceEnabled}
+        scripts={scripts}
+      />
 
       <div className="border-b border-glass-edge my-3" />
 
-      {/* Quick Options (icon toggles) */}
-      <div className="flex items-center gap-2">
-        <IconToggle icon={iconWindow} label="Window" active={!headless} onChange={(v) => setHeadless(!v)} />
-        <IconToggle icon={iconRecord} label="Record" active={record} onChange={setRecord} />
-        <IconToggle icon={iconFastForward} label="No Realtime" active={noRealtime} onChange={setNoRealtime} />
-        <IconToggle icon={iconAutoLight} label="AutoLight" active={autolight} onChange={setAutolight} />
-      </div>
+      <QuickOptionsBar
+        headless={headless}
+        setHeadless={setHeadless}
+        record={record}
+        setRecord={setRecord}
+        noRealtime={noRealtime}
+        setNoRealtime={setNoRealtime}
+        autolight={autolight}
+        setAutolight={setAutolight}
+      />
 
       {/* Parameter Overrides (project context only, hidden when managed externally) */}
       {!hideParams && projectId && scenarioParams.length > 0 && (
         <>
-        <div className="border-b border-glass-edge my-3" />
-        <div>
-          <h3 className="text-xs text-text-tertiary mb-2">Parameters</h3>
-          <div className="space-y-3">
-            {/* Preset selector */}
-            {presets.length > 0 && (
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-text-secondary text-xs">Presets:</span>
-                {presets.map((p) => (
-                  <button
-                    key={p.preset_id}
-                    onClick={() => loadPreset(p)}
-                    className="px-2 py-0.5 text-xs bg-glass-1 border border-glass-edge hover:border-glass-edge-mid text-text-secondary hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Parameter inputs */}
-            <div className={`grid grid-cols-1 ${compact ? 'gap-1' : 'gap-2'}`}>
-              {scenarioParams.map((p: ScenarioParam) => (
-                <div key={p.name} className="flex items-center gap-3">
-                  <span className="text-sm font-mono text-text-secondary w-40 shrink-0 truncate" title={p.name}>
-                    {p.name}
-                  </span>
-                  <span className="text-[10px] text-text-tertiary w-12 shrink-0">{p.type}</span>
-                  {p.type === 'boolean' ? (
-                    <Checkbox
-                      label=""
-                      checked={paramOverrides[p.name] === 'true' || paramOverrides[p.name] === '1'}
-                      onChange={(e) => setParamOverrides((prev) => ({ ...prev, [p.name]: e.target.checked ? 'true' : 'false' }))}
-                    />
-                  ) : (
-                    <TextInput
-                      value={paramOverrides[p.name] ?? p.value}
-                      onChange={(e) => setParamOverrides((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                      className="font-mono text-xs"
-                      placeholder={p.value}
-                    />
-                  )}
-                  {paramOverrides[p.name] !== undefined && paramOverrides[p.name] !== p.value && (
-                    <button
-                      onClick={() => setParamOverrides((prev) => ({ ...prev, [p.name]: p.value }))}
-                      className="text-text-tertiary hover:text-foreground text-xs cursor-pointer shrink-0"
-                      title="Reset to default"
-                    >
-                      &#x21BA;
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Save as preset */}
-            <div className="pt-2 border-t border-glass-edge">
-              {showPresetSave ? (
-                <div className="flex items-center gap-2">
-                  <TextInput
-                    placeholder="Preset name..."
-                    value={presetName}
-                    onChange={(e) => setPresetName(e.target.value)}
-                    className="text-xs"
-                    autoFocus
-                  />
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={!presetName.trim() || presetMutation.isPending}
-                    onClick={() => presetMutation.mutate()}
-                  >
-                    Save
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowPresetSave(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Button variant="ghost" size="sm" onClick={() => setShowPresetSave(true)}>
-                  Save as Preset
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
+          <div className="border-b border-glass-edge my-3" />
+          <ParameterOverrides
+            scenarioParams={scenarioParams}
+            paramOverrides={paramOverrides}
+            setParamOverrides={setParamOverrides}
+            presets={presets}
+            loadPreset={loadPreset}
+            presetName={presetName}
+            setPresetName={setPresetName}
+            showPresetSave={showPresetSave}
+            setShowPresetSave={setShowPresetSave}
+            presetMutation={presetMutation}
+            compact={compact}
+          />
         </>
       )}
 
       <div className="border-b border-glass-edge my-3" />
 
-      {/* Advanced Settings (collapsible) */}
-      <div>
-        <button
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer mb-1.5"
-        >
-          <svg
-            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-            viewBox="0 0 16 16"
-            fill="currentColor"
-          >
-            <path d="M6 3l5 5-5 5V3z" />
-          </svg>
-          Advanced
-        </button>
-
-        {showAdvanced && (
-            <div className={compact ? 'space-y-3' : 'space-y-4'}>
-              <div className={`grid grid-cols-2 ${compact ? 'gap-3' : 'gap-4'}`}>
-                <div>
-                  <NumberInput
-                    label="Frequency (Hz)"
-                    value={hz}
-                    onChange={(e) => setHz(Number(e.target.value))}
-                  />
-                  {validationErrors.hz && (
-                    <p className="text-destructive text-xs mt-1">{validationErrors.hz}</p>
-                  )}
-                </div>
-                <div>
-                  <NumberInput
-                    label="Timeout (s)"
-                    value={timeout}
-                    onChange={(e) => setTimeout_(Number(e.target.value))}
-                  />
-                  {validationErrors.timeout && (
-                    <p className="text-destructive text-xs mt-1">{validationErrors.timeout}</p>
-                  )}
-                </div>
-              </div>
-
-              {osiEnabled && (
-                <div>
-                  <TextInput
-                    label="OSI IP Address"
-                    value={osiIp}
-                    onChange={(e) => setOsiIp(e.target.value)}
-                    className="w-48"
-                  />
-                  {validationErrors.osiIp && (
-                    <p className="text-destructive text-xs mt-1">{validationErrors.osiIp}</p>
-                  )}
-                </div>
-              )}
-
-              {!headless && (
-                <>
-                  <ToggleSwitch
-                    label="Threaded viewer"
-                    checked={threads}
-                    onChange={setThreads}
-                    description="(OSG)"
-                  />
-                  <div>
-                    <h3 className="text-xs text-text-tertiary mb-1.5">Window Position & Size</h3>
-                    <div className="grid grid-cols-4 gap-3">
-                      <NumberInput label="X" value={winX} onChange={(e) => setWinX(Number(e.target.value))} />
-                      <NumberInput label="Y" value={winY} onChange={(e) => setWinY(Number(e.target.value))} />
-                      <NumberInput label="Width" value={winW} onChange={(e) => setWinW(Number(e.target.value))} />
-                      <NumberInput label="Height" value={winH} onChange={(e) => setWinH(Number(e.target.value))} />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-        )}
-      </div>
+      <AdvancedSettings
+        showAdvanced={showAdvanced}
+        setShowAdvanced={setShowAdvanced}
+        hz={hz}
+        setHz={setHz}
+        timeout={timeout}
+        setTimeout_={setTimeout_}
+        osiEnabled={osiEnabled}
+        osiIp={osiIp}
+        setOsiIp={setOsiIp}
+        headless={headless}
+        threads={threads}
+        setThreads={setThreads}
+        winX={winX}
+        setWinX={setWinX}
+        winY={winY}
+        setWinY={setWinY}
+        winW={winW}
+        setWinW={setWinW}
+        winH={winH}
+        setWinH={setWinH}
+        validationErrors={validationErrors}
+        compact={compact}
+      />
 
       <div className="border-b border-glass-edge my-3" />
 

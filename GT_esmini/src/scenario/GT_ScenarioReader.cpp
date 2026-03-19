@@ -14,6 +14,7 @@
 #endif
 #include "gt_esmini/scenario/GT_ScenarioReader.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
+#include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include <vector>
 #include <string>
 
@@ -229,8 +230,11 @@ namespace gt_esmini
     {
         pugi::xml_node oscNode = doc.child("OpenSCENARIO");
         pugi::xml_node sbNode = oscNode.child("Storyboard");
-        
+
         if (sbNode.empty()) return;
+
+        // 0. Parse TrafficSignalController definitions from RoadNetwork
+        ParseTrafficSignalControllers(doc);
 
         // 1. Parse Init actions
         pugi::xml_node initNode = sbNode.child("Init");
@@ -254,9 +258,20 @@ namespace gt_esmini
                              {
                                  storyBoard.init_.private_action_.push_back(action);
                                  // Execute immediately since StartTrigger for Init has already passed
-                                 action->Start(0.0); 
+                                 action->Start(0.0);
                              }
                          }
+                    }
+                }
+
+                // 1b. Parse Init GlobalAction > TrafficSignalControllerAction
+                for (pugi::xml_node gaNode = actionsNode.child("GlobalAction"); gaNode; gaNode = gaNode.next_sibling("GlobalAction"))
+                {
+                    auto* action = ParseTrafficSignalControllerAction(gaNode, nullptr);
+                    if (action)
+                    {
+                        storyBoard.init_.global_action_.push_back(action);
+                        action->Start(0.0);
                     }
                 }
             }
@@ -319,12 +334,155 @@ namespace gt_esmini
                                         }
                                     }
                                 }
+
+                                // Check for GlobalAction > TrafficSignalControllerAction
+                                pugi::xml_node globalNode = actionNode.child("GlobalAction");
+                                if (!globalNode.empty())
+                                {
+                                    auto* ctrlAction = ParseTrafficSignalControllerAction(globalNode, evtObj);
+                                    if (ctrlAction)
+                                    {
+                                        evtObj->action_.push_back(ctrlAction);
+                                    }
+                                }
+                            }
+
+                            // Scan StartTrigger for TrafficSignalControllerCondition
+                            pugi::xml_node startTrigger = evtNode.child("StartTrigger");
+                            if (!startTrigger.empty())
+                            {
+                                int cgIndex = 0;
+                                for (pugi::xml_node cgNode = startTrigger.child("ConditionGroup"); cgNode; cgNode = cgNode.next_sibling("ConditionGroup"))
+                                {
+                                    for (pugi::xml_node condNode = cgNode.child("Condition"); condNode; condNode = condNode.next_sibling("Condition"))
+                                    {
+                                        auto* cond = ParseTrafficSignalControllerCondition(condNode);
+                                        if (cond)
+                                        {
+                                            // Set condition metadata
+                                            cond->name_ = parameters.ReadAttribute(condNode, "name");
+                                            std::string delayStr = parameters.ReadAttribute(condNode, "delay");
+                                            if (!delayStr.empty()) cond->delay_ = strtod(delayStr.c_str(), nullptr);
+                                            std::string edgeStr = parameters.ReadAttribute(condNode, "conditionEdge");
+                                            if (edgeStr == "rising") cond->edge_ = scenarioengine::OSCCondition::ConditionEdge::RISING;
+                                            else if (edgeStr == "falling") cond->edge_ = scenarioengine::OSCCondition::ConditionEdge::FALLING;
+                                            else if (edgeStr == "risingOrFalling") cond->edge_ = scenarioengine::OSCCondition::ConditionEdge::RISING_OR_FALLING;
+                                            else cond->edge_ = scenarioengine::OSCCondition::ConditionEdge::NONE;
+
+                                            LOG_INFO("GT_ScenarioReader: Injecting condition '{}' (ctrl={}, phase={}, edge={}) into event '{}'",
+                                                     cond->name_, cond->controllerRef_, cond->phaseName_, edgeStr, evtName);
+
+                                            // Inject into existing ConditionGroup or create new one
+                                            if (evtObj->start_trigger_ &&
+                                                cgIndex < static_cast<int>(evtObj->start_trigger_->conditionGroup_.size()))
+                                            {
+                                                evtObj->start_trigger_->conditionGroup_[cgIndex]->condition_.push_back(cond);
+                                            }
+                                            else if (evtObj->start_trigger_)
+                                            {
+                                                auto* newCG = new scenarioengine::ConditionGroup();
+                                                newCG->condition_.push_back(cond);
+                                                evtObj->start_trigger_->conditionGroup_.push_back(newCG);
+                                            }
+                                            else
+                                            {
+                                                LOG_WARN("GT_ScenarioReader: Event '{}' has no start_trigger_!", evtName);
+                                            }
+                                        }
+                                    }
+                                    cgIndex++;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    // =========================================================================
+    // TrafficSignalController parsing helpers
+    // =========================================================================
+
+    void GT_ScenarioReader::ParseTrafficSignalControllers(const pugi::xml_document& doc)
+    {
+        pugi::xml_node oscNode   = doc.child("OpenSCENARIO");
+        pugi::xml_node roadNet   = oscNode.child("RoadNetwork");
+        pugi::xml_node tSignals  = roadNet.child("TrafficSignals");
+
+        if (tSignals.empty()) return;
+
+        for (pugi::xml_node ctrlNode = tSignals.child("TrafficSignalController"); ctrlNode;
+             ctrlNode = ctrlNode.next_sibling("TrafficSignalController"))
+        {
+            std::string name     = parameters.ReadAttribute(ctrlNode, "name");
+            std::string delayStr = parameters.ReadAttribute(ctrlNode, "delay");
+            double delay         = delayStr.empty() ? 0.0 : strtod(delayStr.c_str(), nullptr);
+
+            OSCTrafficSignalController controller(name, delay);
+
+            std::string ref = parameters.ReadAttribute(ctrlNode, "reference");
+            if (!ref.empty())
+                controller.SetReference(ref);
+
+            for (pugi::xml_node phaseNode = ctrlNode.child("Phase"); phaseNode;
+                 phaseNode = phaseNode.next_sibling("Phase"))
+            {
+                TrafficSignalPhase phase;
+                phase.name     = parameters.ReadAttribute(phaseNode, "name");
+                std::string durStr = parameters.ReadAttribute(phaseNode, "duration");
+                phase.duration = durStr.empty() ? 0.0 : strtod(durStr.c_str(), nullptr);
+
+                for (pugi::xml_node stateNode = phaseNode.child("TrafficSignalState"); stateNode;
+                     stateNode = stateNode.next_sibling("TrafficSignalState"))
+                {
+                    TrafficSignalPhaseState ss;
+                    std::string idStr = parameters.ReadAttribute(stateNode, "trafficSignalId");
+                    ss.signalId       = idStr.empty() ? -1 : std::stoi(idStr);
+                    ss.state          = parameters.ReadAttribute(stateNode, "state");
+                    phase.signalStates.push_back(ss);
+                }
+
+                controller.AddPhase(phase);
+            }
+
+            TrafficSignalControllerManager::Instance().AddController(std::move(controller));
+        }
+    }
+
+    GT_TrafficSignalControllerAction* GT_ScenarioReader::ParseTrafficSignalControllerAction(
+        pugi::xml_node globalActionNode,
+        scenarioengine::StoryBoardElement* parent)
+    {
+        pugi::xml_node infraNode = globalActionNode.child("InfrastructureAction");
+        if (infraNode.empty()) return nullptr;
+
+        pugi::xml_node tsaNode = infraNode.child("TrafficSignalAction");
+        if (tsaNode.empty()) return nullptr;
+
+        pugi::xml_node ctrlActionNode = tsaNode.child("TrafficSignalControllerAction");
+        if (ctrlActionNode.empty()) return nullptr;
+
+        auto* action = new GT_TrafficSignalControllerAction(parent);
+        action->controllerRef_ = parameters.ReadAttribute(ctrlActionNode, "trafficSignalControllerRef");
+        action->phaseName_     = parameters.ReadAttribute(ctrlActionNode, "phase");
+
+        return action;
+    }
+
+    TrigByTrafficSignalController* GT_ScenarioReader::ParseTrafficSignalControllerCondition(pugi::xml_node conditionNode)
+    {
+        pugi::xml_node byValue = conditionNode.child("ByValueCondition");
+        if (byValue.empty()) return nullptr;
+
+        pugi::xml_node tscNode = byValue.child("TrafficSignalControllerCondition");
+        if (tscNode.empty()) return nullptr;
+
+        auto* cond = new TrigByTrafficSignalController();
+        cond->controllerRef_ = parameters.ReadAttribute(tscNode, "trafficSignalControllerRef");
+        cond->phaseName_     = parameters.ReadAttribute(tscNode, "phase");
+
+        return cond;
     }
 
 }  // namespace gt_esmini

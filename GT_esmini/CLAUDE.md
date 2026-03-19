@@ -36,6 +36,25 @@ This document defines the architectural boundaries for `GT_esmini` after the fea
 - Sources: `GT_esmini/src/{core,scenario,io,control,osi}`
 - Legacy experiments: `GT_esmini/archive/`
 
-## 6. Documentation Policy
+## 6. Web Stack
+
+- **Backend**: FastAPI (`GT_esmini/web/backend/main.py`)
+  - API layer: `api/*.py` (REST endpoints: projects, scenarios, simulations, roads, scripts, results, config, OSI stream)
+  - Service layer: `services/*.py` (business logic, simulation runner)
+  - DB: SQLite (`db/database.py`)
+  - gRPC: OSI GroundTruth / HostVehicleData streaming (`services/grpc_server.py`, `services/osi_bridge.py`)
+- **Frontend**: React + Vite + TypeScript (`GT_esmini/web/frontend/`)
+- **Package**: PyInstaller (`GT_esmini/web/pyinstaller/`)
+
+## 7. TrafficSignalController
+
+Recently added feature supporting:
+- Auto-cycling traffic signal phases
+- Action-based and condition-based phase transitions
+- OpenDRIVE controller reference integration
+
+Key files: `src/scenario/GT_TrafficSignalController.*`
+
+## 8. Documentation Policy
 
 Human docs under `GT_esmini/docs/` remain supplementary. Architectural truth is this file + code.

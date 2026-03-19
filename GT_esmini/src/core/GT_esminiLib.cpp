@@ -38,6 +38,7 @@
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
+#include "gt_esmini/scenario/TrafficSignalController.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -232,27 +233,41 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         // Load ORIGINAL XML
         pugi::xml_document doc;
         pugi::xml_parse_result result = doc.load_file(oscFilename);
-        
+
         if (result)
         {
             // Use GT_ScenarioReader to parse extensions
             // Access Catalogs via existing loader because it's private in Engine
             auto* scReader = player->scenarioEngine->GetScenarioReader();
             auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
-            
-            gt_esmini::GT_ScenarioReader reader(
-                &player->scenarioEngine->entities_,
-                catalogs, 
-                &player->scenarioEngine->environment
-            );
-            
-            // Inject actions into Storyboard
-            reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+
+            // Save static parameters/variables (see GT_InitWithArgs for rationale)
+            auto savedParams = scenarioengine::ScenarioReader::parameters;
+            auto savedVars   = scenarioengine::ScenarioReader::variables;
+
+            {
+                gt_esmini::GT_ScenarioReader reader(
+                    &player->scenarioEngine->entities_,
+                    catalogs,
+                    &player->scenarioEngine->environment
+                );
+
+                scenarioengine::ScenarioReader::parameters = savedParams;
+                scenarioengine::ScenarioReader::variables   = savedVars;
+
+                // Inject actions into Storyboard
+                reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+            }
+            scenarioengine::ScenarioReader::parameters = savedParams;
+            scenarioengine::ScenarioReader::variables   = savedVars;
         }
         else
         {
             std::cerr << "GT_Init: Failed to reload XOSC for extensions: " << result.description() << std::endl;
         }
+
+        // 3b. Initialize TrafficSignalControllers
+        gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
 
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
@@ -437,25 +452,44 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         // Load ORIGINAL XML
         pugi::xml_document doc;
         pugi::xml_parse_result result = doc.load_file(filename);
-        
+
         if (result)
         {
             auto* scReader = player->scenarioEngine->GetScenarioReader();
             auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
-            
-            gt_esmini::GT_ScenarioReader reader(
-                &player->scenarioEngine->entities_,
-                catalogs, 
-                &player->scenarioEngine->environment
-            );
-            
-            // Inject actions into Storyboard
-            reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+
+            // Save static parameters/variables: ScenarioReader's constructor and
+            // destructor call Clear() on these statics, which would wipe out the
+            // parameter declarations already loaded by SE_InitWithArgs.  This breaks
+            // ParameterCondition and ParameterAction at runtime.
+            auto savedParams = scenarioengine::ScenarioReader::parameters;
+            auto savedVars   = scenarioengine::ScenarioReader::variables;
+
+            {
+                gt_esmini::GT_ScenarioReader reader(
+                    &player->scenarioEngine->entities_,
+                    catalogs,
+                    &player->scenarioEngine->environment
+                );
+
+                // Restore immediately after construction (constructor cleared them)
+                scenarioengine::ScenarioReader::parameters = savedParams;
+                scenarioengine::ScenarioReader::variables   = savedVars;
+
+                // Inject actions into Storyboard
+                reader.ParseExtensionActions(doc, player->scenarioEngine->storyBoard);
+            }
+            // Destructor cleared them again — restore once more
+            scenarioengine::ScenarioReader::parameters = savedParams;
+            scenarioengine::ScenarioReader::variables   = savedVars;
         }
         else
         {
             std::cerr << "GT_InitWithArgs: Failed to reload XOSC for extensions: " << result.description() << std::endl;
         }
+
+        // 3b. Initialize TrafficSignalControllers
+        gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
 
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
@@ -519,6 +553,9 @@ GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step
     SE_StepDT(static_cast<float>(dt));
+
+    // Update TrafficSignalControllers (auto-cycling)
+    gt_esmini::TrafficSignalControllerManager::Instance().StepAll(dt);
 
     // Update AutoLight
     AutoLightManager::Instance().Update(dt);
@@ -671,6 +708,7 @@ GT_ESMINI_API void GT_EnableAutoLight()
 GT_ESMINI_API void GT_Close()
 {
     s_hvdEstimator.Reset();
+    gt_esmini::TrafficSignalControllerManager::Instance().Clear();
     AutoLightManager::Instance().Close();
     SE_Close();
 }
@@ -843,6 +881,30 @@ GT_ESMINI_API void GT_SetHostVehicleLights(int vehicle_id, int light_mask)
         }
     }
 #endif
+}
+
+GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, int bufferSize)
+{
+    if (!state || bufferSize <= 0) return -1;
+
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    if (!odr) return -1;
+
+    roadmanager::Road* road = odr->GetRoadById(road_id);
+    if (!road) return -1;
+
+    if (index < 0 || index >= static_cast<int>(road->GetNumberOfSignals())) return -1;
+
+    roadmanager::Signal* signal = road->GetSignal(static_cast<idx_t>(index));
+    if (!signal) return -1;
+
+    auto* tl = dynamic_cast<roadmanager::TrafficLight*>(signal);
+    if (!tl) return -1;  // Not a traffic light
+
+    std::string stateStr = tl->GetStateString();
+    strncpy(state, stateStr.c_str(), bufferSize - 1);
+    state[bufferSize - 1] = '\0';
+    return 0;
 }
 
 GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque)

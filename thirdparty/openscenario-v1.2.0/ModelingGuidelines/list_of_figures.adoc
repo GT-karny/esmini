@@ -1,3 +1,0 @@
-
-
-NOTE: The content of the list of figures will be automatically generated in the pipeline.

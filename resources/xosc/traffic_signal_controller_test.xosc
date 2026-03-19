@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-03-10T10:00:00"
+               description="TrafficSignalController auto-cycling test"
+               author="GT_esmini"/>
+   <ParameterDeclarations/>
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../xosc/Catalogs/Vehicles"/>
+      </VehicleCatalog>
+      <PedestrianCatalog>
+         <Directory path="../xosc/Catalogs/Pedestrians"/>
+      </PedestrianCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/fabriksgatan_traffic_lights.xodr"/>
+      <SceneGraphFile filepath="../models/fabriksgatan.osgb"/>
+      <TrafficSignals>
+         <TrafficSignalController name="MainController" delay="0">
+            <Phase name="green" duration="1">
+               <TrafficSignalState trafficSignalId="1" state="off;off;on"/>
+               <TrafficSignalState trafficSignalId="2" state="on;off"/>
+               <TrafficSignalState trafficSignalId="3" state="on;off"/>
+            </Phase>
+            <Phase name="yellow" duration="1">
+               <TrafficSignalState trafficSignalId="1" state="off;on;off"/>
+               <TrafficSignalState trafficSignalId="2" state="on;off"/>
+               <TrafficSignalState trafficSignalId="3" state="on;off"/>
+            </Phase>
+            <Phase name="red" duration="1">
+               <TrafficSignalState trafficSignalId="1" state="on;off;off"/>
+               <TrafficSignalState trafficSignalId="2" state="off;on"/>
+               <TrafficSignalState trafficSignalId="3" state="off;on"/>
+            </Phase>
+            <Phase name="red-yellow" duration="1">
+               <TrafficSignalState trafficSignalId="1" state="on;on;off"/>
+               <TrafficSignalState trafficSignalId="2" state="on;off"/>
+               <TrafficSignalState trafficSignalId="3" state="on;off"/>
+            </Phase>
+         </TrafficSignalController>
+      </TrafficSignals>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+      </ScenarioObject>
+      <ScenarioObject name="Pedestrian_1">
+         <CatalogReference catalogName="PedestrianCatalog" entryName="pedestrian_adult"/>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="MyRoute" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="3" laneId="-1" offset="0.0" s="11"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="1" offset="0.0" s="200"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="13.889"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="3" laneId="-1" offset="0" s="11"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="Pedestrian_1">
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="0"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="3" laneId="-3" offset="0.5" s="113">
+                           <Orientation type="relative" h="1.93"/>
+                        </LanePosition>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="TrafficControllerStory">
+         <Act name="MainAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoManeuverGroup">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="StopOnRedManeuver">
+                  <Event name="StopOnYellowEvent" priority="overwrite" maximumExecutionCount="1">
+                     <Action name="StopOnYellowAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="44" dynamicsDimension="distance"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0.0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="YellowPhaseCondition" delay="0" conditionEdge="rising">
+                              <ByValueCondition>
+                                 <TrafficSignalControllerCondition trafficSignalControllerRef="MainController" phase="yellow"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="DriveOnGreenEvent" priority="override" maximumExecutionCount="1">
+                     <Action name="DriveOnGreenAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="5" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="13.889"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="GreenPhaseCondition" delay="0.5" conditionEdge="rising">
+                              <ByValueCondition>
+                                 <TrafficSignalControllerCondition trafficSignalControllerRef="MainController" phase="green"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <ManeuverGroup maximumExecutionCount="1" name="PedManeuverGroup">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Pedestrian_1"/>
+               </Actors>
+               <Maneuver name="WalkOnRedManeuver">
+                  <Event name="WalkOnRedEvent" priority="overwrite" maximumExecutionCount="1">
+                     <Action name="WalkOnRedAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="1" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="2.0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="RedPhaseCondition" delay="1.0" conditionEdge="rising">
+                              <ByValueCondition>
+                                 <TrafficSignalControllerCondition trafficSignalControllerRef="MainController" phase="red"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="StartTrigger" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="50" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

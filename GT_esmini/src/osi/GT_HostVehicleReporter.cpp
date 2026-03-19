@@ -300,6 +300,9 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
         }
     }
 
+    // Host vehicle identifier (global ID, consistent with GroundTruth)
+    hv_data.mutable_host_vehicle_id()->set_value(egoState->state_.info.g_id);
+
     // 1. Timestamp
     auto* ts = hv_data.mutable_timestamp();
     double sim_time = egoState->state_.info.timeStamp;
