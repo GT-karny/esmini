@@ -77,3 +77,7 @@ GT_esmini/web/frontend/README.md
 # External specs (large, not needed in git)
 thirdparty/opendrive/
 thirdparty/openscenario-v1.2.0/
+thirdparty/osi-python/
+
+# Claude Code skills (external toolkits)
+.claude/skills/skill-creator/

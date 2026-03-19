@@ -26,13 +26,15 @@ export function ProjectDetailPage() {
 
   const {
     runningJobId,
-    setRunningJobId,
     latestJobId,
     isJobActive,
-    handleRunning,
+    handleRunning: rawHandleRunning,
   } = useJobPolling();
 
-  // Selected scenario from URL
+  // Track which scenario file the running job belongs to
+  const [runningScenarioFile, setRunningScenarioFile] = useState<string | null>(null);
+
+  // Selected scenario from URL (browsing target)
   const selectedScenarioFile = searchParams.get('scenario');
 
   const { data: project, isLoading, error, refetch } = useQuery({
@@ -60,13 +62,26 @@ export function ProjectDetailPage() {
     }
   }, [scenarios, selectedScenarioFile, setSearchParams]);
 
+  // Wrap handleRunning to also capture the scenario file
+  const handleRunning = (jobId: string) => {
+    rawHandleRunning(jobId);
+    setRunningScenarioFile(selectedScenarioFile);
+  };
+
+  // Clear runningScenarioFile when job finishes
+  useEffect(() => {
+    if (!isJobActive && !runningJobId) {
+      setRunningScenarioFile(null);
+    }
+  }, [isJobActive, runningJobId]);
+
   const handleSelectScenario = (file: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set('scenario', file);
       return next;
     });
-    setRunningJobId(null);
+    // Do NOT clear runningJobId — keep the execution panel locked
   };
 
   if (isLoading) {
@@ -104,6 +119,7 @@ export function ProjectDetailPage() {
             onParamOverridesChange={setParamOverrides}
             onRunning={handleRunning}
             activeJobId={isJobActive ? runningJobId : null}
+            runningScenarioFile={runningScenarioFile}
           />
         ) : tab === 'scenarios' ? (
           <TableSkeleton columns={4} rows={5} />
@@ -121,6 +137,8 @@ export function ProjectDetailPage() {
    Scenario Dashboard (4-panel grid)
    ================================================================ */
 
+type BottomLeftTab = 'details' | 'viewer';
+
 interface ScenarioDashboardProps {
   projectId: string;
   scenarios: ScenarioInfo[];
@@ -133,6 +151,7 @@ interface ScenarioDashboardProps {
   onParamOverridesChange: (overrides: Record<string, string>) => void;
   onRunning: (jobId: string) => void;
   activeJobId: string | null;
+  runningScenarioFile: string | null;
 }
 
 function ScenarioDashboard({
@@ -147,11 +166,49 @@ function ScenarioDashboard({
   onParamOverridesChange,
   onRunning,
   activeJobId,
+  runningScenarioFile,
 }: ScenarioDashboardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [splitX, setSplitX] = useState(0.5);
   const [splitY, setSplitY] = useState(0.5);
   const dragAxis = useRef<'x' | 'y' | null>(null);
+
+  // Bottom-left tab state
+  const [bottomLeftTab, setBottomLeftTab] = useState<BottomLeftTab>('details');
+
+  // Track previous selectedFile to detect user clicking another scenario
+  const prevSelectedFile = useRef(selectedFile);
+
+  // Auto-switch to viewer when a job starts running
+  const prevRunningJobId = useRef(runningJobId);
+  useEffect(() => {
+    if (runningJobId && !prevRunningJobId.current) {
+      setBottomLeftTab('viewer');
+    }
+    prevRunningJobId.current = runningJobId;
+  }, [runningJobId]);
+
+  // Auto-switch to details when user selects a different scenario during execution
+  useEffect(() => {
+    if (selectedFile !== prevSelectedFile.current) {
+      if (runningJobId && selectedFile !== runningScenarioFile) {
+        setBottomLeftTab('details');
+      }
+      prevSelectedFile.current = selectedFile;
+    }
+  }, [selectedFile, runningJobId, runningScenarioFile]);
+
+  // When job finishes, stay on viewer briefly then switch back to details
+  useEffect(() => {
+    if (!runningJobId && !runningScenarioFile) {
+      setBottomLeftTab('details');
+    }
+  }, [runningJobId, runningScenarioFile]);
+
+  // Resolve the locked scenario for ExecutionPanel during active execution
+  const lockedScenario = activeJobId && runningScenarioFile
+    ? scenarios.find((s) => s.file === runningScenarioFile) ?? null
+    : null;
 
   const onHandleDown = useCallback((axis: 'x' | 'y') => (e: ReactPointerEvent) => {
     e.preventDefault();
@@ -236,31 +293,62 @@ function ScenarioDashboard({
         <div className="h-px w-10 bg-text-tertiary/30" />
       </div>
 
-      {/* Bottom-left: Scenario detail / Live monitor */}
-      <div className="overflow-hidden" style={{ gridArea: '3/1/4/2' }}>
-        {runningJobId ? (
-          <LiveMonitorPanel jobId={runningJobId} projectId={projectId} scenarioFile={selectedFile ?? undefined} />
-        ) : selectedScenario ? (
-          <ScenarioDetailPanel
-            projectId={projectId}
-            scenario={selectedScenario}
-          />
-        ) : (
-          <div className="h-full flex items-center justify-center">
-            <EmptyState message="Select a scenario to view details" />
+      {/* Bottom-left: Scenario detail / Live monitor (tabbed) */}
+      <div className="overflow-hidden flex flex-col" style={{ gridArea: '3/1/4/2' }}>
+        {/* Tab bar — only show when there's something to tab between */}
+        {(runningJobId || selectedScenario) && (
+          <div className="flex border-b border-glass-edge shrink-0">
+            <button
+              onClick={() => setBottomLeftTab('details')}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                bottomLeftTab === 'details'
+                  ? 'text-foreground border-b-2 border-primary'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              Scenario Detail
+            </button>
+            <button
+              onClick={() => setBottomLeftTab('viewer')}
+              disabled={!runningJobId}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                bottomLeftTab === 'viewer'
+                  ? 'text-foreground border-b-2 border-primary'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              } ${!runningJobId ? 'opacity-30 cursor-not-allowed' : ''}`}
+            >
+              2D Viewer
+            </button>
           </div>
         )}
+
+        {/* Tab content */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {bottomLeftTab === 'viewer' && runningJobId ? (
+            <LiveMonitorPanel jobId={runningJobId} projectId={projectId} scenarioFile={runningScenarioFile ?? undefined} />
+          ) : selectedScenario ? (
+            <ScenarioDetailPanel
+              projectId={projectId}
+              scenario={selectedScenario}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <EmptyState message="Select a scenario to view details" />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Bottom-right: Execution panel */}
+      {/* Bottom-right: Execution panel (locked to running scenario during execution) */}
       <div className="overflow-hidden" style={{ gridArea: '3/3/4/4' }}>
         <ExecutionPanel
           projectId={projectId}
-          scenario={selectedScenario}
+          scenario={lockedScenario ?? selectedScenario}
           paramOverrides={paramOverrides}
           onRunning={onRunning}
           latestJobId={latestJobId}
           activeJobId={activeJobId}
+          isLocked={!!lockedScenario}
         />
       </div>
     </div>

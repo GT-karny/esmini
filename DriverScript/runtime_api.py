@@ -273,6 +273,12 @@ class GTExecutionPlanner:
                 if path and not os.path.isabs(path):
                     directory.set("path", os.path.normpath(os.path.join(base_dir, path)))
 
+        # Controller Properties/File (e.g. SumoController .sumocfg)
+        for file_elem in root.iter("File"):
+            fp = file_elem.get("filepath", "")
+            if fp and not os.path.isabs(fp):
+                file_elem.set("filepath", os.path.normpath(os.path.join(base_dir, fp)))
+
     def build_gtsim_args(self, req: GTSimArgsRequest) -> list[str]:
         scenario_path = self.get_target_scenario(
             source_path=req.scenario_path,
