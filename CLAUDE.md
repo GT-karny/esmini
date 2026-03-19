@@ -74,6 +74,52 @@ graph TD
   ```
 - **Output**: `GT_OSMP_FMU/build/esmini.fmu`
 
-## 4. Contextual Links
+## 4. Python Environment
+
+- **Runtime**: `DriverScript/.venv` (Python 3.12)
+- **Dependencies**: `DriverScript/requirements.txt`
+- **Web backend**: `GT_esmini/web/` (FastAPI + SQLite)
+- **Rule**: Never use system Python directly. Always activate or reference the venv.
+
+## 5. Test Strategy
+
+### Comparison Test (PythonDriverController vs DefaultController)
+
+```bash
+DriverScript/.venv/Scripts/python.exe scripts/compare_python_vs_default.py \
+    --matrix GT_esmini/test/comparison_matrix.yaml \
+    --thresholds GT_esmini/test/comparison_thresholds.yaml \
+    --output test_results/comparison_latest \
+    --gt-sim build/GT_esmini/Release/GT_Sim.exe \
+    --verbose
+```
+
+**Automatic pipeline**: XOSC variant generation → GT_Sim execution (both controllers) → `.dat` → `.csv` conversion → metrics calculation → threshold evaluation → HTML report + JSON summary.
+
+**Output**: `test_results/comparison_latest/comparison_report.html`
+
+### Key files
+- `scripts/compare_python_vs_default.py` — Orchestrator
+- `scripts/comparison_kpis.py` — Metrics (trajectory, speed, lane keeping, route)
+- `GT_esmini/test/comparison_matrix.yaml` — Scenario configuration
+- `GT_esmini/test/comparison_thresholds.yaml` — Pass/fail criteria
+
+## 6. Package Build (EXE Distribution)
+
+Use `/package --version <VERSION>` skill for automated build. See `.claude/skills/package.md` for details.
+
+- **Prerequisites**: C++ build complete (`GT_Sim.exe`), embedded Python in `thirdparty/python-embed/`
+- **Pipeline**: Frontend build → PyInstaller → ZIP archive
+- **Output**: `dist/GT_Sim_v<VERSION>.zip` → Launch via `GT_Sim.bat` → `http://127.0.0.1:8000`
+
+## 7. Git Workflow
+
+- **Branches**: `master` (stable) → `dev_v0.7` (development integration) → `feature/*` (feature work)
+- **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`)
+- **PR flow**: `feature/*` → `dev_v0.7` → `master`
+
+## 8. Contextual Links
 
 - **`GT_esmini` Internals**: See [`GT_esmini/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/GT_esmini/CLAUDE.md)
+- **`scripts/` Guide**: See [`scripts/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/scripts/CLAUDE.md)
+- **`DriverScript/` Guide**: See [`DriverScript/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/DriverScript/CLAUDE.md)
