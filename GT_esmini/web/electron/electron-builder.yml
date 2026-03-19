@@ -1,0 +1,26 @@
+appId: com.gt.gt-sim
+productName: GT_Sim
+
+# Bundled main process + preload
+files:
+  - dist/**/*
+  - package.json
+
+# Resources copied alongside the asar
+extraResources:
+  # Built React frontend (served by FastAPI)
+  # Note: In packaged mode, FastAPI serves the frontend from its own bundle.
+  # This is reserved for future use (e.g., offline fallback).
+  []
+
+win:
+  target:
+    - target: dir
+      arch: x64
+  icon: null  # TODO: add icon
+
+# Native modules that must be unpacked from asar
+asar: true
+asarUnpack: []
+
+npmRebuild: true
