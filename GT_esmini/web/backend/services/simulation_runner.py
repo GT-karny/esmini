@@ -66,10 +66,32 @@ def _absolutize_xosc(variant_path: Path, source_dir: str) -> None:
     tree.write(variant_path, encoding="utf-8", xml_declaration=True)
 
 
+def _apply_param_overrides(xosc_path: Path, overrides: dict[str, str]) -> None:
+    """Update ParameterDeclaration default values in XOSC variant file.
+
+    esmini resolves $parameter references during SE_Init() XOSC parsing,
+    so overrides applied via SE_SetParameter*() after init have no effect.
+    This function patches the XOSC before it is loaded by esmini.
+    """
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(xosc_path)
+    root = tree.getroot()
+    pd = root.find("ParameterDeclarations")
+    if pd is None:
+        return
+    for decl in pd.findall("ParameterDeclaration"):
+        name = decl.get("name", "")
+        if name in overrides:
+            decl.set("value", overrides[name])
+    tree.write(xosc_path, encoding="utf-8", xml_declaration=True)
+
+
 def _prepare_xosc(
     scenario_path: Path,
     controller: ControllerConfig,
     output_dir: Path,
+    param_overrides: dict[str, str] | None = None,
 ) -> Path:
     """Generate XOSC variant based on controller configuration."""
     source_dir = str(scenario_path.parent)
@@ -86,6 +108,8 @@ def _prepare_xosc(
             python_trace_dir=controller.python.trace_dir or str(output_dir),
         )
         _absolutize_xosc(variant_path, source_dir)
+        if param_overrides:
+            _apply_param_overrides(variant_path, param_overrides)
         return variant_path
     elif controller.controller_type == "default":
         variant_path = output_dir / f"{scenario_path.stem}_default.xosc"
@@ -93,6 +117,8 @@ def _prepare_xosc(
         variant_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(scenario_path, variant_path)
         _absolutize_xosc(variant_path, source_dir)
+        if param_overrides:
+            _apply_param_overrides(variant_path, param_overrides)
         return variant_path
     else:
         # Use baseline as-is
@@ -150,7 +176,7 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     output_dir = _build_output_dir(job_id)
 
     # Prepare XOSC variant
-    xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir)
+    xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir, req.param_overrides)
 
     # Build command
     cmd = _build_cmd(
