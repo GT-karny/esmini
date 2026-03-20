@@ -430,7 +430,7 @@ async def list_scenarios(project_id: str) -> list[ScenarioInfo] | None:
         scan_dir = root
 
     scenarios: list[ScenarioInfo] = []
-    for xosc in sorted(scan_dir.rglob("*.xosc")):
+    for xosc in sorted(scan_dir.glob("*.xosc")):
         if xosc.name.endswith(".temp.xosc"):
             continue
         rel = str(xosc.relative_to(root)).replace("\\", "/")
