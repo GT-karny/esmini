@@ -15,10 +15,13 @@ struct ManualDriveConfig
     // Input: SDL2 wheel
     struct
     {
-        int    device_index     = 0;
-        double deadzone         = 0.05;
-        int    upshift_button   = 4;
-        int    downshift_button = 5;
+        int    device_index          = 0;
+        double deadzone              = 0.05;
+        int    upshift_button        = 4;
+        int    downshift_button      = 5;
+        int    override_button       = 0;
+        int    indicator_left_button = 7;
+        int    indicator_right_button = 6;
     } sdl2;
 
     // Input: Network bridge

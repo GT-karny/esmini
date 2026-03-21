@@ -43,10 +43,13 @@ int SDL2WheelInput::GearTracker::Update(bool upshift_pressed, bool downshift_pre
 
 bool SDL2WheelInput::Init(const ManualDriveConfig& config)
 {
-    device_idx_       = config.sdl2.device_index;
-    deadzone_         = config.sdl2.deadzone;
-    upshift_button_   = config.sdl2.upshift_button;
-    downshift_button_ = config.sdl2.downshift_button;
+    device_idx_             = config.sdl2.device_index;
+    deadzone_               = config.sdl2.deadzone;
+    upshift_button_         = config.sdl2.upshift_button;
+    downshift_button_       = config.sdl2.downshift_button;
+    override_button_        = config.sdl2.override_button;
+    indicator_left_button_  = config.sdl2.indicator_left_button;
+    indicator_right_button_ = config.sdl2.indicator_right_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -132,16 +135,14 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
     bool downshift = SDL_JoystickGetButton(joystick_, downshift_button_) != 0;
     cmd.gear = gear_tracker_.Update(upshift, downshift);
 
-    // All buttons as bitmask
-    int num_buttons = SDL_JoystickNumButtons(joystick_);
+    // Map configured buttons to standardized ButtonBits
     cmd.buttons = 0;
-    for (int i = 0; i < num_buttons && i < 32; ++i)
-    {
-        if (SDL_JoystickGetButton(joystick_, i))
-        {
-            cmd.buttons |= (1u << i);
-        }
-    }
+    if (SDL_JoystickGetButton(joystick_, override_button_))
+        cmd.buttons |= ButtonBits::OVERRIDE;
+    if (SDL_JoystickGetButton(joystick_, indicator_left_button_))
+        cmd.buttons |= ButtonBits::INDICATOR_LEFT;
+    if (SDL_JoystickGetButton(joystick_, indicator_right_button_))
+        cmd.buttons |= ButtonBits::INDICATOR_RIGHT;
 
     frame.pedal_steer = cmd;
     return frame;

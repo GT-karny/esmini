@@ -5,6 +5,11 @@
     "input": {
         "device_index": 0,
         "deadzone": 0.05,
+        "upshift_button": 4,
+        "downshift_button": 5,
+        "override_button": 0,
+        "indicator_left_button": 7,
+        "indicator_right_button": 6,
         "transport_type": "udp",
         "port": 9100,
         "level": "pedal_steer"

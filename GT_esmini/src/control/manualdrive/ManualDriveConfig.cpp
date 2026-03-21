@@ -97,6 +97,9 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("deadzone", sdl2.deadzone);
         parse_int("upshift_button", sdl2.upshift_button);
         parse_int("downshift_button", sdl2.downshift_button);
+        parse_int("override_button", sdl2.override_button);
+        parse_int("indicator_left_button", sdl2.indicator_left_button);
+        parse_int("indicator_right_button", sdl2.indicator_right_button);
 
         // Network input
         parse_string("transport_type", input_network.transport_type);

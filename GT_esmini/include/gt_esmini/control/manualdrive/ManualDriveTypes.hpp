@@ -10,6 +10,15 @@
 namespace gt_esmini
 {
 
+// Button bitmask definitions for PedalSteerCommand.buttons
+namespace ButtonBits
+{
+    constexpr uint32_t OVERRIDE        = 1 << 0;
+    constexpr uint32_t INDICATOR_LEFT  = 1 << 1;
+    constexpr uint32_t INDICATOR_RIGHT = 1 << 2;
+    // Bits 3-31 reserved for future use
+}
+
 struct PedalSteerCommand
 {
     double   steering = 0.0;  // -1.0 ~ 1.0 (normalized)
@@ -17,7 +26,7 @@ struct PedalSteerCommand
     double   brake    = 0.0;  // 0.0 ~ 1.0
     double   clutch   = 0.0;  // 0.0 ~ 1.0
     int      gear     = 0;    // -1=R, 0=N, 1~6
-    uint32_t buttons  = 0;    // bitmask
+    uint32_t buttons  = 0;    // bitmask (see ButtonBits)
 };
 
 struct InputFrame

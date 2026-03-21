@@ -125,13 +125,16 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
             if (ext)
             {
-                LightState brake_ls;
-                brake_ls.mode = (c.last_cmd_.brake > 0.05) ? LightState::Mode::ON : LightState::Mode::OFF;
-                ext->SetLightState(VehicleLightType::BRAKE_LIGHTS, brake_ls);
+                auto set_light = [&](VehicleLightType type, bool on) {
+                    LightState ls;
+                    ls.mode = on ? LightState::Mode::ON : LightState::Mode::OFF;
+                    ext->SetLightState(type, ls);
+                };
 
-                LightState reverse_ls;
-                reverse_ls.mode = (c.last_cmd_.gear == -1) ? LightState::Mode::ON : LightState::Mode::OFF;
-                ext->SetLightState(VehicleLightType::REVERSING_LIGHTS, reverse_ls);
+                set_light(VehicleLightType::BRAKE_LIGHTS,     c.last_cmd_.brake > 0.05);
+                set_light(VehicleLightType::REVERSING_LIGHTS,  c.last_cmd_.gear == -1);
+                set_light(VehicleLightType::INDICATOR_LEFT,    (c.last_cmd_.buttons & ButtonBits::INDICATOR_LEFT) != 0);
+                set_light(VehicleLightType::INDICATOR_RIGHT,   (c.last_cmd_.buttons & ButtonBits::INDICATOR_RIGHT) != 0);
             }
         }
     }

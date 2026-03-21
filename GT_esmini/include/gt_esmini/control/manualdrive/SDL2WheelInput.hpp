@@ -38,11 +38,14 @@ private:
     };
 
     SDL_Joystick* joystick_  = nullptr;
-    int           device_idx_      = 0;
-    double        deadzone_        = 0.05;
-    int           upshift_button_  = 4;
-    int           downshift_button_ = 5;
-    bool          sdl_initialized_ = false;
+    int           device_idx_             = 0;
+    double        deadzone_               = 0.05;
+    int           upshift_button_         = 4;
+    int           downshift_button_       = 5;
+    int           override_button_        = 0;
+    int           indicator_left_button_  = 7;
+    int           indicator_right_button_ = 6;
+    bool          sdl_initialized_        = false;
 
     GearTracker gear_tracker_;
     SDLFFBSink  ffb_sink_;
