@@ -422,6 +422,19 @@ if(BUILD_EXAMPLES)
         DESTINATION "${CODE_EXAMPLES_BIN_PATH}")
 endif(BUILD_EXAMPLES)
 
+# ############################### Config Copy (dev build) ##########################################################################################
+# Copy GT_esmini/config/ → build/GT_esmini/config/ (sibling of Release/)
+# ConfigLoader resolves to <exe_dir>/../config/, which maps to build/GT_esmini/config/ in dev builds.
+
+add_custom_command(
+    TARGET ${TARGET_SHARED}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/config"
+        "${CMAKE_CURRENT_BINARY_DIR}/config"
+    COMMENT "Copying GT_esmini config files to build output"
+)
+
 # ############################### DriverScript DLL Copy ############################################################################################
 # Copy esminiRMLib and GT_esminiLib to DriverScript/bin/ for Python script distribution
 
