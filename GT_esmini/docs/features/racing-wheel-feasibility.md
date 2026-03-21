@@ -246,20 +246,55 @@ void ControllerRacingWheel::Step(double dt) {
 
 esmini 自体が `thirdparty/` に OSG, OSI, SUMO 等を同梱するパターンを踏襲済み。`find_package` だとビルド環境ごとに SDL2 を入れる手間が生じる。Windows は特に SDL2 のパス設定が面倒で、同梱すれば `add_subdirectory` で済む。SDL2 は `SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC` のサブセットだけ使うため、フルビルドは不要。
 
-### 7.2 FFB パラメータ設定 → XOSC プロパティ
+### 7.2 パラメータ設定 → 専用 config ファイル（XOSC 外）
 
-esmini のコントローラーは全て XOSC の `<Properties>` で設定するパターン。`ControllerRealDriver` も `port`, `SendWaypoints` 等を XOSC プロパティで受けている。シナリオごとに FFB 特性を変えられる利点がある（高速道路は Damper 強め、等）。別途 JSON を読む仕組みを作る必要がない。
+XOSC にシミュレータ固有パラメータ（FFB ゲイン、デバイスインデックス等）を入れると他シミュレータとの互換性が失われる。XOSC はシナリオ記述に徹し、GT_esmini 固有の設定は専用 config ファイルで管理する。
+
+**config ファイル**: `GT_esmini/config/racing_wheel.json`
+
+```json
+{
+  "device": {
+    "index": 0
+  },
+  "ffb": {
+    "springGain": 0.7,
+    "damperGain": 0.3,
+    "constantGain": 1.0,
+    "nonRealtimePolicy": "disable"
+  },
+  "override": {
+    "steerThreshold": 0.05,
+    "throttleThreshold": 0.1,
+    "brakeThreshold": 0.1,
+    "returnTimeoutSec": 3.0,
+    "buttonOverride": true
+  }
+}
+```
+
+**XOSC 側はコントローラー種別のみ指定**（OpenSCENARIO 標準の範囲内）:
 
 ```xml
-<Controller name="RacingWheel">
+<Controller name="wheel">
   <Properties>
-    <Property name="ffbSpringGain" value="0.7"/>
-    <Property name="ffbDamperGain" value="0.3"/>
-    <Property name="overrideSteerThreshold" value="0.05"/>
-    <Property name="deviceIndex" value="0"/>
+    <Property name="esminiController" value="RacingWheelController"/>
   </Properties>
 </Controller>
 ```
+
+**CLI オーバーライド**:
+
+```bash
+GT_Sim --osc scenario.xosc --wheel-config my_custom_wheel.json
+GT_Sim --osc scenario.xosc --ffb-spring-gain 0.5
+```
+
+**優先順位**: CLI 引数 > 指定 config ファイル > デフォルト config (`config/racing_wheel.json`)
+
+**既存パターンとの整合**: `ConfigLoader` が既に `config/real_vehicle_params.json`, `config/host_vehicle_config.json` を解決する仕組みがある。同じ `ConfigLoader` に `config/racing_wheel.json` を追加するだけで統一的に扱える。
+
+**備考**: 既存の `ControllerRealDriver` の `port`, `SendWaypoints` 等も本来は config ファイル側に移すのが望ましいが、それは今回のスコープ外とし、RacingWheel を新規で作るタイミングで config 方式を標準とする。
 
 ### 7.3 ControllerRealDriver との関係 → 独立コントローラー
 
@@ -292,7 +327,7 @@ endif()
 | 判断 | 推奨 | 理由 |
 |------|------|------|
 | SDL2 導入 | thirdparty 同梱 | 既存パターン踏襲、環境依存排除 |
-| パラメータ | XOSC プロパティ | esmini 標準方式、シナリオ別設定可能 |
+| パラメータ | 専用 config ファイル + CLI | XOSC 互換性維持、ConfigLoader 統一 |
 | コントローラー | 独立 | 入力経路が違う、責務分離 |
 | ビルドフラグ | `GT_ENABLE_SDL2` デフォルト OFF | FFB 不要環境でのビルド保証 |
 
