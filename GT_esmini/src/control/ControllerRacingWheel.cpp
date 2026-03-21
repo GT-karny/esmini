@@ -5,6 +5,8 @@
 #include "gt_esmini/control/racingwheel/NullFFBSink.hpp"
 #include "gt_esmini/control/racingwheel/StubInputSource.hpp"
 #include "gt_esmini/control/racingwheel/RealVehicleBackend.hpp"
+#include "gt_esmini/control/racingwheel/NetworkInputBridge.hpp"
+#include "gt_esmini/control/racingwheel/NetworkPhysicsBridge.hpp"
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/racingwheel/SDL2WheelInput.hpp"
 #endif
@@ -53,9 +55,7 @@ ControllerRacingWheel::ControllerRacingWheel(InitArgs* args)
 #endif
     if (config_.input_type == "network")
     {
-        // NetworkInputBridge will be created in Phase 5
-        LOG_INFO("RacingWheelController: Network input requested but not yet implemented, falling back to stub");
-        input_source_ = new StubInputSource();
+        input_source_ = new NetworkInputBridge();
     }
     else
     {
@@ -69,9 +69,7 @@ ControllerRacingWheel::ControllerRacingWheel(InitArgs* args)
     }
     else if (config_.physics_type == "network")
     {
-        // NetworkPhysicsBridge will be created in Phase 5
-        LOG_INFO("RacingWheelController: Network physics requested but not yet implemented, using RealVehicle");
-        physics_backend_ = new RealVehicleBackend();
+        physics_backend_ = new NetworkPhysicsBridge();
     }
     else
     {

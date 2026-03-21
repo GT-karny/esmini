@@ -119,7 +119,11 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/OverrideManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RealVehicleBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/HVDStateApplier.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RacingWheelCoordinator.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RacingWheelCoordinator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/UdpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/TcpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/NetworkInputBridge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/NetworkPhysicsBridge.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -149,7 +153,11 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/OverrideManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RealVehicleBackend.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/HVDStateApplier.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelCoordinator.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelCoordinator.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/UdpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/TcpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/NetworkInputBridge.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/NetworkPhysicsBridge.hpp)
 
 # Embedded Python controller sources (always enabled)
 list(APPEND GT_CONTROL_SOURCES
