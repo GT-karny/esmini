@@ -36,7 +36,8 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
   -DUSE_OSG=ON \
   -DUSE_OSI=ON \
   -DUSE_SUMO=ON \
-  -DUSE_IMPLOT=ON
+  -DUSE_IMPLOT=ON \
+  -DUSE_SDL2=ON
 ```
 
 **必須オプション一覧:**
@@ -47,6 +48,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
 | `USE_OSI` | **ON** | OSI GroundTruth 出力・gRPCストリーミング |
 | `USE_SUMO` | **ON** | SUMO交通シミュレーション連携 |
 | `USE_IMPLOT` | **ON** | リアルタイムプロット表示 |
+| `USE_SDL2` | **ON** | レーシングホイール入力・フォースフィードバック |
 
 > **注意**: `CACHE BOOL` のため、一度 OFF で configure すると `build/CMakeCache.txt` に残り、
 > CMakeLists.txt のデフォルト ON が効かなくなる。明示指定で上書きする。

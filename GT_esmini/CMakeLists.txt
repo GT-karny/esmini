@@ -114,16 +114,16 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerRacingWheel.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RacingWheelConfig.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/OverrideManager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RealVehicleBackend.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/HVDStateApplier.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RacingWheelCoordinator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/UdpTransport.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/TcpTransport.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/NetworkInputBridge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/NetworkPhysicsBridge.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerManualDrive.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/RealVehicleBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveCoordinator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/UdpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/TcpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkInputBridge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkPhysicsBridge.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -141,23 +141,23 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRacingWheel.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelTypes.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/IInputSource.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/IPhysicsBackend.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/IFFBSink.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/ITransport.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/NullFFBSink.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/StubInputSource.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelConfig.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/OverrideManager.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RealVehicleBackend.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/HVDStateApplier.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelCoordinator.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/UdpTransport.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/TcpTransport.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/NetworkInputBridge.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/NetworkPhysicsBridge.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerManualDrive.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveTypes.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IPhysicsBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IFFBSink.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ITransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NullFFBSink.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/StubInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveConfig.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/OverrideManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/TcpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkInputBridge.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp)
 
 # Embedded Python controller sources (always enabled)
 list(APPEND GT_CONTROL_SOURCES
@@ -172,11 +172,11 @@ list(APPEND GT_CONTROL_HEADERS
 # SDL2 racing wheel sources (conditional)
 if(GT_ENABLE_SDL2)
     list(APPEND GT_CONTROL_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/SDL2WheelInput.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/SDLFFBSink.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDL2WheelInput.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDLFFBSink.cpp)
     list(APPEND GT_CONTROL_HEADERS
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/SDL2WheelInput.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/SDLFFBSink.hpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDL2WheelInput.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDLFFBSink.hpp)
 endif()
 
 set(GT_OSI_SOURCES
