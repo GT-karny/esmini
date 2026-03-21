@@ -23,6 +23,10 @@ class ManualDriveButtonMapping(BaseModel):
     override: int = 0
     indicator_left: int = 7
     indicator_right: int = 6
+    headlight: int = -1
+    high_beam: int = -1
+    fog_light: int = -1
+    hazard: int = -1
 
 
 class ManualDriveSDL2Config(BaseModel):

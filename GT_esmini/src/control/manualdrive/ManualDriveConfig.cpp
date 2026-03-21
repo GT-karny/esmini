@@ -100,6 +100,13 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_int("override_button", sdl2.override_button);
         parse_int("indicator_left_button", sdl2.indicator_left_button);
         parse_int("indicator_right_button", sdl2.indicator_right_button);
+        parse_int("headlight_button", sdl2.headlight_button);
+        parse_int("high_beam_button", sdl2.high_beam_button);
+        parse_int("fog_light_button", sdl2.fog_light_button);
+        parse_int("hazard_button", sdl2.hazard_button);
+
+        // Indicator auto-cancel
+        parse_double("indicator_cancel_angle", indicator_cancel_angle);
 
         // Network input
         parse_string("transport_type", input_network.transport_type);

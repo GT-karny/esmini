@@ -21,7 +21,7 @@ const DEFAULT_CONFIG: ManualDriveConfig = {
   sdl2: {
     device_index: 0,
     deadzone: 0.05,
-    button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6 },
+    button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1 },
   },
   input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
   physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
@@ -34,6 +34,10 @@ const BUTTON_LABELS: Record<string, string> = {
   override: 'Override',
   indicator_left: 'Ind. Left',
   indicator_right: 'Ind. Right',
+  headlight: 'Headlight',
+  high_beam: 'High Beam',
+  fog_light: 'Fog Light',
+  hazard: 'Hazard',
 };
 
 export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDrivePanelProps) {
@@ -219,7 +223,7 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
                   <div key={key} className="flex items-center gap-2">
                     <span className="text-xs text-text-secondary w-20 shrink-0">{label}</span>
                     <span className="text-xs font-mono bg-glass-1 border border-glass-edge rounded px-2 py-0.5 w-12 text-center">
-                      {btnIdx}
+                      {btnIdx >= 0 ? btnIdx : '—'}
                     </span>
                     <button
                       onClick={() => isAssigning ? cancelCapture() : startAssign(key)}

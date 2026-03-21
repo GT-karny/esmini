@@ -175,6 +175,10 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
             "override_button": md.sdl2.button_mapping.override,
             "indicator_left_button": md.sdl2.button_mapping.indicator_left,
             "indicator_right_button": md.sdl2.button_mapping.indicator_right,
+            "headlight_button": md.sdl2.button_mapping.headlight,
+            "high_beam_button": md.sdl2.button_mapping.high_beam,
+            "fog_light_button": md.sdl2.button_mapping.fog_light,
+            "hazard_button": md.sdl2.button_mapping.hazard,
             "transport_type": md.input_network.transport_type,
             "port": md.input_network.port,
             "level": md.input_network.level,
@@ -185,6 +189,7 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
             "cmd_port": md.physics_network.cmd_port,
             "state_port": md.physics_network.state_port,
         },
+        "indicator_cancel_angle": 0.06,
         "ffb": md.ffb.model_dump(),
         "override": {"enabled": True},
     }

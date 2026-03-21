@@ -20,7 +20,7 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
   physics_type: 'real_vehicle',
   ffb_enabled: true,
   domain: { lateral: 'manual', longitudinal: 'manual' },
-  sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6 } },
+  sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1 } },
   input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
   physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
   ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },

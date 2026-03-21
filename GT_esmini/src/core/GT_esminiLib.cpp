@@ -655,6 +655,10 @@ GT_ESMINI_API void GT_Step(double dt)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
                 }
+                if (!ctrl)
+                {
+                    ctrl = egoObject->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME);
+                }
                 if (ctrl)
                 {
                     auto pushControllerState = [&](auto* concreteCtrl) {
@@ -720,6 +724,10 @@ GT_ESMINI_API void GT_Step(double dt)
                     else if (auto* pythonDriver = dynamic_cast<gt_esmini::ControllerPythonDriver*>(ctrl))
                     {
                         pushControllerState(pythonDriver);
+                    }
+                    else if (auto* manualDrive = dynamic_cast<gt_esmini::ControllerManualDrive*>(ctrl))
+                    {
+                        pushControllerState(manualDrive);
                     }
                 }
                 else

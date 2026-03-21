@@ -59,6 +59,10 @@ export interface ManualDriveConfig {
       override: number;
       indicator_left: number;
       indicator_right: number;
+      headlight: number;
+      high_beam: number;
+      fog_light: number;
+      hazard: number;
     };
   };
   input_network: { transport_type: string; port: number; level: string };

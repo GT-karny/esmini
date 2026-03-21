@@ -18,9 +18,12 @@
 
 namespace gt_esmini
 {
+    // Source of the most recent light state write
+    enum class LightSource { NONE, AUTO, MANUAL_DRIVE, SCENARIO };
+
     /**
      * @brief Vehicle class extension (composition pattern)
-     * 
+     *
      * Does not inherit from esmini's Vehicle class, adds extension features via composition.
      * This minimizes impact when esmini is updated.
      */
@@ -32,10 +35,12 @@ namespace gt_esmini
             // Initialize all lights to OFF state
             for (int i = 0; i < static_cast<int>(VehicleLightType::SPECIAL_PURPOSE_LIGHTS) + 1; ++i)
             {
+                auto t = static_cast<VehicleLightType>(i);
                 LightState state;
                 state.mode = LightState::Mode::OFF;
-                lightStates_[static_cast<VehicleLightType>(i)] = state;
-                manualOverrides_[static_cast<VehicleLightType>(i)] = false;
+                lightStates_[t] = state;
+                manualOverrides_[t] = false;
+                lightSource_[t] = LightSource::NONE;
             }
         }
         
@@ -89,6 +94,22 @@ namespace gt_esmini
             return state;
         }
 
+        void SetLightSource(VehicleLightType type, LightSource src)
+        {
+            lightSource_[type] = src;
+        }
+
+        LightSource GetLightSource(VehicleLightType type) const
+        {
+            auto it = lightSource_.find(type);
+            return it != lightSource_.end() ? it->second : LightSource::NONE;
+        }
+
+        bool IsScenarioControlled(VehicleLightType type) const
+        {
+            return GetLightSource(type) == LightSource::SCENARIO;
+        }
+
         /**
          * @brief Enable/disable AutoLight feature
          * @param enabled true: enabled, false: disabled
@@ -102,9 +123,10 @@ namespace gt_esmini
         bool IsAutoLightEnabled() const { return autoLightEnabled_; }
 
         // Hold light states
-        std::map<VehicleLightType, LightState> lightStates_;
-        std::map<VehicleLightType, bool>       manualOverrides_;
-        bool                                   autoLightEnabled_ = false;
+        std::map<VehicleLightType, LightState>   lightStates_;
+        std::map<VehicleLightType, bool>          manualOverrides_;
+        std::map<VehicleLightType, LightSource>   lightSource_;
+        bool                                      autoLightEnabled_ = false;
 
     private:
         scenarioengine::Vehicle* vehicle_;  // Reference to original Vehicle object

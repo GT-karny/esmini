@@ -173,12 +173,38 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
     return Controller::Activate(mode);
 }
 
-void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear) const
+void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const
 {
-    throttle = last_cmd_.throttle;
-    brake    = last_cmd_.brake;
-    steering = last_cmd_.steering;
-    gear     = last_cmd_.gear;
+    throttle  = last_cmd_.throttle;
+    brake     = last_cmd_.brake;
+    steering  = last_cmd_.steering;
+    gear      = last_cmd_.gear;
+    lightMask = BuildLightMaskFromExtension();
+}
+
+int ControllerManualDrive::BuildLightMaskFromExtension() const
+{
+    if (!object_ || object_->type_ != scenarioengine::Object::Type::VEHICLE)
+        return 0;
+
+    auto* vehicle = static_cast<scenarioengine::Vehicle*>(object_);
+    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+    if (!ext)
+        return 0;
+
+    auto is_on = [&](VehicleLightType type) {
+        return ext->GetLightState(type).mode == LightState::Mode::ON;
+    };
+
+    int mask = 0;
+    if (is_on(VehicleLightType::LOW_BEAM))        mask |= 1;
+    if (is_on(VehicleLightType::HIGH_BEAM))       mask |= 2;
+    if (is_on(VehicleLightType::INDICATOR_LEFT))   mask |= 4;
+    if (is_on(VehicleLightType::INDICATOR_RIGHT))  mask |= 8;
+    if (is_on(VehicleLightType::FOG_LIGHTS) ||
+        is_on(VehicleLightType::FOG_LIGHTS_FRONT) ||
+        is_on(VehicleLightType::FOG_LIGHTS_REAR))  mask |= 16;
+    return mask;
 }
 
 void ControllerManualDrive::GetPowertrainForOSI(double& rpm, double& torque) const

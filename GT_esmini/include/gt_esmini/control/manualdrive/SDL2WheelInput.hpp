@@ -45,6 +45,10 @@ private:
     int           override_button_        = 0;
     int           indicator_left_button_  = 7;
     int           indicator_right_button_ = 6;
+    int           headlight_button_      = -1;
+    int           high_beam_button_      = -1;
+    int           fog_light_button_      = -1;
+    int           hazard_button_         = -1;
     bool          sdl_initialized_        = false;
 
     GearTracker gear_tracker_;

@@ -22,7 +22,14 @@ struct ManualDriveConfig
         int    override_button       = 0;
         int    indicator_left_button = 7;
         int    indicator_right_button = 6;
+        int    headlight_button     = -1;  // -1 = unassigned
+        int    high_beam_button     = -1;
+        int    fog_light_button     = -1;
+        int    hazard_button        = -1;
     } sdl2;
+
+    // Indicator auto-cancel
+    double indicator_cancel_angle = 0.06;  // normalized (~20 deg)
 
     // Input: Network bridge
     struct

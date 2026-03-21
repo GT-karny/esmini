@@ -50,6 +50,10 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
     override_button_        = config.sdl2.override_button;
     indicator_left_button_  = config.sdl2.indicator_left_button;
     indicator_right_button_ = config.sdl2.indicator_right_button;
+    headlight_button_       = config.sdl2.headlight_button;
+    high_beam_button_       = config.sdl2.high_beam_button;
+    fog_light_button_       = config.sdl2.fog_light_button;
+    hazard_button_          = config.sdl2.hazard_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -137,12 +141,17 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
 
     // Map configured buttons to standardized ButtonBits
     cmd.buttons = 0;
-    if (SDL_JoystickGetButton(joystick_, override_button_))
-        cmd.buttons |= ButtonBits::OVERRIDE;
-    if (SDL_JoystickGetButton(joystick_, indicator_left_button_))
-        cmd.buttons |= ButtonBits::INDICATOR_LEFT;
-    if (SDL_JoystickGetButton(joystick_, indicator_right_button_))
-        cmd.buttons |= ButtonBits::INDICATOR_RIGHT;
+    auto read_btn = [&](int btn_id, uint32_t bit) {
+        if (btn_id >= 0 && SDL_JoystickGetButton(joystick_, btn_id))
+            cmd.buttons |= bit;
+    };
+    read_btn(override_button_,        ButtonBits::OVERRIDE);
+    read_btn(indicator_left_button_,  ButtonBits::INDICATOR_LEFT);
+    read_btn(indicator_right_button_, ButtonBits::INDICATOR_RIGHT);
+    read_btn(headlight_button_,       ButtonBits::HEADLIGHT);
+    read_btn(high_beam_button_,       ButtonBits::HIGH_BEAM);
+    read_btn(fog_light_button_,       ButtonBits::FOG_LIGHT);
+    read_btn(hazard_button_,          ButtonBits::HAZARD);
 
     frame.pedal_steer = cmd;
     return frame;

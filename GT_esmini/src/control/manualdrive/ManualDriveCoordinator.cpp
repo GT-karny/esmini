@@ -126,15 +126,47 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             if (ext)
             {
                 auto set_light = [&](VehicleLightType type, bool on) {
+                    if (ext->IsScenarioControlled(type))
+                        return;  // scenario has priority
                     LightState ls;
                     ls.mode = on ? LightState::Mode::ON : LightState::Mode::OFF;
                     ext->SetLightState(type, ls);
+                    ext->SetLightSource(type, LightSource::MANUAL_DRIVE);
                 };
 
+                // Edge detection helper for toggles
+                auto rising = [&](uint32_t bit) {
+                    return (c.last_cmd_.buttons & bit) && !(c.prev_buttons_ & bit);
+                };
+
+                // Toggle lights on rising edge
+                if (rising(ButtonBits::HEADLIGHT))  c.headlight_on_ = !c.headlight_on_;
+                if (rising(ButtonBits::HIGH_BEAM))   c.high_beam_on_ = !c.high_beam_on_;
+                if (rising(ButtonBits::FOG_LIGHT))   c.fog_light_on_ = !c.fog_light_on_;
+                if (rising(ButtonBits::HAZARD))      c.hazard_on_    = !c.hazard_on_;
+
+                // Indicator auto-cancel FSM
+                auto ind = c.indicator_fsm_.Update(
+                    c.last_cmd_.buttons, c.prev_buttons_,
+                    c.last_cmd_.steering, c.prev_steering_,
+                    c.config_.indicator_cancel_angle, c.hazard_on_);
+
+                c.prev_buttons_  = c.last_cmd_.buttons;
+                c.prev_steering_ = c.last_cmd_.steering;
+
+                // Auto-controlled lights
                 set_light(VehicleLightType::BRAKE_LIGHTS,     c.last_cmd_.brake > 0.05);
                 set_light(VehicleLightType::REVERSING_LIGHTS,  c.last_cmd_.gear == -1);
-                set_light(VehicleLightType::INDICATOR_LEFT,    (c.last_cmd_.buttons & ButtonBits::INDICATOR_LEFT) != 0);
-                set_light(VehicleLightType::INDICATOR_RIGHT,   (c.last_cmd_.buttons & ButtonBits::INDICATOR_RIGHT) != 0);
+
+                // Indicator (FSM output)
+                set_light(VehicleLightType::INDICATOR_LEFT,  ind.left_on);
+                set_light(VehicleLightType::INDICATOR_RIGHT, ind.right_on);
+
+                // Toggle-controlled lights
+                set_light(VehicleLightType::LOW_BEAM,        c.headlight_on_);
+                set_light(VehicleLightType::HIGH_BEAM,       c.high_beam_on_);
+                set_light(VehicleLightType::FOG_LIGHTS,      c.fog_light_on_);
+                set_light(VehicleLightType::WARNING_LIGHTS,  c.hazard_on_);
             }
         }
     }

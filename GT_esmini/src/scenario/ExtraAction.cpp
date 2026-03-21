@@ -62,6 +62,10 @@ namespace gt_esmini
             return;
         }
         
+        // Mark as scenario-controlled (takes priority over ManualDrive buttons)
+        ext->SetLightSource(lightType_, LightSource::SCENARIO);
+        ext->SetManualOverride(lightType_, false);
+
         // Apply light state
         if (transitionTime_ <= 0.0)
         {

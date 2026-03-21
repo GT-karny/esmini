@@ -10,6 +10,10 @@
         "override_button": 0,
         "indicator_left_button": 7,
         "indicator_right_button": 6,
+        "headlight_button": -1,
+        "high_beam_button": -1,
+        "fog_light_button": -1,
+        "hazard_button": -1,
         "transport_type": "udp",
         "port": 9100,
         "level": "pedal_steer"
@@ -20,6 +24,7 @@
         "cmd_port": 9200,
         "state_port": 9201
     },
+    "indicator_cancel_angle": 0.06,
     "domain": {
         "lateral": "manual",
         "longitudinal": "manual"
