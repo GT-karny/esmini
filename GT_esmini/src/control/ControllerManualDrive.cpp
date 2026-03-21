@@ -32,14 +32,23 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     std::string exe_dir = GetCurrentModuleDirectory();
     ConfigLoader loader;
 
-    // Allow XOSC property to override config file name
+    // Allow XOSC property to override config file name or provide absolute path
     std::string config_filename = "manual_drive.json";
     if (args && args->properties && args->properties->ValueExists("ConfigFile"))
     {
         config_filename = args->properties->GetValueStr("ConfigFile");
     }
 
-    std::string config_path = loader.ResolveConfigPath(exe_dir, config_filename);
+    // If absolute path, use directly; otherwise resolve relative to exe_dir/config/
+    std::string config_path;
+    if (!config_filename.empty() && (config_filename[0] == '/' || (config_filename.size() > 1 && config_filename[1] == ':')))
+    {
+        config_path = config_filename;
+    }
+    else
+    {
+        config_path = loader.ResolveConfigPath(exe_dir, config_filename);
+    }
     if (!config_.LoadFromFile(config_path))
     {
         LOG_INFO("ManualDriveController: Config not found at {}, using defaults", config_path);

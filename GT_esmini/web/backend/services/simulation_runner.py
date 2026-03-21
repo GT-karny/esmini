@@ -119,14 +119,41 @@ def _generate_manual_variant(
     p1.set("name", "esminiController")
     p1.set("value", "ManualDriveController")
 
-    # ConfigFile property (point to the per-run config written alongside)
+    # ConfigFile property — absolute path to per-run config
+    config_abs = str((output_path.parent / "manual_drive.json").resolve())
     p2 = ET.SubElement(props, "Property")
     p2.set("name", "ConfigFile")
-    p2.set("value", "manual_drive.json")
+    p2.set("value", config_abs)
 
     oc = ET.Element("ObjectController")
     oc.append(ctrl)
-    entity.append(oc)
+
+    # Insert after Vehicle/CatalogReference (same pattern as generate_python_variant)
+    insert_pos = None
+    for i, child in enumerate(entity):
+        if child.tag in ("Vehicle", "CatalogReference"):
+            insert_pos = i + 1
+            break
+    if insert_pos is not None:
+        entity.insert(insert_pos, oc)
+    else:
+        entity.append(oc)
+
+    # Add <ActivateControllerAction> in Init/Actions/Private for the ego entity
+    ego_name = entity.get("name", "")
+    for private in root.findall(".//Init/Actions/Private"):
+        if private.get("entityRef") != ego_name:
+            continue
+        # Remove existing ActivateControllerAction
+        for pa in private.findall("PrivateAction"):
+            act = pa.find("ActivateControllerAction")
+            if act is not None:
+                private.remove(pa)
+        # Add new ActivateControllerAction
+        pa = ET.SubElement(private, "PrivateAction")
+        act = ET.SubElement(pa, "ActivateControllerAction")
+        act.set("longitudinal", "true")
+        act.set("lateral", "true")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tree.write(output_path, encoding="utf-8", xml_declaration=True)
