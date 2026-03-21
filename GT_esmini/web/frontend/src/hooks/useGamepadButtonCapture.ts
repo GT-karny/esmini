@@ -14,7 +14,7 @@ export function useGamepadButtonCapture(
 ) {
   const [capturing, setCapturing] = useState(false);
   const rafRef = useRef<number>(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const baselineRef = useRef<boolean[]>([]);
 
   const cancel = useCallback(() => {
