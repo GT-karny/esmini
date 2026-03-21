@@ -15,8 +15,10 @@ struct RacingWheelConfig
     // Input: SDL2 wheel
     struct
     {
-        int    device_index = 0;
-        double deadzone     = 0.05;
+        int    device_index     = 0;
+        double deadzone         = 0.05;
+        int    upshift_button   = 4;
+        int    downshift_button = 5;
     } sdl2;
 
     // Input: Network bridge

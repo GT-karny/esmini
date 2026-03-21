@@ -95,6 +95,8 @@ bool RacingWheelConfig::LoadFromFile(const std::string& filepath)
         // SDL2 input
         parse_int("device_index", sdl2.device_index);
         parse_double("deadzone", sdl2.deadzone);
+        parse_int("upshift_button", sdl2.upshift_button);
+        parse_int("downshift_button", sdl2.downshift_button);
 
         // Network input
         parse_string("transport_type", input_network.transport_type);

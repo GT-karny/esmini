@@ -4,6 +4,8 @@
 #include "gt_esmini/control/racingwheel/IPhysicsBackend.hpp"
 #include "gt_esmini/control/racingwheel/IFFBSink.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp"
+#include "Entities.hpp"
 
 namespace gt_esmini
 {
@@ -105,7 +107,27 @@ void RacingWheelCoordinator::RunFrame(ControllerRacingWheel& c, double dt) const
         GT_HostVehicleReporter::Instance().SetBaseHostVehicleData(c.object_->GetId(), hvd);
     }
 
-    // 9. Base controller step
+    // 9. Update vehicle lights
+    if (c.object_)
+    {
+        auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(c.object_);
+        if (vehicle)
+        {
+            auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+            if (ext)
+            {
+                LightState brake_ls;
+                brake_ls.mode = (c.last_cmd_.brake > 0.05) ? LightState::Mode::ON : LightState::Mode::OFF;
+                ext->SetLightState(VehicleLightType::BRAKE_LIGHTS, brake_ls);
+
+                LightState reverse_ls;
+                reverse_ls.mode = (c.last_cmd_.gear == -1) ? LightState::Mode::ON : LightState::Mode::OFF;
+                ext->SetLightState(VehicleLightType::REVERSING_LIGHTS, reverse_ls);
+            }
+        }
+    }
+
+    // 10. Base controller step
     c.scenarioengine::Controller::Step(dt);
 }
 

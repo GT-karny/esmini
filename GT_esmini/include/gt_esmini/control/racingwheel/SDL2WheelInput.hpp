@@ -25,26 +25,27 @@ public:
 private:
     double NormalizeAxis(int raw) const;
     double NormalizePedal(int raw) const;
-    int ReadGearFromButtons() const;
+
+    struct GearTracker
+    {
+        int  current_gear    = 1;   // -1=R, 0=N, 1~6
+        bool prev_upshift    = false;
+        bool prev_downshift  = false;
+        static constexpr int MIN_GEAR = -1;
+        static constexpr int MAX_GEAR = 6;
+
+        int Update(bool upshift_pressed, bool downshift_pressed);
+    };
 
     SDL_Joystick* joystick_  = nullptr;
-    int           device_idx_ = 0;
-    double        deadzone_   = 0.05;
+    int           device_idx_      = 0;
+    double        deadzone_        = 0.05;
+    int           upshift_button_  = 4;
+    int           downshift_button_ = 5;
     bool          sdl_initialized_ = false;
 
-    // Axis calibration (auto min/max)
-    struct AxisCalibration
-    {
-        int min_seen = 0;
-        int max_seen = 0;
-        bool calibrated = false;
-    };
-    AxisCalibration steer_cal_;
-    AxisCalibration throttle_cal_;
-    AxisCalibration brake_cal_;
-    AxisCalibration clutch_cal_;
-
-    SDLFFBSink ffb_sink_;
+    GearTracker gear_tracker_;
+    SDLFFBSink  ffb_sink_;
 };
 
 } // namespace gt_esmini

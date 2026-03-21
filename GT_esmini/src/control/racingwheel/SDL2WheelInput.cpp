@@ -18,10 +18,35 @@ SDL2WheelInput::~SDL2WheelInput()
     Shutdown();
 }
 
+int SDL2WheelInput::GearTracker::Update(bool upshift_pressed, bool downshift_pressed)
+{
+    // Edge detection: shift only on button press (not hold)
+    if (upshift_pressed && !prev_upshift)
+    {
+        if (current_gear < MAX_GEAR)
+        {
+            current_gear++;
+        }
+    }
+    if (downshift_pressed && !prev_downshift)
+    {
+        if (current_gear > MIN_GEAR)
+        {
+            current_gear--;
+        }
+    }
+
+    prev_upshift = upshift_pressed;
+    prev_downshift = downshift_pressed;
+    return current_gear;
+}
+
 bool SDL2WheelInput::Init(const RacingWheelConfig& config)
 {
-    device_idx_ = config.sdl2.device_index;
-    deadzone_   = config.sdl2.deadzone;
+    device_idx_       = config.sdl2.device_index;
+    deadzone_         = config.sdl2.deadzone;
+    upshift_button_   = config.sdl2.upshift_button;
+    downshift_button_ = config.sdl2.downshift_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -102,8 +127,10 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
         cmd.steering = 0.0;
     }
 
-    // Gear from buttons (G29: paddle shifters or H-pattern)
-    cmd.gear = ReadGearFromButtons();
+    // Gear from paddle shifters (edge-detected)
+    bool upshift   = SDL_JoystickGetButton(joystick_, upshift_button_) != 0;
+    bool downshift = SDL_JoystickGetButton(joystick_, downshift_button_) != 0;
+    cmd.gear = gear_tracker_.Update(upshift, downshift);
 
     // All buttons as bitmask
     int num_buttons = SDL_JoystickNumButtons(joystick_);
@@ -161,20 +188,6 @@ double SDL2WheelInput::NormalizePedal(int raw) const
     return std::clamp(normalized, 0.0, 1.0);
 }
 
-int SDL2WheelInput::ReadGearFromButtons() const
-{
-    // G29 paddle shifters: typically button 4 = upshift, button 5 = downshift
-    // For now, simple mapping:
-    // - If upshift button is held: gear = 1 (forward)
-    // - If downshift button is held: gear = -1 (reverse)
-    // - Default: gear = 1
-
-    // This is a simplified approach; a proper gear tracker would maintain state
-    // across frames. For Phase 4, just report current button state.
-    // TODO: Implement proper gear state machine with shift-up/shift-down tracking
-
-    return 1;  // Default forward gear
-}
 
 } // namespace gt_esmini
 
