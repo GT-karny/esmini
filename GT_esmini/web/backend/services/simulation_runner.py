@@ -87,6 +87,87 @@ def _apply_param_overrides(xosc_path: Path, overrides: dict[str, str]) -> None:
     tree.write(xosc_path, encoding="utf-8", xml_declaration=True)
 
 
+def _generate_manual_variant(
+    baseline_xosc: Path,
+    output_path: Path,
+    controller: ControllerConfig,
+) -> None:
+    """Generate XOSC variant with ManualDriveController injected."""
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(baseline_xosc)
+    root = tree.getroot()
+
+    # Remove existing ObjectController from first entity
+    all_entities = root.findall(".//ScenarioObject")
+    if not all_entities:
+        # Fallback: just copy
+        shutil.copy2(baseline_xosc, output_path)
+        return
+
+    entity = all_entities[0]
+    existing_oc = entity.find("ObjectController")
+    if existing_oc is not None:
+        entity.remove(existing_oc)
+
+    # Create ManualDriveController
+    ctrl = ET.Element("Controller")
+    ctrl.set("name", "ManualDriveController")
+
+    props = ET.SubElement(ctrl, "Properties")
+    p1 = ET.SubElement(props, "Property")
+    p1.set("name", "esminiController")
+    p1.set("value", "ManualDriveController")
+
+    # ConfigFile property (point to the per-run config written alongside)
+    p2 = ET.SubElement(props, "Property")
+    p2.set("name", "ConfigFile")
+    p2.set("value", "manual_drive.json")
+
+    oc = ET.Element("ObjectController")
+    oc.append(ctrl)
+    entity.append(oc)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+
+
+def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
+    """Write manual_drive.json for per-run config override."""
+    md = controller.manual_drive
+    config_data = {
+        "input_type": md.input_type,
+        "physics_type": md.physics_type,
+        "ffb_enabled": md.ffb_enabled,
+        "domain": md.domain.model_dump(),
+        "input": {
+            "device_index": md.sdl2.device_index,
+            "deadzone": md.sdl2.deadzone,
+            "upshift_button": md.sdl2.button_mapping.upshift,
+            "downshift_button": md.sdl2.button_mapping.downshift,
+            "override_button": md.sdl2.button_mapping.override,
+            "indicator_left_button": md.sdl2.button_mapping.indicator_left,
+            "indicator_right_button": md.sdl2.button_mapping.indicator_right,
+            "transport_type": md.input_network.transport_type,
+            "port": md.input_network.port,
+            "level": md.input_network.level,
+        },
+        "physics": {
+            "vehicle_params_file": "real_vehicle_params.json",
+            "host": md.physics_network.host,
+            "cmd_port": md.physics_network.cmd_port,
+            "state_port": md.physics_network.state_port,
+        },
+        "ffb": md.ffb.model_dump(),
+        "override": {"enabled": True},
+    }
+    config_path = output_dir / "manual_drive.json"
+    config_path.write_text(
+        json.dumps(config_data, indent=4, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 def _prepare_xosc(
     scenario_path: Path,
     controller: ControllerConfig,
@@ -111,9 +192,17 @@ def _prepare_xosc(
         if param_overrides:
             _apply_param_overrides(variant_path, param_overrides)
         return variant_path
+    elif controller.controller_type == "manual":
+        variant_path = output_dir / f"{scenario_path.stem}_manual.xosc"
+        _generate_manual_variant(scenario_path, variant_path, controller)
+        _absolutize_xosc(variant_path, source_dir)
+        if param_overrides:
+            _apply_param_overrides(variant_path, param_overrides)
+        # Write per-run manual_drive.json alongside the variant
+        _write_manual_drive_config(output_dir, controller)
+        return variant_path
     elif controller.controller_type == "default":
         variant_path = output_dir / f"{scenario_path.stem}_default.xosc"
-        # 元のXOSCをそのままコピー（コントローラを削除しない）
         variant_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(scenario_path, variant_path)
         _absolutize_xosc(variant_path, source_dir)
@@ -121,7 +210,6 @@ def _prepare_xosc(
             _apply_param_overrides(variant_path, param_overrides)
         return variant_path
     else:
-        # Use baseline as-is
         return scenario_path
 
 

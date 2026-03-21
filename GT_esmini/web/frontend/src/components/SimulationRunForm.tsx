@@ -5,13 +5,26 @@ import type {
   SimulationStatus,
   ScenarioParam,
   ParameterPreset,
+  ManualDriveConfig,
 } from '../api/client';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection } from './simulation/ControllerSection';
+import { ManualDrivePanel } from './simulation/ManualDrivePanel';
 import { QuickOptionsBar } from './simulation/QuickOptionsBar';
 import { ParameterOverrides } from './simulation/ParameterOverrides';
 import { AdvancedSettings } from './simulation/AdvancedSettings';
+
+const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
+  input_type: 'stub',
+  physics_type: 'real_vehicle',
+  ffb_enabled: false,
+  domain: { lateral: 'manual', longitudinal: 'manual' },
+  sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6 } },
+  input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
+  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
+  ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },
+};
 
 export interface SimulationRunFormProps {
   projectId: string;
@@ -50,7 +63,9 @@ export function SimulationRunForm({
   const queryClient = useQueryClient();
 
   // Controller state
-  const [controllerType, setControllerType] = useState<'default' | 'python'>('default');
+  const [controllerType, setControllerType] = useState<'default' | 'python' | 'manual'>('default');
+  const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
+  const [showManualPanel, setShowManualPanel] = useState(false);
   const [pythonScript, setPythonScript] = useState('DriverScript/pythondriver/scenario_drive_embedded.py');
   const [pythonClass, setPythonClass] = useState('EmbeddedController');
   const [traceEnabled, setTraceEnabled] = useState(true);
@@ -102,7 +117,10 @@ export function SimulationRunForm({
     };
 
     if (opts.controller) {
-      setControllerType((opts.controller.controller_type ?? 'default') as 'default' | 'python');
+      setControllerType((opts.controller.controller_type ?? 'default') as 'default' | 'python' | 'manual');
+      if (opts.controller.controller_type === 'manual' && (opts.controller as any).manual_drive) {
+        setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...(opts.controller as any).manual_drive });
+      }
       const py = opts.controller.python;
       if (py) {
         if (py.script) setPythonScript(py.script);
@@ -203,6 +221,7 @@ export function SimulationRunForm({
             trace_enabled: traceEnabled,
             trace_dir: '',
           },
+          ...(controllerType === 'manual' ? { manual_drive: manualDriveConfig } : {}),
         },
         execution: {
           headless,
@@ -260,6 +279,14 @@ export function SimulationRunForm({
         traceEnabled={traceEnabled}
         setTraceEnabled={setTraceEnabled}
         scripts={scripts}
+        onOpenManualSettings={() => setShowManualPanel(true)}
+      />
+
+      <ManualDrivePanel
+        open={showManualPanel}
+        onClose={() => setShowManualPanel(false)}
+        config={manualDriveConfig}
+        onChange={setManualDriveConfig}
       />
 
       <div className="border-b border-glass-edge my-3" />

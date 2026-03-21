@@ -17,9 +17,60 @@ class PythonControllerConfig(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ManualDriveButtonMapping(BaseModel):
+    upshift: int = 4
+    downshift: int = 5
+    override: int = 0
+    indicator_left: int = 7
+    indicator_right: int = 6
+
+
+class ManualDriveSDL2Config(BaseModel):
+    device_index: int = 0
+    deadzone: float = 0.05
+    button_mapping: ManualDriveButtonMapping = ManualDriveButtonMapping()
+
+
+class ManualDriveDomainConfig(BaseModel):
+    lateral: str = "manual"
+    longitudinal: str = "manual"
+
+
+class ManualDriveNetworkInput(BaseModel):
+    transport_type: str = "udp"
+    port: int = 9100
+    level: str = "pedal_steer"
+
+
+class ManualDriveNetworkPhysics(BaseModel):
+    transport_type: str = "udp"
+    host: str = "127.0.0.1"
+    cmd_port: int = 9200
+    state_port: int = 9201
+
+
+class ManualDriveFFBConfig(BaseModel):
+    spring_coefficient: float = 0.5
+    damper_coefficient: float = 0.3
+    constant_gain: float = 1.0
+    max_force: float = 1.0
+
+
+class ManualDriveControllerConfig(BaseModel):
+    input_type: str = "stub"
+    physics_type: str = "real_vehicle"
+    ffb_enabled: bool = False
+    domain: ManualDriveDomainConfig = ManualDriveDomainConfig()
+    sdl2: ManualDriveSDL2Config = ManualDriveSDL2Config()
+    input_network: ManualDriveNetworkInput = ManualDriveNetworkInput()
+    physics_network: ManualDriveNetworkPhysics = ManualDriveNetworkPhysics()
+    ffb: ManualDriveFFBConfig = ManualDriveFFBConfig()
+
+
 class ControllerConfig(BaseModel):
-    controller_type: str = "default"  # "default" | "python"
+    controller_type: str = "default"  # "default" | "python" | "manual"
     python: PythonControllerConfig = PythonControllerConfig()
+    manual_drive: ManualDriveControllerConfig = ManualDriveControllerConfig()
 
 
 class OsiConfig(BaseModel):
