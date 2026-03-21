@@ -240,7 +240,129 @@ void ControllerRacingWheel::Step(double dt) {
 
 ---
 
-## 7. 参考リンク
+## 7. 設計判断
+
+### 7.1 SDL2 導入方式 → `thirdparty/` に同梱
+
+esmini 自体が `thirdparty/` に OSG, OSI, SUMO 等を同梱するパターンを踏襲済み。`find_package` だとビルド環境ごとに SDL2 を入れる手間が生じる。Windows は特に SDL2 のパス設定が面倒で、同梱すれば `add_subdirectory` で済む。SDL2 は `SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC` のサブセットだけ使うため、フルビルドは不要。
+
+### 7.2 FFB パラメータ設定 → XOSC プロパティ
+
+esmini のコントローラーは全て XOSC の `<Properties>` で設定するパターン。`ControllerRealDriver` も `port`, `SendWaypoints` 等を XOSC プロパティで受けている。シナリオごとに FFB 特性を変えられる利点がある（高速道路は Damper 強め、等）。別途 JSON を読む仕組みを作る必要がない。
+
+```xml
+<Controller name="RacingWheel">
+  <Properties>
+    <Property name="ffbSpringGain" value="0.7"/>
+    <Property name="ffbDamperGain" value="0.3"/>
+    <Property name="overrideSteerThreshold" value="0.05"/>
+    <Property name="deviceIndex" value="0"/>
+  </Properties>
+</Controller>
+```
+
+### 7.3 ControllerRealDriver との関係 → 独立コントローラー
+
+入力経路が根本的に異なる（RealDriver=UDP, RacingWheel=SDL2）。混ぜると条件分岐が肥大化する。RealDriver は Python ドライバーとのペア前提であり、FFB は C++ 完結。責務が違う。
+
+`RealVehicle`, `EsminiStateApplier` は所有ではなく共通部品として利用する。将来 RealDriver 側にも FFB を追加したくなった場合は、`FFBOutput` クラスを RealDriver にも持たせればよい。
+
+```
+ControllerRealDriver  ─── UDP入力 ─── RealVehicle ─── EsminiStateApplier
+                                          ↑ 共有
+ControllerRacingWheel ─── SDL2入力 ── RealVehicle ─── EsminiStateApplier
+                      └── FFBOutput
+                      └── OverrideManager
+```
+
+### 7.4 ビルドフラグ → `GT_ENABLE_SDL2` デフォルト OFF
+
+SDL2 なし環境（CI、FFB 不要ユーザー）でもビルドが通る必要がある。`ControllerRacingWheel` 全体を `#ifdef GT_ENABLE_SDL2` で囲み、コントローラー登録も条件付きとする。SDL2 がなければコントローラーが存在しないだけで、他に影響しない。
+
+```cmake
+option(GT_ENABLE_SDL2 "Enable SDL2 for racing wheel FFB support" OFF)
+if(GT_ENABLE_SDL2)
+    add_subdirectory(thirdparty/SDL2)
+    target_compile_definitions(GT_esminiLib PRIVATE GT_ENABLE_SDL2)
+endif()
+```
+
+### 7.5 設計判断サマリー
+
+| 判断 | 推奨 | 理由 |
+|------|------|------|
+| SDL2 導入 | thirdparty 同梱 | 既存パターン踏襲、環境依存排除 |
+| パラメータ | XOSC プロパティ | esmini 標準方式、シナリオ別設定可能 |
+| コントローラー | 独立 | 入力経路が違う、責務分離 |
+| ビルドフラグ | `GT_ENABLE_SDL2` デフォルト OFF | FFB 不要環境でのビルド保証 |
+
+---
+
+## 8. FFB 機能分類
+
+### 8.1 FFB エフェクト優先度
+
+| エフェクト | 物理的意味 | データソース（既存） | 優先度 |
+|-----------|----------|-------------------|--------|
+| **Spring** | ステアリングセンタリング | `wheelAngle_` | **必須** |
+| **Constant** | セルフアライニングトルク | `wheelAngle_` × `speed_` | **必須** |
+| **Damper** | ステアリング抵抗 | `speed_` | 中 |
+| **Sine** | 路面振動（縁石等） | `TerrainTracker` pitch/roll変化率 | 低 |
+| **Friction** | 路面摩擦 | ドライバー依存、フォールバック要 | 低 |
+
+### 8.2 オーバーライド状態と FFB の関係
+
+| 状態 | ステアリング制御 | FFB 挙動 | RealVehicle 入力 |
+|------|----------------|---------|-----------------|
+| **AUTO** | シナリオ駆動 | Spring → シナリオ目標角に追従 | シナリオ入力 |
+| **OVERRIDE** | ドライバー入力 | Constant + Damper（路面感） | ホイール入力 |
+| **BLEND** (遷移中) | 線形補間 | Spring 強度漸減 | 混合入力 |
+
+オーバーライド判定トリガー: ステアリング入力 > 閾値、ブレーキ > 閾値、ボタン押下。
+
+### 8.3 制御ループ内の FFB 挿入位置
+
+```
+ControllerRacingWheel::Step(dt)
+  1. SDL2 入力取得 (RacingWheelInput::Poll)
+  2. オーバーライド判定 (OverrideManager::Update)
+  3. RealVehicle::UpdatePhysics()
+  ──→ wheelAngle_, speed_, rpm_ が確定
+  4. ★ FFB 計算・出力 (FFBOutput::Update)  ← ここ
+  5. EsminiStateApplier::Apply()
+  6. Controller::Step(dt)
+```
+
+### 8.4 既存資産の流用度
+
+| コンポーネント | 流用 | 備考 |
+|--------------|------|------|
+| `RealVehicle` | そのまま | `UpdatePhysics()` は入力ソースに依存しない |
+| `EsminiStateApplier` | そのまま | Gateway 同期はそのまま |
+| `ControlDecisionEngine` | パターン流用 | AUTO/OVERRIDE 状態管理に応用 |
+| `DriverOutputPort` | 参考 | UDP 出力パターン（FFB は別経路だが設計思想は同じ） |
+| `AutoLightController` | そのまま | ブレーキランプ等は入力ソースに無関係 |
+| `TerrainTracker` | そのまま | 路面追従 + FFB 路面振動のデータソース |
+
+### 8.5 新規ファイル構成
+
+```
+GT_esmini/
+├── include/gt_esmini/control/
+│   ├── ControllerRacingWheel.hpp    # メインコントローラー
+│   ├── RacingWheelInput.hpp         # SDL2 入力抽象化
+│   ├── FFBOutput.hpp                # SDL_Haptic FFB 出力
+│   └── OverrideManager.hpp          # AUTO↔OVERRIDE 状態機械
+├── src/control/
+│   ├── ControllerRacingWheel.cpp
+│   ├── RacingWheelInput.cpp
+│   ├── FFBOutput.cpp
+│   └── OverrideManager.cpp
+```
+
+---
+
+## 9. 参考リンク
 
 - [SDL2 Haptic API](https://wiki.libsdl.org/SDL2/SDL_HapticEffect)
 - [new-lg4ff (拡張Logitechドライバー)](https://github.com/berarma/new-lg4ff)
