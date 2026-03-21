@@ -36,6 +36,7 @@
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
+#include "gt_esmini/control/ControllerRacingWheel.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
@@ -216,6 +217,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_RACING_WHEEL_TYPE_NAME, gt_esmini::InstantiateControllerRacingWheel);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -432,6 +434,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_RACING_WHEEL_TYPE_NAME, gt_esmini::InstantiateControllerRacingWheel);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;

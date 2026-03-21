@@ -103,7 +103,13 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/EsminiStateApplier.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerRacingWheel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RacingWheelConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/OverrideManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RealVehicleBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/HVDStateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/RacingWheelCoordinator.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -120,7 +126,20 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRacingWheel.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelTypes.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/IInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/IPhysicsBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/IFFBSink.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/ITransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/NullFFBSink.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/StubInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelConfig.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/OverrideManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/HVDStateApplier.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/RacingWheelCoordinator.hpp)
 
 # Embedded Python controller sources (always enabled)
 list(APPEND GT_CONTROL_SOURCES

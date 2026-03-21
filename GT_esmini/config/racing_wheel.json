@@ -1,0 +1,33 @@
+{
+    "input_type": "stub",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": false,
+    "input": {
+        "device_index": 0,
+        "deadzone": 0.05,
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer"
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json",
+        "host": "127.0.0.1",
+        "cmd_port": 9200,
+        "state_port": 9201
+    },
+    "ffb": {
+        "spring_coefficient": 0.5,
+        "damper_coefficient": 0.3,
+        "constant_gain": 1.0,
+        "max_force": 1.0,
+        "disable_non_realtime": true
+    },
+    "override": {
+        "enabled": true,
+        "steering_threshold": 0.05,
+        "throttle_threshold": 0.1,
+        "brake_threshold": 0.1,
+        "auto_return_timeout": 0.0,
+        "button_override": true
+    }
+}
