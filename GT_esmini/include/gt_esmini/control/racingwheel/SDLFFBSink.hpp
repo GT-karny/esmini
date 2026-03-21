@@ -26,6 +26,8 @@ private:
     void UpdateConstantEffect(double force);
     void UpdateSpringEffect(double coefficient);
     void UpdateDamperEffect(double coefficient);
+    void UpdateCombinedConstantForce(double sat_force, double spring_coeff, double damper_coeff,
+                                     double steering_pos, double steering_vel);
 
     SDL_Haptic* haptic_ = nullptr;
     bool        enabled_ = true;
@@ -40,11 +42,18 @@ private:
     bool has_spring_   = false;
     bool has_damper_   = false;
 
+    // Fallback: emulate spring/damper via constant force
+    bool emulate_via_constant_ = false;
+
     // Config
     double spring_coefficient_ = 0.5;
     double damper_coefficient_ = 0.3;
     double constant_gain_      = 1.0;
     double max_force_          = 1.0;
+
+    // State for emulation
+    double prev_steering_ = 0.0;
+    double speed_for_ps_  = 0.0;
 };
 
 } // namespace gt_esmini
