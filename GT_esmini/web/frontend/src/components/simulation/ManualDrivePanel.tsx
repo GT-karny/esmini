@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SlidePanel } from '../ui/SlidePanel';
-import { SelectInput, NumberInput, ToggleSwitch } from '../ui/Input';
+import { SelectInput, NumberInput } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useGamepadButtonCapture } from '../../hooks/useGamepadButtonCapture';
 import { api, type ManualDriveConfig, type ManualDrivePreset } from '../../api/client';
@@ -14,9 +14,9 @@ interface ManualDrivePanelProps {
 }
 
 const DEFAULT_CONFIG: ManualDriveConfig = {
-  input_type: 'stub',
+  input_type: 'sdl2_wheel',
   physics_type: 'real_vehicle',
-  ffb_enabled: false,
+  ffb_enabled: true,
   domain: { lateral: 'manual', longitudinal: 'manual' },
   sdl2: {
     device_index: 0,
@@ -238,26 +238,6 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
           </section>
         )}
 
-        {/* Force Feedback */}
-        <section>
-          <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">Force Feedback</h3>
-          <ToggleSwitch
-            label="Enable FFB"
-            checked={config.ffb_enabled}
-            onChange={(v) => set('ffb_enabled', v)}
-          />
-          {config.ffb_enabled && (
-            <div className="space-y-2 mt-2">
-              <RangeInput label="Spring" value={config.ffb.spring_coefficient} min={0} max={1} step={0.05}
-                onChange={(v) => onChange({ ...config, ffb: { ...config.ffb, spring_coefficient: v } })} />
-              <RangeInput label="Damper" value={config.ffb.damper_coefficient} min={0} max={1} step={0.05}
-                onChange={(v) => onChange({ ...config, ffb: { ...config.ffb, damper_coefficient: v } })} />
-              <RangeInput label="Gain" value={config.ffb.constant_gain} min={0} max={2} step={0.1}
-                onChange={(v) => onChange({ ...config, ffb: { ...config.ffb, constant_gain: v } })} />
-            </div>
-          )}
-        </section>
-
         {/* Actions */}
         <div className="flex gap-2 pt-2 border-t border-glass-edge">
           <Button variant="ghost" size="sm" onClick={() => onChange(DEFAULT_CONFIG)}>
@@ -277,29 +257,5 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
         )}
       </div>
     </SlidePanel>
-  );
-}
-
-// Simple range slider component (inline, not in ui/ to keep it local)
-function RangeInput({
-  label, value, min, max, step, onChange,
-}: {
-  label: string; value: number; min: number; max: number; step: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-text-secondary w-16 shrink-0">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 accent-primary h-1"
-      />
-      <span className="text-xs font-mono text-text-tertiary w-10 text-right">{value.toFixed(2)}</span>
-    </div>
   );
 }

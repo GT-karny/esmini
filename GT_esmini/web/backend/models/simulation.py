@@ -57,9 +57,9 @@ class ManualDriveFFBConfig(BaseModel):
 
 
 class ManualDriveControllerConfig(BaseModel):
-    input_type: str = "stub"
+    input_type: str = "sdl2_wheel"
     physics_type: str = "real_vehicle"
-    ffb_enabled: bool = False
+    ffb_enabled: bool = True
     domain: ManualDriveDomainConfig = ManualDriveDomainConfig()
     sdl2: ManualDriveSDL2Config = ManualDriveSDL2Config()
     input_network: ManualDriveNetworkInput = ManualDriveNetworkInput()
@@ -86,8 +86,8 @@ class WindowConfig(BaseModel):
 
 
 class ExecutionConfig(BaseModel):
-    headless: bool = True
-    record: bool = True
+    headless: bool = False
+    record: bool = False
     hz: int = 100
     no_realtime: bool = True
     timeout: int = 60

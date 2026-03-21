@@ -1,7 +1,7 @@
 {
-    "input_type": "stub",
+    "input_type": "sdl2_wheel",
     "physics_type": "real_vehicle",
-    "ffb_enabled": false,
+    "ffb_enabled": true,
     "input": {
         "device_index": 0,
         "deadzone": 0.05,

@@ -122,6 +122,20 @@ void ControllerManualDrive::Step(double timeStep)
     coordinator_->RunFrame(*this, timeStep);
 }
 
+void ControllerManualDrive::Deactivate()
+{
+    // Release FFB before scenario teardown so the wheel isn't left under torque
+    IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr;
+    if (!ffb) ffb = ffb_sink_;
+    if (ffb)
+    {
+        ffb->SetEnabled(false);
+    }
+
+    LOG_INFO("ManualDriveController: Deactivated — FFB released");
+    Controller::Deactivate();
+}
+
 int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
     LOG_INFO("ManualDriveController::Activate() called");

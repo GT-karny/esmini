@@ -150,6 +150,7 @@ struct ControlPipe
     HANDLE pipe_handle = INVALID_HANDLE_VALUE;
     std::thread reader_thread;
     std::atomic<bool> running{false};
+    std::atomic<bool> quit_requested{false};
     std::atomic<double> speed_factor{1.0};
 
     bool Start(const std::string& name)
@@ -219,7 +220,12 @@ struct ControlPipe
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (line.empty()) continue;
 
-            if (line.rfind("SPEED:", 0) == 0)
+            if (line == "QUIT")
+            {
+                printf("GT_Sim: QUIT received via control pipe\n");
+                quit_requested.store(true);
+            }
+            else if (line.rfind("SPEED:", 0) == 0)
             {
                 try
                 {
@@ -526,7 +532,11 @@ int main(int argc, const char* argv[])
     long long delayed_frames = 0;
 
     // 5. Main Loop
-    while (SE_GetQuitFlag() != 1)
+    while (SE_GetQuitFlag() != 1
+#ifdef _WIN32
+           && (!opts.control_pipe_name.empty() ? !controlPipe.quit_requested.load() : true)
+#endif
+    )
     {
         GT_Step(dt);
 

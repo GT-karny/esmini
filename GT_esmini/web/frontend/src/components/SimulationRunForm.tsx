@@ -16,9 +16,9 @@ import { ParameterOverrides } from './simulation/ParameterOverrides';
 import { AdvancedSettings } from './simulation/AdvancedSettings';
 
 const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
-  input_type: 'stub',
+  input_type: 'sdl2_wheel',
   physics_type: 'real_vehicle',
-  ffb_enabled: false,
+  ffb_enabled: true,
   domain: { lateral: 'manual', longitudinal: 'manual' },
   sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6 } },
   input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
@@ -72,7 +72,7 @@ export function SimulationRunForm({
 
   // Execution state
   const [hz, setHz] = useState(120);
-  const [headless, setHeadless] = useState(true);
+  const [headless, setHeadless] = useState(false);
   const [record, setRecord] = useState(false);
   const [noRealtime, setNoRealtime] = useState(false);
   const [timeout, setTimeout_] = useState(60);

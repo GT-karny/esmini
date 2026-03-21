@@ -753,6 +753,24 @@ GT_ESMINI_API void GT_EnableAutoLight()
 
 GT_ESMINI_API void GT_Close()
 {
+    // Release FFB before teardown so the wheel isn't left under torque
+    if (player && player->scenarioEngine)
+    {
+        for (auto* obj : player->scenarioEngine->entities_.object_)
+        {
+            if (obj)
+            {
+                for (auto* ctrl : obj->controllers_)
+                {
+                    if (ctrl)
+                    {
+                        ctrl->Deactivate();
+                    }
+                }
+            }
+        }
+    }
+
     s_hvdEstimator.Reset();
     gt_esmini::VehiclePhysicsManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();

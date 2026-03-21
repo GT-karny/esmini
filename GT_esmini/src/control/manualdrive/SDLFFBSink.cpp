@@ -297,43 +297,38 @@ void SDLFFBSink::UpdateCombinedConstantForce(double sat_force, double spring_coe
     double v = speed_for_ps_;
 
     // --- 1. Friction (Coulomb) ---
-    // U-shaped: 0.35 at stop → 0.05 at 8 m/s → 0.12 at 30 m/s
+    // U-shaped vs speed: heavy at stop, light mid-speed, heavier at high speed.
+    // Opposes steering motion direction (not angle).
     double friction_mag;
     if (v < 8.0)
     {
-        friction_mag = 0.35 - (0.35 - 0.05) * (v / 8.0);
+        friction_mag = 0.50 - (0.50 - 0.05) * (v / 8.0);  // 0.50 at stop → 0.05 at 8 m/s
     }
     else
     {
-        friction_mag = 0.05 + (0.12 - 0.05) * std::min((v - 8.0) / 22.0, 1.0);
+        friction_mag = 0.05 + (0.15 - 0.05) * std::min((v - 8.0) / 22.0, 1.0);  // → 0.15 at 30 m/s
     }
 
     // Reduce friction when returning to center so centering force wins
-    // Only apply reduction when clearly off-center (|pos| > 5 deg ≈ 0.087 rad)
-    // to avoid friction inconsistency near center
     bool returning = (steering_pos * steering_vel) < 0.0;
     double off_center = std::clamp(std::abs(steering_pos) / 0.087, 0.0, 1.0);
-    double friction_scale = returning ? (1.0 - 0.75 * off_center) : 1.0;  // 1.0 at center → 0.25 far out
+    double friction_scale = returning ? (1.0 - 0.70 * off_center) : 1.0;
 
-    // Steep tanh so friction engages even at low steering velocity
-    double friction = -std::tanh(steering_vel * 25.0) * friction_mag * damper_coeff * friction_scale;
+    // Smooth Coulomb: linear near zero velocity to prevent chattering
+    double friction = -std::tanh(steering_vel * 2.0) * friction_mag * friction_scale;
 
-    // --- 2. Centering (constant force toward center) ---
-    // Magnitude depends on speed only, NOT steering angle.
-    // Smooth onset from 0 m/s. No threshold — starts immediately.
-    // At 0 m/s: ~0.05 (very subtle), 2 km/h: ~0.18, 5 km/h: ~0.40, 14 km/h: 1.0
+    // --- 2. Centering (speed-dependent constant torque toward center) ---
+    // Magnitude depends on speed ONLY, NOT on steering angle.
+    // At a given speed the centering force is constant regardless of how far
+    // the wheel is turned — tanh is used only for smooth direction switching.
     double centering_onset = std::clamp(v / 4.0, 0.0, 1.0);
-    // Add small base so even at standstill there's a hint of centering
-    centering_onset = 0.05 + 0.95 * centering_onset;
-    // Additional boost at high speed for directional stability
+    centering_onset = 0.10 + 0.90 * centering_onset;  // 0.10 at stop, 1.0 at 4+ m/s
     double high_speed_boost = 1.0 + 0.5 * std::clamp((v - 15.0) / 15.0, 0.0, 1.0);
-    double centering_mag = spring_coeff * 0.35 * centering_onset * high_speed_boost;
+    double centering_mag = spring_coeff * centering_onset * high_speed_boost;
 
-    // Direction: constant force toward center
-    // Moderate tanh: transitions smoothly over ~±10 degrees (0.17 rad)
-    // Avoids "wall" feel at center while still reaching full magnitude quickly
-    // (tanh(x*12) ≈ ±0.95 for |x| > 0.15 rad ≈ 8.5°)
-    double centering = -std::tanh(steering_pos * 12.0) * centering_mag;
+    // Smooth sign switch: reaches ±0.93 by 0.2 rad (11°), ±0.99 by 0.35 rad (20°)
+    // Below ~11° the force ramps smoothly — no wall, no angle-proportional feel
+    double centering = -std::tanh(steering_pos * 8.0) * centering_mag;
 
     // --- 3. SAT (self-aligning torque) ---
     double sat = sat_force;

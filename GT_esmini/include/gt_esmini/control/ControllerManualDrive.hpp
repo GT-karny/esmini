@@ -25,6 +25,7 @@ public:
 
     void Step(double timeStep) override;
     int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
+    void Deactivate() override;
 
     const char* GetTypeName() override { return CONTROLLER_MANUAL_DRIVE_TYPE_NAME; }
 

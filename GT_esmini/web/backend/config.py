@@ -105,8 +105,8 @@ HTTP_PORT = int(os.environ.get("GT_SIM_HTTP_PORT", "8000"))
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "hz": 120,
-    "headless": True,
-    "record": True,
+    "headless": False,
+    "record": False,
     "no_realtime": False,
     "timeout": 60,
     "osi": {"enabled": True, "ip": "127.0.0.1"},

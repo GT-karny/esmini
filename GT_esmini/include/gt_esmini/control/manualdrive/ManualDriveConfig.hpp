@@ -8,9 +8,9 @@ namespace gt_esmini
 struct ManualDriveConfig
 {
     // Top-level type selection
-    std::string input_type   = "stub";          // "sdl2_wheel", "network", "stub"
-    std::string physics_type = "real_vehicle";   // "real_vehicle", "network"
-    bool        ffb_enabled  = false;
+    std::string input_type   = "sdl2_wheel";     // "sdl2_wheel", "network", "stub"
+    std::string physics_type = "real_vehicle";    // "real_vehicle", "network"
+    bool        ffb_enabled  = true;
 
     // Input: SDL2 wheel
     struct

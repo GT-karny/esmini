@@ -564,14 +564,31 @@ async def cancel_simulation(job_id: str) -> bool:
 
     if proc is not None:
         pid = proc.pid
-        # Step 1: Direct kill via process handle (most reliable)
+
+        # Step 1: Send QUIT via control pipe for graceful shutdown (FFB release)
+        pipe_name = None
+        with _pipes_lock:
+            pipe_name = _control_pipes.get(job_id)
+        if pipe_name and sys.platform == "win32":
+            try:
+                pipe_path = f"\\\\.\\pipe\\{pipe_name}"
+                with open(pipe_path, "wb") as pf:
+                    pf.write(b"QUIT\n")
+                    pf.flush()
+                _logger.info("Sent QUIT to simulation %s via pipe %s", job_id, pipe_name)
+                # Give GT_Sim time to run GT_Close() and release FFB
+                await asyncio.sleep(1.0)
+            except OSError as exc:
+                _logger.debug("Could not send QUIT via pipe for %s: %s", job_id, exc)
+
+        # Step 2: Force kill if still running
         try:
             proc.kill()
             _logger.info("Killed simulation %s (PID %d) via proc.kill()", job_id, pid)
         except OSError as exc:
             _logger.warning("proc.kill() failed for %s (PID %d): %s", job_id, pid, exc)
 
-        # Step 2: taskkill /T to also kill child process tree (Windows)
+        # Step 3: taskkill /T to also kill child process tree (Windows)
         if sys.platform == "win32":
             result = await asyncio.to_thread(
                 subprocess.run,
