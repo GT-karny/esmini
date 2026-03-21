@@ -101,7 +101,9 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/DriverInputReceiver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehicleStateUpdater.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/EsminiStateApplier.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -116,7 +118,9 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/DriverInputReceiver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp)
 
 # Embedded Python controller sources (always enabled)
 list(APPEND GT_CONTROL_SOURCES

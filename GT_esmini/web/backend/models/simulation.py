@@ -42,6 +42,7 @@ class ExecutionConfig(BaseModel):
     timeout: int = 60
     osi: OsiConfig = OsiConfig()
     autolight: bool = False
+    vehicle_physics: bool = True
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []

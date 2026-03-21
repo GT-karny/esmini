@@ -14,5 +14,35 @@
 
     "understeer_factor": 0.0015,
     "critical_speed": 30.0,
-    "max_understeer_reduction": 0.6
+    "max_understeer_reduction": 0.6,
+
+    "observed_vehicle": {
+        "default": {
+            "pitch_stiffness": 25.0,
+            "pitch_damping": 50.0,
+            "roll_stiffness": 30.0,
+            "roll_damping": 50.0,
+            "mass_height": 0.015,
+            "max_pitch_deg": 2.0,
+            "max_roll_deg": 2.0
+        },
+        "truck": {
+            "pitch_stiffness": 6.0,
+            "pitch_damping": 2.5,
+            "roll_stiffness": 8.0,
+            "roll_damping": 2.5,
+            "mass_height": 0.08,
+            "max_pitch_deg": 4.0,
+            "max_roll_deg": 6.0
+        },
+        "bus": {
+            "pitch_stiffness": 7.0,
+            "pitch_damping": 2.5,
+            "roll_stiffness": 9.0,
+            "roll_damping": 2.5,
+            "mass_height": 0.07,
+            "max_pitch_deg": 4.0,
+            "max_roll_deg": 5.0
+        }
+    }
 }

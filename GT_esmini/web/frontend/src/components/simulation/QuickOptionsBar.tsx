@@ -9,6 +9,8 @@ export interface QuickOptionsBarProps {
   setNoRealtime: (v: boolean) => void;
   autolight: boolean;
   setAutolight: (v: boolean) => void;
+  vehiclePhysics: boolean;
+  setVehiclePhysics: (v: boolean) => void;
 }
 
 const IconWindow = ({ headless }: { headless: boolean }) =>
@@ -41,6 +43,13 @@ const IconAutoLight = () => (
   </svg>
 );
 
+const IconVehiclePhysics = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+    <path d="M3 9.5C3 8.1 4.1 7 5.5 7h5C11.9 7 13 8.1 13 9.5V11h-1v1h-2v-1H6v1H4v-1H3V9.5zM5 10a1 1 0 100-2 1 1 0 000 2zm6 0a1 1 0 100-2 1 1 0 000 2z" />
+    <path d="M4.5 6L5 4.5C5.2 3.6 6 3 7 3h2c1 0 1.8.6 2 1.5L11.5 6h-7z" opacity="0.6" />
+  </svg>
+);
+
 export function QuickOptionsBar({
   headless,
   setHeadless,
@@ -50,6 +59,8 @@ export function QuickOptionsBar({
   setNoRealtime,
   autolight,
   setAutolight,
+  vehiclePhysics,
+  setVehiclePhysics,
 }: QuickOptionsBarProps) {
   return (
     <div className="flex items-center gap-2">
@@ -57,6 +68,7 @@ export function QuickOptionsBar({
       <IconToggle icon={<IconRecord />} label="Record" active={record} onChange={setRecord} />
       <IconToggle icon={<IconFastForward />} label="No Realtime" active={noRealtime} onChange={setNoRealtime} />
       <IconToggle icon={<IconAutoLight />} label="AutoLight" active={autolight} onChange={setAutolight} />
+      <IconToggle icon={<IconVehiclePhysics />} label="Physics" active={vehiclePhysics} onChange={setVehiclePhysics} />
     </div>
   );
 }

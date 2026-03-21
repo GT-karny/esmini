@@ -147,6 +147,8 @@ def _build_cmd(
         cmd.extend(["--osi", execution.osi.ip])
     if execution.autolight:
         cmd.append("--autolight")
+    if execution.vehicle_physics:
+        cmd.append("--vehicle-physics")
     if execution.threads and not execution.headless:
         cmd.append("--threads")
     if not execution.headless:

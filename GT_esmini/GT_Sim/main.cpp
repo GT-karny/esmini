@@ -50,6 +50,9 @@ struct GtSimOptions
     bool autolight = false;
     bool autolight_egoless = false;
 
+    // Vehicle Physics (observed pitch/roll for non-GT-controller vehicles)
+    bool vehicle_physics = false;
+
     // OSI
     std::string osi_ip;  // empty = disabled
 
@@ -78,6 +81,7 @@ static void PrintUsage()
     printf("GT_Sim-specific options:\n");
     printf("  --autolight          Enable AutoLight functionality\n");
     printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
+    printf("  --vehicle-physics    Enable observed vehicle physics (pitch/roll) for traffic vehicles\n");
     printf("  --osi <ip>           Enable OSI output to specified IP\n");
     printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
     printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
@@ -293,6 +297,10 @@ int main(int argc, const char* argv[])
             opts.autolight = true;
             opts.autolight_egoless = true;
         }
+        else if (arg == "--vehicle-physics")
+        {
+            opts.vehicle_physics = true;
+        }
         else if (arg == "--osi" && i + 1 < argc)
         {
             opts.osi_ip = argv[++i];
@@ -483,6 +491,13 @@ int main(int argc, const char* argv[])
     {
         printf("GT_Sim: Enabling AutoLight\n");
         GT_EnableAutoLight();
+    }
+
+    // 2b. Enable Vehicle Physics if requested
+    if (opts.vehicle_physics)
+    {
+        printf("GT_Sim: Enabling Vehicle Physics\n");
+        GT_EnableVehiclePhysics();
     }
 
     // 3. Open OSI Socket if requested

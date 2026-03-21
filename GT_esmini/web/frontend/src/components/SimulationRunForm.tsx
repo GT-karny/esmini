@@ -64,6 +64,7 @@ export function SimulationRunForm({
   const [osiEnabled, setOsiEnabled] = useState(true);
   const [osiIp, setOsiIp] = useState('127.0.0.1');
   const [autolight, setAutolight] = useState(true);
+  const [vehiclePhysics, setVehiclePhysics] = useState(true);
   const [threads, setThreads] = useState(true);
   const [winX, setWinX] = useState(60);
   const [winY, setWinY] = useState(60);
@@ -97,7 +98,7 @@ export function SimulationRunForm({
     if (!rerunFrom) return;
     const opts = rerunFrom as {
       controller?: { controller_type?: string; python?: { script?: string; python_class?: string; class?: string; trace_enabled?: boolean } };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number } };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number } };
     };
 
     if (opts.controller) {
@@ -118,6 +119,7 @@ export function SimulationRunForm({
       if (exec.timeout !== undefined) setTimeout_(exec.timeout);
       if (exec.osi) { setOsiEnabled(exec.osi.enabled); setOsiIp(exec.osi.ip); }
       if (exec.autolight !== undefined) setAutolight(exec.autolight);
+      if (exec.vehicle_physics !== undefined) setVehiclePhysics(exec.vehicle_physics);
       if (exec.threads !== undefined) setThreads(exec.threads);
       if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
     }
@@ -136,6 +138,7 @@ export function SimulationRunForm({
       setOsiEnabled(execDefaults.osi.enabled);
       setOsiIp(execDefaults.osi.ip);
       setAutolight(execDefaults.autolight);
+      if (execDefaults.vehicle_physics !== undefined) setVehiclePhysics(execDefaults.vehicle_physics);
       if (execDefaults.threads !== undefined) setThreads(execDefaults.threads);
       if (execDefaults.window) {
         setWinX(execDefaults.window.x);
@@ -209,6 +212,7 @@ export function SimulationRunForm({
           timeout,
           osi: { enabled: osiEnabled, ip: osiIp },
           autolight,
+          vehicle_physics: vehiclePhysics,
           threads,
           window: { x: winX, y: winY, w: winW, h: winH },
           extra_args: [],
@@ -269,6 +273,8 @@ export function SimulationRunForm({
         setNoRealtime={setNoRealtime}
         autolight={autolight}
         setAutolight={setAutolight}
+        vehiclePhysics={vehiclePhysics}
+        setVehiclePhysics={setVehiclePhysics}
       />
 
       {/* Parameter Overrides (project context only, hidden when managed externally) */}

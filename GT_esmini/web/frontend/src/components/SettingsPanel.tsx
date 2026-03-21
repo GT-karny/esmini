@@ -18,6 +18,7 @@ const HARDCODED_DEFAULTS: ExecutionDefaults = {
   timeout: 60,
   osi: { enabled: true, ip: '127.0.0.1' },
   autolight: true,
+  vehicle_physics: true,
   threads: true,
   window: { x: 60, y: 60, w: 1280, h: 720 },
 };
@@ -54,6 +55,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
   const [osiEnabled, setOsiEnabled] = useState(defaults.osi.enabled);
   const [osiIp, setOsiIp] = useState(defaults.osi.ip);
   const [autolight, setAutolight] = useState(defaults.autolight);
+  const [vehiclePhysics, setVehiclePhysics] = useState(defaults.vehicle_physics);
   const [threads, setThreads] = useState(defaults.threads);
   const [winX, setWinX] = useState(defaults.window.x);
   const [winY, setWinY] = useState(defaults.window.y);
@@ -91,6 +93,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
       timeout,
       osi: { enabled: osiEnabled, ip: osiIp },
       autolight,
+      vehicle_physics: vehiclePhysics,
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
     });
@@ -106,6 +109,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
     setOsiEnabled(d.osi.enabled);
     setOsiIp(d.osi.ip);
     setAutolight(d.autolight);
+    setVehiclePhysics(d.vehicle_physics);
     setThreads(d.threads);
     setWinX(d.window.x);
     setWinY(d.window.y);
@@ -126,6 +130,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
           <Checkbox label="Record" checked={record} onChange={(e) => setRecord(e.target.checked)} />
           <Checkbox label="No Realtime" checked={noRealtime} onChange={(e) => setNoRealtime(e.target.checked)} />
           <Checkbox label="AutoLight" checked={autolight} onChange={(e) => setAutolight(e.target.checked)} />
+          <Checkbox label="Vehicle Physics" checked={vehiclePhysics} onChange={(e) => setVehiclePhysics(e.target.checked)} />
           <Checkbox label="OSI Output" checked={osiEnabled} onChange={(e) => setOsiEnabled(e.target.checked)} />
         </div>
 

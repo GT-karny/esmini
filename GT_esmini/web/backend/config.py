@@ -111,6 +111,7 @@ DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "timeout": 60,
     "osi": {"enabled": True, "ip": "127.0.0.1"},
     "autolight": True,
+    "vehicle_physics": True,
     "threads": True,
     "window": {"x": 60, "y": 60, "w": 1280, "h": 720},
 }

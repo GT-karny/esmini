@@ -71,6 +71,7 @@ export interface ExecutionDefaults {
   timeout: number;
   osi: { enabled: boolean; ip: string };
   autolight: boolean;
+  vehicle_physics: boolean;
   threads: boolean;
   window: WindowConfig;
 }
@@ -87,6 +88,7 @@ export interface SimulationRequest {
     timeout: number;
     osi: { enabled: boolean; ip: string };
     autolight: boolean;
+    vehicle_physics: boolean;
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];
