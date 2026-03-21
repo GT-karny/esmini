@@ -115,6 +115,15 @@ cp -r GT_esmini/web/electron/release/GT_Sim-win32-x64/* dist/GT_Sim_v<VERSION>/ 
 > FastAPIサーバー（`server/gt_sim_web.exe`）はElectronからchild processとしてspawnされる。
 > GT_Sim.exe（C++シミュレーション）はFastAPIからさらにsubprocessとして起動される。
 
+### Step 3b: Electronパッケージ軽量化
+
+localesを英語のみに絞る。`ffmpeg.dll` はElectron起動に必要なため削除しないこと。
+
+```bash
+# Keep only en-US locale, remove all others
+find dist/GT_Sim_v<VERSION>/locales/ -type f ! -name "en-US.pak" -delete
+```
+
 ### Step 4: 結果サマリ表示
 
 ```bash
