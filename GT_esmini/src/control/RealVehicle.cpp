@@ -1,4 +1,5 @@
 #include "gt_esmini/control/RealVehicle.hpp"
+#include "logger.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -36,23 +37,33 @@ RealVehicle::RealVehicle() : vehicle::Vehicle()
 void RealVehicle::LoadParameters(const std::string& filename)
 {
     std::ifstream file(filename);
-    if (!file.is_open()) 
+    if (!file.is_open())
     {
-        // LOG_INFO("RealVehicle params not found, using defaults: {}", filename);
+        LOG_INFO("RealVehicle: params NOT FOUND, using defaults: {}", filename);
         return;
     }
+    LOG_INFO("RealVehicle: Loading params from: {}", filename);
 
     std::string line;
+    int brace_depth = 0;  // Track nested JSON objects to skip "observed_vehicle" etc.
     while (std::getline(file, line))
     {
+        // Track brace depth — only parse top-level keys (depth <= 1)
+        for (char ch : line)
+        {
+            if (ch == '{') ++brace_depth;
+            else if (ch == '}') --brace_depth;
+        }
+        if (brace_depth > 1)
+            continue;  // Inside nested object (e.g. "observed_vehicle"), skip
+
         // Very simple "key": value parser
-        auto parse_val = [&](const std::string& key, double& val) 
+        auto parse_val = [&](const std::string& key, double& val)
         {
              if (line.find(key) != std::string::npos) {
                  size_t colon = line.find(":");
                  if (colon != std::string::npos) {
                      try {
-                         // Simple cleanup of value string could be needed but stod is robust ignoring leading whitespace
                          val = std::stod(line.substr(colon + 1));
                      } catch (...) {}
                  }
@@ -64,7 +75,7 @@ void RealVehicle::LoadParameters(const std::string& filename)
         parse_val("roll_stiffness", params_.roll_stiffness);
         parse_val("roll_damping", params_.roll_damping);
         parse_val("mass_height", params_.mass_height);
-        parse_val("center_of_rotation_z_offset", params_.center_of_rotation_z_offset); 
+        parse_val("center_of_rotation_z_offset", params_.center_of_rotation_z_offset);
         parse_val("max_pitch_deg", params_.max_pitch_deg);
         parse_val("max_roll_deg", params_.max_roll_deg);
         parse_val("steer_gain", params_.steer_gain);
@@ -83,6 +94,13 @@ void RealVehicle::LoadParameters(const std::string& filename)
 
     SetMaxAcc(params_.max_acc);
     SetMaxSpeed(params_.max_speed);
+
+    LOG_INFO("RealVehicle: Loaded params: pitch_stiff={}, pitch_damp={}, roll_stiff={}, roll_damp={}, "
+             "mass_h={}, max_pitch={}deg, max_roll={}deg, steer_gain={}, max_acc={}, max_spd={}",
+             params_.pitch_stiffness, params_.pitch_damping,
+             params_.roll_stiffness, params_.roll_damping,
+             params_.mass_height, params_.max_pitch_deg, params_.max_roll_deg,
+             params_.steer_gain, params_.max_acc, params_.max_speed);
 }
 
 void RealVehicle::GetBodyPositionOffset(double& dx, double& dy, double& dz)
@@ -339,11 +357,15 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     roll_rate_ += roll_acc * dt;
     dynamic_roll_ += roll_rate_ * dt;
 
-    // Clamp dynamic angles
+    // Clamp dynamic angles and kill velocity when hitting the limit
     double lim_p = params_.max_pitch_deg * M_PI / 180.0;
     double lim_r = params_.max_roll_deg * M_PI / 180.0;
-    dynamic_pitch_ = Clamp(dynamic_pitch_, -lim_p, lim_p);
-    dynamic_roll_ = Clamp(dynamic_roll_, -lim_r, lim_r);
+
+    if (dynamic_pitch_ > lim_p)       { dynamic_pitch_ = lim_p;  pitch_rate_ = std::min(pitch_rate_, 0.0); }
+    else if (dynamic_pitch_ < -lim_p) { dynamic_pitch_ = -lim_p; pitch_rate_ = std::max(pitch_rate_, 0.0); }
+
+    if (dynamic_roll_ > lim_r)       { dynamic_roll_ = lim_r;  roll_rate_ = std::min(roll_rate_, 0.0); }
+    else if (dynamic_roll_ < -lim_r) { dynamic_roll_ = -lim_r; roll_rate_ = std::max(roll_rate_, 0.0); }
 
     // Combined attitude (terrain + dynamic)
     pitch_ = terrain_pitch_ + dynamic_pitch_;
