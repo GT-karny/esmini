@@ -5,6 +5,9 @@
 #include "gt_esmini/control/racingwheel/NullFFBSink.hpp"
 #include "gt_esmini/control/racingwheel/StubInputSource.hpp"
 #include "gt_esmini/control/racingwheel/RealVehicleBackend.hpp"
+#ifdef GT_ENABLE_SDL2
+#include "gt_esmini/control/racingwheel/SDL2WheelInput.hpp"
+#endif
 #include "gt_esmini/control/racingwheel/RacingWheelCoordinator.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
@@ -44,9 +47,7 @@ ControllerRacingWheel::ControllerRacingWheel(InitArgs* args)
 #ifdef GT_ENABLE_SDL2
     if (config_.input_type == "sdl2_wheel")
     {
-        // SDL2WheelInput will be created in Phase 4
-        LOG_INFO("RacingWheelController: SDL2 wheel input requested but not yet implemented, falling back to stub");
-        input_source_ = new StubInputSource();
+        input_source_ = new SDL2WheelInput();
     }
     else
 #endif
@@ -78,6 +79,8 @@ ControllerRacingWheel::ControllerRacingWheel(InitArgs* args)
     }
 
     // Create FFB sink
+    // For SDL2 wheel, FFB comes from the input source's GetFFBSink()
+    // For all other cases, use NullFFBSink as the owned sink
     ffb_sink_ = new NullFFBSink();
 
     // Configure override manager

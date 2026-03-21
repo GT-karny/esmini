@@ -56,6 +56,16 @@ message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, versi
 message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
 message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
 
+# ############################### Optional: SDL2 for racing wheel FFB support ########################################################################
+
+option(GT_ENABLE_SDL2 "Enable SDL2 for racing wheel input and force feedback" OFF)
+
+if(GT_ENABLE_SDL2)
+    set(SDL2_DIR "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/cmake")
+    find_package(SDL2 REQUIRED)
+    message(STATUS "GT_esmini: SDL2 enabled (${SDL2_VERSION})")
+endif()
+
 # ############################### Setting target files ###############################################################################################
 
 set(GT_CORE_SOURCES
@@ -150,6 +160,16 @@ list(APPEND GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+
+# SDL2 racing wheel sources (conditional)
+if(GT_ENABLE_SDL2)
+    list(APPEND GT_CONTROL_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/SDL2WheelInput.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/racingwheel/SDLFFBSink.cpp)
+    list(APPEND GT_CONTROL_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/SDL2WheelInput.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/racingwheel/SDLFFBSink.hpp)
+endif()
 
 set(GT_OSI_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/GT_HostVehicleReporter.cpp
@@ -260,6 +280,13 @@ target_link_libraries(${GT_OSI_TARGET} PRIVATE ${GT_CORE_TARGET} ${GT_SCENARIO_T
 if(USE_OSG)
     target_link_libraries(${GT_CONTROL_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
     target_link_libraries(${GT_OSI_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+endif()
+
+if(GT_ENABLE_SDL2)
+    foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${GT_CORE_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
+        target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_SDL2)
+        target_link_libraries(${TARGET} PRIVATE SDL2::SDL2)
+    endforeach()
 endif()
 
 target_sources(${TARGET_SHARED} PRIVATE

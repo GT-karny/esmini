@@ -43,10 +43,12 @@ void RacingWheelCoordinator::RunFrame(ControllerRacingWheel& c, double dt) const
         hvd = c.physics_backend_->StepPedalSteer(c.last_cmd_, dt);
     }
 
-    // 4. FFB update (only for compatible devices)
-    if (c.ffb_sink_)
+    // 4. FFB update (prefer input source's FFB, fallback to controller's)
+    IFFBSink* ffb = c.input_source_->GetFFBSink();
+    if (!ffb) ffb = c.ffb_sink_;
+    if (ffb)
     {
-        c.ffb_sink_->Update(hvd, dt);
+        ffb->Update(hvd, dt);
     }
 
     // 5. Extract vehicle state from HVD for gateway sync
