@@ -69,13 +69,15 @@ private:
     std::map<int, VehicleCache> cache_;
 
     // Physics constants (matching RealVehicle defaults for plausible output)
-    static constexpr double kIdleRPM       = 800.0;
-    static constexpr double kMaxRPM        = 7000.0;
+    static constexpr double kIdleRPM       = 700.0;
+    static constexpr double kMaxRPM        = 6500.0;
     static constexpr double kGearRatio     = 3.5;
     static constexpr double kWheelRadius   = 0.32;   // [m]
-    static constexpr double kDefaultMaxAcc = 10.0;    // [m/s^2]
+    static constexpr double kDefaultMaxAcc = 4.0;     // [m/s^2] (Corolla/Civic class)
     static constexpr double kDefaultMaxDec = 10.0;    // [m/s^2]
-    static constexpr double kDragCoeff     = 0.005;
+    static constexpr double kDragCoeff     = 0.0013;
+    static constexpr double kTorquePeakPos = 0.65;    // Normalized RPM for peak torque
+    static constexpr double kTorqueMin     = 0.3;     // Min normalized torque at idle/redline
     static constexpr double kSpeedThreshold = 0.01;   // [m/s] threshold for standstill
     static constexpr double kMaxSteerRate       = 1.5;  // [rad/s] max steering rate limit
     static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)

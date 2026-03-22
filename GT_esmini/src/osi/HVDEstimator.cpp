@@ -170,10 +170,15 @@ double HVDEstimator::EstimateRPM(double abs_speed) const
 
 double HVDEstimator::EstimateTorque(double rpm) const
 {
-    // Same parabolic torque curve as RealVehicle::GetTorque
+    // Asymmetric torque curve matching RealVehicle::GetTorque
     double normalized_rpm = (rpm - kIdleRPM) / (kMaxRPM - kIdleRPM);
     normalized_rpm        = std::max(0.0, std::min(1.0, normalized_rpm));
-    return 0.4 + 0.6 * (4.0 * normalized_rpm * (1.0 - normalized_rpm));
+
+    double half_width = std::max(kTorquePeakPos, 1.0 - kTorquePeakPos);
+    double shape = 1.0 - ((normalized_rpm - kTorquePeakPos) / half_width) * ((normalized_rpm - kTorquePeakPos) / half_width);
+    shape = std::max(0.0, shape);
+
+    return kTorqueMin + (1.0 - kTorqueMin) * shape;
 }
 
 int HVDEstimator::BuildLightMaskForObject(scenarioengine::Object* obj)

@@ -20,9 +20,9 @@ namespace gt_esmini
 
 RealVehicle::RealVehicle() : vehicle::Vehicle()
 {
-    // Default tuning values
-    idle_rpm_ = 800.0;
-    max_rpm_ = 7000.0;
+    // Default tuning values (Corolla/Civic class economy sedan)
+    idle_rpm_ = 700.0;
+    max_rpm_ = 6500.0;
     rpm_ = idle_rpm_;
     gear_ratio_ = 3.5; // Final drive * generic gear
     
@@ -81,10 +81,17 @@ void RealVehicle::LoadParameters(const std::string& filename)
         parse_val("steer_gain", params_.steer_gain);
         parse_val("max_speed", params_.max_speed);
         parse_val("max_acc", params_.max_acc);
+        parse_val("max_dec", params_.max_dec);
         parse_val("idle_rpm", idle_rpm_);
         parse_val("max_rpm", max_rpm_);
         parse_val("gear_ratio", gear_ratio_);
         parse_val("reverse_gear_ratio", params_.reverse_gear_ratio);
+
+        // Powertrain parameters
+        parse_val("drag_coeff", params_.drag_coeff);
+        parse_val("engine_brake", params_.engine_brake);
+        parse_val("torque_peak_pos", params_.torque_peak_pos);
+        parse_val("torque_min", params_.torque_min);
 
         // Understeer parameters
         parse_val("understeer_factor", params_.understeer_factor);
@@ -93,14 +100,17 @@ void RealVehicle::LoadParameters(const std::string& filename)
     }
 
     SetMaxAcc(params_.max_acc);
+    SetMaxDec(params_.max_dec);
     SetMaxSpeed(params_.max_speed);
 
     LOG_INFO("RealVehicle: Loaded params: pitch_stiff={}, pitch_damp={}, roll_stiff={}, roll_damp={}, "
-             "mass_h={}, max_pitch={}deg, max_roll={}deg, steer_gain={}, max_acc={}, max_spd={}",
+             "mass_h={}, max_pitch={}deg, max_roll={}deg, steer_gain={}, max_acc={}, max_dec={}, max_spd={}, "
+             "drag={}, eng_brake={}, torque_peak={}, torque_min={}",
              params_.pitch_stiffness, params_.pitch_damping,
              params_.roll_stiffness, params_.roll_damping,
              params_.mass_height, params_.max_pitch_deg, params_.max_roll_deg,
-             params_.steer_gain, params_.max_acc, params_.max_speed);
+             params_.steer_gain, params_.max_acc, params_.max_dec, params_.max_speed,
+             params_.drag_coeff, params_.engine_brake, params_.torque_peak_pos, params_.torque_min);
 }
 
 void RealVehicle::GetBodyPositionOffset(double& dx, double& dy, double& dz)
@@ -120,19 +130,22 @@ void RealVehicle::GetBodyPositionOffset(double& dx, double& dy, double& dz)
 
 double RealVehicle::GetTorque(double current_rpm) const
 {
-    // Very simple torque curve: peaking at mid range (e.g., 3000-4000)
-    // Normalized 0..1 output, will be multiplied by MaxAcc later
-    
-    // Parabolic-ish curve
+    // Normalized torque curve [0..1], multiplied by MaxAcc to get acceleration.
+    // Uses an asymmetric parabola peaking at torque_peak_pos (e.g. 0.65 for NA engine).
+
     double normalized_rpm = (current_rpm - idle_rpm_) / (max_rpm_ - idle_rpm_);
-    if (normalized_rpm < 0) normalized_rpm = 0;
-    if (normalized_rpm > 1) normalized_rpm = 1;
-    
-    // Peak torque at 50% RPM range
-    // 4 * x * (1-x) gives parabola 0->1->0
-    // Allow some torque at idle and redline
-    double base_torque = 0.4 + 0.6 * (4.0 * normalized_rpm * (1.0 - normalized_rpm));
-    return base_torque;
+    normalized_rpm = std::max(0.0, std::min(1.0, normalized_rpm));
+
+    // Asymmetric parabola: peak at torque_peak_pos, normalized to 0..1
+    double p = params_.torque_peak_pos;
+    // f(x) = 1 - ((x - p) / max(p, 1-p))^2, rescaled so peak = 1
+    double half_width = std::max(p, 1.0 - p);
+    double shape = 1.0 - ((normalized_rpm - p) / half_width) * ((normalized_rpm - p) / half_width);
+    shape = std::max(0.0, shape);
+
+    // Blend: torque_min at endpoints, 1.0 at peak
+    double torque = params_.torque_min + (1.0 - params_.torque_min) * shape;
+    return torque;
 }
 
 void RealVehicle::SetTerrainAttitude(double pitch, double roll)
@@ -210,13 +223,13 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
         deceleration_force = brake * GetMaxDec(); // Brake power
     }
     
-    // Engine braking (drag)
-    double drag_force = speed_ * speed_ * 0.005; // Air drag
+    // Aerodynamic drag + engine braking
+    double drag_force = speed_ * speed_ * params_.drag_coeff; // Air drag [m/s²]
     if (speed_ < 0) drag_force = -drag_force; // Drag always opposes motion
-    if (throttle < 0.05) 
+    if (throttle < 0.05)
     {
-        if (speed_ > 0) drag_force += engine_brake_factor_; 
-        else if (speed_ < 0) drag_force -= engine_brake_factor_;
+        if (speed_ > 0) drag_force += params_.engine_brake;
+        else if (speed_ < 0) drag_force -= params_.engine_brake;
     }
     
     // Net Acceleration
