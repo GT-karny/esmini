@@ -484,11 +484,10 @@ async def list_scenarios(project_id: str) -> list[ScenarioInfo] | None:
     if not root.is_dir():
         return []
 
-    # For builtin project, scan xosc/ subdirectory
-    if proj.is_builtin:
-        scan_dir = root / "xosc"
-    else:
-        scan_dir = root
+    # Always scan xosc/ subdirectory
+    scan_dir = root / "xosc"
+    if not scan_dir.is_dir():
+        return []
 
     scenarios: list[ScenarioInfo] = []
     for xosc in sorted(scan_dir.glob("*.xosc")):
