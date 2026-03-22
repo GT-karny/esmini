@@ -32,6 +32,10 @@ namespace gt_esmini
         void SetEngineBrakeFactor(double val) { engine_brake_factor_ = val; }
         double engine_brake_factor_ = 0.49;
 
+        // Acceleration state (populated by UpdatePhysics, used by FFB)
+        double latAcc_  = 0.0;   // lateral acceleration [m/s^2] (vehicle frame)
+        double longAcc_ = 0.0;   // longitudinal acceleration [m/s^2] (vehicle frame)
+
         // Terrain attitude integration (NEW)
         void SetTerrainAttitude(double pitch, double roll);
         void GetCombinedAttitude(double& pitch, double& roll) const;

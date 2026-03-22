@@ -25,10 +25,22 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         return false;
     }
 
-    spring_coefficient_ = config.ffb.spring_coefficient;
-    damper_coefficient_ = config.ffb.damper_coefficient;
-    constant_gain_      = config.ffb.constant_gain;
-    max_force_          = config.ffb.max_force;
+    sat_gain_            = config.ffb.sat_gain;
+    sat_centering_gain_  = config.ffb.sat_centering_gain;
+    friction_base_       = config.ffb.friction_base;
+    friction_speed_gain_ = config.ffb.friction_speed_gain;
+    damper_base_         = config.ffb.damper_base;
+    damper_speed_gain_   = config.ffb.damper_speed_gain;
+    soft_stop_gain_      = config.ffb.soft_stop_gain;
+    lock_angle_          = config.ffb.lock_angle;
+    assist_low_speed_    = config.ffb.assist_low_speed;
+    assist_high_speed_   = config.ffb.assist_high_speed;
+    max_force_           = config.ffb.max_force;
+
+    LOG_INFO("SDLFFBSink: Config loaded — sat_gain={:.3f} centering={:.3f} fric_base={:.3f} fric_spd={:.3f} "
+             "damp_base={:.3f} damp_spd={:.3f} assist_lo={:.2f} assist_hi={:.2f} max_force={:.2f}",
+             sat_gain_, sat_centering_gain_, friction_base_, friction_speed_gain_,
+             damper_base_, damper_speed_gain_, assist_low_speed_, assist_high_speed_, max_force_);
 
     if (!SDL_JoystickIsHaptic(joystick))
     {
@@ -159,41 +171,35 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
         steering_pos = hvd.vehicle_steering().vehicle_steering_wheel().angle();
     }
 
-    double speed_factor = std::min(speed / 30.0, 1.0);
-
     if (emulate_via_constant_)
     {
-        // Combine all forces into single constant effect for devices like G29
         double steering_vel = (steering_pos - prev_steering_) / std::max(dt, 0.001);
         prev_steering_ = steering_pos;
-        speed_for_ps_ = speed;
 
-        double sat_force = -lat_accel * constant_gain_ * speed_factor;  // SAT grows with speed
-        double spring_coeff = spring_coefficient_;  // Not speed-scaled (mild constant centering)
-        double damper_coeff = damper_coefficient_;
-
-        UpdateCombinedConstantForce(sat_force, spring_coeff, damper_coeff,
-                                    steering_pos, steering_vel);
+        UpdateCombinedConstantForce(lat_accel, speed, steering_pos, steering_vel);
         return;
     }
 
-    // Native effects path
+    // Native effects path — use SAT via constant, spring/damper as available
+    double speed_factor = std::clamp(speed / 30.0, 0.0, 1.0);
+
     if (has_constant_ && constant_effect_id_ >= 0)
     {
-        double force = -lat_accel * constant_gain_;
+        double assist_ratio = assist_low_speed_ + (assist_high_speed_ - assist_low_speed_) * speed_factor;
+        double force = -lat_accel * sat_gain_ * (1.0 - assist_ratio);
         force = std::clamp(force, -max_force_, max_force_);
         UpdateConstantEffect(force);
     }
 
     if (has_spring_ && spring_effect_id_ >= 0)
     {
-        double coeff = spring_coefficient_ * speed_factor;
+        double coeff = friction_base_ + friction_speed_gain_ * speed_factor;
         UpdateSpringEffect(coeff);
     }
 
     if (has_damper_ && damper_effect_id_ >= 0)
     {
-        double coeff = damper_coefficient_ * speed_factor;
+        double coeff = damper_base_ + damper_speed_gain_ * speed_factor;
         UpdateDamperEffect(coeff);
     }
 }
@@ -278,70 +284,75 @@ void SDLFFBSink::UpdateDamperEffect(double coefficient)
     SDL_HapticUpdateEffect(haptic_, damper_effect_id_, &effect);
 }
 
-void SDLFFBSink::UpdateCombinedConstantForce(double sat_force, double spring_coeff, double damper_coeff,
+void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
                                               double steering_pos, double steering_vel)
 {
-    // === FFB Model v4 ===
+    // === FFB Model v5: Physics-Inspired ===
     //
-    // Two components only:
-    //   1. Friction: Coulomb model, opposes steering motion. U-shaped vs speed.
-    //   2. Centering: constant-magnitude force toward center. Speed-dependent magnitude.
-    //      NOT proportional to steering angle — just a fixed push toward zero.
+    // Four components:
+    //   1. SAT:      Self-aligning torque from lateral acceleration (replaces centering)
+    //   2. Friction:  Coulomb friction — opposes steering motion (steering weight)
+    //   3. Damping:   Velocity-proportional resistance (viscous)
+    //   4. SoftStop:  Progressive resistance near steering lock
     //
-    // Speed behavior:
-    //   0 m/s:   Heavy friction, no centering. Wheel stays put.
-    //   ~5 km/h: Friction drops, centering appears → wheel returns to center on its own.
-    //   8+ m/s:  Light friction, moderate centering.
-    //   30 m/s:  Heavier friction (stability), strong centering + SAT.
+    // No artificial centering force. Centering IS the SAT.
 
-    double v = speed_for_ps_;
+    double speed_factor = std::clamp(speed / 30.0, 0.0, 1.0);
 
-    // --- 1. Friction (Coulomb) ---
-    // U-shaped vs speed: heavy at stop, light mid-speed, heavier at high speed.
-    // Opposes steering motion direction (not angle).
-    double friction_mag;
-    if (v < 8.0)
+    // --- 1. SAT (Self-Aligning Torque) ---
+    // Two components:
+    //   Predictive: steering angle → slip angle → Fy → SAT (immediate response)
+    //   Reactive:   lat_accel as Fy/m proxy (delayed, carries grip-limit info)
+
+    // Power assist: high assist at low speed (light parking), low at high speed (heavy, stable)
+    double assist_ratio = assist_low_speed_ + (assist_high_speed_ - assist_low_speed_) * speed_factor;
+    double manual_ratio = 1.0 - assist_ratio;
+
+    // Caster trail centering: geometric effect from caster angle + mechanical trail.
+    // Any forward motion + nonzero steering angle → restoring torque.
+    // NOT affected by power assist (it's a geometric/tire effect, not column torque).
+    // Gentle onset: begins at walking speed (~1 m/s), full effect by ~5 m/s.
+    double caster_onset = std::clamp(speed / 5.0, 0.0, 1.0);
+    double sat_predictive = -steering_pos * sat_centering_gain_ * caster_onset;
+
+    // Reactive SAT: from actual lateral acceleration (richer dynamics, grip-limit lightening).
+    double slip_proxy = std::clamp(std::abs(lat_accel) / 9.81, 0.0, 1.0);
+    double trail_factor = std::max(0.0, 1.0 - slip_proxy * slip_proxy);
+    double sat_reactive = -lat_accel * sat_gain_ * trail_factor * manual_ratio;
+
+    double sat = sat_predictive + sat_reactive;
+
+    // --- 2. Friction (Coulomb) ---
+    // Opposes steering velocity in both directions — this is the "weight" of steering.
+    // Increases slightly with speed for highway stability.
+    double friction_mag = friction_base_ + friction_speed_gain_ * speed_factor;
+    double friction = -std::tanh(steering_vel * 3.0) * friction_mag;
+
+    // --- 3. Damping (viscous) ---
+    // Velocity-proportional resistance. More damping at speed for stability.
+    double damping_coeff = damper_base_ + damper_speed_gain_ * speed_factor;
+    double damping = -steering_vel * damping_coeff;
+
+    // --- 4. Soft Stop ---
+    // Progressive resistance near steering lock to prevent hard slam.
+    double soft_stop = 0.0;
+    double stop_zone = 0.1;  // ramp-up zone width [rad]
+    double overshoot = std::abs(steering_pos) - (lock_angle_ - stop_zone);
+    if (overshoot > 0.0)
     {
-        friction_mag = 0.50 - (0.50 - 0.05) * (v / 8.0);  // 0.50 at stop → 0.05 at 8 m/s
+        double normalized = std::clamp(overshoot / stop_zone, 0.0, 1.0);
+        soft_stop = -std::copysign(normalized * normalized * soft_stop_gain_, steering_pos);
     }
-    else
-    {
-        friction_mag = 0.05 + (0.15 - 0.05) * std::min((v - 8.0) / 22.0, 1.0);  // → 0.15 at 30 m/s
-    }
-
-    // Reduce friction when returning to center so centering force wins
-    bool returning = (steering_pos * steering_vel) < 0.0;
-    double off_center = std::clamp(std::abs(steering_pos) / 0.087, 0.0, 1.0);
-    double friction_scale = returning ? (1.0 - 0.70 * off_center) : 1.0;
-
-    // Smooth Coulomb: linear near zero velocity to prevent chattering
-    double friction = -std::tanh(steering_vel * 2.0) * friction_mag * friction_scale;
-
-    // --- 2. Centering (speed-dependent constant torque toward center) ---
-    // Magnitude depends on speed ONLY, NOT on steering angle.
-    // At a given speed the centering force is constant regardless of how far
-    // the wheel is turned — tanh is used only for smooth direction switching.
-    double centering_onset = std::clamp(v / 4.0, 0.0, 1.0);
-    centering_onset = 0.10 + 0.90 * centering_onset;  // 0.10 at stop, 1.0 at 4+ m/s
-    double high_speed_boost = 1.0 + 0.5 * std::clamp((v - 15.0) / 15.0, 0.0, 1.0);
-    double centering_mag = spring_coeff * centering_onset * high_speed_boost;
-
-    // Smooth sign switch: reaches ±0.93 by 0.2 rad (11°), ±0.99 by 0.35 rad (20°)
-    // Below ~11° the force ramps smoothly — no wall, no angle-proportional feel
-    double centering = -std::tanh(steering_pos * 8.0) * centering_mag;
-
-    // --- 3. SAT (self-aligning torque) ---
-    double sat = sat_force;
 
     // Combine
-    double total = friction + centering + sat;
+    double total = sat + friction + damping + soft_stop;
     total = std::clamp(total, -max_force_, max_force_);
 
     static int log_counter = 0;
-    if (++log_counter % 100 == 0)
+    if (++log_counter % 50 == 0 || log_counter <= 5)
     {
-        LOG_INFO("SDLFFBSink: total={:.3f} (fric={:.3f} center={:.3f} sat={:.3f} v={:.1f})",
-                 total, friction, centering, sat, v);
+        LOG_INFO("SDLFFBSink v5: total={:.3f} (sat_p={:.3f} sat_r={:.3f} fric={:.3f} damp={:.3f} stop={:.3f}) steer={:.3f} lat_a={:.2f} v={:.1f}",
+                 total, sat_predictive, sat_reactive, friction, damping, soft_stop, steering_pos, lat_accel, speed);
     }
 
     UpdateConstantEffect(total);

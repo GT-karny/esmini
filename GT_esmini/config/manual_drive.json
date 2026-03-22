@@ -30,9 +30,16 @@
         "longitudinal": "manual"
     },
     "ffb": {
-        "spring_coefficient": 0.5,
-        "damper_coefficient": 0.3,
-        "constant_gain": 1.0,
+        "sat_gain": 0.08,
+        "sat_centering_gain": 1.5,
+        "friction_base": 0.12,
+        "friction_speed_gain": 0.04,
+        "damper_base": 0.02,
+        "damper_speed_gain": 0.06,
+        "soft_stop_gain": 0.5,
+        "lock_angle": 0.7,
+        "assist_low_speed": 0.90,
+        "assist_high_speed": 0.20,
         "max_force": 1.0,
         "disable_non_realtime": true
     },

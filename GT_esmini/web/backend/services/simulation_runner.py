@@ -16,7 +16,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import GT_SIM_EXE, REPO_ROOT, RESULTS_DIR, SCRIPTS_DIR
+from GT_esmini.web.backend.config import CONFIG_DIR, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR, SCRIPTS_DIR
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
     ControllerConfig,
@@ -160,7 +160,21 @@ def _generate_manual_variant(
 
 
 def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
-    """Write manual_drive.json for per-run config override."""
+    """Write manual_drive.json for per-run config override.
+
+    Reads the existing config/manual_drive.json as a base so that
+    user edits (especially FFB tuning) are preserved. Controller-level
+    settings (domain, input type, etc.) from the request override the base.
+    """
+    # Read existing config as base (preserves user's FFB tuning etc.)
+    base_config_path = CONFIG_DIR / "manual_drive.json"
+    base: dict = {}
+    if base_config_path.exists():
+        try:
+            base = json.loads(base_config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
     md = controller.manual_drive
     config_data = {
         "input_type": md.input_type,
@@ -189,8 +203,8 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
             "cmd_port": md.physics_network.cmd_port,
             "state_port": md.physics_network.state_port,
         },
-        "indicator_cancel_angle": 0.06,
-        "ffb": md.ffb.model_dump(),
+        "indicator_cancel_angle": base.get("indicator_cancel_angle", 0.06),
+        "ffb": base.get("ffb", md.ffb.model_dump()),
         "override": {"enabled": True},
     }
     config_path = output_dir / "manual_drive.json"

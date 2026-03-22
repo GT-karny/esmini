@@ -54,13 +54,20 @@ struct ManualDriveConfig
         int         state_port     = 9201;
     } physics_network;
 
-    // FFB parameters
+    // FFB parameters (v5: physics-inspired model)
     struct
     {
-        double spring_coefficient = 0.5;
-        double damper_coefficient = 0.3;
-        double constant_gain      = 1.0;
-        double max_force          = 1.0;
+        double sat_gain            = 0.08;  // reactive SAT strength (lat_accel -> force)
+        double sat_centering_gain  = 1.50;  // caster trail centering (steering_angle -> force)
+        double friction_base       = 0.12;  // static friction magnitude
+        double friction_speed_gain = 0.04;  // additional friction proportional to speed
+        double damper_base         = 0.02;  // low-speed damping coefficient
+        double damper_speed_gain   = 0.06;  // additional damping proportional to speed
+        double soft_stop_gain      = 0.5;   // resistance near steering lock
+        double lock_angle          = 0.7;   // steering lock angle [rad]
+        double assist_low_speed    = 0.90;  // power assist ratio at 0 m/s
+        double assist_high_speed   = 0.20;  // power assist ratio at 30 m/s
+        double max_force           = 1.0;   // output clamp [-1, 1]
         bool   disable_non_realtime = true;
     } ffb;
 

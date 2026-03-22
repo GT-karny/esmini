@@ -317,13 +317,17 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     // -----------------------------------
     
     // Longitudinal Acceleration (current frame approximate)
-    double long_acc = acc; 
-    
+    double long_acc = acc;
+
     // Lateral Acceleration = v^2 / r = v * omega = v * (v / L * tan(delta)) approximate
     // Base vehicle calculates velAngleRelVehicleLongAxis_, we can use that for better slip
     // Simple: LatAcc = Speed * YawRate
     double yaw_rate = headingDot_; // Calculated in base Update()
     double lat_acc = speed_ * yaw_rate;
+
+    // Store for FFB and HVD export
+    latAcc_  = lat_acc;
+    longAcc_ = long_acc;
     
     // [FIX 2 & 3] Natural Suspension Dynamics & Direction Correction
     

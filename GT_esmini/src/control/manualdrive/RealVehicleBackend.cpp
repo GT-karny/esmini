@@ -91,6 +91,13 @@ osi3::HostVehicleData RealVehicleBackend::BuildHVD(const PedalSteerCommand& cmd)
     location->mutable_velocity()->set_x(real_vehicle_.speed_ * std::cos(real_vehicle_.heading_));
     location->mutable_velocity()->set_y(real_vehicle_.speed_ * std::sin(real_vehicle_.heading_));
 
+    // Acceleration (vehicle frame: x=longitudinal, y=lateral)
+    location->mutable_acceleration()->set_x(real_vehicle_.longAcc_);
+    location->mutable_acceleration()->set_y(real_vehicle_.latAcc_);
+
+    // Angular velocity (yaw rate)
+    location->mutable_orientation_rate()->set_yaw(real_vehicle_.headingDot_);
+
     // Vehicle Steering
     auto* steering = hvd.mutable_vehicle_steering();
     auto* wheel = steering->mutable_vehicle_steering_wheel();

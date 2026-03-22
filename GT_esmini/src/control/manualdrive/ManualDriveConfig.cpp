@@ -1,4 +1,5 @@
 #include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
+#include "logger.hpp"
 
 #include <fstream>
 #include <string>
@@ -8,17 +9,26 @@ namespace gt_esmini
 
 bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
 {
+    LOG_INFO("ManualDriveConfig: Loading from '{}'", filepath);
     std::ifstream file(filepath);
     if (!file.is_open())
     {
+        LOG_WARN("ManualDriveConfig: Failed to open '{}'", filepath);
         return false;
     }
 
     std::string line;
     while (std::getline(file, line))
     {
+        // Match quoted JSON key exactly: "key" must appear as a whole token.
+        // This prevents "sat_gain" from matching "sat_centering_gain".
+        auto key_matches = [&](const std::string& key) -> bool {
+            std::string quoted = "\"" + key + "\"";
+            return line.find(quoted) != std::string::npos;
+        };
+
         auto parse_string = [&](const std::string& key, std::string& val) {
-            if (line.find(key) != std::string::npos)
+            if (key_matches(key))
             {
                 size_t colon = line.find(":");
                 if (colon != std::string::npos)
@@ -42,7 +52,7 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         };
 
         auto parse_double = [&](const std::string& key, double& val) {
-            if (line.find(key) != std::string::npos)
+            if (key_matches(key))
             {
                 size_t colon = line.find(":");
                 if (colon != std::string::npos)
@@ -59,7 +69,7 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         };
 
         auto parse_int = [&](const std::string& key, int& val) {
-            if (line.find(key) != std::string::npos)
+            if (key_matches(key))
             {
                 size_t colon = line.find(":");
                 if (colon != std::string::npos)
@@ -76,7 +86,7 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         };
 
         auto parse_bool = [&](const std::string& key, bool& val) {
-            if (line.find(key) != std::string::npos)
+            if (key_matches(key))
             {
                 size_t colon = line.find(":");
                 if (colon != std::string::npos)
@@ -110,36 +120,48 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
 
         // Network input
         parse_string("transport_type", input_network.transport_type);
-        parse_int("\"port\"", input_network.port);
-        parse_string("\"level\"", input_network.level);
+        parse_int("port", input_network.port);
+        parse_string("level", input_network.level);
 
         // Physics: RealVehicle
         parse_string("vehicle_params_file", real_vehicle.vehicle_params_file);
 
         // Physics: Network
-        parse_string("\"host\"", physics_network.host);
+        parse_string("host", physics_network.host);
         parse_int("cmd_port", physics_network.cmd_port);
         parse_int("state_port", physics_network.state_port);
 
-        // FFB
-        parse_double("spring_coefficient", ffb.spring_coefficient);
-        parse_double("damper_coefficient", ffb.damper_coefficient);
-        parse_double("constant_gain", ffb.constant_gain);
+        // FFB (v5)
+        parse_double("sat_gain", ffb.sat_gain);
+        parse_double("sat_centering_gain", ffb.sat_centering_gain);
+        parse_double("friction_base", ffb.friction_base);
+        parse_double("friction_speed_gain", ffb.friction_speed_gain);
+        parse_double("damper_base", ffb.damper_base);
+        parse_double("damper_speed_gain", ffb.damper_speed_gain);
+        parse_double("soft_stop_gain", ffb.soft_stop_gain);
+        parse_double("lock_angle", ffb.lock_angle);
+        parse_double("assist_low_speed", ffb.assist_low_speed);
+        parse_double("assist_high_speed", ffb.assist_high_speed);
         parse_double("max_force", ffb.max_force);
         parse_bool("disable_non_realtime", ffb.disable_non_realtime);
 
         // Domain assignment
-        parse_string("\"lateral\"", domain.lateral);
-        parse_string("\"longitudinal\"", domain.longitudinal);
+        parse_string("lateral", domain.lateral);
+        parse_string("longitudinal", domain.longitudinal);
 
         // Override
-        parse_bool("\"enabled\"", override_cfg.enabled);
+        parse_bool("enabled", override_cfg.enabled);
         parse_double("steering_threshold", override_cfg.steering_threshold);
         parse_double("throttle_threshold", override_cfg.throttle_threshold);
         parse_double("brake_threshold", override_cfg.brake_threshold);
         parse_double("auto_return_timeout", override_cfg.auto_return_timeout);
         parse_bool("button_override", override_cfg.button_override);
     }
+
+    LOG_INFO("ManualDriveConfig: Parsed FFB — sat_gain={:.3f} centering={:.3f} fric_base={:.3f} "
+             "assist_lo={:.2f} assist_hi={:.2f} max_force={:.2f}",
+             ffb.sat_gain, ffb.sat_centering_gain, ffb.friction_base,
+             ffb.assist_low_speed, ffb.assist_high_speed, ffb.max_force);
 
     return true;
 }

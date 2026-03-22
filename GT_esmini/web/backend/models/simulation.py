@@ -54,10 +54,18 @@ class ManualDriveNetworkPhysics(BaseModel):
 
 
 class ManualDriveFFBConfig(BaseModel):
-    spring_coefficient: float = 0.5
-    damper_coefficient: float = 0.3
-    constant_gain: float = 1.0
+    sat_gain: float = 0.08
+    sat_centering_gain: float = 1.50
+    friction_base: float = 0.12
+    friction_speed_gain: float = 0.04
+    damper_base: float = 0.02
+    damper_speed_gain: float = 0.06
+    soft_stop_gain: float = 0.5
+    lock_angle: float = 0.7
+    assist_low_speed: float = 0.90
+    assist_high_speed: float = 0.20
     max_force: float = 1.0
+    disable_non_realtime: bool = True
 
 
 class ManualDriveControllerConfig(BaseModel):
