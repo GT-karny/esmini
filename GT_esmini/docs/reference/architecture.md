@@ -32,12 +32,15 @@ GT_esminiは、以下の設計原則に基づいて実装されています：
 
 **原則:** 各機能を独立したモジュールとして実装
 
-**実装方法:**
-- `ExtraAction`: ライトアクション定義
-- `ExtraEntities`: 車両拡張機能
-- `GT_ScenarioReader`: シナリオパース拡張
-- `AutoLightController`: 自動ライト制御
-- `GT_OSIReporter`: OSI出力拡張
+**モジュール構成:**
+
+| モジュール | ディレクトリ | 役割 |
+|:---|:---|:---|
+| `core` | `src/core/` | 公開C API、設定読み込み |
+| `scenario` | `src/scenario/` | OpenSCENARIO拡張パース、TrafficSignalController |
+| `io` | `src/io/` | UDP通信 |
+| `control` | `src/control/` | ManualDrive制御、車両物理、地形追従、ライト制御 |
+| `osi` | `src/osi/` | OSI/HostVehicleData出力 |
 
 ## 主要コンポーネント
 
@@ -49,7 +52,6 @@ GT_esminiは、以下の設計原則に基づいて実装されています：
 ```
 scenarioengine::ScenarioReader
     ↑
-    |
 gt_esmini::GT_ScenarioReader
 ```
 
@@ -58,72 +60,79 @@ gt_esmini::GT_ScenarioReader
 - `LightStateAction`のパース
 - `VehicleLightExtension`の登録
 
-**実装ファイル:**
-- `GT_ScenarioReader.hpp`
-- `GT_ScenarioReader.cpp`
+### ControllerManualDrive
 
-### VehicleLightExtension
+**役割:** ハンドルコントローラー/ゲームパッドによるリアルタイム車両操作
 
-**役割:** 車両にライト状態を保持する機能を追加
+> 旧名: `ControllerRacingWheel` (v0.8 でリネーム)
 
-**設計パターン:** コンポジションパターン
+**アーキテクチャ:**
+```
+IInputSource (入力抽象)
+  ├── SDL2WheelInput        (SDL2経由のハンドルコントローラー)
+  ├── NetworkInputBridge     (ネットワーク経由の入力)
+  └── StubInputSource        (テスト用スタブ)
 
-**理由:** `Vehicle`クラスを継承すると、esmini本体のアップデート時に影響を受けやすいため
+IPhysicsBackend (物理抽象)
+  ├── RealVehicleBackend     (RealVehicle物理エンジン)
+  └── NetworkPhysicsBridge   (外部物理エンジン)
 
-**主な機能:**
-- ライト状態の保持（`std::map<VehicleLightType, LightState>`）
-- ライト状態の設定・取得
-- AutoLight有効フラグの管理
-
-**実装ファイル:**
-- `ExtraEntities.hpp`
-- `ExtraEntities.cpp`
-
-### VehicleExtensionManager
-
-**役割:** `Vehicle`オブジェクトと`VehicleLightExtension`を関連付ける
-
-**設計パターン:** シングルトンパターン
+ManualDriveCoordinator
+  ├── ドメイン制御 (横方向/縦方向の手動・シナリオ切り替え)
+  ├── オーバーライド管理
+  └── IndicatorFSM (ウインカー自動キャンセル)
+```
 
 **主な機能:**
-- `Vehicle`ポインタをキーとした拡張の管理
-- 拡張の登録・取得
-- リソースの自動管理（`std::unique_ptr`）
+- **FFB (Force Feedback)**: バネ・ダンパー・クーロン摩擦モデル（G29対応）
+- **ボタンマッピング**: `manual_drive.json` で全ボタンをカスタマイズ
+- **ドメイン制御**: 横方向・縦方向を独立して「手動」/「シナリオ」に割り当て
+- **ウインカーFSM**: OFF → ARMED → ACTIVE 状態遷移、ステアリング復帰で自動キャンセル
+- **ライト制御**: ヘッドライト・ハイビーム・フォグ・ハザードのトグル操作
+- **HVD出力**: `GetInputsForOSI()`, `GetPowertrainForOSI()`, `GetADASStates()`
 
-**実装ファイル:**
-- `ExtraEntities.hpp`
-- `ExtraEntities.cpp`
+### RealVehicle
+
+**役割:** 詳細な車両物理モデル
+
+**主な機能:**
+- サスペンション（バネ・ダンパー）によるピッチ・ロール計算
+- パワートレイン（エンジンRPM・トルク・ギア比）による駆動力計算
+- `real_vehicle_params.json` による車種別パラメータ定義
 
 ### AutoLightController
 
 **役割:** 車両の動作に応じて自動的にライトを制御
 
 **主な機能:**
-- ブレーキランプの制御（減速度ベース）
+- ブレーキランプの制御（減速度ベース、チャタリング防止付き）
 - ウインカーの制御（車線変更・右左折検出）
 - バックライトの制御（速度ベース）
+- ManualDriveコントローラーとの統合（ボタン操作+自動キャンセル）
 
-**更新タイミング:** `GT_Step`内で毎フレーム呼び出される
+### VehicleLightExtension
 
-**実装ファイル:**
-- `AutoLightController.hpp`
-- `AutoLightController.cpp`
+**役割:** 車両にライト状態を保持する機能を追加
+
+**設計パターン:** コンポジションパターン（`Vehicle`クラスを継承しない）
+
+### TrafficSignalController
+
+**役割:** OpenSCENARIOの信号制御拡張
+
+**主な機能:**
+- フェーズベースの信号自動サイクリング
+- OpenDRIVEコントローラーリファレンスによる信号ID解決
+- アクション/条件ベースのフェーズ遷移
 
 ### GT_OSIReporter
 
-**役割:** OSI出力にライト状態を追加
-
-**実装方法:** esmini本体の`OSIReporter.cpp`をコピーして拡張
+**役割:** OSI出力にライト状態・HostVehicleData・デュアル軌道を追加
 
 **主な変更点:**
-- `UpdateOSIMovingObject`関数にライト状態の出力処理を追加
-- `VehicleExtensionManager`を使用してライト状態を取得
-- **[New]** デュアル軌道ロジックの実装:
-    - Ghostオブジェクトの`trail_`から`future_trajectory`をサンプリング
-    - Egoオブジェクト用にGhostへのリカバリスプラインを生成・出力
-
-**実装ファイル:**
-- `GT_OSIReporter.cpp`
+- `UpdateOSIMovingObject`にライト状態の出力処理を追加
+- HostVehicleData（操作入力値、パワートレイン情報）の出力
+- デュアル軌道（Ghost + Ego）の出力
 
 ### GT_esminiLib
 
@@ -134,11 +143,40 @@ gt_esmini::GT_ScenarioReader
 - `GT_Step`: シミュレーションステップの実行
 - `GT_EnableAutoLight`: AutoLight機能の有効化
 - `GT_GetLightState`: ライト状態の取得
+- `GT_ReportObjectVel`: 車両速度の報告
 - `GT_Close`: クリーンアップ
 
-**実装ファイル:**
-- `GT_esminiLib.hpp`
-- `GT_esminiLib.cpp`
+## Web UI / Electron アーキテクチャ
+
+### 技術スタック
+
+| レイヤー | 技術 |
+|:---|:---|
+| デスクトップシェル | Electron (カスタムタイトルバー) |
+| バックエンド | Python FastAPI + uvicorn |
+| フロントエンド | React + TypeScript + Vite |
+| CSS | Tailwind CSS |
+| 状態管理 | TanStack Query |
+| DB | SQLite (aiosqlite) |
+
+### ページ構成
+
+| ページ | 機能 |
+|:---|:---|
+| Projects | プロジェクト一覧・管理 |
+| ProjectDetail | プロジェクト詳細・シナリオ選択・実行パネル |
+| Scenarios | シナリオ一覧・検索 |
+| NewSimulation | シミュレーション実行フォーム |
+| Simulations | ジョブ一覧・状態確認 |
+| SimulationDetail | ジョブ詳細・メトリクス・結果DL |
+
+### 主要コンポーネント
+
+- **ManualDrivePanel**: ボタンマッピング・FFBチューニング・ドメイン制御のGUI設定
+- **HvdGaugePanel**: HostVehicleData可視化
+- **OsiLivePanel**: OSIデータストリーム表示
+- **LiveSceneView**: 3Dシーン表示
+- **WindowControls**: Electronカスタムタイトルバーボタン
 
 ## クラス図
 
@@ -148,35 +186,50 @@ classDiagram
         +parseOSCFile()
         +parseOSCPrivateAction()
     }
-    
+
     class GT_ScenarioReader {
         +parseOSCPrivateAction()
         +ParseAppearanceAction()
         +ParseLightStateAction()
     }
-    
-    class Vehicle {
+
+    class ControllerManualDrive {
+        +Init()
+        +Step()
+        +GetInputsForOSI()
+        +GetPowertrainForOSI()
+        -coordinator_
+        -inputSource_
+        -physicsBackend_
+    }
+
+    class ManualDriveCoordinator {
+        +Step()
+        +GetDomainAssignment()
+        -indicatorFSM_
+        -overrideManager_
+    }
+
+    class IInputSource {
+        <<interface>>
+        +Poll()
+        +GetAxes()
+        +GetButtons()
+    }
+
+    class IPhysicsBackend {
+        <<interface>>
+        +Step()
+        +GetState()
+    }
+
+    class RealVehicle {
+        +Step()
         +GetSpeed()
-        +GetWheelAngle()
-        +pos_
+        +GetPitch()
+        +GetRoll()
     }
-    
-    class VehicleLightExtension {
-        +SetLightState()
-        +GetLightState()
-        +SetAutoLight()
-        +IsAutoLightEnabled()
-        -lightStates_
-        -autoLightEnabled_
-    }
-    
-    class VehicleExtensionManager {
-        +Instance()
-        +GetExtension()
-        +RegisterExtension()
-        -extensions_
-    }
-    
+
     class AutoLightController {
         +Update()
         +Enable()
@@ -184,170 +237,63 @@ classDiagram
         -UpdateIndicators()
         -UpdateReversingLights()
     }
-    
-    class OSCLightStateAction {
-        +Start()
-        +Step()
-        +End()
-        +lightType_
-        +lightState_
+
+    class VehicleLightExtension {
+        +SetLightState()
+        +GetLightState()
+        -lightStates_
     }
-    
+
+    class TrafficSignalController {
+        +Init()
+        +AddPhase()
+        +ResolveFromODRController()
+    }
+
     ScenarioReader <|-- GT_ScenarioReader
-    Vehicle "1" -- "0..1" VehicleLightExtension : managed by
-    VehicleExtensionManager "1" o-- "*" VehicleLightExtension
-    AutoLightController "1" --> "1" VehicleLightExtension
-    AutoLightController "1" --> "1" Vehicle
-    GT_ScenarioReader ..> OSCLightStateAction : creates
-    GT_ScenarioReader ..> VehicleLightExtension : creates
-```
-
-## シーケンス図
-
-### 初期化シーケンス
-
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant GTLib as GT_esminiLib
-    participant GTReader as GT_ScenarioReader
-    participant VehExtMgr as VehicleExtensionManager
-    participant AutoLightMgr as AutoLightManager
-    
-    App->>GTLib: GT_Init("scenario.xosc", 0)
-    GTLib->>GTReader: new GT_ScenarioReader()
-    GTReader->>GTReader: parseOSCFile()
-    GTReader->>GTReader: ParseAppearanceAction()
-    GTReader->>VehExtMgr: RegisterExtension(vehicle, lightExt)
-    GTLib-->>App: return 0 (success)
-    
-    App->>GTLib: GT_EnableAutoLight()
-    GTLib->>AutoLightMgr: InitAutoLight(entities)
-    AutoLightMgr->>VehExtMgr: GetExtension(vehicle)
-    AutoLightMgr->>AutoLightMgr: Create AutoLightController
-    GTLib-->>App: return
-```
-
-### シミュレーションステップシーケンス
-
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant GTLib as GT_esminiLib
-    participant SE as ScenarioEngine
-    participant AutoLightCtrl as AutoLightController
-    participant VehExt as VehicleLightExtension
-    participant OSIRep as GT_OSIReporter
-    
-    App->>GTLib: GT_Step(0.05)
-    GTLib->>SE: Step()
-    SE->>SE: Update vehicle positions
-    SE->>SE: Execute actions (LightStateAction)
-    SE-->>GTLib: return
-    
-    GTLib->>AutoLightCtrl: Update(0.05)
-    AutoLightCtrl->>AutoLightCtrl: UpdateBrakeLights()
-    AutoLightCtrl->>VehExt: SetLightState(BRAKE_LIGHTS, state)
-    AutoLightCtrl->>AutoLightCtrl: UpdateIndicators()
-    AutoLightCtrl->>VehExt: SetLightState(INDICATOR_LEFT, state)
-    AutoLightCtrl-->>GTLib: return
-    
-    GTLib->>OSIRep: UpdateOSI()
-    OSIRep->>VehExt: GetLightState(lightType)
-    VehExt-->>OSIRep: return state
-    OSIRep->>OSIRep: Set OSI light fields
-    OSIRep-->>GTLib: return
-    
-    GTLib-->>App: return
-```
-
-## データフロー
-
-### ライト状態の設定フロー
-
-```
-LightStateAction (XOSC)
-    ↓
-GT_ScenarioReader::ParseLightStateAction()
-    ↓
-OSCLightStateAction::Start()
-    ↓
-VehicleLightExtension::SetLightState()
-    ↓
-lightStates_[lightType] = state
-```
-
-### AutoLightの更新フロー
-
-```
-GT_Step()
-    ↓
-AutoLightController::Update()
-    ↓
-UpdateBrakeLights() / UpdateIndicators() / UpdateReversingLights()
-    ↓
-VehicleLightExtension::SetLightState()
-    ↓
-lightStates_[lightType] = state
-```
-
-### OSI出力フロー
-
-```
-GT_Step()
-    ↓
-GT_OSIReporter::UpdateOSI()
-    ↓
-VehicleExtensionManager::GetExtension(vehicle)
-    ↓
-VehicleLightExtension::GetLightState(lightType)
-    ↓
-OSI MovingObject.VehicleClassification.LightState
+    ControllerManualDrive *-- ManualDriveCoordinator
+    ControllerManualDrive o-- IInputSource
+    ControllerManualDrive o-- IPhysicsBackend
+    IPhysicsBackend <|.. RealVehicle
+    AutoLightController --> VehicleLightExtension
 ```
 
 ## ファイル構成
 
 ```
 GT_esmini/
-├── ExtraAction.hpp          # ライトアクション拡張定義
-├── ExtraAction.cpp          # ライトアクション実装
-├── ExtraEntities.hpp        # Vehicleクラス拡張定義
-├── ExtraEntities.cpp        # Vehicleクラス拡張実装
-├── GT_ScenarioReader.hpp    # ScenarioReader継承クラス
-├── GT_ScenarioReader.cpp    # AppearanceActionパース実装
-├── AutoLightController.hpp  # AutoLight機能
-├── AutoLightController.cpp
-├── GT_esminiLib.hpp         # GT_esmini用ラッパーAPI
-├── GT_esminiLib.cpp         # 起動時引数処理等
-├── GT_OSIReporter.cpp       # OSI出力拡張
-├── CMakeLists.txt           # ビルド設定
-├── README.md                # プロジェクト概要
-├── docs/                    # ドキュメント
-└── test/                    # テストディレクトリ
-    ├── unit/                # ユニットテスト
-    ├── integration/         # 統合テスト
-    └── scenarios/           # テストシナリオ
+├── include/gt_esmini/
+│   ├── core/                    # 公開C API、設定
+│   │   ├── GT_esminiLib.hpp
+│   │   └── IConfigLoader.hpp
+│   ├── scenario/                # OpenSCENARIO拡張
+│   │   ├── GT_ScenarioReader.hpp
+│   │   ├── ExtraAction.hpp
+│   │   ├── ExtraEntities.hpp
+│   │   └── GT_TrafficSignalController.hpp
+│   ├── io/                      # UDP I/O
+│   │   └── GT_UDP.hpp
+│   ├── control/                 # 制御・物理
+│   │   ├── ControllerManualDrive.hpp
+│   │   ├── RealVehicle.hpp
+│   │   ├── TerrainTracker.hpp
+│   │   └── AutoLightController.hpp
+│   └── osi/                     # OSI出力
+│       ├── GT_OSIReporter.hpp
+│       └── GT_HostVehicleReporter.hpp
+├── src/{core,scenario,io,control,osi}/  # 実装本体
+├── config/                      # 実行時設定
+│   ├── real_vehicle_params.json
+│   ├── host_vehicle_config.json
+│   └── manual_drive.json
+├── web/                         # Web UI / Electron
+│   ├── backend/                 # FastAPI
+│   ├── frontend/                # React + Vite
+│   ├── electron/                # Electronデスクトップシェル
+│   └── pyinstaller/             # パッケージング
+├── docs/                        # ドキュメント
+└── test/                        # テスト
 ```
-
-## 拡張性
-
-GT_esminiは、以下の点で拡張可能です：
-
-### 新しいライトタイプの追加
-
-1. `VehicleLightType`列挙型に新しいタイプを追加
-2. `GT_ScenarioReader::ParseLightStateAction`にパース処理を追加
-3. `GT_OSIReporter`にOSI出力処理を追加（必要に応じて）
-
-### 新しいAutoLight機能の追加
-
-1. `AutoLightController`に新しい`Update*`メソッドを追加
-2. `AutoLightController::Update`から呼び出し
-
-### 新しいAppearanceActionの追加
-
-1. `ExtraAction.hpp`に新しいアクションクラスを定義
-2. `GT_ScenarioReader::ParseAppearanceAction`にパース処理を追加
 
 ## パフォーマンス考慮事項
 
@@ -355,11 +301,13 @@ GT_esminiは、以下の点で拡張可能です：
 
 - `VehicleLightExtension`: 車両1台あたり約200バイト
 - `AutoLightController`: 車両1台あたり約100バイト
+- `ControllerManualDrive`: 約10KB（FFBパラメータ、ボタンマッピング含む）
 
 ### CPU使用量
 
-- `AutoLightController::Update`: 車両1台あたり約0.01ms（通常のPC）
+- `AutoLightController::Update`: 車両1台あたり約0.01ms
 - `GT_OSIReporter`: OSI出力が有効な場合、追加で約0.1ms
+- `ControllerManualDrive::Step`: SDL2ポーリング含め約0.1ms
 
 ## 次のステップ
 
@@ -371,3 +319,4 @@ GT_esminiは、以下の点で拡張可能です：
 - [概要](../getting-started/overview.md) - GT_esminiの全体像
 - [LightStateAction機能](../features/light_state_action.md) - ライト制御の詳細
 - [AutoLight機能](../features/auto_light.md) - 自動制御の詳細
+- [Web UIマニュアル](../web/manual.md) - Web UI / Electronの使い方

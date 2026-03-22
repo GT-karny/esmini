@@ -1,6 +1,6 @@
 # GT_esmini ドキュメント
 
-GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini) (Environment Simulator Minimalistic) にライト機能・車両制御・OSI出力などを追加する拡張モジュールです。
+GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) (Environment Simulator Minimalistic) に車両制御・挙動モデル・ライト機能・信号制御・Web UIなどを追加する拡張モジュールです。
 
 ## 入門 (Getting Started)
 
@@ -18,7 +18,26 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 | [LightStateAction](features/light_state_action.md) | OpenSCENARIO でのライト制御 |
 | [AutoLight](features/auto_light.md) | 自動ライト制御（ブレーキ灯・ウインカー等） |
 
-## PythonDriverController (推奨)
+## ManualDriveコントローラー
+
+ハンドルコントローラー/ゲームパッドによるリアルタイム車両操作。
+
+| ドキュメント | 内容 |
+|:---|:---|
+| [車両パラメータ](pythondriver/vehicle_params.md) | RealVehicle 物理パラメータ解説 |
+
+> ManualDriveの設定は Web UI の設定パネルまたは `config/manual_drive.json` で行います。
+> ボタンマッピング・FFBチューニング・ドメイン制御（横方向/縦方向の手動・シナリオ切り替え）に対応しています。
+
+## TrafficSignalController
+
+| ドキュメント | 内容 |
+|:---|:---|
+| (本体コード参照) | OpenDRIVE連携の信号制御、フェーズベース自動サイクリング |
+
+## PythonDriverController (開発凍結中)
+
+> **Note**: Python系機能（PythonDriverController・Embedded Python含む）は v0.8 で開発凍結しています。既存機能は引き続き利用可能です。
 
 | ドキュメント | 内容 |
 |:---|:---|
@@ -43,11 +62,11 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 | [移行ガイド](realdriver/migration_guide.md) | PythonDriverController への移行手順 |
 | [LogiDrivePy](realdriver/logidrivepy.md) | ステアリングコントローラー連携 |
 
-## Web UI / REST API
+## Web UI / Electron デスクトップアプリ
 
 | ドキュメント | 内容 |
 |:---|:---|
-| [マニュアル](web/manual.md) | セットアップ・起動方法・Web UI の使い方 |
+| [マニュアル](web/manual.md) | Electronアプリ・Web UI の使い方・REST API |
 | [API リファレンス](web/api_reference.md) | 全 REST API エンドポイント仕様 |
 
 ## 外部連携 (Integration)
@@ -69,7 +88,6 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 | [C API リファレンス](reference/api_reference.md) | GT_esminiLib 関数一覧 |
 | [OpenSCENARIO アクション](reference/openscenario_actions.md) | v1.2 走行関連アクション詳細 |
 | [RoadManager API](reference/rm_lib_reference.md) | Python RM ライブラリ |
-| [Python ArgSpec](reference/python_argspec_grammar.md) | GT_Sim Frontend 引数仕様 |
 | [配布ガイド](reference/distribution_guide.md) | リリースパッケージ構成 |
 
 ## トラブルシューティング
@@ -82,13 +100,17 @@ GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini
 
 1. [概要](getting-started/overview.md) → 2. [ビルド](getting-started/build_install.md) → 3. [基本的な使い方](getting-started/basic_usage.md) → 4. [サンプル](getting-started/examples.md)
 
-### PythonDriverController を使いたい場合
+### ManualDriveコントローラーを使いたい場合
 
-1. [マニュアル](pythondriver/manual.md) → 2. [システム構造](pythondriver/system_structure.md) → 3. [検証テスト](pythondriver/validation_tests.md)
+1. [概要](getting-started/overview.md) → 2. [車両パラメータ](pythondriver/vehicle_params.md) → 3. [Web UIマニュアル](web/manual.md)（ManualDrive設定パネルの使い方）
 
 ### ライト機能を使いたい場合
 
 1. [LightStateAction](features/light_state_action.md) → 2. [AutoLight](features/auto_light.md) → 3. [サンプル](getting-started/examples.md)
+
+### Web UI / デスクトップアプリを使いたい場合
+
+1. [Web UIマニュアル](web/manual.md) → 2. [API リファレンス](web/api_reference.md)
 
 ### 内部構造を理解したい場合
 
