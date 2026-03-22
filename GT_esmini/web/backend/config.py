@@ -96,6 +96,17 @@ PYTHON_SCRIPT_DIRS = [
 
 TEMP_FILE_TTL_SECONDS = 3600  # 1 hour
 
+
+def get_projects_dir() -> Path:
+    """Return the active projects directory (from settings or default PROJECTS_DIR)."""
+    settings = load_settings()
+    custom_root = settings.get("projects_root")
+    if custom_root:
+        p = Path(custom_root)
+        if p.is_dir():
+            return p
+    return PROJECTS_DIR
+
 # Server ports (overridable via environment variables)
 GRPC_PORT = int(os.environ.get("GT_SIM_GRPC_PORT", "50051"))
 OSI_GT_PORT = int(os.environ.get("GT_SIM_OSI_GT_PORT", "48198"))

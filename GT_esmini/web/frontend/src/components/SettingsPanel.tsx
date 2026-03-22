@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type ExecutionDefaults } from '../api/client';
+import { isElectron } from './WindowControls';
 import { SlidePanel } from './ui/SlidePanel';
 import { Button } from './ui/Button';
 import { Checkbox, NumberInput, TextInput } from './ui/Input';
@@ -30,15 +31,17 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     enabled: open,
   });
 
-  // Render the form only when defaults are loaded.
-  // Use `key` to reset form state when defaults change.
   return (
     <SlidePanel open={open} onClose={onClose} title="Settings">
-      {defaults ? (
-        <SettingsForm defaults={defaults} onClose={onClose} />
-      ) : (
-        <div className="text-sm text-text-secondary">Loading...</div>
-      )}
+      <div className="space-y-6">
+        <ProjectsRootSetting />
+        <div className="border-t border-glass-edge" />
+        {defaults ? (
+          <SettingsForm defaults={defaults} onClose={onClose} />
+        ) : (
+          <div className="text-sm text-text-secondary">Loading...</div>
+        )}
+      </div>
     </SlidePanel>
   );
 }
@@ -200,6 +203,83 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
 
       {saveMutation.error && (
         <p className="text-destructive text-sm">{String(saveMutation.error)}</p>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Projects Root Setting ---------- */
+
+function ProjectsRootSetting() {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: ['projects-root'],
+    queryFn: api.getProjectsRoot,
+  });
+
+  const mutation = useMutation({
+    mutationFn: (root: string | null) => api.setProjectsRoot(root),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects-root'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+
+  const handleBrowse = async () => {
+    if (isElectron) {
+      const selected = await window.electronAPI!.selectDirectory();
+      if (selected) mutation.mutate(selected);
+    }
+  };
+
+  const handleClear = () => mutation.mutate(null);
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-text-secondary mb-3">Projects Root</h3>
+      <p className="text-xs text-text-tertiary mb-2">
+        Set a folder whose subfolders are automatically recognized as projects.
+      </p>
+      <div className="flex gap-2 items-center">
+        <TextInput
+          value={data?.projects_root ?? ''}
+          readOnly
+          placeholder={data?.effective_dir ?? 'Default location'}
+          className="flex-1"
+        />
+        {isElectron ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleBrowse}
+            disabled={mutation.isPending}
+          >
+            Browse
+          </Button>
+        ) : (
+          <span className="text-xs text-text-tertiary">(Desktop app only)</span>
+        )}
+        {data?.is_custom && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleClear}
+            disabled={mutation.isPending}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+      {data?.is_custom && (
+        <p className="text-xs text-text-tertiary mt-1">
+          Active: {data.effective_dir}
+        </p>
+      )}
+      {mutation.error && (
+        <p className="text-destructive text-xs mt-2">
+          {mutation.error instanceof Error ? mutation.error.message : 'Failed to update'}
+        </p>
       )}
     </div>
   );

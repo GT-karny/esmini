@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.send('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:isMaximized') as Promise<boolean>,
 
+  /** Open a path in the OS file explorer */
+  openPath: (dirPath: string) => ipcRenderer.invoke('shell:openPath', dirPath) as Promise<string>,
+
+  /** Show native directory picker dialog */
+  selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory') as Promise<string | null>,
+
   /** Listen for maximize/unmaximize events */
   onMaximizeChange: (callback: (maximized: boolean) => void) => {
     const onMax = () => callback(true);

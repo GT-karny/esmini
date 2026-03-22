@@ -9,6 +9,8 @@ interface ElectronAPI {
   close: () => void;
   isMaximized: () => Promise<boolean>;
   onMaximizeChange: (cb: (maximized: boolean) => void) => () => void;
+  openPath: (dirPath: string) => Promise<string>;
+  selectDirectory: () => Promise<string | null>;
 }
 
 declare global {

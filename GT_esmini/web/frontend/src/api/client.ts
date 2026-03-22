@@ -245,6 +245,9 @@ export const api = {
   deleteProject: (projectId: string) =>
     request<{ status: string }>(`/api/projects/${projectId}`, { method: 'DELETE' }),
 
+  openProjectFolder: (projectId: string) =>
+    request<{ status: string }>(`/api/projects/${projectId}/open-folder`, { method: 'POST' }),
+
   // Project files
   getProjectFiles: (projectId: string) =>
     request<ProjectFile[]>(`/api/projects/${projectId}/files`),
@@ -389,6 +392,18 @@ export const api = {
     request<{ status: string }>(`/api/manual-drive/presets/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
+
+  // Projects root
+  getProjectsRoot: () =>
+    request<{ projects_root: string | null; effective_dir: string; is_custom: boolean }>(
+      '/api/config/projects-root',
+    ),
+
+  setProjectsRoot: (projectsRoot: string | null) =>
+    request<{ projects_root: string | null; effective_dir: string }>(
+      '/api/config/projects-root',
+      { method: 'PUT', body: JSON.stringify({ projects_root: projectsRoot }) },
+    ),
 
   // System
   getSystemInfo: () =>

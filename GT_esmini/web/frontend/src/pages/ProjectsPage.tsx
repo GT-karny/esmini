@@ -6,17 +6,73 @@ import { api, type Project } from '../api/client';
 import { Button } from '../components/ui/Button';
 import { TextInput } from '../components/ui/Input';
 import { ErrorPanel } from '../components/ui/ErrorPanel';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { ContextMenu, type ContextMenuItem } from '../components/ui/ContextMenu';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ project: Project; x: number; y: number } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
 
   const { data: projects, isLoading, error, refetch } = useQuery({
     queryKey: ['projects'],
     queryFn: api.getProjects,
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (projectId: string) => api.deleteProject(projectId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setDeleteTarget(null);
+    },
+  });
+
+  const handleContextMenu = (e: React.MouseEvent, project: Project) => {
+    e.preventDefault();
+    setContextMenu({ project, x: e.clientX, y: e.clientY });
+  };
+
+  const handleOpenInExplorer = async (projectId: string) => {
+    if (window.electronAPI?.isElectron) {
+      const detail = await api.getProject(projectId);
+      await window.electronAPI.openPath(detail.root_path);
+    } else {
+      await api.openProjectFolder(projectId);
+    }
+  };
+
+  const contextMenuItems: ContextMenuItem[] = contextMenu
+    ? [
+        {
+          label: 'Rename',
+          disabled: contextMenu.project.is_builtin,
+          onClick: () => {
+            setRenameTarget(contextMenu.project);
+            setContextMenu(null);
+          },
+        },
+        {
+          label: 'Open in Explorer',
+          onClick: () => {
+            handleOpenInExplorer(contextMenu.project.project_id);
+            setContextMenu(null);
+          },
+        },
+        {
+          label: 'Delete',
+          danger: true,
+          disabled: contextMenu.project.is_builtin,
+          onClick: () => {
+            setDeleteTarget(contextMenu.project);
+            setContextMenu(null);
+          },
+        },
+      ]
+    : [];
 
   return (
     <div>
@@ -56,10 +112,38 @@ export function ProjectsPage() {
               project={p}
               delay={i}
               onClick={() => navigate(`/projects/${p.project_id}`)}
+              onContextMenu={(e) => handleContextMenu(e, p)}
             />
           ))}
         </div>
       )}
+
+      {contextMenu && (
+        <ContextMenu
+          items={contextMenuItems}
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete Project"
+        message={`Are you sure you want to delete "${deleteTarget?.name}"? This will permanently remove all project files.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.project_id)}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <RenameProjectDialog
+        project={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onRenamed={() => {
+          setRenameTarget(null);
+          queryClient.invalidateQueries({ queryKey: ['projects'] });
+        }}
+      />
 
       <CreateProjectDialog
         open={showCreate}
@@ -90,15 +174,17 @@ function ProjectCard({
   project,
   delay,
   onClick,
+  onContextMenu,
 }: {
   project: Project;
   delay: number;
   onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const delayClass = delay < 6 ? `d${delay + 1}` : 'd6';
 
   return (
-    <div className={`enter ${delayClass}`} onClick={onClick}>
+    <div className={`enter ${delayClass}`} onClick={onClick} onContextMenu={onContextMenu}>
       <GlassPanel
         className="p-5 cursor-pointer hover:border-glass-edge-mid transition-colors h-full"
       >
@@ -132,6 +218,62 @@ function ProjectCard({
         </div>
       </GlassPanel>
     </div>
+  );
+}
+
+/* ---------- Rename Dialog ---------- */
+
+function RenameProjectDialog({
+  project,
+  onClose,
+  onRenamed,
+}: {
+  project: Project | null;
+  onClose: () => void;
+  onRenamed: () => void;
+}) {
+  const [name, setName] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => api.updateProject(project!.project_id, { name: name.trim() }),
+    onSuccess: () => onRenamed(),
+  });
+
+  // Reset name when project changes
+  if (project && name === '') {
+    setName(project.name);
+  }
+
+  if (!project) return null;
+
+  return (
+    <DialogOverlay onClose={onClose}>
+      <GlassPanel className="p-6 max-w-md w-full">
+        <h2 className="text-lg font-display font-bold mb-4">Rename Project</h2>
+        <TextInput
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        {mutation.error && (
+          <p className="text-destructive text-xs mt-3">
+            {mutation.error instanceof Error ? mutation.error.message : 'Failed to rename'}
+          </p>
+        )}
+        <div className="flex justify-end gap-3 mt-6">
+          <Button variant="ghost" size="sm" onClick={() => { setName(''); onClose(); }}>Cancel</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!name.trim() || name.trim() === project.name || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            {mutation.isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </div>
+      </GlassPanel>
+    </DialogOverlay>
   );
 }
 
