@@ -50,6 +50,9 @@ struct GtSimOptions
     bool autolight = false;
     bool autolight_egoless = false;
 
+    // Vehicle Physics (observed pitch/roll for non-GT-controller vehicles)
+    bool vehicle_physics = false;
+
     // OSI
     std::string osi_ip;  // empty = disabled
 
@@ -78,6 +81,7 @@ static void PrintUsage()
     printf("GT_Sim-specific options:\n");
     printf("  --autolight          Enable AutoLight functionality\n");
     printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
+    printf("  --vehicle-physics    Enable observed vehicle physics (pitch/roll) for traffic vehicles\n");
     printf("  --osi <ip>           Enable OSI output to specified IP\n");
     printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
     printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
@@ -146,6 +150,7 @@ struct ControlPipe
     HANDLE pipe_handle = INVALID_HANDLE_VALUE;
     std::thread reader_thread;
     std::atomic<bool> running{false};
+    std::atomic<bool> quit_requested{false};
     std::atomic<double> speed_factor{1.0};
 
     bool Start(const std::string& name)
@@ -215,7 +220,12 @@ struct ControlPipe
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (line.empty()) continue;
 
-            if (line.rfind("SPEED:", 0) == 0)
+            if (line == "QUIT")
+            {
+                printf("GT_Sim: QUIT received via control pipe\n");
+                quit_requested.store(true);
+            }
+            else if (line.rfind("SPEED:", 0) == 0)
             {
                 try
                 {
@@ -292,6 +302,10 @@ int main(int argc, const char* argv[])
         {
             opts.autolight = true;
             opts.autolight_egoless = true;
+        }
+        else if (arg == "--vehicle-physics")
+        {
+            opts.vehicle_physics = true;
         }
         else if (arg == "--osi" && i + 1 < argc)
         {
@@ -485,6 +499,13 @@ int main(int argc, const char* argv[])
         GT_EnableAutoLight();
     }
 
+    // 2b. Enable Vehicle Physics if requested
+    if (opts.vehicle_physics)
+    {
+        printf("GT_Sim: Enabling Vehicle Physics\n");
+        GT_EnableVehiclePhysics();
+    }
+
     // 3. Open OSI Socket if requested
     if (!opts.osi_ip.empty())
     {
@@ -511,7 +532,11 @@ int main(int argc, const char* argv[])
     long long delayed_frames = 0;
 
     // 5. Main Loop
-    while (SE_GetQuitFlag() != 1)
+    while (SE_GetQuitFlag() != 1
+#ifdef _WIN32
+           && (!opts.control_pipe_name.empty() ? !controlPipe.quit_requested.load() : true)
+#endif
+    )
     {
         GT_Step(dt);
 

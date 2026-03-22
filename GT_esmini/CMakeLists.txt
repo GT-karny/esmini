@@ -56,6 +56,16 @@ message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, versi
 message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
 message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
 
+# ############################### Optional: SDL2 for racing wheel FFB support ########################################################################
+
+option(GT_ENABLE_SDL2 "Enable SDL2 for racing wheel input and force feedback" OFF)
+
+if(GT_ENABLE_SDL2)
+    set(SDL2_DIR "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/cmake")
+    find_package(SDL2 REQUIRED)
+    message(STATUS "GT_esmini: SDL2 enabled (${SDL2_VERSION})")
+endif()
+
 # ############################### Setting target files ###############################################################################################
 
 set(GT_CORE_SOURCES
@@ -101,7 +111,19 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/DriverInputReceiver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehicleStateUpdater.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/EsminiStateApplier.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerManualDrive.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/RealVehicleBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveCoordinator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/UdpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/TcpTransport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkInputBridge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkPhysicsBridge.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -116,7 +138,26 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/DriverInputReceiver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerManualDrive.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveTypes.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IPhysicsBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IFFBSink.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ITransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NullFFBSink.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/StubInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveConfig.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/OverrideManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/TcpTransport.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkInputBridge.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp)
 
 # Embedded Python controller sources (always enabled)
 list(APPEND GT_CONTROL_SOURCES
@@ -127,6 +168,16 @@ list(APPEND GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+
+# SDL2 racing wheel sources (conditional)
+if(GT_ENABLE_SDL2)
+    list(APPEND GT_CONTROL_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDL2WheelInput.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDLFFBSink.cpp)
+    list(APPEND GT_CONTROL_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDL2WheelInput.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDLFFBSink.hpp)
+endif()
 
 set(GT_OSI_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/osi/GT_HostVehicleReporter.cpp
@@ -237,6 +288,13 @@ target_link_libraries(${GT_OSI_TARGET} PRIVATE ${GT_CORE_TARGET} ${GT_SCENARIO_T
 if(USE_OSG)
     target_link_libraries(${GT_CONTROL_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
     target_link_libraries(${GT_OSI_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+endif()
+
+if(GT_ENABLE_SDL2)
+    foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${GT_CORE_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
+        target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_SDL2)
+        target_link_libraries(${TARGET} PRIVATE SDL2::SDL2)
+    endforeach()
 endif()
 
 target_sources(${TARGET_SHARED} PRIVATE
@@ -363,6 +421,19 @@ if(BUILD_EXAMPLES)
         TARGETS ${GT_SIM_TARGET}
         DESTINATION "${CODE_EXAMPLES_BIN_PATH}")
 endif(BUILD_EXAMPLES)
+
+# ############################### Config Copy (dev build) ##########################################################################################
+# Copy GT_esmini/config/ → build/GT_esmini/config/ (sibling of Release/)
+# ConfigLoader resolves to <exe_dir>/../config/, which maps to build/GT_esmini/config/ in dev builds.
+
+add_custom_command(
+    TARGET ${TARGET_SHARED}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/config"
+        "${CMAKE_CURRENT_BINARY_DIR}/config"
+    COMMENT "Copying GT_esmini config files to build output"
+)
 
 # ############################### DriverScript DLL Copy ############################################################################################
 # Copy esminiRMLib and GT_esminiLib to DriverScript/bin/ for Python script distribution

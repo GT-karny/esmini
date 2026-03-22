@@ -10,7 +10,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from GT_esmini.web.backend.config import PROJECTS_DIR, RESOURCES_DIR
+from GT_esmini.web.backend.config import PROJECTS_DIR, RESOURCES_DIR, get_projects_dir
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.project import (
     ParameterPreset,
@@ -59,6 +59,66 @@ async def ensure_builtin_project() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Filesystem ↔ DB sync
+# ---------------------------------------------------------------------------
+
+async def sync_projects() -> None:
+    """Scan the active projects directory and sync with DB.
+
+    - New subfolders → register as projects (name = folder name).
+    - DB entries whose root_path no longer exists → remove.
+    - Built-in project is never touched.
+    """
+    projects_dir = get_projects_dir()
+    if not projects_dir.is_dir():
+        return
+
+    db = await get_db()
+    try:
+        # Get all non-builtin projects from DB
+        cursor = await db.execute(
+            "SELECT project_id, root_path FROM projects WHERE is_builtin = 0"
+        )
+        db_projects: dict[str, str] = {
+            row["root_path"]: row["project_id"] for row in await cursor.fetchall()
+        }
+
+        # Scan filesystem: each direct subdirectory is a potential project
+        fs_dirs: set[str] = set()
+        for child in projects_dir.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                fs_dirs.add(str(child))
+
+        # Register new folders not yet in DB
+        now = datetime.now(timezone.utc).isoformat()
+        for dir_path in fs_dirs:
+            if dir_path not in db_projects:
+                project_id = uuid.uuid4().hex[:12]
+                folder_name = Path(dir_path).name
+                await db.execute(
+                    """INSERT INTO projects
+                       (project_id, name, description, is_builtin, root_path, created_at, updated_at)
+                       VALUES (?, ?, '', 0, ?, ?, ?)""",
+                    (project_id, folder_name, dir_path, now, now),
+                )
+                _logger.info("Auto-registered project '%s' from %s", folder_name, dir_path)
+
+        # Remove DB entries whose folders no longer exist
+        for root_path, project_id in db_projects.items():
+            if not Path(root_path).is_dir():
+                await db.execute(
+                    "DELETE FROM projects WHERE project_id = ?", (project_id,)
+                )
+                _logger.info(
+                    "Removed stale project %s (folder gone: %s)", project_id, root_path
+                )
+
+        await db.commit()
+    finally:
+        await db.close()
+
+
+# ---------------------------------------------------------------------------
 # File counting helpers
 # ---------------------------------------------------------------------------
 
@@ -100,6 +160,7 @@ def _file_type(path: Path) -> str:
 
 async def list_projects() -> list[ProjectListItem]:
     """List all projects including the built-in one."""
+    await sync_projects()
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -157,7 +218,7 @@ async def get_project(project_id: str) -> ProjectDetail | None:
 async def create_project(req: ProjectCreateRequest) -> ProjectDetail:
     """Create a new empty project."""
     project_id = uuid.uuid4().hex[:12]
-    project_dir = PROJECTS_DIR / project_id
+    project_dir = get_projects_dir() / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
     now = datetime.now(timezone.utc).isoformat()
@@ -189,7 +250,7 @@ async def create_project(req: ProjectCreateRequest) -> ProjectDetail:
 async def create_project_from_zip(zip_data: bytes, name: str, description: str = "") -> ProjectDetail:
     """Create a project by extracting a ZIP archive."""
     project_id = uuid.uuid4().hex[:12]
-    project_dir = PROJECTS_DIR / project_id
+    project_dir = get_projects_dir() / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
     import io
@@ -423,14 +484,13 @@ async def list_scenarios(project_id: str) -> list[ScenarioInfo] | None:
     if not root.is_dir():
         return []
 
-    # For builtin project, scan xosc/ subdirectory
-    if proj.is_builtin:
-        scan_dir = root / "xosc"
-    else:
-        scan_dir = root
+    # Always scan xosc/ subdirectory
+    scan_dir = root / "xosc"
+    if not scan_dir.is_dir():
+        return []
 
     scenarios: list[ScenarioInfo] = []
-    for xosc in sorted(scan_dir.rglob("*.xosc")):
+    for xosc in sorted(scan_dir.glob("*.xosc")):
         if xosc.name.endswith(".temp.xosc"):
             continue
         rel = str(xosc.relative_to(root)).replace("\\", "/")

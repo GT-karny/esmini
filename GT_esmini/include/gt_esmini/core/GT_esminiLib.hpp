@@ -70,6 +70,15 @@ extern "C"
     GT_ESMINI_API void GT_EnableAutoLight();
 
     /**
+     * @brief Enable observation-based vehicle physics for non-GT-controller vehicles
+     *
+     * Applies spring-damper pitch/roll dynamics to all vehicles that do not have
+     * a RealDriverController or PythonDriverController assigned.
+     * Must be called after GT_Init / GT_InitWithArgs.
+     */
+    GT_ESMINI_API void GT_EnableVehiclePhysics();
+
+    /**
      * @brief GT_esmini cleanup
      * 
      * Phase 1: Stub implementation

@@ -1,4 +1,5 @@
 #include "gt_esmini/control/RealVehicle.hpp"
+#include "logger.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -19,9 +20,9 @@ namespace gt_esmini
 
 RealVehicle::RealVehicle() : vehicle::Vehicle()
 {
-    // Default tuning values
-    idle_rpm_ = 800.0;
-    max_rpm_ = 7000.0;
+    // Default tuning values (Corolla/Civic class economy sedan)
+    idle_rpm_ = 700.0;
+    max_rpm_ = 6500.0;
     rpm_ = idle_rpm_;
     gear_ratio_ = 3.5; // Final drive * generic gear
     
@@ -36,23 +37,33 @@ RealVehicle::RealVehicle() : vehicle::Vehicle()
 void RealVehicle::LoadParameters(const std::string& filename)
 {
     std::ifstream file(filename);
-    if (!file.is_open()) 
+    if (!file.is_open())
     {
-        // LOG_INFO("RealVehicle params not found, using defaults: {}", filename);
+        LOG_INFO("RealVehicle: params NOT FOUND, using defaults: {}", filename);
         return;
     }
+    LOG_INFO("RealVehicle: Loading params from: {}", filename);
 
     std::string line;
+    int brace_depth = 0;  // Track nested JSON objects to skip "observed_vehicle" etc.
     while (std::getline(file, line))
     {
+        // Track brace depth — only parse top-level keys (depth <= 1)
+        for (char ch : line)
+        {
+            if (ch == '{') ++brace_depth;
+            else if (ch == '}') --brace_depth;
+        }
+        if (brace_depth > 1)
+            continue;  // Inside nested object (e.g. "observed_vehicle"), skip
+
         // Very simple "key": value parser
-        auto parse_val = [&](const std::string& key, double& val) 
+        auto parse_val = [&](const std::string& key, double& val)
         {
              if (line.find(key) != std::string::npos) {
                  size_t colon = line.find(":");
                  if (colon != std::string::npos) {
                      try {
-                         // Simple cleanup of value string could be needed but stod is robust ignoring leading whitespace
                          val = std::stod(line.substr(colon + 1));
                      } catch (...) {}
                  }
@@ -64,16 +75,23 @@ void RealVehicle::LoadParameters(const std::string& filename)
         parse_val("roll_stiffness", params_.roll_stiffness);
         parse_val("roll_damping", params_.roll_damping);
         parse_val("mass_height", params_.mass_height);
-        parse_val("center_of_rotation_z_offset", params_.center_of_rotation_z_offset); 
+        parse_val("center_of_rotation_z_offset", params_.center_of_rotation_z_offset);
         parse_val("max_pitch_deg", params_.max_pitch_deg);
         parse_val("max_roll_deg", params_.max_roll_deg);
         parse_val("steer_gain", params_.steer_gain);
         parse_val("max_speed", params_.max_speed);
         parse_val("max_acc", params_.max_acc);
+        parse_val("max_dec", params_.max_dec);
         parse_val("idle_rpm", idle_rpm_);
         parse_val("max_rpm", max_rpm_);
         parse_val("gear_ratio", gear_ratio_);
         parse_val("reverse_gear_ratio", params_.reverse_gear_ratio);
+
+        // Powertrain parameters
+        parse_val("drag_coeff", params_.drag_coeff);
+        parse_val("engine_brake", params_.engine_brake);
+        parse_val("torque_peak_pos", params_.torque_peak_pos);
+        parse_val("torque_min", params_.torque_min);
 
         // Understeer parameters
         parse_val("understeer_factor", params_.understeer_factor);
@@ -82,7 +100,17 @@ void RealVehicle::LoadParameters(const std::string& filename)
     }
 
     SetMaxAcc(params_.max_acc);
+    SetMaxDec(params_.max_dec);
     SetMaxSpeed(params_.max_speed);
+
+    LOG_INFO("RealVehicle: Loaded params: pitch_stiff={}, pitch_damp={}, roll_stiff={}, roll_damp={}, "
+             "mass_h={}, max_pitch={}deg, max_roll={}deg, steer_gain={}, max_acc={}, max_dec={}, max_spd={}, "
+             "drag={}, eng_brake={}, torque_peak={}, torque_min={}",
+             params_.pitch_stiffness, params_.pitch_damping,
+             params_.roll_stiffness, params_.roll_damping,
+             params_.mass_height, params_.max_pitch_deg, params_.max_roll_deg,
+             params_.steer_gain, params_.max_acc, params_.max_dec, params_.max_speed,
+             params_.drag_coeff, params_.engine_brake, params_.torque_peak_pos, params_.torque_min);
 }
 
 void RealVehicle::GetBodyPositionOffset(double& dx, double& dy, double& dz)
@@ -102,19 +130,22 @@ void RealVehicle::GetBodyPositionOffset(double& dx, double& dy, double& dz)
 
 double RealVehicle::GetTorque(double current_rpm) const
 {
-    // Very simple torque curve: peaking at mid range (e.g., 3000-4000)
-    // Normalized 0..1 output, will be multiplied by MaxAcc later
-    
-    // Parabolic-ish curve
+    // Normalized torque curve [0..1], multiplied by MaxAcc to get acceleration.
+    // Uses an asymmetric parabola peaking at torque_peak_pos (e.g. 0.65 for NA engine).
+
     double normalized_rpm = (current_rpm - idle_rpm_) / (max_rpm_ - idle_rpm_);
-    if (normalized_rpm < 0) normalized_rpm = 0;
-    if (normalized_rpm > 1) normalized_rpm = 1;
-    
-    // Peak torque at 50% RPM range
-    // 4 * x * (1-x) gives parabola 0->1->0
-    // Allow some torque at idle and redline
-    double base_torque = 0.4 + 0.6 * (4.0 * normalized_rpm * (1.0 - normalized_rpm));
-    return base_torque;
+    normalized_rpm = std::max(0.0, std::min(1.0, normalized_rpm));
+
+    // Asymmetric parabola: peak at torque_peak_pos, normalized to 0..1
+    double p = params_.torque_peak_pos;
+    // f(x) = 1 - ((x - p) / max(p, 1-p))^2, rescaled so peak = 1
+    double half_width = std::max(p, 1.0 - p);
+    double shape = 1.0 - ((normalized_rpm - p) / half_width) * ((normalized_rpm - p) / half_width);
+    shape = std::max(0.0, shape);
+
+    // Blend: torque_min at endpoints, 1.0 at peak
+    double torque = params_.torque_min + (1.0 - params_.torque_min) * shape;
+    return torque;
 }
 
 void RealVehicle::SetTerrainAttitude(double pitch, double roll)
@@ -192,13 +223,13 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
         deceleration_force = brake * GetMaxDec(); // Brake power
     }
     
-    // Engine braking (drag)
-    double drag_force = speed_ * speed_ * 0.005; // Air drag
+    // Aerodynamic drag + engine braking
+    double drag_force = speed_ * speed_ * params_.drag_coeff; // Air drag [m/s²]
     if (speed_ < 0) drag_force = -drag_force; // Drag always opposes motion
-    if (throttle < 0.05) 
+    if (throttle < 0.05)
     {
-        if (speed_ > 0) drag_force += engine_brake_factor_; 
-        else if (speed_ < 0) drag_force -= engine_brake_factor_;
+        if (speed_ > 0) drag_force += params_.engine_brake;
+        else if (speed_ < 0) drag_force -= params_.engine_brake;
     }
     
     // Net Acceleration
@@ -299,13 +330,17 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     // -----------------------------------
     
     // Longitudinal Acceleration (current frame approximate)
-    double long_acc = acc; 
-    
+    double long_acc = acc;
+
     // Lateral Acceleration = v^2 / r = v * omega = v * (v / L * tan(delta)) approximate
     // Base vehicle calculates velAngleRelVehicleLongAxis_, we can use that for better slip
     // Simple: LatAcc = Speed * YawRate
     double yaw_rate = headingDot_; // Calculated in base Update()
     double lat_acc = speed_ * yaw_rate;
+
+    // Store for FFB and HVD export
+    latAcc_  = lat_acc;
+    longAcc_ = long_acc;
     
     // [FIX 2 & 3] Natural Suspension Dynamics & Direction Correction
     
@@ -339,11 +374,15 @@ void RealVehicle::UpdatePhysics(double dt, double throttle, double brake, double
     roll_rate_ += roll_acc * dt;
     dynamic_roll_ += roll_rate_ * dt;
 
-    // Clamp dynamic angles
+    // Clamp dynamic angles and kill velocity when hitting the limit
     double lim_p = params_.max_pitch_deg * M_PI / 180.0;
     double lim_r = params_.max_roll_deg * M_PI / 180.0;
-    dynamic_pitch_ = Clamp(dynamic_pitch_, -lim_p, lim_p);
-    dynamic_roll_ = Clamp(dynamic_roll_, -lim_r, lim_r);
+
+    if (dynamic_pitch_ > lim_p)       { dynamic_pitch_ = lim_p;  pitch_rate_ = std::min(pitch_rate_, 0.0); }
+    else if (dynamic_pitch_ < -lim_p) { dynamic_pitch_ = -lim_p; pitch_rate_ = std::max(pitch_rate_, 0.0); }
+
+    if (dynamic_roll_ > lim_r)       { dynamic_roll_ = lim_r;  roll_rate_ = std::min(roll_rate_, 0.0); }
+    else if (dynamic_roll_ < -lim_r) { dynamic_roll_ = -lim_r; roll_rate_ = std::max(roll_rate_, 0.0); }
 
     // Combined attitude (terrain + dynamic)
     pitch_ = terrain_pitch_ + dynamic_pitch_;

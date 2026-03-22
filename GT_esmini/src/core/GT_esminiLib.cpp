@@ -36,9 +36,11 @@
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
+#include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
+#include "gt_esmini/control/VehiclePhysicsManager.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -215,6 +217,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -272,10 +275,21 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         // 4. Initialize AutoLightManager
         AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
 
+        // 4b. Initialize VehiclePhysicsManager
+        {
+            std::string exeDir = gt_esmini::GetCurrentModuleDirectory();
+            gt_esmini::ConfigLoader config_loader;
+            std::string paramsFile = config_loader.ResolveConfigPath(exeDir, "real_vehicle_params.json");
+
+            auto& vpm = gt_esmini::VehiclePhysicsManager::Instance();
+            vpm.LoadProfiles(paramsFile);
+            vpm.Init(&player->scenarioEngine->entities_);
+        }
+
         // 5. Register Hook for OSIReporter
         // Forward declaration of GT_SetLightStateProvider (defined in GT_OSIReporter.cpp)
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
-        
+
         GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
             auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
             auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
@@ -369,6 +383,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             else if (argv[i] &&
                      (strcmp(argv[i], "--autolight") == 0 ||
                       strcmp(argv[i], "--autolight-egoless") == 0 ||
+                      strcmp(argv[i], "--vehicle-physics") == 0 ||
                       strcmp(argv[i], "--osi") == 0 ||
                       strcmp(argv[i], "--hz") == 0 ||
                       strcmp(argv[i], "--no_realtime") == 0 ||
@@ -419,6 +434,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
@@ -507,6 +523,28 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
              std::cout << "GT_Init: AutoLight enabled via argument." << std::endl;
         }
 
+        // 4b. Initialize VehiclePhysicsManager (observed pitch/roll for non-GT vehicles)
+        {
+            std::string exeDir = gt_esmini::GetCurrentModuleDirectory();
+            gt_esmini::ConfigLoader config_loader;
+            std::string paramsFile = config_loader.ResolveConfigPath(exeDir, "real_vehicle_params.json");
+
+            auto& vpm = gt_esmini::VehiclePhysicsManager::Instance();
+            vpm.LoadProfiles(paramsFile);
+            vpm.Init(&player->scenarioEngine->entities_);
+
+            // Check for --vehicle-physics argument in original argv
+            for (int i = 0; i < argc; i++)
+            {
+                if (argv[i] && strcmp(argv[i], "--vehicle-physics") == 0)
+                {
+                    vpm.Enable(true);
+                    std::cout << "GT_Init: VehiclePhysics enabled via argument." << std::endl;
+                    break;
+                }
+            }
+        }
+
         // 5. Register Hook for OSIReporter
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
 
@@ -559,6 +597,9 @@ GT_ESMINI_API void GT_Step(double dt)
 
     // Update AutoLight
     AutoLightManager::Instance().Update(dt);
+
+    // Update observed vehicle physics (pitch/roll for non-GT-controller vehicles)
+    gt_esmini::VehiclePhysicsManager::Instance().Update(dt);
 
     // Update HostVehicleData (using separated GT_HostVehicleReporter)
 #ifdef _USE_OSI
@@ -613,6 +654,10 @@ GT_ESMINI_API void GT_Step(double dt)
                 if (!ctrl)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
+                }
+                if (!ctrl)
+                {
+                    ctrl = egoObject->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME);
                 }
                 if (ctrl)
                 {
@@ -680,6 +725,10 @@ GT_ESMINI_API void GT_Step(double dt)
                     {
                         pushControllerState(pythonDriver);
                     }
+                    else if (auto* manualDrive = dynamic_cast<gt_esmini::ControllerManualDrive*>(ctrl))
+                    {
+                        pushControllerState(manualDrive);
+                    }
                 }
                 else
                 {
@@ -700,6 +749,11 @@ GT_ESMINI_API void GT_Step(double dt)
 #endif  // _USE_OSI
 }
 
+GT_ESMINI_API void GT_EnableVehiclePhysics()
+{
+    gt_esmini::VehiclePhysicsManager::Instance().Enable(true);
+}
+
 GT_ESMINI_API void GT_EnableAutoLight()
 {
     AutoLightManager::Instance().Enable(true);
@@ -707,7 +761,26 @@ GT_ESMINI_API void GT_EnableAutoLight()
 
 GT_ESMINI_API void GT_Close()
 {
+    // Release FFB before teardown so the wheel isn't left under torque
+    if (player && player->scenarioEngine)
+    {
+        for (auto* obj : player->scenarioEngine->entities_.object_)
+        {
+            if (obj)
+            {
+                for (auto* ctrl : obj->controllers_)
+                {
+                    if (ctrl)
+                    {
+                        ctrl->Deactivate();
+                    }
+                }
+            }
+        }
+    }
+
     s_hvdEstimator.Reset();
+    gt_esmini::VehiclePhysicsManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
     AutoLightManager::Instance().Close();
     SE_Close();

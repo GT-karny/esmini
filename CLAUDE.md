@@ -76,9 +76,12 @@ graph TD
 
 ## 4. Python Environment
 
+> **Development Freeze**: Python-related features (PythonDriverController, Embedded Python, DriverScript) are frozen as of v0.8. Existing functionality remains available but no new features are planned.
+
 - **Runtime**: `DriverScript/.venv` (Python 3.12)
 - **Dependencies**: `DriverScript/requirements.txt`
 - **Web backend**: `GT_esmini/web/` (FastAPI + SQLite)
+- **Electron desktop**: `GT_esmini/web/electron/` (Electron wrapper for Web UI)
 - **Rule**: Never use system Python directly. Always activate or reference the venv.
 
 ## 5. Test Strategy
@@ -114,9 +117,9 @@ Use `/package --version <VERSION>` skill for automated build. See `.claude/skill
 
 ## 7. Git Workflow
 
-- **Branches**: `master` (stable) → `dev_v0.7` (development integration) → `feature/*` (feature work)
+- **Branches**: `master` (stable) → `dev_v0.8` (development integration) → `feature/*` (feature work)
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`)
-- **PR flow**: `feature/*` → `dev_v0.7` → `master`
+- **PR flow**: `feature/*` → `dev_v0.8` → `master`
 
 ## 8. Contextual Links
 

@@ -17,9 +17,72 @@ class PythonControllerConfig(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ManualDriveButtonMapping(BaseModel):
+    upshift: int = 4
+    downshift: int = 5
+    override: int = 0
+    indicator_left: int = 7
+    indicator_right: int = 6
+    headlight: int = -1
+    high_beam: int = -1
+    fog_light: int = -1
+    hazard: int = -1
+
+
+class ManualDriveSDL2Config(BaseModel):
+    device_index: int = 0
+    deadzone: float = 0.05
+    button_mapping: ManualDriveButtonMapping = ManualDriveButtonMapping()
+
+
+class ManualDriveDomainConfig(BaseModel):
+    lateral: str = "manual"
+    longitudinal: str = "manual"
+
+
+class ManualDriveNetworkInput(BaseModel):
+    transport_type: str = "udp"
+    port: int = 9100
+    level: str = "pedal_steer"
+
+
+class ManualDriveNetworkPhysics(BaseModel):
+    transport_type: str = "udp"
+    host: str = "127.0.0.1"
+    cmd_port: int = 9200
+    state_port: int = 9201
+
+
+class ManualDriveFFBConfig(BaseModel):
+    sat_gain: float = 0.08
+    sat_centering_gain: float = 1.50
+    friction_base: float = 0.12
+    friction_speed_gain: float = 0.04
+    damper_base: float = 0.02
+    damper_speed_gain: float = 0.06
+    soft_stop_gain: float = 0.5
+    lock_angle: float = 0.7
+    assist_low_speed: float = 0.90
+    assist_high_speed: float = 0.20
+    max_force: float = 1.0
+    disable_non_realtime: bool = True
+
+
+class ManualDriveControllerConfig(BaseModel):
+    input_type: str = "sdl2_wheel"
+    physics_type: str = "real_vehicle"
+    ffb_enabled: bool = True
+    domain: ManualDriveDomainConfig = ManualDriveDomainConfig()
+    sdl2: ManualDriveSDL2Config = ManualDriveSDL2Config()
+    input_network: ManualDriveNetworkInput = ManualDriveNetworkInput()
+    physics_network: ManualDriveNetworkPhysics = ManualDriveNetworkPhysics()
+    ffb: ManualDriveFFBConfig = ManualDriveFFBConfig()
+
+
 class ControllerConfig(BaseModel):
-    controller_type: str = "default"  # "default" | "python"
+    controller_type: str = "default"  # "default" | "python" | "manual"
     python: PythonControllerConfig = PythonControllerConfig()
+    manual_drive: ManualDriveControllerConfig = ManualDriveControllerConfig()
 
 
 class OsiConfig(BaseModel):
@@ -35,13 +98,14 @@ class WindowConfig(BaseModel):
 
 
 class ExecutionConfig(BaseModel):
-    headless: bool = True
-    record: bool = True
+    headless: bool = False
+    record: bool = False
     hz: int = 100
     no_realtime: bool = True
     timeout: int = 60
     osi: OsiConfig = OsiConfig()
     autolight: bool = False
+    vehicle_physics: bool = True
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []

@@ -8,7 +8,7 @@
  *   4. On window close → stop server → quit
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { startServer, stopServer } from './server.js';
 
@@ -83,6 +83,19 @@ function registerIpcHandlers(): void {
   ipcMain.handle('window:isMaximized', () => {
     return mainWindow?.isMaximized() ?? false;
   });
+
+  ipcMain.handle('shell:openPath', (_event, dirPath: string) => {
+    return shell.openPath(dirPath);
+  });
+
+  ipcMain.handle('dialog:openDirectory', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory'],
+      title: 'Select Projects Root Folder',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 }
 
 function unregisterIpcHandlers(): void {
@@ -91,6 +104,8 @@ function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners('window:maximize');
   ipcMain.removeAllListeners('window:close');
   ipcMain.removeHandler('window:isMaximized');
+  ipcMain.removeHandler('shell:openPath');
+  ipcMain.removeHandler('dialog:openDirectory');
 }
 
 // ---------------------------------------------------------------------------

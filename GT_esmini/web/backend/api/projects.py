@@ -171,6 +171,30 @@ async def delete_project(project_id: str):
     return {"status": "deleted"}
 
 
+@router.post("/{project_id}/open-folder")
+async def open_project_folder(project_id: str):
+    """Open project folder in OS file explorer."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    proj = await project_service.get_project(project_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    root = Path(proj.root_path)
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Project folder not found on disk")
+
+    if sys.platform == "win32":
+        subprocess.Popen(["explorer", str(root)])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(root)])
+    else:
+        subprocess.Popen(["xdg-open", str(root)])
+
+    return {"status": "opened"}
+
+
 # ---------------------------------------------------------------------------
 # File management
 # ---------------------------------------------------------------------------

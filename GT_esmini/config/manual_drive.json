@@ -1,0 +1,54 @@
+{
+    "input_type": "sdl2_wheel",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": true,
+    "input": {
+        "device_index": 0,
+        "deadzone": 0.05,
+        "upshift_button": 4,
+        "downshift_button": 5,
+        "override_button": 0,
+        "indicator_left_button": 7,
+        "indicator_right_button": 6,
+        "headlight_button": -1,
+        "high_beam_button": -1,
+        "fog_light_button": -1,
+        "hazard_button": -1,
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer"
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json",
+        "host": "127.0.0.1",
+        "cmd_port": 9200,
+        "state_port": 9201
+    },
+    "indicator_cancel_angle": 0.06,
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "ffb": {
+        "sat_gain": 0.08,
+        "sat_centering_gain": 1.5,
+        "friction_base": 0.12,
+        "friction_speed_gain": 0.04,
+        "damper_base": 0.02,
+        "damper_speed_gain": 0.06,
+        "soft_stop_gain": 0.5,
+        "lock_angle": 0.7,
+        "assist_low_speed": 0.90,
+        "assist_high_speed": 0.20,
+        "max_force": 1.0,
+        "disable_non_realtime": true
+    },
+    "override": {
+        "enabled": true,
+        "steering_threshold": 0.05,
+        "throttle_threshold": 0.1,
+        "brake_threshold": 0.1,
+        "auto_return_timeout": 0.0,
+        "button_override": true
+    }
+}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { CursorLight } from '@osce/theme-apex';
 import { api } from './api/client';
@@ -98,9 +98,7 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
         ) : (
           <>
             <NavLink to="/" className={linkClass} end>Projects</NavLink>
-            <NavLink to="/scenarios" className={linkClass}>Scenarios</NavLink>
-            <NavLink to="/simulations" className={linkClass}>Jobs</NavLink>
-            <NavLink to="/simulations/new" className={linkClass}>New Run</NavLink>
+            <ProjectsRootIndicator />
           </>
         )}
 
@@ -119,6 +117,73 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
         </div>
       </div>
     </nav>
+  );
+}
+
+/* ---------- Projects Root (inline in navbar) ---------- */
+
+function ProjectsRootIndicator() {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: ['projects-root'],
+    queryFn: api.getProjectsRoot,
+  });
+
+  const mutation = useMutation({
+    mutationFn: (root: string | null) => api.setProjectsRoot(root),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects-root'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+
+  const handleBrowse = async () => {
+    if (isElectron) {
+      const selected = await window.electronAPI!.selectDirectory();
+      if (selected) mutation.mutate(selected);
+    }
+  };
+
+  const handleClear = () => mutation.mutate(null);
+
+  const displayPath = data?.projects_root ?? data?.effective_dir ?? '';
+  // Show only the last 2 path segments for compact display
+  const shortPath = displayPath
+    ? displayPath.replace(/\\/g, '/').split('/').slice(-2).join('/')
+    : '';
+
+  return (
+    <div className="flex items-center gap-1.5 ml-4 text-xs text-text-tertiary no-drag">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5 shrink-0">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+      </svg>
+      <span className="truncate max-w-48" title={displayPath}>{shortPath || 'Default'}</span>
+      {isElectron && (
+        <button
+          onClick={handleBrowse}
+          disabled={mutation.isPending}
+          className="hover:text-foreground transition-colors cursor-pointer"
+          title="Change projects root folder"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+          </svg>
+        </button>
+      )}
+      {data?.is_custom && (
+        <button
+          onClick={handleClear}
+          disabled={mutation.isPending}
+          className="hover:text-foreground transition-colors cursor-pointer"
+          title="Reset to default"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 

@@ -9,8 +9,7 @@ Steps:
     2. (Optional) Build frontend
     3. Run PyInstaller to create frozen web server
     4. Assemble release directory structure
-    5. Bootstrap pip in embedded Python
-    6. Create zip archive
+    5. Create zip archive
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ import argparse
 import shutil
 import subprocess
 import sys
-import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -35,21 +33,14 @@ SPEC_FILE = PYINSTALLER_DIR / "gt_sim_web.spec"
 # Files to copy from build/GT_esmini/Release/
 BIN_GLOBS = ["GT_Sim.exe", "*.dll", "*.pyd", "python312.zip"]
 
-# Extra files from embedded Python distribution
-EMBED_FILES = ["python.exe", "pythonw.exe", "python312._pth"]
-
-# Scripts to copy
-SCRIPTS_FILES = ["scenario_generator.py", "dat.py", "comparison_kpis.py"]
-SCRIPTS_DIRS = ["osi3"]
-
-# DriverScript files/dirs
-DRIVERSCRIPT_FILES = ["runtime_api.py"]
-DRIVERSCRIPT_DIRS = ["pythondriver", "examples", "realdriver", "osi3"]
+# Extra files from embedded Python distribution (runtime DLLs only, no standalone exe)
+EMBED_FILES = ["python312._pth"]
 
 # Config mappings: (source relative to REPO_ROOT, dest relative to package)
 CONFIG_FILES = [
     ("GT_esmini/config/real_vehicle_params.json", "config/real_vehicle_params.json"),
     ("GT_esmini/config/host_vehicle_config.json", "config/host_vehicle_config.json"),
+    ("GT_esmini/config/manual_drive.json", "config/manual_drive.json"),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
@@ -143,53 +134,6 @@ def _copy_dirs(src_dir: Path, dst_dir: Path, dirnames: list[str]) -> None:
             shutil.copytree(src, dst_dir / dname, ignore=IGNORE_PATTERNS)
 
 
-def bootstrap_pip(bin_dir: Path) -> None:
-    """Bootstrap pip into the embedded Python's site-packages."""
-    python_exe = bin_dir / "python.exe"
-    if not python_exe.exists():
-        print("[WARN] python.exe not found in bin/, skipping pip bootstrap.")
-        return
-
-    print("[PIP] Bootstrapping pip...")
-
-    # Try ensurepip first
-    result = subprocess.run(
-        [str(python_exe), "-m", "ensurepip", "--upgrade"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        print("[OK] pip bootstrapped via ensurepip.")
-        return
-
-    # Fallback: download get-pip.py
-    print("[PIP] ensurepip unavailable, trying get-pip.py...")
-    get_pip_path = bin_dir / "get-pip.py"
-    try:
-        urllib.request.urlretrieve(
-            "https://bootstrap.pypa.io/get-pip.py",
-            str(get_pip_path),
-        )
-    except Exception as e:
-        print(f"[WARN] Failed to download get-pip.py: {e}")
-        print("[WARN] pip will not be available. Users can manually install later.")
-        return
-
-    result = subprocess.run(
-        [str(python_exe), str(get_pip_path)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        print("[OK] pip bootstrapped via get-pip.py.")
-    else:
-        print(f"[WARN] pip bootstrap failed: {result.stderr}")
-        print("[WARN] pip will not be available. Users can manually install later.")
-
-    # Clean up get-pip.py
-    get_pip_path.unlink(missing_ok=True)
-
-
 def assemble_package(version: str, output_dir: Path) -> Path:
     """Assemble the complete release directory."""
     pkg_name = f"GT_Sim_v{version}"
@@ -208,18 +152,9 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     count = _copy_glob(BUILD_RELEASE, bin_dir, BIN_GLOBS)
     log(f"bin/: {count} files from build output")
 
-    # 1b. bin/ — python.exe, python312._pth from embedded Python
+    # 1b. bin/ — python312._pth from embedded Python
     _copy_files(EMBEDDED_PYTHON, bin_dir, EMBED_FILES)
-    log("bin/: added python.exe + python312._pth")
-
-    # 1c. bin/Lib/site-packages/ from embedded Python
-    embed_site = EMBEDDED_PYTHON / "Lib" / "site-packages"
-    if embed_site.is_dir():
-        shutil.copytree(embed_site, bin_dir / "Lib" / "site-packages", ignore=IGNORE_PATTERNS)
-        log("bin/Lib/site-packages/: copied from embedded Python")
-
-    # 1d. Bootstrap pip
-    bootstrap_pip(bin_dir)
+    log("bin/: added python312._pth")
 
     # 2. server/ — PyInstaller output
     pyinstaller_output = PYINSTALLER_DIR / "dist" / "gt_sim_web"
@@ -229,21 +164,7 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     shutil.copytree(pyinstaller_output, pkg_dir / "server")
     log("server/: copied PyInstaller output")
 
-    # 3. scripts/
-    scripts_dest = pkg_dir / "scripts"
-    scripts_dest.mkdir()
-    _copy_files(REPO_ROOT / "scripts", scripts_dest, SCRIPTS_FILES)
-    _copy_dirs(REPO_ROOT / "scripts", scripts_dest, SCRIPTS_DIRS)
-    log("scripts/: copied")
-
-    # 4. DriverScript/
-    ds_dest = pkg_dir / "DriverScript"
-    ds_dest.mkdir()
-    _copy_files(REPO_ROOT / "DriverScript", ds_dest, DRIVERSCRIPT_FILES)
-    _copy_dirs(REPO_ROOT / "DriverScript", ds_dest, DRIVERSCRIPT_DIRS)
-    log("DriverScript/: copied")
-
-    # 5. resources/
+    # 3. resources/
     res_dest = pkg_dir / "resources"
     for subdir in ["xosc", "xodr", "models", "sumo_inputs"]:
         src = REPO_ROOT / "resources" / subdir
@@ -274,91 +195,30 @@ def assemble_package(version: str, output_dir: Path) -> Path:
         shutil.copytree(docs_src, pkg_dir / "docs", ignore=IGNORE_PATTERNS)
         log("docs/: copied")
 
-    # 8. Launcher batch files
-    _write_launcher(pkg_dir)
-    log("GT_Sim.bat: created")
-
-    _write_pip_helper(pkg_dir)
-    log("pip.bat: created")
-
-    # 9. README
+    # 8. README
     _write_readme(pkg_dir, version)
     log("README.txt: created")
 
     return pkg_dir
 
 
-def _write_launcher(pkg_dir: Path) -> None:
-    content = r"""@echo off
-title GT_Sim Web Server
-echo ====================================
-echo   GT_Sim Web Server
-echo ====================================
-echo.
-echo Starting server at http://127.0.0.1:8000
-echo Press Ctrl+C to stop the server.
-echo.
-cd /d "%~dp0"
-server\gt_sim_web.exe --host 127.0.0.1 --port 8000
-pause
-"""
-    (pkg_dir / "GT_Sim.bat").write_text(content, encoding="utf-8")
-
-
-def _write_pip_helper(pkg_dir: Path) -> None:
-    content = r"""@echo off
-REM pip wrapper for the embedded Python environment.
-REM Usage: pip.bat <command> [options]
-REM Examples:
-REM   pip.bat install numpy pandas requests
-REM   pip.bat install -r requirements.txt
-REM   pip.bat install --proxy http://proxy:8080 numpy
-REM   pip.bat list
-REM   pip.bat uninstall numpy
-cd /d "%~dp0"
-bin\python.exe -m pip %*
-"""
-    (pkg_dir / "pip.bat").write_text(content, encoding="utf-8")
-
-
 def _write_readme(pkg_dir: Path, version: str) -> None:
-    content = f"""GT_Sim Web v{version}
-{'=' * (len(f'GT_Sim Web v{version}'))}
+    content = f"""GT_Sim v{version}
+{'=' * (len(f'GT_Sim v{version}'))}
 
 Quick Start
 -----------
-1. Double-click GT_Sim.bat
+1. Launch GT_Sim.exe
 2. Browser opens at http://127.0.0.1:8000
-3. Press Ctrl+C in the console to stop
 
 Directory Structure
 -------------------
-bin/           - GT_Sim simulation engine, Embedded Python, DLLs
+bin/           - Simulation engine (GT_Sim.exe) and DLLs
 server/        - Web server (do not modify)
-scripts/       - Utility scripts (scenario generation, DAT conversion)
-DriverScript/  - Python controller scripts (editable)
 resources/     - Scenarios (.xosc), Roads (.xodr), 3D Models
 config/        - Configuration files (editable)
 data/          - Runtime data, simulation results
-docs/          - Documentation (web/manual.md, API reference, etc.)
-
-Adding Python Packages
-----------------------
-pip.bat is a wrapper for the embedded Python's pip:
-
-    pip.bat install numpy pandas requests
-    pip.bat install -r requirements.txt
-    pip.bat install --proxy http://proxy:8080 numpy
-    pip.bat list
-    pip.bat uninstall numpy
-
-Installed packages are available to all PythonDriverController scripts.
-
-Customization
--------------
-- Edit DriverScript/pythondriver/*.py for custom controllers
-- Add .xosc files to resources/xosc/ for new scenarios
-- Edit config/real_vehicle_params.json for vehicle parameters
+docs/          - Documentation
 """
     (pkg_dir / "README.txt").write_text(content, encoding="utf-8")
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import GT_SIM_EXE, REPO_ROOT, RESULTS_DIR, SCRIPTS_DIR
+from GT_esmini.web.backend.config import CONFIG_DIR, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR, SCRIPTS_DIR
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
     ControllerConfig,
@@ -87,6 +87,133 @@ def _apply_param_overrides(xosc_path: Path, overrides: dict[str, str]) -> None:
     tree.write(xosc_path, encoding="utf-8", xml_declaration=True)
 
 
+def _generate_manual_variant(
+    baseline_xosc: Path,
+    output_path: Path,
+    controller: ControllerConfig,
+) -> None:
+    """Generate XOSC variant with ManualDriveController injected."""
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(baseline_xosc)
+    root = tree.getroot()
+
+    # Remove existing ObjectController from first entity
+    all_entities = root.findall(".//ScenarioObject")
+    if not all_entities:
+        # Fallback: just copy
+        shutil.copy2(baseline_xosc, output_path)
+        return
+
+    entity = all_entities[0]
+    existing_oc = entity.find("ObjectController")
+    if existing_oc is not None:
+        entity.remove(existing_oc)
+
+    # Create ManualDriveController
+    ctrl = ET.Element("Controller")
+    ctrl.set("name", "ManualDriveController")
+
+    props = ET.SubElement(ctrl, "Properties")
+    p1 = ET.SubElement(props, "Property")
+    p1.set("name", "esminiController")
+    p1.set("value", "ManualDriveController")
+
+    # ConfigFile property — absolute path to per-run config
+    config_abs = str((output_path.parent / "manual_drive.json").resolve())
+    p2 = ET.SubElement(props, "Property")
+    p2.set("name", "ConfigFile")
+    p2.set("value", config_abs)
+
+    oc = ET.Element("ObjectController")
+    oc.append(ctrl)
+
+    # Insert after Vehicle/CatalogReference (same pattern as generate_python_variant)
+    insert_pos = None
+    for i, child in enumerate(entity):
+        if child.tag in ("Vehicle", "CatalogReference"):
+            insert_pos = i + 1
+            break
+    if insert_pos is not None:
+        entity.insert(insert_pos, oc)
+    else:
+        entity.append(oc)
+
+    # Add <ActivateControllerAction> in Init/Actions/Private for the ego entity
+    ego_name = entity.get("name", "")
+    for private in root.findall(".//Init/Actions/Private"):
+        if private.get("entityRef") != ego_name:
+            continue
+        # Remove existing ActivateControllerAction
+        for pa in private.findall("PrivateAction"):
+            act = pa.find("ActivateControllerAction")
+            if act is not None:
+                private.remove(pa)
+        # Add new ActivateControllerAction
+        pa = ET.SubElement(private, "PrivateAction")
+        act = ET.SubElement(pa, "ActivateControllerAction")
+        act.set("longitudinal", "true")
+        act.set("lateral", "true")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+
+
+def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
+    """Write manual_drive.json for per-run config override.
+
+    Reads the existing config/manual_drive.json as a base so that
+    user edits (especially FFB tuning) are preserved. Controller-level
+    settings (domain, input type, etc.) from the request override the base.
+    """
+    # Read existing config as base (preserves user's FFB tuning etc.)
+    base_config_path = CONFIG_DIR / "manual_drive.json"
+    base: dict = {}
+    if base_config_path.exists():
+        try:
+            base = json.loads(base_config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    md = controller.manual_drive
+    config_data = {
+        "input_type": md.input_type,
+        "physics_type": md.physics_type,
+        "ffb_enabled": md.ffb_enabled,
+        "domain": md.domain.model_dump(),
+        "input": {
+            "device_index": md.sdl2.device_index,
+            "deadzone": md.sdl2.deadzone,
+            "upshift_button": md.sdl2.button_mapping.upshift,
+            "downshift_button": md.sdl2.button_mapping.downshift,
+            "override_button": md.sdl2.button_mapping.override,
+            "indicator_left_button": md.sdl2.button_mapping.indicator_left,
+            "indicator_right_button": md.sdl2.button_mapping.indicator_right,
+            "headlight_button": md.sdl2.button_mapping.headlight,
+            "high_beam_button": md.sdl2.button_mapping.high_beam,
+            "fog_light_button": md.sdl2.button_mapping.fog_light,
+            "hazard_button": md.sdl2.button_mapping.hazard,
+            "transport_type": md.input_network.transport_type,
+            "port": md.input_network.port,
+            "level": md.input_network.level,
+        },
+        "physics": {
+            "vehicle_params_file": "real_vehicle_params.json",
+            "host": md.physics_network.host,
+            "cmd_port": md.physics_network.cmd_port,
+            "state_port": md.physics_network.state_port,
+        },
+        "indicator_cancel_angle": base.get("indicator_cancel_angle", 0.06),
+        "ffb": base.get("ffb", md.ffb.model_dump()),
+        "override": {"enabled": True},
+    }
+    config_path = output_dir / "manual_drive.json"
+    config_path.write_text(
+        json.dumps(config_data, indent=4, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 def _prepare_xosc(
     scenario_path: Path,
     controller: ControllerConfig,
@@ -111,9 +238,17 @@ def _prepare_xosc(
         if param_overrides:
             _apply_param_overrides(variant_path, param_overrides)
         return variant_path
+    elif controller.controller_type == "manual":
+        variant_path = output_dir / f"{scenario_path.stem}_manual.xosc"
+        _generate_manual_variant(scenario_path, variant_path, controller)
+        _absolutize_xosc(variant_path, source_dir)
+        if param_overrides:
+            _apply_param_overrides(variant_path, param_overrides)
+        # Write per-run manual_drive.json alongside the variant
+        _write_manual_drive_config(output_dir, controller)
+        return variant_path
     elif controller.controller_type == "default":
         variant_path = output_dir / f"{scenario_path.stem}_default.xosc"
-        # 元のXOSCをそのままコピー（コントローラを削除しない）
         variant_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(scenario_path, variant_path)
         _absolutize_xosc(variant_path, source_dir)
@@ -121,7 +256,6 @@ def _prepare_xosc(
             _apply_param_overrides(variant_path, param_overrides)
         return variant_path
     else:
-        # Use baseline as-is
         return scenario_path
 
 
@@ -147,6 +281,8 @@ def _build_cmd(
         cmd.extend(["--osi", execution.osi.ip])
     if execution.autolight:
         cmd.append("--autolight")
+    if execution.vehicle_physics:
+        cmd.append("--vehicle-physics")
     if execution.threads and not execution.headless:
         cmd.append("--threads")
     if not execution.headless:
@@ -447,14 +583,31 @@ async def cancel_simulation(job_id: str) -> bool:
 
     if proc is not None:
         pid = proc.pid
-        # Step 1: Direct kill via process handle (most reliable)
+
+        # Step 1: Send QUIT via control pipe for graceful shutdown (FFB release)
+        pipe_name = None
+        with _pipes_lock:
+            pipe_name = _control_pipes.get(job_id)
+        if pipe_name and sys.platform == "win32":
+            try:
+                pipe_path = f"\\\\.\\pipe\\{pipe_name}"
+                with open(pipe_path, "wb") as pf:
+                    pf.write(b"QUIT\n")
+                    pf.flush()
+                _logger.info("Sent QUIT to simulation %s via pipe %s", job_id, pipe_name)
+                # Give GT_Sim time to run GT_Close() and release FFB
+                await asyncio.sleep(1.0)
+            except OSError as exc:
+                _logger.debug("Could not send QUIT via pipe for %s: %s", job_id, exc)
+
+        # Step 2: Force kill if still running
         try:
             proc.kill()
             _logger.info("Killed simulation %s (PID %d) via proc.kill()", job_id, pid)
         except OSError as exc:
             _logger.warning("proc.kill() failed for %s (PID %d): %s", job_id, pid, exc)
 
-        # Step 2: taskkill /T to also kill child process tree (Windows)
+        # Step 3: taskkill /T to also kill child process tree (Windows)
         if sys.platform == "win32":
             result = await asyncio.to_thread(
                 subprocess.run,

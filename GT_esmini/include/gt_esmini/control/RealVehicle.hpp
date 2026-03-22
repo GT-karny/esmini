@@ -29,8 +29,12 @@ namespace gt_esmini
         double GetRPM() const { return rpm_; }
         double GetTorqueOutput() const { return GetTorque(rpm_); }
 
-        void SetEngineBrakeFactor(double val) { engine_brake_factor_ = val; }
-        double engine_brake_factor_ = 0.49;
+        void SetEngineBrakeFactor(double val) { params_.engine_brake = val; }
+        double GetEngineBrakeFactor() const { return params_.engine_brake; }
+
+        // Acceleration state (populated by UpdatePhysics, used by FFB)
+        double latAcc_  = 0.0;   // lateral acceleration [m/s^2] (vehicle frame)
+        double longAcc_ = 0.0;   // longitudinal acceleration [m/s^2] (vehicle frame)
 
         // Terrain attitude integration (NEW)
         void SetTerrainAttitude(double pitch, double roll);
@@ -47,10 +51,22 @@ namespace gt_esmini
             double center_of_rotation_z_offset = 0.5; // Distance from CG/Pivot to Model Origin (usually ~half height)
             double max_pitch_deg = 5.0;
             double max_roll_deg = 5.0;
-            double steer_gain = 0.7; // ~40 deg max
-            double max_speed = 60.0;
-            double max_acc = 10.0;
+            double steer_gain = 0.61; // ~35 deg max wheel angle (Corolla steering ratio)
+            double max_speed = 55.0;  // ~200 km/h (economy sedan electronic limiter)
+            double max_acc = 4.0;     // Peak longitudinal acceleration [m/s²] (Corolla/Civic class)
+            double max_dec = 10.0;    // Peak braking deceleration [m/s²] (100-0 km/h ~38-41m)
             double reverse_gear_ratio = 1.5; // Multiplier for reverse torque
+
+            // Aerodynamic drag: a_drag = drag_coeff * v² [m/s²]
+            // Tuned so terminal velocity ≈ max_speed at full throttle
+            double drag_coeff = 0.0013;  // ~Corolla: 0.5*1.225*0.29*2.15/1350 ≈ 0.000283 (real), scaled for model
+
+            // Engine braking when throttle released [m/s²]
+            double engine_brake = 0.4;
+
+            // Torque curve shape (normalized parabola)
+            double torque_peak_pos = 0.65; // Normalized RPM where peak torque occurs [0-1] (~4500 RPM for NA)
+            double torque_min = 0.3;       // Minimum normalized torque at idle/redline [0-1]
 
             // Understeer parameters
             double understeer_factor = 0.0;          // 0.0 = disabled, typical: 0.0005-0.003

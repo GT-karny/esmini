@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from GT_esmini.web.backend.config import (
     DEFAULT_EXECUTION_PARAMS,
     GT_SIM_EXE,
     REPO_ROOT,
     SCENARIOS_DIR,
+    get_projects_dir,
     load_settings,
     load_thresholds,
     load_vehicle_params,
@@ -67,6 +68,49 @@ async def update_thresholds(data: dict[str, Any]) -> dict[str, Any]:
     """Update comparison thresholds."""
     save_thresholds(data)
     return data
+
+
+@router.get("/projects-root")
+async def get_projects_root() -> dict[str, Any]:
+    """Get the current projects root directory setting."""
+    settings = load_settings()
+    custom = settings.get("projects_root")
+    return {
+        "projects_root": custom,
+        "effective_dir": str(get_projects_dir()),
+        "is_custom": custom is not None,
+    }
+
+
+@router.put("/projects-root")
+async def set_projects_root(body: dict[str, Any]) -> dict[str, Any]:
+    """Set or clear the projects root directory."""
+    from pathlib import Path
+
+    from GT_esmini.web.backend.services.project_service import sync_projects
+
+    new_root = body.get("projects_root")
+    settings = load_settings()
+
+    if new_root is None:
+        settings.pop("projects_root", None)
+    else:
+        p = Path(new_root)
+        if not p.is_dir():
+            raise HTTPException(
+                status_code=400, detail=f"Directory does not exist: {new_root}"
+            )
+        settings["projects_root"] = str(p.resolve())
+
+    save_settings(settings)
+
+    # Trigger sync after changing root
+    await sync_projects()
+
+    return {
+        "projects_root": settings.get("projects_root"),
+        "effective_dir": str(get_projects_dir()),
+    }
 
 
 @router.get("/system")

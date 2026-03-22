@@ -2,67 +2,91 @@
 
 ## GT_esminiとは
 
-GT_esmini (Grand Touring esmini) は、[esmini](https://github.com/esmini/esmini) (Environment Simulator Minimalistic) にライト機能を追加する拡張モジュールです。esminiは、OpenSCENARIOシナリオを実行するための軽量なシミュレーターですが、標準ではライト制御機能をサポートしていません。GT_esminiは、この機能を追加することで、より現実的な車両シミュレーションを可能にします。
+GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) (Environment Simulator Minimalistic) を拡張し、車両制御・挙動モデル・ライト機能・信号制御・外部連携・Web UI を追加する拡張モジュールです。esminiは、OpenSCENARIOシナリオを実行するための軽量なシミュレーターですが、標準では詳細な車両ダイナミクスやライト制御、ハンドルコントローラー入力などをサポートしていません。GT_esminiは、これらの機能を追加することで、より現実的な車両シミュレーションとインタラクティブな操作環境を提供します。
 
 ## 主な機能
 
-GT_esminiは、以下の2つの主要機能を提供します：
+### 1. ManualDriveコントローラー
 
-### 1. LightStateAction対応
+ハンドルコントローラーやゲームパッドなどの入力デバイスを使って、シミュレーション内の車両をリアルタイムに操作するためのコントローラーです。
 
-OpenSCENARIO v1.2で定義されている`LightStateAction`をサポートします。これにより、シナリオファイル（XOSC）内でライトの状態を明示的に制御できます。
+- **入力デバイス対応**: SDL2経由でステアリングホイール（Logitech G29等）、ゲームパッドに対応
+- **フォースフィードバック (FFB)**: バネ・ダンパー・クーロン摩擦モデルによるリアルなステアリング反力
+- **ボタンマッピング**: `manual_drive.json` で全ボタンをカスタマイズ可能（シフトアップ/ダウン、ウインカー、ヘッドライト、ハザード等）
+- **ドメイン制御**: 横方向・縦方向を独立して「手動」/「シナリオ」に割り当て可能（例: ステアリングは手動、速度はシナリオ制御）
+- **ウインカー自動キャンセル**: ステアリング復帰時に自動消灯するFSM（ステートマシン）搭載
+- **HostVehicleData (HVD) 出力**: 操作入力値・パワートレイン情報をOSI経由で外部に出力
 
-**サポートされているライトタイプ:**
-- デイタイムランニングライト (Daytime Running Lights)
-- ロービーム / ハイビーム (Low Beam / High Beam)
-- フォグライト (Fog Lights)
-- ブレーキランプ (Brake Lights)
-- ウインカー (Indicator Left/Right)
-- バックライト (Reversing Lights)
-- ハザードランプ (Warning Lights)
-- その他（ライセンスプレート照明、特殊用途ライト）
+### 2. 詳細車両ダイナミクス (RealVehicle)
 
-**制御可能な属性:**
-- モード: OFF / ON / FLASHING
-- 光度 (Luminous Intensity)
-- 点滅パターン (Flashing On/Off Duration)
-- 色 (Color RGB)
+標準の簡易的な車両移動モデルを拡張し、より物理的な挙動を再現します。
 
-### 2. AutoLight機能
+- **サスペンション**: バネ・ダンパーモデルによる加減速時のピッチング、旋回時のローリング
+- **パワートレイン**: エンジン回転数 (RPM) とトルクカーブ、ギア比に基づいた駆動力計算
+- **地形追従**: OpenDRIVEの路面勾配・起伏に車両姿勢（ピッチ・ロール）を追従
+- **設定**: `real_vehicle_params.json` で車種ごとの物理パラメータを定義可能
 
-車両の動作に応じて自動的にライトを点灯・消灯する機能です。シナリオファイルに明示的な記述がなくても、リアルな車両挙動を再現できます。
+### 3. 高度ライト制御 (Advanced Lighting)
 
-**自動制御されるライト:**
+車両のライト状態を詳細に管理・制御します。
 
-| ライトタイプ | 点灯条件 | しきい値 |
-|------------|---------|---------|
-| ブレーキランプ | 減速時 | -0.1G (-0.98 m/s²) 以下 |
-| ウインカー（左/右） | 車線変更時、交差点での右左折時 | レーンID変化、ジャンクション内の進行方向 |
-| バックライト | 後退時 | 速度が負 |
+- **OSC v1.2 LightStateAction対応**: シナリオからライトの点灯・点滅を制御可能
+- **AutoLight**: 車両状態に応じた自動制御
+  - **ブレーキランプ**: 減速度が閾値を超えた際に自動点灯（チャタリング防止付き）
+  - **ウインカー**: 車線変更・右左折時に自動点滅、ManualDriveではボタン操作+自動キャンセル
+  - **バックランプ**: リバースギア連動
+- **ManualDrive統合**: ヘッドライト・ハイビーム・フォグライト・ハザードのトグル操作
 
-**優先順位:**
-- `LightStateAction`が実行された場合、AutoLightの状態を上書きします
-- AutoLightで点灯していたライトも、`LightStateAction`で消灯可能
-- `LightStateAction`で設定された状態は、次のAutoLight更新まで保持されます
+### 4. TrafficSignalController
 
-### 3. OSIデュアル軌道レポート (Dual Trajectory Reporting)
+OpenSCENARIOの信号制御を拡張し、OpenDRIVEと連携した信号機の自動制御を実現します。
 
-FMU連携強化のため、車両の「理想軌道（Ghost）」と「制御軌道（Ego）」をOSI経由で同時に出力する機能です。
-- **Ghost Trajectory**: シナリオで定義された理想的なリファレンスパス
-- **Ego Trajectory**: Ghostへ復帰するための動的生成パス（リカバリスプライン）
+- **フェーズベース制御**: 信号フェーズの自動サイクリング
+- **OpenDRIVE連携**: コントローラーリファレンスによる信号ID自動解決
+- **アクション/条件ベース遷移**: 柔軟なフェーズ切り替え
 
-これにより、外部コントローラーは「目標とすべき理想軌道」と「現在の制御計画」の両方を参照可能になります。
+### 5. PythonDriverController
+
+> **開発凍結中**: Python系機能（PythonDriverController・Embedded Python含む）は v0.8 で開発凍結しています。既存機能は引き続き利用可能ですが、新機能追加は予定されていません。
+
+Python スクリプトによるカスタム車両制御。UDP経由でC++エンジンと通信し、シナリオに応じた自動運転ロジックを実装できます。
+
+- ビルドに常時含まれる必須機能（`GT_ENABLE_EMBEDDED_PYTHON` オプションは廃止済み）
+- Embedded Python 3.12 を同梱し、外部Python環境不要で動作
+
+### 6. OSIレポート拡張
+
+ADAS/AD開発向けに、OSI (Open Simulation Interface) 出力を強化しています。
+
+- **HostVehicleData**: 自車の操作入力値（ペダル開度・ステアリング角）を `SensorView` に含めて送信
+- **速度補正**: 物理演算で得られた正確な速度ベクトルをOSIメッセージに反映
+- **デュアル軌道出力**: Ghost（理想軌道）とEgo（制御軌道）を同時出力
+- **ライト状態**: 全ライトタイプのOSI出力対応
+
+### 7. Web UI / Electron デスクトップアプリ
+
+ブラウザまたはデスクトップアプリからシミュレーションを実行・管理するGUIです。
+
+- **Electronデスクトップシェル**: カスタムタイトルバー付きのネイティブアプリとして動作
+- **プロジェクト管理**: シナリオ・道路・スクリプトの一括管理
+- **シミュレーション実行**: GUI からワンクリックでシミュレーション起動
+- **ManualDrive設定パネル**: ボタンマッピング・FFBチューニング・ドメイン制御をGUIで設定
+- **ライブモニター**: 実行中のOSIデータをリアルタイム表示
+- **REST API**: 外部システム（CI/CD等）からの自動実行に対応
+- **gRPC / WebSocket**: OSIデータのストリーミング
+
+詳細は [Web UI マニュアル](../web/manual.md) を参照してください。
 
 ## esmini本体との関係
 
-GT_esminiは、esminiの**拡張モジュール**として設計されています。以下の特徴があります：
+GT_esminiは、esminiの**拡張モジュール**として設計されています。
 
 ### 非侵襲的な設計
 
-- **ファイルコピーゼロ**: esmini本体のファイルは一切コピーしません
+- **ファイルコピーゼロ**: esmini本体のファイルは一切コピーしない
 - **継承パターン**: `ScenarioReader`等を継承して機能を拡張
+- **コンポジションパターン**: `Vehicle`クラスを継承せず、`VehicleLightExtension`で拡張
 - **独立したライブラリ**: GT_esminiは独立したライブラリとしてビルド
-- **最小限の変更**: esmini本体への変更はビルドシステムのみ
 
 ### esminiアップデート時の影響
 
@@ -73,19 +97,16 @@ esmini本体がアップデートされても、GT_esminiへの影響は最小�
 
 ### 使用方法の選択肢
 
-GT_esminiは、2つの使用方法を提供します：
-
 **オプション1: GT_Init を使用（推奨）**
 ```cpp
 #include <gt_esmini/core/GT_esminiLib.hpp>
 
-// GT_ScenarioReaderを使用してLightStateAction対応
 GT_Init("scenario.xosc", 0);
 GT_EnableAutoLight();
 
 while (running)
 {
-    GT_Step(dt);  // esmini本体のステップも含む
+    GT_Step(dt);
 }
 
 GT_Close();
@@ -96,76 +117,74 @@ GT_Close();
 #include "esminiLib.hpp"
 #include <gt_esmini/core/GT_esminiLib.hpp>
 
-// esmini本体の機能のみ使用
 SE_Init("scenario.xosc", 0);
-
-// GT_esmini機能を追加で有効化
 GT_EnableAutoLight();
 
 while (running)
 {
-    SE_Step();       // esmini本体のステップ
-    GT_Step(dt);     // GT_esmini拡張のステップ
+    SE_Step();
+    GT_Step(dt);
 }
 
 SE_Close();
 GT_Close();
 ```
 
-> [!NOTE]
-> `LightStateAction`のパース機能を使用するには、`GT_Init`が必要です。
-> AutoLight機能のみを使用する場合は、`SE_Init` + `GT_EnableAutoLight()`で可能です。
+> **Note**: `LightStateAction`のパース機能を使用するには `GT_Init` が必要です。
 
 ## OSI (Open Simulation Interface) 連携
 
-GT_esminiは、OSI v3.5.0に対応しており、ライト状態をOSI出力に含めることができます。これにより、外部のADAS/AD開発ツールとの連携が可能になります。
+GT_esminiは、OSI v3.5.0に対応しており、以下の情報をOSI出力に含めます：
 
-**OSI出力に含まれるライト情報:**
-- ブレーキランプ状態 (`BrakeLightState`)
-- ウインカー状態 (`IndicatorState`)
-- バックライト状態 (`ReverseLightState`)
-- フォグライト状態 (`GenericLightState`)
-- その他のライト状態
+- ブレーキランプ・ウインカー・バックライト等のライト状態
+- HostVehicleData（操作入力値、パワートレイン情報、ADAS状態）
+- デュアル軌道（Ghost + Ego）
 
-詳細は[OSI連携](../integration/osi_integration.md)を参照してください。
+詳細は [OSI連携](../integration/osi_integration.md) を参照してください。
 
-## 実装状況
+## 開発ステータス
 
-GT_esminiは、以下のフェーズで実装されました：
-
-- ✅ **Phase 1**: GT_esmini構造準備（ディレクトリ構成、ビルドシステム）
-- ✅ **Phase 2**: LightStateAction基本実装（パース処理、アクション実行）
-- ✅ **Phase 3**: AutoLight機能実装（ブレーキ、ウインカー、バックライト）
-- ✅ **Phase 4**: OSI連携（GT_OSIReporter統合）
-- 🔄 **Phase 5**: 統合テスト（進行中）
+| フェーズ | 内容 | 状態 |
+|:---|:---|:---|
+| Phase 1 | GT_esmini構造準備（ディレクトリ構成、ビルドシステム） | 完了 |
+| Phase 2 | LightStateAction基本実装 | 完了 |
+| Phase 3 | AutoLight機能実装 | 完了 |
+| Phase 4 | OSI連携 | 完了 |
+| Phase 5 | 外部制御（RealDriver → ManualDrive） | 完了 |
+| Phase 6 | Web UI / Electronデスクトップアプリ | 完了 |
+| Phase 7 | TrafficSignalController | 完了 |
+| Python系 | PythonDriverController / Embedded Python | **開発凍結** |
 
 ## ユースケース
-
-GT_esminiは、以下のようなシナリオで有用です：
 
 ### 1. ADAS/AD開発
 - 先行車両のブレーキランプ検出テスト
 - ウインカー認識アルゴリズムの検証
 - 夜間走行シミュレーション（ヘッドライト制御）
 
-### 2. 交通シミュレーション
+### 2. ドライビングシミュレーター
+- ハンドルコントローラーによるリアルタイム車両操作
+- フォースフィードバックによるリアルなステアリング感
+- ドメイン制御による部分的な自動運転体験
+
+### 3. 交通シミュレーション
+- 信号制御シナリオの自動実行
 - リアルな車両挙動の再現
 - 交差点での右左折時のウインカー動作
-- 渋滞時のブレーキランプ連鎖
 
-### 3. HMI開発
-- 車両周辺の視覚的フィードバック
-- ライト状態の可視化
-- ドライバー支援システムのテスト
+### 4. HMI開発
+- Web UIからのシミュレーション管理
+- ライブOSIデータ表示
+- コントローラー設定のGUI化
 
-### 4. V2X通信シミュレーション
+### 5. V2X通信シミュレーション
 - ライト状態の車車間通信
 - OSI経由での情報共有
 
 ## ライセンス
 
 GT_esminiは、Mozilla Public License 2.0の下でライセンスされています。
-詳細は[LICENSE](../../../LICENSE)ファイルを参照してください。
+詳細は [LICENSE](../../../LICENSE) ファイルを参照してください。
 
 ## 次のステップ
 

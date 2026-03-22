@@ -45,6 +45,37 @@ export interface ScriptInfo {
   recommended: boolean;
 }
 
+export interface ManualDriveConfig {
+  input_type: string;
+  physics_type: string;
+  ffb_enabled: boolean;
+  domain: { lateral: string; longitudinal: string };
+  sdl2: {
+    device_index: number;
+    deadzone: number;
+    button_mapping: {
+      upshift: number;
+      downshift: number;
+      override: number;
+      indicator_left: number;
+      indicator_right: number;
+      headlight: number;
+      high_beam: number;
+      fog_light: number;
+      hazard: number;
+    };
+  };
+  input_network: { transport_type: string; port: number; level: string };
+  physics_network: { transport_type: string; host: string; cmd_port: number; state_port: number };
+  ffb: { spring_coefficient: number; damper_coefficient: number; constant_gain: number; max_force: number };
+}
+
+export interface ManualDrivePreset {
+  name: string;
+  builtin: boolean;
+  config: ManualDriveConfig;
+}
+
 export interface ControllerConfig {
   controller_type: string;
   python: {
@@ -54,6 +85,7 @@ export interface ControllerConfig {
     trace_enabled: boolean;
     trace_dir: string;
   };
+  manual_drive?: ManualDriveConfig;
 }
 
 export interface WindowConfig {
@@ -71,6 +103,7 @@ export interface ExecutionDefaults {
   timeout: number;
   osi: { enabled: boolean; ip: string };
   autolight: boolean;
+  vehicle_physics: boolean;
   threads: boolean;
   window: WindowConfig;
 }
@@ -87,6 +120,7 @@ export interface SimulationRequest {
     timeout: number;
     osi: { enabled: boolean; ip: string };
     autolight: boolean;
+    vehicle_physics: boolean;
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];
@@ -211,6 +245,9 @@ export const api = {
   deleteProject: (projectId: string) =>
     request<{ status: string }>(`/api/projects/${projectId}`, { method: 'DELETE' }),
 
+  openProjectFolder: (projectId: string) =>
+    request<{ status: string }>(`/api/projects/${projectId}/open-folder`, { method: 'POST' }),
+
   // Project files
   getProjectFiles: (projectId: string) =>
     request<ProjectFile[]>(`/api/projects/${projectId}/files`),
@@ -330,6 +367,42 @@ export const api = {
   getTimeseries: (jobId: string, fields?: string, entity = 'Ego') =>
     request<{ data: Record<string, number>[]; entity: string; fields: string[] }>(
       `/api/results/${jobId}/timeseries?entity=${entity}${fields ? `&fields=${fields}` : ''}`
+    ),
+
+  // Manual Drive config
+  getManualDriveConfig: () =>
+    request<ManualDriveConfig>('/api/manual-drive/config'),
+
+  updateManualDriveConfig: (config: ManualDriveConfig) =>
+    request<ManualDriveConfig>('/api/manual-drive/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  getManualDrivePresets: () =>
+    request<ManualDrivePreset[]>('/api/manual-drive/presets'),
+
+  saveManualDrivePreset: (name: string, config: ManualDriveConfig) =>
+    request<ManualDrivePreset>('/api/manual-drive/presets', {
+      method: 'POST',
+      body: JSON.stringify({ name, config }),
+    }),
+
+  deleteManualDrivePreset: (name: string) =>
+    request<{ status: string }>(`/api/manual-drive/presets/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+
+  // Projects root
+  getProjectsRoot: () =>
+    request<{ projects_root: string | null; effective_dir: string; is_custom: boolean }>(
+      '/api/config/projects-root',
+    ),
+
+  setProjectsRoot: (projectsRoot: string | null) =>
+    request<{ projects_root: string | null; effective_dir: string }>(
+      '/api/config/projects-root',
+      { method: 'PUT', body: JSON.stringify({ projects_root: projectsRoot }) },
     ),
 
   // System

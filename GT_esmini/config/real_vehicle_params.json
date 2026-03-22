@@ -7,12 +7,50 @@
     "center_of_rotation_z_offset": 0.4,
     "max_pitch_deg": 6.0,
     "max_roll_deg": 6.0,
-    "steer_gain": 0.7,
-    "max_acc": 12.0,
-    "max_speed": 60.0,
+    "steer_gain": 0.61,
+    "max_acc": 4.0,
+    "max_dec": 10.0,
+    "max_speed": 55.0,
+    "idle_rpm": 700.0,
+    "max_rpm": 6500.0,
     "reverse_gear_ratio": 1.5,
 
-    "understeer_factor": 0.0015,
-    "critical_speed": 30.0,
-    "max_understeer_reduction": 0.6
+    "drag_coeff": 0.0013,
+    "engine_brake": 0.4,
+    "torque_peak_pos": 0.65,
+    "torque_min": 0.3,
+
+    "understeer_factor": 0.0025,
+    "critical_speed": 24.0,
+    "max_understeer_reduction": 0.6,
+
+    "observed_vehicle": {
+        "default": {
+            "pitch_stiffness": 25.0,
+            "pitch_damping": 50.0,
+            "roll_stiffness": 30.0,
+            "roll_damping": 50.0,
+            "mass_height": 0.015,
+            "max_pitch_deg": 2.0,
+            "max_roll_deg": 2.0
+        },
+        "truck": {
+            "pitch_stiffness": 6.0,
+            "pitch_damping": 2.5,
+            "roll_stiffness": 8.0,
+            "roll_damping": 2.5,
+            "mass_height": 0.08,
+            "max_pitch_deg": 4.0,
+            "max_roll_deg": 6.0
+        },
+        "bus": {
+            "pitch_stiffness": 7.0,
+            "pitch_damping": 2.5,
+            "roll_stiffness": 9.0,
+            "roll_damping": 2.5,
+            "mass_height": 0.07,
+            "max_pitch_deg": 4.0,
+            "max_roll_deg": 5.0
+        }
+    }
 }

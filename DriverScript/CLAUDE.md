@@ -1,5 +1,7 @@
 # Component Knowledge Graph: DriverScript/
 
+> **Development Freeze**: Python-related features (PythonDriverController, Embedded Python, DriverScript) are frozen as of v0.8. Existing functionality remains available but no new features are planned.
+
 Python-side driver control system. Communicates with GT_Sim (C++) via UDP.
 
 ## 1. Directory Structure
