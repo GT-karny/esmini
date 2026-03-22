@@ -31,6 +31,13 @@ public:
 
     virtual void SetInitialState(double x, double y, double z, double h, double speed) = 0;
 
+    // Re-synchronize position/heading from scenario engine (e.g. on AUTO→MANUAL transition).
+    // Unlike SetInitialState, this preserves dynamic state (gear, RPM, etc.).
+    virtual void SyncState(double x, double y, double z, double h, double speed)
+    {
+        SetInitialState(x, y, z, h, speed);
+    }
+
     // For backends that own a vehicle model: body offset for gateway sync
     virtual void GetBodyPositionOffset(double& dx, double& dy, double& dz) const
     {

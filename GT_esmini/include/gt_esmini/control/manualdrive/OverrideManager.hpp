@@ -26,6 +26,9 @@ public:
     bool IsAnyManual() const { return lat_mode_ == Mode::MANUAL || long_mode_ == Mode::MANUAL; }
     bool IsEnabled() const { return enabled_; }
 
+    // Transition detection: true only on the frame AUTO→MANUAL occurred
+    bool JustTransitionedToManual() const { return just_transitioned_; }
+
     // Legacy compatibility
     bool IsManualMode() const { return IsAnyManual(); }
 
@@ -45,6 +48,7 @@ private:
     Mode   lat_mode_   = Mode::AUTO;
     Mode   long_mode_  = Mode::AUTO;
     double idle_timer_ = 0.0;
+    bool   just_transitioned_ = false;
 };
 
 } // namespace gt_esmini

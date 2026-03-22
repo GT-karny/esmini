@@ -47,11 +47,22 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     }
     c.last_cmd_ = cmd;
 
-    // 4. Physics step
+    // 4. Resync physics backend on AUTO→MANUAL transition to prevent coordinate jump
+    if (c.override_mgr_.JustTransitionedToManual() && c.object_)
+    {
+        c.physics_backend_->SyncState(
+            c.object_->pos_.GetX(),
+            c.object_->pos_.GetY(),
+            c.object_->pos_.GetZ(),
+            c.object_->pos_.GetH(),
+            c.object_->GetSpeed());
+    }
+
+    // 5. Physics step
     osi3::HostVehicleData hvd;
     hvd = c.physics_backend_->StepPedalSteer(cmd, dt);
 
-    // 5. FFB update
+    // 6. FFB update
     IFFBSink* ffb = c.input_source_->GetFFBSink();
     if (!ffb) ffb = c.ffb_sink_;
     if (ffb)
@@ -59,7 +70,7 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         ffb->Update(hvd, dt);
     }
 
-    // 6. Extract vehicle state from HVD
+    // 7. Extract vehicle state from HVD
     double pos_x = 0.0, pos_y = 0.0, pos_z = 0.0;
     double heading = 0.0, speed = 0.0, wheel_angle = 0.0;
 
@@ -88,14 +99,14 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         wheel_angle = hvd.vehicle_steering().vehicle_steering_wheel().angle();
     }
 
-    // 7. Body offset and attitude
+    // 8. Body offset and attitude
     double body_dx = 0.0, body_dy = 0.0, body_dz = 0.0;
     c.physics_backend_->GetBodyPositionOffset(body_dx, body_dy, body_dz);
 
     double combined_pitch = 0.0, combined_roll = 0.0;
     c.physics_backend_->GetCombinedAttitude(combined_pitch, combined_roll);
 
-    // 8. Sync to esmini gateway
+    // 9. Sync to esmini gateway
     //    block_speed_update when longitudinal is scenario-controlled
     bool block_speed = !c.override_mgr_.IsLongitudinalManual();
 
@@ -109,14 +120,14 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
                                block_speed);
     }
 
-    // 9. Update OSI HostVehicleReporter
+    // 10. Update OSI HostVehicleReporter
     c.current_hvd_ = hvd;
     if (c.object_)
     {
         GT_HostVehicleReporter::Instance().SetBaseHostVehicleData(c.object_->GetId(), hvd);
     }
 
-    // 10. Update vehicle lights
+    // 11. Update vehicle lights
     if (c.object_)
     {
         auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(c.object_);
@@ -171,7 +182,7 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         }
     }
 
-    // 11. Base controller step
+    // 12. Base controller step
     c.scenarioengine::Controller::Step(dt);
 }
 

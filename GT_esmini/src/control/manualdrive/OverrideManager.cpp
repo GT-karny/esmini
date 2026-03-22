@@ -26,6 +26,8 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
 
 void OverrideManager::Update(const InputFrame& input, double dt)
 {
+    just_transitioned_ = false;
+
     // Domains configured as "scenario" are always AUTO
     if (!lat_configured_manual_)  lat_mode_ = Mode::AUTO;
     if (!long_configured_manual_) long_mode_ = Mode::AUTO;
@@ -37,6 +39,8 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         if (long_configured_manual_) long_mode_ = Mode::MANUAL;
         return;
     }
+
+    bool was_any_manual = IsAnyManual();
 
     bool lat_active = false;
     bool long_active = false;
@@ -73,6 +77,10 @@ void OverrideManager::Update(const InputFrame& input, double dt)
 
     if (lat_active)  lat_mode_ = Mode::MANUAL;
     if (long_active) long_mode_ = Mode::MANUAL;
+
+    // Detect AUTO→MANUAL transition
+    if (!was_any_manual && IsAnyManual())
+        just_transitioned_ = true;
 
     // Idle timer for auto-return
     bool any_active = lat_active || long_active;

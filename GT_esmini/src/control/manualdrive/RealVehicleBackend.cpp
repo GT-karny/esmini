@@ -52,6 +52,13 @@ void RealVehicleBackend::SetInitialState(double x, double y, double z, double h,
     real_vehicle_.SetSpeed(speed);
 }
 
+void RealVehicleBackend::SyncState(double x, double y, double z, double h, double speed)
+{
+    // Position-only resync: preserves gear, RPM, and other dynamic state
+    real_vehicle_.SetPos(x, y, z, h);
+    real_vehicle_.SetSpeed(speed);
+}
+
 void RealVehicleBackend::GetBodyPositionOffset(double& dx, double& dy, double& dz) const
 {
     // const_cast is safe here: GetBodyPositionOffset doesn't modify state,
