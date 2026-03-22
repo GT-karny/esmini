@@ -14,6 +14,7 @@
 #include "Entities.hpp"
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
+#include "gt_esmini/control/ControllerManualDrive.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -49,7 +50,8 @@ void VehiclePhysicsManager::Init(scenarioengine::Entities* entities)
         // (they manage their own pitch/roll via RealVehicle)
         bool hasGTController = false;
         if (obj->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME) ||
-            obj->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME))
+            obj->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME) ||
+            obj->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME))
         {
             hasGTController = true;
         }
