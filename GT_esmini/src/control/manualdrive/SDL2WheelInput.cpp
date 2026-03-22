@@ -128,10 +128,17 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
         cmd.clutch = NormalizePedal(raw_clutch);
     }
 
-    // Apply deadzone to steering
+    // Apply deadzone to steering with rescaling
+    // Without rescaling, output jumps from 0 to deadzone_ at the threshold boundary,
+    // creating a perceptible notch. Rescale so output is continuous: 0 at threshold, ±1 at full lock.
     if (std::abs(cmd.steering) < deadzone_)
     {
         cmd.steering = 0.0;
+    }
+    else
+    {
+        double sign = (cmd.steering > 0.0) ? 1.0 : -1.0;
+        cmd.steering = sign * (std::abs(cmd.steering) - deadzone_) / (1.0 - deadzone_);
     }
 
     // Gear from paddle shifters (edge-detected)
