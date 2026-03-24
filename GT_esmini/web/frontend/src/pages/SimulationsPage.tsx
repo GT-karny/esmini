@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api, type SimulationStatus } from '../api/client';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/Badge';
@@ -19,6 +19,7 @@ const statusFilters = [
 
 const columns = [
   { key: 'id', label: 'Job ID' },
+  { key: 'project', label: 'Project' },
   { key: 'scenario', label: 'Scenario' },
   { key: 'controller', label: 'Controller' },
   { key: 'status', label: 'Status' },
@@ -36,6 +37,18 @@ export function SimulationsPage() {
     refetchInterval: 3000,
   });
 
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: api.getProjects,
+    staleTime: 60_000,
+  });
+
+  const projectNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of projects ?? []) map.set(p.project_id, p.name);
+    return map;
+  }, [projects]);
+
   const jobs = data?.jobs ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -45,9 +58,6 @@ export function SimulationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Jobs</h1>
-        <Link to="/simulations/new">
-          <Button>New Simulation</Button>
-        </Link>
       </div>
 
       {/* Status filter chips */}
@@ -68,7 +78,7 @@ export function SimulationsPage() {
       </div>
 
       {/* Loading */}
-      {isLoading && <TableSkeleton columns={5} rows={6} />}
+      {isLoading && <TableSkeleton columns={6} rows={6} />}
 
       {/* Error */}
       {error && <ErrorPanel error={error} onRetry={() => refetch()} />}
@@ -76,17 +86,13 @@ export function SimulationsPage() {
       {/* Empty */}
       {data && jobs.length === 0 && (
         <EmptyState
-          message={statusFilter ? `No ${statusFilter} jobs.` : 'No simulation jobs yet.'}
+          message={statusFilter ? `No ${statusFilter} jobs.` : 'No simulation jobs yet. Run simulations from a project.'}
           action={
             statusFilter ? (
               <Button variant="ghost" size="sm" onClick={() => setStatusFilter('')}>
                 Show all
               </Button>
-            ) : (
-              <Link to="/simulations/new">
-                <Button size="sm">Run your first simulation</Button>
-              </Link>
-            )
+            ) : undefined
           }
         />
       )}
@@ -103,6 +109,21 @@ export function SimulationsPage() {
               >
                 <td className="px-4 py-3">
                   <span className="text-primary font-mono">{job.job_id}</span>
+                </td>
+                <td className="px-4 py-3">
+                  {job.project_id ? (
+                    <button
+                      className="text-primary hover:underline cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/projects/${job.project_id}`);
+                      }}
+                    >
+                      {projectNames.get(job.project_id) ?? job.project_id}
+                    </button>
+                  ) : (
+                    <span className="text-text-tertiary">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">{job.scenario_id}</td>
                 <td className="px-4 py-3 text-text-secondary">{job.controller_type}</td>
