@@ -1,8 +1,10 @@
+import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type ScenarioInfo, type SimulationStatus } from '../../api/client';
+import { api, type ScenarioInfo, type SimulationRequest, type SimulationStatus } from '../../api/client';
 import { SimulationRunForm } from '../SimulationRunForm';
 import { InlineSimulationStatus } from '../InlineSimulationStatus';
+import { CopyApiRequest } from './CopyApiRequest';
 import { EmptyState } from '../ui/EmptyState';
 
 interface ExecutionPanelProps {
@@ -26,6 +28,7 @@ export function ExecutionPanel({
 }: ExecutionPanelProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const requestBuilderRef = useRef<(() => SimulationRequest) | null>(null);
 
   const scenarioFile = scenario?.file ?? '';
 
@@ -80,6 +83,7 @@ export function ExecutionPanel({
         onSubmitted={handleSubmitted}
         isRunning={!!activeJobId}
         onStop={() => cancelMut.mutate()}
+        onRequestBuilder={(fn) => { requestBuilderRef.current = fn; }}
       />
 
       {/* Latest job status (below Run/Stop buttons) */}
@@ -91,6 +95,15 @@ export function ExecutionPanel({
           />
         </div>
       )}
+
+      {/* Copy API Request section */}
+      <div className="mt-4 pt-3 border-t border-border">
+        <CopyApiRequest
+          getRequest={() => requestBuilderRef.current?.() ?? null}
+          scenarioParams={scenario.params ?? []}
+          paramSource={paramOverrides}
+        />
+      </div>
     </div>
   );
 }

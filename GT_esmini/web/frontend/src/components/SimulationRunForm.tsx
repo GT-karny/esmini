@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type {
+  SimulationRequest,
   SimulationStatus,
   ScenarioParam,
   ParameterPreset,
@@ -44,6 +45,8 @@ export interface SimulationRunFormProps {
   onStop?: () => void;
   /** Initial options to restore (re-run flow) */
   rerunFrom?: Record<string, unknown>;
+  /** Callback to expose the current request builder to parent */
+  onRequestBuilder?: (builder: (() => SimulationRequest) | null) => void;
 }
 
 export function SimulationRunForm({
@@ -59,6 +62,7 @@ export function SimulationRunForm({
   isRunning = false,
   onStop,
   rerunFrom,
+  onRequestBuilder,
 }: SimulationRunFormProps) {
   const queryClient = useQueryClient();
 
@@ -206,38 +210,45 @@ export function SimulationRunForm({
     return Object.keys(overrides).length > 0 ? overrides : undefined;
   };
 
+  // Build the simulation request from current form state
+  const buildRequest = (): SimulationRequest => ({
+    scenario_id: scenarioFile,
+    project_id: projectId || undefined,
+    controller: {
+      controller_type: controllerType,
+      python: {
+        script: pythonScript,
+        class: pythonClass,
+        python_home: '',
+        trace_enabled: traceEnabled,
+        trace_dir: '',
+      },
+      ...(controllerType === 'manual' ? { manual_drive: manualDriveConfig } : {}),
+    },
+    execution: {
+      headless,
+      record,
+      hz,
+      no_realtime: noRealtime,
+      timeout,
+      osi: { enabled: osiEnabled, ip: osiIp },
+      autolight,
+      vehicle_physics: vehiclePhysics,
+      threads,
+      window: { x: winX, y: winY, w: winW, h: winH },
+      extra_args: [],
+    },
+    param_overrides: getActiveOverrides(),
+  });
+
+  // Expose request builder to parent
+  useEffect(() => {
+    onRequestBuilder?.(scenarioFile ? buildRequest : null);
+  });
+
   // Submit
   const mutation = useMutation({
-    mutationFn: () =>
-      api.createSimulation({
-        scenario_id: scenarioFile,
-        project_id: projectId || undefined,
-        controller: {
-          controller_type: controllerType,
-          python: {
-            script: pythonScript,
-            class: pythonClass,
-            python_home: '',
-            trace_enabled: traceEnabled,
-            trace_dir: '',
-          },
-          ...(controllerType === 'manual' ? { manual_drive: manualDriveConfig } : {}),
-        },
-        execution: {
-          headless,
-          record,
-          hz,
-          no_realtime: noRealtime,
-          timeout,
-          osi: { enabled: osiEnabled, ip: osiIp },
-          autolight,
-          vehicle_physics: vehiclePhysics,
-          threads,
-          window: { x: winX, y: winY, w: winW, h: winH },
-          extra_args: [],
-        },
-        param_overrides: getActiveOverrides(),
-      }),
+    mutationFn: () => api.createSimulation(buildRequest()),
     onSuccess: (data) => {
       onSubmitted?.(data);
       onNavigateToJob?.(data.job_id);
