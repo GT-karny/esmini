@@ -39,6 +39,7 @@
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
+#include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
 
@@ -352,8 +353,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         }
     }
 
-    // Capture OSI IP if provided
+    // Capture OSI IP and SV port if provided
     std::string osiTargetIp = "";
+    int svPort = 48200;  // default SV reporter port
 
     // If filename found, sanitized it
     std::string sanitizedFile;
@@ -391,7 +393,8 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--video_headless") == 0 ||
                       strcmp(argv[i], "--video_window") == 0 ||
                       strcmp(argv[i], "--video_frames") == 0 ||
-                      strcmp(argv[i], "--video_prefix") == 0))
+                      strcmp(argv[i], "--video_prefix") == 0 ||
+                      strcmp(argv[i], "--sv-port") == 0))
             {
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
@@ -417,6 +420,14 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 else if (strcmp(argv[i], "--video_frames") == 0 || strcmp(argv[i], "--video_prefix") == 0)
                 {
                     i++; // Skip single value
+                }
+                else if (strcmp(argv[i], "--sv-port") == 0)
+                {
+                    if (i + 1 < argc)
+                    {
+                        try { svPort = std::stoi(argv[i+1]); } catch (...) {}
+                        i++; // Skip the port value
+                    }
                 }
             }
             else
@@ -575,6 +586,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             std::string configFile = config_loader.ResolveConfigPath(exeDir, "host_vehicle_config.json");
             gt_esmini::GT_HostVehicleReporter::Instance().Init(48199, configFile, osiTargetIp);
         }
+
+        // 8. Initialize Scenario Variables Reporter (JSON over UDP)
+        gt_esmini::GT_ScenarioVariablesReporter::Instance().Init(svPort, osiTargetIp);
     }
 
     // [GT_MOD] DIAGNOSTIC
@@ -747,6 +761,9 @@ GT_ESMINI_API void GT_Step(double dt)
         }
     }
 #endif  // _USE_OSI
+
+    // Broadcast scenario variables (JSON over UDP, independent of OSI)
+    gt_esmini::GT_ScenarioVariablesReporter::Instance().Update();
 }
 
 GT_ESMINI_API void GT_EnableVehiclePhysics()
@@ -782,6 +799,7 @@ GT_ESMINI_API void GT_Close()
     s_hvdEstimator.Reset();
     gt_esmini::VehiclePhysicsManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
+    gt_esmini::GT_ScenarioVariablesReporter::Instance().Close();
     AutoLightManager::Instance().Close();
     SE_Close();
 }

@@ -73,6 +73,9 @@ struct GtSimOptions
 
     // Parameter overrides
     std::vector<ParamOverride> param_overrides;
+
+    // Scenario Variables reporter
+    int sv_port = 0;  // 0 = use default (48200)
 };
 
 static void PrintUsage()
@@ -360,6 +363,12 @@ int main(int argc, const char* argv[])
         {
             opts.control_pipe_name = argv[++i];
         }
+        else if (arg == "--sv-port" && i + 1 < argc)
+        {
+            // Forward to GT_InitWithArgs (handled inside GT_esminiLib)
+            forwardArgs.emplace_back(arg);
+            forwardArgs.emplace_back(argv[++i]);
+        }
         else if (arg == "--param" && i + 1 < argc)
         {
             std::string pv = argv[++i];
@@ -512,6 +521,8 @@ int main(int argc, const char* argv[])
         printf("GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
         SE_OpenOSISocket(opts.osi_ip.c_str());
     }
+
+    // 3b. Override SV reporter port if specified (handled inside GT_InitWithArgs via --sv-port)
 
     // 4. Frequency Control
     printf("GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", opts.frequency, opts.no_realtime ? "OFF" : "ON");

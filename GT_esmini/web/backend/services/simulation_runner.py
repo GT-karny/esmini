@@ -25,6 +25,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationStatus,
 )
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
+from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
 
 # Import scenario_generator for XOSC variant generation
 import sys
@@ -409,6 +410,13 @@ async def _run_simulation(
         except Exception as e:
             _logger.warning("Failed to start OSI bridge for %s: %s", job_id, e)
 
+    # Start SV bridge (scenario variables, always enabled when OSI is)
+    if osi_enabled:
+        try:
+            await start_sv_bridge(job_id)
+        except Exception as e:
+            _logger.warning("Failed to start SV bridge for %s: %s", job_id, e)
+
     _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
         # Phase 1: Start the subprocess (registers in _running_procs atomically)
@@ -457,6 +465,7 @@ async def _run_simulation(
     # Stop OSI bridge
     if osi_enabled:
         await stop_bridge(job_id)
+        await stop_sv_bridge(job_id)
 
     # Clean up control pipe tracking
     with _pipes_lock:
