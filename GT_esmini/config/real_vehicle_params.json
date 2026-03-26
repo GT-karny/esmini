@@ -24,6 +24,13 @@
     "critical_speed": 24.0,
     "max_understeer_reduction": 0.6,
 
+    "heading_correction": {
+        "default": {
+            "blend_factor": 1.0,
+            "max_correction_deg": 5.0
+        }
+    },
+
     "observed_vehicle": {
         "default": {
             "pitch_stiffness": 25.0,

@@ -42,6 +42,7 @@
 #include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
+#include "gt_esmini/control/HeadingCorrectionManager.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -217,7 +218,9 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+#endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
 
     // 2. Initialize esmini using SE_Init with sanitized file
@@ -386,6 +389,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                      (strcmp(argv[i], "--autolight") == 0 ||
                       strcmp(argv[i], "--autolight-egoless") == 0 ||
                       strcmp(argv[i], "--vehicle-physics") == 0 ||
+                      strcmp(argv[i], "--heading-correction") == 0 ||
                       strcmp(argv[i], "--osi") == 0 ||
                       strcmp(argv[i], "--hz") == 0 ||
                       strcmp(argv[i], "--no_realtime") == 0 ||
@@ -444,7 +448,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
     // 1.5 Register Custom Controllers
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_REAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerRealDriver);
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
+#endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
 
     // 2. Initialize esmini using SE_Init with sanitized args
@@ -556,6 +562,27 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             }
         }
 
+        // 4c. Initialize HeadingCorrectionManager (nose-leading heading for non-GT vehicles)
+        {
+            std::string exeDir2 = gt_esmini::GetCurrentModuleDirectory();
+            gt_esmini::ConfigLoader config_loader2;
+            std::string paramsFile2 = config_loader2.ResolveConfigPath(exeDir2, "real_vehicle_params.json");
+
+            auto& hcm = gt_esmini::HeadingCorrectionManager::Instance();
+            hcm.LoadProfiles(paramsFile2);
+            hcm.Init(&player->scenarioEngine->entities_);
+
+            for (int i = 0; i < argc; i++)
+            {
+                if (argv[i] && strcmp(argv[i], "--heading-correction") == 0)
+                {
+                    hcm.Enable(true);
+                    std::cout << "GT_Init: HeadingCorrection enabled via argument." << std::endl;
+                    break;
+                }
+            }
+        }
+
         // 5. Register Hook for OSIReporter
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
 
@@ -615,6 +642,9 @@ GT_ESMINI_API void GT_Step(double dt)
     // Update observed vehicle physics (pitch/roll for non-GT-controller vehicles)
     gt_esmini::VehiclePhysicsManager::Instance().Update(dt);
 
+    // Update heading correction (nose-leading behavior for non-GT-controller vehicles)
+    gt_esmini::HeadingCorrectionManager::Instance().Update(dt);
+
     // Update HostVehicleData (using separated GT_HostVehicleReporter)
 #ifdef _USE_OSI
     if (player && player->scenarioGateway && player->scenarioEngine &&
@@ -665,10 +695,12 @@ GT_ESMINI_API void GT_Step(double dt)
             if (egoObject)
             {
                 Controller* ctrl = egoObject->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME);
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
                 if (!ctrl)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
                 }
+#endif
                 if (!ctrl)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME);
@@ -735,10 +767,12 @@ GT_ESMINI_API void GT_Step(double dt)
                     {
                         pushControllerState(realDriver);
                     }
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
                     else if (auto* pythonDriver = dynamic_cast<gt_esmini::ControllerPythonDriver*>(ctrl))
                     {
                         pushControllerState(pythonDriver);
                     }
+#endif
                     else if (auto* manualDrive = dynamic_cast<gt_esmini::ControllerManualDrive*>(ctrl))
                     {
                         pushControllerState(manualDrive);
@@ -771,6 +805,11 @@ GT_ESMINI_API void GT_EnableVehiclePhysics()
     gt_esmini::VehiclePhysicsManager::Instance().Enable(true);
 }
 
+GT_ESMINI_API void GT_EnableHeadingCorrection()
+{
+    gt_esmini::HeadingCorrectionManager::Instance().Enable(true);
+}
+
 GT_ESMINI_API void GT_EnableAutoLight()
 {
     AutoLightManager::Instance().Enable(true);
@@ -798,6 +837,7 @@ GT_ESMINI_API void GT_Close()
 
     s_hvdEstimator.Reset();
     gt_esmini::VehiclePhysicsManager::Instance().Close();
+    gt_esmini::HeadingCorrectionManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Close();
     AutoLightManager::Instance().Close();

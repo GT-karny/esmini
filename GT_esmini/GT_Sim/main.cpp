@@ -53,6 +53,9 @@ struct GtSimOptions
     // Vehicle Physics (observed pitch/roll for non-GT-controller vehicles)
     bool vehicle_physics = false;
 
+    // Heading Correction (nose-leading behavior for non-GT-controller vehicles)
+    bool heading_correction = false;
+
     // OSI
     std::string osi_ip;  // empty = disabled
 
@@ -85,6 +88,7 @@ static void PrintUsage()
     printf("  --autolight          Enable AutoLight functionality\n");
     printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
     printf("  --vehicle-physics    Enable observed vehicle physics (pitch/roll) for traffic vehicles\n");
+    printf("  --heading-correction Enable nose-leading heading correction for traffic vehicles\n");
     printf("  --osi <ip>           Enable OSI output to specified IP\n");
     printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
     printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
@@ -310,6 +314,10 @@ int main(int argc, const char* argv[])
         {
             opts.vehicle_physics = true;
         }
+        else if (arg == "--heading-correction")
+        {
+            opts.heading_correction = true;
+        }
         else if (arg == "--osi" && i + 1 < argc)
         {
             opts.osi_ip = argv[++i];
@@ -513,6 +521,13 @@ int main(int argc, const char* argv[])
     {
         printf("GT_Sim: Enabling Vehicle Physics\n");
         GT_EnableVehiclePhysics();
+    }
+
+    // 2c. Enable Heading Correction if requested
+    if (opts.heading_correction)
+    {
+        printf("GT_Sim: Enabling Heading Correction\n");
+        GT_EnableHeadingCorrection();
     }
 
     // 3. Open OSI Socket if requested
