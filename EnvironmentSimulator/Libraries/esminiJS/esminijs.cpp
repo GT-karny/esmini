@@ -2,6 +2,8 @@
 #include "StoryboardElement.hpp"
 #include "OSCCondition.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
+#include "gt_esmini/scenario/GT_ScenarioReader.hpp"
+#include "pugixml.hpp"
 #include <iostream>
 
 #ifdef __EMSCRIPTEN__
@@ -98,6 +100,27 @@ namespace esmini
         this->scenarioEngine  = new scenarioengine::ScenarioEngine(this->xosc_file, false);
         this->scenarioGateway = this->scenarioEngine->getScenarioGateway();
         registerCallbacks();
+
+        // --- GT_esmini extensions: parse and init TrafficSignalControllers ---
+        pugi::xml_document doc;
+        pugi::xml_parse_result result = doc.load_file(this->xosc_file.c_str());
+        if (result)
+        {
+            auto* scReader = this->scenarioEngine->GetScenarioReader();
+            auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
+
+            gt_esmini::GT_ScenarioReader reader(
+                &this->scenarioEngine->entities_,
+                catalogs,
+                &this->scenarioEngine->environment
+            );
+
+            // ParseExtensionActions internally calls ParseTrafficSignalControllers
+            reader.ParseExtensionActions(doc, this->scenarioEngine->storyBoard);
+        }
+
+        // Resolve OpenDRIVE signal pointers and apply initial phase states
+        gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
     }
 
     OpenScenario::~OpenScenario()
@@ -105,6 +128,9 @@ namespace esmini
         // Unregister callbacks to avoid dangling pointers
         scenarioengine::StoryBoardElement::stateChangeCallback = nullptr;
         scenarioengine::OSCCondition::conditionCallback        = nullptr;
+
+        // Clear TrafficSignalController state for clean re-initialization
+        gt_esmini::TrafficSignalControllerManager::Instance().Clear();
 
         if (scenarioEngine)
         {
