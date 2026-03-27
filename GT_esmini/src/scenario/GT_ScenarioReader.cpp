@@ -43,6 +43,27 @@ namespace gt_esmini
             {
                 return ParseAppearanceAction(actionChild, object, parent);
             }
+            else if (std::string(actionChild.name()) == "LightStateAction")
+            {
+                // Support LightStateAction directly under PrivateAction (without AppearanceAction wrapper)
+                OSCLightStateAction* action = ParseLightStateAction(actionChild);
+                if (action != nullptr)
+                {
+                    if (object != nullptr && object->type_ == scenarioengine::Object::Type::VEHICLE)
+                    {
+                        scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(object);
+                        auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+                        if (ext == nullptr)
+                        {
+                            ext = new VehicleLightExtension(vehicle);
+                            VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+                        }
+                    }
+                    action->parent_ = parent;
+                    action->object_ = object;
+                }
+                return action;
+            }
         }
         
         // Delegate all other actions to parent class
