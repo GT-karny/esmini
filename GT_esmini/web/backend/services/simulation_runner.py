@@ -25,6 +25,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationStatus,
 )
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
+from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
 
 # Import scenario_generator for XOSC variant generation
 import sys
@@ -306,8 +307,28 @@ def _build_cmd(
     return cmd
 
 
+class SimulationConflictError(Exception):
+    """Raised when a simulation is already running."""
+
+    def __init__(self, running_job_id: str):
+        self.running_job_id = running_job_id
+        super().__init__(f"A simulation is already running: {running_job_id}")
+
+
 async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     """Register a new simulation job and start execution."""
+    # Enforce single-instance: reject if another job is already running
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT job_id FROM simulations WHERE status IN ('running', 'queued') LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        if row:
+            raise SimulationConflictError(row["job_id"])
+    finally:
+        await db.close()
+
     job_id = uuid.uuid4().hex[:12]
     output_dir = _build_output_dir(job_id)
 
@@ -409,6 +430,13 @@ async def _run_simulation(
         except Exception as e:
             _logger.warning("Failed to start OSI bridge for %s: %s", job_id, e)
 
+    # Start SV bridge (scenario variables, always enabled when OSI is)
+    if osi_enabled:
+        try:
+            await start_sv_bridge(job_id)
+        except Exception as e:
+            _logger.warning("Failed to start SV bridge for %s: %s", job_id, e)
+
     _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
         # Phase 1: Start the subprocess (registers in _running_procs atomically)
@@ -457,6 +485,7 @@ async def _run_simulation(
     # Stop OSI bridge
     if osi_enabled:
         await stop_bridge(job_id)
+        await stop_sv_bridge(job_id)
 
     # Clean up control pipe tracking
     with _pipes_lock:

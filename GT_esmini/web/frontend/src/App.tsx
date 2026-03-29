@@ -5,8 +5,6 @@ import { CursorLight } from '@osce/theme-apex';
 import { api } from './api/client';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
-import { ScenariosPage } from './pages/ScenariosPage';
-import { NewSimulationPage } from './pages/NewSimulationPage';
 import { SimulationsPage } from './pages/SimulationsPage';
 import { SimulationDetailPage } from './pages/SimulationDetailPage';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -98,11 +96,26 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
         ) : (
           <>
             <NavLink to="/" className={linkClass} end>Projects</NavLink>
+            <NavLink to="/simulations" className={linkClass}>Jobs</NavLink>
             <ProjectsRootIndicator />
           </>
         )}
 
         <div className="ml-auto flex items-center">
+          {isProjectPage && (
+            <NavLink
+              to="/simulations"
+              className={({ isActive }) =>
+                `px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-glass-active text-foreground'
+                    : 'text-text-secondary hover:text-foreground hover:bg-glass-hover'
+                }`
+              }
+            >
+              Jobs
+            </NavLink>
+          )}
           <button
             onClick={onSettingsClick}
             className="p-1.5 text-text-secondary hover:text-foreground hover:bg-glass-hover transition-colors cursor-pointer"
@@ -200,10 +213,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<div className="h-full overflow-y-auto px-6 py-6"><ProjectsPage /></div>} />
               <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
-              <Route path="/projects/:projectId/sim/new" element={<div className="h-full overflow-y-auto px-6 py-6"><NewSimulationPage /></div>} />
-              <Route path="/scenarios" element={<div className="h-full overflow-y-auto px-6 py-6"><ScenariosPage /></div>} />
               <Route path="/simulations" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationsPage /></div>} />
-              <Route path="/simulations/new" element={<div className="h-full overflow-y-auto px-6 py-6"><NewSimulationPage /></div>} />
               <Route path="/simulations/:jobId" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationDetailPage /></div>} />
             </Routes>
           </main>

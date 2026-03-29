@@ -19,6 +19,7 @@ from GT_esmini.web.backend.api import (
     controller_config,
     manual_drive_api,
     osi_stream,
+    sv_stream,
     projects,
     results,
     roads,
@@ -85,10 +86,15 @@ async def lifespan(app: FastAPI):
 
     # Phase 2: Stop all OSI bridges (releases UDP ports)
     from GT_esmini.web.backend.services.osi_bridge import stop_all_bridges
+    from GT_esmini.web.backend.services.sv_bridge import stop_all_sv_bridges
 
     bridge_count = await stop_all_bridges()
     if bridge_count:
         _logger.info("Stopped %d OSI bridge(s)", bridge_count)
+
+    sv_count = await stop_all_sv_bridges()
+    if sv_count:
+        _logger.info("Stopped %d SV bridge(s)", sv_count)
 
     # Phase 3: Stop gRPC server (reduced grace for Windows deadline)
     if grpc_srv is not None:
@@ -154,6 +160,7 @@ app.include_router(config_api.router)
 app.include_router(roads.router)
 # WebSocket must be registered before the SPA catch-all route
 app.include_router(osi_stream.router)
+app.include_router(sv_stream.router)
 
 
 @app.get("/api/health")

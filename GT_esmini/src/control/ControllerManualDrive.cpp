@@ -177,7 +177,16 @@ void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, dou
 {
     throttle  = last_cmd_.throttle;
     brake     = last_cmd_.brake;
-    steering  = last_cmd_.steering;
+    // Use the actual wheel angle from physics (stored in current_hvd_ by RealVehicleBackend)
+    // rather than raw input, so the sign matches OSI convention (positive = left).
+    if (current_hvd_.has_vehicle_steering() && current_hvd_.vehicle_steering().has_vehicle_steering_wheel())
+    {
+        steering = current_hvd_.vehicle_steering().vehicle_steering_wheel().angle();
+    }
+    else
+    {
+        steering = 0.0;
+    }
     gear      = last_cmd_.gear;
     lightMask = BuildLightMaskFromExtension();
 }

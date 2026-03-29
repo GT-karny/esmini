@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test scenario for Scenario Variables (SV) Bridge.
+     Demonstrates VariableDeclarations of all 4 types (bool, int, double, string)
+     with VariableAction changes at timed intervals for real-time monitoring.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="2"
+               date="2026-03-25T00:00:00"
+               description="SV Bridge test — variable changes at timed intervals"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="HostVehicle" parameterType="string" value="car_white"/>
+      <ParameterDeclaration name="TargetVehicle" parameterType="string" value="car_red"/>
+   </ParameterDeclarations>
+   <VariableDeclarations>
+      <VariableDeclaration name="warningActive" variableType="boolean" value="false"/>
+      <VariableDeclaration name="collisionRisk" variableType="integer" value="0"/>
+      <VariableDeclaration name="speedLimit" variableType="double" value="60.0"/>
+      <VariableDeclaration name="message" variableType="string" value="Normal"/>
+   </VariableDeclarations>
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../xosc/Catalogs/Vehicles"/>
+      </VehicleCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/straight_500m.xodr"/>
+      <SceneGraphFile filepath="../models/straight_500m.osgb"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <CatalogReference catalogName="VehicleCatalog" entryName="$HostVehicle"/>
+      </ScenarioObject>
+      <ScenarioObject name="Target">
+         <CatalogReference catalogName="VehicleCatalog" entryName="$TargetVehicle"/>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="15"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="50"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="Target">
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0.0"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="10"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="200"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+
+      <!-- Story: Variable changes at timed intervals -->
+      <Story name="SvTestStory">
+         <Act name="SvTestAct">
+            <ManeuverGroup maximumExecutionCount="1" name="VariableChanges">
+               <Actors selectTriggeringEntities="false"/>
+
+               <!-- t=3s: Warning activates, risk level 1 -->
+               <Maneuver name="Phase1_Warning">
+                  <Event name="ActivateWarning" priority="parallel">
+                     <Action name="SetWarningTrue">
+                        <GlobalAction>
+                           <VariableAction variableRef="warningActive">
+                              <SetAction value="true"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="SetRisk1">
+                        <GlobalAction>
+                           <VariableAction variableRef="collisionRisk">
+                              <SetAction value="1"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="SetMessage1">
+                        <GlobalAction>
+                           <VariableAction variableRef="message">
+                              <SetAction value="Approaching slow vehicle"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="At3s" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="3.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+
+               <!-- t=6s: Speed limit drops, risk level 2 -->
+               <Maneuver name="Phase2_SpeedReduction">
+                  <Event name="ReduceSpeed" priority="parallel">
+                     <Action name="SetSpeedLimit30">
+                        <GlobalAction>
+                           <VariableAction variableRef="speedLimit">
+                              <SetAction value="30.0"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="SetRisk2">
+                        <GlobalAction>
+                           <VariableAction variableRef="collisionRisk">
+                              <SetAction value="2"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="SetMessage2">
+                        <GlobalAction>
+                           <VariableAction variableRef="message">
+                              <SetAction value="Speed limit zone ahead"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="At6s" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="6.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+
+               <!-- t=10s: All clear -->
+               <Maneuver name="Phase3_Clear">
+                  <Event name="ClearWarning" priority="parallel">
+                     <Action name="SetWarningFalse">
+                        <GlobalAction>
+                           <VariableAction variableRef="warningActive">
+                              <SetAction value="false"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="SetRisk0">
+                        <GlobalAction>
+                           <VariableAction variableRef="collisionRisk">
+                              <SetAction value="0"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="RestoreSpeed">
+                        <GlobalAction>
+                           <VariableAction variableRef="speedLimit">
+                              <SetAction value="60.0"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <Action name="SetMessage3">
+                        <GlobalAction>
+                           <VariableAction variableRef="message">
+                              <SetAction value="All clear"/>
+                           </VariableAction>
+                        </GlobalAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="At10s" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="10.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="rising">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="End" conditionEdge="none" delay="0">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="15" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

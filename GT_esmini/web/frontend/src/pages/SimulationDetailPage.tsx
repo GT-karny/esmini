@@ -117,6 +117,19 @@ export function SimulationDetailPage() {
       {/* Job Info */}
       <Card title="Details" className="mb-4">
         <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt className="text-text-secondary">Project</dt>
+          <dd>
+            {sim.project_id ? (
+              <button
+                className="text-primary hover:underline cursor-pointer"
+                onClick={() => navigate(`/projects/${sim.project_id}`)}
+              >
+                {sim.project_id}
+              </button>
+            ) : (
+              <span className="text-text-tertiary">-</span>
+            )}
+          </dd>
           <dt className="text-text-secondary">Scenario</dt>
           <dd>{sim.scenario_id}</dd>
           <dt className="text-text-secondary">Controller</dt>
@@ -148,10 +161,10 @@ export function SimulationDetailPage() {
               {cancelMutation.isPending ? 'Stopping...' : 'Cancel'}
             </Button>
           )}
-          {isTerminal && (
+          {isTerminal && sim.project_id && (
             <Button
               size="sm"
-              onClick={() => navigate('/simulations/new', { state: { rerunFrom: sim } })}
+              onClick={() => navigate(`/projects/${sim.project_id}?scenario=${encodeURIComponent(sim.scenario_id)}`)}
             >
               Re-run
             </Button>

@@ -11,6 +11,7 @@ import { ErrorPanel } from '../components/ui/ErrorPanel';
 import { ScenarioListPanel } from '../components/project/ScenarioListPanel';
 import { ScenarioDetailPanel } from '../components/project/ScenarioDetailPanel';
 import { LiveMonitorPanel } from '../components/project/LiveMonitorPanel';
+import { SvLivePanel } from '../components/project/SvLivePanel';
 import { ParameterPanel } from '../components/project/ParameterPanel';
 import { ExecutionPanel } from '../components/project/ExecutionPanel';
 import { FilesTab } from '../components/project/FilesTab';
@@ -28,6 +29,7 @@ export function ProjectDetailPage() {
     runningJobId,
     latestJobId,
     isJobActive,
+    runningJobStatus,
     handleRunning: rawHandleRunning,
   } = useJobPolling();
 
@@ -74,6 +76,17 @@ export function ProjectDetailPage() {
       setRunningScenarioFile(null);
     }
   }, [isJobActive, runningJobId]);
+
+  // Recover runningScenarioFile from externally-started jobs (e.g. via API)
+  useEffect(() => {
+    if (
+      runningJobId && !runningScenarioFile && runningJobStatus &&
+      runningJobStatus.project_id === projectId &&
+      (runningJobStatus.status === 'running' || runningJobStatus.status === 'queued')
+    ) {
+      setRunningScenarioFile(runningJobStatus.scenario_id);
+    }
+  }, [runningJobId, runningScenarioFile, runningJobStatus, projectId]);
 
   const handleSelectScenario = (file: string) => {
     setSearchParams((prev) => {
@@ -137,7 +150,7 @@ export function ProjectDetailPage() {
    Scenario Dashboard (4-panel grid)
    ================================================================ */
 
-type BottomLeftTab = 'details' | 'viewer';
+type BottomLeftTab = 'details' | 'viewer' | 'variables';
 
 interface ScenarioDashboardProps {
   projectId: string;
@@ -319,6 +332,17 @@ function ScenarioDashboard({
             >
               2D Viewer
             </button>
+            <button
+              onClick={() => setBottomLeftTab('variables')}
+              disabled={!runningJobId}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                bottomLeftTab === 'variables'
+                  ? 'text-foreground border-b-2 border-primary'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              } ${!runningJobId ? 'opacity-30 cursor-not-allowed' : ''}`}
+            >
+              Variables
+            </button>
           </div>
         )}
 
@@ -326,6 +350,8 @@ function ScenarioDashboard({
         <div className="flex-1 min-h-0 overflow-hidden">
           {bottomLeftTab === 'viewer' && runningJobId ? (
             <LiveMonitorPanel jobId={runningJobId} projectId={projectId} scenarioFile={runningScenarioFile ?? undefined} />
+          ) : bottomLeftTab === 'variables' && runningJobId ? (
+            <SvLivePanel jobId={runningJobId} />
           ) : selectedScenario ? (
             <ScenarioDetailPanel
               projectId={projectId}

@@ -53,6 +53,9 @@ struct GtSimOptions
     // Vehicle Physics (observed pitch/roll for non-GT-controller vehicles)
     bool vehicle_physics = false;
 
+    // Heading Correction (nose-leading behavior for non-GT-controller vehicles)
+    bool heading_correction = false;
+
     // OSI
     std::string osi_ip;  // empty = disabled
 
@@ -73,6 +76,9 @@ struct GtSimOptions
 
     // Parameter overrides
     std::vector<ParamOverride> param_overrides;
+
+    // Scenario Variables reporter
+    int sv_port = 0;  // 0 = use default (48200)
 };
 
 static void PrintUsage()
@@ -82,6 +88,7 @@ static void PrintUsage()
     printf("  --autolight          Enable AutoLight functionality\n");
     printf("  --autolight-egoless  Enable AutoLight but exclude Ego vehicle (first object)\n");
     printf("  --vehicle-physics    Enable observed vehicle physics (pitch/roll) for traffic vehicles\n");
+    printf("  --heading-correction Enable nose-leading heading correction for traffic vehicles\n");
     printf("  --osi <ip>           Enable OSI output to specified IP\n");
     printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
     printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
@@ -307,6 +314,10 @@ int main(int argc, const char* argv[])
         {
             opts.vehicle_physics = true;
         }
+        else if (arg == "--heading-correction")
+        {
+            opts.heading_correction = true;
+        }
         else if (arg == "--osi" && i + 1 < argc)
         {
             opts.osi_ip = argv[++i];
@@ -359,6 +370,12 @@ int main(int argc, const char* argv[])
         else if (arg == "--control_pipe" && i + 1 < argc)
         {
             opts.control_pipe_name = argv[++i];
+        }
+        else if (arg == "--sv-port" && i + 1 < argc)
+        {
+            // Forward to GT_InitWithArgs (handled inside GT_esminiLib)
+            forwardArgs.emplace_back(arg);
+            forwardArgs.emplace_back(argv[++i]);
         }
         else if (arg == "--param" && i + 1 < argc)
         {
@@ -506,12 +523,21 @@ int main(int argc, const char* argv[])
         GT_EnableVehiclePhysics();
     }
 
+    // 2c. Enable Heading Correction if requested
+    if (opts.heading_correction)
+    {
+        printf("GT_Sim: Enabling Heading Correction\n");
+        GT_EnableHeadingCorrection();
+    }
+
     // 3. Open OSI Socket if requested
     if (!opts.osi_ip.empty())
     {
         printf("GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
         SE_OpenOSISocket(opts.osi_ip.c_str());
     }
+
+    // 3b. Override SV reporter port if specified (handled inside GT_InitWithArgs via --sv-port)
 
     // 4. Frequency Control
     printf("GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", opts.frequency, opts.no_realtime ? "OFF" : "ON");

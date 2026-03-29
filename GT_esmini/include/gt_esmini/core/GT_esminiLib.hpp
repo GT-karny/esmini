@@ -79,6 +79,15 @@ extern "C"
     GT_ESMINI_API void GT_EnableVehiclePhysics();
 
     /**
+     * @brief Enable bicycle-model heading correction for non-GT-controller vehicles
+     *
+     * Applies nose-leading heading offset so that the front of the vehicle
+     * leads turns and lane changes, matching real vehicle behavior.
+     * Must be called after GT_Init / GT_InitWithArgs.
+     */
+    GT_ESMINI_API void GT_EnableHeadingCorrection();
+
+    /**
      * @brief GT_esmini cleanup
      * 
      * Phase 1: Stub implementation

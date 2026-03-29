@@ -80,10 +80,12 @@ set(GT_CORE_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IConfigLoader.hpp)
 
 set(GT_IO_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_UDP.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_UDP.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_ScenarioVariablesReporter.cpp)
 
 set(GT_IO_HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/io/GT_UDP.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/io/GT_UDP.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/io/GT_ScenarioVariablesReporter.hpp)
 
 set(GT_SCENARIO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraAction.cpp
@@ -114,6 +116,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/HeadingCorrectionManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerManualDrive.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
@@ -141,6 +144,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/HeadingCorrectionManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerManualDrive.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveTypes.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IInputSource.hpp
@@ -272,6 +276,8 @@ target_include_directories(${TARGET_SHARED} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/i
 target_include_directories(${TARGET_STATIC} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 target_link_libraries(${GT_IO_TARGET} PRIVATE ${GT_CORE_TARGET} ${SOCK_LIB})
+target_include_directories(${GT_IO_TARGET} PRIVATE
+    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
 target_link_libraries(${GT_SCENARIO_TARGET} PRIVATE ${GT_CORE_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
 target_link_libraries(${GT_CONTROL_TARGET} PRIVATE
     ${GT_CORE_TARGET}
