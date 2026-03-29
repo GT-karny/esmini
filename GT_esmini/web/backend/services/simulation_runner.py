@@ -307,8 +307,28 @@ def _build_cmd(
     return cmd
 
 
+class SimulationConflictError(Exception):
+    """Raised when a simulation is already running."""
+
+    def __init__(self, running_job_id: str):
+        self.running_job_id = running_job_id
+        super().__init__(f"A simulation is already running: {running_job_id}")
+
+
 async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     """Register a new simulation job and start execution."""
+    # Enforce single-instance: reject if another job is already running
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT job_id FROM simulations WHERE status IN ('running', 'queued') LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        if row:
+            raise SimulationConflictError(row["job_id"])
+    finally:
+        await db.close()
+
     job_id = uuid.uuid4().hex[:12]
     output_dir = _build_output_dir(job_id)
 

@@ -29,6 +29,7 @@ export function ProjectDetailPage() {
     runningJobId,
     latestJobId,
     isJobActive,
+    runningJobStatus,
     handleRunning: rawHandleRunning,
   } = useJobPolling();
 
@@ -75,6 +76,17 @@ export function ProjectDetailPage() {
       setRunningScenarioFile(null);
     }
   }, [isJobActive, runningJobId]);
+
+  // Recover runningScenarioFile from externally-started jobs (e.g. via API)
+  useEffect(() => {
+    if (
+      runningJobId && !runningScenarioFile && runningJobStatus &&
+      runningJobStatus.project_id === projectId &&
+      (runningJobStatus.status === 'running' || runningJobStatus.status === 'queued')
+    ) {
+      setRunningScenarioFile(runningJobStatus.scenario_id);
+    }
+  }, [runningJobId, runningScenarioFile, runningJobStatus, projectId]);
 
   const handleSelectScenario = (file: string) => {
     setSearchParams((prev) => {

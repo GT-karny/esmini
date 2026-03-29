@@ -11,6 +11,7 @@ from GT_esmini.web.backend.models.simulation import (
     SpeedRequest,
 )
 from GT_esmini.web.backend.services import project_service, scenario_service, simulation_runner
+from GT_esmini.web.backend.services.simulation_runner import SimulationConflictError
 
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 
@@ -38,7 +39,13 @@ async def create_simulation(req: SimulationRequest):
             status_code=404, detail=f"Scenario '{req.scenario_id}' not found"
         )
 
-    job_id = await simulation_runner.submit_simulation(req, scenario_path)
+    try:
+        job_id = await simulation_runner.submit_simulation(req, scenario_path)
+    except SimulationConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A simulation is already running: {e.running_job_id}",
+        )
     status = await simulation_runner.get_simulation_status(job_id)
     if status is None:
         raise HTTPException(status_code=500, detail="Failed to create simulation job")
