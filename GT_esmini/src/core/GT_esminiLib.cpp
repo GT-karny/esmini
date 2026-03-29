@@ -645,6 +645,23 @@ GT_ESMINI_API void GT_Step(double dt)
     // Update heading correction (nose-leading behavior for non-GT-controller vehicles)
     gt_esmini::HeadingCorrectionManager::Instance().Update(dt);
 
+    // Sync post-processed positions (pitch/roll from VehiclePhysicsManager, heading from
+    // HeadingCorrectionManager) back into the ScenarioGateway so that the viewer and OSI
+    // reporter see the corrected values. SE_StepDT updates the gateway before our post-
+    // processing runs, so without this sync, corrections are invisible.
+    if (player && player->scenarioGateway && player->scenarioEngine)
+    {
+        for (auto* obj : player->scenarioEngine->entities_.object_)
+        {
+            if (obj && obj->type_ == scenarioengine::Object::Type::VEHICLE)
+            {
+                player->scenarioGateway->updateObjectPos(obj->id_,
+                                                          player->scenarioEngine->getSimulationTime(),
+                                                          &obj->pos_);
+            }
+        }
+    }
+
     // Update HostVehicleData (using separated GT_HostVehicleReporter)
 #ifdef _USE_OSI
     if (player && player->scenarioGateway && player->scenarioEngine &&

@@ -67,6 +67,10 @@ void HeadingCorrectionManager::Init(scenarioengine::Entities* entities)
 
         // Skip vehicles that already have a GT custom controller
         // (they manage their own heading via RealVehicle dynamics)
+        // Note: SUMO vehicles are NOT skipped — SUMO also sets heading based on
+        // velocity direction without bicycle-model correction, causing the same
+        // "no nose-leading" issue. Our correction is applied after SUMO's H_ABS
+        // heading via SetHeadingRelative(), adding the curvature offset on top.
         if (obj->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME) ||
 #ifdef GT_ENABLE_EMBEDDED_PYTHON
             obj->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME) ||
