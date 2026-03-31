@@ -77,7 +77,9 @@ namespace esmini
             .function("popConditionEvents", &OpenScenario::popConditionEvents)
             // Traffic signal introspection
             .function("getTrafficSignalStates", &OpenScenario::getTrafficSignalStates)
-            .function("getTrafficLightStatesOnly", &OpenScenario::getTrafficLightStatesOnly);
+            .function("getTrafficLightStatesOnly", &OpenScenario::getTrafficLightStatesOnly)
+            // Vehicle light introspection (LightStateAction)
+            .function("getVehicleLightStates", &OpenScenario::getVehicleLightStates);
     }
 }  // namespace esmini
 

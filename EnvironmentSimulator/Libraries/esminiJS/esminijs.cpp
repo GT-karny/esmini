@@ -3,6 +3,7 @@
 #include "OSCCondition.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/scenario/GT_ScenarioReader.hpp"
+#include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "pugixml.hpp"
 #include <iostream>
 
@@ -131,6 +132,9 @@ namespace esmini
 
         // Clear TrafficSignalController state for clean re-initialization
         gt_esmini::TrafficSignalControllerManager::Instance().Clear();
+
+        // Clear VehicleLightExtension state for clean re-initialization
+        gt_esmini::VehicleExtensionManager::Instance().Clear();
 
         if (scenarioEngine)
         {
@@ -370,6 +374,87 @@ namespace esmini
             obj.set("id", tl->GetId());
             obj.set("state", tl->GetStateString());
             arr.call<void>("push", obj);
+        }
+
+        return arr;
+    }
+
+    emscripten::val OpenScenario::getVehicleLightStates()
+    {
+        emscripten::val arr = emscripten::val::array();
+
+        auto& extMgr = gt_esmini::VehicleExtensionManager::Instance();
+
+        for (auto* obj : scenarioEngine->entities_.object_)
+        {
+            if (obj->type_ != scenarioengine::Object::Type::VEHICLE)
+                continue;
+
+            auto* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
+            auto* ext     = extMgr.GetExtension(vehicle);
+            if (!ext)
+                continue;
+
+            emscripten::val vObj = emscripten::val::object();
+            vObj.set("id", obj->GetId());
+            vObj.set("name", std::string(obj->name_));
+
+            // head_light: LOW_BEAM or HIGH_BEAM → "on"
+            auto lowBeam  = ext->GetLightState(gt_esmini::VehicleLightType::LOW_BEAM);
+            auto highBeam = ext->GetLightState(gt_esmini::VehicleLightType::HIGH_BEAM);
+            bool headOn   = (lowBeam.mode != gt_esmini::LightState::Mode::OFF) ||
+                            (highBeam.mode != gt_esmini::LightState::Mode::OFF);
+            vObj.set("head_light", headOn ? std::string("on") : std::string("off"));
+
+            // indicator: left / right / warning / off
+            auto indL = ext->GetLightState(gt_esmini::VehicleLightType::INDICATOR_LEFT);
+            auto indR = ext->GetLightState(gt_esmini::VehicleLightType::INDICATOR_RIGHT);
+            bool leftOn  = (indL.mode != gt_esmini::LightState::Mode::OFF);
+            bool rightOn = (indR.mode != gt_esmini::LightState::Mode::OFF);
+
+            std::string indicator = "off";
+            if (leftOn && rightOn)
+                indicator = "warning";
+            else if (leftOn)
+                indicator = "left";
+            else if (rightOn)
+                indicator = "right";
+            vObj.set("indicator", indicator);
+
+            // brake_light: off / normal
+            auto brake = ext->GetLightState(gt_esmini::VehicleLightType::BRAKE_LIGHTS);
+            vObj.set("brake_light", (brake.mode != gt_esmini::LightState::Mode::OFF)
+                                        ? std::string("normal") : std::string("off"));
+
+            // fog_light
+            auto fogF = ext->GetLightState(gt_esmini::VehicleLightType::FOG_LIGHTS_FRONT);
+            auto fogR = ext->GetLightState(gt_esmini::VehicleLightType::FOG_LIGHTS_REAR);
+            auto fog  = ext->GetLightState(gt_esmini::VehicleLightType::FOG_LIGHTS);
+            bool fogOn = (fogF.mode != gt_esmini::LightState::Mode::OFF) ||
+                         (fogR.mode != gt_esmini::LightState::Mode::OFF) ||
+                         (fog.mode  != gt_esmini::LightState::Mode::OFF);
+            vObj.set("fog_light", fogOn ? std::string("on") : std::string("off"));
+
+            // reversing_light
+            auto rev = ext->GetLightState(gt_esmini::VehicleLightType::REVERSING_LIGHTS);
+            vObj.set("reversing_light", (rev.mode != gt_esmini::LightState::Mode::OFF)
+                                            ? std::string("on") : std::string("off"));
+
+            // warning_lights (hazard)
+            auto warn = ext->GetLightState(gt_esmini::VehicleLightType::WARNING_LIGHTS);
+            vObj.set("warning_light", (warn.mode != gt_esmini::LightState::Mode::OFF)
+                                          ? std::string("on") : std::string("off"));
+
+            // daytime_running_lights
+            auto drl = ext->GetLightState(gt_esmini::VehicleLightType::DAYTIME_RUNNING_LIGHTS);
+            vObj.set("daytime_running_light", (drl.mode != gt_esmini::LightState::Mode::OFF)
+                                                  ? std::string("on") : std::string("off"));
+
+            // high_beam (separate from head_light for detailed queries)
+            vObj.set("high_beam", (highBeam.mode != gt_esmini::LightState::Mode::OFF)
+                                      ? std::string("on") : std::string("off"));
+
+            arr.call<void>("push", vObj);
         }
 
         return arr;
