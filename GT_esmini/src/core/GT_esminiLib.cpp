@@ -660,6 +660,10 @@ GT_ESMINI_API void GT_Step(double dt)
                                                           &obj->pos_);
             }
         }
+        // Clear gateway dirty bits so that ScenarioEngine::step() on the next
+        // frame does not interpret these synced positions as "externally reported"
+        // and skip defaultController movement.
+        player->scenarioGateway->clearDirtyBits();
     }
 
     // Update HostVehicleData (using separated GT_HostVehicleReporter)
