@@ -67,12 +67,9 @@ export function SimulationRunForm({
   const queryClient = useQueryClient();
 
   // Controller state
-  const [controllerType, setControllerType] = useState<'default' | 'python' | 'manual'>('default');
+  const [controllerType, setControllerType] = useState<'default' | 'manual'>('default');
   const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
   const [showManualPanel, setShowManualPanel] = useState(false);
-  const [pythonScript, setPythonScript] = useState('DriverScript/pythondriver/scenario_drive_embedded.py');
-  const [pythonClass, setPythonClass] = useState('EmbeddedController');
-  const [traceEnabled, setTraceEnabled] = useState(true);
 
   // Execution state
   const [hz, setHz] = useState(120);
@@ -102,10 +99,6 @@ export function SimulationRunForm({
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Queries
-  const { data: scriptsData } = useQuery({
-    queryKey: ['scripts'],
-    queryFn: () => api.getScripts(),
-  });
 
   const { data: execDefaults } = useQuery({
     queryKey: ['execution-defaults'],
@@ -116,20 +109,15 @@ export function SimulationRunForm({
   useEffect(() => {
     if (!rerunFrom) return;
     const opts = rerunFrom as {
-      controller?: { controller_type?: string; python?: { script?: string; python_class?: string; class?: string; trace_enabled?: boolean } };
+      controller?: { controller_type?: string };
       execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number } };
     };
 
     if (opts.controller) {
-      setControllerType((opts.controller.controller_type ?? 'default') as 'default' | 'python' | 'manual');
-      if (opts.controller.controller_type === 'manual' && (opts.controller as any).manual_drive) {
+      const ct = opts.controller.controller_type ?? 'default';
+      setControllerType((ct === 'manual' ? 'manual' : 'default') as 'default' | 'manual');
+      if (ct === 'manual' && (opts.controller as any).manual_drive) {
         setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...(opts.controller as any).manual_drive });
-      }
-      const py = opts.controller.python;
-      if (py) {
-        if (py.script) setPythonScript(py.script);
-        setPythonClass(py.python_class ?? py['class'] ?? 'EmbeddedController');
-        if (py.trace_enabled !== undefined) setTraceEnabled(py.trace_enabled);
       }
     }
     const exec = opts.execution;
@@ -216,13 +204,6 @@ export function SimulationRunForm({
     project_id: projectId || undefined,
     controller: {
       controller_type: controllerType,
-      python: {
-        script: pythonScript,
-        class: pythonClass,
-        python_home: '',
-        trace_enabled: traceEnabled,
-        trace_dir: '',
-      },
       ...(controllerType === 'manual' ? { manual_drive: manualDriveConfig } : {}),
     },
     execution: {
@@ -274,8 +255,6 @@ export function SimulationRunForm({
     setParamOverrides((prev) => ({ ...prev, ...preset.values }));
   };
 
-  const scripts = scriptsData?.scripts ?? [];
-
   const cardCls = compact ? 'p-3' : '';
 
   return (
@@ -283,13 +262,6 @@ export function SimulationRunForm({
       <ControllerSection
         controllerType={controllerType}
         setControllerType={setControllerType}
-        pythonScript={pythonScript}
-        setPythonScript={setPythonScript}
-        pythonClass={pythonClass}
-        setPythonClass={setPythonClass}
-        traceEnabled={traceEnabled}
-        setTraceEnabled={setTraceEnabled}
-        scripts={scripts}
         onOpenManualSettings={() => setShowManualPanel(true)}
       />
 

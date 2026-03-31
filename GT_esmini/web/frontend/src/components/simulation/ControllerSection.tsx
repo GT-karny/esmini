@@ -1,16 +1,8 @@
-import type { ScriptInfo } from '../../api/client';
-import { SelectInput, Checkbox } from '../ui/Input';
+export type ControllerType = 'default' | 'manual';
 
 export interface ControllerSectionProps {
-  controllerType: 'default' | 'python' | 'manual';
-  setControllerType: (v: 'default' | 'python' | 'manual') => void;
-  pythonScript: string;
-  setPythonScript: (v: string) => void;
-  pythonClass: string;
-  setPythonClass: (v: string) => void;
-  traceEnabled: boolean;
-  setTraceEnabled: (v: boolean) => void;
-  scripts: ScriptInfo[];
+  controllerType: 'default' | 'manual';
+  setControllerType: (v: 'default' | 'manual') => void;
   onOpenManualSettings?: () => void;
 }
 
@@ -21,13 +13,6 @@ const btnInactive = 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:t
 export function ControllerSection({
   controllerType,
   setControllerType,
-  pythonScript,
-  setPythonScript,
-  pythonClass,
-  setPythonClass,
-  traceEnabled,
-  setTraceEnabled,
-  scripts,
   onOpenManualSettings,
 }: ControllerSectionProps) {
   return (
@@ -39,12 +24,6 @@ export function ControllerSection({
           className={`${btnBase} ${controllerType === 'default' ? btnActive : btnInactive}`}
         >
           Default
-        </button>
-        <button
-          onClick={() => setControllerType('python')}
-          className={`${btnBase} ${controllerType === 'python' ? btnActive : btnInactive}`}
-        >
-          Python Driver
         </button>
         <button
           onClick={() => {
@@ -73,40 +52,6 @@ export function ControllerSection({
           )}
         </button>
       </div>
-
-      {controllerType === 'python' && (
-        <div className="space-y-3">
-          <SelectInput
-            label="Python Script"
-            value={pythonScript}
-            onChange={(e) => {
-              setPythonScript(e.target.value);
-              const script = scripts.find((s: ScriptInfo) => s.path === e.target.value);
-              if (script?.classes.length) setPythonClass(script.classes[0]);
-            }}
-          >
-            {scripts.map((s: ScriptInfo) => (
-              <option key={s.path} value={s.path}>
-                {s.recommended ? '\u2605 ' : ''}{s.name} ({s.category})
-              </option>
-            ))}
-          </SelectInput>
-          <SelectInput
-            label="Class Name"
-            value={pythonClass}
-            onChange={(e) => setPythonClass(e.target.value)}
-          >
-            {(scripts.find((s: ScriptInfo) => s.path === pythonScript)?.classes ?? []).map((c: string) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </SelectInput>
-          <Checkbox
-            label="Enable trace logging"
-            checked={traceEnabled}
-            onChange={(e) => setTraceEnabled(e.target.checked)}
-          />
-        </div>
-      )}
 
       {controllerType === 'manual' && (
         <div className="text-xs text-text-tertiary">
