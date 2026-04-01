@@ -71,6 +71,33 @@ export function SimulationRunForm({
   const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
   const [showManualPanel, setShowManualPanel] = useState(false);
 
+  // Load saved manual drive config from server
+  const { data: savedManualDriveConfig } = useQuery({
+    queryKey: ['manual-drive-config'],
+    queryFn: api.getManualDriveConfig,
+  });
+  useEffect(() => {
+    if (savedManualDriveConfig) {
+      // Deep-merge with defaults so missing nested fields (e.g. sdl2.button_mapping) don't crash the UI
+      setManualDriveConfig({
+        ...DEFAULT_MANUAL_CONFIG,
+        ...savedManualDriveConfig,
+        domain: { ...DEFAULT_MANUAL_CONFIG.domain, ...savedManualDriveConfig.domain },
+        sdl2: {
+          ...DEFAULT_MANUAL_CONFIG.sdl2,
+          ...savedManualDriveConfig.sdl2,
+          button_mapping: {
+            ...DEFAULT_MANUAL_CONFIG.sdl2.button_mapping,
+            ...savedManualDriveConfig.sdl2?.button_mapping,
+          },
+        },
+        input_network: { ...DEFAULT_MANUAL_CONFIG.input_network, ...savedManualDriveConfig.input_network },
+        physics_network: { ...DEFAULT_MANUAL_CONFIG.physics_network, ...savedManualDriveConfig.physics_network },
+        ffb: { ...DEFAULT_MANUAL_CONFIG.ffb, ...savedManualDriveConfig.ffb },
+      });
+    }
+  }, [savedManualDriveConfig]);
+
   // Execution state
   const [hz, setHz] = useState(120);
   const [headless, setHeadless] = useState(false);

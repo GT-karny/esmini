@@ -8,7 +8,7 @@
  *   4. On window close → stop server → quit
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
 import { startServer, stopServer } from './server.js';
 
@@ -113,6 +113,9 @@ function unregisterIpcHandlers(): void {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(async () => {
+  // Clear cached resources so the frontend always reflects the latest build
+  await session.defaultSession.clearCache();
+
   registerIpcHandlers();
 
   try {
