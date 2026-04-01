@@ -120,7 +120,7 @@ namespace esmini
                 {
                     pugi::xml_node next = child.next_sibling();
                     std::string name = child.name();
-                    if (name == "AppearanceAction")
+                    if (name == "AppearanceAction" || name == "LightStateAction")
                     {
                         node.remove_child(child);
                     }
