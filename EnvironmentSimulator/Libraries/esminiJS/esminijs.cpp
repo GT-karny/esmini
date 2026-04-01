@@ -6,6 +6,8 @@
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "pugixml.hpp"
 #include <iostream>
+#include <functional>
+#include <cstdio>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/val.h>
@@ -98,14 +100,56 @@ namespace esmini
     OpenScenario::OpenScenario(const std::string &xosc_file, const OpenScenarioConfig &config)
         : xosc_file(xosc_file), config(config), initialized_(false), complete_(false), lastStepResult_(0)
     {
-        this->scenarioEngine  = new scenarioengine::ScenarioEngine(this->xosc_file, false);
+        // Load the original XOSC for extension parsing later
+        pugi::xml_document originalDoc;
+        pugi::xml_parse_result parseResult = originalDoc.load_file(this->xosc_file.c_str());
+
+        // Create a sanitized copy that strips GT extension actions
+        // (vanilla ScenarioReader throws on AppearanceAction/LightStateAction)
+        std::string sanitizedPath = this->xosc_file + ".sanitized.tmp";
+        bool useSanitized = false;
+
+        if (parseResult)
+        {
+            pugi::xml_document sanitizedDoc;
+            sanitizedDoc.reset(originalDoc);
+
+            std::function<void(pugi::xml_node)> strip;
+            strip = [&](pugi::xml_node node) {
+                for (pugi::xml_node child = node.first_child(); child; )
+                {
+                    pugi::xml_node next = child.next_sibling();
+                    std::string name = child.name();
+                    if (name == "AppearanceAction")
+                    {
+                        node.remove_child(child);
+                    }
+                    else
+                    {
+                        strip(child);
+                    }
+                    child = next;
+                }
+            };
+            strip(sanitizedDoc);
+
+            useSanitized = sanitizedDoc.save_file(sanitizedPath.c_str());
+        }
+
+        // Initialize ScenarioEngine with sanitized XOSC (no extension actions)
+        this->scenarioEngine  = new scenarioengine::ScenarioEngine(
+            useSanitized ? sanitizedPath : this->xosc_file, false);
         this->scenarioGateway = this->scenarioEngine->getScenarioGateway();
         registerCallbacks();
 
-        // --- GT_esmini extensions: parse and init TrafficSignalControllers ---
-        pugi::xml_document doc;
-        pugi::xml_parse_result result = doc.load_file(this->xosc_file.c_str());
-        if (result)
+        // Clean up temp file
+        if (useSanitized)
+        {
+            std::remove(sanitizedPath.c_str());
+        }
+
+        // --- GT_esmini extensions: parse extension actions from original XOSC ---
+        if (parseResult)
         {
             auto* scReader = this->scenarioEngine->GetScenarioReader();
             auto* catalogs = scReader ? scReader->GetCatalogs() : nullptr;
@@ -117,7 +161,7 @@ namespace esmini
             );
 
             // ParseExtensionActions internally calls ParseTrafficSignalControllers
-            reader.ParseExtensionActions(doc, this->scenarioEngine->storyBoard);
+            reader.ParseExtensionActions(originalDoc, this->scenarioEngine->storyBoard);
         }
 
         // Resolve OpenDRIVE signal pointers and apply initial phase states
