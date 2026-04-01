@@ -282,6 +282,21 @@ namespace gt_esmini
                                  action->Start(0.0);
                              }
                          }
+                         else if (std::string(actionNode.name()) == "PrivateAction")
+                         {
+                             pugi::xml_node lsaNode = actionNode.child("LightStateAction");
+                             if (!lsaNode.empty())
+                             {
+                                 OSCLightStateAction* action = ParseLightStateAction(lsaNode);
+                                 if (action && object->type_ == scenarioengine::Object::Type::VEHICLE)
+                                 {
+                                     auto* vehicle = static_cast<scenarioengine::Vehicle*>(object);
+                                     gt_esmini::VehicleExtensionManager::Instance().GetOrCreate(vehicle);
+                                     storyBoard.init_.private_action_.push_back(action);
+                                     action->Start(0.0);
+                                 }
+                             }
+                         }
                     }
                 }
 
@@ -350,6 +365,22 @@ namespace gt_esmini
                                             auto* action = ParseAppearanceAction(appNode, actor->object_, evtObj);
                                             if (action)
                                             {
+                                                evtObj->action_.push_back(action);
+                                            }
+                                        }
+                                    }
+
+                                    pugi::xml_node lsaNode = privNode.child("LightStateAction");
+                                    if (!lsaNode.empty())
+                                    {
+                                        for (auto* actor : mgObj->actor_)
+                                        {
+                                            auto* action = ParseLightStateAction(lsaNode);
+                                            if (action && actor->object_->type_ == scenarioengine::Object::Type::VEHICLE)
+                                            {
+                                                auto* vehicle = static_cast<scenarioengine::Vehicle*>(actor->object_);
+                                                gt_esmini::VehicleExtensionManager::Instance().GetOrCreate(vehicle);
+                                                action->SetParent(evtObj);
                                                 evtObj->action_.push_back(action);
                                             }
                                         }
