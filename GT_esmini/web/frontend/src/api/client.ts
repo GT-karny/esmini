@@ -78,7 +78,7 @@ export interface ManualDrivePreset {
 
 export interface ControllerConfig {
   controller_type: string;
-  python: {
+  python?: {
     script: string;
     class: string;
     python_home: string;
