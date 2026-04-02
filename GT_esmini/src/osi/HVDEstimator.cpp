@@ -123,29 +123,34 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     vc.prev_throttle = result.throttle;
     vc.prev_brake    = result.brake;
 
-    // --- Steering (2nd-order critically-damped filter) ---
-    // Replaces the old rate-limiter with a spring-damper model matching
-    // ObservedVehiclePhysics (pitch/roll). Produces smooth S-curve transitions
-    // with no derivative discontinuity at mode boundaries.
+    // --- Steering (rate-limited + EMA) ---
+    // Rate limiter prevents large jumps at action boundaries.
+    // EMA eliminates derivative discontinuity at the rate-limiter mode boundary.
+    // During normal tracking (|diff| < max_change), both stages pass through
+    // near-raw values so lag is minimal.
     {
         double raw_steering = obj->GetWheelAngle();
         if (was_initialized && dt > 1e-6)
         {
-            // Clamp dt for filter stability (Euler integration stable when dt < 2/wn)
-            double filter_dt = std::min(dt, 0.1);
-
-            double stiffness = kSteerFilterWn * kSteerFilterWn;          // wn^2
-            double damping   = 2.0 * kSteerFilterZeta * kSteerFilterWn;  // 2*zeta*wn
-
-            double err = raw_steering - vc.prev_steering;
-            double acc = stiffness * err - damping * vc.steering_rate;
-            vc.steering_rate += acc * filter_dt;
-            result.steering   = vc.prev_steering + vc.steering_rate * filter_dt;
+            // Stage 1: Rate-limit
+            double max_change = kMaxSteerRate * dt;
+            double diff       = raw_steering - vc.prev_steering;
+            double rate_limited;
+            if (std::abs(diff) > max_change)
+            {
+                rate_limited = vc.prev_steering + (diff > 0.0 ? 1.0 : -1.0) * max_change;
+            }
+            else
+            {
+                rate_limited = raw_steering;
+            }
+            // Stage 2: EMA smooth
+            result.steering = kSteerSmoothAlpha * rate_limited
+                            + (1.0 - kSteerSmoothAlpha) * vc.prev_steering;
         }
         else
         {
-            result.steering  = raw_steering;
-            vc.steering_rate = 0.0;
+            result.steering = raw_steering;
         }
         vc.prev_steering = result.steering;
     }
