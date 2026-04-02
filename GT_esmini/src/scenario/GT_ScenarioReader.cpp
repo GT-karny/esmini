@@ -291,7 +291,14 @@ namespace gt_esmini
                                  if (action && object->type_ == scenarioengine::Object::Type::VEHICLE)
                                  {
                                      auto* vehicle = static_cast<scenarioengine::Vehicle*>(object);
-                                     gt_esmini::VehicleExtensionManager::Instance().GetOrCreate(vehicle);
+                                     auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+                                     if (ext == nullptr)
+                                     {
+                                         ext = new VehicleLightExtension(vehicle);
+                                         gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+                                     }
+                                     action->parent_ = nullptr;
+                                     action->object_ = object;
                                      storyBoard.init_.private_action_.push_back(action);
                                      action->Start(0.0);
                                  }
@@ -379,8 +386,14 @@ namespace gt_esmini
                                             if (action && actor->object_->type_ == scenarioengine::Object::Type::VEHICLE)
                                             {
                                                 auto* vehicle = static_cast<scenarioengine::Vehicle*>(actor->object_);
-                                                gt_esmini::VehicleExtensionManager::Instance().GetOrCreate(vehicle);
-                                                action->SetParent(evtObj);
+                                                auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+                                                if (ext == nullptr)
+                                                {
+                                                    ext = new VehicleLightExtension(vehicle);
+                                                    gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+                                                }
+                                                action->parent_ = evtObj;
+                                                action->object_ = actor->object_;
                                                 evtObj->action_.push_back(action);
                                             }
                                         }
