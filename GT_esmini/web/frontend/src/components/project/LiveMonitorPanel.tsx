@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useOsiStream } from '../../hooks/useOsiStream';
+import { useOsiStream, type HvdData } from '../../hooks/useOsiStream';
 import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
 import { api } from '../../api/client';
 
@@ -33,11 +33,6 @@ export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitor
 
   const { color, label } = statusIndicator[status] ?? statusIndicator.connecting;
 
-  const speedKmh = hvdData ? hvdData.speed * 3.6 : null;
-  const throttlePct = hvdData ? (hvdData.throttle * 100) : null;
-  const brakePct = hvdData ? (hvdData.brake * 100) : null;
-  const steeringDeg = hvdData ? (hvdData.steering_angle * 180 / Math.PI) : null;
-
   return (
     <div className="h-full overflow-y-auto p-3 flex flex-col">
       {/* Status bar */}
@@ -64,38 +59,96 @@ export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitor
         />
       </div>
 
-      {/* 2D scene view */}
-      <div className="flex-1 min-h-0 mb-3">
+      {/* 2D scene view + HVD overlay */}
+      <div className="flex-1 min-h-0 relative">
         <LiveSceneView objects={objects} roadGeometry={roadGeometry} className="h-full" />
-      </div>
 
-      {/* HVD compact display */}
-      {hvdData && (
-        <div className="grid grid-cols-4 gap-2">
-          <HvdMiniBar label="Speed" value={`${speedKmh!.toFixed(0)}`} unit="km/h" ratio={Math.min(1, speedKmh! / 200)} color="bg-cyan-500" />
-          <HvdMiniBar label="Throttle" value={`${throttlePct!.toFixed(0)}`} unit="%" ratio={hvdData.throttle} color="bg-green-500" />
-          <HvdMiniBar label="Brake" value={`${brakePct!.toFixed(0)}`} unit="%" ratio={hvdData.brake} color="bg-red-500" />
-          <HvdMiniBar label="Steering" value={`${steeringDeg!.toFixed(1)}`} unit="deg" ratio={Math.min(1, Math.abs(steeringDeg!) / 45)} color="bg-blue-400" />
-        </div>
-      )}
+        {hvdData && (
+          <div className="absolute top-2 left-2 pointer-events-none">
+            <HvdOverlay hvd={hvdData} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function HvdMiniBar({ label, value, unit, ratio, color }: {
-  label: string;
-  value: string;
-  unit: string;
-  ratio: number;
-  color: string;
-}) {
+/* ---------- Steering Wheel SVG ---------- */
+
+function SteeringWheel({ angle }: { angle: number }) {
+  // angle in radians; positive = left per OSI convention
+  const deg = -(angle * 180) / Math.PI;
+  const clampedDeg = Math.max(-540, Math.min(540, deg));
+
+  return (
+    <svg width="64" height="64" viewBox="-36 -36 72 72">
+      {/* Fixed 12-o'clock marker */}
+      <circle cx="0" cy="-33" r="2.5" className="fill-cyan-400" />
+
+      {/* Rotating wheel group */}
+      <g
+        style={{
+          transform: `rotate(${clampedDeg}deg)`,
+          transition: 'transform 150ms ease-out',
+          transformOrigin: '0 0',
+        }}
+      >
+        {/* Rim */}
+        <circle r="28" className="fill-none stroke-text-secondary" strokeWidth="4" />
+        {/* 3 spokes at 0°, 120°, 240° */}
+        <line x1="0" y1="0" x2="0" y2="-24" className="stroke-text-secondary" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="0" y1="0" x2="20.8" y2="12" className="stroke-text-secondary" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="0" y1="0" x2="-20.8" y2="12" className="stroke-text-secondary" strokeWidth="2.5" strokeLinecap="round" />
+        {/* Hub */}
+        <circle r="5" className="fill-text-secondary" />
+      </g>
+    </svg>
+  );
+}
+
+/* ---------- HVD Overlay ---------- */
+
+function HvdOverlay({ hvd }: { hvd: HvdData }) {
+  const speedKmh = hvd.speed * 3.6;
+  const steeringDeg = (hvd.steering_angle * 180) / Math.PI;
+  const gear = hvd.gear < 0 ? 'R' : hvd.gear === 0 ? 'N' : String(hvd.gear);
+
+  return (
+    <div className="flex flex-col items-center gap-1 bg-glass-2/80 backdrop-blur rounded-lg p-2">
+      {/* Steering wheel */}
+      <SteeringWheel angle={hvd.steering_angle} />
+      <span className="text-[10px] font-mono text-text-secondary">
+        {steeringDeg.toFixed(1)}&deg;
+      </span>
+
+      {/* Speed + Gear */}
+      <div className="flex items-baseline gap-1.5 mt-1">
+        <span className="text-sm font-mono font-bold text-white leading-none">
+          {speedKmh.toFixed(0)}
+        </span>
+        <span className="text-[10px] text-text-tertiary">km/h</span>
+        <span className="text-xs font-mono font-bold text-white ml-1">{gear}</span>
+      </div>
+
+      {/* Throttle / Brake mini bars */}
+      <div className="flex gap-2 mt-0.5">
+        <MiniBar label="T" ratio={hvd.throttle} color="bg-green-500" />
+        <MiniBar label="B" ratio={hvd.brake} color="bg-red-500" />
+      </div>
+    </div>
+  );
+}
+
+function MiniBar({ label, ratio, color }: { label: string; ratio: number; color: string }) {
   const clamped = Math.max(0, Math.min(1, ratio));
   return (
-    <div className="text-center">
-      <div className="text-[10px] text-text-tertiary mb-0.5">{label}</div>
-      <div className="text-xs font-mono text-foreground">{value} <span className="text-text-tertiary">{unit}</span></div>
-      <div className="w-full h-1 bg-glass-1 mt-1 overflow-hidden">
-        <div className={`h-full ${color} transition-all duration-150`} style={{ width: `${clamped * 100}%` }} />
+    <div className="flex items-center gap-1">
+      <span className="text-[9px] text-text-tertiary w-2">{label}</span>
+      <div className="w-10 h-1.5 bg-glass-1 overflow-hidden rounded-full">
+        <div
+          className={`h-full ${color} transition-all duration-150 rounded-full`}
+          style={{ width: `${clamped * 100}%` }}
+        />
       </div>
     </div>
   );
