@@ -57,9 +57,10 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
 
     // --- Acceleration estimation ---
     auto& vc = cache_[id];
+    const bool was_initialized = vc.initialized;
     double acceleration = 0.0;
 
-    if (vc.initialized && dt > 1e-6)
+    if (was_initialized && dt > 1e-6)
     {
         acceleration = (speed - vc.prev_speed) / dt;
     }
@@ -114,7 +115,7 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     }
 
     // --- Pedal smoothing (EMA) ---
-    if (vc.initialized)
+    if (was_initialized)
     {
         result.throttle = kPedalSmoothAlpha * result.throttle + (1.0 - kPedalSmoothAlpha) * vc.prev_throttle;
         result.brake    = kPedalSmoothAlpha * result.brake + (1.0 - kPedalSmoothAlpha) * vc.prev_brake;
@@ -122,25 +123,29 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     vc.prev_throttle = result.throttle;
     vc.prev_brake    = result.brake;
 
-    // --- Steering (rate-limited) ---
+    // --- Steering (2nd-order critically-damped filter) ---
+    // Replaces the old rate-limiter with a spring-damper model matching
+    // ObservedVehiclePhysics (pitch/roll). Produces smooth S-curve transitions
+    // with no derivative discontinuity at mode boundaries.
     {
         double raw_steering = obj->GetWheelAngle();
-        if (vc.initialized && dt > 1e-6)
+        if (was_initialized && dt > 1e-6)
         {
-            double max_change = kMaxSteerRate * dt;
-            double diff       = raw_steering - vc.prev_steering;
-            if (std::abs(diff) > max_change)
-            {
-                result.steering = vc.prev_steering + (diff > 0.0 ? 1.0 : -1.0) * max_change;
-            }
-            else
-            {
-                result.steering = raw_steering;
-            }
+            // Clamp dt for filter stability (Euler integration stable when dt < 2/wn)
+            double filter_dt = std::min(dt, 0.1);
+
+            double stiffness = kSteerFilterWn * kSteerFilterWn;          // wn^2
+            double damping   = 2.0 * kSteerFilterZeta * kSteerFilterWn;  // 2*zeta*wn
+
+            double err = raw_steering - vc.prev_steering;
+            double acc = stiffness * err - damping * vc.steering_rate;
+            vc.steering_rate += acc * filter_dt;
+            result.steering   = vc.prev_steering + vc.steering_rate * filter_dt;
         }
         else
         {
-            result.steering = raw_steering;
+            result.steering  = raw_steering;
+            vc.steering_rate = 0.0;
         }
         vc.prev_steering = result.steering;
     }
