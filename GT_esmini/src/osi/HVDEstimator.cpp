@@ -123,34 +123,24 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     vc.prev_throttle = result.throttle;
     vc.prev_brake    = result.brake;
 
-    // --- Steering (rate-limited + EMA) ---
-    // Rate limiter prevents large jumps at action boundaries.
-    // EMA eliminates derivative discontinuity at the rate-limiter mode boundary.
-    // During normal tracking (|diff| < max_change), both stages pass through
-    // near-raw values so lag is minimal.
+    // --- Steering (2nd-order critically damped filter) ---
+    // Spring-damper system that tracks raw wheel angle.
+    // Produces //~\\ shaped response: smooth rise, rounded peak, smooth fall.
+    // Jerk (3rd derivative) is continuous — no mode-switch artifacts.
     {
         double raw_steering = obj->GetWheelAngle();
         if (was_initialized && dt > 1e-6)
         {
-            // Stage 1: Rate-limit
-            double max_change = kMaxSteerRate * dt;
-            double diff       = raw_steering - vc.prev_steering;
-            double rate_limited;
-            if (std::abs(diff) > max_change)
-            {
-                rate_limited = vc.prev_steering + (diff > 0.0 ? 1.0 : -1.0) * max_change;
-            }
-            else
-            {
-                rate_limited = raw_steering;
-            }
-            // Stage 2: EMA smooth
-            result.steering = kSteerSmoothAlpha * rate_limited
-                            + (1.0 - kSteerSmoothAlpha) * vc.prev_steering;
+            double error = raw_steering - vc.prev_steering;
+            double accel = kSteerOmega * kSteerOmega * error
+                         - 2.0 * kSteerZeta * kSteerOmega * vc.steer_vel;
+            vc.steer_vel    += accel * dt;
+            result.steering  = vc.prev_steering + vc.steer_vel * dt;
         }
         else
         {
             result.steering = raw_steering;
+            vc.steer_vel    = 0.0;
         }
         vc.prev_steering = result.steering;
     }

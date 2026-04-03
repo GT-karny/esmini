@@ -61,6 +61,7 @@ private:
     {
         double prev_speed    = 0.0;
         double prev_steering = 0.0;
+        double steer_vel     = 0.0;  // velocity state for 2nd-order steering filter
         double prev_throttle = 0.0;
         double prev_brake    = 0.0;
         bool   initialized   = false;
@@ -79,8 +80,14 @@ private:
     static constexpr double kTorquePeakPos = 0.65;    // Normalized RPM for peak torque
     static constexpr double kTorqueMin     = 0.3;     // Min normalized torque at idle/redline
     static constexpr double kSpeedThreshold = 0.01;   // [m/s] threshold for standstill
-    static constexpr double kMaxSteerRate         = 1.5;  // [rad/s] max tire-angle rate for rate limiter
-    static constexpr double kSteerSmoothAlpha    = 0.4;  // EMA factor for steering (higher = more responsive)
+    // 2nd-order critically damped filter for steering:
+    // Models a spring-damper system tracking the raw wheel angle.
+    // Produces a smooth bell-shaped response (//~\\) with continuous 2nd derivative:
+    //   - Gradual rise at maneuver start (no spike)
+    //   - Rounded peak (not flat-topped)
+    //   - Gradual, natural fall (no lingering, no snap-back)
+    static constexpr double kSteerOmega = 4.0;   // [rad/s] natural frequency (response ~0.25s)
+    static constexpr double kSteerZeta  = 1.0;   // damping ratio (1.0 = critically damped, no overshoot)
     static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)
 
     double EstimateRPM(double abs_speed) const;
