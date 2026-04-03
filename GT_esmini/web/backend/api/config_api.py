@@ -11,6 +11,8 @@ from GT_esmini.web.backend.config import (
     GT_SIM_EXE,
     REPO_ROOT,
     SCENARIOS_DIR,
+    SV_MULTICAST_GROUP,
+    SV_MULTICAST_PORT,
     get_projects_dir,
     load_settings,
     load_thresholds,
@@ -122,4 +124,6 @@ async def get_system_info() -> dict[str, Any]:
         "repo_root": str(REPO_ROOT),
         "scenarios_dir": str(SCENARIOS_DIR),
         "scenarios_count": len(list(SCENARIOS_DIR.glob("*.xosc"))) if SCENARIOS_DIR.is_dir() else 0,
+        "sv_multicast_group": SV_MULTICAST_GROUP,
+        "sv_multicast_port": SV_MULTICAST_PORT,
     }

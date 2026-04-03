@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react';
+
+import { api } from '../../api/client';
 import { useSvStream } from '../../hooks/useSvStream';
 
 function typeOf(value: unknown): string {
@@ -24,6 +27,18 @@ function ValueCell({ value }: { value: unknown }) {
 
 export function SvLivePanel({ jobId }: { jobId: string }) {
   const { status, variables, simTime } = useSvStream(jobId);
+  const [multicast, setMulticast] = useState<{ group: string; port: number } | null>(null);
+
+  useEffect(() => {
+    api.getSystemInfo().then((info) => {
+      if (info.sv_multicast_group && info.sv_multicast_port) {
+        setMulticast({
+          group: info.sv_multicast_group as string,
+          port: info.sv_multicast_port as number,
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   const statusIndicator: Record<string, { color: string; label: string }> = {
     connecting: { color: 'bg-warning', label: 'Connecting' },
@@ -48,6 +63,14 @@ export function SvLivePanel({ jobId }: { jobId: string }) {
           )}
         </div>
       </div>
+
+      {/* Multicast info */}
+      {multicast && (
+        <div className="flex items-center gap-2 mb-2 px-2 py-1 rounded bg-glass-bg text-xs text-text-tertiary shrink-0">
+          <span>Multicast:</span>
+          <code className="font-mono text-text-secondary">{multicast.group}:{multicast.port}</code>
+        </div>
+      )}
 
       {/* Table */}
       {entries.length > 0 ? (
