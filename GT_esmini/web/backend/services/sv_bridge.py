@@ -162,13 +162,42 @@ class SvBridge:
 
 
 # ---------------------------------------------------------------------------
-# Global registry (mirrors osi_bridge pattern)
+# Global singleton + per-job registry
 # ---------------------------------------------------------------------------
 
+_global_bridge: SvBridge | None = None
 _sv_bridges: dict[str, SvBridge] = {}
 
 
+def get_global_sv_bridge() -> SvBridge | None:
+    """Return the always-on SV bridge (started at server startup)."""
+    return _global_bridge
+
+
+async def start_global_sv_bridge(listen_port: int = SV_LISTEN_PORT) -> SvBridge:
+    """Start the global SV bridge at server startup."""
+    global _global_bridge  # noqa: PLW0603
+    if _global_bridge is not None and _global_bridge.running:
+        return _global_bridge
+    _global_bridge = SvBridge(listen_port=listen_port)
+    await _global_bridge.start()
+    logger.info("Global SV Bridge started")
+    return _global_bridge
+
+
+async def stop_global_sv_bridge() -> None:
+    """Stop the global SV bridge at server shutdown."""
+    global _global_bridge  # noqa: PLW0603
+    if _global_bridge is not None:
+        await _global_bridge.stop()
+        _global_bridge = None
+        logger.info("Global SV Bridge stopped")
+
+
 def get_sv_bridge(job_id: str) -> SvBridge | None:
+    # Prefer the global always-on bridge
+    if _global_bridge is not None and _global_bridge.running:
+        return _global_bridge
     return _sv_bridges.get(job_id)
 
 
@@ -176,7 +205,13 @@ async def start_sv_bridge(
     job_id: str,
     listen_port: int = SV_LISTEN_PORT,
 ) -> SvBridge:
-    # Stop any stale bridge
+    # If global bridge is already running, just register the alias
+    if _global_bridge is not None and _global_bridge.running:
+        _sv_bridges[job_id] = _global_bridge
+        logger.info("SV Bridge: job %s using global bridge", job_id)
+        return _global_bridge
+
+    # Fallback: start a per-job bridge (global bridge not available)
     for old_id in list(_sv_bridges.keys()):
         old = _sv_bridges.pop(old_id, None)
         if old is not None:
@@ -194,7 +229,8 @@ async def start_sv_bridge(
 
 async def stop_sv_bridge(job_id: str) -> None:
     bridge = _sv_bridges.pop(job_id, None)
-    if bridge is not None:
+    # Don't stop the global bridge when a job ends
+    if bridge is not None and bridge is not _global_bridge:
         await bridge.stop()
         logger.info("SV Bridge removed for job %s", job_id)
 
@@ -203,10 +239,14 @@ async def stop_all_sv_bridges() -> int:
     count = 0
     for job_id in list(_sv_bridges.keys()):
         bridge = _sv_bridges.pop(job_id, None)
-        if bridge is not None:
+        if bridge is not None and bridge is not _global_bridge:
             try:
                 await bridge.stop()
                 count += 1
             except Exception as e:
                 logger.warning("Error stopping SV bridge for %s: %s", job_id, e)
+    # Also stop the global bridge during full shutdown
+    await stop_global_sv_bridge()
+    if _global_bridge is None:
+        count += 1
     return count

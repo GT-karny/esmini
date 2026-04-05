@@ -178,7 +178,7 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
     // Let's keep it simple: any node named AppearanceAction is removed.
     // (Standard Reader throws if name is not Longitudinal or Lateral)
     // Actually, ScenarioReader throws if it finds ANY child of PrivateAction it doesn't know.
-    // So we just remove AppearanceAction children.
+    // So we remove AppearanceAction and LightStateAction children.
     
     std::function<void(pugi::xml_node)> strip;
     strip = [&](pugi::xml_node node) {
@@ -187,7 +187,7 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
             pugi::xml_node next = child.next_sibling();
             std::string name = child.name();
             
-            if (name == "AppearanceAction") 
+            if (name == "AppearanceAction" || name == "LightStateAction")
             {
                 node.remove_child(child);
             }
@@ -660,6 +660,10 @@ GT_ESMINI_API void GT_Step(double dt)
                                                           &obj->pos_);
             }
         }
+        // Clear gateway dirty bits so that ScenarioEngine::step() on the next
+        // frame does not interpret these synced positions as "externally reported"
+        // and skip defaultController movement.
+        player->scenarioGateway->clearDirtyBits();
     }
 
     // Update HostVehicleData (using separated GT_HostVehicleReporter)

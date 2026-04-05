@@ -114,6 +114,9 @@ namespace esmini
         // Traffic signal introspection
         emscripten::val getTrafficSignalStates();      // Full info (position + state), call once or on demand
         emscripten::val getTrafficLightStatesOnly();    // Lightweight: {id, state} only, call every frame
+
+        // Vehicle light introspection (LightStateAction support)
+        emscripten::val getVehicleLightStates();        // Per-vehicle light states from VehicleExtensionManager
 #endif
 
         OpenScenario(const OpenScenario&)            = delete;

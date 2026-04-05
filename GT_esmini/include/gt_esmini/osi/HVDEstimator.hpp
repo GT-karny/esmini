@@ -79,7 +79,15 @@ private:
     static constexpr double kTorquePeakPos = 0.65;    // Normalized RPM for peak torque
     static constexpr double kTorqueMin     = 0.3;     // Min normalized torque at idle/redline
     static constexpr double kSpeedThreshold = 0.01;   // [m/s] threshold for standstill
-    static constexpr double kMaxSteerRate       = 1.5;  // [rad/s] max steering rate limit
+    // Preview-point steering model:
+    // Instead of filtering the raw heading-rate-based wheel angle (which lags
+    // through intersections), compute steering from the heading error to a
+    // look-ahead point on the road network. This naturally unwinds steering
+    // before exiting a curve — matching real driver behavior.
+    static constexpr double kPreviewTime    = 0.8;    // [s] look-ahead time (speed-proportional)
+    static constexpr double kPreviewDistMin = 2.0;    // [m] minimum preview distance (low speed / standstill)
+    static constexpr double kPreviewDistMax = 30.0;   // [m] maximum preview distance (highway cap)
+    static constexpr double kSteerEmaAlpha  = 0.5;    // EMA smoothing factor (higher = more responsive)
     static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)
 
     double EstimateRPM(double abs_speed) const;

@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
     if expired_s or expired_r:
         _logger.info("Cleaned up %d expired temp scenario(s) and %d road(s)", expired_s, expired_r)
 
+    # Start always-on SV bridge (UDP listener for scenario variables)
+    from GT_esmini.web.backend.services.sv_bridge import start_global_sv_bridge
+    try:
+        await start_global_sv_bridge()
+    except Exception as e:
+        _logger.warning("Global SV Bridge failed to start: %s — will use per-job bridges", e)
+
     grpc_srv = None
     try:
         grpc_srv = await start_grpc_server(port=GRPC_PORT)

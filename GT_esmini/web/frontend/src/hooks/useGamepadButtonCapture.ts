@@ -16,6 +16,8 @@ export function useGamepadButtonCapture(
   const rafRef = useRef<number>(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const baselineRef = useRef<boolean[]>([]);
+  const onCaptureRef = useRef(onCapture);
+  onCaptureRef.current = onCapture;
 
   const cancel = useCallback(() => {
     setCapturing(false);
@@ -44,7 +46,7 @@ export function useGamepadButtonCapture(
           const wasPressed = baselineRef.current[i] ?? false;
           if (gp.buttons[i].pressed && !wasPressed) {
             cancel();
-            onCapture(i);
+            onCaptureRef.current(i);
             return;
           }
         }
@@ -58,7 +60,7 @@ export function useGamepadButtonCapture(
     timeoutRef.current = setTimeout(() => {
       cancel();
     }, timeoutMs);
-  }, [onCapture, timeoutMs, cancel]);
+  }, [timeoutMs, cancel]);
 
   // Cleanup on unmount
   useEffect(() => {

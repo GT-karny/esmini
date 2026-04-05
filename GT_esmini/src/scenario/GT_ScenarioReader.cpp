@@ -282,6 +282,28 @@ namespace gt_esmini
                                  action->Start(0.0);
                              }
                          }
+                         else if (std::string(actionNode.name()) == "PrivateAction")
+                         {
+                             pugi::xml_node lsaNode = actionNode.child("LightStateAction");
+                             if (!lsaNode.empty())
+                             {
+                                 OSCLightStateAction* action = ParseLightStateAction(lsaNode);
+                                 if (action && object->type_ == scenarioengine::Object::Type::VEHICLE)
+                                 {
+                                     auto* vehicle = static_cast<scenarioengine::Vehicle*>(object);
+                                     auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+                                     if (ext == nullptr)
+                                     {
+                                         ext = new VehicleLightExtension(vehicle);
+                                         gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+                                     }
+                                     action->parent_ = nullptr;
+                                     action->object_ = object;
+                                     storyBoard.init_.private_action_.push_back(action);
+                                     action->Start(0.0);
+                                 }
+                             }
+                         }
                     }
                 }
 
@@ -350,6 +372,28 @@ namespace gt_esmini
                                             auto* action = ParseAppearanceAction(appNode, actor->object_, evtObj);
                                             if (action)
                                             {
+                                                evtObj->action_.push_back(action);
+                                            }
+                                        }
+                                    }
+
+                                    pugi::xml_node lsaNode = privNode.child("LightStateAction");
+                                    if (!lsaNode.empty())
+                                    {
+                                        for (auto* actor : mgObj->actor_)
+                                        {
+                                            auto* action = ParseLightStateAction(lsaNode);
+                                            if (action && actor->object_->type_ == scenarioengine::Object::Type::VEHICLE)
+                                            {
+                                                auto* vehicle = static_cast<scenarioengine::Vehicle*>(actor->object_);
+                                                auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
+                                                if (ext == nullptr)
+                                                {
+                                                    ext = new VehicleLightExtension(vehicle);
+                                                    gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+                                                }
+                                                action->parent_ = evtObj;
+                                                action->object_ = actor->object_;
                                                 evtObj->action_.push_back(action);
                                             }
                                         }

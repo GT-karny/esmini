@@ -11,6 +11,8 @@
 
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "Entities.hpp"
+#include "RoadManager.hpp"
+#include "CommonMini.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 
 #include <cmath>
@@ -57,9 +59,10 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
 
     // --- Acceleration estimation ---
     auto& vc = cache_[id];
+    const bool was_initialized = vc.initialized;
     double acceleration = 0.0;
 
-    if (vc.initialized && dt > 1e-6)
+    if (was_initialized && dt > 1e-6)
     {
         acceleration = (speed - vc.prev_speed) / dt;
     }
@@ -114,7 +117,7 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     }
 
     // --- Pedal smoothing (EMA) ---
-    if (vc.initialized)
+    if (was_initialized)
     {
         result.throttle = kPedalSmoothAlpha * result.throttle + (1.0 - kPedalSmoothAlpha) * vc.prev_throttle;
         result.brake    = kPedalSmoothAlpha * result.brake + (1.0 - kPedalSmoothAlpha) * vc.prev_brake;
@@ -122,21 +125,43 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     vc.prev_throttle = result.throttle;
     vc.prev_brake    = result.brake;
 
-    // --- Steering (rate-limited) ---
+    // --- Steering (hybrid: heading-rate + preview attenuation) ---
+    // Base signal: esmini's heading-rate-based wheel angle (correctly reflects
+    // instantaneous maneuvers like lane changes).
+    // Preview overlay: when the road ahead straightens (curve exit), the preview
+    // signal is smaller than the raw signal — use that ratio to attenuate,
+    // so steering returns to neutral before the vehicle exits the curve.
     {
-        double raw_steering = obj->GetWheelAngle();
-        if (vc.initialized && dt > 1e-6)
+        double raw_rate = obj->GetWheelAngle();  // heading-rate-based from esmini core
+        double max_steer = obj->front_axle_.maxSteering;
+
+        // Preview: road-geometry-only steering (h_relative cancels)
+        double preview_dist = std::clamp(abs_speed * kPreviewTime,
+                                         kPreviewDistMin, kPreviewDistMax);
+        roadmanager::Position preview_pos = obj->pos_;
+        preview_pos.MoveAlongS(preview_dist);
+        double road_error = GetAngleDifference(preview_pos.GetH(), obj->pos_.GetH());
+        double wheelbase  = obj->front_axle_.positionX;
+        double preview_steer = atan2(road_error * wheelbase, preview_dist);
+
+        // Attenuation: when |preview| < |raw|, the road is straightening ahead.
+        // Scale raw down toward the preview envelope to anticipate the exit.
+        // When |raw| is small (lane change, straight road), no attenuation.
+        double raw_steering = raw_rate;
+        if (std::abs(raw_rate) > 0.02)  // only attenuate meaningful curvature
         {
-            double max_change = kMaxSteerRate * dt;
-            double diff       = raw_steering - vc.prev_steering;
-            if (std::abs(diff) > max_change)
-            {
-                result.steering = vc.prev_steering + (diff > 0.0 ? 1.0 : -1.0) * max_change;
-            }
-            else
-            {
-                result.steering = raw_steering;
-            }
+            double ratio = std::clamp(std::abs(preview_steer) / std::abs(raw_rate),
+                                      0.0, 1.0);
+            raw_steering = raw_rate * ratio;
+        }
+
+        raw_steering = std::clamp(raw_steering, -max_steer, max_steer);
+
+        // EMA smoothing
+        if (was_initialized)
+        {
+            result.steering = kSteerEmaAlpha * raw_steering
+                            + (1.0 - kSteerEmaAlpha) * vc.prev_steering;
         }
         else
         {

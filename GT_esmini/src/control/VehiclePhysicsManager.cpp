@@ -201,13 +201,15 @@ void VehiclePhysicsManager::LoadProfiles(const std::string& configPath)
     std::string ovBlock = extractBlock(ov_brace);
 
     // Parse "default" sub-block
+    // Note: positions found in ovBlock are relative to ovBlock, but extractBlock
+    // operates on `content`. Add ov_brace to convert to content-absolute positions.
     size_t defPos = ovBlock.find("\"default\"");
     if (defPos != std::string::npos)
     {
         size_t defBrace = ovBlock.find('{', defPos);
         if (defBrace != std::string::npos)
         {
-            std::string defBlock = extractBlock(defBrace);
+            std::string defBlock = extractBlock(ov_brace + defBrace);
             defaultParams_ = parseParams(defBlock, defaultParams_);
         }
     }
@@ -224,7 +226,7 @@ void VehiclePhysicsManager::LoadProfiles(const std::string& configPath)
             size_t catBrace = ovBlock.find('{', catPos);
             if (catBrace != std::string::npos)
             {
-                std::string catBlock = extractBlock(catBrace);
+                std::string catBlock = extractBlock(ov_brace + catBrace);
                 // Fallback to default for unspecified keys
                 CategoryProfile profile;
                 profile.key    = cat;
