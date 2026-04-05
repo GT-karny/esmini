@@ -61,7 +61,6 @@ private:
     {
         double prev_speed    = 0.0;
         double prev_steering = 0.0;
-        double steer_vel     = 0.0;  // velocity state for 2nd-order steering filter
         double prev_throttle = 0.0;
         double prev_brake    = 0.0;
         bool   initialized   = false;
@@ -80,14 +79,15 @@ private:
     static constexpr double kTorquePeakPos = 0.65;    // Normalized RPM for peak torque
     static constexpr double kTorqueMin     = 0.3;     // Min normalized torque at idle/redline
     static constexpr double kSpeedThreshold = 0.01;   // [m/s] threshold for standstill
-    // 2nd-order critically damped filter for steering:
-    // Models a spring-damper system tracking the raw wheel angle.
-    // Produces a smooth bell-shaped response (//~\\) with continuous 2nd derivative:
-    //   - Gradual rise at maneuver start (no spike)
-    //   - Rounded peak (not flat-topped)
-    //   - Gradual, natural fall (no lingering, no snap-back)
-    static constexpr double kSteerOmega = 4.0;   // [rad/s] natural frequency (response ~0.25s)
-    static constexpr double kSteerZeta  = 1.0;   // damping ratio (1.0 = critically damped, no overshoot)
+    // Preview-point steering model:
+    // Instead of filtering the raw heading-rate-based wheel angle (which lags
+    // through intersections), compute steering from the heading error to a
+    // look-ahead point on the road network. This naturally unwinds steering
+    // before exiting a curve — matching real driver behavior.
+    static constexpr double kPreviewTime    = 0.8;    // [s] look-ahead time (speed-proportional)
+    static constexpr double kPreviewDistMin = 2.0;    // [m] minimum preview distance (low speed / standstill)
+    static constexpr double kPreviewDistMax = 30.0;   // [m] maximum preview distance (highway cap)
+    static constexpr double kSteerEmaAlpha  = 0.5;    // EMA smoothing factor (higher = more responsive)
     static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)
 
     double EstimateRPM(double abs_speed) const;
