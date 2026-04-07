@@ -147,12 +147,29 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
         // Attenuation: when |preview| < |raw|, the road is straightening ahead.
         // Scale raw down toward the preview envelope to anticipate the exit.
         // When |raw| is small (lane change, straight road), no attenuation.
+        // The ratio itself is EMA-smoothed to prevent discontinuities when
+        // MoveAlongS jumps to a different lane or connecting road (lane change
+        // on curves, intersection turns).
         double raw_steering = raw_rate;
         if (std::abs(raw_rate) > 0.02)  // only attenuate meaningful curvature
         {
-            double ratio = std::clamp(std::abs(preview_steer) / std::abs(raw_rate),
-                                      0.0, 1.0);
+            double instant_ratio = std::clamp(std::abs(preview_steer) / std::abs(raw_rate),
+                                              0.0, 1.0);
+            double ratio = instant_ratio;
+            if (was_initialized)
+            {
+                ratio = kRatioEmaAlpha * instant_ratio + (1.0 - kRatioEmaAlpha) * vc.prev_ratio;
+            }
+            vc.prev_ratio = ratio;
             raw_steering = raw_rate * ratio;
+        }
+        else
+        {
+            // No attenuation — decay ratio back toward 1.0 so re-entry is smooth
+            if (was_initialized)
+            {
+                vc.prev_ratio = kRatioEmaAlpha * 1.0 + (1.0 - kRatioEmaAlpha) * vc.prev_ratio;
+            }
         }
 
         raw_steering = std::clamp(raw_steering, -max_steer, max_steer);
