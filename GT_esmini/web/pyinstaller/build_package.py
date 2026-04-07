@@ -41,6 +41,7 @@ CONFIG_FILES = [
     ("GT_esmini/config/real_vehicle_params.json", "config/real_vehicle_params.json"),
     ("GT_esmini/config/host_vehicle_config.json", "config/host_vehicle_config.json"),
     ("GT_esmini/config/manual_drive.json", "config/manual_drive.json"),
+    ("GT_esmini/config/kinematic_controller.json", "config/kinematic_controller.json"),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 

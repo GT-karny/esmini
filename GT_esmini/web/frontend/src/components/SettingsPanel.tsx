@@ -19,6 +19,7 @@ const HARDCODED_DEFAULTS: ExecutionDefaults = {
   osi: { enabled: true, ip: '127.0.0.1' },
   autolight: true,
   vehicle_physics: true,
+  kinematic_mode: false,
   threads: true,
   window: { x: 60, y: 60, w: 1280, h: 720 },
 };
@@ -54,6 +55,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
   const [osiIp, setOsiIp] = useState(defaults.osi.ip);
   const [autolight, setAutolight] = useState(defaults.autolight);
   const [vehiclePhysics, setVehiclePhysics] = useState(defaults.vehicle_physics);
+  const [kinematicMode, setKinematicMode] = useState(defaults.kinematic_mode);
   const [threads, setThreads] = useState(defaults.threads);
   const [winX, setWinX] = useState(defaults.window.x);
   const [winY, setWinY] = useState(defaults.window.y);
@@ -92,6 +94,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
       osi: { enabled: osiEnabled, ip: osiIp },
       autolight,
       vehicle_physics: vehiclePhysics,
+      kinematic_mode: kinematicMode,
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
     });
@@ -108,6 +111,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
     setOsiIp(d.osi.ip);
     setAutolight(d.autolight);
     setVehiclePhysics(d.vehicle_physics);
+    setKinematicMode(d.kinematic_mode);
     setThreads(d.threads);
     setWinX(d.window.x);
     setWinY(d.window.y);

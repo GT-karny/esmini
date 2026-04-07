@@ -1,0 +1,16 @@
+{
+    "look_ahead_time": 0.8,
+    "min_look_ahead_dist": 2.0,
+    "max_look_ahead_dist": 30.0,
+    "max_steering_angle_deg": 60.0,
+    "max_steering_rate": 5.0,
+    "max_lateral_error": 10.0,
+    "pd_kp": 2.0,
+    "pd_kd": 0.5,
+    "steering_speed_inertia": 0.01,
+    "road_end_behavior": "inertia",
+    "max_acc": 10.0,
+    "max_dec": 10.0,
+    "max_speed": 100.0,
+    "debug_log": false
+}

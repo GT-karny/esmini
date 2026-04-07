@@ -104,6 +104,7 @@ export interface ExecutionDefaults {
   osi: { enabled: boolean; ip: string };
   autolight: boolean;
   vehicle_physics: boolean;
+  kinematic_mode: boolean;
   threads: boolean;
   window: WindowConfig;
 }
@@ -121,6 +122,7 @@ export interface SimulationRequest {
     osi: { enabled: boolean; ip: string };
     autolight: boolean;
     vehicle_physics: boolean;
+    kinematic_mode: boolean;
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];

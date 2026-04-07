@@ -16,6 +16,7 @@
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
+#include "ControllerKinematic.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -75,7 +76,8 @@ void HeadingCorrectionManager::Init(scenarioengine::Entities* entities)
 #ifdef GT_ENABLE_EMBEDDED_PYTHON
             obj->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME) ||
 #endif
-            obj->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME))
+            obj->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME) ||
+            obj->GetController(CONTROLLER_KINEMATIC_TYPE_NAME))
         {
             continue;
         }

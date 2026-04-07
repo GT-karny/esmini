@@ -43,6 +43,7 @@
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
+#include "ControllerKinematic.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -359,6 +360,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // Capture OSI IP and SV port if provided
     std::string osiTargetIp = "";
     int svPort = 48200;  // default SV reporter port
+    bool kinematicModeEnabled = false;
 
     // If filename found, sanitized it
     std::string sanitizedFile;
@@ -398,7 +400,8 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--video_window") == 0 ||
                       strcmp(argv[i], "--video_frames") == 0 ||
                       strcmp(argv[i], "--video_prefix") == 0 ||
-                      strcmp(argv[i], "--sv-port") == 0))
+                      strcmp(argv[i], "--sv-port") == 0 ||
+                      strcmp(argv[i], "--kinematic-mode") == 0))
             {
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
@@ -432,6 +435,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                         try { svPort = std::stoi(argv[i+1]); } catch (...) {}
                         i++; // Skip the port value
                     }
+                }
+                else if (strcmp(argv[i], "--kinematic-mode") == 0)
+                {
+                    kinematicModeEnabled = true;
                 }
             }
             else
@@ -581,6 +588,56 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                     break;
                 }
             }
+        }
+
+        // 4d. KinematicController auto-assignment (Kinematic Mode)
+        if (kinematicModeEnabled)
+        {
+            std::string exeDir3 = gt_esmini::GetCurrentModuleDirectory();
+            gt_esmini::ConfigLoader config_loader3;
+            std::string kinConfigPath = config_loader3.ResolveConfigPath(exeDir3, "kinematic_controller.json");
+
+            int assignCount = 0;
+            for (auto* obj : player->scenarioEngine->entities_.object_)
+            {
+                if (!obj || obj->type_ != scenarioengine::Object::Type::VEHICLE)
+                {
+                    continue;
+                }
+                // Only assign to vehicles without an explicit controller
+                if (obj->GetNrOfAssignedControllers() > 0)
+                {
+                    continue;
+                }
+
+                // Create InitArgs for the controller
+                scenarioengine::OSCProperties props;
+                scenarioengine::Controller::InitArgs initArgs;
+                initArgs.name = std::string("KinematicController_") + obj->GetName();
+                initArgs.type = CONTROLLER_KINEMATIC_TYPE_NAME;
+                initArgs.properties = &props;
+                initArgs.gateway = player->scenarioGateway;
+                initArgs.scenario_engine = player->scenarioEngine;
+                initArgs.parameters = nullptr;
+
+                auto* ctrl = new scenarioengine::ControllerKinematic(&initArgs);
+                ctrl->LoadConfig(kinConfigPath);
+                ctrl->LinkObject(obj);
+
+                // Activate on LONG + LAT domains (override mode)
+                ControlActivationMode modes[static_cast<unsigned int>(ControlDomains::COUNT)];
+                modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)]  = ControlActivationMode::ON;
+                modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)]   = ControlActivationMode::ON;
+                modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LIGHT)] = ControlActivationMode::UNDEFINED;
+                modes[static_cast<unsigned int>(ControlDomains::DOMAIN_ANIM)]  = ControlActivationMode::UNDEFINED;
+                ctrl->Activate(modes);
+
+                // Register with scenario engine so Step() is called each frame
+                player->scenarioEngine->scenarioReader->AddController(ctrl);
+
+                assignCount++;
+            }
+            std::cout << "GT_Init: KinematicController assigned to " << assignCount << " vehicle(s)." << std::endl;
         }
 
         // 5. Register Hook for OSIReporter
