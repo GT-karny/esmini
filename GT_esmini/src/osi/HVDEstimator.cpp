@@ -147,9 +147,10 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
         // Attenuation: when |preview| < |raw|, the road is straightening ahead.
         // Scale raw down toward the preview envelope to anticipate the exit.
         // When |raw| is small (lane change, straight road), no attenuation.
-        // The ratio itself is EMA-smoothed to prevent discontinuities when
-        // MoveAlongS jumps to a different lane or connecting road (lane change
-        // on curves, intersection turns).
+        // The ratio is rate-limited to prevent discontinuities when MoveAlongS
+        // jumps to a different lane or connecting road (lane change on curves,
+        // intersection turns).  Unlike EMA, a rate-limiter adds zero lag when
+        // the ratio changes gradually (normal curve entry/exit).
         double raw_steering = raw_rate;
         if (std::abs(raw_rate) > 0.02)  // only attenuate meaningful curvature
         {
@@ -158,17 +159,19 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
             double ratio = instant_ratio;
             if (was_initialized)
             {
-                ratio = kRatioEmaAlpha * instant_ratio + (1.0 - kRatioEmaAlpha) * vc.prev_ratio;
+                double delta = instant_ratio - vc.prev_ratio;
+                delta = std::clamp(delta, -kRatioMaxDelta, kRatioMaxDelta);
+                ratio = vc.prev_ratio + delta;
             }
             vc.prev_ratio = ratio;
             raw_steering = raw_rate * ratio;
         }
         else
         {
-            // No attenuation — decay ratio back toward 1.0 so re-entry is smooth
-            if (was_initialized)
+            // No attenuation — ramp ratio back toward 1.0 so re-entry is smooth
+            if (was_initialized && vc.prev_ratio < 1.0)
             {
-                vc.prev_ratio = kRatioEmaAlpha * 1.0 + (1.0 - kRatioEmaAlpha) * vc.prev_ratio;
+                vc.prev_ratio = std::min(vc.prev_ratio + kRatioMaxDelta, 1.0);
             }
         }
 

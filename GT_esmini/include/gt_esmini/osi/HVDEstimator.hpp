@@ -89,7 +89,7 @@ private:
     static constexpr double kPreviewDistMin = 2.0;    // [m] minimum preview distance (low speed / standstill)
     static constexpr double kPreviewDistMax = 30.0;   // [m] maximum preview distance (highway cap)
     static constexpr double kSteerEmaAlpha  = 0.5;    // EMA smoothing factor (higher = more responsive)
-    static constexpr double kRatioEmaAlpha  = 0.3;    // EMA for attenuation ratio (prevents jumps on lane/road change)
+    static constexpr double kRatioMaxDelta  = 0.15;   // max ratio change per frame (rate-limiter, not EMA)
     static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)
 
     double EstimateRPM(double abs_speed) const;
