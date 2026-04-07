@@ -71,6 +71,10 @@ GT_esmini/web/electron/release/
 GT_esmini/web/gt_sim.db
 GT_esmini/web/frontend/README.md
 
+# Download / extraction logs
+*.7z.log
+*.7z
+
 # Claude Code
 .claude/plans/
 
