@@ -624,9 +624,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 ctrl->LoadConfig(kinConfigPath);
                 ctrl->LinkObject(obj);
 
-                // Activate on LONG + LAT domains (override mode)
+                // Activate on LAT domain only (override mode).
+                // LONG is left to scenario (SpeedAction) — controller applies curve reduction.
                 ControlActivationMode modes[static_cast<unsigned int>(ControlDomains::COUNT)];
-                modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)]  = ControlActivationMode::ON;
+                modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)]  = ControlActivationMode::UNDEFINED;
                 modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)]   = ControlActivationMode::ON;
                 modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LIGHT)] = ControlActivationMode::UNDEFINED;
                 modes[static_cast<unsigned int>(ControlDomains::DOMAIN_ANIM)]  = ControlActivationMode::UNDEFINED;

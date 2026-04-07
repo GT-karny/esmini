@@ -35,8 +35,9 @@ namespace scenarioengine
      * and uses a bicycle model to steer toward it with realistic dynamics (rate-limited
      * steering, speed-dependent gain, heading inertia).
      *
-     * Overrides both LATERAL and LONGITUDINAL domains.
-     * Speed is taken from the scenario (SpeedAction results via obj->speed_).
+     * Overrides the LATERAL domain only.
+     * Speed target comes from scenario (SpeedAction via obj->speed_), with
+     * curvature-adaptive reduction applied by the controller.
      * XY position and heading are computed by the bicycle model.
      * Road coordinates (s, t, lane_id) are reverse-computed via XYZ2TrackPos.
      *
@@ -56,9 +57,11 @@ namespace scenarioengine
             double pd_kp               = 2.0;     // PD proportional gain
             double pd_kd               = 0.5;     // PD derivative gain
             double steering_speed_inertia = 0.01; // speed-dependent steering gain factor
-            double max_acc             = 10.0;    // m/s² (future longitudinal extension)
-            double max_dec             = 10.0;    // m/s² (future longitudinal extension)
+            double max_acc             = 10.0;    // m/s² — acceleration limit for speed convergence
+            double max_dec             = 10.0;    // m/s² — deceleration limit for speed convergence
             double max_speed           = 100.0;   // m/s
+            double curve_speed_reduction_k  = 0.6;  // quadratic reduction coefficient (0=disabled, 1=full)
+            double curve_speed_min_factor   = 0.2;  // minimum speed fraction (never reduce below 20%)
 
             enum class RoadEndBehavior
             {

@@ -66,7 +66,11 @@ ControllerKinematic::ControllerKinematic(InitArgs* args)
 
 void ControllerKinematic::Init()
 {
-    // Force override mode — this controller replaces default scenario movement
+    // LAT-only: let SpeedAction handle longitudinal target speed.
+    // The controller reads scenario speed and applies curvature-adaptive reduction.
+    operating_domains_ = static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT);
+
+    // Force override mode — this controller replaces default lateral movement
     if (mode_ != ControlOperationMode::MODE_OVERRIDE)
     {
         LOG_INFO("KinematicController mode \"{}\" not applicable. Using override mode instead.", Mode2Str(mode_));
@@ -157,10 +161,12 @@ void ControllerKinematic::LoadConfig(const std::string& configPath)
     config_.pd_kp                 = parseDouble("pd_kp", config_.pd_kp);
     config_.pd_kd                 = parseDouble("pd_kd", config_.pd_kd);
     config_.steering_speed_inertia = parseDouble("steering_speed_inertia", config_.steering_speed_inertia);
-    config_.max_acc               = parseDouble("max_acc", config_.max_acc);
-    config_.max_dec               = parseDouble("max_dec", config_.max_dec);
-    config_.max_speed             = parseDouble("max_speed", config_.max_speed);
-    config_.debug_log             = parseBool("debug_log", config_.debug_log);
+    config_.max_acc                  = parseDouble("max_acc", config_.max_acc);
+    config_.max_dec                  = parseDouble("max_dec", config_.max_dec);
+    config_.max_speed                = parseDouble("max_speed", config_.max_speed);
+    config_.curve_speed_reduction_k  = parseDouble("curve_speed_reduction_k", config_.curve_speed_reduction_k);
+    config_.curve_speed_min_factor   = parseDouble("curve_speed_min_factor", config_.curve_speed_min_factor);
+    config_.debug_log                = parseBool("debug_log", config_.debug_log);
 
     double max_steer_deg = parseDouble("max_steering_angle_deg", config_.max_steering_angle * 180.0 / M_PI);
     config_.max_steering_angle = max_steer_deg * M_PI / 180.0;
@@ -227,6 +233,12 @@ int ControllerKinematic::Activate(const ControlActivationMode (&mode)[static_cas
         object_->sensor_pos_[0] = object_->pos_.GetX();
         object_->sensor_pos_[1] = object_->pos_.GetY();
         object_->sensor_pos_[2] = object_->pos_.GetZ();
+
+        // Write initial position to gateway for LONGITUDINAL bit propagation.
+        // This prevents defaultController from running MoveAlongS on the activation frame.
+        gateway_->updateObjectWorldPosXYH(object_->id_, 0.0,
+            object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetH());
+        object_->SetDirtyBits(Object::DirtyBit::LONGITUDINAL);
     }
 
     return Controller::Activate(mode);
@@ -321,6 +333,19 @@ void ControllerKinematic::Step(double timeStep)
     double desired_wheel_angle = config_.pd_kp * heading_error + config_.pd_kd * heading_error_rate;
     prev_heading_error_ = heading_error;
 
+    // --- Phase 3.5: Curvature-adaptive speed reduction ---
+    // High steering demand indicates a curve — reduce speed to prevent lateral divergence.
+    if (config_.curve_speed_reduction_k > SMALL_NUMBER && config_.max_steering_angle > SMALL_NUMBER)
+    {
+        double steering_ratio = fabs(desired_wheel_angle) / config_.max_steering_angle;
+        steering_ratio = CLAMP(steering_ratio, 0.0, 1.0);
+
+        double speed_factor = 1.0 - config_.curve_speed_reduction_k * steering_ratio * steering_ratio;
+        speed_factor = MAX(speed_factor, config_.curve_speed_min_factor);
+
+        target_speed *= speed_factor;
+    }
+
     // --- Phase 4: Update bicycle model (rate-limited steering) ---
 
     // 4a. Speed: converge toward target speed
@@ -394,18 +419,30 @@ void ControllerKinematic::Step(double timeStep)
     vehicle_.pitch_ = ghostPos_.GetP();
 
     // --- Phase 6: Write to gateway ---
-    // XY and heading come from bicycle model (physically plausible steering)
-    gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, vehicle_.posX_, vehicle_.posY_, vehicle_.heading_);
-    gateway_->updateObjectSpeed(object_->id_, 0.0, vehicle_.speed_);
+    // Break gateway speed feedback loop FIRST:
+    // Step7 (object→gateway report) wrote SpeedAction's target speed to gateway with SPEED bit.
+    // Clear all gateway bits, then re-write only what we need (position + wheels, no speed).
+    // This prevents next frame's Step4 from overwriting SpeedAction's new value.
+    ObjectState* o_state = gateway_->getObjectStatePtrById(object_->id_);
+    if (o_state)
+    {
+        o_state->clearDirtyBits();
+    }
 
-    if (IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LONG)))
-    {
-        gateway_->updateObjectWheelRotation(object_->id_, 0.0, vehicle_.wheelRotation_);
-    }
-    if (IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)))
-    {
-        gateway_->updateObjectWheelAngle(object_->id_, 0.0, vehicle_.wheelAngle_);
-    }
+    // XY and heading come from bicycle model (physically plausible steering).
+    // Position write sets LONGITUDINAL|LATERAL on gateway, preventing defaultController next frame.
+    gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, vehicle_.posX_, vehicle_.posY_, vehicle_.heading_);
+    gateway_->updateObjectWheelRotation(object_->id_, 0.0, vehicle_.wheelRotation_);
+    gateway_->updateObjectWheelAngle(object_->id_, 0.0, vehicle_.wheelAngle_);
+
+    // Report actual (curve-reduced) speed directly on object for OSI/visualization.
+    // Do NOT write speed to gateway — keeping SPEED off the gateway is the key to
+    // allowing SpeedAction values to survive the next frame's gateway-to-object fetch.
+    object_->speed_ = vehicle_.speed_;
+
+    // Set LONGITUDINAL on object — base Controller::Step() only sets this for LONG-active
+    // controllers, but we need it to prevent defaultController via Step7's gateway write.
+    object_->SetDirtyBits(Object::DirtyBit::LONGITUDINAL);
 
     // Sync wheel_angle to object for HVD estimator
     object_->wheel_angle_ = vehicle_.wheelAngle_;

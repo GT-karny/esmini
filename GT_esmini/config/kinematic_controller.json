@@ -12,5 +12,7 @@
     "max_acc": 10.0,
     "max_dec": 10.0,
     "max_speed": 100.0,
+    "curve_speed_reduction_k": 0.6,
+    "curve_speed_min_factor": 0.2,
     "debug_log": false
 }
