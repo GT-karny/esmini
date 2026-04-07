@@ -125,54 +125,41 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     vc.prev_throttle = result.throttle;
     vc.prev_brake    = result.brake;
 
-    // --- Steering (hybrid: heading-rate + preview attenuation) ---
+    // --- Steering (hybrid: heading-rate + curvature-based attenuation) ---
     // Base signal: esmini's heading-rate-based wheel angle (correctly reflects
     // instantaneous maneuvers like lane changes).
-    // Preview overlay: when the road ahead straightens (curve exit), the preview
-    // signal is smaller than the raw signal — use that ratio to attenuate,
-    // so steering returns to neutral before the vehicle exits the curve.
+    // Attenuation: compare road curvature at the current position vs a preview
+    // point ahead.  Curvature comes from the road reference-line geometry, so
+    // it is lane-independent and continuous across lane changes and junctions.
     {
         double raw_rate = obj->GetWheelAngle();  // heading-rate-based from esmini core
         double max_steer = obj->front_axle_.maxSteering;
+        double wheelbase  = obj->front_axle_.positionX;
 
-        // Preview: road-geometry-only steering (h_relative cancels)
+        // Curvature at current position (reference-line, lane-independent)
+        double curv_now = obj->pos_.GetCurvature();
+
+        // Curvature at preview point ahead
         double preview_dist = std::clamp(abs_speed * kPreviewTime,
                                          kPreviewDistMin, kPreviewDistMax);
         roadmanager::Position preview_pos = obj->pos_;
         preview_pos.MoveAlongS(preview_dist);
-        double road_error = GetAngleDifference(preview_pos.GetH(), obj->pos_.GetH());
-        double wheelbase  = obj->front_axle_.positionX;
-        double preview_steer = atan2(road_error * wheelbase, preview_dist);
+        double curv_preview = preview_pos.GetCurvature();
 
-        // Attenuation: when |preview| < |raw|, the road is straightening ahead.
-        // Scale raw down toward the preview envelope to anticipate the exit.
-        // When |raw| is small (lane change, straight road), no attenuation.
-        // The ratio is rate-limited to prevent discontinuities when MoveAlongS
-        // jumps to a different lane or connecting road (lane change on curves,
-        // intersection turns).  Unlike EMA, a rate-limiter adds zero lag when
-        // the ratio changes gradually (normal curve entry/exit).
+        // Convert curvatures to equivalent steering angles (Ackermann)
+        double steer_now     = std::atan(wheelbase * curv_now);
+        double steer_preview = std::atan(wheelbase * curv_preview);
+
+        // Attenuation: when preview curvature < current curvature, the road is
+        // straightening ahead.  Scale raw steering down by the ratio so it
+        // returns to neutral before exiting the curve.
+        // When |raw| is small (lane change, straight road), skip attenuation.
         double raw_steering = raw_rate;
-        if (std::abs(raw_rate) > 0.02)  // only attenuate meaningful curvature
+        if (std::abs(steer_now) > 0.005)  // only attenuate meaningful curvature
         {
-            double instant_ratio = std::clamp(std::abs(preview_steer) / std::abs(raw_rate),
-                                              0.0, 1.0);
-            double ratio = instant_ratio;
-            if (was_initialized)
-            {
-                double delta = instant_ratio - vc.prev_ratio;
-                delta = std::clamp(delta, -kRatioMaxDelta, kRatioMaxDelta);
-                ratio = vc.prev_ratio + delta;
-            }
-            vc.prev_ratio = ratio;
+            double ratio = std::clamp(std::abs(steer_preview) / std::abs(steer_now),
+                                      0.0, 1.0);
             raw_steering = raw_rate * ratio;
-        }
-        else
-        {
-            // No attenuation — ramp ratio back toward 1.0 so re-entry is smooth
-            if (was_initialized && vc.prev_ratio < 1.0)
-            {
-                vc.prev_ratio = std::min(vc.prev_ratio + kRatioMaxDelta, 1.0);
-            }
         }
 
         raw_steering = std::clamp(raw_steering, -max_steer, max_steer);
