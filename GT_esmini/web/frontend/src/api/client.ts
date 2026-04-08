@@ -203,11 +203,9 @@ export interface ScenarioInfo {
 
 export interface ParameterPreset {
   preset_id: string;
-  project_id: string;
-  scenario_file: string;
   name: string;
+  description?: string;
   values: Record<string, string>;
-  created_at: string;
 }
 
 // --- API functions ---
@@ -296,14 +294,14 @@ export const api = {
       body: JSON.stringify({ name, values }),
     }),
 
-  updatePreset: (projectId: string, presetId: string, data: { name?: string; values?: Record<string, string> }) =>
-    request<{ status: string }>(`/api/projects/${projectId}/presets/${presetId}`, {
+  updatePreset: (projectId: string, scenarioFile: string, presetId: string, data: { name?: string; values?: Record<string, string> }) =>
+    request<{ status: string }>(`/api/projects/${projectId}/scenarios/${scenarioFile}/presets/${presetId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
-  deletePreset: (projectId: string, presetId: string) =>
-    request<{ status: string }>(`/api/projects/${projectId}/presets/${presetId}`, { method: 'DELETE' }),
+  deletePreset: (projectId: string, scenarioFile: string, presetId: string) =>
+    request<{ status: string }>(`/api/projects/${projectId}/scenarios/${scenarioFile}/presets/${presetId}`, { method: 'DELETE' }),
 
   // Scenarios (legacy)
   getScenarios: (search?: string) =>

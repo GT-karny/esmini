@@ -44,12 +44,12 @@ export function PresetSelector({
 
   const updateMut = useMutation({
     mutationFn: (presetId: string) =>
-      api.updatePreset(projectId, presetId, { values: currentValues }),
+      api.updatePreset(projectId, scenarioFile, presetId, { values: currentValues }),
     onSuccess: () => invalidatePresets(),
   });
 
   const deleteMut = useMutation({
-    mutationFn: (presetId: string) => api.deletePreset(projectId, presetId),
+    mutationFn: (presetId: string) => api.deletePreset(projectId, scenarioFile, presetId),
     onSuccess: () => {
       if (deleteTarget && activePresetId === deleteTarget.preset_id) {
         setActivePresetId(null);

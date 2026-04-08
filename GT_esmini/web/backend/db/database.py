@@ -34,15 +34,6 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS parameter_presets (
-    preset_id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    scenario_file TEXT NOT NULL,
-    name TEXT NOT NULL,
-    values_json TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
-);
 """
 
 

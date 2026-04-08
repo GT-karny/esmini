@@ -65,19 +65,19 @@ class ScenarioInfo(BaseModel):
 
 
 class ParameterPreset(BaseModel):
-    preset_id: str
-    project_id: str
-    scenario_file: str
+    preset_id: str  # = YAML top-level key (preset name)
     name: str
+    description: str = ""
     values: dict[str, str]
-    created_at: str
 
 
 class PresetCreateRequest(BaseModel):
     name: str
     values: dict[str, str]
+    description: str = ""
 
 
 class PresetUpdateRequest(BaseModel):
     name: str | None = None
     values: dict[str, str] | None = None
+    description: str | None = None

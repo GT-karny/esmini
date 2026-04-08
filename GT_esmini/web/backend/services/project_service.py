@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import uuid
@@ -545,91 +544,171 @@ async def get_scenario_params(project_id: str, scenario_file: str) -> list[Scena
 
 
 # ---------------------------------------------------------------------------
-# Parameter presets
+# Parameter presets  (YAML file-based, one file per scenario)
+#
+# File layout:
+#   <project_root>/presets/<scenario_stem>.yaml
+#
+# YAML structure (top-level keys are preset names):
+#   conservative:
+#     description: slow settings
+#     values:
+#       VehicleSpeed: "30.0"
+#   aggressive:
+#     values:
+#       VehicleSpeed: "80.0"
 # ---------------------------------------------------------------------------
 
-async def list_presets(project_id: str, scenario_file: str) -> list[ParameterPreset]:
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """SELECT * FROM parameter_presets
-               WHERE project_id = ? AND scenario_file = ?
-               ORDER BY created_at DESC""",
-            (project_id, scenario_file),
-        )
-        rows = await cursor.fetchall()
-        return [
-            ParameterPreset(
-                preset_id=row["preset_id"],
-                project_id=row["project_id"],
-                scenario_file=row["scenario_file"],
-                name=row["name"],
-                values=json.loads(row["values_json"]),
-                created_at=row["created_at"],
-            )
-            for row in rows
-        ]
-    finally:
-        await db.close()
+import re
+
+import yaml
 
 
-async def create_preset(
-    project_id: str, scenario_file: str, name: str, values: dict[str, str]
-) -> ParameterPreset:
-    preset_id = uuid.uuid4().hex[:12]
-    now = datetime.now(timezone.utc).isoformat()
-    db = await get_db()
+def _scenario_to_preset_stem(scenario_file: str) -> str:
+    """Derive a safe filename stem from a scenario path like ``xosc/foo.xosc``."""
+    return Path(scenario_file).stem
+
+
+async def _get_presets_dir(project_id: str) -> Path | None:
+    proj = await get_project(project_id)
+    if proj is None:
+        return None
+    return Path(proj.root_path) / "presets"
+
+
+def _preset_filepath(presets_dir: Path, scenario_file: str) -> Path:
+    stem = _scenario_to_preset_stem(scenario_file)
+    return presets_dir / f"{stem}.yaml"
+
+
+def _read_presets_file(filepath: Path) -> dict:
+    """Read the entire YAML file and return the raw dict (or empty)."""
+    if not filepath.is_file():
+        return {}
     try:
-        await db.execute(
-            """INSERT INTO parameter_presets (preset_id, project_id, scenario_file, name, values_json, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (preset_id, project_id, scenario_file, name, json.dumps(values, ensure_ascii=False), now),
-        )
-        await db.commit()
-    finally:
-        await db.close()
-    return ParameterPreset(
-        preset_id=preset_id,
-        project_id=project_id,
-        scenario_file=scenario_file,
-        name=name,
-        values=values,
-        created_at=now,
+        data = yaml.safe_load(filepath.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        _logger.warning("Failed to read preset file: %s", filepath, exc_info=True)
+        return {}
+
+
+def _write_presets_file(filepath: Path, data: dict) -> None:
+    """Write the entire presets dict to YAML."""
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    filepath.write_text(
+        yaml.dump(data, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
     )
 
 
-async def update_preset(preset_id: str, name: str | None, values: dict[str, str] | None) -> bool:
-    updates = []
-    params = []
-    if name is not None:
-        updates.append("name = ?")
-        params.append(name)
+def _parse_preset(name: str, entry: dict) -> ParameterPreset:
+    return ParameterPreset(
+        preset_id=name,
+        name=name,
+        description=entry.get("description", ""),
+        values=entry.get("values") or {},
+    )
+
+
+async def list_presets(project_id: str, scenario_file: str) -> list[ParameterPreset]:
+    presets_dir = await _get_presets_dir(project_id)
+    if presets_dir is None:
+        return []
+    data = _read_presets_file(_preset_filepath(presets_dir, scenario_file))
+    return [
+        _parse_preset(name, entry)
+        for name, entry in data.items()
+        if isinstance(entry, dict)
+    ]
+
+
+async def create_preset(
+    project_id: str,
+    scenario_file: str,
+    name: str,
+    values: dict[str, str],
+    description: str = "",
+) -> ParameterPreset:
+    presets_dir = await _get_presets_dir(project_id)
+    if presets_dir is None:
+        raise ValueError("Project not found")
+
+    filepath = _preset_filepath(presets_dir, scenario_file)
+    data = _read_presets_file(filepath)
+
+    # Ensure unique key
+    key = name
+    if key in data:
+        counter = 2
+        while f"{name}_{counter}" in data:
+            counter += 1
+        key = f"{name}_{counter}"
+
+    entry: dict = {}
+    if description:
+        entry["description"] = description
+    entry["values"] = values
+    data[key] = entry
+    _write_presets_file(filepath, data)
+
+    return ParameterPreset(
+        preset_id=key, name=key, description=description, values=values,
+    )
+
+
+async def update_preset(
+    project_id: str,
+    scenario_file: str,
+    preset_id: str,
+    name: str | None = None,
+    values: dict[str, str] | None = None,
+    description: str | None = None,
+) -> bool:
+    presets_dir = await _get_presets_dir(project_id)
+    if presets_dir is None:
+        return False
+    filepath = _preset_filepath(presets_dir, scenario_file)
+    data = _read_presets_file(filepath)
+    if preset_id not in data:
+        return False
+
+    entry = data[preset_id]
+    if not isinstance(entry, dict):
+        return False
+
     if values is not None:
-        updates.append("values_json = ?")
-        params.append(json.dumps(values, ensure_ascii=False))
-    if not updates:
-        return True
+        entry["values"] = values
+    if description is not None:
+        if description:
+            entry["description"] = description
+        else:
+            entry.pop("description", None)
 
-    params.append(preset_id)
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            f"UPDATE parameter_presets SET {', '.join(updates)} WHERE preset_id = ?",
-            params,
-        )
-        await db.commit()
-        return cursor.rowcount > 0 if cursor.rowcount else False
-    finally:
-        await db.close()
+    # Rename: move to new key
+    if name is not None and name != preset_id:
+        del data[preset_id]
+        data[name] = entry
+    else:
+        data[preset_id] = entry
+
+    _write_presets_file(filepath, data)
+    return True
 
 
-async def delete_preset(preset_id: str) -> bool:
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "DELETE FROM parameter_presets WHERE preset_id = ?", (preset_id,)
-        )
-        await db.commit()
-        return cursor.rowcount > 0 if cursor.rowcount else False
-    finally:
-        await db.close()
+async def delete_preset(
+    project_id: str, scenario_file: str, preset_id: str,
+) -> bool:
+    presets_dir = await _get_presets_dir(project_id)
+    if presets_dir is None:
+        return False
+    filepath = _preset_filepath(presets_dir, scenario_file)
+    data = _read_presets_file(filepath)
+    if preset_id not in data:
+        return False
+    del data[preset_id]
+    if data:
+        _write_presets_file(filepath, data)
+    elif filepath.is_file():
+        filepath.unlink()  # Remove empty file
+    return True
