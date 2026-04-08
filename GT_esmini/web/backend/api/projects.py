@@ -346,22 +346,28 @@ async def list_presets(project_id: str, scenario_file: str):
 @router.post("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=ParameterPreset, status_code=201)
 async def create_preset(project_id: str, scenario_file: str, req: PresetCreateRequest):
     """Create a parameter preset for a scenario."""
-    return await project_service.create_preset(project_id, scenario_file, req.name, req.values)
+    return await project_service.create_preset(
+        project_id, scenario_file, req.name, req.values,
+        description=req.description,
+    )
 
 
-@router.put("/{project_id}/presets/{preset_id}", response_model=dict)
-async def update_preset(project_id: str, preset_id: str, req: PresetUpdateRequest):
+@router.put("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}", response_model=dict)
+async def update_preset(project_id: str, scenario_file: str, preset_id: str, req: PresetUpdateRequest):
     """Update a parameter preset."""
-    success = await project_service.update_preset(preset_id, req.name, req.values)
+    success = await project_service.update_preset(
+        project_id, scenario_file, preset_id, req.name, req.values,
+        description=req.description,
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "updated"}
 
 
-@router.delete("/{project_id}/presets/{preset_id}")
-async def delete_preset(project_id: str, preset_id: str):
+@router.delete("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}")
+async def delete_preset(project_id: str, scenario_file: str, preset_id: str):
     """Delete a parameter preset."""
-    success = await project_service.delete_preset(preset_id)
+    success = await project_service.delete_preset(project_id, scenario_file, preset_id)
     if not success:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "deleted"}
