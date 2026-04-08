@@ -38,7 +38,6 @@ Controller* scenarioengine::InstantiateControllerKinematic(void* args)
 ControllerKinematic::ControllerKinematic(InitArgs* args)
     : Controller(args),
       initialized_(false),
-      ghost_valid_(false),
       prev_heading_error_(0.0)
 {
     // Parse optional properties from XOSC <Controller><Properties>
@@ -66,15 +65,16 @@ ControllerKinematic::ControllerKinematic(InitArgs* args)
 
 void ControllerKinematic::Init()
 {
-    // LAT-only: let SpeedAction handle longitudinal target speed.
-    // The controller reads scenario speed and applies curvature-adaptive reduction.
+    // MODE_ADDITIVE: do NOT override any domain.
+    // All scenario actions (LaneChange, SpeedAction, Route, etc.) and defaultController
+    // run normally, updating object_->pos_ as the ideal path target.
+    // This controller reads object_->pos_ and produces physically plausible XY/heading.
     operating_domains_ = static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT);
 
-    // Force override mode — this controller replaces default lateral movement
-    if (mode_ != ControlOperationMode::MODE_OVERRIDE)
+    if (mode_ != ControlOperationMode::MODE_ADDITIVE)
     {
-        LOG_INFO("KinematicController mode \"{}\" not applicable. Using override mode instead.", Mode2Str(mode_));
-        mode_ = ControlOperationMode::MODE_OVERRIDE;
+        LOG_INFO("KinematicController mode \"{}\" not applicable. Using additive mode instead.", Mode2Str(mode_));
+        mode_ = ControlOperationMode::MODE_ADDITIVE;
     }
 
     Controller::Init();
@@ -202,11 +202,7 @@ void ControllerKinematic::ResetToObject()
     vehicle_.SetLength(object_->boundingbox_.dimensions_.length_);
     vehicle_.speed_ = object_->GetSpeed();
 
-    // Copy ghost position from current object position
-    ghostPos_ = object_->pos_;
-
     prev_heading_error_ = 0.0;
-    ghost_valid_ = true;
     initialized_ = true;
 }
 
@@ -224,34 +220,27 @@ int ControllerKinematic::Activate(const ControlActivationMode (&mode)[static_cas
         vehicle_.SetSteeringScale(config_.steering_speed_inertia);
         vehicle_.SetSteeringRate(config_.max_steering_rate);
 
-        // Initialize ghost at current object position
-        ghostPos_ = object_->pos_;
-        ghost_valid_ = true;
         initialized_ = true;
         prev_heading_error_ = 0.0;
 
         object_->sensor_pos_[0] = object_->pos_.GetX();
         object_->sensor_pos_[1] = object_->pos_.GetY();
         object_->sensor_pos_[2] = object_->pos_.GetZ();
-
-        // Write initial position to gateway for LONGITUDINAL bit propagation.
-        // This prevents defaultController from running MoveAlongS on the activation frame.
-        gateway_->updateObjectWorldPosXYH(object_->id_, 0.0,
-            object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetH());
-        object_->SetDirtyBits(Object::DirtyBit::LONGITUDINAL);
     }
 
     return Controller::Activate(mode);
 }
 
-void ControllerKinematic::ComputeLookAheadTarget(double speed, double& target_x, double& target_y)
+void ControllerKinematic::ComputeLookAheadTarget(double look_ahead_dist, double& target_x, double& target_y)
 {
-    double abs_speed = fabs(speed);
-    double look_ahead_dist = abs_speed * config_.look_ahead_time;
     look_ahead_dist = CLAMP(look_ahead_dist, config_.min_look_ahead_dist, config_.max_look_ahead_dist);
 
-    // Compute a look-ahead position along the ghost's road path
-    roadmanager::Position lookAheadPos = ghostPos_;
+    // Create a temporary position from object's current road position for look-ahead.
+    // object_->pos_ is kept up-to-date by scenario actions + defaultController (route, lane, s).
+    // Share route pointer so MoveAlongS follows the correct path at junctions.
+    roadmanager::Position lookAheadPos;
+    lookAheadPos.Duplicate(object_->pos_);
+    lookAheadPos.route_ = object_->pos_.route_;
     int ret = static_cast<int>(lookAheadPos.MoveAlongS(look_ahead_dist));
 
     if (ret == 0 ||
@@ -263,10 +252,13 @@ void ControllerKinematic::ComputeLookAheadTarget(double speed, double& target_x,
     }
     else
     {
-        // Fallback: project ahead using ghost heading
-        target_x = ghostPos_.GetX() + look_ahead_dist * cos(ghostPos_.GetH());
-        target_y = ghostPos_.GetY() + look_ahead_dist * sin(ghostPos_.GetH());
+        // Fallback: project ahead using object heading
+        target_x = object_->pos_.GetX() + look_ahead_dist * cos(object_->pos_.GetH());
+        target_y = object_->pos_.GetY() + look_ahead_dist * sin(object_->pos_.GetH());
     }
+
+    // Detach shared pointer — lookAheadPos must not delete the route on destruction
+    lookAheadPos.route_ = nullptr;
 }
 
 void ControllerKinematic::Step(double timeStep)
@@ -285,26 +277,37 @@ void ControllerKinematic::Step(double timeStep)
             LOG_INFO("KinematicController [{}]: TELEPORT detected, reset to ({:.2f}, {:.2f}, h={:.3f})",
                      object_->GetName(), object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetH());
         }
-        Controller::Step(timeStep);
         return;
     }
 
-    // --- Phase 1: Get target speed from scenario ---
+    // --- Phase 1: Read scenario target ---
+    // object_->pos_ is updated by scenario actions (LaneChange, Route, etc.) + defaultController.
+    // The viewer displays this position. The bicycle model runs internally to produce
+    // physically plausible steering (wheel angle) that tracks the ideal path.
+    double ref_x = object_->pos_.GetX();
+    double ref_y = object_->pos_.GetY();
+    double ref_h = object_->pos_.GetH();
     double target_speed = object_->GetSpeed();
 
-    // --- Phase 2: Compute steering target via look-ahead on ghost road path ---
+    // --- Phase 2: Compute steering target ---
+    // When bicycle is far from ideal path (e.g. during lane change), steer directly toward it.
+    // When close, use road-based look-ahead for smooth curve anticipation.
     double target_x, target_y;
-    if (ghost_valid_)
+    double gap_x = ref_x - vehicle_.posX_;
+    double gap_y = ref_y - vehicle_.posY_;
+    double gap = sqrt(gap_x * gap_x + gap_y * gap_y);
+
+    if (gap >= config_.min_look_ahead_dist)
     {
-        ComputeLookAheadTarget(target_speed, target_x, target_y);
+        // Bicycle is far from ideal path (lane change, etc.) — steer directly toward it
+        target_x = ref_x;
+        target_y = ref_y;
     }
     else
     {
-        // Inertia mode: project ahead using current vehicle heading
-        double look_ahead_dist = CLAMP(fabs(target_speed) * config_.look_ahead_time,
-                                       config_.min_look_ahead_dist, config_.max_look_ahead_dist);
-        target_x = vehicle_.posX_ + look_ahead_dist * cos(vehicle_.heading_);
-        target_y = vehicle_.posY_ + look_ahead_dist * sin(vehicle_.heading_);
+        // Bicycle is close to ideal path — use look-ahead for curve anticipation
+        double extra = config_.min_look_ahead_dist - gap;
+        ComputeLookAheadTarget(extra, target_x, target_y);
     }
 
     // Update sensor position for visualization
@@ -333,28 +336,12 @@ void ControllerKinematic::Step(double timeStep)
     double desired_wheel_angle = config_.pd_kp * heading_error + config_.pd_kd * heading_error_rate;
     prev_heading_error_ = heading_error;
 
-    // --- Phase 3.5: Curvature-adaptive speed reduction ---
-    // High steering demand indicates a curve — reduce speed to prevent lateral divergence.
-    if (config_.curve_speed_reduction_k > SMALL_NUMBER && config_.max_steering_angle > SMALL_NUMBER)
-    {
-        double steering_ratio = fabs(desired_wheel_angle) / config_.max_steering_angle;
-        steering_ratio = CLAMP(steering_ratio, 0.0, 1.0);
-
-        double speed_factor = 1.0 - config_.curve_speed_reduction_k * steering_ratio * steering_ratio;
-        speed_factor = MAX(speed_factor, config_.curve_speed_min_factor);
-
-        target_speed *= speed_factor;
-    }
-
     // --- Phase 4: Update bicycle model (rate-limited steering) ---
 
-    // 4a. Speed: converge toward target speed
-    double acceleration = CLAMP(vehicle_.GetMaxAcc() * (target_speed - vehicle_.speed_),
-                                -vehicle_.GetMaxDec(), vehicle_.GetMaxAcc());
-    vehicle_.speed_ += acceleration * timeStep;
-    vehicle_.speed_ = CLAMP(vehicle_.speed_, -config_.max_speed, config_.max_speed);
+    // 4a. Speed: use scenario speed for bicycle model kinematics.
+    vehicle_.speed_ = CLAMP(target_speed, -config_.max_speed, config_.max_speed);
 
-    // 4b. Steering: rate-limit then clamp
+    // 4b. Steering: speed-dependent max angle, then rate-limit
     double speed_dependent_scale = 1.0 / (1.0 + config_.steering_speed_inertia * vehicle_.speed_ * vehicle_.speed_);
     double max_angle = speed_dependent_scale * config_.max_steering_angle;
     desired_wheel_angle = CLAMP(desired_wheel_angle, -max_angle, max_angle);
@@ -363,118 +350,33 @@ void ControllerKinematic::Step(double timeStep)
     double steer_delta = CLAMP(desired_wheel_angle - vehicle_.wheelAngle_, -max_delta, max_delta);
     vehicle_.SetWheelAngle(vehicle_.wheelAngle_ + steer_delta);
 
-    // 4c. Save pre-update position to compute actual displacement
-    double prev_x = vehicle_.posX_;
-    double prev_y = vehicle_.posY_;
-
-    // 4d. Run bicycle model kinematics
+    // 4c. Run bicycle model kinematics (updates internal position, heading, wheel rotation)
     vehicle_.Update(timeStep);
 
-    // --- Phase 5: Advance ghost by vehicle's actual displacement ---
-    // This prevents longitudinal error accumulation: ghost and vehicle stay in sync along s.
-    double dx_move = vehicle_.posX_ - prev_x;
-    double dy_move = vehicle_.posY_ - prev_y;
-    double ds_actual = sqrt(dx_move * dx_move + dy_move * dy_move);
-
-    // Preserve sign: if going in reverse, ds should be negative
-    if (vehicle_.speed_ < 0.0)
-    {
-        ds_actual = -ds_actual;
-    }
-
-    if (ghost_valid_ && fabs(ds_actual) > SMALL_NUMBER)
-    {
-        roadmanager::Position::ReturnCode ret = ghostPos_.MoveAlongS(ds_actual);
-
-        if (ret == roadmanager::Position::ReturnCode::ERROR_END_OF_ROAD ||
-            ret == roadmanager::Position::ReturnCode::ERROR_END_OF_ROUTE)
-        {
-            switch (config_.road_end_behavior)
-            {
-                case Config::RoadEndBehavior::INERTIA:
-                    ghost_valid_ = false;
-                    if (config_.debug_log)
-                    {
-                        LOG_INFO("KinematicController [{}]: Road end reached, switching to inertia mode",
-                                 object_->GetName());
-                    }
-                    break;
-
-                case Config::RoadEndBehavior::STOP:
-                    vehicle_.speed_ = 0.0;
-                    ghost_valid_ = false;
-                    break;
-
-                case Config::RoadEndBehavior::HALT_ERROR:
-                    LOG_ERROR("KinematicController [{}]: Road end reached, stopping simulation", object_->GetName());
-                    gateway_->updateObjectSpeed(object_->id_, 0.0, 0.0);
-                    Controller::Step(timeStep);
-                    return;
-            }
-        }
-    }
-
-    // Fetch Z and Pitch from ghost road position (keep vehicle grounded on road surface)
-    vehicle_.posZ_  = ghostPos_.GetZ();
-    vehicle_.pitch_ = ghostPos_.GetP();
-
-    // --- Phase 6: Write to gateway ---
-    // Break gateway speed feedback loop FIRST:
-    // Step7 (object→gateway report) wrote SpeedAction's target speed to gateway with SPEED bit.
-    // Clear all gateway bits, then re-write only what we need (position + wheels, no speed).
-    // This prevents next frame's Step4 from overwriting SpeedAction's new value.
-    ObjectState* o_state = gateway_->getObjectStatePtrById(object_->id_);
-    if (o_state)
-    {
-        o_state->clearDirtyBits();
-    }
-
-    // XY and heading come from bicycle model (physically plausible steering).
-    // Position write sets LONGITUDINAL|LATERAL on gateway, preventing defaultController next frame.
-    gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, vehicle_.posX_, vehicle_.posY_, vehicle_.heading_);
+    // --- Phase 5: Write steering output to gateway ---
+    // Only wheel angle and rotation are written — NOT position or speed.
+    // The viewer shows the ideal path position (from the normal report-to-gateway flow).
+    // The bicycle model runs internally to produce realistic steering dynamics.
     gateway_->updateObjectWheelRotation(object_->id_, 0.0, vehicle_.wheelRotation_);
     gateway_->updateObjectWheelAngle(object_->id_, 0.0, vehicle_.wheelAngle_);
-
-    // Report actual (curve-reduced) speed directly on object for OSI/visualization.
-    // Do NOT write speed to gateway — keeping SPEED off the gateway is the key to
-    // allowing SpeedAction values to survive the next frame's gateway-to-object fetch.
-    object_->speed_ = vehicle_.speed_;
-
-    // Set LONGITUDINAL on object — base Controller::Step() only sets this for LONG-active
-    // controllers, but we need it to prevent defaultController via Step7's gateway write.
-    object_->SetDirtyBits(Object::DirtyBit::LONGITUDINAL);
 
     // Sync wheel_angle to object for HVD estimator
     object_->wheel_angle_ = vehicle_.wheelAngle_;
 
-    // --- Phase 7: Lateral divergence check ---
-    // Compute lateral-only error (perpendicular to ghost heading) to ignore longitudinal component
-    if (ghost_valid_)
+    // --- Phase 6: Diagnostics ---
+    if (config_.debug_log)
     {
-        double err_x = vehicle_.posX_ - ghostPos_.GetX();
-        double err_y = vehicle_.posY_ - ghostPos_.GetY();
+        double err_x = vehicle_.posX_ - ref_x;
+        double err_y = vehicle_.posY_ - ref_y;
+        double lateral_error = fabs(-sin(ref_h) * err_x + cos(ref_h) * err_y);
 
-        // Project error onto ghost's lateral axis (perpendicular to ghost heading)
-        double ghost_h = ghostPos_.GetH();
-        double lateral_error = fabs(-sin(ghost_h) * err_x + cos(ghost_h) * err_y);
-
-        if (config_.debug_log)
-        {
-            LOG_INFO("KinematicController [{}]: lat_err={:.3f}m steer={:.3f}rad speed={:.1f}m/s ghost=({:.1f},{:.1f}) veh=({:.1f},{:.1f})",
-                     object_->GetName(), lateral_error, vehicle_.wheelAngle_, vehicle_.speed_,
-                     ghostPos_.GetX(), ghostPos_.GetY(), vehicle_.posX_, vehicle_.posY_);
-        }
-
-        if (lateral_error > config_.max_lateral_error)
-        {
-            LOG_ERROR("KinematicController [{}]: Lateral error {:.2f}m exceeds threshold {:.2f}m — stopping vehicle",
-                      object_->GetName(), lateral_error, config_.max_lateral_error);
-            gateway_->updateObjectSpeed(object_->id_, 0.0, 0.0);
-            vehicle_.speed_ = 0.0;
-        }
+        LOG_INFO("KinematicController [{}]: lat_err={:.3f}m h_err={:.4f} steer={:.3f}rad speed={:.1f}m/s gap={:.2f}m",
+                 object_->GetName(), lateral_error, heading_error, vehicle_.wheelAngle_, vehicle_.speed_, gap);
     }
 
-    Controller::Step(timeStep);
+    // NOTE: We intentionally do NOT call Controller::Step(timeStep) here.
+    // The base class clears object LAT|LONG dirty bits in ADDITIVE mode,
+    // which would erase bits set by scenario actions and defaultController.
 }
 
 void ControllerKinematic::ReportKeyEvent(int key, bool down)

@@ -31,15 +31,14 @@ namespace scenarioengine
      * KinematicController: physically-based scenario following using a bicycle model.
      *
      * Instead of perfectly snapping to road geometry (like defaultController's MoveAlongS),
-     * this controller maintains an internal "ghost" position that follows the scenario path,
-     * and uses a bicycle model to steer toward it with realistic dynamics (rate-limited
-     * steering, speed-dependent gain, heading inertia).
+     * this controller uses a bicycle model to steer toward the scenario-driven target
+     * position (object_->pos_) with realistic dynamics (rate-limited steering,
+     * speed-dependent gain, heading inertia).
      *
-     * Overrides the LATERAL domain only.
-     * Speed target comes from scenario (SpeedAction via obj->speed_), with
-     * curvature-adaptive reduction applied by the controller.
-     * XY position and heading are computed by the bicycle model.
-     * Road coordinates (s, t, lane_id) are reverse-computed via XYZ2TrackPos.
+     * Runs in MODE_ADDITIVE — does NOT override any domain.
+     * All scenario actions (LaneChange, SpeedAction, Route, etc.) and defaultController
+     * run normally, updating object_->pos_ as the "ideal path" target.
+     * The bicycle model then produces physically plausible XY/heading to follow that path.
      *
      * Teleport actions (DirtyBit::TELEPORT) bypass the bicycle model and reset state.
      */
@@ -49,14 +48,14 @@ namespace scenarioengine
         struct Config
         {
             double look_ahead_time      = 0.8;    // seconds — multiplied by speed for look-ahead distance
-            double min_look_ahead_dist  = 2.0;    // meters
+            double min_look_ahead_dist  = 4.0;    // meters
             double max_look_ahead_dist  = 30.0;   // meters
             double max_steering_angle   = 1.047;  // radians (~60 degrees)
-            double max_steering_rate    = 5.0;    // rad/s
+            double max_steering_rate    = 1.5;    // rad/s
             double max_lateral_error    = 10.0;   // meters — error threshold for simulation stop
-            double pd_kp               = 2.0;     // PD proportional gain
-            double pd_kd               = 0.5;     // PD derivative gain
-            double steering_speed_inertia = 0.01; // speed-dependent steering gain factor
+            double pd_kp               = 1.0;     // PD proportional gain
+            double pd_kd               = 0.1;     // PD derivative gain
+            double steering_speed_inertia = 0.005; // speed-dependent steering gain factor
             double max_acc             = 10.0;    // m/s² — acceleration limit for speed convergence
             double max_dec             = 10.0;    // m/s² — deceleration limit for speed convergence
             double max_speed           = 100.0;   // m/s
@@ -100,19 +99,17 @@ namespace scenarioengine
         double GetWheelAngle() const { return vehicle_.wheelAngle_; }
 
     private:
-        /// Reset bicycle model and ghost position to match the object's current state.
+        /// Reset bicycle model to match the object's current state.
         void ResetToObject();
 
-        /// Compute the look-ahead target point from ghost position.
-        void ComputeLookAheadTarget(double speed, double& target_x, double& target_y);
+        /// Compute the look-ahead target point from object's road position.
+        void ComputeLookAheadTarget(double look_ahead_dist, double& target_x, double& target_y);
 
         vehicle::Vehicle      vehicle_;     // kinematic bicycle model
-        roadmanager::Position  ghostPos_;   // internal "scenario target" position
         Config                 config_;
 
         // Internal state
         bool   initialized_;
-        bool   ghost_valid_;
         double prev_heading_error_;
     };
 
