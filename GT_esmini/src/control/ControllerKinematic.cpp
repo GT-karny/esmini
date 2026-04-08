@@ -269,21 +269,38 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     }
 
     // --- Phase 1: Read scenario target ---
-    // object_->pos_ is updated by scenario actions (LaneChange, Route, etc.) + defaultController.
-    // The viewer displays this position. The bicycle model runs internally to produce
-    // physically plausible steering (wheel angle) that tracks the ideal path.
     double ref_x = object_->pos_.GetX();
     double ref_y = object_->pos_.GetY();
     double ref_h = object_->pos_.GetH();
     double target_speed = object_->GetSpeed();
 
-    // --- Phase 2: Compute steering target ---
-    // When bicycle is far from ideal path (e.g. during lane change), steer directly toward it.
-    // When close, use road-based look-ahead for smooth curve anticipation.
-    double target_x, target_y;
+    // --- Phase 1b: Gap-based reset ---
+    // If the bicycle model has diverged too far (e.g. after sharp junction turns),
+    // reset it to the reference position to prevent runaway divergence.
     double gap_x = ref_x - vehicle_.posX_;
     double gap_y = ref_y - vehicle_.posY_;
     double gap = sqrt(gap_x * gap_x + gap_y * gap_y);
+
+    if (gap > config_.max_lateral_error)
+    {
+        vehicle_.SetPos(ref_x, ref_y, object_->pos_.GetZ(), ref_h);
+        vehicle_.speed_ = target_speed;
+        prev_heading_error_ = 0.0;
+        gap = 0.0;
+
+        if (config_.debug_log)
+        {
+            LOG_INFO("KinematicController [{}]: GAP RESET (gap was {:.1f}m > {:.1f}m limit)",
+                     object_->GetName(), sqrt(gap_x * gap_x + gap_y * gap_y), config_.max_lateral_error);
+        }
+    }
+
+    // --- Phase 2: Compute steering target ---
+    // When bicycle is far from ideal path (e.g. during lane change), steer directly toward it.
+    // When close, use look-ahead for curve anticipation.
+    double target_x, target_y;
+
+    bool trajectory_active = (object_->pos_.GetTrajectory() != nullptr);
 
     if (gap >= config_.min_look_ahead_dist)
     {
