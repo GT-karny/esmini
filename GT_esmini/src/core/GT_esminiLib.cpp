@@ -37,13 +37,13 @@
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
+#include "gt_esmini/control/ControllerKinematic.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
-#include "ControllerKinematic.hpp"
 
 // Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
 namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
@@ -223,6 +223,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
 #endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -459,6 +460,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerPythonDriver);
 #endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
@@ -620,12 +622,12 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 initArgs.scenario_engine = player->scenarioEngine;
                 initArgs.parameters = nullptr;
 
-                auto* ctrl = new scenarioengine::ControllerKinematic(&initArgs);
+                auto* ctrl = new gt_esmini::ControllerKinematic(&initArgs);
                 ctrl->LoadConfig(kinConfigPath);
                 ctrl->LinkObject(obj);
 
-                // Activate on LAT domain only (override mode).
-                // LONG is left to scenario (SpeedAction) — controller applies curve reduction.
+                // Activate on LAT domain only (additive mode).
+                // Actions + defaultController run normally; bicycle model follows object_->pos_.
                 ControlActivationMode modes[static_cast<unsigned int>(ControlDomains::COUNT)];
                 modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)]  = ControlActivationMode::UNDEFINED;
                 modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)]   = ControlActivationMode::ON;

@@ -1,22 +1,10 @@
 /*
- * esmini - Environment Simulator Minimalistic
- * https://github.com/esmini/esmini
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/.
- *
- * Copyright (c) partners of Simulation Scenarios
- * https://sites.google.com/view/simulationscenarios
- */
-
-/*
  * KinematicController: Follows the scenario path using a kinematic bicycle model
  * instead of perfectly snapping to road geometry. This produces physically plausible
  * steering behavior (rate-limited, with inertia) while still tracking the scenario.
  */
 
-#include "ControllerKinematic.hpp"
+#include "gt_esmini/control/ControllerKinematic.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
 #include "ScenarioGateway.hpp"
@@ -29,13 +17,13 @@
 
 using namespace scenarioengine;
 
-Controller* scenarioengine::InstantiateControllerKinematic(void* args)
+Controller* gt_esmini::InstantiateControllerKinematic(void* args)
 {
     Controller::InitArgs* initArgs = static_cast<Controller::InitArgs*>(args);
-    return new ControllerKinematic(initArgs);
+    return new gt_esmini::ControllerKinematic(initArgs);
 }
 
-ControllerKinematic::ControllerKinematic(InitArgs* args)
+gt_esmini::ControllerKinematic::ControllerKinematic(InitArgs* args)
     : Controller(args),
       initialized_(false),
       prev_heading_error_(0.0)
@@ -63,7 +51,7 @@ ControllerKinematic::ControllerKinematic(InitArgs* args)
     }
 }
 
-void ControllerKinematic::Init()
+void gt_esmini::ControllerKinematic::Init()
 {
     // MODE_ADDITIVE: do NOT override any domain.
     // All scenario actions (LaneChange, SpeedAction, Route, etc.) and defaultController
@@ -80,7 +68,7 @@ void ControllerKinematic::Init()
     Controller::Init();
 }
 
-void ControllerKinematic::LoadConfig(const std::string& configPath)
+void gt_esmini::ControllerKinematic::LoadConfig(const std::string& configPath)
 {
     std::ifstream file(configPath);
     if (!file.is_open())
@@ -190,7 +178,7 @@ void ControllerKinematic::LoadConfig(const std::string& configPath)
     LOG_INFO("KinematicController: Config loaded from {}", configPath);
 }
 
-void ControllerKinematic::ResetToObject()
+void gt_esmini::ControllerKinematic::ResetToObject()
 {
     if (!object_)
     {
@@ -206,7 +194,7 @@ void ControllerKinematic::ResetToObject()
     initialized_ = true;
 }
 
-int ControllerKinematic::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
+int gt_esmini::ControllerKinematic::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
     if (object_)
     {
@@ -231,7 +219,7 @@ int ControllerKinematic::Activate(const ControlActivationMode (&mode)[static_cas
     return Controller::Activate(mode);
 }
 
-void ControllerKinematic::ComputeLookAheadTarget(double look_ahead_dist, double& target_x, double& target_y)
+void gt_esmini::ControllerKinematic::ComputeLookAheadTarget(double look_ahead_dist, double& target_x, double& target_y)
 {
     look_ahead_dist = CLAMP(look_ahead_dist, config_.min_look_ahead_dist, config_.max_look_ahead_dist);
 
@@ -261,7 +249,7 @@ void ControllerKinematic::ComputeLookAheadTarget(double look_ahead_dist, double&
     lookAheadPos.route_ = nullptr;
 }
 
-void ControllerKinematic::Step(double timeStep)
+void gt_esmini::ControllerKinematic::Step(double timeStep)
 {
     if (!object_ || !initialized_)
     {
@@ -379,7 +367,7 @@ void ControllerKinematic::Step(double timeStep)
     // which would erase bits set by scenario actions and defaultController.
 }
 
-void ControllerKinematic::ReportKeyEvent(int key, bool down)
+void gt_esmini::ControllerKinematic::ReportKeyEvent(int key, bool down)
 {
     (void)key;
     (void)down;

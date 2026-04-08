@@ -16,7 +16,7 @@
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
-#include "ControllerKinematic.hpp"
+#include "gt_esmini/control/ControllerKinematic.hpp"
 
 #include <fstream>
 #include <iostream>
