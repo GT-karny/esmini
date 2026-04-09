@@ -8,6 +8,7 @@
     "pd_kp": 2.0,
     "pd_kd": 0.5,
     "steering_speed_inertia": 0.005,
+    "steering_damping": 0.0,
     "road_end_behavior": "inertia",
     "max_acc": 10.0,
     "max_dec": 10.0,

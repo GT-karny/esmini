@@ -36,24 +36,8 @@ namespace gt_esmini
             double min_look_ahead_dist  = 4.0;    // meters
             double max_look_ahead_dist  = 30.0;   // meters
             double max_steering_angle   = 1.047;  // radians (~60 degrees)
-            double max_steering_rate    = 1.5;    // rad/s
-            double max_lateral_error    = 10.0;   // meters — error threshold for simulation stop
-            double pd_kp               = 1.0;     // PD proportional gain
-            double pd_kd               = 0.1;     // PD derivative gain
-            double steering_speed_inertia = 0.005; // speed-dependent steering gain factor
-            double max_acc             = 10.0;    // m/s² — acceleration limit for speed convergence
-            double max_dec             = 10.0;    // m/s² — deceleration limit for speed convergence
-            double max_speed           = 100.0;   // m/s
-            double curve_speed_reduction_k  = 0.6;  // quadratic reduction coefficient (0=disabled, 1=full)
-            double curve_speed_min_factor   = 0.2;  // minimum speed fraction (never reduce below 20%)
-
-            enum class RoadEndBehavior
-            {
-                INERTIA,     // continue straight with current heading/speed
-                STOP,        // decelerate to zero
-                HALT_ERROR   // error stop the simulation
-            };
-            RoadEndBehavior road_end_behavior = RoadEndBehavior::INERTIA;
+            double steering_speed_inertia = 0.005; // speed-dependent max-angle reduction at high speed
+            double max_steering_rate     = 0.5;   // rad/s — fixed-speed interp rate (wheel_angle moves at most this fast)
 
             bool debug_log = false;
         };
@@ -84,13 +68,11 @@ namespace gt_esmini
         double GetWheelAngle() const { return vehicle_.wheelAngle_; }
 
     private:
-        /// Reset bicycle model to match the object's current state.
-        void ResetToObject();
-
         /// Compute the look-ahead target point from object's road position.
-        void ComputeLookAheadTarget(double look_ahead_dist, double& target_x, double& target_y);
+        /// Returns true if MoveAlongS succeeded, false if fallback was used.
+        bool ComputeLookAheadTarget(double look_ahead_dist, double& target_x, double& target_y);
 
-        vehicle::Vehicle      vehicle_;     // kinematic bicycle model
+        vehicle::Vehicle      vehicle_;     // used only for wheelAngle_ / wheelRotation_ storage
         Config                 config_;
 
         // Internal state
