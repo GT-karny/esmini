@@ -26,6 +26,8 @@ namespace gt_esmini
         // Dynamics accessors
         double GetPitch() const { return pitch_; } // pitch_ is in base class
         double GetRoll() const { return roll_; }
+        double GetDynamicPitch() const { return dynamic_pitch_; }
+        double GetDynamicRoll()  const { return dynamic_roll_; }
         double GetRPM() const { return rpm_; }
         double GetTorqueOutput() const { return GetTorque(rpm_); }
 

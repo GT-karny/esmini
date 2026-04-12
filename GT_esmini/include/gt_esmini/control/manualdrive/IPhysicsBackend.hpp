@@ -49,6 +49,16 @@ public:
     {
         pitch = roll = 0.0;
     }
+
+    // Feed road Z back for correct HVD export. Called after Apply().
+    virtual void SyncRoadZ(double road_z) { (void)road_z; }
+
+    // Dynamic-only attitude (spring-damper), excluding terrain component.
+    // Gateway uses P_REL/R_REL which adds road pitch/roll automatically.
+    virtual void GetDynamicAttitude(double& pitch, double& roll) const
+    {
+        pitch = roll = 0.0;
+    }
 };
 
 } // namespace gt_esmini

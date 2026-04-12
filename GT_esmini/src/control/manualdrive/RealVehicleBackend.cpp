@@ -71,6 +71,17 @@ void RealVehicleBackend::GetCombinedAttitude(double& pitch, double& roll) const
     const_cast<RealVehicle&>(real_vehicle_).GetCombinedAttitude(pitch, roll);
 }
 
+void RealVehicleBackend::SyncRoadZ(double road_z)
+{
+    real_vehicle_.SetZ(road_z);
+}
+
+void RealVehicleBackend::GetDynamicAttitude(double& pitch, double& roll) const
+{
+    pitch = real_vehicle_.GetDynamicPitch();
+    roll  = real_vehicle_.GetDynamicRoll();
+}
+
 osi3::HostVehicleData RealVehicleBackend::BuildHVD(const PedalSteerCommand& cmd) const
 {
     osi3::HostVehicleData hvd;
