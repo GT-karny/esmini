@@ -1104,8 +1104,10 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
 
         // [GT_MOD] Calculate laneOffset relative to targetLaneId.
         // This is crucial for the Python router to know we are not AT the lane center yet.
-        // Logic: Higher LaneID is to the Left (e.g. +2 > +1 > -1 > -2).
-        // If Target > Start (Left move), Start is to the Right -> Negative Offset.
+        // Geometric convention (OpenDRIVE §9, LHT/RHT-neutral): lane_id ascends toward +t
+        // (geometric left of reference line). Thus targetLaneId > currentLaneId means the
+        // target lane lies on the +t side -> current position sits on the -t side ->
+        // laneOffset relative to target is negative. Sign is pure geometry, not driving side.
         double lateralDist = realdetail::Distance2D(posCur.GetX(), posCur.GetY(), posTgt.GetX(), posTgt.GetY());
         double sign = (currentLaneId < targetLaneId) ? -1.0 : 1.0;
         wp.laneOffset = lateralDist * sign * (1.0 - factor);
