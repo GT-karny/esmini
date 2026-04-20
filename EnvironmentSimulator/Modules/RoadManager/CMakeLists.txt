@@ -16,9 +16,12 @@ endif()
 # ############################### Setting target files ###############################################################
 
 set(SOURCES
-    RoadManager.cpp
     odrSpiral.cpp
     LaneIndependentRouter.cpp)
+
+# GT_esmini modification: Swap RoadManager.cpp with GT_RoadManager.cpp (LHT/RHT fixes)
+message(STATUS "GT_esmini: Swapping RoadManager.cpp with GT_RoadManager.cpp")
+list(APPEND SOURCES "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/GT_RoadManager.cpp")
 
 add_library(
     pugixml_lib

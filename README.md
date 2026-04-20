@@ -65,7 +65,7 @@ In addition to internal API ([example](https://esmini.github.io/#_fetch_state_of
   Hello World tutorial includes an [example of how to fetch OSI groundtruth](https://esmini.github.io/#_osi_groundtruth).
 
   Current versions used by esmini:
-   - OSI version: v3.5.0
+   - OSI version: v3.7.0
    - Google Protobuf version: v3.15.2
 
   Script that compiles OSI for Win/Linux/Mac available [here](https://github.com/esmini/esmini/blob/master/scripts/generate_osi_libs.sh). Run in bash, also on Windows, e.g. GIT bash.

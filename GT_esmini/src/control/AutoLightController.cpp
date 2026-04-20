@@ -783,11 +783,18 @@ namespace gt_esmini
         
         if (connRoad)
         {
-            // Determine Direction of Travel to find Exit Link
-            // Lane ID < 0: Travel with S (Exit is Successor)
-            // Lane ID > 0: Travel against S (Exit is Predecessor)
-            // Lane ID = 0: Center (Invalid for driving, but assume Successor?)
-            bool withS = (info.road_lane_info.laneId < 0);
+            // Determine direction of travel to find Exit Link.
+            // Travel direction depends on both lane_id sign and road @rule (LHT/RHT).
+            // Use connRoad->GetRule() so this works for both LHT and RHT maps.
+            // withS == true  -> traveling in +s direction -> exit is Successor
+            // withS == false -> traveling in -s direction -> exit is Predecessor
+            const int laneId = info.road_lane_info.laneId;
+            bool withS = false;
+            if (laneId != 0)
+            {
+                const bool rhsNegativeForward = (connRoad->GetRule() != roadmanager::Road::RoadRule::LEFT_HAND_TRAFFIC);
+                withS = rhsNegativeForward ? (laneId < 0) : (laneId > 0);
+            }
             roadmanager::LinkType targetLinkType = withS ? roadmanager::SUCCESSOR : roadmanager::PREDECESSOR;
             linkTypeVal = withS ? 1 : -1;
 

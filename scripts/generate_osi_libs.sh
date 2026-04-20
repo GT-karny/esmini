@@ -28,21 +28,26 @@
 # Review and update settings in this section according to your system and preferences
 
 PROTOBUF_VERSION=3.15.2
-OSI_VERSION=3.5.0
+OSI_VERSION=3.7.0
 ZIP_MIN_VERSION=13
 PARALLEL_BUILDS=4
+
+# cmake 4.x drops support for cmake_minimum_required < 3.5. protobuf 3.15.2 and
+# zlib 1.2.13 use older policies, so we pin a minimum policy version when invoking
+# cmake. Harmless on cmake 3.x.
+CMAKE_POLICY_MIN="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
 if (( "$PARALLEL_BUILDS" < 2 )); then
     PARALLEL_ARG=""
 else
-    PARALLEL_ARG="$PARALLEL_BUILDS"
+    PARALLEL_ARG="--parallel $PARALLEL_BUILDS"
 fi
 
 if [ "$OSTYPE" == "msys" ]; then
-    # Visual Studio 2022 using toolkit from Visual Studio 2017
+    # Visual Studio 2022 default toolset (v143). Original upstream pinned v142
+    # (VS2019) but GT_Sim is built with v143, so we must match.
     GENERATOR=("Visual Studio 17 2022")
-    GENERATOR_TOOLSET="v142"
-    GENERATOR_ARGUMENTS="-A x64 -T ${GENERATOR_TOOLSET}"
+    GENERATOR_ARGUMENTS="-A x64"
 
     # Visual Studio 2019 using default toolkit
     # GENERATOR=("Visual Studio 16 2019")
@@ -60,8 +65,8 @@ else
 fi
 
 if [ "$OSTYPE" == "msys" ]; then
-    target_dir="v10"
-    zfilename="osi_v10.7z"
+    target_dir="v11"
+    zfilename="osi_v11.7z"
     z_exe="/c/Program Files/7-Zip/7z.exe"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     target_dir="linux"
@@ -113,7 +118,7 @@ if [ ! -d zlib ]; then
         cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -D CMAKE_INSTALL_PREFIX=../install -DCMAKE_BUILD_TYPE=Release .. -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_OSX_ARCHITECTURES="$macos_arch"
         cmake --build . $PARALLEL_ARG --target install
     else
-        cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -D CMAKE_INSTALL_PREFIX=../install ..
+        cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -D CMAKE_INSTALL_PREFIX=../install $CMAKE_POLICY_MIN ..
         cmake --build . $PARALLEL_ARG --config Debug --target install
         cmake --build . $PARALLEL_ARG --config Release --target install --clean-first
     fi
@@ -183,14 +188,14 @@ function build {
         fi
 
         if [[ "$OSTYPE" != "darwin"* ]]; then
-            cmake ../cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -DZLIB_LIBRARY=../../zlib/install/lib/$ZLIB_FILE_DEBUG -DZLIB_INCLUDE_DIR=../../zlib/install/include -DCMAKE_INSTALL_PREFIX=$INSTALL_PROTOBUF_DIR -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_WITH_ZLIB=ON -Dprotobuf_MSVC_STATIC_RUNTIME=OFF -DCMAKE_BUILD_TYPE=Debug $ADDITIONAL_CMAKE_PARAMETERS
+            cmake ../cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -DZLIB_LIBRARY=../../zlib/install/lib/$ZLIB_FILE_DEBUG -DZLIB_INCLUDE_DIR=../../zlib/install/include -DCMAKE_INSTALL_PREFIX=$INSTALL_PROTOBUF_DIR -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_WITH_ZLIB=ON -Dprotobuf_MSVC_STATIC_RUNTIME=OFF -DCMAKE_BUILD_TYPE=Debug $CMAKE_POLICY_MIN $ADDITIONAL_CMAKE_PARAMETERS
             cmake --build . $PARALLEL_ARG --config Debug --target install --clean-first
             rm CMakeCache.txt
         else
             ADDITIONAL_CMAKE_PARAMETERS+=" -DCMAKE_OSX_ARCHITECTURES=$macos_arch"
         fi
 
-        cmake ../cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -DZLIB_LIBRARY=../../zlib/install/lib/$ZLIB_FILE_RELEASE -DZLIB_INCLUDE_DIR=../../zlib/install/include -DCMAKE_INSTALL_PREFIX=$INSTALL_PROTOBUF_DIR -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_WITH_ZLIB=ON -Dprotobuf_MSVC_STATIC_RUNTIME=OFF -DCMAKE_BUILD_TYPE=Release $ADDITIONAL_CMAKE_PARAMETERS
+        cmake ../cmake -G "${GENERATOR[@]}" ${GENERATOR_ARGUMENTS} -DZLIB_LIBRARY=../../zlib/install/lib/$ZLIB_FILE_RELEASE -DZLIB_INCLUDE_DIR=../../zlib/install/include -DCMAKE_INSTALL_PREFIX=$INSTALL_PROTOBUF_DIR -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_WITH_ZLIB=ON -Dprotobuf_MSVC_STATIC_RUNTIME=OFF -DCMAKE_BUILD_TYPE=Release $CMAKE_POLICY_MIN $ADDITIONAL_CMAKE_PARAMETERS
         cmake --build . $PARALLEL_ARG --config Release --target install --clean-first
 
     else
@@ -205,7 +210,10 @@ function build {
     if [ ! -d open-simulation-interface$folder_postfix ]; then
         git clone https://github.com/OpenSimulationInterface/open-simulation-interface.git --depth 1 --branch v$OSI_VERSION open-simulation-interface$folder_postfix
         cd open-simulation-interface$folder_postfix
-        sh ./convert-to-proto3.sh
+        # DO NOT run convert-to-proto3.sh. OSI is natively proto2; converting to
+        # proto3 makes set_value(0) silently drop on the wire, which breaks ego
+        # Identifier emission (e.g. host_vehicle_id.value=0 for parking_lot.xosc).
+        # sh ./convert-to-proto3.sh
         mkdir build
         cd build
 
@@ -213,9 +221,9 @@ function build {
         INSTALL_INCLUDE_DIR=$INSTALL_ROOT_DIR/include
         export PATH=$PATH:../../graphviz/release/bin:../../protobuf$folder_postfix/protobuf-install/bin
         if [ "$OSTYPE" == "msys" ]; then
-            PROTOC_EXE="../../protobuf_$1/protobuf-install/bin/protoc.exe"
+            PROTOC_EXE="../../protobuf$folder_postfix/protobuf-install/bin/protoc.exe"
         else
-            PROTOC_EXE="../../protobuf_$1/protobuf-install/bin/protoc"
+            PROTOC_EXE="../../protobuf$folder_postfix/protobuf-install/bin/protoc"
         fi
 
         if [ $DYNAMIC_LINKING == "1" ]; then
@@ -228,7 +236,7 @@ function build {
         mkdir $INSTALL_ROOT_DIR/debug
         mkdir $INSTALL_ROOT_DIR/release
 
-        COMMON_ARGS=".. -D CMAKE_INCLUDE_PATH=../protobuf$folder_postfix/protobuf-install/include -D PROTOBUF_SRC_ROOT_FOLDER=../../protobuf_$1/ -D Protobuf_PROTOC_EXECUTABLE=$PROTOC_EXE -D CMAKE_VERBOSE_MAKEFILE=ON -D CMAKE_LIBRARY_PATH=../protobuf$folder_postfix/protobuf-install/lib -D CMAKE_CXX_STANDARD=11"
+        COMMON_ARGS=".. -D CMAKE_INCLUDE_PATH=../protobuf$folder_postfix/protobuf-install/include -D PROTOBUF_SRC_ROOT_FOLDER=../../protobuf$folder_postfix/ -D Protobuf_PROTOC_EXECUTABLE=$PROTOC_EXE -D CMAKE_VERBOSE_MAKEFILE=ON -D CMAKE_LIBRARY_PATH=../protobuf$folder_postfix/protobuf-install/lib -D CMAKE_CXX_STANDARD=11 $CMAKE_POLICY_MIN"
 
         if [[ "$OSTYPE" != "darwin"* ]]; then
             # Build debug variant first

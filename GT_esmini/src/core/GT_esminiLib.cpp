@@ -861,8 +861,20 @@ GT_ESMINI_API void GT_Step(double dt)
                 }
                 else
                 {
-                    // No GT custom controller: estimate HVD from observable vehicle state
+                    // No GT custom controller with full inputs: estimate HVD from observable vehicle state
                     auto estimated = s_hvdEstimator.Estimate(egoObject, dt);
+
+                    // If KinematicController is active, use its wheel angle directly.
+                    // KC already produces a rate-limited, curvature-based value —
+                    // bypass HVDEstimator's preview-point attenuation + EMA double-processing.
+                    Controller* kinCtrl = egoObject->GetAssignedControllerOftype(
+                        Controller::Type::CONTROLLER_TYPE_KINEMATIC);
+                    if (kinCtrl && kinCtrl->IsActive())
+                    {
+                        auto* kc = static_cast<gt_esmini::ControllerKinematic*>(kinCtrl);
+                        estimated.steering = kc->GetWheelAngle();
+                    }
+
                     hvReporter.SetInputs(vehicleId, estimated.throttle, estimated.brake,
                                          estimated.steering, estimated.gear);
                     hvReporter.SetLights(vehicleId, estimated.lightMask);

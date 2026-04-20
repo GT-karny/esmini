@@ -38,7 +38,7 @@ void HVDStateApplier::Apply(scenarioengine::ScenarioGateway* gateway,
 
     gateway->updateObjectWorldPos(
         object->id_, 0.0,
-        pos_x + w_dx, pos_y + w_dy, pos_z + body_offset_z,
+        pos_x + w_dx, pos_y + w_dy, body_offset_z,
         heading, combined_pitch, combined_roll);
 
     // Sync object pose for internal consistency

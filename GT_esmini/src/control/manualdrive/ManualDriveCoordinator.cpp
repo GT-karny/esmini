@@ -104,7 +104,7 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     c.physics_backend_->GetBodyPositionOffset(body_dx, body_dy, body_dz);
 
     double combined_pitch = 0.0, combined_roll = 0.0;
-    c.physics_backend_->GetCombinedAttitude(combined_pitch, combined_roll);
+    c.physics_backend_->GetDynamicAttitude(combined_pitch, combined_roll);
 
     // 9. Sync to esmini gateway
     //    block_speed_update when longitudinal is scenario-controlled
@@ -118,6 +118,9 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
                                body_dx, body_dy, body_dz,
                                combined_pitch, combined_roll,
                                block_speed);
+
+        // Feed resolved road Z back to physics for correct HVD export
+        c.physics_backend_->SyncRoadZ(c.object_->pos_.GetZ());
     }
 
     // 10. Update OSI HostVehicleReporter

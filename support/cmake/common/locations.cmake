@@ -124,7 +124,7 @@ macro(set_project_os_specific_paths)
             set(EXTERNALS_OSG_OS_SPECIFIC_PATH
                 ${EXTERNALS_OSG_PATH}/v10)
             set(EXTERNALS_OSI_OS_SPECIFIC_PATH
-                ${EXTERNALS_OSI_PATH}/v10)
+                ${EXTERNALS_OSI_PATH}/v11)
             set(EXTERNALS_SUMO_OS_SPECIFIC_PATH
                 ${EXTERNALS_SUMO_PATH}/v10)
             set(EXTERNALS_GOOGLETEST_OS_SPECIFIC_PATH

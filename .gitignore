@@ -19,7 +19,8 @@ version.txt
 log.txt
 esmini-dyn.log
 externals/osg
-externals/osi
+externals/osi/*
+!externals/osi/v11/
 externals/sumo
 externals/googletest
 externals/implot
