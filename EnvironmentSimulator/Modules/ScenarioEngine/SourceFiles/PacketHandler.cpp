@@ -303,6 +303,15 @@ int Dat::DatWriter::WriteObjectStatesToDat(const std::vector<std::unique_ptr<sce
             Write(PacketId::OBJ_MODEL3D, p_str);
         }
 
+        // PacketId::SHAPE_2D_OUTLINE
+        if (cache_it->second.outline_2d.size() == 0 && state->outline.size() > 0)
+        {
+            cache_it->second.outline_2d = state->outline;
+
+            PacketShape2DOutline packet_shape = {cache_it->second.outline_2d};
+            Write(PacketId::SHAPE_2D_OUTLINE, packet_shape);
+        }
+
         this->SetObjectIdWritten(false);  // Indicate we need to write object id for next state
     }
 
@@ -335,6 +344,10 @@ void Dat::DatWriter::CheckDeletedObjects()
 
 void Dat::DatWriter::WritePacket(PacketGeneric& packet)
 {
+    if (packet.header.data_size != packet.data.size())
+    {
+        LOG_ERROR_AND_QUIT("packet id {} fails", packet.header.id);
+    }
     write_file_.write(reinterpret_cast<char*>(&packet.header), sizeof(PacketHeader));
     write_file_.write(packet.data.data(), static_cast<std::streamsize>(packet.data.size()));
 }
@@ -442,7 +455,7 @@ bool Dat::DatReader::ReadFile(Dat::PacketHeader& header)
     return true;
 }
 
-void Dat::DatReader::UnknownPacket(const Dat::PacketHeader& header)
+void Dat::DatReader::SkipPacket(const Dat::PacketHeader& header)
 {
     file_.seekg(header.data_size, std::ios::cur);  // Skips the packet by moving cursor ahead
 }
@@ -453,6 +466,17 @@ void Dat::DatReader::CloseFile()
     {
         file_.close();
     }
+}
+
+std::string Dat::DatReader::ReadStringPacket(const Dat::PacketGeneric& pkt)
+{
+    const char*  ptr = pkt.data.data();
+    unsigned int size;
+
+    memcpy(&size, ptr, sizeof(size));
+    ptr += sizeof(size);
+
+    return std::string(ptr, size);
 }
 
 int Dat::DatReader::ReadStringPacket(std::string& str)
@@ -467,11 +491,20 @@ int Dat::DatReader::ReadStringPacket(std::string& str)
     {
         return -1;
     }
-
     return 0;
 }
 
-int Dat::DatReader::FillDatHeader()
+std::vector<SE_Point2D> Dat::DatReader::ReadOutlinePacket(const Dat::PacketGeneric& pkt)
+{
+    const char* ptr = pkt.data.data();
+
+    std::vector<SE_Point2D> points(pkt.header.data_size / sizeof(SE_Point2D));
+    memcpy(points.data(), ptr, pkt.header.data_size);
+
+    return points;
+}
+
+int Dat::DatReader::FillDatHeader(bool quiet)
 {
     if (!file_.read(reinterpret_cast<char*>(&header_.version_major), sizeof(header_.version_major)) ||
         !file_.read(reinterpret_cast<char*>(&header_.version_minor), sizeof(header_.version_minor)))
@@ -508,15 +541,18 @@ int Dat::DatReader::FillDatHeader()
         LOG_ERROR_AND_QUIT("Failed reading git rev.");
     }
 
-    LOG_INFO("Datfile {} opened: version {}.{}, odr_filename: {}, model_filename: {}, GIT REV: {}",
-             file_name_,
-             header_.version_major,
-             header_.version_minor,
-             header_.odr_filename.string,
-             header_.model_filename.string,
-             header_.git_rev.string);
+    if (!quiet)
+    {
+        LOG_INFO("Datfile {} opened: version {}.{}, odr_filename: {}, model_filename: {}, GIT REV: {}",
+                 file_name_,
+                 header_.version_major,
+                 header_.version_minor,
+                 header_.odr_filename.string,
+                 header_.model_filename.string,
+                 header_.git_rev.string);
+    }
 
-    if (header_.version_minor != DAT_FILE_FORMAT_VERSION_MINOR)
+    if (header_.version_minor != DAT_FILE_FORMAT_VERSION_MINOR && !quiet)
     {
         LOG_WARN("replayer compiled for version {}.{}. Some inconsistencies are expected.",
                  DAT_FILE_FORMAT_VERSION_MAJOR,
@@ -534,7 +570,10 @@ int Dat::DatReader::FillDatHeader()
     {
         auto remaining_payload = payload_end - after_read;
         file_.seekg(remaining_payload, std::ios::cur);
-        LOG_WARN("Skipping {} amount of unrecognized .dat header data", static_cast<size_t>(remaining_payload));
+        if (!quiet)
+        {
+            LOG_WARN("Skipping {} amount of unrecognized .dat header data", static_cast<size_t>(remaining_payload));
+        }
     }
 
     return 0;

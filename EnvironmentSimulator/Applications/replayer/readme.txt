@@ -4,7 +4,7 @@ Application is launched from command line (or batch file).
 
 Usage: replayer [options]
 Options:
-  --file <filename>
+  [--file] <filename>
       Simulation recording data file (.dat)
   --aa_mode [mode]  (default if value omitted: 4)
       Anti-alias mode=number of multisamples (subsamples, 0=off)
@@ -36,6 +36,8 @@ Options:
       Show this help message (-h works as well)
   --hide_trajectories
       Hide trajectories from start (toggle with key 'n')
+  --hide_obj_outline
+      Hide any object 2D shape outlines (toggle key ';')
   --info_text [mode]  (default if option or value omitted: 1)
       Show on-screen info text. Modes: 0=None 1=current 2=per_object 3=both. Toggle key 'i'
   --logfile_path [path]  (default if option or value omitted: replayer_log.txt)
@@ -78,6 +80,8 @@ Options:
       When external scenegraph 3D model is loaded, skip creating signs from OpenDRIVE
   --version
       Show version and quit
+  --view_ghost_restart
+      Ghost restarts will be shown with separate ghosts
   --wireframe
       Global wireframe mode, toggle key 'w'
 

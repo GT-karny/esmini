@@ -907,6 +907,18 @@ int OSIReporter::UpdateOSIStationaryObject(ObjectState *objectState)
     obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(objectState->state_.pos.GetP()));
     obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(objectState->state_.pos.GetH()));
 
+    // Set outline for scenario MiscObjects, if available
+    Object *obj = scenario_engine_->entities_.GetObjectById(objectState->state_.info.id);
+    if (obj != nullptr)
+    {
+        for (const auto &p : obj->outline_2d_)
+        {
+            osi3::Vector2d *vec = obj_osi_internal.sobj->mutable_base()->add_base_polygon();
+            vec->set_x(p.x);
+            vec->set_y(p.y);
+        }
+    }
+
     objectState->SetOSIIndex(obj_osi_internal.static_gt->stationary_object_size());
 
     return 1;
@@ -1151,6 +1163,18 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
         for (const auto &ref : objectState->state_.info.source_reference)
         {
             source_reference->add_identifier(ref);
+        }
+    }
+
+    // Set outline if available
+    Object *obj = scenario_engine_->entities_.GetObjectById(objectState->state_.info.id);
+    if (obj != nullptr)
+    {
+        for (const auto &p : obj->outline_2d_)
+        {
+            osi3::Vector2d *vec = obj_osi_internal.mobj->mutable_base()->add_base_polygon();
+            vec->set_x(p.x);
+            vec->set_y(p.y);
         }
     }
 
@@ -2669,7 +2693,7 @@ int OSIReporter::UpdateStaticTrafficSignals()
                     // Traffic Sign
                     osi3::TrafficSign *trafficSign = obj_osi_internal.static_gt->add_traffic_sign();
                     // Set ID, Value, Text
-                    trafficSign->mutable_id()->set_value(static_cast<unsigned int>(signal->GetId()));
+                    trafficSign->mutable_id()->set_value(signal->GetGlobalId());
                     trafficSign->mutable_main_sign()->mutable_classification()->mutable_value()->set_value(signal->GetValue());
                     trafficSign->mutable_main_sign()->mutable_classification()->mutable_value()->set_text(signal->GetText());
                     trafficSign->mutable_main_sign()->mutable_classification()->set_type(

@@ -1224,6 +1224,10 @@ void LaneRoadMarkTypeLine::SetGlobalId()
 {
     g_id_ = GetNewGlobalId();
 }
+void Signal::SetGlobalId()
+{
+    g_id_ = GetNewGlobalId();
+}
 
 LaneWidth* Lane::GetWidthByIndex(idx_t index) const
 {
@@ -4179,9 +4183,15 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 double s_offset = atof(roadMark.attribute("sOffset").value());
                                 if (s_offset > r->GetLength() - SMALL_NUMBER)
                                 {
-                                    LOG_ERROR("Roadmark s value {:.2f} beyond road length {:.2f}, ignoring it", s_offset, r->GetLength());
+                                    LOG_ERROR("Roadmark sOffset {:.2f} beyond road length {:.2f}, ignoring roadmark", s_offset, r->GetLength());
                                     continue;
                                 }
+                                else if (s_offset < 0.0)
+                                {
+                                    LOG_ERROR("Roadmark sOffset {:.2f} < 0, truncating to 0.0", s_offset);
+                                    s_offset = 0.0;
+                                }
+
                                 double roadMark_fade = CLAMP(atof(ReadUserData(roadMark, "fade", "0.0")), 0.0, 1.0);
 
                                 // type
@@ -4342,6 +4352,19 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                         double space      = atof(line.attribute("space").value());
                                         double t_offset   = atof(line.attribute("tOffset").value());
                                         double s_offset_l = atof(line.attribute("sOffset").value());
+
+                                        if (s_offset_l > r->GetLength() - SMALL_NUMBER)
+                                        {
+                                            LOG_ERROR("Roadmark line sOffset {:.2f} beyond road length {:.2f}, ignoring roadmark line",
+                                                      s_offset_l,
+                                                      r->GetLength());
+                                            continue;
+                                        }
+                                        else if (s_offset_l < 0.0)
+                                        {
+                                            LOG_ERROR("Roadmark line sOffset {:.2f} < 0, truncating to 0.0", s_offset_l);
+                                            s_offset_l = 0.0;
+                                        }
 
                                         if (!line.attribute("color").empty())
                                         {
@@ -4806,16 +4829,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                          pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0));
                     }
 
-                    if (sig != NULL)
-                    {
-                        if (sig->IsDynamic())
-                        {
-                            dynamic_signals_.push_back(sig);
-                        }
-
-                        r->AddSignal(sig);
-                    }
-                    else
+                    if (sig == NULL)
                     {
                         LOG_ERROR("Signal: Major error");
                     }
@@ -4829,7 +4843,15 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                         sig->validity_.push_back(validity);
                     }
 
+                    sig->SetGlobalId();
                     sig->SetAllValidLanes(sig, r);
+
+                    if (sig->IsDynamic())
+                    {
+                        dynamic_signals_.push_back(sig);
+                    }
+
+                    r->AddSignal(sig);
                 }
                 else
                 {
@@ -10152,13 +10174,9 @@ void Position::SetRoadMarkPos(id_t   track_id,
         return;
     }
 
-    if (s > road->GetLength())
-    {
-        // Truncate road mark point to road length
-        s = road->GetLength();
-    }
+    s_ = MIN(s, road->GetLength());
 
-    if (SetLongitudinalTrackPos(track_id, s) < ReturnCode::OK)
+    if (SetLongitudinalTrackPos(track_id, s_) < ReturnCode::OK)
     {
         lane_id_          = lane_id;
         offset_           = offset;
@@ -10171,7 +10189,7 @@ void Position::SetRoadMarkPos(id_t   track_id,
     if (lane_id != lane_id_ && lane_section_idx == IDX_UNDEFINED)
     {
         // New lane ID might indicate a discreet jump to a new, distant position, reset lane section, if not specified in func parameter)
-        lane_section_idx = road->GetLaneSectionIdxByS(s);
+        lane_section_idx = road->GetLaneSectionIdxByS(s_);
     }
 
     LaneSection* lane_section = nullptr;
@@ -10185,7 +10203,7 @@ void Position::SetRoadMarkPos(id_t   track_id,
     else  // Find LaneSection and info according to s
     {
         LaneInfo li;
-        if (road->GetLaneInfoByS(GetS(), lane_section_idx_, lane_id_, li, snapToLaneTypes_) == 0)
+        if (road->GetLaneInfoByS(s_, lane_section_idx_, lane_id_, li, snapToLaneTypes_) == 0)
         {
             lane_section_idx_ = li.lane_section_idx_;
             lane_id_          = li.lane_id_;
@@ -10227,8 +10245,6 @@ void Position::SetRoadMarkPos(id_t   track_id,
         }
         else
         {
-            s_ = MIN(s_, road->GetLength());
-
             if (lane_roadmark->GetNumberOfRoadMarkTypes() != 0)
             {
                 roadmarktype_idx_ = roadmarktype_idx;
@@ -10243,11 +10259,7 @@ void Position::SetRoadMarkPos(id_t   track_id,
             {
                 roadmarkline_idx_                           = roadmarkline_idx;
                 LaneRoadMarkTypeLine* lane_roadmarktypeline = lane_roadmarktype->GetLaneRoadMarkTypeLineByIdx(roadmarkline_idx_);
-                if (lane_roadmarktypeline != nullptr)
-                {
-                    s_ = MIN(s_, road->GetLength());
-                }
-                else
+                if (lane_roadmarktypeline == nullptr)
                 {
                     LOG_ERROR("roadmarktypeline_idx_ {} fail for roadmarktype_idx {}", roadmarkline_idx_, roadmarktype_idx_);
                     roadmarkline_idx_ = 0;

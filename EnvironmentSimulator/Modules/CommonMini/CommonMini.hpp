@@ -222,6 +222,12 @@ public:
     static const float (&Color2RBG(Color color_enum))[3];
 };
 
+struct SE_Point2D
+{
+    double x;
+    double y;
+};
+
 class SE_Vector
 {
 public:
@@ -989,6 +995,7 @@ public:
     bool                     persistent_          = false;
     bool                     autoApply_           = false;
     bool                     isSingleValueOption_ = false;
+    bool                     isDefaultArgument_   = false;
 
     SE_Option()
     {
@@ -999,14 +1006,16 @@ public:
               std::string opt_arg             = "",
               std::string default_value       = "",
               bool        autoApply           = false,
-              bool        isSingleValueOption = false)
+              bool        isSingleValueOption = false,
+              bool        isDefaultArgument   = false)
         : opt_str_(opt_str),
           opt_desc_(opt_desc),
           opt_arg_(opt_arg),
           set_(false),
           default_value_(default_value),
           autoApply_(autoApply),
-          isSingleValueOption_(isSingleValueOption)
+          isSingleValueOption_(isSingleValueOption),
+          isDefaultArgument_(isDefaultArgument)
     {
     }
 
@@ -1030,7 +1039,8 @@ public:
                    std::string opt_arg             = "",
                    std::string default_value       = "",
                    bool        autoApply           = false,
-                   bool        isSingleValueOption = true);
+                   bool        isSingleValueOption = true,
+                   bool        isDefaultArgument   = false);
 
     void PrintUsage();
     void PrintUnknownArgs(std::string message = "Unrecognized arguments:") const;
@@ -1081,6 +1091,7 @@ private:
     std::string              app_name_;
     std::vector<std::string> originalArgs_;
     std::vector<std::string> unknown_args_;
+    SE_Option*               default_option_ = nullptr;
 };
 
 class SE_SystemTime
