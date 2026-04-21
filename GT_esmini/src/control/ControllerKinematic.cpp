@@ -379,14 +379,25 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     double max_angle = speed_scale * config_.max_steering_angle;
     ideal_angle = CLAMP(ideal_angle, -max_angle, max_angle);
 
-    // === Phase 3: Rate limit with acceleration constraint ===
-    // First, compute desired rate to reach ideal_angle
-    double desired_rate = (timeStep > 1e-6) ? (ideal_angle - vehicle_.wheelAngle_) / timeStep : 0.0;
-    desired_rate = CLAMP(desired_rate, -config_.max_steering_rate, config_.max_steering_rate);
+    // === Phase 3: Trapezoidal rate profile (rate + accel + stopping-distance) ===
+    // Cap rate such that we can still decelerate to 0 at ideal_angle without
+    // overshooting. Stopping distance from current rate r at max accel a is
+    //   d_stop = r^2 / (2a)
+    // Inverting: max allowable rate given remaining Δθ is sqrt(2·a·|Δθ|).
+    // This replaces the naive (Δθ/dt) desired-rate with a predictive cap,
+    // guaranteeing rate reaches 0 when angle reaches ideal (no overshoot).
+    double delta = ideal_angle - vehicle_.wheelAngle_;
+    double abs_delta = fabs(delta);
+    double accel = config_.max_steering_accel;
 
-    // Limit rate-of-change of steering rate (acceleration)
+    double rate_by_stopping = sqrt(2.0 * accel * abs_delta);
+    double rate_cap = std::min(config_.max_steering_rate, rate_by_stopping);
+
+    double desired_rate = (abs_delta < 1e-9) ? 0.0 : copysign(rate_cap, delta);
+
+    // Apply accel limit on rate transition
     double rate_diff = desired_rate - prev_rate_;
-    double max_rate_delta = config_.max_steering_accel * timeStep;
+    double max_rate_delta = accel * timeStep;
     double new_rate = prev_rate_ + CLAMP(rate_diff, -max_rate_delta, max_rate_delta);
     new_rate = CLAMP(new_rate, -config_.max_steering_rate, config_.max_steering_rate);
     prev_rate_ = new_rate;
