@@ -11,7 +11,7 @@
 
 #include "Entities.hpp"
 #include "ScenarioEngine.hpp"
-#include "ScenarioGateway.hpp"
+// #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "esminiLib.hpp"
 #include "logger.hpp"
 
@@ -888,12 +888,12 @@ void ControllerPythonDriver::SyncObjectPoseFromRealVehicle()
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
 
     object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, normalized_heading);
-    object_->SetDirtyBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
+    object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
 }
 
 void ControllerPythonDriver::SyncGatewayObjectState(double combinedPitch, double combinedRoll)
 {
-    if (!object_ || !gateway_)
+    if (!object_)
     {
         return;
     }
@@ -910,19 +910,19 @@ void ControllerPythonDriver::SyncGatewayObjectState(double combinedPitch, double
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
 
-    gateway_->updateObjectWorldPosXYH(object_->id_, 0.0, real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, normalized_heading);
-    gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
-    lastWrittenGatewaySpeed_ = real_vehicle_.speed_;
-    gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
-    gateway_->updateObjectWorldPos(
-        object_->id_,
-        0.0,
+    // v3.0.0: Gateway removed — write directly to Object
+    object_->pos_.SetInertiaPos(
         real_vehicle_.posX_ + w_dx,
         real_vehicle_.posY_ + w_dy,
         real_vehicle_.posZ_ + dz,
         normalized_heading,
         combinedPitch,
         combinedRoll);
+    object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
+    object_->SetSpeed(real_vehicle_.speed_);
+    lastWrittenGatewaySpeed_ = real_vehicle_.speed_;
+    object_->wheel_angle_ = real_vehicle_.wheelAngle_;
+    object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::WHEEL_ANGLE);
 
     SyncObjectPoseFromRealVehicle();
 }

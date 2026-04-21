@@ -104,7 +104,7 @@ void PythonDriverCoordinator::RunFrame(ControllerPythonDriver& controller, doubl
     double combined_roll  = 0.0;
     controller.real_vehicle_.GetCombinedAttitude(combined_pitch, combined_roll);
 
-    if (controller.object_ && controller.gateway_)
+    if (controller.object_)
     {
         controller.SyncGatewayObjectState(combined_pitch, combined_roll);
         controller.UpdateVehicleLights();

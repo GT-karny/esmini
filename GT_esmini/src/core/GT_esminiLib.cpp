@@ -618,7 +618,6 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 initArgs.name = std::string("KinematicController_") + obj->GetName();
                 initArgs.type = CONTROLLER_KINEMATIC_TYPE_NAME;
                 initArgs.properties = &props;
-                initArgs.gateway = player->scenarioGateway;
                 initArgs.scenario_engine = player->scenarioEngine;
                 initArgs.parameters = nullptr;
 
@@ -705,50 +704,34 @@ GT_ESMINI_API void GT_Step(double dt)
     // Update heading correction (nose-leading behavior for non-GT-controller vehicles)
     gt_esmini::HeadingCorrectionManager::Instance().Update(dt);
 
-    // Sync post-processed positions (pitch/roll from VehiclePhysicsManager, heading from
-    // HeadingCorrectionManager) back into the ScenarioGateway so that the viewer and OSI
-    // reporter see the corrected values. SE_StepDT updates the gateway before our post-
-    // processing runs, so without this sync, corrections are invisible.
-    if (player && player->scenarioGateway && player->scenarioEngine)
-    {
-        for (auto* obj : player->scenarioEngine->entities_.object_)
-        {
-            if (obj && obj->type_ == scenarioengine::Object::Type::VEHICLE)
-            {
-                player->scenarioGateway->updateObjectPos(obj->id_,
-                                                          player->scenarioEngine->getSimulationTime(),
-                                                          &obj->pos_);
-            }
-        }
-        // Clear gateway dirty bits so that ScenarioEngine::step() on the next
-        // frame does not interpret these synced positions as "externally reported"
-        // and skip defaultController movement.
-        player->scenarioGateway->clearDirtyBits();
-    }
+    // v3.0.0: Gateway module removed — Object::pos_ is the authoritative state.
+    // Post-processed positions (pitch/roll from VehiclePhysicsManager, heading from
+    // HeadingCorrectionManager) are already written directly to obj->pos_ by the
+    // post-processors, so no sync step is needed. Double-buffered DirtyBits are
+    // managed by ScenarioEngine automatically.
 
     // Update HostVehicleData (using separated GT_HostVehicleReporter)
 #ifdef _USE_OSI
-    if (player && player->scenarioGateway && player->scenarioEngine &&
+    if (player && player->scenarioEngine &&
         gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
     {
         auto& hvReporter = gt_esmini::GT_HostVehicleReporter::Instance();
 
-        // Resolve target vehicle: by name from config, or default to index 0
-        ObjectState* egoState = nullptr;
+        // v3.0.0: Gateway removed — resolve ego Object* directly from entities
+        const auto& entities = player->scenarioEngine->entities_.object_;
+        Object* egoObj = nullptr;
         const auto& targetName = hvReporter.GetTargetVehicle();
         if (!targetName.empty())
         {
-            int numObjects = player->scenarioGateway->getNumberOfObjects();
-            for (int i = 0; i < numObjects; i++)
+            for (auto* obj : entities)
             {
-                ObjectState* state = player->scenarioGateway->getObjectStatePtrByIdx(i);
-                if (state && std::string(state->state_.info.name) == targetName)
+                if (obj && obj->name_ == targetName)
                 {
-                    egoState = state;
+                    egoObj = obj;
                     break;
                 }
             }
-            if (!egoState)
+            if (!egoObj)
             {
                 static bool warnedOnce = false;
                 if (!warnedOnce)
@@ -756,17 +739,17 @@ GT_ESMINI_API void GT_Step(double dt)
                     LOG_WARN("GT_Step: target_vehicle '{}' not found, falling back to index 0", targetName);
                     warnedOnce = true;
                 }
-                egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+                egoObj = entities.empty() ? nullptr : entities[0];
             }
         }
         else
         {
-            egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
+            egoObj = entities.empty() ? nullptr : entities[0];
         }
 
-        if (egoState)
+        if (egoObj)
         {
-            int vehicleId = egoState->state_.info.id;
+            int vehicleId = egoObj->id_;
 
             // Clear ADAS functions from previous frame
             hvReporter.ClearADASFunctions(vehicleId);
@@ -883,7 +866,7 @@ GT_ESMINI_API void GT_Step(double dt)
             }
 
             // Update HostVehicleData for target vehicle and send
-            hvReporter.UpdateFromObjectState(egoState);
+            hvReporter.UpdateFromObjectState(egoObj);
             hvReporter.Send();
         }
     }
@@ -1025,27 +1008,23 @@ GT_ESMINI_API int GT_GetLocalIdFromGlobalId(int global_id)
 
 GT_ESMINI_API int GT_ReportObjectVel(int object_id, float timestamp, float x_vel, float y_vel, float z_vel)
 {
+    (void)timestamp;  // v3.0.0: timestamp removed from SE_ReportObjectVel
     // Call original esminiLib function to update velocity vector
-    int ret = SE_ReportObjectVel(object_id, timestamp, x_vel, y_vel, z_vel);
+    int ret = SE_ReportObjectVel(object_id, x_vel, y_vel, z_vel);
     if (ret != 0)
     {
         return ret;
     }
 
     // [GT_MOD] Sync scalar speed to match velocity vector magnitude
-    float speed = std::sqrt(x_vel * x_vel + y_vel * y_vel + z_vel * z_vel);
-    
-    // Update speed via ScenarioGateway and Object
-    if (player && player->scenarioGateway)
-    {
-        player->scenarioGateway->updateObjectSpeed(object_id, 0.0, speed);
-    }
-    
-    // Also update Object directly (for callback context)
-    Object* obj = nullptr;
+    double speed = std::sqrt(static_cast<double>(x_vel) * x_vel +
+                              static_cast<double>(y_vel) * y_vel +
+                              static_cast<double>(z_vel) * z_vel);
+
+    // v3.0.0: Gateway removed — write directly to Object
     if (player && player->scenarioEngine)
     {
-        obj = player->scenarioEngine->entities_.GetObjectById(object_id);
+        Object* obj = player->scenarioEngine->entities_.GetObjectById(object_id);
         if (obj)
         {
             obj->SetSpeed(speed);
@@ -1066,13 +1045,10 @@ GT_ESMINI_API void GT_SetHostVehicleInputs(int vehicle_id, double throttle, doub
     {
         // If vehicle_id is -1, use the first vehicle (ego)
         int actual_id = vehicle_id;
-        if (actual_id < 0 && player && player->scenarioGateway)
+        if (actual_id < 0 && player && player->scenarioEngine &&
+            !player->scenarioEngine->entities_.object_.empty())
         {
-            ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
-            if (egoState)
-            {
-                actual_id = egoState->state_.info.id;
-            }
+            actual_id = player->scenarioEngine->entities_.object_[0]->id_;
         }
 
         if (actual_id >= 0)
@@ -1090,13 +1066,10 @@ GT_ESMINI_API void GT_SetHostVehicleLights(int vehicle_id, int light_mask)
     {
         // If vehicle_id is -1, use the first vehicle (ego)
         int actual_id = vehicle_id;
-        if (actual_id < 0 && player && player->scenarioGateway)
+        if (actual_id < 0 && player && player->scenarioEngine &&
+            !player->scenarioEngine->entities_.object_.empty())
         {
-            ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
-            if (egoState)
-            {
-                actual_id = egoState->state_.info.id;
-            }
+            actual_id = player->scenarioEngine->entities_.object_[0]->id_;
         }
 
         if (actual_id >= 0)
@@ -1138,13 +1111,10 @@ GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, doubl
     {
         // If vehicle_id is -1, use the first vehicle (ego)
         int actual_id = vehicle_id;
-        if (actual_id < 0 && player && player->scenarioGateway)
+        if (actual_id < 0 && player && player->scenarioEngine &&
+            !player->scenarioEngine->entities_.object_.empty())
         {
-            ObjectState* egoState = player->scenarioGateway->getObjectStatePtrByIdx(0);
-            if (egoState)
-            {
-                actual_id = egoState->state_.info.id;
-            }
+            actual_id = player->scenarioEngine->entities_.object_[0]->id_;
         }
 
         if (actual_id >= 0)

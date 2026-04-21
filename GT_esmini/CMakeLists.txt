@@ -348,6 +348,11 @@ if(USE_OSG)
     target_link_libraries(${TARGET_STATIC} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
 endif()
 
+if(USE_IMPLOT)
+    target_link_libraries(${TARGET_SHARED} PRIVATE ${IMPLOT_LIBRARIES})
+    target_link_libraries(${TARGET_STATIC} PRIVATE ${IMPLOT_LIBRARIES})
+endif()
+
 if(USE_SUMO)
     target_link_libraries(${TARGET_SHARED} PRIVATE ${SUMO_LIBRARIES})
     target_link_libraries(${TARGET_STATIC} PRIVATE ${SUMO_LIBRARIES})

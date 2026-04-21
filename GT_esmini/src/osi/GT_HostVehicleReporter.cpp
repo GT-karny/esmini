@@ -11,6 +11,8 @@
 
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "CommonMini.hpp"
+#include "logger.hpp"
+#include "Entities.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <fstream>
@@ -270,7 +272,7 @@ void GT_HostVehicleReporter::ClearADASFunctions(int vehicle_id)
     }
 }
 
-int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectState* egoState)
+int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* egoState)
 {
     if (!egoState)
     {

@@ -2,7 +2,7 @@
 
 namespace scenarioengine
 {
-class ObjectState;
+class Object;
 }
 
 namespace gt_esmini
@@ -11,7 +11,7 @@ class IHostVehicleDataProvider
 {
 public:
     virtual ~IHostVehicleDataProvider() = default;
-    virtual int UpdateFromObjectState(const scenarioengine::ObjectState* ego_state) = 0;
+    virtual int UpdateFromObjectState(const scenarioengine::Object* ego_object) = 0;
     virtual void Send() = 0;
 };
 } // namespace gt_esmini
