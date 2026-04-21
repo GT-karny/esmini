@@ -624,6 +624,12 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 auto* ctrl = new gt_esmini::ControllerKinematic(&initArgs);
                 ctrl->LoadConfig(kinConfigPath);
                 ctrl->LinkObject(obj);
+                // LinkObject only sets controller->object_; it does NOT register
+                // the controller in object->controllers_. Without this call,
+                // Object::GetAssignedControllerOftype() can't find the KC, which
+                // breaks the HVD override path and leaves HVDEstimator's
+                // preview-attenuated steering as the reported value.
+                obj->AssignController(ctrl);
 
                 // Activate on LAT domain only (additive mode).
                 // Actions + defaultController run normally; bicycle model follows object_->pos_.
