@@ -2748,6 +2748,7 @@ TEST_F(StraightRoadTest, AngleConditionTest)
     obj.SetActive(true);
 
     TrigByAngle cond;
+    cond.triggering_entity_rule_ = scenarioengine::TrigByEntity::TriggeringEntitiesRule::ANY;
     cond.triggering_entities_.entity_.push_back({&obj});
 
     obj.pos_.SetLanePos(1, -1, 10, 0.0);
@@ -4047,6 +4048,61 @@ TEST(PositionTest, TestPitchAsEffectOfSuperElevation)
     EXPECT_NEAR(entities->object_[3]->pos_.GetH(), 0.2893, 1E-3);
     EXPECT_NEAR(entities->object_[3]->pos_.GetP(), 6.1318, 1E-3);
     EXPECT_NEAR(entities->object_[3]->pos_.GetR(), 5.1810, 1E-3);
+
+    delete se;
+}
+
+// Verify Z is fixed relative object while pitch will align to road surface beneath
+TEST(PositionTest, TestZRelativeObjectInTrajectoryVertex)
+{
+    ScenarioEngine* se = new ScenarioEngine("../../../EnvironmentSimulator/Unittest/xosc/trajectory_with_z_relative_obj.xosc");
+    ASSERT_NE(se, nullptr);
+
+    scenario_step(se, 0.0);
+
+    scenarioengine::Entities* entities = &se->entities_;
+    ASSERT_NE(entities, nullptr);
+    EXPECT_EQ(entities->object_.size(), 1);
+
+    EXPECT_EQ(entities->object_[0]->pos_.GetTrackId(), 1);
+    EXPECT_EQ(entities->object_[0]->pos_.GetLaneId(), -1);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetS(), 350.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetX(), 350.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetY(), -1.535, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetZ(), 20.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetH(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetP(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetR(), 0.0, 1E-3);
+
+    while (se->getSimulationTime() < 4.0 - SMALL_NUMBER)
+    {
+        scenario_step(se, 0.1);
+    }
+
+    EXPECT_EQ(entities->object_[0]->pos_.GetTrackId(), 1);
+    EXPECT_EQ(entities->object_[0]->pos_.GetLaneId(), -1);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetS(), 360.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetX(), 360.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetY(), -1.535, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetZ(), 25.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetH(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetP(), 0.1075, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetR(), 0.0, 1E-3);
+
+    while (se->getSimulationTime() < 4.9 - SMALL_NUMBER)
+    {
+        scenario_step(se, 0.1);
+    }
+
+    EXPECT_EQ(entities->object_[0]->pos_.GetTrackId(), 1);
+    EXPECT_EQ(entities->object_[0]->pos_.GetLaneId(), -1);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetS(), 362.25, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetX(), 362.25, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetY(), -1.535, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetZ(), 24.733, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetH(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetP(), 0.1282, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetR(), 0.0, 1E-3);
 
     delete se;
 }

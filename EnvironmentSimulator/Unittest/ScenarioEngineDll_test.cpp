@@ -5930,6 +5930,219 @@ TEST(RoutingTest, TestRoutePointsWithGhost)
     SE_Close();
 }
 
+// Multiple tests of lookahead route feature, involving different junction and road configurations, e.g. wrt road vs route direction
+// Reuse basic test logic, but parameterize scenario and tuning parameters, as well as expected values at specific simulation times
+
+// Structure to hold expected values at specific simulation times
+struct LookaheadRouteExpectedData
+{
+    double time;
+    int    expected_retval;
+    double x, y, h, speed;
+    int    route_status;
+};
+
+// Main parameter structure
+struct LookaheadRouteTestData
+{
+    std::string                             test_name;
+    std::string                             scenario_file;
+    double                                  curveWeight;
+    double                                  steeringRate;
+    double                                  lookahead_min;
+    double                                  totalLength;
+    bool                                    snap_to_route;
+    bool                                    set_route_snap_mode_sticky;
+    std::vector<LookaheadRouteExpectedData> steps;
+};
+
+class LookaheadRouteParamTest : public testing::TestWithParam<LookaheadRouteTestData>
+{
+};
+
+TEST_P(LookaheadRouteParamTest, ExecSimulation)
+{
+    const auto& params = GetParam();
+
+    // Local constants
+    const double defaultTargetSpeed = 5.0;
+    const double throttleWeight     = 0.1;
+    const bool   viewer_enabled     = false;
+    const double dt                 = 0.1;
+
+    SE_SimpleVehicleState  vehicleState = {0, 0, 0, 0, 0, 0, 0, 0};
+    SE_ScenarioObjectState objectState;
+    SE_RoadInfo            roadInfo;
+    SE_ScenarioObjectState obj_state;
+
+    // Setup
+    SE_SetOptionValue("path", "../../../resources/xosc/Catalogs/Vehicles");
+    SE_SetOptionValue("path", "../../../resources/xodr");
+    SE_SetOptionValue("path", "../../../resources/models");
+    SE_SetOption("bounding_boxes");
+
+    ASSERT_EQ(SE_Init(params.scenario_file.c_str(), 0, viewer_enabled, 0, 0), 0);
+    int ego_id = SE_GetId(0);
+
+    EXPECT_EQ(SE_GetNumberOfObjects(), 1);
+    EXPECT_EQ(SE_GetObjectRouteStatus(ego_id), 2);
+    EXPECT_NEAR(SE_GetRouteTotalLength(ego_id), params.totalLength, 1e-3);
+
+    // Initialize Vehicle
+    SE_GetObjectState(0, &objectState);
+    void* vehicleHandle = SE_SimpleVehicleCreate(objectState.x, objectState.y, objectState.h, 4.0, 0.0);
+    SE_SimpleVehicleSteeringRate(vehicleHandle, params.steeringRate);
+
+    if (params.snap_to_route && params.set_route_snap_mode_sticky)
+    {
+        // Enable snap to route (default is OFF), for succeeding ReportObjectPos calls
+        SE_SetObjectPositionMode(0, SE_PositionModeType::SE_SET, SE_SNAP_TO_ROUTE_ON);
+    }
+
+    SE_ViewerShowFeature(4 + 8, true);
+
+    size_t test_step = 0;
+
+    while (SE_GetQuitFlag() == 0)
+    {
+        if (!SE_GetPauseFlag())
+        {
+            int retval = 0;
+
+            retval = SE_GetRoadInfoAlongRoute(0, params.lookahead_min + 0.75 * vehicleState.speed, &roadInfo, 0, true);
+
+            double targetSpeed = defaultTargetSpeed / (1 + params.curveWeight * std::abs(roadInfo.angle));
+            double throttle    = throttleWeight * (targetSpeed - vehicleState.speed);
+            double steerAngle  = roadInfo.angle;
+
+            SE_SimpleVehicleControlAnalog(vehicleHandle, dt, throttle, steerAngle);
+            SE_SimpleVehicleGetState(vehicleHandle, &vehicleState);
+
+            if (params.snap_to_route && !params.set_route_snap_mode_sticky)
+            {
+                SE_ReportObjectPosMode(ego_id,
+                                       vehicleState.x,
+                                       vehicleState.y,
+                                       0.0,
+                                       vehicleState.h,
+                                       0.0,
+                                       0.0,
+                                       SE_PositionMode::SE_Z_REL | SE_PositionMode::SE_H_ABS | SE_PositionMode::SE_P_REL | SE_PositionMode::SE_R_REL |
+                                           SE_PositionMode::SE_SNAP_TO_ROUTE_ON);
+            }
+            else
+            {
+                SE_ReportObjectPosXYH(ego_id, vehicleState.x, vehicleState.y, vehicleState.h);
+            }
+            SE_ReportObjectWheelStatus(ego_id, vehicleState.wheel_rotation, vehicleState.wheel_angle);
+            SE_ReportObjectSpeed(ego_id, vehicleState.speed);
+
+            SE_StepDT(dt);
+
+            // Parameterized check logic
+            if (test_step < params.steps.size() && SE_GetSimulationTime() > params.steps[test_step].time - SMALL_NUMBER)
+            {
+                const auto& expected = params.steps[test_step];
+
+                EXPECT_EQ(retval, expected.expected_retval) << "Retval mismatch at step " << test_step;
+                SE_GetObjectState(ego_id, &obj_state);
+                EXPECT_NEAR(obj_state.x, expected.x, 1e-3);
+                EXPECT_NEAR(obj_state.y, expected.y, 1e-3);
+                EXPECT_NEAR(obj_state.h, expected.h, 1e-3);
+                EXPECT_NEAR(obj_state.speed, expected.speed, 1e-3);
+                EXPECT_EQ(SE_GetObjectRouteStatus(ego_id), expected.route_status);
+
+                test_step++;
+            }
+        }
+        else
+        {
+            SE_StepDT(0.0);
+        }
+    }
+    SE_SimpleVehicleDelete(vehicleHandle);
+    SE_Close();
+}
+
+// Helper to generate the steps with toggled values
+std::vector<LookaheadRouteExpectedData> GetMixedSteps(bool snapToRoute)
+{
+    return {{2.0, 0, 31.5677, -21.5324, 1.7957, 4.8992, 2},                   // probe and vehicle not reached junction yet
+            {4.0, 2, 29.3926, -12.1448, 1.8296, 4.3025, 2},                   // probe in junction
+            {6.0, 0, 26.5700, -5.9655, 2.1915, 2.8544, snapToRoute ? 2 : 1},  // both in junction
+            {9.0, 1, 20.0901, -2.1483, 2.9482, 2.5956, 2},                    // probe out of junction
+            {11.0, 0, 13.8790, -2.3326, 3.2770, 3.7928, 2},                   // both out of junction
+            {13.0, 0, 4.9289, -3.8957, 3.3125, 4.8122, 2},                    // probe out of route
+            {15.0, 0, -4.5542, -5.3017, 3.1458, 3.9366, 1}};                  // vehicle out of route
+}
+
+std::vector<LookaheadRouteExpectedData> GetOppositeDirectionSteps(bool snapToRoute)
+{
+    return {{1.0, 0, 113.3337, 13.1156, 4.1887, 4.4631, 2},                   // probe and vehicle not reached junction yet
+            {2.0, 2, 110.9461, 8.9977, 4.1816, 4.7537, 2},                    // probe in junction
+            {4.0, 0, 106.5013, 3.2080, 3.8470, 2.6822, snapToRoute ? 2 : 1},  // both in junction
+            {6.0, 1, 101.8618, 1.3311, 3.3340, 2.7386, snapToRoute ? 2 : 1},  // probe out of junction
+            {7.0, 0, 98.8001, 1.0985, 3.1683, 3.4050, 2},                     // both out of junction
+            {8.0, 0, 94.8442, 1.2030, 3.0968, 4.4420, 2},                     // probe out of route
+            {10.0, 0, 85.4210, 1.5082, 3.1289, 4.7620, 1}};                   // vehicle out of route
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    LookaheadRouteScenarios,
+    LookaheadRouteParamTest,
+    testing::Values(
+        // Case 1: Mixed direction through intersection of fabriksgatan, snap to route requested for each set position call (non-sticky)
+        LookaheadRouteTestData{"MixedLookaheadSnapToRoutePerCall",
+                               "../../../EnvironmentSimulator/Unittest/xosc/lookahead_along_route.xosc",
+                               3.0,
+                               8.0,
+                               4.0,
+                               59.3177,
+                               true,
+                               false,
+                               GetMixedSteps(true)},
+        // Case 2: Same scenario but with set snap to route as default mode for set position calls (sticky)
+        LookaheadRouteTestData{"MixedLookaheadSnapToRouteSticky",
+                               "../../../EnvironmentSimulator/Unittest/xosc/lookahead_along_route.xosc",
+                               3.0,
+                               8.0,
+                               4.0,
+                               59.3177,
+                               true,
+                               true,
+                               GetMixedSteps(true)},
+        // Case 3: Same scenario but snap to closest road which is the default behavior
+        LookaheadRouteTestData{"MixedLookaheadSnapToClosestLane",
+                               "../../../EnvironmentSimulator/Unittest/xosc/lookahead_along_route.xosc",
+                               3.0,
+                               8.0,
+                               4.0,
+                               59.3177,
+                               false,
+                               false,
+                               GetMixedSteps(false)},
+        // Case 4: All roads in opposite direction through three way intersection, snap to route
+        LookaheadRouteTestData{"OppositeDirectionSnapToRoute",
+                               "../../../EnvironmentSimulator/Unittest/xosc/lookahead_along_route_all_opposite.xosc",
+                               3.0,
+                               8.0,
+                               3.0,
+                               43.9626,
+                               true,
+                               false,
+                               GetOppositeDirectionSteps(true)},
+        // Case 5: Same scenario but snap to closest lane, which is the default behavior
+        LookaheadRouteTestData{"OppositeDirectionSnapToClosestLane",
+                               "../../../EnvironmentSimulator/Unittest/xosc/lookahead_along_route_all_opposite.xosc",
+                               3.0,
+                               8.0,
+                               3.0,
+                               43.9626,
+                               false,
+                               false,
+                               GetOppositeDirectionSteps(false)}),
+    [](const testing::TestParamInfo<LookaheadRouteTestData>& test_info) { return test_info.param.test_name; });
+
 // Verify correct ID when initial set of vehicles is not complete (to be added later)
 TEST(IdTest, TestIdOutOfSync)
 {

@@ -2158,6 +2158,9 @@ Viewer::~Viewer()
             osgViewer_->stopThreading();
             SE_sleepMilliseconds(100);  // In case viewer still not closed
         }
+
+        osgViewer_->setCameraManipulator(nullptr);
+        osgViewer_->setSceneData(nullptr);
     }
 
     for (size_t i = 0; i < entities_.size(); i++)
@@ -2171,6 +2174,50 @@ Viewer::~Viewer()
     }
 
     entities_.clear();
+    polyLine_.clear();
+
+    if (rootnode_ != nullptr)
+    {
+        rootnode_->removeChildren(0, rootnode_->getNumChildren());
+        rootnode_->releaseGLObjects();
+    }
+
+    if (infoTextCamera.valid())
+    {
+        infoTextCamera->removeChildren(0, infoTextCamera->getNumChildren());
+        infoTextCamera->releaseGLObjects();
+        infoTextCamera = nullptr;
+    }
+
+    infoText           = nullptr;
+    onScreenTextCamera = nullptr;
+    roadGeom.reset();
+    environment_     = nullptr;
+    envGroup_        = nullptr;
+    env_origin2odr_  = nullptr;
+    root_origin2odr_ = nullptr;
+    roadSensors_     = nullptr;
+    trails_          = nullptr;
+    odrLines_        = nullptr;
+    osiFeatures_     = nullptr;
+    trajectoryLines_ = nullptr;
+    routewaypoints_  = nullptr;
+    line_node_       = nullptr;
+    dot_node_        = nullptr;
+
+    if (osgViewer_ != nullptr)
+    {
+        osgViewer_->releaseGLObjects();
+    }
+
+    osgDB::Registry* registry = osgDB::Registry::instance();
+    if (registry != nullptr)
+    {
+        registry->releaseGLObjects();
+        registry->clearObjectCache();
+    }
+
+    osgViewer_ = nullptr;
 }
 
 void Viewer::AddCustomCamera(double x, double y, double z, double h, double p, bool fixed_pos)
@@ -2796,9 +2843,9 @@ osg::ref_ptr<osg::Node> Viewer::CreateShadow(double bb_x, double bb_y, double bb
     int  fans_start_idx   = 12;
     auto makeExtrusionFan = [&](double start_angle, double corner_x, double corner_y, int fan_offset)
     {
-        for (int i = 0; i <= FAN_SURFACES; i++)
+        for (unsigned int i = 0; i <= FAN_SURFACES; i++)
         {
-            double angle = start_angle + (i / static_cast<double>(FAN_SURFACES)) * (osg::PI / 2.0);
+            double angle = start_angle + (i / static_cast<double>(FAN_SURFACES)) * M_PI_2;
             (*vertices)[fans_start_idx + fan_offset + i].set(corner_x + cos(angle) * extrusion, corner_y + sin(angle) * extrusion, 0.0);
         }
     };
@@ -2872,7 +2919,7 @@ osg::ref_ptr<osg::Node> Viewer::CreateShadow(double bb_x, double bb_y, double bb
     {
         osg::ref_ptr<osg::DrawElementsUInt> fan = new osg::DrawElementsUInt(GL_TRIANGLE_FAN, FAN_SURFACES + 2);  // anchor corner + surfaces + 1
         (*fan)[0]                               = base_corner_idx;                                               // The anchor
-        for (int i = 0; i <= FAN_SURFACES; i++)
+        for (unsigned int i = 0; i <= FAN_SURFACES; i++)
         {
             (*fan)[i + 1] = start_offset + i;
         }

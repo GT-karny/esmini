@@ -269,9 +269,10 @@ static int GetRoadInfoAtDistance(int          object_id,
 
     double signedLookaheadDistance = lookahead_distance;
 
+    // movement will happen relative the road direction mostly aligned with entity heading
     if (inRoadDrivingDirection)
     {
-        // Look in the driving direction of current lane
+        // Adjust sign of distance wrt the driving direction of current lane
         if (main_object->pos_.GetHRelativeDrivingDirection() > M_PI_2 && main_object->pos_.GetHRelativeDrivingDirection() < 3 * M_PI_2)
         {
             signedLookaheadDistance = -lookahead_distance;
