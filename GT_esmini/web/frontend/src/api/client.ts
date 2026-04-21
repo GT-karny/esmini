@@ -281,7 +281,9 @@ export const api = {
 
   getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
     const res = await fetch(`${BASE}/api/projects/${projectId}/scenarios/${scenarioFile}/docs`);
-    return res.ok ? res.text() : null;
+    if (!res.ok || res.status === 204) return null;
+    const text = await res.text();
+    return text || null;
   },
 
   // Parameter presets
