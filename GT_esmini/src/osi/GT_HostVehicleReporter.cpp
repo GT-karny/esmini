@@ -305,7 +305,7 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
 
     // 1. Timestamp
     auto* ts = hv_data.mutable_timestamp();
-    double sim_time = egoState->state_.info.timeStamp;
+    double sim_time = SE_Env::Inst().GetOSITimeStamp() / 1.0e9;
     ts->set_seconds(static_cast<int64_t>(sim_time));
     ts->set_nanos(static_cast<int32_t>((sim_time - static_cast<int64_t>(sim_time)) * 1e9));
 

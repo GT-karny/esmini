@@ -38,9 +38,10 @@ static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, id_t roadId
 }
 
 // [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
-static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState, scenarioengine::ScenarioEngine* scenario_engine)
+static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStateRef, scenarioengine::ScenarioEngine* scenario_engine)
 {
     if (!scenario_engine) return;
+    const scenarioengine::Object* objectState = &objectStateRef;
     int id = objectState->id_;
     
     // [GT_MOD] State Memory for Speed Actions (Sustain WaitOnRed)
@@ -324,16 +325,16 @@ static void GenerateProjectedTrajectory(scenarioengine::ObjectState* objectState
     }
 }
 
-int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
+int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState)
 {
     // Create OSI Moving object
     obj_osi_internal.mobj = obj_osi_internal.dynamic_gt->add_moving_object();
 
     // Set OSI Moving Object Mutable ID
-    obj_osi_internal.mobj->mutable_id()->set_value(objectState->g_id_);
+    obj_osi_internal.mobj->mutable_id()->set_value(objectState.g_id_);
 
     // GT_esmini: Inject light state
-    scenarioengine::Object* obj = scenario_engine_->entities_.GetObjectById(objectState->id_);
+    scenarioengine::Object* obj = scenario_engine_->entities_.GetObjectById(objectState.id_);
     if (obj && obj->GetType() == scenarioengine::Object::Type::VEHICLE)
     {
         // Hook removed
@@ -343,55 +344,55 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
 
     // Set OSI Moving Object Type and Classification
     std::string entity_type = "Vehicle";
-    if (objectState->type_ == static_cast<int>(Object::Type::VEHICLE))
+    if (objectState.type_ == Object::Type::VEHICLE)
     {
         obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_VEHICLE);
 
-        if (objectState->category_ == static_cast<int>(Vehicle::Category::CAR))
+        if (objectState.category_ == static_cast<int>(Vehicle::Category::CAR))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_MEDIUM_CAR);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::BICYCLE))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::BICYCLE))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_BICYCLE);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::BUS))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::BUS))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_BUS);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::MOTORBIKE))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::MOTORBIKE))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_MOTORBIKE);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::SEMITRAILER))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::SEMITRAILER))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_SEMITRAILER);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::TRAIN))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::TRAIN))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAIN);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::TRAM))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::TRAM))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAM);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::TRUCK))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::TRUCK))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_HEAVY_TRUCK);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::TRAILER))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::TRAILER))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAILER);
         }
-        else if (objectState->category_ == static_cast<int>(Vehicle::Category::VAN))
+        else if (objectState.category_ == static_cast<int>(Vehicle::Category::VAN))
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_DELIVERY_VAN);
         }
         else
         {
             LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object vehicle category: {} ({}). Set to UNKNOWN.",
-                      objectState->category_,
-                      Vehicle::Category2String(objectState->category_));
+                      objectState.category_,
+                      Vehicle::Category2String(objectState.category_));
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_UNKNOWN);
         }
 
@@ -399,7 +400,7 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
         if (g_LightStateProvider)
         {
             // Get Object pointer using the correct method
-            scenarioengine::Object* obj = scenario_engine_->entities_.GetObjectById(objectState->id_);
+            scenarioengine::Object* obj = scenario_engine_->entities_.GetObjectById(objectState.id_);
             if (obj && obj->GetType() == scenarioengine::Object::Type::VEHICLE)
             {
                 auto* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
@@ -514,7 +515,7 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
         // [New] Generate Future Trajectory
         if (this->scenario_engine_)
         {
-            int id = objectState->id_;
+            int id = objectState.id_;
             scenarioengine::Object* targetObj = this->scenario_engine_->entities_.GetObjectById(id);
 
             if (targetObj)
@@ -529,7 +530,7 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                 // Check if it's the Ghost object itself.
                 bool is_ghost = false;
                 // Method 1: Check driver_id / ctrl_type from objectState (which is reliable for current frame)
-                if (objectState->state_.info.ctrl_type == Controller::Type::GHOST_RESERVED_TYPE) {
+                if (objectState.GetControllerTypeActiveOnDomain(ControlDomains::DOMAIN_LONG) == Controller::Type::GHOST_RESERVED_TYPE) {
                     is_ghost = true;
                 }
                 
@@ -578,8 +579,8 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
                     // [GT_MOD] Universal Fallback: Optimized
                     // Only generate for Ego/External/Interactive vehicles to save performance.
                     // ID 0 is typically Ego.
-                    int ctrlType = objectState->state_.info.ctrl_type;
-                    bool isEgoOrExternal = (objectState->id_ == 0) ||
+                    int ctrlType = objectState.GetControllerTypeActiveOnDomain(ControlDomains::DOMAIN_LONG);
+                    bool isEgoOrExternal = (objectState.id_ == 0) ||
                                            (ctrlType == scenarioengine::Controller::CONTROLLER_TYPE_EXTERNAL) ||
                                            (ctrlType == scenarioengine::Controller::CONTROLLER_TYPE_UDP_DRIVER) ||
                                            (ctrlType == scenarioengine::Controller::CONTROLLER_TYPE_INTERACTIVE);
@@ -655,181 +656,182 @@ int OSIReporter::UpdateOSIMovingObject(ObjectState *objectState)
             }
         }
 
-        if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::AMBULANCE))
+        if (objectState.role_ == Object::Role::AMBULANCE)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_AMBULANCE);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::CIVIL))
+        else if (objectState.role_ == Object::Role::CIVIL)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_CIVIL);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::FIRE))
+        else if (objectState.role_ == Object::Role::FIRE)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_FIRE);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::MILITARY))
+        else if (objectState.role_ == Object::Role::MILITARY)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_MILITARY);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::POLICE))
+        else if (objectState.role_ == Object::Role::POLICE)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_POLICE);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::PUBLIC_TRANSPORT))
+        else if (objectState.role_ == Object::Role::PUBLIC_TRANSPORT)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_PUBLIC_TRANSPORT);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::ROAD_ASSISTANCE))
+        else if (objectState.role_ == Object::Role::ROAD_ASSISTANCE)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_ROAD_ASSISTANCE);
         }
-        else if (objectState->state_.info.obj_role == static_cast<int>(Object::Role::NONE))
+        else if (objectState.role_ == Object::Role::NONE)
         {
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_UNKNOWN);
         }
         else
         {
             LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object vehicle role: {} ({}). Set classification UNKNOWN.",
-                      objectState->state_.info.obj_role,
-                      Vehicle::Role2String(objectState->state_.info.obj_role).c_str());
+                      objectState.role_,
+                      Vehicle::Role2String(objectState.role_).c_str());
             obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_UNKNOWN);
         }
     }
-    else if (objectState->type_ == static_cast<int>(Object::Type::PEDESTRIAN))
+    else if (objectState.type_ == Object::Type::PEDESTRIAN)
     {
         entity_type = "Pedestrian";
-        if (objectState->category_ == static_cast<int>(Pedestrian::Category::PEDESTRIAN))
+        if (objectState.category_ == static_cast<int>(Pedestrian::Category::PEDESTRIAN))
         {
             obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_PEDESTRIAN);
         }
-        else if (objectState->category_ == static_cast<int>(Pedestrian::Category::ANIMAL))
+        else if (objectState.category_ == static_cast<int>(Pedestrian::Category::ANIMAL))
         {
             obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_ANIMAL);
         }
-        else if (objectState->category_ == static_cast<int>(Pedestrian::Category::WHEELCHAIR))
+        else if (objectState.category_ == static_cast<int>(Pedestrian::Category::WHEELCHAIR))
         {
             obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_OTHER);
         }
         else
         {
             LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object pedestrian category: {} ({}). Set type UNKNOWN.",
-                      objectState->category_,
-                      Pedestrian::Category2String(objectState->category_));
+                      objectState.category_,
+                      Pedestrian::Category2String(objectState.category_));
             obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_UNKNOWN);
         }
     }
     else
     {
         LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object type: {} ({}). Set UNKNOWN.",
-                  objectState->type_,
-                  Object::Type2String(objectState->type_));
+                  objectState.type_,
+                  Object::Type2String(objectState.type_));
         obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_UNKNOWN);
     }
 
     // Set OSI Moving Object Control Type
-    obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_driver_id()->set_value(static_cast<uint64_t>(objectState->state_.info.ctrl_type));
+    obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_driver_id()->set_value(static_cast<uint64_t>(objectState.GetControllerTypeActiveOnDomain(ControlDomains::DOMAIN_LONG)));
 
     // Set OSI Moving Object Boundingbox
     obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_bbcenter_to_rear()->set_x(
-        static_cast<double>(-objectState->boundingbox_.center_.x_));
+        static_cast<double>(-objectState.boundingbox_.center_.x_));
     obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_bbcenter_to_rear()->set_y(
-        static_cast<double>(-objectState->boundingbox_.center_.y_));
+        static_cast<double>(-objectState.boundingbox_.center_.y_));
     obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_bbcenter_to_rear()->set_z(
-        objectState->state_.info.rear_axle_z_pos - static_cast<double>(objectState->boundingbox_.center_.z_));
+        objectState.rear_axle_.positionZ - static_cast<double>(objectState.boundingbox_.center_.z_));
     obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_bbcenter_to_front()->set_x(
-        objectState->state_.info.front_axle_x_pos - static_cast<double>(objectState->boundingbox_.center_.x_));
+        objectState.front_axle_.positionX - static_cast<double>(objectState.boundingbox_.center_.x_));
     obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_bbcenter_to_front()->set_y(
-        static_cast<double>(-objectState->boundingbox_.center_.y_));
+        static_cast<double>(-objectState.boundingbox_.center_.y_));
     obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_bbcenter_to_front()->set_z(
-        objectState->state_.info.front_axle_z_pos - static_cast<double>(objectState->boundingbox_.center_.z_));
-    obj_osi_internal.mobj->mutable_base()->mutable_dimension()->set_height(objectState->boundingbox_.dimensions_.height_);
-    obj_osi_internal.mobj->mutable_base()->mutable_dimension()->set_width(objectState->boundingbox_.dimensions_.width_);
-    obj_osi_internal.mobj->mutable_base()->mutable_dimension()->set_length(objectState->boundingbox_.dimensions_.length_);
+        objectState.front_axle_.positionZ - static_cast<double>(objectState.boundingbox_.center_.z_));
+    obj_osi_internal.mobj->mutable_base()->mutable_dimension()->set_height(objectState.boundingbox_.dimensions_.height_);
+    obj_osi_internal.mobj->mutable_base()->mutable_dimension()->set_width(objectState.boundingbox_.dimensions_.width_);
+    obj_osi_internal.mobj->mutable_base()->mutable_dimension()->set_length(objectState.boundingbox_.dimensions_.length_);
 
     // OSI XYZ is center of BB, have been calculated in SetOsiXYZ
-    obj_osi_internal.mobj->mutable_base()->mutable_position()->set_x(objectState->pos_.GetOsiX());
-    obj_osi_internal.mobj->mutable_base()->mutable_position()->set_y(objectState->pos_.GetOsiY());
-    obj_osi_internal.mobj->mutable_base()->mutable_position()->set_z(objectState->pos_.GetOsiZ());
+    obj_osi_internal.mobj->mutable_base()->mutable_position()->set_x(objectState.pos_.GetOsiX());
+    obj_osi_internal.mobj->mutable_base()->mutable_position()->set_y(objectState.pos_.GetOsiY());
+    obj_osi_internal.mobj->mutable_base()->mutable_position()->set_z(objectState.pos_.GetOsiZ());
 
     // Set OSI Moving Object Orientation
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(objectState->pos_.GetR()));
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(objectState->pos_.GetP()));
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(objectState->pos_.GetH()));
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation_rate()->set_yaw(objectState->pos_.GetHRate());
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation_rate()->set_pitch(objectState->pos_.GetPRate());
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation_rate()->set_roll(objectState->pos_.GetRRate());
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation_acceleration()->set_yaw(objectState->pos_.GetHAcc());
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation_acceleration()->set_pitch(objectState->pos_.GetPAcc());
-    obj_osi_internal.mobj->mutable_base()->mutable_orientation_acceleration()->set_roll(objectState->pos_.GetRAcc());
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(objectState.pos_.GetR()));
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(objectState.pos_.GetP()));
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(objectState.pos_.GetH()));
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation_rate()->set_yaw(objectState.pos_.GetHRate());
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation_rate()->set_pitch(objectState.pos_.GetPRate());
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation_rate()->set_roll(objectState.pos_.GetRRate());
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation_acceleration()->set_yaw(objectState.pos_.GetHAcc());
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation_acceleration()->set_pitch(objectState.pos_.GetPAcc());
+    obj_osi_internal.mobj->mutable_base()->mutable_orientation_acceleration()->set_roll(objectState.pos_.GetRAcc());
 
     // Set OSI Moving Object Velocity
-    obj_osi_internal.mobj->mutable_base()->mutable_velocity()->set_x(objectState->pos_.GetVelX());
-    obj_osi_internal.mobj->mutable_base()->mutable_velocity()->set_y(objectState->pos_.GetVelY());
-    obj_osi_internal.mobj->mutable_base()->mutable_velocity()->set_z(objectState->pos_.GetVelZ());
+    obj_osi_internal.mobj->mutable_base()->mutable_velocity()->set_x(objectState.pos_.GetVelX());
+    obj_osi_internal.mobj->mutable_base()->mutable_velocity()->set_y(objectState.pos_.GetVelY());
+    obj_osi_internal.mobj->mutable_base()->mutable_velocity()->set_z(objectState.pos_.GetVelZ());
 
     // Set OSI Moving Object Acceleration
-    obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_x(objectState->pos_.GetAccX());
-    obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_y(objectState->pos_.GetAccY());
-    obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_z(objectState->pos_.GetAccZ());
+    obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_x(objectState.pos_.GetAccX());
+    obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_y(objectState.pos_.GetAccY());
+    obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_z(objectState.pos_.GetAccZ());
 
     // Set ego lane
-    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(objectState->pos_.GetLaneGlobalId());
+    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(objectState.pos_.GetLaneGlobalId());
 
     // simplified wheel info, set nr wheels based on object type
     // can be improved by considering axels and actual wheel configuration
 
-    if (objectState->type_ == static_cast<int>(Object::Type::VEHICLE))
+    if (objectState.type_ == Object::Type::VEHICLE)
     {
+        const auto& wheelData = static_cast<const scenarioengine::Vehicle&>(objectState).GetWheelData();
         // Set some data for each wheel
-        for (unsigned int i = 0; i < objectState->state_.info.wheel_data.size(); i++)
+        for (unsigned int i = 0; i < wheelData.size(); i++)
         {
-            if (objectState->state_.info.wheel_data[i].axle > -1)
+            if (wheelData[i].axle > -1)
             {
                 // create wheel data message
                 int ii = static_cast<int>(i);
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->add_wheel_data();
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->mutable_position()->set_x(
-                    objectState->state_.info.wheel_data[i].x - static_cast<double>(objectState->boundingbox_.center_.x_));
+                    wheelData[i].x - static_cast<double>(objectState.boundingbox_.center_.x_));
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->mutable_position()->set_y(
-                    objectState->state_.info.wheel_data[i].y - static_cast<double>(objectState->boundingbox_.center_.y_));
+                    wheelData[i].y - static_cast<double>(objectState.boundingbox_.center_.y_));
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->mutable_position()->set_z(
-                    objectState->state_.info.wheel_data[i].z - static_cast<double>(objectState->boundingbox_.center_.z_));
+                    wheelData[i].z - static_cast<double>(objectState.boundingbox_.center_.z_));
 
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->mutable_orientation()->set_yaw(
-                    objectState->state_.info.wheel_data[i].h);
+                    wheelData[i].h);
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->mutable_orientation()->set_pitch(
-                    objectState->state_.info.wheel_data[i].p);
+                    wheelData[i].p);
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->set_friction_coefficient(
-                    objectState->state_.info.wheel_data[i].friction_coefficient);
+                    wheelData[i].friction_coefficient);
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->set_axle(
-                    static_cast<unsigned int>(objectState->state_.info.wheel_data[i].axle));
+                    static_cast<unsigned int>(wheelData[i].axle));
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->set_index(
-                    static_cast<unsigned int>(objectState->state_.info.wheel_data[i].index));  // Index along axis
+                    static_cast<unsigned int>(wheelData[i].index));  // Index along axis
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->set_wheel_radius(
-                    objectState->state_.info.wheel_data[i].wheel_radius);
+                    wheelData[i].wheel_radius);
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->mutable_wheel_data(ii)->set_rotation_rate(
-                    objectState->state_.info.wheel_data[i].rotation_rate);
+                    wheelData[i].rotation_rate);
                 obj_osi_internal.mobj->mutable_vehicle_attributes()->set_number_wheels(
-                    static_cast<unsigned int>(objectState->state_.info.wheel_data.size()));
+                    static_cast<unsigned int>(wheelData.size()));
             }
         }
     }
 
     // Set 3D model file as OSI model reference
-    obj_osi_internal.mobj->set_model_reference(objectState->state_.info.model3d);
+    obj_osi_internal.mobj->set_model_reference(objectState.GetModel3DFilename());
 
     // SOURCE REFERENCE
     auto source_reference = obj_osi_internal.mobj->add_source_reference();
     source_reference->set_type(SOURCE_REF_TYPE_OSC);
 
-    source_reference->add_identifier(fmt::format("entity_id:{}", objectState->id_));
+    source_reference->add_identifier(fmt::format("entity_id:{}", objectState.id_));
     source_reference->add_identifier(fmt::format("entity_type:{}", entity_type));
-    source_reference->add_identifier(fmt::format("entity_name:{}", objectState->name_));
+    source_reference->add_identifier(fmt::format("entity_name:{}", objectState.name_));
 
     // Set source reference if available
-    if (!objectState->state_.info.source_reference.empty())
+    if (!objectState.GetSourceReference().empty())
     {
-        for (const auto &ref : objectState->state_.info.source_reference)
+        for (const auto &ref : objectState.GetSourceReference())
         {
             source_reference->add_identifier(ref);
         }
