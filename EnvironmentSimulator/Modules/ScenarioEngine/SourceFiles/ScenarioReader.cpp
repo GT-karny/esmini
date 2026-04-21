@@ -423,10 +423,12 @@ roadmanager::CoordinateSystem ScenarioReader::ParseCoordinateSystem(pugi::xml_no
 {
     roadmanager::CoordinateSystem cs = defaultValue;
 
-    std::string str = parameters.ReadAttribute(node, "coordinateSystem");
+    std::string str   = parameters.ReadAttribute(node, "coordinateSystem");
+    int         major = GetVersionMajor();
+    int         minor = GetVersionMinor();
     if (!str.empty())
     {
-        if (GetVersionMajor() == 1 && GetVersionMinor() == 0)
+        if (major == 1 && minor == 0)
         {
             LOG_INFO("coordinateSystem introduced in v1.1. Reading it anyway.");
         }
@@ -445,7 +447,15 @@ roadmanager::CoordinateSystem ScenarioReader::ParseCoordinateSystem(pugi::xml_no
         }
         else if (str == "trajectory")
         {
-            cs = roadmanager::CoordinateSystem::CS_ROAD;
+            cs = roadmanager::CoordinateSystem::CS_TRAJECTORY;
+        }
+        else if (str == "world")
+        {
+            if (major == 1 && minor < 3)
+            {
+                LOG_INFO("coordinateSystem 'world' introduced in v1.3. Reading it anyway");
+            }
+            cs = roadmanager::CoordinateSystem::CS_WORLD;
         }
         else
         {
@@ -696,7 +706,7 @@ Vehicle *ScenarioReader::parseOSCVehicle(pugi::xml_node vehicleNode)
     }
     else
     {
-        // No 3D model attribute present. Apply model file based on Category, and set default 3D model id
+        // No 3D model attribute present. Apply model file based on Category
         if (vehicle->category_ == Vehicle::Category::BICYCLE)
         {
             vehicle->SetModel3DFullPath("cyclist.osgb", DirNameOf(SE_Env::Inst().GetOSCFilePath()) + "/../models");
@@ -4201,6 +4211,27 @@ static Direction ParseDirection(std::string direction)
     return Direction::UNDEFINED_DIRECTION;
 }
 
+static AngleType ParseAngleType(std::string angleType)
+{
+    if (angleType == "heading")
+    {
+        return AngleType::HEADING;
+    }
+    else if (angleType == "pitch")
+    {
+        return AngleType::PITCH;
+    }
+    else if (angleType == "roll")
+    {
+        return AngleType::ROLL;
+    }
+    else
+    {
+        LOG_ERROR("Invalid or missing AngleType");
+        return AngleType::UNDEFINED_ANGLE;
+    }
+}
+
 static TrigByState::CondElementState ParseState(std::string state)
 {
     if (state == "startTransition")
@@ -4587,6 +4618,33 @@ OSCCondition *ScenarioReader::parseOSCCondition(pugi::xml_node conditionNode)
                         if (!condition_node.attribute("direction").empty())
                         {
                             trigger->direction_ = ParseDirection(parameters.ReadAttribute(condition_node, "direction"));
+                        }
+
+                        condition = trigger;
+                    }
+                    else if (condition_type == "AngleCondition")
+                    {
+                        if (GetVersionMajor() == 1 && GetVersionMinor() < 3)
+                        {
+                            LOG_WARN("AngleCondition introduced in version 1.3. Reading it anyway");
+                        }
+
+                        TrigByAngle *trigger = new TrigByAngle;
+                        trigger->value_      = strtod(parameters.ReadAttribute(condition_node, "angle"));
+                        trigger->tolerance_  = strtod(parameters.ReadAttribute(condition_node, "angleTolerance"));
+                        if (!condition_node.attribute("angleType").empty())
+                        {
+                            trigger->angle_type_ = ParseAngleType(parameters.ReadAttribute(condition_node, "angleType"));
+                        }
+                        else
+                        {
+                            LOG_ERROR_AND_QUIT("AngleCondition: Missing mandatory attribute AngleType, quitting");
+                        }
+                        trigger->cs_ = ParseCoordinateSystem(condition_node, roadmanager::CoordinateSystem::CS_WORLD);
+
+                        if (trigger->cs_ == roadmanager::CoordinateSystem::CS_TRAJECTORY && trigger->angle_type_ != AngleType::HEADING)
+                        {
+                            LOG_ERROR("AngleCondition: Only angleType heading supported for coordinateSystem trajectory");
                         }
 
                         condition = trigger;

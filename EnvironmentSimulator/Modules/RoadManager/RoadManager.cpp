@@ -10880,6 +10880,11 @@ double Position::GetPRoadInDrivingDirection() const
     return GetPRoad() * GetDrivingDirectionRelativeRoad();
 }
 
+double Position::GetRRoadInDrivingDirection() const
+{
+    return GetRRoad() * GetDrivingDirectionRelativeRoad();
+}
+
 double Position::GetHRelativeDrivingDirection() const
 {
     return GetAngleDifference(h_, GetDrivingDirection());
@@ -13921,6 +13926,7 @@ int Position::UpdateTrajectoryPos()
 
     double x = trajectory_->shape_->current_val_.x;
     double y = trajectory_->shape_->current_val_.y;
+    double z = trajectory_->shape_->current_val_.z;
 
     // First adjust lateral offset
     if (!NEAR_ZERO(t_trajectory_))
@@ -13938,7 +13944,7 @@ int Position::UpdateTrajectoryPos()
     if ((pos_mode & PosMode::Z_MASK) == PosMode::Z_ABS)
     {
         // absolute z means that z value has been specified and trajectory is detached from the road surface
-        // adjust unset z, pitch and roll to calculated absolute values (while heading is already calculated)
+        // adjust unset pitch and roll to calculated absolute values (while heading is already calculated)
         if ((pos_mode & PosMode::P_MASK) == 0)
         {
             pos_mode = (pos_mode & ~PosMode::P_MASK) | PosMode::P_ABS;
@@ -13956,6 +13962,7 @@ int Position::UpdateTrajectoryPos()
         if ((pos_mode & PosMode::Z_MASK) == 0)
         {
             pos_mode = (pos_mode & ~PosMode::Z_MASK) | PosMode::Z_REL;
+            z        = 0.0;
         }
 
         if ((pos_mode & PosMode::P_MASK) == 0)
@@ -13973,7 +13980,7 @@ int Position::UpdateTrajectoryPos()
 
     SetInertiaPosMode(x,
                       y,
-                      (pos_mode & PosMode::Z_MASK) == PosMode::Z_ABS ? trajectory_->shape_->current_val_.z : 0.0,
+                      z,
                       trajectory_->shape_->current_val_.h,
                       trajectory_->shape_->current_val_.pitch,
                       trajectory_->shape_->current_val_.r,
@@ -14144,8 +14151,8 @@ void Position::EvaluateRelation(bool release)
     else if (GetType() == PositionType::RELATIVE_WORLD)
     {
         // No relation to road or lane, set both position and orientation
-        SetInertiaPosMode(rel_pos_->GetX() + relative_.dx * cos(rel_pos_->GetH()) - relative_.dy * sin(rel_pos_->GetH()),
-                          rel_pos_->GetY() + relative_.dy * cos(rel_pos_->GetH()) + relative_.dx * sin(rel_pos_->GetH()),
+        SetInertiaPosMode(rel_pos_->GetX() + relative_.dx,
+                          rel_pos_->GetY() + relative_.dy,
                           rel_pos_->GetZ() + relative_.dz,
                           ((GetMode(Position::PosModeType::INIT) & Position::PosMode::H_MASK) == Position::PosMode::H_ABS)
                               ? relative_.dh

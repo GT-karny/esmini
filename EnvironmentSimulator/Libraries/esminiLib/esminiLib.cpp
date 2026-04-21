@@ -593,6 +593,8 @@ extern "C"
     SE_DLL_API int SE_InitWithArgs(int argc, const char *argv[])
     {
         fprintf(stderr, "[esminiLib] SE_InitWithArgs called. argc=%d\n", argc);
+        resetScenario();
+
         if (argv && !strncmp(argv[0], "--", 2))
         {
             // Application name argument missing. Add something.
@@ -659,6 +661,8 @@ extern "C"
 
     SE_DLL_API int SE_InitWithString(const char *oscAsXMLString, int disable_ctrls, int use_viewer, int threads, int record)
     {
+        resetScenario();
+
 #ifndef _USE_OSG
         if (use_viewer)
         {
