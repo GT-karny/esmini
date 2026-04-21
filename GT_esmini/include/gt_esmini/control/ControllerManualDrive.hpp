@@ -28,7 +28,7 @@ public:
     int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
     void Deactivate() override;
 
-    const char* GetTypeName() override { return CONTROLLER_MANUAL_DRIVE_TYPE_NAME; }
+    const char* GetTypeName() const override { return CONTROLLER_MANUAL_DRIVE_TYPE_NAME; }
 
     // OSI getters (called by GT_Step for HVD reporting)
     void GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const;

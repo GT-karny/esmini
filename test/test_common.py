@@ -7,7 +7,6 @@ import psutil
 ESMINI_PATH = os.path.realpath(os.pardir)
 
 sys.path.insert(0, os.path.join(ESMINI_PATH, 'scripts'))
-from dat import *
 
 LOG_FILENAME = 'log.txt'
 DAT_FILENAME = 'sim.dat'
@@ -151,14 +150,10 @@ def use_package(pack_name):
 
 def generate_csv(filename=DAT_FILENAME):
 
-    # Below is one/the old way of converting dat to csv. Keeping the lines for reference.
-    # args = [os.path.join(ESMINI_PATH,'bin','dat2csv'), DAT_FILENAME]
-    # process = subprocess.run(args, cwd=os.path.dirname(os.path.realpath(__file__)))
-
-    # Below is the Python way of converting dat to csv
-    dat = DATFile(filename)
-    dat.save_csv()
-    dat.close()
+    with open(STDOUT_FILENAME, "w") as f:
+        args = [os.path.join(ESMINI_PATH,'bin','dat2csv'), "--file", filename]
+        process = subprocess.Popen(args, cwd=os.path.dirname(os.path.realpath(__file__)), stdout=f)
+        assert process.wait() == 0
 
     with open(os.path.splitext(filename)[0] + '.csv', "r") as f:
         return f.read()

@@ -133,6 +133,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
           <Checkbox label="No Realtime" checked={noRealtime} onChange={(e) => setNoRealtime(e.target.checked)} />
           <Checkbox label="AutoLight" checked={autolight} onChange={(e) => setAutolight(e.target.checked)} />
           <Checkbox label="Vehicle Physics" checked={vehiclePhysics} onChange={(e) => setVehiclePhysics(e.target.checked)} />
+          <Checkbox label="Kinematic Controller" checked={kinematicMode} onChange={(e) => setKinematicMode(e.target.checked)} />
           <Checkbox label="OSI Output" checked={osiEnabled} onChange={(e) => setOsiEnabled(e.target.checked)} />
         </div>
 

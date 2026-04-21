@@ -317,8 +317,10 @@ async def get_scenario_docs(project_id: str, scenario_file: str):
     stem = PurePosixPath(scenario_file).stem
     doc_path = Path(proj.root_path) / "docs" / f"{stem}.md"
 
+    # Docs are optional — return 204 No Content instead of 404 so that
+    # browsers don't log network errors for the common "no docs" case.
     if not doc_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Documentation not found for '{stem}'")
+        return Response(status_code=204)
 
     content = doc_path.read_text(encoding="utf-8")
     return Response(content=content, media_type="text/markdown")

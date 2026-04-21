@@ -9,6 +9,8 @@ execute_process(
     OUTPUT_VARIABLE VERSION
     ERROR_QUIET)
 
+message("Version: " ${VERSION})
+
 # Strip prefix "v" and any trailing line break
 string(SUBSTRING "${VERSION}" 1 -1 VERSION )
 string(STRIP "${VERSION}" VERSION)
@@ -98,7 +100,8 @@ string(MD5 FMUGUID modelDescription.in.xml)
 configure_file(modelDescription.in.xml modelDescription.xml @ONLY)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../EnvironmentSimulator/Libraries/esminiLib
-                    ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osi/${EXT_INCL_DIR}/include)
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osi/${EXT_INCL_DIR}/include
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../externals/implot/${EXT_INCL_DIR}/include)
 
 link_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -107,6 +110,7 @@ link_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/../externals/sumo/${EXT_INCL_DIR}/lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osg/${EXT_INCL_DIR}/lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osg/${EXT_INCL_DIR}/lib/osgPlugins-3.6.5
+    ${CMAKE_CURRENT_SOURCE_DIR}/../externals/implot/${EXT_INCL_DIR}/lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../build/EnvironmentSimulator/Modules/ScenarioEngine/${CONFIG_FOLDER}
     ${CMAKE_CURRENT_SOURCE_DIR}/../build/EnvironmentSimulator/Modules/PlayerBase/${CONFIG_FOLDER}
     ${CMAKE_CURRENT_SOURCE_DIR}/../build/EnvironmentSimulator/Modules/RoadManager/${CONFIG_FOLDER}
@@ -127,6 +131,7 @@ if(STATIC_LINKING)
     set(EXTERNALS_OSG_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osg/${EXT_INCL_DIR}/lib)
     set(EXTERNALS_OSG_PLUGINS_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osg/${EXT_INCL_DIR}/lib/osgPlugins-3.6.5)
     set(EXTERNALS_SUMO_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/sumo/${EXT_INCL_DIR}/lib)
+    set(EXTERNALS_IMPLOT_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/implot/${EXT_INCL_DIR}/lib)
 
     include(${CMAKE_CURRENT_SOURCE_DIR}/../support/cmake/external/osi.cmake)
     set_osi_libs()
@@ -137,6 +142,8 @@ if(STATIC_LINKING)
     include(${CMAKE_CURRENT_SOURCE_DIR}/../support/cmake/external/osg.cmake)
     set_osg_libs()
 
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../support/cmake/external/implot.cmake)
+    set_implot_libs()
 
     set(FMT_SHARED OFF)
     set(CMAKE_POSITION_INDEPENDENT_CODE
@@ -160,6 +167,7 @@ if(STATIC_LINKING)
                 ${OSI_LIBRARIES}
                 ${SUMO_LIBRARIES}
                 ${OSG_LIBRARIES}
+                ${IMPLOT_LIBRARIES}
                 fmt
                 pugixml_lib
                 stdc++fs

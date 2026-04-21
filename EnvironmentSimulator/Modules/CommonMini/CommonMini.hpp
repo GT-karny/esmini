@@ -50,9 +50,7 @@ using idx_t = uint32_t;
 #define IDX_UNDEFINED                 0xffffffff
 #define IDX_MAX                       0xfffffffe
 #define SMALL_NUMBER                  (1E-6)
-#define SMALL_NUMBERF                 (1E-6f)
 #define LARGE_NUMBER                  (1E+10)
-#define LARGE_NUMBERF                 (1E+10f)
 #define LARGE_NUMBER_INT              (0x7fffffff)  // largest signed 32 bit integer number
 #define SIGN(X)                       ((X < 0) ? -1 : 1)
 #define MAX(x, y)                     ((y) > (x) ? (y) : (x))
@@ -63,7 +61,6 @@ using idx_t = uint32_t;
 #define AVOID_ZERO(x)                 (SIGN(x) * MAX(SMALL_NUMBER, fabs(x)))
 #define NEAR_ZERO(x)                  (abs(x) < SMALL_NUMBER)
 #define NEAR_NUMBERS(x, y)            (abs((x) - (y)) < SMALL_NUMBER)
-#define NEAR_NUMBERSF(x, y)           (abs((x) - (y)) < SMALL_NUMBERF)
 #define IS_IN_SPAN(x, y, z)           ((x) >= (y) && (x) <= (z))
 #define OSI_MAX_LONGITUDINAL_DISTANCE 50
 #define OSI_MAX_LATERAL_DEVIATION     0.05
@@ -222,6 +219,34 @@ public:
     static const float (&Color2RBG(Color color_enum))[3];
 };
 
+struct ObjectPositionStructDat
+{
+    double x;
+    double y;
+    double z;
+    double h;
+    double p;
+    double r;
+    id_t   roadId;
+    int    laneId;
+    double offset;
+    double t;
+    double s;
+};
+
+struct SE_Point2D
+{
+    double x;
+    double y;
+};
+
+struct Rgb
+{
+    double r;
+    double g;
+    double b;
+};
+
 class SE_Vector
 {
 public:
@@ -372,6 +397,11 @@ int OnRequestShowHelpOrVersion(int argc, char** argv, SE_Options& opt);
 const char* esmini_git_rev(void);
 
 /**
+    Convert hex to rgb color. If normalize is true returns each channel in [0, 1], otherwise in [0, 255].
+ */
+Rgb HexToDouble(const std::string& hex, bool normalize);
+
+/**
     Increments a counter to keep ID's unique and global.
  */
 id_t GetNewGlobalId();
@@ -456,7 +486,14 @@ double GetCrossProduct2D(double x1, double y1, double x2, double y2);
 double GetDotProduct2D(double x1, double y1, double x2, double y2);
 
 /**
-        Retrieve the angle between two vectors of any length
+        Retrieve the signed relative angle [-pi,pi] between two 2D vectors of any length
+        treating the first vector as pivot/temporary x-axis
+*/
+double GetSignedAngleBetweenVectors(double x1, double y1, double x2, double y2);
+
+/**
+        Retrieve absolute relative angle [0,pi] between two 2D vectors of any length
+        treating the first vector as pivot/temporary x-axis
 */
 double GetAngleBetweenVectors(double x1, double y1, double x2, double y2);
 
@@ -516,6 +553,23 @@ double PointDistance2D(double x0, double y0, double x1, double y1);
         @return Signed distance (negative on the right, positive to the left)
 */
 double PointToLineDistance2DSigned(double px, double py, double lx0, double ly0, double lx1, double ly1);
+
+/**
+        Calculate (shortest) distance between a point to a line, in 2D
+        Inspiration: https://www.geeksforgeeks.org/shortest-distance-between-a-line-and-a-point-in-a-3-d-plane/
+        But modified so that negtive distance means point is on right side of the line and vice versa
+        @param px X-coordinate of the point
+        @param py Y-coordinate of the point
+        @param pz Z-coordinate of the point
+        @param lx0 X-coordinate of the first endpoint of the line
+        @param ly0 Y-coordinate of the first endpoint of the line
+        @param ly1 Z-coordinate of the first endpoint of the line
+        @param lx1 X-coordinate of the second endpoint of the line
+        @param ly1 Y-coordinate of the second endpoint of the line
+        @param lz1 Z-coordinate of the second endpoint of the line
+        @return Signed distance (negative on the right, positive to the left)
+*/
+double PointToLineDistance3DSigned(double px, double py, double pz, double lx0, double ly0, double lz0, double lx1, double ly1, double lz1);
 
 /**
         Calculate distance between two 2D points, return square value - avoiding square root operation
@@ -684,6 +738,11 @@ double GetAngleBetweenVectors3D(double x1, double y1, double z1, double x2, doub
 void NormalizeVec2D(double x, double y, double& xn, double& yn);
 
 /**
+        Normalize a 3D vector
+*/
+void NormalizeVec3D(double x, double y, double z, double& xn, double& yn, double& zn);
+
+/**
         Find parallel line at specified offset (- means left, + right)
 */
 void OffsetVec2D(double x0, double y0, double x1, double y1, double offset, double& xo0, double& yo0, double& xo1, double& yo1);
@@ -696,7 +755,9 @@ void ZYZ2EulerAngles(double z0, double y, double z1, double& h, double& p, doubl
 /**
         Get Euler angles in local coordinates after rotation Z0 * Y * Z1 (heading, pitch, heading)
 */
-void R0R12EulerAngles(double h0, double p0, double r0, double h1, double p1, double r1, double& h, double& p, double& r);
+void R0R12EulerAngles(double h0, double p0, double r0, double h1, double p1, double r1, double& h, double& p, double& r, double (&m)[3][3]);
+
+void RotateY(double y_value, double roll, double pitch, double yaw, double v[3]);
 
 void CreateRotationMatrix3d(double roll, double pitch, double yaw, double R[3][3]);
 
@@ -989,6 +1050,7 @@ public:
     bool                     persistent_          = false;
     bool                     autoApply_           = false;
     bool                     isSingleValueOption_ = false;
+    bool                     isDefaultArgument_   = false;
 
     SE_Option()
     {
@@ -999,14 +1061,16 @@ public:
               std::string opt_arg             = "",
               std::string default_value       = "",
               bool        autoApply           = false,
-              bool        isSingleValueOption = false)
+              bool        isSingleValueOption = false,
+              bool        isDefaultArgument   = false)
         : opt_str_(opt_str),
           opt_desc_(opt_desc),
           opt_arg_(opt_arg),
           set_(false),
           default_value_(default_value),
           autoApply_(autoApply),
-          isSingleValueOption_(isSingleValueOption)
+          isSingleValueOption_(isSingleValueOption),
+          isDefaultArgument_(isDefaultArgument)
     {
     }
 
@@ -1030,7 +1094,8 @@ public:
                    std::string opt_arg             = "",
                    std::string default_value       = "",
                    bool        autoApply           = false,
-                   bool        isSingleValueOption = true);
+                   bool        isSingleValueOption = true,
+                   bool        isDefaultArgument   = false);
 
     void PrintUsage();
     void PrintUnknownArgs(std::string message = "Unrecognized arguments:") const;
@@ -1081,6 +1146,7 @@ private:
     std::string              app_name_;
     std::vector<std::string> originalArgs_;
     std::vector<std::string> unknown_args_;
+    SE_Option*               default_option_ = nullptr;
 };
 
 class SE_SystemTime
@@ -1097,7 +1163,7 @@ public:
     }
     double GetS() const
     {
-        return 1E-3 * static_cast<double>((SE_getSystemTimeMilliseconds() - start_time_));
+        return 1E-3 * static_cast<double>(SE_getSystemTimeMilliseconds() - start_time_);
     }
 };
 
@@ -1134,7 +1200,7 @@ public:
     }
     double Elapsed() const
     {
-        return 1E-3 * static_cast<double>((SE_getSystemTimeMilliseconds() - start_time_));
+        return 1E-3 * static_cast<double>(SE_getSystemTimeMilliseconds() - start_time_);
     }
     double Remaining() const
     {
@@ -1357,6 +1423,60 @@ public:
 private:
     unsigned int seed_;
     std::mt19937 gen_;
+};
+
+class DirtyBits
+{
+public:
+    bool Check(uint64_t bits) const
+    {
+        return bool(bits_[readLayer] & bits);
+    }
+
+    void Set(uint64_t bitmask)
+    {
+        bits_[0] = bitmask;
+    }
+
+    void SetBits(uint64_t bits)
+    {
+        bits_[0] |= bits;
+    }
+
+    uint64_t Get() const
+    {
+        return bits_[readLayer];
+    }
+
+    void ClearBits(uint64_t bits)
+    {
+        bits_[0] &= ~bits;
+    }
+
+    void Clear()
+    {
+        bits_[0] = 0;
+    }
+
+    void SwapAndClear()
+    {
+        bits_[1] = bits_[0];
+        bits_[0] = 0;
+    }
+
+    static void SetReadFront()
+    {
+        readLayer = 0;
+    }
+
+    static void SetReadBack()
+    {
+        readLayer = 1;
+    }
+
+private:
+    uint64_t              bits_[2]  = {0, 0};  // two layers; 0/FRONT (current step) and BACK/0 (previous step)
+    static inline uint8_t readLayer = 0;       // 0 = FRONT, 1 = BACK (write index is always FRONT)
 };
 
 class SE_Env

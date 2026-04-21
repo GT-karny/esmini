@@ -14,7 +14,7 @@
 #include "gt_esmini/control/ControllerKinematic.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
-#include "ScenarioGateway.hpp"
+// #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "ScenarioEngine.hpp"
 #include "OSCPrivateAction.hpp"
 #include "logger.hpp"
@@ -227,7 +227,11 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
 
     roadmanager::Position pos;
     pos.Duplicate(object_->pos_);
-    pos.route_ = object_->pos_.route_;
+    // Deep-copy the route so MoveAlongS(updateRoute=true) mutations during
+    // polyline construction don't leak into the object's shared Route state.
+    // v3.0.2 made updateRoute=true the default for MoveAlongS(ds), which
+    // advances route_->currentPos_ each call (see RoadManager::MoveRouteDS).
+    pos.CopyRoute(object_->pos_);
 
     int n_steps = static_cast<int>(ceil(total_dist / step));
     double acc_dist = 0.0;
@@ -273,8 +277,6 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
 
         future_path_.push_back({px, py});
     }
-
-    pos.route_ = nullptr;
 }
 
 // ===========================================================================
@@ -335,7 +337,7 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     if (!object_ || !initialized_) return;
 
     // === Phase 0: Teleport ===
-    if (object_->GetDirtyBitMask() & static_cast<int>(Object::DirtyBit::TELEPORT))
+    if (object_->dirty_.Check(static_cast<uint64_t>(Object::DirtyBit::TELEPORT)))
     {
         vehicle_.wheelAngle_ = 0.0;
         prev_curvature_ = 0.0;
@@ -377,14 +379,25 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     double max_angle = speed_scale * config_.max_steering_angle;
     ideal_angle = CLAMP(ideal_angle, -max_angle, max_angle);
 
-    // === Phase 3: Rate limit with acceleration constraint ===
-    // First, compute desired rate to reach ideal_angle
-    double desired_rate = (timeStep > 1e-6) ? (ideal_angle - vehicle_.wheelAngle_) / timeStep : 0.0;
-    desired_rate = CLAMP(desired_rate, -config_.max_steering_rate, config_.max_steering_rate);
+    // === Phase 3: Trapezoidal rate profile (rate + accel + stopping-distance) ===
+    // Cap rate such that we can still decelerate to 0 at ideal_angle without
+    // overshooting. Stopping distance from current rate r at max accel a is
+    //   d_stop = r^2 / (2a)
+    // Inverting: max allowable rate given remaining Δθ is sqrt(2·a·|Δθ|).
+    // This replaces the naive (Δθ/dt) desired-rate with a predictive cap,
+    // guaranteeing rate reaches 0 when angle reaches ideal (no overshoot).
+    double delta = ideal_angle - vehicle_.wheelAngle_;
+    double abs_delta = fabs(delta);
+    double accel = config_.max_steering_accel;
 
-    // Limit rate-of-change of steering rate (acceleration)
+    double rate_by_stopping = sqrt(2.0 * accel * abs_delta);
+    double rate_cap = std::min(config_.max_steering_rate, rate_by_stopping);
+
+    double desired_rate = (abs_delta < 1e-9) ? 0.0 : copysign(rate_cap, delta);
+
+    // Apply accel limit on rate transition
     double rate_diff = desired_rate - prev_rate_;
-    double max_rate_delta = config_.max_steering_accel * timeStep;
+    double max_rate_delta = accel * timeStep;
     double new_rate = prev_rate_ + CLAMP(rate_diff, -max_rate_delta, max_rate_delta);
     new_rate = CLAMP(new_rate, -config_.max_steering_rate, config_.max_steering_rate);
     prev_rate_ = new_rate;
@@ -407,11 +420,10 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     double wheel_radius = 0.35;
     vehicle_.wheelRotation_ += (speed * timeStep) / wheel_radius;
 
-    gateway_->updateObjectWheelRotation(object_->id_, 0.0, vehicle_.wheelRotation_);
-    gateway_->updateObjectWheelAngle(object_->id_, 0.0, vehicle_.wheelAngle_);
+    // v3.0.0: Gateway removed — write directly to Object
     object_->wheel_angle_ = vehicle_.wheelAngle_;
     object_->wheel_rot_ = vehicle_.wheelRotation_;
-    object_->SetDirtyBits(Object::DirtyBit::WHEEL_ANGLE | Object::DirtyBit::WHEEL_ROTATION);
+    object_->dirty_.SetBits(Object::DirtyBit::WHEEL_ANGLE | Object::DirtyBit::WHEEL_ROTATION);
 
     if (config_.debug_log)
     {

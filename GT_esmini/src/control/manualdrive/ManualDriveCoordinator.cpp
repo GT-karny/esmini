@@ -110,9 +110,9 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     //    block_speed_update when longitudinal is scenario-controlled
     bool block_speed = !c.override_mgr_.IsLongitudinalManual();
 
-    if (c.object_ && c.gateway_)
+    if (c.object_)
     {
-        c.state_applier_.Apply(c.gateway_, c.object_,
+        c.state_applier_.Apply(c.object_,
                                pos_x, pos_y, pos_z,
                                heading, speed, wheel_angle,
                                body_dx, body_dy, body_dz,

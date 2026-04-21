@@ -55,7 +55,7 @@ namespace gt_esmini
         void Step(double timeStep) override;
         int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
 
-        virtual const char* GetTypeName() override
+        virtual const char* GetTypeName() const override
         {
             return CONTROLLER_REAL_DRIVER_TYPE_NAME;
         }

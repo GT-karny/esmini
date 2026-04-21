@@ -1,23 +1,26 @@
 #ifndef COLLISION_HPP
 #define COLLISION_HPP
 
+#include <algorithm>
 #include "CommonMini.hpp"
+#include "OSCBoundingBox.hpp"
 
 typedef struct
 {
-    int                                            id;
-    std::string                                    name;
-    struct scenarioengine::ObjectPositionStructDat pos;
-    float                                          wheel_angle;
-    float                                          wheel_rotation;
-    bool                                           visible;
-    scenarioengine::OSCBoundingBox                 bounding_box;
-    std::vector<SE_Vector>                         corners;
-    std::vector<int>                               overlap_entity_ids;
+    int                            id;
+    std::string                    name;
+    struct ObjectPositionStructDat pos;
+    double                         wheel_angle;
+    double                         wheel_rotation;
+    bool                           visible;
+    scenarioengine::OSCBoundingBox bounding_box;
+    std::vector<SE_Vector>         corners;
+    std::vector<int>               overlap_entity_ids;
 #ifdef _USE_OSG
     viewer::EntityModel*         entityModel;
     osg::ref_ptr<osg::Vec3Array> trajPoints;
     viewer::PolyLine*            trajectory;
+    std::vector<SE_Point2D>      outline_2d;
 #endif  // _USE_OSG
 } ScenarioEntity;
 

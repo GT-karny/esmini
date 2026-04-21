@@ -1,9 +1,11 @@
 Usage: esmini [options]
 Options:
-  --osc <filename>
+  [--osc] <filename>
       OpenSCENARIO filename (required) - if path includes spaces, enclose with ""
   --aa_mode [mode]  (default if value omitted: 4)
       Anti-alias mode=number of multisamples (subsamples, 0=off)
+  --axis_indicator <mode>
+      0:off 1:on 2:xray, cycle key 'x'
   --align_routepositions
       Align t-axis of route positions to the direction of the route
   --bounding_boxes
@@ -44,8 +46,8 @@ Options:
       Do not apply textures on any generated road model (set colors instead as for missing textures)
   --ghost_trail_dt [dt]  (default if value omitted: 0.200000)
       Ghost trail sample delta time
-  --ground_plane
-      Add a large flat ground surface
+  --ground_plane [mode]  (default if option or value omitted: auto)
+      Add a large flat ground surface. Modes: on, off, auto
   --headless
       Run without viewer window
   --help
@@ -56,6 +58,8 @@ Options:
       Hide trajectories from start. Toggle key 'n'
   --hide_ghost
       Do not visualize ghost
+  --hide_obj_outline
+      Hide any object 2D shape outlines (toggle key ';')
   --ignore_heading_for_traj_motion
       Ignore heading when deciding motion direction along trajectory
   --ignore_odr_offset
@@ -147,7 +151,7 @@ Options:
   --version
       Show version and quit
   --view_mode <view_mode>
-      Entity visualization: "model"(default)/"boundingbox"/"both" toggle key ','
+      Entity visualization: "model"(default)/"boundingbox"/"both"/"filled_boundingbox" toggle key ','
   --wireframe
       Global wireframe mode, toggle key 'w'
 

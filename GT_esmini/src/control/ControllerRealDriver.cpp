@@ -12,7 +12,7 @@
 #include <cmath>     // For std::sqrt, std::atan2, M_PI
 #include <algorithm>
 #include "logger.hpp"
-#include "ScenarioGateway.hpp"
+// #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "Entities.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp" // For Light Extension
 #include "gt_esmini/control/TerrainTracker.hpp" // For terrain tracking
@@ -665,12 +665,12 @@ void ControllerRealDriver::SyncObjectPoseFromRealVehicle()
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
     object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
-    object_->SetDirtyBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
+    object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
 }
 
 void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double combinedRoll, bool blockSpeedUpdate)
 {
-    if (!object_ || !gateway_)
+    if (!object_)
     {
         return;
     }
@@ -681,22 +681,21 @@ void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double c
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
 
-    gateway_->updateObjectWorldPosXYH(
-        object_->id_, 0.0, real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
-    if (!blockSpeedUpdate)
-    {
-        gateway_->updateObjectSpeed(object_->id_, 0.0, real_vehicle_.speed_);
-    }
-    gateway_->updateObjectWheelAngle(object_->id_, 0.0, real_vehicle_.wheelAngle_);
-    gateway_->updateObjectWorldPos(
-        object_->id_,
-        0.0,
+    // v3.0.0: Gateway removed — write directly to Object
+    object_->pos_.SetInertiaPos(
         real_vehicle_.posX_ + w_dx,
         real_vehicle_.posY_ + w_dy,
         real_vehicle_.posZ_ + dz,
         real_vehicle_.heading_,
         combinedPitch,
         combinedRoll);
+    object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
+    if (!blockSpeedUpdate)
+    {
+        object_->SetSpeed(real_vehicle_.speed_);
+    }
+    object_->wheel_angle_ = real_vehicle_.wheelAngle_;
+    object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::WHEEL_ANGLE);
 
     SyncObjectPoseFromRealVehicle();
 }

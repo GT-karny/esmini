@@ -40,7 +40,7 @@ public:
     void Step(double timeStep) override;
     int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
 
-    const char* GetTypeName() override
+    const char* GetTypeName() const override
     {
         return CONTROLLER_PYTHON_DRIVER_TYPE_NAME;
     }

@@ -104,6 +104,13 @@ namespace esmini_options
         VEHICLE_DYNAMICS,                // 93
         WIREFRAME,                       // 94
         VIEW_GHOST_RESTART,              // 95
+        EXTENDED,                        // 96
+        FILE_REFS,                       // 97
+        PRINT_CSV,                       // 98
+        CSV,                             // 99
+        HIDE_OBJ_OUTLINE,                // 100
+        AXIS_INDICATOR,                  // 101
+        GUI,                             // 102
         CONFIGS_COUNT                    // this must be the last enum value
     };
 
@@ -114,6 +121,7 @@ namespace esmini_options
         {"bounding_boxes", BOUNDING_BOXES},
         {"capture_screen", CAPTURE_SCREEN},
         {"camera_mode", CAMERA_MODE},
+        {"csv", CSV},
         {"csv_logger", CSV_LOGGER},
         {"collision", COLLISION},
         {"config_file_path", CONFIG_FILE_PATH},
@@ -125,6 +133,8 @@ namespace esmini_options
         {"disable_log", DISABLE_LOG},
         {"disable_stdout", DISABLE_STDOUT},
         {"enforce_generate_model", ENFORCE_GENERATE_MODEL},
+        {"extended", EXTENDED},
+        {"file_refs", FILE_REFS},
         {"fixed_timestep", FIXED_TIMESTEP},
         {"follow_object", FOLLOW_OBJECT},
         {"generate_no_road_objects", GENERATE_NO_ROAD_OBJECTS},
@@ -180,6 +190,7 @@ namespace esmini_options
         {"vehicle_dynamics", VEHICLE_DYNAMICS},
         {"version", VERSION},
         {"odr", ODR_STR},
+        {"print_csv", PRINT_CSV},
         {"density", DENSITY},
         {"disable_off_screen", DISABLE_OFF_SCREEN},
         {"duration", DURATION},
@@ -203,7 +214,10 @@ namespace esmini_options
         {"hide_ghost", HIDE_GHOST},
         {"ghost_trail_dt", GHOST_TRAIL_DT},
         {"wireframe", WIREFRAME},
-        {"view_ghost_restart", VIEW_GHOST_RESTART}};
+        {"view_ghost_restart", VIEW_GHOST_RESTART},
+        {"hide_obj_outline", HIDE_OBJ_OUTLINE},
+        {"axis_indicator", AXIS_INDICATOR},
+        {"gui", GUI}};
 
     CONFIG_ENUM ConvertStrKeyToEnum(const std::string& key);
 }  // namespace esmini_options

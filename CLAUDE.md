@@ -86,26 +86,13 @@ graph TD
 
 ## 5. Test Strategy
 
-### Comparison Test (PythonDriverController vs DefaultController)
+### Regression check (current)
+- **Build pass** (Protocol A) as primary gate.
+- **Smoke run**: launch `GT_Sim.exe` on a representative xosc/xodr set; verify scenario start, ego trajectory sanity, OSI stream health.
+- **Focus areas**: ManualDrive / KinematicController / LHT junction behavior (recent hotspots).
 
-```bash
-DriverScript/.venv/Scripts/python.exe scripts/compare_python_vs_default.py \
-    --matrix GT_esmini/test/comparison_matrix.yaml \
-    --thresholds GT_esmini/test/comparison_thresholds.yaml \
-    --output test_results/comparison_latest \
-    --gt-sim build/GT_esmini/Release/GT_Sim.exe \
-    --verbose
-```
-
-**Automatic pipeline**: XOSC variant generation → GT_Sim execution (both controllers) → `.dat` → `.csv` conversion → metrics calculation → threshold evaluation → HTML report + JSON summary.
-
-**Output**: `test_results/comparison_latest/comparison_report.html`
-
-### Key files
-- `scripts/compare_python_vs_default.py` — Orchestrator
-- `scripts/comparison_kpis.py` — Metrics (trajectory, speed, lane keeping, route)
-- `GT_esmini/test/comparison_matrix.yaml` — Scenario configuration
-- `GT_esmini/test/comparison_thresholds.yaml` — Pass/fail criteria
+### Legacy (frozen)
+`scripts/compare_python_vs_default.py` and `GT_esmini/test/comparison_{matrix,thresholds}.yaml` remain in-tree but target PythonDriverController which is development-frozen (see Section 4). Not used as a regression gate anymore.
 
 ## 6. Package Build (EXE Distribution)
 
@@ -117,9 +104,9 @@ Use `/package --version <VERSION>` skill for automated build. See `.claude/skill
 
 ## 7. Git Workflow
 
-- **Branches**: `master` (stable) → `dev_v0.8` (development integration) → `feature/*` (feature work)
+- **Branches**: `master` (stable) → `dev_v0.<N>` (development integration) → `feature/*` (feature work)
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`)
-- **PR flow**: `feature/*` → `dev_v0.8` → `master`
+- **PR flow**: `feature/*` → `dev_v0.<N>` → `master`
 
 ## 8. Contextual Links
 

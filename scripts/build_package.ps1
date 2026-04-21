@@ -48,6 +48,8 @@ $ErrorActionPreference = "Stop"
 $RepoRoot       = (Resolve-Path "$PSScriptRoot\..").Path
 $BuildDir       = Join-Path $RepoRoot "build"
 $BuildRelease   = Join-Path $BuildDir "GT_esmini\Release"
+$RMLibRelease   = Join-Path $BuildDir "EnvironmentSimulator\Libraries\esminiRMLib\Release"
+$SDL2Dll        = Join-Path $RepoRoot "thirdparty\SDL2\lib\x64\SDL2.dll"
 $DriverBin      = Join-Path $RepoRoot "DriverScript\bin"
 $VenvPython     = Join-Path $RepoRoot "DriverScript\.venv\Scripts\python.exe"
 $EmbedPython    = Join-Path $RepoRoot "thirdparty\python-embed\python-3.12.10-embed-amd64"
@@ -98,23 +100,41 @@ if (-not $SkipCMake) {
             -DUSE_OSI=ON `
             -DUSE_SUMO=ON `
             -DUSE_IMPLOT=ON `
-            -DUSE_SDL2=ON
+            -DUSE_SDL2=ON `
+            -DGT_ENABLE_SDL2=ON
     }
 
     Write-Step "1" "C++ Build (Release)"
     Invoke-Checked "cmake build" {
-        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib
+        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib
     }
-
-    # Copy DLL/EXE to DriverScript/bin
-    Write-Step "1b" "Copy build artifacts to DriverScript/bin"
-    if (-not (Test-Path $DriverBin)) { New-Item -ItemType Directory -Path $DriverBin -Force | Out-Null }
-    Copy-Item "$BuildRelease\*.dll" $DriverBin -Force -ErrorAction SilentlyContinue
-    Copy-Item "$BuildRelease\GT_Sim.exe" $DriverBin -Force -ErrorAction SilentlyContinue
-    Write-Host "  OK: Artifacts copied" -ForegroundColor Green
 } else {
     Write-Host "`n  -- Skipping CMake configure + C++ build --" -ForegroundColor Yellow
 }
+
+# ── Step 1b: Stage build artifacts (always runs, even with -SkipCMake) ─
+# These copies must run every build so build_package.py's *.dll glob picks
+# up esminiRMLib.dll and SDL2.dll on packaging.
+Write-Step "1b" "Stage build artifacts into BuildRelease + DriverScript/bin"
+if (-not (Test-Path $DriverBin)) { New-Item -ItemType Directory -Path $DriverBin -Force | Out-Null }
+Copy-Item "$BuildRelease\*.dll" $DriverBin -Force -ErrorAction SilentlyContinue
+Copy-Item "$BuildRelease\GT_Sim.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+# esminiRMLib.dll lives under EnvironmentSimulator/Libraries/esminiRMLib/Release
+# — stage into $BuildRelease so build_package.py's *.dll glob picks it up.
+if (Test-Path "$RMLibRelease\esminiRMLib.dll") {
+    Copy-Item "$RMLibRelease\esminiRMLib.dll" $BuildRelease -Force
+    Copy-Item "$RMLibRelease\esminiRMLib.dll" $DriverBin -Force
+} else {
+    Write-Host "  !! WARNING: esminiRMLib.dll not found at $RMLibRelease — 2D Viewer will show no roads" -ForegroundColor Yellow
+}
+# SDL2.dll is required at runtime when built with GT_ENABLE_SDL2=ON.
+if (Test-Path $SDL2Dll) {
+    Copy-Item $SDL2Dll $BuildRelease -Force
+    Copy-Item $SDL2Dll $DriverBin -Force
+} else {
+    Write-Host "  !! WARNING: SDL2.dll not found at $SDL2Dll — ManualDrive wheel input will not work" -ForegroundColor Yellow
+}
+Write-Host "  OK: Artifacts staged" -ForegroundColor Green
 
 # ── Step 2: build_package.py (Frontend + PyInstaller + Assembly) ──
 Write-Step "2" "build_package.py (Frontend + PyInstaller + Assembly)"
