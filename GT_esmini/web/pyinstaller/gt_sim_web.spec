@@ -131,6 +131,11 @@ a = Analysis(
         "scenario_generator",
         "dat",
         "runtime_api",
+        # realdriver.rm_lib is imported lazily inside road_geometry_service
+        # (2D Viewer road rendering). Without this, PyInstaller misses it
+        # and the road API silently returns empty boundaries.
+        "realdriver",
+        "realdriver.rm_lib",
     ],
     hookspath=[],
     hooksconfig={},

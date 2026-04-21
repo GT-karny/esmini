@@ -10,44 +10,44 @@ RM_ID_UNDEFINED = 0xFFFFFFFF
 
 class RM_PositionXYZ(ctypes.Structure):
     _fields_ = [
-        ("x", ctypes.c_float),
-        ("y", ctypes.c_float),
-        ("z", ctypes.c_float)
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+        ("z", ctypes.c_double)
     ]
 
 
 class RM_PositionData(ctypes.Structure):
     _fields_ = [
-        ("x", ctypes.c_float),
-        ("y", ctypes.c_float),
-        ("z", ctypes.c_float),
-        ("h", ctypes.c_float),
-        ("p", ctypes.c_float),
-        ("r", ctypes.c_float),
-        ("hRelative", ctypes.c_float),
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+        ("z", ctypes.c_double),
+        ("h", ctypes.c_double),
+        ("p", ctypes.c_double),
+        ("r", ctypes.c_double),
+        ("hRelative", ctypes.c_double),
         ("roadId", id_t),
         ("junctionId", id_t),
         ("laneId", ctypes.c_int),
-        ("laneOffset", ctypes.c_float),
-        ("s", ctypes.c_float)
+        ("laneOffset", ctypes.c_double),
+        ("s", ctypes.c_double)
     ]
 
 
 class RM_RoadLaneInfo(ctypes.Structure):
     _fields_ = [
         ("pos", RM_PositionXYZ),
-        ("heading", ctypes.c_float),
-        ("pitch", ctypes.c_float),
-        ("roll", ctypes.c_float),
-        ("width", ctypes.c_float),
-        ("curvature", ctypes.c_float),
-        ("speed_limit", ctypes.c_float),
+        ("heading", ctypes.c_double),
+        ("pitch", ctypes.c_double),
+        ("roll", ctypes.c_double),
+        ("width", ctypes.c_double),
+        ("curvature", ctypes.c_double),
+        ("speed_limit", ctypes.c_double),
         ("roadId", id_t),
         ("junctionId", id_t),
         ("laneId", ctypes.c_int),
-        ("laneOffset", ctypes.c_float),
-        ("s", ctypes.c_float),
-        ("t", ctypes.c_float),
+        ("laneOffset", ctypes.c_double),
+        ("s", ctypes.c_double),
+        ("t", ctypes.c_double),
         ("road_type", ctypes.c_int),
         ("road_rule", ctypes.c_int),
         ("lane_type", ctypes.c_int)
@@ -58,14 +58,14 @@ class RM_RoadProbeInfo(ctypes.Structure):
     _fields_ = [
         ("road_lane_info", RM_RoadLaneInfo),
         ("relative_pos", RM_PositionXYZ),
-        ("relative_h", ctypes.c_float)
+        ("relative_h", ctypes.c_double)
     ]
 
 
 class RM_PositionDiff(ctypes.Structure):
     _fields_ = [
-        ("ds", ctypes.c_float),
-        ("dt", ctypes.c_float),
+        ("ds", ctypes.c_double),
+        ("dt", ctypes.c_double),
         ("dLaneId", ctypes.c_int)
     ]
 
@@ -73,19 +73,19 @@ class RM_PositionDiff(ctypes.Structure):
 class RM_RoadSign(ctypes.Structure):
     _fields_ = [
         ("id", ctypes.c_int),
-        ("x", ctypes.c_float),
-        ("y", ctypes.c_float),
-        ("z", ctypes.c_float),
-        ("z_offset", ctypes.c_float),
-        ("h", ctypes.c_float),
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+        ("z", ctypes.c_double),
+        ("z_offset", ctypes.c_double),
+        ("h", ctypes.c_double),
         ("roadId", id_t),
-        ("s", ctypes.c_float),
-        ("t", ctypes.c_float),
+        ("s", ctypes.c_double),
+        ("t", ctypes.c_double),
         ("name", ctypes.c_char_p),
         ("orientation", ctypes.c_int),
-        ("length", ctypes.c_float),
-        ("height", ctypes.c_float),
-        ("width", ctypes.c_float)
+        ("length", ctypes.c_double),
+        ("height", ctypes.c_double),
+        ("width", ctypes.c_double)
     ]
 
 
@@ -98,25 +98,25 @@ class RM_RoadObjValidity(ctypes.Structure):
 
 class RM_GeoReference(ctypes.Structure):
     _fields_ = [
-        ("a_", ctypes.c_float),
+        ("a_", ctypes.c_double),
         ("axis_", ctypes.c_char_p),
-        ("b_", ctypes.c_float),
+        ("b_", ctypes.c_double),
         ("ellps_", ctypes.c_char_p),
-        ("k_", ctypes.c_float),
-        ("k_0_", ctypes.c_float),
-        ("lat_0_", ctypes.c_float),
-        ("lon_0_", ctypes.c_float),
-        ("lon_wrap_", ctypes.c_float),
-        ("over_", ctypes.c_float),
+        ("k_", ctypes.c_double),
+        ("k_0_", ctypes.c_double),
+        ("lat_0_", ctypes.c_double),
+        ("lon_0_", ctypes.c_double),
+        ("lon_wrap_", ctypes.c_double),
+        ("over_", ctypes.c_double),
         ("pm_", ctypes.c_char_p),
         ("proj_", ctypes.c_char_p),
         ("units_", ctypes.c_char_p),
         ("vunits_", ctypes.c_char_p),
-        ("x_0_", ctypes.c_float),
-        ("y_0_", ctypes.c_float),
+        ("x_0_", ctypes.c_double),
+        ("y_0_", ctypes.c_double),
         ("datum_", ctypes.c_char_p),
         ("geo_id_grids_", ctypes.c_char_p),
-        ("zone_", ctypes.c_float),
+        ("zone_", ctypes.c_double),
         ("towgs84_", ctypes.c_int),
         ("original_georef_str_", ctypes.c_char_p)
     ]
@@ -232,7 +232,7 @@ class EsminiRMLib:
 
         # float RM_GetRoadLength(id_t id);
         self.lib.RM_GetRoadLength.argtypes = [id_t]
-        self.lib.RM_GetRoadLength.restype = ctypes.c_float
+        self.lib.RM_GetRoadLength.restype = ctypes.c_double
 
         # const char* RM_GetRoadIdString(id_t road_id);
         self.lib.RM_GetRoadIdString.argtypes = [id_t]
@@ -253,19 +253,19 @@ class EsminiRMLib:
         # --- Lane Info ---
 
         # int RM_GetRoadNumberOfLanes(id_t roadId, float s, int type_mask);
-        self.lib.RM_GetRoadNumberOfLanes.argtypes = [id_t, ctypes.c_float, ctypes.c_int]
+        self.lib.RM_GetRoadNumberOfLanes.argtypes = [id_t, ctypes.c_double, ctypes.c_int]
         self.lib.RM_GetRoadNumberOfLanes.restype = ctypes.c_int
 
         # int RM_GetLaneIdByIndex(id_t roadId, int laneIndex, float s, int type_mask, int* lane_id);
-        self.lib.RM_GetLaneIdByIndex.argtypes = [id_t, ctypes.c_int, ctypes.c_float, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+        self.lib.RM_GetLaneIdByIndex.argtypes = [id_t, ctypes.c_int, ctypes.c_double, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
         self.lib.RM_GetLaneIdByIndex.restype = ctypes.c_int
 
         # int RM_GetRoadNumberOfDrivableLanes(id_t roadId, float s);
-        self.lib.RM_GetRoadNumberOfDrivableLanes.argtypes = [id_t, ctypes.c_float]
+        self.lib.RM_GetRoadNumberOfDrivableLanes.argtypes = [id_t, ctypes.c_double]
         self.lib.RM_GetRoadNumberOfDrivableLanes.restype = ctypes.c_int
 
         # int RM_GetDrivableLaneIdByIndex(id_t roadId, int laneIndex, float s, int* lane_id);
-        self.lib.RM_GetDrivableLaneIdByIndex.argtypes = [id_t, ctypes.c_int, ctypes.c_float, ctypes.POINTER(ctypes.c_int)]
+        self.lib.RM_GetDrivableLaneIdByIndex.argtypes = [id_t, ctypes.c_int, ctypes.c_double, ctypes.POINTER(ctypes.c_int)]
         self.lib.RM_GetDrivableLaneIdByIndex.restype = ctypes.c_int
 
         # int RM_GetNumberOfRoadsOverlapping(int handle);
@@ -279,39 +279,39 @@ class EsminiRMLib:
         # --- Position Setting ---
 
         # int RM_SetLanePosition(int handle, id_t roadId, int laneId, float laneOffset, float s, bool align);
-        self.lib.RM_SetLanePosition.argtypes = [ctypes.c_int, id_t, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_bool]
+        self.lib.RM_SetLanePosition.argtypes = [ctypes.c_int, id_t, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_bool]
         self.lib.RM_SetLanePosition.restype = ctypes.c_int
 
         # int RM_SetRoadPosition(int handle, id_t roadId, float s, float t, bool align);
-        self.lib.RM_SetRoadPosition.argtypes = [ctypes.c_int, id_t, ctypes.c_float, ctypes.c_float, ctypes.c_bool]
+        self.lib.RM_SetRoadPosition.argtypes = [ctypes.c_int, id_t, ctypes.c_double, ctypes.c_double, ctypes.c_bool]
         self.lib.RM_SetRoadPosition.restype = ctypes.c_int
 
         # int RM_SetS(int handle, float s);
-        self.lib.RM_SetS.argtypes = [ctypes.c_int, ctypes.c_float]
+        self.lib.RM_SetS.argtypes = [ctypes.c_int, ctypes.c_double]
         self.lib.RM_SetS.restype = ctypes.c_int
 
         # int RM_SetWorldPosition(int handle, float x, float y, float z, float h, float p, float r);
-        self.lib.RM_SetWorldPosition.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float]
+        self.lib.RM_SetWorldPosition.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double]
         self.lib.RM_SetWorldPosition.restype = ctypes.c_int
 
         # int RM_SetWorldXYHPosition(int handle, float x, float y, float h);
-        self.lib.RM_SetWorldXYHPosition.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float]
+        self.lib.RM_SetWorldXYHPosition.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
         self.lib.RM_SetWorldXYHPosition.restype = ctypes.c_int
 
         # int RM_SetWorldXYZHPosition(int handle, float x, float y, float z, float h);
-        self.lib.RM_SetWorldXYZHPosition.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float]
+        self.lib.RM_SetWorldXYZHPosition.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double]
         self.lib.RM_SetWorldXYZHPosition.restype = ctypes.c_int
 
         # int RM_SetWorldPositionMode(int handle, float x, float y, float z, float h, float p, float r, int mode);
-        self.lib.RM_SetWorldPositionMode.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_int]
+        self.lib.RM_SetWorldPositionMode.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_double, ctypes.c_int]
         self.lib.RM_SetWorldPositionMode.restype = ctypes.c_int
 
         # int RM_SetH(int handle, float h);
-        self.lib.RM_SetH.argtypes = [ctypes.c_int, ctypes.c_float]
+        self.lib.RM_SetH.argtypes = [ctypes.c_int, ctypes.c_double]
         self.lib.RM_SetH.restype = ctypes.c_int
 
         # int RM_SetHMode(int handle, float h, int mode);
-        self.lib.RM_SetHMode.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_int]
+        self.lib.RM_SetHMode.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_int]
         self.lib.RM_SetHMode.restype = ctypes.c_int
 
         # int RM_SetRoadId(int handle, id_t roadId);
@@ -319,7 +319,7 @@ class EsminiRMLib:
         self.lib.RM_SetRoadId.restype = ctypes.c_int
 
         # int RM_PositionMoveForward(int handle, float dist, float junctionSelectorAngle);
-        self.lib.RM_PositionMoveForward.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float]
+        self.lib.RM_PositionMoveForward.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double]
         self.lib.RM_PositionMoveForward.restype = ctypes.c_int
 
         # --- Query ---
@@ -330,22 +330,22 @@ class EsminiRMLib:
 
         # float RM_GetSpeedLimit(int handle);
         self.lib.RM_GetSpeedLimit.argtypes = [ctypes.c_int]
-        self.lib.RM_GetSpeedLimit.restype = ctypes.c_float
+        self.lib.RM_GetSpeedLimit.restype = ctypes.c_double
 
         # int RM_GetLaneInfo(int handle, float lookahead_distance, RM_RoadLaneInfo* data, int lookAheadMode, bool inRoadDrivingDirection);
-        self.lib.RM_GetLaneInfo.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.POINTER(RM_RoadLaneInfo), ctypes.c_int, ctypes.c_bool]
+        self.lib.RM_GetLaneInfo.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.POINTER(RM_RoadLaneInfo), ctypes.c_int, ctypes.c_bool]
         self.lib.RM_GetLaneInfo.restype = ctypes.c_int
 
         # int RM_GetProbeInfo(int handle, float lookahead_distance, RM_RoadProbeInfo* data, int lookAheadMode, bool inRoadDrivingDirection);
-        self.lib.RM_GetProbeInfo.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.POINTER(RM_RoadProbeInfo), ctypes.c_int, ctypes.c_bool]
+        self.lib.RM_GetProbeInfo.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.POINTER(RM_RoadProbeInfo), ctypes.c_int, ctypes.c_bool]
         self.lib.RM_GetProbeInfo.restype = ctypes.c_int
 
         # int RM_GetLaneWidth(int handle, int lane_id, float* width);
-        self.lib.RM_GetLaneWidth.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_float)]
+        self.lib.RM_GetLaneWidth.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_double)]
         self.lib.RM_GetLaneWidth.restype = ctypes.c_int
 
         # int RM_GetLaneWidthByRoadId(id_t road_id, int lane_id, float s, float* width);
-        self.lib.RM_GetLaneWidthByRoadId.argtypes = [id_t, ctypes.c_int, ctypes.c_float, ctypes.POINTER(ctypes.c_float)]
+        self.lib.RM_GetLaneWidthByRoadId.argtypes = [id_t, ctypes.c_int, ctypes.c_double, ctypes.POINTER(ctypes.c_double)]
         self.lib.RM_GetLaneWidthByRoadId.restype = ctypes.c_int
 
         # int RM_GetLaneType(int handle, int lane_id);
@@ -357,7 +357,7 @@ class EsminiRMLib:
         self.lib.RM_GetInLaneType.restype = ctypes.c_int
 
         # int RM_GetLaneTypeByRoadId(id_t road_id, int lane_id, float s);
-        self.lib.RM_GetLaneTypeByRoadId.argtypes = [id_t, ctypes.c_int, ctypes.c_float]
+        self.lib.RM_GetLaneTypeByRoadId.argtypes = [id_t, ctypes.c_int, ctypes.c_double]
         self.lib.RM_GetLaneTypeByRoadId.restype = ctypes.c_int
 
         # int RM_SubtractAFromB(int handleA, int handleB, RM_PositionDiff* pos_diff);
@@ -598,7 +598,7 @@ class EsminiRMLib:
         Returns:
             (result, width): result=0 on success
         """
-        width = ctypes.c_float()
+        width = ctypes.c_double()
         res = self.lib.RM_GetLaneWidth(handle, lane_id, ctypes.byref(width))
         return res, width.value
 
@@ -609,7 +609,7 @@ class EsminiRMLib:
         Returns:
             (result, width): result=0 on success
         """
-        width = ctypes.c_float()
+        width = ctypes.c_double()
         res = self.lib.RM_GetLaneWidthByRoadId(road_id, lane_id, s, ctypes.byref(width))
         return res, width.value
 
