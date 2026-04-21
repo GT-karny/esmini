@@ -36,7 +36,7 @@ const char *OSIReporter::GetOSITrafficCommandRaw()
     return reinterpret_cast<char *>(obj_osi_external.tc);
 }
 
-const char *OSIReporter::GetOSIRoadLane(const std::vector<std::unique_ptr<ObjectState>> &objectState, int *size, int object_id)
+const char *OSIReporter::GetOSIRoadLane(const std::vector<scenarioengine::Object*> &objectState, int *size, int object_id)
 {
     if (static_cast<unsigned int>(object_id) >= objectState.size())
     {
@@ -48,9 +48,9 @@ const char *OSIReporter::GetOSIRoadLane(const std::vector<std::unique_ptr<Object
     roadmanager::Position pos;
     for (size_t i = 0; i < objectState.size(); i++)
     {
-        if (object_id == objectState[i]->state_.info.id)
+        if (object_id == objectState[i]->id_)
         {
-            pos = objectState[i]->state_.pos;
+            pos = objectState[i]->pos_;
             break;
         }
     }
@@ -146,7 +146,7 @@ osi3::Lane *OSIReporter::GetOSILaneFromGlobalId(id_t g_id)
     return nullptr;
 }
 
-void OSIReporter::GetOSILaneBoundaryIds(const std::vector<std::unique_ptr<ObjectState>> &objectState, std::vector<id_t> &ids, int object_id)
+void OSIReporter::GetOSILaneBoundaryIds(const std::vector<scenarioengine::Object*> &objectState, std::vector<id_t> &ids, int object_id)
 {
     idx_t             idx_central, idx_left, idx_right;
     id_t              left_lb_id, right_lb_id;
@@ -163,9 +163,9 @@ void OSIReporter::GetOSILaneBoundaryIds(const std::vector<std::unique_ptr<Object
     roadmanager::Position pos;
     for (size_t i = 0; i < objectState.size(); i++)
     {
-        if (object_id == objectState[i]->state_.info.id)
+        if (object_id == objectState[i]->id_)
         {
-            pos = objectState[i]->state_.pos;
+            pos = objectState[i]->pos_;
         }
     }
 
