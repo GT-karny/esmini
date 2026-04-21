@@ -227,7 +227,11 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
 
     roadmanager::Position pos;
     pos.Duplicate(object_->pos_);
-    pos.route_ = object_->pos_.route_;
+    // Deep-copy the route so MoveAlongS(updateRoute=true) mutations during
+    // polyline construction don't leak into the object's shared Route state.
+    // v3.0.2 made updateRoute=true the default for MoveAlongS(ds), which
+    // advances route_->currentPos_ each call (see RoadManager::MoveRouteDS).
+    pos.CopyRoute(object_->pos_);
 
     int n_steps = static_cast<int>(ceil(total_dist / step));
     double acc_dist = 0.0;
@@ -273,8 +277,6 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
 
         future_path_.push_back({px, py});
     }
-
-    pos.route_ = nullptr;
 }
 
 // ===========================================================================
