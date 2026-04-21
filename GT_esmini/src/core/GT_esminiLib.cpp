@@ -630,6 +630,14 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 // breaks the HVD override path and leaves HVDEstimator's
                 // preview-attenuated steering as the reported value.
                 obj->AssignController(ctrl);
+                // ScenarioEngine's Init loop for scenario-declared controllers
+                // already ran before GT_Init. Call Init() explicitly so KC sets
+                // mode_ = MODE_ADDITIVE (base-class default is MODE_OVERRIDE).
+                // Without this, private actions that short-circuit on
+                // IsControllerModeOnDomains(MODE_OVERRIDE, LAT) — notably
+                // LatLaneChangeAction and LatLaneOffsetAction — would silently
+                // no-op because KC would appear to own the LAT domain.
+                ctrl->Init();
 
                 // Activate on LAT domain only (additive mode).
                 // Actions + defaultController run normally; bicycle model follows object_->pos_.
