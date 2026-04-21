@@ -711,6 +711,17 @@ int Replay::ParsePackets()
                     environment_timeline_.values.emplace_back(timestamp_, env);
                     break;
                 }
+                case static_cast<id_t>(Dat::PacketId::BB_COLOR):
+                {
+                    std::string color = dat_reader_->ReadStringPacket(gp);
+                    if (color.empty())
+                    {
+                        LOG_ERROR("Failed to read boundingbox color packet");
+                        return -1;
+                    }
+                    current_object_timeline_->bb_color_.values.emplace_back(timestamp_, color);
+                    break;
+                }
                 case static_cast<id_t>(Dat::PacketId::DT):
                 case static_cast<id_t>(Dat::PacketId::END_OF_SCENARIO):
                 default:  // Intentially ignored packets

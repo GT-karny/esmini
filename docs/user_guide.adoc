@@ -787,7 +787,7 @@ The above script link points to OSI tag v3.5.0. In more recent OSI versions the 
 
 === esmini in Unity
 
-esmini shared library works also as plugin in Unity (Win, Linux, Mac). A simple example can be downloaded from https://www.dropbox.com/scl/fi/lnwq3i9h2jcrbdb58i9a2/esmini-player_v2_56_1.unitypackage?rlkey=1sil117mil3hab60ktktr0s5k&st=rte8iues&dl=1[here]. The package contains everything needed to get going:
+esmini shared library works also as plugin in Unity (Win, Linux, Mac). A simple example can be downloaded from https://www.dropbox.com/scl/fi/5d41set5lusce8lkw84xy/esmini-player_v3_0_0.unitypackage?rlkey=as9xfmmzfhlcrfo3brzsk34xu&st=y0n8g0yu&dl=1[here]. The package contains everything needed to get going:
 
 - esmini library C# wrapper
 - a generic scenario player script
@@ -1755,6 +1755,27 @@ image::outlines.jpg[]
 Note that the outline is independent and does not have to exactly match the 3D model of the entity.
 
 The visualization of the 2D shape outlines is activated by default. It can be disabled by option `--hide_obj_outline` and toggled on/off in `esmini` and `replayer` with `;` (shift + comma).
+
+=== Boundingbox Colors
+
+On any EntityObject (Vehicle, Pedestrian, MiscObject) in OpenSCENARIO XML, esmini will, in addition to visualizing 3D models and boundingbox wireframe, generate a filled boundingbox with specified boundingbox dimensions and optional color.
+
+*How to enable*
+
+- In simulation: Toggling the view mode with `,`
+- Launch option `--view_mode filled_boundingbox`.
+
+Currently, OpenSCENARIO XML doesn't support setting the color of an object in a standardized way.  However, the Property elements of https://publications.pages.asam.net/standards/ASAM_OpenSCENARIO/ASAM_OpenSCENARIO_XML/latest/generated/content/EntityObject.html[EntityObject] can be utilized for this purpose. From version 3.0.1 esmini supports reading color defined as property with name `color` and value as a hex code with format: `#RRGGBB`. Example of white color:
+
+[source,xml]
+----
+<Property name="color" value="#FFFFFF"/>
+----
+
+For further details refer to the https://github.com/esmini/esmini/blob/master/resources/xosc/Catalogs/Vehicles/VehicleCatalog.xosc[VehicleCatalog].
+
+The hex code for the color will be converted to a value between 0 and 1 and transmitted on its respective channel on OSI https://opensimulationinterface.github.io/osi-antora-generator/asamosi/V3.5.0/gen/structosi3_1_1ColorRGB.html[ColorRGB] in OSI MovingObject (Vehicle, Pedestrian) and StationaryObject (MiscObject).
+
 
 === SUMO integration
 
