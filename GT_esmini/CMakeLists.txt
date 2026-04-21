@@ -10,7 +10,6 @@ set(GT_OSI_TARGET gt_osi)
 
 # ############################### Loading desired rules ##############################################################################################
 
-include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_static_analysis.cmake)
 include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_iwyu.cmake)
 
 # ############################### Mandatory options ##################################################################################################
@@ -265,7 +264,6 @@ foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC}
         target_compile_definitions(${TARGET} PRIVATE _USE_OSI)
     endif()
 
-    disable_static_analysis(${TARGET})
     disable_iwyu(${TARGET})
 
 endforeach()
