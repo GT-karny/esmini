@@ -70,7 +70,6 @@ static std::vector<StoryBoardElementTriggerInfo> storyboard_element_triggers;
 ScenarioReader::ScenarioReader(Entities *entities, Catalogs *catalogs, OSCEnvironment *environment, bool disable_controllers)
     : entities_(entities),
       catalogs_(catalogs),
-      gateway_(nullptr),
       scenarioEngine_(nullptr),
       environment_(environment),
       disable_controllers_(disable_controllers),
@@ -412,9 +411,9 @@ Vehicle *ScenarioReader::createRandomOSCVehicle(std::string name)
 
     // Set some default bounding box just to avoid division-by-zero-problems
     vehicle->boundingbox_                     = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    vehicle->boundingbox_.dimensions_.length_ = 4.0f;
-    vehicle->boundingbox_.dimensions_.width_  = 2.0f;
-    vehicle->boundingbox_.dimensions_.height_ = 1.2f;
+    vehicle->boundingbox_.dimensions_.length_ = 4.0;
+    vehicle->boundingbox_.dimensions_.width_  = 2.0;
+    vehicle->boundingbox_.dimensions_.height_ = 1.2;
 
     return vehicle;
 }
@@ -672,7 +671,7 @@ Vehicle *ScenarioReader::parseOSCVehicle(pugi::xml_node vehicleNode)
                      -vehicle->rear_axle_.positionX,
                      vehicle->GetTypeName());
             vehicle->model3d_x_offset_ = -vehicle->rear_axle_.positionX;
-            vehicle->boundingbox_.center_.x_ -= static_cast<float>(vehicle->rear_axle_.positionX);
+            vehicle->boundingbox_.center_.x_ -= vehicle->rear_axle_.positionX;
             vehicle->front_axle_.positionX -= vehicle->rear_axle_.positionX;
             vehicle->rear_axle_.positionX = 0.0;
         }
@@ -748,7 +747,7 @@ Vehicle *ScenarioReader::parseOSCVehicle(pugi::xml_node vehicleNode)
     if (!refpoint_x_offset.empty())
     {
         vehicle->SetRefpointXOffset(strtod(refpoint_x_offset));
-        vehicle->boundingbox_.center_.x_ -= static_cast<float>(vehicle->GetRefpointXOffset());
+        vehicle->boundingbox_.center_.x_ -= vehicle->GetRefpointXOffset();
     }
 
     // Trailer related elements
@@ -1128,7 +1127,6 @@ Controller *ScenarioReader::parseOSCObjectController(pugi::xml_node controllerNo
         Controller::InitArgs args;
         args.name            = name;
         args.type            = ctrlType;
-        args.gateway         = gateway_;
         args.scenario_engine = scenarioEngine_;
         args.parameters      = &parameters;
         args.properties      = &properties;
@@ -2402,7 +2400,6 @@ OSCGlobalAction *ScenarioReader::parseOSCGlobalAction(pugi::xml_node actionNode,
                 trafficSwarmAction->SetSemiMinorAxes(std::stod(radius));
 
                 trafficSwarmAction->SetScenarioEngine(scenarioEngine_);
-                trafficSwarmAction->SetGateway(gateway_);
                 trafficSwarmAction->SetReader(this);
 
                 // Number of vehicles
@@ -2441,7 +2438,6 @@ OSCGlobalAction *ScenarioReader::parseOSCGlobalAction(pugi::xml_node actionNode,
                 {
                     DeleteEntityAction *deleteEntityAction = new DeleteEntityAction(entity, parent);
                     deleteEntityAction->SetEntities(entities_);
-                    deleteEntityAction->SetGateway(gateway_);
 
                     action = deleteEntityAction;
                 }
