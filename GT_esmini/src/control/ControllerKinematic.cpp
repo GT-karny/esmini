@@ -14,7 +14,7 @@
 #include "gt_esmini/control/ControllerKinematic.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
-#include "ScenarioGateway.hpp"
+// #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "ScenarioEngine.hpp"
 #include "OSCPrivateAction.hpp"
 #include "logger.hpp"
@@ -335,7 +335,7 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     if (!object_ || !initialized_) return;
 
     // === Phase 0: Teleport ===
-    if (object_->GetDirtyBitMask() & static_cast<int>(Object::DirtyBit::TELEPORT))
+    if (object_->dirty_.Check(static_cast<uint64_t>(Object::DirtyBit::TELEPORT)))
     {
         vehicle_.wheelAngle_ = 0.0;
         prev_curvature_ = 0.0;
@@ -407,11 +407,10 @@ void gt_esmini::ControllerKinematic::Step(double timeStep)
     double wheel_radius = 0.35;
     vehicle_.wheelRotation_ += (speed * timeStep) / wheel_radius;
 
-    gateway_->updateObjectWheelRotation(object_->id_, 0.0, vehicle_.wheelRotation_);
-    gateway_->updateObjectWheelAngle(object_->id_, 0.0, vehicle_.wheelAngle_);
+    // v3.0.0: Gateway removed — write directly to Object
     object_->wheel_angle_ = vehicle_.wheelAngle_;
     object_->wheel_rot_ = vehicle_.wheelRotation_;
-    object_->SetDirtyBits(Object::DirtyBit::WHEEL_ANGLE | Object::DirtyBit::WHEEL_ROTATION);
+    object_->dirty_.SetBits(Object::DirtyBit::WHEEL_ANGLE | Object::DirtyBit::WHEEL_ROTATION);
 
     if (config_.debug_log)
     {

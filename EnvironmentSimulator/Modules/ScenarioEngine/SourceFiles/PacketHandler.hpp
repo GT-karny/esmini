@@ -3,9 +3,10 @@
 #include <fstream>
 #include "CommonMini.hpp"
 #include "RoadManager.hpp"
+#include "ScenarioEngine.hpp"
 
-#define DAT_FILE_FORMAT_VERSION_MAJOR 4
-#define DAT_FILE_FORMAT_VERSION_MINOR 3
+#define DAT_FILE_FORMAT_VERSION_MAJOR 5
+#define DAT_FILE_FORMAT_VERSION_MINOR 1
 
 namespace scenarioengine
 {
@@ -44,7 +45,10 @@ namespace Dat
         MODEL_X_OFFSET    = 25,
         OBJ_MODEL3D       = 26,
         ELEM_STATE_CHANGE = 27,
-        PACKET_ID_SIZE    = 28  // Keep this last
+        SHAPE_2D_OUTLINE  = 28,
+        ENVIRONMENT       = 29,
+        BB_COLOR          = 30,
+        PACKET_ID_SIZE    = 31  // Keep this last
     };
 
     struct PacketString
@@ -70,22 +74,22 @@ namespace Dat
 
     struct Pose
     {
-        float x = std::nanf("");
-        float y = std::nanf("");
-        float z = std::nanf("");
-        float h = std::nanf("");
-        float p = std::nanf("");
-        float r = std::nanf("");
+        double x = std::nan("");
+        double y = std::nan("");
+        double z = std::nan("");
+        double h = std::nan("");
+        double p = std::nan("");
+        double r = std::nan("");
     };
 
     struct BoundingBox
     {
-        float x      = std::nanf("");
-        float y      = std::nanf("");
-        float z      = std::nanf("");
-        float length = std::nanf("");
-        float width  = std::nanf("");
-        float height = std::nanf("");
+        double x      = std::nan("");
+        double y      = std::nan("");
+        double z      = std::nan("");
+        double length = std::nan("");
+        double width  = std::nan("");
+        double height = std::nan("");
     };
 
     struct TrafficLightLamp
@@ -96,42 +100,60 @@ namespace Dat
         int          lamp_mode        = static_cast<int>(roadmanager::Signal::LampMode::MODE_UNDEFINED);
     };
 
+    struct Environment
+    {
+        double visibility_range             = LARGE_NUMBER;
+        double fractional_cloudstate_factor = 0.0;
+        double sun_intensity_factor         = 1.0;
+        double fog_visibilityrange_factor   = 0.0;
+        double friction_scale_factor        = 1.0;
+    };
+
     struct PacketGeneric
     {
         PacketHeader      header;
         std::vector<char> data;
     };
 
+    struct PacketShape2DOutline
+    {
+        std::vector<SE_Point2D> points;
+    };
+
     struct ObjState  // Could this be ObjectStateStruct with some additional fields?
     {
-        int         obj_id_            = -1;
-        bool        active_            = false;
-        float       speed_             = std::nanf("");
-        Pose        pose_              = {};
-        int         model_id_          = -1;
-        int         obj_type_          = -1;
-        int         obj_category_      = -1;
-        int         ctrl_type_         = -1;
-        float       wheel_angle_       = std::nanf("");
-        float       wheel_rot_         = std::nanf("");
-        BoundingBox bounding_box_      = {};
-        int         scale_mode_        = -1;
-        int         visibility_mask_   = -1;
-        std::string name_              = {};
-        id_t        road_id_           = ID_UNDEFINED;
-        int         lane_id_           = -LARGE_NUMBER_INT;
-        float       pos_offset_        = std::nanf("");
-        float       pos_t_             = std::nanf("");
-        float       pos_s_             = std::nanf("");
-        float       refpoint_x_offset_ = std::nanf("");
-        float       model_x_offset_    = std::nanf("");
-        std::string model3d_           = {};
+        int                     obj_id_            = -1;
+        bool                    active_            = false;
+        double                  speed_             = std::nan("");
+        Pose                    pose_              = {};
+        int                     model_id_          = -1;
+        int                     obj_type_          = -1;
+        int                     obj_category_      = -1;
+        int                     ctrl_type_         = -1;
+        double                  wheel_angle_       = std::nan("");
+        double                  wheel_rot_         = std::nan("");
+        BoundingBox             bounding_box_      = {};
+        int                     scale_mode_        = -1;
+        int                     visibility_mask_   = -1;
+        std::string             name_              = {};
+        id_t                    road_id_           = ID_UNDEFINED;
+        int                     lane_id_           = -LARGE_NUMBER_INT;
+        double                  pos_offset_        = std::nan("");
+        double                  pos_t_             = std::nan("");
+        double                  pos_s_             = std::nan("");
+        double                  refpoint_x_offset_ = std::nan("");
+        double                  model_x_offset_    = std::nan("");
+        std::string             model3d_           = {};
+        std::vector<SE_Point2D> outline_2d_        = {};
+        std::string             bb_color_          = {};
+        bool                    is_trailer_        = false;
     };
 
     struct ObjectStateCache  // Maybe rename to e.g. SimulationStateCache?
     {
         double                                     dt_ = LARGE_NUMBER;
         double                                     timestamp_;
+        Environment                                environment_;
         std::unordered_map<id_t, TrafficLightLamp> traffic_lights_lamps_;
         std::unordered_map<int, ObjState>          state_;
     };
@@ -140,10 +162,11 @@ namespace Dat
     {
     public:
         void           WritePacket(PacketGeneric& packet);
+        int            WriteEnvironmentToDat(const scenarioengine::OSCEnvironment& environment);
         int            WriteDtToDat();
         int            WriteTrafficLightsToDat(const std::vector<roadmanager::Signal*>& dynamic_signals);
         int            WriteStoryBoardStateChangesToDat(const std::vector<std::string>& state_changes);
-        int            WriteObjectStatesToDat(const std::vector<std::unique_ptr<scenarioengine::ObjectState>>& object_states);
+        int            WriteObjectStatesToDat(const std::vector<scenarioengine::Object*>& objects);
         constexpr bool ShouldWriteObjId(PacketId p_id) const noexcept;
 
         size_t SerializedSize(const std::string& str);
@@ -161,6 +184,8 @@ namespace Dat
         void SetSimulationTime(const double simulation_time, const double dt);
         bool IsPoseEqual(const Pose& pose, const roadmanager::Position& pos) const;
         bool IsBoundingBoxEqual(const BoundingBox& bb, const scenarioengine::OSCBoundingBox& osc_bb) const;
+        bool IsEnvironmentEqual(const Environment& env, const scenarioengine::OSCEnvironment& environment) const;
+        void UpdateEnvironmentCache(const scenarioengine::OSCEnvironment& environment);
         void ResetCurrentIds();
         void CheckDeletedObjects();
 
@@ -209,6 +234,30 @@ namespace Dat
             return 0;
         }
 
+        template <typename T>
+        void ReWriteToBuffer(PacketGeneric& pkt, const T& value)
+        {
+            pkt.header.data_size = sizeof(T);
+            pkt.data.resize(sizeof(T));
+            std::memcpy(pkt.data.data(), &value, sizeof(T));
+        }
+
+        size_t SerializedSize(const PacketString& p)
+        {
+            return sizeof(p.size) + p.string.size();
+        }
+
+        size_t SerializedSize(const PacketShape2DOutline& p)
+        {
+            return p.points.size() * sizeof(SE_Point2D);
+        }
+
+        template <typename T>
+        size_t SerializedSize(const T& val)
+        {
+            return sizeof(val);
+        }
+
         void WriteToBuffer(char*& write_ptr, const PacketString& p)
         {
             memcpy(write_ptr, &p.size, sizeof(p.size));
@@ -218,15 +267,9 @@ namespace Dat
             write_ptr += p.string.size();
         }
 
-        size_t SerializedSize(const PacketString& p)
+        void WriteToBuffer(char*& write_ptr, const PacketShape2DOutline& p)
         {
-            return sizeof(p.size) + p.string.size();
-        }
-
-        template <typename T>
-        size_t SerializedSize(const T& val)
-        {
-            return sizeof(val);
+            memcpy(write_ptr, p.points.data(), p.points.size() * sizeof(SE_Point2D));
         }
 
         template <typename T>
@@ -252,37 +295,47 @@ namespace Dat
     {
     public:
         DatReader(const std::string& filename);
+        DatReader() = default;
         ~DatReader();
 
-        int ReadStringPacket(std::string& str);
+        std::string ReadStringPacket(const Dat::PacketGeneric& pkt);
+        int         ReadStringPacket(std::string& str);
 
-        int            FillDatHeader();
+        std::vector<SE_Point2D> ReadOutlinePacket(const Dat::PacketGeneric& pkt);
+        int                     ReadOutlinePacket(std::vector<SE_Point2D>& points);
+
+        int            FillDatHeader(bool quiet = false);
         Dat::DatHeader GetDatHeader() const
         {
             return header_;
         }
 
-        void SetFileSize();
-        bool ReadFile(Dat::PacketHeader& header);
-        void UnknownPacket(const Dat::PacketHeader& header);
-        void CloseFile();
+        void               SetFileSize();
+        bool               ReadFile(Dat::PacketHeader& header);
+        void               SkipPacket(const Dat::PacketHeader& header);
+        void               CloseFile();
+        Dat::PacketGeneric CreateGenericPacket(const Dat::PacketHeader& header)
+        {
+            Dat::PacketGeneric packet;
+            packet.header = header;
+            packet.data.resize(header.data_size);
+
+            file_.read(packet.data.data(), packet.header.data_size);
+            if (file_.gcount() != packet.header.data_size && !file_.eof())
+            {
+                LOG_ERROR("Failed to create generic packet");
+            }
+
+            return packet;
+        }
 
         /* Template definition kept in the header, otherwise symbols might not be resolved properly.
         Maybe it can be resolved during the build process somehow, but for now they are here. */
         template <typename... Data>
-        int ReadPacket(const Dat::PacketHeader& header, Data&... data)
+        int ReadPacket(const Dat::PacketGeneric& gp, Data&... data)
         {
-            Dat::PacketGeneric packet;
-            packet.header = header;
-            packet.data.resize(packet.header.data_size);
-
-            if (!file_.read(packet.data.data(), packet.header.data_size))
-            {
-                return -1;
-            }
-
-            const char* read_ptr        = packet.data.data();
-            const char* end_ptr         = read_ptr + header.data_size;
+            const char* read_ptr        = gp.data.data();
+            const char* end_ptr         = read_ptr + gp.header.data_size;
             bool        exceeded_bounds = false;
 
             // A lambda that safely copies data from the read_ptr to the provided field,
@@ -310,14 +363,20 @@ namespace Dat
             // Give an error for the packet if we have remaining data or exceeded bounds
             if (remaining_data > 0)
             {
-                LOG_DEBUG("Unused data remaining in packet with id: {}", header.id);
+                LOG_DEBUG("Unused data remaining in packet with id: {}", gp.header.id);
             }
             else if (exceeded_bounds)
             {
-                LOG_DEBUG("Reading previous partial version of packet id: {}", header.id);
+                LOG_DEBUG("Reading previous partial version of packet id: {}", gp.header.id);
             }
 
             return 0;
+        }
+
+        bool ReadHeader(PacketHeader& hdr)
+        {
+            file_.read(reinterpret_cast<char*>(&hdr), sizeof(hdr));
+            return file_.good();
         }
 
     private:

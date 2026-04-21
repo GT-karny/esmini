@@ -28,7 +28,7 @@ void RealDriverCoordinator::RunFrame(ControllerRealDriver& controller, double ti
     double combined_roll = 0.0;
     controller.real_vehicle_.GetCombinedAttitude(combined_pitch, combined_roll);
 
-    if (controller.object_ && controller.gateway_)
+    if (controller.object_)
     {
         controller.lat_path_planner_->HandleActions(controller, "");
 

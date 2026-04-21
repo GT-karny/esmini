@@ -12,7 +12,7 @@
 #pragma once
 
 #include "UDP.hpp"
-#include "ScenarioGateway.hpp"
+// #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "gt_esmini/osi/IHostVehicleDataProvider.hpp"
 #include <string>
 #include <vector>
@@ -103,7 +103,7 @@ public:
      * @param egoState Pointer to ego vehicle ObjectState
      * @return 0 on success, -1 on error
      */
-    int UpdateFromObjectState(const scenarioengine::ObjectState* egoState) override;
+    int UpdateFromObjectState(const scenarioengine::Object* egoObj) override;
 
     /**
      * Send HostVehicleData via UDP

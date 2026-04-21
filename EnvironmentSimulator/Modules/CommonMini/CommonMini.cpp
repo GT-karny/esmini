@@ -98,6 +98,42 @@ const char* esmini_build_version(void)
     return ESMINI_BUILD_VERSION;
 }
 
+Rgb HexToDouble(const std::string& hex, bool normalize)
+{
+    Rgb rgb = {1.0, 1.0, 1.0};
+    if (hex.size() != 6)
+    {
+        return rgb;
+    }
+
+    size_t        parsed_chars = 0;
+    unsigned long parsed_value = 0;
+
+    try
+    {
+        parsed_value = std::stoul(hex, &parsed_chars, 16);
+    }
+    catch (...)
+    {
+        return rgb;
+    }
+
+    if (parsed_chars != hex.size())
+    {
+        return rgb;
+    }
+
+    unsigned int hex_val = static_cast<unsigned int>(std::min(parsed_value, 0xFFFFFFul));
+    double       scale   = normalize ? (1.0 / 255.0) : 1.0;
+    double       max_val = normalize ? 1.0 : 255.0;
+
+    rgb = {std::clamp(static_cast<double>((hex_val >> 16) & 0xFF) * scale, 0.0, max_val),
+           std::clamp(static_cast<double>((hex_val >> 8) & 0xFF) * scale, 0.0, max_val),
+           std::clamp(static_cast<double>(hex_val & 0xFF) * scale, 0.0, max_val)};
+
+    return rgb;
+}
+
 id_t GetNewGlobalId()
 {
     id_t returnvalue = global_id;
@@ -596,6 +632,38 @@ double PointToLineDistance2DSigned(double px, double py, double lx0, double ly0,
     return cp / l0Length;
 }
 
+double PointToLineDistance3DSigned(double px, double py, double pz, double lx0, double ly0, double lz0, double lx1, double ly1, double lz1)
+{
+    // Calculate the direction vector of the line
+    double dx = lx1 - lx0;
+    double dy = ly1 - ly0;
+    double dz = lz1 - lz0;
+
+    // Calculate the vector from the line's start point to the point
+    double px0 = px - lx0;
+    double py0 = py - ly0;
+    double pz0 = pz - lz0;
+
+    // Compute the cross product of the two vectors
+    double crossX = py0 * dz - pz0 * dy;
+    double crossY = pz0 * dx - px0 * dz;
+    double crossZ = px0 * dy - py0 * dx;
+
+    // Compute the magnitude of the cross product
+    double crossMagnitude = std::sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ);
+
+    // Compute the magnitude of the direction vector
+    double lineMagnitude = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    // Calculate the signed distance
+    double distance = crossMagnitude / (lineMagnitude > SMALL_NUMBER ? lineMagnitude : SMALL_NUMBER);
+
+    // Determine the sign of the distance using the cross product in the XY plane
+    double crossProduct = GetCrossProduct2D(dx, dy, px0, py0);
+
+    return crossProduct < 0 ? -distance : distance;
+}
+
 double PointSquareDistance2D(double x0, double y0, double x1, double y1)
 {
     return (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
@@ -795,14 +863,34 @@ bool IsDoubleEqual(double a, double b)
 
 bool IsValidDateTimeFormat(const std::string& dateTimeString)
 {
-    std::regex pattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2})");
-    if (!std::regex_match(dateTimeString, pattern))
+    std::regex datetimePattern(R"(^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?$)");
+    std::regex timezonePattern(R"(^[+-]\d{4}$)");
+
+    std::string datetimePart = dateTimeString;
+    std::string timezonePart;
+    auto        pos = dateTimeString.find_last_of("+-");
+    if (pos != std::string::npos && pos > dateTimeString.find("T"))
+    {
+        datetimePart = dateTimeString.substr(0, pos);
+        timezonePart = dateTimeString.substr(pos);
+    }
+
+    std::smatch m;
+    if (!std::regex_match(datetimePart, m, datetimePattern))
     {
         return false;  // Invalid format
     }
 
+    /* 2026-02-02: Skipping this check for now, there's no clear pattern of input and timezone offset isn't used
+    if (!timezonePart.empty() && !std::regex_match(timezonePart, timezonePattern))
+    {
+        LOG_WARN("EnvironmentAction: Missing mandatory timezone offset, assuming +0000");
+        return false;
+    }
+    */
+
     std::tm           timeStruct = {};
-    std::stringstream ss(dateTimeString);
+    std::stringstream ss(datetimePart);
     ss >> std::get_time(&timeStruct, "%Y-%m-%dT%H:%M:%S");
 
     if (ss.fail())
@@ -835,7 +923,7 @@ bool IsValidDateTimeFormat(const std::string& dateTimeString)
     }
 
     // Check milliseconds
-    std::string millisecondsStr = dateTimeString.substr(20, 3);
+    std::string millisecondsStr = (m[7].matched) ? std::string(m[7]) : "0";
     try
     {
         int milliseconds = std::stoi(millisecondsStr);
@@ -849,12 +937,6 @@ bool IsValidDateTimeFormat(const std::string& dateTimeString)
         LOG_ERROR("IsValidDateTimeFormat: {}", e.what());
         return false;  // Invalid milliseconds
     }
-
-    // Check timezone offset
-    std::string timezoneStr = dateTimeString.substr(23);
-    std::regex  timezonePattern(R"([+-]\d{2}:\d{2})");
-    if (!std::regex_match(timezoneStr, timezonePattern))
-        return false;
 
     return true;  // Valid date and time
 }
@@ -1386,16 +1468,18 @@ double GetDotProduct2D(double x1, double y1, double x2, double y2)
     return x1 * x2 + y1 * y2;
 }
 
+double GetSignedAngleBetweenVectors(double x1, double y1, double x2, double y2)
+{
+    double dot   = x1 * x2 + y1 * y2;
+    double cross = x1 * y2 - y1 * x2;  // The 2D cross product
+
+    // Returns angle in radians between -PI and PI
+    return std::atan2(cross, dot);
+}
+
 double GetAngleBetweenVectors(double x1, double y1, double x2, double y2)
 {
-    double dp      = GetDotProduct2D(x1, y1, x2, y2);
-    double length1 = GetLengthOfVector2D(x1, y1);
-    double length2 = GetLengthOfVector2D(x2, y2);
-    if (length1 < SMALL_NUMBER || length2 < SMALL_NUMBER)
-    {
-        return 0.0;  // Avoid division by zero
-    }
-    return acos(ABS_LIMIT(dp / (length1 * length2), 1.0));
+    return fabs(GetSignedAngleBetweenVectors(x1, y1, x2, y2));
 }
 
 double GetDotProduct3D(double x1, double y1, double z1, double x2, double y2, double z2)
@@ -1424,6 +1508,18 @@ void NormalizeVec2D(double x, double y, double& xn, double& yn)
     }
     xn = x / len;
     yn = y / len;
+}
+
+void NormalizeVec3D(double x, double y, double z, double& xn, double& yn, double& zn)
+{
+    double len = sqrt(x * x + y * y + z * z);
+    if (len < SMALL_NUMBER)
+    {
+        len = SMALL_NUMBER;
+    }
+    xn = x / len;
+    yn = y / len;
+    zn = z / len;
 }
 
 void OffsetVec2D(double x0, double y0, double x1, double y1, double offset, double& xo0, double& yo0, double& xo1, double& yo1)
@@ -1463,7 +1559,7 @@ void ZYZ2EulerAngles(double z0, double y, double z1, double& h, double& p, doubl
     r = atan2(m[2][1], m[2][2]);
 }
 
-void R0R12EulerAngles(double h0, double p0, double r0, double h1, double p1, double r1, double& h, double& p, double& r)
+void R0R12EulerAngles(double h0, double p0, double r0, double h1, double p1, double r1, double& h, double& p, double& r, double (&m)[3][3])
 {
     // 1. Create two rotation matrices
     // 2. Multiply them
@@ -1492,49 +1588,72 @@ void R0R12EulerAngles(double h0, double p0, double r0, double h1, double p1, dou
                              {-sy, cy * sz, cy * cz}};
 
     // Multiply
-    double R2[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     for (int i = 0; i < 3; i++)
+    {
         for (int j = 0; j < 3; j++)
+        {
+            m[i][j] = 0.0;
             for (int k = 0; k < 3; k++)
-                R2[i][j] += R0[i][k] * R1[k][j];
+            {
+                m[i][j] += R0[i][k] * R1[k][j];
+            }
+        }
+    }
 
     // Avoid gimbal lock
-    if (fabs(R2[0][0]) < SMALL_NUMBER)
-        R2[0][0] = SIGN(R2[0][0]) * SMALL_NUMBER;
-    if (fabs(R2[2][2]) < SMALL_NUMBER)
-        R2[2][2] = SIGN(R2[2][2]) * SMALL_NUMBER;
+    if (fabs(m[0][0]) < SMALL_NUMBER)
+    {
+        m[0][0] = SIGN(m[0][0]) * SMALL_NUMBER;
+    }
+    if (fabs(m[2][2]) < SMALL_NUMBER)
+    {
+        m[2][2] = SIGN(m[2][2]) * SMALL_NUMBER;
+    }
 
-    h = GetAngleInInterval2PI(atan2(R2[1][0], R2[0][0]));
-    p = GetAngleInInterval2PI(atan2(-R2[2][0], sqrt(R2[2][1] * R2[2][1] + R2[2][2] * R2[2][2])));
-    r = GetAngleInInterval2PI(atan2(R2[2][1], R2[2][2]));
+    h = GetAngleInInterval2PI(atan2(m[1][0], m[0][0]));
+    p = GetAngleInInterval2PI(atan2(-m[2][0], sqrt(m[2][1] * m[2][1] + m[2][2] * m[2][2])));
+    r = GetAngleInInterval2PI(atan2(m[2][1], m[2][2]));
+}
+
+void RotateY(double y_value, double roll, double pitch, double yaw, double v[3])
+{
+    const double pitch2 = AVOID_ZERO(pitch);
+    const double cp     = std::cos(roll);
+    const double sp     = std::sin(roll);
+    const double ct     = std::cos(pitch2);
+    const double st     = std::sin(pitch2);
+    const double cs     = std::cos(yaw);
+    const double ss     = std::sin(yaw);
+
+    v[0] = y_value * (cs * st * sp - ss * cp);
+    v[1] = y_value * (ss * st * sp + cs * cp);
+    v[2] = y_value * (ct * sp);
 }
 
 void CreateRotationMatrix3d(double roll, double pitch, double yaw, double R[3][3])
 {
     // Calculate sines and cosines once for efficiency and clarity
-    double c_phi   = std::cos(roll);
-    double s_phi   = std::sin(roll);
-    double c_theta = std::cos(pitch);
-    double s_theta = std::sin(pitch);
-    double c_psi   = std::cos(yaw);
-    double s_psi   = std::sin(yaw);
+    const double cr = std::cos(roll);
+    const double sr = std::sin(roll);
+    const double cp = std::cos(pitch);
+    const double sp = std::sin(pitch);
+    const double cy = std::cos(yaw);
+    const double sy = std::sin(yaw);
 
-    // The elements of the combined matrix R = R_x * R_y * R_z
+    // First Row
+    R[0][0] = cy * cp;
+    R[0][1] = cy * sp * sr - sy * cr;
+    R[0][2] = cy * sp * cr + sy * sr;
 
-    // Row 0
-    R[0][0] = c_theta * c_psi;
-    R[0][1] = -c_theta * s_psi;
-    R[0][2] = s_theta;
+    // Second Row
+    R[1][0] = sy * cp;
+    R[1][1] = sy * sp * sr + cy * cr;
+    R[1][2] = sy * sp * cr - cy * sr;
 
-    // Row 1
-    R[1][0] = c_phi * s_psi + s_phi * s_theta * c_psi;
-    R[1][1] = c_phi * c_psi - s_phi * s_theta * s_psi;
-    R[1][2] = -s_phi * c_theta;
-
-    // Row 2
-    R[2][0] = s_phi * s_psi - c_phi * s_theta * c_psi;
-    R[2][1] = s_phi * c_psi + c_phi * s_theta * s_psi;
-    R[2][2] = c_phi * c_theta;
+    // Third Row
+    R[2][0] = -sp;
+    R[2][1] = cp * sr;
+    R[2][2] = cp * cr;
 
     // Avoid gimbal lock
     if (fabs(R[0][0]) < SMALL_NUMBER)
@@ -1658,12 +1777,9 @@ void CalcRelAnglesFromRoadAndAbsAngles(double  h_road,
 
 void MultMatrixVector3d(const double m[3][3], const double v0[3], double v1[3])
 {
-    for (int i = 0; i < 3; i++)
-    {
-        v1[i] = 0.0;
-        for (int j = 0; j < 3; j++)
-            v1[i] += m[i][j] * v0[j];
-    }
+    v1[0] = m[0][0] * v0[0] + m[0][1] * v0[1] + m[0][2] * v0[2];
+    v1[1] = m[1][0] * v0[0] + m[1][1] * v0[1] + m[1][2] * v0[2];
+    v1[2] = m[2][0] * v0[0] + m[2][1] * v0[1] + m[2][2] * v0[2];
 }
 
 void MultMatrixMatrix3d(const double m0[3][3], const double m1[3][3], double m_out[3][3])
@@ -1748,7 +1864,10 @@ int OnRequestShowHelpOrVersion(int argc, char** argv, SE_Options& opt)
             }
             opt.PrintUsage();
 #ifdef _USE_OSG
-            PrintOSGUsage();
+            if (strstr(argv[0], "dat2csv") == NULL)
+            {
+                PrintOSGUsage();
+            }
 #endif  // _USE_OSG
             retVal += 1;
         }
@@ -1769,7 +1888,7 @@ void PrintOSGUsage()
     printf("  --screen <num>                             Set the screen to use when multiple screens are present\n");
     printf("  --window <x y w h>                         Set the position x, y and size w, h of the viewer window. -1 -1 -1 -1 for fullscreen.\n");
     printf(
-        "  --borderless-window <x y w h>	             Set the position x, y and size w, h of a borderless viewer window. -1 -1 -1 -1 for fullscreen.\n");
+        "  --borderless-window <x y w h>              Set the position x, y and size w, h of a borderless viewer window. -1 -1 -1 -1 for fullscreen.\n");
     printf("  --SingleThreaded                           Run application and all graphics tasks in one single thread.\n");
     printf("  --lodScale <LOD scalefactor>               Adjust Level Of Detail 1=default >1 decrease fidelity <1 increase fidelity\n");
     printf("\n");
@@ -2161,13 +2280,24 @@ void SE_Mutex::Unlock()
 void SE_Option::Usage() const
 {
     std::string showMandatoryStr = isSingleValueOption_ ? "" : "...";
-    if (!default_value_.empty())
+    std::string option_str;
+
+    if (isDefaultArgument_)
     {
-        printf("  %s%s %s", OPT_PREFIX, opt_str_.c_str(), (opt_arg_ != "") ? ('[' + opt_arg_ + ']' + showMandatoryStr).c_str() : "");
+        option_str = std::string("[") + std::string(OPT_PREFIX) + opt_str_.c_str() + std::string("]");
     }
     else
     {
-        printf("  %s%s %s", OPT_PREFIX, opt_str_.c_str(), (opt_arg_ != "") ? ('<' + opt_arg_ + '>' + showMandatoryStr).c_str() : "");
+        option_str = std::string(OPT_PREFIX) + opt_str_;
+    }
+
+    if (!default_value_.empty())
+    {
+        printf("  %s %s", option_str.c_str(), (opt_arg_ != "") ? ('[' + opt_arg_ + ']' + showMandatoryStr).c_str() : "");
+    }
+    else
+    {
+        printf("  %s %s", option_str.c_str(), (opt_arg_ != "") ? ('<' + opt_arg_ + '>' + showMandatoryStr).c_str() : "");
     }
 
     if (autoApply_)
@@ -2198,7 +2328,8 @@ void SE_Options::AddOption(std::string opt_str,
                            std::string opt_arg,
                            std::string default_value,
                            bool        autoApply,
-                           bool        isSingleValueOption)
+                           bool        isSingleValueOption,
+                           bool        isDefaultArgument)
 {
     SE_Option* option = GetOption(opt_str);
 
@@ -2212,10 +2343,11 @@ void SE_Options::AddOption(std::string opt_str,
         option->default_value_       = default_value;
         option->autoApply_           = autoApply;
         option->isSingleValueOption_ = isSingleValueOption;
+        option->isDefaultArgument_   = isDefaultArgument;
     }
     else
     {
-        SE_Option opt(opt_str, opt_desc, opt_arg, default_value, autoApply, isSingleValueOption);
+        SE_Option opt(opt_str, opt_desc, opt_arg, default_value, autoApply, isSingleValueOption, isDefaultArgument);
         auto      index = esmini_options::ConvertStrKeyToEnum(opt_str);
         if (index != esmini_options::CONFIG_ENUM::CONFIGS_COUNT)
         {
@@ -2230,7 +2362,13 @@ void SE_Options::AddOption(std::string opt_str,
             LOG_ERROR_AND_QUIT("Option {} not availble, add it to config enum", opt_str);
         }
     }
+
     optionOrder_.push_back(option);
+
+    if (isDefaultArgument)
+    {
+        default_option_ = optionOrder_.back();
+    }
 }
 
 void SE_Options::PrintUsage()
@@ -2304,16 +2442,16 @@ std::vector<std::string>& SE_Options::GetOptionValues(std::string opt)
     return option->arg_value_;
 }
 
-static constexpr std::array<const char*, 10> OSG_ARGS = {"--clear-color",
-                                                         "--screen",
-                                                         "--window",
-                                                         "--borderless-window",
-                                                         "--SingleThreaded",
-                                                         "--CullDrawThreadPerContext",
-                                                         "--SingleThreaded",
-                                                         "--DrawThreadPerContext",
-                                                         "--CullThreadPerCameraDrawThreadPerContext",
-                                                         "--lodScale"};
+static constexpr std::array<std::pair<const char*, int>, 10> OSG_ARGS = {{{"--clear-color", 1},
+                                                                          {"--screen", 1},
+                                                                          {"--window", 4},
+                                                                          {"--borderless-window", 0},
+                                                                          {"--SingleThreaded", 0},
+                                                                          {"--CullDrawThreadPerContext", 0},
+                                                                          {"--SingleThreaded", 0},
+                                                                          {"--DrawThreadPerContext", 0},
+                                                                          {"--CullThreadPerCameraDrawThreadPerContext", 0},
+                                                                          {"--lodScale", 1}}};
 
 int SE_Options::ChangeOptionArg(std::string opt, std::string new_value, int index)
 {
@@ -2429,6 +2567,10 @@ int SE_Options::ParseArgs(int argc, const char* const argv[])
 {
     std::vector<const char*> args = {argv, std::next(argv, argc)};
 
+    if (args.size() == 0)
+    {
+        return -1;
+    }
     app_name_     = FileNameWithoutExtOf(args[0]);
     int returnVal = 0;
 
@@ -2443,6 +2585,12 @@ int SE_Options::ParseArgs(int argc, const char* const argv[])
 
         if (!(arg.substr(0, strlen(OPT_PREFIX)) == OPT_PREFIX))
         {
+            if (default_option_->arg_value_.empty())
+            {
+                // connsume first unrecognized argument as default option value
+                default_option_->arg_value_.push_back(arg);
+                default_option_->set_ = true;
+            }
             i++;
             continue;
         }
@@ -2489,10 +2637,16 @@ int SE_Options::ParseArgs(int argc, const char* const argv[])
         }
         else
         {
-            auto it = std::find_if(std::begin(OSG_ARGS), std::end(OSG_ARGS), [&arg](const char* osg_arg) { return osg_arg == arg; });
+            auto it = std::find_if(std::begin(OSG_ARGS),
+                                   std::end(OSG_ARGS),
+                                   [&arg](const std::pair<const char*, int> osg_arg) { return osg_arg.first == arg; });
             if (it == std::end(OSG_ARGS))
             {
                 unknown_args_.push_back(args[i]);
+            }
+            else
+            {
+                i += it->second;  // skip OSG arg and its parameters
             }
         }
         i++;

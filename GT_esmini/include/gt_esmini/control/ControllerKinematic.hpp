@@ -47,8 +47,8 @@ namespace gt_esmini
 
         ControllerKinematic(InitArgs* args);
 
-        virtual const char* GetTypeName() { return CONTROLLER_KINEMATIC_TYPE_NAME; }
-        virtual int GetType() { return CONTROLLER_TYPE_KINEMATIC; }
+        virtual const char* GetTypeName() const override { return CONTROLLER_KINEMATIC_TYPE_NAME; }
+        virtual Controller::Type GetType() const override { return static_cast<Controller::Type>(CONTROLLER_TYPE_KINEMATIC); }
 
         void Init() override;
         void Step(double timeStep) override;

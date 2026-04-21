@@ -1,7 +1,19 @@
-from dat import *
+import argparse
+import os
+import sys
+import subprocess
+from typing import List
+import numpy as np
 
-import matplotlib.pyplot as plt
+SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(SCRIPT_FOLDER)  # add script folder to path to find dependent modules
 import plot
+
+ESMINI_PATH = os.path.realpath(os.path.join(SCRIPT_FOLDER, '..'))  # path to esmini root folder
+
+def get_labels_line_extended() -> List[str]:
+    """ Get the extended labels line """
+    return ['time', 'id', 'name', 'x', 'y', 'z', 'h', 'p', 'r', 'roadId', 'laneId', 'offset', 't', 's', 'speed', 'wheel_angle', 'wheel_rot']
 
 if __name__ == "__main__":
     # Create the parser
@@ -20,13 +32,14 @@ if __name__ == "__main__":
     # Execute the parse_args() method
     args = parser.parse_args()
 
-    # Read the dat file
-    dat = DATFile(args.filename)
-    dat.build_data('plot')
-    labels = list(dat.labels)
+    esmini_args = [os.path.join(ESMINI_PATH,'bin','dat2csv'), "--file", args.filename, '--extended', '--print_csv']
+    process = subprocess.Popen(esmini_args, stdout=subprocess.PIPE, text=True)
+    csv_data = process.stdout.read().strip().splitlines()
+
+    data = np.genfromtxt(csv_data[1:], delimiter=',', names=True, dtype=None, encoding=None, autostrip=True)
 
     plot.plot(
-        dat.data, labels,
+        data, get_labels_line_extended(),
         args.param,
         args.x_axis,
         args.derive,

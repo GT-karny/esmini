@@ -11,6 +11,8 @@
 
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "CommonMini.hpp"
+#include "logger.hpp"
+#include "Entities.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <fstream>
@@ -270,7 +272,7 @@ void GT_HostVehicleReporter::ClearADASFunctions(int vehicle_id)
     }
 }
 
-int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectState* egoState)
+int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* egoState)
 {
     if (!egoState)
     {
@@ -286,7 +288,7 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
     // Create HostVehicleData message
     osi3::HostVehicleData hv_data;
     
-    int vehicle_id = egoState->state_.info.id;
+    int vehicle_id = egoState->id_;
     bool has_base = false;
 
     // 0. Init from Base Data if available
@@ -301,28 +303,28 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::ObjectSt
     }
 
     // Host vehicle identifier (global ID, consistent with GroundTruth)
-    hv_data.mutable_host_vehicle_id()->set_value(egoState->state_.info.g_id);
+    hv_data.mutable_host_vehicle_id()->set_value(egoState->g_id_);
 
     // 1. Timestamp
     auto* ts = hv_data.mutable_timestamp();
-    double sim_time = egoState->state_.info.timeStamp;
+    double sim_time = SE_Env::Inst().GetOSITimeStamp() / 1.0e9;
     ts->set_seconds(static_cast<int64_t>(sim_time));
     ts->set_nanos(static_cast<int32_t>((sim_time - static_cast<int64_t>(sim_time)) * 1e9));
 
     // 2. Location (position, velocity, orientation) - Always OVERWRITE base data simulation state
     auto* location = hv_data.mutable_location();
 
-    location->mutable_position()->set_x(egoState->state_.pos.GetX());
-    location->mutable_position()->set_y(egoState->state_.pos.GetY());
-    location->mutable_position()->set_z(egoState->state_.pos.GetZ());
+    location->mutable_position()->set_x(egoState->pos_.GetX());
+    location->mutable_position()->set_y(egoState->pos_.GetY());
+    location->mutable_position()->set_z(egoState->pos_.GetZ());
 
-    location->mutable_velocity()->set_x(egoState->state_.pos.GetVelX());
-    location->mutable_velocity()->set_y(egoState->state_.pos.GetVelY());
-    location->mutable_velocity()->set_z(egoState->state_.pos.GetVelZ());
+    location->mutable_velocity()->set_x(egoState->pos_.GetVelX());
+    location->mutable_velocity()->set_y(egoState->pos_.GetVelY());
+    location->mutable_velocity()->set_z(egoState->pos_.GetVelZ());
 
-    location->mutable_orientation()->set_yaw(egoState->state_.pos.GetH());
-    location->mutable_orientation()->set_pitch(egoState->state_.pos.GetP());
-    location->mutable_orientation()->set_roll(egoState->state_.pos.GetR());
+    location->mutable_orientation()->set_yaw(egoState->pos_.GetH());
+    location->mutable_orientation()->set_pitch(egoState->pos_.GetP());
+    location->mutable_orientation()->set_roll(egoState->pos_.GetR());
 
     // 2. Vehicle Basics (operating state)
     // If not set by base, set default

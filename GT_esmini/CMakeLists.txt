@@ -10,7 +10,6 @@ set(GT_OSI_TARGET gt_osi)
 
 # ############################### Loading desired rules ##############################################################################################
 
-include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_static_analysis.cmake)
 include(${CMAKE_SOURCE_DIR}/support/cmake/rule/disable_iwyu.cmake)
 
 # ############################### Mandatory options ##################################################################################################
@@ -265,7 +264,6 @@ foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC}
         target_compile_definitions(${TARGET} PRIVATE _USE_OSI)
     endif()
 
-    disable_static_analysis(${TARGET})
     disable_iwyu(${TARGET})
 
 endforeach()
@@ -348,6 +346,11 @@ target_link_libraries(${TARGET_STATIC} PRIVATE
 if(USE_OSG)
     target_link_libraries(${TARGET_SHARED} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
     target_link_libraries(${TARGET_STATIC} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
+endif()
+
+if(USE_IMPLOT)
+    target_link_libraries(${TARGET_SHARED} PRIVATE ${IMPLOT_LIBRARIES})
+    target_link_libraries(${TARGET_STATIC} PRIVATE ${IMPLOT_LIBRARIES})
 endif()
 
 if(USE_SUMO)

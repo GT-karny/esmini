@@ -120,10 +120,12 @@ void UpdateCarPose(Car *car)
 {
     if (car->model->txNode_ != 0)
     {
-        double h, p, r;
-        R0R12EulerAngles(car->pos.GetHRoad(), car->pos.GetPRoad(), car->pos.GetRRoad(), car->pos.GetHRelative(), 0.0, 0.0, h, p, r);
+        double                 h, p, r, m[3][3];
+        roadmanager::Position &pos = car->pos;
 
-        car->model->SetPosition(car->pos.GetX(), car->pos.GetY(), car->pos.GetZ());
+        R0R12EulerAngles(pos.GetHRoad() + pos.GetHOffset(), pos.GetPRoad(), pos.GetRRoad(), pos.GetHRelative(), 0.0, 0.0, h, p, r, m);
+
+        car->model->SetPosition(pos.GetX(), pos.GetY(), pos.GetZ());
         car->model->SetRotation(h, p, r);
     }
 }
@@ -158,6 +160,7 @@ int SpawnCar(viewer::Viewer *viewer, const roadmanager::Road *road, const roadma
                                                  0,
                                                  0.0,
                                                  0.0,
+                                                 nullptr,
                                                  EntityScaleMode::BB_TO_MODEL)) == 0)
     {
         delete car_;
@@ -333,6 +336,7 @@ int SetupCarsSpecial(roadmanager::OpenDrive *odrManager, viewer::Viewer *viewer)
                                                  0,
                                                  0.0,
                                                  0.0,
+                                                 nullptr,
                                                  EntityScaleMode::BB_TO_MODEL)) == 0)
     {
         delete car_;
@@ -434,8 +438,9 @@ int main(int argc, char **argv)
 
     // use an ArgumentParser object to manage the program arguments.
     opt.AddOption("help", "Show this help message (-h works as well)");
-    opt.AddOption("odr", "OpenDRIVE filename (required)", "odr_filename");
+    opt.AddOption("odr", "OpenDRIVE filename (required)", "odr_filename", "", false, true, true);
     opt.AddOption("aa_mode", "Anti-alias mode=number of multisamples (subsamples, 0=off)", "mode", "4");
+    opt.AddOption("axis_indicator", "0:off 1:on 2:xray, cycle key 'x'", "mode");
     opt.AddOption("capture_screen", "Continuous screen capture. Warning: Many .tga files will be created");
     opt.AddOption(CONFIG_FILE_OPTION_NAME, "Configuration file path/filename, e.g. \"../my_config.txt\"", "path", DEFAULT_CONFIG_FILE, true, false);
     opt.AddOption("custom_fixed_camera", "Additional custom camera position <x,y,z>[,h,p]", "position and optional orientation", "", false, false);
@@ -449,7 +454,7 @@ int main(int argc, char **argv)
     opt.AddOption("fixed_timestep", "Run simulation decoupled from realtime, with specified timesteps", "timestep");
     opt.AddOption("generate_no_road_objects", "Do not generate any OpenDRIVE road objects (e.g. when part of referred 3D model)");
     opt.AddOption("generate_without_textures", "Do not apply textures on any generated road model (set colors instead as for missing textures)");
-    opt.AddOption("ground_plane", "Add a large flat ground surface");
+    opt.AddOption("ground_plane", "Add a large flat ground surface. Modes: on, off, auto", "mode", "auto", true);
     opt.AddOption("headless", "Run without viewer window");
     opt.AddOption("log_append", "Log all scenarios in the same txt file");
     opt.AddOption("logfile_path", "Logfile path/filename, e.g. \"../my_log.txt\"", "path", ODRVIEWER_LOG_FILENAME, false);
