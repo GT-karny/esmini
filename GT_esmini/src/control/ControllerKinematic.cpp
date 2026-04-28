@@ -195,6 +195,7 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         double current_p;    // current param
         double current_off;  // current offset = f(current_p/P)
         bool   time_based;   // TIME or RATE dimension
+        double lane_sign;    // SIGN(target_lane_id) — converts offset_agnostic → lane-frame Δt
     };
     std::vector<LatInfo> lat_actions;
 
@@ -219,7 +220,13 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         bool tb = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
                    td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
 
-        lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb});
+        // For LaneChangeAction, object_->pos_ is updated to the target lane each
+        // step (OSCPrivateAction.cpp:966-969), so its current laneId equals the
+        // target. For LaneOffsetAction the lane is unchanged. Both cases:
+        // SIGN(object_->pos_.GetLaneId()) gives the correct sign factor.
+        double lane_sign = static_cast<double>(SIGN(object_->pos_.GetLaneId()));
+
+        lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb, lane_sign});
     }
 
     // --- Build polyline ---
@@ -252,9 +259,18 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         // --- Overlay lateral action displacements ---
         if (!lat_actions.empty())
         {
-            double road_h = pos.GetH();
-            double nx = -sin(road_h);  // road-left normal
-            double ny =  cos(road_h);
+            // esmini's TransitionDynamics holds offset_agnostic = SIGN(laneId) *
+            // offset_in_lane (see OSCPrivateAction.cpp:896,1073). Per-step it
+            // writes back via SetLanePos with offset = offset_agnostic *
+            // SIGN(target_lane_id) (line 969). So the world-frame +t
+            // displacement is delta_offset_agnostic * SIGN(target_lane_id).
+            // Apply along the road's +t axis (= road heading rotated +90°),
+            // which is independent of vehicle heading — correct for any
+            // driving direction (forward / against-s) and any cross-reference
+            // lane changes (e.g. -1 → +1).
+            double road_h = pos.GetHRoad();
+            double tx = -sin(road_h);  // +t axis in world frame
+            double ty =  cos(road_h);
 
             for (auto& la : lat_actions)
             {
@@ -268,10 +284,10 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
                 future_p = std::min(future_p, la.P);  // clamp to action range
 
                 double future_off = EvalTransition(la.shape, la.startVal, la.A, future_p / la.P);
-                double delta = future_off - la.current_off;
+                double delta_t = (future_off - la.current_off) * la.lane_sign;
 
-                px += delta * nx;
-                py += delta * ny;
+                px += delta_t * tx;
+                py += delta_t * ty;
             }
         }
 
