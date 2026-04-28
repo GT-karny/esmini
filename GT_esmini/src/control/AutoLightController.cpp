@@ -83,7 +83,12 @@ namespace gt_esmini
         // Update state
         prevSpeed_ = speed;
         prevLaneId_ = vehicle_->pos_.GetLaneId();
-        prev_t_ = vehicle_->pos_.GetOffset();
+        // Store prev_t_ in vehicle-frame (vehicle-left positive) so t_dot is
+        // consistent across calls regardless of road s-direction. GetOffset()
+        // alone is in road t-frame and flips sign for against-s driving.
+        const double sign_drive_post =
+            (vehicle_->pos_.GetDrivingDirectionRelativeRoad() < 0) ? -1.0 : 1.0;
+        prev_t_ = vehicle_->pos_.GetOffset() * sign_drive_post;
         
         // Reset timer
         timeSinceLastUpdate_ = 0.0;
@@ -258,7 +263,16 @@ namespace gt_esmini
         double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
         id_t junctionId = vehicle_->pos_.GetJunctionId();
         int currentLaneId = vehicle_->pos_.GetLaneId();
-        double t = vehicle_->pos_.GetOffset(); // Lane Center Offset (Positive Left)
+        // GetOffset() is in road t-frame (+t = road-left in s direction).
+        // For vehicles driving against s, +t equals vehicle-RIGHT, so the
+        // raw value cannot be used as "vehicle-left positive". Multiply by
+        // GetDrivingDirectionRelativeRoad() (-1 when against s) to get the
+        // vehicle-frame lateral position. Same factor is applied to laneId
+        // diff in the post-LC fallback below so all four cases (RHT/LHT
+        // forward/against-s) collapse to "+ = vehicle-left".
+        const double sign_drive =
+            (vehicle_->pos_.GetDrivingDirectionRelativeRoad() < 0) ? -1.0 : 1.0;
+        double t = vehicle_->pos_.GetOffset() * sign_drive; // vehicle-left positive
         
         // [User Request] Immediate Cancellation on Junction Exit
         bool justExitedJunction = (lastJunctionId_ != -1 && junctionId == -1);
@@ -323,9 +337,14 @@ namespace gt_esmini
             else if (t > 0.5) laneChgRight = true;
             else
             {
-                 // Fallback to LaneID diff if t is near 0 (perfect fit?)
-                 if (currentLaneId - prevLaneId_ > 0) laneChgLeft = true;
-                 else if (currentLaneId - prevLaneId_ < 0) laneChgRight = true;
+                 // Fallback to LaneID diff if t is near 0. Sign of (curr-prev)
+                 // alone doesn't tell direction in vehicle frame: compare RHT
+                 // (-2→-1 = vehicle-left, diff=+1) vs LHT against-s
+                 // (-1→-2 = vehicle-left, diff=-1). Multiply by sign_drive to
+                 // unify: laneDiff>0 ⇔ vehicle-left across all cases.
+                 int laneDiff = (currentLaneId - prevLaneId_) * static_cast<int>(sign_drive);
+                 if (laneDiff > 0) laneChgLeft = true;
+                 else if (laneDiff < 0) laneChgRight = true;
             }
         }
 
