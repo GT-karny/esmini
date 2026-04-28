@@ -290,6 +290,8 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
             auto& vpm = gt_esmini::VehiclePhysicsManager::Instance();
             vpm.LoadProfiles(paramsFile);
             vpm.Init(&player->scenarioEngine->entities_);
+
+            s_hvdEstimator.LoadParams(paramsFile);
         }
 
         // 5. Register Hook for OSIReporter
@@ -558,6 +560,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             auto& vpm = gt_esmini::VehiclePhysicsManager::Instance();
             vpm.LoadProfiles(paramsFile);
             vpm.Init(&player->scenarioEngine->entities_);
+
+            // Share the same params file with HVDEstimator (pedal_estimation + shift_schedule)
+            s_hvdEstimator.LoadParams(paramsFile);
 
             // Check for --vehicle-physics argument in original argv
             for (int i = 0; i < argc; i++)

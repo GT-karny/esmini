@@ -12,6 +12,8 @@
 #pragma once
 
 #include <map>
+#include <string>
+#include <vector>
 
 namespace scenarioengine
 {
@@ -27,6 +29,11 @@ namespace gt_esmini
  * Used when no GT custom controller (RealDriver/PythonDriver) is active,
  * so that HostVehicleData still contains plausible throttle, brake,
  * steering, gear, RPM, and torque values reverse-engineered from behavior.
+ *
+ * Pedal estimation is force-based (inverse longitudinal dynamics with
+ * grade compensation). Gear selection uses a 2D shift schedule
+ * (speed + throttle) with hysteresis and minimum hold time. RPM has a
+ * 1st-order lag and low-speed clutch lockup interpolation.
  */
 class HVDEstimator
 {
@@ -36,61 +43,82 @@ public:
         double throttle  = 0.0;  // [0, 1]
         double brake     = 0.0;  // [0, 1]
         double steering  = 0.0;  // tire angle [rad]
-        int    gear      = 1;    // -1=R, 0=N, 1=D
+        int    gear      = 1;    // -1=R, 0=N, 1..N=forward gears
         double rpm       = 0.0;  // estimated engine RPM
         double torque    = 0.0;  // estimated torque [0-1 normalized]
         int    lightMask = 0;    // from VehicleLightExtension
     };
 
-    /**
-     * Compute estimated HVD fields from observable state of the given object.
-     * Call once per frame per target vehicle when no GT controller is active.
-     * @param obj The scenario Object (should be VEHICLE type)
-     * @param dt  Frame timestep [s]
-     * @return Estimated inputs
-     */
     EstimatedInputs Estimate(scenarioengine::Object* obj, double dt);
 
-    /**
-     * Reset internal state (call on scenario close / re-init)
-     */
     void Reset();
+
+    /// Load shift schedule and pedal estimation parameters from
+    /// real_vehicle_params.json. Safe to call multiple times.
+    void LoadParams(const std::string& configPath);
 
 private:
     struct VehicleCache
     {
-        double prev_speed    = 0.0;
-        double prev_steering = 0.0;
-        double prev_throttle = 0.0;
-        double prev_brake    = 0.0;
-        bool   initialized   = false;
+        double prev_speed     = 0.0;
+        double prev_steering  = 0.0;
+        double prev_throttle  = 0.0;
+        double prev_brake     = 0.0;
+        double prev_rpm       = 0.0;
+        int    current_gear   = 1;
+        double gear_hold_timer = 0.0;
+        bool   initialized    = false;
+    };
+
+    struct PedalParams
+    {
+        double mass_kg            = 1500.0;
+        double drag_coeff         = 0.30;
+        double frontal_area_m2    = 2.3;
+        double air_density        = 1.225;
+        double rolling_resistance = 0.011;
+        double engine_brake_decel = 1.5;
+        std::vector<double> engine_brake_gear_factor = {1.6, 1.3, 1.1, 1.0, 0.85, 0.7};
+    };
+
+    struct ShiftParams
+    {
+        std::vector<double> gear_ratios       = {3.55, 2.05, 1.36, 1.00, 0.78, 0.65};
+        double              final_drive_ratio = 3.50;
+        std::vector<double> shift_up_kmh      = {15, 30, 50, 75, 100};
+        std::vector<double> shift_down_kmh    = {10, 22, 40, 60,  85};
+        double              kickdown_gain     = 0.35;
+        double              brake_downshift_threshold = 0.4;
+        double              min_gear_hold_s   = 0.5;
+        double              rpm_tau_s         = 0.2;
+        double              v_lockup_mps      = 5.0;
     };
 
     std::map<int, VehicleCache> cache_;
+    PedalParams pedal_params_;
+    ShiftParams shift_params_;
+    bool        params_loaded_ = false;
 
-    // Physics constants (matching RealVehicle defaults for plausible output)
-    static constexpr double kIdleRPM       = 700.0;
-    static constexpr double kMaxRPM        = 6500.0;
-    static constexpr double kGearRatio     = 3.5;
-    static constexpr double kWheelRadius   = 0.32;   // [m]
-    static constexpr double kDefaultMaxAcc = 4.0;     // [m/s^2] (Corolla/Civic class)
-    static constexpr double kDefaultMaxDec = 10.0;    // [m/s^2]
-    static constexpr double kDragCoeff     = 0.0013;
-    static constexpr double kTorquePeakPos = 0.65;    // Normalized RPM for peak torque
-    static constexpr double kTorqueMin     = 0.3;     // Min normalized torque at idle/redline
-    static constexpr double kSpeedThreshold = 0.01;   // [m/s] threshold for standstill
-    // Preview-point steering model:
-    // Instead of filtering the raw heading-rate-based wheel angle (which lags
-    // through intersections), compute steering from the heading error to a
-    // look-ahead point on the road network. This naturally unwinds steering
-    // before exiting a curve — matching real driver behavior.
-    static constexpr double kPreviewTime    = 0.8;    // [s] look-ahead time (speed-proportional)
-    static constexpr double kPreviewDistMin = 2.0;    // [m] minimum preview distance (low speed / standstill)
-    static constexpr double kPreviewDistMax = 30.0;   // [m] maximum preview distance (highway cap)
-    static constexpr double kSteerEmaAlpha  = 0.5;    // EMA smoothing factor (higher = more responsive)
-    static constexpr double kPedalSmoothAlpha   = 0.3;  // EMA factor for throttle/brake (lower = smoother)
+    // Physics constants (defaults retained for fields not in JSON)
+    static constexpr double kIdleRPM        = 700.0;
+    static constexpr double kMaxRPM         = 6500.0;
+    static constexpr double kWheelRadius    = 0.32;   // [m]
+    static constexpr double kDefaultMaxAcc  = 4.0;    // [m/s^2]
+    static constexpr double kDefaultMaxDec  = 10.0;   // [m/s^2]
+    static constexpr double kTorquePeakPos  = 0.65;
+    static constexpr double kTorqueMin      = 0.3;
+    static constexpr double kSpeedThreshold = 0.01;
+    static constexpr double kPreviewTime    = 0.8;
+    static constexpr double kPreviewDistMin = 2.0;
+    static constexpr double kPreviewDistMax = 30.0;
+    static constexpr double kSteerEmaAlpha  = 0.5;
+    static constexpr double kPedalSmoothAlpha = 0.3;
+    static constexpr double kGravity        = 9.81;
 
-    double EstimateRPM(double abs_speed) const;
+    int  SeedInitialGear(double speed_kmh) const;
+    int  SelectGear(double speed_kmh, double throttle, double brake,
+                    VehicleCache& vc, double dt) const;
+    double EstimateRPM(double abs_speed, int gear, double dt, VehicleCache& vc) const;
     double EstimateTorque(double rpm) const;
     static int BuildLightMaskForObject(scenarioengine::Object* obj);
 };
