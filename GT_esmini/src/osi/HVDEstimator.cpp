@@ -338,11 +338,47 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     // --- Gear selection (forward only; reverse/neutral handled at output) ---
     int forward_gear = SelectGear(speed_kmh, result.throttle, result.brake, vc, dt);
 
-    if (speed < -kSpeedThreshold)
+    // Direction state machine: D and R are held through standstill; N is only
+    // inserted briefly when the motion direction reverses (D<->R transition).
+    int raw_dir = (speed >  kSpeedThreshold) ?  1
+                : (speed < -kSpeedThreshold) ? -1
+                                              :  0;
+
+    if (!was_initialized)
+    {
+        vc.reported_direction = (raw_dir != 0) ? raw_dir : 1;  // default to D
+        vc.neutral_hold_timer = 0.0;
+    }
+
+    if (vc.neutral_hold_timer > 0.0)
+    {
+        vc.neutral_hold_timer = std::max(0.0, vc.neutral_hold_timer - dt);
+        if (vc.neutral_hold_timer == 0.0 && raw_dir != 0)
+        {
+            vc.reported_direction = raw_dir;
+        }
+        // during hold, reported_direction stays 0 (N)
+    }
+    else if (raw_dir == 0)
+    {
+        // Standstill: hold last reported direction (D stays D, R stays R)
+    }
+    else if (vc.reported_direction != 0 && raw_dir != vc.reported_direction)
+    {
+        // Direction reversal detected: insert N for a brief hold
+        vc.reported_direction = 0;
+        vc.neutral_hold_timer = kNeutralTransitionHold;
+    }
+    else
+    {
+        vc.reported_direction = raw_dir;
+    }
+
+    if (vc.reported_direction == -1)
     {
         result.gear = -1;
     }
-    else if (abs_speed < kSpeedThreshold)
+    else if (vc.reported_direction == 0)
     {
         result.gear = 0;
     }

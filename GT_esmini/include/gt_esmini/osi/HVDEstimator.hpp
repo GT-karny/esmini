@@ -67,6 +67,8 @@ private:
         double prev_rpm       = 0.0;
         int    current_gear   = 1;
         double gear_hold_timer = 0.0;
+        int    reported_direction = 1;   // -1=R, 0=N, +1=D (sticky across standstill)
+        double neutral_hold_timer = 0.0; // remaining N-hold during D<->R transition
         bool   initialized    = false;
     };
 
@@ -114,6 +116,7 @@ private:
     static constexpr double kSteerEmaAlpha  = 0.5;
     static constexpr double kPedalSmoothAlpha = 0.3;
     static constexpr double kGravity        = 9.81;
+    static constexpr double kNeutralTransitionHold = 0.3;  // [s] N held during D<->R reversal
 
     int  SeedInitialGear(double speed_kmh) const;
     int  SelectGear(double speed_kmh, double throttle, double brake,
