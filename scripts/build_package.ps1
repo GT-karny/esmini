@@ -51,7 +51,8 @@ $BuildRelease   = Join-Path $BuildDir "GT_esmini\Release"
 $RMLibRelease   = Join-Path $BuildDir "EnvironmentSimulator\Libraries\esminiRMLib\Release"
 $SDL2Dll        = Join-Path $RepoRoot "thirdparty\SDL2\lib\x64\SDL2.dll"
 $DriverBin      = Join-Path $RepoRoot "DriverScript\bin"
-$VenvPython     = Join-Path $RepoRoot "DriverScript\.venv\Scripts\python.exe"
+# Build venv (PyInstaller + web backend deps). Created via setup_web_venv.ps1.
+$VenvPython     = Join-Path $RepoRoot "GT_esmini\web\.venv\Scripts\python.exe"
 $EmbedPython    = Join-Path $RepoRoot "thirdparty\python-embed\python-3.12.10-embed-amd64"
 $FrontendDir    = Join-Path $RepoRoot "GT_esmini\web\frontend"
 $ElectronDir    = Join-Path $RepoRoot "GT_esmini\web\electron"
@@ -81,7 +82,8 @@ if (-not (Test-Path $EmbedPython)) {
     exit 1
 }
 if (-not (Test-Path $VenvPython)) {
-    Write-Host "ERROR: venv Python not found at $VenvPython" -ForegroundColor Red
+    Write-Host "ERROR: build venv Python not found at $VenvPython" -ForegroundColor Red
+    Write-Host "       Run: .\scripts\setup_web_venv.ps1" -ForegroundColor Yellow
     exit 1
 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {

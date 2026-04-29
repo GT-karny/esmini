@@ -54,6 +54,7 @@ video_error.txt
 frame_count.txt
 gtsim_exit_code.txt
 .venv/
+*.egg-info/
 
 # GT_esmini trace files (should be in test_results/)
 /python_trace.jsonl

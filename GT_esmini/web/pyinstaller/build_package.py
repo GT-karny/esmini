@@ -1,7 +1,7 @@
 """Build GT_Sim Web distributable package.
 
 Usage:
-    DriverScript\\.venv\\Scripts\\python.exe GT_esmini/web/pyinstaller/build_package.py \\
+    GT_esmini\\web\\.venv\\Scripts\\python.exe GT_esmini/web/pyinstaller/build_package.py \\
         --version 0.1.0 --output dist/
 
 Steps:
