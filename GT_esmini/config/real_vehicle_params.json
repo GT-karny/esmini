@@ -20,9 +20,50 @@
     "torque_peak_pos": 0.65,
     "torque_min": 0.3,
 
+    "_at_resistance_comment": "Below applies to forward-AT physics path only. Civic FL1 class: 1450kg, Cd≈0.27, A≈2.2m², Crr≈0.011 (typical passenger tire).",
+    "mass_kg": 1450.0,
+    "aero_drag_cd": 0.27,
+    "frontal_area_m2": 2.2,
+    "air_density": 1.225,
+    "rolling_resistance_coeff": 0.011,
+
     "understeer_factor": 0.0025,
     "critical_speed": 24.0,
     "max_understeer_reduction": 0.6,
+
+    "engine": {
+        "_comment": "Honda L15C7 1.5L turbo (Civic Hatchback Sport Touring FL1, 11th gen). 180hp@6000rpm, 177lb-ft (240Nm) flat 1700-4500rpm.",
+        "type": "1.5L_turbo_L15C7",
+        "idle_rpm": 700.0,
+        "max_rpm": 6500.0,
+        "rev_limit_rpm": 6500.0,
+        "torque_peak_nm": 240.0,
+        "torque_flat_rpm_low": 1700.0,
+        "torque_flat_rpm_high": 4500.0,
+        "torque_redline_factor": 0.70,
+        "engine_inertia_tau_s": 0.15,
+        "idle_governor_gain": 0.5
+    },
+
+    "transmission": {
+        "_comment": "FL1 Sport Touring 6MT: same internal gearset as Civic Si, final drive 4.105 (Si is 4.353).",
+        "type": "6AT",
+        "gear_ratios": [3.642, 2.080, 1.361, 1.024, 0.830, 0.686],
+        "final_drive_ratio": 4.105,
+        "reverse_ratio": 3.583,
+        "drivetrain_efficiency": 0.92,
+        "torque_converter": {
+            "v_lockup_mps": 8.0
+        }
+    },
+
+    "at_controller": {
+        "manual_override_timeout_s": 10.0,
+        "paddle_simul_press_threshold_s": 0.15,
+        "min_gear_hold_s": 0.6,
+        "kickdown_factor": 1.35,
+        "low_speed_kmh_for_revert": 5.0
+    },
 
     "pedal_estimation": {
         "mass_kg": 1500.0,
@@ -36,13 +77,13 @@
 
     "shift_schedule": {
         "active_mode": "comfort",
-        "gear_ratios": [3.55, 2.05, 1.36, 1.00, 0.78, 0.65],
-        "final_drive_ratio": 3.50,
+        "gear_ratios": [3.642, 2.080, 1.361, 1.024, 0.830, 0.686],
+        "final_drive_ratio": 4.105,
         "modes": {
             "comfort": {
-                "shift_up_kmh":   [15, 30, 50, 75, 100],
-                "shift_down_kmh": [10, 22, 40, 60,  85],
-                "kickdown_gain": 0.35,
+                "shift_up_kmh":   [20, 35, 54, 72,  88],
+                "shift_down_kmh": [14, 22, 36, 54,  72],
+                "kickdown_gain": 0.55,
                 "brake_downshift_threshold": 0.4,
                 "min_gear_hold_s": 0.5,
                 "rpm_tau_s": 0.2,
@@ -55,8 +96,8 @@
                 "rpm_tau_down_s": 0.25
             },
             "sport": {
-                "shift_up_kmh":   [25, 50, 80, 115, 150],
-                "shift_down_kmh": [18, 38, 65,  95, 125],
+                "shift_up_kmh":   [28, 48, 76, 100, 122],
+                "shift_down_kmh": [18, 30, 48,  72,  92],
                 "kickdown_gain": 0.6,
                 "brake_downshift_threshold": 0.25,
                 "min_gear_hold_s": 0.3,

@@ -192,7 +192,15 @@ void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, dou
     {
         steering = 0.0;
     }
-    gear      = last_cmd_.gear;
+    // Gear comes from the actual AT/drivetrain state, not the raw input.
+    if (current_hvd_.has_vehicle_powertrain())
+    {
+        gear = current_hvd_.vehicle_powertrain().gear_transmission();
+    }
+    else
+    {
+        gear = last_cmd_.gear;
+    }
     lightMask = BuildLightMaskFromExtension();
 }
 

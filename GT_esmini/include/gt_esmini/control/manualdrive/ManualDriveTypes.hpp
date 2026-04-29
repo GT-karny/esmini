@@ -28,8 +28,14 @@ struct PedalSteerCommand
     double   throttle = 0.0;  // 0.0 ~ 1.0
     double   brake    = 0.0;  // 0.0 ~ 1.0
     double   clutch   = 0.0;  // 0.0 ~ 1.0
-    int      gear     = 0;    // -1=R, 0=N, 1~6
+    int      gear     = 0;    // legacy: -1=R, 0=N, 1~6 (used by legacy physics path)
     uint32_t buttons  = 0;    // bitmask (see ButtonBits)
+
+    // Raw paddle button states for the forward-AT physics path.
+    // Not transmitted over the network wire format; defaults preserve
+    // legacy behaviour for non-paddle input sources.
+    bool     paddle_up_pressed   = false;
+    bool     paddle_down_pressed = false;
 };
 
 struct InputFrame

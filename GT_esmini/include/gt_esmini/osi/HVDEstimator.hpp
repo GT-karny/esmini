@@ -95,10 +95,14 @@ private:
 
     struct ShiftParams
     {
-        std::vector<double> gear_ratios       = {3.55, 2.05, 1.36, 1.00, 0.78, 0.65};
-        double              final_drive_ratio = 3.50;
-        std::vector<double> shift_up_kmh      = {15, 30, 50, 75, 100};
-        std::vector<double> shift_down_kmh    = {10, 22, 40, 60,  85};
+        // Defaults model the 11th-gen Civic Hatchback Sport Touring (FL1) 6MT
+        // with the L15C7 1.5L turbo (180hp / 240Nm). The internal gear set is
+        // shared with the Civic Si; only the final drive differs (4.105 here
+        // vs 4.353 on the Si).
+        std::vector<double> gear_ratios       = {3.642, 2.080, 1.361, 1.024, 0.830, 0.686};
+        double              final_drive_ratio = 4.105;
+        std::vector<double> shift_up_kmh      = {20, 35, 54, 72, 88};
+        std::vector<double> shift_down_kmh    = {14, 22, 36, 54, 72};
         double              kickdown_gain     = 0.35;
         double              brake_downshift_threshold = 0.4;
         double              min_gear_hold_s   = 0.5;

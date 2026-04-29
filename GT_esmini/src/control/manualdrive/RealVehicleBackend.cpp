@@ -30,7 +30,12 @@ bool RealVehicleBackend::Init(const ManualDriveConfig& config, const scenarioeng
 osi3::HostVehicleData RealVehicleBackend::StepPedalSteer(const PedalSteerCommand& cmd, double dt)
 {
     last_cmd_ = cmd;
-    real_vehicle_.UpdatePhysics(dt, cmd.throttle, cmd.brake, cmd.steering, cmd.gear);
+    // ManualDrive always drives the forward-AT path so paddle inputs become
+    // real gear changes through AutoTransmission + EngineModel. Non-paddle
+    // input sources (e.g. NetworkInputBridge) leave the paddle bits false,
+    // which keeps the AT in DRIVE with auto-shifting.
+    real_vehicle_.UpdatePhysicsAT(dt, cmd.throttle, cmd.brake, cmd.steering,
+                                   cmd.paddle_up_pressed, cmd.paddle_down_pressed);
     return BuildHVD(cmd);
 }
 
@@ -114,10 +119,11 @@ osi3::HostVehicleData RealVehicleBackend::BuildHVD(const PedalSteerCommand& cmd)
     auto* wheel = steering->mutable_vehicle_steering_wheel();
     wheel->set_angle(real_vehicle_.wheelAngle_);
 
-    // Vehicle Powertrain
+    // Vehicle Powertrain — gear comes from the AT (drivetrain-engaged gear),
+    // not the raw command, so OSI reflects the actual physical state.
     auto* powertrain = hvd.mutable_vehicle_powertrain();
     powertrain->set_pedal_position_acceleration(cmd.throttle);
-    powertrain->set_gear_transmission(cmd.gear);
+    powertrain->set_gear_transmission(real_vehicle_.GetCurrentGear());
     auto* motor = powertrain->add_motor();
     motor->set_rpm(real_vehicle_.GetRPM());
     motor->set_torque(real_vehicle_.GetTorqueOutput());

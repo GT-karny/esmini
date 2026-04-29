@@ -141,9 +141,13 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
         cmd.steering = sign * (std::abs(cmd.steering) - deadzone_) / (1.0 - deadzone_);
     }
 
-    // Gear from paddle shifters (edge-detected)
+    // Paddle shifters: report raw button state for the forward-AT path,
+    // and also keep the legacy GearTracker output in cmd.gear so callers
+    // that still use the legacy single-gear path keep working.
     bool upshift   = SDL_JoystickGetButton(joystick_, upshift_button_) != 0;
     bool downshift = SDL_JoystickGetButton(joystick_, downshift_button_) != 0;
+    cmd.paddle_up_pressed   = upshift;
+    cmd.paddle_down_pressed = downshift;
     cmd.gear = gear_tracker_.Update(upshift, downshift);
 
     // Map configured buttons to standardized ButtonBits

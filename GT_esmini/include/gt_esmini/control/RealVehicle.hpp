@@ -5,7 +5,10 @@
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include <vector>
 #include "vehicle.hpp"
+#include "gt_esmini/control/manualdrive/AutoTransmission.hpp"
+#include "gt_esmini/control/manualdrive/EngineModel.hpp"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -21,7 +24,13 @@ namespace gt_esmini
         // SetPos, SetSpeed etc are inherited from Vehicle base
         virtual ~RealVehicle() {}
 
+        // Legacy single-gear physics path (kept for non-ManualDrive callers).
         void UpdatePhysics(double dt, double throttle, double brake, double steering, int gear = 1);
+
+        // Forward-AT physics path: paddle inputs drive the embedded
+        // AutoTransmission + EngineModel and produce a real geared driveline.
+        void UpdatePhysicsAT(double dt, double throttle, double brake, double steering,
+                             bool paddle_up_pressed, bool paddle_down_pressed);
 
         // Dynamics accessors
         double GetPitch() const { return pitch_; } // pitch_ is in base class
@@ -29,7 +38,9 @@ namespace gt_esmini
         double GetDynamicPitch() const { return dynamic_pitch_; }
         double GetDynamicRoll()  const { return dynamic_roll_; }
         double GetRPM() const { return rpm_; }
-        double GetTorqueOutput() const { return GetTorque(rpm_); }
+        double GetTorqueOutput() const;
+        int    GetCurrentGear() const { return gear_; }   // -1 R, 0 N, 1..N forward
+        bool   IsATManualMode() const { return at_manual_mode_; }
 
         void SetEngineBrakeFactor(double val) { params_.engine_brake = val; }
         double GetEngineBrakeFactor() const { return params_.engine_brake; }
@@ -66,25 +77,42 @@ namespace gt_esmini
             // Engine braking when throttle released [m/s²]
             double engine_brake = 0.4;
 
-            // Torque curve shape (normalized parabola)
-            double torque_peak_pos = 0.65; // Normalized RPM where peak torque occurs [0-1] (~4500 RPM for NA)
-            double torque_min = 0.3;       // Minimum normalized torque at idle/redline [0-1]
+            // Torque curve shape (legacy normalized parabola; only used by
+            // UpdatePhysics() legacy path)
+            double torque_peak_pos = 0.65;
+            double torque_min = 0.3;
 
             // Understeer parameters
             double understeer_factor = 0.0;          // 0.0 = disabled, typical: 0.0005-0.003
             double critical_speed = 30.0;            // Speed where understeer becomes noticeable [m/s]
             double max_understeer_reduction = 0.0;   // Maximum steering reduction [0-1 range]
+
+            // -- Forward AT driveline parameters --
+            double mass_kg                = 1450.0;   // Civic FL1 class curb mass
+            double wheel_radius_m         = 0.32;
+            double drivetrain_efficiency  = 0.92;
+            double v_lockup_mps           = 8.0;      // torque-converter lockup speed
+            std::vector<double> gear_ratios = {3.642, 2.080, 1.361, 1.024, 0.830, 0.686};
+            double final_drive_ratio      = 4.105;
+            double reverse_ratio          = 3.583;    // physical reverse gear ratio
+
+            // -- Resistance / aero (used by AT path; legacy uses drag_coeff above) --
+            // Defaults model an 11th-gen Civic Sport Touring (Cd≈0.27, A≈2.2 m²).
+            double aero_drag_cd           = 0.27;
+            double frontal_area_m2        = 2.2;
+            double air_density            = 1.225;     // kg/m³ at sea level
+            double rolling_resistance_coeff = 0.011;   // typical passenger tire
         };
 
         void LoadParameters(const std::string& filename);
-        
+
         // Calculate offset to fix rotation pivot (Pivot Adjustment)
         // returns {dx, dy, dz} in world aligned frame (approximated)
         void GetBodyPositionOffset(double& dx, double& dy, double& dz);
 
     private:
         VehicleParams params_;
-        
+
         // Extended physics state
         double rpm_;
         double roll_; // New roll state
@@ -101,10 +129,24 @@ namespace gt_esmini
 
         double idle_rpm_;
         double max_rpm_;
-        double gear_ratio_; // Simple fixed gear for now
-        int    gear_ = 1;   // 1=Fwd, 0=N, -1=Rev
-        
-        // Helper to calculate torque from RPM (simple curve)
+        double gear_ratio_; // Legacy fixed gear (used by legacy UpdatePhysics)
+        int    gear_ = 1;   // -1 R, 0 N, 1..N forward (drivetrain-engaged gear)
+
+        // Forward-AT components (used by UpdatePhysicsAT)
+        AutoTransmission auto_trans_;
+        EngineModel      engine_;
+        bool             at_manual_mode_ = false;
+        bool             at_seeded_      = false;
+        double           engine_torque_nm_ = 0.0;  // last computed engine torque
+
+        // Helper to calculate normalized torque from RPM (legacy curve)
         double GetTorque(double current_rpm) const;
+
+        // Apply steering / kinematic update / pitch & roll dynamics for a
+        // given longitudinal acceleration. Shared between legacy and AT paths.
+        void StepLateralAndAttitude(double dt, double steering, double long_acc);
+
+        // Configure AT and engine parameters from current VehicleParams.
+        void ConfigureATAndEngine();
     };
 } // namespace gt_esmini

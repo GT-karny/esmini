@@ -118,9 +118,12 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/HeadingCorrectionManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerKinematic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerManualDrive.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/RealVehicleBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/EngineModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AutoTransmission.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveCoordinator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/UdpTransport.cpp
@@ -157,6 +160,9 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveConfig.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/OverrideManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/EngineModel.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AutoTransmission.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/ShiftLogic.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp
