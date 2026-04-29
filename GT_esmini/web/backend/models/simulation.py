@@ -110,6 +110,7 @@ class ExecutionConfig(BaseModel):
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []
+    drive_mode: str = "comfort"  # HVDEstimator drive mode (comfort | sport)
 
 
 class SimulationRequest(BaseModel):
@@ -143,3 +144,7 @@ class SimulationListResponse(BaseModel):
 
 class SpeedRequest(BaseModel):
     speed_factor: float = Field(ge=0.1, le=100.0, description="Speed multiplier (1.0 = realtime)")
+
+
+class DriveModeRequest(BaseModel):
+    mode: str = Field(min_length=1, max_length=32, description="HVDEstimator drive mode (e.g. 'comfort', 'sport')")

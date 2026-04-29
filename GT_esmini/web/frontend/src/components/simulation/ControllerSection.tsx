@@ -1,23 +1,52 @@
 export type ControllerType = 'default' | 'manual';
+export type DriveMode = 'comfort' | 'sport';
 
 export interface ControllerSectionProps {
   controllerType: 'default' | 'manual';
   setControllerType: (v: 'default' | 'manual') => void;
   onOpenManualSettings?: () => void;
+  driveMode: DriveMode;
+  setDriveMode: (v: DriveMode) => void;
 }
 
 const btnBase = 'px-4 py-2 text-sm font-medium transition-colors cursor-pointer';
 const btnActive = 'bg-primary/80 text-background glow-edge';
 const btnInactive = 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground';
 
+const modeBtnBase = 'px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer';
+const modeBtnActive = 'bg-blue-500 text-white';
+const modeBtnInactive = 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground';
+
+const driveModeTooltip =
+  'シフトポイントとシフト時挙動を切替えます。Sport は高回転側、ダウンシフト時 rev-match ブリップ、トルクインタラプト強め。Default controller / NPC のみに効果。Manual Drive 走行中の自車挙動には影響しません。';
+
 export function ControllerSection({
   controllerType,
   setControllerType,
   onOpenManualSettings,
+  driveMode,
+  setDriveMode,
 }: ControllerSectionProps) {
   return (
     <div>
-      <h3 className="text-xs text-text-tertiary mb-2">Controller</h3>
+      <div className="flex items-end justify-between mb-2">
+        <h3 className="text-xs text-text-tertiary">Controller</h3>
+        <div className="flex items-center gap-1.5" title={driveModeTooltip}>
+          <span className="text-xs text-text-tertiary">Drive Mode</span>
+          <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+            {(['comfort', 'sport'] as DriveMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setDriveMode(m)}
+                className={`${modeBtnBase} ${driveMode === m ? modeBtnActive : modeBtnInactive}`}
+              >
+                {m === 'comfort' ? 'Comfort' : 'Sport'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setControllerType('default')}

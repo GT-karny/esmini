@@ -35,15 +35,41 @@
     },
 
     "shift_schedule": {
+        "active_mode": "comfort",
         "gear_ratios": [3.55, 2.05, 1.36, 1.00, 0.78, 0.65],
         "final_drive_ratio": 3.50,
-        "shift_up_kmh":   [15, 30, 50, 75, 100],
-        "shift_down_kmh": [10, 22, 40, 60,  85],
-        "kickdown_gain": 0.35,
-        "brake_downshift_threshold": 0.4,
-        "min_gear_hold_s": 0.5,
-        "rpm_tau_s": 0.2,
-        "v_lockup_mps": 5.0
+        "modes": {
+            "comfort": {
+                "shift_up_kmh":   [15, 30, 50, 75, 100],
+                "shift_down_kmh": [10, 22, 40, 60,  85],
+                "kickdown_gain": 0.35,
+                "brake_downshift_threshold": 0.4,
+                "min_gear_hold_s": 0.5,
+                "rpm_tau_s": 0.2,
+                "v_lockup_mps": 5.0,
+                "shift_event_duration_s": 0.18,
+                "upshift_dip_rpm": 200.0,
+                "downshift_blip_rpm": 0.0,
+                "shift_torque_factor": 0.3,
+                "rpm_tau_up_s": 0.18,
+                "rpm_tau_down_s": 0.25
+            },
+            "sport": {
+                "shift_up_kmh":   [25, 50, 80, 115, 150],
+                "shift_down_kmh": [18, 38, 65,  95, 125],
+                "kickdown_gain": 0.6,
+                "brake_downshift_threshold": 0.25,
+                "min_gear_hold_s": 0.3,
+                "rpm_tau_s": 0.12,
+                "v_lockup_mps": 3.0,
+                "shift_event_duration_s": 0.12,
+                "upshift_dip_rpm": 400.0,
+                "downshift_blip_rpm": 500.0,
+                "shift_torque_factor": 0.15,
+                "rpm_tau_up_s": 0.10,
+                "rpm_tau_down_s": 0.13
+            }
+        }
     },
 
     "heading_correction": {

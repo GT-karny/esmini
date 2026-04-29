@@ -16,6 +16,7 @@
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 
 #include <cmath>
+#include <cstdio>
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -93,7 +94,55 @@ double SmoothStep01(double x)
     x = std::clamp(x, 0.0, 1.0);
     return x * x * (3.0 - 2.0 * x);
 }
+
+std::string ParseString(const std::string& block, const std::string& key,
+                        const std::string& fallback)
+{
+    size_t pos = block.find("\"" + key + "\"");
+    if (pos == std::string::npos) return fallback;
+    size_t colon = block.find(':', pos);
+    if (colon == std::string::npos) return fallback;
+    size_t q1 = block.find('"', colon + 1);
+    if (q1 == std::string::npos) return fallback;
+    size_t q2 = block.find('"', q1 + 1);
+    if (q2 == std::string::npos) return fallback;
+    return block.substr(q1 + 1, q2 - q1 - 1);
+}
 } // namespace
+
+const HVDEstimator::ShiftParams& HVDEstimator::Active() const
+{
+    auto it = mode_shift_params_.find(active_mode_);
+    if (it != mode_shift_params_.end()) return it->second;
+    static const ShiftParams kDefault;
+    return kDefault;
+}
+
+HVDEstimator::ShiftParams& HVDEstimator::Active()
+{
+    return mode_shift_params_[active_mode_];
+}
+
+bool HVDEstimator::SetActiveMode(const std::string& mode)
+{
+    if (mode_shift_params_.find(mode) == mode_shift_params_.end())
+    {
+        printf("HVDEstimator: unknown drive mode '%s', ignored\n", mode.c_str());
+        return false;
+    }
+    if (active_mode_ == mode) return true;
+    active_mode_ = mode;
+    // Reset hold/event timers so the new schedule takes effect promptly,
+    // but preserve gear/RPM state to avoid jumps.
+    for (auto& kv : cache_)
+    {
+        kv.second.gear_hold_timer = 0.0;
+        kv.second.shift_event_timer = 0.0;
+        kv.second.shift_direction = 0;
+    }
+    printf("HVDEstimator: drive mode set to '%s'\n", mode.c_str());
+    return true;
+}
 
 void HVDEstimator::LoadParams(const std::string& configPath)
 {
@@ -123,15 +172,76 @@ void HVDEstimator::LoadParams(const std::string& configPath)
     std::string shf = FindSection(content, "shift_schedule");
     if (!shf.empty())
     {
-        shift_params_.gear_ratios       = ParseDoubleArray(shf, "gear_ratios", shift_params_.gear_ratios);
-        shift_params_.final_drive_ratio = ParseDouble(shf, "final_drive_ratio", shift_params_.final_drive_ratio);
-        shift_params_.shift_up_kmh      = ParseDoubleArray(shf, "shift_up_kmh", shift_params_.shift_up_kmh);
-        shift_params_.shift_down_kmh    = ParseDoubleArray(shf, "shift_down_kmh", shift_params_.shift_down_kmh);
-        shift_params_.kickdown_gain     = ParseDouble(shf, "kickdown_gain", shift_params_.kickdown_gain);
-        shift_params_.brake_downshift_threshold = ParseDouble(shf, "brake_downshift_threshold", shift_params_.brake_downshift_threshold);
-        shift_params_.min_gear_hold_s   = ParseDouble(shf, "min_gear_hold_s", shift_params_.min_gear_hold_s);
-        shift_params_.rpm_tau_s         = ParseDouble(shf, "rpm_tau_s", shift_params_.rpm_tau_s);
-        shift_params_.v_lockup_mps      = ParseDouble(shf, "v_lockup_mps", shift_params_.v_lockup_mps);
+        // Common (top-level) values shared across all modes.
+        ShiftParams base;
+        base.gear_ratios       = ParseDoubleArray(shf, "gear_ratios", base.gear_ratios);
+        base.final_drive_ratio = ParseDouble(shf, "final_drive_ratio", base.final_drive_ratio);
+
+        // Helper: fill a ShiftParams from a JSON block, falling back to base.
+        auto fill = [&](const std::string& blk, ShiftParams& sp) {
+            sp.gear_ratios               = base.gear_ratios;
+            sp.final_drive_ratio         = base.final_drive_ratio;
+            sp.shift_up_kmh              = ParseDoubleArray(blk, "shift_up_kmh", sp.shift_up_kmh);
+            sp.shift_down_kmh            = ParseDoubleArray(blk, "shift_down_kmh", sp.shift_down_kmh);
+            sp.kickdown_gain             = ParseDouble(blk, "kickdown_gain", sp.kickdown_gain);
+            sp.brake_downshift_threshold = ParseDouble(blk, "brake_downshift_threshold", sp.brake_downshift_threshold);
+            sp.min_gear_hold_s           = ParseDouble(blk, "min_gear_hold_s", sp.min_gear_hold_s);
+            sp.rpm_tau_s                 = ParseDouble(blk, "rpm_tau_s", sp.rpm_tau_s);
+            sp.v_lockup_mps              = ParseDouble(blk, "v_lockup_mps", sp.v_lockup_mps);
+            sp.shift_event_duration_s    = ParseDouble(blk, "shift_event_duration_s", sp.shift_event_duration_s);
+            sp.upshift_dip_rpm           = ParseDouble(blk, "upshift_dip_rpm", sp.upshift_dip_rpm);
+            sp.downshift_blip_rpm        = ParseDouble(blk, "downshift_blip_rpm", sp.downshift_blip_rpm);
+            sp.shift_torque_factor       = ParseDouble(blk, "shift_torque_factor", sp.shift_torque_factor);
+            sp.rpm_tau_up_s              = ParseDouble(blk, "rpm_tau_up_s", sp.rpm_tau_up_s);
+            sp.rpm_tau_down_s            = ParseDouble(blk, "rpm_tau_down_s", sp.rpm_tau_down_s);
+        };
+
+        mode_shift_params_.clear();
+
+        // Parse "modes" section if present.
+        std::string modes = FindSection(shf, "modes");
+        if (!modes.empty())
+        {
+            // Walk top-level keys inside "modes": each is a mode name with a block value.
+            size_t cursor = 1;  // skip leading '{'
+            while (cursor < modes.size())
+            {
+                size_t q1 = modes.find('"', cursor);
+                if (q1 == std::string::npos) break;
+                size_t q2 = modes.find('"', q1 + 1);
+                if (q2 == std::string::npos) break;
+                std::string mode_name = modes.substr(q1 + 1, q2 - q1 - 1);
+                size_t lb = modes.find('{', q2);
+                if (lb == std::string::npos) break;
+                std::string block = ExtractBlock(modes, lb);
+                if (block.empty()) break;
+                ShiftParams sp;
+                fill(block, sp);
+                mode_shift_params_[mode_name] = sp;
+                cursor = lb + block.size();
+            }
+        }
+
+        // Backward compatibility: if no modes parsed, accept legacy top-level
+        // shift_schedule keys as the "comfort" profile.
+        if (mode_shift_params_.empty())
+        {
+            ShiftParams sp;
+            fill(shf, sp);
+            mode_shift_params_["comfort"] = sp;
+        }
+
+        // Active mode selection: prefer JSON-specified, otherwise keep current.
+        std::string desired = ParseString(shf, "active_mode", active_mode_);
+        if (mode_shift_params_.find(desired) != mode_shift_params_.end())
+        {
+            active_mode_ = desired;
+        }
+        else if (mode_shift_params_.find(active_mode_) == mode_shift_params_.end())
+        {
+            // Fallback to the first available mode.
+            active_mode_ = mode_shift_params_.begin()->first;
+        }
     }
 
     params_loaded_ = true;
@@ -139,9 +249,10 @@ void HVDEstimator::LoadParams(const std::string& configPath)
 
 int HVDEstimator::SeedInitialGear(double speed_kmh) const
 {
+    const auto& sp = Active();
     int gear = 1;
-    const auto& up = shift_params_.shift_up_kmh;
-    const auto& dn = shift_params_.shift_down_kmh;
+    const auto& up = sp.shift_up_kmh;
+    const auto& dn = sp.shift_down_kmh;
     int n_thresh = static_cast<int>(std::min(up.size(), dn.size()));
     for (int g = 0; g < n_thresh; ++g)
     {
@@ -151,15 +262,16 @@ int HVDEstimator::SeedInitialGear(double speed_kmh) const
             gear = g + 2;  // shift_up_kmh[g] is the upshift point from gear g+1 to g+2
         }
     }
-    int max_gear = static_cast<int>(shift_params_.gear_ratios.size());
+    int max_gear = static_cast<int>(sp.gear_ratios.size());
     return std::clamp(gear, 1, max_gear);
 }
 
 int HVDEstimator::SelectGear(double speed_kmh, double throttle, double brake,
                               VehicleCache& vc, double dt) const
 {
+    const auto& sp = Active();
     int g = vc.current_gear;
-    int max_gear = static_cast<int>(shift_params_.gear_ratios.size());
+    int max_gear = static_cast<int>(sp.gear_ratios.size());
     g = std::clamp(g, 1, max_gear);
 
     vc.gear_hold_timer = std::max(0.0, vc.gear_hold_timer - dt);
@@ -168,14 +280,14 @@ int HVDEstimator::SelectGear(double speed_kmh, double throttle, double brake,
         return g;
     }
 
-    const auto& up = shift_params_.shift_up_kmh;
-    const auto& dn = shift_params_.shift_down_kmh;
+    const auto& up = sp.shift_up_kmh;
+    const auto& dn = sp.shift_down_kmh;
     int n_up = static_cast<int>(up.size());
     int n_dn = static_cast<int>(dn.size());
 
     // Throttle-aware kickdown: deeper throttle delays upshift and triggers
     // downshift earlier (higher RPM band).
-    double kickdown = 1.0 + throttle * shift_params_.kickdown_gain;
+    double kickdown = 1.0 + throttle * sp.kickdown_gain;
 
     // Upshift check
     if (g <= n_up && g < max_gear)
@@ -184,7 +296,7 @@ int HVDEstimator::SelectGear(double speed_kmh, double throttle, double brake,
         if (speed_kmh > thr)
         {
             vc.current_gear = g + 1;
-            vc.gear_hold_timer = shift_params_.min_gear_hold_s;
+            vc.gear_hold_timer = sp.min_gear_hold_s;
             return vc.current_gear;
         }
     }
@@ -194,14 +306,14 @@ int HVDEstimator::SelectGear(double speed_kmh, double throttle, double brake,
     {
         double base = dn[g - 2] * kickdown;
         // Brake-induced earlier downshift (engine braking)
-        if (brake > shift_params_.brake_downshift_threshold)
+        if (brake > sp.brake_downshift_threshold)
         {
             base *= 1.20;
         }
         if (speed_kmh < base)
         {
             vc.current_gear = g - 1;
-            vc.gear_hold_timer = shift_params_.min_gear_hold_s;
+            vc.gear_hold_timer = sp.min_gear_hold_s;
             return vc.current_gear;
         }
     }
@@ -211,22 +323,42 @@ int HVDEstimator::SelectGear(double speed_kmh, double throttle, double brake,
 
 double HVDEstimator::EstimateRPM(double abs_speed, int gear, double dt, VehicleCache& vc) const
 {
-    int max_gear = static_cast<int>(shift_params_.gear_ratios.size());
+    const auto& sp = Active();
+    int max_gear = static_cast<int>(sp.gear_ratios.size());
     int gi = std::clamp(gear, 1, max_gear) - 1;
-    double total_ratio = shift_params_.gear_ratios[gi] * shift_params_.final_drive_ratio;
+    double total_ratio = sp.gear_ratios[gi] * sp.final_drive_ratio;
 
     double wheel_rps  = abs_speed / (2.0 * M_PI * kWheelRadius);
     double geared_rpm = wheel_rps * 60.0 * total_ratio;
 
     // Low-speed lockup interpolation (clutch/torque-converter slip).
     // Below v_lockup, blend toward idle RPM. Above, fully geared.
-    double v_lockup = std::max(0.1, shift_params_.v_lockup_mps);
+    double v_lockup = std::max(0.1, sp.v_lockup_mps);
     double slip = SmoothStep01(abs_speed / v_lockup);
     double target_rpm = kIdleRPM + slip * (geared_rpm - kIdleRPM);
+
+    // Shift-event transient: dip on upshift, rev-match blip on downshift.
+    // Magnitude scales linearly with remaining timer (fades to zero at end).
+    double tau = std::max(1e-3, sp.rpm_tau_s);
+    if (vc.shift_event_timer > 0.0 && sp.shift_event_duration_s > 0.0)
+    {
+        double phase = std::clamp(vc.shift_event_timer / sp.shift_event_duration_s, 0.0, 1.0);
+        if (vc.shift_direction > 0)
+        {
+            target_rpm -= sp.upshift_dip_rpm * phase;
+            tau = std::max(1e-3, sp.rpm_tau_up_s);
+        }
+        else if (vc.shift_direction < 0)
+        {
+            target_rpm += sp.downshift_blip_rpm * phase;
+            tau = std::max(1e-3, sp.rpm_tau_down_s);
+        }
+        vc.shift_event_timer = std::max(0.0, vc.shift_event_timer - dt);
+        if (vc.shift_event_timer == 0.0) vc.shift_direction = 0;
+    }
     target_rpm = std::clamp(target_rpm, kIdleRPM, kMaxRPM);
 
     // 1st-order lag (engine inertia): rpm += alpha * (target - rpm)
-    double tau = std::max(1e-3, shift_params_.rpm_tau_s);
     double alpha = (dt > 0.0) ? (dt / (tau + dt)) : 1.0;
 
     double rpm;
@@ -267,7 +399,8 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     if (!was_initialized)
     {
         vc.current_gear   = SeedInitialGear(speed_kmh);
-        vc.gear_hold_timer = shift_params_.min_gear_hold_s;
+        vc.gear_hold_timer = Active().min_gear_hold_s;
+        vc.prev_gear      = vc.current_gear;
     }
 
     // --- Pedal estimation (force-based inverse longitudinal dynamics) ---
@@ -296,7 +429,7 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     double F_engine_max = m * max_acc;
     double F_brake_max  = m * max_dec;
 
-    int max_gear_count = static_cast<int>(shift_params_.gear_ratios.size());
+    int max_gear_count = static_cast<int>(Active().gear_ratios.size());
     int gi = std::clamp(vc.current_gear, 1, max_gear_count) - 1;
     double eb_factor = (gi < static_cast<int>(pedal_params_.engine_brake_gear_factor.size()))
                            ? pedal_params_.engine_brake_gear_factor[gi]
@@ -337,6 +470,18 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
 
     // --- Gear selection (forward only; reverse/neutral handled at output) ---
     int forward_gear = SelectGear(speed_kmh, result.throttle, result.brake, vc, dt);
+
+    // Detect a gear change to start a shift-event window (RPM dip / blip + torque cut).
+    if (was_initialized && forward_gear != vc.prev_gear)
+    {
+        const auto& sp_e = Active();
+        if (sp_e.shift_event_duration_s > 0.0)
+        {
+            vc.shift_event_timer = sp_e.shift_event_duration_s;
+            vc.shift_direction   = (forward_gear > vc.prev_gear) ? 1 : -1;
+        }
+    }
+    vc.prev_gear = forward_gear;
 
     // Direction state machine: D and R are held through standstill; N is only
     // inserted briefly when the motion direction reverses (D<->R transition).
@@ -426,6 +571,11 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
     result.rpm = EstimateRPM(abs_speed, rpm_gear, dt, vc);
 
     result.torque    = EstimateTorque(result.rpm);
+    // Torque interrupt during shift event (visualizes the "torque hole").
+    if (vc.shift_event_timer > 0.0)
+    {
+        result.torque *= Active().shift_torque_factor;
+    }
     result.lightMask = BuildLightMaskForObject(obj);
 
     vc.prev_speed  = speed;

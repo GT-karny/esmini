@@ -159,6 +159,19 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque);
 
+    /**
+     * Set the active drive mode for the HVDEstimator (affects HVD reporting
+     * for vehicles that don't have a GT custom controller assigned).
+     *
+     * Built-in modes (loaded from real_vehicle_params.json shift_schedule.modes):
+     *   "comfort" - relaxed shift points, low RPM cruise (default)
+     *   "sport"   - high RPM shift points, kickdown bias, rev-match blip on downshift
+     *
+     * @param mode Mode name (case-sensitive, null-terminated)
+     * @return 0 on success, -1 if mode is unknown
+     */
+    GT_ESMINI_API int GT_SetDriveMode(const char* mode);
+
     // =====================================
     // Traffic Signal State API
     // =====================================

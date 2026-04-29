@@ -1144,3 +1144,9 @@ GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, doubl
 #endif
 }
 
+GT_ESMINI_API int GT_SetDriveMode(const char* mode)
+{
+    if (mode == nullptr) return -1;
+    return s_hvdEstimator.SetActiveMode(std::string(mode)) ? 0 : -1;
+}
+

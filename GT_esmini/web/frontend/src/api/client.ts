@@ -126,6 +126,7 @@ export interface SimulationRequest {
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];
+    drive_mode?: 'comfort' | 'sport';
   };
   param_overrides?: Record<string, string>;
 }
@@ -357,6 +358,18 @@ export const api = {
   cancelSimulation: (jobId: string) =>
     request<{ job_id: string; status: string }>(`/api/simulations/${jobId}`, {
       method: 'DELETE',
+    }),
+
+  setSimulationSpeed: (jobId: string, speedFactor: number) =>
+    request<{ job_id: string; speed_factor: number }>(`/api/simulations/${jobId}/speed`, {
+      method: 'PUT',
+      body: JSON.stringify({ speed_factor: speedFactor }),
+    }),
+
+  setDriveMode: (jobId: string, mode: 'comfort' | 'sport') =>
+    request<{ job_id: string; mode: string }>(`/api/simulations/${jobId}/drive_mode`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
     }),
 
   // Results

@@ -3,6 +3,8 @@ import { useOsiStream, type HvdData } from '../../hooks/useOsiStream';
 import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
 import { api } from '../../api/client';
 
+type DriveMode = 'comfort' | 'sport';
+
 interface EgoLights {
   head: string;      // 'on' | 'off'
   indicator: string; // 'left' | 'right' | 'warning' | 'off'
@@ -59,9 +61,12 @@ export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitor
             </span>
           )}
         </div>
-        <span className="text-xs font-mono text-text-secondary">
-          t = {simTime.toFixed(1)}s
-        </span>
+        <div className="flex items-center gap-3">
+          <DriveModeToggle jobId={jobId} />
+          <span className="text-xs font-mono text-text-secondary">
+            t = {simTime.toFixed(1)}s
+          </span>
+        </div>
       </div>
 
       {/* Progress bar placeholder */}
@@ -82,6 +87,64 @@ export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitor
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Drive Mode Toggle ---------- */
+
+function DriveModeToggle({ jobId }: { jobId: string }) {
+  const [mode, setMode] = useState<DriveMode>('comfort');
+  const [pending, setPending] = useState<DriveMode | null>(null);
+
+  // Seed from the simulation's startup config so this toggle reflects the
+  // mode that was actually selected on the RUN panel.
+  useEffect(() => {
+    let cancelled = false;
+    api.getSimulation(jobId).then(
+      (sim) => {
+        if (cancelled) return;
+        const exec = (sim.options as { execution?: { drive_mode?: string } } | undefined)?.execution;
+        const initial = exec?.drive_mode;
+        if (initial === 'comfort' || initial === 'sport') {
+          setMode(initial);
+        }
+      },
+      () => { /* fall back to default 'comfort' */ },
+    );
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  const apply = async (next: DriveMode) => {
+    if (next === mode || pending) return;
+    setPending(next);
+    try {
+      await api.setDriveMode(jobId, next);
+      setMode(next);
+    } catch (e) {
+      console.error('setDriveMode failed', e);
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const baseBtn = 'px-2 py-0.5 text-[10px] font-medium rounded transition-colors';
+  const activeCls = 'bg-blue-500 text-white';
+  const inactiveCls = 'bg-glass-1 text-text-secondary hover:bg-glass-2';
+
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+      {(['comfort', 'sport'] as DriveMode[]).map((m) => (
+        <button
+          key={m}
+          type="button"
+          disabled={pending !== null}
+          onClick={() => apply(m)}
+          className={`${baseBtn} ${mode === m ? activeCls : inactiveCls} ${pending === m ? 'opacity-60' : ''}`}
+        >
+          {m === 'comfort' ? 'Comfort' : 'Sport'}
+        </button>
+      ))}
     </div>
   );
 }

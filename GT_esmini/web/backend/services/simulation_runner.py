@@ -291,6 +291,8 @@ def _build_cmd(
     if not execution.headless:
         w = execution.window
         cmd.extend(["--window", str(w.x), str(w.y), str(w.w), str(w.h)])
+    if execution.drive_mode and execution.drive_mode != "comfort":
+        cmd.extend(["--drive_mode", execution.drive_mode])
     for arg in execution.extra_args:
         cmd.append(arg)
 
@@ -724,6 +726,40 @@ def kill_all_running() -> int:
     return killed
 
 
+def _send_pipe_command_sync(pipe_name: str, command: bytes) -> bool:
+    import ctypes
+    import ctypes.wintypes as wintypes
+
+    pipe_path = f"\\\\.\\pipe\\{pipe_name}"
+
+    GENERIC_WRITE = 0x40000000
+    OPEN_EXISTING = 3
+
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.CreateFileW(
+        pipe_path,
+        GENERIC_WRITE,
+        0,
+        None,
+        OPEN_EXISTING,
+        0,
+        None,
+    )
+    if handle == -1:
+        return False
+
+    bytes_written = wintypes.DWORD(0)
+    success = kernel32.WriteFile(
+        handle,
+        command,
+        len(command),
+        ctypes.byref(bytes_written),
+        None,
+    )
+    kernel32.CloseHandle(handle)
+    return bool(success)
+
+
 async def set_speed_factor(job_id: str, factor: float) -> bool:
     """Send speed change command to running GT_Sim via Named Pipe."""
     with _pipes_lock:
@@ -731,38 +767,16 @@ async def set_speed_factor(job_id: str, factor: float) -> bool:
     if pipe_name is None:
         return False
 
-    def _write_pipe():
-        import ctypes
-        import ctypes.wintypes as wintypes
+    command = f"SPEED:{factor}\n".encode("utf-8")
+    return await asyncio.to_thread(_send_pipe_command_sync, pipe_name, command)
 
-        pipe_path = f"\\\\.\\pipe\\{pipe_name}"
-        command = f"SPEED:{factor}\n".encode("utf-8")
 
-        GENERIC_WRITE = 0x40000000
-        OPEN_EXISTING = 3
+async def set_drive_mode(job_id: str, mode: str) -> bool:
+    """Send drive mode change command to running GT_Sim via Named Pipe."""
+    with _pipes_lock:
+        pipe_name = _control_pipes.get(job_id)
+    if pipe_name is None:
+        return False
 
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.CreateFileW(
-            pipe_path,
-            GENERIC_WRITE,
-            0,  # no sharing
-            None,
-            OPEN_EXISTING,
-            0,
-            None,
-        )
-        if handle == -1:  # INVALID_HANDLE_VALUE
-            return False
-
-        bytes_written = wintypes.DWORD(0)
-        success = kernel32.WriteFile(
-            handle,
-            command,
-            len(command),
-            ctypes.byref(bytes_written),
-            None,
-        )
-        kernel32.CloseHandle(handle)
-        return bool(success)
-
-    return await asyncio.to_thread(_write_pipe)
+    command = f"DRIVE_MODE:{mode}\n".encode("utf-8")
+    return await asyncio.to_thread(_send_pipe_command_sync, pipe_name, command)

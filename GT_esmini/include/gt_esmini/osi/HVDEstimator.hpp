@@ -57,6 +57,13 @@ public:
     /// real_vehicle_params.json. Safe to call multiple times.
     void LoadParams(const std::string& configPath);
 
+    /// Switch active drive mode (e.g. "comfort", "sport"). Unknown modes are
+    /// ignored and a warning is printed. Returns true if the mode was applied.
+    bool SetActiveMode(const std::string& mode);
+
+    /// Currently active mode name.
+    const std::string& GetActiveMode() const { return active_mode_; }
+
 private:
     struct VehicleCache
     {
@@ -66,7 +73,10 @@ private:
         double prev_brake     = 0.0;
         double prev_rpm       = 0.0;
         int    current_gear   = 1;
+        int    prev_gear      = 1;       // last forward gear used for shift-event detection
         double gear_hold_timer = 0.0;
+        double shift_event_timer = 0.0;  // remaining seconds in shift event window
+        int    shift_direction = 0;      // +1=upshift, -1=downshift, 0=none
         int    reported_direction = 1;   // -1=R, 0=N, +1=D (sticky across standstill)
         double neutral_hold_timer = 0.0; // remaining N-hold during D<->R transition
         bool   initialized    = false;
@@ -94,12 +104,24 @@ private:
         double              min_gear_hold_s   = 0.5;
         double              rpm_tau_s         = 0.2;
         double              v_lockup_mps      = 5.0;
+
+        // Shift-event modeling (transient behavior during a gear change)
+        double              shift_event_duration_s = 0.18;  // event window length [s]
+        double              upshift_dip_rpm        = 200.0; // RPM offset added during upshift dip (subtracted from target)
+        double              downshift_blip_rpm     = 0.0;   // RPM offset added during downshift rev-match blip
+        double              shift_torque_factor    = 0.3;   // torque scaling during event (0..1)
+        double              rpm_tau_up_s           = 0.18;  // RPM lag during upshift event
+        double              rpm_tau_down_s         = 0.25;  // RPM lag during downshift event
     };
 
     std::map<int, VehicleCache> cache_;
     PedalParams pedal_params_;
-    ShiftParams shift_params_;
+    std::map<std::string, ShiftParams> mode_shift_params_;
+    std::string active_mode_ = "comfort";
     bool        params_loaded_ = false;
+
+    const ShiftParams& Active() const;
+    ShiftParams&       Active();
 
     // Physics constants (defaults retained for fields not in JSON)
     static constexpr double kIdleRPM        = 700.0;

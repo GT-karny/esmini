@@ -70,6 +70,7 @@ export function SimulationRunForm({
   const [controllerType, setControllerType] = useState<'default' | 'manual'>('default');
   const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
   const [showManualPanel, setShowManualPanel] = useState(false);
+  const [driveMode, setDriveMode] = useState<'comfort' | 'sport'>('comfort');
 
   // Load saved manual drive config from server
   const { data: savedManualDriveConfig } = useQuery({
@@ -138,7 +139,7 @@ export function SimulationRunForm({
     if (!rerunFrom) return;
     const opts = rerunFrom as {
       controller?: { controller_type?: string };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number } };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
     if (opts.controller) {
@@ -161,6 +162,7 @@ export function SimulationRunForm({
       if (exec.kinematic_mode !== undefined) setKinematicMode(exec.kinematic_mode);
       if (exec.threads !== undefined) setThreads(exec.threads);
       if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
+      if (exec.drive_mode) setDriveMode(exec.drive_mode);
     }
     setShowAdvanced(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,6 +251,7 @@ export function SimulationRunForm({
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
       extra_args: [],
+      drive_mode: driveMode,
     },
     param_overrides: getActiveOverrides(),
   });
@@ -294,6 +297,8 @@ export function SimulationRunForm({
         controllerType={controllerType}
         setControllerType={setControllerType}
         onOpenManualSettings={() => setShowManualPanel(true)}
+        driveMode={driveMode}
+        setDriveMode={setDriveMode}
       />
 
       <ManualDrivePanel
