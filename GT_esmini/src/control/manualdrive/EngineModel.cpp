@@ -75,6 +75,13 @@ void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, d
         t = std::max(t, floor);
     }
 
+    // Blip injection: synthetic throttle floor while transient is active.
+    bool blipping = state_.blip_timer_s > 0.0;
+    if (blipping)
+    {
+        t = std::max(t, std::clamp(p.blip_throttle_floor, 0.0, 1.0));
+    }
+
     // Rev limiter (soft): cut fuel above rev_limit_rpm
     state_.rev_limited = (state_.rpm > p.rev_limit_rpm);
     double t_eff = state_.rev_limited ? 0.0 : t;
@@ -82,6 +89,14 @@ void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, d
     // Torque output = throttle * max torque at current RPM
     double t_max = MaxTorqueAt(state_.rpm);
     state_.torque_nm = t_eff * t_max;
+
+    // Idle creep floor: TC pump churns ATF even at closed throttle, so a tiny
+    // residual torque appears at the turbine. Without this, throttle=0 in
+    // DRIVE produces zero force and the car never creeps from a stop.
+    if (clutch_locked && t < 0.05 && state_.rpm < p.idle_rpm * 1.5)
+    {
+        state_.torque_nm = std::max(state_.torque_nm, p.idle_creep_torque_nm);
+    }
 
     // RPM dynamics
     // - Locked clutch: RPM is yanked toward target_rpm (wheel-driven), with
@@ -98,17 +113,38 @@ void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, d
         // Free rev target: blend idle..max_rpm by throttle.
         goal = p.idle_rpm + (p.max_rpm - p.idle_rpm) * t;
     }
+    if (blipping)
+    {
+        goal = std::max(goal, target_rpm + state_.blip_lift_rpm);
+    }
     if (state_.rev_limited)
     {
         goal = std::min(goal, p.rev_limit_rpm);
     }
 
-    double tau   = std::max(1e-3, p.engine_inertia_tau_s);
+    // Use a faster inertia constant during blip so RPM rises crisply.
+    double tau_base = std::max(1e-3, p.engine_inertia_tau_s);
+    double tau      = blipping ? std::max(1e-3, p.blip_inertia_tau_s) : tau_base;
     double alpha = (dt > 0.0) ? (dt / (tau + dt)) : 1.0;
     state_.rpm += alpha * (goal - state_.rpm);
 
+    if (blipping)
+    {
+        state_.blip_timer_s = std::max(0.0, state_.blip_timer_s - dt);
+        if (state_.blip_timer_s <= 0.0)
+        {
+            state_.blip_lift_rpm = 0.0;
+        }
+    }
+
     // Clamp to physical bounds
     state_.rpm = std::clamp(state_.rpm, p.idle_rpm * 0.7, p.max_rpm * 1.05);
+}
+
+void EngineModel::TriggerBlip(double duration_s, double lift_rpm)
+{
+    state_.blip_timer_s  = std::max(state_.blip_timer_s, duration_s);
+    state_.blip_lift_rpm = std::max(state_.blip_lift_rpm, lift_rpm);
 }
 
 void EngineModel::Reset()

@@ -33,6 +33,12 @@ public:
         double torque_redline_factor = 0.65;  // falloff at redline (0..1 of peak)
         double engine_inertia_tau_s = 0.15;
         double idle_governor_gain   = 0.5;    // throttle floor while rpm < idle
+        // Rev-match blip: synthetic throttle injection on downshift events.
+        double blip_throttle_floor  = 0.6;    // minimum throttle while blip active
+        double blip_inertia_tau_s   = 0.06;   // faster RPM rise during blip
+        // Idle creep: residual converter-pumping torque at idle in gear,
+        // which drives the car forward when brake is released at throttle=0.
+        double idle_creep_torque_nm = 3.0;
     };
 
     struct State
@@ -41,6 +47,9 @@ public:
         double torque_nm     = 0.0;
         bool   rev_limited   = false;
         bool   initialized   = false;
+        // Rev-match blip transient
+        double blip_timer_s  = 0.0;
+        double blip_lift_rpm = 0.0;
     };
 
     EngineModel() = default;
@@ -62,6 +71,13 @@ public:
      * @param dt          timestep [s]
      */
     void Step(double throttle, double target_rpm, bool clutch_locked, double dt);
+
+    /// Trigger a transient rev-match blip (e.g. on AT downshift). For the next
+    /// `duration_s` seconds, the engine target RPM is lifted by `lift_rpm` and
+    /// a synthetic throttle floor is applied. Subsequent calls re-arm.
+    void TriggerBlip(double duration_s, double lift_rpm);
+
+    bool   IsBlipping() const { return state_.blip_timer_s > 0.0; }
 
     double GetRPM() const     { return state_.rpm; }
     double GetTorqueNm() const { return state_.torque_nm; }

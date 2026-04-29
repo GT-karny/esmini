@@ -225,8 +225,11 @@ void RealVehicle::LoadParameters(const std::string& filename)
         std::string tc_blk = FindSection(trans_blk, "torque_converter");
         if (!tc_blk.empty())
         {
-            params_.v_lockup_mps = ParseDoubleIn(tc_blk, "v_lockup_mps", params_.v_lockup_mps);
+            params_.v_lockup_mps    = ParseDoubleIn(tc_blk, "v_lockup_mps",    params_.v_lockup_mps);
+            params_.tc_slip_rpm_max = ParseDoubleIn(tc_blk, "slip_rpm_max",    params_.tc_slip_rpm_max);
         }
+        params_.engine_drag_base_nm  = ParseDoubleIn(trans_blk, "engine_drag_base_nm",  params_.engine_drag_base_nm);
+        params_.engine_drag_per_krpm = ParseDoubleIn(trans_blk, "engine_drag_per_krpm", params_.engine_drag_per_krpm);
     }
     // Fallback: pull gear_ratios / final_drive_ratio from shift_schedule if no
     // dedicated transmission section was provided (preserves older configs).
@@ -253,6 +256,7 @@ void RealVehicle::LoadParameters(const std::string& filename)
         ep.torque_redline_factor = ParseDoubleIn(eng_blk, "torque_redline_factor", ep.torque_redline_factor);
         ep.engine_inertia_tau_s = ParseDoubleIn(eng_blk, "engine_inertia_tau_s", ep.engine_inertia_tau_s);
         ep.idle_governor_gain   = ParseDoubleIn(eng_blk, "idle_governor_gain",  ep.idle_governor_gain);
+        ep.idle_creep_torque_nm = ParseDoubleIn(eng_blk, "idle_creep_torque_nm", ep.idle_creep_torque_nm);
     }
     // Keep idle/max in sync with the engine block when provided.
     idle_rpm_ = ep.idle_rpm;
@@ -286,6 +290,11 @@ void RealVehicle::LoadParameters(const std::string& filename)
                 atp.schedule.kickdown_gain = ParseDoubleIn(cf, "kickdown_gain", atp.schedule.kickdown_gain);
                 atp.schedule.brake_downshift_threshold = ParseDoubleIn(cf, "brake_downshift_threshold", atp.schedule.brake_downshift_threshold);
                 atp.schedule.min_gear_hold_s = ParseDoubleIn(cf, "min_gear_hold_s", atp.schedule.min_gear_hold_s);
+                // Shift-event parameters (shared with HVDEstimator's model).
+                params_.shift_event_duration_s = ParseDoubleIn(cf, "shift_event_duration_s", params_.shift_event_duration_s);
+                params_.upshift_dip_rpm        = ParseDoubleIn(cf, "upshift_dip_rpm",        params_.upshift_dip_rpm);
+                params_.downshift_blip_rpm     = ParseDoubleIn(cf, "downshift_blip_rpm",     params_.downshift_blip_rpm);
+                params_.shift_torque_factor    = ParseDoubleIn(cf, "shift_torque_factor",    params_.shift_torque_factor);
             }
         }
     }
@@ -523,11 +532,7 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
 
     double geared_rpm = wheel_rps * 60.0 * total_ratio;
 
-    constexpr double kStallMultiplier   = 2.0;     // torque ratio at full slip (typical TC)
-    constexpr double kStallRpmAtWOT     = 2200.0;  // engine RPM held at full throttle stall
-    double stall_low  = idle_rpm_ * 1.4;            // off-throttle creep
-    double stall_high = std::max(idle_rpm_ * 1.6, kStallRpmAtWOT);
-    double stall_target = stall_low + std::clamp(throttle, 0.0, 1.0) * (stall_high - stall_low);
+    constexpr double kStallMultiplier = 2.0;     // torque ratio at full slip (typical TC)
 
     double target_rpm;
     if (at_out.range == AutoTransmission::Range::NEUTRAL)
@@ -538,14 +543,61 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
     }
     else
     {
-        // In gear: engine is held by whichever is higher — load (stall) or wheel speed.
-        target_rpm = std::max(stall_target, geared_rpm);
+        // TC slip-RPM model: engine RPM = geared (turbine) RPM + slip,
+        // where slip rises with throttle and decays toward lockup speed.
+        // This replaces the previous max(stall, geared) clamp which froze
+        // engine RPM at ~stall during low-speed acceleration. The flash-stall
+        // peak (~idle + slip_rpm_max ≈ 2200) is preserved at WOT-from-rest;
+        // beyond that, RPM climbs continuously with vehicle speed.
+        double slip_rpm = std::clamp(throttle, 0.0, 1.0)
+                        * params_.tc_slip_rpm_max
+                        * (1.0 - slip_factor);
+        target_rpm = std::max(idle_rpm_ * 1.05, geared_rpm + slip_rpm);
+    }
+
+    // Shift event: trigger torque cut + RPM dip/blip on gear change. Same
+    // model as HVDEstimator (see HVDEstimator.cpp::EstimateRPM) so the
+    // estimator and this real-physics path stay in sync.
+    if (at_out.shifted_up)
+    {
+        shift_event_timer_s_ = params_.shift_event_duration_s;
+        shift_event_dir_     = +1;
+    }
+    else if (at_out.shifted_down)
+    {
+        shift_event_timer_s_ = params_.shift_event_duration_s;
+        shift_event_dir_     = -1;
+    }
+
+    // Apply RPM dip (upshift) / blip (downshift) for the duration of the event.
+    if (shift_event_timer_s_ > 0.0 && params_.shift_event_duration_s > 0.0
+        && at_out.range == AutoTransmission::Range::DRIVE)
+    {
+        double phase = std::clamp(shift_event_timer_s_ / params_.shift_event_duration_s, 0.0, 1.0);
+        if (shift_event_dir_ > 0)
+        {
+            target_rpm = std::max(idle_rpm_ * 1.05, target_rpm - params_.upshift_dip_rpm * phase);
+        }
+        else if (shift_event_dir_ < 0)
+        {
+            target_rpm += params_.downshift_blip_rpm * phase;
+        }
     }
 
     // 4. Engine: throttle + target RPM -> torque & rpm
     engine_.Step(throttle, target_rpm, clutch_locked, dt);
     rpm_ = engine_.GetRPM();
     engine_torque_nm_ = engine_.GetTorqueNm();
+
+    // Torque cut during shift event: hydraulic overlap / clutch slip means
+    // very little drive torque reaches the wheels for ~150-300ms. Modeled by
+    // scaling the engine output torque while the timer is active.
+    if (shift_event_timer_s_ > 0.0)
+    {
+        engine_torque_nm_ *= std::clamp(params_.shift_torque_factor, 0.0, 1.0);
+        shift_event_timer_s_ = std::max(0.0, shift_event_timer_s_ - dt);
+        if (shift_event_timer_s_ <= 0.0) shift_event_dir_ = 0;
+    }
 
     // 5. Driveline force with torque-converter multiplication
     double mass = std::max(100.0, params_.mass_kg);
@@ -589,18 +641,17 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
         rr_acc = params_.rolling_resistance_coeff * 9.81;  // m/s² magnitude
     }
 
-    // Engine compression braking when off-throttle, scaled by current gear ratio
-    // (lower gear → stronger). Adds to total resistive deceleration.
+    // Engine compression braking: physics-based formula
+    //   F_brake = drag_torque(rpm) * total_ratio * eta / r
+    // gives a real ~5x range between 1st and top gear, instead of the legacy
+    // empirical scaler. Applied when off-throttle and converter is mostly
+    // locked (otherwise drag wouldn't propagate back through the TC).
     double engine_brake_acc = 0.0;
     if (throttle < 0.05 && at_out.range != AutoTransmission::Range::NEUTRAL && slip_factor > 0.5)
     {
-        double eb = params_.engine_brake;
-        if (at_out.range == AutoTransmission::Range::DRIVE && at_out.forward_gear >= 1)
-        {
-            int gi = std::clamp(at_out.forward_gear, 1, static_cast<int>(params_.gear_ratios.size()));
-            eb *= (params_.gear_ratios[gi - 1] / std::max(0.1, params_.gear_ratios[0])) + 0.5;
-        }
-        engine_brake_acc = eb;
+        double drag_nm = params_.engine_drag_base_nm
+                       + params_.engine_drag_per_krpm * (rpm_ / 1000.0);
+        engine_brake_acc = drag_nm * std::abs(total_ratio) * eta / r / mass;
     }
 
     double acc = engine_acc;
