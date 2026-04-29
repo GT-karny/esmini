@@ -156,6 +156,17 @@ void HVDEstimator::LoadParams(const std::string& configPath)
                          std::istreambuf_iterator<char>());
     file.close();
 
+    // Idle jitter parameters live under "engine" (shared with ManualDrive
+     // EngineModel for consistent behavior between estimator and physics path).
+    std::string eng = FindSection(content, "engine");
+    if (!eng.empty())
+    {
+        jitter_params_.sigma_rpm = ParseDouble(eng, "idle_jitter_sigma_rpm", jitter_params_.sigma_rpm);
+        jitter_params_.tau_s     = ParseDouble(eng, "idle_jitter_tau_s",     jitter_params_.tau_s);
+        jitter_params_.seed      = static_cast<uint32_t>(
+            ParseDouble(eng, "idle_jitter_seed", static_cast<double>(jitter_params_.seed)));
+    }
+
     std::string ped = FindSection(content, "pedal_estimation");
     if (!ped.empty())
     {
@@ -361,17 +372,31 @@ double HVDEstimator::EstimateRPM(double abs_speed, int gear, double dt, VehicleC
     // 1st-order lag (engine inertia): rpm += alpha * (target - rpm)
     double alpha = (dt > 0.0) ? (dt / (tau + dt)) : 1.0;
 
-    double rpm;
+    // Smooth base RPM tracks the lag-filtered target. Jitter is added on top
+    // of the returned value but NOT stored in prev_rpm — otherwise the OU
+    // offset would feed back through the lag filter on the next step and
+    // accumulate well beyond its nominal std-dev.
+    double base_rpm;
     if (vc.initialized)
     {
-        rpm = vc.prev_rpm + alpha * (target_rpm - vc.prev_rpm);
+        base_rpm = vc.prev_rpm + alpha * (target_rpm - vc.prev_rpm);
     }
     else
     {
-        rpm = target_rpm;  // seed
+        base_rpm = target_rpm;  // seed
     }
-    vc.prev_rpm = rpm;
-    return rpm;
+    vc.prev_rpm = base_rpm;
+
+    // Idle jitter: OU offset weighted by (1 - slip) so it only appears at
+    // idle and fades as the converter locks up. Suppressed during shift
+    // events to keep the dip/blip transient clean.
+    double idle_weight = 1.0 - slip;
+    if (vc.shift_event_timer > 0.0 && sp.shift_event_duration_s > 0.0)
+    {
+        double phase = std::clamp(vc.shift_event_timer / sp.shift_event_duration_s, 0.0, 1.0);
+        idle_weight *= (1.0 - phase);
+    }
+    return base_rpm + idle_weight * vc.idle_jitter.Step(dt);
 }
 
 HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj, double dt)
@@ -401,6 +426,15 @@ HVDEstimator::EstimatedInputs HVDEstimator::Estimate(scenarioengine::Object* obj
         vc.current_gear   = SeedInitialGear(speed_kmh);
         vc.gear_hold_timer = Active().min_gear_hold_s;
         vc.prev_gear      = vc.current_gear;
+        // Per-object jitter generator: derive seed from object id when a fixed
+        // seed is requested, so two objects produce decorrelated streams while
+        // staying reproducible.
+        IdleJitter::Params jp = jitter_params_;
+        if (jp.seed != 0)
+        {
+            jp.seed = jp.seed + static_cast<uint32_t>(id);
+        }
+        vc.idle_jitter.Configure(jp);
     }
 
     // --- Pedal estimation (force-based inverse longitudinal dynamics) ---

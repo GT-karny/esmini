@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "gt_esmini/core/IdleJitter.hpp"
+
 namespace gt_esmini
 {
 
@@ -39,11 +41,28 @@ public:
         // Idle creep: residual converter-pumping torque at idle in gear,
         // which drives the car forward when brake is released at throttle=0.
         double idle_creep_torque_nm = 3.0;
+        // Idle RPM jitter (OU process) — fades out as converter locks up.
+        IdleJitter::Params idle_jitter;
+    };
+
+    /**
+     * @brief Vehicle-state context provided by the caller (RealVehicle).
+     *
+     * EngineModel intentionally does not know about wheels or speed; the
+     * coordinator passes pre-computed signals so the engine block can decide
+     * when "idle" semantics apply (jitter, future load disturbances, etc.)
+     * without re-deriving them.
+     */
+    struct VehicleContext
+    {
+        double abs_speed_mps = 0.0;
+        double slip_factor   = 0.0;  // 0 = full converter slip (idle), 1 = locked
     };
 
     struct State
     {
-        double rpm           = 0.0;
+        double rpm           = 0.0;  // displayed RPM = base + jitter
+        double base_rpm      = 0.0;  // smooth lag-filtered RPM (no jitter)
         double torque_nm     = 0.0;
         bool   rev_limited   = false;
         bool   initialized   = false;
@@ -54,7 +73,11 @@ public:
 
     EngineModel() = default;
 
-    void SetParams(const Params& p) { params_ = p; }
+    void SetParams(const Params& p)
+    {
+        params_ = p;
+        jitter_.Configure(p.idle_jitter);
+    }
     const Params& GetParams() const { return params_; }
 
     /// Compute the maximum (wide-open-throttle) torque at a given RPM.
@@ -70,7 +93,8 @@ public:
      *                    false = engine free-revs against load
      * @param dt          timestep [s]
      */
-    void Step(double throttle, double target_rpm, bool clutch_locked, double dt);
+    void Step(double throttle, double target_rpm, bool clutch_locked,
+              const VehicleContext& vctx, double dt);
 
     /// Trigger a transient rev-match blip (e.g. on AT downshift). For the next
     /// `duration_s` seconds, the engine target RPM is lifted by `lift_rpm` and
@@ -86,8 +110,9 @@ public:
     void Reset();
 
 private:
-    Params params_;
-    State  state_;
+    Params     params_;
+    State      state_;
+    IdleJitter jitter_;
 };
 
 } // namespace gt_esmini

@@ -257,6 +257,10 @@ void RealVehicle::LoadParameters(const std::string& filename)
         ep.engine_inertia_tau_s = ParseDoubleIn(eng_blk, "engine_inertia_tau_s", ep.engine_inertia_tau_s);
         ep.idle_governor_gain   = ParseDoubleIn(eng_blk, "idle_governor_gain",  ep.idle_governor_gain);
         ep.idle_creep_torque_nm = ParseDoubleIn(eng_blk, "idle_creep_torque_nm", ep.idle_creep_torque_nm);
+        ep.idle_jitter.sigma_rpm = ParseDoubleIn(eng_blk, "idle_jitter_sigma_rpm", ep.idle_jitter.sigma_rpm);
+        ep.idle_jitter.tau_s     = ParseDoubleIn(eng_blk, "idle_jitter_tau_s",     ep.idle_jitter.tau_s);
+        ep.idle_jitter.seed      = static_cast<uint32_t>(
+            ParseDoubleIn(eng_blk, "idle_jitter_seed", static_cast<double>(ep.idle_jitter.seed)));
     }
     // Keep idle/max in sync with the engine block when provided.
     idle_rpm_ = ep.idle_rpm;
@@ -585,7 +589,8 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
     }
 
     // 4. Engine: throttle + target RPM -> torque & rpm
-    engine_.Step(throttle, target_rpm, clutch_locked, dt);
+    EngineModel::VehicleContext engine_vctx{abs_speed, slip_factor};
+    engine_.Step(throttle, target_rpm, clutch_locked, engine_vctx, dt);
     rpm_ = engine_.GetRPM();
     engine_torque_nm_ = engine_.GetTorqueNm();
 

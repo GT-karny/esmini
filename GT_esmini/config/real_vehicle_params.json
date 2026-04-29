@@ -44,7 +44,11 @@
         "engine_inertia_tau_s": 0.15,
         "idle_governor_gain": 0.5,
         "_creep_comment": "Residual TC pump torque at idle in gear -> creep without throttle. ~3 Nm gives ~5-7 km/h equilibrium creep on flat road.",
-        "idle_creep_torque_nm": 3.0
+        "idle_creep_torque_nm": 3.0,
+        "_idle_jitter_comment": "OU-process RPM noise at idle (fades out as TC locks up). sigma is the steady-state std-dev; ±2σ ≈ visible peak-to-peak. tau≈ISC bandwidth (~1 Hz). seed=0 -> nondeterministic.",
+        "idle_jitter_sigma_rpm": 20.0,
+        "idle_jitter_tau_s": 1.2,
+        "idle_jitter_seed": 0
     },
 
     "transmission": {

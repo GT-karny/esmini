@@ -70,13 +70,15 @@ endif()
 set(GT_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/GT_esminiLib.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/GT_esminiRMLib.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/ConfigLoader.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/ConfigLoader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/IdleJitter.cpp)
 
 set(GT_CORE_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/GT_esminiLib.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/GT_esminiRMLib.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/ConfigLoader.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IConfigLoader.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IConfigLoader.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IdleJitter.hpp)
 
 set(GT_IO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_UDP.cpp

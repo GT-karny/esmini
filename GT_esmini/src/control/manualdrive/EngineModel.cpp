@@ -55,22 +55,25 @@ double EngineModel::MaxTorqueAt(double rpm) const
     return p.torque_peak_nm * std::clamp(p.torque_redline_factor, 0.1, 1.0);
 }
 
-void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, double dt)
+void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked,
+                       const VehicleContext& vctx, double dt)
 {
     const auto& p = params_;
 
     if (!state_.initialized)
     {
-        state_.rpm = std::max(p.idle_rpm, target_rpm);
+        state_.base_rpm    = std::max(p.idle_rpm, target_rpm);
+        state_.rpm         = state_.base_rpm;
         state_.initialized = true;
     }
 
     // Idle governor: if engine is below idle and driver is off-throttle,
-    // inject a minimum throttle floor to keep it from stalling.
+    // inject a minimum throttle floor to keep it from stalling. Uses base_rpm
+    // (jitter-free) so the governor doesn't react to noise.
     double t = std::clamp(throttle, 0.0, 1.0);
-    if (state_.rpm < p.idle_rpm * 1.05)
+    if (state_.base_rpm < p.idle_rpm * 1.05)
     {
-        double idle_error = (p.idle_rpm - state_.rpm) / std::max(1.0, p.idle_rpm);
+        double idle_error = (p.idle_rpm - state_.base_rpm) / std::max(1.0, p.idle_rpm);
         double floor = std::clamp(p.idle_governor_gain * idle_error, 0.0, 0.25);
         t = std::max(t, floor);
     }
@@ -82,18 +85,15 @@ void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, d
         t = std::max(t, std::clamp(p.blip_throttle_floor, 0.0, 1.0));
     }
 
-    // Rev limiter (soft): cut fuel above rev_limit_rpm
-    state_.rev_limited = (state_.rpm > p.rev_limit_rpm);
+    // Rev limiter / torque output / creep all use base_rpm so jitter does not
+    // perturb downstream physics (only the displayed RPM should fluctuate).
+    state_.rev_limited = (state_.base_rpm > p.rev_limit_rpm);
     double t_eff = state_.rev_limited ? 0.0 : t;
 
-    // Torque output = throttle * max torque at current RPM
-    double t_max = MaxTorqueAt(state_.rpm);
+    double t_max = MaxTorqueAt(state_.base_rpm);
     state_.torque_nm = t_eff * t_max;
 
-    // Idle creep floor: TC pump churns ATF even at closed throttle, so a tiny
-    // residual torque appears at the turbine. Without this, throttle=0 in
-    // DRIVE produces zero force and the car never creeps from a stop.
-    if (clutch_locked && t < 0.05 && state_.rpm < p.idle_rpm * 1.5)
+    if (clutch_locked && t < 0.05 && state_.base_rpm < p.idle_rpm * 1.5)
     {
         state_.torque_nm = std::max(state_.torque_nm, p.idle_creep_torque_nm);
     }
@@ -126,7 +126,22 @@ void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, d
     double tau_base = std::max(1e-3, p.engine_inertia_tau_s);
     double tau      = blipping ? std::max(1e-3, p.blip_inertia_tau_s) : tau_base;
     double alpha = (dt > 0.0) ? (dt / (tau + dt)) : 1.0;
-    state_.rpm += alpha * (goal - state_.rpm);
+
+    // Smooth base RPM evolves through the lag filter only. Jitter is added on
+    // top of the displayed value but NOT folded back into base_rpm — otherwise
+    // the OU offset would feed back through the lag filter and accumulate well
+    // beyond its nominal std-dev.
+    state_.base_rpm += alpha * (goal - state_.base_rpm);
+    state_.base_rpm = std::clamp(state_.base_rpm, p.idle_rpm * 0.7, p.max_rpm * 1.05);
+
+    double jitter_offset = 0.0;
+    if (!blipping)
+    {
+        double slip = std::clamp(vctx.slip_factor, 0.0, 1.0);
+        double idle_weight = 1.0 - slip;
+        jitter_offset = idle_weight * jitter_.Step(dt);
+    }
+    state_.rpm = state_.base_rpm + jitter_offset;
 
     if (blipping)
     {
@@ -136,9 +151,6 @@ void EngineModel::Step(double throttle, double target_rpm, bool clutch_locked, d
             state_.blip_lift_rpm = 0.0;
         }
     }
-
-    // Clamp to physical bounds
-    state_.rpm = std::clamp(state_.rpm, p.idle_rpm * 0.7, p.max_rpm * 1.05);
 }
 
 void EngineModel::TriggerBlip(double duration_s, double lift_rpm)

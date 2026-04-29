@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "gt_esmini/core/IdleJitter.hpp"
+
 #include <map>
 #include <string>
 #include <vector>
@@ -80,6 +82,7 @@ private:
         int    reported_direction = 1;   // -1=R, 0=N, +1=D (sticky across standstill)
         double neutral_hold_timer = 0.0; // remaining N-hold during D<->R transition
         bool   initialized    = false;
+        IdleJitter idle_jitter;          // OU-process jitter generator (per object)
     };
 
     struct PedalParams
@@ -121,6 +124,7 @@ private:
     std::map<int, VehicleCache> cache_;
     PedalParams pedal_params_;
     std::map<std::string, ShiftParams> mode_shift_params_;
+    IdleJitter::Params jitter_params_;  // applied to each VehicleCache on init
     std::string active_mode_ = "comfort";
     bool        params_loaded_ = false;
 
