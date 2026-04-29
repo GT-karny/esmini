@@ -198,6 +198,7 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
             "port": md.input_network.port,
             "level": md.input_network.level,
         },
+        "keyboard": md.keyboard.model_dump(),
         "physics": {
             "vehicle_params_file": "real_vehicle_params.json",
             "host": md.physics_network.host,

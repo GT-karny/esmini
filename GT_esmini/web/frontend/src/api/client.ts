@@ -65,6 +65,26 @@ export interface ManualDriveConfig {
       hazard: number;
     };
   };
+  keyboard: {
+    steer_left: string;
+    steer_right: string;
+    throttle: string;
+    brake: string;
+    clutch: string;
+    upshift: string;
+    downshift: string;
+    override_key: string;
+    indicator_left: string;
+    indicator_right: string;
+    headlight: string;
+    high_beam: string;
+    fog_light: string;
+    hazard: string;
+    steer_rate: number;
+    centering_rate: number;
+    pedal_press_rate: number;
+    pedal_release_rate: number;
+  };
   input_network: { transport_type: string; port: number; level: string };
   physics_network: { transport_type: string; host: string; cmd_port: number; state_port: number };
   ffb: { spring_coefficient: number; damper_coefficient: number; constant_gain: number; max_force: number };

@@ -115,6 +115,26 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_int("fog_light_button", sdl2.fog_light_button);
         parse_int("hazard_button", sdl2.hazard_button);
 
+        // SDL2 keyboard input (key names are SDL scancode names)
+        parse_string("steer_left",      keyboard.steer_left);
+        parse_string("steer_right",     keyboard.steer_right);
+        parse_string("throttle",        keyboard.throttle);
+        parse_string("brake",           keyboard.brake);
+        parse_string("clutch",          keyboard.clutch);
+        parse_string("upshift",         keyboard.upshift);
+        parse_string("downshift",       keyboard.downshift);
+        parse_string("override_key",    keyboard.override_key);
+        parse_string("indicator_left",  keyboard.indicator_left);
+        parse_string("indicator_right", keyboard.indicator_right);
+        parse_string("headlight",       keyboard.headlight);
+        parse_string("high_beam",       keyboard.high_beam);
+        parse_string("fog_light",       keyboard.fog_light);
+        parse_string("hazard",          keyboard.hazard);
+        parse_double("steer_rate",         keyboard.steer_rate);
+        parse_double("centering_rate",     keyboard.centering_rate);
+        parse_double("pedal_press_rate",   keyboard.pedal_press_rate);
+        parse_double("pedal_release_rate", keyboard.pedal_release_rate);
+
         // Indicator auto-cancel
         parse_double("indicator_cancel_angle", indicator_cancel_angle);
 

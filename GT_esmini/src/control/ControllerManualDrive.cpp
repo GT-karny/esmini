@@ -9,6 +9,7 @@
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
+#include "gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp"
 #endif
 #include "gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
@@ -59,6 +60,10 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     if (config_.input_type == "sdl2_wheel")
     {
         input_source_ = new SDL2WheelInput();
+    }
+    else if (config_.input_type == "sdl2_keyboard")
+    {
+        input_source_ = new SDL2KeyboardInput();
     }
     else
 #endif

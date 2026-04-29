@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SlidePanel } from '../ui/SlidePanel';
 import { SelectInput, NumberInput } from '../ui/Input';
@@ -23,6 +23,13 @@ const DEFAULT_CONFIG: ManualDriveConfig = {
     deadzone: 0.05,
     button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1 },
   },
+  keyboard: {
+    steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
+    upshift: 'E', downshift: 'Q', override_key: 'O',
+    indicator_left: 'Z', indicator_right: 'X',
+    headlight: 'L', high_beam: 'K', fog_light: 'F', hazard: 'H',
+    steer_rate: 2.0, centering_rate: 3.0, pedal_press_rate: 4.0, pedal_release_rate: 6.0,
+  },
   input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
   physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
   ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },
@@ -40,9 +47,62 @@ const BUTTON_LABELS: Record<string, string> = {
   hazard: 'Hazard',
 };
 
+const KEYBOARD_BINDINGS: { key: string; label: string }[] = [
+  { key: 'steer_left',      label: 'Steer Left' },
+  { key: 'steer_right',     label: 'Steer Right' },
+  { key: 'throttle',        label: 'Throttle' },
+  { key: 'brake',           label: 'Brake' },
+  { key: 'clutch',          label: 'Clutch' },
+  { key: 'upshift',         label: 'Upshift' },
+  { key: 'downshift',       label: 'Downshift' },
+  { key: 'override_key',    label: 'Override' },
+  { key: 'indicator_left',  label: 'Ind. Left' },
+  { key: 'indicator_right', label: 'Ind. Right' },
+  { key: 'headlight',       label: 'Headlight' },
+  { key: 'high_beam',       label: 'High Beam' },
+  { key: 'fog_light',       label: 'Fog Light' },
+  { key: 'hazard',          label: 'Hazard' },
+];
+
+// Convert KeyboardEvent.code → SDL scancode-name shorthand the C++ side accepts.
+// Returns null for unsupported keys.
+function keyEventToSdlName(e: KeyboardEvent): string | null {
+  const code = e.code;
+  // Letter keys: "KeyA" → "A"
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  // Digit row: "Digit1" → "1"
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  // Numpad digits
+  if (/^Numpad[0-9]$/.test(code)) return 'Keypad ' + code.slice(6);
+  // Arrows
+  if (code === 'ArrowLeft')  return 'Left';
+  if (code === 'ArrowRight') return 'Right';
+  if (code === 'ArrowUp')    return 'Up';
+  if (code === 'ArrowDown')  return 'Down';
+  // Modifiers
+  if (code === 'ShiftLeft')    return 'LShift';
+  if (code === 'ShiftRight')   return 'RShift';
+  if (code === 'ControlLeft')  return 'LCtrl';
+  if (code === 'ControlRight') return 'RCtrl';
+  if (code === 'AltLeft')      return 'LAlt';
+  if (code === 'AltRight')     return 'RAlt';
+  // Common
+  if (code === 'Space')      return 'Space';
+  if (code === 'Enter')      return 'Return';
+  if (code === 'Tab')        return 'Tab';
+  if (code === 'Escape')     return 'Escape';
+  if (code === 'Backspace')  return 'Backspace';
+  if (code === 'Comma')      return ',';
+  if (code === 'Period')     return '.';
+  if (code === 'Slash')      return '/';
+  if (code === 'Semicolon')  return ';';
+  return null;
+}
+
 export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDrivePanelProps) {
   const queryClient = useQueryClient();
   const [assigningKey, setAssigningKey] = useState<string | null>(null);
+  const [assigningKbKey, setAssigningKbKey] = useState<string | null>(null);
 
   // Load presets
   const { data: presets } = useQuery({
@@ -90,6 +150,22 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
   const applyPreset = (preset: ManualDrivePreset) => {
     onChange({ ...DEFAULT_CONFIG, ...preset.config });
   };
+
+  // Keyboard capture: when assigningKbKey is set, the next keypress is recorded.
+  useEffect(() => {
+    if (!assigningKbKey) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') { setAssigningKbKey(null); return; }
+      const sdlName = keyEventToSdlName(e);
+      if (!sdlName) return;
+      onChange({ ...config, keyboard: { ...config.keyboard, [assigningKbKey]: sdlName } });
+      setAssigningKbKey(null);
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [assigningKbKey, config, onChange]);
 
   return (
     <SlidePanel open={open} onClose={onClose} title="Manual Drive Settings">
@@ -142,6 +218,7 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
             onChange={(e) => set('input_type', e.target.value)}
           >
             <option value="sdl2_wheel">SDL2 Wheel</option>
+            <option value="sdl2_keyboard">Keyboard</option>
             <option value="network">Network</option>
             <option value="stub">None (Stub)</option>
           </SelectInput>
@@ -238,6 +315,69 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
                   </div>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {/* Keyboard Mapping (Keyboard input only) */}
+        {config.input_type === 'sdl2_keyboard' && (
+          <section>
+            <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">Keyboard Mapping</h3>
+            <p className="text-[10px] text-text-tertiary mb-2">
+              Click <span className="text-foreground">Assign</span> then press a key. Esc cancels.
+              Throttle &amp; brake can be held simultaneously.
+            </p>
+            <div className="space-y-1.5">
+              {KEYBOARD_BINDINGS.map(({ key, label }) => {
+                const bound = (config.keyboard as Record<string, string | number>)[key] as string;
+                const isAssigning = assigningKbKey === key;
+                return (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="text-xs text-text-secondary w-20 shrink-0">{label}</span>
+                    <span className="text-xs font-mono bg-glass-1 border border-glass-edge rounded px-2 py-0.5 min-w-[3rem] text-center">
+                      {bound || '—'}
+                    </span>
+                    <button
+                      onClick={() => setAssigningKbKey(isAssigning ? null : key)}
+                      className={`text-[10px] px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                        isAssigning
+                          ? 'bg-primary/80 text-background animate-pulse'
+                          : 'bg-glass-1 border border-glass-edge text-text-tertiary hover:text-foreground hover:bg-glass-hover'
+                      }`}
+                    >
+                      {isAssigning ? 'Press key...' : 'Assign'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mt-4 mb-1.5">Response</h4>
+            <div className="space-y-2">
+              <NumberInput
+                label="Steer Rate (/s)"
+                value={config.keyboard.steer_rate}
+                step={0.1}
+                onChange={(e) => setNested('keyboard', 'steer_rate', Number(e.target.value))}
+              />
+              <NumberInput
+                label="Centering Rate (/s)"
+                value={config.keyboard.centering_rate}
+                step={0.1}
+                onChange={(e) => setNested('keyboard', 'centering_rate', Number(e.target.value))}
+              />
+              <NumberInput
+                label="Pedal Press Rate (/s)"
+                value={config.keyboard.pedal_press_rate}
+                step={0.1}
+                onChange={(e) => setNested('keyboard', 'pedal_press_rate', Number(e.target.value))}
+              />
+              <NumberInput
+                label="Pedal Release Rate (/s)"
+                value={config.keyboard.pedal_release_rate}
+                step={0.1}
+                onChange={(e) => setNested('keyboard', 'pedal_release_rate', Number(e.target.value))}
+              />
             </div>
           </section>
         )}

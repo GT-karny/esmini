@@ -178,9 +178,11 @@ list(APPEND GT_CONTROL_HEADERS
 if(GT_ENABLE_SDL2)
     list(APPEND GT_CONTROL_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDL2WheelInput.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDL2KeyboardInput.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDLFFBSink.cpp)
     list(APPEND GT_CONTROL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDL2WheelInput.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDLFFBSink.hpp)
 endif()
 
