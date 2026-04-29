@@ -3,7 +3,7 @@
 
 Usage:
     cd <repo_root>
-    DriverScript\\.venv\\Scripts\\python.exe -m PyInstaller GT_esmini/web/pyinstaller/gt_sim_web.spec
+    GT_esmini\\web\\.venv\\Scripts\\python.exe -m PyInstaller GT_esmini/web/pyinstaller/gt_sim_web.spec
 
 The spec builds in --onedir mode, producing:
     GT_esmini/web/pyinstaller/dist/gt_sim_web/
@@ -77,6 +77,15 @@ a = Analysis(
         "sqlite3",
         # --- YAML ---
         "yaml",
+        # --- Filesystem watcher (preset YAML live sync) ---
+        "watchdog",
+        "watchdog.observers",
+        "watchdog.observers.api",
+        "watchdog.observers.read_directory_changes",
+        "watchdog.observers.polling",
+        "watchdog.events",
+        "watchdog.utils",
+        "watchdog.utils.dirsnapshot",
         # --- Multipart (FastAPI form handling) ---
         "multipart",
         # --- Async I/O ---
@@ -109,6 +118,8 @@ a = Analysis(
         "GT_esmini.web.backend.services.osi_bridge",
         "GT_esmini.web.backend.services.grpc_server",
         "GT_esmini.web.backend.api.osi_stream",
+        "GT_esmini.web.backend.api.preset_stream",
+        "GT_esmini.web.backend.services.preset_watcher",
         "GT_esmini.web.backend.grpc_gen",
         "GT_esmini.web.backend.grpc_gen.service_groundtruth_pb2",
         "GT_esmini.web.backend.grpc_gen.service_groundtruth_pb2_grpc",

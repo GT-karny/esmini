@@ -339,28 +339,55 @@ async def get_scenario_params(project_id: str, scenario_file: str):
 # Parameter presets
 # ---------------------------------------------------------------------------
 
+def _corrupt_to_http(e: project_service.PresetFileCorruptedError) -> HTTPException:
+    payload = {
+        "code": "preset_file_corrupted",
+        "path": str(e.path),
+        "message": str(e.original),
+    }
+    mark = getattr(e.original, "problem_mark", None)
+    if mark is not None:
+        payload["line"] = mark.line + 1
+        payload["column"] = mark.column + 1
+    return HTTPException(status_code=409, detail=payload)
+
+
 @router.get("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=list[ParameterPreset])
 async def list_presets(project_id: str, scenario_file: str):
     """List parameter presets for a scenario."""
-    return await project_service.list_presets(project_id, scenario_file)
+    try:
+        return await project_service.list_presets(project_id, scenario_file)
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
 
 
 @router.post("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=ParameterPreset, status_code=201)
 async def create_preset(project_id: str, scenario_file: str, req: PresetCreateRequest):
     """Create a parameter preset for a scenario."""
-    return await project_service.create_preset(
-        project_id, scenario_file, req.name, req.values,
-        description=req.description,
-    )
+    try:
+        return await project_service.create_preset(
+            project_id, scenario_file, req.name, req.values,
+            description=req.description,
+        )
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
 
 
 @router.put("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}", response_model=dict)
 async def update_preset(project_id: str, scenario_file: str, preset_id: str, req: PresetUpdateRequest):
     """Update a parameter preset."""
-    success = await project_service.update_preset(
-        project_id, scenario_file, preset_id, req.name, req.values,
-        description=req.description,
-    )
+    try:
+        success = await project_service.update_preset(
+            project_id, scenario_file, preset_id, req.name, req.values,
+            description=req.description,
+        )
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
+    except project_service.PresetNameConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "preset_name_conflict", "name": e.name},
+        )
     if not success:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "updated"}
@@ -369,7 +396,10 @@ async def update_preset(project_id: str, scenario_file: str, preset_id: str, req
 @router.delete("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}")
 async def delete_preset(project_id: str, scenario_file: str, preset_id: str):
     """Delete a parameter preset."""
-    success = await project_service.delete_preset(project_id, scenario_file, preset_id)
+    try:
+        success = await project_service.delete_preset(project_id, scenario_file, preset_id)
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
     if not success:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "deleted"}

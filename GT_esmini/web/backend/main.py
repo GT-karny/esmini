@@ -19,6 +19,7 @@ from GT_esmini.web.backend.api import (
     controller_config,
     manual_drive_api,
     osi_stream,
+    preset_stream,
     sv_stream,
     projects,
     results,
@@ -107,6 +108,13 @@ async def lifespan(app: FastAPI):
     if grpc_srv is not None:
         await grpc_srv.stop(grace=2)
 
+    # Stop filesystem watchers (preset YAML observers)
+    from GT_esmini.web.backend.services.preset_watcher import get_preset_watcher_manager
+    try:
+        await asyncio.to_thread(get_preset_watcher_manager().shutdown)
+    except Exception:
+        _logger.warning("Preset watcher shutdown failed", exc_info=True)
+
     # Phase 4: Mark any remaining running jobs as failed in DB
     await _mark_stale_jobs()
 
@@ -168,6 +176,7 @@ app.include_router(roads.router)
 # WebSocket must be registered before the SPA catch-all route
 app.include_router(osi_stream.router)
 app.include_router(sv_stream.router)
+app.include_router(preset_stream.router)
 
 
 @app.get("/api/health")

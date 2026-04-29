@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import tempfile
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -564,6 +566,23 @@ import re
 import yaml
 
 
+class PresetFileCorruptedError(Exception):
+    """Raised when a preset YAML file fails to parse."""
+
+    def __init__(self, path: Path, original: Exception) -> None:
+        super().__init__(f"Failed to parse preset file: {path}: {original}")
+        self.path = path
+        self.original = original
+
+
+class PresetNameConflictError(Exception):
+    """Raised when renaming a preset would overwrite an existing preset."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Preset name already exists: {name}")
+        self.name = name
+
+
 def _scenario_to_preset_stem(scenario_file: str) -> str:
     """Derive a safe filename stem from a scenario path like ``xosc/foo.xosc``."""
     return Path(scenario_file).stem
@@ -582,24 +601,82 @@ def _preset_filepath(presets_dir: Path, scenario_file: str) -> Path:
 
 
 def _read_presets_file(filepath: Path) -> dict:
-    """Read the entire YAML file and return the raw dict (or empty)."""
+    """Read the entire YAML file and return the raw dict.
+
+    Raises PresetFileCorruptedError when the YAML cannot be parsed so the
+    caller can surface the failure instead of silently overwriting it.
+    A missing file returns an empty dict (normal "no presets yet" case).
+    """
     if not filepath.is_file():
         return {}
     try:
-        data = yaml.safe_load(filepath.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        _logger.warning("Failed to read preset file: %s", filepath, exc_info=True)
+        text = filepath.read_text(encoding="utf-8")
+    except OSError as e:
+        raise PresetFileCorruptedError(filepath, e) from e
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise PresetFileCorruptedError(filepath, e) from e
+    if data is None:
         return {}
+    if not isinstance(data, dict):
+        raise PresetFileCorruptedError(
+            filepath, TypeError(f"Top-level YAML must be a mapping, got {type(data).__name__}"),
+        )
+    return data
+
+
+def _dump_yaml(data: dict) -> str:
+    """Serialize dict to YAML with stable, edit-friendly options.
+
+    width=inf disables auto line-wrapping (so long JSON-like values keep
+    a single line and remain amenable to mechanical search/replace).
+    sort_keys=False preserves insertion order (preset tab order stability).
+    """
+    return yaml.dump(
+        data,
+        allow_unicode=True,
+        default_flow_style=False,
+        width=float("inf"),
+        sort_keys=False,
+    )
 
 
 def _write_presets_file(filepath: Path, data: dict) -> None:
-    """Write the entire presets dict to YAML."""
+    """Write the entire presets dict to YAML atomically."""
     filepath.parent.mkdir(parents=True, exist_ok=True)
-    filepath.write_text(
-        yaml.dump(data, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
+    payload = _dump_yaml(data)
+    payload_bytes = payload.encode("utf-8")
+    # Mark the upcoming write as self-originated BEFORE issuing it. Pass the
+    # exact bytes so the watcher can baseline the new content's hash and
+    # suppress not just the immediate echo but also any delayed event whose
+    # contents match what we just wrote.
+    try:
+        from GT_esmini.web.backend.services.preset_watcher import (
+            get_preset_watcher_manager,
+        )
+        get_preset_watcher_manager().mark_self_write(filepath, payload_bytes)
+    except Exception:
+        # Watcher is best-effort; never fail a save because of it.
+        _logger.debug("mark_self_write failed", exc_info=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{filepath.name}.",
+        suffix=".tmp",
+        dir=str(filepath.parent),
     )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(tmp_fd, "wb") as f:
+            f.write(payload_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, filepath)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 def _parse_preset(name: str, entry: dict) -> ParameterPreset:
@@ -685,8 +762,11 @@ async def update_preset(
         else:
             entry.pop("description", None)
 
-    # Rename: move to new key
+    # Rename: move to new key (guard against silent overwrite of an
+    # existing distinct preset)
     if name is not None and name != preset_id:
+        if name in data:
+            raise PresetNameConflictError(name)
         del data[preset_id]
         data[name] = entry
     else:

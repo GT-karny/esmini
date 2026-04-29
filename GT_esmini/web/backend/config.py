@@ -201,4 +201,13 @@ def save_thresholds(data: dict[str, Any]) -> None:
     else:
         path = REPO_ROOT / "GT_esmini" / "test" / "comparison_thresholds.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    path.write_text(
+        yaml.dump(
+            data,
+            allow_unicode=True,
+            default_flow_style=False,
+            width=float("inf"),
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
