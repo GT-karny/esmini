@@ -123,6 +123,10 @@ set(GT_SCENARIO_WASM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/GT_ScenarioReader.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/scenario/TrafficSignalController.cpp")
 
+# GT_esmini route embind binding (LaneIndependentRouter -> GTRouteJS)
+set(GT_ROUTE_WASM_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/web/wasm/gt_embind_route.cpp")
+
 include_directories(
     ${SCENARIOENGINE_INCLUDE_DIRS}
     ${CONTROLLERS_INCLUDE_DIR}
@@ -166,7 +170,8 @@ const char* ESMINI_BUILD_VERSION = \"wasm-1.0\";\n")
         ${COMMONMINI_SOURCES}
         ${PUGIXML_SOURCES}
         ${FMT_SOURCES}
-        ${GT_SCENARIO_WASM_SOURCES})
+        ${GT_SCENARIO_WASM_SOURCES}
+        ${GT_ROUTE_WASM_SOURCES})
 
     set_target_properties(
         ${TARGET}

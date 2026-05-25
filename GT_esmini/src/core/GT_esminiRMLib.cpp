@@ -6,7 +6,10 @@
 
 #include "gt_esmini/core/GT_esminiRMLib.hpp"
 #include "RoadManager.hpp"
+#include "LaneIndependentRouter.hpp"
+#include "gt_esmini/road/route_lanechange_util.hpp"
 #include <cstring>
+#include <vector>
 
 using namespace roadmanager;
 
@@ -15,6 +18,11 @@ static OpenDrive* GetODR()
 {
     return Position::GetOpenDrive();
 }
+
+// --- Route calculation result cache (filled by GT_RM_CalcRoute) ---
+static std::vector<GT_RM_RouteWaypoint>     g_routeWaypoints;
+static std::vector<gt_esmini::route::LaneChange> g_routeLaneChanges;
+static double                               g_routeLength = -1.0;
 
 GT_RM_DLL_API int GT_RM_Init(const char* odrFilename)
 {
@@ -310,5 +318,108 @@ GT_RM_DLL_API int GT_RM_GetRoadSignal(uint32_t roadId, int index, GT_RM_RoadSign
     signalInfo->height = signal->GetHeight();
     signalInfo->width = signal->GetWidth();
 
+    return 0;
+}
+
+// --------------------------------------------------------------------------
+// Lane-change-aware route calculation
+// --------------------------------------------------------------------------
+
+static Position::RouteStrategy MapRouteStrategy(int strategy)
+{
+    switch (strategy)
+    {
+        case GT_RM_ROUTE_FASTEST:
+            return Position::RouteStrategy::FASTEST;
+        case GT_RM_ROUTE_MIN_INTERSECTIONS:
+            return Position::RouteStrategy::MIN_INTERSECTIONS;
+        case GT_RM_ROUTE_SHORTEST:
+        default:
+            return Position::RouteStrategy::SHORTEST;
+    }
+}
+
+GT_RM_DLL_API int GT_RM_CalcRoute(uint32_t startRoadId, int startLaneId, double startS,
+                                  uint32_t targetRoadId, int targetLaneId, double targetS,
+                                  int routeStrategy)
+{
+    g_routeWaypoints.clear();
+    g_routeLaneChanges.clear();
+    g_routeLength = -1.0;
+
+    OpenDrive* odr = GetODR();
+    if (!odr) return -1;
+
+    Position startPos;
+    startPos.SetLanePos(static_cast<id_t>(startRoadId), startLaneId, startS, 0.0);
+
+    Position targetPos;
+    targetPos.SetLanePos(static_cast<id_t>(targetRoadId), targetLaneId, targetS, 0.0);
+    targetPos.SetRouteStrategy(MapRouteStrategy(routeStrategy));
+
+    LaneIndependentRouter      router(odr);
+    std::vector<Node>          path = router.CalculatePath(startPos, targetPos);
+    if (path.empty())
+    {
+        return -2;  // no route found
+    }
+
+    std::vector<Position> waypoints = router.GetWaypoints(path, startPos, targetPos);
+
+    g_routeWaypoints.reserve(waypoints.size());
+    for (const Position& wp : waypoints)
+    {
+        GT_RM_RouteWaypoint out;
+        out.roadId     = static_cast<uint32_t>(wp.GetTrackId());
+        out.junctionId = static_cast<uint32_t>(wp.GetJunctionId());
+        out.laneId     = wp.GetLaneId();
+        out.s          = wp.GetS();
+        out.x          = wp.GetX();
+        out.y          = wp.GetY();
+        out.z          = wp.GetZ();
+        out.h          = wp.GetH();
+        g_routeWaypoints.push_back(out);
+    }
+
+    g_routeLaneChanges = gt_esmini::route::DeriveLaneChanges(path);
+    g_routeLength      = path.back().weight;
+
+    return static_cast<int>(g_routeWaypoints.size());
+}
+
+GT_RM_DLL_API int GT_RM_GetRouteWaypointCount()
+{
+    return static_cast<int>(g_routeWaypoints.size());
+}
+
+GT_RM_DLL_API int GT_RM_GetRouteWaypoint(int index, GT_RM_RouteWaypoint* wp)
+{
+    if (!wp) return -1;
+    if (index < 0 || index >= static_cast<int>(g_routeWaypoints.size())) return -1;
+
+    *wp = g_routeWaypoints[static_cast<size_t>(index)];
+    return 0;
+}
+
+GT_RM_DLL_API double GT_RM_GetRouteLength()
+{
+    return g_routeLength;
+}
+
+GT_RM_DLL_API int GT_RM_GetLaneChangeCount()
+{
+    return static_cast<int>(g_routeLaneChanges.size());
+}
+
+GT_RM_DLL_API int GT_RM_GetLaneChange(int index, GT_RM_LaneChange* lc)
+{
+    if (!lc) return -1;
+    if (index < 0 || index >= static_cast<int>(g_routeLaneChanges.size())) return -1;
+
+    const gt_esmini::route::LaneChange& src = g_routeLaneChanges[static_cast<size_t>(index)];
+    lc->roadId     = src.roadId;
+    lc->s          = src.s;
+    lc->fromLaneId = src.fromLaneId;
+    lc->toLaneId   = src.toLaneId;
     return 0;
 }

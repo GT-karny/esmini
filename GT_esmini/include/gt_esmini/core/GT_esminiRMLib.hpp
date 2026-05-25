@@ -45,6 +45,33 @@ typedef struct
     int      contactPoint;     // Contact point type
 } GT_RM_JunctionConnection;
 
+// Route strategies (mirror roadmanager::Position::RouteStrategy)
+#define GT_RM_ROUTE_SHORTEST          0
+#define GT_RM_ROUTE_FASTEST           1
+#define GT_RM_ROUTE_MIN_INTERSECTIONS 2
+
+// A single waypoint along a calculated route
+typedef struct
+{
+    uint32_t roadId;     // road ID of this waypoint
+    uint32_t junctionId; // junction ID (0xFFFFFFFF if not in a junction)
+    int      laneId;     // lane ID on the road
+    double   s;          // longitudinal position along the road
+    double   x;          // world X
+    double   y;          // world Y
+    double   z;          // world Z
+    double   h;          // heading (global)
+} GT_RM_RouteWaypoint;
+
+// A lane change required while driving along one road of the route
+typedef struct
+{
+    uint32_t roadId;     // road on which the change must happen
+    double   s;          // road-entry s; change should complete before road end
+    int      fromLaneId; // lane entered on this road
+    int      toLaneId;   // lane needed to connect onward
+} GT_RM_LaneChange;
+
 // Road Signal information structure
 typedef struct
 {
@@ -176,6 +203,56 @@ extern "C"
      * @return 0 on success, -1 if road not found, -2 if index out of range
      */
     GT_RM_DLL_API int GT_RM_GetRoadSignal(uint32_t roadId, int index, GT_RM_RoadSignalInfo* signalInfo);
+
+    /* ------------------------------------------------------------------ */
+    /* Lane-change-aware route calculation (roadmanager::LaneIndependentRouter) */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Calculate a lane-change-aware route from a start to a target lane position.
+     * Unlike the road-level RoadPath, this finds routes that require lane changes
+     * (e.g. moving into a turn lane before a junction). The result is cached
+     * internally; use the getters below to read waypoints and the lane-change plan.
+     * @param startRoadId   Start road ID
+     * @param startLaneId   Start lane ID
+     * @param startS        Start s-position
+     * @param targetRoadId  Target road ID
+     * @param targetLaneId  Target lane ID
+     * @param targetS        Target s-position
+     * @param routeStrategy GT_RM_ROUTE_SHORTEST / _FASTEST / _MIN_INTERSECTIONS
+     * @return number of waypoints (>= 0), -1 on error (bad map/args), -2 if no route found
+     */
+    GT_RM_DLL_API int GT_RM_CalcRoute(uint32_t startRoadId, int startLaneId, double startS,
+                                      uint32_t targetRoadId, int targetLaneId, double targetS,
+                                      int routeStrategy);
+
+    /**
+     * Number of waypoints in the last calculated route (0 if none).
+     */
+    GT_RM_DLL_API int GT_RM_GetRouteWaypointCount();
+
+    /**
+     * Get a waypoint of the last calculated route by index.
+     * @return 0 on success, -1 on error / index out of range
+     */
+    GT_RM_DLL_API int GT_RM_GetRouteWaypoint(int index, GT_RM_RouteWaypoint* wp);
+
+    /**
+     * Total accumulated cost of the last route (meters for SHORTEST, seconds for
+     * FASTEST, junction count for MIN_INTERSECTIONS). Negative if no route.
+     */
+    GT_RM_DLL_API double GT_RM_GetRouteLength();
+
+    /**
+     * Number of lane changes required by the last calculated route.
+     */
+    GT_RM_DLL_API int GT_RM_GetLaneChangeCount();
+
+    /**
+     * Get a lane-change event of the last route by index.
+     * @return 0 on success, -1 on error / index out of range
+     */
+    GT_RM_DLL_API int GT_RM_GetLaneChange(int index, GT_RM_LaneChange* lc);
 
 #ifdef __cplusplus
 }
