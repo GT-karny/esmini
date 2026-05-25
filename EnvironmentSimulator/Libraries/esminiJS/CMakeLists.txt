@@ -51,6 +51,19 @@ file(
     ROADMANAGER_SOURCES
     "../../Modules/RoadManager/*.cpp")
 
+# GT_esmini LHT/RHT patch: swap RoadManager.cpp with GT_RoadManager.cpp (mirrors
+# the swap in EnvironmentSimulator/Modules/RoadManager/CMakeLists.txt, which
+# this file bypasses via its own glob).
+list(
+    REMOVE_ITEM
+    ROADMANAGER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../Modules/RoadManager/RoadManager.cpp")
+list(
+    APPEND
+    ROADMANAGER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../GT_esmini/src/road/GT_RoadManager.cpp")
+message(STATUS "esminiJS: swapping RoadManager.cpp with GT_RoadManager.cpp")
+
 file(
     GLOB
     PLAYERBASE_SOURCES
