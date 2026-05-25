@@ -126,7 +126,6 @@ namespace esmini
         std::string                      xosc_file;
         OpenScenarioConfig               config;
         scenarioengine::ScenarioEngine*  scenarioEngine;
-        scenarioengine::ScenarioGateway* scenarioGateway;
         bool                             initialized_;  // Whether first step has been performed
         bool                             complete_;     // Whether scenario has ended
         int                              lastStepResult_;

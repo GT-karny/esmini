@@ -68,6 +68,15 @@ file(
     COMMONMINI_SOURCES
     "../../Modules/CommonMini/*.cpp")
 
+# Drop the version.cpp that a regular esmini build generates into the source
+# tree (via version.cmake): the WASM build supplies its own version symbols
+# through the generated esmini_version.cpp below, so keeping both would cause
+# duplicate-symbol link errors (ESMINI_GIT_REV, ESMINI_BUILD_VERSION, ...).
+list(
+    REMOVE_ITEM
+    COMMONMINI_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../Modules/CommonMini/version.cpp")
+
 file(
     GLOB
     PUGIXML_SOURCES

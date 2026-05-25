@@ -20,49 +20,38 @@ namespace esmini
     std::vector<StoryBoardEvent> OpenScenario::sbEventBuffer_;
     std::vector<ConditionEvent>  OpenScenario::condEventBuffer_;
 
-    void copyStateFromScenarioGateway(ScenarioObjectState *state, scenarioengine::ObjectStateStruct *gw_state)
+    void copyStateFromScenarioObject(ScenarioObjectState *state, const scenarioengine::Object &obj, double sim_time)
     {
-        state->id              = gw_state->info.id;
-        state->model_id        = gw_state->info.model_id;
-        state->ctrl_type       = gw_state->info.ctrl_type;
-        state->name            = std::string(gw_state->info.name, NAME_LEN);
-        state->timestamp       = gw_state->info.timeStamp;
-        state->x               = (float)gw_state->pos.GetX();
-        state->y               = (float)gw_state->pos.GetY();
-        state->z               = (float)gw_state->pos.GetZ();
-        state->h               = (float)gw_state->pos.GetH();
-        state->p               = (float)gw_state->pos.GetP();
-        state->r               = (float)gw_state->pos.GetR();
-        state->speed           = (float)gw_state->info.speed;
-        state->road_id         = (int)gw_state->pos.GetTrackId();
-        state->junction_id     = (int)gw_state->pos.GetJunctionId();
-        state->t               = (float)gw_state->pos.GetT();
-        state->lane_id         = (int)gw_state->pos.GetLaneId();
-        state->s               = (float)gw_state->pos.GetS();
-        state->lane_offset     = (float)gw_state->pos.GetOffset();
-        state->center_offset_x = gw_state->info.boundingbox.center_.x_;
-        state->center_offset_y = gw_state->info.boundingbox.center_.y_;
-        state->center_offset_z = gw_state->info.boundingbox.center_.z_;
-        state->width           = gw_state->info.boundingbox.dimensions_.width_;
-        state->length          = gw_state->info.boundingbox.dimensions_.length_;
-        state->height          = gw_state->info.boundingbox.dimensions_.height_;
-        state->object_type     = gw_state->info.obj_type;
-        state->object_category = gw_state->info.obj_category;
+        state->id              = obj.id_;
+        state->model_id        = obj.model_id_;
+        state->ctrl_type       = static_cast<int>(obj.GetControllerTypeActiveOnDomain(ControlDomains::DOMAIN_LONG));
+        state->name            = obj.GetName();
+        state->timestamp       = (float)sim_time;
+        state->x               = (float)obj.pos_.GetX();
+        state->y               = (float)obj.pos_.GetY();
+        state->z               = (float)obj.pos_.GetZ();
+        state->h               = (float)obj.pos_.GetH();
+        state->p               = (float)obj.pos_.GetP();
+        state->r               = (float)obj.pos_.GetR();
+        state->speed           = (float)obj.GetSpeed();
+        state->road_id         = (int)obj.pos_.GetTrackId();
+        state->junction_id     = (int)obj.pos_.GetJunctionId();
+        state->t               = (float)obj.pos_.GetT();
+        state->lane_id         = (int)obj.pos_.GetLaneId();
+        state->s               = (float)obj.pos_.GetS();
+        state->lane_offset     = (float)obj.pos_.GetOffset();
+        state->center_offset_x = obj.boundingbox_.center_.x_;
+        state->center_offset_y = obj.boundingbox_.center_.y_;
+        state->center_offset_z = obj.boundingbox_.center_.z_;
+        state->width           = obj.boundingbox_.dimensions_.width_;
+        state->length          = obj.boundingbox_.dimensions_.length_;
+        state->height          = obj.boundingbox_.dimensions_.height_;
+        state->object_type     = static_cast<int>(obj.GetType());
+        state->object_category = static_cast<int>(obj.category_);
 
-        // Extract wheel information from wheel_data vector
-        if (!gw_state->info.wheel_data.empty())
-        {
-            // Use the first wheel's data for wheel angle and rotation
-            const auto &wheel  = gw_state->info.wheel_data[0];
-            state->wheel_angle = (float)wheel.h;              // heading/yaw for wheel angle
-            state->wheel_rot   = (float)wheel.rotation_rate;  // rotation rate for wheel rotation
-        }
-        else
-        {
-            // Default values when no wheel data available
-            state->wheel_angle = 0.0f;
-            state->wheel_rot   = 0.0f;
-        }
+        // Steering angle and rotation of the (assumed front, steering) wheel
+        state->wheel_angle = (float)obj.GetWheelAngle();
+        state->wheel_rot   = (float)obj.GetWheelRotation();
     }
 
     // Static callback: captures storyboard element state changes into buffer
@@ -139,7 +128,6 @@ namespace esmini
         // Initialize ScenarioEngine with sanitized XOSC (no extension actions)
         this->scenarioEngine  = new scenarioengine::ScenarioEngine(
             useSanitized ? sanitizedPath : this->xosc_file, false);
-        this->scenarioGateway = this->scenarioEngine->getScenarioGateway();
         registerCallbacks();
 
         // Clean up temp file
@@ -184,7 +172,6 @@ namespace esmini
         {
             delete scenarioEngine;
             scenarioEngine  = nullptr;
-            scenarioGateway = nullptr;
         }
     }
 
@@ -215,16 +202,14 @@ namespace esmini
 
             retval = this->scenarioEngine->step(dt);
             this->scenarioEngine->prepareGroundTruth(dt);
-            this->scenarioGateway->clearDirtyBits();
 
-            int numberofObjects = this->scenarioGateway->getNumberOfObjects();
-            for (int i = 0; i < numberofObjects; i++)
+            double simTime = this->scenarioEngine->getSimulationTime();
+            for (auto* obj : this->scenarioEngine->entities_.object_)
             {
-                scenarioengine::ObjectState* obj_state_ptr = this->scenarioGateway->getObjectStatePtrByIdx(i);
-                if (obj_state_ptr != nullptr)
+                if (obj != nullptr)
                 {
                     ScenarioObjectState state;
-                    copyStateFromScenarioGateway(&state, &obj_state_ptr->state_);
+                    copyStateFromScenarioObject(&state, *obj, simTime);
                     objects_sts.push_back(state);
                 }
             }
@@ -256,14 +241,12 @@ namespace esmini
         initialized_    = true;
 
         // Finalize ground truth: computes velocities, accelerations, and
-        // updates the ScenarioGateway object states so that getCurrentState()
+        // updates the entity object states so that getCurrentState()
         // returns the correct positions for this time step.
         // This mirrors the ScenarioFrame() flow in playerbase.cpp:
         //   1. scenarioEngine->step(dt)
         //   2. scenarioEngine->prepareGroundTruth(dt)
-        //   3. scenarioGateway->clearDirtyBits()
         this->scenarioEngine->prepareGroundTruth(dt);
-        this->scenarioGateway->clearDirtyBits();
 
         // Advance GT_esmini TrafficSignalControllers (auto-cycling phases)
         gt_esmini::TrafficSignalControllerManager::Instance().StepAll(dt);
@@ -293,7 +276,7 @@ namespace esmini
 
     int OpenScenario::getNumberOfObjects() const
     {
-        return this->scenarioGateway->getNumberOfObjects();
+        return static_cast<int>(this->scenarioEngine->entities_.object_.size());
     }
 
     bool OpenScenario::isComplete() const
@@ -303,17 +286,16 @@ namespace esmini
 
     void OpenScenario::collectCurrentState(std::vector<ScenarioObjectState>& out)
     {
-        int numberofObjects = this->scenarioGateway->getNumberOfObjects();
-        out.reserve(static_cast<size_t>(numberofObjects));
+        auto& objects = this->scenarioEngine->entities_.object_;
+        out.reserve(objects.size());
 
-        for (int i = 0; i < numberofObjects; i++)
+        double simTime = this->scenarioEngine->getSimulationTime();
+        for (auto* obj : objects)
         {
-            // Use index-based access (not ID-based) to iterate all objects
-            scenarioengine::ObjectState* obj_state_ptr = this->scenarioGateway->getObjectStatePtrByIdx(i);
-            if (obj_state_ptr != nullptr)
+            if (obj != nullptr)
             {
                 ScenarioObjectState state;
-                copyStateFromScenarioGateway(&state, &obj_state_ptr->state_);
+                copyStateFromScenarioObject(&state, *obj, simTime);
                 out.push_back(state);
             }
         }
