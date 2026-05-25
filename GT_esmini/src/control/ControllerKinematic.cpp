@@ -12,6 +12,7 @@
  */
 
 #include "gt_esmini/control/ControllerKinematic.hpp"
+#include "gt_esmini/control/ControllerRouteDrive.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
 // #include "ScenarioGateway.hpp" // removed in v3.0.0
@@ -227,6 +228,31 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         double lane_sign = static_cast<double>(SIGN(object_->pos_.GetLaneId()));
 
         lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb, lane_sign});
+    }
+
+    // A stacked RouteDriveController owns/steps its lane-change action itself, so
+    // it does NOT appear in getPrivateActions(). Pull its in-progress LC in too,
+    // otherwise the steering preview would ignore the route-driven lane change.
+    if (scenarioengine::Controller* rc =
+            object_->GetAssignedControllerOftype(static_cast<scenarioengine::Controller::Type>(gt_esmini::CONTROLLER_TYPE_ROUTE_DRIVE)))
+    {
+        const LatLaneChangeAction* lc = static_cast<gt_esmini::ControllerRouteDrive*>(rc)->GetActiveLaneChangeAction();
+        if (lc)
+        {
+            const OSCPrivateAction::TransitionDynamics* td = &lc->transition_;
+            if (td->GetParamTargetVal() >= 1e-6)
+            {
+                double startVal  = td->GetStartVal();
+                double A         = td->GetTargetVal() - startVal;
+                double P         = td->GetParamTargetVal();
+                double cur_p     = td->GetParamVal();
+                double cur_off   = EvalTransition(td->shape_, startVal, A, cur_p / P);
+                bool   tb        = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
+                             td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
+                double lane_sign = static_cast<double>(SIGN(object_->pos_.GetLaneId()));
+                lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb, lane_sign});
+            }
+        }
     }
 
     // --- Build polyline ---

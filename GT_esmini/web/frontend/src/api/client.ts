@@ -125,6 +125,7 @@ export interface ExecutionDefaults {
   autolight: boolean;
   vehicle_physics: boolean;
   kinematic_mode: boolean;
+  route_drive_mode: boolean;
   threads: boolean;
   window: WindowConfig;
 }
@@ -143,6 +144,7 @@ export interface SimulationRequest {
     autolight: boolean;
     vehicle_physics: boolean;
     kinematic_mode: boolean;
+    route_drive_mode: boolean;
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];

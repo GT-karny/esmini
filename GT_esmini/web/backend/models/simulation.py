@@ -129,6 +129,7 @@ class ExecutionConfig(BaseModel):
     autolight: bool = False
     vehicle_physics: bool = True
     kinematic_mode: bool = False
+    route_drive_mode: bool = False
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []

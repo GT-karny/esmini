@@ -38,6 +38,7 @@
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/ControllerKinematic.hpp"
+#include "gt_esmini/control/ControllerRouteDrive.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
@@ -224,6 +225,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 #endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -364,6 +366,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     std::string osiTargetIp = "";
     int svPort = 48200;  // default SV reporter port
     bool kinematicModeEnabled = false;
+    bool routeDriveModeEnabled = false;
 
     // If filename found, sanitized it
     std::string sanitizedFile;
@@ -404,7 +407,8 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--video_frames") == 0 ||
                       strcmp(argv[i], "--video_prefix") == 0 ||
                       strcmp(argv[i], "--sv-port") == 0 ||
-                      strcmp(argv[i], "--kinematic-mode") == 0))
+                      strcmp(argv[i], "--kinematic-mode") == 0 ||
+                      strcmp(argv[i], "--route-drive-mode") == 0))
             {
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
@@ -443,6 +447,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 {
                     kinematicModeEnabled = true;
                 }
+                else if (strcmp(argv[i], "--route-drive-mode") == 0)
+                {
+                    routeDriveModeEnabled = true;
+                }
             }
             else
             {
@@ -463,6 +471,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 #endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
@@ -597,6 +606,81 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             }
         }
 
+        // 4c-2. RouteDriveController auto-assignment (Route Drive Mode) — ego only.
+        // Runs BEFORE the Kinematic block so the Kinematic guard can detect and
+        // stack onto the RouteDrive-controlled ego.
+        if (routeDriveModeEnabled)
+        {
+            // Resolve ego: HVD target vehicle by name, else first VEHICLE.
+            std::string egoName;
+            if (gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
+            {
+                egoName = gt_esmini::GT_HostVehicleReporter::Instance().GetTargetVehicle();
+            }
+            Object* ego          = nullptr;
+            Object* firstVehicle = nullptr;
+            for (auto* obj : player->scenarioEngine->entities_.object_)
+            {
+                if (!obj || obj->type_ != scenarioengine::Object::Type::VEHICLE)
+                {
+                    continue;
+                }
+                if (firstVehicle == nullptr)
+                {
+                    firstVehicle = obj;
+                }
+                if (!egoName.empty() && obj->GetName() == egoName)
+                {
+                    ego = obj;
+                    break;
+                }
+            }
+            if (ego == nullptr)
+            {
+                ego = firstVehicle;
+            }
+
+            if (ego != nullptr && ego->GetNrOfAssignedControllers() == 0)
+            {
+                std::string          exeDirRD     = gt_esmini::GetCurrentModuleDirectory();
+                gt_esmini::ConfigLoader config_loaderRD;
+                std::string          rdConfigPath = config_loaderRD.ResolveConfigPath(exeDirRD, "route_drive_controller.json");
+
+                scenarioengine::OSCProperties        propsRD;
+                scenarioengine::Controller::InitArgs initArgsRD;
+                initArgsRD.name            = std::string("RouteDriveController_") + ego->GetName();
+                initArgsRD.type            = CONTROLLER_ROUTE_DRIVE_TYPE_NAME;
+                initArgsRD.properties      = &propsRD;
+                initArgsRD.scenario_engine = player->scenarioEngine;
+                initArgsRD.parameters      = nullptr;
+
+                auto* rdCtrl = new gt_esmini::ControllerRouteDrive(&initArgsRD);
+                rdCtrl->LoadConfig(rdConfigPath);
+                rdCtrl->LinkObject(ego);
+                ego->AssignController(rdCtrl);
+                rdCtrl->Init();
+
+                ControlActivationMode rdModes[static_cast<unsigned int>(ControlDomains::COUNT)];
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)]  = ControlActivationMode::UNDEFINED;
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)]   = ControlActivationMode::ON;
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_LIGHT)] = ControlActivationMode::UNDEFINED;
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_ANIM)]  = ControlActivationMode::UNDEFINED;
+                rdCtrl->Activate(rdModes);
+
+                player->scenarioEngine->scenarioReader->AddController(rdCtrl);
+                std::cout << "GT_Init: RouteDriveController assigned to ego '" << ego->GetName() << "'." << std::endl;
+            }
+            else if (ego != nullptr)
+            {
+                std::cout << "GT_Init: RouteDriveController skipped - ego '" << ego->GetName()
+                          << "' already has an explicit controller." << std::endl;
+            }
+            else
+            {
+                std::cout << "GT_Init: RouteDriveController - no ego vehicle found." << std::endl;
+            }
+        }
+
         // 4d. KinematicController auto-assignment (Kinematic Mode)
         if (kinematicModeEnabled)
         {
@@ -611,8 +695,15 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 {
                     continue;
                 }
-                // Only assign to vehicles without an explicit controller
-                if (obj->GetNrOfAssignedControllers() > 0)
+                // Assign to vehicles without an explicit controller. Also stack
+                // onto a vehicle whose ONLY controller is the RouteDriveController
+                // (so Route Drive + Kinematic compose on the ego). Vehicles with
+                // RealDriver/ManualDrive/etc. keep being skipped.
+                int  nCtrl         = obj->GetNrOfAssignedControllers();
+                bool onlyRouteDrive =
+                    (nCtrl == 1 && obj->GetAssignedControllerOftype(
+                                       static_cast<scenarioengine::Controller::Type>(gt_esmini::CONTROLLER_TYPE_ROUTE_DRIVE)) != nullptr);
+                if (nCtrl > 0 && !onlyRouteDrive)
                 {
                     continue;
                 }

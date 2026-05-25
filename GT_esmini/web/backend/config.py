@@ -127,6 +127,7 @@ DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "autolight": True,
     "vehicle_physics": True,
     "kinematic_mode": False,
+    "route_drive_mode": False,
     "threads": True,
     "window": {"x": 60, "y": 60, "w": 1280, "h": 720},
 }

@@ -287,6 +287,8 @@ def _build_cmd(
         cmd.append("--vehicle-physics")
     if execution.kinematic_mode:
         cmd.append("--kinematic-mode")
+    if execution.route_drive_mode:
+        cmd.append("--route-drive-mode")
     if execution.threads and not execution.headless:
         cmd.append("--threads")
     if not execution.headless:

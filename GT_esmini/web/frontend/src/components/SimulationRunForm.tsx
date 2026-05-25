@@ -118,6 +118,7 @@ export function SimulationRunForm({
   const [autolight, setAutolight] = useState(true);
   const [vehiclePhysics, setVehiclePhysics] = useState(true);
   const [kinematicMode, setKinematicMode] = useState(false);
+  const [routeDriveMode, setRouteDriveMode] = useState(false);
   const [threads, setThreads] = useState(true);
   const [winX, setWinX] = useState(60);
   const [winY, setWinY] = useState(60);
@@ -147,7 +148,7 @@ export function SimulationRunForm({
     if (!rerunFrom) return;
     const opts = rerunFrom as {
       controller?: { controller_type?: string };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
     if (opts.controller) {
@@ -168,6 +169,7 @@ export function SimulationRunForm({
       if (exec.autolight !== undefined) setAutolight(exec.autolight);
       if (exec.vehicle_physics !== undefined) setVehiclePhysics(exec.vehicle_physics);
       if (exec.kinematic_mode !== undefined) setKinematicMode(exec.kinematic_mode);
+      if (exec.route_drive_mode !== undefined) setRouteDriveMode(exec.route_drive_mode);
       if (exec.threads !== undefined) setThreads(exec.threads);
       if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
       if (exec.drive_mode) setDriveMode(exec.drive_mode);
@@ -189,6 +191,7 @@ export function SimulationRunForm({
       setAutolight(execDefaults.autolight);
       if (execDefaults.vehicle_physics !== undefined) setVehiclePhysics(execDefaults.vehicle_physics);
       if (execDefaults.kinematic_mode !== undefined) setKinematicMode(execDefaults.kinematic_mode);
+      if (execDefaults.route_drive_mode !== undefined) setRouteDriveMode(execDefaults.route_drive_mode);
       if (execDefaults.threads !== undefined) setThreads(execDefaults.threads);
       if (execDefaults.window) {
         setWinX(execDefaults.window.x);
@@ -256,6 +259,7 @@ export function SimulationRunForm({
       autolight,
       vehicle_physics: vehiclePhysics,
       kinematic_mode: kinematicMode,
+      route_drive_mode: routeDriveMode,
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
       extra_args: [],
@@ -331,6 +335,8 @@ export function SimulationRunForm({
         setVehiclePhysics={setVehiclePhysics}
         kinematicMode={kinematicMode}
         setKinematicMode={setKinematicMode}
+        routeDriveMode={routeDriveMode}
+        setRouteDriveMode={setRouteDriveMode}
       />
 
       {/* Parameter Overrides (project context only, hidden when managed externally) */}
