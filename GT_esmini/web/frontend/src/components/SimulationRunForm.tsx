@@ -10,7 +10,7 @@ import type {
 } from '../api/client';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
-import { ControllerSection } from './simulation/ControllerSection';
+import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
 import { ManualDrivePanel } from './simulation/ManualDrivePanel';
 import { QuickOptionsBar } from './simulation/QuickOptionsBar';
 import { ParameterOverrides } from './simulation/ParameterOverrides';
@@ -74,7 +74,7 @@ export function SimulationRunForm({
   const queryClient = useQueryClient();
 
   // Controller state
-  const [controllerType, setControllerType] = useState<'default' | 'manual'>('default');
+  const [controllerType, setControllerType] = useState<ControllerType>('default');
   const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
   const [showManualPanel, setShowManualPanel] = useState(false);
   const [driveMode, setDriveMode] = useState<'comfort' | 'sport'>('comfort');
@@ -155,7 +155,9 @@ export function SimulationRunForm({
 
     if (opts.controller) {
       const ct = opts.controller.controller_type ?? 'default';
-      setControllerType((ct === 'manual' ? 'manual' : 'default') as 'default' | 'manual');
+      setControllerType(
+        (ct === 'manual' || ct === 'virtual_driver' ? ct : 'default') as ControllerType,
+      );
       if (ct === 'manual' && (opts.controller as any).manual_drive) {
         setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...(opts.controller as any).manual_drive });
       }

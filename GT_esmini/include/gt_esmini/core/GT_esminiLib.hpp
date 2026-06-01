@@ -188,6 +188,21 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, int bufferSize);
 
+    /**
+     * Get VirtualDriver telemetry for a vehicle as a JSON string.
+     *
+     * Returns the aggregate VirtualDriverTelemetry (ego state, override flags,
+     * short-plan preview, driver-model diagnostics, indicator) serialized to
+     * JSON, so Web / Python / Electron can all read it without ABI marshaling.
+     *
+     * @param vehicle_id Vehicle (object) id assigned a VirtualDriverController
+     * @param out_json   Output buffer for the JSON string
+     * @param buf_size   Size of out_json
+     * @return Number of bytes written (excluding NUL), or -1 if the vehicle has
+     *         no VirtualDriverController / on error.
+     */
+    GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, int buf_size);
+
 #ifdef __cplusplus
 }
 #endif

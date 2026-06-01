@@ -1,11 +1,11 @@
-export type ControllerType = 'default' | 'manual';
+export type ControllerType = 'default' | 'manual' | 'virtual_driver';
 export type DriveMode = 'comfort' | 'sport';
 export type LaneChangeTiming = 'late' | 'normal' | 'early';
 export type LaneChangeGap = 'wide' | 'normal' | 'tight';
 
 export interface ControllerSectionProps {
-  controllerType: 'default' | 'manual';
-  setControllerType: (v: 'default' | 'manual') => void;
+  controllerType: ControllerType;
+  setControllerType: (v: ControllerType) => void;
   onOpenManualSettings?: () => void;
   driveMode: DriveMode;
   setDriveMode: (v: DriveMode) => void;
@@ -92,6 +92,13 @@ export function ControllerSection({
               />
             </svg>
           )}
+        </button>
+        <button
+          onClick={() => setControllerType('virtual_driver')}
+          title="Full vehicle physics driven by an internal virtual driver (route follow + SpeedAction + lane change). Phase 1 MVP."
+          className={`${btnBase} ${controllerType === 'virtual_driver' ? btnActive : btnInactive}`}
+        >
+          Virtual Driver
         </button>
       </div>
 

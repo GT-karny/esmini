@@ -30,6 +30,8 @@
 #include <memory>
 #include <functional>
 #include <string>
+#include <sstream>
+#include <cstring>
 #include <iostream>
 #include <cstdio>
 #include <osi_groundtruth.pb.h>
@@ -39,6 +41,7 @@
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/ControllerKinematic.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"
+#include "gt_esmini/control/ControllerVirtualDriver.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
@@ -226,6 +229,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -484,6 +488,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
@@ -898,6 +903,10 @@ GT_ESMINI_API void GT_Step(double dt)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME);
                 }
+                if (!ctrl)
+                {
+                    ctrl = egoObject->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME);
+                }
                 if (ctrl)
                 {
                     auto pushControllerState = [&](auto* concreteCtrl) {
@@ -969,6 +978,10 @@ GT_ESMINI_API void GT_Step(double dt)
                     else if (auto* manualDrive = dynamic_cast<gt_esmini::ControllerManualDrive*>(ctrl))
                     {
                         pushControllerState(manualDrive);
+                    }
+                    else if (auto* virtualDriver = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
+                    {
+                        pushControllerState(virtualDriver);
                     }
                 }
                 else
@@ -1231,6 +1244,62 @@ GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, 
     strncpy(state, stateStr.c_str(), bufferSize - 1);
     state[bufferSize - 1] = '\0';
     return 0;
+}
+
+GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, int buf_size)
+{
+    if (!out_json || buf_size <= 0) return -1;
+    if (!player || !player->scenarioEngine) return -1;
+
+    int actual_id = vehicle_id;
+    if (actual_id < 0 && !player->scenarioEngine->entities_.object_.empty())
+        actual_id = player->scenarioEngine->entities_.object_[0]->id_;
+    if (actual_id < 0) return -1;
+
+    scenarioengine::Object* obj = player->scenarioEngine->entities_.GetObjectById(actual_id);
+    if (!obj) return -1;
+
+    scenarioengine::Controller* ctrl = obj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME);
+    auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl);
+    if (!vd) return -1;
+
+    const gt_esmini::VirtualDriverTelemetry& t = vd->GetTelemetry();
+
+    std::ostringstream os;
+    os.setf(std::ios::fixed);
+    os.precision(4);
+    auto b = [](bool v) { return v ? "true" : "false"; };
+
+    os << "{\"sim_time\":" << t.sim_time
+       << ",\"ego\":{\"x\":" << t.x << ",\"y\":" << t.y << ",\"z\":" << t.z
+       << ",\"h\":" << t.h << ",\"speed\":" << t.speed << "}"
+       << ",\"override\":{\"lateral\":" << b(t.override_lateral)
+       << ",\"longitudinal\":" << b(t.override_longitudinal) << "}"
+       << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake
+       << ",\"steer\":" << t.driver.steer << ",\"lateral_error\":" << t.driver.lateral_error
+       << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error
+       << ",\"lookahead\":" << t.driver.lookahead_dist << ",\"valid\":" << b(t.driver.valid) << "}"
+       << ",\"indicator\":{\"left\":" << b(t.indicator.left_on) << ",\"right\":" << b(t.indicator.right_on) << "}"
+       << ",\"preview\":{\"dt\":" << t.short_plan.dt << ",\"valid\":" << b(t.short_plan.valid) << ",\"points\":[";
+    for (size_t i = 0; i < t.short_plan.preview.size(); ++i)
+    {
+        const auto& p = t.short_plan.preview[i];
+        if (i) os << ",";
+        os << "{\"x\":" << p.x << ",\"y\":" << p.y << ",\"v\":" << p.v << ",\"t\":" << p.t << "}";
+    }
+    os << "]}}";
+
+    std::string s = os.str();
+    int n = static_cast<int>(s.size());
+    if (n >= buf_size)
+    {
+        std::memcpy(out_json, s.c_str(), static_cast<size_t>(buf_size - 1));
+        out_json[buf_size - 1] = '\0';
+        return buf_size - 1;
+    }
+    std::memcpy(out_json, s.c_str(), static_cast<size_t>(n));
+    out_json[n] = '\0';
+    return n;
 }
 
 GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque)

@@ -1,0 +1,125 @@
+#include "gt_esmini/control/virtualdriver/VirtualDriverConfig.hpp"
+#include "logger.hpp"
+
+#include <fstream>
+#include <string>
+
+namespace gt_esmini
+{
+
+bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
+{
+    LOG_INFO("VirtualDriverConfig: Loading from '{}'", filepath);
+    std::ifstream file(filepath);
+    if (!file.is_open())
+    {
+        LOG_WARN("VirtualDriverConfig: Failed to open '{}'", filepath);
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        auto key_matches = [&](const std::string& key) -> bool {
+            return line.find("\"" + key + "\"") != std::string::npos;
+        };
+        auto parse_string = [&](const std::string& key, std::string& val) {
+            if (!key_matches(key)) return;
+            size_t colon = line.find(":");
+            if (colon == std::string::npos) return;
+            std::string result;
+            for (char c : line.substr(colon + 1))
+                if (c != '"' && c != ',' && c != ' ' && c != '\t' && c != '\r')
+                    result += c;
+            if (!result.empty()) val = result;
+        };
+        auto parse_double = [&](const std::string& key, double& val) {
+            if (!key_matches(key)) return;
+            size_t colon = line.find(":");
+            if (colon == std::string::npos) return;
+            try { val = std::stod(line.substr(colon + 1)); } catch (...) {}
+        };
+        auto parse_int = [&](const std::string& key, int& val) {
+            if (!key_matches(key)) return;
+            size_t colon = line.find(":");
+            if (colon == std::string::npos) return;
+            try { val = std::stoi(line.substr(colon + 1)); } catch (...) {}
+        };
+        auto parse_bool = [&](const std::string& key, bool& val) {
+            if (!key_matches(key)) return;
+            size_t colon = line.find(":");
+            if (colon == std::string::npos) return;
+            val = line.substr(colon + 1).find("true") != std::string::npos;
+        };
+
+        parse_string("vehicle_params_file", vehicle_params_file);
+
+        parse_double("horizon_s", horizon_s);
+        parse_double("short_dt", short_dt);
+
+        parse_double("lookahead_gain", lookahead_gain);
+        parse_double("min_lookahead", min_lookahead);
+        parse_double("max_lookahead", max_lookahead);
+        parse_double("max_steer_angle", max_steer_angle);
+        parse_double("steering_sign", steering_sign);
+        parse_double("speed_kp", speed_kp);
+        parse_double("speed_ki", speed_ki);
+        parse_double("speed_kd", speed_kd);
+
+        parse_double("indicator_lead_time", indicator_lead_time);
+        parse_double("indicator_min_on_time", indicator_min_on_time);
+
+        parse_bool("override_enabled", override_enabled);
+        parse_bool("override_button", override_button);
+        parse_double("steering_threshold", steering_threshold);
+        parse_double("throttle_threshold", throttle_threshold);
+        parse_double("brake_threshold", brake_threshold);
+        parse_double("auto_return_timeout", auto_return_timeout);
+        parse_string("override_lateral", override_lateral);
+        parse_string("override_longitudinal", override_longitudinal);
+
+        parse_string("input_type", input_type);
+        parse_int("input_port", input_port);
+        parse_string("input_transport", input_transport);
+    }
+
+    LOG_INFO("VirtualDriverConfig: planner(horizon={:.1f}s dt={:.2f}) driver(la_gain={:.2f} kp={:.2f}) input={}",
+             horizon_s, short_dt, lookahead_gain, speed_kp, input_type);
+    return true;
+}
+
+PhysicsInitParams VirtualDriverConfig::PhysicsParams() const
+{
+    PhysicsInitParams p;
+    p.vehicle_params_file = vehicle_params_file;
+    return p;
+}
+
+TrajectoryShortPlannerConfig VirtualDriverConfig::ShortPlannerConfig() const
+{
+    return TrajectoryShortPlannerConfig{};  // defaults; horizon/dt passed per-frame via ShortPlanContext
+}
+
+PIDPurePursuitConfig VirtualDriverConfig::DriverConfig() const
+{
+    PIDPurePursuitConfig c;
+    c.lookahead_gain  = lookahead_gain;
+    c.min_lookahead   = min_lookahead;
+    c.max_lookahead   = max_lookahead;
+    c.max_steer_angle = max_steer_angle;
+    c.steering_sign   = steering_sign;
+    c.kp = speed_kp;
+    c.ki = speed_ki;
+    c.kd = speed_kd;
+    return c;
+}
+
+AutoIndicatorConfig VirtualDriverConfig::IndicatorConfig() const
+{
+    AutoIndicatorConfig c;
+    c.lead_time   = indicator_lead_time;
+    c.min_on_time = indicator_min_on_time;
+    return c;
+}
+
+}  // namespace gt_esmini

@@ -1,0 +1,38 @@
+{
+    "_comment": "ControllerVirtualDriver (Phase 1) — full-physics virtual driver. Flat unique keys (line-parsed).",
+
+    "vehicle_params_file": "real_vehicle_params.json",
+
+    "_planner": "Short planner: equal-dt trajectory preview",
+    "horizon_s": 3.0,
+    "short_dt": 0.1,
+
+    "_driver": "PID + Pure Pursuit driver model",
+    "lookahead_gain": 0.5,
+    "min_lookahead": 4.0,
+    "max_lookahead": 20.0,
+    "max_steer_angle": 0.61,
+    "steering_sign": -1.0,
+    "speed_kp": 0.6,
+    "speed_ki": 0.2,
+    "speed_kd": 0.0,
+
+    "_indicator": "Auto turn-signal",
+    "indicator_lead_time": 2.0,
+    "indicator_min_on_time": 0.3,
+
+    "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
+    "override_enabled": true,
+    "override_button": true,
+    "steering_threshold": 0.05,
+    "throttle_threshold": 0.1,
+    "brake_threshold": 0.1,
+    "auto_return_timeout": 0.0,
+    "override_lateral": "manual",
+    "override_longitudinal": "manual",
+
+    "_input": "Input source: stub | network | sdl2_wheel",
+    "input_type": "stub",
+    "input_port": 9100,
+    "input_transport": "udp"
+}

@@ -160,6 +160,69 @@ def _generate_manual_variant(
     tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
 
+def _generate_virtual_driver_variant(
+    baseline_xosc: Path,
+    output_path: Path,
+) -> None:
+    """Generate XOSC variant with VirtualDriverController injected.
+
+    Mirrors _generate_manual_variant but assigns the VirtualDriver controller
+    (full-physics virtual driver) and activates it on both domains. Uses the
+    default config/virtual_driver.json (no per-run override in Phase 1).
+    """
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(baseline_xosc)
+    root = tree.getroot()
+
+    all_entities = root.findall(".//ScenarioObject")
+    if not all_entities:
+        shutil.copy2(baseline_xosc, output_path)
+        return
+
+    entity = all_entities[0]
+    existing_oc = entity.find("ObjectController")
+    if existing_oc is not None:
+        entity.remove(existing_oc)
+
+    ctrl = ET.Element("Controller")
+    ctrl.set("name", "VirtualDriverController")
+    props = ET.SubElement(ctrl, "Properties")
+    p1 = ET.SubElement(props, "Property")
+    p1.set("name", "esminiController")
+    p1.set("value", "VirtualDriverController")
+
+    oc = ET.Element("ObjectController")
+    oc.append(ctrl)
+
+    insert_pos = None
+    for i, child in enumerate(entity):
+        if child.tag in ("Vehicle", "CatalogReference"):
+            insert_pos = i + 1
+            break
+    if insert_pos is not None:
+        entity.insert(insert_pos, oc)
+    else:
+        entity.append(oc)
+
+    # Add <ActivateControllerAction> (both domains) for the ego entity.
+    ego_name = entity.get("name", "")
+    for private in root.findall(".//Init/Actions/Private"):
+        if private.get("entityRef") != ego_name:
+            continue
+        for pa in private.findall("PrivateAction"):
+            act = pa.find("ActivateControllerAction")
+            if act is not None:
+                private.remove(pa)
+        pa = ET.SubElement(private, "PrivateAction")
+        act = ET.SubElement(pa, "ActivateControllerAction")
+        act.set("longitudinal", "true")
+        act.set("lateral", "true")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+
+
 def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
     """Write manual_drive.json for per-run config override.
 
@@ -248,6 +311,13 @@ def _prepare_xosc(
             _apply_param_overrides(variant_path, param_overrides)
         # Write per-run manual_drive.json alongside the variant
         _write_manual_drive_config(output_dir, controller)
+        return variant_path
+    elif controller.controller_type == "virtual_driver":
+        variant_path = output_dir / f"{scenario_path.stem}_virtual_driver.xosc"
+        _generate_virtual_driver_variant(scenario_path, variant_path)
+        _absolutize_xosc(variant_path, source_dir)
+        if param_overrides:
+            _apply_param_overrides(variant_path, param_overrides)
         return variant_path
     elif controller.controller_type == "default":
         variant_path = output_dir / f"{scenario_path.stem}_default.xosc"
