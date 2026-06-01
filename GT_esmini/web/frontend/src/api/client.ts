@@ -235,6 +235,46 @@ export interface ParameterPreset {
   values: Record<string, string>;
 }
 
+// --- VirtualDriver verification (replay) ---
+
+export interface VdPreviewPoint {
+  x: number;
+  y: number;
+  v: number;
+  t: number;
+}
+
+export interface VdTelemetryFrame {
+  sim_time: number;
+  ego: {
+    x: number; y: number; z: number; h: number; speed: number;
+    track?: number; lane?: number; offset?: number; s?: number;
+  };
+  override: { lateral: boolean; longitudinal: boolean };
+  driver: {
+    throttle: number; brake: number; steer: number;
+    lateral_error: number; heading_error: number; speed_error: number;
+    lookahead: number; valid: boolean;
+  };
+  indicator: { left: boolean; right: boolean };
+  preview: { dt: number; valid: boolean; points: VdPreviewPoint[] };
+}
+
+export interface VerificationRun {
+  id: string;
+  meta: Record<string, unknown> & { scenario?: string; frames?: number; sim_duration_s?: number };
+  has_compare: boolean;
+  has_verdict: boolean;
+}
+
+export interface VerificationTelemetry {
+  id: string;
+  meta: Record<string, unknown>;
+  frames: VdTelemetryFrame[];
+  compare: Record<string, unknown> | null;
+  verdict: Record<string, unknown> | null;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -305,6 +345,12 @@ export const api = {
     request<{ boundaries: Array<{ road_id: number; type: string; points: [number, number][] }> }>(
       `/api/projects/${projectId}/scenarios/${scenarioFile}/road-geometry`,
     ),
+
+  // VirtualDriver verification (replay)
+  getVerificationRuns: () =>
+    request<{ runs: VerificationRun[] }>(`/api/verification/runs`),
+  getVerificationTelemetry: (runId: string) =>
+    request<VerificationTelemetry>(`/api/verification/runs/${encodeURIComponent(runId)}/telemetry`),
 
   getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
     const res = await fetch(`${BASE}/api/projects/${projectId}/scenarios/${scenarioFile}/docs`);

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TrafficLight } from '../hooks/useOsiStream';
+import type { VdTelemetryFrame } from '../api/client';
 
 /* ---------- Types ---------- */
 
@@ -57,6 +58,8 @@ interface LiveSceneViewProps {
   objects: OsiObject[];
   roadGeometry?: RoadGeometry | null;
   trafficLights?: TrafficLight[];
+  /** Current VirtualDriver telemetry frame (replay or live) -> short-horizon preview overlay. */
+  vdTelemetry?: VdTelemetryFrame | null;
   className?: string;
   viewRadius?: number;
 }
@@ -131,6 +134,7 @@ export function LiveSceneView({
   objects,
   roadGeometry,
   trafficLights,
+  vdTelemetry,
   className = '',
   viewRadius: initialRadius = DEFAULT_VIEW_RADIUS,
 }: LiveSceneViewProps) {
@@ -255,6 +259,12 @@ export function LiveSceneView({
     [trafficLights],
   );
 
+  // VirtualDriver short-horizon preview (speed-coloured polyline + sample dots).
+  const vdPreview = useMemo(
+    () => (vdTelemetry?.preview?.points?.length ? renderVdPreview(vdTelemetry, flipY) : null),
+    [vdTelemetry],
+  );
+
   const hasSigns = (roadGeometry?.signs?.length ?? 0) > 0;
   const hasStopLines = (roadGeometry?.stop_lines?.length ?? 0) > 0;
   const hasSignals = (trafficLights?.length ?? 0) > 0;
@@ -316,6 +326,9 @@ export function LiveSceneView({
 
       {/* Ego vehicle (on top) */}
       {ego && renderObject(ego, flipY, true)}
+
+      {/* VirtualDriver preview trajectory (under markers, over road) */}
+      {vdPreview}
 
       {/* Signs + traffic-light heads (on top of vehicles) */}
       {layers.signs && signMarkers}
@@ -474,6 +487,45 @@ function renderTrafficLights(
           strokeWidth={0.12}
           opacity={l.mode === 'flashing' ? 0.7 : 0.95}
         />
+      ))}
+    </g>
+  );
+}
+
+function speedColor(frac: number): string {
+  const f = Math.max(0, Math.min(1, frac));
+  // slow (green) -> fast (red)
+  const r = Math.round(80 + (235 - 80) * f);
+  const g = Math.round(210 + (90 - 210) * f);
+  const b = Math.round(140 + (90 - 140) * f);
+  return `rgb(${r},${g},${b})`;
+}
+
+// VirtualDriver short-horizon trajectory preview: polyline coloured by target
+// speed, with sample dots. (x,y,v,t) come straight from GT_GetVirtualDriverTelemetry.
+function renderVdPreview(tel: VdTelemetryFrame, toSvgY: (y: number) => number): ReactElement {
+  const pts = tel.preview.points;
+  const vmax = Math.max(0.001, ...pts.map((p) => p.v));
+  const segs: ReactElement[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    segs.push(
+      <line
+        key={`vdseg-${i}`}
+        x1={a.x} y1={toSvgY(a.y)} x2={b.x} y2={toSvgY(b.y)}
+        stroke={speedColor((a.v + b.v) / 2 / vmax)}
+        strokeWidth={0.4}
+        strokeLinecap="round"
+        opacity={0.9}
+      />,
+    );
+  }
+  return (
+    <g>
+      {segs}
+      {pts.map((p, i) => (
+        <circle key={`vdpt-${i}`} cx={p.x} cy={toSvgY(p.y)} r={0.16} fill="rgba(255,255,255,0.75)" />
       ))}
     </g>
   );

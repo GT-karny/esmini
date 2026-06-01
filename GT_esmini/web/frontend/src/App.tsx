@@ -7,6 +7,7 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { SimulationsPage } from './pages/SimulationsPage';
 import { SimulationDetailPage } from './pages/SimulationDetailPage';
+import { VerificationReplayPage } from './pages/VerificationReplayPage';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WindowControls, isElectron } from './components/WindowControls';
 
@@ -97,6 +98,7 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
           <>
             <NavLink to="/" className={linkClass} end>Projects</NavLink>
             <NavLink to="/simulations" className={linkClass}>Jobs</NavLink>
+            <NavLink to="/verification" className={linkClass}>Verify</NavLink>
             <ProjectsRootIndicator />
           </>
         )}
@@ -215,6 +217,7 @@ export default function App() {
               <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
               <Route path="/simulations" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationsPage /></div>} />
               <Route path="/simulations/:jobId" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationDetailPage /></div>} />
+              <Route path="/verification" element={<VerificationReplayPage />} />
             </Routes>
           </main>
           <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
