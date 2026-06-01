@@ -28,6 +28,17 @@ export interface HvdData {
   speed: number;
 }
 
+export interface TrafficLight {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  h: number;
+  color: string; // 'red' | 'yellow' | 'green' | 'unknown' | ...
+  mode: string;  // 'off' | 'constant' | 'flashing' | 'counting' | ...
+  icon: number;
+}
+
 export type OsiConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 interface OsiStreamResult {
@@ -35,6 +46,7 @@ interface OsiStreamResult {
   objects: OsiObject[];
   simTime: number;
   hvdData: HvdData | null;
+  trafficLights: TrafficLight[];
   frameCount: number;
 }
 
@@ -45,9 +57,36 @@ export function useOsiStream(jobId: string | null): OsiStreamResult {
   const [objects, setObjects] = useState<OsiObject[]>([]);
   const [simTime, setSimTime] = useState(0);
   const [hvdData, setHvdData] = useState<HvdData | null>(null);
+  const [trafficLights, setTrafficLights] = useState<TrafficLight[]>([]);
   const [frameCount, setFrameCount] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const lastHvdUpdateRef = useRef(0);
+
+  // rAF coalescing: GroundTruth can arrive at up to ~100Hz, but the DOM can
+  // only paint at the display refresh rate. Buffer the latest frame and flush
+  // at most once per animation frame so React commits ≤ refresh rate instead
+  // of once per incoming message.
+  const pendingGtRef = useRef<{
+    objects: OsiObject[];
+    simTime: number;
+    frames: number;
+    trafficLights: TrafficLight[] | null;
+  } | null>(null);
+  const recvCountRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  const flushGt = useCallback(() => {
+    rafRef.current = null;
+    const p = pendingGtRef.current;
+    if (!p) return;
+    pendingGtRef.current = null;
+    setObjects(p.objects);
+    setSimTime(p.simTime);
+    setFrameCount(p.frames);
+    // Only replace lights when the frame actually carried them, so scenarios
+    // that briefly omit the field don't flicker the overlay off.
+    if (p.trafficLights !== null) setTrafficLights(p.trafficLights);
+  }, []);
 
   const connect = useCallback(() => {
     if (!jobId) return;
@@ -72,9 +111,16 @@ export function useOsiStream(jobId: string | null): OsiStreamResult {
           return;
         }
         if (msg.type === 'ground_truth') {
-          setObjects(msg.objects ?? []);
-          setSimTime(msg.sim_time ?? 0);
-          setFrameCount((c) => c + 1);
+          recvCountRef.current += 1;
+          pendingGtRef.current = {
+            objects: msg.objects ?? [],
+            simTime: msg.sim_time ?? 0,
+            frames: recvCountRef.current,
+            trafficLights: msg.traffic_lights ?? null,
+          };
+          if (rafRef.current == null) {
+            rafRef.current = requestAnimationFrame(flushGt);
+          }
         } else if (msg.type === 'host_vehicle_data') {
           const now = performance.now();
           if (now - lastHvdUpdateRef.current >= HVD_THROTTLE_MS) {
@@ -89,7 +135,7 @@ export function useOsiStream(jobId: string | null): OsiStreamResult {
 
     ws.onerror = () => setStatus('error');
     ws.onclose = () => setStatus('disconnected');
-  }, [jobId]);
+  }, [jobId, flushGt]);
 
   useEffect(() => {
     if (!jobId) {
@@ -97,16 +143,23 @@ export function useOsiStream(jobId: string | null): OsiStreamResult {
       setObjects([]);
       setSimTime(0);
       setHvdData(null);
+      setTrafficLights([]);
       setFrameCount(0);
       return;
     }
 
+    recvCountRef.current = 0;
+    pendingGtRef.current = null;
     setStatus('connecting');
     connect();
     return () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       wsRef.current?.close();
     };
   }, [connect, jobId]);
 
-  return { status, objects, simTime, hvdData, frameCount };
+  return { status, objects, simTime, hvdData, trafficLights, frameCount };
 }

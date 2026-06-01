@@ -67,6 +67,7 @@ node_modules/
 # Build / packaging artifacts
 dist/
 test_results/
+results/
 GT_esmini/web/pyinstaller/dist/
 GT_esmini/web/pyinstaller/build_temp/
 GT_esmini/web/electron/dist/

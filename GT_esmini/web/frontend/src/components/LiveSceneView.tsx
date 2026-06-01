@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
+import type { TrafficLight } from '../hooks/useOsiStream';
 
 /* ---------- Types ---------- */
 
@@ -25,16 +26,42 @@ export interface RoadBoundary {
   points: [number, number][];
 }
 
+export interface RoadSign {
+  id: number;
+  road_id: number;
+  x: number;
+  y: number;
+  z: number;
+  h: number;
+  s: number;
+  t: number;
+  name: string;
+  orientation: number;
+  height: number;
+  width: number;
+}
+
+export interface StopLine {
+  road_id: number;
+  sign_id: number;
+  points: [number, number][];
+}
+
 export interface RoadGeometry {
   boundaries: RoadBoundary[];
+  signs?: RoadSign[];
+  stop_lines?: StopLine[];
 }
 
 interface LiveSceneViewProps {
   objects: OsiObject[];
   roadGeometry?: RoadGeometry | null;
+  trafficLights?: TrafficLight[];
   className?: string;
   viewRadius?: number;
 }
+
+type LayerKey = 'signs' | 'stopLines' | 'signals';
 
 /* ---------- Constants ---------- */
 
@@ -43,7 +70,14 @@ const MIN_VIEW_RADIUS = 10;
 const MAX_VIEW_RADIUS = 500;
 const ZOOM_FACTOR = 1.15; // per wheel tick
 const GRID_SPACING = 10;
-const CLIP_MARGIN = 50; // extra margin for road clipping (meters)
+
+/**
+ * esmini world (Y-up) → SVG (Y-down) using a *constant* mapping (svgY = -worldY).
+ * The previous mapping (maxY - y) folded the camera position into every node's
+ * coordinates, forcing a full re-render each frame. With a fixed flip, only the
+ * SVG viewBox moves with the ego — static geometry keeps identical attributes.
+ */
+const flipY = (y: number) => -y;
 
 /* ---------- Styling helpers ---------- */
 
@@ -96,11 +130,17 @@ function getObjectColors(obj: OsiObject, isEgo: boolean): { fill: string; stroke
 export function LiveSceneView({
   objects,
   roadGeometry,
+  trafficLights,
   className = '',
   viewRadius: initialRadius = DEFAULT_VIEW_RADIUS,
 }: LiveSceneViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [zoom, setZoom] = useState(1); // >1 = zoomed in, <1 = zoomed out
+  const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
+    signs: true,
+    stopLines: true,
+    signals: true,
+  });
 
   const viewRadius = initialRadius / zoom;
 
@@ -129,38 +169,37 @@ export function LiveSceneView({
   const maxY = viewport.cy + viewRadius;
   const size = viewRadius * 2;
 
-  // esmini Y-up → SVG Y-down: world maxY maps to SVG 0, world minY maps to SVG size
-  const toSvgY = (y: number) => maxY - y;
+  // Grid is rebuilt only when the camera crosses a grid cell (hysteresis), not
+  // every frame. Quantising the viewport bounds to GRID_SPACING keeps these
+  // deps stable across the ~10m of travel between cells, so the grid memo (and
+  // its SVG nodes) stay reconciliation-free while the ego moves smoothly.
+  const gMinX = Math.floor(minX / GRID_SPACING) * GRID_SPACING;
+  const gMaxX = Math.ceil(maxX / GRID_SPACING) * GRID_SPACING;
+  const gMinY = Math.floor(minY / GRID_SPACING) * GRID_SPACING;
+  const gMaxY = Math.ceil(maxY / GRID_SPACING) * GRID_SPACING;
 
-  // Grid lines
   const gridLines = useMemo(() => {
     const lines: { x1: number; y1: number; x2: number; y2: number }[] = [];
-    const startX = Math.ceil(minX / GRID_SPACING) * GRID_SPACING;
-    const startY = Math.ceil(minY / GRID_SPACING) * GRID_SPACING;
-    for (let x = startX; x <= maxX; x += GRID_SPACING) {
-      lines.push({ x1: x, y1: 0, x2: x, y2: size });
+    for (let x = gMinX; x <= gMaxX; x += GRID_SPACING) {
+      lines.push({ x1: x, y1: flipY(gMaxY), x2: x, y2: flipY(gMinY) });
     }
-    for (let y = startY; y <= maxY; y += GRID_SPACING) {
-      const svgY = toSvgY(y);
-      lines.push({ x1: minX, y1: svgY, x2: maxX, y2: svgY });
+    for (let y = gMinY; y <= gMaxY; y += GRID_SPACING) {
+      lines.push({ x1: gMinX, y1: flipY(y), x2: gMaxX, y2: flipY(y) });
     }
     return lines;
-  }, [minX, maxX, minY, maxY, size, toSvgY]);
+  }, [gMinX, gMaxX, gMinY, gMaxY]);
 
-  // Road boundaries (memoised — only recalculate on geometry or viewport change)
+  // Road boundaries: rendered once in a fixed world frame (constant Y-flip),
+  // independent of the camera. Panning/zooming is done purely via the SVG
+  // viewBox below, so these path nodes never change attributes frame-to-frame
+  // and React skips reconciling them. (For very large networks, swap the full
+  // render for a hysteresis-clipped subset — see plan risks.)
   const roadPaths = useMemo(() => {
     if (!roadGeometry) return null;
     return roadGeometry.boundaries.map((boundary, idx) => {
-      // Clip: only include points near viewport
-      const clipped = boundary.points.filter(
-        ([px, py]) =>
-          px >= minX - CLIP_MARGIN && px <= maxX + CLIP_MARGIN &&
-          py >= minY - CLIP_MARGIN && py <= maxY + CLIP_MARGIN,
-      );
-      if (clipped.length < 2) return null;
-
-      const d = clipped
-        .map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px},${toSvgY(py)}`)
+      if (boundary.points.length < 2) return null;
+      const d = boundary.points
+        .map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px},${flipY(py)}`)
         .join(' ');
       const style = getBoundaryStyle(boundary.type);
 
@@ -176,17 +215,79 @@ export function LiveSceneView({
         />
       );
     });
-  }, [roadGeometry, minX, maxX, minY, maxY, toSvgY]);
+  }, [roadGeometry]);
 
   // Split objects: non-ego rendered first, ego (first object) on top
   const egoId = ego?.id;
   const nonEgo = useMemo(() => (egoId != null ? objects.slice(1) : objects), [objects, egoId]);
 
+  // Static environment layers (camera-independent, constant Y-flip → stable nodes)
+  const stopLinePaths = useMemo(() => {
+    const lines = roadGeometry?.stop_lines;
+    if (!lines || lines.length === 0) return null;
+    return lines.map((line, idx) => {
+      if (line.points.length < 2) return null;
+      const d = line.points
+        .map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px},${flipY(py)}`)
+        .join(' ');
+      return (
+        <path
+          key={`stop-${line.road_id}-${line.sign_id}-${idx}`}
+          d={d}
+          fill="none"
+          stroke="rgba(245,245,245,0.85)"
+          strokeWidth={0.35}
+          strokeLinecap="round"
+        />
+      );
+    });
+  }, [roadGeometry]);
+
+  const signMarkers = useMemo(() => {
+    const signs = roadGeometry?.signs;
+    if (!signs || signs.length === 0) return null;
+    return signs.map((sign) => renderSign(sign, flipY));
+  }, [roadGeometry]);
+
+  // Traffic-light phase comes live from the OSI WS stream (per-frame).
+  const signalNodes = useMemo(
+    () => (trafficLights && trafficLights.length > 0 ? renderTrafficLights(trafficLights, flipY) : null),
+    [trafficLights],
+  );
+
+  const hasSigns = (roadGeometry?.signs?.length ?? 0) > 0;
+  const hasStopLines = (roadGeometry?.stop_lines?.length ?? 0) > 0;
+  const hasSignals = (trafficLights?.length ?? 0) > 0;
+  const showLayerBar = hasSigns || hasStopLines || hasSignals;
+
   return (
+    <div className={`relative ${className}`}>
+      {showLayerBar && (
+        <div className="absolute top-2 left-2 z-10 flex gap-1">
+          {hasSignals && (
+            <LayerToggle label="Signals" active={layers.signals}
+              onClick={() => setLayers((l) => ({ ...l, signals: !l.signals }))} />
+          )}
+          {hasSigns && (
+            <LayerToggle label="Signs" active={layers.signs}
+              onClick={() => setLayers((l) => ({ ...l, signs: !l.signs }))} />
+          )}
+          {hasStopLines && (
+            <LayerToggle label="Stop lines" active={layers.stopLines}
+              onClick={() => setLayers((l) => ({ ...l, stopLines: !l.stopLines }))} />
+          )}
+        </div>
+      )}
+      {renderScene()}
+    </div>
+  );
+
+  function renderScene() {
+    return (
     <svg
       ref={svgRef}
-      viewBox={`${minX} 0 ${size} ${size}`}
-      className={`w-full ${className}`}
+      viewBox={`${minX} ${flipY(maxY)} ${size} ${size}`}
+      className="w-full h-full block"
       style={{ background: 'var(--color-glass-1, rgba(18,12,48,0.35))' }}
       onWheel={handleWheel}
     >
@@ -207,17 +308,24 @@ export function LiveSceneView({
         />
       ))}
 
+      {/* Stop lines (static, from road geometry) */}
+      {layers.stopLines && stopLinePaths}
+
       {/* Non-ego objects */}
-      {nonEgo.map((obj) => renderObject(obj, toSvgY, false))}
+      {nonEgo.map((obj) => renderObject(obj, flipY, false))}
 
       {/* Ego vehicle (on top) */}
-      {ego && renderObject(ego, toSvgY, true)}
+      {ego && renderObject(ego, flipY, true)}
+
+      {/* Signs + traffic-light heads (on top of vehicles) */}
+      {layers.signs && signMarkers}
+      {layers.signals && signalNodes}
 
       {/* Empty state */}
       {objects.length === 0 && (
         <text
           x={viewport.cx}
-          y={size / 2}
+          y={flipY(viewport.cy)}
           textAnchor="middle"
           dominantBaseline="central"
           fill="var(--color-text-secondary, #aaa)"
@@ -228,6 +336,146 @@ export function LiveSceneView({
         </text>
       )}
     </svg>
+    );
+  }
+}
+
+/* ---------- Layer toggle ---------- */
+
+function LayerToggle({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors backdrop-blur ${
+        active
+          ? 'bg-primary/80 text-white'
+          : 'bg-glass-2/70 text-text-tertiary hover:bg-glass-2'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ---------- Environment renderers ---------- */
+
+// Best-effort sign classification from the OpenDRIVE name (RM_RoadSign has no
+// OSI type). Falls back to a neutral marker.
+function classifySign(name: string): { kind: 'stop' | 'yield' | 'other'; color: string } {
+  const n = name.toLowerCase();
+  if (n.includes('stop')) return { kind: 'stop', color: 'rgb(220,60,60)' };
+  if (n.includes('yield') || n.includes('give') || n.includes('giveway')) {
+    return { kind: 'yield', color: 'rgb(235,180,60)' };
+  }
+  return { kind: 'other', color: 'rgb(150,160,200)' };
+}
+
+function renderSign(sign: RoadSign, toSvgY: (y: number) => number): ReactElement {
+  const sx = sign.x;
+  const sy = toSvgY(sign.y);
+  const { kind, color } = classifySign(sign.name);
+  const r = 1.0;
+
+  let shape: ReactElement;
+  if (kind === 'stop') {
+    // Octagon
+    const pts = Array.from({ length: 8 }, (_, i) => {
+      const a = (Math.PI / 8) + (i * Math.PI) / 4;
+      return `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
+    }).join(' ');
+    shape = <polygon points={pts} fill={color} stroke="white" strokeWidth={0.12} />;
+  } else if (kind === 'yield') {
+    // Inverted triangle
+    shape = (
+      <polygon
+        points={`${-r},${-r * 0.8} ${r},${-r * 0.8} 0,${r}`}
+        fill={color}
+        stroke="white"
+        strokeWidth={0.12}
+      />
+    );
+  } else {
+    shape = <circle r={r * 0.8} fill={color} stroke="white" strokeWidth={0.12} />;
+  }
+
+  return (
+    <g key={`sign-${sign.road_id}-${sign.id}`} transform={`translate(${sx}, ${sy})`}>
+      {shape}
+      {sign.name && (
+        <text
+          x={0}
+          y={-r - 0.4}
+          textAnchor="middle"
+          fill="var(--color-text-secondary, #aaa)"
+          fontSize={1.0}
+          fontFamily="var(--font-body, sans-serif)"
+        >
+          {sign.name}
+        </text>
+      )}
+    </g>
+  );
+}
+
+function trafficLightFill(color: string): string {
+  switch (color) {
+    case 'red':
+      return 'rgb(235,50,50)';
+    case 'yellow':
+      return 'rgb(240,200,50)';
+    case 'green':
+      return 'rgb(60,210,90)';
+    default:
+      return 'rgb(160,160,160)';
+  }
+}
+
+// Each lamp is a separate TrafficLight at (nearly) the same x,y. Render inactive
+// lamps first as dim rings, then active (mode != off/unknown) on top so the live
+// phase colour is always visible regardless of array order.
+function renderTrafficLights(
+  lights: TrafficLight[],
+  toSvgY: (y: number) => number,
+): ReactElement {
+  const isActive = (l: TrafficLight) => l.mode === 'constant' || l.mode === 'flashing' || l.mode === 'counting';
+  const inactive = lights.filter((l) => !isActive(l));
+  const active = lights.filter(isActive);
+
+  return (
+    <g>
+      {inactive.map((l) => (
+        <circle
+          key={`tl-off-${l.id}`}
+          cx={l.x}
+          cy={toSvgY(l.y)}
+          r={0.6}
+          fill="none"
+          stroke="rgba(150,150,150,0.5)"
+          strokeWidth={0.15}
+        />
+      ))}
+      {active.map((l) => (
+        <circle
+          key={`tl-on-${l.id}`}
+          cx={l.x}
+          cy={toSvgY(l.y)}
+          r={0.8}
+          fill={trafficLightFill(l.color)}
+          stroke="white"
+          strokeWidth={0.12}
+          opacity={l.mode === 'flashing' ? 0.7 : 0.95}
+        />
+      ))}
+    </g>
   );
 }
 

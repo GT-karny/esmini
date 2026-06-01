@@ -69,11 +69,20 @@ def _classify_boundary(inner_type: int, outer_type: int, is_outermost: bool) -> 
     return "lane_divider"
 
 
-def extract_road_geometry(xodr_path: str | Path) -> dict:
-    """Extract lane boundary polylines from an OpenDRIVE file.
+def _empty_geometry() -> dict:
+    return {"boundaries": [], "signs": [], "stop_lines": []}
 
-    Returns a dict with "boundaries" list ready for JSON serialisation.
-    Results are cached per absolute xodr path.
+
+def extract_road_geometry(xodr_path: str | Path) -> dict:
+    """Extract lane boundary polylines + signs + stop lines from an OpenDRIVE file.
+
+    Returns a dict with "boundaries", "signs" and "stop_lines" lists ready for
+    JSON serialisation. Results are cached per absolute xodr path.
+
+    Signs and stop lines are sourced here (not from the OSI stream) because the
+    OSI GroundTruth re-emits traffic signs only on the first frame, so a late WS
+    subscriber would miss them. This REST path is deterministic and timing-safe.
+    Traffic-light *phase* still comes live from the OSI WS stream.
     """
     xodr_path = Path(xodr_path).resolve()
     cache_key = str(xodr_path)
@@ -83,17 +92,19 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
 
     if not xodr_path.is_file():
         logger.warning("xodr file not found: %s", xodr_path)
-        return {"boundaries": []}
+        return _empty_geometry()
 
     lib_path = str(ESMINI_RM_LIB)
     if not Path(lib_path).is_file():
         logger.warning("esminiRMLib not found: %s", lib_path)
-        return {"boundaries": []}
+        return _empty_geometry()
 
     # Import lazily to avoid import errors when DLL is missing
     from realdriver.rm_lib import EsminiRMLib
 
     boundaries: list[dict] = []
+    signs: list[dict] = []
+    stop_lines: list[dict] = []
 
     with _lock:
         try:
@@ -101,7 +112,7 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
             ret = rm.Init(str(xodr_path))
             if ret < 0:
                 logger.error("esminiRMLib.Init failed for %s (ret=%d)", xodr_path, ret)
-                return {"boundaries": []}
+                return _empty_geometry()
 
             pos_handle = rm.CreatePosition()
             num_roads = rm.GetNumberOfRoads()
@@ -115,6 +126,7 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
                 _extract_road_boundaries(
                     rm, pos_handle, road_id, road_length, boundaries
                 )
+                _extract_road_signs(rm, pos_handle, road_id, signs, stop_lines)
 
             rm.DeletePosition(pos_handle)
             rm.Close()
@@ -125,12 +137,13 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
                 rm.Close()
             except Exception:
                 pass
-            return {"boundaries": []}
+            return _empty_geometry()
 
-    result = {"boundaries": boundaries}
+    result = {"boundaries": boundaries, "signs": signs, "stop_lines": stop_lines}
     _cache[cache_key] = result
     logger.info(
-        "Extracted %d boundaries from %s", len(boundaries), xodr_path.name
+        "Extracted %d boundaries, %d signs, %d stop lines from %s",
+        len(boundaries), len(signs), len(stop_lines), xodr_path.name,
     )
     return result
 
@@ -278,6 +291,126 @@ def _extract_road_boundaries(
 
     # Flush remaining segment
     _flush_segment(boundary_points, boundary_types, road_id, out_boundaries)
+
+
+def _extract_road_signs(
+    rm,
+    pos_handle: int,
+    road_id: int,
+    out_signs: list[dict],
+    out_stop_lines: list[dict],
+) -> None:
+    """Enumerate OpenDRIVE signals/signs on a road → marker + stop-line polyline.
+
+    RM_RoadSign carries position/heading/dims and a `name` (OpenDRIVE signal
+    name, usually the 3D-model key) but not the OSI type. We surface name +
+    geometry; the frontend does best-effort classification from the name. For
+    each sign a stop line is derived across its valid approach lanes at the
+    sign's s. Per-sign failures are swallowed so one bad sign can't abort the
+    whole extraction.
+    """
+    try:
+        num_signs = rm.GetNumberOfRoadSigns(road_id)
+    except Exception:
+        return
+
+    for i in range(num_signs):
+        try:
+            res, sign = rm.GetRoadSign(road_id, i)
+            if res != 0:
+                continue
+
+            name = sign.name.decode("utf-8", "replace") if sign.name else ""
+            out_signs.append({
+                "id": sign.id,
+                "road_id": road_id,
+                "x": round(sign.x, 2),
+                "y": round(sign.y, 2),
+                "z": round(sign.z, 2),
+                "h": round(sign.h, 4),
+                "s": round(sign.s, 2),
+                "t": round(sign.t, 2),
+                "name": name,
+                "orientation": sign.orientation,
+                "height": round(sign.height, 2),
+                "width": round(sign.width, 2),
+            })
+
+            # Valid lanes from validity records (fallback: lanes on the sign's side).
+            valid: set[int] = set()
+            try:
+                nv = rm.GetNumberOfRoadSignValidityRecords(road_id, i)
+                for vi in range(nv):
+                    vres, val = rm.GetRoadSignValidityRecord(road_id, i, vi)
+                    if vres == 0:
+                        lo, hi = sorted((val.fromLane, val.toLane))
+                        valid.update(range(lo, hi + 1))
+                valid.discard(0)
+            except Exception:
+                valid = set()
+
+            side = -1 if sign.t < 0 else 1
+            pts = _stop_line_points(
+                rm, pos_handle, road_id, sign.s, valid or None, side
+            )
+            if pts:
+                out_stop_lines.append({
+                    "road_id": road_id,
+                    "sign_id": sign.id,
+                    "points": pts,
+                })
+        except Exception:
+            logger.debug("sign extraction failed (road=%s idx=%s)", road_id, i, exc_info=True)
+            continue
+
+
+def _stop_line_points(
+    rm,
+    pos_handle: int,
+    road_id: int,
+    s: float,
+    valid_lanes: set[int] | None,
+    side: int,
+) -> list[list[float]] | None:
+    """Build a 2-point stop line across the approach lanes at (road_id, s).
+
+    Endpoints: the road reference (lane 0) centre and the outer edge of the
+    outermost approach lane — a perpendicular segment spanning the lanes the
+    sign governs. Curvature within a single s is negligible, so 2 points suffice.
+    """
+    num = rm.GetRoadNumberOfLanes(road_id, s, -1)
+    present: list[int] = []
+    for i in range(num):
+        res, lid = rm.GetLaneIdByIndex(road_id, i, s, -1)
+        if res == 0 and lid != 0:
+            present.append(lid)
+    if not present:
+        return None
+
+    if valid_lanes:
+        lanes = [l for l in present if l in valid_lanes]
+    else:
+        lanes = [l for l in present if (l > 0) == (side > 0)]
+    if not lanes:
+        lanes = present
+
+    outer = max(lanes, key=lambda l: abs(l))
+
+    pts: list[list[float]] = []
+
+    rm.SetLanePosition(pos_handle, road_id, 0, 0.0, s, True)
+    res, data = rm.GetPositionData(pos_handle)
+    if res == 0:
+        pts.append([round(data.x, 2), round(data.y, 2)])
+
+    _, w = rm.GetLaneWidthByRoadId(road_id, outer, s)
+    edge_off = (w / 2.0) if outer > 0 else -(w / 2.0)
+    rm.SetLanePosition(pos_handle, road_id, outer, edge_off, s, True)
+    res, data = rm.GetPositionData(pos_handle)
+    if res == 0:
+        pts.append([round(data.x, 2), round(data.y, 2)])
+
+    return pts if len(pts) == 2 else None
 
 
 def clear_cache() -> None:

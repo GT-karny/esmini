@@ -1,0 +1,25 @@
+# VirtualDriver verification - expected events (declaration only in Step 1).
+# The assertion engine that matches these against recorded telemetry is built in
+# Step 3 (gt_sim_test assert). Schema follows verification_environment.md S5.1.
+scenario: straight_constant_speed
+category: 01_vehicle_model
+# Default-controller baseline used for numeric (RMSE) comparison in Step 3.
+baseline:
+  controller: Default
+  source: results/baselines/straight_constant_speed/groundtruth.osi
+must:
+  - event: speed_above
+    threshold: 19.0          # m/s, ego should reach ~20 m/s and hold it
+    after: { sim_time: 2.0 }
+    reason: "Ego reaches and maintains the commanded 20 m/s"
+  - event: speed_below
+    threshold: 21.0
+    after: { sim_time: 2.0 }
+    reason: "No overshoot beyond the commanded speed"
+  - event: lane_keep
+    lane_id: -1
+    road_id: 1
+    reason: "Stays in the starting lane (no lateral action)"
+notes: >
+  Deterministic longitudinal baseline. In Step 3 the VirtualDriver run is
+  compared to the Default baseline trajectory (XY/speed RMSE within threshold).

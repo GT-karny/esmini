@@ -110,9 +110,11 @@ VirtualDriver の振る舞いを「プランニング段階から走行結果ま
 - 多言語（C++ / Python / TS）から読める
 
 **変換ツール**: Claude Code が読める形式へ変換するスクリプトをセットで配布
-- `tools/verification/osi_to_jsonl.py` — OSI 記録 → JSONL（1 frame 1 行）
-- `tools/verification/osi_to_csv.py` — テレメトリ要約を CSV へ
-- `tools/verification/osi_snapshot.py` — 任意時刻の状態を JSON で抜く
+- `GT_esmini/scripts/verification/osi_to_jsonl.py` — OSI 記録 → JSONL（1 frame 1 行）
+- `GT_esmini/scripts/verification/osi_to_csv.py` — テレメトリ要約を CSV へ（既存 `scripts/osi2csv.py` 流用可）
+- `GT_esmini/scripts/verification/osi_snapshot.py` — 任意時刻の状態を JSON で抜く
+
+> **配置確定（2026-06-02）**: 検証 Python ツールは `GT_esmini/scripts/verification/`（既存 `verify_osi_*.py` / `udp_osi_common.py` と同居）。ルート `tools/` は新設しない。venv は `DriverScript/.venv`。Step 1 成果: `generate_baseline.py`（Default 起動 → OSI GroundTruth を `.osi` トレース記録、`osi2csv.py`/`osiviewer.py` 互換）。
 - Claude Code は変換後の JSONL/CSV/JSON を `Read` で直接読める
 
 ### 4.2 記録粒度
@@ -227,7 +229,7 @@ gt_sim_test compare <run_id> <baseline_id>
 - `results/<run_id>/verdict.json` — 自動判定結果
 
 ### 6.2 ベースライン生成
-- `gt_sim_test baseline <scenario.xosc> --controller Default` を `tools/verification/regenerate_baselines.sh` 等で一括再生成
+- `gt_sim_test baseline <scenario.xosc> --controller Default` を `GT_esmini/scripts/verification/regenerate_baselines.*` 等で一括再生成
 - Default の挙動が変わった時に更新
 
 ### 6.3 アノテーションUI
@@ -236,7 +238,7 @@ gt_sim_test compare <run_id> <baseline_id>
 - LiveSceneView での再生 + イベントタイムライン
 - ラベル: `pass` / `fail` / `needs-discussion` / 自由コメント
 - データは `annotations/<scenario>/<run_id>.json` に保存
-- 過去ラベルとの突き合わせは `tools/verification/annotation_match.py`
+- 過去ラベルとの突き合わせは `GT_esmini/scripts/verification/annotation_match.py`
 
 ### 6.4 Claude Code の自己検証ループ
 - 標準フロー:

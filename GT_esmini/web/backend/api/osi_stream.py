@@ -32,6 +32,16 @@ _MOVING_TYPE_MAP = {
     0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: "animal",
 }
 
+# --- TrafficLight.Classification.Color enum (osi3) ---
+_TL_COLOR_MAP = {
+    0: "unknown", 1: "other", 2: "red", 3: "yellow", 4: "green", 5: "blue", 6: "white",
+}
+
+# --- TrafficLight.Classification.Mode enum (osi3) ---
+_TL_MODE_MAP = {
+    0: "unknown", 1: "other", 2: "off", 3: "constant", 4: "flashing", 5: "counting",
+}
+
 # --- VehicleClassification.Type enum ---
 _VEHICLE_CLASS_MAP = {
     0: "unknown", 1: "other", 2: "small_car", 3: "compact_car",
@@ -122,12 +132,34 @@ def _gt_to_json(raw: bytes) -> dict | None:
         entry.update(_extract_lights(obj))
         objects.append(entry)
 
-    return {
+    # Traffic lights: each lamp (red/yellow/green) is a separate osi3.TrafficLight.
+    # dynamic_gt re-emits these every frame (live phase), so the WS stream is the
+    # reliable source for signal colour over time. (Static signs/stop-lines come
+    # from the road-geometry REST endpoint instead — see road_geometry_service.)
+    traffic_lights = []
+    for tl in gt.traffic_light:
+        pos = tl.base.position
+        cls = tl.classification
+        traffic_lights.append({
+            "id": tl.id.value,
+            "x": round(pos.x, 3),
+            "y": round(pos.y, 3),
+            "z": round(pos.z, 3),
+            "h": round(tl.base.orientation.yaw, 4),
+            "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
+            "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
+            "icon": cls.icon,
+        })
+
+    result = {
         "type": "ground_truth",
         "sim_time": round(sim_time, 3),
         "object_count": len(objects),
         "objects": objects,
     }
+    if traffic_lights:
+        result["traffic_lights"] = traffic_lights
+    return result
 
 
 def _hvd_to_json(raw: bytes) -> dict | None:

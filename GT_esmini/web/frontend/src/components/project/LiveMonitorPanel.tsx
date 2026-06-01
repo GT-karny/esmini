@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useOsiStream, type HvdData } from '../../hooks/useOsiStream';
+import { useFps } from '../../hooks/useFps';
 import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
 import { api } from '../../api/client';
 
@@ -25,7 +26,22 @@ const statusIndicator: Record<string, { color: string; label: string }> = {
 };
 
 export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitorPanelProps) {
-  const { status, objects, simTime, hvdData, frameCount } = useOsiStream(jobId);
+  const { status, objects, simTime, hvdData, trafficLights, frameCount } = useOsiStream(jobId);
+
+  // Render/data FPS meter for tuning scene performance. Shown automatically in
+  // dev, and opt-in for packaged builds via `?fps` in the URL or
+  // localStorage.gt_show_fps='1' (so it can be measured on a real distribution).
+  const { renderFps, dataFps } = useFps(frameCount);
+  const showFpsMeter = useMemo(() => {
+    if (import.meta.env.DEV) return true;
+    if (typeof window === 'undefined') return false;
+    try {
+      if (new URLSearchParams(window.location.search).has('fps')) return true;
+      return window.localStorage.getItem('gt_show_fps') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Ego lights come from OSI stream (objects[0]); HVD doesn't carry light fields.
   const egoLights = useMemo<EgoLights | null>(() => {
@@ -79,7 +95,19 @@ export function LiveMonitorPanel({ jobId, projectId, scenarioFile }: LiveMonitor
 
       {/* 2D scene view + HVD overlay */}
       <div className="flex-1 min-h-0 relative">
-        <LiveSceneView objects={objects} roadGeometry={roadGeometry} className="h-full" />
+        <LiveSceneView
+          objects={objects}
+          roadGeometry={roadGeometry}
+          trafficLights={trafficLights}
+          className="h-full"
+        />
+
+        {showFpsMeter && (
+          <div className="absolute top-2 right-2 pointer-events-none z-20 rounded bg-glass-2/80 backdrop-blur px-2 py-1 font-mono text-[10px] text-text-secondary leading-tight">
+            <div>render {renderFps} fps</div>
+            <div>data {dataFps} fps</div>
+          </div>
+        )}
 
         {hvdData && (
           <div className="absolute top-2 left-2 pointer-events-none">
