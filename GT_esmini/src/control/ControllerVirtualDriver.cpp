@@ -251,6 +251,10 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.z                     = object_->pos_.GetZ();
     telemetry_.h                     = object_->pos_.GetH();
     telemetry_.speed                 = object_->GetSpeed();
+    telemetry_.track_id              = static_cast<int>(object_->pos_.GetTrackId());
+    telemetry_.lane_id               = object_->pos_.GetLaneId();
+    telemetry_.lane_offset           = object_->pos_.GetOffset();
+    telemetry_.s                     = object_->pos_.GetS();
     telemetry_.override_lateral      = lat_manual;
     telemetry_.override_longitudinal = lon_manual;
     telemetry_.short_plan            = plan;

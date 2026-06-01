@@ -103,6 +103,13 @@ struct VirtualDriverTelemetry
     double h     = 0.0;  // heading [rad]
     double speed = 0.0;  // [m/s]
 
+    // Ego road-frame localization (after physics writes pos_). Lets a viewer /
+    // verifier check "stays in the routed lane" vs drifted onto a sidewalk.
+    int    track_id    = 0;    // OpenDRIVE road id the ego is localized to
+    int    lane_id     = 0;    // current lane id
+    double lane_offset = 0.0;  // lateral offset from lane center [m]
+    double s           = 0.0;  // road s [m]
+
     // Override status (per domain).
     bool override_lateral      = false;
     bool override_longitudinal = false;

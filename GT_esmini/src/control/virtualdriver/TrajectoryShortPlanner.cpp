@@ -112,11 +112,26 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
 
     // --- Walk the route at equal Δt ---
     double v0 = SampleTargetSpeed(ctx, 0.0);
-    snap.preview.push_back({obj->pos_.GetX(), obj->pos_.GetY(), v0, 0.0});
 
     roadmanager::Position pos;
     pos.Duplicate(obj->pos_);
     pos.CopyRoute(obj->pos_);  // isolate route mutations from the shared object state
+
+    // Anchor the preview to the routed lane CENTER (offset 0) ONLY when no
+    // deliberate lateral maneuver is active. This removes an *unintended*
+    // cross-track error (e.g. drift after a fast junction turn) so the driver,
+    // which has no separate lane-centering term, steers back instead of tracking
+    // parallel and off-center forever. During a LaneChange/LaneOffset we keep the
+    // car-anchored base, because the overlay below adds the maneuver displacement
+    // relative to the current position; zeroing the offset there would drop that
+    // baseline and send the lateral target haywire. Recovery resumes once the
+    // maneuver completes (lat_actions empties).
+    if (lat_actions.empty())
+        pos.SetLanePos(pos.GetTrackId(), pos.GetLaneId(), pos.GetS(), 0.0);
+
+    // First preview point = lane center (no maneuver) or the car's pos (maneuver),
+    // giving the driver a real cross-track error to null out in the former case.
+    snap.preview.push_back({pos.GetX(), pos.GetY(), v0, 0.0});
 
     double acc_dist = 0.0;
     for (int i = 1; i <= n_steps; ++i)

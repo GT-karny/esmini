@@ -1272,7 +1272,9 @@ GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, i
 
     os << "{\"sim_time\":" << t.sim_time
        << ",\"ego\":{\"x\":" << t.x << ",\"y\":" << t.y << ",\"z\":" << t.z
-       << ",\"h\":" << t.h << ",\"speed\":" << t.speed << "}"
+       << ",\"h\":" << t.h << ",\"speed\":" << t.speed
+       << ",\"track\":" << t.track_id << ",\"lane\":" << t.lane_id
+       << ",\"offset\":" << t.lane_offset << ",\"s\":" << t.s << "}"
        << ",\"override\":{\"lateral\":" << b(t.override_lateral)
        << ",\"longitudinal\":" << b(t.override_longitudinal) << "}"
        << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake
