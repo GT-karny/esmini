@@ -289,6 +289,8 @@ def _build_cmd(
         cmd.append("--kinematic-mode")
     if execution.route_drive_mode:
         cmd.append("--route-drive-mode")
+        cmd.extend(["--route-drive-timing", execution.route_drive_timing])
+        cmd.extend(["--route-drive-gap", execution.route_drive_gap])
     if execution.threads and not execution.headless:
         cmd.append("--threads")
     if not execution.headless:

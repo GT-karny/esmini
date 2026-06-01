@@ -49,9 +49,11 @@ namespace gt_esmini
     public:
         struct Config
         {
-            double winker_lead_time       = 2.0;   // [s] indicator ON this long before LC trigger
-            double lane_change_time       = 4.0;   // [s] LC transition duration
-            double min_dist_for_collision = 10.0;  // [m] 0 disables collision check
+            double winker_lead_time       = 2.0;    // [s] indicator ON this long before LC trigger
+            double lane_change_time       = 4.0;    // [s] LC transition duration
+            double min_dist_for_collision = 10.0;   // [m] 0 disables collision check; also the required-gap floor
+            double look_ahead_dist        = 200.0;  // [m] max distance ahead to start seeking a lane change (Timing=Early)
+            double gap_comfort_distance   = 25.0;   // [m] comfortable target-lane gap required when Gap=Wide
             bool   debug_log              = false;
         };
 
@@ -72,6 +74,14 @@ namespace gt_esmini
         void LoadConfig(const std::string& configPath);
         void SetConfig(const Config& c) { config_ = c; }
 
+        // Lane-change timing knobs (override JSON defaults; e.g. from CLI flags).
+        // alpha (Timing): 0=Late .. 1=Early. beta (Gap): 0=Wide(cautious) .. 1=Tight(aggressive).
+        void SetTimingGap(double alpha, double beta)
+        {
+            timing_alpha_ = CLAMP(alpha, 0.0, 1.0);
+            gap_beta_     = CLAMP(beta, 0.0, 1.0);
+        }
+
         // Exposed so a stacked ControllerKinematic can overlay the in-progress
         // lane change into its steering preview. Returns nullptr when not changing.
         const scenarioengine::LatLaneChangeAction* GetActiveLaneChangeAction() const
@@ -91,6 +101,11 @@ namespace gt_esmini
         void           CreateLaneChange(int lane);
         void           ChangeLane(double timeStep);
         bool           CanChangeLane(int lane);
+        // True if target lane exists and is wide enough at the current s.
+        bool           TargetLaneAvailable(int lane);
+        // Nearest longitudinal gap (m) to a vehicle ahead/behind in the target lane on the
+        // current road. LARGE_NUMBER when none. Used by the Gap timing knob.
+        void           ComputeTargetLaneGaps(int lane, double& ahead, double& behind);
         void           UpdateWaypoints(roadmanager::Position vehiclePos, roadmanager::Position nextWaypoint);
         WaypointStatus GetWaypointStatus(roadmanager::Position vehiclePos, roadmanager::Position waypoint);
         double         DistanceBetween(roadmanager::Position p1, roadmanager::Position p2);
@@ -98,6 +113,11 @@ namespace gt_esmini
 
         // Turn-signal helpers. dir: +1 = vehicle-left, -1 = vehicle-right, 0 = off.
         int  LaneChangeDirection(const roadmanager::Position& pos, int targetLane) const;
+        // Route-based junction turn direction (+1 left, -1 right, 0 straight/none).
+        // Derived from our own waypoints_ (the heading of the road the vehicle drives
+        // on AFTER the next junction vs. the current driving direction) — no geometric
+        // probe guessing, since the route is known.
+        int  JunctionTurnDirection() const;
         void ApplyIndicator(int dir);
 
         Config                                config_;
@@ -110,7 +130,14 @@ namespace gt_esmini
         bool                                  pathCalculated_        = false;
         double                                minLaneWidth_          = 0.5;
 
+        double timing_alpha_ = 0.5;     // Timing knob: 0=Late .. 1=Early (default Normal)
+        double gap_beta_     = 0.5;     // Gap knob:    0=Wide .. 1=Tight (default Normal)
+
         int  laneChangeDir_   = 0;      // latched indicator direction during a change
+        int  junctionTurnDir_ = 0;      // latched indicator direction while turning through a junction
+        bool junctionArmed_   = false;  // junction-turn decision latched for the current maneuver
+        int  lcDirThisRoad_   = 0;      // dir of last completed lane change on the current road (exit-lane detection)
+        id_t prevTrackId_     = ID_UNDEFINED;  // detect road change to reset lcDirThisRoad_
         bool indicatorLeftOn_  = false; // cached output state (avoid redundant writes)
         bool indicatorRightOn_ = false;
     };

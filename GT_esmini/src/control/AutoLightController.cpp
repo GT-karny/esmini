@@ -13,6 +13,7 @@
 #undef Object
 #endif
 #include "gt_esmini/control/AutoLightController.hpp"
+#include "gt_esmini/control/ControllerRouteDrive.hpp"  // CONTROLLER_TYPE_ROUTE_DRIVE
 #include <cmath>
 #include <algorithm>
 
@@ -257,6 +258,30 @@ namespace gt_esmini
         if (manual_left || manual_right)
         {
             return;
+        }
+
+        // RouteDriveController owns the turn signals (lane change + junction turn) while
+        // it is actively following a route. Hands off here so the two controllers don't
+        // both write the indicators (AutoLight runs last and would otherwise overwrite
+        // RouteDrive's intent — sometimes with a wrong direction). When no route is
+        // assigned, RouteDrive does not manage indicators, so AutoLight stays in control.
+        const bool routeDriveOwnsIndicators =
+            vehicle_->IsAnyActiveControllerOfType(
+                static_cast<scenarioengine::Controller::Type>(gt_esmini::CONTROLLER_TYPE_ROUTE_DRIVE)) &&
+            vehicle_->pos_.GetRoute() != nullptr;
+        if (routeDriveOwnsIndicators)
+        {
+            // Reset the FSM so AutoLight resumes cleanly once the route ends / RouteDrive
+            // deactivates. prev_t_ / prevLaneId_ keep updating in Update(), so t_dot stays
+            // continuous on resume.
+            indicatorState_    = IndicatorState::OFF;
+            indicatorTimer_    = 0.0;
+            prepareTimerLeft_  = 0.0;
+            prepareTimerRight_ = 0.0;
+            prepareOffTimer_   = 0.0;
+            centerHoldTimer_   = 0.0;
+            lastJunctionId_    = vehicle_->pos_.GetJunctionId();  // avoid spurious just-exited-junction trigger
+            return;  // leave indicator output to RouteDrive's ApplyIndicator
         }
 
         // Inputs

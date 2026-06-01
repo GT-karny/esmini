@@ -1,5 +1,7 @@
 export type ControllerType = 'default' | 'manual';
 export type DriveMode = 'comfort' | 'sport';
+export type LaneChangeTiming = 'late' | 'normal' | 'early';
+export type LaneChangeGap = 'wide' | 'normal' | 'tight';
 
 export interface ControllerSectionProps {
   controllerType: 'default' | 'manual';
@@ -7,6 +9,12 @@ export interface ControllerSectionProps {
   onOpenManualSettings?: () => void;
   driveMode: DriveMode;
   setDriveMode: (v: DriveMode) => void;
+  // RouteDrive lane-change timing knobs — only shown when Route Drive is enabled.
+  routeDriveMode?: boolean;
+  laneChangeTiming: LaneChangeTiming;
+  setLaneChangeTiming: (v: LaneChangeTiming) => void;
+  laneChangeGap: LaneChangeGap;
+  setLaneChangeGap: (v: LaneChangeGap) => void;
 }
 
 const btnBase = 'px-4 py-2 text-sm font-medium transition-colors cursor-pointer';
@@ -26,6 +34,11 @@ export function ControllerSection({
   onOpenManualSettings,
   driveMode,
   setDriveMode,
+  routeDriveMode,
+  laneChangeTiming,
+  setLaneChangeTiming,
+  laneChangeGap,
+  setLaneChangeGap,
 }: ControllerSectionProps) {
   return (
     <div>
@@ -85,6 +98,44 @@ export function ControllerSection({
       {controllerType === 'manual' && (
         <div className="text-xs text-text-tertiary">
           Click the gear icon to configure Manual Drive settings.
+        </div>
+      )}
+
+      {routeDriveMode && (
+        <div
+          className="flex flex-col gap-2 mt-1"
+          title="Route Drive のレーンチェンジ挙動。Timing=いつ切るか(早め/遅め)、Gap=どれだけ狭い車間で踏み切るか。"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-tertiary">Lane Change · Timing</span>
+            <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+              {(['late', 'normal', 'early'] as LaneChangeTiming[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setLaneChangeTiming(t)}
+                  className={`${modeBtnBase} ${laneChangeTiming === t ? modeBtnActive : modeBtnInactive}`}
+                >
+                  {t === 'late' ? 'Late' : t === 'normal' ? 'Normal' : 'Early'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-tertiary">Lane Change · Gap</span>
+            <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+              {(['wide', 'normal', 'tight'] as LaneChangeGap[]).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setLaneChangeGap(g)}
+                  className={`${modeBtnBase} ${laneChangeGap === g ? modeBtnActive : modeBtnInactive}`}
+                >
+                  {g === 'wide' ? 'Wide' : g === 'normal' ? 'Normal' : 'Tight'}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -130,6 +130,8 @@ class ExecutionConfig(BaseModel):
     vehicle_physics: bool = True
     kinematic_mode: bool = False
     route_drive_mode: bool = False
+    route_drive_timing: str = "normal"  # RouteDrive lane-change Timing knob (late | normal | early)
+    route_drive_gap: str = "normal"     # RouteDrive lane-change Gap knob (wide | normal | tight)
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []

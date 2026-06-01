@@ -105,12 +105,37 @@ void gt_esmini::ControllerRouteDrive::LoadConfig(const std::string& configPath)
         return content.substr(colon + 1, 20).find("true") != std::string::npos;
     };
 
+    // String enum value of a key (between the colon and the next comma/brace), lowercased-ish.
+    auto parseStr = [&content](const std::string& key) -> std::string {
+        size_t pos = content.find("\"" + key + "\"");
+        if (pos == std::string::npos)
+            return "";
+        size_t q1 = content.find('"', content.find(':', pos) + 1);
+        if (q1 == std::string::npos)
+            return "";
+        size_t q2 = content.find('"', q1 + 1);
+        if (q2 == std::string::npos)
+            return "";
+        return content.substr(q1 + 1, q2 - q1 - 1);
+    };
+
     config_.winker_lead_time       = parseDouble("winker_lead_time", config_.winker_lead_time);
     config_.lane_change_time       = parseDouble("lane_change_time", config_.lane_change_time);
     config_.min_dist_for_collision = parseDouble("min_dist_for_collision", config_.min_dist_for_collision);
+    config_.look_ahead_dist        = parseDouble("look_ahead_dist", config_.look_ahead_dist);
+    config_.gap_comfort_distance   = parseDouble("gap_comfort_distance", config_.gap_comfort_distance);
     config_.debug_log              = parseBool("debug_log", config_.debug_log);
 
-    LOG_INFO("RouteDriveController: Config loaded from {}", configPath);
+    std::string timing = parseStr("timing");
+    std::string gap    = parseStr("gap");
+    if (timing == "late")        timing_alpha_ = 0.0;
+    else if (timing == "early")  timing_alpha_ = 1.0;
+    else if (timing == "normal") timing_alpha_ = 0.5;
+    if (gap == "wide")        gap_beta_ = 0.0;
+    else if (gap == "tight")  gap_beta_ = 1.0;
+    else if (gap == "normal") gap_beta_ = 0.5;
+
+    LOG_INFO("RouteDriveController: Config loaded from {} (timing_alpha={}, gap_beta={})", configPath, timing_alpha_, gap_beta_);
 }
 
 void gt_esmini::ControllerRouteDrive::Init()
@@ -136,6 +161,10 @@ int gt_esmini::ControllerRouteDrive::Activate(const ControlActivationMode (&mode
     pathCalculated_        = false;
     changingLane_          = false;
     laneChangeDir_         = 0;
+    junctionTurnDir_       = 0;
+    junctionArmed_         = false;
+    lcDirThisRoad_         = 0;
+    prevTrackId_           = ID_UNDEFINED;
     indicatorLeftOn_       = false;
     indicatorRightOn_      = false;
     waypoints_.clear();
@@ -182,7 +211,7 @@ void gt_esmini::ControllerRouteDrive::Step(double timeStep)
     bool lsecConnectedLane = connectedLaneID == nextWaypoint.GetLaneId();
     bool sameLane          = (nextWaypoint.GetLaneId() == vehiclePos.GetLaneId()) || lsecConnectedLane;
 
-    // --- Winker pre-arm + lane-change trigger ---
+    // --- Winker pre-arm + lane-change trigger (Timing x Gap unified policy) ---
     int wantDir = 0;
     if (changingLane_)
     {
@@ -190,23 +219,144 @@ void gt_esmini::ControllerRouteDrive::Step(double timeStep)
     }
     else if (sameRoad && !sameLane)
     {
-        double speed            = MAX(fabs(object_->GetSpeed()), 0.1);
-        double dist             = fabs(vehiclePos.GetS() - nextWaypoint.GetS());
-        double distToLaneChange = MAX(config_.lane_change_time * object_->GetSpeed(), 25.0);
-        // Light the indicator winker_lead_time seconds before the LC trigger point.
-        double winkerDist = distToLaneChange + config_.winker_lead_time * speed;
+        const int    target = nextWaypoint.GetLaneId();
+        const int    dir    = LaneChangeDirection(vehiclePos, target);
+        const double speed  = MAX(fabs(object_->GetSpeed()), 0.1);
+        // Deadline is the end of the current road in the travel direction (the connection
+        // point to the next road), where the target lane must already be reached. Measuring
+        // to the road end — not to the waypoint s — gives a meaningful approach runway for
+        // the Timing knob regardless of where the router placed the waypoint.
+        roadmanager::Road* curRoad = odr_->GetRoadById(vehiclePos.GetTrackId());
+        const double       roadLen = curRoad ? curRoad->GetLength() : 0.0;
+        const bool         withS   = vehiclePos.GetDrivingDirectionRelativeRoad() >= 0;
+        const double       dist    = withS ? MAX(roadLen - vehiclePos.GetS(), 0.0) : MAX(vehiclePos.GetS(), 0.0);
 
-        if (dist < winkerDist)
+        // Latest feasible start so the transition still completes by the waypoint.
+        const double dDeadline = MAX(config_.lane_change_time * speed, 25.0);
+        // Timing knob: how far ahead we start seeking the change (alpha 0=Late .. 1=Early).
+        const double dSeek = dDeadline + timing_alpha_ * MAX(config_.look_ahead_dist - dDeadline, 0.0);
+
+        const bool laneAvail = TargetLaneAvailable(target);
+
+        // Winker leads the (potential) start by winker_lead_time; preserved across all settings.
+        if (laneAvail && dist <= dSeek + config_.winker_lead_time * speed)
         {
-            wantDir = LaneChangeDirection(vehiclePos, nextWaypoint.GetLaneId());
+            wantDir = dir;
         }
 
-        if (dist < distToLaneChange && CanChangeLane(nextWaypoint.GetLaneId()))
+        const bool seeking    = laneAvail && dist <= dSeek;
+        const bool atDeadline = dist <= dDeadline;
+
+        // Gap knob: required target-lane gap shrinks as beta->1 (Tight), floored at the
+        // collision distance. At the deadline we go on any safe gap (forced).
+        const double reqGap = MAX(config_.gap_comfort_distance * (1.0 - gap_beta_), config_.min_dist_for_collision);
+        double gapAhead = LARGE_NUMBER, gapBehind = LARGE_NUMBER;
+        ComputeTargetLaneGaps(target, gapAhead, gapBehind);
+        const bool gapOk = (gapAhead >= reqGap && gapBehind >= reqGap);
+
+        if (seeking && CanChangeLane(target) && (gapOk || atDeadline))
         {
-            laneChangeDir_ = LaneChangeDirection(vehiclePos, nextWaypoint.GetLaneId());
-            wantDir        = laneChangeDir_;
-            CreateLaneChange(nextWaypoint.GetLaneId());
+            laneChangeDir_ = dir;
+            wantDir        = dir;
+            LOG_INFO("RouteDriveController: LC trigger dist={:.1f}m (dSeek={:.1f}, dDeadline={:.1f}, gapA={:.1f}, gapB={:.1f}, reqGap={:.1f}, forced={})",
+                     dist, dSeek, dDeadline, gapAhead, gapBehind, reqGap, atDeadline && !gapOk);
+            CreateLaneChange(target);
             changingLane_ = true;
+        }
+    }
+
+    // --- Junction turn-signal (only when no lane-change signal is active) ---
+    // Reset the per-road lane-change memory when we roll onto a new road.
+    if (vehiclePos.GetTrackId() != prevTrackId_)
+    {
+        prevTrackId_   = vehiclePos.GetTrackId();
+        lcDirThisRoad_ = 0;
+    }
+
+    if (wantDir == 0 && !changingLane_)
+    {
+        const bool inJunction = vehiclePos.GetJunctionId() != ID_UNDEFINED;
+
+        bool approachingJunction = false;
+        if (!inJunction)
+        {
+            roadmanager::Road* curRoad = odr_->GetRoadById(vehiclePos.GetTrackId());
+            if (curRoad)
+            {
+                const bool             withS  = vehiclePos.GetDrivingDirectionRelativeRoad() >= 0;
+                roadmanager::RoadLink* onward = curRoad->GetLink(withS ? roadmanager::LinkType::SUCCESSOR : roadmanager::LinkType::PREDECESSOR);
+                if (onward && onward->GetElementType() == roadmanager::RoadLink::ElementType::ELEMENT_TYPE_JUNCTION)
+                {
+                    const double roadLen = curRoad->GetLength();
+                    const double dist    = withS ? MAX(roadLen - vehiclePos.GetS(), 0.0) : MAX(vehiclePos.GetS(), 0.0);
+                    const double speed   = MAX(fabs(object_->GetSpeed()), 0.1);
+                    const double lead    = MAX(config_.winker_lead_time * speed, 30.0);
+                    approachingJunction  = dist <= lead;
+                }
+            }
+        }
+
+        if (inJunction || approachingJunction)
+        {
+            // Decide once per junction maneuver, then hold the decision through transit
+            // (the connecting road is a different track, so we must latch it here).
+            if (!junctionArmed_)
+            {
+                const int jdir = JunctionTurnDirection();
+
+                // Same-direction lane change preceded this junction. Two real-world cases
+                // look identical at this point and we must keep them apart:
+                //   (a) Highway exit: LC into a deceleration/exit lane, then follow a long
+                //       gentle ramp. The lane-change blinker already conveyed intent — a
+                //       second blink through the ramp is redundant. Suppress.
+                //   (b) Turn lane at intersection: LC into a turn lane, then a sharp turn
+                //       at the junction. Drivers (and the law) expect the blinker to stay
+                //       on through the turn. Keep signalling.
+                // Curvature distinguishes them cleanly: the ramp is a long, low-turn-rate
+                // curve (rad/m); the intersection connector is a short, high-turn-rate
+                // pivot. Probe the route's connecting road and decide on turn rate.
+                bool exitContinuation = (lcDirThisRoad_ != 0 && jdir == lcDirThisRoad_);
+                if (exitContinuation)
+                {
+                    roadmanager::Road* connRoad = nullptr;
+                    for (unsigned int i = static_cast<unsigned int>(MAX(0, currentWaypointIndex_)); i < waypoints_.size(); i++)
+                    {
+                        roadmanager::Road* wpRoad = odr_->GetRoadById(waypoints_[i].GetTrackId());
+                        if (wpRoad && wpRoad->GetJunction() != ID_UNDEFINED)
+                        {
+                            connRoad = wpRoad;
+                            break;
+                        }
+                    }
+                    if (connRoad && connRoad->GetLength() > 0.1)
+                    {
+                        roadmanager::Position p0;
+                        roadmanager::Position pE;
+                        p0.SetTrackPos(connRoad->GetId(), 0.0, 0.0);
+                        pE.SetTrackPos(connRoad->GetId(), connRoad->GetLength(), 0.0);
+                        const double dh       = fabs(GetAngleInIntervalMinusPIPlusPI(pE.GetH() - p0.GetH()));
+                        const double turnRate = dh / connRoad->GetLength();
+                        constexpr double SHARP_TURN_RATE = 0.04;  // rad/m (~2.3°/m)
+                        if (turnRate >= SHARP_TURN_RATE)
+                        {
+                            exitContinuation = false;  // sharp connector ⇒ true turn-lane turn
+                        }
+                    }
+                }
+
+                junctionTurnDir_ = exitContinuation ? 0 : jdir;
+                junctionArmed_   = true;
+                if (junctionTurnDir_ != 0)
+                {
+                    LOG_INFO("RouteDriveController: junction turn signal dir {}", junctionTurnDir_);
+                }
+            }
+            wantDir = junctionTurnDir_;
+        }
+        else
+        {
+            junctionArmed_   = false;
+            junctionTurnDir_ = 0;
         }
     }
 
@@ -228,6 +378,63 @@ int gt_esmini::ControllerRouteDrive::LaneChangeDirection(const roadmanager::Posi
         return 1;  // vehicle-left
     if (laneDiff < 0)
         return -1;  // vehicle-right
+    return 0;
+}
+
+int gt_esmini::ControllerRouteDrive::JunctionTurnDirection() const
+{
+    if (odr_ == nullptr || waypoints_.empty())
+    {
+        return 0;
+    }
+
+    const roadmanager::Position& cur      = object_->pos_;
+    const id_t                   curTrack = cur.GetTrackId();
+
+    // Find the waypoint on the road the vehicle will drive on AFTER the next junction:
+    // the first waypoint on a different road that is itself a real road (not a junction
+    // connecting road). Fall back to the first different-road waypoint (a connector).
+    const roadmanager::Position* afterJunction = nullptr;
+    const roadmanager::Position* firstOther    = nullptr;
+    for (unsigned int i = static_cast<unsigned int>(MAX(0, currentWaypointIndex_)); i < waypoints_.size(); i++)
+    {
+        if (waypoints_[i].GetTrackId() == curTrack)
+        {
+            continue;
+        }
+        if (firstOther == nullptr)
+        {
+            firstOther = &waypoints_[i];
+        }
+        roadmanager::Road* wpRoad = odr_->GetRoadById(waypoints_[i].GetTrackId());
+        if (wpRoad && wpRoad->GetJunction() == ID_UNDEFINED)
+        {
+            afterJunction = &waypoints_[i];
+            break;
+        }
+    }
+
+    const roadmanager::Position* target = afterJunction ? afterJunction : firstOther;
+    if (target == nullptr)
+    {
+        return 0;
+    }
+
+    // GetDrivingDirection() is the actual heading the vehicle faces, so a world-frame
+    // CCW (left) turn maps directly to vehicle-left regardless of road s-direction.
+    const double targetH  = target->GetDrivingDirection();
+    const double currentH = cur.GetDrivingDirection();
+    const double diff     = GetAngleInIntervalMinusPIPlusPI(targetH - currentH);
+
+    constexpr double threshold = 0.10;  // rad (matches AutoLightController)
+    if (diff > threshold)
+    {
+        return 1;  // vehicle-left
+    }
+    if (diff < -threshold)
+    {
+        return -1;  // vehicle-right
+    }
     return 0;
 }
 
@@ -355,11 +562,59 @@ void gt_esmini::ControllerRouteDrive::ChangeLane(double timeStep)
 
         if (laneChangeAction_->GetCurrentState() == OSCAction::State::COMPLETE)
         {
-            changingLane_ = false;
+            lcDirThisRoad_ = laneChangeDir_;  // remember this move for exit-vs-turn signal logic
+            changingLane_  = false;
             laneChangeDir_ = 0;
             delete laneChangeAction_;
             laneChangeAction_ = nullptr;
             mode_             = ControlOperationMode::MODE_ADDITIVE;
+        }
+    }
+}
+
+bool gt_esmini::ControllerRouteDrive::TargetLaneAvailable(int lane)
+{
+    roadmanager::Position     vehiclePos = object_->pos_;
+    roadmanager::Road*        road       = odr_->GetRoadById(vehiclePos.GetTrackId());
+    roadmanager::LaneSection* ls         = road->GetLaneSectionByS(vehiclePos.GetS());
+    if (ls->GetLaneById(lane) == 0)  // lane does not exist on road in current lanesection
+    {
+        return false;
+    }
+    if (road->GetLaneWidthByS(vehiclePos.GetS(), lane) < minLaneWidth_)
+    {
+        return false;
+    }
+    return true;
+}
+
+void gt_esmini::ControllerRouteDrive::ComputeTargetLaneGaps(int lane, double& ahead, double& behind)
+{
+    ahead  = LARGE_NUMBER;
+    behind = LARGE_NUMBER;
+
+    roadmanager::Position vehiclePos = object_->pos_;
+    // +s ahead when driving with road direction, otherwise -s is ahead.
+    const double dirSign = (vehiclePos.GetDrivingDirectionRelativeRoad() < 0) ? -1.0 : 1.0;
+
+    for (Object* other : scenario_engine_->entities_.object_)
+    {
+        if (other == object_)
+        {
+            continue;
+        }
+        if (other->pos_.GetTrackId() != vehiclePos.GetTrackId() || other->pos_.GetLaneId() != lane)
+        {
+            continue;  // only vehicles already in the target lane on this road
+        }
+        const double ds = (other->pos_.GetS() - vehiclePos.GetS()) * dirSign;  // >0 ahead, <0 behind
+        if (ds >= 0.0)
+        {
+            ahead = MIN(ahead, ds);
+        }
+        else
+        {
+            behind = MIN(behind, -ds);
         }
     }
 }
@@ -372,9 +627,7 @@ bool gt_esmini::ControllerRouteDrive::CanChangeLane(int lane)
     {
         return false;
     }
-    roadmanager::Road*        road = odr_->GetRoadById(vehiclePos.GetTrackId());
-    roadmanager::LaneSection* ls   = road->GetLaneSectionByS(vehiclePos.GetS());
-    if (ls->GetLaneById(lane) == 0)  // lane does not exist on road in current lanesection
+    if (!TargetLaneAvailable(lane))
     {
         return false;
     }
@@ -382,11 +635,6 @@ bool gt_esmini::ControllerRouteDrive::CanChangeLane(int lane)
     if (config_.min_dist_for_collision <= 0)
     {
         return true;
-    }
-
-    if (road->GetLaneWidthByS(vehiclePos.GetS(), lane) < minLaneWidth_)
-    {
-        return false;
     }
 
     for (Object* otherVehicle : allVehicles)

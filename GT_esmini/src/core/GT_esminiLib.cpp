@@ -367,6 +367,8 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     int svPort = 48200;  // default SV reporter port
     bool kinematicModeEnabled = false;
     bool routeDriveModeEnabled = false;
+    std::string routeDriveTiming = "normal";  // late | normal | early (Timing knob)
+    std::string routeDriveGap    = "normal";  // wide | normal | tight (Gap knob)
 
     // If filename found, sanitized it
     std::string sanitizedFile;
@@ -408,7 +410,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--video_prefix") == 0 ||
                       strcmp(argv[i], "--sv-port") == 0 ||
                       strcmp(argv[i], "--kinematic-mode") == 0 ||
-                      strcmp(argv[i], "--route-drive-mode") == 0))
+                      strcmp(argv[i], "--route-drive-mode") == 0 ||
+                      strcmp(argv[i], "--route-drive-timing") == 0 ||
+                      strcmp(argv[i], "--route-drive-gap") == 0))
             {
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
@@ -450,6 +454,14 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 else if (strcmp(argv[i], "--route-drive-mode") == 0)
                 {
                     routeDriveModeEnabled = true;
+                }
+                else if (strcmp(argv[i], "--route-drive-timing") == 0)
+                {
+                    if (i + 1 < argc) { routeDriveTiming = argv[i + 1]; i++; }
+                }
+                else if (strcmp(argv[i], "--route-drive-gap") == 0)
+                {
+                    if (i + 1 < argc) { routeDriveGap = argv[i + 1]; i++; }
                 }
             }
             else
@@ -656,6 +668,13 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
                 auto* rdCtrl = new gt_esmini::ControllerRouteDrive(&initArgsRD);
                 rdCtrl->LoadConfig(rdConfigPath);
+                // CLI Timing/Gap knobs override the JSON defaults.
+                {
+                    double alpha = (routeDriveTiming == "late") ? 0.0 : (routeDriveTiming == "early") ? 1.0 : 0.5;
+                    double beta  = (routeDriveGap == "wide") ? 0.0 : (routeDriveGap == "tight") ? 1.0 : 0.5;
+                    rdCtrl->SetTimingGap(alpha, beta);
+                    std::cout << "GT_Init: RouteDrive timing=" << routeDriveTiming << " gap=" << routeDriveGap << std::endl;
+                }
                 rdCtrl->LinkObject(ego);
                 ego->AssignController(rdCtrl);
                 rdCtrl->Init();

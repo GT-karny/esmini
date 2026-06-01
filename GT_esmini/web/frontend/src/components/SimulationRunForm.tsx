@@ -78,6 +78,8 @@ export function SimulationRunForm({
   const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
   const [showManualPanel, setShowManualPanel] = useState(false);
   const [driveMode, setDriveMode] = useState<'comfort' | 'sport'>('comfort');
+  const [laneChangeTiming, setLaneChangeTiming] = useState<'late' | 'normal' | 'early'>('normal');
+  const [laneChangeGap, setLaneChangeGap] = useState<'wide' | 'normal' | 'tight'>('normal');
 
   // Load saved manual drive config from server
   const { data: savedManualDriveConfig } = useQuery({
@@ -148,7 +150,7 @@ export function SimulationRunForm({
     if (!rerunFrom) return;
     const opts = rerunFrom as {
       controller?: { controller_type?: string };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
     if (opts.controller) {
@@ -170,6 +172,8 @@ export function SimulationRunForm({
       if (exec.vehicle_physics !== undefined) setVehiclePhysics(exec.vehicle_physics);
       if (exec.kinematic_mode !== undefined) setKinematicMode(exec.kinematic_mode);
       if (exec.route_drive_mode !== undefined) setRouteDriveMode(exec.route_drive_mode);
+      if (exec.route_drive_timing) setLaneChangeTiming(exec.route_drive_timing);
+      if (exec.route_drive_gap) setLaneChangeGap(exec.route_drive_gap);
       if (exec.threads !== undefined) setThreads(exec.threads);
       if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
       if (exec.drive_mode) setDriveMode(exec.drive_mode);
@@ -192,6 +196,8 @@ export function SimulationRunForm({
       if (execDefaults.vehicle_physics !== undefined) setVehiclePhysics(execDefaults.vehicle_physics);
       if (execDefaults.kinematic_mode !== undefined) setKinematicMode(execDefaults.kinematic_mode);
       if (execDefaults.route_drive_mode !== undefined) setRouteDriveMode(execDefaults.route_drive_mode);
+      if (execDefaults.route_drive_timing) setLaneChangeTiming(execDefaults.route_drive_timing);
+      if (execDefaults.route_drive_gap) setLaneChangeGap(execDefaults.route_drive_gap);
       if (execDefaults.threads !== undefined) setThreads(execDefaults.threads);
       if (execDefaults.window) {
         setWinX(execDefaults.window.x);
@@ -260,6 +266,8 @@ export function SimulationRunForm({
       vehicle_physics: vehiclePhysics,
       kinematic_mode: kinematicMode,
       route_drive_mode: routeDriveMode,
+      route_drive_timing: laneChangeTiming,
+      route_drive_gap: laneChangeGap,
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
       extra_args: [],
@@ -311,6 +319,11 @@ export function SimulationRunForm({
         onOpenManualSettings={() => setShowManualPanel(true)}
         driveMode={driveMode}
         setDriveMode={setDriveMode}
+        routeDriveMode={routeDriveMode}
+        laneChangeTiming={laneChangeTiming}
+        setLaneChangeTiming={setLaneChangeTiming}
+        laneChangeGap={laneChangeGap}
+        setLaneChangeGap={setLaneChangeGap}
       />
 
       <ManualDrivePanel

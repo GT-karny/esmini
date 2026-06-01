@@ -126,6 +126,8 @@ export interface ExecutionDefaults {
   vehicle_physics: boolean;
   kinematic_mode: boolean;
   route_drive_mode: boolean;
+  route_drive_timing?: 'late' | 'normal' | 'early';
+  route_drive_gap?: 'wide' | 'normal' | 'tight';
   threads: boolean;
   window: WindowConfig;
 }
@@ -145,6 +147,8 @@ export interface SimulationRequest {
     vehicle_physics: boolean;
     kinematic_mode: boolean;
     route_drive_mode: boolean;
+    route_drive_timing?: 'late' | 'normal' | 'early';
+    route_drive_gap?: 'wide' | 'normal' | 'tight';
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];
