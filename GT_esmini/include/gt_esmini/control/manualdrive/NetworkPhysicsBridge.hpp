@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gt_esmini/control/manualdrive/IPhysicsBackend.hpp"
+#include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/ITransport.hpp"
 
 #include <vector>
@@ -14,7 +14,7 @@ public:
     NetworkPhysicsBridge();
     ~NetworkPhysicsBridge();
 
-    bool Init(const ManualDriveConfig& config, const scenarioengine::Object* obj) override;
+    bool Init(const PhysicsInitParams& params, const scenarioengine::Object* obj) override;
 
     osi3::HostVehicleData StepPedalSteer(const PedalSteerCommand& cmd, double dt) override;
 

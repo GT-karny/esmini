@@ -1,10 +1,10 @@
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
-#include "gt_esmini/control/manualdrive/IPhysicsBackend.hpp"
+#include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/NullFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/StubInputSource.hpp"
-#include "gt_esmini/control/manualdrive/RealVehicleBackend.hpp"
+#include "gt_esmini/control/common/RealVehicleBackend.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
 #ifdef GT_ENABLE_SDL2
@@ -147,8 +147,16 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
 
     if (object_)
     {
-        // Initialize physics backend from scenario object state
-        physics_backend_->Init(config_, object_);
+        // Initialize physics backend from scenario object state.
+        // Translate ManualDriveConfig → backend-agnostic PhysicsInitParams so the
+        // backend (shared with VirtualDriver) stays decoupled from this config schema.
+        PhysicsInitParams phys_params;
+        phys_params.vehicle_params_file   = config_.real_vehicle.vehicle_params_file;
+        phys_params.network_transport_type = config_.physics_network.transport_type;
+        phys_params.network_host           = config_.physics_network.host;
+        phys_params.network_cmd_port       = config_.physics_network.cmd_port;
+        phys_params.network_state_port     = config_.physics_network.state_port;
+        physics_backend_->Init(phys_params, object_);
         physics_backend_->SetInitialState(
             object_->pos_.GetX(),
             object_->pos_.GetY(),

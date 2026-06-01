@@ -1,6 +1,7 @@
 #pragma once
 
-#include "gt_esmini/control/manualdrive/ManualDriveTypes.hpp"
+#include "gt_esmini/control/common/VehicleCommand.hpp"
+#include "gt_esmini/control/common/PhysicsInitParams.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #ifdef GT_ENABLE_OSI_MOTION_REQUEST
@@ -15,13 +16,11 @@ class Object;
 namespace gt_esmini
 {
 
-struct ManualDriveConfig;
-
 class IPhysicsBackend
 {
 public:
     virtual ~IPhysicsBackend() = default;
-    virtual bool Init(const ManualDriveConfig& config, const scenarioengine::Object* obj) = 0;
+    virtual bool Init(const PhysicsInitParams& params, const scenarioengine::Object* obj) = 0;
 
     virtual osi3::HostVehicleData StepPedalSteer(const PedalSteerCommand& cmd, double dt) = 0;
 

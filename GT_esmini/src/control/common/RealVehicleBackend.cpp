@@ -1,5 +1,4 @@
-#include "gt_esmini/control/manualdrive/RealVehicleBackend.hpp"
-#include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
+#include "gt_esmini/control/common/RealVehicleBackend.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "Entities.hpp"
 
@@ -10,12 +9,12 @@ namespace gt_esmini { extern std::string GetCurrentModuleDirectory(); }
 namespace gt_esmini
 {
 
-bool RealVehicleBackend::Init(const ManualDriveConfig& config, const scenarioengine::Object* obj)
+bool RealVehicleBackend::Init(const PhysicsInitParams& params, const scenarioengine::Object* obj)
 {
     // Load vehicle parameters
     std::string exe_dir = GetCurrentModuleDirectory();
     ConfigLoader loader;
-    std::string params_path = loader.ResolveConfigPath(exe_dir, config.real_vehicle.vehicle_params_file);
+    std::string params_path = loader.ResolveConfigPath(exe_dir, params.vehicle_params_file);
     real_vehicle_.LoadParameters(params_path);
 
     // Initialize vehicle dimensions from scenario object

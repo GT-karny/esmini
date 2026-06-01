@@ -1,7 +1,7 @@
 #include "gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
-#include "gt_esmini/control/manualdrive/IPhysicsBackend.hpp"
+#include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"

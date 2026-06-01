@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gt_esmini/control/manualdrive/IPhysicsBackend.hpp"
+#include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/RealVehicle.hpp"
 
 namespace gt_esmini
@@ -9,7 +9,7 @@ namespace gt_esmini
 class RealVehicleBackend : public IPhysicsBackend
 {
 public:
-    bool Init(const ManualDriveConfig& config, const scenarioengine::Object* obj) override;
+    bool Init(const PhysicsInitParams& params, const scenarioengine::Object* obj) override;
 
     osi3::HostVehicleData StepPedalSteer(const PedalSteerCommand& cmd, double dt) override;
 
