@@ -82,7 +82,8 @@ set(GT_CORE_HEADERS
 
 set(GT_IO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_UDP.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_ScenarioVariablesReporter.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_ScenarioVariablesReporter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_VirtualDriverReporter.cpp)
 
 set(GT_IO_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/io/GT_UDP.hpp
@@ -126,6 +127,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/TrajectoryShortPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/PIDPurePursuitDriver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp

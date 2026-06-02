@@ -21,6 +21,8 @@ from GT_esmini.web.backend.api import (
     osi_stream,
     preset_stream,
     sv_stream,
+    vd_stream,
+    vd_input,
     projects,
     results,
     roads,
@@ -59,6 +61,13 @@ async def lifespan(app: FastAPI):
         await start_global_sv_bridge()
     except Exception as e:
         _logger.warning("Global SV Bridge failed to start: %s — will use per-job bridges", e)
+
+    # Start always-on VD bridge (UDP listener for live VirtualDriver telemetry)
+    from GT_esmini.web.backend.services.vd_bridge import start_global_vd_bridge
+    try:
+        await start_global_vd_bridge()
+    except Exception as e:
+        _logger.warning("Global VD Bridge failed to start: %s — will use per-job bridges", e)
 
     grpc_srv = None
     try:
@@ -104,6 +113,11 @@ async def lifespan(app: FastAPI):
     sv_count = await stop_all_sv_bridges()
     if sv_count:
         _logger.info("Stopped %d SV bridge(s)", sv_count)
+
+    from GT_esmini.web.backend.services.vd_bridge import stop_all_vd_bridges
+    vd_count = await stop_all_vd_bridges()
+    if vd_count:
+        _logger.info("Stopped %d VD bridge(s)", vd_count)
 
     # Phase 3: Stop gRPC server (reduced grace for Windows deadline)
     if grpc_srv is not None:
@@ -178,6 +192,8 @@ app.include_router(roads.router)
 app.include_router(verification.router)
 app.include_router(osi_stream.router)
 app.include_router(sv_stream.router)
+app.include_router(vd_stream.router)
+app.include_router(vd_input.router)
 app.include_router(preset_stream.router)
 
 

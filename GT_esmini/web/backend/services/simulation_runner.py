@@ -26,6 +26,7 @@ from GT_esmini.web.backend.models.simulation import (
 )
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
+from GT_esmini.web.backend.services import vd_recorder
 
 # Import scenario_generator for XOSC variant generation
 import sys
@@ -163,12 +164,18 @@ def _generate_manual_variant(
 def _generate_virtual_driver_variant(
     baseline_xosc: Path,
     output_path: Path,
+    enable_override: bool = True,
 ) -> None:
     """Generate XOSC variant with VirtualDriverController injected.
 
     Mirrors _generate_manual_variant but assigns the VirtualDriver controller
-    (full-physics virtual driver) and activates it on both domains. Uses the
-    default config/virtual_driver.json (no per-run override in Phase 1).
+    (full-physics virtual driver) and activates it on both domains.
+
+    When ``enable_override`` is set (default), a per-run virtual_driver.json is
+    written next to the variant with ``input_type=network`` and the controller's
+    ``ConfigFile`` property points at it, so the web manual-override panel can
+    inject pedal/steer/indicator commands over UDP at any time. With no input the
+    NetworkInputBridge stays empty and the auto pipeline drives normally.
     """
     import xml.etree.ElementTree as ET
 
@@ -191,6 +198,12 @@ def _generate_virtual_driver_variant(
     p1 = ET.SubElement(props, "Property")
     p1.set("name", "esminiController")
     p1.set("value", "VirtualDriverController")
+
+    if enable_override:
+        run_config = _write_virtual_driver_config(output_path.parent)
+        p2 = ET.SubElement(props, "Property")
+        p2.set("name", "ConfigFile")
+        p2.set("value", str(run_config))
 
     oc = ET.Element("ObjectController")
     oc.append(ctrl)
@@ -221,6 +234,31 @@ def _generate_virtual_driver_variant(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tree.write(output_path, encoding="utf-8", xml_declaration=True)
+
+
+def _write_virtual_driver_config(output_dir: Path) -> Path:
+    """Write a per-run virtual_driver.json that enables network manual input.
+
+    Starts from the shipped config/virtual_driver.json (preserving tuned gains)
+    and forces input_type=network so the web override panel (/ws/input) can drive
+    the ego. Returns the absolute path for the controller's ConfigFile property.
+    """
+    base_config_path = CONFIG_DIR / "virtual_driver.json"
+    base: dict = {}
+    if base_config_path.exists():
+        try:
+            base = json.loads(base_config_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            base = {}
+
+    base["input_type"] = "network"
+    base.setdefault("input_port", 9100)
+    base.setdefault("input_transport", "udp")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = (output_dir / "virtual_driver.json").resolve()
+    out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
+    return out_path
 
 
 def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
@@ -449,11 +487,25 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     finally:
         await db.close()
 
-    # Launch GT_Sim asynchronously
+    # Launch GT_Sim asynchronously. VirtualDriver runs are recorded for the
+    # verification (VERIFY) panel: the live telemetry stream is teed to
+    # results/<job_id>/telemetry.jsonl so the run shows up as a replayable
+    # "past run" with the same shape as an offline gt_sim_test recording.
+    record_vd = req.controller.controller_type == "virtual_driver"
+    record_meta = {
+        "scenario": req.scenario_id,
+        "scenario_path": str(scenario_path),
+        "project_id": req.project_id,
+        "scenario_file": req.scenario_id,
+    } if record_vd else None
+    # Record the OSI scene (other traffic + signal phases) only when OSI streams.
+    record_scene = record_vd and req.execution.osi.enabled
+
     asyncio.create_task(
         _run_simulation(
             job_id, cmd, output_dir, req.execution.timeout,
             osi_enabled=req.execution.osi.enabled,
+            record_vd=record_vd, record_meta=record_meta, record_scene=record_scene,
         )
     )
 
@@ -497,6 +549,9 @@ async def _run_simulation(
     output_dir: Path,
     timeout: int,
     osi_enabled: bool = False,
+    record_vd: bool = False,
+    record_meta: dict | None = None,
+    record_scene: bool = False,
 ) -> None:
     """Execute GT_Sim.exe and update job status on completion."""
     stdout_path = output_dir / "stdout.txt"
@@ -521,6 +576,13 @@ async def _run_simulation(
         # Phase 1: Start the subprocess (registers in _running_procs atomically)
         proc = await asyncio.to_thread(_start_subprocess, cmd, str(REPO_ROOT), job_id)
         pid = proc.pid
+
+        # Tee live VirtualDriver telemetry (and the OSI scene) to file for VERIFY.
+        if record_vd:
+            try:
+                vd_recorder.start(job_id, output_dir, record_scene=record_scene)
+            except Exception as e:
+                _logger.warning("VD recorder failed to start for %s: %s", job_id, e)
 
         # Write PID to DB immediately (while process is still running)
         db = await get_db()
@@ -560,6 +622,11 @@ async def _run_simulation(
     finally:
         with _running_procs_lock:
             _running_procs.pop(job_id, None)
+        if record_vd:
+            try:
+                await vd_recorder.stop(job_id, record_meta)
+            except Exception as e:
+                _logger.warning("VD recorder failed to stop for %s: %s", job_id, e)
 
     # Stop OSI bridge
     if osi_enabled:

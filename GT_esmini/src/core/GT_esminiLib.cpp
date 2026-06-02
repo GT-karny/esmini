@@ -42,9 +42,11 @@
 #include "gt_esmini/control/ControllerKinematic.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"
 #include "gt_esmini/control/ControllerVirtualDriver.hpp"
+#include "gt_esmini/control/virtualdriver/VirtualDriverTelemetryJson.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
+#include "gt_esmini/io/GT_VirtualDriverReporter.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
@@ -369,6 +371,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // Capture OSI IP and SV port if provided
     std::string osiTargetIp = "";
     int svPort = 48200;  // default SV reporter port
+    int vdPort = 48202;  // default VirtualDriver telemetry reporter port
     bool kinematicModeEnabled = false;
     bool routeDriveModeEnabled = false;
     std::string routeDriveTiming = "normal";  // late | normal | early (Timing knob)
@@ -413,6 +416,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--video_frames") == 0 ||
                       strcmp(argv[i], "--video_prefix") == 0 ||
                       strcmp(argv[i], "--sv-port") == 0 ||
+                      strcmp(argv[i], "--vd-port") == 0 ||
                       strcmp(argv[i], "--kinematic-mode") == 0 ||
                       strcmp(argv[i], "--route-drive-mode") == 0 ||
                       strcmp(argv[i], "--route-drive-timing") == 0 ||
@@ -448,6 +452,14 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                     if (i + 1 < argc)
                     {
                         try { svPort = std::stoi(argv[i+1]); } catch (...) {}
+                        i++; // Skip the port value
+                    }
+                }
+                else if (strcmp(argv[i], "--vd-port") == 0)
+                {
+                    if (i + 1 < argc)
+                    {
+                        try { vdPort = std::stoi(argv[i+1]); } catch (...) {}
                         i++; // Skip the port value
                     }
                 }
@@ -809,6 +821,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
         // 8. Initialize Scenario Variables Reporter (JSON over UDP)
         gt_esmini::GT_ScenarioVariablesReporter::Instance().Init(svPort, osiTargetIp);
+
+        // 9. Initialize VirtualDriver telemetry Reporter (JSON over UDP).
+        //    Sends each step only when a VirtualDriver controller is present.
+        gt_esmini::GT_VirtualDriverReporter::Instance().Init(vdPort, osiTargetIp);
     }
 
     // [GT_MOD] DIAGNOSTIC
@@ -1016,6 +1032,21 @@ GT_ESMINI_API void GT_Step(double dt)
 
     // Broadcast scenario variables (JSON over UDP, independent of OSI)
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Update();
+
+    // Broadcast live VirtualDriver telemetry (JSON over UDP). Only the ego's
+    // VirtualDriver controller (if any) is reported; no-op otherwise. Shares the
+    // exact JSON shape with GT_GetVirtualDriverTelemetry() via ToJson().
+    if (gt_esmini::GT_VirtualDriverReporter::Instance().IsInitialized() &&
+        player && player->scenarioEngine && !player->scenarioEngine->entities_.object_.empty())
+    {
+        scenarioengine::Object* egoObj = player->scenarioEngine->entities_.object_[0];
+        scenarioengine::Controller* ctrl =
+            egoObj ? egoObj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME) : nullptr;
+        if (auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
+        {
+            gt_esmini::GT_VirtualDriverReporter::Instance().Send(gt_esmini::ToJson(vd->GetTelemetry()));
+        }
+    }
 }
 
 GT_ESMINI_API void GT_EnableVehiclePhysics()
@@ -1058,6 +1089,7 @@ GT_ESMINI_API void GT_Close()
     gt_esmini::HeadingCorrectionManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Close();
+    gt_esmini::GT_VirtualDriverReporter::Instance().Close();
     AutoLightManager::Instance().Close();
     SE_Close();
 }
@@ -1265,33 +1297,7 @@ GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, i
 
     const gt_esmini::VirtualDriverTelemetry& t = vd->GetTelemetry();
 
-    std::ostringstream os;
-    os.setf(std::ios::fixed);
-    os.precision(4);
-    auto b = [](bool v) { return v ? "true" : "false"; };
-
-    os << "{\"sim_time\":" << t.sim_time
-       << ",\"ego\":{\"x\":" << t.x << ",\"y\":" << t.y << ",\"z\":" << t.z
-       << ",\"h\":" << t.h << ",\"speed\":" << t.speed
-       << ",\"track\":" << t.track_id << ",\"lane\":" << t.lane_id
-       << ",\"offset\":" << t.lane_offset << ",\"s\":" << t.s << "}"
-       << ",\"override\":{\"lateral\":" << b(t.override_lateral)
-       << ",\"longitudinal\":" << b(t.override_longitudinal) << "}"
-       << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake
-       << ",\"steer\":" << t.driver.steer << ",\"lateral_error\":" << t.driver.lateral_error
-       << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error
-       << ",\"lookahead\":" << t.driver.lookahead_dist << ",\"valid\":" << b(t.driver.valid) << "}"
-       << ",\"indicator\":{\"left\":" << b(t.indicator.left_on) << ",\"right\":" << b(t.indicator.right_on) << "}"
-       << ",\"preview\":{\"dt\":" << t.short_plan.dt << ",\"valid\":" << b(t.short_plan.valid) << ",\"points\":[";
-    for (size_t i = 0; i < t.short_plan.preview.size(); ++i)
-    {
-        const auto& p = t.short_plan.preview[i];
-        if (i) os << ",";
-        os << "{\"x\":" << p.x << ",\"y\":" << p.y << ",\"v\":" << p.v << ",\"t\":" << p.t << "}";
-    }
-    os << "]}}";
-
-    std::string s = os.str();
+    std::string s = gt_esmini::ToJson(t);
     int n = static_cast<int>(s.size());
     if (n >= buf_size)
     {

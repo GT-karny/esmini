@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type VdTelemetryFrame } from '../api/client';
-import { LiveSceneView } from '../components/LiveSceneView';
-import type { OsiObject } from '../hooks/useOsiStream';
+import { LiveSceneView, type RoadGeometry } from '../components/LiveSceneView';
+import { ErrorChart, TelemetryInfoRows } from '../components/verification/TelemetryPanels';
+import { LiveVdPanel } from '../components/verification/LiveVdPanel';
+import { VdRunLauncher } from '../components/verification/VdRunLauncher';
+import type { OsiObject, TrafficLight } from '../hooks/useOsiStream';
 
 interface EventMarker {
   idx: number;
@@ -23,6 +26,7 @@ function mk(idx: number, f: VdTelemetryFrame, kind: string, label: string, color
  * use once the C++ transport is wired.
  */
 export function VerificationReplayPage() {
+  const queryClient = useQueryClient();
   const { data: runsData } = useQuery({
     queryKey: ['verification-runs'],
     queryFn: api.getVerificationRuns,
@@ -41,6 +45,19 @@ export function VerificationReplayPage() {
   });
   const frames = useMemo(() => telemetry?.frames ?? [], [telemetry]);
 
+  // On-demand verification pipeline (writes compare.json / verdict.json into the
+  // run dir; refetching telemetry then lights up the existing ghost / verdict UI).
+  const refetchRun = () =>
+    queryClient.invalidateQueries({ queryKey: ['verification-telemetry', runId] });
+  const compareMut = useMutation({
+    mutationFn: () => api.runBaselineCompare(runId!),
+    onSuccess: refetchRun,
+  });
+  const assertMut = useMutation({
+    mutationFn: () => api.runAssertions(runId!),
+    onSuccess: refetchRun,
+  });
+
   // --- playback ---
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -55,6 +72,35 @@ export function VerificationReplayPage() {
     setIdx(0);
     setPlaying(false);
   };
+
+  // --- run-a-scenario mode: launch a VirtualDriver run, watch it live, then
+  // auto-switch to replaying the just-finished recording. ---
+  const [mode, setMode] = useState<'replay' | 'run'>('replay');
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
+  const [runOverride, setRunOverride] = useState(false);
+  const [runProject, setRunProject] = useState<string | undefined>(undefined);
+  const [runScenario, setRunScenario] = useState<string | undefined>(undefined);
+
+  const { data: runningSim } = useQuery({
+    queryKey: ['running-sim', runningJobId],
+    queryFn: () => api.getSimulation(runningJobId!),
+    enabled: !!runningJobId,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === 'running' || s === 'queued' ? 1000 : false;
+    },
+  });
+
+  useEffect(() => {
+    if (!runningJobId || !runningSim) return;
+    if (['completed', 'failed', 'timeout', 'cancelled'].includes(runningSim.status)) {
+      const finished = runningJobId;
+      setRunningJobId(null);
+      setMode('replay');
+      queryClient.invalidateQueries({ queryKey: ['verification-runs'] });
+      selectRun(finished); // load the just-finished run as a replay
+    }
+  }, [runningJobId, runningSim]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const lastIdx = Math.max(0, frames.length - 1);
   const atEnd = frames.length > 0 && idx >= lastIdx;
@@ -93,6 +139,23 @@ export function VerificationReplayPage() {
   const verdict = telemetry?.verdict ?? null;
   const compare = telemetry?.compare ?? null;
   const baselineTrack = telemetry?.baseline_track ?? null;
+
+  // Recorded OSI scene (other traffic + signal phases), sorted by sim_time.
+  const scene = useMemo(() => telemetry?.scene ?? [], [telemetry]);
+
+  // Static road geometry (road network + signs + stop lines) for this run's scenario.
+  const [roadGeometry, setRoadGeometry] = useState<RoadGeometry | null>(null);
+  useEffect(() => {
+    const pid = telemetry?.meta?.project_id;
+    const sfile = telemetry?.meta?.scenario_file;
+    if (!pid || !sfile) { setRoadGeometry(null); return; }
+    let cancelled = false;
+    api.getRoadGeometry(pid, sfile).then(
+      (data) => { if (!cancelled) setRoadGeometry(data as RoadGeometry); },
+      () => { /* road overlay is optional */ },
+    );
+    return () => { cancelled = true; };
+  }, [telemetry?.meta?.project_id, telemetry?.meta?.scenario_file]);
 
   // --- A: event markers detected from the telemetry ---
   const events = useMemo<EventMarker[]>(() => {
@@ -141,25 +204,44 @@ export function VerificationReplayPage() {
     [compareOn, baselineTrack],
   );
 
+  // Nearest recorded scene frame to the current playhead time (binary search).
+  const currentScene = useMemo(() => {
+    if (scene.length === 0 || !frame) return null;
+    const t = frame.sim_time;
+    let lo = 0, hi = scene.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (scene[mid].sim_time <= t) lo = mid; else hi = mid;
+    }
+    return Math.abs(scene[lo].sim_time - t) <= Math.abs(scene[hi].sim_time - t) ? scene[lo] : scene[hi];
+  }, [scene, frame]);
+
+  const sceneTrafficLights = useMemo(
+    () => (currentScene?.traffic_lights ?? []) as unknown as TrafficLight[],
+    [currentScene],
+  );
+
   const egoObjects: OsiObject[] = useMemo(() => {
     if (!frame) return [];
-    const e = frame.ego;
-    const objs: OsiObject[] = [{
-      id: 0, name: 'ego', x: e.x, y: e.y, z: e.z, h: e.h, speed: e.speed,
-      head_light: 'off',
-      indicator: frame.indicator.left ? 'left' : frame.indicator.right ? 'right' : 'off',
-      brake_light: frame.driver.brake > 0.05 ? 'normal' : 'off',
-      obj_type: 'vehicle', vehicle_class: 'medium_car', length: 5, width: 2,
-    }];
+    // Full scene (other traffic + ego) when recorded; else just the ego marker.
+    const objs: OsiObject[] = currentScene
+      ? (currentScene.objects as unknown as OsiObject[]).slice()
+      : [{
+          id: 0, name: 'ego', x: frame.ego.x, y: frame.ego.y, z: frame.ego.z, h: frame.ego.h, speed: frame.ego.speed,
+          head_light: 'off',
+          indicator: frame.indicator.left ? 'left' : frame.indicator.right ? 'right' : 'off',
+          brake_light: frame.driver.brake > 0.05 ? 'normal' : 'off',
+          obj_type: 'vehicle', vehicle_class: 'medium_car', length: 5, width: 2,
+        }];
     if (ghost) {
       objs.push({
-        id: 1, name: 'Default', x: ghost.x, y: ghost.y, z: 0, h: ghostHeading, speed: ghost.speed,
+        id: -1, name: 'Default', x: ghost.x, y: ghost.y, z: 0, h: ghostHeading, speed: ghost.speed,
         head_light: 'off', indicator: 'off', brake_light: 'off',
         obj_type: 'vehicle', vehicle_class: 'medium_car', length: 5, width: 2,
       });
     }
     return objs;
-  }, [frame, ghost, ghostHeading]);
+  }, [frame, currentScene, ghost, ghostHeading]);
 
   const ghostDelta = ghost && frame
     ? Math.hypot(frame.ego.x - ghost.x, frame.ego.y - ghost.y) : null;
@@ -168,7 +250,38 @@ export function VerificationReplayPage() {
     <div className="h-full flex flex-col p-4 gap-3">
       {/* Header / controls */}
       <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="font-display text-lg text-foreground">VirtualDriver Replay</h1>
+        <h1 className="font-display text-lg text-foreground">VirtualDriver</h1>
+
+        {/* Mode: replay a past run vs run a scenario now */}
+        <div className="inline-flex rounded border border-glass-edge p-0.5 text-xs">
+          {(['replay', 'run'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              disabled={!!runningJobId}
+              className={`px-2 py-1 rounded ${mode === m ? 'bg-primary/80 text-white' : 'text-text-secondary hover:bg-glass-2'} disabled:opacity-40`}
+            >
+              {m === 'replay' ? 'Replay' : 'Run a scenario'}
+            </button>
+          ))}
+        </div>
+
+        {runningJobId ? (
+          <span className="inline-flex items-center gap-2 text-xs">
+            <span className="text-warning">● running {runningSim?.status ?? 'starting'}…</span>
+            <button
+              onClick={() => api.cancelSimulation(runningJobId).catch(() => {})}
+              className="px-2 py-1 rounded text-xs font-medium bg-destructive/80 text-white hover:bg-destructive"
+            >
+              ■ Stop
+            </button>
+          </span>
+        ) : mode === 'run' ? (
+          <VdRunLauncher onStarted={(jid, { override, projectId, scenarioFile }) => {
+            setRunningJobId(jid); setRunOverride(override);
+            setRunProject(projectId); setRunScenario(scenarioFile);
+          }} />
+        ) : (<>
         <select
           value={runId ?? ''}
           onChange={(e) => selectRun(e.target.value || null)}
@@ -183,7 +296,34 @@ export function VerificationReplayPage() {
         </select>
         {runs.length === 0 && (
           <span className="text-xs text-text-tertiary">
-            No runs. Generate one: <code>gt_sim_test run &lt;scenario&gt; --out results/&lt;id&gt;</code>
+            No runs yet. Run a simulation with the <strong>Virtual Driver</strong> controller —
+            it is recorded automatically and appears here.
+          </span>
+        )}
+
+        {runId && (
+          <div className="inline-flex gap-1.5">
+            <button
+              onClick={() => compareMut.mutate()}
+              disabled={compareMut.isPending}
+              className="px-2 py-1 rounded text-xs font-medium border border-glass-edge text-text-secondary hover:bg-glass-2 disabled:opacity-50"
+              title="Run the same scenario with the Default controller and compare (XY / speed RMSE + ghost)"
+            >
+              {compareMut.isPending ? 'Comparing…' : 'Compare vs Default'}
+            </button>
+            <button
+              onClick={() => assertMut.mutate()}
+              disabled={assertMut.isPending}
+              className="px-2 py-1 rounded text-xs font-medium border border-glass-edge text-text-secondary hover:bg-glass-2 disabled:opacity-50"
+              title="Evaluate the run against its expectations.yaml (if present)"
+            >
+              {assertMut.isPending ? 'Asserting…' : 'Run assertions'}
+            </button>
+          </div>
+        )}
+        {(compareMut.error || assertMut.error) && (
+          <span className="text-xs text-destructive">
+            {String((compareMut.error || assertMut.error) as Error)}
           </span>
         )}
 
@@ -246,13 +386,27 @@ export function VerificationReplayPage() {
             )}
           </>
         )}
+        </>)}
       </div>
 
+      {/* Live view while a launched run is in progress */}
+      {runningJobId ? (
+        <div className="flex-1 min-h-0">
+          <LiveVdPanel
+            jobId={runningJobId}
+            projectId={runProject}
+            scenarioFile={runScenario}
+            showOverride={runOverride}
+          />
+        </div>
+      ) : (<>
       {/* Body: scene + side panel */}
       <div className="flex-1 min-h-0 flex gap-3">
         <div className="flex-1 min-h-0 rounded overflow-hidden border border-glass-edge">
           <LiveSceneView
             objects={egoObjects}
+            roadGeometry={roadGeometry}
+            trafficLights={sceneTrafficLights}
             vdTelemetry={frame}
             ghostPath={ghostPathPts}
             className="h-full"
@@ -286,18 +440,7 @@ export function VerificationReplayPage() {
             </div>
           )}
 
-          {frame && (
-            <div className="rounded border border-glass-edge p-3 text-xs font-mono space-y-1">
-              <Row label="speed" value={`${(frame.ego.speed * 3.6).toFixed(1)} km/h`} />
-              <Row label="throttle" value={frame.driver.throttle.toFixed(2)} />
-              <Row label="brake" value={frame.driver.brake.toFixed(2)} />
-              <Row label="steer" value={frame.driver.steer.toFixed(3)} />
-              <Row label="lat err" value={`${frame.driver.lateral_error.toFixed(3)} m`} />
-              <Row label="spd err" value={`${frame.driver.speed_error.toFixed(2)} m/s`} />
-              {frame.ego.lane != null && <Row label="lane" value={`${frame.ego.lane} @ road ${frame.ego.track}`} />}
-              <Row label="override" value={`${frame.override.lateral ? 'lat ' : ''}${frame.override.longitudinal ? 'lon' : ''}${!frame.override.lateral && !frame.override.longitudinal ? 'none' : ''}`} />
-            </div>
-          )}
+          {frame && <TelemetryInfoRows frame={frame} />}
 
           {frames.length > 0 && (
             <ErrorChart frames={frames} idx={idx} />
@@ -315,6 +458,7 @@ export function VerificationReplayPage() {
           onSeek={(i) => { setIdx(i); setPlaying(false); }}
         />
       )}
+      </>)}
     </div>
   );
 }
@@ -467,48 +611,3 @@ const LoopIcon = () => (
   </svg>
 );
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-text-tertiary">{label}</span>
-      <span className="text-foreground">{value}</span>
-    </div>
-  );
-}
-
-/* ---------- Error chart ---------- */
-
-function ErrorChart({ frames, idx }: { frames: VdTelemetryFrame[]; idx: number }) {
-  const W = 264, H = 120, padL = 4, padR = 4, padT = 6, padB = 6;
-  const t0 = frames[0].sim_time;
-  const t1 = frames[frames.length - 1].sim_time;
-  const span = Math.max(1e-3, t1 - t0);
-
-  const series = useMemo(() => {
-    const lat = frames.map((f) => f.driver.lateral_error);
-    const spd = frames.map((f) => f.driver.speed_error);
-    const all = [...lat, ...spd];
-    const amax = Math.max(0.1, ...all.map(Math.abs));
-    const x = (i: number) => padL + ((frames[i].sim_time - t0) / span) * (W - padL - padR);
-    const y = (v: number) => padT + (0.5 - v / (2 * amax)) * (H - padT - padB);
-    const path = (arr: number[]) =>
-      arr.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    return { latPath: path(lat), spdPath: path(spd), x, amax };
-  }, [frames, t0, span]);
-
-  return (
-    <div className="rounded border border-glass-edge p-2">
-      <div className="text-[11px] text-text-tertiary mb-1 flex gap-3">
-        <span><span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: '#7B88E8' }} />lateral err</span>
-        <span><span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: '#4FD18B' }} />speed err</span>
-        <span className="ml-auto">±{series.amax.toFixed(2)}</span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-        <line x1={padL} y1={H / 2} x2={W - padR} y2={H / 2} stroke="rgba(180,170,230,0.2)" strokeWidth={0.5} />
-        <path d={series.latPath} fill="none" stroke="#7B88E8" strokeWidth={1} />
-        <path d={series.spdPath} fill="none" stroke="#4FD18B" strokeWidth={1} />
-        <line x1={series.x(idx)} y1={padT} x2={series.x(idx)} y2={H - padB} stroke="rgba(255,255,255,0.5)" strokeWidth={0.8} />
-      </svg>
-    </div>
-  );
-}

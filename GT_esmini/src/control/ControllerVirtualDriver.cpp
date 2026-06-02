@@ -16,6 +16,7 @@
 #include "CommonMini.hpp"
 #include "Entities.hpp"
 #include "OSCPrivateAction.hpp"
+#include "RoadManager.hpp"
 #include "logger.hpp"
 
 #include <cmath>
@@ -242,6 +243,18 @@ void ControllerVirtualDriver::Step(double timeStep)
     }
     last_cmd_ = cmd;
 
+    // 4b. Manual indicator (turn-signal) control from input-source buttons,
+    // via ManualDrive's auto-cancel FSM. When the human arms an indicator this
+    // overrides the auto (maneuver-driven) policy below.
+    const uint32_t in_buttons  = frame.pedal_steer ? frame.pedal_steer->buttons : 0u;
+    const double   in_steering = frame.pedal_steer ? frame.pedal_steer->steering : 0.0;
+    constexpr double kIndicatorCancelAngle = 0.3;  // normalized steering threshold
+    const bool hazard_on = (in_buttons & ButtonBits::HAZARD) != 0;
+    IndicatorFSM::Output manual_ind = indicator_fsm_.Update(
+        in_buttons, prev_buttons_, in_steering, prev_steering_, kIndicatorCancelAngle, hazard_on);
+    prev_buttons_  = in_buttons;
+    prev_steering_ = in_steering;
+
     // 5. Physics step
     osi3::HostVehicleData hvd = physics_backend_->StepPedalSteer(cmd, timeStep);
 
@@ -273,11 +286,20 @@ void ControllerVirtualDriver::Step(double timeStep)
     current_hvd_ = hvd;
     GT_HostVehicleReporter::Instance().SetBaseHostVehicleData(object_->GetId(), hvd);
 
-    // 10. Indicator policy -> lights
+    // 10. Indicator policy -> lights.
+    // Auto maneuver direction: an active lane change takes priority; otherwise
+    // look ahead along the route for a junction turn (pre-arm before the
+    // intersection). Manual button input overrides the auto logic.
     IndicatorContext ictx;
     ictx.object       = object_;
-    ictx.maneuver_dir = DetectManeuverDir(plan);
+    int maneuver_dir  = DetectManeuverDir(plan);
+    if (maneuver_dir == 0)
+        maneuver_dir = DetectJunctionTurn(dstate.speed);
+    ictx.maneuver_dir = maneuver_dir;
     ictx.sim_time     = sim_time_;
+    ictx.manual_left  = manual_ind.left_on;
+    ictx.manual_right = manual_ind.right_on;
+    ictx.manual_active = manual_ind.left_on || manual_ind.right_on;
     IndicatorSnapshot ind = indicator_policy_->Update(ictx, timeStep);
     ApplyLights(cmd, ind);
 
@@ -390,6 +412,59 @@ int ControllerVirtualDriver::DetectManeuverDir(const ShortPlannerSnapshot& plan)
 
     if (local_y > 0.5)  return +1;  // left
     if (local_y < -0.5) return -1;  // right
+    return 0;
+}
+
+int ControllerVirtualDriver::DetectJunctionTurn(double speed) const
+{
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    if (!odr) return 0;
+
+    // Walk a copy of the ego route forward; find the first real (non-junction)
+    // road reached *after* passing through a junction connecting road, and
+    // compare its driving direction to the current one. Mirrors
+    // ControllerRouteDrive::JunctionTurnDirection() but scans the route via
+    // MoveAlongS (VirtualDriver has no precomputed waypoints_).
+    roadmanager::Position pos;
+    pos.Duplicate(object_->pos_);
+    pos.CopyRoute(object_->pos_);
+
+    const double cur_h     = object_->pos_.GetDrivingDirection();
+    const id_t   cur_track = object_->pos_.GetTrackId();
+
+    // Lead-time based lookahead so the signal pre-arms before the intersection.
+    const double lookahead = std::max(15.0, speed * vd_config_.indicator_lead_time + 10.0);
+    const double step      = 2.0;
+    double       traveled  = 0.0;
+    bool         passed_junction = false;
+
+    while (traveled < lookahead)
+    {
+        int ret = static_cast<int>(pos.MoveAlongS(step));
+        if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC))
+            break;
+        traveled += step;
+
+        const id_t t = pos.GetTrackId();
+        if (t == cur_track) continue;
+
+        roadmanager::Road* r = odr->GetRoadById(t);
+        if (!r) continue;
+
+        if (r->GetJunction() != ID_UNDEFINED)
+        {
+            passed_junction = true;  // on a junction connecting road
+            continue;
+        }
+        if (!passed_junction)
+            return 0;  // direct successor road (no junction) = straight continuation
+
+        const double diff = GetAngleInIntervalMinusPIPlusPI(pos.GetDrivingDirection() - cur_h);
+        constexpr double threshold = 0.10;  // rad (matches RouteDrive / AutoLight)
+        if (diff > threshold)  return +1;  // left
+        if (diff < -threshold) return -1;  // right
+        return 0;
+    }
     return 0;
 }
 

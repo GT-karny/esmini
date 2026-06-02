@@ -8,16 +8,41 @@ the same overlay component will drive both.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from GT_esmini.web.backend.config import REPO_ROOT
+from GT_esmini.web.backend.config import RESULTS_DIR
+from GT_esmini.web.backend.services import vd_verify
 
 router = APIRouter(prefix="/api/verification", tags=["verification"])
 
-RESULTS_ROOT = (REPO_ROOT / "results").resolve()
+# Canonical results root = the same dir GUI simulations write to (config.RESULTS_DIR),
+# so GUI VirtualDriver runs (recorded by vd_recorder) appear here.
+RESULTS_ROOT = RESULTS_DIR.resolve()
+
+
+def _a_sim_is_running() -> bool:
+    """True if a GT_Sim subprocess is currently active (baseline generation would
+    otherwise collide on the OSI UDP port)."""
+    from GT_esmini.web.backend.services.simulation_runner import _running_procs, _running_procs_lock
+    with _running_procs_lock:
+        return len(_running_procs) > 0
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    out: list[dict] = []
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    return out
 
 
 def _safe_run_dir(run_id: str) -> Path:
@@ -73,7 +98,81 @@ async def get_telemetry(run_id: str):
         "id": run_id,
         "meta": _read_json(d / "meta.json") or {},
         "frames": frames,
+        # Recorded scene (other traffic + signal phases) for full replay context.
+        # Empty if the run had OSI streaming disabled.
+        "scene": _load_jsonl(d / "scene.jsonl"),
         "compare": _read_json(d / "compare.json"),
         "verdict": _read_json(d / "verdict.json"),
         "baseline_track": _read_json(d / "baseline_track.json"),
     }
+
+
+@router.post("/runs/{run_id}/baseline-compare")
+async def baseline_compare(run_id: str):
+    """Run the same scenario with the Default controller, then compare the recorded
+    VirtualDriver run against it (ego XY / speed RMSE). Writes compare.json +
+    baseline_track.json into the run dir so the replay UI can overlay the ghost."""
+    run_dir = _safe_run_dir(run_id)
+    if not (run_dir / "telemetry.jsonl").is_file():
+        raise HTTPException(status_code=404, detail=f"no telemetry for run '{run_id}'")
+
+    meta = _read_json(run_dir / "meta.json") or {}
+    scenario_path = meta.get("scenario_path")
+    if not scenario_path or not Path(scenario_path).is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="meta.json has no usable 'scenario_path'; cannot generate a Default baseline",
+        )
+    if _a_sim_is_running():
+        raise HTTPException(
+            status_code=409,
+            detail="a simulation is running; baseline generation needs the OSI port — try again after it finishes",
+        )
+
+    scenario = Path(scenario_path)
+    baseline_dir = (RESULTS_ROOT / "baselines" / scenario.stem).resolve()
+
+    def _work():
+        meta_b = vd_verify.generate_baseline(scenario, baseline_dir)
+        if meta_b.get("frames", 0) == 0:
+            raise RuntimeError("baseline produced 0 OSI frames (is GT_Sim emitting OSI?)")
+        return vd_verify.compare(run_dir, baseline_dir)
+
+    try:
+        result = await asyncio.to_thread(_work)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"baseline-compare failed: {e}")
+    return result
+
+
+@router.post("/runs/{run_id}/assert")
+async def assert_run(run_id: str):
+    """Evaluate the recorded run against an expectations.yaml (declarative must[]
+    events). Looks for <scenario-stem>.expectations.yaml beside the scenario, then
+    expectations.yaml in the run dir. Writes verdict.json."""
+    run_dir = _safe_run_dir(run_id)
+    if not (run_dir / "telemetry.jsonl").is_file():
+        raise HTTPException(status_code=404, detail=f"no telemetry for run '{run_id}'")
+
+    meta = _read_json(run_dir / "meta.json") or {}
+    scenario_path = meta.get("scenario_path")
+
+    exp: Path | None = None
+    if scenario_path:
+        sp = Path(scenario_path)
+        cand = sp.parent / f"{sp.stem}.expectations.yaml"
+        if cand.is_file():
+            exp = cand
+    if exp is None and (run_dir / "expectations.yaml").is_file():
+        exp = run_dir / "expectations.yaml"
+    if exp is None:
+        raise HTTPException(
+            status_code=404,
+            detail="no expectations.yaml found (expected beside the scenario or in the run dir)",
+        )
+
+    try:
+        verdict = await asyncio.to_thread(vd_verify.assert_run, run_dir, exp)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"assert failed: {e}")
+    return verdict

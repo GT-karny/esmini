@@ -424,6 +424,25 @@ export function SimulationRunForm({
         </Button>
       </div>
 
+      {/* Live VirtualDriver telemetry — open a standalone window. Available even
+          before/without a run: it connects to the always-on stream and shows
+          "waiting" until a Virtual Driver simulation starts emitting. */}
+      {controllerType === 'virtual_driver' && (
+        <button
+          type="button"
+          onClick={() => {
+            const q = new URLSearchParams({ override: '1' });
+            if (projectId) q.set('project', projectId);
+            if (scenarioFile) q.set('scenario', scenarioFile);
+            window.open(`/live/vd/current?${q.toString()}`, 'vd-live', 'width=960,height=720');
+          }}
+          className="w-full mt-2 px-3 py-2 rounded text-sm border border-glass-edge text-text-secondary hover:bg-glass-2"
+          title="Open the live VirtualDriver telemetry + manual override in a separate window"
+        >
+          Live Telemetry ↗
+        </button>
+      )}
+
       {mutation.error && (
         <p className="text-destructive text-sm">{String(mutation.error)}</p>
       )}

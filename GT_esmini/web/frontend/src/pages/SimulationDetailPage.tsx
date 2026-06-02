@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api, type ResultFile } from '../api/client';
 import { OsiLivePanel } from '../components/OsiLivePanel';
+import { LiveVdPanel } from '../components/verification/LiveVdPanel';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/Badge';
@@ -174,6 +175,29 @@ export function SimulationDetailPage() {
 
       {/* Live OSI Data (shown while running) */}
       {sim.status === 'running' && jobId && <OsiLivePanel jobId={jobId} />}
+
+      {/* Live VirtualDriver telemetry (shown while running a VirtualDriver run) */}
+      {sim.status === 'running' && jobId && sim.controller_type === 'virtual_driver' && (
+        <Card className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-display text-foreground">VirtualDriver Telemetry</h2>
+            <button
+              onClick={() => {
+                const q = new URLSearchParams({ override: '1' });
+                if (sim.project_id) q.set('project', sim.project_id);
+                window.open(`/live/vd/${jobId}?${q.toString()}`, `vd-${jobId}`, 'width=960,height=720');
+              }}
+              className="px-2 py-1 rounded text-xs border border-glass-edge text-text-secondary hover:bg-glass-2"
+              title="Open the telemetry view in a separate window"
+            >
+              Open in window ↗
+            </button>
+          </div>
+          <div className="h-[26rem]">
+            <LiveVdPanel jobId={jobId} projectId={sim.project_id ?? undefined} showOverride />
+          </div>
+        </Card>
+      )}
 
       {/* Metrics */}
       {metrics && !('error' in metrics) && (() => {

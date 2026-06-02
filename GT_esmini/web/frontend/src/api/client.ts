@@ -283,10 +283,18 @@ export interface VerdictResult {
   idx?: number;
 }
 
+/** One recorded OSI scene frame (other traffic + signal phases) for replay. */
+export interface SceneFrame {
+  sim_time: number;
+  objects: Record<string, unknown>[];
+  traffic_lights: Record<string, unknown>[];
+}
+
 export interface VerificationTelemetry {
   id: string;
-  meta: Record<string, unknown>;
+  meta: Record<string, unknown> & { project_id?: string | null; scenario_file?: string };
   frames: VdTelemetryFrame[];
+  scene: SceneFrame[];
   compare: { xy_rmse_m?: number; speed_rmse_mps?: number; xy_max_dev_m?: number } | null;
   verdict: { overall?: string; summary?: { pass: number; fail: number; skip: number }; results?: VerdictResult[] } | null;
   baseline_track: BaselinePoint[] | null;
@@ -368,6 +376,16 @@ export const api = {
     request<{ runs: VerificationRun[] }>(`/api/verification/runs`),
   getVerificationTelemetry: (runId: string) =>
     request<VerificationTelemetry>(`/api/verification/runs/${encodeURIComponent(runId)}/telemetry`),
+  runBaselineCompare: (runId: string) =>
+    request<Record<string, unknown>>(
+      `/api/verification/runs/${encodeURIComponent(runId)}/baseline-compare`,
+      { method: 'POST' },
+    ),
+  runAssertions: (runId: string) =>
+    request<Record<string, unknown>>(
+      `/api/verification/runs/${encodeURIComponent(runId)}/assert`,
+      { method: 'POST' },
+    ),
 
   getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
     const res = await fetch(`${BASE}/api/projects/${projectId}/scenarios/${scenarioFile}/docs`);

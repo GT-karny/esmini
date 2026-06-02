@@ -64,6 +64,9 @@ public:
 private:
     int    BuildLightMaskFromExtension() const;
     int    DetectManeuverDir(const ShortPlannerSnapshot& plan) const;
+    // Look ahead along the route for a junction turn; +1 left, -1 right, 0 none.
+    // Used to pre-arm turn signals before intersections (no lane change involved).
+    int    DetectJunctionTurn(double speed) const;
     void   ApplyLights(const PedalSteerCommand& cmd, const IndicatorSnapshot& ind);
     // Target speed the driver tracks. Read from a running SpeedAction (which the
     // engine no longer applies to object speed once a controller owns the LONG
@@ -81,6 +84,13 @@ private:
 
     OverrideManager  override_mgr_;
     HVDStateApplier  state_applier_;
+
+    // Manual indicator (turn-signal) control via input-source buttons, reusing
+    // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes
+    // precedence over the auto (maneuver-driven) policy.
+    IndicatorFSM     indicator_fsm_;
+    uint32_t         prev_buttons_  = 0;
+    double           prev_steering_ = 0.0;
 
     osi3::HostVehicleData  current_hvd_;
     PedalSteerCommand      last_cmd_;

@@ -115,6 +115,7 @@ HTTP_PORT = int(os.environ.get("GT_SIM_HTTP_PORT", "8000"))
 SV_LISTEN_PORT = int(os.environ.get("GT_SIM_SV_PORT", "48200"))
 SV_MULTICAST_GROUP = os.environ.get("GT_SIM_SV_MULTICAST_GROUP", "239.0.0.1")
 SV_MULTICAST_PORT = int(os.environ.get("GT_SIM_SV_MULTICAST_PORT", "48201"))
+VD_LISTEN_PORT = int(os.environ.get("GT_SIM_VD_PORT", "48202"))
 
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
