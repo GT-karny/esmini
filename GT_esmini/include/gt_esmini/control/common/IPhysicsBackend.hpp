@@ -43,6 +43,19 @@ public:
         dx = dy = dz = 0.0;
     }
 
+    // Live ego pose held by the backend's vehicle model (its own reference point,
+    // i.e. the same origin that StepPedalSteer reports through HVD location).
+    // Returns true if the backend owns a model and filled the values; backends
+    // that don't (e.g. a network bridge) return false and the caller falls back
+    // to the scenario object pose. Used by the driver model so its cross-track
+    // feedback is closed on the *physical* ego rather than the scenario-intended
+    // pose that an active lateral action writes into object->pos_ each frame.
+    virtual bool GetPose(double& x, double& y, double& z, double& h, double& speed) const
+    {
+        (void)x; (void)y; (void)z; (void)h; (void)speed;
+        return false;
+    }
+
     // For backends that compute dynamic attitude
     virtual void GetCombinedAttitude(double& pitch, double& roll) const
     {

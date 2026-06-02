@@ -20,6 +20,7 @@ public:
     void SetInitialState(double x, double y, double z, double h, double speed) override;
     void SyncState(double x, double y, double z, double h, double speed) override;
     void GetBodyPositionOffset(double& dx, double& dy, double& dz) const override;
+    bool GetPose(double& x, double& y, double& z, double& h, double& speed) const override;
     void GetCombinedAttitude(double& pitch, double& roll) const override;
     void SyncRoadZ(double road_z) override;
     void GetDynamicAttitude(double& pitch, double& roll) const override;

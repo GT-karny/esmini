@@ -63,6 +63,22 @@ void RealVehicleBackend::SyncState(double x, double y, double z, double h, doubl
     real_vehicle_.SetSpeed(speed);
 }
 
+bool RealVehicleBackend::GetPose(double& x, double& y, double& z, double& h, double& speed) const
+{
+    // Live state of the kinematic model. Always valid: SetInitialState seeds it
+    // from object->pos_ at Activate and re-seeds it on teleport (handled in the
+    // controller's Step), so this returns the new pose even on a teleport frame.
+    // Note: the model's planar origin coincides with object->pos_ X/Y because the
+    // body offset has no XY component (only a Z pivot correction), so this stays
+    // consistent with the route the planner walks from object->pos_.
+    x     = real_vehicle_.posX_;
+    y     = real_vehicle_.posY_;
+    z     = real_vehicle_.posZ_;
+    h     = real_vehicle_.heading_;
+    speed = real_vehicle_.speed_;
+    return true;
+}
+
 void RealVehicleBackend::GetBodyPositionOffset(double& dx, double& dy, double& dz) const
 {
     // const_cast is safe here: GetBodyPositionOffset doesn't modify state,

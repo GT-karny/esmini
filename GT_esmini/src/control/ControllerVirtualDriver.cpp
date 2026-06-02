@@ -199,11 +199,31 @@ void ControllerVirtualDriver::Step(double timeStep)
     sctx.fallback_speed = target_speed;
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
 
+    // Self-localize from the physics backend, not object->pos_. During a lateral
+    // action (LaneChange/LaneOffset) the storyboard rewrites object->pos_ to the
+    // *intended* pose every frame before this controller steps (ADDITIVE mode does
+    // not early-return that action), so reading pos_ would make the driver believe
+    // it is already on the intended path and never correct the physical ego's
+    // cross-track lag. The backend pose is the true ego; the planner's preview is
+    // the (absolute) intent, so the driver closes the loop on the real deviation.
+    // x/y/h/speed must come from one source to keep the vehicle-frame transform
+    // consistent. Fall back to object->pos_ for backends that own no model.
     DriverState dstate;
-    dstate.x          = object_->pos_.GetX();
-    dstate.y          = object_->pos_.GetY();
-    dstate.h          = object_->pos_.GetH();
-    dstate.speed      = object_->GetSpeed();
+    double phys_x, phys_y, phys_z, phys_h, phys_speed;
+    if (physics_backend_->GetPose(phys_x, phys_y, phys_z, phys_h, phys_speed))
+    {
+        dstate.x     = phys_x;
+        dstate.y     = phys_y;
+        dstate.h     = phys_h;
+        dstate.speed = phys_speed;
+    }
+    else
+    {
+        dstate.x     = object_->pos_.GetX();
+        dstate.y     = object_->pos_.GetY();
+        dstate.h     = object_->pos_.GetH();
+        dstate.speed = object_->GetSpeed();
+    }
     dstate.wheel_base = object_->boundingbox_.dimensions_.length_ * 0.6;
     DriverModelSnapshot dsnap;
     PedalSteerCommand   auto_cmd = driver_model_->Compute(plan, dstate, timeStep, &dsnap);
