@@ -91,18 +91,19 @@ def main():
             ego, drv = tel["ego"], tel["driver"]
             pv = tel["preview"]["points"]
             endp = pv[-1] if pv else {"x": 0, "y": 0}
+            vset = pv[0]["v"] if pv else 0.0
             rows.append((round(t, 2), ego["x"], ego["y"], ego["speed"], drv["steer"],
-                         ego.get("lane", 0), ego.get("offset", 0.0), drv["heading_error"],
+                         ego.get("lane", 0), ego.get("offset", 0.0), vset,
                          ego.get("track", 0), ego.get("s", 0.0)))
             frames[round(t, 1)] = tel
     lib.GT_Close()
 
-    print("  t       x        y      speed   steer  road/lane  offset  hdgErr     s")
+    print("  t       x        y      speed  v_set  steer  road/lane  offset      s")
     for r in rows:
         sat = " <SAT" if abs(r[4]) > 0.98 else ""
         big = " <OFFLANE" if abs(r[6]) > 2.5 else ""
-        print(f"{r[0]:6.2f} {r[1]:8.2f} {r[2]:8.2f} {r[3]:6.2f}  {r[4]:6.3f}  {r[8]:3d}/{r[5]:<3d}  "
-              f"{r[6]:6.2f} {r[7]:7.3f} {r[9]:7.1f}{sat}{big}")
+        print(f"{r[0]:6.2f} {r[1]:8.2f} {r[2]:8.2f} {r[3]:6.2f} {r[7]:6.2f}  {r[4]:6.3f}  {r[8]:3d}/{r[5]:<3d}  "
+              f"{r[6]:6.2f} {r[9]:7.1f}{sat}{big}")
 
     max_off = max(abs(r[6]) for r in rows) if rows else 0
     sat_frac = sum(1 for r in rows if abs(r[4]) > 0.98) / max(1, len(rows))

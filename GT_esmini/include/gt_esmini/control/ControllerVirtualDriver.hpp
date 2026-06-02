@@ -87,8 +87,18 @@ private:
     VirtualDriverTelemetry telemetry_;
 
     double sim_time_          = 0.0;
-    double last_target_speed_ = 0.0;  // latched SpeedAction target
+    double last_target_speed_ = 0.0;  // current speed reference (held between actions)
     bool   target_initialized_ = false;
+
+    // Active SpeedAction dynamics tracking (Option C): reconstruct the commanded
+    // speed profile from the action's TransitionDynamics. esmini's SpeedAction::Start
+    // (which runs under MODE_ADDITIVE) sets start/target speed and normalizes the
+    // duration to the time domain (distance/rate are pre-converted), so we evaluate
+    // the shape against our own elapsed time — no dependency on the transition's
+    // per-frame progression under controller ownership.
+    const void* speed_action_id_   = nullptr;
+    double      speed_start_t_      = 0.0;
+    double      last_action_target_ = 0.0;  // target of the most recent SpeedAction; held when idle
 };
 
 scenarioengine::Controller* InstantiateControllerVirtualDriver(void* args);

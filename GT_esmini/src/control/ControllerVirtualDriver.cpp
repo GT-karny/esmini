@@ -27,6 +27,23 @@ using namespace scenarioengine;
 namespace gt_esmini
 {
 
+namespace
+{
+// Evaluate an OpenSCENARIO speed TransitionDynamics shape at progress p in [0,1].
+double EvalSpeedShape(OSCPrivateAction::DynamicsShape shape, double v0, double dv, double p)
+{
+    p = std::min(1.0, std::max(0.0, p));
+    switch (shape)
+    {
+        case OSCPrivateAction::DynamicsShape::SINUSOIDAL: return v0 - dv * (std::cos(M_PI * p) - 1.0) / 2.0;
+        case OSCPrivateAction::DynamicsShape::CUBIC:      return v0 + dv * p * p * (3.0 - 2.0 * p);
+        case OSCPrivateAction::DynamicsShape::LINEAR:     return v0 + dv * p;
+        case OSCPrivateAction::DynamicsShape::STEP:       return v0 + dv;
+        default:                                          return v0 + dv;
+    }
+}
+}  // namespace
+
 ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     : Controller(args)
 {
@@ -269,21 +286,61 @@ double ControllerVirtualDriver::ResolveTargetSpeed()
 {
     if (!target_initialized_)
     {
-        last_target_speed_  = object_->GetSpeed();  // seed with initial speed
-        target_initialized_ = true;
+        last_target_speed_   = object_->GetSpeed();  // seed with initial speed
+        last_action_target_  = last_target_speed_;
+        target_initialized_  = true;
     }
 
-    // A running SpeedAction defines the target. Once a controller owns the LONG
-    // domain the engine stops writing it to object speed, so read it directly.
+    // Find a running absolute-speed action (the engine no longer applies it to
+    // object speed once a controller owns the LONG domain, so we drive it).
+    LongSpeedAction* sa = nullptr;
     for (auto* action : object_->getPrivateActions())
     {
         if (action->action_type_ == OSCAction::ActionType::LONG_SPEED &&
             action->GetCurrentState() == StoryBoardElement::State::RUNNING)
         {
-            auto* sa = static_cast<LongSpeedAction*>(action);
-            if (sa->target_)
-                last_target_speed_ = sa->target_->GetValue();
+            sa = static_cast<LongSpeedAction*>(action);
+            break;
         }
+    }
+
+    if (sa && sa->target_)
+    {
+        // Capture only the start *time* once per action; the speeds and the
+        // (time-normalized) duration come from esmini's transition, which
+        // SpeedAction::Start fills under MODE_ADDITIVE.
+        if (speed_action_id_ != sa)
+        {
+            speed_action_id_ = sa;
+            speed_start_t_   = sim_time_;
+        }
+
+        const OSCPrivateAction::TransitionDynamics& td = sa->transition_;
+        const double v0  = td.GetStartVal();        // speed at action start
+        const double vt  = td.GetTargetVal();        // target speed (perf-clamped)
+        const double dur = td.GetParamTargetVal();   // duration [s]; distance/rate pre-converted
+
+        double v_ref;
+        if (dur < 1e-6 || td.shape_ == OSCPrivateAction::DynamicsShape::STEP)
+        {
+            v_ref = vt;  // step change
+        }
+        else
+        {
+            const double p = std::min(1.0, std::max(0.0, (sim_time_ - speed_start_t_) / dur));
+            v_ref = EvalSpeedShape(td.shape_, v0, vt - v0, p);
+        }
+        last_target_speed_  = v_ref;
+        last_action_target_ = vt;  // remember the commanded endpoint
+    }
+    else
+    {
+        // No action running: snap to the most recent action's TARGET, not the last
+        // mid-transition value. This finishes a deceleration whose action was
+        // cancelled early (e.g. a gradual stop overwritten by an instantaneous
+        // step-to-0 that completes before we observe it).
+        speed_action_id_   = nullptr;
+        last_target_speed_ = last_action_target_;
     }
     return last_target_speed_;
 }
