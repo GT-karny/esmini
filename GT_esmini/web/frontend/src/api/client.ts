@@ -267,12 +267,29 @@ export interface VerificationRun {
   has_verdict: boolean;
 }
 
+export interface BaselinePoint {
+  t: number;
+  x: number;
+  y: number;
+  speed: number;
+}
+
+export interface VerdictResult {
+  event: string;
+  status: 'pass' | 'fail' | 'skip';
+  detail?: string;
+  reason?: string;
+  t?: number;
+  idx?: number;
+}
+
 export interface VerificationTelemetry {
   id: string;
   meta: Record<string, unknown>;
   frames: VdTelemetryFrame[];
-  compare: Record<string, unknown> | null;
-  verdict: Record<string, unknown> | null;
+  compare: { xy_rmse_m?: number; speed_rmse_mps?: number; xy_max_dev_m?: number } | null;
+  verdict: { overall?: string; summary?: { pass: number; fail: number; skip: number }; results?: VerdictResult[] } | null;
+  baseline_track: BaselinePoint[] | null;
 }
 
 // --- API functions ---

@@ -60,6 +60,8 @@ interface LiveSceneViewProps {
   trafficLights?: TrafficLight[];
   /** Current VirtualDriver telemetry frame (replay or live) -> short-horizon preview overlay. */
   vdTelemetry?: VdTelemetryFrame | null;
+  /** Baseline (Default) ego path for 2-run comparison, as world [x,y] points. */
+  ghostPath?: [number, number][] | null;
   className?: string;
   viewRadius?: number;
 }
@@ -135,6 +137,7 @@ export function LiveSceneView({
   roadGeometry,
   trafficLights,
   vdTelemetry,
+  ghostPath,
   className = '',
   viewRadius: initialRadius = DEFAULT_VIEW_RADIUS,
 }: LiveSceneViewProps) {
@@ -265,6 +268,13 @@ export function LiveSceneView({
     [vdTelemetry],
   );
 
+  // Baseline (Default) ghost path for 2-run comparison.
+  const ghostPathNode = useMemo(() => {
+    if (!ghostPath || ghostPath.length < 2) return null;
+    const d = ghostPath.map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px},${flipY(py)}`).join(' ');
+    return <path d={d} fill="none" stroke="rgba(230,200,120,0.5)" strokeWidth={0.25} strokeDasharray="1.5 1.2" />;
+  }, [ghostPath]);
+
   const hasSigns = (roadGeometry?.signs?.length ?? 0) > 0;
   const hasStopLines = (roadGeometry?.stop_lines?.length ?? 0) > 0;
   const hasSignals = (trafficLights?.length ?? 0) > 0;
@@ -326,6 +336,9 @@ export function LiveSceneView({
 
       {/* Ego vehicle (on top) */}
       {ego && renderObject(ego, flipY, true)}
+
+      {/* Baseline ghost path (faint, under everything dynamic) */}
+      {ghostPathNode}
 
       {/* VirtualDriver preview trajectory (under markers, over road) */}
       {vdPreview}

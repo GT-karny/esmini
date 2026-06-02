@@ -263,18 +263,24 @@ def compare(run_dir: Path, baseline: Path, grid_dt: float = 0.1) -> dict:
         "endpoint_dist_m": round(math.dist((vd[-1][1], vd[-1][2]), (base[-1][1], base[-1][2])), 4),
     }
     (run_dir / "compare.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+    # Baseline ego track resampled onto the VD frame times, so the replay UI can
+    # overlay the Default "ghost" by simple index (baseline_track[i] <-> frames[i]).
+    baseline_track = []
+    for (t, _x, _y, _s) in vd:
+        bx, by, bs = _interp(base, t)
+        baseline_track.append({"t": round(t, 3), "x": round(bx, 3), "y": round(by, 3), "speed": round(bs, 3)})
+    (run_dir / "baseline_track.json").write_text(
+        json.dumps(baseline_track, separators=(",", ":")), encoding="utf-8")
+
     print(f"[compare] xy_rmse={result['xy_rmse_m']}m  speed_rmse={result['speed_rmse_mps']}m/s  "
-          f"max_dev={result['xy_max_dev_m']}m -> {run_dir / 'compare.json'}")
+          f"max_dev={result['xy_max_dev_m']}m -> {run_dir / 'compare.json'} (+baseline_track.json)")
     return result
 
 
 # ---------------------------------------------------------------------------
 # assert (expectations.yaml)
 # ---------------------------------------------------------------------------
-
-def _speed_series(frames: list[dict]) -> list[tuple[float, float]]:
-    return [(fr["sim_time"], fr["ego"]["speed"]) for fr in frames]
-
 
 def _time_window_ok(t: float, spec: dict) -> bool:
     """Honour optional after/before sim_time gates on a must entry."""
@@ -288,59 +294,69 @@ def _time_window_ok(t: float, spec: dict) -> bool:
 
 
 def _eval_must(must: dict, frames: list[dict]) -> dict:
+    """Evaluate one must[] entry. Fail results carry the first offending frame's
+    `t` and `idx` so the UI can jump straight to the failure."""
     kind = must.get("event")
     reason = must.get("reason", "")
-    speeds = _speed_series(frames)
+
+    def res(status, detail, fail_idx=None):
+        out = {"event": kind, "status": status, "detail": detail, "reason": reason}
+        if status == "fail" and fail_idx is not None:
+            out["idx"] = fail_idx
+            out["t"] = round(frames[fail_idx]["sim_time"], 3)
+        return out
 
     if kind in ("speed_above", "speed_below"):
         thr = float(must["threshold"])
-        gated = [(t, s) for (t, s) in speeds if _time_window_ok(t, must)]
+        gated = [(i, frames[i]["ego"]["speed"]) for i in range(len(frames))
+                 if _time_window_ok(frames[i]["sim_time"], must)]
         if not gated:
-            return {"event": kind, "status": "skip", "detail": "no frames in time window", "reason": reason}
+            return res("skip", "no frames in time window")
         if kind == "speed_above":
             ok = any(s >= thr for _, s in gated)
-            detail = f"max speed in window = {max(s for _, s in gated):.2f} (>= {thr}?)"
+            worst_i = max(gated, key=lambda p: p[1])[0]  # closest attempt
+            detail = f"max speed in window = {frames[worst_i]['ego']['speed']:.2f} (>= {thr}?)"
+            return res("pass" if ok else "fail", detail, None if ok else worst_i)
         else:
-            ok = all(s <= thr for _, s in gated)
+            offenders = [i for i, s in gated if s > thr]
+            ok = not offenders
             worst = max(s for _, s in gated)
             detail = f"max speed in window = {worst:.2f} (<= {thr}?)"
-        return {"event": kind, "status": "pass" if ok else "fail", "detail": detail, "reason": reason}
+            return res("pass" if ok else "fail", detail, None if ok else offenders[0])
 
     # Lane events use the road-coordinate fields the telemetry exposes
-    # (ego.lane / ego.track). These were added by the controller's telemetry
-    # serializer; if a frame lacks them (older DLL) the event degrades to skip.
-    def lane_series() -> list[tuple[float, int, int]]:
+    # (ego.lane / ego.track). If a frame lacks them (older DLL) the event skips.
+    def lane_series() -> list[tuple[int, int, int]]:
         out = []
-        for fr in frames:
+        for i, fr in enumerate(frames):
             ego = fr["ego"]
             if "lane" in ego and "track" in ego:
-                out.append((fr["sim_time"], int(ego["track"]), int(ego["lane"])))
+                out.append((i, int(ego["track"]), int(ego["lane"])))
         return out
 
     if kind == "lane_keep":
         road_id = must.get("road_id")
         lane_id = must.get("lane_id")
-        ls = [(t, trk, ln) for (t, trk, ln) in lane_series() if _time_window_ok(t, must)]
+        ls = [(i, trk, ln) for (i, trk, ln) in lane_series()
+              if _time_window_ok(frames[i]["sim_time"], must)]
         if not ls:
-            return {"event": kind, "status": "skip",
-                    "detail": "no lane data in window (lane/track absent or empty window)", "reason": reason}
-        bad = [(t, trk, ln) for (t, trk, ln) in ls
+            return res("skip", "no lane data in window (lane/track absent or empty window)")
+        bad = [i for (i, trk, ln) in ls
                if (road_id is not None and trk != road_id) or (lane_id is not None and ln != lane_id)]
-        ok = not bad
         detail = (f"{len(ls)} frames in window on lane(s) "
                   f"{sorted(set(ln for _, _, ln in ls))} road(s) {sorted(set(trk for _, trk, _ in ls))}; "
                   f"expected road={road_id} lane={lane_id}")
-        return {"event": kind, "status": "pass" if ok else "fail", "detail": detail, "reason": reason}
+        return res("pass" if not bad else "fail", detail, None if not bad else bad[0])
 
     if kind == "lane_change_count":
         expected = must.get("count")
         ls = lane_series()
         if not ls:
-            return {"event": kind, "status": "skip", "detail": "no lane data", "reason": reason}
-        changes = sum(1 for i in range(1, len(ls)) if ls[i][2] != ls[i - 1][2])
-        ok = (expected is None) or (changes == expected)
-        return {"event": kind, "status": "pass" if ok else "fail",
-                "detail": f"observed {changes} lane change(s); expected {expected}", "reason": reason}
+            return res("skip", "no lane data")
+        changes = [ls[i][0] for i in range(1, len(ls)) if ls[i][2] != ls[i - 1][2]]
+        ok = (expected is None) or (len(changes) == expected)
+        detail = f"observed {len(changes)} lane change(s); expected {expected}"
+        return res("pass" if ok else "fail", detail, None if ok else (changes[0] if changes else None))
 
     return {"event": kind, "status": "skip", "detail": "unknown event type", "reason": reason}
 

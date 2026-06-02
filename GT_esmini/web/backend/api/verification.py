@@ -75,4 +75,5 @@ async def get_telemetry(run_id: str):
         "frames": frames,
         "compare": _read_json(d / "compare.json"),
         "verdict": _read_json(d / "verdict.json"),
+        "baseline_track": _read_json(d / "baseline_track.json"),
     }
