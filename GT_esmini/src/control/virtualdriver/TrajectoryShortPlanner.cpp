@@ -126,6 +126,24 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     pos.Duplicate(obj->pos_);
     pos.CopyRoute(obj->pos_);  // isolate route mutations from the shared object state
 
+    // Forward control-point offset (P2 issue 2): advance the anchor along the
+    // route to the vehicle FRONT (axle/bumper) so the lane-center target the
+    // driver nulls out is taken at the front, not the origin (≈ rear). On a tight
+    // turn the rear-anchored target let the front swing wide out of the lane.
+    // Skipped during a storyboard lateral maneuver (LaneChange/LaneOffset): that
+    // path keeps its own car-anchored base + displacement overlay below, and
+    // moving the anchor would shift the maneuver phase. We echo the value we
+    // actually used so the controller shifts the driver state by the SAME amount
+    // (control point and anchor must stay on one route point — hard-won).
+    double cp_applied = 0.0;
+    if (lat_actions.empty() && ctx.control_point_offset > 1e-6)
+    {
+        if (pos.MoveAlongS(ctx.control_point_offset) !=
+            roadmanager::Position::ReturnCode::ERROR_GENERIC)
+            cp_applied = ctx.control_point_offset;
+    }
+    snap.control_point_offset = cp_applied;
+
     // Anchor the preview to the routed lane CENTER (offset 0) ONLY when no
     // deliberate lateral maneuver is active. This removes an *unintended*
     // cross-track error (e.g. drift after a fast junction turn) so the driver,

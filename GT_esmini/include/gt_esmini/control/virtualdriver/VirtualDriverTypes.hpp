@@ -36,6 +36,12 @@ struct ShortPlannerSnapshot
     double                       dt        = 0.1;    // sampling step [s]
     double                       horizon_s = 0.0;    // total horizon covered [s]
     bool                         valid     = false;
+    // Forward control-point offset [m] the planner ACTUALLY applied when anchoring
+    // the preview (the requested ShortPlanContext::control_point_offset, clamped to
+    // 0 during a storyboard lateral maneuver). The controller shifts the driver
+    // state forward by this exact value so the control point and the lane-center
+    // anchor sit on the same route point (P2 issue 2). See ControllerVirtualDriver.
+    double                       control_point_offset = 0.0;
 };
 
 // IDriverModel internal state + telemetry (inverse-control diagnostics).

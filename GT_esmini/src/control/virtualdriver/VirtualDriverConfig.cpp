@@ -75,6 +75,9 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("speed_ki", speed_ki);
         parse_double("speed_kd", speed_kd);
 
+        parse_double("control_point_offset", control_point_offset);
+        parse_double("control_point_min_speed", control_point_min_speed);
+
         parse_double("indicator_lead_time", indicator_lead_time);
         parse_double("indicator_min_on_time", indicator_min_on_time);
 

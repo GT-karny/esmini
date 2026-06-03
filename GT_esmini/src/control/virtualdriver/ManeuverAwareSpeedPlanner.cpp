@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
 #include <vector>
 
 using namespace scenarioengine;
@@ -59,6 +60,13 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
     double s_ahead   = 0.0;
     double prev_limit = -1.0;
 
+    // Per-connecting-road turn/straight verdict, decided once and reused for every
+    // sample that lands on the same road id (the scan resolution puts many samples
+    // on one connector). True = the connector actually turns; straight ones are
+    // left to the curvature limit so the ego does not brake crossing a junction it
+    // drives straight through.
+    std::unordered_map<id_t, bool> connector_is_turn;
+
     while (s_ahead <= scan_dist)
     {
         // Curvature ceiling: v = sqrt(a_lat / |kappa|). Straights -> kappa ~ 0
@@ -73,8 +81,39 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
 
         // Junction connecting road: belt-and-suspenders cap for gently-modelled
         // junctions whose geometry curvature alone would not slow the ego enough.
+        // Apply it ONLY when the connector actually turns; a straight pass-through
+        // connecting road (kappa ~ 0) must keep flowing or the ego brakes for
+        // nothing crossing a junction it drives straight through. Turn-vs-straight
+        // is the connector's heading delta over its length (>= SHARP_TURN_RATE),
+        // mirroring ControllerRouteDrive's connector test, cached per road id.
         roadmanager::Road* road = odr->GetRoadById(pos.GetTrackId());
-        const bool on_junction = road && road->GetJunction() != ID_UNDEFINED;
+        bool on_junction = false;
+        if (road && road->GetJunction() != ID_UNDEFINED)
+        {
+            const id_t rid = road->GetId();
+            auto       it  = connector_is_turn.find(rid);
+            if (it != connector_is_turn.end())
+            {
+                on_junction = it->second;
+            }
+            else
+            {
+                bool is_turn = false;
+                if (road->GetLength() > 0.1)
+                {
+                    roadmanager::Position p0;
+                    roadmanager::Position pE;
+                    p0.SetTrackPos(rid, 0.0, 0.0);
+                    pE.SetTrackPos(rid, road->GetLength(), 0.0);
+                    const double dh       = std::fabs(GetAngleInIntervalMinusPIPlusPI(pE.GetH() - p0.GetH()));
+                    const double turnRate = dh / road->GetLength();
+                    constexpr double SHARP_TURN_RATE = 0.04;  // rad/m (~2.3°/m)
+                    is_turn = (turnRate >= SHARP_TURN_RATE);
+                }
+                connector_is_turn[rid] = is_turn;
+                on_junction            = is_turn;
+            }
+        }
         const double v_turn = on_junction ? cfg_.turn_speed : kUnconstrained;
 
         double v_ceil = std::clamp(std::min({v_curve, v_lim, v_turn}), cfg_.min_speed, kUnconstrained);

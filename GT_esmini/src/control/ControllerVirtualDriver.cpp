@@ -204,16 +204,6 @@ void ControllerVirtualDriver::Step(double timeStep)
     mctx.scan_dist = vd_config_.scan_distance;
     MidLongPlannerSnapshot midsnap = midlong_planner_->Plan(mctx);
 
-    // 3. Auto pipeline: short planner -> driver model
-    ShortPlanContext sctx;
-    sctx.object         = object_;
-    sctx.sim_time       = sim_time_;
-    sctx.horizon_s      = vd_config_.horizon_s;
-    sctx.dt             = vd_config_.short_dt;
-    sctx.v_target       = midsnap.valid ? &midsnap : nullptr;
-    sctx.fallback_speed = target_speed;
-    ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
-
     // Self-localize from the physics backend, not object->pos_. During a lateral
     // action (LaneChange/LaneOffset) the storyboard rewrites object->pos_ to the
     // *intended* pose every frame before this controller steps (ADDITIVE mode does
@@ -222,10 +212,42 @@ void ControllerVirtualDriver::Step(double timeStep)
     // cross-track lag. The backend pose is the true ego; the planner's preview is
     // the (absolute) intent, so the driver closes the loop on the real deviation.
     // x/y/h/speed must come from one source to keep the vehicle-frame transform
-    // consistent. Fall back to object->pos_ for backends that own no model.
+    // consistent. Read it ONCE here (before planning, so the control-point offset
+    // can be gated on speed) and reuse it for the driver state below. Fall back to
+    // object->pos_ for backends that own no model.
+    double     phys_x, phys_y, phys_z, phys_h, phys_speed;
+    const bool have_phys   = physics_backend_->GetPose(phys_x, phys_y, phys_z, phys_h, phys_speed);
+    const double ego_speed = have_phys ? phys_speed : object_->GetSpeed();
+    const double wheel_base = object_->boundingbox_.dimensions_.length_ * 0.6;
+
+    // Forward control-point offset (P2 issue 2). Resolve the configured value:
+    //   > 0  explicit distance [m] ahead of the origin
+    //   = 0  AUTO — the front-axle distance (wheel_base); enabled by default
+    //   < 0  disabled — keep the origin (≈ rear) reference (Phase 1 behavior)
+    // Only while moving forward (stop/reverse keep the origin). The short planner
+    // applies it to the preview anchor (and clamps it to 0 during a lateral
+    // maneuver), then echoes the value it used so the driver state shifts to match.
+    double requested_cp = 0.0;
+    {
+        const double cp = vd_config_.control_point_offset;
+        const double dist = (cp < 0.0) ? 0.0 : (cp == 0.0 ? wheel_base : cp);
+        if (ego_speed > vd_config_.control_point_min_speed)
+            requested_cp = dist;
+    }
+
+    // 3. Auto pipeline: short planner -> driver model
+    ShortPlanContext sctx;
+    sctx.object               = object_;
+    sctx.sim_time             = sim_time_;
+    sctx.horizon_s            = vd_config_.horizon_s;
+    sctx.dt                   = vd_config_.short_dt;
+    sctx.v_target             = midsnap.valid ? &midsnap : nullptr;
+    sctx.fallback_speed       = target_speed;
+    sctx.control_point_offset = requested_cp;
+    ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
+
     DriverState dstate;
-    double phys_x, phys_y, phys_z, phys_h, phys_speed;
-    if (physics_backend_->GetPose(phys_x, phys_y, phys_z, phys_h, phys_speed))
+    if (have_phys)
     {
         dstate.x     = phys_x;
         dstate.y     = phys_y;
@@ -239,7 +261,16 @@ void ControllerVirtualDriver::Step(double timeStep)
         dstate.h     = object_->pos_.GetH();
         dstate.speed = object_->GetSpeed();
     }
-    dstate.wheel_base = object_->boundingbox_.dimensions_.length_ * 0.6;
+    dstate.wheel_base = wheel_base;
+
+    // Shift the control point forward by EXACTLY the offset the planner applied to
+    // the preview anchor (0 during a lateral maneuver / when disabled). Keeping the
+    // two on the same route point is the hard-won invariant: the driver then nulls
+    // a front-vs-front cross-track error, so the front tracks the lane on a turn.
+    const double cp_used = plan.control_point_offset;
+    dstate.x += cp_used * std::cos(dstate.h);
+    dstate.y += cp_used * std::sin(dstate.h);
+
     DriverModelSnapshot dsnap;
     PedalSteerCommand   auto_cmd = driver_model_->Compute(plan, dstate, timeStep, &dsnap);
 

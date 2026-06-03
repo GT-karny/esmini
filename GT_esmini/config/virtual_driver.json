@@ -27,6 +27,10 @@
     "speed_ki": 0.2,
     "speed_kd": 0.0,
 
+    "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
+    "control_point_offset": 0.0,
+    "control_point_min_speed": 1.0,
+
     "_indicator": "Auto turn-signal",
     "indicator_lead_time": 2.0,
     "indicator_min_on_time": 0.3,

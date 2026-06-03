@@ -1,0 +1,39 @@
+scenario: decelerate_for_right_turn
+category: 05_anticipation
+# No Default baseline: mid/long judgment is from VirtualDriver telemetry only.
+# Tight-junction turn anticipation. This is the Phase-1 residual-bug scenario:
+# without the mid/long planner the car enters the R~8m connecting road at cruise,
+# Pure-Pursuit steering saturates, and it drifts onto the wrong road. All checks
+# below are EXPECTED TO FAIL pre-Phase-2 and to pass once A2's planner lands.
+must:
+  - event: speed_reduction_before_landmark
+    landmark_s: 109            # road 3 s at the junction / connecting-road entry
+    road_id: 3
+    target_speed: 5.0          # ~sqrt(2.0 * 8) = 4 m/s; allow up to 5
+    tolerance: 1.0
+    reason: "Anticipate the tight right turn; do not enter the junction at cruise"
+  - event: deceleration_profile_smooth
+    # Scoped to the deceleration approach [onset -> junction entry s=109] via
+    # landmark_s/road_id. A 14->5 m/s slow for a tight junction is a firm but
+    # controlled maneuver: max_decel is the comfort gate; max_jerk is a slam-stop
+    # guard at a 0.45 s comfort timescale (smooth_window 9).
+    max_decel: 4.0            # m/s^2 — firm but not a slam-stop
+    max_jerk: 9.0             # m/s^3 @ smooth_window 9 — slam-stop guard
+    smooth_window: 9
+    landmark_s: 109
+    road_id: 3
+    after: { sim_time: 4.0 }   # skip the launch-from-rest transient
+    reason: "Anticipatory braking into the turn is controlled (bounded decel/jerk), not a slam-stop"
+  - event: steer_not_saturated
+    threshold: 0.98
+    after: { sim_time: 4.0 }
+    reason: "Steering must not saturate through the turn (it can take the corner)"
+notes: >
+  Geometry: route road3(lane -1) -> fabriksgatan junction (R~8m) -> road2(lane 1),
+  same as resources/xosc/traffic_lights.xosc with signals/pedestrians removed.
+  The discriminators are speed_reduction_before_landmark + deceleration_profile_smooth:
+  pre-Phase-2 the car enters the junction at ~8 m/s with huge jerk (no anticipation);
+  post-Phase-2 it should slow to ~4 m/s smoothly. lane_keep on the destination road is
+  intentionally NOT asserted here — slowing for the turn makes the car reach road 2
+  later, so a time-gated lane_keep would couple to speed; the wrong-road *drift* is
+  covered by the Step 3 traffic_lights regression (stop-then-go context).

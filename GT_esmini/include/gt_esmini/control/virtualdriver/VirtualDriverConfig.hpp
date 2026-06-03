@@ -46,6 +46,18 @@ struct VirtualDriverConfig
     double speed_ki = 0.2;
     double speed_kd = 0.0;
 
+    // --- Control point (P2 issue 2): lateral reference forward of the origin ---
+    // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
+    // turn the front bumper swings wide and leaves the lane. Shift the lateral
+    // control point (and the matching preview lane-center anchor) forward toward the
+    // front axle while driving forward. Meters ahead of the origin:
+    //   > 0  explicit distance [m]
+    //   = 0  AUTO — front-axle distance (wheel_base = length*0.6); enabled by default
+    //   < 0  disabled — keep the origin (rear) reference (Phase 1 behavior)
+    // Tune per vehicle; verify the front bumper stays in-lane on a junction turn.
+    double control_point_offset    = 0.0;   // [m] forward; 0 = auto(wheel_base)
+    double control_point_min_speed = 1.0;   // [m/s] below this, no shift (stop/reverse)
+
     // --- Indicator ---
     double indicator_lead_time   = 2.0;
     double indicator_min_on_time = 0.3;

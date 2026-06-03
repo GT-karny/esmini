@@ -1,0 +1,39 @@
+scenario: speed_limit_change
+category: 05_anticipation
+# No Default baseline: judgment is from VirtualDriver telemetry only.
+# Commanded smooth deceleration (a Story-Event SpeedAction to 8.33 m/s before the
+# landmark at s=250). Unlike the curve/right-turn scenarios this does NOT require
+# the Phase 2 planner — it validates that the new deceleration matchers correctly
+# accept genuine Phase-1 behaviour (SpeedAction-dynamics following). These checks
+# are EXPECTED TO PASS in Phase 1.
+must:
+  - event: speed_above
+    threshold: 13.0
+    after: { sim_time: 4.0 }
+    before: { sim_time: 11.0 }
+    reason: "Reaches the 13.889 m/s cruise before the speed-limit reduction"
+  - event: speed_reduction_before_landmark
+    landmark_s: 250            # road 1 s where the 30 km/h limit begins
+    road_id: 1
+    target_speed: 8.33         # 30 km/h
+    tolerance: 0.8
+    reason: "Has slowed to the new limit by the landmark"
+  - event: deceleration_profile_smooth
+    # Gentle commanded slowdown on a straight: tighter comfort bounds than the
+    # anticipation scenarios (smooth_window 5). Scoped to [onset -> landmark s=250].
+    max_decel: 3.5
+    max_jerk: 3.0
+    smooth_window: 5
+    landmark_s: 250
+    road_id: 1
+    after: { sim_time: 10.0 }   # focus on the commanded slowdown phase
+    reason: "Follows the commanded speed reduction smoothly (bounded jerk/decel)"
+  - event: lane_keep
+    road_id: 1
+    lane_id: -1
+    reason: "No lateral action — stays in the starting lane throughout"
+notes: >
+  Timing (approx, dt=0.05): cruise reached ~t=3.5s; Slow triggers at traveled
+  distance 150 m (~t=12s, s~170); decel to 8.33 over 4 s completes ~s=214,
+  well before the s=250 landmark. Acts as the positive control proving the
+  smooth-deceleration matchers work against real telemetry.

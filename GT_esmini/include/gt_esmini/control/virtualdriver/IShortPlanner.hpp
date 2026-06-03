@@ -21,6 +21,12 @@ struct ShortPlanContext
     // the planner falls back to fallback_speed (the ego's commanded target).
     const MidLongPlannerSnapshot* v_target = nullptr;
     double                        fallback_speed = 0.0;  // [m/s], used when v_target == nullptr
+    // Forward control-point offset [m]: advance the preview anchor this far ahead
+    // along the route so the lane-center anchor sits at the vehicle's front
+    // (axle/bumper) rather than its origin (≈ rear). The planner ignores it while
+    // a storyboard lateral maneuver is active and echoes the value it used back in
+    // ShortPlannerSnapshot::control_point_offset. 0 = anchor at the origin (P2 issue 2).
+    double                        control_point_offset = 0.0;
 };
 
 // Short-horizon trajectory planner.

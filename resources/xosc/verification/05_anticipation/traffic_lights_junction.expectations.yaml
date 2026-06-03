@@ -1,0 +1,37 @@
+scenario: traffic_lights_junction
+category: 05_anticipation
+# No Default baseline: judgment is from VirtualDriver telemetry only.
+# Phase-1 residual-bug regression (stop-then-go right turn). Pre-Phase-2 the
+# green-start accelerates to cruise, the car enters the junction at full speed,
+# steering saturates, and it drifts onto the wrong connecting road. Phase 2: the
+# mid/long planner caps v_target for the junction even on green start, so the car
+# slows, keeps steering in range, and reaches the correct destination (road 2).
+# deceleration_profile_smooth is intentionally NOT asserted here — the full stop
+# before the junction confounds the deceleration window (that smoothness is
+# covered by decelerate_for_right_turn, the continuous-drive variant).
+must:
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 10.0 }
+    before: { sim_time: 12.0 }
+    reason: "Comes to a full stop before the junction (the 'red light' context)"
+  - event: speed_reduction_before_landmark
+    landmark_s: 109            # road 3 s at the junction / connecting-road entry
+    road_id: 3
+    target_speed: 5.0          # ~sqrt(2*8)=4 m/s; allow up to 6.5
+    tolerance: 1.5
+    reason: "Green-start: anticipates the tight turn and does NOT enter the junction at cruise"
+  - event: steer_not_saturated
+    threshold: 0.98
+    after: { sim_time: 12.0 }   # after the green-start / through the turn
+    reason: "Steering does not saturate through the turn (it can take the corner)"
+  - event: lane_keep
+    road_id: 2
+    after: { sim_time: 24.0 }   # by here the turn is complete regardless of speed
+    reason: "Reaches the correct destination road 2 — does NOT drift onto the wrong connecting road"
+notes: >
+  Stop-then-go on the fabriksgatan junction route (road3 lane-1 -> junction R~8m ->
+  road2 lane1). Measured (Phase 2, commit 62a5beda): full stop at s=98.8 (t=10.1),
+  junction entry at 5.1 m/s (t=15.1), max |steer| 0.849, reaches road 2 at t=19.6 via
+  connector road 13. This is the numeric resolution of the Phase-1 "green-start ->
+  junction over-speed -> drift" residual bug.
