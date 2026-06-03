@@ -141,11 +141,14 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
     // strictest wins because every constraint only ever LOWERS the ceiling.
     //   MAX_SPEED        : cap every sample.
     //   MAX_SPEED_TO_S   : cap samples up to the constraint s (e.g. a creep zone).
-    //   STOP_AT_S        : write a hard 0 from the stop point onward — AFTER the
-    //                      forward-scan min_speed clamp, so the floor does not keep
-    //                      the car creeping through a red light / stop line. The
-    //                      backward pass below then propagates the 0 upstream under
-    //                      comfort_decel, so braking begins well before the stop.
+    //   STOP_AT_S        : write a hard 0 from the stop point onward, AND ramp the
+    //                      approach down to 0 under comfort_decel — both BYPASS the
+    //                      forward-scan min_speed clamp. That clamp exists to keep
+    //                      the car creeping through curves/junctions, but it must
+    //                      not pin the approach to a stop at min_speed; without the
+    //                      explicit ramp the car arrives at the stop point still
+    //                      doing ~min_speed and crawls through (the backward pass
+    //                      cannot help — it only min()s against the floored value).
     // (YIELD/WAIT_UNTIL are translated to the above by the policies themselves.)
     std::vector<MidLongConstraint> policy_markers;
     if (ctx.policy && ctx.policy->valid && !samples.empty())
@@ -164,17 +167,32 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
                         if (s.s_ahead <= c.s) s.v = std::min(s.v, cap);
                     break;
                 case PolicyConstraint::Kind::STOP_AT_S:
+                {
+                    // Command a hard 0 from a band BEFORE the stop point onward, so
+                    // the car brakes fully and settles at a firm standstill (the
+                    // sqrt ramp alone only reaches 0 exactly at the point -> slow
+                    // crawl). The remaining approach ramps to 0 at that band edge,
+                    // bypassing the min_speed floor.
+                    const double zero_from = std::max(0.0, c.s - std::max(0.0, cfg_.stop_band));
                     for (size_t i = 0; i < samples.size(); ++i)
-                        if (samples[i].s_ahead >= c.s)
+                    {
+                        if (samples[i].s_ahead >= zero_from)
                         {
-                            samples[i].v = 0.0;  // bypass the min_speed floor
+                            samples[i].v = 0.0;
                             if (marker_idx < 0) marker_idx = static_cast<int>(i);
                         }
+                        else
+                        {
+                            const double ramp = std::sqrt(2.0 * cfg_.comfort_decel * (zero_from - samples[i].s_ahead));
+                            samples[i].v = std::min(samples[i].v, ramp);
+                        }
+                    }
                     // Stop beyond the scan horizon: still mark the last sample so
                     // the approach decelerates toward it.
-                    if (marker_idx < 0 && c.s > samples.back().s_ahead)
+                    if (marker_idx < 0 && zero_from > samples.back().s_ahead)
                         marker_idx = static_cast<int>(samples.size()) - 1;
                     break;
+                }
                 default:
                     break;
             }

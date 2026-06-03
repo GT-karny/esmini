@@ -20,11 +20,11 @@ bool TrafficLightShouldStop(TrafficLightPhase phase, double dist, double v_ego, 
             return true;
         case TrafficLightPhase::YELLOW:
         {
-            // Comfortable braking distance. Stop only if we clearly have room;
-            // otherwise commit to crossing (a hard stop on yellow is worse).
-            const double decel    = std::max(0.5, p.comfort_decel);
-            const double brake_d  = (v_ego * v_ego) / (2.0 * decel);
-            return dist > p.yellow_margin * brake_d;
+            // Stop on yellow only if the light can still be reached and stopped at
+            // within yellow_decel; if we are already too close, proceed through.
+            const double decel   = std::max(0.5, p.yellow_decel);
+            const double brake_d = (v_ego * v_ego) / (2.0 * decel);
+            return dist >= brake_d;
         }
         case TrafficLightPhase::GREEN:
         case TrafficLightPhase::UNKNOWN:
@@ -78,12 +78,33 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
         auto* tl = dynamic_cast<roadmanager::TrafficLight*>(s.signal);
         if (!tl) continue;
 
-        const TrafficLightPhase phase = ReadPhase(tl);
-        if (TrafficLightShouldStop(phase, s.distance_ahead, ctx.ego->GetSpeed(), cfg_.params))
+        const int               id    = tl->GetId();
+        const TrafficLightPhase  phase = ReadPhase(tl);
+
+        // Commitment latch: GREEN releases; otherwise once we have decided to stop
+        // (RED, or a feasible YELLOW) we hold that decision so a shrinking yellow
+        // gap can't flip us back to "go" and a brief scan loss can't release it.
+        bool stop;
+        if (phase == TrafficLightPhase::GREEN)
+        {
+            committed_[id] = false;
+            stop           = false;
+        }
+        else if (committed_[id])
+        {
+            stop = true;  // already committed; hold until green
+        }
+        else
+        {
+            stop = TrafficLightShouldStop(phase, s.distance_ahead, ctx.ego->GetSpeed(), cfg_.params);
+            if (stop) committed_[id] = true;
+        }
+
+        if (stop)
         {
             PolicyConstraint c;
             c.kind   = PolicyConstraint::Kind::STOP_AT_S;
-            c.s      = s.distance_ahead;
+            c.s      = std::max(0.0, s.distance_ahead - cfg_.stop_margin);  // halt before the line
             c.value  = 0.0;
             c.source = "traffic_light";
             snap.constraints.push_back(c);

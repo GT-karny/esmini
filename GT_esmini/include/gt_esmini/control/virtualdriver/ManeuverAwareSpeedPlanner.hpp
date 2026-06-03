@@ -18,6 +18,12 @@ struct ManeuverAwareSpeedPlannerConfig
     double scan_step         = 2.0;   // [m] per MoveAlongS sample
     // Floor on any computed ceiling so the car keeps creeping (never planned to 0).
     double min_speed         = 2.0;   // [m/s]
+    // Hard-zero band before a STOP_AT_S stop point. The sqrt comfort ramp only
+    // reaches 0 exactly AT the point, so the car would crawl the final approach and
+    // converge to 0 too slowly (failing to fully stop before a light turns green).
+    // Commanding 0 over the last stop_band metres makes the speed PID brake fully
+    // and settle at a firm standstill just short of the stop point.
+    double stop_band         = 2.0;   // [m]
     // Conservative cap imposed over a detected junction connecting road, on top
     // of the curvature limit (covers gently-modelled junctions).
     double turn_speed        = 5.0;   // [m/s]

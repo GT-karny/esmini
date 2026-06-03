@@ -37,6 +37,7 @@ struct VirtualDriverConfig
     double scan_step         = 2.0;   // [m] forward scan resolution
     double turn_speed        = 5.0;   // [m/s] cap over junction connecting roads
     double min_turn_speed    = 2.0;   // [m/s] floor on any computed ceiling
+    double stop_band         = 2.0;   // [m] hard-zero band before a policy STOP point (firm stop)
     bool   respect_speed_limit = true;
 
     // --- Driver model (PID + Pure Pursuit) ---
@@ -82,8 +83,8 @@ struct VirtualDriverConfig
     double idm_target_horizon = 0.5;   // [s] tau
     // 3b — traffic light.
     double tl_lookahead       = 80.0;  // [m]
-    double tl_comfort_decel   = 2.0;   // [m/s^2] yellow stop-feasibility judgement
-    double tl_yellow_margin   = 1.2;   // require dist > margin * braking dist to stop on yellow
+    double tl_yellow_decel    = 4.0;   // [m/s^2] max decel accepted to stop on yellow
+    double tl_stop_margin     = 3.0;   // [m] halt this far before the signal (front at line, stays in scan)
     // 3c — stop / yield sign.
     double sign_lookahead     = 80.0;  // [m]
     double stop_hold_time     = 1.5;   // [s] dwell once stopped
@@ -92,6 +93,7 @@ struct VirtualDriverConfig
     double creep_speed        = 2.0;   // [m/s] edge-forward speed cap
     double creep_advance      = 4.0;   // [m] how far past the line to creep
     double yield_creep_speed  = 3.0;   // [m/s] YIELD = decelerate only
+    double sign_stop_margin   = 3.0;   // [m] halt this far before the sign (front at line, stays in scan)
 
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;

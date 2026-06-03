@@ -47,6 +47,11 @@ struct StopYieldSignAwareConfig
     stop_fsm::Params stop;
     double           yield_creep_speed = 3.0;  // [m/s] YIELD = decelerate only (stop deferred to 3d)
     double           lookahead         = 80.0;  // [m]
+    // Stop this far BEFORE the sign s (front halts at the line, origin stays short
+    // of it) so the sign stays within the forward scan while stopped and the FSM
+    // keeps tracking it. ~ vehicle front overhang. The FSM sees the margin-adjusted
+    // distance, so "stopped at the line" is detected at adjusted-dist ~ 0.
+    double           stop_margin       = 3.0;   // [m]
 };
 
 // Phase 3c: react to STOP (OSI type 17) and YIELD/GIVE_WAY (OSI type 16) signs

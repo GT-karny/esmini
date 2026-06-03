@@ -92,7 +92,10 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
             stop_fsm::State& st = stop_states_[id];
             if (st.phase == stop_fsm::Phase::CLEARED) continue;  // already done
 
-            PolicyConstraint c = stop_fsm::Update(st, s.distance_ahead, v_ego, now, cfg_.stop);
+            // Target a point stop_margin before the sign so the front halts at the
+            // line and the sign stays in scan (FSM sees adjusted dist ~ 0 when stopped).
+            const double dist_adj = std::max(0.0, s.distance_ahead - cfg_.stop_margin);
+            PolicyConstraint c = stop_fsm::Update(st, dist_adj, v_ego, now, cfg_.stop);
             if (c.kind != PolicyConstraint::Kind::NONE)
             {
                 c.source = "stop_sign";

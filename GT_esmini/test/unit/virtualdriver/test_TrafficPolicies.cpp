@@ -50,8 +50,8 @@ TEST(TrafficLightDecision, GreenAndUnknownNeverStop)
 
 TEST(TrafficLightDecision, YellowStopsWhenRoomProceedsWhenClose)
 {
-    TrafficLightParams p;  // comfort_decel 2.0, yellow_margin 1.2
-    // braking distance at 10 m/s = 100/4 = 25 m; * 1.2 = 30 m.
+    TrafficLightParams p;  // yellow_decel 4.0
+    // braking distance at 10 m/s = 100 / (2*4) = 12.5 m.
     EXPECT_TRUE(TrafficLightShouldStop(TrafficLightPhase::YELLOW, 40.0, 10.0, p));   // far -> stop
     EXPECT_FALSE(TrafficLightShouldStop(TrafficLightPhase::YELLOW, 10.0, 10.0, p));  // close -> go
 }

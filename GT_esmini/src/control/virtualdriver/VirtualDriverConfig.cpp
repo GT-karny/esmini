@@ -64,6 +64,7 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("scan_step", scan_step);
         parse_double("turn_speed", turn_speed);
         parse_double("min_turn_speed", min_turn_speed);
+        parse_double("stop_band", stop_band);
         parse_bool("respect_speed_limit", respect_speed_limit);
 
         parse_double("lookahead_gain", lookahead_gain);
@@ -93,8 +94,8 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("idm_lateral_tol", idm_lateral_tol);
         parse_double("idm_target_horizon", idm_target_horizon);
         parse_double("tl_lookahead", tl_lookahead);
-        parse_double("tl_comfort_decel", tl_comfort_decel);
-        parse_double("tl_yellow_margin", tl_yellow_margin);
+        parse_double("tl_yellow_decel", tl_yellow_decel);
+        parse_double("tl_stop_margin", tl_stop_margin);
         parse_double("sign_lookahead", sign_lookahead);
         parse_double("stop_hold_time", stop_hold_time);
         parse_double("stop_detect_speed", stop_detect_speed);
@@ -102,6 +103,7 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("creep_speed", creep_speed);
         parse_double("creep_advance", creep_advance);
         parse_double("yield_creep_speed", yield_creep_speed);
+        parse_double("sign_stop_margin", sign_stop_margin);
 
         parse_bool("override_enabled", override_enabled);
         parse_bool("override_button", override_button);
@@ -143,6 +145,7 @@ ManeuverAwareSpeedPlannerConfig VirtualDriverConfig::MidLongConfig() const
     c.scan_step           = scan_step;
     c.min_speed           = min_turn_speed;
     c.turn_speed          = turn_speed;
+    c.stop_band           = stop_band;
     c.respect_speed_limit = respect_speed_limit;
     return c;
 }
@@ -186,9 +189,9 @@ LeadVehicleAwareConfig VirtualDriverConfig::LeadConfig() const
 TrafficLightAwareConfig VirtualDriverConfig::TrafficLightConfig() const
 {
     TrafficLightAwareConfig c;
-    c.params.comfort_decel = tl_comfort_decel;
-    c.params.yellow_margin = tl_yellow_margin;
-    c.lookahead            = tl_lookahead;
+    c.params.yellow_decel = tl_yellow_decel;
+    c.lookahead           = tl_lookahead;
+    c.stop_margin         = tl_stop_margin;
     return c;
 }
 
@@ -202,6 +205,7 @@ StopYieldSignAwareConfig VirtualDriverConfig::StopYieldConfig() const
     c.stop.creep_advance     = creep_advance;
     c.yield_creep_speed      = yield_creep_speed;
     c.lookahead              = sign_lookahead;
+    c.stop_margin            = sign_stop_margin;
     return c;
 }
 
