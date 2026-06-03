@@ -81,6 +81,28 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("indicator_lead_time", indicator_lead_time);
         parse_double("indicator_min_on_time", indicator_min_on_time);
 
+        parse_bool("policy_lead_enabled", policy_lead_enabled);
+        parse_bool("policy_traffic_light_enabled", policy_traffic_light_enabled);
+        parse_bool("policy_stop_yield_enabled", policy_stop_yield_enabled);
+        parse_double("idm_time_headway", idm_time_headway);
+        parse_double("idm_min_gap", idm_min_gap);
+        parse_double("idm_max_accel", idm_max_accel);
+        parse_double("idm_comfort_decel", idm_comfort_decel);
+        parse_double("idm_desired_speed", idm_desired_speed);
+        parse_double("idm_lookahead", idm_lookahead);
+        parse_double("idm_lateral_tol", idm_lateral_tol);
+        parse_double("idm_target_horizon", idm_target_horizon);
+        parse_double("tl_lookahead", tl_lookahead);
+        parse_double("tl_comfort_decel", tl_comfort_decel);
+        parse_double("tl_yellow_margin", tl_yellow_margin);
+        parse_double("sign_lookahead", sign_lookahead);
+        parse_double("stop_hold_time", stop_hold_time);
+        parse_double("stop_detect_speed", stop_detect_speed);
+        parse_double("stop_line_tol", stop_line_tol);
+        parse_double("creep_speed", creep_speed);
+        parse_double("creep_advance", creep_advance);
+        parse_double("yield_creep_speed", yield_creep_speed);
+
         parse_bool("override_enabled", override_enabled);
         parse_bool("override_button", override_button);
         parse_double("steering_threshold", steering_threshold);
@@ -144,6 +166,42 @@ AutoIndicatorConfig VirtualDriverConfig::IndicatorConfig() const
     AutoIndicatorConfig c;
     c.lead_time   = indicator_lead_time;
     c.min_on_time = indicator_min_on_time;
+    return c;
+}
+
+LeadVehicleAwareConfig VirtualDriverConfig::LeadConfig() const
+{
+    LeadVehicleAwareConfig c;
+    c.idm.time_headway  = idm_time_headway;
+    c.idm.min_gap       = idm_min_gap;
+    c.idm.max_accel     = idm_max_accel;
+    c.idm.comfort_decel = idm_comfort_decel;
+    c.idm.desired_speed = idm_desired_speed;
+    c.lookahead         = idm_lookahead;
+    c.lateral_tol       = idm_lateral_tol;
+    c.target_horizon    = idm_target_horizon;
+    return c;
+}
+
+TrafficLightAwareConfig VirtualDriverConfig::TrafficLightConfig() const
+{
+    TrafficLightAwareConfig c;
+    c.params.comfort_decel = tl_comfort_decel;
+    c.params.yellow_margin = tl_yellow_margin;
+    c.lookahead            = tl_lookahead;
+    return c;
+}
+
+StopYieldSignAwareConfig VirtualDriverConfig::StopYieldConfig() const
+{
+    StopYieldSignAwareConfig c;
+    c.stop.stop_hold_time    = stop_hold_time;
+    c.stop.stop_detect_speed = stop_detect_speed;
+    c.stop.stop_line_tol     = stop_line_tol;
+    c.stop.creep_speed       = creep_speed;
+    c.stop.creep_advance     = creep_advance;
+    c.yield_creep_speed      = yield_creep_speed;
+    c.lookahead              = sign_lookahead;
     return c;
 }
 

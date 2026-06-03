@@ -11,6 +11,10 @@
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
+#include "gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp"
+#include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
@@ -21,6 +25,7 @@
 #include "logger.hpp"
 
 #include <cmath>
+#include <memory>
 
 namespace gt_esmini { extern std::string GetCurrentModuleDirectory(); }
 
@@ -97,6 +102,15 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     driver_model_     = new PIDPurePursuitDriver(vd_config_.DriverConfig());
     indicator_policy_ = new AutoIndicatorPolicy(vd_config_.IndicatorConfig());
 
+    // --- Phase 3 traffic policies: add only the enabled ones (config flags) ---
+    traffic_policy_mgr_ = new TrafficPolicyManager();
+    if (vd_config_.policy_lead_enabled)
+        traffic_policy_mgr_->Add(std::make_unique<LeadVehicleAware>(vd_config_.LeadConfig()));
+    if (vd_config_.policy_traffic_light_enabled)
+        traffic_policy_mgr_->Add(std::make_unique<TrafficLightAware>(vd_config_.TrafficLightConfig()));
+    if (vd_config_.policy_stop_yield_enabled)
+        traffic_policy_mgr_->Add(std::make_unique<StopYieldSignAware>(vd_config_.StopYieldConfig()));
+
     override_mgr_.Configure(io_config_);
 
     // Run ADDITIVE (like ManualDrive): the storyboard keeps setting the targets
@@ -123,6 +137,7 @@ ControllerVirtualDriver::~ControllerVirtualDriver()
     delete midlong_planner_;
     delete driver_model_;
     delete indicator_policy_;
+    delete traffic_policy_mgr_;
 }
 
 void ControllerVirtualDriver::Init()
@@ -193,15 +208,32 @@ void ControllerVirtualDriver::Step(double timeStep)
     // 2. Scenario target speed (read from the running SpeedAction; latched).
     const double target_speed = ResolveTargetSpeed();
 
+    // 2a. Traffic policies (Phase 3): evaluate the enabled policies (lead-vehicle /
+    // traffic-light / stop-yield sign) into a set of speed/stop constraints. These
+    // feed the mid/long planner below, which folds them into the v_target(s)
+    // ceiling (strictest wins; STOP -> 0). Empty when no policy is enabled, so the
+    // planner path is identical to Phase 2.
+    TrafficPolicySnapshot policy_snap;
+    if (traffic_policy_mgr_ && traffic_policy_mgr_->PolicyCount() > 0)
+    {
+        TrafficPolicyContext pctx;
+        pctx.ego      = object_;
+        pctx.entities = entities_;
+        pctx.sim_time = sim_time_;
+        policy_snap   = traffic_policy_mgr_->Evaluate(pctx);
+    }
+
     // 2b. Mid/long planner: scan the route ahead for a v_target(s) speed CEILING
     // (curvature, junction turns, speed limits) shaped by comfort deceleration so
     // the car slows *before* a curve/turn instead of arriving too fast and
     // saturating the steering. This is a pure upper bound: the short planner takes
     // min(commanded, ceiling), so the SpeedAction latch above is untouched.
+    // Policy constraints (2a) are folded into the same ceiling.
     MidLongContext mctx;
     mctx.object    = object_;
     mctx.sim_time  = sim_time_;
     mctx.scan_dist = vd_config_.scan_distance;
+    mctx.policy    = &policy_snap;
     MidLongPlannerSnapshot midsnap = midlong_planner_->Plan(mctx);
 
     // Self-localize from the physics backend, not object->pos_. During a lateral
@@ -363,6 +395,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.override_longitudinal = lon_manual;
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
+    telemetry_.policy                = policy_snap;
     telemetry_.driver                = dsnap;
     telemetry_.indicator             = ind;
 

@@ -136,6 +136,56 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
         s_ahead += step;
     }
 
+    // Phase 3: fold traffic-policy constraints into the ceiling. Each policy
+    // (lead-vehicle / traffic-light / stop-yield) emits PolicyConstraints; the
+    // strictest wins because every constraint only ever LOWERS the ceiling.
+    //   MAX_SPEED        : cap every sample.
+    //   MAX_SPEED_TO_S   : cap samples up to the constraint s (e.g. a creep zone).
+    //   STOP_AT_S        : write a hard 0 from the stop point onward — AFTER the
+    //                      forward-scan min_speed clamp, so the floor does not keep
+    //                      the car creeping through a red light / stop line. The
+    //                      backward pass below then propagates the 0 upstream under
+    //                      comfort_decel, so braking begins well before the stop.
+    // (YIELD/WAIT_UNTIL are translated to the above by the policies themselves.)
+    std::vector<MidLongConstraint> policy_markers;
+    if (ctx.policy && ctx.policy->valid && !samples.empty())
+    {
+        for (const auto& c : ctx.policy->constraints)
+        {
+            const double cap = std::max(0.0, c.value);
+            int          marker_idx = -1;  // sample to anchor a "stop" marker on
+            switch (c.kind)
+            {
+                case PolicyConstraint::Kind::MAX_SPEED:
+                    for (auto& s : samples) s.v = std::min(s.v, cap);
+                    break;
+                case PolicyConstraint::Kind::MAX_SPEED_TO_S:
+                    for (auto& s : samples)
+                        if (s.s_ahead <= c.s) s.v = std::min(s.v, cap);
+                    break;
+                case PolicyConstraint::Kind::STOP_AT_S:
+                    for (size_t i = 0; i < samples.size(); ++i)
+                        if (samples[i].s_ahead >= c.s)
+                        {
+                            samples[i].v = 0.0;  // bypass the min_speed floor
+                            if (marker_idx < 0) marker_idx = static_cast<int>(i);
+                        }
+                    // Stop beyond the scan horizon: still mark the last sample so
+                    // the approach decelerates toward it.
+                    if (marker_idx < 0 && c.s > samples.back().s_ahead)
+                        marker_idx = static_cast<int>(samples.size()) - 1;
+                    break;
+                default:
+                    break;
+            }
+            if (marker_idx >= 0)
+            {
+                const ScanSample& s = samples[static_cast<size_t>(marker_idx)];
+                policy_markers.push_back({s.s_ahead, s.x, s.y, 0.0, "stop"});
+            }
+        }
+    }
+
     // Backward comfort-deceleration pass: ensure each point is reachable from the
     // next under comfort_decel, so a low ceiling ahead propagates back and braking
     // starts early (anticipatory) instead of as a late hard stop.
@@ -206,6 +256,10 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
         }
     }
     flush_segment();
+
+    // Append policy "stop" markers (Phase 3) so the viewer can pin the stop point.
+    for (auto& m : policy_markers)
+        snap.constraints.push_back(m);
 
     snap.valid = prof.size() >= 2;
     return snap;

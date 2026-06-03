@@ -52,6 +52,30 @@ std::string ToJson(const VirtualDriverTelemetry& t)
         os << "{\"s\":" << c.s << ",\"x\":" << c.x << ",\"y\":" << c.y
            << ",\"v\":" << c.v << ",\"kind\":\"" << c.kind << "\"}";
     }
+    os << "]}";
+
+    // Phase 3 traffic policies. constraints[] is the union emitted by the enabled
+    // policies (lead-vehicle / traffic-light / stop-yield sign); the planner folds
+    // them into the midlong ceiling above. Session B's overlay reads this shape.
+    auto kind_str = [](PolicyConstraint::Kind k) -> const char* {
+        switch (k)
+        {
+            case PolicyConstraint::Kind::STOP_AT_S:      return "stop_at_s";
+            case PolicyConstraint::Kind::MAX_SPEED:      return "max_speed";
+            case PolicyConstraint::Kind::MAX_SPEED_TO_S: return "max_speed_to_s";
+            case PolicyConstraint::Kind::YIELD:          return "yield";
+            case PolicyConstraint::Kind::WAIT_UNTIL:     return "wait_until";
+            default:                                     return "none";
+        }
+    };
+    os << ",\"policy\":{\"valid\":" << b(t.policy.valid) << ",\"constraints\":[";
+    for (size_t i = 0; i < t.policy.constraints.size(); ++i)
+    {
+        const auto& c = t.policy.constraints[i];
+        if (i) os << ",";
+        os << "{\"kind\":\"" << kind_str(c.kind) << "\",\"s\":" << c.s
+           << ",\"value\":" << c.value << ",\"source\":\"" << c.source << "\"}";
+    }
     os << "]}}";
 
     return os.str();

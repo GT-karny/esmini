@@ -26,6 +26,7 @@ class IShortPlanner;
 class IMidLongPlanner;
 class IDriverModel;
 class IIndicatorPolicy;
+class TrafficPolicyManager;
 
 // ControllerVirtualDriver — a full-physics "virtual driver".
 //
@@ -83,6 +84,10 @@ private:
     IMidLongPlanner* midlong_planner_ = nullptr;
     IDriverModel*    driver_model_    = nullptr;
     IIndicatorPolicy* indicator_policy_ = nullptr;
+    // Phase 3: bundles the enabled traffic policies (lead-vehicle, traffic-light,
+    // stop/yield sign). Evaluated each frame; its constraints feed the mid/long
+    // planner (MidLongContext::policy), which folds them into v_target(s).
+    TrafficPolicyManager* traffic_policy_mgr_ = nullptr;
 
     OverrideManager  override_mgr_;
     HVDStateApplier  state_applier_;

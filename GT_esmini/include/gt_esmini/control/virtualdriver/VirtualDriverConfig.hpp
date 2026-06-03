@@ -6,6 +6,9 @@
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
+#include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
 
 namespace gt_esmini
@@ -62,6 +65,34 @@ struct VirtualDriverConfig
     double indicator_lead_time   = 2.0;
     double indicator_min_on_time = 0.3;
 
+    // --- Traffic policies (Phase 3) ---
+    // On/off per policy. Default OFF so Phase 1/2 behavior is unchanged unless a
+    // scenario opts in (keeps the non-regression smoke/anticipation checks valid).
+    bool   policy_lead_enabled          = false;
+    bool   policy_traffic_light_enabled = false;
+    bool   policy_stop_yield_enabled    = false;
+    // 3a — lead-vehicle IDM follow.
+    double idm_time_headway   = 1.5;   // [s]
+    double idm_min_gap        = 2.0;   // [m]
+    double idm_max_accel      = 1.5;   // [m/s^2]
+    double idm_comfort_decel  = 2.0;   // [m/s^2]
+    double idm_desired_speed  = 50.0;  // [m/s] free-flow v0 (kept high; SpeedAction governs)
+    double idm_lookahead      = 120.0; // [m]
+    double idm_lateral_tol    = 2.0;   // [m]
+    double idm_target_horizon = 0.5;   // [s] tau
+    // 3b — traffic light.
+    double tl_lookahead       = 80.0;  // [m]
+    double tl_comfort_decel   = 2.0;   // [m/s^2] yellow stop-feasibility judgement
+    double tl_yellow_margin   = 1.2;   // require dist > margin * braking dist to stop on yellow
+    // 3c — stop / yield sign.
+    double sign_lookahead     = 80.0;  // [m]
+    double stop_hold_time     = 1.5;   // [s] dwell once stopped
+    double stop_detect_speed  = 0.3;   // [m/s] counts as stopped
+    double stop_line_tol      = 2.0;   // [m] close enough to the line
+    double creep_speed        = 2.0;   // [m/s] edge-forward speed cap
+    double creep_advance      = 4.0;   // [m] how far past the line to creep
+    double yield_creep_speed  = 3.0;   // [m/s] YIELD = decelerate only
+
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
     bool        override_button        = true;
@@ -85,6 +116,9 @@ struct VirtualDriverConfig
     ManeuverAwareSpeedPlannerConfig MidLongConfig() const;
     PIDPurePursuitConfig           DriverConfig() const;
     AutoIndicatorConfig            IndicatorConfig() const;
+    LeadVehicleAwareConfig         LeadConfig() const;
+    TrafficLightAwareConfig        TrafficLightConfig() const;
+    StopYieldSignAwareConfig       StopYieldConfig() const;
 };
 
 }  // namespace gt_esmini
