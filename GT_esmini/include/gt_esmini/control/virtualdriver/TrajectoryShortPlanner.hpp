@@ -27,8 +27,9 @@ public:
     ShortPlannerSnapshot Plan(const ShortPlanContext& ctx) override;
 
 private:
-    // Target speed at distance s_ahead along the route (m). Uses v_target when
-    // valid, else the constant fallback.
+    // The mid/long speed ceiling at distance s_ahead (large sentinel if none).
+    double SampleCeiling(const ShortPlanContext& ctx, double s_ahead) const;
+    // Target speed at distance s_ahead along the route (m) = min(commanded, ceiling).
     double SampleTargetSpeed(const ShortPlanContext& ctx, double s_ahead) const;
 
     TrajectoryShortPlannerConfig cfg_;

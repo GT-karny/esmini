@@ -48,43 +48,36 @@ struct LatInfo
 };
 }  // namespace
 
+double TrajectoryShortPlanner::SampleCeiling(const ShortPlanContext& ctx, double s_ahead) const
+{
+    // The v_target CEILING (curvature / junction / speed-limit, comfort shaped) at
+    // distance s_ahead. Returns a large sentinel when no mid/long profile is
+    // supplied, so min(fallback, ceiling) == fallback (Phase 1 behavior).
+    if (!(ctx.v_target && ctx.v_target->valid && !ctx.v_target->v_target_profile.empty()))
+        return 1.0e9;
+
+    const auto& prof = ctx.v_target->v_target_profile;
+    if (s_ahead <= prof.front().first) return prof.front().second;
+    if (s_ahead >= prof.back().first)  return prof.back().second;
+    for (size_t i = 1; i < prof.size(); ++i)
+    {
+        if (s_ahead <= prof[i].first)
+        {
+            double s0 = prof[i - 1].first, v0 = prof[i - 1].second;
+            double s1 = prof[i].first, v1 = prof[i].second;
+            double w = (s1 > s0) ? (s_ahead - s0) / (s1 - s0) : 0.0;
+            return v0 + w * (v1 - v0);
+        }
+    }
+    return prof.back().second;
+}
+
 double TrajectoryShortPlanner::SampleTargetSpeed(const ShortPlanContext& ctx, double s_ahead) const
 {
-    if (ctx.v_target && ctx.v_target->valid && !ctx.v_target->v_target_profile.empty())
-    {
-        // v_target is a pure CEILING (curvature / junction / speed-limit, comfort
-        // shaped). The scenario's commanded speed (fallback_speed) is the desired
-        // level. Track min(desired, ceiling): the ceiling only ever slows the car,
-        // so it never fights the Phase 1 SpeedAction latch and re-acceleration
-        // resumes automatically once the ceiling rises past the command again.
-        const auto& prof = ctx.v_target->v_target_profile;
-        double v_ceiling;
-        if (s_ahead <= prof.front().first)
-        {
-            v_ceiling = prof.front().second;
-        }
-        else if (s_ahead >= prof.back().first)
-        {
-            v_ceiling = prof.back().second;
-        }
-        else
-        {
-            v_ceiling = prof.back().second;
-            for (size_t i = 1; i < prof.size(); ++i)
-            {
-                if (s_ahead <= prof[i].first)
-                {
-                    double s0 = prof[i - 1].first, v0 = prof[i - 1].second;
-                    double s1 = prof[i].first, v1 = prof[i].second;
-                    double w = (s1 > s0) ? (s_ahead - s0) / (s1 - s0) : 0.0;
-                    v_ceiling = v0 + w * (v1 - v0);
-                    break;
-                }
-            }
-        }
-        return std::min(ctx.fallback_speed, v_ceiling);
-    }
-    return ctx.fallback_speed;
+    // Track min(commanded, ceiling): the ceiling only ever slows the car, so it
+    // never fights the Phase 1 SpeedAction latch and re-acceleration resumes
+    // automatically once the ceiling rises past the command again.
+    return std::min(ctx.fallback_speed, SampleCeiling(ctx, s_ahead));
 }
 
 ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)

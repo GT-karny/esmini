@@ -1,11 +1,11 @@
 """Phase 2 VirtualDriver verification: anticipatory deceleration + Phase 1 non-regression.
 
 Runs two scenarios headless via GT_esminiLib.dll, sampling
-GT_GetVirtualDriverTelemetry() (now including the Phase 2 midlong.v_target_curve):
+GT_GetVirtualDriverTelemetry() (Phase 2 midlong.v_target_profile [[s,v]] + constraints):
 
   1. virtual_driver_basic.xosc       -> Phase 1 non-regression (cruise 15 / stop, no steer saturation)
   2. virtual_driver_anticipation.xosc -> slows BEFORE the junction/curve, no steer saturation,
-                                         re-accelerates after, v_target_curve present.
+                                         re-accelerates after, v_target_profile present.
 
 Usage:  DriverScript/.venv/Scripts/python.exe scripts/vd_anticipation_check.py
 """
@@ -52,9 +52,9 @@ def fmt_rows(rows):
     print("   t    speed  steer  thr  brk  track lane   midlong  vt[0]  vt_min")
     for r in rows:
         ego, drv, ml = r["ego"], r["driver"], r.get("midlong", {})
-        curve = ml.get("v_target_curve", [])
-        vt0 = curve[0]["v"] if curve else float("nan")
-        vtmin = min((p["v"] for p in curve), default=float("nan"))
+        curve = ml.get("v_target_profile", [])  # [[s, v], ...]
+        vt0 = curve[0][1] if curve else float("nan")
+        vtmin = min((p[1] for p in curve), default=float("nan"))
         print(f"{r['sim_time']:5.1f}  {ego['speed']:5.2f}  {drv['steer']:6.3f} {drv['throttle']:4.2f} {drv['brake']:4.2f}"
               f"  {ego['track']:4d} {ego['lane']:4d}   {str(ml.get('valid')):5s}  {vt0:6.2f} {vtmin:6.2f}")
 
@@ -67,14 +67,14 @@ def main():
     fmt_rows(basic[:: max(1, len(basic) // 12)])
     spd = [r["ego"]["speed"] for r in basic]
     steer = [abs(r["driver"]["steer"]) for r in basic]
-    has_curve = any(r.get("midlong", {}).get("v_target_curve") for r in basic)
+    has_curve = any(r.get("midlong", {}).get("v_target_profile") for r in basic)
     b_reached = max(spd) > 10.0
     b_stopped = spd[-1] < 1.0
     b_nosat = max(steer) < 0.99
     print(f"\n  reached>10 m/s : {b_reached} (max={max(spd):.2f})")
     print(f"  stopped at end : {b_stopped} (final={spd[-1]:.2f})")
     print(f"  no steer sat   : {b_nosat} (max|steer|={max(steer):.3f})")
-    print(f"  v_target_curve present : {has_curve}")
+    print(f"  v_target_profile present : {has_curve}")
     basic_ok = b_reached and b_stopped and b_nosat and has_curve
 
     print("\n=== 2. virtual_driver_anticipation.xosc (Phase 2 anticipatory decel) ===")
@@ -85,7 +85,13 @@ def main():
     a_spd = [r["ego"]["speed"] for r in ant]
     a_steer = [abs(r["driver"]["steer"]) for r in ant]
     tracks = [r["ego"]["track"] for r in ant]
-    a_curve = any(r.get("midlong", {}).get("v_target_curve") for r in ant)
+    a_curve = any(r.get("midlong", {}).get("v_target_profile") for r in ant)
+    # Show the labelled constraints from the frame with the most of them.
+    best = max(ant, key=lambda r: len(r.get("midlong", {}).get("constraints", [])), default=None)
+    cons = best.get("midlong", {}).get("constraints", []) if best else []
+    print("\n  labelled constraints (richest frame):")
+    for c in cons:
+        print(f"    kind={c['kind']:11s} s={c['s']:7.1f}  v={c['v']:5.2f}  xy=({c['x']:.1f},{c['y']:.1f})")
     a_reached = max(a_spd) > 10.0           # cruised on the straight
     a_slowed = min(a_spd[5:]) < 8.0         # slowed for junction/curve (after launch)
     a_nosat = max(a_steer) < 0.99           # Pure Pursuit did not saturate
@@ -94,7 +100,7 @@ def main():
     print(f"  slowed <8 m/s    : {a_slowed} (min={min(a_spd[5:]):.2f})  <- anticipatory decel")
     print(f"  no steer sat     : {a_nosat} (max|steer|={max(a_steer):.3f})  <- residual bug fix")
     print(f"  reached road 2   : {on_route} (tracks seen={sorted(set(tracks))})")
-    print(f"  v_target_curve   : {a_curve}")
+    print(f"  v_target_profile : {a_curve}")
     ant_ok = a_reached and a_slowed and a_nosat and a_curve
 
     print("\n" + "=" * 50)

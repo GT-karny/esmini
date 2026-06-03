@@ -27,11 +27,11 @@ struct VirtualDriverConfig
     double short_dt  = 0.1;
 
     // --- Mid/long planner (Phase 2: ManeuverAwareSpeedPlanner) ---
-    double max_lateral_accel = 2.5;   // [m/s^2] curve speed = sqrt(a_lat/|kappa|)
+    double max_lateral_accel = 2.0;   // [m/s^2] curve speed = sqrt(a_lat/|kappa|)
     double comfort_decel     = 2.0;   // [m/s^2] backward-pass deceleration
-    double comfort_jerk      = 1.5;   // [m/s^3] optional profile smoothing
+    double comfort_jerk      = 1.5;   // [m/s^3] jerk-limited profile smoothing
     double scan_distance     = 300.0; // [m] route look-ahead for v_target(s)
-    double scan_step         = 5.0;   // [m] forward scan resolution
+    double scan_step         = 2.0;   // [m] forward scan resolution
     double turn_speed        = 5.0;   // [m/s] cap over junction connecting roads
     double min_turn_speed    = 2.0;   // [m/s] floor on any computed ceiling
     bool   respect_speed_limit = true;

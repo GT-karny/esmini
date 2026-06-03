@@ -51,11 +51,24 @@ struct DriverModelSnapshot
     bool   valid          = false;
 };
 
+// A labelled constraint point selected by the mid/long planner (Phase 2).
+// Carries world XY so the viewer can drop a maneuver marker on the scene.
+struct MidLongConstraint
+{
+    double      s = 0.0;   // route s the constraint applies at [m] (ahead of ego)
+    double      x = 0.0;   // world position [m]
+    double      y = 0.0;   // world position [m]
+    double      v = 0.0;   // target speed at the constraint [m/s]
+    std::string kind;      // "curve" | "junction" | "speed_limit" | "stop"
+};
+
 // IMidLongPlanner output (Phase 2). v_target as a function of route s.
 struct MidLongPlannerSnapshot
 {
     // (s [m], v_max [m/s]) sample pairs along the route ahead.
     std::vector<std::pair<double, double>> v_target_profile;
+    // Labelled constraint points (curve / junction / speed-limit) with world XY.
+    std::vector<MidLongConstraint>         constraints;
     bool                                   valid = false;
 };
 

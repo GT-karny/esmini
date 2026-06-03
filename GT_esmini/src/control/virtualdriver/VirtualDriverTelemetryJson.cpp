@@ -33,15 +33,24 @@ std::string ToJson(const VirtualDriverTelemetry& t)
     }
     os << "]}";
 
-    // Phase 2 mid/long planner: v_target(s) ceiling profile. s = distance ahead
-    // of the ego [m] (relative), v = max safe speed [m/s]. Session B (V2) reads
-    // this to render the v_target chart.
-    os << ",\"midlong\":{\"valid\":" << b(t.midlong.valid) << ",\"v_target_curve\":[";
+    // Phase 2 mid/long planner. Shape must match the frontend MidLongProfile
+    // contract (client.ts): v_target_profile is an array of [s, v] PAIRS (s =
+    // distance ahead of the ego [m], v = max safe speed [m/s]); constraints carry
+    // world XY so the scene can drop maneuver markers. Session B (V2) reads this.
+    os << ",\"midlong\":{\"valid\":" << b(t.midlong.valid) << ",\"v_target_profile\":[";
     for (size_t i = 0; i < t.midlong.v_target_profile.size(); ++i)
     {
         const auto& pt = t.midlong.v_target_profile[i];
         if (i) os << ",";
-        os << "{\"s\":" << pt.first << ",\"v\":" << pt.second << "}";
+        os << "[" << pt.first << "," << pt.second << "]";
+    }
+    os << "],\"constraints\":[";
+    for (size_t i = 0; i < t.midlong.constraints.size(); ++i)
+    {
+        const auto& c = t.midlong.constraints[i];
+        if (i) os << ",";
+        os << "{\"s\":" << c.s << ",\"x\":" << c.x << ",\"y\":" << c.y
+           << ",\"v\":" << c.v << ",\"kind\":\"" << c.kind << "\"}";
     }
     os << "]}}";
 

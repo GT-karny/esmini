@@ -8,14 +8,14 @@ namespace gt_esmini
 struct ManeuverAwareSpeedPlannerConfig
 {
     // Lateral-accel budget: caps speed in a curve to v = sqrt(a_lat / |kappa|).
-    double max_lateral_accel = 2.5;   // [m/s^2]
+    double max_lateral_accel = 2.0;   // [m/s^2]
     // Comfort longitudinal deceleration used by the backward pass to shape the
     // approach to a constraint (start braking early instead of late & hard).
     double comfort_decel     = 2.0;   // [m/s^2]
-    // Comfort jerk limit (optional smoothing of the profile). 0 disables.
+    // Comfort jerk limit for the spatial profile smoothing. 0 disables.
     double comfort_jerk      = 1.5;   // [m/s^3]
     // Forward scan resolution.
-    double scan_step         = 5.0;   // [m] per MoveAlongS sample
+    double scan_step         = 2.0;   // [m] per MoveAlongS sample
     // Floor on any computed ceiling so the car keeps creeping (never planned to 0).
     double min_speed         = 2.0;   // [m/s]
     // Conservative cap imposed over a detected junction connecting road, on top
