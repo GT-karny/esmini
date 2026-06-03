@@ -23,6 +23,7 @@ constexpr int CONTROLLER_TYPE_VIRTUAL_DRIVER = 1002;
 class IInputSource;
 class IPhysicsBackend;
 class IShortPlanner;
+class IMidLongPlanner;
 class IDriverModel;
 class IIndicatorPolicy;
 
@@ -79,6 +80,7 @@ private:
     IInputSource*    input_source_    = nullptr;
     IPhysicsBackend* physics_backend_ = nullptr;
     IShortPlanner*   short_planner_   = nullptr;
+    IMidLongPlanner* midlong_planner_ = nullptr;
     IDriverModel*    driver_model_    = nullptr;
     IIndicatorPolicy* indicator_policy_ = nullptr;
 

@@ -8,6 +8,7 @@
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
 #endif
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
+#include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
@@ -92,6 +93,7 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     // --- Create pluggable layers ---
     physics_backend_  = new RealVehicleBackend();
     short_planner_    = new TrajectoryShortPlanner(vd_config_.ShortPlannerConfig());
+    midlong_planner_  = new ManeuverAwareSpeedPlanner(vd_config_.MidLongConfig());
     driver_model_     = new PIDPurePursuitDriver(vd_config_.DriverConfig());
     indicator_policy_ = new AutoIndicatorPolicy(vd_config_.IndicatorConfig());
 
@@ -118,6 +120,7 @@ ControllerVirtualDriver::~ControllerVirtualDriver()
     }
     delete physics_backend_;
     delete short_planner_;
+    delete midlong_planner_;
     delete driver_model_;
     delete indicator_policy_;
 }
@@ -190,13 +193,24 @@ void ControllerVirtualDriver::Step(double timeStep)
     // 2. Scenario target speed (read from the running SpeedAction; latched).
     const double target_speed = ResolveTargetSpeed();
 
+    // 2b. Mid/long planner: scan the route ahead for a v_target(s) speed CEILING
+    // (curvature, junction turns, speed limits) shaped by comfort deceleration so
+    // the car slows *before* a curve/turn instead of arriving too fast and
+    // saturating the steering. This is a pure upper bound: the short planner takes
+    // min(commanded, ceiling), so the SpeedAction latch above is untouched.
+    MidLongContext mctx;
+    mctx.object    = object_;
+    mctx.sim_time  = sim_time_;
+    mctx.scan_dist = vd_config_.scan_distance;
+    MidLongPlannerSnapshot midsnap = midlong_planner_->Plan(mctx);
+
     // 3. Auto pipeline: short planner -> driver model
     ShortPlanContext sctx;
     sctx.object         = object_;
     sctx.sim_time       = sim_time_;
     sctx.horizon_s      = vd_config_.horizon_s;
     sctx.dt             = vd_config_.short_dt;
-    sctx.v_target       = nullptr;          // Phase 1: no mid/long planner yet
+    sctx.v_target       = midsnap.valid ? &midsnap : nullptr;
     sctx.fallback_speed = target_speed;
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
 
@@ -317,6 +331,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.override_lateral      = lat_manual;
     telemetry_.override_longitudinal = lon_manual;
     telemetry_.short_plan            = plan;
+    telemetry_.midlong               = midsnap;
     telemetry_.driver                = dsnap;
     telemetry_.indicator             = ind;
 

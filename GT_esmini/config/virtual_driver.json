@@ -7,6 +7,16 @@
     "horizon_s": 3.0,
     "short_dt": 0.1,
 
+    "_midlong": "Phase 2 mid/long planner: v_target(s) ceiling (curvature/junction/speed-limit) shaped by comfort decel. Combined with SpeedAction target via min().",
+    "max_lateral_accel": 2.5,
+    "comfort_decel": 2.0,
+    "comfort_jerk": 1.5,
+    "scan_distance": 300.0,
+    "scan_step": 5.0,
+    "turn_speed": 5.0,
+    "min_turn_speed": 2.0,
+    "respect_speed_limit": true,
+
     "_driver": "PID + Pure Pursuit driver model",
     "lookahead_gain": 0.5,
     "min_lookahead": 4.0,

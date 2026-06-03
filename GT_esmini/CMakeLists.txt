@@ -125,6 +125,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerVirtualDriver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/TrajectoryShortPlanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/PIDPurePursuitDriver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
@@ -184,6 +185,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ITrafficPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IIndicatorPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp

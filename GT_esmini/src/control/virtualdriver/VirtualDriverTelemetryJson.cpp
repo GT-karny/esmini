@@ -31,6 +31,18 @@ std::string ToJson(const VirtualDriverTelemetry& t)
         if (i) os << ",";
         os << "{\"x\":" << p.x << ",\"y\":" << p.y << ",\"v\":" << p.v << ",\"t\":" << p.t << "}";
     }
+    os << "]}";
+
+    // Phase 2 mid/long planner: v_target(s) ceiling profile. s = distance ahead
+    // of the ego [m] (relative), v = max safe speed [m/s]. Session B (V2) reads
+    // this to render the v_target chart.
+    os << ",\"midlong\":{\"valid\":" << b(t.midlong.valid) << ",\"v_target_curve\":[";
+    for (size_t i = 0; i < t.midlong.v_target_profile.size(); ++i)
+    {
+        const auto& pt = t.midlong.v_target_profile[i];
+        if (i) os << ",";
+        os << "{\"s\":" << pt.first << ",\"v\":" << pt.second << "}";
+    }
     os << "]}}";
 
     return os.str();

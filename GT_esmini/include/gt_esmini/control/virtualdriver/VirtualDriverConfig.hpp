@@ -3,6 +3,7 @@
 #include <string>
 
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
+#include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
@@ -24,6 +25,16 @@ struct VirtualDriverConfig
     // --- Short planner ---
     double horizon_s = 3.0;
     double short_dt  = 0.1;
+
+    // --- Mid/long planner (Phase 2: ManeuverAwareSpeedPlanner) ---
+    double max_lateral_accel = 2.5;   // [m/s^2] curve speed = sqrt(a_lat/|kappa|)
+    double comfort_decel     = 2.0;   // [m/s^2] backward-pass deceleration
+    double comfort_jerk      = 1.5;   // [m/s^3] optional profile smoothing
+    double scan_distance     = 300.0; // [m] route look-ahead for v_target(s)
+    double scan_step         = 5.0;   // [m] forward scan resolution
+    double turn_speed        = 5.0;   // [m/s] cap over junction connecting roads
+    double min_turn_speed    = 2.0;   // [m/s] floor on any computed ceiling
+    bool   respect_speed_limit = true;
 
     // --- Driver model (PID + Pure Pursuit) ---
     double lookahead_gain = 0.5;
@@ -57,10 +68,11 @@ struct VirtualDriverConfig
     bool LoadFromFile(const std::string& filepath);
 
     // Convenience accessors for the sub-configs of the pluggable components.
-    PhysicsInitParams          PhysicsParams() const;
-    TrajectoryShortPlannerConfig ShortPlannerConfig() const;
-    PIDPurePursuitConfig       DriverConfig() const;
-    AutoIndicatorConfig        IndicatorConfig() const;
+    PhysicsInitParams              PhysicsParams() const;
+    TrajectoryShortPlannerConfig   ShortPlannerConfig() const;
+    ManeuverAwareSpeedPlannerConfig MidLongConfig() const;
+    PIDPurePursuitConfig           DriverConfig() const;
+    AutoIndicatorConfig            IndicatorConfig() const;
 };
 
 }  // namespace gt_esmini

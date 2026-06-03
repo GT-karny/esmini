@@ -57,6 +57,15 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("horizon_s", horizon_s);
         parse_double("short_dt", short_dt);
 
+        parse_double("max_lateral_accel", max_lateral_accel);
+        parse_double("comfort_decel", comfort_decel);
+        parse_double("comfort_jerk", comfort_jerk);
+        parse_double("scan_distance", scan_distance);
+        parse_double("scan_step", scan_step);
+        parse_double("turn_speed", turn_speed);
+        parse_double("min_turn_speed", min_turn_speed);
+        parse_bool("respect_speed_limit", respect_speed_limit);
+
         parse_double("lookahead_gain", lookahead_gain);
         parse_double("min_lookahead", min_lookahead);
         parse_double("max_lookahead", max_lookahead);
@@ -98,6 +107,19 @@ PhysicsInitParams VirtualDriverConfig::PhysicsParams() const
 TrajectoryShortPlannerConfig VirtualDriverConfig::ShortPlannerConfig() const
 {
     return TrajectoryShortPlannerConfig{};  // defaults; horizon/dt passed per-frame via ShortPlanContext
+}
+
+ManeuverAwareSpeedPlannerConfig VirtualDriverConfig::MidLongConfig() const
+{
+    ManeuverAwareSpeedPlannerConfig c;
+    c.max_lateral_accel   = max_lateral_accel;
+    c.comfort_decel       = comfort_decel;
+    c.comfort_jerk        = comfort_jerk;
+    c.scan_step           = scan_step;
+    c.min_speed           = min_turn_speed;
+    c.turn_speed          = turn_speed;
+    c.respect_speed_limit = respect_speed_limit;
+    return c;
 }
 
 PIDPurePursuitConfig VirtualDriverConfig::DriverConfig() const
