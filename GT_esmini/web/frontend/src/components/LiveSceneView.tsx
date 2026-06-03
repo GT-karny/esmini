@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TrafficLight } from '../hooks/useOsiStream';
-import type { VdTelemetryFrame } from '../api/client';
+import type { MidLongConstraint, MidLongProfile, VdTelemetryFrame } from '../api/client';
 
 /* ---------- Types ---------- */
 
@@ -60,13 +60,15 @@ interface LiveSceneViewProps {
   trafficLights?: TrafficLight[];
   /** Current VirtualDriver telemetry frame (replay or live) -> short-horizon preview overlay. */
   vdTelemetry?: VdTelemetryFrame | null;
+  /** Mid/long planner output (Phase 2) -> v_target labels + maneuver markers. */
+  midlong?: MidLongProfile | null;
   /** Baseline (Default) ego path for 2-run comparison, as world [x,y] points. */
   ghostPath?: [number, number][] | null;
   className?: string;
   viewRadius?: number;
 }
 
-type LayerKey = 'signs' | 'stopLines' | 'signals';
+type LayerKey = 'signs' | 'stopLines' | 'signals' | 'vTarget' | 'maneuverMarkers';
 
 /* ---------- Constants ---------- */
 
@@ -137,6 +139,7 @@ export function LiveSceneView({
   roadGeometry,
   trafficLights,
   vdTelemetry,
+  midlong,
   ghostPath,
   className = '',
   viewRadius: initialRadius = DEFAULT_VIEW_RADIUS,
@@ -147,6 +150,8 @@ export function LiveSceneView({
     signs: true,
     stopLines: true,
     signals: true,
+    vTarget: true,
+    maneuverMarkers: true,
   });
 
   const viewRadius = initialRadius / zoom;
@@ -268,6 +273,35 @@ export function LiveSceneView({
     [vdTelemetry],
   );
 
+  // v_target speed labels along the short-horizon preview (no A2 dependency:
+  // the profile is in route-s with no XY, so the spatial readout reuses the
+  // preview sample points which already carry XY + target speed v).
+  const vTargetLabels = useMemo(() => {
+    const pts = vdTelemetry?.preview?.points;
+    if (!pts || pts.length < 2) return null;
+    const step = Math.max(1, Math.floor(pts.length / 5));
+    const out: ReactElement[] = [];
+    for (let i = step; i < pts.length; i += step) {
+      const p = pts[i];
+      out.push(
+        <text key={`vt${i}`} x={p.x + 0.6} y={flipY(p.y)} fontSize={1.6}
+          fill="rgba(120,210,150,0.9)" fontFamily="var(--font-mono, monospace)">
+          {p.v.toFixed(0)}
+        </text>,
+      );
+    }
+    return out;
+  }, [vdTelemetry]);
+
+  // Mid/long maneuver markers at constraint world XY (curve / junction / speed
+  // limit). [A2] Driven by midlong.constraints, which carry real XY; null until
+  // A2 emits them.
+  const maneuverMarkersNode = useMemo(() => {
+    const cs = midlong?.valid ? midlong.constraints : undefined;
+    if (!cs || cs.length === 0) return null;
+    return cs.map((c, i) => renderManeuverMarker(c, flipY, i));
+  }, [midlong]);
+
   // Baseline (Default) ghost path for 2-run comparison.
   const ghostPathNode = useMemo(() => {
     if (!ghostPath || ghostPath.length < 2) return null;
@@ -278,12 +312,14 @@ export function LiveSceneView({
   const hasSigns = (roadGeometry?.signs?.length ?? 0) > 0;
   const hasStopLines = (roadGeometry?.stop_lines?.length ?? 0) > 0;
   const hasSignals = (trafficLights?.length ?? 0) > 0;
-  const showLayerBar = hasSigns || hasStopLines || hasSignals;
+  const hasVdPreview = (vdTelemetry?.preview?.points?.length ?? 0) > 0;
+  const hasManeuver = !!(midlong?.valid && (midlong.constraints?.length ?? 0) > 0);
+  const showLayerBar = hasSigns || hasStopLines || hasSignals || hasVdPreview || hasManeuver;
 
   return (
     <div className={`relative ${className}`}>
       {showLayerBar && (
-        <div className="absolute top-2 left-2 z-10 flex gap-1">
+        <div className="absolute top-2 left-2 z-10 flex gap-1 flex-wrap">
           {hasSignals && (
             <LayerToggle label="Signals" active={layers.signals}
               onClick={() => setLayers((l) => ({ ...l, signals: !l.signals }))} />
@@ -295,6 +331,14 @@ export function LiveSceneView({
           {hasStopLines && (
             <LayerToggle label="Stop lines" active={layers.stopLines}
               onClick={() => setLayers((l) => ({ ...l, stopLines: !l.stopLines }))} />
+          )}
+          {hasVdPreview && (
+            <LayerToggle label="v_target" active={layers.vTarget}
+              onClick={() => setLayers((l) => ({ ...l, vTarget: !l.vTarget }))} />
+          )}
+          {hasManeuver && (
+            <LayerToggle label="Maneuver" active={layers.maneuverMarkers}
+              onClick={() => setLayers((l) => ({ ...l, maneuverMarkers: !l.maneuverMarkers }))} />
           )}
         </div>
       )}
@@ -342,6 +386,10 @@ export function LiveSceneView({
 
       {/* VirtualDriver preview trajectory (under markers, over road) */}
       {vdPreview}
+      {layers.vTarget && vTargetLabels}
+
+      {/* Mid/long maneuver markers (curve / junction / speed-limit preview) */}
+      {layers.maneuverMarkers && maneuverMarkersNode}
 
       {/* Signs + traffic-light heads (on top of vehicles) */}
       {layers.signs && signMarkers}
@@ -389,6 +437,48 @@ function LayerToggle({
     >
       {label}
     </button>
+  );
+}
+
+/* ---------- Mid/long maneuver markers ---------- */
+
+const MANEUVER_COLOR: Record<MidLongConstraint['kind'], string> = {
+  curve: '#E8A24F',
+  junction: '#E0568A',
+  speed_limit: '#4F9DE8',
+  stop: '#E03131',
+};
+
+// Diamond marker at the constraint's world XY with kind + target speed label.
+function renderManeuverMarker(
+  c: MidLongConstraint,
+  toSvgY: (y: number) => number,
+  key: number,
+): ReactElement {
+  const cx = c.x;
+  const cy = toSvgY(c.y);
+  const color = MANEUVER_COLOR[c.kind] ?? '#9B84E8';
+  const r = 1.4;
+  return (
+    <g key={`mm${key}`}>
+      <path
+        d={`M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} Z`}
+        fill="none"
+        stroke={color}
+        strokeWidth={0.3}
+      />
+      <circle cx={cx} cy={cy} r={0.3} fill={color} />
+      <text
+        x={cx + r + 0.4}
+        y={cy}
+        fontSize={1.6}
+        fill={color}
+        dominantBaseline="central"
+        fontFamily="var(--font-mono, monospace)"
+      >
+        {c.kind} {c.v.toFixed(0)}
+      </text>
+    </g>
   );
 }
 

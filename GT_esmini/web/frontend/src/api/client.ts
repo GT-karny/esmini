@@ -244,6 +244,27 @@ export interface VdPreviewPoint {
   t: number;
 }
 
+/* Mid/long planner output (Phase 2). Optional on the telemetry frame: emitted
+ * once A2's VirtualDriverTelemetryJson.cpp serializes the `midlong` section.
+ * Until then it is undefined and the v_target chart / maneuver-marker layers
+ * degrade gracefully. Keys/shape must match the C++ serializer — this interface
+ * is the single frontend reconciliation point (see plan §2a). */
+export type MidLongConstraintKind = 'curve' | 'junction' | 'speed_limit' | 'stop';
+
+export interface MidLongConstraint {
+  s: number;     // route s the constraint applies at [m]
+  x: number;     // world position [m]
+  y: number;     // world position [m]
+  v: number;     // target speed at the constraint [m/s]
+  kind: MidLongConstraintKind;
+}
+
+export interface MidLongProfile {
+  v_target_profile: [number, number][];  // (s [m], v_max [m/s]) pairs along the route
+  constraints?: MidLongConstraint[];       // [A2] labelled constraint points (with XY)
+  valid: boolean;
+}
+
 export interface VdTelemetryFrame {
   sim_time: number;
   ego: {
@@ -258,6 +279,7 @@ export interface VdTelemetryFrame {
   };
   indicator: { left: boolean; right: boolean };
   preview: { dt: number; valid: boolean; points: VdPreviewPoint[] };
+  midlong?: MidLongProfile;  // Phase 2+ (optional; see MidLongProfile)
 }
 
 export interface VerificationRun {

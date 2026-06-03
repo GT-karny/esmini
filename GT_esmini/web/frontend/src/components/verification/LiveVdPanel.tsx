@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
 import { ErrorChart, TelemetryInfoRows } from './TelemetryPanels';
+import { VTargetProfileChart } from './VTargetProfileChart';
 import { VdManualOverridePanel } from './VdManualOverridePanel';
 import { useVdStream } from '../../hooks/useVdStream';
 import { useOsiStream, type OsiObject } from '../../hooks/useOsiStream';
@@ -102,6 +103,7 @@ export function LiveVdPanel({
             roadGeometry={roadGeometry}
             trafficLights={trafficLights}
             vdTelemetry={frame}
+            midlong={frame?.midlong ?? null}
             className="h-full"
             viewRadius={40}
           />
@@ -112,6 +114,7 @@ export function LiveVdPanel({
             <>
               <TelemetryInfoRows frame={frame} />
               <ErrorChart frames={history} idx={history.length - 1} />
+              <VTargetProfileChart frames={history} idx={history.length - 1} midlong={frame.midlong} />
             </>
           ) : (
             <div className="rounded border border-glass-edge p-3 text-xs text-text-tertiary">

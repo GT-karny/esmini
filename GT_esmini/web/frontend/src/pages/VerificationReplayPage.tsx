@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type VdTelemetryFrame } from '../api/client';
 import { LiveSceneView, type RoadGeometry } from '../components/LiveSceneView';
 import { ErrorChart, TelemetryInfoRows } from '../components/verification/TelemetryPanels';
+import { VTargetProfileChart } from '../components/verification/VTargetProfileChart';
 import { LiveVdPanel } from '../components/verification/LiveVdPanel';
 import { VdRunLauncher } from '../components/verification/VdRunLauncher';
 import type { OsiObject, TrafficLight } from '../hooks/useOsiStream';
@@ -408,6 +409,7 @@ export function VerificationReplayPage() {
             roadGeometry={roadGeometry}
             trafficLights={sceneTrafficLights}
             vdTelemetry={frame}
+            midlong={frame?.midlong ?? null}
             ghostPath={ghostPathPts}
             className="h-full"
             viewRadius={40}
@@ -444,6 +446,10 @@ export function VerificationReplayPage() {
 
           {frames.length > 0 && (
             <ErrorChart frames={frames} idx={idx} />
+          )}
+
+          {frames.length > 0 && (
+            <VTargetProfileChart frames={frames} idx={idx} midlong={frame?.midlong} />
           )}
         </div>
       </div>
