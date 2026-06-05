@@ -265,6 +265,28 @@ export interface MidLongProfile {
   valid: boolean;
 }
 
+/* [A3 / Phase 3] Traffic-policy output. Each enabled policy (lead-vehicle /
+ * traffic-light / stop-yield sign) emits PolicyConstraints; the mid/long planner
+ * folds them into the v_target ceiling. Shape mirrors the C++ serializer
+ * (VirtualDriverTelemetryJson.cpp `policy` block). PolicyConstraint carries no
+ * world XY (kind/s/value/source only) — the planner echoes stop/yield points into
+ * `midlong.constraints` (with XY, kind 'stop') for scene markers, so the scene
+ * layer reuses maneuverMarkers; this `policy` block drives the timeline panel. */
+export type PolicyConstraintKind =
+  | 'none' | 'stop_at_s' | 'max_speed' | 'max_speed_to_s' | 'yield' | 'wait_until';
+
+export interface PolicyConstraint {
+  kind: PolicyConstraintKind;
+  s: number;        // route s ahead of the ego the constraint applies at/until [m]
+  value: number;    // speed [m/s] or time [s] depending on kind
+  source: string;   // "lead_vehicle" | "traffic_light" | "stop_sign" | "yield_sign" | ...
+}
+
+export interface TrafficPolicySnapshot {
+  valid: boolean;
+  constraints: PolicyConstraint[];
+}
+
 export interface VdTelemetryFrame {
   sim_time: number;
   ego: {
@@ -280,6 +302,7 @@ export interface VdTelemetryFrame {
   indicator: { left: boolean; right: boolean };
   preview: { dt: number; valid: boolean; points: VdPreviewPoint[] };
   midlong?: MidLongProfile;  // Phase 2+ (optional; see MidLongProfile)
+  policy?: TrafficPolicySnapshot;  // Phase 3+ (optional; see TrafficPolicySnapshot)
 }
 
 export interface VerificationRun {

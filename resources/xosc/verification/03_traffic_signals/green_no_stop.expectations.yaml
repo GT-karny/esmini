@@ -1,0 +1,15 @@
+scenario: green_no_stop
+category: 03_traffic_signals
+# Positive control: signal green the whole run -> the ego must NOT stop or slow
+# for it. min_speed_above on road 3 after the launch transient. Guards against a
+# TrafficLightAware policy that over-triggers on green. Passes pre- and post-3b.
+must:
+  - event: min_speed_above
+    threshold: 8.0
+    road_id: 3
+    after: { sim_time: 5.0 }   # skip launch-from-rest; cruising by here
+    reason: "青信号では減速・停止しない(road3 区間で巡航維持)"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 5.0 }
+    reason: "巡航速度に到達"

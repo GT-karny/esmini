@@ -1,0 +1,17 @@
+scenario: stop_sign_full_stop
+category: 04_traffic_signs
+# Ego-kinematic only (no OSI needed): the STOP sign is static in the xodr, so a
+# full stop sustained near the stop line is the discriminator. Pre-Phase-3c (no
+# StopYieldSignAware) the ego runs the sign and stopped_at_stop_sign FAILS.
+must:
+  - event: stopped_at_stop_sign
+    sign_id: 10
+    road_id: 1
+    s_range: [190, 201]      # STOP sign / stop line at s=200 on road 1
+    min_duration: 1.0        # a real stop, not a roll-through
+    stop_speed: 0.3
+    reason: "STOP標識の停止線で完全停止"
+  - event: speed_above
+    threshold: 3.0
+    after: { sim_time: 22.0 }
+    reason: "安全確認後に発進(再加速)"

@@ -1,0 +1,13 @@
+scenario: follow_steady
+category: 06_lead_vehicle
+# Requires OSI capture (batch osi:true): THW is measured from the lead vehicle in
+# the captured scene. Pre-Phase-3a (no LeadVehicleAware) the ego closes onto the
+# slower lead and the p50 THW drops below the band -> FAILS. Post-3a it settles
+# into a comfortable following distance.
+must:
+  - event: maintained_following_distance
+    min_thw: 1.0             # comfortable lower bound [s]
+    max_thw: 3.5             # not an excessive gap
+    percentile: 50
+    after: { sim_time: 8.0 } # following established (gap closed from 50 m)
+    reason: "自レーン先行車に対し快適な車間(THW)を維持"

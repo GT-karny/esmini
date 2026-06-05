@@ -28,15 +28,30 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import socket
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))  # osi3 bindings
 
 from gt_lib import GtLib  # noqa: E402  (local module, same dir)
+
+# OSI groundtruth capture (opt-in). GT_Sim/GT_esminiLib emit OSI over UDP with
+# --osi (default port 48198), reassembled with the same counter/size framing as
+# udp_osi_common.OSIReceiver. We capture in-process (loopback) so lead-vehicle
+# distance (THW) and live signal phase are available to the matchers without a
+# new C-API. Kept self-contained (no backend import) so the packaged build works.
+OSI_UDP_PORT = 48198
+OSI_BUFFER_SIZE = 8208  # max OSI UDP payload + 8-byte header (contract with esmini)
+
+# osi3 enum -> string maps (mirror of api/osi_stream.py, kept local on purpose).
+_TL_COLOR_MAP = {0: "unknown", 1: "other", 2: "red", 3: "yellow", 4: "green", 5: "blue", 6: "white"}
+_TL_MODE_MAP = {0: "unknown", 1: "other", 2: "off", 3: "constant", 4: "flashing", 5: "counting"}
+_MOVING_TYPE_MAP = {0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: "animal"}
 
 
 # ---------------------------------------------------------------------------
@@ -52,38 +67,168 @@ def _git_commit() -> str:
         return ""
 
 
+class _OsiCapture:
+    """In-process OSI GroundTruth receiver. Binds the UDP port before init, then
+    `drain()` is called once per step to reassemble all buffered packets and
+    return the *latest* complete GroundTruth bytes (or None if none completed).
+
+    The DLL sends OSI synchronously inside GT_Step on the same thread (loopback),
+    so by the time GT_Step returns, that frame's packets are already in the OS
+    socket buffer and a non-blocking drain yields complete frames."""
+
+    def __init__(self, port: int = OSI_UDP_PORT):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
+        self.sock.bind(("127.0.0.1", port))
+        self.sock.setblocking(False)
+        self._complete = b""
+        self._next_index = 1
+
+    def drain(self) -> bytes | None:
+        last_raw: bytes | None = None
+        while True:
+            try:
+                msg, _ = self.sock.recvfrom(OSI_BUFFER_SIZE)
+            except (BlockingIOError, socket.timeout):
+                break
+            except OSError:
+                break
+            if len(msg) < 8:
+                continue
+            counter, _size = struct.unpack("iI", msg[:8])
+            frame = msg[8:]
+            if counter == 1:  # new message
+                self._complete = b""
+                self._next_index = 1
+            if counter == 1 or abs(counter) == self._next_index:
+                self._complete += frame
+                self._next_index += 1
+                if counter < 0:  # negative counter = final packet
+                    last_raw = self._complete
+                    self._complete = b""
+                    self._next_index = 1
+            else:
+                self._next_index = 1  # out of sync, reset
+        return last_raw
+
+    def close(self) -> None:
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
+    """Parse a raw GroundTruth frame into a lightweight scene dict:
+    {objects:[{id,name,x,y,h,speed,length,width}], traffic_lights:[{id,x,y,h,color,mode}]}.
+    Reuses one GroundTruth message object across calls (parse churn)."""
+    from osi3.osi_groundtruth_pb2 import GroundTruth
+
+    if not _gt_cache:
+        _gt_cache.append(GroundTruth())
+    gt = _gt_cache[0]
+    gt.Clear()
+    try:
+        gt.ParseFromString(raw)
+    except Exception:
+        return None
+
+    host_id = gt.host_vehicle_id.value if gt.HasField("host_vehicle_id") else None
+    objects = []
+    for o in gt.moving_object:
+        pos = o.base.position
+        vel = o.base.velocity
+        dim = o.base.dimension
+        name = ""
+        for ref in o.source_reference:
+            if ref.type == "net.asam.openscenario":
+                for ident in ref.identifier:
+                    if ident.startswith("entity_name:"):
+                        name = ident[len("entity_name:"):]
+        objects.append({
+            "id": o.id.value,
+            "name": name,
+            "x": round(pos.x, 3),
+            "y": round(pos.y, 3),
+            "h": round(o.base.orientation.yaw, 4),
+            "speed": round(math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2), 3),
+            "length": round(dim.length, 2) if dim.length > 0 else 4.0,
+            "width": round(dim.width, 2) if dim.width > 0 else 2.0,
+            "is_host": (host_id is not None and o.id.value == host_id),
+            "type": _MOVING_TYPE_MAP.get(o.type, "unknown"),
+        })
+
+    traffic_lights = []
+    for tl in gt.traffic_light:
+        pos = tl.base.position
+        cls = tl.classification
+        traffic_lights.append({
+            "id": tl.id.value,
+            "x": round(pos.x, 3),
+            "y": round(pos.y, 3),
+            "h": round(tl.base.orientation.yaw, 4),
+            "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
+            "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
+        })
+
+    return {"objects": objects, "traffic_lights": traffic_lights}
+
+
 def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
-        snapshots: int, dll: Path | None) -> dict:
+        snapshots: int, dll: Path | None, capture_osi: bool = False,
+        osi_port: int = OSI_UDP_PORT) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = out_dir / "telemetry.jsonl"
 
     args = ["--osc", str(scenario), "--headless", "--fixed_timestep", str(dt)]
+    osi_cap: _OsiCapture | None = None
+    if capture_osi:
+        # Bind before init so the very first emitted frame isn't lost.
+        osi_cap = _OsiCapture(osi_port)
     lib = GtLib(dll) if dll else GtLib()
 
     frames: list[dict] = []
     grace = 0
     GRACE_MAX = int(round(1.0 / dt))  # ~1s of consecutive "no telemetry" = ended
     seen_valid = False
+    last_scene: dict | None = None
 
-    with lib, open(jsonl_path, "w", encoding="utf-8") as f:
-        rc = lib.init_with_args(args)
-        if rc != 0:
-            raise RuntimeError(f"GT_InitWithArgs failed (rc={rc}) for {scenario}")
+    try:
+        with lib, open(jsonl_path, "w", encoding="utf-8") as f:
+            rc = lib.init_with_args(args)
+            if rc != 0:
+                raise RuntimeError(f"GT_InitWithArgs failed (rc={rc}) for {scenario}")
+            if osi_cap is not None:
+                # GT_InitWithArgs doesn't open the OSI socket (only GT_Sim.exe does);
+                # open it now so GT_Step emits groundtruth to 127.0.0.1:48198.
+                lib.open_osi_socket("127.0.0.1")
 
-        n_steps = int(round(max_time / dt))
-        for _ in range(n_steps):
-            lib.step(dt)
-            tel = lib.get_vd_telemetry(-1)
-            if tel is None:
-                if seen_valid:
-                    grace += 1
-                    if grace >= GRACE_MAX:
-                        break  # controller deactivated -> scenario ended
-                continue
-            seen_valid = True
-            grace = 0
-            f.write(json.dumps(tel, separators=(",", ":")) + "\n")
-            frames.append(tel)
+            n_steps = int(round(max_time / dt))
+            for _ in range(n_steps):
+                lib.step(dt)
+                if osi_cap is not None:
+                    raw = osi_cap.drain()
+                    if raw is not None:
+                        scene = _gt_to_scene(raw)
+                        if scene is not None:
+                            last_scene = scene
+                tel = lib.get_vd_telemetry(-1)
+                if tel is None:
+                    if seen_valid:
+                        grace += 1
+                        if grace >= GRACE_MAX:
+                            break  # controller deactivated -> scenario ended
+                    continue
+                seen_valid = True
+                grace = 0
+                if osi_cap is not None:
+                    tel["scene"] = last_scene or {"objects": [], "traffic_lights": []}
+                f.write(json.dumps(tel, separators=(",", ":")) + "\n")
+                frames.append(tel)
+    finally:
+        if osi_cap is not None:
+            osi_cap.close()
 
     duration = frames[-1]["sim_time"] if frames else 0.0
     meta = {
@@ -93,6 +238,7 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
         "dt": dt,
         "frames": len(frames),
         "sim_duration_s": round(duration, 3),
+        "osi": bool(capture_osi),
         "commit": _git_commit(),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -328,6 +474,59 @@ def _speed_accel_jerk(frames: list[dict], smooth_window: int = 5) -> dict:
     return {"t": t, "v": v, "s": s, "a": a, "j": j}
 
 
+def _percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile of a non-empty list (pct in [0,100])."""
+    s = sorted(values)
+    if len(s) == 1:
+        return s[0]
+    k = max(0, min(len(s) - 1, int(round((pct / 100.0) * (len(s) - 1)))))
+    return s[k]
+
+
+def _sustained_stop(frames: list[dict], must: dict, stop_speed: float):
+    """Longest contiguous (by frame index) run within the must's window where
+    ego.speed <= stop_speed. Window = after/before sim_time gates + optional
+    road_id + s_range on the ego road frame. Returns
+    (start_idx, end_idx, duration_s, first_gated_idx) or None if the window is
+    never entered."""
+    road_id = must.get("road_id")
+    s_range = must.get("s_range")
+    gated = []
+    for i, fr in enumerate(frames):
+        if not _time_window_ok(fr["sim_time"], must):
+            continue
+        ego = fr["ego"]
+        if road_id is not None and int(ego.get("track", -10 ** 9)) != road_id:
+            continue
+        if s_range is not None and "s" in ego and not (s_range[0] <= ego["s"] <= s_range[1]):
+            continue
+        gated.append(i)
+    if not gated:
+        return None
+
+    best = None  # (start_idx, end_idx, duration)
+    run_start = None
+    prev = None
+    for i in gated:
+        stopped = frames[i]["ego"]["speed"] <= stop_speed
+        contiguous = prev is not None and i == prev + 1
+        if stopped and run_start is not None and contiguous:
+            pass  # extend current run
+        elif stopped:
+            run_start = i  # (re)start a run
+        if stopped:
+            dur = frames[i]["sim_time"] - frames[run_start]["sim_time"]
+            if best is None or dur > best[2]:
+                best = (run_start, i, dur)
+        else:
+            run_start = None
+        prev = i
+
+    if best is None:
+        return (gated[0], gated[0], 0.0, gated[0])
+    return (best[0], best[1], best[2], gated[0])
+
+
 def _eval_must(must: dict, frames: list[dict]) -> dict:
     """Evaluate one must[] entry. Fail results carry the first offending frame's
     `t` and `idx` so the UI can jump straight to the failure."""
@@ -519,6 +718,95 @@ def _eval_must(must: dict, frames: list[dict]) -> dict:
         detail = f"max |steer| in window = {abs(frames[worst]['driver']['steer']):.3f} (<= {thr}?)"
         return res("pass" if not offenders else "fail", detail, None if not offenders else offenders[0])
 
+    # --- Phase 3 traffic-policy matchers (Step 1) ---------------------------
+    # stopped_at_stop_sign / stopped_at_signal: a full stop sustained for
+    # >= min_duration within an s-window. The sign/signal is identified by id for
+    # documentation; the geometric anchor is road_id + s_range (the stop line).
+
+    if kind in ("stopped_at_stop_sign", "stopped_at_signal"):
+        min_duration = float(must.get("min_duration", 1.0))
+        stop_speed = float(must.get("stop_speed", 0.3))
+        run = _sustained_stop(frames, must, stop_speed)
+        if run is None:
+            return res("skip", "stop window never entered (road_id/s_range/time gate)")
+        start_i, _end_i, dur, first_i = run
+        ok = dur >= min_duration
+        ident = (f"sign {must.get('sign_id')}" if kind == "stopped_at_stop_sign"
+                 else f"signal {must.get('signal_id')}")
+        detail = (f"longest full stop (<= {stop_speed} m/s) at {ident} = {dur:.2f}s "
+                  f"(>= {min_duration}?)")
+
+        # stopped_at_signal: optionally confirm the signal was red at stop onset
+        # using the captured OSI scene. OSI traffic-light id<->signal id mapping
+        # can vary, so this is best-effort: fail only when reds exist but none
+        # match; skip the sub-check entirely if no scene was captured.
+        if ok and kind == "stopped_at_signal" and must.get("require_red", True):
+            scene = frames[start_i].get("scene")
+            if scene is not None:
+                tls = scene.get("traffic_lights", [])
+                if tls:
+                    sig = must.get("signal_id")
+                    reds = [t["id"] for t in tls if t.get("color") == "red"]
+                    ids = [t["id"] for t in tls]
+                    red_ok = (sig in reds) or (sig not in ids and len(reds) > 0)
+                    if not red_ok:
+                        return res("fail", detail + f"; but signal was not red at stop onset "
+                                                    f"(reds={reds})", start_i)
+                    detail += "; red confirmed at onset"
+        return res("pass" if ok else "fail", detail, None if ok else first_i)
+
+    if kind == "maintained_following_distance":
+        # Time-headway (THW) to the nearest lead in the same lane, from the OSI
+        # scene. Requires capture_osi (telemetry.scene). THW = gap / ego_speed,
+        # gap = forward distance to lead minus half the two body lengths.
+        min_thw = must.get("min_thw")
+        max_thw = must.get("max_thw")
+        pct = float(must.get("percentile", 50))
+        target_id = must.get("target_id")
+        lane_half = float(must.get("lane_half_width", 2.5))
+        eps, stop_speed = 0.1, 0.3
+        thws = []
+        for i, fr in enumerate(frames):
+            if not _time_window_ok(fr["sim_time"], must):
+                continue
+            scene = fr.get("scene")
+            if not scene:
+                continue
+            ego = fr["ego"]
+            v = ego["speed"]
+            if v < stop_speed:
+                continue  # standstill -> THW undefined
+            ch, sh = math.cos(ego["h"]), math.sin(ego["h"])
+            ego_len = next((o["length"] for o in scene["objects"] if o.get("is_host")), 5.0)
+            best = None  # (forward, lead_len)
+            for o in scene["objects"]:
+                if o.get("is_host"):
+                    continue
+                if target_id is not None and o["id"] != target_id:
+                    continue
+                dx, dy = o["x"] - ego["x"], o["y"] - ego["y"]
+                forward = dx * ch + dy * sh
+                lateral = -dx * sh + dy * ch
+                if forward <= 0 or abs(lateral) > lane_half:
+                    continue
+                if best is None or forward < best[0]:
+                    best = (forward, o.get("length", 4.0))
+            if best is None:
+                continue
+            gap = best[0] - (ego_len + best[1]) / 2.0
+            if gap <= 0:
+                gap = 0.0
+            thws.append(gap / max(v, eps))
+        if not thws:
+            return res("skip", "no lead-vehicle frames with a captured scene "
+                               "(needs --osi / batch osi:true and a lead in lane)")
+        val = _percentile(thws, pct)
+        lo_ok = (min_thw is None) or (val >= float(min_thw))
+        hi_ok = (max_thw is None) or (val <= float(max_thw))
+        detail = (f"p{pct:g} THW = {val:.2f}s over {len(thws)} frames "
+                  f"(want {min_thw}..{max_thw}s)")
+        return res("pass" if (lo_ok and hi_ok) else "fail", detail)
+
     return {"event": kind, "status": "skip", "detail": "unknown event type", "reason": reason}
 
 
@@ -644,6 +932,74 @@ def _resolve_repo(p) -> Path:
     return p if p.is_absolute() else (REPO_ROOT / p)
 
 
+# --- traffic-policy enablement (Phase 3) ------------------------------------
+# The VirtualDriver traffic policies (3a lead / 3b traffic-light / 3c stop-yield)
+# default OFF in config so Phase 1/2 stays unchanged; a scenario opts in via its
+# ConfigFile. The in-process harness can't load an exe-relative config (it resolves
+# against host python.exe), but ControllerVirtualDriver DOES honour an ABSOLUTE
+# ConfigFile path. So to enable policies we generate a per-run config (base
+# virtual_driver.json + the requested enable flags) and inject an absolute
+# ConfigFile property into a temp copy of the scenario (road/scene paths
+# absolutized so the temp can live in the run dir). Mirrors the web runner's
+# _generate_virtual_driver_variant.
+BASE_VD_CONFIG = REPO_ROOT / "GT_esmini" / "config" / "virtual_driver.json"
+_POLICY_FLAG = {
+    "lead": "policy_lead_enabled",
+    "traffic_light": "policy_traffic_light_enabled",
+    "stop_yield": "policy_stop_yield_enabled",
+}
+
+
+def _write_policy_config(policies: list[str], out_path: Path) -> Path:
+    """Write a per-run virtual_driver.json = base config + the requested policy
+    enable flags set true. Unknown policy names raise (typos shouldn't silently
+    run with everything off)."""
+    base = json.loads(BASE_VD_CONFIG.read_text(encoding="utf-8"))
+    for p in policies:
+        flag = _POLICY_FLAG.get(p)
+        if flag is None:
+            raise ValueError(f"unknown policy '{p}' (want one of {sorted(_POLICY_FLAG)})")
+        base[flag] = True
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
+    return out_path
+
+
+def _prepare_policy_xosc(scenario: Path, run_dir: Path, config_path: Path) -> Path:
+    """Write a temp copy of the scenario with (1) road/scene/catalog file paths
+    absolutized (so it can live outside the original dir) and (2) an absolute
+    ConfigFile property injected into the VirtualDriverController. Returns the
+    temp path. Raises if the controller isn't found."""
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(scenario)
+    root = tree.getroot()
+    base_dir = scenario.parent
+
+    for tag, attr in (("LogicFile", "filepath"), ("SceneGraphFile", "filepath"),
+                      ("Directory", "path")):
+        for el in root.iter(tag):
+            fp = el.get(attr)
+            if fp and not Path(fp).is_absolute():
+                el.set(attr, str((base_dir / fp).resolve()))
+
+    injected = False
+    for ctrl in root.iter("Controller"):
+        if ctrl.get("name") == "VirtualDriverController":
+            props = ctrl.find("Properties")
+            if props is None:
+                props = ET.SubElement(ctrl, "Properties")
+            ET.SubElement(props, "Property", {"name": "ConfigFile", "value": str(config_path)})
+            injected = True
+    if not injected:
+        raise RuntimeError(f"{scenario.name}: no VirtualDriverController to inject ConfigFile into")
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out = run_dir / (scenario.stem + ".policyrun.xosc")
+    tree.write(out, encoding="utf-8", xml_declaration=True)
+    return out
+
+
 def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     """Run a manifest of scenarios: for each, run() -> (compare if baseline) ->
     assert (+ optional decel report). Per-scenario failures are recorded as
@@ -656,6 +1012,8 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     dt = float(defaults.get("dt", 0.05))
     max_time = float(defaults.get("max_time", 60.0))
     snapshots = int(defaults.get("snapshots", 3))
+    default_osi = bool(defaults.get("osi", False))
+    osi_port = int(defaults.get("osi_port", OSI_UDP_PORT))
     out_root.mkdir(parents=True, exist_ok=True)
 
     scen_results: list[dict] = []
@@ -665,8 +1023,16 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
         run_dir = out_root / stem
         rec = {"scenario": entry["scenario"], "run_dir": str(run_dir),
                "frames": 0, "compare": None, "verdict": None, "error": None}
+        capture_osi = bool(entry.get("osi", default_osi))
+        policies = entry.get("policies") or defaults.get("policies") or []
+        rec["policies"] = policies
         try:
-            meta = run(scen_path, run_dir, dt, max_time, snapshots, dll)
+            scen_to_run = scen_path
+            if policies:
+                cfg = _write_policy_config(policies, run_dir / "virtual_driver.run.json")
+                scen_to_run = _prepare_policy_xosc(scen_path, run_dir, cfg)
+            meta = run(scen_to_run, run_dir, dt, max_time, snapshots, dll,
+                       capture_osi=capture_osi, osi_port=osi_port)
             rec["frames"] = meta["frames"]
             if meta["frames"] == 0:
                 rec["error"] = "no VirtualDriver telemetry captured"
@@ -765,6 +1131,12 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--max-time", type=float, default=60.0, help="safety cap [s]")
     pr.add_argument("--snapshots", type=int, default=3, help="number of keyframe PNGs")
     pr.add_argument("--dll", type=Path, default=None, help="GT_esminiLib.dll path override")
+    pr.add_argument("--osi", action="store_true",
+                    help="capture OSI groundtruth (objects + signal phase) into telemetry.scene")
+    pr.add_argument("--osi-port", type=int, default=OSI_UDP_PORT, help="OSI UDP port to bind")
+    pr.add_argument("--policy", default=None,
+                    help="comma list of traffic policies to enable "
+                         "(lead,traffic_light,stop_yield); injects a ConfigFile into a temp xosc")
 
     pc = sub.add_parser("compare", help="compare run vs Default baseline (ego RMSE)")
     pc.add_argument("run_dir", type=Path)
@@ -789,8 +1161,15 @@ def main(argv: list[str] | None = None) -> int:
         if not args.scenario.is_file():
             print(f"ERROR: scenario not found: {args.scenario}", file=sys.stderr)
             return 2
-        meta = run(args.scenario.resolve(), args.out.resolve(), args.dt,
-                   args.max_time, args.snapshots, args.dll)
+        scen = args.scenario.resolve()
+        out_dir = args.out.resolve()
+        if args.policy:
+            policies = [p.strip() for p in args.policy.split(",") if p.strip()]
+            cfg = _write_policy_config(policies, out_dir / "virtual_driver.run.json")
+            scen = _prepare_policy_xosc(scen, out_dir, cfg)
+        meta = run(scen, out_dir, args.dt,
+                   args.max_time, args.snapshots, args.dll,
+                   capture_osi=args.osi, osi_port=args.osi_port)
         return 0 if meta["frames"] > 0 else 1
 
     if args.cmd == "compare":

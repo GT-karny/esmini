@@ -1,0 +1,18 @@
+scenario: red_hold
+category: 03_traffic_signals
+# Signal stays red the whole run. The ego must stop and REMAIN stopped (it never
+# gets a green). Pre-Phase-3b the ego runs the red -> stopped_at_signal FAILS.
+must:
+  - event: stopped_at_signal
+    signal_id: 1
+    road_id: 3
+    s_range: [96, 110]
+    min_duration: 2.0
+    stop_speed: 0.3
+    require_red: true
+    reason: "終始赤で停止線手前に完全停止"
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 18.0 }
+    before: { sim_time: 25.0 }
+    reason: "緑が来ないので停止を維持(発進しない)"

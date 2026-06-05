@@ -1,0 +1,19 @@
+scenario: yield_slow_then_proceed
+category: 04_traffic_signs
+# Yield caution: slow approaching the sign (so the driver could yield) but do not
+# fully stop with the way clear. speed_below catches the caution slowdown near
+# s=200 (window t=[11,18]s); min_speed_above proves it didn't fully stop.
+# Pre-Phase-3c the ego cruises at full speed -> speed_below FAILS (the yield
+# caution discriminator).
+must:
+  - event: speed_below
+    threshold: 10.0
+    after: { sim_time: 11.0 }
+    before: { sim_time: 18.0 }
+    reason: "YIELD手前で減速(注意)"
+  - event: min_speed_above
+    threshold: 0.5
+    road_id: 1
+    after: { sim_time: 11.0 }
+    before: { sim_time: 18.0 }
+    reason: "対向無しなので完全停止はしない"

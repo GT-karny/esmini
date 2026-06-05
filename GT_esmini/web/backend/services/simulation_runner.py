@@ -189,7 +189,17 @@ def _generate_virtual_driver_variant(
 
     entity = all_entities[0]
     existing_oc = entity.find("ObjectController")
+    # Per-scenario traffic-policy opt-in: a scenario may carry
+    # <Property name="policies" value="traffic_light,stop_yield,lead"/> on its
+    # VirtualDriverController. We read it BEFORE stripping the controller, then
+    # enable exactly those policies in the per-run config. Scenarios without it
+    # are unchanged (policies stay OFF). Used by the verification project so the
+    # GUI shows signals/signs/lead-following actually taking effect.
+    requested_policies: list[str] = []
     if existing_oc is not None:
+        for prop in existing_oc.findall("./Controller/Properties/Property"):
+            if prop.get("name") == "policies":
+                requested_policies = [p.strip() for p in (prop.get("value") or "").split(",") if p.strip()]
         entity.remove(existing_oc)
 
     ctrl = ET.Element("Controller")
@@ -200,7 +210,7 @@ def _generate_virtual_driver_variant(
     p1.set("value", "VirtualDriverController")
 
     if enable_override:
-        run_config = _write_virtual_driver_config(output_path.parent)
+        run_config = _write_virtual_driver_config(output_path.parent, requested_policies)
         p2 = ET.SubElement(props, "Property")
         p2.set("name", "ConfigFile")
         p2.set("value", str(run_config))
@@ -223,9 +233,13 @@ def _generate_virtual_driver_variant(
     for private in root.findall(".//Init/Actions/Private"):
         if private.get("entityRef") != ego_name:
             continue
-        for pa in private.findall("PrivateAction"):
-            act = pa.find("ActivateControllerAction")
-            if act is not None:
+        # Remove any existing ActivateControllerAction before adding ours.
+        # Catch BOTH the bare form and the spec form nested in <ControllerAction>
+        # (`.//` = descendant): a scenario that already embeds a controller carries
+        # the nested form, and leaving it would double-activate the Longitudinal
+        # domain, which esmini deactivates under OSC < v1.3 (controller goes dead).
+        for pa in list(private.findall("PrivateAction")):
+            if pa.find(".//ActivateControllerAction") is not None:
                 private.remove(pa)
         pa = ET.SubElement(private, "PrivateAction")
         act = ET.SubElement(pa, "ActivateControllerAction")
@@ -236,12 +250,20 @@ def _generate_virtual_driver_variant(
     tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
 
-def _write_virtual_driver_config(output_dir: Path) -> Path:
+_VD_POLICY_FLAG = {
+    "lead": "policy_lead_enabled",
+    "traffic_light": "policy_traffic_light_enabled",
+    "stop_yield": "policy_stop_yield_enabled",
+}
+
+
+def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = None) -> Path:
     """Write a per-run virtual_driver.json that enables network manual input.
 
     Starts from the shipped config/virtual_driver.json (preserving tuned gains)
     and forces input_type=network so the web override panel (/ws/input) can drive
-    the ego. Returns the absolute path for the controller's ConfigFile property.
+    the ego. ``policies`` enables the listed Phase-3 traffic policies (opt-in per
+    scenario; default none). Returns the absolute path for the ConfigFile property.
     """
     base_config_path = CONFIG_DIR / "virtual_driver.json"
     base: dict = {}
@@ -254,6 +276,11 @@ def _write_virtual_driver_config(output_dir: Path) -> Path:
     base["input_type"] = "network"
     base.setdefault("input_port", 9100)
     base.setdefault("input_transport", "udp")
+
+    for p in (policies or []):
+        flag = _VD_POLICY_FLAG.get(p)
+        if flag:
+            base[flag] = True
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = (output_dir / "virtual_driver.json").resolve()

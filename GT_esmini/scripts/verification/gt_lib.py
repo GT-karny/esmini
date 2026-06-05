@@ -50,9 +50,20 @@ class GtLib:
         self.lib.GT_Close.argtypes = []
         self.lib.GT_GetVirtualDriverTelemetry.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
         self.lib.GT_GetVirtualDriverTelemetry.restype = ctypes.c_int
+        # esmini OSI UDP streaming. GT_InitWithArgs parses --osi but (unlike
+        # GT_Sim.exe) never opens the groundtruth socket, so the harness opens it
+        # explicitly after init; GT_Step then emits OSI to 127.0.0.1:48198 each
+        # frame. (SE_UpdateOSIGroundTruth/SE_CloseOSISocket are not exported.)
+        self.lib.SE_OpenOSISocket.argtypes = [ctypes.c_char_p]
+        self.lib.SE_OpenOSISocket.restype = ctypes.c_int
 
         self._buf = ctypes.create_string_buffer(buf_size)
         self._open = False
+
+    def open_osi_socket(self, ip: str = "127.0.0.1") -> int:
+        """Open the OSI groundtruth UDP socket (sends to ip:48198 per frame).
+        Call after init_with_args. Returns 0 on success."""
+        return self.lib.SE_OpenOSISocket(ip.encode("utf-8"))
 
     def init_with_args(self, args: list[str]) -> int:
         """args: everything after argv[0], e.g. ['--osc', path, '--headless', ...].

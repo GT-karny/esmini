@@ -4,6 +4,7 @@ import { api, type VdTelemetryFrame } from '../api/client';
 import { LiveSceneView, type RoadGeometry } from '../components/LiveSceneView';
 import { ErrorChart, TelemetryInfoRows } from '../components/verification/TelemetryPanels';
 import { VTargetProfileChart } from '../components/verification/VTargetProfileChart';
+import { PolicyTimelinePanel } from '../components/verification/PolicyTimelinePanel';
 import { LiveVdPanel } from '../components/verification/LiveVdPanel';
 import { VdRunLauncher } from '../components/verification/VdRunLauncher';
 import type { OsiObject, TrafficLight } from '../hooks/useOsiStream';
@@ -450,6 +451,10 @@ export function VerificationReplayPage() {
 
           {frames.length > 0 && (
             <VTargetProfileChart frames={frames} idx={idx} midlong={frame?.midlong} />
+          )}
+
+          {frames.length > 0 && (
+            <PolicyTimelinePanel frames={frames} idx={idx} />
           )}
         </div>
       </div>
