@@ -30,6 +30,7 @@ from GT_esmini.web.backend.api import (
     scripts,
     simulations,
     verification,
+    annotation,
 )
 from GT_esmini.web.backend.config import GRPC_PORT
 from GT_esmini.web.backend.db.database import init_db
@@ -190,6 +191,7 @@ app.include_router(config_api.router)
 app.include_router(roads.router)
 # WebSocket must be registered before the SPA catch-all route
 app.include_router(verification.router)
+app.include_router(annotation.router)
 app.include_router(osi_stream.router)
 app.include_router(sv_stream.router)
 app.include_router(vd_stream.router)

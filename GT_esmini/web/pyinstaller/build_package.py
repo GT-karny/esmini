@@ -190,6 +190,16 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     (data_dir / "results").mkdir()
     log("data/: created empty")
 
+    # 7a. verification tools — annotation_match.py backs /api/verification/match.
+    # It is loaded at runtime by file path (annotation_store._load_annotation_match),
+    # which looks under PACKAGE_ROOT/GT_esmini/scripts/verification/, so ship it there.
+    vdir = pkg_dir / "GT_esmini" / "scripts" / "verification"
+    vdir.mkdir(parents=True, exist_ok=True)
+    am_src = REPO_ROOT / "GT_esmini" / "scripts" / "verification" / "annotation_match.py"
+    if am_src.exists():
+        shutil.copy2(am_src, vdir / "annotation_match.py")
+        log("GT_esmini/scripts/verification/: annotation_match.py (match API)")
+
     # 7b. docs/
     docs_src = REPO_ROOT / "GT_esmini" / "docs"
     if docs_src.is_dir():

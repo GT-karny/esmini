@@ -345,6 +345,74 @@ export interface VerificationTelemetry {
   baseline_track: BaselinePoint[] | null;
 }
 
+// --- VirtualDriver verification (annotation) ---
+
+export type AnnotationLabel = 'pass' | 'fail' | 'needs-discussion';
+
+/** A run from the verification_runs registry, joined with its human annotation. */
+export interface AnnotationRun {
+  run_id: string;
+  source: 'toplevel' | 'batch' | 'gui';
+  batch_id: string | null;
+  scenario: string | null;
+  scenario_stem: string | null;
+  project_id: string | null;
+  scenario_file: string | null;
+  frames: number | null;
+  sim_duration_s: number | null;
+  verdict_overall: string | null;  // pass|fail|needs-review|error (auto)
+  verdict_summary: { pass: number; fail: number; skip: number } | null;
+  has_compare: boolean;
+  has_verdict: boolean;
+  label: AnnotationLabel | null;    // human label
+  comment: string | null;
+  labeled: boolean;
+  updated_at: string | null;
+}
+
+export interface Annotation {
+  run_id: string;
+  label: AnnotationLabel;
+  comment: string;
+  labeler: string;
+  scenario?: string | null;
+  scenario_stem?: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AnnotationInput {
+  label: AnnotationLabel;
+  comment?: string;
+  labeler?: string;
+}
+
+export interface MatchResult {
+  run_id: string;
+  label: AnnotationLabel;
+  comment: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface AnnotationRunFilters {
+  status?: string;
+  batch_id?: string;
+  labeled?: boolean;
+  source?: string;
+}
+
+function annotationQuery(params?: AnnotationRunFilters): string {
+  if (!params) return '';
+  const q = new URLSearchParams();
+  if (params.status) q.set('status', params.status);
+  if (params.batch_id) q.set('batch_id', params.batch_id);
+  if (params.source) q.set('source', params.source);
+  if (params.labeled != null) q.set('labeled', String(params.labeled));
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
 // --- API functions ---
 
 export const api = {
@@ -429,6 +497,35 @@ export const api = {
   runAssertions: (runId: string) =>
     request<Record<string, unknown>>(
       `/api/verification/runs/${encodeURIComponent(runId)}/assert`,
+      { method: 'POST' },
+    ),
+
+  // VirtualDriver verification (annotation) — registry-backed runs + human labels
+  getAnnotationRuns: (params?: AnnotationRunFilters) =>
+    request<{ runs: AnnotationRun[] }>(
+      `/api/verification/runs2${annotationQuery(params)}`,
+    ),
+  getRunDetail: (runId: string) =>
+    request<AnnotationRun>(`/api/verification/run-detail/${encodeURIComponent(runId)}`),
+  getAnnotation: async (runId: string): Promise<Annotation | null> => {
+    const res = await fetch(`${BASE}/api/verification/annotation/${encodeURIComponent(runId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    return res.json();
+  },
+  setAnnotation: (runId: string, body: AnnotationInput) =>
+    request<Annotation>(`/api/verification/annotation/${encodeURIComponent(runId)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  matchAnnotations: (runId: string, k = 5) =>
+    request<{ target: { run_id: string; scenario_stem: string | null }; matches: MatchResult[] }>(
+      `/api/verification/match`,
+      { method: 'POST', body: JSON.stringify({ run_id: runId, k }) },
+    ),
+  scanRegistry: (force = true) =>
+    request<{ count: number; scanned: number; skipped: boolean }>(
+      `/api/verification/registry/scan?force=${force}`,
       { method: 'POST' },
     ),
 

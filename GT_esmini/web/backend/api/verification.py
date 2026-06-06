@@ -46,7 +46,13 @@ def _load_jsonl(path: Path) -> list[dict]:
 
 
 def _safe_run_dir(run_id: str) -> Path:
-    d = (RESULTS_ROOT / run_id).resolve()
+    # Accept both top-level ids ('vd_basic') and batch-nested composite ids
+    # ('batch/<batch_id>/<stem>' -> RESULTS_ROOT/<batch_id>/<stem>).
+    parts = run_id.split("/")
+    if ".." in parts:
+        raise HTTPException(status_code=400, detail="invalid run id")
+    rel = parts[1:] if parts and parts[0] == "batch" else parts
+    d = RESULTS_ROOT.joinpath(*rel).resolve()
     if d != RESULTS_ROOT and RESULTS_ROOT not in d.parents:
         raise HTTPException(status_code=400, detail="invalid run id")
     return d
@@ -77,7 +83,7 @@ async def list_runs():
     return {"runs": runs}
 
 
-@router.get("/runs/{run_id}/telemetry")
+@router.get("/runs/{run_id:path}/telemetry")
 async def get_telemetry(run_id: str):
     """Return all recorded telemetry frames for a run, plus meta/compare/verdict."""
     d = _safe_run_dir(run_id)

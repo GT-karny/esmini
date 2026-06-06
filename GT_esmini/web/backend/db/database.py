@@ -34,6 +34,47 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- VirtualDriver verification: registry of recorded runs (top-level GUI/CLI runs and
+-- batch-nested runs), bridging on-disk results/ into the DB so the annotation UI can
+-- list, filter, and join human labels. Populated by annotation_store.scan_registry()
+-- (pull-based idempotent upsert). See GT_esmini/docs/virtualdriver/verification_environment.md.
+CREATE TABLE IF NOT EXISTS verification_runs (
+    run_id          TEXT PRIMARY KEY,   -- 'vd_basic' | 'batch/<batch_id>/<stem>'
+    source          TEXT NOT NULL,      -- 'toplevel' | 'batch' | 'gui'
+    batch_id        TEXT,               -- batch out_root dir name (null for top-level)
+    scenario        TEXT,               -- meta.scenario (relative xosc path) when known
+    scenario_stem   TEXT,               -- annotations/ foldering + match grouping
+    project_id      TEXT,               -- meta.project_id (road geometry; nullable)
+    scenario_file   TEXT,               -- meta.scenario_file (road geometry; nullable)
+    run_dir         TEXT NOT NULL,      -- absolute path on disk
+    frames          INTEGER,
+    sim_duration_s  REAL,
+    commit_hash     TEXT,
+    verdict_overall TEXT,               -- 'pass'|'fail'|'needs-review'|'error'|null (auto)
+    verdict_summary TEXT,               -- JSON {pass,fail,skip} as text
+    has_compare     INTEGER DEFAULT 0,
+    has_verdict     INTEGER DEFAULT 0,
+    discovered_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Human annotations (one label per run; latest wins). DB is the source of truth;
+-- a JSON sidecar under ANNOTATIONS_DIR mirrors each row for portable export / recovery.
+CREATE TABLE IF NOT EXISTS verification_annotations (
+    run_id        TEXT PRIMARY KEY
+                    REFERENCES verification_runs(run_id) ON DELETE CASCADE,
+    label         TEXT NOT NULL,        -- 'pass' | 'fail' | 'needs-discussion' (human)
+    comment       TEXT DEFAULT '',
+    labeler       TEXT DEFAULT '',
+    scenario_stem TEXT,                 -- denormalized for match grouping + file path
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_vruns_batch ON verification_runs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_vruns_scen  ON verification_runs(scenario_stem);
+CREATE INDEX IF NOT EXISTS idx_vann_scen   ON verification_annotations(scenario_stem);
+
 """
 
 
@@ -74,3 +115,14 @@ async def init_db() -> None:
                 cursor.rowcount,
             )
         await db.commit()
+
+    # Warm the verification-run registry from disk so the annotation UI has data on
+    # startup. Best-effort: a scan failure must not block server boot.
+    try:
+        from GT_esmini.web.backend.services import annotation_store
+        await annotation_store.scan_registry(force=True)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "verification registry warm scan failed at startup", exc_info=True
+        )
