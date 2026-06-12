@@ -414,7 +414,7 @@ void ScenarioPlayer::ViewerFrame()
 
         // Connect callback for setting transparency
         viewer::VisibilityCallback* cb = new viewer::VisibilityCallback(obj, viewer_->entities_.back());
-        viewer_->entities_.back()->txNode_->setUpdateCallback(cb);
+        viewer_->entities_.back()->lod_->setUpdateCallback(cb);
 
         // initialize vehicle dynamics from templates
         obj->pitch_spring_ = pitch_spring_template_;
@@ -451,15 +451,13 @@ void ScenarioPlayer::ViewerFrame()
         viewer::EntityModel* entity = viewer_->entities_[i];
         Object*              obj    = scenarioEngine->entities_.object_[i];
 
-        entity->SetPosition(obj->pos_.GetX(), obj->pos_.GetY(), obj->pos_.GetZ());
+        entity->UpdatePositionAndOrientation(&obj->pos_);
 
         if (vehicle_dynamics_enabled_)
         {
             DynamicPitchUpdate(obj, dt);
             DynamicRollUpdate(obj, dt);
         }
-
-        entity->SetRotation(obj->pos_.GetH(), obj->pos_.GetP(), obj->pos_.GetR());
 
         if (obj->pos_.GetTrajectory() && obj->pos_.GetTrajectory() != entity->trajectory_->activeRMTrajectory_)
         {
@@ -502,6 +500,11 @@ void ScenarioPlayer::ViewerFrame()
                 else
                 {
                     car->UpdateWheels(obj->wheel_angle_, obj->wheel_rot_);
+                }
+
+                if (this->scenarioEngine->scenarioReader->HasLightStateAction())
+                {
+                    car->UpdateLight(obj->vehLghtStsList);
                 }
             }
 
@@ -547,7 +550,7 @@ void ScenarioPlayer::ViewerFrame()
         // on screen text following each entity
         snprintf(entity->on_screen_info_.string_,
                  sizeof(entity->on_screen_info_.string_),
-                 " %s (%d) %.2fm\n %.2fkm/h road %d lane %d/%.2f s %.2f\n x %.2f y %.2f hdg %.2f\n osi x %.2f y %.2f \n|",
+                 " %s (%d) %.2fm\n %.2fkm/h road %d lane %d/%.2f s %.2f\n x %.2f y %.2f hdg %.2f\n osi gid %u x %.2f y %.2f \n|",
                  obj->name_.c_str(),
                  obj->GetId(),
                  obj->odometer_,
@@ -559,6 +562,7 @@ void ScenarioPlayer::ViewerFrame()
                  obj->pos_.GetX(),
                  obj->pos_.GetY(),
                  obj->pos_.GetH(),
+                 obj->g_id_,
                  obj->pos_.GetX() + obj->boundingbox_.center_.x_ * cos(obj->pos_.GetH()),
                  obj->pos_.GetY() + obj->boundingbox_.center_.x_ * sin(obj->pos_.GetH()));
         entity->on_screen_info_.osg_text_->setText(entity->on_screen_info_.string_);
@@ -873,6 +877,18 @@ int ScenarioPlayer::InitViewer()
         viewer_->ClearNodeMaskBits(roadgeom::NodeMask::NODE_MASK_ODR_FEATURES);
     }
 
+    std::string light_mode            = opt.GetOptionValueByEnum(esmini_options::CONFIG_ENUM::LIGHT_MODE);
+    bool        has_lightstate_action = this->scenarioEngine->scenarioReader->HasLightStateAction();
+    if (light_mode == "on" || (light_mode == "auto" && has_lightstate_action))
+    {
+        viewer_->SetNodeMaskBits(roadgeom::NodeMask::NODE_MASK_LIGHT_STATE);
+    }
+    else
+    {
+        viewer_->ClearNodeMaskBits(roadgeom::NodeMask::NODE_MASK_LIGHT_STATE);
+    }
+    viewer_->SetShowLights(has_lightstate_action);
+
     if (opt.GetOptionSet("hide_route_waypoints"))
     {
         LOG_INFO("Disable route waypoint visualization");
@@ -1132,7 +1148,7 @@ int ScenarioPlayer::InitViewer()
 
         // Connect callback for setting transparency
         viewer::VisibilityCallback* cb = new viewer::VisibilityCallback(obj, viewer_->entities_.back());
-        viewer_->entities_.back()->txNode_->setUpdateCallback(cb);
+        viewer_->entities_.back()->lod_->setUpdateCallback(cb);
 
         if (viewer_->entities_.back()->IsVehicle())
         {
@@ -1341,6 +1357,22 @@ void ScenarioPlayer::InitVehicleModel(Object* obj, viewer::CarModel* model)
                                    : obj->visibilityMask_ &= ~(Object::Visibility::SENSORS));
     }
 
+    // Light material details
+    if (this->scenarioEngine->scenarioReader->HasLightStateAction())
+    {
+        for (size_t i = 0; i < static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE); i++)
+        {
+            auto light = &obj->vehLghtStsList[i];
+            if (light->type != Object::VehicleLightType::UNDEFINED)
+            {
+                continue;
+            }
+            // Set the type of the light, as its been UNDEFINED until now
+            light->type = static_cast<Object::VehicleLightType>(i);
+            viewer_->SetLightMaterialAndColor(light, model);
+        }
+    }
+
     viewer_->entities_.back()->routewaypoints_->SetWayPoints(obj->pos_.GetRoute());
 }
 #endif
@@ -1480,6 +1512,9 @@ int ScenarioPlayer::Init()
     opt.AddOption("ignore_p", "Ignore provided pitch values from OSC file and place vehicle relative to road");
     opt.AddOption("ignore_r", "Ignore provided roll values from OSC file and place vehicle relative to road");
     opt.AddOption("info_text", "Show on-screen info text. Modes: 0=None 1=current 2=per_object 3=both. Toggle key 'i'", "mode", "1", true);
+#ifdef _USE_OSG
+    opt.AddOption("light_mode", "Show lights for light state actions. Modes: on, off, auto. Toggle key 'L'", "mode", "auto", true);
+#endif
     opt.AddOption("log_append", "Log all scenarios in the same txt file");
     opt.AddOption("logfile_path", "Logfile path/filename, e.g. \"../my_log.txt\"", "path", LOG_FILENAME, true);
     opt.AddOption("log_meta_data", "Log file name, function name and line number");

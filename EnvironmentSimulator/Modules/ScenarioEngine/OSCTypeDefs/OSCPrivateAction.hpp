@@ -1268,6 +1268,43 @@ namespace scenarioengine
         void ReplaceObjectRefs(Object* obj1, Object* obj2);
     };
 
+    class RandomRouteAction : public OSCPrivateAction
+    {
+    public:
+        ~RandomRouteAction();
+
+        RandomRouteAction(StoryBoardElement* parent)
+            : OSCPrivateAction(OSCPrivateAction::ActionType::RANDOM_ROUTE_ACTION,
+                               parent,
+                               static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_NONE))
+        {
+        }
+
+        RandomRouteAction(const RandomRouteAction& action)
+            : OSCPrivateAction(OSCPrivateAction::ActionType::RANDOM_ROUTE_ACTION,
+                               action.parent_,
+                               static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_NONE))
+        {
+            SetName(action.GetName());
+        }
+
+        OSCPrivateAction* Copy()
+        {
+            RandomRouteAction* new_action = new RandomRouteAction(*this);
+            return new_action;
+        }
+
+        virtual std::string Type2Str()
+        {
+            return "RandomRouteAction";
+        };
+
+        void Start(double simTime);
+        void Step(double simTime, double dt);
+
+        void ReplaceObjectRefs(Object* obj1, Object* obj2);
+    };
+
     class AssignControllerAction : public OSCPrivateAction
     {
     public:
@@ -1422,6 +1459,212 @@ namespace scenarioengine
 
         void Step(double simTime, double dt);
         void Start(double simTime);
+    };
+
+    class LightStateAction : public OSCPrivateAction
+    {
+    public:
+        LightStateAction(StoryBoardElement* parent)
+            : OSCPrivateAction(OSCPrivateAction::ActionType::LIGHT_STATE_ACTION,
+                               parent,
+                               static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LIGHT)),
+              transitionTime_(0.0),
+              flashingOffDuration_(0.5),
+              flashingOnDuration_(0.5),
+              cmyk_{-1.0, -1.0, -1.0, -1.0},
+              RGB_ARRAY_SIZE_(3),
+              CMYK_ARRAY_SIZE_(4),
+              rgbDeducedFromLightType_(false),
+              DEFAULT_LUMINOUS_INTENSITY_(6000.0),
+              vehicleLightMode_(Object::VehicleLightMode::UNKNOWN),
+              luminousitySet_(false),
+              actionVehicleLightStatus_(),
+              flashStatus_(FlashingStatus::UNDEFINED),
+              colorSet_(false)
+        {
+            SetInitState();
+        }
+
+        ~LightStateAction();
+
+        enum class FlashingStatus
+        {
+            OFF = 0,
+            ON,
+            UNDEFINED
+        };
+
+        void Start(double simTime);
+        void Step(double simTime, double dt);
+
+        Object::VehicleLightType  GetVehicleLightTypeFromStr(const std::string& lightType);
+        Object::VehicleLightMode  GetVehicleLightModeFromStr(const std::string& mode);
+        Object::VehicleLightColor GetVehicleLightColorFromStr(const std::string& colorType);
+        std::vector<double>       GetRgbFromColorEnum(const Object::VehicleLightColor& color);
+        void                      CmykToRgb(const double* cmyk, double* rgb);
+        void                      SetRgbFromColorEnum(const Object::VehicleLightColor& color);
+        void                      SetRgbFromTypeEnum(const Object::VehicleLightType& type, double* arr);
+        void                      UpdateArray(double* arr, size_t size, const std::vector<double>& vals);
+        void                      SetVehicleLightState(Object::VehicleLightStatus* vehicleLight, double luminousity);
+        void                      InitializeLights();
+        bool                      CheckConflictingLights(const Object::VehicleLightType& type);
+        void                      HandleConflictingLights(const Object::VehicleLightType& type);
+        void                      ResetLight(Object::VehicleLightStatus& light, Object::VehicleLightMode mode = Object::VehicleLightMode::UNKNOWN);
+
+        void SetInitState();
+
+        // Getters
+        double* GetCmyk()
+        {
+            return cmyk_;
+        }
+        double* GetRgb()
+        {
+            return actionVehicleLightStatus_.rgb;
+        }
+        Object::VehicleLightColor GetVehicleLightColor() const
+        {
+            return actionVehicleLightStatus_.color;
+        }
+        Object::VehicleLightType GetVehicleLightType() const
+        {
+            return actionVehicleLightStatus_.type;
+        }
+        bool GetColorSet() const
+        {
+            return colorSet_;
+        }
+
+        // Setters
+        void SetVehicleLights(const Object::VehicleLightType& type);
+
+        void SetTransitionTime(const double& time)
+        {
+            transitionTime_ = time;
+        }
+        void SetFlashingOffDuration(const double& duration)
+        {
+            flashingOffDuration_ = duration;
+        }
+        void SetFlashingOnDuration(const double& duration)
+        {
+            flashingOnDuration_ = duration;
+        }
+        void SetCMYK(const double& c, const double& m, const double& y, const double& k)
+        {
+            UpdateArray(cmyk_, CMYK_ARRAY_SIZE_, {c, m, y, k});
+        }
+        void SetRGB(const double& r, const double& g, const double& b)
+        {
+            UpdateArray(actionVehicleLightStatus_.rgb, RGB_ARRAY_SIZE_, {r, g, b});
+        }
+        void SetVehicleLightType(const Object::VehicleLightType& type)
+        {
+            actionVehicleLightStatus_.type = type;
+        }
+        void SetLuminousIntensity(const double& intensity)
+        {
+            actionVehicleLightStatus_.luminousIntensity = intensity;
+        }
+        void SetVehicleLightMode(const Object::VehicleLightMode& mode)
+        {
+            actionVehicleLightStatus_.mode = mode;
+        }
+        void SetVehicleLightColor(const Object::VehicleLightColor& color)
+        {
+            actionVehicleLightStatus_.color = color;
+        }
+        void SetDeducedRgbFromLightType(bool val)
+        {
+            rgbDeducedFromLightType_ = val;
+        }
+        void SetColorSet(bool val)
+        {
+            colorSet_ = val;
+        }
+        void SetLuminousitySet(bool val)
+        {
+            luminousitySet_ = val;
+        }
+
+        std::unordered_map<std::string, Object::VehicleLightType> lightTypeMap = {
+            {"daytimeRunningLights", Object::VehicleLightType::DAYTIME_RUNNING_LIGHTS},
+            {"lowBeam", Object::VehicleLightType::LOW_BEAM},
+            {"highBeam", Object::VehicleLightType::HIGH_BEAM},
+            {"fogLights", Object::VehicleLightType::FOG_LIGHTS},
+            {"fogLightsFront", Object::VehicleLightType::FOG_LIGHTS_FRONT},
+            {"fogLightsRear", Object::VehicleLightType::FOG_LIGHTS_REAR},
+            {"brakeLights", Object::VehicleLightType::BRAKE_LIGHTS},
+            {"warningLights", Object::VehicleLightType::WARNING_LIGHTS},
+            {"indicatorLeft", Object::VehicleLightType::INDICATOR_LEFT},
+            {"indicatorRight", Object::VehicleLightType::INDICATOR_RIGHT},
+            {"reversingLights", Object::VehicleLightType::REVERSING_LIGHTS},
+            {"tailLights", Object::VehicleLightType::TAIL_LIGHTS},
+            {"licensePlateIllumination", Object::VehicleLightType::LICENSE_PLATE_ILLUMINATION},
+            {"specialPurposeLights", Object::VehicleLightType::SPECIAL_PURPOSE_LIGHTS}};
+
+        std::unordered_map<std::string, Object::VehicleLightColor> lightColorMap = {{"other", Object::VehicleLightColor::OTHER},
+                                                                                    {"red", Object::VehicleLightColor::RED},
+                                                                                    {"yellow", Object::VehicleLightColor::YELLOW},
+                                                                                    {"green", Object::VehicleLightColor::GREEN},
+                                                                                    {"blue", Object::VehicleLightColor::BLUE},
+                                                                                    {"violet", Object::VehicleLightColor::VIOLET},
+                                                                                    {"orange", Object::VehicleLightColor::ORANGE},
+                                                                                    {"brown", Object::VehicleLightColor::BROWN},
+                                                                                    {"black", Object::VehicleLightColor::BLACK},
+                                                                                    {"grey", Object::VehicleLightColor::GREY},
+                                                                                    {"white", Object::VehicleLightColor::WHITE}};
+
+        std::unordered_map<std::string, Object::VehicleLightMode> lightModeMap = {{"on", Object::VehicleLightMode::ON},
+                                                                                  {"off", Object::VehicleLightMode::OFF},
+                                                                                  {"flashing", Object::VehicleLightMode::FLASHING}};
+
+        std::unordered_map<Object::VehicleLightColor, std::vector<double>> baseColorMap = {
+            {Object::VehicleLightColor::RED, {0.5, 0.0, 0.0}},
+            {Object::VehicleLightColor::YELLOW, {0.5, 0.5, 0.3}},
+            {Object::VehicleLightColor::GREEN, {0.0, 0.5, 0.0}},
+            {Object::VehicleLightColor::BLUE, {0.0, 0.0, 0.5}},
+            {Object::VehicleLightColor::VIOLET, {0.7, 0.03, 0.68}},
+            {Object::VehicleLightColor::ORANGE, {0.5, 0.15, 0.0}},
+            {Object::VehicleLightColor::BROWN, {0.15, 0.06, 0.06}},
+            {Object::VehicleLightColor::BLACK, {0.0, 0.0, 0.0}},
+            {Object::VehicleLightColor::GREY, {0.3, 0.3, 0.3}},
+            {Object::VehicleLightColor::WHITE, {0.6, 0.6, 0.6}},
+        };
+
+    private:
+        // Struct to keep track of relevant variables of a light during action execution.
+        // Necessary since one action can control different lights individually
+        struct VehicleLightState
+        {
+            Object::VehicleLightStatus* vehicleLight_          = nullptr;
+            Object::VehicleLightMode    previousMode_          = Object::VehicleLightMode::UNKNOWN;
+            double                      minRgb_[3]             = {-1.0, -1.0, -1.0};
+            double                      maxRgb_[3]             = {-1.0, -1.0, -1.0};
+            double                      previousMinRgb_[3]     = {-1.0, -1.0, -1.0};
+            double                      previousMaxRgb_[3]     = {-1.0, -1.0, -1.0};
+            double                      luminousIntensity_     = 0.0;
+            double                      previousIntensity_     = 0.0;
+            double                      transitionLuminousity_ = 0.0;
+        };
+
+        double                         transitionTime_;
+        double                         flashingOffDuration_;
+        double                         flashingOnDuration_;
+        double                         transitionTimer_;
+        double                         flashingTimer_;
+        double                         cmyk_[4];
+        const size_t                   RGB_ARRAY_SIZE_;
+        const size_t                   CMYK_ARRAY_SIZE_;
+        bool                           rgbDeducedFromLightType_;
+        const double                   DEFAULT_LUMINOUS_INTENSITY_;
+        Object::VehicleLightMode       vehicleLightMode_;
+        bool                           luminousitySet_;
+        Object::VehicleLightStatus     actionVehicleLightStatus_;
+        FlashingStatus                 flashStatus_;
+        bool                           colorSet_;
+        std::vector<VehicleLightState> vehicleLights_;
+        bool                           transitioned_;
     };
 
     class OverrideControlAction : public OSCPrivateAction

@@ -14,7 +14,6 @@
 
 #include "Replay.hpp"
 #include "dirent.h"
-#include "PacketHandler.hpp"
 
 using namespace scenarioengine;
 
@@ -451,6 +450,17 @@ int Replay::ParsePackets()
                     current_object_timeline_->pose_.values.emplace_back(timestamp_, pose);
                     break;
                 }
+                case static_cast<id_t>(Dat::PacketId::OBJ_GID):
+                {
+                    int obj_gid;
+                    if (dat_reader_->ReadPacket(gp, obj_gid) != 0)
+                    {
+                        LOG_ERROR("Failed reading object GID.");
+                        return -1;
+                    }
+                    current_object_timeline_->obj_gid_.values.emplace_back(timestamp_, obj_gid);
+                    break;
+                }
                 case static_cast<id_t>(Dat::PacketId::MODEL_ID):
                 {
                     int model_id;
@@ -690,7 +700,12 @@ int Replay::ParsePackets()
                 }
                 case static_cast<id_t>(Dat::PacketId::SHAPE_2D_OUTLINE):
                 {
-                    std::vector<SE_Point2D> outline = dat_reader_->ReadOutlinePacket(gp);
+                    std::vector<SE_Point2D> outline;
+                    if (dat_reader_->ReadVectorPacket(gp, outline) != 0)
+                    {
+                        LOG_ERROR("Failed to read 2D outline");
+                        return -1;
+                    }
                     current_object_timeline_->outline_.values.emplace_back(timestamp_, outline);
                     break;
                 }
@@ -722,15 +737,34 @@ int Replay::ParsePackets()
                     current_object_timeline_->bb_color_.values.emplace_back(timestamp_, color);
                     break;
                 }
+                case static_cast<id_t>(Dat::PacketId::LIGHT_STATE):
+                {
+                    Dat::LightState light_state;
+                    if (dat_reader_->ReadPacket(gp, light_state) != 0)
+                    {
+                        LOG_ERROR("Failed to read light state");
+                        return -1;
+                    }
+
+                    current_object_timeline_->light_state_[light_state.light_type].values.emplace_back(timestamp_, light_state);
+
+                    if (static_cast<size_t>(current_object_id_) >= lightstate_entities_.size())
+                    {
+                        lightstate_entities_.resize(static_cast<size_t>(current_object_id_) + 1, 0);
+                    }
+
+                    lightstate_entities_[static_cast<size_t>(current_object_id_)] = 1;
+                    break;
+                }
                 case static_cast<id_t>(Dat::PacketId::DT):
                 case static_cast<id_t>(Dat::PacketId::END_OF_SCENARIO):
                 default:  // Intentially ignored packets
                 {
                     dat_reader_->SkipPacket(gp.header);
-                    if (std::find(unknown_pids.begin(), unknown_pids.end(), gp.header.id) == unknown_pids.end())
+                    if (std::find(skipped_pids_.begin(), skipped_pids_.end(), gp.header.id) == skipped_pids_.end())
                     {
-                        LOG_DEBUG("Unknown packet with id: {}", gp.header.id);
-                        unknown_pids.push_back(gp.header.id);
+                        LOG_DEBUG("Skipped packet with id: {}", gp.header.id);
+                        skipped_pids_.push_back(gp.header.id);
                     }
                     break;
                 }
@@ -1330,6 +1364,7 @@ ReplayEntry Replay::GetReplayEntryAtTimeIncremental(int id, double t) const
 
     entry.state.info.id             = id;
     entry.state.info.timeStamp      = t;
+    entry.state.info.gid            = timeline.obj_gid_.get_value_incremental(t).value_or(ID_UNDEFINED);
     entry.state.info.model_id       = timeline.model_id_.get_value_incremental(t).value_or(-1);
     entry.state.info.obj_type       = timeline.obj_type_.get_value_incremental(t).value();
     entry.state.info.obj_category   = timeline.obj_category_.get_value_incremental(t).value();
@@ -1355,6 +1390,22 @@ ReplayEntry Replay::GetReplayEntryAtTimeIncremental(int id, double t) const
     entry.state.pos.s               = timeline.pos_s_.get_value_incremental(t).value();
     entry.odometer                  = timeline.odometer_.get_value_incremental(t).value();
 
+    if (id >= 0 && EntityHasLightState(id))
+    {
+        entry.has_lightstate = true;
+        for (size_t i = 0; i < static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE); i++)
+        {
+            auto data                                   = timeline.light_state_[i].get_value_incremental(t).value_or(Dat::LightState{});
+            entry.state.info.light_state[i].type        = static_cast<Object::VehicleLightType>(data.light_type);
+            entry.state.info.light_state[i].mode        = static_cast<Object::VehicleLightMode>(data.light_mode);
+            entry.state.info.light_state[i].rgb[0]      = data.r;
+            entry.state.info.light_state[i].rgb[1]      = data.g;
+            entry.state.info.light_state[i].rgb[2]      = data.b;
+            entry.state.info.light_state[i].emission[0] = data.e_r;
+            entry.state.info.light_state[i].emission[1] = data.e_g;
+            entry.state.info.light_state[i].emission[2] = data.e_b;
+        }
+    }
     return entry;
 }
 

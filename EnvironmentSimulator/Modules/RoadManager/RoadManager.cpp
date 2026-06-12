@@ -66,7 +66,7 @@ using namespace roadmanager;
 #define MAX_TRACK_DIST             10
 #define OSI_POINT_CALC_STEPSIZE    1     // [m]
 #define OSI_TANGENT_LINE_TOLERANCE 0.01  // [m]
-#define OSI_POINT_DIST_SCALE       0.025
+#define OSI_POINT_DIST_SCALE       1.0
 #define ROADMARK_WIDTH_STANDARD    0.15
 #define ROADMARK_WIDTH_BOLD        0.20
 #define NURBS_STEPLENGTH           1.0
@@ -1589,6 +1589,8 @@ std::string LaneRoadMark::RoadMarkType2Str(RoadMarkType type)
             return "grass";
         case RoadMarkType::CURB:
             return "curb";
+        case RoadMarkType::EDGE:
+            return "edge";
         default:
             LOG_ERROR("Unexpected roadmark type id: {}", type);
     }
@@ -2154,7 +2156,7 @@ id_t LaneSection::GetLaneGlobalIdByIdx(idx_t idx) const
 {
     if (idx >= lane_.size())
     {
-        LOG_ERROR("LaneSection::GetLaneIdByIdx Error: index {}, only {} lanes", idx, lane_.size());
+        LOG_ERROR("LaneSection::GetLaneGlobalIdByIdx Error: index {}, only {} lanes", idx, lane_.size());
         return ID_UNDEFINED;
     }
     else
@@ -4320,6 +4322,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 {
                                     roadMark_type = LaneRoadMark::CURB;
                                 }
+                                else if (!strcmp(roadMark.attribute("type").value(), "edge"))
+                                {
+                                    roadMark_type = LaneRoadMark::EDGE;
+                                }
                                 else
                                 {
                                     LOG_ERROR("unknown lane road mark type: {} (road id={})", roadMark.attribute("type").value(), r->GetId());
@@ -4397,7 +4403,14 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 double roadMark_width;
                                 if (roadMark.attribute("width").empty())
                                 {
-                                    roadMark_width = (roadMark_weight == LaneRoadMark::BOLD) ? ROADMARK_WIDTH_BOLD : ROADMARK_WIDTH_STANDARD;
+                                    if (roadMark_type == LaneRoadMark::NONE_TYPE || roadMark_type == LaneRoadMark::EDGE)
+                                    {
+                                        roadMark_width = 0.0;  // no visible roadmark
+                                    }
+                                    else
+                                    {
+                                        roadMark_width = (roadMark_weight == LaneRoadMark::BOLD) ? ROADMARK_WIDTH_BOLD : ROADMARK_WIDTH_STANDARD;
+                                    }
                                 }
                                 else
                                 {
@@ -4541,11 +4554,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 {
                                     // no type or explicit elements - create standin type according to the specified roadMark type
                                     int side = lane->GetId() < 1 ? -1 : 1;
-                                    if (roadMark_type == LaneRoadMark::NONE_TYPE)
+                                    if (roadMark_type == LaneRoadMark::NONE_TYPE || roadMark_type == LaneRoadMark::EDGE)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, 0, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4554,7 +4567,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, 0, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4563,7 +4576,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4575,7 +4588,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(4, 8, 0, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4584,7 +4597,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(4, 8, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4596,7 +4609,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(4, 8, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4608,7 +4621,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4985,17 +4998,13 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 {
                     if (!object.attribute("length").empty() || !object.attribute("width").empty())
                     {
-                        LOG_WARN("Found object {} radius {:.2f}. Circular objects not supported yet. Using length and width attributes instead",
-                                 name,
-                                 radius);
+                        LOG_WARN("Found object {} radius {:.2f} together with length/width. Using length and width attributes instead", name, radius);
+                        radius = 0.0;
                     }
                     else
                     {
-                        LOG_WARN(
-                            "Found object {} radius {:.2f}. Circular objects not supported yet. Setting length and width attributes to 2 * radius = {:.2f}",
-                            name,
-                            radius,
-                            2 * radius);
+                        // Circular (cylinder) object: keep the radius for visualization and set the
+                        // bounding box length/width to the diameter so downstream box based logic still works.
                         width  = 2 * radius;
                         length = 2 * radius;
                     }
@@ -5093,9 +5102,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     if (fabs(rlengthEnd) > SMALL_NUMBER)
                         repeat->SetLengthEnd(rlengthEnd);
                     if (fabs(rradiusStart) > SMALL_NUMBER)
-                        printf("Attribute object/repeat/radiusStart not supported yet\n");
+                        repeat->SetRadiusStart(rradiusStart);
                     if (fabs(rradiusEnd) > SMALL_NUMBER)
-                        printf("Attribute object/repeat/radiusEnd not supported yet\n");
+                        repeat->SetRadiusEnd(rradiusEnd);
                 }
 
                 if (obj == nullptr)
@@ -5131,6 +5140,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     obj->SetRepeat(Repeats[0]);
                 }
 
+                if (radius > SMALL_NUMBER)
+                {
+                    obj->SetRadius(radius);
+                }
+
                 pugi::xml_node outlines_node = object.child("outlines");
                 if (outlines_node != NULL)
                 {
@@ -5163,7 +5177,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 corner = static_cast<OutlineCorner*>(
                                     new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
                             }
-                            outline->AddCorner(corner);
+                            if (corner != nullptr)
+                            {
+                                corner->SetId(corner_node.attribute("id").as_uint());
+                                outline->AddCorner(corner);
+                            }
                         }
                         obj->AddOutline(outline);
                     }
@@ -5218,12 +5236,79 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     obj->SetParkingSpace(roadmanager::ParkingSpace(access, restrictions));
                 }
 
+                pugi::xml_node markings_node = object.child("markings");
+                if (!markings_node.empty())
+                {
+                    for (pugi::xml_node marking_node = markings_node.child("marking"); marking_node;
+                         marking_node                = marking_node.next_sibling("marking"))
+                    {
+                        ObjectMarking marking;
+
+                        marking.color_        = LaneRoadMark::ParseColor(marking_node);
+                        marking.line_length_  = marking_node.attribute("lineLength").as_double();
+                        marking.space_length_ = marking_node.attribute("spaceLength").as_double();
+                        marking.start_offset_ = marking_node.attribute("startOffset").as_double();
+                        marking.stop_offset_  = marking_node.attribute("stopOffset").as_double();
+                        marking.side_         = ObjectMarking::Str2Side(marking_node.attribute("side").value());
+
+                        // Custom esmini feature (OpenDRIVE userData): shift the marking sideways from the
+                        // edge/side center, positive to the left, negative to the right [m].
+                        marking.lateral_offset_ = atof(ReadUserData(marking_node, "lateralOffset", "0.0"));
+
+                        if (!marking_node.attribute("width").empty())
+                        {
+                            marking.width_ = marking_node.attribute("width").as_double();
+                        }
+                        if (!marking_node.attribute("zOffset").empty())
+                        {
+                            marking.z_offset_ = marking_node.attribute("zOffset").as_double();
+                        }
+                        if (!strcmp(marking_node.attribute("weight").value(), "bold"))
+                        {
+                            marking.weight_ = LaneRoadMark::RoadMarkWeight::BOLD;
+                        }
+
+                        for (pugi::xml_node corner_ref_node = marking_node.child("cornerReference"); corner_ref_node;
+                             corner_ref_node                = corner_ref_node.next_sibling("cornerReference"))
+                        {
+                            marking.corner_references_.push_back(corner_ref_node.attribute("id").as_uint());
+                        }
+
+                        if (marking.side_ == ObjectMarking::Side::NONE && marking.corner_references_.size() < 2)
+                        {
+                            LOG_WARN("Object {} marking ignored: needs a valid 'side' or at least two cornerReference points (road id={})",
+                                     name,
+                                     r->GetId());
+                            continue;
+                        }
+
+                        obj->AddMarking(marking);
+                    }
+                }
+
                 for (pugi::xml_node validity_node = object.child("validity"); validity_node; validity_node = validity_node.next_sibling("validity"))
                 {
                     ValidityRecord validity;
                     validity.fromLane_ = atoi(validity_node.attribute("fromLane").value());
                     validity.toLane_   = atoi(validity_node.attribute("toLane").value());
                     obj->validity_.push_back(validity);
+                }
+
+                for (pugi::xml_node userDataNode = object.child("userData"); userDataNode; userDataNode = userDataNode.next_sibling("userData"))
+                {
+                    std::string key = userDataNode.attribute("code").value();
+                    if (key == "texture")
+                    {
+                        obj->SetTextureFilename(userDataNode.attribute("value").value());
+                    }
+                    else if (key == "textureScale")
+                    {
+                        obj->SetTextureScale(AVOID_ZERO(userDataNode.attribute("value").as_double()));
+                    }
+                    else
+                    {
+                        LOG_WARN("Unknown userData key: {}", key);
+                    }
                 }
 
                 if (obj != NULL)
@@ -5446,6 +5531,181 @@ bool OpenDrive::LoadOpenDriveFile(const char* filename, bool replace)
 void RMObject::SetRepeat(Repeat* repeat)
 {
     repeat_ = repeat;
+}
+
+std::vector<RepeatInstance> RMObject::GetRepeatInstances(Road* road) const
+{
+    std::vector<RepeatInstance> instances;
+
+    Repeat*    rep      = GetRepeat();
+    const bool repeated = (rep != nullptr && rep->GetLength() > SMALL_NUMBER && rep->GetDistance() > SMALL_NUMBER && road != nullptr);
+
+    // Resolve every outline corner once for the given instance and cache the result on the instance.
+    // The corner position is computed here (the single source of truth) and reused by both the viewer
+    // and the OSI reporter. cornerRoad corners are re-evaluated on the road at the instance position so
+    // they follow the road curvature; cornerLocal corners keep a fixed local shape. The result is stored
+    // in the instance local frame so OSI can use it directly for base_polygon, while the viewer rotates
+    // and translates it by the instance pose to obtain world coordinates.
+    auto resolve_corners = [this, road](RepeatInstance& ri)
+    {
+        const double ch = cos(ri.h);
+        const double sh = sin(ri.h);
+
+        // Resolve a single corner to world coordinates. The lateral position (wx, wy) is scaled by the
+        // instance length/width. The world z is split into a base part (independent of the height scale)
+        // and a unit extrusion offset (z_unit) that is multiplied by scale_hgt, so the caller can form
+        // both the scaled outline z (z_base + z_unit * scale_hgt) and the marking floor z (z_base +
+        // z_unit), which only differ in height scaling.
+        auto resolve_one = [this,
+                            road,
+                            &ri,
+                            ch,
+                            sh](OutlineCorner* corner, double scale_len, double scale_wid, double& wx, double& wy, double& z_base, double& z_unit)
+        {
+            if (OutlineCornerRoad* cr = dynamic_cast<OutlineCornerRoad*>(corner))
+            {
+                // cornerRoad: re-evaluate on the road at the instance position (curvature aware)
+                const double corner_s = ri.s + (cr->s_ - cr->center_s_) * scale_len;
+                const double corner_t = ri.t + (cr->t_ - cr->center_t_) * scale_wid;
+                Position     cp;
+                cp.SetTrackPos(road != nullptr ? road->GetId() : cr->roadId_, corner_s, corner_t);
+                wx     = cp.GetX();
+                wy     = cp.GetY();
+                z_base = cp.GetZ();
+                z_unit = cr->dz_;
+            }
+            else
+            {
+                // cornerLocal: fixed local (u, v) shape rigidly placed in the instance frame
+                double u, v, dummy_z;
+                corner->GetPosLocal(u, v, dummy_z);
+                double zloc = 0.0;
+                if (OutlineCornerLocal* cl = dynamic_cast<OutlineCornerLocal*>(corner))
+                {
+                    zloc = cl->zLocal_;
+                }
+                const double su = u * scale_len;
+                const double sv = v * scale_wid;
+                wx              = ri.x + su * ch - sv * sh;
+                wy              = ri.y + su * sh + sv * ch;
+                z_base          = ri.z;
+                z_unit          = zloc;
+            }
+        };
+
+        for (unsigned int k = 0; k < GetNumberOfOutlines(); k++)
+        {
+            Outline* outline = GetOutline(k);
+            if (outline == nullptr)
+            {
+                continue;
+            }
+
+            std::vector<ResolvedOutlineCorner> group;
+            group.reserve(outline->corner_.size());
+
+            for (OutlineCorner* corner : outline->corner_)
+            {
+                // Lateral position follows the (scaled) outline edge - shared by the outline mesh, the
+                // OSI outline polygon and the markings. Only z differs: the outline mesh scales the base
+                // extrusion offset by scale_hgt, while markings stay at the object floor (scale_hgt = 1)
+                // so they extend/shrink with the edge but do not move up/down with the height scaling.
+                double wx, wy, z_base, z_unit;
+                resolve_one(corner, ri.scale_len, ri.scale_wid, wx, wy, z_base, z_unit);
+
+                // Store in the instance local frame: R(-h) * (world - instance position)
+                ResolvedOutlineCorner rc;
+                rc.id           = corner->GetId();
+                const double dx = wx - ri.x;
+                const double dy = wy - ri.y;
+                rc.x            = dx * ch + dy * sh;
+                rc.y            = -dx * sh + dy * ch;
+                rc.z            = z_base + z_unit * ri.scale_hgt;
+                rc.height       = corner->GetHeight() * ri.scale_hgt;
+                rc.marking_z    = z_base + z_unit;
+                group.push_back(rc);
+            }
+
+            ri.outline_corners.push_back(std::move(group));
+        }
+    };
+
+    if (!repeated)
+    {
+        // Single instance placed at the object's own resolved position
+        RepeatInstance ri;
+        ri.s        = GetS();
+        ri.t        = GetT();
+        ri.z_off    = GetZOffset();
+        ri.inst_len = GetLength();
+        ri.inst_wid = GetWidth();
+        ri.inst_hgt = GetHeight();
+        ri.x        = GetX();
+        ri.y        = GetY();
+        ri.z        = GetZ() + GetZOffset();
+        ri.h        = GetH() + GetHOffset();
+        ri.p        = GetPitch();
+        ri.r        = GetRoll();
+        resolve_corners(ri);
+        instances.push_back(ri);
+        return instances;
+    }
+
+    // Angle of the repeat line relative to the road reference line (from delta t over the span)
+    const double h_offset = atan2(rep->GetTEnd() - rep->GetTStart(), rep->GetLength());
+    Position     pos;
+
+    for (double cur_s = 0.0; cur_s < rep->GetLength() + SMALL_NUMBER && cur_s < road->GetLength(); cur_s += rep->GetDistance())
+    {
+        RepeatInstance ri;
+        const double   factor = cur_s / rep->GetLength();
+        ri.s                  = rep->GetS() + cur_s;
+        ri.t                  = rep->GetTStart() + factor * (rep->GetTEnd() - rep->GetTStart());
+        ri.z_off              = rep->GetZOffsetStart() + factor * (rep->GetZOffsetEnd() - rep->GetZOffsetStart());
+        ri.inst_len           = (rep->GetLengthStart() > SMALL_NUMBER || rep->GetLengthEnd() > SMALL_NUMBER)
+                                    ? rep->GetLengthStart() + factor * (rep->GetLengthEnd() - rep->GetLengthStart())
+                                    : GetLength();
+        ri.inst_wid           = (rep->GetWidthStart() > SMALL_NUMBER || rep->GetWidthEnd() > SMALL_NUMBER)
+                                    ? rep->GetWidthStart() + factor * (rep->GetWidthEnd() - rep->GetWidthStart())
+                                    : GetWidth();
+        ri.inst_hgt           = (rep->GetHeightStart() > SMALL_NUMBER || rep->GetHeightEnd() > SMALL_NUMBER)
+                                    ? rep->GetHeightStart() + factor * (rep->GetHeightEnd() - rep->GetHeightStart())
+                                    : GetHeight();
+
+        // Scale factors for outline geometry: the authored outline represents the object at the start of
+        // the repeat span, so scale relative to the repeat start dimension (lengthStart/widthStart/
+        // heightStart) when given, otherwise relative to the object's nominal dimension. The result grows
+        // linearly from 1.0 (start) to end/start, matching how the bounding box grows from start to end.
+        const double ref_len = (rep->GetLengthStart() > SMALL_NUMBER) ? rep->GetLengthStart() : GetLength();
+        const double ref_wid = (rep->GetWidthStart() > SMALL_NUMBER) ? rep->GetWidthStart() : GetWidth();
+        const double ref_hgt = (rep->GetHeightStart() > SMALL_NUMBER) ? rep->GetHeightStart() : GetHeight();
+        ri.scale_len         = (ref_len > SMALL_NUMBER) ? ri.inst_len / ref_len : 1.0;
+        ri.scale_wid         = (ref_wid > SMALL_NUMBER) ? ri.inst_wid / ref_wid : 1.0;
+        ri.scale_hgt         = (ref_hgt > SMALL_NUMBER) ? ri.inst_hgt / ref_hgt : 1.0;
+
+        // Count instances by accumulated length only; the repeat start s offset compensates for the
+        // bounding box center, not the object border, so it must not reduce how many copies fit.
+        if (cur_s + ri.inst_len * cos(GetHOffset()) > road->GetLength())
+        {
+            break;  // instance would reach outside the road
+        }
+
+        pos.SetTrackPosMode(road->GetId(),
+                            ri.s,
+                            ri.t,
+                            Position::PosMode::H_REL | Position::PosMode::Z_REL | Position::PosMode::P_REL | Position::PosMode::R_REL);
+        pos.SetHeadingRelative(h_offset);
+        ri.x = pos.GetX();
+        ri.y = pos.GetY();
+        ri.z = pos.GetZ() + ri.z_off;
+        ri.h = pos.GetH() + GetHOffset();
+        ri.p = pos.GetP();
+        ri.r = pos.GetR();
+        resolve_corners(ri);
+        instances.push_back(ri);
+    }
+
+    return instances;
 }
 
 Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointType contact_point)
@@ -7315,25 +7575,21 @@ OpenDrive* Position::GetOpenDrive()
     return &od;
 }
 
-static double
-GetMaxSegmentLen(const Position* pivot, const Position* pos, double min, double max, double pitchResScale, double rollResScale, bool& osi_requirement)
+static double GetMaxSegmentLen(const Position* pivot, const Position* pos, double min, double max, double resScale, bool& osi_requirement)
 {
     double max_segment_length;
 
-    // Consider rate of change of pitch and roll for segment length to influence
+    // Consider local vertical change rate, including pitch and roll change rates and influence of banked curvature
     // the tesselation (triangulation) of road surface model
 
-    double zRoadPrimPrim                 = pos->GetZRoadPrimPrim();
-    double roadSuperElevationPrim        = pos->GetRoadSuperElevationPrim();
-    double max_segment_length_candidate1 = pitchResScale / MAX(SMALL_NUMBER, abs(zRoadPrimPrim));
-    double max_segment_length_candidate2 = rollResScale / MAX(SMALL_NUMBER, abs(roadSuperElevationPrim));
+    double zRoadPrimPrim          = pos->GetZRoadPrimPrim();
+    double roadSuperElevationPrim = pos->GetRoadSuperElevationPrim();
+    double roadXYCurvature        = pos->GetCurvature();
+    double rollAngle              = pos->GetR();
 
-    max_segment_length = MIN(max_segment_length_candidate1, max_segment_length_candidate2);
-
-    // Adjust for slope
-    max_segment_length = max_segment_length / sqrt(pow(pos->GetZRoadPrim(), 2) + 1);
-
-    max_segment_length = MAX(min, MIN(max, max_segment_length));
+    // calculate a combined factor 1. pitch change rate, 2. roll change rate, and 3. combo curvature and roll angle (local pitch change rate)
+    double polygonDensityFactor = sqrt(pow(zRoadPrimPrim, 2) + pow(roadSuperElevationPrim, 2) + pow(roadXYCurvature * sin(rollAngle), 2));
+    max_segment_length          = MAX(min, MIN(max, max * resScale / (1 + 1.75e3 * polygonDensityFactor)));
 
     if (pivot)
     {
@@ -7388,7 +7644,6 @@ int OpenDrive::CheckAndAddOSIPoint(Position&                 pos_pivot,
                                               &pos_candidate,
                                               min_segment_length,
                                               SE_Env::Inst().GetOSIMaxLongitudinalDistance(),
-                                              OSI_POINT_DIST_SCALE,
                                               OSI_POINT_DIST_SCALE,
                                               osi_requirement);
 
@@ -8418,12 +8673,12 @@ idx_t LaneSection::GetClosestLaneIdx(double s, double t, double laneOffset, int 
     {
         int lane_id = GetLaneIdByIdx(i);
 
-        double laneCenterOffset = SIGN(lane_id) * GetCenterOffset(s, lane_id);
-
         // Only consider lanes with matching lane type and side
         if (laneTypeMask & GetLaneById(lane_id)->GetLaneType() && (!noZeroWidth || GetWidth(s, lane_id) > SMALL_NUMBER) &&
             (side == 0 || SIGN(lane_id) == SIGN(side)))
         {
+            double laneCenterOffset = SIGN(lane_id) * GetCenterOffset(s, lane_id);
+
             // If position is within a lane, we can return it without further checks
             if (fabs(t - laneOffset - laneCenterOffset) < (GetWidth(s, lane_id) / 2.))
             {
@@ -12132,7 +12387,15 @@ int Position::SetRouteLanePosition(Route* route, double path_s, int lane_id, dou
     int dir = 1;
     if (SE_Env::Inst().GetOptions().GetOptionSet("align_routepositions"))
     {
-        dir = route->GetWaypoint()->GetRouteWaypointDir();
+        const Position* wp = route->GetWaypoint();
+        if (wp != nullptr)
+        {
+            dir = wp->GetRouteWaypointDir();
+        }
+        else
+        {
+            LOG_ERROR("SetRouteLanePosition: failed to get current waypoint, using default direction");
+        }
     }
 
     SetLanePos(route->GetTrackId(), SIGN(dir) * lane_id, route->GetTrackS(), SIGN(dir) * lane_offset);
@@ -12148,7 +12411,15 @@ int Position::SetRouteRoadPosition(Route* route, double path_s, double t)
     int dir = 1;
     if (SE_Env::Inst().GetOptions().GetOptionSet("align_routepositions"))
     {
-        dir = route->GetWaypoint()->GetRouteWaypointDir();
+        const Position* wp = route->GetWaypoint();
+        if (wp != nullptr)
+        {
+            dir = wp->GetRouteWaypointDir();
+        }
+        else
+        {
+            LOG_ERROR("SetRouteRoadPosition: failed to get current waypoint, using default direction");
+        }
     }
 
     SetTrackPos(route->GetTrackId(), route->GetTrackS(), SIGN(dir) * t);
@@ -12309,6 +12580,8 @@ void PolyLineBase::AddVertex(TrajVertex v)
             v.s = 0.0;
         }
     }
+
+    length_ = v.s;
 
     vertex_.push_back(v);
 }
@@ -12497,10 +12770,21 @@ int PolyLineBase::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_
 
     while (i + 1 < GetNumberOfVertices())
     {
-        ProjectPointOnLine2D(xin, yin, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, tmpPos.x, tmpPos.y);
+        bool inside = false;
+
+        if (ProjectPointOnLine2D(xin, yin, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, tmpPos.x, tmpPos.y) != 0)
+        {
+            // failed to project point, probably input points identical and no line could be formed
+            inside = false;
+            sLocal = 0.0;
+        }
+        else
+        {
+            inside = PointInBetweenVectorEndpoints(tmpPos.x, tmpPos.y, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, sLocal);
+        }
+
         double distTmp = PointDistance2D(xin, yin, tmpPos.x, tmpPos.y);
 
-        bool inside = PointInBetweenVectorEndpoints(tmpPos.x, tmpPos.y, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, sLocal);
         if (!inside)
         {
             // Find combined longitudinal and lateral distance to line endpoint
@@ -12521,7 +12805,7 @@ int PolyLineBase::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_
             sLocal *= (vertex_[i + 1].s - vertex_[i].s);
         }
 
-        if (distTmp < distMin)
+        if (distTmp < distMin + SMALL_NUMBER)  // accept moving forward to very close points
         {
             iMin      = i;
             sLocalMin = sLocal;
@@ -12583,7 +12867,8 @@ int PolyLineBase::FindPointAhead(double s_start, double distance, TrajVertex& po
 {
     index = Evaluate(s_start + distance, pos, startAtIndex);
 
-    return 0;
+    return s_start + distance > length_ + SMALL_NUMBER ? static_cast<int>(GhostTrailReturnCode::GHOST_TRAIL_DIST_PAST)
+                                                       : static_cast<int>(GhostTrailReturnCode::GHOST_TRAIL_OK);
 }
 
 int PolyLineBase::FindPointAtTime(double time, TrajVertex& pos, idx_t& index)
@@ -14721,7 +15006,13 @@ Position::ReturnCode Route::MovePathDS(double ds, double* remaining_dist, bool u
     }
 
     // Consider route direction
-    ds *= GetWaypoint()->GetRouteWaypointDir();
+    const Position* wp = GetWaypoint();
+    if (wp == nullptr)
+    {
+        LOG_ERROR("MovePathDS: failed to get current waypoint");
+        return Position::ReturnCode::ERROR_GENERIC;
+    }
+    ds *= wp->GetRouteWaypointDir();
     // printf("moving along path by ds = %.2f (route dir %d), from road %d s %.2f\n", ds, GetWaypoint()->GetRouteWaypointDir(),
     // currentPos_.GetTrackId(), currentPos_.GetS());
 
@@ -14745,11 +15036,21 @@ Position::ReturnCode Route::SetPathS(double s, double* remaining_dist, bool upda
 
         if (update_state)
         {
-            LOG_INFO("{}{} moved out of route at roadId={}, s={:.2f} (SetPathS())",
-                     getObjName().empty() ? "Position " : "Entity ",
-                     getObjName().empty() ? "" : getObjName(),
-                     GetWaypoint(waypoint_idx_)->GetTrackId(),
-                     local_s);
+            const Position* wp = GetWaypoint(waypoint_idx_);
+            if (wp != nullptr)
+            {
+                LOG_INFO("{}{} moved out of route at roadId={}, s={:.2f} (SetPathS())",
+                         getObjName().empty() ? "Position " : "Entity ",
+                         getObjName().empty() ? "" : getObjName(),
+                         wp->GetTrackId(),
+                         local_s);
+            }
+            else
+            {
+                LOG_INFO("{}{} moved out of route (no valid waypoint) (SetPathS())",
+                         getObjName().empty() ? "Position " : "Entity ",
+                         getObjName().empty() ? "" : getObjName());
+            }
             on_route_ = false;
         }
 
@@ -14762,9 +15063,9 @@ Position::ReturnCode Route::SetPathS(double s, double* remaining_dist, bool upda
     if (minimal_waypoints_.size() == 0)
     {
         path_s_       = 0.0;
-        waypoint_idx_ = 0;
-        currentPos_.SetTrackPos(GetWaypoint(waypoint_idx_)->GetTrackId(), 0.0, 0.0);
-        return Position::ReturnCode::OK;
+        waypoint_idx_ = IDX_UNDEFINED;
+        LOG_ERROR("SetPathS called on route with no waypoints");
+        return Position::ReturnCode::ERROR_GENERIC;
     }
 
     const Position* wp = nullptr;

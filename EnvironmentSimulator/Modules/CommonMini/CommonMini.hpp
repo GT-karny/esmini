@@ -55,6 +55,8 @@ using idx_t = uint32_t;
 #define SIGN(X)                       ((X < 0) ? -1 : 1)
 #define MAX(x, y)                     ((y) > (x) ? (y) : (x))
 #define MIN(x, y)                     ((y) < (x) ? (y) : (x))
+#define MAX_MAG(x, y)                 (fabs(y) > fabs(x) ? (y) : (x))
+#define MIN_MAG(x, y)                 (fabs(y) < fabs(x) ? (y) : (x))
 #define ABS_LIMIT(x, y)               (abs(x) > abs(y) ? (SIGN(x) * abs(y)) : x)  // limit abs value but keep sign
 #define ABS_FLOOR(x, y)               (abs(x) < abs(y) ? (SIGN(x) * abs(y)) : x)  // limit abs value but keep sign
 #define CLAMP(x, lo, hi)              MIN(hi, MAX(lo, x))
@@ -71,6 +73,7 @@ using idx_t = uint32_t;
 #define DAT_FILENAME                  "sim.dat"
 #define GHOST_TRAIL_SAMPLE_TIME       0.2  // default value, can be overridden by ghost_trail_dt option
 #define LOGICAL_OR(X, Y)              ((X || Y) && !(X && Y))
+#define MAX_INTENSITY_LUM             (12E+3)
 
 const std::string CONFIG_FILE_OPTION_NAME = "config_file_path";
 const std::string DEFAULT_CONFIG_FILE     = "config.yml";
@@ -587,8 +590,9 @@ double PointSquareDistance2D(double x0, double y0, double x1, double y1);
         @param vy2 Y coordinate of line end point
         @param px X coordinate of projected point (reference parameter)
         @param py Y coordinate of projected point (reference parameter)
+        @return 0 if point could be projected on infinite line, else -1 (no line, input points identical)
 */
-void ProjectPointOnLine2D(double x, double y, double vx1, double vy1, double vx2, double vy2, double& px, double& py);
+int ProjectPointOnLine2D(double x, double y, double vx1, double vy1, double vx2, double vy2, double& px, double& py);
 
 /**
         Project a 2D point on a 2D vector (from origin to specified point)
@@ -790,12 +794,25 @@ void RotateVec3d(const double h0,
                  double&      y1,
                  double&      z1);
 
+void InverseRotateVec3d(double h, double p, double r, double x, double y, double z, double& x_out, double& y_out, double& z_out);
+
 /**
         Change byte order - can be useful for IP communication with non Intel platforms
 */
 void SwapByteOrder(unsigned char* buf, int data_type_size, int buf_size);
 
 bool IsNumber(const std::string& str, int max_digits = -1);
+
+/**
+ * Given an input baseRgb, get the scaled minimum and maximum values for each channel
+ * Useful if needing to make a color dark/bright while maintaining color relations
+ */
+void GetRgbMinMaxColor(const double* baseRgb, double* minRgb, double* maxRgb, size_t RGB_ARRAY_SIZE = 3);
+
+/**
+        Check whether array contains at least one non-zero element
+*/
+bool ArrayZeroToOne(double array[], size_t size);
 
 /**
  * Checks if a given string conforms to the ISO 8601 combined date and time representation format.
@@ -1371,7 +1388,12 @@ class SE_Rand
 public:
     SE_Rand()
     {
-        seed_ = (std::random_device())();
+        ResetSeed();
+    }
+
+    void ResetSeed()
+    {
+        seed_ = std::random_device{}();
         gen_.seed(seed_);
     }
 

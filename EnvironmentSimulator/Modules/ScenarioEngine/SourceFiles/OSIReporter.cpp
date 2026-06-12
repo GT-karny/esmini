@@ -430,13 +430,18 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
                 roadmanager::RMObject *object = road->GetRoadObject(j);
                 if (object)
                 {
-                    if (UpdateOSIStationaryObjectODR(object))
+                    if (UpdateOSIStationaryObjectODR(object, road))
                     {
                         retval = -1;
                     }
                     else if (retval > -1)
                     {
                         retval++;
+                    }
+
+                    if (object->GetNumberOfMarkings() > 0)
+                    {
+                        UpdateOSIRoadMarkingsODR(object, road);
                     }
                 }
             }
@@ -633,137 +638,316 @@ int OSIReporter::UpdateOSIDynamicGroundTruth(const std::vector<scenarioengine::O
     return 0;
 }
 
-int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object)
+int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object, roadmanager::Road *road)
 {
-    // Create OSI Stationary Object
-    obj_osi_internal.sobj = obj_osi_internal.static_gt->add_stationary_object();
+    // Build the OSI base polygon (object local 2D frame) into 'base' and return the average corner
+    // height. The polygon is reported relative to the instance position/orientation (base.position /
+    // base.orientation). The corner positions were resolved once in RMObject::GetRepeatInstances and are
+    // stored on the instance in the local frame, so here they are copied straight into base_polygon (and
+    // shared with the viewer). cornerRoad corners follow the road curvature (and therefore differ between
+    // repeat instances on a curve); cornerLocal corners keep a fixed local shape.
+    auto build_outline_polygon = [&](osi3::BaseStationary *base, const roadmanager::RepeatInstance &ri) -> double
+    {
+        double       height_sum   = 0.0;
+        unsigned int corner_count = 0;
 
-    // SOURCE REFERENCE
-    auto source_reference = obj_osi_internal.sobj->add_source_reference();
-    source_reference->set_type(SOURCE_REF_TYPE_ODR);
-    std::string src_ref_type = "object";
-
-    // Set OSI Stationary Object Mutable ID
-    obj_osi_internal.sobj->mutable_id()->set_value(object->GetGlobalId());
-
-    // Set OSI Stationary Object Type and Classification
-    auto obj_type = object->GetType();
-    if (obj_type == roadmanager::RMObject::ObjectType::POLE)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_POLE);
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::TREE)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_TREE);
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::VEGETATION)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_VEGETATION);
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::BARRIER)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BARRIER);
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::BUILDING)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BUILDING);
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::PARKINGSPACE)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
-        obj_osi_internal.sobj->mutable_classification()->set_material(
-            osi3::StationaryObject_Classification_Material::StationaryObject_Classification_Material_MATERIAL_CONCRETE);
-        obj_osi_internal.sobj->mutable_classification()->set_density(
-            osi3::StationaryObject_Classification_Density::StationaryObject_Classification_Density_DENSITY_SOLID);
-        obj_osi_internal.sobj->mutable_classification()->set_color(
-            osi3::StationaryObject_Classification_Color::StationaryObject_Classification_Color_COLOR_GREY);
-
-        source_reference->add_identifier()->assign(object->GetParkingSpace().GetRestrictions());
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::OBSTACLE || obj_type == roadmanager::RMObject::ObjectType::RAILING ||
-             obj_type == roadmanager::RMObject::ObjectType::PATCH || obj_type == roadmanager::RMObject::ObjectType::TRAFFICISLAND ||
-             obj_type == roadmanager::RMObject::ObjectType::CROSSWALK || obj_type == roadmanager::RMObject::ObjectType::STREETLAMP ||
-             obj_type == roadmanager::RMObject::ObjectType::GANTRY || obj_type == roadmanager::RMObject::ObjectType::SOUNDBARRIER ||
-             obj_type == roadmanager::RMObject::ObjectType::WIND || obj_type == roadmanager::RMObject::ObjectType::ROADMARK)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
-    }
-    else if (obj_type == roadmanager::RMObject::ObjectType::BRIDGE)
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BRIDGE);
-        src_ref_type = "bridge";
-    }
-    else
-    {
-        obj_osi_internal.sobj->mutable_classification()->set_type(
-            osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN);
-        LOG_ERROR("OSIReporter::UpdateOSIStationaryObjectODR -> Unsupported stationary object category");
-    }
-
-    source_reference->add_identifier(fmt::format("object_type:{}", src_ref_type));
-    source_reference->add_identifier(fmt::format("object_id:{}", object->GetId()));
-
-    // Set OSI Stationary Object Position
-    obj_osi_internal.sobj->mutable_base()->mutable_position()->set_x(object->GetX());
-    obj_osi_internal.sobj->mutable_base()->mutable_position()->set_y(object->GetY());
-    obj_osi_internal.sobj->mutable_base()->mutable_position()->set_z(object->GetZ() + object->GetZOffset() + object->GetHeight() / 2.0);
-
-    // Set OSI Stationary Object Boundingbox
-    obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(object->GetHeight());
-    obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_width(object->GetWidth());
-    obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_length(object->GetLength());
-
-    // Set OSI Stationary Object Orientation
-    obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(object->GetRoll()));
-    obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(object->GetPitch()));
-    obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(object->GetH() + object->GetHOffset()));
-
-    if (object->GetNumberOfOutlines() > 0)
-    {
-        for (unsigned int k = 0; k < object->GetNumberOfOutlines(); k++)
+        for (unsigned int k = 0; k < ri.outline_corners.size(); k++)
         {
-            roadmanager::Outline *outline = object->GetOutline(k);
-            if (outline)
-            {
-                double height = 0;
-                for (size_t l = 0; l < outline->corner_.size(); l++)
-                {
-                    double x, y, z;
-                    outline->corner_[l]->GetPosLocal(x, y, z);
-                    osi3::Vector2d *vec = obj_osi_internal.sobj->mutable_base()->add_base_polygon();
-                    vec->set_x(x);
-                    vec->set_y(y);
-                    height += outline->corner_[l]->GetHeight() / static_cast<double>(outline->corner_.size());
-                }
-                // replace any previous height value with the average height of the outline corners
-                obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(height);
+            const std::vector<roadmanager::ResolvedOutlineCorner> &corners = ri.outline_corners[k];
+            const roadmanager::Outline                            *outline = object->GetOutline(k);
 
-                if (!outline->closed_)
+            const int start = base->base_polygon_size();
+            for (const roadmanager::ResolvedOutlineCorner &corner : corners)
+            {
+                // The resolved corner is already in the instance local frame
+                osi3::Vector2d *vec = base->add_base_polygon();
+                vec->set_x(corner.x);
+                vec->set_y(corner.y);
+                height_sum += corner.height;
+                corner_count++;
+            }
+
+            if (outline != nullptr && !outline->closed_)
+            {
+                // Repeat intermediate vertices to close the polygon, avoiding single edge between last and first vertices
+                for (int l = static_cast<int>(corners.size()) - 2; l > 0; l--)
                 {
-                    // Repeat intermediate vertices to close the polygon, avoiding single edge between last and first vertices
-                    for (int l = static_cast<int>(outline->corner_.size()) - 2; l > 0; l--)
-                    {
-                        osi3::Vector2d *vec = obj_osi_internal.sobj->mutable_base()->add_base_polygon();
-                        vec->set_x(obj_osi_internal.sobj->mutable_base()->base_polygon().at(l).x());
-                        vec->set_y(obj_osi_internal.sobj->mutable_base()->base_polygon().at(l).y());
-                    }
+                    osi3::Vector2d *vec = base->add_base_polygon();
+                    vec->set_x(base->base_polygon().at(start + l).x());
+                    vec->set_y(base->base_polygon().at(start + l).y());
                 }
             }
         }
+
+        return corner_count > 0 ? height_sum / static_cast<double>(corner_count) : 0.0;
+    };
+
+    // Emit a single OSI stationary object for one instance of the road object. The classification and
+    // source reference are the same for every instance; the position, orientation and dimension are
+    // instance specific. The first instance keeps the object's reserved global id, additional repeated
+    // instances get fresh global ids.
+    auto emit_instance = [&](const roadmanager::RepeatInstance &ri, bool first_instance)
+    {
+        obj_osi_internal.sobj = obj_osi_internal.static_gt->add_stationary_object();
+
+        // SOURCE REFERENCE
+        auto source_reference = obj_osi_internal.sobj->add_source_reference();
+        source_reference->set_type(SOURCE_REF_TYPE_ODR);
+        std::string src_ref_type = "object";
+
+        // Set OSI Stationary Object Mutable ID (unique per emitted instance)
+        obj_osi_internal.sobj->mutable_id()->set_value(first_instance ? object->GetGlobalId() : GetNewGlobalId());
+
+        // Set OSI Stationary Object Type and Classification
+        auto obj_type = object->GetType();
+        if (obj_type == roadmanager::RMObject::ObjectType::POLE)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_POLE);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::TREE)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_TREE);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::VEGETATION)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_VEGETATION);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::BARRIER)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BARRIER);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::BUILDING)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BUILDING);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::PARKINGSPACE)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
+            obj_osi_internal.sobj->mutable_classification()->set_material(
+                osi3::StationaryObject_Classification_Material::StationaryObject_Classification_Material_MATERIAL_CONCRETE);
+            obj_osi_internal.sobj->mutable_classification()->set_density(
+                osi3::StationaryObject_Classification_Density::StationaryObject_Classification_Density_DENSITY_SOLID);
+            obj_osi_internal.sobj->mutable_classification()->set_color(
+                osi3::StationaryObject_Classification_Color::StationaryObject_Classification_Color_COLOR_GREY);
+
+            source_reference->add_identifier(fmt::format("restrictions:{}", object->GetParkingSpace().GetRestrictions()));
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::OBSTACLE || obj_type == roadmanager::RMObject::ObjectType::RAILING ||
+                 obj_type == roadmanager::RMObject::ObjectType::PATCH || obj_type == roadmanager::RMObject::ObjectType::TRAFFICISLAND ||
+                 obj_type == roadmanager::RMObject::ObjectType::CROSSWALK || obj_type == roadmanager::RMObject::ObjectType::STREETLAMP ||
+                 obj_type == roadmanager::RMObject::ObjectType::GANTRY || obj_type == roadmanager::RMObject::ObjectType::SOUNDBARRIER ||
+                 obj_type == roadmanager::RMObject::ObjectType::WIND || obj_type == roadmanager::RMObject::ObjectType::ROADMARK)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_OTHER);
+        }
+        else if (obj_type == roadmanager::RMObject::ObjectType::BRIDGE)
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_BRIDGE);
+            src_ref_type = "bridge";
+        }
+        else
+        {
+            obj_osi_internal.sobj->mutable_classification()->set_type(
+                osi3::StationaryObject_Classification_Type::StationaryObject_Classification_Type_TYPE_UNKNOWN);
+            LOG_ERROR("OSIReporter::UpdateOSIStationaryObjectODR -> Unsupported stationary object category");
+        }
+
+        source_reference->add_identifier(fmt::format("object_type:{}", src_ref_type));
+        source_reference->add_identifier(fmt::format("object_id:{}", object->GetId()));
+
+        // Set OSI Stationary Object Orientation
+        obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(ri.r));
+        obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_pitch(GetAngleInIntervalMinusPIPlusPI(ri.p));
+        obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_yaw(GetAngleInIntervalMinusPIPlusPI(ri.h));
+
+        // Outline based objects report their footprint as the OSI base polygon and derive the height
+        // from the (scaled) average outline corner height; other objects use the bounding box height.
+        double height = ri.inst_hgt;
+        if (object->GetNumberOfOutlines() > 0)
+        {
+            height = build_outline_polygon(obj_osi_internal.sobj->mutable_base(), ri);
+        }
+
+        // Set OSI Stationary Object Boundingbox
+        obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_height(height);
+        obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_width(ri.inst_wid);
+        obj_osi_internal.sobj->mutable_base()->mutable_dimension()->set_length(ri.inst_len);
+
+        // Set OSI Stationary Object Position (OSI origin is the center of the bounding box)
+        obj_osi_internal.sobj->mutable_base()->mutable_position()->set_x(ri.x);
+        obj_osi_internal.sobj->mutable_base()->mutable_position()->set_y(ri.y);
+        obj_osi_internal.sobj->mutable_base()->mutable_position()->set_z(ri.z + height / 2.0);
+
+        if (!object->GetModel3DFullPath().empty())
+        {
+            // Set 3D model file as OSI model reference
+            obj_osi_internal.sobj->set_model_reference(object->GetModel3DFullPath());
+        }
+    };
+
+    // One OSI stationary object per resolved instance (single object, or one per repeat copy). The
+    // instance placement is computed once in RoadManager so the viewer and OSI stay in sync.
+    const std::vector<roadmanager::RepeatInstance> instances = object->GetRepeatInstances(road);
+    for (size_t i = 0; i < instances.size(); i++)
+    {
+        emit_instance(instances[i], i == 0);
     }
 
-    if (!object->GetModel3DFullPath().empty())
+    return 0;
+}
+
+static osi3::RoadMarking_Classification_Color ODRColor2OSIMarkingColor(roadmanager::RoadMarkColor color)
+{
+    switch (color)
     {
-        // Set 3D model file as OSI model reference
-        obj_osi_internal.sobj->set_model_reference(object->GetModel3DFullPath());
+        case roadmanager::RoadMarkColor::WHITE:
+        case roadmanager::RoadMarkColor::STANDARD:
+            return osi3::RoadMarking_Classification_Color_COLOR_WHITE;
+        case roadmanager::RoadMarkColor::YELLOW:
+            return osi3::RoadMarking_Classification_Color_COLOR_YELLOW;
+        case roadmanager::RoadMarkColor::BLUE:
+            return osi3::RoadMarking_Classification_Color_COLOR_BLUE;
+        case roadmanager::RoadMarkColor::RED:
+            return osi3::RoadMarking_Classification_Color_COLOR_RED;
+        case roadmanager::RoadMarkColor::GREEN:
+            return osi3::RoadMarking_Classification_Color_COLOR_GREEN;
+        case roadmanager::RoadMarkColor::VIOLET:
+            return osi3::RoadMarking_Classification_Color_COLOR_VIOLET;
+        case roadmanager::RoadMarkColor::ORANGE:
+            return osi3::RoadMarking_Classification_Color_COLOR_ORANGE;
+        default:
+            return osi3::RoadMarking_Classification_Color_COLOR_OTHER;
+    }
+}
+
+int OSIReporter::UpdateOSIRoadMarkingsODR(roadmanager::RMObject *object, roadmanager::Road *road)
+{
+    // Build and report one osi3::RoadMarking for the given marking, placed at a single object instance.
+    // Outline (cornerReference) markings reuse the outline corner positions resolved once in
+    // RMObject::GetRepeatInstances (so they follow the road curvature for cornerRoad and keep a fixed
+    // shape for cornerLocal, consistent with the outline geometry and the viewer). Bounding box side
+    // markings are placed in the object local frame and rigidly transformed to the instance.
+    auto emit_marking = [&](const roadmanager::ObjectMarking *marking, unsigned int marking_index, const roadmanager::RepeatInstance &ri)
+    {
+        if (marking == nullptr)
+        {
+            return;
+        }
+
+        std::vector<std::array<double, 3>> points;
+
+        const double inst_x = ri.x;
+        const double inst_y = ri.y;
+        const double cosh   = cos(ri.h);
+        const double sinh   = sin(ri.h);
+        const double z      = ri.z + marking->z_offset_;
+
+        if (marking->UsesOutline())
+        {
+            // Outline based marking: reuse the resolved corner (stored in the instance local frame)
+            for (size_t c = 0; c < marking->corner_references_.size(); c++)
+            {
+                const roadmanager::ResolvedOutlineCorner *corner = ri.FindCorner(marking->corner_references_[c]);
+                if (corner != nullptr)
+                {
+                    // Transform the instance local corner (scaled edge, object floor) to world
+                    const double wx = inst_x + corner->x * cosh - corner->y * sinh;
+                    const double wy = inst_y + corner->x * sinh + corner->y * cosh;
+                    points.push_back({wx, wy, corner->marking_z + marking->z_offset_});
+                }
+            }
+        }
+        else if (marking->side_ != roadmanager::ObjectMarking::Side::NONE)
+        {
+            // Bounding box side based marking: build the two endpoints of the selected side
+            double half_l = ri.inst_len / 2.0;
+            double half_w = ri.inst_wid / 2.0;
+
+            // local endpoints (u along heading, v to the left)
+            double u0, v0, u1, v1;
+            switch (marking->side_)
+            {
+                case roadmanager::ObjectMarking::Side::FRONT:
+                    u0 = half_l, v0 = half_w, u1 = half_l, v1 = -half_w;
+                    break;
+                case roadmanager::ObjectMarking::Side::REAR:
+                    u0 = -half_l, v0 = half_w, u1 = -half_l, v1 = -half_w;
+                    break;
+                case roadmanager::ObjectMarking::Side::LEFT:
+                    u0 = half_l, v0 = half_w, u1 = -half_l, v1 = half_w;
+                    break;
+                case roadmanager::ObjectMarking::Side::RIGHT:
+                    u0 = half_l, v0 = -half_w, u1 = -half_l, v1 = -half_w;
+                    break;
+                default:
+                    return;
+            }
+
+            points.push_back({inst_x + u0 * cosh - v0 * sinh, inst_y + u0 * sinh + v0 * cosh, z});
+            points.push_back({inst_x + u1 * cosh - v1 * sinh, inst_y + u1 * sinh + v1 * cosh, z});
+        }
+
+        if (points.size() < 2)
+        {
+            return;
+        }
+
+        osi3::RoadMarking *road_marking = obj_osi_internal.static_gt->add_road_marking();
+        road_marking->mutable_id()->set_value(GetNewGlobalId());
+
+        // Classification
+        road_marking->mutable_classification()->set_type(osi3::RoadMarking_Classification_Type_TYPE_OTHER);
+        road_marking->mutable_classification()->set_monochrome_color(ODRColor2OSIMarkingColor(marking->color_));
+
+        // Source reference back to the OpenDRIVE object and marking index
+        auto source_reference = road_marking->add_source_reference();
+        source_reference->set_type(SOURCE_REF_TYPE_ODR);
+        source_reference->add_identifier(fmt::format("object_id:{}", object->GetId()));
+        source_reference->add_identifier(fmt::format("marking_index:{}", marking_index));
+
+        // Compute centroid for the base position and report the polyline relative to it
+        double cx = 0.0, cy = 0.0, cz = 0.0;
+        for (const auto &p : points)
+        {
+            cx += p[0];
+            cy += p[1];
+            cz += p[2];
+        }
+        cx /= static_cast<double>(points.size());
+        cy /= static_cast<double>(points.size());
+        cz /= static_cast<double>(points.size());
+
+        road_marking->mutable_base()->mutable_position()->set_x(cx);
+        road_marking->mutable_base()->mutable_position()->set_y(cy);
+        road_marking->mutable_base()->mutable_position()->set_z(cz);
+        road_marking->mutable_base()->mutable_dimension()->set_width(marking->width_);
+
+        for (const auto &p : points)
+        {
+            osi3::Vector2d *vec = road_marking->mutable_base()->add_base_polygon();
+            vec->set_x(p[0] - cx);
+            vec->set_y(p[1] - cy);
+        }
+    };
+
+    // Replicate the markings for each resolved instance (single object, or one per repeat copy). The
+    // instance placement and corner resolution are computed once in RoadManager so the viewer and OSI
+    // stay in sync.
+    const std::vector<roadmanager::RepeatInstance> instances = object->GetRepeatInstances(road);
+    for (const roadmanager::RepeatInstance &ri : instances)
+    {
+        for (unsigned int m = 0; m < object->GetNumberOfMarkings(); m++)
+        {
+            emit_marking(object->GetMarking(m), m, ri);
+        }
     }
 
     return 0;
@@ -904,115 +1088,100 @@ int OSIReporter::UpdateOSIMovingObject(const Object &obj)
     {
         obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_VEHICLE);
 
-        if (obj.category_ == Vehicle::Category::CAR)
+        switch (static_cast<Vehicle::Category>(obj.category_))
         {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_MEDIUM_CAR);
-        }
-        else if (obj.category_ == Vehicle::Category::BICYCLE)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_BICYCLE);
-        }
-        else if (obj.category_ == Vehicle::Category::BUS)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_BUS);
-        }
-        else if (obj.category_ == Vehicle::Category::MOTORBIKE)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_MOTORBIKE);
-        }
-        else if (obj.category_ == Vehicle::Category::SEMITRAILER)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_SEMITRAILER);
-        }
-        else if (obj.category_ == Vehicle::Category::TRAIN)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAIN);
-        }
-        else if (obj.category_ == Vehicle::Category::TRAM)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAM);
-        }
-        else if (obj.category_ == Vehicle::Category::TRUCK)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_HEAVY_TRUCK);
-        }
-        else if (obj.category_ == Vehicle::Category::TRAILER)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAILER);
-        }
-        else if (obj.category_ == Vehicle::Category::VAN)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_DELIVERY_VAN);
-        }
-        else
-        {
-            LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object vehicle category: {} ({}). Set to UNKNOWN.",
-                      obj.category_,
-                      Vehicle::Category2String(obj.category_));
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_UNKNOWN);
+            case Vehicle::Category::CAR:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_MEDIUM_CAR);
+                break;
+            case Vehicle::Category::VAN:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_DELIVERY_VAN);
+                break;
+            case Vehicle::Category::TRUCK:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_HEAVY_TRUCK);
+                break;
+            case Vehicle::Category::SEMITRAILER:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_SEMITRAILER);
+                break;
+            case Vehicle::Category::TRAILER:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAILER);
+                break;
+            case Vehicle::Category::BUS:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_BUS);
+                break;
+            case Vehicle::Category::MOTORBIKE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_MOTORBIKE);
+                break;
+            case Vehicle::Category::BICYCLE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_BICYCLE);
+                break;
+            case Vehicle::Category::TRAIN:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_TRAIN);
+                break;
+            case Vehicle::Category::TRAM:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_DELIVERY_VAN);
+                break;
+            default:
+                LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object vehicle category: {} ({}). Set to UNKNOWN.",
+                          obj.category_,
+                          Vehicle::Category2String(obj.category_));
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_type(osi3::MovingObject_VehicleClassification::TYPE_UNKNOWN);
+                break;
         }
 
-        if (obj.role_ == Object::Role::AMBULANCE)
+        switch (static_cast<Object::Role>(obj.role_))
         {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_AMBULANCE);
-        }
-        else if (obj.role_ == Object::Role::CIVIL)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_CIVIL);
-        }
-        else if (obj.role_ == Object::Role::FIRE)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_FIRE);
-        }
-        else if (obj.role_ == Object::Role::MILITARY)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_MILITARY);
-        }
-        else if (obj.role_ == Object::Role::POLICE)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_POLICE);
-        }
-        else if (obj.role_ == Object::Role::PUBLIC_TRANSPORT)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_PUBLIC_TRANSPORT);
-        }
-        else if (obj.role_ == Object::Role::ROAD_ASSISTANCE)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_ROAD_ASSISTANCE);
-        }
-        else if (obj.role_ == Object::Role::NONE)
-        {
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_UNKNOWN);
-        }
-        else
-        {
-            LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object vehicle role: {} ({}). Set classification UNKNOWN.",
-                      obj.role_,
-                      Vehicle::Role2String(obj.role_).c_str());
-            obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_UNKNOWN);
+            case Object::Role::NONE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_UNKNOWN);
+                break;
+            case Object::Role::AMBULANCE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_AMBULANCE);
+                break;
+            case Object::Role::CIVIL:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_CIVIL);
+                break;
+            case Object::Role::FIRE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_FIRE);
+                break;
+            case Object::Role::MILITARY:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_MILITARY);
+                break;
+            case Object::Role::POLICE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_POLICE);
+                break;
+            case Object::Role::PUBLIC_TRANSPORT:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_PUBLIC_TRANSPORT);
+                break;
+            case Object::Role::ROAD_ASSISTANCE:
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_ROAD_ASSISTANCE);
+                break;
+            default:
+                LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object vehicle role: {} ({}). Set classification UNKNOWN.",
+                          obj.role_,
+                          Vehicle::Role2String(obj.role_).c_str());
+                obj_osi_internal.mobj->mutable_vehicle_classification()->set_role(osi3::MovingObject_VehicleClassification::ROLE_UNKNOWN);
+                break;
         }
     }
     else if (obj.GetType() == Object::Type::PEDESTRIAN)
     {
         entity_type = "Pedestrian";
-        if (obj.category_ == Pedestrian::Category::PEDESTRIAN)
+        switch (static_cast<Pedestrian::Category>(obj.category_))
         {
-            obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_PEDESTRIAN);
-        }
-        else if (obj.category_ == Pedestrian::Category::ANIMAL)
-        {
-            obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_ANIMAL);
-        }
-        else if (obj.category_ == Pedestrian::Category::WHEELCHAIR)
-        {
-            obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_OTHER);
-        }
-        else
-        {
-            LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object pedestrian category: {} ({}). Set type UNKNOWN.",
-                      obj.category_,
-                      Pedestrian::Category2String(obj.category_));
-            obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_UNKNOWN);
+            case Pedestrian::Category::PEDESTRIAN:
+                obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_PEDESTRIAN);
+                break;
+            case Pedestrian::Category::WHEELCHAIR:
+                obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_OTHER);
+                break;
+            case Pedestrian::Category::ANIMAL:
+                obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_ANIMAL);
+                break;
+            default:
+                LOG_ERROR("OSIReporter::UpdateOSIMovingObject -> Unsupported moving object pedestrian category: {} ({}). Set type UNKNOWN.",
+                          obj.category_,
+                          Pedestrian::Category2String(obj.category_));
+                obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_UNKNOWN);
+                break;
         }
     }
     else
@@ -1021,6 +1190,103 @@ int OSIReporter::UpdateOSIMovingObject(const Object &obj)
                   obj.GetType(),
                   Object::Type2String(obj.GetType()));
         obj_osi_internal.mobj->set_type(osi3::MovingObject::Type::MovingObject_Type_TYPE_UNKNOWN);
+    }
+
+    // Update LightState
+    id_t obj_id = static_cast<id_t>(obj.id_);
+    if (obj.dirty_.Check(static_cast<uint64_t>(Object::DirtyBit::LIGHT_STATE)))
+    {
+        if (obj_id >= has_lightstate_action_.size())
+        {
+            has_lightstate_action_.resize(obj_id + 1, 0);
+        }
+
+        has_lightstate_action_[obj_id] = 1;
+    }
+
+    if (obj_id < has_lightstate_action_.size() && has_lightstate_action_[obj_id] == 1)
+    {
+        for (size_t i = 0; i < static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE); i++)
+        {
+            const Object::VehicleLightMode &light_mode = obj.vehLghtStsList[i].mode;
+
+            if (light_mode == Object::VehicleLightMode::UNKNOWN)
+            {
+                continue;  // If mode not set, move to next light
+            }
+
+            const Object::VehicleLightType &light_type  = obj.vehLghtStsList[i].type;
+            auto                            light_state = obj_osi_internal.mobj->mutable_vehicle_classification()->mutable_light_state();
+
+            if ((light_type == Object::VehicleLightType::INDICATOR_LEFT || light_type == Object::VehicleLightType::INDICATOR_RIGHT) &&
+                light_state->indicator_state() == osi3::MovingObject_VehicleClassification_LightState_IndicatorState::
+                                                      MovingObject_VehicleClassification_LightState_IndicatorState_INDICATOR_STATE_WARNING)
+            {
+                continue;  // We skip check of left/right blinkers as they can't be on at the same time as warning lights
+            }
+
+            switch (light_type)
+            {
+                case Object::VehicleLightType::DAYTIME_RUNNING_LIGHTS:
+                    light_state->set_head_light(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::LOW_BEAM:
+                    if (obj.vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::DAYTIME_RUNNING_LIGHTS)].mode ==
+                            Object::VehicleLightMode::ON ||
+                        obj.vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::DAYTIME_RUNNING_LIGHTS)].mode ==
+                            Object::VehicleLightMode::FLASHING)
+                    {
+                        break;
+                    }
+                    light_state->set_head_light(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::HIGH_BEAM:
+                    light_state->set_high_beam(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::FOG_LIGHTS:
+                    light_state->set_front_fog_light(GetGenericLightMode(light_mode));
+                    light_state->set_rear_fog_light(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::FOG_LIGHTS_FRONT:
+                    light_state->set_front_fog_light(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::FOG_LIGHTS_REAR:
+                    light_state->set_rear_fog_light(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::BRAKE_LIGHTS:
+                    light_state->set_brake_light_state(GetBrakeLightMode(light_mode, obj.vehLghtStsList[i].luminousIntensity));
+                    break;
+                case Object::VehicleLightType::WARNING_LIGHTS:
+                case Object::VehicleLightType::INDICATOR_LEFT:
+                case Object::VehicleLightType::INDICATOR_RIGHT:
+                    light_state->set_indicator_state(GetIndicatorLightMode(light_mode, light_type));
+                    break;
+                case Object::VehicleLightType::REVERSING_LIGHTS:
+                    light_state->set_reversing_light(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::TAIL_LIGHTS:
+                    // supported in OSI 3.8
+                    break;
+                case Object::VehicleLightType::LICENSE_PLATE_ILLUMINATION:
+                    light_state->set_license_plate_illumination_rear(GetGenericLightMode(light_mode));
+                    break;
+                case Object::VehicleLightType::SPECIAL_PURPOSE_LIGHTS:
+                {
+                    const auto &role = static_cast<Object::Role>(obj.role_);
+                    if (role == Object::Role::AMBULANCE || role == Object::Role::POLICE || role == Object::Role::FIRE)
+                    {
+                        light_state->set_emergency_vehicle_illumination(GetSpecialPurposeLightMode(light_mode, role));
+                    }
+                    else
+                    {
+                        light_state->set_service_vehicle_illumination(GetServiceVehicleLightMode(light_mode));
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
     }
 
     // Set OSI Moving Object Control Type
@@ -1144,6 +1410,111 @@ int OSIReporter::UpdateOSIMovingObject(const Object &obj)
     }
 
     return 0;
+}
+
+osi3::MovingObject_VehicleClassification_LightState_GenericLightState OSIReporter::GetServiceVehicleLightMode(
+    const Object::VehicleLightMode &mode) const
+{
+    switch (mode)
+    {
+        case Object::VehicleLightMode::OFF:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF;
+        case Object::VehicleLightMode::FLASHING:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_FLASHING_AMBER;
+        case Object::VehicleLightMode::ON:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON;
+        default:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OTHER;
+    }
+}
+
+osi3::MovingObject_VehicleClassification_LightState_GenericLightState OSIReporter::GetSpecialPurposeLightMode(const Object::VehicleLightMode &mode,
+                                                                                                              const Object::Role &role) const
+{
+    switch (mode)
+    {
+        case Object::VehicleLightMode::OFF:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF;
+        case Object::VehicleLightMode::FLASHING:
+            if (role == Object::Role::AMBULANCE || role == Object::Role::POLICE)
+            {
+                return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_FLASHING_BLUE;
+            }
+            else if (role == Object::Role::FIRE)
+            {
+                return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_FLASHING_BLUE_AND_RED;
+            }
+            else
+            {
+                return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON;
+            }
+            break;
+        case Object::VehicleLightMode::ON:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON;
+        default:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OTHER;
+    }
+}
+
+osi3::MovingObject_VehicleClassification_LightState_BrakeLightState OSIReporter::GetBrakeLightMode(const Object::VehicleLightMode &mode,
+                                                                                                   const double                   &luminousity) const
+{
+    switch (mode)
+    {
+        case Object::VehicleLightMode::OFF:
+            return osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_OFF;
+        case Object::VehicleLightMode::FLASHING:
+        case Object::VehicleLightMode::ON:
+            return (luminousity > 6000.0 + SMALL_NUMBER) ? osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_STRONG
+                                                         : osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_NORMAL;
+        default:
+            return osi3::MovingObject_VehicleClassification_LightState::BRAKE_LIGHT_STATE_OTHER;
+    }
+}
+
+osi3::MovingObject_VehicleClassification_LightState_IndicatorState OSIReporter::GetIndicatorLightMode(const Object::VehicleLightMode &mode,
+                                                                                                      const Object::VehicleLightType &type) const
+{
+    switch (mode)
+    {
+        case Object::VehicleLightMode::OFF:
+            return osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OFF;
+        case Object::VehicleLightMode::FLASHING:
+        case Object::VehicleLightMode::ON:
+            if (type == Object::VehicleLightType::INDICATOR_LEFT)
+            {
+                return osi3::MovingObject_VehicleClassification_LightState_IndicatorState_INDICATOR_STATE_LEFT;
+            }
+            else if (type == Object::VehicleLightType::INDICATOR_RIGHT)
+            {
+                return osi3::MovingObject_VehicleClassification_LightState_IndicatorState_INDICATOR_STATE_RIGHT;
+            }
+            else if (type == Object::VehicleLightType::WARNING_LIGHTS)
+            {
+                return osi3::MovingObject_VehicleClassification_LightState_IndicatorState_INDICATOR_STATE_WARNING;
+            }
+            else
+            {
+                LOG_WARN("OSIReporter: Indicator type neither left/right/warning, setting other");
+                return osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OTHER;
+            }
+        default:
+            return osi3::MovingObject_VehicleClassification_LightState::INDICATOR_STATE_OTHER;
+    }
+}
+
+osi3::MovingObject_VehicleClassification_LightState_GenericLightState OSIReporter::GetGenericLightMode(const Object::VehicleLightMode &mode) const
+{
+    switch (mode)
+    {
+        case Object::VehicleLightMode::OFF:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OFF;
+        case Object::VehicleLightMode::FLASHING:
+        case Object::VehicleLightMode::ON:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_ON;
+        default:
+            return osi3::MovingObject_VehicleClassification_LightState::GENERIC_LIGHT_STATE_OTHER;
+    }
 }
 
 int OSIReporter::UpdateOSIIntersection()
@@ -1885,6 +2256,9 @@ int OSIReporter::UpdateOSILaneBoundary()
                                             break;
                                         case roadmanager::LaneRoadMark::RoadMarkType::BOTTS_DOTS:
                                             classific_type = osi3::LaneBoundary_Classification_Type::LaneBoundary_Classification_Type_TYPE_BOTTS_DOTS;
+                                            break;
+                                        case roadmanager::LaneRoadMark::RoadMarkType::EDGE:
+                                            classific_type = osi3::LaneBoundary_Classification_Type::LaneBoundary_Classification_Type_TYPE_ROAD_EDGE;
                                             break;
                                         default:
                                             classific_type = osi3::LaneBoundary_Classification_Type::LaneBoundary_Classification_Type_TYPE_SOLID_LINE;
