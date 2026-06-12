@@ -23,6 +23,7 @@ a = Analysis(
     pathex=[
         str(REPO_ROOT),
         str(REPO_ROOT / "scripts"),
+        str(REPO_ROOT / "GT_esmini" / "scripts"),
         str(REPO_ROOT / "DriverScript"),
     ],
     binaries=[],
