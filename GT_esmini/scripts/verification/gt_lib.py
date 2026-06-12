@@ -54,16 +54,22 @@ class GtLib:
         # GT_Sim.exe) never opens the groundtruth socket, so the harness opens it
         # explicitly after init; GT_Step then emits OSI to 127.0.0.1:48198 each
         # frame. (SE_UpdateOSIGroundTruth/SE_CloseOSISocket are not exported.)
-        self.lib.SE_OpenOSISocket.argtypes = [ctypes.c_char_p]
-        self.lib.SE_OpenOSISocket.restype = ctypes.c_int
+        # GT_OpenOSISocket is the GT-flavored variant: it auto-sets the OSI
+        # frequency to 1 (send every frame) when unset, which the in-process
+        # harness depends on. Core SE_OpenOSISocket is vanilla (audit BND-2/R5-U1).
+        self.lib.GT_OpenOSISocket.argtypes = [ctypes.c_char_p]
+        self.lib.GT_OpenOSISocket.restype = ctypes.c_int
 
         self._buf = ctypes.create_string_buffer(buf_size)
         self._open = False
 
     def open_osi_socket(self, ip: str = "127.0.0.1") -> int:
         """Open the OSI groundtruth UDP socket (sends to ip:48198 per frame).
-        Call after init_with_args. Returns 0 on success."""
-        return self.lib.SE_OpenOSISocket(ip.encode("utf-8"))
+        Call after init_with_args. Returns 0 on success.
+
+        Uses GT_OpenOSISocket (the GT-flavored variant) so the OSI frequency is
+        auto-set to 1 (every frame) when unset — core SE_OpenOSISocket is vanilla."""
+        return self.lib.GT_OpenOSISocket(ip.encode("utf-8"))
 
     def init_with_args(self, args: list[str]) -> int:
         """args: everything after argv[0], e.g. ['--osc', path, '--headless', ...].

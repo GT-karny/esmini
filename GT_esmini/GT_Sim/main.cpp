@@ -559,7 +559,7 @@ int main(int argc, const char* argv[])
     if (!opts.osi_ip.empty())
     {
         printf("GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
-        SE_OpenOSISocket(opts.osi_ip.c_str());
+        GT_OpenOSISocket(opts.osi_ip.c_str());
     }
 
     // 3b. Override SV reporter port if specified (handled inside GT_InitWithArgs via --sv-port)

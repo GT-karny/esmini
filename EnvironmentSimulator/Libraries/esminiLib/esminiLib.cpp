@@ -419,10 +419,8 @@ static int InitScenario()
     // Create scenario engine
     try
     {
-        fprintf(stderr, "[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n");
         // Initialize the scenario engine and viewer
         player     = new ScenarioPlayer(argc_, argv_);
-        fprintf(stderr, "[esminiLib] InitScenario: Calling player->Init()...\n");
         int retval = player->Init();
         if (retval == -1)
         {
@@ -594,7 +592,6 @@ extern "C"
 
     SE_DLL_API int SE_InitWithArgs(int argc, const char *argv[])
     {
-        fprintf(stderr, "[esminiLib] SE_InitWithArgs called. argc=%d\n", argc);
         resetScenario();
 
         if (argv && !strncmp(argv[0], "--", 2))
@@ -605,11 +602,9 @@ extern "C"
 
         for (int i = 0; i < argc; i++)
         {
-            if (argv[i]) fprintf(stderr, "[esminiLib] Arg[%d]: %s\n", i, argv[i]);
             AddArgument(argv[i], false);
         }
 
-        fprintf(stderr, "[esminiLib] Calling InitScenario...\n");
         return InitScenario();
     }
 
@@ -1556,39 +1551,17 @@ extern "C"
     SE_DLL_API int SE_OpenOSISocket(const char *ipaddr)
     {
 #ifdef _USE_OSI
-        LOG_INFO("SE_OpenOSISocket: _USE_OSI is DEFINED");
         if (player == nullptr)
         {
-            LOG_ERROR("SE_OpenOSISocket: player is nullptr!");
             return -1;
         }
 
-        if (player->osiReporter == nullptr)
-        {
-            LOG_ERROR("SE_OpenOSISocket: osiReporter is nullptr!");
-            return -1;
-        }
-
-        // Set OSI frequency to 1 (send every frame) if not already set
-        if (player->osiReporter->GetOSIFrequency() == 0)
-        {
-            LOG_INFO("SE_OpenOSISocket: OSI frequency was 0, setting to 1 (send every frame)");
-            player->osiReporter->SetOSIFrequency(1);
-        }
-        else
-        {
-            LOG_INFO("SE_OpenOSISocket: OSI frequency already set to {}", player->osiReporter->GetOSIFrequency());
-        }
-
-        LOG_INFO("SE_OpenOSISocket: Calling OpenSocket({})", ipaddr);
-        int result = player->osiReporter->OpenSocket(ipaddr);
-        LOG_INFO("SE_OpenOSISocket: OpenSocket returned {}", result);
-        return result;
+        player->osiReporter->OpenSocket(ipaddr);
 #else
-        LOG_WARN("SE_OpenOSISocket: _USE_OSI is NOT DEFINED - OSI support is disabled!");
         (void)ipaddr;
-        return -1;
 #endif  // _USE_OSI
+
+        return 0;
     }
 
     SE_DLL_API void SE_SetOSIStaticReportMode(SE_OSIStaticReportMode mode)
