@@ -197,6 +197,16 @@ jobs:
         shell: bash
         run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w
 
+      # GT_esmini test gate (audit TST-1): run the GT unit tests that are
+      # registered in ctest but were previously never executed. Scope is the
+      # green gate only — the GT_esmini_Integration_* scenarios are known-broken
+      # since authoring (missing fabriksvag.xodr / VehicleCatalog resolution)
+      # and test_PythonDriverBridge targets the v0.8-frozen feature; both are
+      # opt-in via scripts/run_gt_tests.ps1 switches until re-authored (R3/TST).
+      - name: Run GT unit tests (ctest)
+        shell: bash
+        run: ctest --test-dir build -C ${{ matrix.configuration }} -R "test_ScenarioReaderParsing" --output-on-failure
+
       - uses: ./.github/actions/upload_esmini_artifacts
         if: matrix.configuration == 'Release'
 

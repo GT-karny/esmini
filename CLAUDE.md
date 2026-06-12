@@ -60,19 +60,12 @@ graph TD
   cmake --build build --config Release
   ```
 - **Output**: `build/GT_esmini/Release/GT_esminiLib.dll`
+- **Note**: `esmini_fmu` is excluded from ALL_BUILD (`add_subdirectory(GT_OSMP_FMU EXCLUDE_FROM_ALL)`) — see Protocol B status.
 
-#### **Protocol B: FMU Export (Integration)**
+#### **Protocol B: FMU Export (Integration) — KNOWN BROKEN**
+- **Status**: `GT_OSMP_FMU/CMakeLists.txt` hand-copies a GT source list that has drifted from `GT_esmini/CMakeLists.txt`; the `esmini_fmu` target cannot link (audit BLD-1/SUB-3). Repair plan: link `GT_esminiLib_static` instead of re-listing sources, then re-enable in ALL_BUILD.
 - **Scope**: `esmini.fmu` (with GT extensions)
-- **Root**: `GT_OSMP_FMU/`
-- **Pre-condition**: Protocol A must be completed (Artifact dependency).
-- **Command**:
-  ```powershell
-  cd GT_OSMP_FMU
-  mkdir build; cd build
-  cmake .. -G "Visual Studio 17 2022" -A x64
-  cmake --build . --config Release
-  ```
-- **Output**: `GT_OSMP_FMU/build/esmini.fmu`
+- **Build (once repaired)**: `cmake --build build --config Release --target esmini_fmu` from the repository root (the standalone `GT_OSMP_FMU/build` flow is superseded by the in-tree `add_subdirectory`).
 
 ## 4. Python Environment
 
@@ -86,9 +79,16 @@ graph TD
 
 ## 5. Test Strategy
 
-### Regression check (current)
-- **Build pass** (Protocol A) as primary gate.
-- **Smoke run**: launch `GT_Sim.exe` on a representative xosc/xodr set; verify scenario start, ego trajectory sanity, OSI stream health.
+### GT gates (current, executable)
+
+| Gate | Command | Scope |
+| :--- | :--- | :--- |
+| **Unit** | `scripts/run_gt_tests.ps1` | ctest `test_ScenarioReaderParsing` (8 unit sources: ScenarioReader, RealDriver utils, LonProfilePlanner, VD PIDPurePursuit / AutoIndicator / TrafficPolicies). Green; runs in CI. |
+| **Pre-merge regression** | `scripts/run_regression_gate.ps1` | Step 1 = unit gate (hard). Step 2 = VirtualDriver behavioral batch (`gt_sim_test.py batch resources/xosc/verification/phase3_batch.yaml`, in-process via `GT_esminiLib.dll`, venv `DriverScript/.venv`). Behavioral fails WARN by default; `-FailOnBehavioral` gates. Requires a completed Release build. |
+
+- **Build pass** (Protocol A) remains the primary gate; **smoke run** (`GT_Sim.exe` on representative xosc/xodr) for viewer/OSI sanity.
+- **CI** (`.github/workflows/ci.yml` test job) runs the GT unit ctest step after upstream `run_tests.sh` (audit TST-1 closed).
+- **Known-broken (opt-in)**: `GT_esmini_Integration_*` GT_Loader tests never ran successfully — the autolight set references a nonexistent `fabriksvag.xodr`, the frozen pythondriver/realdriver sets fail VehicleCatalog resolution. Re-author under roadmap R3/TST (`run_gt_tests.ps1 -IncludeIntegration` to run them).
 - **Focus areas**: ManualDrive / KinematicController / LHT junction behavior (recent hotspots).
 
 ### Legacy (frozen)
@@ -96,7 +96,7 @@ graph TD
 
 ## 6. Package Build (EXE Distribution)
 
-Use `/package --version <VERSION>` skill for automated build. See `.claude/skills/package.md` for details.
+Use `/package --version <VERSION>` skill for automated build. See `.claude/skills/package/SKILL.md` for details; the pipeline's single source of truth is `scripts/build_package.ps1`.
 
 - **Prerequisites**: C++ build complete (`GT_Sim.exe`), embedded Python in `thirdparty/python-embed/`
 - **Pipeline**: Frontend build → PyInstaller → ZIP archive
