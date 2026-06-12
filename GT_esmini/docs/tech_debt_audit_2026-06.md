@@ -4,6 +4,7 @@
 > 解消: SCR-1, CTL-2, CTL-3(キー衝突部分), CORE-1(セグフォルト移植), CORE-7, MSC-3, FE-1, VD-7, BLD-1(EXCLUDE_FROM_ALL), BLD-2, BLD-3, BLD-4, BLD-5, BLD-6, MSC-1, MSC-7, TST-1(単体ゲート), TST-8(回帰ゲートスクリプト), TST-9, Critic-1, Critic-2(一部)。
 > 検証: ALLビルド緑 / 単体32テスト緑 / 回帰ゲートPASS(挙動バッチ 8 pass / 2 fail は非ゲートWARN) / フロントエンドはdist削除→再生成を実証。
 > **新規発見(R3/TSTへ追加)**: `GT_esmini_Integration_*` 38件は作成時から一度も走っていない — autolight系5本は存在しない `fabriksvag.xodr` を参照、凍結系30本は VehicleCatalog 解決不能。さらにテストバイナリ隣へのDLLステージング欠如(修正済み)。
+> **新規発見(2026-06-13、R5として追加)**: upstream v3.1.0(2026-05-13)が LightStateAction をネイティブ実装(v3.2.1/v3.3.0 で修正継続)。GT が 3.0.2 の throw 回避のため独自実装した一式(GT_ScenarioReader インターセプト / VehicleLightExtension / OSI ライト出力 / Web可視化)と全面重複 — 第4の並行実装化。詳細は §4 R5。
 > 残課題: Protocol B(FMU)本修理=GT_esminiLib_staticリンク化、R2(凍結Python切離し)以降はロードマップどおり。
 
 - 実施日: 2026-06-13(HEAD `8773c463`, branch `dev_v0.12`)
@@ -53,6 +54,7 @@
 - **esminiJS(境界違反・最重要)**: コア `esminijs.cpp` が `gt_esmini/...hpp` を **#include する逆依存**(+867行のGT改変がコア内に存在)。v3.0.2マージ後に修理コミットが必要になった実績あり = R1規約「Clean Core」の実質的破綻箇所 [BND-1/FE-10/MSC-4]
 - コア `esminiLib.cpp` にも GT デバッグ fprintf と SE_OpenOSISocket の機能変更が混入 [BND-2]
 - 対称的に **GT_ScenarioReader はクリーンなサブクラス実装でフォーク負債ゼロ** — これが目指すべきパターン
+- **(2026-06-13追記) GTライト実装一式が「第4の並行実装」化**: upstream v3.1.0+ が LightStateAction をネイティブ実装(Object内蔵ストレージ+OSGビューワー可視化+dat記録+OSIネイティブ出力)。GT独自系(インターセプトパーサ/VehicleLightExtension/g_LightStateProvider)と機能重複し、放置すると乖離が拡大し続ける → R5で統合
 
 ### T2: 凍結Python系(v0.8凍結)の残置コスト
 
@@ -150,6 +152,21 @@ P0表の8件 + 追加衛生:
 - ホットスポットのシームテスト: Kinematic/ManualDrive ステップ関数、AutoLight 状態機械、OSI ゴールデンメッセージ比較。LhtRhtHelpers.hpp を実際に採用 [TST-2/Critic-4]
 - ブランチ清掃(マージ済み21本)、scripts/CLAUDE.md・GT_esmini/docs インデックス更新 [Critic-3/SCR-6/MSC-6]
 
+### R5: upstream v3.3.0 追従 — LightStateAction 統合(計3〜5日 + 後続移行、週3以降)
+
+> 背景(調査 2026-06-13): upstream v3.1.0 で LightStateAction ネイティブ実装、v3.2.1/v3.3.0 で修正継続。upstream 差分は 79 コミット / 120 ファイル / +22k 行。ローカルコア改変 11 ファイルとの衝突は esminiJS 4 ファイル(大、upstream は 3.2.0 で three.js ビューワー追加の大改修)+ esminiLib.cpp / CMakeLists / Controller.hpp(小)。`parseOSCPrivateAction` シグネチャは不変で GT_ScenarioReader はコンパイル互換。upstream remote は追加済み。
+
+- **U1 前処理 = BND-1/BND-2 の前倒し(1〜2日)**: esminiJS の GT 改変(+867行)を `GT_esmini/web/wasm/` へ移設 [BND-1]、esminiLib.cpp の fprintf 除去・SE_OpenOSISocket 変更のフック化 [BND-2] を**マージ前に実施** — 最大衝突域のコアファイルがほぼ vanilla に戻り、マージが clean take-theirs になる
+- **U2 マージ(1〜2日)**: `upstream/master`(3.3.0)を dev ブランチへマージ。GT インターセプト維持で**挙動不変**を受入基準に(ビルド+R1全ゲートのみ)。ライトジオメトリ入り新3Dモデルパック取得。esminiJS の LightStateAction スキップパッチは不要化につき削除
+- **U3 ストレージ統合(2〜3日、R3 と並走可)**: ライト状態の書き込み先を `Object::vehLghtStsList` + DirtyBit へ移行(OSCLightStateAction / AutoLight / ManualDrive)。GT 独自の LightSource 優先度(SCENARIO/MANUAL/AUTO)は upstream に無い概念のため GT ラッパーとして温存。**OSGビューワー可視化と dat/replayer 記録が GT のライト機能にも効くようになる**。CTL-8(OSI/ライトグルー重複)の大半をここで解消
+- **U4 OSI 整合(1日、R4 同期ゲートと同時)**: upstream の OSI ライト出力(DirtyBit駆動)を GT_OSIReporter へポートし、`g_LightStateProvider` 二重系を解消 [CORE-1 と同型の同期ポート]
+
+**受入基準**: U2 = ALLビルド + 単体32 + 回帰ゲート PASS(挙動不変)。U3 = upstream `light_test.xosc` + GT AutoLight シナリオで OSG ビューワー点灯確認、dat 録画→replayer でライト再現。
+
+**獲得物**: OSGビューワーのライト可視化(現状 Web のみ) / dat 記録 / OSI ネイティブ出力 / 3.1〜3.3 の一般改善(going-straight policy・RandomRouteAction・SE_ObjectCanChangeLanes 等 — **F2/F3 の交差点作業に直接有用**) / 以降の upstream 追従コストの恒久的低減。
+
+**配置根拠**: F2(Phase 3d)が依存するコア(RoadManager/route API)を +22k 行シフトさせるイベントなので、**F2 着手前**に済ませる。R1 の回帰ゲートが安全網として既に有効。AutoLightController は upstream の実験的 auto-light(シナリオ/カタログベース)より高機能なため置き換え対象外。
+
 ---
 
 ## 5. 機能開発ロードマップ
@@ -183,11 +200,12 @@ P0表の8件 + 追加衛生:
 ### 推奨順序(リファクタと統合)
 
 ```
-週1     : R0 止血 → R1 ビルド/CIゲート
-週2     : F1 シナリオ量産基盤(+R2 を裏で並走)
-週3-4   : F2 Phase 3d(回帰ゲート有効状態で)
-週5     : F3 Phase 3e + F4 CI回帰完成
-週6以降 : F5 仕上げ + R3/R4 を継続消化
+週1     : R0 止血 → R1 ビルド/CIゲート ✅完了
+週2     : F1 シナリオ量産基盤(+R2 を裏で並走) ← 実施中
+週3     : R5 upstream 3.3.0 追従(U1 前処理 → U2 マージ。F2 着手前に必須)
+週4-5   : F2 Phase 3d(回帰ゲート有効状態で。R5-U3 ストレージ統合を並走可)
+週6     : F3 Phase 3e + F4 CI回帰完成
+週7以降 : F5 仕上げ + R3/R4/R5-U4 を継続消化
 ```
 
 ---
