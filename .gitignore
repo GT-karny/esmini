@@ -78,6 +78,12 @@ GT_esmini/web/frontend/README.md
 # Claude Code
 .claude/plans/
 
+# Vendored runtimes: keep binaries that global *.dll/*.exe/*.zip rules would drop (fresh-clone runnability)
+!thirdparty/python-embed/**/*.dll
+!thirdparty/python-embed/**/*.exe
+!thirdparty/python-embed/**/*.zip
+!thirdparty/SDL2/**/*.dll
+
 # External specs (large, not needed in git)
 thirdparty/opendrive/
 thirdparty/openscenario-v1.2.0/
@@ -85,3 +91,12 @@ thirdparty/osi-python/
 
 # Claude Code skills (external toolkits)
 .claude/skills/skill-creator/
+
+# Machine-local Claude Code settings (not shared across machines)
+.claude/settings.local.json
+
+# TypeScript incremental build info (generated, machine-local)
+*.tsbuildinfo
+
+# Scratch / exploratory work (not for review)
+scratch/
