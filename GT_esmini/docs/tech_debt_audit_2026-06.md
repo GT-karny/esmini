@@ -6,6 +6,12 @@
 > **新規発見(R3/TSTへ追加)**: `GT_esmini_Integration_*` 38件は作成時から一度も走っていない — autolight系5本は存在しない `fabriksvag.xodr` を参照、凍結系30本は VehicleCatalog 解決不能。さらにテストバイナリ隣へのDLLステージング欠如(修正済み)。
 > **新規発見(2026-06-13、R5として追加)**: upstream v3.1.0(2026-05-13)が LightStateAction をネイティブ実装(v3.2.1/v3.3.0 で修正継続)。GT が 3.0.2 の throw 回避のため独自実装した一式(GT_ScenarioReader インターセプト / VehicleLightExtension / OSI ライト出力 / Web可視化)と全面重複 — 第4の並行実装化。詳細は §4 R5。
 > 残課題: Protocol B(FMU)本修理=GT_esminiLib_staticリンク化、R2(凍結Python切離し)以降はロードマップどおり。
+>
+> **進捗 2026-06-13(週2)**: F1(M-A〜M-E)+ R2 を `feature/scenario-authoring` で完了。
+> 解消: SUB-1(GT_ENABLE_EMBEDDED_PYTHON 実オプション化・デフォルトOFF・配布はON明示・CI enforcement ジョブ置換), SUB-2(heading正規化×4/durationクランプ/nullガードを RealDriver へバックポート), WEB-6/SCR-7(バックエンド import 時結合ゼロ化・xosc_paths vendor・rm_lib を GT_esmini/scripts へ移設+shim), SCR-2(比較ツールチェーン7ファイル→ `archive/frozen_python_verification/`。**comparison_thresholds.yaml は web backend が現役で読み書きするため据置 = TST-6 実証**), WEB-5(「Python Driver (Recommended)」プリセット削除)。
+> F1: `resources/scenario_authoring/` 基盤一式(priority_injector / 道路3種 G4+G5+G13 / シーン07×24+08×12バリアント / validate_catalog 39/39 PASS / catalog_batch.yaml)。バッチ実行36/36緑 → 注釈レジストリへ `batch/catalog_v1/<catalog_id>` で36件登録確認(**built but starved 解消**)。
+> 検証: OFFデフォルトALLビルド緑(python312.dll import 無し)/ ON で GT_esminiLib+test_PythonDriverBridge コンパイル可 / 単体32緑 / 回帰ゲートPASS(挙動 8 pass / 2 fail = 基準どおり)。
+> 既知残: ON 時の `test_PythonDriverBridge` 実行は python312.zip 未ステージングで以前から失敗(環境起因・凍結スタック、R3/TST で扱う)。
 
 - 実施日: 2026-06-13(HEAD `8773c463`, branch `dev_v0.12`)
 - 手法: 11領域並列監査 + 全指摘の敵対的再検証(25エージェント、1,036ツール実行)。**99件全件が証拠付きで確認済み**(refuted 0件。一部は数値補正のみの adjusted)
