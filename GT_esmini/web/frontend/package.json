@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "prebuild": "npm --prefix ../../packages/theme-apex install --no-save && npm --prefix ../../packages/theme-apex run build",
+    "predev": "npm --prefix ../../packages/theme-apex install --no-save && npm --prefix ../../packages/theme-apex run build",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
