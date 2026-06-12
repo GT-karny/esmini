@@ -2,11 +2,6 @@
 
 set(TARGET_SHARED GT_esminiLib)
 set(TARGET_STATIC GT_esminiLib_static)
-set(GT_CORE_TARGET gt_core)
-set(GT_IO_TARGET gt_io)
-set(GT_SCENARIO_TARGET gt_scenario)
-set(GT_CONTROL_TARGET gt_control)
-set(GT_OSI_TARGET gt_osi)
 
 # ############################### Loading desired rules ##############################################################################################
 
@@ -237,19 +232,10 @@ set(GT_OSI_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/HVDEstimator.hpp)
 
 # ############################### Creating library ##################################################################################################
-add_library(${GT_CORE_TARGET} STATIC ${GT_CORE_SOURCES} ${GT_CORE_HEADERS})
-add_library(${GT_IO_TARGET} STATIC ${GT_IO_SOURCES} ${GT_IO_HEADERS})
-add_library(${GT_SCENARIO_TARGET} STATIC ${GT_SCENARIO_SOURCES} ${GT_SCENARIO_HEADERS})
-add_library(${GT_CONTROL_TARGET} STATIC ${GT_CONTROL_SOURCES} ${GT_CONTROL_HEADERS})
-add_library(${GT_OSI_TARGET} STATIC ${GT_OSI_SOURCES} ${GT_OSI_HEADERS})
-
-set(GT_INTERNAL_TARGETS
-    ${GT_CORE_TARGET}
-    ${GT_IO_TARGET}
-    ${GT_SCENARIO_TARGET}
-    ${GT_CONTROL_TARGET}
-    ${GT_OSI_TARGET})
-
+# NOTE: the former per-module static libs (gt_core/gt_io/gt_scenario/gt_control/gt_osi)
+# were removed (audit BLD-4): nothing consumed them and every GT source was compiled
+# three times (gt_* + GT_esminiLib + GT_esminiLib_static). The module split lives on in
+# the GT_*_SOURCES variables.
 add_library(${TARGET_SHARED} SHARED)
 add_library(${TARGET_STATIC} STATIC)
 
@@ -269,7 +255,7 @@ set_target_properties(
 target_compile_definitions(${TARGET_STATIC} PRIVATE GT_ESMINI_STATIC _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 target_compile_definitions(${TARGET_SHARED} PRIVATE _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 
-foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC})
+foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 
     target_link_libraries(${TARGET} PRIVATE project_options)
 
@@ -310,40 +296,11 @@ foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC}
 
 endforeach()
 
-foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS})
-    target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
-endforeach()
-
 target_include_directories(${TARGET_SHARED} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(${TARGET_STATIC} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(${GT_IO_TARGET} PRIVATE ${GT_CORE_TARGET} ${SOCK_LIB})
-target_include_directories(${GT_IO_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
-target_link_libraries(${GT_SCENARIO_TARGET} PRIVATE ${GT_CORE_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
-target_link_libraries(${GT_CONTROL_TARGET} PRIVATE
-    ${GT_CORE_TARGET}
-    ${GT_IO_TARGET}
-    ${GT_SCENARIO_TARGET}
-    PlayerBase
-    ScenarioEngine
-    CommonMini
-    Controllers
-    RoadManager
-    ${TIME_LIB}
-    ${SOCK_LIB})
-target_link_libraries(${GT_OSI_TARGET} PRIVATE ${GT_CORE_TARGET} ${GT_SCENARIO_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
-if(USE_OSG)
-    target_link_libraries(${GT_CONTROL_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
-    target_link_libraries(${GT_OSI_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
-    # gt_core's GT_esminiLib.cpp transitively pulls viewer.hpp -> imgui.h via
-    # ScenarioPlayer; link ViewerBase so its interface include dirs propagate
-    # (matches the shared GT_esminiLib target).
-    target_link_libraries(${GT_CORE_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
-endif()
-
 if(GT_ENABLE_SDL2)
-    foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${GT_CORE_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
+    foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
         target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_SDL2)
         target_link_libraries(${TARGET} PRIVATE SDL2::SDL2)
     endforeach()
@@ -409,18 +366,14 @@ if(USE_OSI)
     target_link_libraries(${TARGET_STATIC} PRIVATE ${OSI_LIBRARIES})
 endif()
 
-foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
+foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
     target_link_libraries(${TARGET} PRIVATE Python3::Python)
     target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
     if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
         target_compile_definitions(${TARGET} PRIVATE GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
     endif()
 endforeach()
-# Also add compile definition to gt_core (for GT_esminiLib.cpp registration)
-target_compile_definitions(${GT_CORE_TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
 # Add esminiLib include path for SE_GetOSIGroundTruth / SE_GetODRFilename
-target_include_directories(${GT_CONTROL_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
 target_include_directories(${TARGET_SHARED} PRIVATE
     ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
 target_include_directories(${TARGET_STATIC} PRIVATE
