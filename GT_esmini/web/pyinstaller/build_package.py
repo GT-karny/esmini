@@ -31,7 +31,9 @@ PYINSTALLER_DIR = Path(__file__).resolve().parent
 SPEC_FILE = PYINSTALLER_DIR / "gt_sim_web.spec"
 
 # Files to copy from build/GT_esmini/Release/
-BIN_GLOBS = ["GT_Sim.exe", "*.dll", "*.pyd", "python312.zip"]
+# GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it (co-located
+# in bin/) to pre-generate + cache the road model, so it MUST ship alongside GT_Sim.exe.
+BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd", "python312.zip"]
 
 # Extra files from embedded Python distribution (runtime DLLs only, no standalone exe)
 EMBED_FILES = ["python312._pth"]
@@ -62,6 +64,8 @@ def verify_prerequisites() -> None:
         errors.append(f"GT_Sim.exe not found at {BUILD_RELEASE}. Run CMake build first.")
     if not (BUILD_RELEASE / "GT_esminiLib.dll").exists():
         errors.append(f"GT_esminiLib.dll not found at {BUILD_RELEASE}.")
+    if not (BUILD_RELEASE / "GT_RoadGen.exe").exists():
+        errors.append(f"GT_RoadGen.exe not found at {BUILD_RELEASE} (parallel road-mesh generator). Run CMake build first.")
     if not FRONTEND_DIST.is_dir() or not (FRONTEND_DIST / "index.html").exists():
         errors.append(f"Frontend not built. Run 'npm run build' in {FRONTEND_DIR}.")
     if not EMBEDDED_PYTHON.is_dir():

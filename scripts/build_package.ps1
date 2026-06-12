@@ -108,7 +108,7 @@ if (-not $SkipCMake) {
 
     Write-Step "1" "C++ Build (Release)"
     Invoke-Checked "cmake build" {
-        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib
+        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib GT_RoadGen
     }
 } else {
     Write-Host "`n  -- Skipping CMake configure + C++ build --" -ForegroundColor Yellow
@@ -121,6 +121,14 @@ Write-Step "1b" "Stage build artifacts into BuildRelease + DriverScript/bin"
 if (-not (Test-Path $DriverBin)) { New-Item -ItemType Directory -Path $DriverBin -Force | Out-Null }
 Copy-Item "$BuildRelease\*.dll" $DriverBin -Force -ErrorAction SilentlyContinue
 Copy-Item "$BuildRelease\GT_Sim.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+# GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it from bin/
+# to pre-generate + cache the road model (skips the slow single-threaded core generation), so it
+# MUST be built (Step 1 target) and bundled alongside GT_Sim.exe.
+if (Test-Path "$BuildRelease\GT_RoadGen.exe") {
+    Copy-Item "$BuildRelease\GT_RoadGen.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "  !! WARNING: GT_RoadGen.exe not found at $BuildRelease — large OpenDRIVE road generation will be slow / may hang" -ForegroundColor Yellow
+}
 # esminiRMLib.dll lives under EnvironmentSimulator/Libraries/esminiRMLib/Release
 # — stage into $BuildRelease so build_package.py's *.dll glob picks it up.
 if (Test-Path "$RMLibRelease\esminiRMLib.dll") {

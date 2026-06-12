@@ -66,6 +66,7 @@ cmake --build "e:/Repository/GT_esmini/esmini/build" --config Release
 ```bash
 cp build/GT_esmini/Release/*.dll DriverScript/bin/ 2>/dev/null
 cp build/GT_esmini/Release/GT_Sim.exe DriverScript/bin/ 2>/dev/null
+cp build/GT_esmini/Release/GT_RoadGen.exe DriverScript/bin/ 2>/dev/null  # parallel road-mesh generator (spawned by GT_esminiLib)
 ```
 
 DLLコピーが失敗する場合は、GT_SimやPythonプロセスが実行中でファイルがロックされている可能性がある。先にプロセスを停止するようユーザーに伝える。

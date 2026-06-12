@@ -1,0 +1,2186 @@
+#include "GT_RoadGeom.hpp"
+/*
+ * esmini - Environment Simulator Minimalistic
+ * https://github.com/esmini/esmini
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ *
+ * Copyright (c) partners of Simulation Scenarios
+ * https://sites.google.com/view/simulationscenarios
+ */
+
+// GT-FORK: copied from EnvironmentSimulator/Modules/ViewerBase/roadgeom.cpp
+// (upstream base: in-tree state @ abc20d07, esmini v3.0.2).
+// GT deltas: multithreaded per-road surface generation (std::thread pool, GT-PARALLEL
+// markers) for standalone GT_RoadGen executable. Re-sync against upstream on merges.
+
+#include "GT_RoadGeom.hpp"
+#include "RoadManager.hpp"
+#include "logger.hpp"
+
+// GT-PARALLEL: standard-library threading for per-road surface generation
+#include <thread>
+#include <atomic>
+#include <algorithm>
+
+#include <osg/StateSet>
+#include <osg/Group>
+#include <osg/Switch>
+#include <osg/TexEnv>
+#include <osg/LOD>
+#include <osg/MatrixTransform>
+#include <osg/Material>
+#include <osgGA/StateSetManipulator>
+#include <osg/PolygonOffset>
+#include <osgDB/ReadFile>
+#include <osgUtil/SmoothingVisitor>
+#include <osg/ShapeDrawable>
+#include <osg/ComputeBoundsVisitor>
+#include <osgUtil/Optimizer>    // to flatten transform nodes
+#include <osgUtil/Tessellator>  // to tessellate multiple contours
+#include <osgDB/WriteFile>
+
+#include "CommonMini.hpp"
+
+// cppcheck-suppress [unknownMacro]
+USE_OSGPLUGIN(osg2)
+USE_OSGPLUGIN(jpeg)
+USE_SERIALIZER_WRAPPER_LIBRARY(osg)
+USE_COMPRESSOR_WRAPPER(ZLibCompressor)
+
+#define GEOM_TOLERANCE         (0.2 - SMALL_NUMBER)  // Minimum distance between two vertices along road s-axis
+#define TEXTURE_SCALE          2.0                   // Scale factor for asphalt and grass textures 2.0 means whole texture fits in 2 x 2 m square
+#define MAX_GEOM_ERROR         0.25                  // maximum distance from the 3D geometry to the OSI lines
+#define MAX_GEOM_LENGTH        50                    // maximum length of a road geometry mesh segment
+#define MIN_GEOM_LENGTH        0.1                   // minimum length of a road geometry mesh segment, adjust if possible
+#define ROADMARK_TEXTURE_SCALE 3.0                   // scale factor for roadmark textures, 3.0 means whole texture fits in 3 x 3 m square
+
+#define POLYGON_OFFSET_SIDEWALK  2.0
+#define POLYGON_OFFSET_ROADMARKS 1.0
+#define POLYGON_OFFSET_BORDER    -1.0
+#define POLYGON_OFFSET_GRASS     -2.0
+
+#define ROADMARK_Z_OFFSET 0.02
+
+#define DEFAULT_LENGTH_FOR_CONTINUOUS_OBJS 10.0
+#define LOD_DIST_ROAD_FEATURES             500
+
+const static double      friction_max       = 5.0;
+const static double      friction_default   = 1.0;
+const static std::string prefix_road        = "road_";
+const static std::string prefix_road_object = "road_object_";
+const static std::string prefix_tunnel_wall = "tunnel_wall_";
+const static std::string prefix_tunnel_roof = "tunnel_roof_";
+const static std::string prefix_road_signal = "road_signal_";
+const static std::string prefix_roadmark    = "roadmark_";
+
+namespace roadgeom
+{
+    class FindNamedNode : public osg::NodeVisitor
+    {
+    public:
+        FindNamedNode(const std::string& name) : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN), _name(name)
+        {
+        }
+
+        // This method gets called for every node in the scene graph. Check each node
+        // to see if its name matches out target. If so, save the node's address.
+        using osg::NodeVisitor::apply;
+        void apply(osg::Group& node) override
+        {
+            if (node.getName().find(_name) != std::string::npos)
+            {
+                _node = &node;
+            }
+            else
+            {
+                // Keep traversing the rest of the scene graph.
+                traverse(node);
+            }
+        }
+
+        osg::Node* getNode()
+        {
+            return _node.get();
+        }
+
+    protected:
+        std::string              _name;
+        osg::ref_ptr<osg::Group> _node;
+    };
+
+    bool compare_s_values(double s0, double s1)
+    {
+        return (fabs(s1 - s0) < 0.1);
+    }
+
+    // GT-PARALLEL: worker-thread count for road-surface generation (0 = auto).
+    static unsigned int g_num_threads = 0;
+
+    void RoadGeom::SetNumThreads(unsigned int n)
+    {
+        g_num_threads = n;
+    }
+
+    unsigned int RoadGeom::GetNumThreads()
+    {
+        return g_num_threads;
+    }
+
+    uint64_t GenerateMaterialKey(double r, double g, double b, double a, uint8_t t, uint8_t f)
+    {
+        uint8_t r8 = static_cast<uint8_t>(std::max(0.0, std::min(255.0, r * 255.0)));
+        uint8_t g8 = static_cast<uint8_t>(std::max(0.0, std::min(255.0, g * 255.0)));
+        uint8_t b8 = static_cast<uint8_t>(std::max(0.0, std::min(255.0, b * 255.0)));
+        uint8_t a8 = static_cast<uint8_t>(std::max(0.0, std::min(255.0, a * 255.0)));
+
+        // code the color as a 64-bit integer in the format 0xRRGGBBAATTFF (T = texture_type, F = friction)
+        return (static_cast<uint64_t>(r8) << 40) | (static_cast<uint64_t>(g8) << 32) | (static_cast<uint64_t>(b8) << 24) |
+               (static_cast<uint64_t>(a8) << 16) | (static_cast<uint64_t>(t) << 8) | static_cast<uint64_t>(f);
+    }
+
+    osg::Vec4 ODR2OSGColor(roadmanager::RoadMarkColor color)
+    {
+        const float(&rgb)[3] = SE_Color::Color2RBG(roadmanager::ODRColor2SEColor(color));
+        return osg::Vec4(rgb[0], rgb[1], rgb[2], 1.0);
+    }
+
+    osg::ref_ptr<osg::Material> RoadGeom::GetOrCreateMaterial(const std::string& basename,
+                                                              osg::Vec4          color,
+                                                              uint8_t            texture_type,
+                                                              uint8_t            has_friction)
+    {
+        uint64_t key = GenerateMaterialKey(color[0], color[1], color[2], color[3], texture_type, has_friction);
+
+        // GT-PARALLEL: serialize material cache access (workers look up prewarmed materials;
+        // creation only happens in the serial prewarm/roadmark phases or as a defensive fallback).
+        std::lock_guard<std::mutex> material_lock(material_mutex_);
+
+        if (std_materials_.find(key) != std_materials_.end())
+        {
+            return std_materials_[key];
+        }
+        else
+        {
+            // create and store new materiak
+            osg::ref_ptr<osg::Material> material = new osg::Material;
+            material->setName(fmt::format("Material_{}_{}_0x{:02x}{:02x}{:02x}{:02x}_{:02x}_{:02x}",
+                                          number_of_materials,
+                                          basename,
+                                          static_cast<unsigned int>(color[0] * 255),
+                                          static_cast<unsigned int>(color[1] * 255),
+                                          static_cast<unsigned int>(color[2] * 255),
+                                          static_cast<unsigned int>(color[3] * 255),
+                                          static_cast<unsigned int>(texture_type),
+                                          static_cast<unsigned int>(has_friction)));
+
+            LOG_DEBUG("Creating material {}", material->getName());
+            material->setDiffuse(osg::Material::FRONT_AND_BACK, color);
+            material->setAmbient(osg::Material::FRONT_AND_BACK, color);
+            material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+            material->setEmission(osg::Material::FRONT_AND_BACK, osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+            material->setShininess(osg::Material::FRONT_AND_BACK, 1.0f);
+            if (static_cast<uint8_t>(MaterialType::ASPHALT) == texture_type)
+            {
+                material->setUserValue("friction", lane_friction_);  // default friction value
+            }
+
+            // store material for reuse
+            std_materials_[key] = material;
+
+            // keep track of the number of created materials
+            number_of_materials++;
+
+            return material;
+        }
+    }
+
+    osg::ref_ptr<osg::Texture2D> RoadGeom::ReadTexture(std::string filename, bool log_missing_file)
+    {
+        osg::ref_ptr<osg::Texture2D> tex = 0;
+        osg::ref_ptr<osg::Image>     img = 0;
+        bool                         found;
+        std::string                  file_path = LocateFile(filename,
+                                                            {DirNameOf(odrManager_->GetOpenDriveFilename()) + "/../models", exe_dir_ + "/../resources/models"},
+                                           "Texture file",
+                                           found,
+                                           log_missing_file);
+
+        if (found)
+        {
+            img = osgDB::readImageFile(file_path);
+
+            if (img)
+            {
+                tex = new osg::Texture2D(img.get());
+                tex->setUnRefImageDataAfterApply(true);
+                tex->setWrap(osg::Texture2D::WrapParameter::WRAP_S, osg::Texture2D::WrapMode::REPEAT);
+                tex->setWrap(osg::Texture2D::WrapParameter::WRAP_T, osg::Texture2D::WrapMode::REPEAT);
+            }
+            else
+            {
+                LOG_WARN("Failed to load texture file: {}", filename);
+            }
+        }
+
+        return tex;
+    }
+
+    osg::Vec4 RoadGeom::GetFrictionColor(const double friction)
+    {
+        osg::Vec4 new_color = color_asphalt_->at(0);
+        if (friction < friction_default - SMALL_NUMBER)  // low friction, make it blueish
+        {
+            double factor = (1.0 - friction) / friction_default;
+            new_color[0] -= 0.75 * factor;
+            new_color[1] -= 0.75 * factor;
+            new_color[2] += factor;
+        }
+        else if (friction > friction_default + SMALL_NUMBER)  // high friction, make it redish
+        {
+            double factor = (MIN(friction, friction_max) - friction_default) / (friction_max - friction_default);
+            new_color[0] += factor;
+            new_color[1] -= 0.75 * factor;
+            new_color[2] -= 0.75 * factor;
+        }
+
+        new_color[0] = CLAMP(0.0, 1.0, new_color[0]);
+        new_color[1] = CLAMP(0.0, 1.0, new_color[1]);
+        new_color[2] = CLAMP(0.0, 1.0, new_color[2]);
+
+        return new_color;
+    }
+
+    void RoadGeom::AddRoadMarkGeom(osg::ref_ptr<osg::Vec3Array>        vertices,
+                                   osg::ref_ptr<osg::DrawElementsUInt> indices,
+                                   osg::Group*                         rm_group,
+                                   const roadmanager::LaneRoadMark&    road_mark,
+                                   double                              fade)
+    {
+        osg::ref_ptr<osg::Vec4Array> color_array = new osg::Vec4Array;
+        color_array->push_back(ODR2OSGColor(road_mark.GetColor()));
+        color_array->back()[3] = 1.0 - fade;  // Set alpha value
+
+        // Finally create and add geometry
+        osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+        geom->setUseDisplayList(true);
+        geom->setVertexArray(vertices.get());
+        geom->addPrimitiveSet(indices.get());
+
+        // Use PolygonOffset feature to avoid z-fighting with road surface
+        geom->getOrCreateStateSet()->setAttributeAndModes(new osg::PolygonOffset(-POLYGON_OFFSET_ROADMARKS, -SIGN(POLYGON_OFFSET_ROADMARKS)));
+
+        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+
+        // create material with unique name
+        osg::ref_ptr<osg::Material> materialRoadmark_ =
+            GetOrCreateMaterial("RoadMark_" + roadmanager::LaneRoadMark::RoadMarkColor2Str(road_mark.GetColor()),
+                                color_array->back(),
+                                static_cast<uint8_t>(RoadGeom::MaterialType::ROADMARK));
+
+        // also embed color in geometry, e.g. for post processing in full stack simulations
+        geom->setColorArray(color_array.get());
+        geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+
+        if (fade > SMALL_NUMBER)
+        {
+            geom->getOrCreateStateSet()->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+            geom->getOrCreateStateSet()->setMode(GL_BLEND, osg::StateAttribute::ON);
+        }
+
+        geode->getOrCreateStateSet()->setAttributeAndModes(materialRoadmark_.get());
+
+        if (!SE_Env::Inst().GetOptions().GetOptionSet("generate_without_textures"))
+        {
+            // set texture coordinates anyway, for potential post processing
+            osg::ref_ptr<osg::Vec2Array> texcoords   = new osg::Vec2Array(indices.get()->getNumIndices());
+            double                       rm_texscale = 1.0 / ROADMARK_TEXTURE_SCALE;
+            for (unsigned int i = 0; i < indices.get()->getNumIndices(); i++)
+            {
+                (*texcoords)[i].set(osg::Vec2(static_cast<float>(rm_texscale * ((*vertices)[(*indices)[i]][0])),
+                                              static_cast<float>(rm_texscale * ((*vertices)[(*indices)[i]][1]))));
+            }
+            geom->setTexCoordArray(0, texcoords.get());
+
+            if (texture_map_[MaterialType::ROADMARK])
+            {
+                // set color to white for texture mapping. but keep alpha
+                color_array->back()[0] = 1.0f;
+                color_array->back()[1] = 1.0f;
+                color_array->back()[2] = 1.0f;
+                geode->getOrCreateStateSet()->setTextureAttributeAndModes(0, texture_map_[MaterialType::ROADMARK].get());
+            }
+        }
+
+        osgUtil::SmoothingVisitor::smooth(*geom, 0.0);
+        geode->addDrawable(geom.get());
+        SetNodeName(*geode, prefix_roadmark, rm_group->getNumChildren(), road_mark.Type2Str());
+        rm_group->addChild(geode);
+    }
+
+    int RoadGeom::AddRoadMarks(roadmanager::Lane* lane, osg::Group* rm_group, const osg::Vec3d& origin)
+    {
+        for (unsigned int i = 0; i < lane->GetNumberOfRoadMarks(); i++)
+        {
+            roadmanager::LaneRoadMark* lane_roadmark = lane->GetLaneRoadMarkByIdx(static_cast<int>(i));
+
+            if (lane_roadmark->GetType() == roadmanager::LaneRoadMark::RoadMarkType::NONE_TYPE)
+            {
+                continue;
+            }
+
+            for (unsigned int m = 0; m < lane_roadmark->GetNumberOfRoadMarkTypes(); m++)
+            {
+                roadmanager::LaneRoadMarkType* lane_roadmarktype = lane_roadmark->GetLaneRoadMarkTypeByIdx(m);
+
+                for (unsigned int n = 0; n < lane_roadmarktype->GetNumberOfRoadMarkTypeLines(); n++)
+                {
+                    roadmanager::LaneRoadMarkTypeLine* lane_roadmarktypeline = lane_roadmarktype->GetLaneRoadMarkTypeLineByIdx(n);
+                    roadmanager::OSIPoints*            curr_osi_rm           = lane_roadmarktypeline->GetOSIPoints();
+
+                    if (lane_roadmark->GetType() == roadmanager::LaneRoadMark::RoadMarkType::BOTTS_DOTS)
+                    {
+                        for (unsigned int q = 0; q < curr_osi_rm->GetPoints().size(); q++)
+                        {
+                            const double                    botts_dot_size = 0.15;
+                            static osg::ref_ptr<osg::Geode> dot            = 0;
+
+                            if (dot == 0)
+                            {
+                                osg::ref_ptr<osg::TessellationHints> th = new osg::TessellationHints();
+                                th->setDetailRatio(0.3f);
+                                osg::ref_ptr<osg::ShapeDrawable> shape =
+                                    new osg::ShapeDrawable(new osg::Cylinder(osg::Vec3(0.0, 0.0, 0.0), botts_dot_size, 0.3 * botts_dot_size), th);
+                                shape->setColor(ODR2OSGColor(lane_roadmark->GetColor()));
+                                dot = new osg::Geode;
+                                dot->addDrawable(shape);
+                            }
+
+                            roadmanager::PointStruct osi_point0 = curr_osi_rm->GetPoint(q);
+
+                            osg::ref_ptr<osg::PositionAttitudeTransform> tx = new osg::PositionAttitudeTransform;
+                            tx->setPosition(osg::Vec3(static_cast<float>(osi_point0.x - origin[0]),
+                                                      static_cast<float>(osi_point0.y - origin[1]),
+                                                      static_cast<float>(osi_point0.z + ROADMARK_Z_OFFSET)));
+                            tx->addChild(dot);
+                            SetNodeName(*tx, prefix_roadmark, rm_group->getNumChildren(), lane_roadmark->Type2Str());
+                            rm_group->addChild(tx);
+                        }
+                    }
+                    else
+                    {
+                        std::vector<roadmanager::PointStruct> osi_points = curr_osi_rm->GetPoints();
+
+                        if (osi_points.size() < 2)
+                        {
+                            // No line - skip
+                            continue;
+                        }
+
+                        double l0p0l[3] = {0.0, 0.0, 0.0};  // previous line, startpoint, left side
+                        double l0p0r[3] = {0.0, 0.0, 0.0};  // previous line, startpoint, right side
+                        double l0p1l[3] = {0.0, 0.0, 0.0};  // previous line, endpoint, left side
+                        double l0p1r[3] = {0.0, 0.0, 0.0};  // previous line, endpoint, right side
+                        double l1p0l[3] = {0.0, 0.0, 0.0};  // current line, startpoint, left side
+                        double l1p0r[3] = {0.0, 0.0, 0.0};  // current line, startpoint, right side
+                        double l1p1l[3] = {0.0, 0.0, 0.0};  // current line, endpoint, left side
+                        double l1p1r[3] = {0.0, 0.0, 0.0};  // current line, endpoint, right side
+
+                        osg::ref_ptr<osg::Vec3Array>        vertices;
+                        osg::ref_ptr<osg::DrawElementsUInt> indices;
+
+                        unsigned int startpoint = 0;
+
+                        for (unsigned int q = 0; q < static_cast<unsigned int>(osi_points.size()); q++)
+                        {
+                            // Find offset points of solid roadmark at each OSI point
+                            // each line has two points, beginning and end
+                            // from each point one left and one right point will be calculated based on width of marking
+                            // l1 is current line, l0 is previous
+
+                            if (q == startpoint)
+                            {
+                                vertices = new osg::Vec3Array();
+                                indices  = new osg::DrawElementsUInt(GL_TRIANGLE_STRIP);
+                            }
+
+                            if (q < osi_points.size() - 1)
+                            {
+                                const double w = lane_roadmarktypeline->GetWidth() / 2;
+                                double       v[3];
+
+                                RotateY(w, osi_points[q].r, osi_points[q].p, osi_points[q].h, v);
+                                l1p0l[0] = osi_points[q].x + v[0] - origin[0];
+                                l1p0l[1] = osi_points[q].y + v[1] - origin[1];
+                                l1p0l[2] = osi_points[q].z + v[2] + ROADMARK_Z_OFFSET;
+
+                                RotateY(w, osi_points[q + 1].r, osi_points[q + 1].p, osi_points[q + 1].h, v);
+                                l1p1l[0] = osi_points[q + 1].x + v[0] - origin[0];
+                                l1p1l[1] = osi_points[q + 1].y + v[1] - origin[1];
+                                l1p1l[2] = osi_points[q + 1].z + v[2] + ROADMARK_Z_OFFSET;
+
+                                RotateY(-w, osi_points[q].r, osi_points[q].p, osi_points[q].h, v);
+                                l1p0r[0] = osi_points[q].x + v[0] - origin[0];
+                                l1p0r[1] = osi_points[q].y + v[1] - origin[1];
+                                l1p0r[2] = osi_points[q].z + v[2] + ROADMARK_Z_OFFSET;
+
+                                RotateY(-w, osi_points[q + 1].r, osi_points[q + 1].p, osi_points[q + 1].h, v);
+                                l1p1r[0] = osi_points[q + 1].x + v[0] - origin[0];
+                                l1p1r[1] = osi_points[q + 1].y + v[1] - origin[1];
+                                l1p1r[2] = osi_points[q + 1].z + v[2] + ROADMARK_Z_OFFSET;
+                            }
+                            else if (!osi_points[q].endpoint)
+                            {
+                                LOG_ERROR("Unexpected last point without endpoint q {}", q);
+                            }
+
+                            if (q == startpoint)
+                            {
+                                // First point in a line sequence, no adjustment needed
+                                (*vertices).push_back(
+                                    osg::Vec3(static_cast<float>(l1p0l[0]), static_cast<float>(l1p0l[1]), static_cast<float>(l1p0l[2])));
+                                (*vertices).push_back(
+                                    osg::Vec3(static_cast<float>(l1p0r[0]), static_cast<float>(l1p0r[1]), static_cast<float>(l1p0r[2])));
+                            }
+                            else if (osi_points[q].endpoint)
+                            {
+                                // Last point of a line sequence, no adjustment needed
+                                double* left  = (q < osi_points.size() - 1) ? l1p0l : l1p1l;
+                                double* right = (q < osi_points.size() - 1) ? l1p0r : l1p1r;
+                                (*vertices).push_back(
+                                    osg::Vec3(static_cast<float>(left[0]), static_cast<float>(left[1]), static_cast<float>(left[2])));
+                                (*vertices).push_back(
+                                    osg::Vec3(static_cast<float>(right[0]), static_cast<float>(right[1]), static_cast<float>(right[2])));
+                            }
+                            else
+                            {
+                                // Find intersection of non parallel lines
+                                double isect[2];
+
+                                // left side
+                                if (GetIntersectionOfTwoLineSegments(l0p0l[0],
+                                                                     l0p0l[1],
+                                                                     l0p1l[0],
+                                                                     l0p1l[1],
+                                                                     l1p0l[0],
+                                                                     l1p0l[1],
+                                                                     l1p1l[0],
+                                                                     l1p1l[1],
+                                                                     isect[0],
+                                                                     isect[1]) == 0)
+                                {
+                                    (*vertices).push_back(osg::Vec3(static_cast<float>(isect[0]),
+                                                                    static_cast<float>(isect[1]),
+                                                                    static_cast<float>(l0p1l[2] + ROADMARK_Z_OFFSET)));
+                                }
+                                else
+                                {
+                                    // lines parallel, no adjustment needed
+                                    (*vertices).push_back(osg::Vec3(static_cast<float>(l1p0l[0]),
+                                                                    static_cast<float>(l1p0l[1]),
+                                                                    static_cast<float>(l1p0l[2] + ROADMARK_Z_OFFSET)));
+                                }
+
+                                // right side
+                                if (GetIntersectionOfTwoLineSegments(l0p0r[0],
+                                                                     l0p0r[1],
+                                                                     l0p1r[0],
+                                                                     l0p1r[1],
+                                                                     l1p0r[0],
+                                                                     l1p0r[1],
+                                                                     l1p1r[0],
+                                                                     l1p1r[1],
+                                                                     isect[0],
+                                                                     isect[1]) == 0)
+                                {
+                                    (*vertices).push_back(osg::Vec3(static_cast<float>(isect[0]),
+                                                                    static_cast<float>(isect[1]),
+                                                                    static_cast<float>(l0p1r[2] + ROADMARK_Z_OFFSET)));
+                                }
+                                else
+                                {
+                                    // lines parallel, no adjustment needed
+                                    (*vertices).push_back(osg::Vec3(static_cast<float>(l1p0r[0]),
+                                                                    static_cast<float>(l1p0r[1]),
+                                                                    static_cast<float>(l1p0r[2] + ROADMARK_Z_OFFSET)));
+                                }
+                            }
+
+                            if (q < osi_points.size() - 1)
+                            {
+                                // Shift points one step forward
+                                memcpy(l0p0l, l1p0l, sizeof(l0p0l));
+                                memcpy(l0p0r, l1p0r, sizeof(l0p0r));
+                                memcpy(l0p1l, l1p1l, sizeof(l0p0l));
+                                memcpy(l0p1r, l1p1r, sizeof(l0p0r));
+                            }
+
+                            // Set indices
+                            (*indices).push_back(static_cast<unsigned int>(2 * (q - startpoint)));
+                            (*indices).push_back(static_cast<unsigned int>(2 * (q - startpoint) + 1));
+
+                            if (osi_points[q].endpoint)
+                            {
+                                // create and add OSG geometry for the line sequence
+                                AddRoadMarkGeom(vertices, indices, rm_group, *lane_roadmark, lane_roadmark->GetFade());
+                                startpoint = q + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    RoadGeom::RoadGeom(roadmanager::OpenDrive* odr,
+                       osg::Node*              environment,
+                       osg::Vec3d              origin,
+                       bool                    generate_road_surface,
+                       bool                    generate_road_objects,
+                       std::string             exe_path,
+                       bool                    optimize)
+        : environment_(environment),
+          optimize_(optimize)
+    {
+        if (!generate_road_surface && !generate_road_objects)
+        {
+            return;
+        }
+
+        exe_dir_    = DirNameOf(exe_path);
+        odrManager_ = odr;
+        root_       = new osg::Group;
+        root_->setName("esmini_generated_road_model");
+
+        if (generate_road_surface)
+        {
+            LOG_INFO("Generating a simplistic 3D model of the road network");
+
+            osg::ref_ptr<osg::Group> r_group_ = new osg::Group;
+            r_group_->setName("roads");
+            osg::ref_ptr<osg::Group> rm_group_ = new osg::Group;
+            rm_group_->setName("roadmarks");
+            root_->addChild(rm_group_);
+            root_->addChild(r_group_);
+
+            if (!SE_Env::Inst().GetOptions().GetOptionSet("generate_without_textures"))
+            {
+                texture_map_[MaterialType::ASPHALT]  = ReadTexture("asphalt.jpg");
+                texture_map_[MaterialType::GRASS]    = ReadTexture("grass.jpg");
+                texture_map_[MaterialType::ROADMARK] = ReadTexture("roadmark.jpg", false);  // optional texture, not part of esmini
+            }
+
+            osg::ref_ptr<osg::Vec4Array> color_concrete     = new osg::Vec4Array;
+            osg::ref_ptr<osg::Vec4Array> color_border_inner = new osg::Vec4Array;
+            osg::ref_ptr<osg::Vec4Array> color_grass        = new osg::Vec4Array;
+
+            if (auto it = texture_map_.find(MaterialType::ASPHALT); it != texture_map_.end() && it->second != nullptr)  // We have a texture
+            {
+                color_asphalt_->push_back(osg::Vec4(1.f, 1.f, 1.f, 1.0f));
+            }
+            else  // No texture, use default color
+            {
+                color_asphalt_->push_back(osg::Vec4(0.3f, 0.3f, 0.3f, 1.0f));
+            }
+
+            if (auto it = texture_map_.find(MaterialType::GRASS); it != texture_map_.end() && it->second != nullptr)  // We have a texture
+            {
+                color_grass->push_back(osg::Vec4(1.f, 1.f, 1.f, 1.0f));
+            }
+            else  // No texture, use default color
+            {
+                color_grass->push_back(osg::Vec4(0.25f, 0.5f, 0.35f, 1.0f));
+            }
+
+            color_concrete->push_back(osg::Vec4(0.61f, 0.61f, 0.61f, 1.0f));
+            color_border_inner->push_back(osg::Vec4(0.45f, 0.45f, 0.45f, 1.0f));
+
+            // algorithm:
+            // for each road and lane section, consider all lanes except center lane (id 0):
+            // - establish first point of each lane at s value = 0, set to current
+            // - loop until reaching end of lane section:
+            //   - for each lane:
+            //     - find next OSI point along the lane, from the current section s value
+            //       - register s value as lane current and as candidate section current
+            //   - sort the list of section s value candidates
+            //   - for each candidate:
+            //     - for each lane:
+            //       - calculate point at candidate s value
+            //       - measure error from tangent of current section s-value point
+            //       - if error is too large:
+            //         - break
+            //       - else, if error is OK:
+            //         - register as new current section s value
+            //     - if no OK point was found, pick the first candiate (lowest s-value)
+            //   - establish points for all lanes at this s-value
+
+            // ================================ GT-PARALLEL ================================
+            // Pre-create every material the surface workers may request, so the parallel
+            // region only performs (mutex-guarded) cache LOOKUPS -- deterministic and
+            // friction-correct. Mirrors the material branches in the worker body below.
+            {
+                GetOrCreateMaterial("Concrete", color_concrete->at(0), static_cast<uint8_t>(MaterialType::CONCRETE));
+                GetOrCreateMaterial("Border", color_border_inner->at(0), static_cast<uint8_t>(MaterialType::BORDER));
+                GetOrCreateMaterial("Grass", color_grass->at(0), static_cast<uint8_t>(MaterialType::GRASS));
+
+                std::vector<double> prewarm_frictions = {FRICTION_DEFAULT};
+                for (int ri = 0; ri < odr->GetNumOfRoads(); ri++)
+                {
+                    roadmanager::Road* rd = odr->GetRoadByIdx(ri);
+                    for (int sj = 0; sj < rd->GetNumberOfLaneSections(); sj++)
+                    {
+                        roadmanager::LaneSection* ls = rd->GetLaneSectionByIdx(sj);
+                        for (unsigned int li = 0; li < ls->GetNumberOfLanes(); li++)
+                        {
+                            roadmanager::Lane* ln = ls->GetLaneByIdx(li);
+                            for (size_t mi = 0; mi < ln->GetNumberOfMaterials(); mi++)
+                            {
+                                prewarm_frictions.push_back(ln->GetMaterialByIdx(mi)->friction);
+                            }
+                        }
+                    }
+                }
+                for (double f : prewarm_frictions)
+                {
+                    lane_friction_ = f;  // member feeds the "friction" user value embedded on asphalt materials
+                    GetOrCreateMaterial("Asphalt", GetFrictionColor(f), static_cast<uint8_t>(MaterialType::ASPHALT), 1);
+                }
+            }
+
+            const size_t                          gt_num_roads = static_cast<size_t>(odr->GetNumOfRoads());
+            std::vector<osg::ref_ptr<osg::Group>> gt_road_groups(gt_num_roads);
+
+            // Build one road's surface geometry into a private local group. Thread-safe: reads only
+            // const OpenDRIVE/Lane data and precomputed OSI points, writes a private group, and uses
+            // each thread's own roadmanager::Position. Shared std_materials_ access is mutex-guarded.
+            auto gt_build_road_surface = [&](size_t i)
+            {
+                osg::ref_ptr<osg::Group> r_group_      = new osg::Group;  // GT-PARALLEL: shadows the constructor-local r_group_; merged later
+                double                   lane_friction_ = 1.0;            // GT-PARALLEL: shadows member to avoid cross-thread writes
+                gt_road_groups[i]                       = r_group_;
+                roadmanager::Road* road = odr->GetRoadByIdx(static_cast<int>(i));
+
+                for (size_t j = 0; j < static_cast<unsigned int>(road->GetNumberOfLaneSections()); j++)
+                {
+                    roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(static_cast<int>(j));
+                    if (lsec->GetNumberOfLanes() < 2)
+                    {
+                        // need at least reference lane plus another lane to form a road geometry
+                        continue;
+                    }
+
+                    std::vector<int> all_lane_ids;
+                    all_lane_ids.reserve(lsec->GetNumberOfLanes());
+
+                    std::vector<int> lane_ids;  // all physical lane ids, except center lane which has no area
+                    lane_ids.reserve(lsec->GetNumberOfLanes() - 1);
+                    std::unordered_map<int, int> lane_idxs;  // store indexes for all lanes, except center lane (id 0)
+
+                    // First make sure there are OSI points of the center lane
+                    roadmanager::Lane* lane = lsec->GetLaneById(0);
+                    if (lane->GetOSIPoints() == 0)
+                    {
+                        LOG_ERROR("Missing OSI points of centerlane road {} section {}", road->GetId(), j);
+                        throw std::runtime_error("Missing OSI points");
+                    }
+
+                    // create a 2d list of positions for vertices, nr_of_s-values x nr_of_lanes
+                    typedef struct
+                    {
+                        double x;
+                        double y;
+                        double z;
+                        double h;
+                        double slope;
+                        double s;
+                    } GeomPoint;
+
+                    typedef struct
+                    {
+                        int    geom_point_index;
+                        double friction;
+                    } GeomStrip;  // could be multiple of these per lane
+
+                    struct GeomCacheEntry
+                    {
+                        GeomPoint point;
+                        double    friction = 1.0;
+                    };
+
+                    struct CandidatePos
+                    {
+                        double s;
+                        double x;
+                        double y;
+                    };
+
+                    std::vector<std::vector<std::vector<GeomPoint>>> geom_points_list;                          // two lists of points per lane
+                    std::vector<std::vector<GeomStrip>>              geom_strips_list;                          // one list of strips info per lane
+                    std::vector<int>                                 lane_osi_index(lsec->GetNumberOfLanes());  // current osi point per lane
+                    std::vector<GeomCacheEntry>                      geom_cache(lsec->GetNumberOfLanes());      // one cache entry per lane
+                    std::vector<CandidatePos>                        candidates_pos(lsec->GetNumberOfLanes());  // candidates for next current s-value
+                    double                                           section_current_s = lsec->GetS();
+
+                    roadmanager::Position pos;  // used for calculating points along the road
+                    pos.SetSnapLaneTypes(-1);
+
+                    // First populate s values of the material elements
+                    //   - for each material a new friction segment is to be added
+                    //   - loop over material friction segments, insert new vertices if needed
+                    std::vector<double> friction_s_list;
+                    for (size_t k = 0; k < static_cast<unsigned int>(lsec->GetNumberOfLanes()); k++)
+                    {
+                        lane = lsec->GetLaneByIdx(k);
+
+                        all_lane_ids.push_back(lane->GetId());
+
+                        if (lane->GetId() == 0)
+                        {
+                            // skip center lane
+                            continue;
+                        }
+
+                        lane_idxs[lane->GetId()] = lane_idxs.size();
+                        lane_ids.push_back(lane->GetId());
+
+                        for (size_t l = 0; l < lane->GetNumberOfMaterials(); l++)
+                        {
+                            friction_s_list.push_back(lsec->GetS() + lane->GetMaterialByIdx(l)->s_offset);
+                        }
+
+                        // add lane height entries to the s-value list
+                        for (size_t l = 0; l < lane->GetNumberOfHeights(); l++)
+                        {
+                            friction_s_list.push_back(lsec->GetS() + lane->GetHeightByIdx(l)->s_offset);
+                        }
+                    }
+
+                    // sort friction s-values and remove duplicates
+                    std::sort(friction_s_list.begin(), friction_s_list.end());
+                    friction_s_list.erase(std::unique(friction_s_list.begin(), friction_s_list.end(), compare_s_values), friction_s_list.end());
+
+                    // collect a list of s values where vertices are needed, considering all lanes
+                    int                   friction_s_list_index = friction_s_list.size() > 0 ? 1 : -1;
+                    bool                  done_section          = false;
+                    roadmanager::Position pos2;
+
+                    for (int counter = 0; !done_section; counter++)
+                    {
+                        // GT-FIX: remember s at the start of this step to detect non-advancement (below),
+                        // plus an absolute backstop against a runaway loop on degenerate geometry.
+                        const double gt_s_prev = section_current_s;
+                        if (counter > 2000000)
+                        {
+                            LOG_ERROR("RoadGeom: road {} sec {} aborted after {} steps (degenerate geometry)", road->GetId(), j, counter);
+                            done_section = true;
+                            break;
+                        }
+                        if (counter == 0)
+                        {
+                            // First add s = start of lane section, to set start of mesh
+                            done_section = false;
+                            for (size_t k = 0; k < static_cast<unsigned int>(lsec->GetNumberOfLanes() - 1); k++)
+                            {
+                                lane_osi_index[k]   = 0;
+                                candidates_pos[k].s = lsec->GetS();
+                            }
+                        }
+                        else
+                        {
+                            // for each lane, find next s-value in and register it as candidate section current s-value
+                            std::vector<double> s_list_sorted(all_lane_ids.size());
+                            for (unsigned int k = 0; k < all_lane_ids.size(); k++)
+                            {
+                                lane                                            = lsec->GetLaneById(all_lane_ids[k]);
+                                std::vector<roadmanager::PointStruct> osiPoints = lane->GetOSIPoints()->GetPoints();
+
+                                for (size_t l = lane_osi_index[k]; l < osiPoints.size(); l++)
+                                {
+                                    if (l == osiPoints.size() - 1 || osiPoints[l].s > section_current_s + SMALL_NUMBER)
+                                    {
+                                        lane_osi_index[k]   = l;
+                                        candidates_pos[k].s = osiPoints[l].s;
+                                        s_list_sorted[k]    = osiPoints[l].s;
+
+                                        // generate point at osi index s-value
+                                        pos2.SetLaneBoundaryPos(road->GetId(), lane->GetId(), candidates_pos[k].s);
+                                        candidates_pos[k].x = pos2.GetX();
+                                        candidates_pos[k].y = pos2.GetY();
+
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // sort candidates
+                            std::sort(s_list_sorted.begin(), s_list_sorted.end());
+                            s_list_sorted.erase(std::unique(s_list_sorted.begin(), s_list_sorted.end(), compare_s_values), s_list_sorted.end());
+
+                            // find highest s-value not exceeding the tolerated error, over all lanes
+                            size_t k = 0;
+                            for (; k < s_list_sorted.size(); k++)
+                            {
+                                size_t l = 0;
+                                for (; l < all_lane_ids.size(); l++)
+                                {
+                                    lane = lsec->GetLaneById(all_lane_ids[l]);
+
+                                    // generate point at pivot s-value
+                                    pos.SetLaneBoundaryPos(road->GetId(), lane->GetId(), s_list_sorted[k]);
+
+                                    // calculate horizontal error at this s value
+                                    // find out heading of the previous calculated vertex point
+                                    double h                = lane_osi_index[l] > 0 ? GetAngleOfVector(candidates_pos[l].x - geom_cache[l].point.x,
+                                                                                        candidates_pos[l].y - geom_cache[l].point.y)
+                                                                                    : geom_cache[l].point.h;
+                                    double error_horizontal = abs(
+                                        DistanceFromPointToLine2DWithAngle(pos.GetX(), pos.GetY(), geom_cache[l].point.x, geom_cache[l].point.y, h));
+
+                                    // calculate vertical error at this s value
+                                    double error_vertical =
+                                        abs((pos.GetZ() - geom_cache[l].point.z) - geom_cache[l].point.slope * (pos.GetS() - geom_cache[l].point.s));
+
+                                    if (error_horizontal > MAX_GEOM_ERROR || error_vertical > MAX_GEOM_ERROR)
+                                    {
+                                        break;
+                                    }
+                                }
+
+                                if (l == all_lane_ids.size())
+                                {
+                                    // no error, register preliminary s value - if larger than current
+                                    if (s_list_sorted[k] > section_current_s)
+                                    {
+                                        section_current_s = s_list_sorted[k];
+                                    }
+                                }
+                                else
+                                {
+                                    // break occured, error too large, stop searching
+                                    if (k == 0)
+                                    {
+                                        // can't skip first point
+                                        section_current_s = s_list_sorted[k];
+                                    }
+                                    break;
+                                }
+
+                                // we have s-value of a OSI point, check if there is a new friction value before that
+                                // also check for maximum length
+                                double s_next_friction     = (friction_s_list_index > -1 && friction_s_list_index < friction_s_list.size())
+                                                                 ? friction_s_list[friction_s_list_index]
+                                                                 : lsec->GetS() + lsec->GetLength();
+                                double s_next_geom_max_len = geom_cache[k].point.s + MAX_GEOM_LENGTH;
+
+                                if (s_next_friction < section_current_s &&
+                                    s_next_friction < s_next_geom_max_len + MIN_GEOM_LENGTH)  // add min geom len to avoid mini patches
+                                {
+                                    section_current_s = s_next_friction;
+                                    friction_s_list_index++;
+                                    break;
+                                }
+                                else if (s_next_geom_max_len < section_current_s - SMALL_NUMBER &&
+                                         s_next_geom_max_len + MIN_GEOM_LENGTH < s_next_friction)  // add min geom len to avoid mini patches
+                                {
+                                    section_current_s = s_next_geom_max_len;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (section_current_s > lsec->GetS() + lsec->GetLength() - SMALL_NUMBER)
+                        {
+                            done_section = true;
+                        }
+                        // GT-FIX: terminate when the adaptive step can no longer advance s. Some generated
+                        // OpenDRIVE files declare a lane-section length slightly longer than the lane OSI/
+                        // geometry coverage, so section_current_s gets stuck just short of the end and the
+                        // loop never satisfies the check above -> non-terminating loop / OOM. Ending here
+                        // closes the section at the last reachable s (sub-mm short), geometry otherwise identical.
+                        else if (counter > 0 && section_current_s <= gt_s_prev + SMALL_NUMBER)
+                        {
+                            // The reachable s is more than SMALL_NUMBER short of the declared section end
+                            // (e.g. a road whose summed geometry/OSI coverage is ~1um shorter than its
+                            // declared length) -- terminate gracefully instead of looping forever.
+                            done_section = true;
+                            LOG_WARN("RoadGeom: road {} sec {} ends {:.2e} m short of its declared length; clamping mesh to reachable s",
+                                     road->GetId(),
+                                     j,
+                                     (lsec->GetS() + lsec->GetLength()) - section_current_s);
+                        }
+
+                        // s-value for next point established, create vertices for each lane
+                        unsigned int geom_idx = 0;
+                        for (size_t k = 0; k < all_lane_ids.size(); k++)
+                        {
+                            int lane_id  = all_lane_ids[k];
+                            int lane_idx = lane_idxs[lane_id];
+
+                            if (counter == 0 && lane_id != 0)
+                            {
+                                // add geometry and strip list for the lane
+                                geom_points_list.push_back({{}, {}});
+                                geom_strips_list.push_back({});
+                            }
+
+                            roadmanager::Lane::Material* mat = nullptr;
+                            lane                             = lsec->GetLaneById(lane_id);
+                            mat                              = lane->GetMaterialByS(section_current_s - lsec->GetS());
+                            double friction                  = mat != nullptr ? mat->friction : FRICTION_DEFAULT;
+
+                            if (lane_id != 0 && counter == 0 || !NEAR_NUMBERS(friction, geom_cache[k].friction))
+                            {
+                                // create initial strip or strip with new friction value
+                                geom_strips_list[lane_idx].push_back({static_cast<int>(geom_points_list[lane_idx][0].size()), friction});
+                            }
+
+                            for (auto side : {0, 1})  // left, right
+                            {
+                                // Determine if we are on the "outer" edge relative to the road center
+                                bool is_boundary = (lane_id >= 0) ? (side == 0) : (side == 1);
+
+                                if (!is_boundary)
+                                {
+                                    double lane_width = lsec->GetWidth(section_current_s, lane_id);
+                                    pos.SetLanePos(road->GetId(),
+                                                   lane_id,
+                                                   section_current_s,
+                                                   -1 * SIGN(lane_id) * lane_width / 2);  // offset from lane center (half lane) to inner boundary
+                                }
+                                else
+                                {
+                                    pos.SetLaneBoundaryPos(road->GetId(), lane_id, section_current_s);
+                                }
+
+                                GeomPoint gp = {pos.GetX(), pos.GetY(), pos.GetZ(), pos.GetH(), pos.GetZRoadPrim(), pos.GetS()};
+
+                                if (lane_id != 0)
+                                {
+                                    geom_points_list[geom_idx][side].push_back(gp);
+                                }
+
+                                if (is_boundary)
+                                {
+                                    geom_cache[k] = {gp, friction};
+                                }
+
+                                if (lane_id == 0)
+                                {
+                                    break;
+                                }
+                            }
+                            if (lane_id != 0)
+                            {
+                                geom_idx++;
+                            }
+                        }
+                    }
+
+                    // Then create actual vertices and triangle strips for the lane section
+                    // Each strip is made of two lanes, so we need to create a separate geometry for each pair of lanes
+                    // Also within each lane, we need to create a separate geometry for each material segment
+                    unsigned int nr_vertices =
+                        static_cast<unsigned int>(2 * geom_points_list[0][0].size() * geom_strips_list.size());  // same nr vertices in all lanes
+                    osg::ref_ptr<osg::Vec3Array> verticesAll  = new osg::Vec3Array(nr_vertices);
+                    osg::ref_ptr<osg::Vec2Array> texcoordsAll = new osg::Vec2Array(nr_vertices);
+
+                    // Potential optimization: Swap loops, creating all vertices for same s-value for each step
+                    unsigned int vertex_counter = 0;
+                    unsigned int vertex_idx     = 0;
+                    double       texscale       = 1.0 / TEXTURE_SCALE;
+
+                    for (size_t k = 0; k < geom_strips_list.size(); k++)  // loop over lanes
+                    {
+                        osg::ref_ptr<osg::Vec3Array>        verticesLocal;
+                        osg::ref_ptr<osg::Vec2Array>        texcoordsLocal;
+                        osg::ref_ptr<osg::Vec4Array>        colorLocal;
+                        osg::ref_ptr<osg::DrawElementsUInt> indices;
+                        lane = lsec->GetLaneById(lane_ids[k]);
+
+                        for (size_t m = 0; m < geom_strips_list[k].size(); m++)  // loop over lane patches with constant friction
+                        {
+                            lane_friction_                                   = geom_strips_list[k][m].friction;
+                            unsigned int                         gpi         = geom_strips_list[k][m].geom_point_index;
+                            std::vector<std::vector<GeomPoint>>& geom_points = geom_points_list[k];
+                            unsigned int                         n_points    = 0;
+
+                            if (m < geom_strips_list[k].size() - 1)
+                            {
+                                n_points = geom_strips_list[k][m + 1].geom_point_index - gpi + 1;
+                            }
+                            else
+                            {
+                                n_points = geom_points[0].size() - gpi;
+                            }
+
+                            verticesLocal  = new osg::Vec3Array(n_points * 2);
+                            indices        = new osg::DrawElementsUInt(GL_TRIANGLE_STRIP, n_points * 2);
+                            texcoordsLocal = new osg::Vec2Array(n_points * 2);
+
+                            unsigned int index_counter = 0;
+
+                            int z_gap_found = 0;  // -1: left pointing wall, 1: right pointing wall, 0: no z difference => no wall
+                            for (size_t l = 0; l < n_points; l++)
+                            {
+                                if (m == 0 || l > 0)
+                                {
+                                    // only create vertex when needed, reuse vertex of previous patch for first vertex of any additional patch
+                                    for (auto side : {0, 1})  // left, right side of the lane - comply with GL_TRIANGLE_STRIP order
+                                    {
+                                        GeomPoint& gp = geom_points[side][gpi + l];
+
+                                        // vertex
+                                        (*verticesAll)[vertex_counter].set(static_cast<float>(gp.x - origin[0]),
+                                                                           static_cast<float>(gp.y - origin[1]),
+                                                                           static_cast<float>(gp.z));
+                                        (*texcoordsAll)[vertex_counter].set(osg::Vec2(static_cast<float>(texscale * (gp.x - origin[0])),
+                                                                                      static_cast<float>(texscale * (gp.y - origin[1]))));
+                                        vertex_idx = vertex_counter++;
+                                    }
+
+                                    if (!z_gap_found && k > 0)  // look for z gap to the left neighbor lane (skip first)
+                                    {
+                                        double z_diff = geom_points[0][gpi + l].z - geom_points_list[k - 1][1][gpi + l].z;
+                                        if (fabs(z_diff) > 1e-3)
+                                        {
+                                            z_gap_found = z_diff < 0 ? -1 : 1;
+                                        }
+                                    }
+                                }
+
+                                for (auto side : {0, 1})  // left, right side of the lane
+                                {
+                                    // Create indices for the lane strip, referring to the vertex list
+                                    (*verticesLocal)[index_counter]  = (*verticesAll)[vertex_idx + side - 1];
+                                    (*texcoordsLocal)[index_counter] = (*texcoordsAll)[vertex_idx + side - 1];
+                                    (*indices)[index_counter++]      = index_counter;
+                                }
+                            }
+
+                            // Create geometry for the strip made of this and previous lane
+                            osg::ref_ptr<osg::Geometry> geom = new osg::Geometry;
+                            geom->setUseDisplayList(true);
+                            geom->setVertexArray(verticesLocal.get());
+                            geom->addPrimitiveSet(indices.get());
+                            geom->setTexCoordArray(0, texcoordsLocal.get());
+
+                            MaterialType material_t;
+
+                            if (lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_ANY_ROAD))
+                            {
+                                material_t = MaterialType::ASPHALT;
+                                osg::ref_ptr<osg::Material> materialAsphalt_ =
+                                    GetOrCreateMaterial("Asphalt", GetFrictionColor(lane_friction_), static_cast<uint8_t>(material_t), 1);
+
+                                geom->getOrCreateStateSet()->setAttributeAndModes(materialAsphalt_.get());
+                            }
+                            else if (lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_BIKING) ||
+                                     lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_SIDEWALK))
+                            {
+                                material_t = MaterialType::CONCRETE;
+                                osg::ref_ptr<osg::Material> materialConcrete_ =
+                                    GetOrCreateMaterial("Concrete", color_concrete->at(0), static_cast<uint8_t>(material_t));
+                                geom->getOrCreateStateSet()->setAttributeAndModes(materialConcrete_.get());
+
+                                // Use PolygonOffset feature to avoid z-fighting with road surface
+                                geom->getOrCreateStateSet()->setAttributeAndModes(
+                                    new osg::PolygonOffset(-POLYGON_OFFSET_SIDEWALK, -SIGN(POLYGON_OFFSET_SIDEWALK)));
+                            }
+                            // for border and grass materials, consider also lane position and neighbor lanes
+                            // If lane is inner; either has neighbor lanes on both sides or is the first lane next to center:
+                            // "none" type will get border material
+                            // "border" type will get grass material
+                            else if (((k > 0 && k + 1 < lane_ids.size()) || abs(lane->GetId()) == 1) &&
+                                     (lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_BORDER) ||
+                                      lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_NONE)))
+                            {
+                                material_t = MaterialType::BORDER;
+                                osg::ref_ptr<osg::Material> materialBorderInner_ =
+                                    GetOrCreateMaterial("Border", color_border_inner->at(0), static_cast<uint8_t>(material_t));
+                                geom->getOrCreateStateSet()->setAttributeAndModes(materialBorderInner_.get());
+
+                                // Use PolygonOffset feature to avoid z-fighting with road surface
+                                geom->getOrCreateStateSet()->setAttributeAndModes(
+                                    new osg::PolygonOffset(-POLYGON_OFFSET_BORDER, -SIGN(POLYGON_OFFSET_BORDER)));
+                            }
+                            else
+                            {
+                                material_t = MaterialType::GRASS;
+                                osg::ref_ptr<osg::Material> materialGrass_ =
+                                    GetOrCreateMaterial("Grass", color_grass->at(0), static_cast<uint8_t>(material_t));
+
+                                geom->getOrCreateStateSet()->setAttributeAndModes(materialGrass_.get());
+
+                                // Use PolygonOffset feature to avoid z-fighting with road surface
+                                geom->getOrCreateStateSet()->setAttributeAndModes(
+                                    new osg::PolygonOffset(-POLYGON_OFFSET_GRASS, -SIGN(POLYGON_OFFSET_GRASS)));
+                            }
+                            geom->setColorBinding(osg::Geometry::BIND_OVERALL);
+
+                            // See if the material type has a texture associated with it, if so, apply it
+                            auto texture_it = texture_map_.find(material_t);
+                            if (texture_it != texture_map_.end())
+                            {
+                                geom->getOrCreateStateSet()->setTextureAttributeAndModes(0, texture_it->second.get());
+                            }
+
+                            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+                            geode->addDrawable(geom.get());
+
+                            // osgUtil::Optimizer optimizer;
+                            // optimizer.optimize(geode);
+                            SetNodeName(*geode, prefix_road, road->GetId(), std::to_string(k) + "_" + std::to_string(m));
+                            r_group_->addChild(geode);
+
+                            if (z_gap_found != 0)
+                            {
+                                // create a patch to fill the verical gap using material of outer patch
+
+                                osg::ref_ptr<osg::Geode> geode_to_clone;
+                                if (z_gap_found == 1)
+                                {
+                                    // vertical patch is facing left, use material from current lane
+                                    geode_to_clone = static_cast<osg::Geode*>(r_group_->getChild(r_group_->getNumChildren() - 1));
+                                }
+                                else
+                                {
+                                    // vertical patch is facing right, use material from previous (left) patch
+                                    geode_to_clone = static_cast<osg::Geode*>(r_group_->getChild(r_group_->getNumChildren() - 2));
+                                }
+
+                                osg::ref_ptr<osg::Geode> geode_gap = static_cast<osg::Geode*>(geode_to_clone->clone(osg::CopyOp::DEEP_COPY_ALL));
+                                if (geode_gap)
+                                {
+                                    osg::ref_ptr<osg::Vec3Array> vertices_gap = new osg::Vec3Array(n_points * 2);
+                                    for (size_t l = 0; l < n_points; l++)
+                                    {
+                                        // vertex from previous patch
+                                        (*vertices_gap)[l * 2 + 0].set(geom_points_list[k - 1][1][gpi + l].x - origin[0],
+                                                                       geom_points_list[k - 1][1][gpi + l].y - origin[1],
+                                                                       geom_points_list[k - 1][1][gpi + l].z);
+                                        // vertex from current patch
+                                        (*vertices_gap)[l * 2 + 1].set(osg::Vec3(geom_points_list[k][0][gpi + l].x - origin[0],
+                                                                                 geom_points_list[k][0][gpi + l].y - origin[1],
+                                                                                 geom_points_list[k][0][gpi + l].z));
+                                    }
+
+                                    osg::Geometry* geom_gap = geode_gap->getDrawable(0)->asGeometry();
+                                    if (geom_gap)
+                                    {
+                                        geom_gap->setVertexArray(vertices_gap.get());
+                                        r_group_->addChild(geode_gap);
+                                        LOG_DEBUG("Added vertical gap patch for road {} section {} between lanes {} and {}",
+                                                  road->GetId(),
+                                                  j,
+                                                  lane_ids[k],
+                                                  lane_ids[k - 1]);
+                                    }
+                                    else
+                                    {
+                                        LOG_WARN("Failed to create geom for vertical gap patch at road {} section {} between lanes {} and {}",
+                                                 road->GetId(),
+                                                 j,
+                                                 lane_ids[k],
+                                                 lane_ids[k - 1]);
+                                    }
+                                }
+                                else
+                                {
+                                    LOG_WARN("Failed to create geode for vertical gap patch for road {} section {} between lanes {} and {}",
+                                             road->GetId(),
+                                             j,
+                                             lane_ids[k],
+                                             lane_ids[k - 1]);
+                                }
+                            }
+                        }
+                    }
+
+                    // GT-PARALLEL: road marks are generated in a serial pass after the merge (below)
+                }
+            };  // end gt_build_road_surface lambda
+
+            // ---- resolve worker-thread count ----
+            unsigned int gt_n_threads = GetNumThreads();
+            if (gt_n_threads == 0)
+            {
+                gt_n_threads = std::thread::hardware_concurrency();
+            }
+            if (gt_n_threads == 0)
+            {
+                gt_n_threads = 1;
+            }
+            gt_n_threads = std::min<unsigned int>(gt_n_threads, static_cast<unsigned int>(std::max<size_t>(1, gt_num_roads)));
+            LOG_INFO("RoadGeom: generating road surface with {} thread(s) over {} road(s)", gt_n_threads, gt_num_roads);
+
+            // Never let an exception escape a worker thread (would call std::terminate).
+            auto gt_build_road_guarded = [&](size_t idx)
+            {
+                try
+                {
+                    gt_build_road_surface(idx);
+                }
+                catch (const std::exception& e)
+                {
+                    LOG_ERROR("RoadGeom: road idx {} surface generation failed: {}", idx, e.what());
+                }
+            };
+
+            // ---- dispatch road-surface workers (atomic-counter pool; serial fallback) ----
+            if (gt_n_threads <= 1 || gt_num_roads <= 1)
+            {
+                for (size_t i = 0; i < gt_num_roads; i++)
+                {
+                    gt_build_road_guarded(i);
+                }
+            }
+            else
+            {
+                std::atomic<size_t>      gt_next(0);
+                std::vector<std::thread> gt_pool;
+                gt_pool.reserve(gt_n_threads);
+                for (unsigned int t = 0; t < gt_n_threads; t++)
+                {
+                    gt_pool.emplace_back(
+                        [&]()
+                        {
+                            size_t idx;
+                            while ((idx = gt_next.fetch_add(1)) < gt_num_roads)
+                            {
+                                gt_build_road_guarded(idx);
+                            }
+                        });
+                }
+                for (auto& th : gt_pool)
+                {
+                    th.join();
+                }
+            }
+
+            // ---- merge per-road surface groups into r_group_ in deterministic road order ----
+            for (size_t i = 0; i < gt_num_roads; i++)
+            {
+                if (!gt_road_groups[i])
+                {
+                    continue;
+                }
+                osg::Group* g = gt_road_groups[i].get();
+                while (g->getNumChildren() > 0)
+                {
+                    osg::ref_ptr<osg::Node> child = g->getChild(0);
+                    g->removeChild(0u, 1u);
+                    r_group_->addChild(child);
+                }
+            }
+            gt_road_groups.clear();
+
+            // ---- road marks: serial pass (botts-dots use a function-local static; keep deterministic) ----
+            for (size_t i = 0; i < gt_num_roads; i++)
+            {
+                roadmanager::Road* road = odr->GetRoadByIdx(static_cast<int>(i));
+                for (size_t j = 0; j < static_cast<unsigned int>(road->GetNumberOfLaneSections()); j++)
+                {
+                    roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(static_cast<int>(j));
+                    if (lsec->GetNumberOfLanes() < 2)
+                    {
+                        continue;  // mirror the surface worker: <2-lane sections produce no geometry/marks
+                    }
+                    for (unsigned int l = 0; l < lsec->GetNumberOfLanes(); l++)
+                    {
+                        AddRoadMarks(lsec->GetLaneByIdx(l), rm_group_, origin);
+                    }
+                }
+            }
+
+            // ---- compute normals for all lane strips (parallel; each geode is independent) ----
+            {
+                const unsigned int gt_nch       = r_group_->getNumChildren();
+                auto               gt_smooth_one = [&](unsigned int idx)
+                {
+                    osg::ref_ptr<osg::Geode> lane_patch_geode = static_cast<osg::Geode*>(r_group_->getChild(idx));
+                    if (lane_patch_geode)
+                    {
+                        osgUtil::SmoothingVisitor::smooth(*lane_patch_geode->getDrawable(0)->asGeometry(), 0.5);
+                    }
+                };
+                if (gt_n_threads <= 1 || gt_nch <= 1)
+                {
+                    for (unsigned int i = 0; i < gt_nch; i++)
+                    {
+                        gt_smooth_one(i);
+                    }
+                }
+                else
+                {
+                    std::atomic<unsigned int> gt_snext(0);
+                    std::vector<std::thread>  gt_spool;
+                    gt_spool.reserve(gt_n_threads);
+                    for (unsigned int t = 0; t < gt_n_threads; t++)
+                    {
+                        gt_spool.emplace_back(
+                            [&]()
+                            {
+                                unsigned int idx;
+                                while ((idx = gt_snext.fetch_add(1)) < gt_nch)
+                                {
+                                    gt_smooth_one(idx);
+                                }
+                            });
+                    }
+                    for (auto& th : gt_spool)
+                    {
+                        th.join();
+                    }
+                }
+            }
+        }
+
+        if (generate_road_objects)
+        {
+            if (odrManager_->GetNumOfRoads() > 0 && CreateRoadSignsAndObjects(odrManager_, origin, generate_road_surface, root_, exe_path) != 0)
+            {
+                LOG_ERROR("Viewer::Viewer Failed to create road signs and objects!");
+            }
+        }
+
+        std::string opt_groundplane = SE_Env::Inst().GetOptions().GetOptionValueByEnum(esmini_options::GROUND_PLANE);
+        if ((opt_groundplane == "auto" && (!generate_road_surface && environment == nullptr)) || opt_groundplane == "on")
+        {
+            AddGroundSurface();
+        }
+    }
+
+    int RoadGeom::CreateRoadSignsAndObjects(roadmanager::OpenDrive*  od,
+                                            const osg::Vec3d&        origin,
+                                            bool                     stand_in_model,
+                                            osg::ref_ptr<osg::Group> parent,
+                                            std::string              exe_path)
+    {
+        osg::ref_ptr<osg::Group>                     objGroup = new osg::Group;
+        osg::ref_ptr<osg::PositionAttitudeTransform> tx       = nullptr;
+
+        objGroup->setName("road_objects");
+
+        roadmanager::Position pos;
+
+        for (unsigned int r = 0; r < od->GetNumOfRoads(); r++)
+        {
+            roadmanager::Road* road = od->GetRoadByIdx(r);
+
+            for (unsigned int s = 0; s < road->GetNumberOfSignals(); s++)
+            {
+                osg::ref_ptr<osg::Group> signGroup = new osg::Group;
+                tx                                 = nullptr;
+                roadmanager::Signal* signal        = road->GetSignal(s);
+                SetNodeName(*signGroup, prefix_road_signal, s, signal->GetName());
+
+                // create a bounding for the sign
+                osg::ref_ptr<osg::PositionAttitudeTransform> tx_bb = new osg::PositionAttitudeTransform;
+                signGroup->addChild(tx_bb);
+
+                // avoid zero width, length and width - set to a minimum value of 0.05m
+                osg::ref_ptr<osg::ShapeDrawable> shape =
+                    new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0f, 0.0f, 0.5f * MAX(0.05f, static_cast<float>(signal->GetHeight()))),
+                                                        MAX(0.05f, static_cast<float>(signal->GetDepth())),
+                                                        MAX(0.05f, static_cast<float>(signal->GetWidth())),
+                                                        MAX(0.05f, static_cast<float>(signal->GetHeight()))));
+
+                shape->setColor(osg::Vec4(0.8f, 0.8f, 0.8f, 1.0f));
+                tx_bb->addChild(shape);
+                tx_bb->setPosition(osg::Vec3(static_cast<float>(signal->GetX() - origin[0]),
+                                             static_cast<float>(signal->GetY() - origin[1]),
+                                             static_cast<float>(signal->GetZ() + signal->GetZOffset())));
+                tx_bb->setAttitude(osg::Quat(signal->GetH() + signal->GetHOffset(), osg::Vec3(0, 0, 1)));
+
+                if (stand_in_model == true || !SE_Env::Inst().GetOptions().GetOptionSet("use_signs_in_external_model"))
+                {
+                    // Road sign filename is the combination of type_subtype_value
+                    std::string filename = signal->GetCountry() + "_" + signal->GetType();
+                    if (!(signal->GetSubType().empty() || signal->GetSubType() == "none" || signal->GetSubType() == "-1"))
+                    {
+                        filename += "_" + signal->GetSubType();
+                    }
+
+                    if (!(NEAR_NUMBERS(signal->GetValue(), -1.0) || signal->GetValueStr().empty()))
+                    {
+                        filename += "-" + signal->GetValueStr();
+                    }
+
+                    bool        found = false;
+                    std::string located_file_path =
+                        LocateFile(filename + ".osgb",
+                                   {DirNameOf(odrManager_->GetOpenDriveFilename()) + "/../models", DirNameOf(exe_path) + "/../resources/models"},
+                                   "Road signal 3D model",
+                                   found);
+
+                    if (found)
+                    {
+                        tx = LoadRoadFeature(road, located_file_path);
+                    }
+
+                    if (tx == nullptr)
+                    {
+                        // if file according to type, subtype and value could not be resolved, try from name
+                        located_file_path =
+                            LocateFile(signal->GetName() + ".osgb",
+                                       {DirNameOf(odrManager_->GetOpenDriveFilename()) + "/../models", DirNameOf(exe_path) + "/../resources/models"},
+                                       "Road signal 3D model",
+                                       found);
+                        if (found)
+                        {
+                            tx = LoadRoadFeature(road, signal->GetName() + ".osgb");
+                        }
+                    }
+
+                    if (found)
+                    {
+                        signal->SetModel3DFullPath(located_file_path);
+                    }
+
+                    if (tx == nullptr && typeid(*signal) == typeid(roadmanager::TrafficLight))
+                    {
+                        std::string texture_file_name = "opendrive_" + signal->GetCombinedType() + ".png";
+
+                        auto it = roadmanager::traffic_light_type_map.find(signal->GetCombinedType());
+
+                        if (it != roadmanager::traffic_light_type_map.end())
+                        {
+                            roadmanager::TrafficLightInfo tl_info = it->second;
+
+                            traffic_light_.emplace(
+                                signal->GetId(),
+                                TrafficLightModel(tl_info.nr_lamps,
+                                                  LocateFile(texture_file_name,
+                                                             {DirNameOf(odrManager_->GetOpenDriveFilename()) + "/../models/roads_signal_textures",
+                                                              DirNameOf(exe_path) + "/../resources/models/roads_signal_textures"},
+                                                             "Traffic light texture",
+                                                             found)));
+                            if (found)
+                            {
+                                tx = traffic_light_.at(signal->GetId()).GetTx();
+                            }
+                        }
+                        else
+                        {
+                            LOG_ERROR("Unsupport traffic signal type {}, can't resolve corresponding texture file", signal->GetType());
+                        }
+                    }
+
+                    if (tx == nullptr)
+                    {
+                        LOG_DEBUG("Failed to load signal {}.osgb / {}.osgb or create 3D model - using simple bounding box",
+                                  FileNameOf(filename),
+                                  signal->GetName());
+                        osg::ref_ptr<osg::PositionAttitudeTransform> obj_standin =
+                            dynamic_cast<osg::PositionAttitudeTransform*>(tx_bb->clone(osg::CopyOp::DEEP_COPY_ALL));
+                        obj_standin->setNodeMask(NODE_MASK_SIGN);
+                        signGroup->addChild(obj_standin);
+                    }
+                    else
+                    {
+                        tx->setPosition(osg::Vec3(static_cast<float>(signal->GetX() - origin[0]),
+                                                  static_cast<float>(signal->GetY() - origin[1]),
+                                                  static_cast<float>(signal->GetZ() + signal->GetZOffset())));
+                        tx->setAttitude(osg::Quat(signal->GetH() + signal->GetHOffset(), osg::Vec3(0, 0, 1)));
+                        tx->setNodeMask(NODE_MASK_SIGN);
+                        signGroup->addChild(tx);
+                    }
+                }
+
+                // set bounding box to wireframe mode
+                osg::PolygonMode* polygonMode = new osg::PolygonMode;
+                polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE);
+                shape->getOrCreateStateSet()->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
+                tx_bb->setNodeMask(NODE_MASK_ODR_FEATURES);
+
+                objGroup->addChild(signGroup);
+            }
+
+            for (unsigned int o = 0; o < road->GetNumberOfObjects(); o++)
+            {
+                roadmanager::RMObject* object = road->GetRoadObject(o);
+                osg::Vec4              color;
+                tx                   = nullptr;
+                std::string obj_type = prefix_road_object;  // road object is default
+                switch (object->GetTunnelComponentType())
+                {
+                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_WALL:
+                        obj_type = prefix_tunnel_wall;
+                        break;
+                    case roadmanager::RMObject::TunnelComponentType::TUNNEL_ROOF:
+                        obj_type = prefix_tunnel_roof;
+                        break;
+                }
+
+                for (unsigned int c = 0; c < 4; c++)
+                {
+                    color[c] = object->GetColor()[c];
+                }
+
+                if (object->GetNumberOfOutlines() > 0 &&
+                    object->GetNumberOfRepeats() == 0)  // if repeats are defined, wait and see if outline should replace failed 3D model or not
+                {
+                    for (size_t j = 0; j < static_cast<unsigned int>(object->GetNumberOfOutlines()); j++)
+                    {
+                        roadmanager::Outline*    outline = object->GetOutline(j);
+                        osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
+                        if (olgroup != nullptr)
+                        {
+                            SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
+                            objGroup->addChild(olgroup);
+                        }
+                    }
+                    LOG_INFO("Created outline geometry for object {}.", object->GetName());
+                    LOG_DEBUG("  if it looks strange, e.g.faces too dark or light color, ");
+                    LOG_DEBUG("  check that corners are defined counter-clockwise (as OpenGL default).");
+                }
+                else
+                {
+                    double orientation = object->GetOrientation() == roadmanager::Signal::Orientation::NEGATIVE ? M_PI : 0.0;
+
+                    // absolute path or relative to current directory
+                    std::string filename = object->GetName();
+
+                    // Assume name is representing a 3D model filename
+                    if (!filename.empty())
+                    {
+                        if (FileNameExtOf(filename) == "")
+                        {
+                            filename += ".osgb";  // add missing extension
+                        }
+
+                        bool        found = false;
+                        std::string located_file_path =
+                            LocateFile(filename,
+                                       {DirNameOf(odrManager_->GetOpenDriveFilename()) + "/../models", DirNameOf(exe_path) + "/../resources/models"},
+                                       "Road object 3D model",
+                                       found);
+
+                        if (found)
+                        {
+                            tx = LoadRoadFeature(road, located_file_path);
+                            object->SetModel3DFullPath(located_file_path);
+                        }
+
+                        if (tx == nullptr)
+                        {
+                            LOG_WARN("Failed to load road object model file: {} ({}). Creating a bounding box as stand in.",
+                                     FileNameOf(filename),
+                                     object->GetName());
+                        }
+                    }
+
+                    roadmanager::Repeat*         rep     = object->GetRepeat();
+                    int                          nCopies = 0;
+                    double                       cur_s   = 0.0;
+                    osg::ref_ptr<osg::Vec3Array> vertices_right_side;
+                    osg::ref_ptr<osg::Vec3Array> vertices_left_side;
+                    osg::ref_ptr<osg::Vec3Array> vertices_top;
+                    osg::ref_ptr<osg::Vec3Array> vertices_bottom;
+                    osg::ref_ptr<osg::Group>     group;
+
+                    if (tx == nullptr)  // No model loaded
+                    {
+                        if (rep && rep->GetDistance() < SMALL_NUMBER)  //  non continuous objects
+                        {
+                            // use outline, if exists
+                            if (object->GetNumberOfOutlines() > 0)
+                            {
+                                for (unsigned int j = 0; j < object->GetNumberOfOutlines(); j++)
+                                {
+                                    roadmanager::Outline*    outline = object->GetOutline(j);
+                                    osg::ref_ptr<osg::Group> olgroup = CreateOutlineObject(outline, color, origin);
+                                    if (olgroup != nullptr)
+                                    {
+                                        SetNodeName(*olgroup, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(j));
+                                        objGroup->addChild(olgroup);
+                                    }
+                                }
+                                continue;
+                            }
+                            else
+                            {
+                                // create stand in object
+                                vertices_left_side  = new osg::Vec3Array;
+                                vertices_right_side = new osg::Vec3Array;
+                                vertices_top        = new osg::Vec3Array;
+                                vertices_bottom     = new osg::Vec3Array;
+                                group               = new osg::Group();
+                            }
+                        }
+                        else
+                        {
+                            // create a bounding box to represent the object
+                            tx = new osg::PositionAttitudeTransform;
+
+                            // avoid zero width, length and width - set to a minimum value of 0.05m
+                            osg::ref_ptr<osg::ShapeDrawable> shape =
+                                new osg::ShapeDrawable(new osg::Box(osg::Vec3(0.0f, 0.0f, 0.5f * MAX(0.05f, static_cast<float>(object->GetHeight()))),
+                                                                    MAX(0.05f, static_cast<float>(object->GetLength())),
+                                                                    MAX(0.05f, static_cast<float>(object->GetWidth())),
+                                                                    MAX(0.05f, static_cast<float>(object->GetHeight()))));
+
+                            shape->setColor(color);
+                            tx->addChild(shape);
+                        }
+                    }
+
+                    double dim_x = 0.0;
+                    double dim_y = 0.0;
+                    double dim_z = 0.0;
+
+                    osg::BoundingBox boundingBox;
+                    if (tx != nullptr)
+                    {
+                        osg::ComputeBoundsVisitor cbv;
+                        tx->accept(cbv);
+                        boundingBox = cbv.getBoundingBox();
+
+                        dim_x = boundingBox._max.x() - boundingBox._min.x();
+                        dim_y = boundingBox._max.y() - boundingBox._min.y();
+                        dim_z = boundingBox._max.z() - boundingBox._min.z();
+                        if (object->GetLength() < SMALL_NUMBER && dim_x > SMALL_NUMBER)
+                        {
+                            LOG_WARN("Object {} missing length, set to bounding box length {:.2f}", object->GetName(), dim_x);
+                            object->SetLength(dim_x);
+                        }
+                        if (object->GetWidth() < SMALL_NUMBER && dim_y > SMALL_NUMBER)
+                        {
+                            LOG_WARN("Object {} missing width, set to bounding box width {:.2f}", object->GetName(), dim_y);
+                            object->SetWidth(dim_y);
+                        }
+                        if (object->GetHeight() < SMALL_NUMBER && dim_z > SMALL_NUMBER)
+                        {
+                            LOG_WARN("Object {} missing height, set to bounding box height {:.2f}", object->GetName(), dim_z);
+                            object->SetHeight(dim_z);
+                        }
+                    }
+
+                    double                   lastLODs = 0.0;  // used for putting object copies in LOD groups
+                    osg::ref_ptr<osg::Group> LODGroup = 0;
+
+                    osg::ref_ptr<osg::PositionAttitudeTransform> clone = 0;
+
+                    for (; nCopies < 1 ||
+                           (rep && rep->length_ > SMALL_NUMBER && cur_s < rep->GetLength() + SMALL_NUMBER && cur_s + rep->GetS() < road->GetLength());
+                         nCopies++)
+                    {
+                        double s;
+                        double scale_x = 1.0;
+                        double scale_y = 1.0;
+                        double scale_z = 1.0;
+
+                        if (rep && cur_s + rep->GetS() + (object->GetLength() * scale_x) * cos(object->GetHOffset()) > road->GetLength())
+                        {
+                            break;  // object would reach outside specified total length
+                        }
+
+                        if (nCopies == 0)
+                        {
+                            // first object
+                            clone = tx;
+                        }
+                        else
+                        {
+                            clone = tx != nullptr ? dynamic_cast<osg::PositionAttitudeTransform*>(tx->clone(osg::CopyOp::DEEP_COPY_ALL)) : nullptr;
+                            clone->setDataVariance(osg::Object::STATIC);
+                        }
+
+                        if (clone != nullptr)
+                        {
+                            SetNodeName(*clone, obj_type, object->GetId(), object->GetName() + "_" + std::to_string(nCopies));
+                        }
+
+                        if (rep == nullptr)
+                        {
+                            s = object->GetS();
+
+                            if (object->GetLength() > SMALL_NUMBER)
+                            {
+                                scale_x = object->GetLength() / dim_x;
+                            }
+                            if (object->GetWidth() > SMALL_NUMBER)
+                            {
+                                scale_y = object->GetWidth() / dim_y;
+                            }
+                            if (object->GetHeight() > SMALL_NUMBER)
+                            {
+                                scale_z = object->GetHeight() / dim_z;
+                            }
+
+                            // position mode relative for aligning to road heading
+                            pos.SetTrackPosMode(road->GetId(),
+                                                object->GetS(),
+                                                object->GetT(),
+                                                roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
+                                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+                            clone->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+                            clone->setScale(osg::Vec3(static_cast<float>(scale_x), static_cast<float>(scale_y), static_cast<float>(scale_z)));
+
+                            clone->setPosition(osg::Vec3(static_cast<float>(pos.GetX() - origin[0]),
+                                                         static_cast<float>(pos.GetY() - origin[1]),
+                                                         static_cast<float>(object->GetZOffset() + pos.GetZ())));
+
+                            // First align to road orientation
+                            osg::Quat quatRoad(osg::Quat(pos.GetR(), osg::X_AXIS, pos.GetP(), osg::Y_AXIS, pos.GetH(), osg::Z_AXIS));
+                            // Specified local rotation
+                            osg::Quat quatLocal(orientation + object->GetHOffset(), osg::Vec3(osg::Z_AXIS));  // Heading
+                            // Combine
+                            clone->setAttitude(quatLocal * quatRoad);
+                        }
+                        else  // repeated objects (separate or continuous)
+                        {
+                            double factor  = cur_s / rep->GetLength();
+                            double t       = rep->GetTStart() + factor * (rep->GetTEnd() - rep->GetTStart());
+                            s              = rep->GetS() + cur_s;
+                            double zOffset = rep->GetZOffsetStart() + factor * (rep->GetZOffsetEnd() - rep->GetZOffsetStart());
+
+                            // position mode relative for aligning to road heading
+                            pos.SetTrackPosMode(road->GetId(),
+                                                s,
+                                                t,
+                                                roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::Z_REL |
+                                                    roadmanager::Position::PosMode::P_REL | roadmanager::Position::PosMode::R_REL);
+
+                            // Find angle based on delta t
+                            double h_offset = atan2(rep->GetTEnd() - rep->GetTStart(), rep->GetLength());
+                            pos.SetHeadingRelative(h_offset);
+
+                            if (tx == nullptr && rep->GetDistance() < SMALL_NUMBER)  // one single continuous object to be created
+                            {
+                                // add two vertices at this s-value
+                                double x   = 0.0;
+                                double y   = rep->GetWidthStart() + factor * (rep->GetWidthEnd() - rep->GetWidthStart());
+                                double z   = rep->GetHeightStart() + factor * (rep->GetHeightEnd() - rep->GetHeightStart());
+                                double p0x = 0.0;
+                                double p0y = 0.0;
+                                double p1x = 0.0;
+                                double p1y = 0.0;
+                                RotateVec2D(x, y, pos.GetH(), p0x, p0y);
+                                RotateVec2D(x, -y, pos.GetH(), p1x, p1y);
+
+                                vertices_right_side->push_back(osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ()));
+                                vertices_right_side->push_back(
+                                    osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ() + z));
+                                // add left vertices in reversed order, since they will be concatenated later in reversed order
+                                vertices_left_side->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ() + z));
+                                vertices_left_side->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ()));
+                                vertices_top->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ() + z));
+                                vertices_top->push_back(osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ() + z));
+                                vertices_bottom->push_back(osg::Vec3d(pos.GetX() + p0x - origin[0], pos.GetY() + p0y - origin[1], pos.GetZ()));
+                                vertices_bottom->push_back(osg::Vec3d(pos.GetX() + p1x - origin[0], pos.GetY() + p1y - origin[1], pos.GetZ()));
+                            }
+                            else  // separate objects
+                            {
+                                if (rep->GetLengthStart() > SMALL_NUMBER || rep->GetLengthEnd() > SMALL_NUMBER)
+                                {
+                                    scale_x =
+                                        ((rep->GetLengthStart() + factor * (rep->GetLengthEnd() - rep->GetLengthStart())) / cos(h_offset)) / dim_x;
+                                }
+                                else
+                                {
+                                    scale_x = (abs(h_offset) < M_PI_2 - SMALL_NUMBER) ? scale_x / cos(h_offset) : LARGE_NUMBER;
+                                }
+                                if (rep->GetWidthStart() > SMALL_NUMBER || rep->GetWidthEnd() > SMALL_NUMBER)
+                                {
+                                    scale_y = (rep->GetWidthStart() + factor * (rep->GetWidthEnd() - rep->GetWidthStart())) / dim_y;
+                                }
+                                if (rep->GetHeightStart() > SMALL_NUMBER || rep->GetHeightEnd() > SMALL_NUMBER)
+                                {
+                                    scale_z = (rep->GetHeightStart() + factor * (rep->GetHeightEnd() - rep->GetHeightStart())) / dim_z;
+                                }
+
+                                clone->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+                                clone->setScale(osg::Vec3(static_cast<float>(scale_x), static_cast<float>(scale_y), static_cast<float>(scale_z)));
+                                clone->setPosition(osg::Vec3(static_cast<float>(pos.GetX() - origin[0]),
+                                                             static_cast<float>(pos.GetY() - origin[1]),
+                                                             static_cast<float>(pos.GetZ() + zOffset)));
+
+                                // First align to road orientation
+                                osg::Quat quatRoad(osg::Quat(pos.GetR(), osg::X_AXIS, pos.GetP(), osg::Y_AXIS, pos.GetH(), osg::Z_AXIS));
+
+                                // Specified local rotation
+                                osg::Quat quatLocal(object->GetHOffset(), osg::Vec3(osg::Z_AXIS));  // Heading
+
+                                // Combine
+                                clone->setAttitude(quatLocal * quatRoad);
+                            }
+
+                            // increase current s according to distance
+                            if (rep->distance_ > SMALL_NUMBER)
+                            {
+                                cur_s += rep->distance_;
+                            }
+                            else
+                            {
+                                // for continuous objects, move along s wrt to road curvature
+                                cur_s += pos.DistanceToDS(object->GetLength() < SMALL_NUMBER
+                                                              ? MIN(rep->GetLength(), DEFAULT_LENGTH_FOR_CONTINUOUS_OBJS)
+                                                              : MIN(object->GetLength(), DEFAULT_LENGTH_FOR_CONTINUOUS_OBJS));
+                            }
+                        }
+
+                        if (tx != nullptr)  // wait with continuous object
+                        {
+                            clone->setDataVariance(osg::Object::STATIC);
+                            if (LODGroup == 0 || s - lastLODs > 0.5 * LOD_DIST_ROAD_FEATURES)
+                            {
+                                // add current LOD and create a new one
+                                osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                                LODGroup                   = new osg::Group();
+                                lod->addChild(LODGroup);
+                                lod->setRange(
+                                    0,
+                                    0,
+                                    LOD_DIST_ROAD_FEATURES + MAX(boundingBox.xMax() - boundingBox.xMin(), boundingBox.yMax() - boundingBox.yMin()));
+                                objGroup->addChild(lod);
+                                lastLODs = s;
+                            }
+
+                            LODGroup->addChild(clone);
+                        }
+                    }
+                    if (tx == nullptr)
+                    {
+                        // Create geometry for continuous object
+                        osg::ref_ptr<osg::Geode>    geode  = new osg::Geode;
+                        osg::ref_ptr<osg::Geometry> geom[] = {new osg::Geometry, new osg::Geometry, new osg::Geometry};
+
+                        // Concatenate vertices for right and left side into one single array going around the object counter clockwise
+                        osg::ref_ptr<osg::Vec3Array> vertices = vertices_right_side;
+                        vertices->insert(vertices->end(), vertices_left_side->rbegin(), vertices_left_side->rend());
+
+                        // Finally, duplicate first set of vertices to the end in order to close the geometry
+                        vertices->insert(vertices->end(), vertices_right_side->begin(), vertices_right_side->begin() + 2);
+
+                        geom[0]->setVertexArray(vertices.get());
+                        geom[0]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<int>(vertices->size())));
+
+                        // Add roof
+                        geom[1]->setVertexArray(vertices_top.get());
+                        geom[1]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<int>(vertices_top->size())));
+
+                        // Add floor
+                        geom[2]->setVertexArray(vertices_bottom.get());
+                        geom[2]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, static_cast<int>(vertices_bottom->size())));
+
+                        osgUtil::Tessellator tessellator;
+                        tessellator.retessellatePolygons(*geom[1]);
+                        tessellator.retessellatePolygons(*geom[2]);
+
+                        osg::ref_ptr<osg::Vec4Array> color_obj = new osg::Vec4Array();
+                        color_obj->push_back(color);
+                        for (auto& g : geom)
+                        {
+                            osgUtil::SmoothingVisitor::smooth(*g, 0.5);
+                            g->setDataVariance(osg::Object::STATIC);
+                            g->setUseDisplayList(true);
+                            g->setColorArray(color_obj);
+                            g->setColorBinding(osg::Geometry::BIND_OVERALL);
+                            geode->addDrawable(g);
+                            group->addChild(g);
+                        }
+
+                        osg::ComputeBoundsVisitor cbv;
+                        group->accept(cbv);
+                        boundingBox = cbv.getBoundingBox();
+
+                        osg::ref_ptr<osg::LOD> lod = new osg::LOD();
+                        lod->addChild(group);
+                        lod->setRange(0,
+                                      0,
+                                      LOD_DIST_ROAD_FEATURES + MAX(boundingBox.xMax() - boundingBox.xMin(), boundingBox.yMax() - boundingBox.yMin()));
+                        objGroup->addChild(lod);
+                    }
+
+                    if (tx == nullptr)
+                    {
+                        LOG_WARN("No tx");
+                    }
+                }
+            }
+        }
+
+        if (optimize_)
+        {
+            // For some reason this operation ruins the positioning of road objects in exported model
+            osgUtil::Optimizer optimizer;
+            optimizer.optimize(objGroup, osgUtil::Optimizer::FLATTEN_STATIC_TRANSFORMS);
+        }
+
+        parent->addChild(objGroup);
+
+        return 0;
+    }
+
+    osg::ref_ptr<osg::PositionAttitudeTransform> RoadGeom::LoadRoadFeature(roadmanager::Road* road, std::string file_path)
+    {
+        (void)road;
+        osg::ref_ptr<osg::Node>                      node;
+        osg::ref_ptr<osg::PositionAttitudeTransform> xform = 0;
+
+        node = osgDB::readNodeFile(file_path);
+        if (!node)
+        {
+            return 0;
+        }
+
+        xform = new osg::PositionAttitudeTransform;
+        xform->addChild(node);
+
+        return xform;
+    }
+
+    osg::ref_ptr<osg::Group> RoadGeom::CreateOutlineObject(roadmanager::Outline* outline, osg::Vec4 color, const osg::Vec3d& origin)
+    {
+        if (outline == 0)
+        {
+            return nullptr;
+        }
+
+        bool roof = outline->roof_ ? true : false;
+
+        // nrPoints will be corners + 1 if the outline should be closed, reusing first corner as last
+        int nrPoints = outline->closed_ ? static_cast<int>(outline->corner_.size()) + 1 : static_cast<int>(outline->corner_.size());
+
+        osg::ref_ptr<osg::Group> group = new osg::Group();
+
+        osg::ref_ptr<osg::Vec3Array> vertices_sides =
+            new osg::Vec3Array(static_cast<unsigned int>(nrPoints) * 2);                                         // one set at bottom and one at top
+        osg::ref_ptr<osg::Vec3Array> vertices_top    = new osg::Vec3Array(static_cast<unsigned int>(nrPoints));  // top
+        osg::ref_ptr<osg::Vec3Array> vertices_bottom = new osg::Vec3Array(static_cast<unsigned int>(nrPoints));  // bottom
+
+        osg::ref_ptr<osg::Vec2Array> tex_coords_sides  = new osg::Vec2Array(static_cast<unsigned int>(nrPoints) * 2);
+        osg::ref_ptr<osg::Vec2Array> tex_coords_top    = new osg::Vec2Array(static_cast<unsigned int>(nrPoints));
+        osg::ref_ptr<osg::Vec2Array> tex_coords_bottom = new osg::Vec2Array(static_cast<unsigned int>(nrPoints));
+
+        // Set vertices
+        float cumulative_side_dist = 0.0f;
+        for (size_t i = 0; i < outline->corner_.size(); i++)
+        {
+            double                      x, y, z;
+            roadmanager::OutlineCorner* corner = outline->corner_[i];
+            corner->GetPos(x, y, z);
+            (*vertices_sides)[i * 2 + 0].set(static_cast<float>(x - origin[0]),
+                                             static_cast<float>(y - origin[1]),
+                                             static_cast<float>(z + corner->GetHeight()));
+            (*vertices_sides)[i * 2 + 1].set(static_cast<float>(x - origin[0]), static_cast<float>(y - origin[1]), static_cast<float>(z));
+
+            if (i > 0)
+            {
+                double x1, y1, z1;
+                outline->corner_[i - 1]->GetPos(x1, y1, z1);
+                float dx = x1 - x;
+                float dy = y1 - y;
+                cumulative_side_dist += std::sqrt(dx * dx + dy * dy);
+            }
+
+            (*tex_coords_sides)[i * 2 + 0].set(cumulative_side_dist, corner->GetHeight());
+            (*tex_coords_sides)[i * 2 + 1].set(cumulative_side_dist, 0.0f);
+
+            // top and bottom shapes
+            if (outline->GetCountourType() == roadmanager::Outline::ContourType::CONTOUR_TYPE_POLYGON)
+            {
+                (*vertices_top)[i].set(static_cast<float>(x - origin[0]),
+                                       static_cast<float>(y - origin[1]),
+                                       static_cast<float>(z + corner->GetHeight()));
+                (*vertices_bottom)[outline->corner_.size() - 1 - i].set(static_cast<float>(x - origin[0]),
+                                                                        static_cast<float>(y - origin[1]),
+                                                                        static_cast<float>(z));
+
+                double x2, y2, z2;
+                outline->corner_[outline->corner_.size() - 1 - i]->GetPos(x2, y2, z2);
+                float dx    = x2 - x;
+                float dy    = y2 - y;
+                float width = std::sqrt(dx * dx + dy * dy);
+
+                (*tex_coords_top)[i].set(0.0, cumulative_side_dist);
+                (*tex_coords_top)[outline->corner_.size() - 1 - i].set(width, cumulative_side_dist);
+                (*tex_coords_bottom)[i].set(0.0, cumulative_side_dist);
+                (*tex_coords_bottom)[outline->corner_.size() - 1 - i].set(width, cumulative_side_dist);
+            }
+        }
+
+        if (outline->GetCountourType() == roadmanager::Outline::ContourType::CONTOUR_TYPE_QUAD_STRIP)
+        {
+            float cumulative_roof_dist = 0.0f;
+            // rearrange vertices for quad strip
+            for (size_t i = 0; i < outline->corner_.size(); i += 2)
+            {
+                unsigned right_index = outline->corner_.size() - 1 - (i / 2);
+                unsigned left_index  = i / 2;
+
+                double xl, yl, zl, xr, yr, zr;
+                outline->corner_[left_index]->GetPos(xl, yl, zl);
+                outline->corner_[right_index]->GetPos(xr, yr, zr);
+
+                (*vertices_top)[i].set(static_cast<float>(xr - origin[0]),
+                                       static_cast<float>(yr - origin[1]),
+                                       static_cast<float>(zr + outline->corner_[right_index]->GetHeight()));
+                (*vertices_top)[i + 1].set(static_cast<float>(xl - origin[0]),
+                                           static_cast<float>(yl - origin[1]),
+                                           static_cast<float>(zl + outline->corner_[right_index]->GetHeight()));
+                (*vertices_bottom)[i].set(static_cast<float>(xl - origin[0]), static_cast<float>(yl - origin[1]), static_cast<float>(zl));
+                (*vertices_bottom)[i + 1].set(static_cast<float>(xr - origin[0]), static_cast<float>(yr - origin[1]), static_cast<float>(zr));
+
+                osg::Vec3f left(xl, yl, zl);
+                osg::Vec3f right(xr, yr, zr);
+                float      width = (right - left).length();
+
+                if (i >= 2)
+                {
+                    unsigned left_index_prev  = (i - 1) / 2;
+                    unsigned right_index_prev = outline->corner_.size() - 1 - ((i - 2) / 2);
+
+                    double xl_prev, yl_prev, zl_prev, xr_prev, yr_prev, zr_prev;
+                    outline->corner_[left_index_prev]->GetPos(xl_prev, yl_prev, zl_prev);
+                    outline->corner_[right_index_prev]->GetPos(xr_prev, yr_prev, zr_prev);
+
+                    osg::Vec3f left_prev(xl_prev, yl_prev, zl_prev);
+                    osg::Vec3f right_prev(xr_prev, yr_prev, zr_prev);
+
+                    osg::Vec3f center_prev = (left_prev + right_prev) * 0.5f;
+                    osg::Vec3f center      = (left + right) * 0.5f;
+
+                    cumulative_roof_dist += (center - center_prev).length();
+                }
+
+                (*tex_coords_top)[i].set(width, cumulative_roof_dist);
+                (*tex_coords_top)[i + 1].set(0.0f, cumulative_roof_dist);
+                (*tex_coords_bottom)[i].set(width, cumulative_roof_dist);
+                (*tex_coords_bottom)[i + 1].set(0.0f, cumulative_roof_dist);
+            }
+        }
+
+        // Close geometry
+        if (outline->closed_)
+        {
+            cumulative_side_dist += ((*vertices_sides)[0] - (*vertices_sides)[2 * (nrPoints - 2)]).length();
+
+            (*vertices_sides)[2 * static_cast<unsigned int>(nrPoints) - 2].set((*vertices_sides)[0]);
+            (*vertices_sides)[2 * static_cast<unsigned int>(nrPoints) - 1].set((*vertices_sides)[1]);
+            (*tex_coords_sides)[2 * static_cast<unsigned int>(nrPoints) - 2].set(cumulative_side_dist, (*tex_coords_sides)[0].y());
+            (*tex_coords_sides)[2 * static_cast<unsigned int>(nrPoints) - 1].set(cumulative_side_dist, (*tex_coords_sides)[1].y());
+
+            (*vertices_top)[static_cast<unsigned int>(nrPoints) - 1].set((*vertices_top)[0]);
+            (*vertices_bottom)[static_cast<unsigned int>(nrPoints) - 1].set((*vertices_bottom)[0]);
+            (*tex_coords_top)[static_cast<unsigned int>(nrPoints) - 1].set((*tex_coords_top)[0]);
+            (*tex_coords_bottom)[static_cast<unsigned int>(nrPoints) - 1].set((*tex_coords_bottom)[0]);
+        }
+
+        // Finally create and add geometry
+        osg::ref_ptr<osg::Geode>    geode  = new osg::Geode;
+        osg::ref_ptr<osg::Geometry> geom[] = {new osg::Geometry, new osg::Geometry, new osg::Geometry};
+
+        geom[0]->setVertexArray(vertices_sides.get());
+        geom[0]->setTexCoordArray(0, tex_coords_sides.get());
+        geom[0]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, 2 * nrPoints));
+
+        if (roof)
+        {
+            geom[1]->setVertexArray(vertices_top.get());
+            geom[1]->setTexCoordArray(0, tex_coords_top.get());
+            geom[2]->setVertexArray(vertices_bottom.get());
+            geom[2]->setTexCoordArray(0, tex_coords_bottom.get());
+            if (outline->GetCountourType() == roadmanager::Outline::ContourType::CONTOUR_TYPE_POLYGON)
+            {
+                geom[1]->addPrimitiveSet(new osg::DrawArrays(GL_POLYGON, 0, nrPoints));
+                osgUtil::Tessellator tessellator;
+                tessellator.retessellatePolygons(*geom[1]);
+
+                geom[2]->addPrimitiveSet(new osg::DrawArrays(GL_POLYGON, 0, nrPoints));
+                tessellator.retessellatePolygons(*geom[2]);
+            }
+            else
+            {
+                geom[1]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, nrPoints - 1));
+                geom[2]->addPrimitiveSet(new osg::DrawArrays(GL_QUAD_STRIP, 0, nrPoints - 1));
+            }
+        }
+
+        int nrGeoms = roof ? 3 : 1;
+        for (int i = 0; i < nrGeoms; i++)
+        {
+            osgUtil::SmoothingVisitor::smooth(*geom[i], 0.5);
+            geom[i]->setDataVariance(osg::Object::STATIC);
+            geom[i]->setUseDisplayList(true);
+            geode->addDrawable(geom[i]);
+        }
+
+        osg::ref_ptr<osg::Material> material_ = new osg::Material;
+        material_->setDiffuse(osg::Material::FRONT_AND_BACK, color);
+        material_->setAmbient(osg::Material::FRONT_AND_BACK, color);
+        geode->getOrCreateStateSet()->setAttributeAndModes(material_.get());
+        geode->getOrCreateStateSet()->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+        geode->getOrCreateStateSet()->setRenderBinDetails(20, "DepthSortedBin", osg::StateSet::RenderBinMode::OVERRIDE_RENDERBIN_DETAILS);
+        geode->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+        geode->getOrCreateStateSet()->setMode(GL_BLEND, osg::StateAttribute::ON);
+
+        group->addChild(geode);
+
+        return group;
+    }
+
+    int RoadGeom::AddGroundSurface()
+    {
+        const double margin   = 1E4;
+        const double z_offset = -1.0;
+        // const osg::BoundingSphere bs = environment_->getBound();
+
+        osg::ComputeBoundsVisitor cbv;
+        osg::BoundingBox          bb;
+
+        osg::Node* bb_node = environment_ != nullptr ? environment_ : root_->getNumChildren() > 0 ? root_->asNode() : nullptr;
+        if (bb_node != nullptr)
+        {
+            bb_node->accept(cbv);
+            bb = cbv.getBoundingBox();
+        }
+        else
+        {
+            bb.set(osg::Vec3d(0.0, 0.0, 0.0), osg::Vec3d(1e4, 1e4, 1e4));
+        }
+
+        osg::ref_ptr<osg::Geode>    ground = new osg::Geode;
+        osg::ref_ptr<osg::Geometry> geom   = osg::createTexturedQuadGeometry(
+            osg::Vec3(bb.xMin() - static_cast<float>(margin), bb.yMin() - static_cast<float>(margin), bb.zMin() + static_cast<float>(z_offset)),
+            osg::Vec3(0.0f, 2.0f * static_cast<float>(margin) + (bb.yMax() - bb.yMin()), bb.zMin() + static_cast<float>(z_offset)),
+            osg::Vec3(2.0f * static_cast<float>(margin) + (bb.xMax() - bb.xMin()), 0.0f, bb.zMin() + static_cast<float>(z_offset)));
+        osg::ref_ptr<osg::Vec4Array> color = new osg::Vec4Array;
+        color->push_back(osg::Vec4(0.8f, 0.8f, 0.8f, 1.0f));
+        geom->setColorArray(color.get());
+        geom->setColorBinding(osg::Geometry::BIND_PER_PRIMITIVE_SET);
+        ground->addDrawable(geom);
+
+        root_->addChild(ground.get());
+
+        return 0;
+    }
+
+    void RoadGeom::SetNodeName(osg::Node& node, const std::string& prefix, id_t id, const std::string& label)
+    {
+        node.setName(prefix + std::to_string(id) + "_" + label);
+    }
+
+    int RoadGeom::SaveToFile(const std::string& filename)
+    {
+        osgDB::writeNodeFile(*root_, filename);
+        return 0;
+    }
+
+    TrafficLightModel* RoadGeom::GetTrafficLightModel(int id)
+    {
+        auto it = traffic_light_.find(id);
+        if (it != traffic_light_.end())
+        {
+            return &it->second;
+        }
+        return nullptr;
+    }
+
+}  // namespace roadgeom

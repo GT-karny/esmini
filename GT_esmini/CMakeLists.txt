@@ -479,6 +479,54 @@ if(BUILD_EXAMPLES)
         DESTINATION "${CODE_EXAMPLES_BIN_PATH}")
 endif(BUILD_EXAMPLES)
 
+# ############################### GT_RoadGen Executable ############################################################################################
+# Standalone, per-road MULTITHREADED OpenDRIVE -> .osgb road-surface generator.
+# GT_Sim invokes it (cache-keyed by xodr hash) and injects the result via --model so the
+# core viewer skips its slow single-threaded road-mesh generation.
+# Isolated target: it does NOT link the core RoadGeom/ViewerBase libs, so the forked
+# `roadgeom` namespace in GT_RoadGeom.* cannot clash with upstream.
+if(USE_OSG)
+    find_package(Threads REQUIRED)
+
+    set(GT_ROADGEN_TARGET GT_RoadGen)
+    add_executable(${GT_ROADGEN_TARGET}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_RoadGeom.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_trafficlightmodel.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_RoadGen_main.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_RoadGeom.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_trafficlightmodel.hpp)
+
+    set_target_properties(${GT_ROADGEN_TARGET} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+    # OSG_LIBRARY_STATIC: roadgeom.cpp statically registers OSG plugins (USE_OSGPLUGIN/serializers).
+    target_compile_definitions(${GT_ROADGEN_TARGET} PRIVATE OSG_LIBRARY_STATIC _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
+
+    target_include_directories(${GT_ROADGEN_TARGET} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen
+        ${COMMON_MINI_PATH})
+    target_include_directories(${GT_ROADGEN_TARGET} SYSTEM PRIVATE
+        ${ROAD_MANAGER_PATH}
+        ${EXTERNALS_OSG_INCLUDES}
+        ${EXTERNALS_PUGIXML_PATH}
+        ${EXTERNALS_FMT_INCLUDES})
+
+    target_link_libraries(${GT_ROADGEN_TARGET} PRIVATE
+        RoadManager
+        CommonMini
+        Threads::Threads
+        ${TIME_LIB}
+        ${SOCK_LIB})
+    if(USE_OSG)
+        target_link_libraries(${GT_ROADGEN_TARGET} PRIVATE ${OSG_LIBRARIES})
+    endif()
+
+    disable_iwyu(${GT_ROADGEN_TARGET})
+
+    install(
+        TARGETS ${GT_ROADGEN_TARGET}
+        DESTINATION "${INSTALL_PATH}")
+endif()
+
 # ############################### Config Copy (dev build) ##########################################################################################
 # Copy GT_esmini/config/ → build/GT_esmini/config/ (sibling of Release/)
 # ConfigLoader resolves to <exe_dir>/../config/, which maps to build/GT_esmini/config/ in dev builds.

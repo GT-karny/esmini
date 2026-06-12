@@ -34,6 +34,10 @@
 #include <cstring>
 #include <iostream>
 #include <cstdio>
+#include <fstream>
+#include <filesystem>
+#include <cstdint>
+#include <cstdlib>
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
@@ -150,8 +154,145 @@ void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)>
 
 // --- GT_esminiLib C-API Implementation ---
 
-// Basic XOSC sanitizer to allow SE_Init to pass even with unsupported actions
-static bool CreateSanitizedScenario(const char* inFile, const std::string& outFile)
+// ============================ GT road-model cache ============================
+// Pre-generate the road 3D mesh with the parallel GT_RoadGen tool (cache-keyed by xodr
+// content hash) and inject it as <SceneGraphFile> so the esmini viewer SKIPS its slow,
+// single-threaded runtime road tessellation. Falls back silently to runtime generation.
+namespace
+{
+    uint64_t GT_FnvHashFile(const std::filesystem::path& p)
+    {
+        std::ifstream f(p, std::ios::binary);
+        if (!f)
+        {
+            return 0;
+        }
+        uint64_t h = 1469598103934665603ULL;  // FNV-1a 64-bit offset basis
+        char     buf[1 << 16];
+        while (f)
+        {
+            f.read(buf, sizeof(buf));
+            std::streamsize n = f.gcount();
+            for (std::streamsize i = 0; i < n; i++)
+            {
+                h ^= static_cast<uint8_t>(buf[i]);
+                h *= 1099511628211ULL;
+            }
+        }
+        return h;
+    }
+
+    int GT_RunProcess(const std::string& cmdline)
+    {
+#ifdef _WIN32
+        // cmd /c needs the whole command wrapped in an extra pair of quotes when it
+        // contains multiple quoted tokens (paths with spaces).
+        std::string wrapped = "\"" + cmdline + "\"";
+        return std::system(wrapped.c_str());
+#else
+        return std::system(cmdline.c_str());
+#endif
+    }
+
+    // Returns absolute path to a cached .osgb road model for `xodrAbs`, generating it via
+    // GT_RoadGen if not already cached. Returns "" on any failure (caller falls back).
+    std::string GT_EnsureCachedRoadModel(const std::filesystem::path& xodrAbs)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        if (!fs::exists(xodrAbs, ec))
+        {
+            return "";
+        }
+
+        uint64_t h = GT_FnvHashFile(xodrAbs);
+        if (h == 0)
+        {
+            return "";
+        }
+
+        fs::path exeDir   = gt_esmini::GetCurrentModuleDirectory();
+        fs::path cacheDir = exeDir / "model_cache";
+        fs::create_directories(cacheDir, ec);
+
+        char hbuf[20];
+        snprintf(hbuf, sizeof(hbuf), "%016llx", static_cast<unsigned long long>(h));
+        fs::path cachePath = cacheDir / (std::string(hbuf) + ".osgb");
+
+        if (fs::exists(cachePath, ec))
+        {
+            return cachePath.string();  // cache hit
+        }
+
+        fs::path gen = exeDir / "GT_RoadGen.exe";
+        if (!fs::exists(gen, ec))
+        {
+            gen = exeDir / "GT_RoadGen";  // non-Windows
+            if (!fs::exists(gen, ec))
+            {
+                return "";
+            }
+        }
+
+        std::string cmd = "\"" + gen.string() + "\" \"" + xodrAbs.string() + "\" \"" + cachePath.string() + "\" --threads 0";
+        std::cerr << "[GT_esmini] generating road model: " << cmd << std::endl;
+        int rc = GT_RunProcess(cmd);
+        if (rc == 0 && fs::exists(cachePath, ec))
+        {
+            return cachePath.string();
+        }
+
+        std::cerr << "[GT_esmini] road model generation failed (rc=" << rc << "); using runtime generation" << std::endl;
+        return "";
+    }
+
+    // Resolve the OpenDRIVE path referenced by the scenario, then inject a cached road
+    // <SceneGraphFile> into RoadNetwork (no-op if one already exists or anything fails).
+    void GT_InjectCachedRoadModel(pugi::xml_document& doc, const char* inFile)
+    {
+        namespace fs = std::filesystem;
+        pugi::xml_node rn = doc.child("OpenSCENARIO").child("RoadNetwork");
+        if (!rn || rn.child("SceneGraphFile"))
+        {
+            return;  // no road network, or an explicit model is already specified
+        }
+        pugi::xml_node lf = rn.child("LogicFile");
+        std::string    xodrRel = lf ? lf.attribute("filepath").as_string() : "";
+        if (xodrRel.empty())
+        {
+            return;
+        }
+
+        std::error_code ec;
+        fs::path        xodr(xodrRel);
+        if (xodr.is_relative())
+        {
+            xodr = fs::path(inFile).parent_path() / xodr;
+        }
+        if (!fs::exists(xodr, ec))
+        {
+            // Fallback to esmini's resources/xodr (bare-filename scenarios)
+            fs::path alt = fs::path(gt_esmini::GetCurrentModuleDirectory()) / ".." / "resources" / "xodr" / fs::path(xodrRel).filename();
+            if (fs::exists(alt, ec))
+            {
+                xodr = alt;
+            }
+        }
+        xodr = fs::weakly_canonical(xodr, ec);
+
+        std::string model = GT_EnsureCachedRoadModel(xodr);
+        if (!model.empty())
+        {
+            pugi::xml_node sg = rn.append_child("SceneGraphFile");
+            sg.append_attribute("filepath").set_value(model.c_str());
+            std::cerr << "[GT_esmini] injected cached road model: " << model << std::endl;
+        }
+    }
+}  // namespace
+
+// Basic XOSC sanitizer to allow SE_Init to pass even with unsupported actions.
+// When inject_road_model is true, also injects a pre-generated <SceneGraphFile> (see above).
+static bool CreateSanitizedScenario(const char* inFile, const std::string& outFile, bool inject_road_model = false)
 {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(inFile);
@@ -207,7 +348,12 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
     };
 
     strip(doc);
-    
+
+    if (inject_road_model)
+    {
+        GT_InjectCachedRoadModel(doc, inFile);
+    }
+
     return doc.save_file(outFile.c_str());
 }
 
@@ -385,8 +531,18 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     if (filename)
     {
         std::cerr << "[GT_esmini] Sanitizing filename: " << filename << std::endl;
+        // A viewer runs unless --headless is requested; only then is a road 3D model needed.
+        bool headless = false;
+        for (int hi = 0; hi < argc; hi++)
+        {
+            if (argv[hi] && strcmp(argv[hi], "--headless") == 0)
+            {
+                headless = true;
+                break;
+            }
+        }
         sanitizedFile = std::string(filename) + ".temp.xosc";
-        if (!CreateSanitizedScenario(filename, sanitizedFile))
+        if (!CreateSanitizedScenario(filename, sanitizedFile, !headless))
         {
              std::cerr << "GT_InitWithArgs: Failed to create sanitized scenario file." << std::endl;
              // Try proceeding with original filename (might crash if unsupported actions present)
