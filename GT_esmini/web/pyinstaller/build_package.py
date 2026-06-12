@@ -39,11 +39,19 @@ BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd", "python312.zip"]
 EMBED_FILES = ["python312._pth"]
 
 # Config mappings: (source relative to REPO_ROOT, dest relative to package)
+# Keep this list in sync with GT_esmini/config/*.json on disk.  The
+# check_config_coverage() guard (called from verify_prerequisites) enforces
+# that every tracked *.json is present here — add new configs here first,
+# then to disk, to keep the guard green.
 CONFIG_FILES = [
     ("GT_esmini/config/real_vehicle_params.json", "config/real_vehicle_params.json"),
     ("GT_esmini/config/host_vehicle_config.json", "config/host_vehicle_config.json"),
     ("GT_esmini/config/manual_drive.json", "config/manual_drive.json"),
     ("GT_esmini/config/kinematic_controller.json", "config/kinematic_controller.json"),
+    # virtual_driver.json: loaded by simulation_runner.py; missing → silent {} fallback
+    ("GT_esmini/config/virtual_driver.json", "config/virtual_driver.json"),
+    # route_drive_controller.json: resolved beside the exe by GT_esminiLib.cpp
+    ("GT_esmini/config/route_drive_controller.json", "config/route_drive_controller.json"),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
@@ -77,7 +85,35 @@ def verify_prerequisites() -> None:
             print(f"  - {e}")
         sys.exit(1)
 
+    check_config_coverage()
+
     print("[OK] All prerequisites verified.")
+
+
+def check_config_coverage() -> None:
+    """Abort if any *.json in GT_esmini/config/ is not listed in CONFIG_FILES.
+
+    This is a build-time guard that prevents silently shipping a package with
+    missing runtime configuration (e.g. the virtual_driver.json / gains loss
+    that triggered MSC-3).
+    """
+    config_src_dir = REPO_ROOT / "GT_esmini" / "config"
+    covered = {
+        (REPO_ROOT / src_rel).resolve()
+        for src_rel, _ in CONFIG_FILES
+        if src_rel.endswith(".json")
+    }
+    missing: list[str] = []
+    for json_file in sorted(config_src_dir.glob("*.json")):
+        if json_file.resolve() not in covered:
+            missing.append(json_file.name)
+    if missing:
+        print("[FAIL] CONFIG_FILES coverage check failed.")
+        print("  The following config files exist on disk but are not in CONFIG_FILES:")
+        for name in missing:
+            print(f"    - GT_esmini/config/{name}")
+        print("  Add them to CONFIG_FILES in build_package.py before packaging.")
+        sys.exit(1)
 
 
 def build_frontend() -> None:
@@ -137,6 +173,40 @@ def _copy_dirs(src_dir: Path, dst_dir: Path, dirnames: list[str]) -> None:
         src = src_dir / dname
         if src.is_dir():
             shutil.copytree(src, dst_dir / dname, ignore=IGNORE_PATTERNS)
+
+
+def _copy_licenses(pkg_dir: Path) -> None:
+    """Copy all required license texts into the package.
+
+    Critic-1 fix: the distributable ZIP bundles MPL-2.0 (esmini, OSI),
+    EPL-2.0 (SUMO), BSD (protobuf), OSG, embedded Python, SDL2 and others.
+    License texts must be included to comply with each library's terms.
+
+    Layout inside the package:
+      LICENSE                        — repo root LICENSE (esmini / MPL-2.0)
+      3rd_party_terms_and_licenses/  — all tracked third-party license files
+      licenses/PYTHON-LICENSE.txt    — embedded Python license
+    """
+    # Repo root LICENSE -> package root LICENSE
+    repo_license = REPO_ROOT / "LICENSE"
+    if repo_license.exists():
+        shutil.copy2(repo_license, pkg_dir / "LICENSE")
+
+    # 3rd_party_terms_and_licenses/ (entire tracked dir) -> same name at package root
+    third_party_src = REPO_ROOT / "3rd_party_terms_and_licenses"
+    if third_party_src.is_dir():
+        shutil.copytree(
+            third_party_src,
+            pkg_dir / "3rd_party_terms_and_licenses",
+            ignore=IGNORE_PATTERNS,
+        )
+
+    # Embedded Python license -> licenses/PYTHON-LICENSE.txt
+    python_license = EMBEDDED_PYTHON / "LICENSE.txt"
+    if python_license.exists():
+        licenses_dir = pkg_dir / "licenses"
+        licenses_dir.mkdir(exist_ok=True)
+        shutil.copy2(python_license, licenses_dir / "PYTHON-LICENSE.txt")
 
 
 def assemble_package(version: str, output_dir: Path) -> Path:
@@ -210,7 +280,12 @@ def assemble_package(version: str, output_dir: Path) -> Path:
         shutil.copytree(docs_src, pkg_dir / "docs", ignore=IGNORE_PATTERNS)
         log("docs/: copied")
 
-    # 8. README
+    # 8. Licenses (MPL-2.0 / EPL-2.0 / BSD / OSG / Python / SDL2 …)
+    # Critic-1: the ZIP must ship all bundled-library license texts.
+    _copy_licenses(pkg_dir)
+    log("licenses/: LICENSE + 3rd_party_terms_and_licenses/ + PYTHON-LICENSE.txt")
+
+    # 9. README
     _write_readme(pkg_dir, version)
     log("README.txt: created")
 
