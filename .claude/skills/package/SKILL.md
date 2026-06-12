@@ -7,6 +7,10 @@ description: GT_Simの配布パッケージをフルビルドする（C++ビル�
 
 GT_Simの配布パッケージをフルビルドします。C++ビルド → PyInstallerサーバー → Electronデスクトップアプリの順で実行します。
 
+> **Single source of truth**: `scripts/build_package.ps1` がパイプライン全体の正式実装です。
+> このSKILL.mdにインラインのcmake/pyinstaller/npmコマンドは一切記載しません。
+> パイプラインの詳細は `scripts/build_package.ps1` 本体を参照してください。
+
 ## 使用方法
 
 ```
@@ -15,134 +19,67 @@ GT_Simの配布パッケージをフルビルドします。C++ビルド → PyI
 
 `--version` は必須引数。例: `/package --version 0.7.0`
 
+## 実行コマンド
+
+リポジトリルートから以下を実行する:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_package.ps1 -Version <VERSION>
+```
+
+`<VERSION>` をユーザーが指定したバージョン文字列に置換する（例: `0.9.0`）。
+
 ## 前提条件
 
 以下が揃っていることを確認してから実行する。不足している場合はユーザーに伝える。
 
 - `thirdparty/python-embed/python-3.12.10-embed-amd64/` — 組み込みPythonが配置済みであること
+- `GT_esmini/web/.venv/Scripts/python.exe` — ビルド用venv（PyInstaller + webバックエンド依存）が存在すること。未セットアップの場合は `.\scripts\setup_web_venv.ps1` を実行する。
 - Node.js がインストール済みであること（フロントエンド+Electronビルドに必要）
+- **ビルド前にGT_Sim.exeを停止**: Electronやサーバーが起動中だとDLL/EXEがロックされ `PermissionError` になる。ビルド前にアプリを閉じるようユーザーに伝える。
 
-## 実行手順
+## スクリプトが実行するパイプライン
 
-作業ディレクトリは常にリポジトリルート (`e:\Repository\GT_esmini\esmini`) とする。
+`scripts/build_package.ps1` は以下のステップを順番に実行する:
 
-### Step 0: CMake Configure（必須オプション確認）
+| ステップ | 内容 |
+|---|---|
+| **Step 0** | CMake configure（Visual Studio 17 2022, x64, 必須オプション付き） |
+| **Step 1** | C++ビルド（`GT_Sim`, `GT_esminiLib`, `esminiRMLib`, `GT_RoadGen` ターゲットのみ） |
+| **Step 1b** | アーティファクトのステージング: `GT_Sim.exe`, `GT_RoadGen.exe`, DLL群を `DriverScript/bin/` へコピー。`esminiRMLib.dll` と `SDL2.dll` も `BuildRelease` と `DriverScript/bin/` にステージ |
+| **Step 2** | `GT_esmini/web/pyinstaller/build_package.py` を `GT_esmini/web/.venv` で実行: フロントエンド(`npm run build`) + PyInstaller + アセンブリ（**--no-zip** でZIPを後回し） |
+| **Step 3** | Electronビルド: `npm install` + `npm run build` + `@electron/packager` でパッケージ化 → `PackageDir` にマージ |
+| **Step 3b** | Electronのlocalesを `en-US.pak` のみに絞る（容量削減） |
+| **Step 4** | `PackageDir` をZIPアーカイブ化（`dist/GT_Sim_v<VERSION>.zip`） |
 
-パッケージビルド前に、必ず以下のオプションで configure する。
-キャッシュが古い場合やオプションが OFF になっている可能性があるため、**毎回明示的に指定する**。
+### 利用可能なパラメータ
 
-```bash
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
-  -DUSE_OSG=ON \
-  -DUSE_OSI=ON \
-  -DUSE_SUMO=ON \
-  -DUSE_IMPLOT=ON \
-  -DUSE_SDL2=ON
+| パラメータ | 効果 |
+|---|---|
+| `-Version <x.y.z>` | **必須**。バージョン文字列 |
+| `-SkipCMake` | CMake configure + C++ビルドをスキップ |
+| `-SkipFrontend` | フロントエンドビルド(`npm run build`)をスキップ |
+| `-SkipPyInstaller` | PyInstallerビルドをスキップ |
+| `-SkipElectron` | Electronビルド + パッケージ化をスキップ |
+| `-NoZip` | ZIPアーカイブ作成をスキップ |
+
+例（C++ビルド済みでフロントエンドのみ変更した場合）:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_package.ps1 -Version 0.9.0 -SkipCMake
 ```
 
-**必須オプション一覧:**
+## 出力
 
-| オプション | 値 | 理由 |
-|---|---|---|
-| `USE_OSG` | **ON** | 3D可視化（esmini viewer） |
-| `USE_OSI` | **ON** | OSI GroundTruth 出力・gRPCストリーミング |
-| `USE_SUMO` | **ON** | SUMO交通シミュレーション連携 |
-| `USE_IMPLOT` | **ON** | リアルタイムプロット表示 |
-| `USE_SDL2` | **ON** | レーシングホイール入力・フォースフィードバック |
+- `dist/GT_Sim_v<VERSION>/` — 展開済みパッケージディレクトリ（Electron + サーバー + リソース）
+- `dist/GT_Sim_v<VERSION>.zip` — 配布用ZIPアーカイブ
 
-> **注意**: `CACHE BOOL` のため、一度 OFF で configure すると `build/CMakeCache.txt` に残り、
-> CMakeLists.txt のデフォルト ON が効かなくなる。明示指定で上書きする。
-
-`build/` ディレクトリが存在しない場合もこのコマンドで新規作成される。
-
-### Step 1: C++ビルド (GT_Sim)
-
-```bash
-cmake --build "e:/Repository/GT_esmini/esmini/build" --config Release
-```
-
-ビルド成功後、DLLとEXEをコピーする:
-
-```bash
-cp build/GT_esmini/Release/*.dll DriverScript/bin/ 2>/dev/null
-cp build/GT_esmini/Release/GT_Sim.exe DriverScript/bin/ 2>/dev/null
-cp build/GT_esmini/Release/GT_RoadGen.exe DriverScript/bin/ 2>/dev/null  # parallel road-mesh generator (spawned by GT_esminiLib)
-```
-
-DLLコピーが失敗する場合は、GT_SimやPythonプロセスが実行中でファイルがロックされている可能性がある。先にプロセスを停止するようユーザーに伝える。
-
-### Step 2: パッケージビルド (フロントエンド + PyInstaller + アセンブリ)
-
-`build_package.py` がフロントエンド(`npm run build`)、PyInstaller、アセンブリ、ZIP作成をすべて一括実行する。
-
-```bash
-DriverScript/.venv/Scripts/python.exe GT_esmini/web/pyinstaller/build_package.py \
-    --version <VERSION> --output dist/
-```
-
-`<VERSION>` はユーザーが指定したバージョン文字列に置換する。
-
-フロントエンドビルドが失敗した場合は、`cd GT_esmini/web/frontend && npm install` を実行してからリトライする。
-
-**オプションフラグ:**
-- `--skip-frontend` — フロントエンドビルドをスキップ（TSXに変更がない場合）
-- `--skip-pyinstaller` — PyInstallerビルドをスキップ
-- `--no-zip` — ZIPアーカイブ作成をスキップ
-
-### Step 3: Electronデスクトップアプリビルド
-
-PyInstallerで作成したサーバーをElectronシェルでラップする。
-
-```bash
-cd GT_esmini/web/electron && npm install && npm run build && cd "e:/Repository/GT_esmini/esmini"
-```
-
-次に `@electron/packager` でパッケージ化（`electron-builder` はWindows開発者モード未有効時にwinCodeSignのシンボリックリンクエラーが発生するため使わない）:
-
-```bash
-cd GT_esmini/web/electron && npx @electron/packager . GT_Sim --platform=win32 --arch=x64 --out=release --overwrite --ignore="node_modules" --ignore="src" --ignore="scripts" --ignore="tsconfig" --ignore="electron-builder.yml" && cd "e:/Repository/GT_esmini/esmini"
-```
-
-> **重要**: `--ignore` フラグで `node_modules`, `src`, `scripts` 等を除外すること。
-> 除外しないと devDependencies（584MB超）がそのままバンドルされ、パッケージが肥大化する。
-
-ビルド成果物をパッケージディレクトリに統合:
-
-```bash
-cp -r GT_esmini/web/electron/release/GT_Sim-win32-x64/* dist/GT_Sim_v<VERSION>/ 2>/dev/null
-```
-
-> **注意**: Electronはデスクトップアプリのシェル（ネイティブウィンドウ）を提供する。
-> FastAPIサーバー（`server/gt_sim_web.exe`）はElectronからchild processとしてspawnされる。
-> GT_Sim.exe（C++シミュレーション）はFastAPIからさらにsubprocessとして起動される。
-
-### Step 3b: Electronパッケージ軽量化
-
-localesを英語のみに絞る。`ffmpeg.dll` はElectron起動に必要なため削除しないこと。
-
-```bash
-# Keep only en-US locale, remove all others
-find dist/GT_Sim_v<VERSION>/locales/ -type f ! -name "en-US.pak" -delete
-```
-
-### Step 4: 結果サマリ表示
-
-```bash
-echo ""
-echo "=== Build Output ==="
-ls -lh build/GT_esmini/Release/*.dll build/GT_esmini/Release/*.exe 2>/dev/null
-echo ""
-echo "=== Package Output ==="
-ls -lh dist/GT_Sim_v<VERSION>/ 2>/dev/null | head -20
-ls -lh dist/GT_Sim_v<VERSION>.zip 2>/dev/null
-echo ""
-echo "起動方法: dist/GT_Sim_v<VERSION>/GT_Sim.exe をダブルクリック"
-```
+**起動方法**: `dist/GT_Sim_v<VERSION>/GT_Sim.exe` をダブルクリック
 
 ## アーキテクチャ
 
 ```
-GT_Sim.exe (Electron)
+GT_Sim.exe (Electron シェル)
   └→ child process: server/gt_sim_web.exe (FastAPI + uvicorn, PyInstaller製)
        ├→ React SPA を http://127.0.0.1:8000 で提供
        ├→ REST API (/api/*)
@@ -150,26 +87,35 @@ GT_Sim.exe (Electron)
        └→ subprocess: bin/GT_Sim.exe (C++シミュレーションエンジン)
 ```
 
+> **ELECTRON_RUN_AS_NODE**: VS Code内から実行する場合、この環境変数が`1`にセットされているとElectronがNode.jsモードで動作する。Electron起動時は`delete env.ELECTRON_RUN_AS_NODE`が必須（`dev.mjs`では対策済み）。
+
 ## 主要ファイル
 
-- `GT_esmini/web/pyinstaller/build_package.py` — メインビルドスクリプト（フロントエンド+PyInstaller+アセンブリ+ZIP）
-- `GT_esmini/web/pyinstaller/gt_sim_web.spec` — PyInstaller spec定義（フロントエンドdistをdatasとしてバンドル）
+- `scripts/build_package.ps1` — **パイプライン実装の単一正解**（このSKILL.mdが委譲する先）
+- `GT_esmini/web/pyinstaller/build_package.py` — フロントエンド+PyInstaller+アセンブリ+ZIPの内部実装
+- `GT_esmini/web/pyinstaller/gt_sim_web.spec` — PyInstaller spec定義
 - `GT_esmini/web/pyinstaller/gt_sim_web_entry.py` — 凍結バイナリのエントリーポイント
 - `GT_esmini/web/electron/` — Electronデスクトップアプリ（main process + preload）
 - `GT_esmini/web/electron/src/main/server.ts` — FastAPI child process管理 + health check
 - `GT_esmini/web/electron/scripts/bundle.mjs` — esbuildバンドルスクリプト
 
-## 出力
+## トラブルシューティング
 
-- `dist/GT_Sim_v<VERSION>/` — 展開済みパッケージディレクトリ（Electron + サーバー + リソース）
-- `dist/GT_Sim_v<VERSION>.zip` — 配布用ZIPアーカイブ
+### DLLロックエラー (`PermissionError`)
+GT_SimまたはPythonプロセスが起動中だとDLL/EXEファイルがロックされビルドが失敗する。
+タスクマネージャーまたは以下で停止してからリトライ:
+```powershell
+Stop-Process -Name "GT_Sim" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "gt_sim_web" -Force -ErrorAction SilentlyContinue
+```
 
-## 注意事項
+### GT_RoadGen.exe が見つからない警告
+Step 1b で `WARNING: GT_RoadGen.exe not found` が出た場合、大規模OpenDRIVE道路の生成が低速になる（またはハング）。
+`-SkipCMake` を使わずにフルビルドするか、`GT_RoadGen` ターゲット単体をビルドしてから再実行する。
 
-- **TSX変更は自動反映**: `build_package.py` がデフォルトで `npm run build` を実行するため、フロントエンドの変更は自動的にパッケージに含まれる。
-- 開発用DB (`GT_esmini/web/gt_sim.db`) はパッケージに含まれない。パッケージ版は `PACKAGE_ROOT/data/gt_sim.db` を初回起動時に新規作成する。
-- 各ステップは順番に実行する。前のステップが失敗した場合は次に進まない。
-- エラーが発生した場合はログを確認し、原因をユーザーに報告する。
-- **ELECTRON_RUN_AS_NODE**: VS Code内から実行する場合、この環境変数が`1`にセットされているとElectronがNode.jsモードで動作する。Electron起動時は`delete env.ELECTRON_RUN_AS_NODE`が必須（`dev.mjs`では対策済み）。
-- **フロントエンド変更時はPyInstallerも再ビルド必須**: `--skip-pyinstaller` を使うとサーバーexe内のフロントエンドが古いままになる。TSX/CSS変更がある場合はPyInstallerをスキップしないこと。
-- **パッケージビルド前にGT_Sim.exeを停止**: Electronやサーバーが起動中だとDLL/EXEがロックされ `PermissionError` になる。ビルド前にアプリを閉じるようユーザーに伝える。
+### フロントエンドビルド失敗
+`GT_esmini/web/frontend/` に入り `npm install` を実行してからリトライ。
+
+### PyInstallerビルド後にフロントエンドが古い
+`-SkipPyInstaller` を使うとサーバーexe内のフロントエンドが古いままになる。
+TSX/CSS変更がある場合はPyInstallerをスキップしないこと。

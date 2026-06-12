@@ -102,7 +102,6 @@ if (-not $SkipCMake) {
             -DUSE_OSI=ON `
             -DUSE_SUMO=ON `
             -DUSE_IMPLOT=ON `
-            -DUSE_SDL2=ON `
             -DGT_ENABLE_SDL2=ON
     }
 
