@@ -1,5 +1,9 @@
 # compare-controllers
 
+> **DEPRECATED (audit SCR-2/WEB-5)** — This skill's scripts have been moved to
+> `archive/frozen_python_verification/`. PythonDriver features are dev-frozen since
+> v0.8; the toolchain is non-functional (dat.py loss, stale imports). Do not invoke.
+
 PythonDriverControllerとDefaultControllerの比較テストを実行します。
 
 ## 使用方法
@@ -42,10 +46,10 @@ cd DriverScript && .venv/Scripts/activate && cd ..
 python -c "import yaml; import matplotlib; import jinja2" 2>/dev/null || pip install pyyaml matplotlib jinja2 --quiet
 
 # 比較テスト実行
-python scripts/compare_python_vs_default.py \
+python archive/frozen_python_verification/scripts/compare_python_vs_default.py \
   --scenario ${1:-}  # 引数があればそれを使用、なければ全シナリオ \
   --gt-sim build/GT_esmini/Release/GT_Sim.exe \
-  --matrix GT_esmini/test/comparison_matrix.yaml \
+  --matrix archive/frozen_python_verification/test/comparison_matrix.yaml \
   --thresholds GT_esmini/test/comparison_thresholds.yaml
 
 # 結果表示
@@ -77,11 +81,11 @@ DefaultControllerとの比較は正常に動作します。
 Windows環境でUnicode文字（絵文字）が表示できない場合があります。
 スクリプト内で`[OK]`/`[NG]`などのASCII文字に置換済みです。
 
-## 関連ファイル
+## 関連ファイル（アーカイブ済み）
 
-- `scripts/compare_python_vs_default.py` - メインオーケストレーター
-- `scripts/comparison_kpis.py` - メトリクス計算
+- `archive/frozen_python_verification/scripts/compare_python_vs_default.py` - メインオーケストレーター（旧: `scripts/compare_python_vs_default.py`）
+- `archive/frozen_python_verification/scripts/comparison_kpis.py` - メトリクス計算（旧: `scripts/comparison_kpis.py`）
 - `scripts/scenario_generator.py` - XOSCバリアント生成
-- `scripts/plot_comparison.py` - プロット生成
-- `GT_esmini/test/comparison_matrix.yaml` - テスト設定
-- `GT_esmini/test/comparison_thresholds.yaml` - 合格基準
+- `archive/frozen_python_verification/scripts/plot_comparison.py` - プロット生成（旧: `scripts/plot_comparison.py`）
+- `archive/frozen_python_verification/test/comparison_matrix.yaml` - テスト設定（旧: `GT_esmini/test/comparison_matrix.yaml`）
+- `GT_esmini/test/comparison_thresholds.yaml` - 合格基準（アクティブ: webバックエンドが読み書き）

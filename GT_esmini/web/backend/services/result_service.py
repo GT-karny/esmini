@@ -13,7 +13,7 @@ from GT_esmini.web.backend.models.result import ResultFileInfo, ResultMeta
 
 logger = logging.getLogger(__name__)
 
-# Ensure scripts/ is importable for dat.py and comparison_kpis.py
+# Ensure scripts/ is importable for dat.py
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 if str(GT_SCRIPTS_DIR) not in sys.path:

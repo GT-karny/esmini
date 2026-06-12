@@ -92,7 +92,7 @@ graph TD
 - **Focus areas**: ManualDrive / KinematicController / LHT junction behavior (recent hotspots).
 
 ### Legacy (frozen)
-`scripts/compare_python_vs_default.py` and `GT_esmini/test/comparison_{matrix,thresholds}.yaml` remain in-tree but target PythonDriverController which is development-frozen (see Section 4). Not used as a regression gate anymore.
+The PythonDriver comparison/verification toolchain (compare_python_vs_default, comparison_kpis, plot_comparison, validate_realdriver_feature_results, run_comparison_test, comparison_matrix.yaml) has been moved to `archive/frozen_python_verification/` (audit SCR-2). Not maintained; imports are stale. `GT_esmini/test/comparison_thresholds.yaml` was NOT moved — it is actively read/written by the web backend (`config.py` `load_thresholds`/`save_thresholds`).
 
 ## 6. Package Build (EXE Distribution)
 
