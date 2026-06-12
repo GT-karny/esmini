@@ -1,0 +1,11 @@
+catalog_id: 07_oncoming_yield__p014
+labels:
+- id: gap_acceptance_valid
+  question: ギャップ判断は妥当か？（受け入れ／拒否の判断が交通状況に照らして正しいか）
+  type: pass_fail_discussion
+- id: stop_creep_natural
+  question: 停止・クリープ挙動は自然か？（不自然な急停止やためらいがないか）
+  type: pass_fail_discussion
+- id: safety_margin_adequate
+  question: 対向車との安全マージンは十分か？（割り込み・幅寄せがないか）
+  type: pass_fail_discussion

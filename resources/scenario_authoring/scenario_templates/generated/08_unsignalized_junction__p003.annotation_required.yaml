@@ -1,0 +1,11 @@
+catalog_id: 08_unsignalized_junction__p003
+labels:
+- id: yield_correctness
+  question: 優先関係に従った譲り判断は正しいか？（優先側なら不要な停止をせず、非優先側なら確実に譲るか）
+  type: pass_fail_discussion
+- id: gap_judgment
+  question: 交差車との通過タイミング（ギャップ）判断は妥当か？
+  type: pass_fail_discussion
+- id: no_deadlock
+  question: デッドロック（相互停止のまま動けない）に陥らず、交差点を通過できたか？
+  type: pass_fail_discussion

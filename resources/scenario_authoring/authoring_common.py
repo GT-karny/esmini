@@ -11,6 +11,7 @@ resolves to resources/scenario_authoring/ (this module's directory), making
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 import subprocess
 from pathlib import Path
@@ -51,28 +52,42 @@ def git_short_hash() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Deterministic xodr header date
+# Deterministic header dates (xodr <header> AND xosc <FileHeader>)
 # ---------------------------------------------------------------------------
 
-# scenariogeneration stamps the OpenDRIVE <header date="..."> with
-# datetime.now() (no override hook), which makes regeneration non-reproducible.
-# Generators call normalize_header_date() right after write_xml() with a fixed
-# per-catalog date so committed artifacts are byte-stable across regenerations.
+# scenariogeneration stamps BOTH the OpenDRIVE <header date="..."> and the
+# OpenSCENARIO <FileHeader ... date="..."> with datetime.now() unless an explicit
+# date is supplied, which makes regeneration non-reproducible. Two complementary
+# guards keep committed artifacts byte-stable across regenerations:
+#   * xosc generators pass PINNED_XOSC_DATE to xosc.Scenario(creation_date=...),
+#     which stamps a fixed ISO date directly (the clean, primary path).
+#   * normalize_header_date() is a byte-level safety net that rewrites whichever
+#     date attribute is present (xodr <header> OR xosc <FileHeader>) to a fixed
+#     value, used by the xodr generators (scenariogeneration's xodr writer has no
+#     creation_date hook) and available to xosc generators as a backstop.
 
-_HEADER_DATE_RE = re.compile(rb'(<header\b[^>]*\bdate=")[^"]*(")')
+# A single fixed datetime for every committed scenario-authoring artifact, so all
+# of the layer-1 catalog shares one reproducible stamp.
+PINNED_XOSC_DATE = dt.datetime(2026, 6, 13, 0, 0, 0)
+
+# Matches either  <header ... date="...">  (OpenDRIVE)  or
+#                 <FileHeader ... date="...">  (OpenSCENARIO).
+_HEADER_DATE_RE = re.compile(rb'(<(?:header|FileHeader)\b[^>]*\bdate=")[^"]*(")')
 
 
-def normalize_header_date(xodr_path: Path, date_str: str) -> None:
-    """Rewrite the <header date="..."> attribute of *xodr_path* to *date_str*.
+def normalize_header_date(path: Path, date_str: str) -> None:
+    """Rewrite the header date attribute of *path* to *date_str*.
 
+    Handles BOTH the OpenDRIVE ``<header date="...">`` and the OpenSCENARIO
+    ``<FileHeader ... date="...">`` attributes (whichever the file carries).
     Makes scenariogeneration output reproducible (it otherwise stamps
     datetime.now()). Operates on raw bytes to avoid reformatting the rest of the
     document (so default-path output stays byte-identical to the committed file).
     """
-    data = xodr_path.read_bytes()
+    data = path.read_bytes()
     new = _HEADER_DATE_RE.sub(rb"\g<1>" + date_str.encode("utf-8") + rb"\g<2>", data, count=1)
     if new != data:
-        xodr_path.write_bytes(new)
+        path.write_bytes(new)
 
 
 # ---------------------------------------------------------------------------
@@ -158,3 +173,159 @@ def make_virtual_driver_controller() -> xosc.Controller:
     props = xosc.Properties()
     props.add_property("esminiController", "VirtualDriverController")
     return xosc.Controller("VirtualDriverController", props)
+
+
+# ---------------------------------------------------------------------------
+# Scenario assembly helpers (shared by the scene generators 07/08)
+# ---------------------------------------------------------------------------
+
+def step_dynamics() -> xosc.TransitionDynamics:
+    """A zero-time step transition (instantaneous speed change).
+
+    Used for the constant-speed NPC launches and the Ego initial-speed set, so
+    actors snap to their target speed deterministically rather than ramping.
+    """
+    return xosc.TransitionDynamics(
+        xosc.DynamicsShapes.step, xosc.DynamicsDimension.time, 0.0
+    )
+
+
+def lane_pos(road_id: int, lane_id: int, s: float, offset: float = 0.0) -> xosc.LanePosition:
+    """Convenience wrapper for xosc.LanePosition with int road/lane ids.
+
+    scenariogeneration takes lane_id / road_id as strings; this keeps the
+    generators readable (they reason about ids as integers).
+    """
+    return xosc.LanePosition(s, offset, str(lane_id), str(road_id))
+
+
+def make_route(name: str, waypoints: list[xosc.LanePosition]) -> xosc.Route:
+    """Build an explicit (deterministic) Route through the given waypoints.
+
+    All waypoints use routeStrategy="shortest" — the same strategy the
+    hand-authored junction scenarios use (05_anticipation/*.xosc). The route is
+    what makes NPC/ego junction traversal deterministic instead of leaving the
+    turn choice to esmini's default junction selection.
+    """
+    route = xosc.Route(name)
+    for wp in waypoints:
+        route.add_waypoint(wp, xosc.RouteStrategy.shortest)
+    return route
+
+
+def add_routed_actor_init(
+    init: xosc.Init,
+    name: str,
+    teleport: xosc.LanePosition,
+    route: xosc.Route,
+    init_speed: float,
+) -> None:
+    """Add the standard Init actions for a routed actor: teleport + route + speed.
+
+    Order mirrors the hand-authored verification xoscs (teleport, then route,
+    then speed). Used for both the ego (caller adds ActivateControllerAction
+    afterwards) and the NPCs.
+    """
+    init.add_init_action(name, xosc.TeleportAction(teleport))
+    init.add_init_action(name, xosc.AssignRouteAction(route))
+    init.add_init_action(name, xosc.AbsoluteSpeedAction(init_speed, step_dynamics()))
+
+
+def sim_time_trigger(
+    name: str, t: float, edge: xosc.ConditionEdge = xosc.ConditionEdge.none,
+    triggeringpoint: str = "start",
+) -> xosc.ValueTrigger:
+    """A SimulationTime > t trigger (the only trigger kind these scenes need)."""
+    return xosc.ValueTrigger(
+        name, 0.0, edge,
+        xosc.SimulationTimeCondition(t, xosc.Rule.greaterThan),
+        triggeringpoint=triggeringpoint,
+    )
+
+
+def make_launch_act(
+    act_name: str,
+    launches: list[tuple[str, float, float]],
+) -> xosc.Act:
+    """Build a Story Act that launches each NPC at a per-actor release time.
+
+    *launches* is a list of (actor_name, release_time_s, target_speed) triples.
+    Each actor is teleported at rest in Init, then this Act sets it to a constant
+    target speed (step dynamics) once SimulationTime exceeds release_time. This is
+    how oncoming/cross arrival timing is controlled deterministically without
+    ever overflowing the fixed-length approach leg: the actor waits in place and
+    launches late rather than being teleported implausibly far back.
+
+    The Act starts at t>0; each launch Event carries its own SimulationTime
+    trigger.
+    """
+    act = xosc.Act(act_name, sim_time_trigger(f"{act_name}_start", 0.0))
+    for actor_name, release_t, speed in launches:
+        mg = xosc.ManeuverGroup(f"{actor_name}_mg")
+        mg.add_actor(actor_name)
+        man = xosc.Maneuver(f"{actor_name}_launch")
+        ev = xosc.Event(f"{actor_name}_go", xosc.Priority.overwrite)
+        ev.add_action(
+            f"{actor_name}_speed",
+            xosc.AbsoluteSpeedAction(speed, step_dynamics()),
+        )
+        ev.add_trigger(sim_time_trigger(f"{actor_name}_trig", release_t))
+        man.add_event(ev)
+        mg.add_maneuver(man)
+        act.add_maneuver_group(mg)
+    return act
+
+
+def assemble_scenario(
+    name: str,
+    description: str,
+    roadfile_rel: str,
+    entities: xosc.Entities,
+    init: xosc.Init,
+    stop_time_s: float,
+    launch_act: xosc.Act | None = None,
+) -> xosc.Scenario:
+    """Assemble a complete OpenSCENARIO object with a fixed creation date.
+
+    * roadfile_rel: the xodr path RELATIVE to the scenario file location
+      (../../road_catalog/generated/<road>.xodr).
+    * stop_time_s: SimulationTime > stop_time_s ends the run.
+    * launch_act: optional Story Act (from make_launch_act) for delayed NPC
+      launches.
+
+    The creation date is pinned (PINNED_XOSC_DATE) so the serialized
+    <FileHeader date="..."> is byte-stable across regenerations.
+    """
+    stop_trigger = sim_time_trigger(
+        "stop", stop_time_s, xosc.ConditionEdge.rising, triggeringpoint="stop"
+    )
+    sb = xosc.StoryBoard(init, stop_trigger)
+    if launch_act is not None:
+        story = xosc.Story("LaunchStory")
+        story.add_act(launch_act)
+        sb.add_story(story)
+
+    rn = xosc.RoadNetwork(roadfile=roadfile_rel)
+    return xosc.Scenario(
+        name,
+        "GT_esmini",
+        xosc.ParameterDeclarations(),
+        entities,
+        sb,
+        rn,
+        xosc.Catalog(),
+        osc_minor_version=1,
+        creation_date=PINNED_XOSC_DATE,
+    )
+
+
+def write_scenario(scenario: xosc.Scenario, xosc_path: Path) -> None:
+    """Write *scenario* to *xosc_path* and pin its <FileHeader> date.
+
+    creation_date already pins the date inside the Scenario, but
+    normalize_header_date() is applied as a belt-and-braces backstop so the
+    committed file's date is guaranteed fixed regardless of scenariogeneration
+    version drift in how creation_date is serialized.
+    """
+    scenario.write_xml(str(xosc_path))
+    normalize_header_date(xosc_path, PINNED_XOSC_DATE.strftime("%Y-%m-%dT%H:%M:%S"))

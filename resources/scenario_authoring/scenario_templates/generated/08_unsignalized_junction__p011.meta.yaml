@@ -1,0 +1,20 @@
+catalog_id: 08_unsignalized_junction__p011
+kind: scenario
+road_ref: t_junction_priority__a90
+phase: 3e
+tests_for: unsignalized priority compliance with ego on the minor (yield) approach;
+  probes the simultaneous arrival (tightest conflict) (cross_arrival_offset=+0s)
+expected_behavior: Ego must yield (turning off the minor (yield) leg onto the main
+  road); let the priority cross vehicle (straight through on the main road) pass,
+  then proceed. No cut-off, no deadlock.
+evaluation: annotation
+generator:
+  script: scenario_templates/gen_08_unsignalized.py
+  params:
+    junction: t_junction_priority__a90
+    ego_on_priority: false
+    cross_arrival_offset_s: 0.0
+    speed: 11.0
+    ego_move: turning off the minor (yield) leg onto the main road
+    cross_move: straight through on the main road
+generated_at_commit: 33ffaf18

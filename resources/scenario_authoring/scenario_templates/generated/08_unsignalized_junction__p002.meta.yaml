@@ -1,0 +1,20 @@
+catalog_id: 08_unsignalized_junction__p002
+kind: scenario
+road_ref: 4way_priority__main_ns
+phase: 3e
+tests_for: unsignalized priority compliance with ego on the priority approach; probes
+  the simultaneous arrival (tightest conflict) (cross_arrival_offset=+0s)
+expected_behavior: Ego has right-of-way (straight through on the N-S priority road);
+  proceed without unnecessary yielding while the cross vehicle (straight through on
+  the E-W minor road) gives way. No deadlock.
+evaluation: annotation
+generator:
+  script: scenario_templates/gen_08_unsignalized.py
+  params:
+    junction: 4way_priority__main_ns
+    ego_on_priority: true
+    cross_arrival_offset_s: 0.0
+    speed: 11.0
+    ego_move: straight through on the N-S priority road
+    cross_move: straight through on the E-W minor road
+generated_at_commit: 33ffaf18
