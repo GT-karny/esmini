@@ -1,5 +1,11 @@
 # GT_esmini 技術的負債監査 & 開発ロードマップ
 
+> **進捗 2026-06-13**: 週1(R0止血 + R1ビルド/CIゲート)を `feature/tech-debt-week1` で完了(13コミット, `2208e5c0`..`047d7000`)。
+> 解消: SCR-1, CTL-2, CTL-3(キー衝突部分), CORE-1(セグフォルト移植), CORE-7, MSC-3, FE-1, VD-7, BLD-1(EXCLUDE_FROM_ALL), BLD-2, BLD-3, BLD-4, BLD-5, BLD-6, MSC-1, MSC-7, TST-1(単体ゲート), TST-8(回帰ゲートスクリプト), TST-9, Critic-1, Critic-2(一部)。
+> 検証: ALLビルド緑 / 単体32テスト緑 / 回帰ゲートPASS(挙動バッチ 8 pass / 2 fail は非ゲートWARN) / フロントエンドはdist削除→再生成を実証。
+> **新規発見(R3/TSTへ追加)**: `GT_esmini_Integration_*` 38件は作成時から一度も走っていない — autolight系5本は存在しない `fabriksvag.xodr` を参照、凍結系30本は VehicleCatalog 解決不能。さらにテストバイナリ隣へのDLLステージング欠如(修正済み)。
+> 残課題: Protocol B(FMU)本修理=GT_esminiLib_staticリンク化、R2(凍結Python切離し)以降はロードマップどおり。
+
 - 実施日: 2026-06-13(HEAD `8773c463`, branch `dev_v0.12`)
 - 手法: 11領域並列監査 + 全指摘の敵対的再検証(25エージェント、1,036ツール実行)。**99件全件が証拠付きで確認済み**(refuted 0件。一部は数値補正のみの adjusted)
 - 重大度: high 19 / medium 44 / low 36
