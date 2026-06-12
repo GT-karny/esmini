@@ -25,6 +25,17 @@ namespace gt_esmini
 {
 namespace
 {
+// Normalize heading to [-π, π].
+// PythonDriver carries identical logic in SyncObjectPoseFromRealVehicle /
+// SyncGatewayObjectState / RegenerateWaypointsFor*; keep as a shared helper
+// here rather than repeating the while-loop at every call site.
+static double NormalizeHeadingPi(double h)
+{
+    while (h > M_PI)  h -= 2.0 * M_PI;
+    while (h < -M_PI) h += 2.0 * M_PI;
+    return h;
+}
+
 WaypointData MakeWaypointFromPosition(const roadmanager::Position& pos, double laneOffsetOverride)
 {
     WaypointData wp;
@@ -336,26 +347,36 @@ scenarioengine::OSCPrivateAction* ControllerRealDriver::GetRunningPrivateActionB
     // 1. Search initActions_
     for (auto* action : object_->initActions_)
     {
-        if (action->action_type_ == type &&
-            action->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        if (!action || action->GetBaseType() != scenarioengine::OSCAction::BaseType::PRIVATE)
         {
-            return action;
+            continue;
+        }
+        auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+        if (pa->action_type_ == type &&
+            pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        {
+            return pa;
         }
     }
 
     // 2. Search objectEvents_
     for (auto* event : object_->objectEvents_)
     {
+        if (!event)
+        {
+            continue;
+        }
         for (auto* action : event->action_)
         {
-            if (action->GetBaseType() == scenarioengine::OSCAction::BaseType::PRIVATE)
+            if (!action || action->GetBaseType() != scenarioengine::OSCAction::BaseType::PRIVATE)
             {
-                auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
-                if (pa->action_type_ == type &&
-                    pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
-                {
-                    return pa;
-                }
+                continue;
+            }
+            auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+            if (pa->action_type_ == type &&
+                pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+            {
+                return pa;
             }
         }
     }
@@ -661,10 +682,13 @@ void ControllerRealDriver::SyncObjectPoseFromRealVehicle()
 
     double dx, dy, dz_unused;
     real_vehicle_.GetBodyPositionOffset(dx, dy, dz_unused);
-    const double h = real_vehicle_.heading_;
+    // CRITICAL FIX: Normalize heading to [-π, π] before writing to esmini object
+    // real_vehicle_.heading_ should already be normalized by UpdatePhysics(), but we normalize
+    // again here as a safety measure to ensure esmini always receives correct heading range
+    const double h = NormalizeHeadingPi(real_vehicle_.heading_);
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
-    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
+    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, h);
     object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
 }
 
@@ -677,7 +701,8 @@ void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double c
 
     double dx, dy, dz;
     real_vehicle_.GetBodyPositionOffset(dx, dy, dz);
-    const double h = real_vehicle_.heading_;
+    // CRITICAL FIX: Normalize heading to [-π, π] before writing to gateway
+    const double h = NormalizeHeadingPi(real_vehicle_.heading_);
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
 
@@ -686,7 +711,7 @@ void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double c
         real_vehicle_.posX_ + w_dx,
         real_vehicle_.posY_ + w_dy,
         real_vehicle_.posZ_ + dz,
-        real_vehicle_.heading_,
+        h,
         combinedPitch,
         combinedRoll);
     object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
@@ -960,8 +985,10 @@ void ControllerRealDriver::RegenerateWaypointsForLaneOffset(double targetOffset,
 
     if (!object_) return;
 
+    // Normalize heading before using for waypoint generation
+    const double normalized_heading_lo = NormalizeHeadingPi(real_vehicle_.heading_);
     roadmanager::Position posBase;
-    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading_lo,
                               roadmanager::Position::PosMode::H_ABS);
     const double startOffset = posBase.GetOffset();
     const double totalDist = realdetail::kWaypointTotalDistance;
@@ -1061,13 +1088,15 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
     if (!object_) return;
 
     double speed = std::max(object_->GetSpeed(), 5.0); // Minimum 5 m/s for calculation
-    double transitionDist = speed * transitionDuration;
+    double transitionDist = speed * std::max(transitionDuration, 0.1);
     const double totalDist = realdetail::kWaypointTotalDistance;   // Generate 500m ahead
 
+    // Normalize heading before using for waypoint generation
+    const double normalized_heading_lc = NormalizeHeadingPi(real_vehicle_.heading_);
     // [GT_MOD] Use real_vehicle_ position as base, NOT object_->pos_.
     // object_->pos_ may already be overwritten by LaneChangeAction at this point.
     roadmanager::Position posBase;
-    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading_lc,
                               roadmanager::Position::PosMode::H_ABS);
     int currentLaneId = posBase.GetLaneId();
 

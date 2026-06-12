@@ -61,6 +61,7 @@ graph TD
   ```
 - **Output**: `build/GT_esmini/Release/GT_esminiLib.dll`
 - **Note**: `esmini_fmu` is excluded from ALL_BUILD (`add_subdirectory(GT_OSMP_FMU EXCLUDE_FROM_ALL)`) — see Protocol B status.
+- **Embedded Python**: `GT_ENABLE_EMBEDDED_PYTHON` is a real option, **default OFF** (audit SUB-1) — dev builds need no Python3 dev headers and PythonDriverController is excluded. Distribution keeps the frozen stack: `build_package.ps1` configures with `-DGT_ENABLE_EMBEDDED_PYTHON=ON`.
 
 #### **Protocol B: FMU Export (Integration) — KNOWN BROKEN**
 - **Status**: `GT_OSMP_FMU/CMakeLists.txt` hand-copies a GT source list that has drifted from `GT_esmini/CMakeLists.txt`; the `esmini_fmu` target cannot link (audit BLD-1/SUB-3). Repair plan: link `GT_esminiLib_static` instead of re-listing sources, then re-enable in ALL_BUILD.
@@ -72,9 +73,10 @@ graph TD
 > **Development Freeze**: Python-related features (PythonDriverController, Embedded Python, DriverScript) are frozen as of v0.8. Existing functionality remains available but no new features are planned.
 
 - **Runtime**: `DriverScript/.venv` (Python 3.12)
-- **Dependencies**: `DriverScript/requirements.txt`
-- **Web backend**: `GT_esmini/web/` (FastAPI + SQLite)
+- **Dependencies**: `DriverScript/requirements.txt`; scenario-authoring tooling pins live in `resources/scenario_authoring/requirements-authoring.txt` (build-time only, dev-freeze does not apply)
+- **Web backend**: `GT_esmini/web/` (FastAPI + SQLite). Decoupled from DriverScript at import time (audit WEB-6/SCR-7): `absolutize_scenario_paths` is vendored in `backend/services/xosc_paths.py`, the `EsminiRMLib` ctypes wrapper lives in `GT_esmini/scripts/rm_lib.py` (DriverScript keeps a shim), and PythonDriver tooling is lazy-imported. The server starts without DriverScript present.
 - **Electron desktop**: `GT_esmini/web/electron/` (Electron wrapper for Web UI)
+- **C++ embedded interpreter**: opt-in via `-DGT_ENABLE_EMBEDDED_PYTHON=ON` (see Protocol A note)
 - **Rule**: Never use system Python directly. Always activate or reference the venv.
 
 ## 5. Test Strategy
@@ -86,13 +88,15 @@ graph TD
 | **Unit** | `scripts/run_gt_tests.ps1` | ctest `test_ScenarioReaderParsing` (8 unit sources: ScenarioReader, RealDriver utils, LonProfilePlanner, VD PIDPurePursuit / AutoIndicator / TrafficPolicies). Green; runs in CI. |
 | **Pre-merge regression** | `scripts/run_regression_gate.ps1` | Step 1 = unit gate (hard). Step 2 = VirtualDriver behavioral batch (`gt_sim_test.py batch resources/xosc/verification/phase3_batch.yaml`, in-process via `GT_esminiLib.dll`, venv `DriverScript/.venv`). Behavioral fails WARN by default; `-FailOnBehavioral` gates. Requires a completed Release build. |
 
+| **Scenario catalog (F1)** | `DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/validate_catalog.py` | Generated road/scenario catalog: esmini headless EXIT==0 road probes + gt_sim_test in-process runs (VD telemetry frames>0). Batch manifest: `gt_sim_test.py batch resources/scenario_authoring/scenario_templates/generated/catalog_batch.yaml --out test_results/web/<batch_id>` → runs auto-register in the annotation UI. See `resources/scenario_authoring/README.md`. |
+
 - **Build pass** (Protocol A) remains the primary gate; **smoke run** (`GT_Sim.exe` on representative xosc/xodr) for viewer/OSI sanity.
 - **CI** (`.github/workflows/ci.yml` test job) runs the GT unit ctest step after upstream `run_tests.sh` (audit TST-1 closed).
 - **Known-broken (opt-in)**: `GT_esmini_Integration_*` GT_Loader tests never ran successfully — the autolight set references a nonexistent `fabriksvag.xodr`, the frozen pythondriver/realdriver sets fail VehicleCatalog resolution. Re-author under roadmap R3/TST (`run_gt_tests.ps1 -IncludeIntegration` to run them).
 - **Focus areas**: ManualDrive / KinematicController / LHT junction behavior (recent hotspots).
 
 ### Legacy (frozen)
-`scripts/compare_python_vs_default.py` and `GT_esmini/test/comparison_{matrix,thresholds}.yaml` remain in-tree but target PythonDriverController which is development-frozen (see Section 4). Not used as a regression gate anymore.
+The PythonDriver comparison/verification toolchain (compare_python_vs_default, comparison_kpis, plot_comparison, validate_realdriver_feature_results, run_comparison_test, comparison_matrix.yaml) has been moved to `archive/frozen_python_verification/` (audit SCR-2). Not maintained; imports are stale. `GT_esmini/test/comparison_thresholds.yaml` was NOT moved — it is actively read/written by the web backend (`config.py` `load_thresholds`/`save_thresholds`).
 
 ## 6. Package Build (EXE Distribution)
 

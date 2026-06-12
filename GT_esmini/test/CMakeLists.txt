@@ -88,7 +88,7 @@ add_custom_command(
 # GT_esminiLib.dll imports python312.dll (embedded Python) and, with GT_ENABLE_SDL2,
 # SDL2.dll. Without them beside the test binaries every test process dies at load
 # time (0xc0000135) and Windows pops a system-error dialog per test. Stage them.
-if(WIN32 AND EXISTS "${GT_EMBEDDED_PYTHON_HOME}/python312.dll")
+if(WIN32 AND GT_ENABLE_EMBEDDED_PYTHON AND EXISTS "${GT_EMBEDDED_PYTHON_HOME}/python312.dll")
     add_custom_command(
         TARGET ${LOADER_TARGET}
         POST_BUILD

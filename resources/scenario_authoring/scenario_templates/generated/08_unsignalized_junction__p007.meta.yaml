@@ -1,0 +1,20 @@
+catalog_id: 08_unsignalized_junction__p007
+kind: scenario
+road_ref: t_junction_priority__a90
+phase: 3e
+tests_for: unsignalized priority compliance with ego on the priority approach; probes
+  the cross-first (cross clears before ego) (cross_arrival_offset=-2s)
+expected_behavior: Ego has right-of-way (straight through on the main road); proceed
+  without unnecessary yielding while the cross vehicle (turning off the minor (yield)
+  leg onto the main road) gives way. No deadlock.
+evaluation: annotation
+generator:
+  script: scenario_templates/gen_08_unsignalized.py
+  params:
+    junction: t_junction_priority__a90
+    ego_on_priority: true
+    cross_arrival_offset_s: -2.0
+    speed: 11.0
+    ego_move: straight through on the main road
+    cross_move: turning off the minor (yield) leg onto the main road
+generated_at_commit: 33ffaf18

@@ -17,15 +17,12 @@ Python utility scripts. Always execute via `DriverScript/.venv/Scripts/python.ex
 | `plot.py` | General plotting utilities |
 | `plot_csv.py` | Plot from CSV data |
 | `plot_dat.py` | Plot directly from `.dat` files |
-| `plot_comparison.py` | Generate comparison plots for controller tests |
 | `osiviewer.py` | OSI trace viewer |
 
 ### Testing & Comparison
-| Script | Role |
-| :--- | :--- |
-| `compare_python_vs_default.py` | **Main orchestrator** — PythonDriver vs Default comparison test |
-| `comparison_kpis.py` | Metric calculation (trajectory, speed, lane keeping, route) |
-| `validate_realdriver_feature_results.py` | RealDriver feature validation |
+
+> Frozen toolchain moved to `archive/frozen_python_verification/scripts/`.
+> See `archive/frozen_python_verification/README.md` for context (audit SCR-2).
 
 ### Scenario Generation
 | Script | Role |

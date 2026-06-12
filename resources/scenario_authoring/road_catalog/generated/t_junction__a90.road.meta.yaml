@@ -1,0 +1,15 @@
+catalog_id: t_junction__a90
+kind: road
+geometry_type: G4
+signage: none
+priority: none
+generator:
+  script: road_catalog/gen_t_junction.py
+  params:
+    angle_deg: 90.0
+    leg_length: 100.0
+    lanes: 1
+    signal: false
+    priority_main: false
+    signage: true
+generated_at_commit: '48325089'

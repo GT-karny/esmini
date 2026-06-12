@@ -85,12 +85,16 @@ else:
     DB_PATH = REPO_ROOT / "GT_esmini" / "web" / "gt_sim.db"
     RESOURCES_DIR = REPO_ROOT / "resources"
 
-# Ensure scripts/ is importable
-if str(SCRIPTS_DIR) not in sys.path:
+# Ensure scripts/ is importable.
+# Each insert is guarded so the web server starts even if a directory is absent
+# (e.g. packaged layouts without DriverScript, or CI without DriverScript checkout).
+if SCRIPTS_DIR.is_dir() and str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-if str(GT_SCRIPTS_DIR) not in sys.path:
+if GT_SCRIPTS_DIR.is_dir() and str(GT_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(GT_SCRIPTS_DIR))
-if str(DRIVERSCRIPT_DIR) not in sys.path:
+# DriverScript is frozen (dev-frozen v0.8). Only add to path when present so
+# import-time coupling cannot crash the server if the checkout is absent.
+if DRIVERSCRIPT_DIR.is_dir() and str(DRIVERSCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(DRIVERSCRIPT_DIR))
 
 # Python script scan directories (relative to REPO_ROOT/PACKAGE_ROOT)

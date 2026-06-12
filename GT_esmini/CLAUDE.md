@@ -79,6 +79,8 @@ Key files: `src/scenario/GT_TrafficSignalController.*`
 
 Python-related features (PythonDriverController, Embedded Python, DriverScript) are **development-frozen** as of v0.8. Existing functionality remains available but no new features are planned.
 
+Since the R2 decoupling (audit SUB-1), the embedded-Python stack is **opt-in**: `GT_ENABLE_EMBEDDED_PYTHON` defaults OFF (no Python3 dev headers needed; PythonDriverController excluded from the build). Distribution packages configure with `-DGT_ENABLE_EMBEDDED_PYTHON=ON` via `scripts/build_package.ps1`.
+
 ## 10. Documentation Policy
 
 Human docs under `GT_esmini/docs/` remain supplementary. Architectural truth is this file + code.

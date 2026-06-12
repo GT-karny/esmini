@@ -100,3 +100,6 @@ thirdparty/osi-python/
 
 # Scratch / exploratory work (not for review)
 scratch/
+
+# Scenario authoring: regenerated validation report (not committed)
+resources/scenario_authoring/validate_report.md
