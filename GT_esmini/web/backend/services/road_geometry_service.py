@@ -99,8 +99,10 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
         logger.warning("esminiRMLib not found: %s", lib_path)
         return _empty_geometry()
 
-    # Import lazily to avoid import errors when DLL is missing
-    from realdriver.rm_lib import EsminiRMLib
+    # Import lazily to avoid import errors when DLL is missing.
+    # GT_SCRIPTS_DIR (GT_esmini/scripts/) is on sys.path via config.py; rm_lib.py
+    # lives there now (relocated from DriverScript/realdriver/ -- audit SCR-7).
+    from rm_lib import EsminiRMLib
 
     boundaries: list[dict] = []
     signs: list[dict] = []

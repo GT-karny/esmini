@@ -8,9 +8,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from runtime_api import GTExecutionPlanner
-
 from GT_esmini.web.backend.config import REPO_ROOT, SCENARIOS_DIR, TEMP_FILE_TTL_SECONDS, TEMP_SCENARIOS_DIR
+from GT_esmini.web.backend.services.xosc_paths import absolutize_scenario_paths
 from GT_esmini.web.backend.models.scenario import (
     ScenarioDetail,
     ScenarioEntity,
@@ -100,7 +99,7 @@ def save_temp_scenario(xml_content: str) -> dict:
     # Absolutize all relative paths (LogicFile, SceneGraphFile, CatalogLocations)
     # relative to SCENARIOS_DIR, since the temp directory has no correct relative
     # path structure.
-    GTExecutionPlanner.absolutize_scenario_paths(root, str(SCENARIOS_DIR))
+    absolutize_scenario_paths(root, str(SCENARIOS_DIR))
 
     # Write the path-modified XML
     tree = ET.ElementTree(root)

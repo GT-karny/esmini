@@ -16,7 +16,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import CONFIG_DIR, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR, SCRIPTS_DIR
+from GT_esmini.web.backend.config import CONFIG_DIR, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
     ControllerConfig,
@@ -27,18 +27,7 @@ from GT_esmini.web.backend.models.simulation import (
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
 from GT_esmini.web.backend.services import vd_recorder
-
-# Import scenario_generator for XOSC variant generation
-import sys
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
-from scenario_generator import generate_python_variant
-
-# Import GTExecutionPlanner for path absolutization
-sys.path.insert(0, str(REPO_ROOT / "DriverScript"))
-from runtime_api import GTExecutionPlanner
-
-_planner = GTExecutionPlanner()
+from GT_esmini.web.backend.services.xosc_paths import absolutize_scenario_paths
 
 # In-memory tracking of job_id -> Popen (registered at subprocess start to avoid race)
 _running_procs: dict[str, subprocess.Popen] = {}
@@ -64,7 +53,7 @@ def _absolutize_xosc(variant_path: Path, source_dir: str) -> None:
     import xml.etree.ElementTree as ET
     tree = ET.parse(variant_path)
     root = tree.getroot()
-    _planner.absolutize_scenario_paths(root, source_dir)
+    absolutize_scenario_paths(root, source_dir)
     tree.write(variant_path, encoding="utf-8", xml_declaration=True)
 
 
@@ -355,6 +344,13 @@ def _prepare_xosc(
 
     if controller.controller_type == "python":
         variant_path = output_dir / f"{scenario_path.stem}_python.xosc"
+        try:
+            from scenario_generator import generate_python_variant  # noqa: PLC0415
+        except ImportError as exc:
+            raise RuntimeError(
+                "PythonDriverController tooling requires the frozen DriverScript/scripts "
+                "checkout (dev-frozen since v0.8)"
+            ) from exc
         generate_python_variant(
             baseline_xosc=scenario_path,
             output_path=variant_path,
