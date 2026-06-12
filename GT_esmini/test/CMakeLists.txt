@@ -1,6 +1,8 @@
 # GT_esmini Test Directory
 include(${CMAKE_SOURCE_DIR}/support/cmake/common/unittest.cmake)
 
+set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
+
 # Unit Tests
 set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
@@ -52,7 +54,6 @@ if(TARGET Python3::Python)
     target_compile_definitions(${PYTHONDRIVER_TEST_TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
 
     # Add GT_EMBEDDED_PYTHON_HOME if available (for embedded Python path in tests)
-    set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
     if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
         target_compile_definitions(${PYTHONDRIVER_TEST_TARGET} PRIVATE
             GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
@@ -83,6 +84,31 @@ add_custom_command(
         $<TARGET_FILE_DIR:${LOADER_TARGET}>
     COMMENT "Copying GT_esminiLib runtime DLL beside GT_Loader"
 )
+
+# GT_esminiLib.dll imports python312.dll (embedded Python) and, with GT_ENABLE_SDL2,
+# SDL2.dll. Without them beside the test binaries every test process dies at load
+# time (0xc0000135) and Windows pops a system-error dialog per test. Stage them.
+if(WIN32 AND EXISTS "${GT_EMBEDDED_PYTHON_HOME}/python312.dll")
+    add_custom_command(
+        TARGET ${LOADER_TARGET}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${GT_EMBEDDED_PYTHON_HOME}/python312.dll"
+            "${GT_EMBEDDED_PYTHON_HOME}/python3.dll"
+            $<TARGET_FILE_DIR:${LOADER_TARGET}>
+        COMMENT "Staging embedded Python runtime DLLs beside GT test binaries"
+    )
+endif()
+if(WIN32 AND GT_ENABLE_SDL2 AND EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/lib/x64/SDL2.dll")
+    add_custom_command(
+        TARGET ${LOADER_TARGET}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/lib/x64/SDL2.dll"
+            $<TARGET_FILE_DIR:${LOADER_TARGET}>
+        COMMENT "Staging SDL2.dll beside GT test binaries"
+    )
+endif()
 
 # Register Integration Tests
 file(GLOB SCENARIO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/scenarios/*.xosc")

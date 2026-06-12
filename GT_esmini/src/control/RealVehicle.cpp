@@ -170,7 +170,9 @@ void RealVehicle::LoadParameters(const std::string& filename)
 
             auto parse_val = [&](const std::string& key, double& val)
             {
-                if (line.find(key) != std::string::npos) {
+                // Use quoted-key matching to avoid substring collisions (e.g. "gear_ratio"
+                // must NOT match a line containing "reverse_gear_ratio").
+                if (line.find("\"" + key + "\"") != std::string::npos) {
                     size_t colon = line.find(":");
                     if (colon != std::string::npos) {
                         try { val = std::stod(line.substr(colon + 1)); }

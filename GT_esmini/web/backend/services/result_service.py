@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import csv
+import logging
 import sys
 from pathlib import Path
 from typing import Any
 
-from GT_esmini.web.backend.config import SCRIPTS_DIR
+from GT_esmini.web.backend.config import GT_SCRIPTS_DIR, SCRIPTS_DIR
 from GT_esmini.web.backend.models.result import ResultFileInfo, ResultMeta
+
+logger = logging.getLogger(__name__)
 
 # Ensure scripts/ is importable for dat.py and comparison_kpis.py
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+if str(GT_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(GT_SCRIPTS_DIR))
 
 
 def _ensure_csv(output_dir: Path) -> Path | None:
@@ -30,7 +35,8 @@ def _ensure_csv(output_dir: Path) -> Path | None:
         dat.save_csv(extended=True, include_file_refs=True)
         dat.close()
         return csv_path if csv_path.exists() else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("DAT→CSV conversion failed for %s: %s", dat_path, exc, exc_info=True)
         return None
 
 

@@ -58,6 +58,7 @@ if PACKAGED:
     SCENARIOS_DIR = PACKAGE_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = PACKAGE_ROOT / "DriverScript"
     SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
+    GT_SCRIPTS_DIR = PACKAGE_ROOT / "GT_esmini" / "scripts"
     CONFIG_DIR = PACKAGE_ROOT / "config"
     RESULTS_DIR = PACKAGE_ROOT / "data" / "results"
     ANNOTATIONS_DIR = PACKAGE_ROOT / "data" / "annotations"
@@ -74,6 +75,7 @@ else:
     SCENARIOS_DIR = REPO_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = REPO_ROOT / "DriverScript"
     SCRIPTS_DIR = REPO_ROOT / "scripts"
+    GT_SCRIPTS_DIR = REPO_ROOT / "GT_esmini" / "scripts"
     CONFIG_DIR = REPO_ROOT / "GT_esmini" / "config"
     RESULTS_DIR = REPO_ROOT / "test_results" / "web"
     ANNOTATIONS_DIR = REPO_ROOT / "test_results" / "annotations"
@@ -86,6 +88,8 @@ else:
 # Ensure scripts/ is importable
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+if str(GT_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(GT_SCRIPTS_DIR))
 if str(DRIVERSCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(DRIVERSCRIPT_DIR))
 
