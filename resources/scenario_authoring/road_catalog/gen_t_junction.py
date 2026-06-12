@@ -28,8 +28,24 @@ from pathlib import Path
 _AUTHORING_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_AUTHORING_ROOT))
 
-from authoring_common import git_short_hash, write_meta_yaml  # noqa: E402
+from authoring_common import git_short_hash, normalize_header_date, write_meta_yaml  # noqa: E402
+from priority_injector import inject_priority  # noqa: E402
 from scenariogeneration import xodr  # noqa: E402
+
+
+# Pinned OpenDRIVE header dates (scenariogeneration stamps datetime.now() — see
+# normalize_header_date). Frozen so regeneration is byte-reproducible.
+# The default-variant date matches the originally committed t_junction__a90.xodr.
+_PINNED_DATE_DEFAULT = "2026-06-13 07:15:32.140386"
+_PINNED_DATE_PRIORITY = "2026-06-13 00:00:00.000000"
+
+# Signage conventions mirrored from straight_yield_sign.xodr (de: 205=TYPE_GIVE_WAY)
+# so the existing StopYieldSignAware policy recognizes the yield sign.
+_YIELD_TYPE = "205"
+_SIGN_COUNTRY = "de"
+_SIGN_T = -3.57
+_SIGN_ZOFFSET = 1.7
+_SIGN_SETBACK = 8.0
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +57,7 @@ def make_t_junction_road(
     leg_length: float,
     lanes: int,
     add_signal: bool,
+    add_yield_sign: bool = False,
 ) -> xodr.OpenDrive:
     """Return an OpenDrive T-junction with three incoming legs.
 
@@ -95,6 +112,22 @@ def make_t_junction_road(
         )
         road0.add_signal(signal)
 
+    # Priority road: roads 0+1 are the collinear through (priority) road; the
+    # minor leg (road 2) gets a YIELD sign on its approach. The <priority>
+    # records themselves are injected post-generation (see main()).
+    if add_yield_sign:
+        road2.add_signal(xodr.Signal(
+            s=leg_length - _SIGN_SETBACK,
+            t=_SIGN_T,
+            country=_SIGN_COUNTRY,
+            Type=_YIELD_TYPE,
+            subtype="-1",
+            name="yield_minor",
+            dynamic=xodr.Dynamic.no,
+            orientation=xodr.Orientation.positive,
+            zOffset=_SIGN_ZOFFSET,
+        ))
+
     return odr
 
 
@@ -102,13 +135,15 @@ def make_t_junction_road(
 # catalog_id builder
 # ---------------------------------------------------------------------------
 
-def build_catalog_id(angle_deg: int, lanes: int) -> str:
+def build_catalog_id(angle_deg: int, lanes: int, priority_main: bool = False) -> str:
     """Return the catalog_id following §6.3 naming conventions.
 
-    Format: t_junction__a{angle}[_l{lanes}]
+    Format: t_junction[_priority]__a{angle}[_l{lanes}]
     The lanes suffix is omitted when lanes == 1 (the canonical single-lane default).
+    The `_priority` infix is added only when --priority-main is set.
     """
-    base = f"t_junction__a{angle_deg}"
+    stem = "t_junction_priority" if priority_main else "t_junction"
+    base = f"{stem}__a{angle_deg}"
     if lanes != 1:
         base += f"_l{lanes}"
     return base
@@ -150,6 +185,29 @@ def parse_args() -> argparse.Namespace:
         help="Add a traffic signal on the ego approach leg (road 0). Default: off.",
     )
     parser.add_argument(
+        "--priority-main",
+        dest="priority_main",
+        action="store_true",
+        default=False,
+        help="Treat the two collinear through legs (roads 0+1) as the priority "
+             "road: inject <priority> records and (with --signage) add a YIELD "
+             "sign on the minor leg (road 2). Changes catalog_id to "
+             "t_junction_priority__a{angle}.",
+    )
+    parser.add_argument(
+        "--signage",
+        dest="signage",
+        action="store_true",
+        default=True,
+        help="With --priority-main, add a YIELD sign on the minor leg (default ON).",
+    )
+    parser.add_argument(
+        "--no-signage",
+        dest="signage",
+        action="store_false",
+        help="With --priority-main, suppress the minor-leg YIELD sign.",
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=None,
@@ -168,8 +226,13 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     angle_deg_int = int(round(args.angle_deg))
-    catalog_id = build_catalog_id(angle_deg_int, args.lanes)
-    signage = "signal" if args.signal else "none"
+    catalog_id = build_catalog_id(angle_deg_int, args.lanes, args.priority_main)
+    add_yield_sign = args.priority_main and args.signage
+
+    if args.priority_main:
+        signage = "yield" if add_yield_sign else "none"
+    else:
+        signage = "signal" if args.signal else "none"
 
     # Build road network.
     odr = make_t_junction_road(
@@ -177,20 +240,33 @@ def main() -> None:
         leg_length=args.leg_length,
         lanes=args.lanes,
         add_signal=args.signal,
+        add_yield_sign=add_yield_sign,
     )
 
     # Write xodr.
     xodr_path = out_dir / f"{catalog_id}.xodr"
     odr.write_xml(str(xodr_path))
-    print(f"[xodr] -> {xodr_path}  ({len(odr.roads)} roads)")
+
+    # Pin the header date for reproducible output (before any further rewrite).
+    pinned = _PINNED_DATE_PRIORITY if args.priority_main else _PINNED_DATE_DEFAULT
+    normalize_header_date(xodr_path, pinned)
+
+    # Priority road: roads 0+1 are the collinear through (priority) road.
+    # scenariogeneration cannot emit <priority>, so inject post-generation.
+    if args.priority_main:
+        inject_priority(xodr_path, main_incoming_road_ids=[0, 1])
+        print(f"[xodr] -> {xodr_path}  ({len(odr.roads)} roads, priority injected)")
+    else:
+        print(f"[xodr] -> {xodr_path}  ({len(odr.roads)} roads)")
 
     # Write road.meta.yaml.
     meta: dict = {
         "catalog_id": catalog_id,
         "kind": "road",
-        "geometry_type": "G4",
+        "geometry_type": "G4+G13" if args.priority_main else "G4",
         "signage": signage,
-        "priority": "none",
+        "priority": {"main": "through", "injected": True, "main_legs": [0, 1], "minor_legs": [2]}
+                    if args.priority_main else "none",
         "generator": {
             "script": "road_catalog/gen_t_junction.py",
             "params": {
@@ -198,6 +274,8 @@ def main() -> None:
                 "leg_length": args.leg_length,
                 "lanes": args.lanes,
                 "signal": args.signal,
+                "priority_main": args.priority_main,
+                "signage": args.signage,
             },
         },
         "generated_at_commit": git_short_hash(),

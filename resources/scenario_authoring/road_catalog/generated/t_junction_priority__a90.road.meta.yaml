@@ -1,8 +1,15 @@
-catalog_id: t_junction__a90
+catalog_id: t_junction_priority__a90
 kind: road
-geometry_type: G4
-signage: none
-priority: none
+geometry_type: G4+G13
+signage: yield
+priority:
+  main: through
+  injected: true
+  main_legs:
+  - 0
+  - 1
+  minor_legs:
+  - 2
 generator:
   script: road_catalog/gen_t_junction.py
   params:
@@ -10,6 +17,6 @@ generator:
     leg_length: 100.0
     lanes: 1
     signal: false
-    priority_main: false
+    priority_main: true
     signage: true
 generated_at_commit: '48325089'

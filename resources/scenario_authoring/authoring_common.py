@@ -11,6 +11,7 @@ resolves to resources/scenario_authoring/ (this module's directory), making
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,31 @@ def git_short_hash() -> str:
     except Exception:
         pass
     return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic xodr header date
+# ---------------------------------------------------------------------------
+
+# scenariogeneration stamps the OpenDRIVE <header date="..."> with
+# datetime.now() (no override hook), which makes regeneration non-reproducible.
+# Generators call normalize_header_date() right after write_xml() with a fixed
+# per-catalog date so committed artifacts are byte-stable across regenerations.
+
+_HEADER_DATE_RE = re.compile(rb'(<header\b[^>]*\bdate=")[^"]*(")')
+
+
+def normalize_header_date(xodr_path: Path, date_str: str) -> None:
+    """Rewrite the <header date="..."> attribute of *xodr_path* to *date_str*.
+
+    Makes scenariogeneration output reproducible (it otherwise stamps
+    datetime.now()). Operates on raw bytes to avoid reformatting the rest of the
+    document (so default-path output stays byte-identical to the committed file).
+    """
+    data = xodr_path.read_bytes()
+    new = _HEADER_DATE_RE.sub(rb"\g<1>" + date_str.encode("utf-8") + rb"\g<2>", data, count=1)
+    if new != data:
+        xodr_path.write_bytes(new)
 
 
 # ---------------------------------------------------------------------------

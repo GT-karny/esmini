@@ -17,7 +17,9 @@ scenario_authoring/
   validate_catalog.py          # catalog validator — run after any generation step
   README.md                    # this file
   road_catalog/
-    gen_t_junction.py          # G4: T-junction road generator (angle / lanes / length / signal)
+    gen_t_junction.py          # G4: T-junction road generator (angle / lanes / length / signal / priority)
+    gen_4way_priority.py       # G5+G13: 4-way priority junction generator (main pair / lanes / length / signage)
+    priority_injector.py       # OpenDRIVE <priority> post-processor (3e; scenariogeneration cannot emit these)
     generated/                 # generated .xodr + .road.meta.yaml (COMMITTED)
   scenario_templates/
     generated/                 # generated .xosc + .meta.yaml (COMMITTED)
@@ -52,6 +54,43 @@ DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/
 ```powershell
 DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_t_junction.py `
     --angle-deg 60 --leg-length 120 --lanes 2 --signal
+```
+
+### T-junction priority variant (G4 + G13) — through legs are the priority road
+
+`--priority-main` injects OpenDRIVE `<priority>` records (through legs 0+1 = priority road)
+and, with `--signage` (default ON), adds a YIELD sign on the minor leg. Output stem becomes
+`t_junction_priority__a{angle}`.
+
+```powershell
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_t_junction.py --priority-main
+```
+
+### 4-way priority junction (G5 + G13)
+
+Four legs at 0/90/180/270 deg. `--main {ns,ew}` selects which through-pair is the priority
+road. `--signage`/`--no-signage` (default ON) toggles priority-road signs on the main approaches
+and YIELD signs on the minor approaches. The pipeline runs `priority_injector` automatically.
+
+```powershell
+# Default: NS is the priority road, signage ON
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_4way_priority.py
+
+# EW priority, 2 lanes/direction, no signage
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_4way_priority.py `
+    --main ew --lanes 2 --no-signage
+```
+
+### Inject `<priority>` into an arbitrary generated xodr (standalone)
+
+`scenariogeneration` cannot emit OpenDRIVE junction `<priority>` records, so this lean lxml
+post-processor injects them. `--main-roads` lists the incoming road ids forming the priority road.
+Idempotent (re-running replaces prior injected records). Upstream esmini ignores `<priority>`
+(load-safe); Phase 3e adds GT-side extraction that reads these spec-conformant ground-truth records.
+
+```powershell
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/priority_injector.py `
+    resources/scenario_authoring/road_catalog/generated/4way_priority__main_ns.xodr --main-roads 1,3
 ```
 
 ### Validate all generated artifacts
