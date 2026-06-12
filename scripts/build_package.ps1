@@ -102,7 +102,8 @@ if (-not $SkipCMake) {
             -DUSE_OSI=ON `
             -DUSE_SUMO=ON `
             -DUSE_IMPLOT=ON `
-            -DGT_ENABLE_SDL2=ON
+            -DGT_ENABLE_SDL2=ON `
+            -DGT_ENABLE_EMBEDDED_PYTHON=ON  # distribution keeps the v0.8-frozen PythonDriver; dev default is OFF
     }
 
     Write-Step "1" "C++ Build (Release)"

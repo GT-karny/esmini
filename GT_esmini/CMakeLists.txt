@@ -25,30 +25,27 @@ if(NOT USE_OSG)
     set_osg_libs()
 endif()
 
-# PythonDriverController is mandatory for GT_esmini builds.
-# This option is intentionally removed to avoid producing non-PythonDriver binaries.
-if(DEFINED GT_ENABLE_EMBEDDED_PYTHON)
-    if(NOT GT_ENABLE_EMBEDDED_PYTHON)
-        message(FATAL_ERROR
-            "GT_ENABLE_EMBEDDED_PYTHON option is removed. "
-            "PythonDriverController support is always enabled and cannot be configured.")
-    endif()
-    # Clean up legacy cache entries from older build trees.
-    unset(GT_ENABLE_EMBEDDED_PYTHON CACHE)
-    unset(GT_ENABLE_EMBEDDED_PYTHON)
-endif()
+# Embedded-Python PythonDriverController stack (v0.8-frozen feature).
+# OFF by default: dev builds need no Python3 dev headers and produce no python312.dll
+# dependency. Distribution packages keep the frozen stack — scripts/build_package.ps1
+# configures with -DGT_ENABLE_EMBEDDED_PYTHON=ON explicitly.
+option(GT_ENABLE_EMBEDDED_PYTHON "Build the frozen embedded-Python PythonDriverController stack (requires Python3 dev headers)" OFF)
 
-# Prefer bundled embeddable Python (primarily on Windows).
-set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
-if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
-    set(Python3_ROOT_DIR "${GT_EMBEDDED_PYTHON_HOME}" CACHE PATH "Embedded Python root")
-    set(Python3_FIND_STRATEGY LOCATION)
-    set(Python3_FIND_REGISTRY NEVER)
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    # Prefer bundled embeddable Python (primarily on Windows).
+    set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
+    if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+        set(Python3_ROOT_DIR "${GT_EMBEDDED_PYTHON_HOME}" CACHE PATH "Embedded Python root")
+        set(Python3_FIND_STRATEGY LOCATION)
+        set(Python3_FIND_REGISTRY NEVER)
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Development)
+    message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, version ${Python3_VERSION})")
+    message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
+    message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
+else()
+    message(STATUS "GT_esmini: Embedded Python (PythonDriverController) DISABLED — frozen stack excluded")
 endif()
-find_package(Python3 REQUIRED COMPONENTS Development)
-message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, version ${Python3_VERSION})")
-message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
-message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
 
 # ############################### Optional: SDL2 for racing wheel FFB support ########################################################################
 
@@ -199,15 +196,17 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkInputBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp)
 
-# Embedded Python controller sources (always enabled)
-list(APPEND GT_CONTROL_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerPythonDriver.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverBridge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverCoordinator.cpp)
-list(APPEND GT_CONTROL_HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+# Embedded Python controller sources (conditional on GT_ENABLE_EMBEDDED_PYTHON)
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    list(APPEND GT_CONTROL_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerPythonDriver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverBridge.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverCoordinator.cpp)
+    list(APPEND GT_CONTROL_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+endif()
 
 # SDL2 racing wheel sources (conditional)
 if(GT_ENABLE_SDL2)
@@ -366,13 +365,15 @@ if(USE_OSI)
     target_link_libraries(${TARGET_STATIC} PRIVATE ${OSI_LIBRARIES})
 endif()
 
-foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
-    target_link_libraries(${TARGET} PRIVATE Python3::Python)
-    target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
-    if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
-        target_compile_definitions(${TARGET} PRIVATE GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
-    endif()
-endforeach()
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
+        target_link_libraries(${TARGET} PRIVATE Python3::Python)
+        target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
+        if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+            target_compile_definitions(${TARGET} PRIVATE GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
+        endif()
+    endforeach()
+endif()
 # Add esminiLib include path for SE_GetOSIGroundTruth / SE_GetODRFilename
 target_include_directories(${TARGET_SHARED} PRIVATE
     ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)

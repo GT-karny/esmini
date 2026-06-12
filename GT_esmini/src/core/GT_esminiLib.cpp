@@ -41,7 +41,9 @@
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
+#endif
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/ControllerKinematic.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"

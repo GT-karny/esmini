@@ -300,7 +300,11 @@ jobs:
         if: ${{ failure() && env.USE_TMATE == 'true' }}
         uses: mxschmitt/action-tmate@v3
 
-  pythondriver-enforcement:
+  # SUB-1: GT_ENABLE_EMBEDDED_PYTHON is a real option, default OFF.
+  # Asserts the default build needs no Python3 dev headers, explicit OFF is
+  # accepted (legacy FATAL_ERROR removed), and ON still compiles the frozen
+  # PythonDriver stack (distribution packages configure with ON).
+  embedded-python-option:
     needs: [lint]
     runs-on: ubuntu-22.04
 
@@ -311,41 +315,29 @@ jobs:
 
       - uses: ./.github/actions/setup_tools_shared
 
-      - name: CMake Configure (default)
-        shell: pwsh
-        run: cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release
-
-      - name: CMake Configure rejects GT_ENABLE_EMBEDDED_PYTHON=OFF
+      - name: Default configure excludes embedded Python
         shell: bash
         run: |
-          if cmake -S . -B build_pyoff -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_OSG=OFF -DUSE_OSI=OFF -DUSE_SUMO=OFF -DUSE_IMPLOT=OFF -DGT_ENABLE_EMBEDDED_PYTHON=OFF; then
-            echo "Expected configure failure with -DGT_ENABLE_EMBEDDED_PYTHON=OFF"
+          cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release | tee configure_default.log
+          grep -q "Embedded Python (PythonDriverController) DISABLED" configure_default.log
+          if grep -qi "Found Python3" configure_default.log; then
+            echo "Default configure must not require Python3 dev headers"
             exit 1
           fi
 
-      - name: Build GT_Sim
+      - name: Explicit OFF configures cleanly (legacy FATAL_ERROR removed)
         shell: bash
-        run: cmake --build build --config Release --target GT_Sim -j 2
+        run: cmake -S . -B build_pyoff -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_OSG=OFF -DUSE_OSI=OFF -DUSE_SUMO=OFF -DUSE_IMPLOT=OFF -DGT_ENABLE_EMBEDDED_PYTHON=OFF
 
-      - name: Run PythonDriver scenario and verify no fallback
+      - name: ON still builds the frozen PythonDriver stack
         shell: bash
         run: |
-          ./build/GT_esmini/GT_Sim \
-            --osc GT_esmini/test/scenarios/pythondriver_f01_udp_input_decode.xosc \
-            --headless \
-            --fixed_timestep 0.05 \
-            --path resources/xodr \
-            --path resources/xosc \
-            --path resources > pythondriver_enforcement.log 2>&1
-          grep -q "GT_Sim build: PythonDriverController=ENABLED" pythondriver_enforcement.log
-          grep -q "PythonDriverController::Activate() called" pythondriver_enforcement.log
-          if grep -q "Unsupported controller type: PythonDriverController" pythondriver_enforcement.log; then
-            echo "Unexpected fallback to default controller detected."
-            exit 1
-          fi
+          sudo apt-get update && sudo apt-get install -y python3-dev
+          cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release -DGT_ENABLE_EMBEDDED_PYTHON=ON
+          cmake --build build --config Release --target GT_esminiLib -j 2
 
   release:
-    needs: [test, test-no-external-modules, pythondriver-enforcement]
+    needs: [test, test-no-external-modules, embedded-python-option]
     if: github.ref_type == 'tag'
 
     strategy:
