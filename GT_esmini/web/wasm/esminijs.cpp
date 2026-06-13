@@ -202,6 +202,11 @@ namespace esmini
 
             retval = this->scenarioEngine->step(dt);
             this->scenarioEngine->prepareGroundTruth(dt);
+            // Without the per-frame swap/clear, dirty bits set during init (or by the
+            // default-controller move itself) persist and prepareGroundTruth skips the
+            // default along-road movement from the next frame on, freezing entities
+            // whose only action is an init SpeedAction.
+            this->scenarioEngine->SwapAndClearDirtyBits();
 
             double simTime = this->scenarioEngine->getSimulationTime();
             for (auto* obj : this->scenarioEngine->entities_.object_)
@@ -246,7 +251,12 @@ namespace esmini
         // This mirrors the ScenarioFrame() flow in playerbase.cpp:
         //   1. scenarioEngine->step(dt)
         //   2. scenarioEngine->prepareGroundTruth(dt)
+        //   3. scenarioEngine->SwapAndClearDirtyBits()
+        // Step 3 is mandatory: without it, dirty bits persist across frames and
+        // prepareGroundTruth skips the default along-road movement, freezing
+        // entities whose only action is an init SpeedAction.
         this->scenarioEngine->prepareGroundTruth(dt);
+        this->scenarioEngine->SwapAndClearDirtyBits();
 
         // Advance GT_esmini TrafficSignalControllers (auto-cycling phases)
         gt_esmini::TrafficSignalControllerManager::Instance().StepAll(dt);
