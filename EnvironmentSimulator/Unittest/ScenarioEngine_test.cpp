@@ -4071,7 +4071,7 @@ TEST(PositionTest, TestZRelativeObjectInTrajectoryVertex)
     EXPECT_NEAR(entities->object_[0]->pos_.GetY(), -1.535, 1E-3);
     EXPECT_NEAR(entities->object_[0]->pos_.GetZ(), 20.0, 1E-3);
     EXPECT_NEAR(entities->object_[0]->pos_.GetH(), 0.0, 1E-3);
-    EXPECT_NEAR(entities->object_[0]->pos_.GetP(), 0.0, 1E-3);
+    EXPECT_NEAR(GetAbsAngleDifference(entities->object_[0]->pos_.GetP(), 0.0), 0.0, 1E-3);
     EXPECT_NEAR(entities->object_[0]->pos_.GetR(), 0.0, 1E-3);
 
     while (se->getSimulationTime() < 4.0 - SMALL_NUMBER)
@@ -5143,7 +5143,7 @@ TEST(ActionTest, TestInstantLaneChange)
     delete se;
 }
 
-TEST(RouteingTest, TestPositionOffRoute)
+TEST(RoutingTest, TestPositionOffRoute)
 {
     ScenarioEngine* se = new ScenarioEngine("../../../EnvironmentSimulator/Unittest/xosc/route_detour.xosc", true);
     const double    dt = 0.05;
@@ -5301,6 +5301,74 @@ TEST(RouteingTest, TestPositionOffRoute)
     EXPECT_EQ(entities->object_[0]->pos_.route_->OnRoute(), false);
 
     delete se;
+}
+
+TEST(RoutingTest, TestRandomRouteAction)
+{
+    SE_Env::Inst().GetRand().SetSeed(4116646194);
+    ScenarioEngine* se = new ScenarioEngine("../../../EnvironmentSimulator/Unittest/xosc/random_route_action.xosc", true);
+    const double    dt = 0.05;
+    ASSERT_NE(se, nullptr);
+    scenario_step(se, 0.0);
+
+    scenarioengine::Entities* entities = &se->entities_;
+    ASSERT_NE(entities, nullptr);
+    ASSERT_EQ(entities->object_.size(), 2);
+
+    // Confirm initial states
+    EXPECT_NEAR(entities->object_[0]->pos_.GetX(), 90, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetY(), -1.5, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetZ(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetH(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetP(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetR(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->GetSpeed(), 10.0, 1E-3);
+    EXPECT_EQ(entities->object_[0]->pos_.GetTrackId(), 0);
+    EXPECT_EQ(entities->object_[0]->pos_.GetLaneId(), -1);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetS(), 90.0, 1E-3);
+
+    EXPECT_NEAR(entities->object_[1]->pos_.GetX(), 114.0127, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetY(), -22.5127, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetZ(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetH(), 1.5708, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetP(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetR(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->GetSpeed(), 10.0, 1E-3);
+    EXPECT_EQ(entities->object_[1]->pos_.GetTrackId(), 1);
+    EXPECT_EQ(entities->object_[1]->pos_.GetLaneId(), 1);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetS(), 10.0, 1E-3);
+
+    while (se->getSimulationTime() < 4.0 - SMALL_NUMBER)
+    {
+        scenario_step(se, dt);
+    }
+
+    // confirm states after expected decisions taken in intersection
+    // first car going straight (default), second car going right (random)
+    EXPECT_NEAR(entities->object_[0]->pos_.GetX(), 130.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetY(), -1.5, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetZ(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetH(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetP(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetR(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[0]->GetSpeed(), 10.0, 1E-3);
+    EXPECT_EQ(entities->object_[0]->pos_.GetTrackId(), 2);
+    EXPECT_EQ(entities->object_[0]->pos_.GetLaneId(), -1);
+    EXPECT_NEAR(entities->object_[0]->pos_.GetS(), 4.9744, 1E-3);
+
+    EXPECT_NEAR(entities->object_[1]->pos_.GetX(), 136.4377, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetY(), -1.5, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetZ(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetH(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetP(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetR(), 0.0, 1E-3);
+    EXPECT_NEAR(entities->object_[1]->GetSpeed(), 10.0, 1E-3);
+    EXPECT_EQ(entities->object_[1]->pos_.GetTrackId(), 2);
+    EXPECT_EQ(entities->object_[1]->pos_.GetLaneId(), -1);
+    EXPECT_NEAR(entities->object_[1]->pos_.GetS(), 11.4121, 1E-3);
+
+    delete se;
+    SE_Env::Inst().GetRand().ResetSeed();  // reset seed
 }
 
 TEST(PositioningTest, TestElevationMapping)
@@ -5531,6 +5599,206 @@ TEST(GhostConcept, TestMultipleRestartAtCorrectPosition)
     EXPECT_NEAR(entities->object_[1]->GetSpeed(), 72.0 / 3.6, 1E-3);
 
     delete se;
+}
+
+TEST(ParsingLightState, ValidLightStates)
+{
+    // Test using ScenarioReader
+    Entities       entities;
+    Catalogs       catalogs;
+    ScenarioReader reader(&entities, &catalogs, nullptr);
+
+    std::vector<const char*> xml = {R"(
+    <PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorLeft"/>
+            </LightType>
+            <LightState mode="on"/>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorLeft"/>
+            </LightType>
+            <LightState mode="on" flashingOffDuration="0.1"/>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorLeft"/>
+            </LightType>
+            <LightState mode="on" flashingOnDuration="0.1"/>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorLeft"/>
+            </LightType>
+            <LightState mode="on" flashingOnDuration="0.1" luminousIntensity="1000"/>
+                <Color colorType="red"/>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorLeft"/>
+            </LightType>
+            <LightState mode="on" flashingOnDuration="0.1" luminousIntensity="1000"/>
+                <Color colorType="red">
+                    <ColorRgb red="1.0" green="0.0" blue="0.8"/>
+                </Color
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)"};
+
+    for (size_t i = 0; i < xml.size(); i++)
+    {
+        pugi::xml_document doc;
+        doc.load_string(xml[i]);
+        pugi::xml_node privateNode = doc.child("PrivateAction");
+
+        OSCPrivateAction* privateAct = reader.parseOSCPrivateAction(privateNode, nullptr, nullptr);
+
+        ASSERT_NE(privateAct, nullptr);
+
+        delete privateAct;
+    }
+}
+
+TEST(ParsingLightState, MissingMandatoryFields)
+{
+    // Test using ScenarioReader
+    Entities          entities;
+    Catalogs          catalogs;
+    ScenarioReader    reader(&entities, &catalogs, nullptr);
+    OSCPrivateAction* privateAct = nullptr;
+
+    /* Bad xml:
+        [0]: Missing "LightState"
+        [1]: Invalid "vehicleLightType"
+        [2]: Missing "LightType"
+        [3]: "LightState" missing "mode"
+        [4]: "Color" misspelled as "Bolor"
+        [5]: Missing "blue"
+        [6]: "Red" out of valid range
+        [7]: Invalid with both Cmyk and Rgb
+    */
+    std::vector<const char*> xml = {R"(
+    <PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorLeft"/>
+            </LightType>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="superTrooper"/>
+            </LightType>
+            <LightState mode="on"/>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightState mode="on"/>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="indicatorRight"/>
+            </LightType>
+            <LightState />
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="warningLights"/>
+            </LightType>
+            <LightState mode="on">
+                <Bolor colorType="red"/>
+            </LightState>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="fogLights"/>
+            </LightType>
+            <LightState mode="on">
+                <Color colorType="red">
+                    <ColorRgb red="1.0" green="0.0"/>
+                </Color
+            </LightState>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="fogLightsRear"/>
+            </LightType>
+            <LightState mode="on">
+                <Color colorType="red">
+                    <ColorRgb red="-1.0" green="0.0" blue="0.8"/>
+                </Color
+            </LightState>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)",
+                                    R"(<PrivateAction>
+       <AppearanceAction>
+          <LightStateAction>
+            <LightType>
+                <VehicleLight vehicleLightType="fogLightsFront"/>
+            </LightType>
+            <LightState mode="on">
+                <Color colorType="red">
+                    <ColorRgb red="-1.0" green="0.0" blue="0.8"/>
+                    <ColorCmyk red="-1.0" green="0.0" blue="0.8"/>
+                </Color
+            </LightState>
+          </LightStateAction>
+       </AppearanceAction>
+    </PrivateAction>)"};
+
+    for (size_t i = 0; i < xml.size(); i++)
+    {
+        pugi::xml_document doc;
+        doc.load_string(xml[i]);
+        pugi::xml_node privateNode = doc.child("PrivateAction");
+
+        privateAct = reader.parseOSCPrivateAction(privateNode, nullptr, nullptr);
+
+        EXPECT_EQ(privateAct, nullptr);
+    }
 }
 
 TEST(EnvironmentTest, Basic)

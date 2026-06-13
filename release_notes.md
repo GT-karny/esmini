@@ -1,9 +1,100 @@
 ## esmini release notes
 
+### 2026-06-11 Version 3.3.0
+
+New features:
+- Road object markings and full repeat support, useful for parking, see:
+  - [User guide - Road objects](https://esmini.github.io/scenario-features.html#_road_objects)
+  - [User guide - Object markings](https://esmini.github.io/scenario-features.html#_object_markings)
+  - [User guide - Road objects example](https://esmini.github.io/scenario-features.html#_road_objects_example)
+  - Video clip: https://youtu.be/F3ByrfXuEVE
+- Object repeat instances reported on OSI
+- Support cylinder objects
+
+Improvements and fixes:
+- Restore clear-color option
+- Set default width=0 for none and edge type lane markings
+- Some fixes for LightStateAction in replayer
+- Add texture coordinates to bounding boxes as well
+
+### 2026-06-04 Version 3.2.1
+
+Improvements and fixes:
+- Fix a few LightStateAction issues
+  - light not always switched off
+  - reset states for any action restart
+- Add experimental light maneuver catalog and auto-light scenario
+
+### 2026-06-02 Version 3.2.0
+
+New features and behaviors:
+- Implement going straight policy and RandomRouteAction
+  - from osc v1.2 policy is straight instead of random in junctions
+  - random is optional via new RandomRouteAction
+-  Add precision argument `--precision <nr of decimals>` to dat2csv
+- Implement first version of three.js based viewer ([PR #814](https://github.com/esmini/esmini/issues/814))
+- Add OSI global ID (gid) to per-object overlay info text (`--info_text 3` / key 'i' )
+
+Improvements and fixes:
+- Fix issue with instant activation of assigned controller ([issue #786](https://github.com/esmini/esmini/issues/786))
+- Clear unknown args between sessions ([PR #807](https://github.com/esmini/esmini/issues/807))
+- Guard against null Route::GetWaypoint() in route-relative motion ([PR #809](https://github.com/esmini/esmini/issues/809))
+- Add SE_ObjectCanChangeLanes() checking road for allowed lane changes ([PR #776](https://github.com/esmini/esmini/issues/776))
+- Adapt default orientation type to OpenSCENARIO XML version
+- Add key:value to parkingspace restrictions in OSI source reference
+- Add brief info on editor tips to [User guide - Scenario construction tips](https://esmini.github.io/scenario-construction-tips.html#_editing)
+
+
+### 2026-05-13 Version 3.1.0
+
+New features:
+
+- Add support for [LightStateAction](https://publications.pages.asam.net/standards/ASAM_OpenSCENARIO/ASAM_OpenSCENARIO_XML/v1.3.1/generated/content/LightStateAction.html)
+  - switching on, off and flashing of various vehicle lights
+  - simple visualization with updated 3D vehicle models
+  - see [User guide - Vehicle light states](https://esmini.github.io/scenario-features.html#_vehicle_light_states) for more info
+
+Improvements and fixes:
+- Restructure [esmini User guide](https://esmini.github.io)
+  - from single to multi-page layout
+  - solving issue reading on mobile devices
+  - single page variant still provided
+- Adjust lower boundary for ambient scene lighting
+  - in effect making dark night darker
+- Fix replayer bug setting wrong object type affecting visibility
+- Fix bug in ControllerUDPDriver causing null ptr crash
+- Skip costly smoke tests on selected CI configurations (win and mac debug)
+- Remove unused Python dependencies
+- Bump a few dependencies according to GitHub recommendations
+
+### 2026-05-06 Version 3.0.4
+
+Improvements and fixes:
+- Fix 3D object not removed on entity deletion (bug introduced in v3.0.3)
+- Fix misc object 3D model not showing up in replayer
+  - by removing deprecated model_ids, using model filename instead
+- Fix entity visibility issues
+  - fix bug (introduced in v3.0.3) preventing object from reappearing after hidden
+  - fully mirror scenario visibility behavior in replayer
+- Some additional minor fixes
+
+### 2026-04-24 Version 3.0.3
+
+Improvements and fixes:
+- Improve road vertical tesselation based on road pitch change rate
+  - slightly increase OSI points and polygons when needed
+- Lower roadmarks z offset (4cm -> 1cm)
+- Further shadow improvements, e.g:
+  - edge fade, using generated texture instead of vertex alpha
+  - elevation dependent fade and shadow intensity
+  - video clip: https://youtu.be/2ty_cluDXPs
+- Fix a ghost standstill issue, preventing driver model from moving on
+- Add return code -5 to SE_GetRoadInfoAlongGhostTrail() indicating end of trail
+- Remove unintended MESA GL files from Windows bin package
+
 ### 2026-04-16 Version 3.0.2
 
 Improvements and fixes:
-
 - Fix wrong dz in relative positions with elevated roads
 - Fix viewer crash (in some environments) at end of scenario
   - by expanding viewer destruction
@@ -11,7 +102,7 @@ Improvements and fixes:
     - interpolate z between relative and absolute z vertices
     - disable pitch and roll interpolation at mixed pos mode corners
 - Fix route lookahead through junctions and add snap-to-route position mode ([issue #759](https://github.com/esmini/esmini/issues/759))
-  - see updated info in [User guide - Position modes](https://esmini.github.io/#_position_modes) and [Use cases](https://esmini.github.io/#_use_cases_3)
+  - see updated info in [User guide - Position modes](https://esmini.github.io/positioning.html#_position_modes) and [Use cases](https://esmini.github.io/use-cases.html#_use_cases_3)
 - Fix devcontainer - create missing ubuntu user in AlmaLinux image ([PR #785](https://github.com/esmini/esmini/issues/785))
 
 Build and CI updates:
@@ -22,7 +113,7 @@ Build and CI updates:
 New features:
 - Add `color` property and filled bounding-box view mode for scenario objects
   - color populated on OSI
-  - see [User guide - Boundingbox Colors](https://esmini.github.io/#_boundingbox_colors)
+  - see [User guide - Boundingbox Colors](https://esmini.github.io/scenario-features.html#_boundingbox_colors)
 
 Improvements and fixes:
 - Fix sometimes friction visualized for the wrong lane
@@ -33,7 +124,7 @@ Improvements and fixes:
   - add also to misc objects, not only vehicles and pedestrians
 - Fix some issues in OSG apps [build script](https://github.com/esmini/esmini/blob/dev/scripts/compile_osg_apps.sh)
 - Ensure `osiviewer` time slider shown value is rounded down
-- Update Unity esmini example for v3.0.0, see [User guide - esmini in Unity](https://esmini.github.io/#_esmini_in_unity)
+- Update Unity esmini example for v3.0.0, see [User guide - esmini in Unity](https://esmini.github.io/use-cases.html#_esmini_in_unity)
 - Minor documentation updates, e.g. fix broken link
 
 ### 2026-03-23 Version 3.0.0
@@ -61,7 +152,7 @@ Improvements and fixes:
   - completely remove gateway module
   - rework dirty bit handling
   - decreased code complexity, increased maintainability
-  - brief system documentation updated, see [User guide - Inner workings](https://esmini.github.io/#_inner_workings)
+  - brief system documentation updated, see [User guide - Inner workings](https://esmini.github.io/inner-workings.html#_inner_workings)
 - esminiLib C# wrapper coverage now 100%
   - add Python script generating the wrapper
   - CI check ensuring wrapper in synch with lib
@@ -79,7 +170,7 @@ Improvements and fixes:
 Build and CI updates:
 - Remove cmake presets
   - simplifying the message on how to build
-  - update User guide accordingly, e.g. [Debug with Linux and VSCode](https://esmini.github.io/#_debug_with_linux_and_vscode)
+  - update User guide accordingly, e.g. [Debug with Linux and VSCode](https://esmini.github.io/build-guide.html#_debug_with_linux_and_vscode)
 - Bump some github action dependencies
 - Cleanup and update some custom actions
 - Apply dependabot updates to dev branch (instead of master)
@@ -164,7 +255,7 @@ Breaking changes:
 New features:
 - Support 2D shape outline
   - for vehicles, pedestrians and misc objects
-  - see info in [User guide - 2D shape outline](https://esmini.github.io/#_2d_shape_outline)
+  - see info in [User guide - 2D shape outline](https://esmini.github.io/scenario-features.html#_2d_shape_outline)
   - video clip [here](https://youtu.be/YZX2P4F5Rj8)
 - Add default option capability
   - for esmini (`--osc`), odrviewer (`--odr`) and replayer (`--file`)
@@ -177,7 +268,7 @@ Improvements and fixes:
   - supporting same arguments and features as scripts/dat2csv.py
   - run `./bin/dat2csv` or `./bin/dat2csv --help` for usage info
 - Truncate negative roadmark `sOffset` values, fixing freeze issue [#766](https://github.com/esmini/esmini/issues/766)
-- Fix picture captions in [User guide - Heading behavior in Road vs Lane Position](https://esmini.github.io/#_heading_behavior_in_road_vs_lane_position)
+- Fix picture captions in [User guide - Heading behavior in Road vs Lane Position](https://esmini.github.io/support-qa.html#_heading_behavior_in_road_vs_lane_position)
 - A few additional minor fixes
 
 ### 2026-01-08 Version 2.57.2
@@ -205,7 +296,7 @@ New features and behaviors:
 - Implement OSI source reference
   - for Lane, StationaryObject, MovingObject, TrafficLight and TrafficSign
 - Report added stationary MiscObjects on OSI
-  - see updated note in [User guide - OSI data via API call](https://esmini.github.io/#_osi_data_via_api_call)
+  - see updated note in [User guide - OSI data via API call](https://esmini.github.io/esmini-lib-programming.html#_osi_data_via_api_call)
 
 Improvements and fixes:
 - Fix sometimes stuck on loading OpenDRIVE file ([issue #751](https://github.com/esmini/esmini/issues/751))
@@ -215,7 +306,7 @@ Improvements and fixes:
 
 Improvements and fixes:
 - Update Unity example and add support for permutations ([issue #743](https://github.com/esmini/esmini/issues/743))
-  - brief info and link to package in [User guide - esmini in Unity](https://esmini.github.io/#_esmini_in_unity)
+  - brief info and link to package in [User guide - esmini in Unity](https://esmini.github.io/use-cases.html#_esmini_in_unity)
 - Add option `--view_ghost_restart` to view also original ghost before restart
   - default mode is now to view only resulting ghost path
   - this option adds the original detour before any restart happens
@@ -239,13 +330,13 @@ New features:
     - OSI reporting
     - generate 3D model
     - support in .dat/replayer
-  - see info and limitations in [User guide - Traffic lights visualization](https://esmini.github.io/#_traffic_lights)
+  - see info and limitations in [User guide - Traffic lights visualization](https://esmini.github.io/scenario-features.html#_traffic_lights)
   - example scenario [traffic_lights.xosc](https://github.com/esmini/esmini/blob/dev/resources/xosc/traffic_lights.xosc) video clip [here](https://youtu.be/26BSMblzyO4)
   - Note: Requires update of osg and model packages:
     - remove `externals/osg` and `resources/models` folders
     - run `cmake ..` from build folder
 - Add support for moving Vehicle reference point along x-axis
-  - see info in [User guide - Shift reference point](https://esmini.github.io/#_shift_reference_point)
+  - see info in [User guide - Shift reference point](https://esmini.github.io/positioning.html#_shift_reference_point)
   - video clip: https://youtu.be/gvfFI4hgw1M
 - Use `model3d` filename in .dat file instead of relying on model_id
   - `model_id` deprecated, support will be removed eventually
@@ -280,7 +371,7 @@ Improvements and fixes:
 - Fix missing vehicle dynamics with non fixed timestep
 - replayer prints which esmini version created the dat file
 - Fix replayer issue causing unexpected jump to start/end
-- Fix wrong xodr file in [User guide - SUMO integration](https://esmini.github.io/#_sumo_integration)
+- Fix wrong xodr file in [User guide - SUMO integration](https://esmini.github.io/scenario-features.html#_sumo_integration)
 - Restore support for gcc 7.5 by relaxing need for full fs::filesystem
 - A few additional minor fixes in replayer
 
@@ -291,7 +382,7 @@ Breaking changes:
   - package based, enabling more content in future
   - bump to version 3
   - old .dat files < v3 will not play
-  - more info in [User guide - Scenario recording (.dat)](https://esmini.github.io/#_scenario_recording_dat)
+  - more info in [User guide - Scenario recording (.dat)](https://esmini.github.io/use-cases.html#_scenario_recording_dat)
   - Following related python code removed:
     - csv2dat functionality in dat.py
     - dat2xosc script
@@ -314,7 +405,7 @@ Improvements and fixes:
 - Fix 3D model load failure in swarm action
 - Set socket reuse address option avoiding port lockup
 - Update catalog search path handling
-  - see [User guide - Search locations](https://esmini.github.io/#_search_locations)
+  - see [User guide - Search locations](https://esmini.github.io/support-qa.html#_search_locations)
 
 ### 2025-10-24 Version 2.53.1
 
@@ -341,7 +432,7 @@ Improvements and fixes:
 - Update OSI `model_reference` handling ([issue #738](https://github.com/esmini/esmini/issues/738))
   - put resolved path for found files, regardless loaded or not
 - Update file search path handling in general
-  - see [User guide - File search paths](https://esmini.github.io/#_file_search_paths)
+  - see [User guide - File search paths](https://esmini.github.io/support-qa.html#_file_search_paths)
   - **NOTE:** Might cause files not found, set paths as needed
 - Fix incorrect return type of roadmanager GetCountourType() ([PR #740](https://github.com/esmini/esmini/issues/740))
 - Some additional minor fixes
@@ -415,7 +506,7 @@ New features:
 - Add follow reference code example and controller
   - based on classic Stanley controller for steering
   - and critically damped spring model for speed control
-  - more info in [User guide - FollowReferenceController](https://esmini.github.io/#_followreferencecontroller)
+  - more info in [User guide - FollowReferenceController](https://esmini.github.io/controllers.html#_followreferencecontroller)
   - controller example scenario: [follow_reference.xosc](https://github.com/esmini/esmini/blob/dev/resources/xosc/follow_reference.xosc)
   - video clip: https://youtu.be/icozF90XZDQ
   - external app code example: [follow_reference](https://github.com/esmini/esmini/tree/dev/EnvironmentSimulator/code-examples/follow_reference)
@@ -437,7 +528,7 @@ Improvements and fixes:
 - Add enum for options, enabling direct lookup of frequently referred options
 - Fix missing ground plane (bug introduced in v2.50.5)
 - Fix ghost trailer wrong naming ([PR #731](https://github.com/esmini/esmini/pull/731))
-- Fix car color mix-up in [User guide - Heading behavior](https://esmini.github.io/#_heading_behavior_in_road_vs_lane_position)
+- Fix car color mix-up in [User guide - Heading behavior](https://esmini.github.io/support-qa.html#_heading_behavior_in_road_vs_lane_position)
 - Fix ignored name for ActivateControllerAction
   - activateControllerAction without ControllerAction is now deprecated
   - nonetheless fix bug ignoring name in that case
@@ -468,7 +559,7 @@ Improvements and fixes:
     - for standalone use
     - add simple names to osg nodes
     - add code example [road-model](https://github.com/esmini/esmini/tree/refs/heads/dev/EnvironmentSimulator/code-examples/road-model)
-    - add documentation [User guide - Export generated 3D model](https://esmini.github.io/#_export_generated_3d_model)
+    - add documentation [User guide - Export generated 3D model](https://esmini.github.io/openscenegraph-3d-models.html#_export_generated_3d_model)
 - Fix a few steering angles from deg to radians in vehicle catalog
 
 ### 2025-08-26 Version 2.50.4
@@ -490,7 +581,7 @@ Improvements and fixes:
 
 New features:
 - Support [openx-assets](https://github.com/bounverif/openx-assets) - collection of vehicle 3D models
-  - see [User guide - Using OpenX assets library](https://esmini.github.io/#_using_openx_assets_library) for info and [video clip](https://youtu.be/UWjQ8Ai83Cc)
+  - see [User guide - Using OpenX assets library](https://esmini.github.io/openscenegraph-3d-models.html#_using_openx_assets_library) for info and [video clip](https://youtu.be/UWjQ8Ai83Cc)
 
 Improvements and fixes:
 - Fix some vehicle shadow z issues

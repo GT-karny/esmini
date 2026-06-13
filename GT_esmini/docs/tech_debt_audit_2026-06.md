@@ -12,6 +12,13 @@
 > F1: `resources/scenario_authoring/` 基盤一式(priority_injector / 道路3種 G4+G5+G13 / シーン07×24+08×12バリアント / validate_catalog 39/39 PASS / catalog_batch.yaml)。バッチ実行36/36緑 → 注釈レジストリへ `batch/catalog_v1/<catalog_id>` で36件登録確認(**built but starved 解消**)。
 > 検証: OFFデフォルトALLビルド緑(python312.dll import 無し)/ ON で GT_esminiLib+test_PythonDriverBridge コンパイル可 / 単体32緑 / 回帰ゲートPASS(挙動 8 pass / 2 fail = 基準どおり)。
 > 既知残: ON 時の `test_PythonDriverBridge` 実行は python312.zip 未ステージングで以前から失敗(環境起因・凍結スタック、R3/TST で扱う)。
+>
+> **進捗 2026-06-13(週3)**: R5 U1+U2 を `feature/upstream-330` で完了(5コミット `27e90950`..`fed8e3cc`、ベース=dev_v0.12 へ週2マージ後、ロールバック点 `pre-upstream-330-merge` タグ)。
+> U1(BND-1/BND-2 前倒し): esminiJS の GT 改変一式(+940行・5ファイル)→ `GT_esmini/web/wasm/` へ独立 emscripten プロジェクトとして移設(wasm フルビルド検証済み、emsdk=E:\emsdk)。esminiLib.cpp は GT fprintf 除去+SE_OpenOSISocket vanilla 復元、GT 挙動(OSI頻度自動設定)は god-TU 内の新規エクスポート **`GT_OpenOSISocket`** へフック化(呼び出し元 GT_Sim/main.cpp と gt_lib.py を切替、gt_sim_test.py 無変更)。**コア2ファイルとも merge-base 比 0 行**。
+> U2(v3.3.0 マージ): `upstream/master`(ab7c404d)を**コンフリクトゼロ**でマージ(U1 の効果)。GT 固有設定(GT_ENABLE_EMBEDDED_PYTHON / CI ジョブ / EXCLUDE_FROM_ALL / スワップ2件)全生存。フォークコピーのヘッダドリフトでビルド破損 → 機械修理2件: **GT_RoadManager を 3.3.0 全文再同期+実パッチ 1-A のみ再適用**(+25/-4、虚偽 1-B/1-C 記載を是正 = **CORE-3 解消**。実パッチが 1-A だけだったことも確定)/ **GT_OSIReporter は UpdateOSIStationaryObjectODR の 2 引数シグネチャ追従のみ**(挙動 1:1 温存、リピートインスタンス/マーキング/ライトヘルパーの取込は U3/U4)。
+> 検証: ALL ビルド緑 / 単体32緑 / 回帰ゲート PASS / **挙動バッチ per-scenario 完全一致**(8 pass / 2 fail、fail = green_no_stop + red_stop_green_go で不変)/ validate_catalog 39/39 / **カタログバッチ 36/36 per-scenario 一致**(needs-review 36 / error 0)。新3Dモデルパック `models_with_lights.7z` 取得済み(車両 osgb 全更新、resources/models は gitignore)。`light_state.xosc` ヘッドレスでネイティブ LightStateAction の実行確認(ビューワー点灯目視は未)。
+> 非自明な発見: (1) 移設後の GT wasm コピーは **3.3.0 コア+再同期 GT_RoadManager に対してもビルド成功**(em++ 起動に emsdk python の PATH 追加が必要)。XOSC サニタイザ(AppearanceAction/LightStateAction 除去)は 3.3.0 では機能上不要だが、ネイティブ実行と GT VehicleLightExtension の二重適用問題が U3 の論点になるため**温存**。(2) roadgen フォークは自前ヘッダ(GT_RoadGeom.hpp)持ちの自己完結ターゲットで 3.3.0 影響なし(事前調査の CreateOutlineObject 互換性懸念は誤検出)。
+> 残: U3(ライトストレージ統合)/ U4(OSI ライト出力ポート)は週4-5。dev_v0.12 への取込はユーザー判断待ち。
 
 - 実施日: 2026-06-13(HEAD `8773c463`, branch `dev_v0.12`)
 - 手法: 11領域並列監査 + 全指摘の敵対的再検証(25エージェント、1,036ツール実行)。**99件全件が証拠付きで確認済み**(refuted 0件。一部は数値補正のみの adjusted)
@@ -158,12 +165,12 @@ P0表の8件 + 追加衛生:
 - ホットスポットのシームテスト: Kinematic/ManualDrive ステップ関数、AutoLight 状態機械、OSI ゴールデンメッセージ比較。LhtRhtHelpers.hpp を実際に採用 [TST-2/Critic-4]
 - ブランチ清掃(マージ済み21本)、scripts/CLAUDE.md・GT_esmini/docs インデックス更新 [Critic-3/SCR-6/MSC-6]
 
-### R5: upstream v3.3.0 追従 — LightStateAction 統合(計3〜5日 + 後続移行、週3以降)
+### R5: upstream v3.3.0 追従 — LightStateAction 統合(計3〜5日 + 後続移行、週3以降)— **U1+U2 完了(2026-06-13 週3、冒頭進捗参照)**
 
 > 背景(調査 2026-06-13): upstream v3.1.0 で LightStateAction ネイティブ実装、v3.2.1/v3.3.0 で修正継続。upstream 差分は 79 コミット / 120 ファイル / +22k 行。ローカルコア改変 11 ファイルとの衝突は esminiJS 4 ファイル(大、upstream は 3.2.0 で three.js ビューワー追加の大改修)+ esminiLib.cpp / CMakeLists / Controller.hpp(小)。`parseOSCPrivateAction` シグネチャは不変で GT_ScenarioReader はコンパイル互換。upstream remote は追加済み。
 
-- **U1 前処理 = BND-1/BND-2 の前倒し(1〜2日)**: esminiJS の GT 改変(+867行)を `GT_esmini/web/wasm/` へ移設 [BND-1]、esminiLib.cpp の fprintf 除去・SE_OpenOSISocket 変更のフック化 [BND-2] を**マージ前に実施** — 最大衝突域のコアファイルがほぼ vanilla に戻り、マージが clean take-theirs になる
-- **U2 マージ(1〜2日)**: `upstream/master`(3.3.0)を dev ブランチへマージ。GT インターセプト維持で**挙動不変**を受入基準に(ビルド+R1全ゲートのみ)。ライトジオメトリ入り新3Dモデルパック取得。esminiJS の LightStateAction スキップパッチは不要化につき削除
+- **U1 前処理 = BND-1/BND-2 の前倒し(1〜2日)✅完了**: esminiJS の GT 改変(+867行)を `GT_esmini/web/wasm/` へ移設 [BND-1]、esminiLib.cpp の fprintf 除去・SE_OpenOSISocket 変更のフック化(→ `GT_OpenOSISocket`)[BND-2] を**マージ前に実施** — コア2ファイルは merge-base 比 0 行となり、マージはコンフリクトゼロを達成
+- **U2 マージ(1〜2日)✅完了**: `upstream/master`(3.3.0)をマージ。挙動不変を per-scenario で実証(回帰バッチ+カタログ36)。新3Dモデルパック取得済み。フォークコピー2家系の機械修理を前倒し実施(GT_RoadManager 3.3.0 再同期+1-A / GT_OSIReporter シグネチャ追従のみ)。コアの LightStateAction スキップパッチはマージで消滅(GT wasm コピー内のサニタイザは U3 論点として温存)
 - **U3 ストレージ統合(2〜3日、R3 と並走可)**: ライト状態の書き込み先を `Object::vehLghtStsList` + DirtyBit へ移行(OSCLightStateAction / AutoLight / ManualDrive)。GT 独自の LightSource 優先度(SCENARIO/MANUAL/AUTO)は upstream に無い概念のため GT ラッパーとして温存。**OSGビューワー可視化と dat/replayer 記録が GT のライト機能にも効くようになる**。CTL-8(OSI/ライトグルー重複)の大半をここで解消
 - **U4 OSI 整合(1日、R4 同期ゲートと同時)**: upstream の OSI ライト出力(DirtyBit駆動)を GT_OSIReporter へポートし、`g_LightStateProvider` 二重系を解消 [CORE-1 と同型の同期ポート]
 

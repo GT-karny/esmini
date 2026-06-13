@@ -410,7 +410,7 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
                 roadmanager::RMObject *object = road->GetRoadObject(j);
                 if (object)
                 {
-                    if (UpdateOSIStationaryObjectODR(object))
+                    if (UpdateOSIStationaryObjectODR(object, road))
                     {
                         retval = -1;
                     }
@@ -638,8 +638,13 @@ int OSIReporter::UpdateOSIDynamicGroundTruth(const std::vector<scenarioengine::O
 // UpdateOSIHostVehicleData() removed: orphan method (entire body was commented out,
 // no declaration in OSIReporter.hpp or GT headers). Dead code cleanup during v3.0.0 migration.
 
-int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object)
+int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object, roadmanager::Road *road)
 {
+    // [GT_U2] Signature synced to upstream v3.3.0 (RMObject*, Road*). Behavior unchanged:
+    // the GT body derives everything it needs from `object`; the upstream per-repeat-instance /
+    // road-marking rework that uses `road` is out of scope (deferred to U3/U4).
+    (void)road;
+
     // Create OSI Stationary Object
     obj_osi_internal.sobj = obj_osi_internal.static_gt->add_stationary_object();
 

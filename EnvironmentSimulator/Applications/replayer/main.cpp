@@ -69,17 +69,32 @@ void UpdateEnvironment(const Dat::Environment& env)
         viewer_->UpdateFrictonScaleFactorInMaterial(env.friction_scale_factor);
     }
 }
-void setEntityVisibility(int index, bool visible)
+
+void setEntityVisibility(int index, int visibility_mask)
 {
     if (index >= 0 && index < static_cast<int>(scenarioEntity.size()))
     {
-        if (visible != scenarioEntity[static_cast<unsigned int>(index)].visible)
+        if (visibility_mask != scenarioEntity[static_cast<unsigned int>(index)].visibility_mask)
         {
-            scenarioEntity[static_cast<unsigned int>(index)].entityModel->txNode_->setNodeMask(visible ? 0xffffffff : 0x0);
-            scenarioEntity[static_cast<unsigned int>(index)].visible = visible;
+            scenarioEntity[static_cast<unsigned int>(index)].entityModel->lod_->setNodeMask((visibility_mask & 1) ? 0xffffffff : 0x0);
+            scenarioEntity[static_cast<unsigned int>(index)].visibility_mask = visibility_mask;
             if (scenarioEntity[static_cast<unsigned int>(index)].trajectory)
             {
-                scenarioEntity[static_cast<unsigned int>(index)].trajectory->SetNodeMaskLines(visible ? 0xffffffff : 0x0);
+                scenarioEntity[static_cast<unsigned int>(index)].trajectory->SetNodeMaskLines((visibility_mask & 1) ? 0xffffffff : 0x0);
+            }
+
+            if (visibility_mask & 1)
+            {
+                if (visibility_mask & 4)
+                {
+                    // visible for both graphics viewer and sensors, indicate by full opacity
+                    scenarioEntity[static_cast<unsigned int>(index)].entityModel->SetTransparency(0.0);
+                }
+                else
+                {
+                    // visible for graphics viewer but not for sensors, indicate by semi transparency
+                    scenarioEntity[static_cast<unsigned int>(index)].entityModel->SetTransparency(0.6);
+                }
             }
         }
     }
@@ -105,7 +120,7 @@ int ShowGhosts(Replay* player, bool show)
 
         if (entity->entityModel != nullptr && state->info.ctrl_type == GHOST_CTRL_TYPE)
         {
-            entity->entityModel->txNode_->setNodeMask(show ? 0xffffffff : 0x0);
+            entity->entityModel->lod_->setNodeMask(show ? 0xffffffff : 0x0);
             entity->entityModel->SetTransparency(0.6);
         }
     }
@@ -346,13 +361,13 @@ int ParseEntities(Replay* player)
             {
                 auto& new_sc = scenarioEntity.emplace_back();
 
-                new_sc.id             = id;
-                new_sc.pos            = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0, 0.0, 0.0};
-                new_sc.wheel_angle    = 0.0;
-                new_sc.wheel_rotation = 0.0;
-                new_sc.name           = timelines.name_.values.front().second;
-                new_sc.visible        = true;
-                new_sc.bounding_box   = timelines.bounding_box_.values.front().second;
+                new_sc.id              = id;
+                new_sc.pos             = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0, 0.0, 0.0};
+                new_sc.wheel_angle     = 0.0;
+                new_sc.wheel_rotation  = 0.0;
+                new_sc.name            = timelines.name_.values.front().second;
+                new_sc.visibility_mask = timelines.visibility_mask_.values.front().second;
+                new_sc.bounding_box    = timelines.bounding_box_.values.front().second;
 
                 odo_entry.x        = timelines.pose_.values.front().second.x;
                 odo_entry.y        = timelines.pose_.values.front().second.y;
@@ -408,10 +423,13 @@ int ParseEntities(Replay* player)
                 }
 
                 bool found = false;
+                int  type  = timelines.obj_type_.values.front().second;
                 if ((new_sc.entityModel = viewer_->CreateEntityModel(
                          LocateFile(filename, {CombineDirectoryPathAndFilepath(res_path, "models")}, "Entity 3D model", found),
                          osg::Vec4(0.5, 0.5, 0.5, 1.0),
-                         viewer::EntityModel::EntityType::VEHICLE,
+                         type == Object::Type::VEHICLE      ? viewer::EntityModel::EntityType::VEHICLE
+                         : type == Object::Type::PEDESTRIAN ? viewer::EntityModel::EntityType::MOVING
+                                                            : viewer::EntityModel::EntityType::ENTITY,
                          false,
                          timelines.name_.values.front().second,
                          &timelines.bounding_box_.values.front().second,
@@ -435,11 +453,36 @@ int ParseEntities(Replay* player)
                 {
                     if (no_ghost_model)
                     {
-                        new_sc.entityModel->txNode_->setNodeMask(0x0);
+                        new_sc.entityModel->lod_->setNodeMask(0x0);
                     }
                     else
                     {
                         new_sc.entityModel->SetTransparency(0.6);
+                    }
+                }
+
+                // Run first iteration (i == 0) only, for each vehicle, and ignore any potentially negative ids (ghost?)
+                if (i == 0 && id >= 0 && player->EntityHasLightState(id))
+                {
+                    for (size_t j = 0; j < static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE); j++)
+                    {
+                        auto  light          = &entry.state.info.light_state[j];
+                        auto& timeline_light = timelines.light_state_[j].values;
+
+                        // We don't have any data at start, so we set light to off at the beginning
+                        if (!NEAR_NUMBERS(timeline_light.front().first, player->timestamps_.front()))
+                        {
+                            Dat::LightState init_state = {static_cast<int>(light->type),
+                                                          static_cast<int>(Object::VehicleLightMode::OFF),
+                                                          light->rgb[0],
+                                                          light->rgb[1],
+                                                          light->rgb[2],
+                                                          0.0,
+                                                          0.0,
+                                                          0.0};
+
+                            timeline_light.insert(timeline_light.begin(), {player->timestamps_.front(), init_state});
+                        }
                     }
                 }
 #endif  // _USE_OSG
@@ -541,9 +584,15 @@ std::vector<int> GetGhostIdx()
 
 int main(int argc, char** argv)
 {
-    double      simTime      = 0;
-    double      last_simTime = LARGE_NUMBER;
-    std::string arg_str;
+    double                simTime      = 0;
+    double                last_simTime = LARGE_NUMBER;
+    std::string           arg_str;
+    roadmanager::Position entity_pos;  // reusable position object for entity updates
+
+    // configure for absolute positions only, as read from the dat file
+    entity_pos.SetMode(roadmanager::Position::PosModeType::SET,
+                       roadmanager::Position::PosMode::Z_ABS | roadmanager::Position::PosMode::H_ABS | roadmanager::Position::PosMode::P_ABS |
+                           roadmanager::Position::PosMode::R_ABS | roadmanager::Position::PosMode::SNAP_TO_ROUTE_DEFAULT);
 
     // Setup signal handler to catch Ctrl-C
     signal(SIGINT, signal_handler);
@@ -597,6 +646,7 @@ int main(int argc, char** argv)
     // opt.AddOption("include_ghost_reset", "Include ghost reset in the replay or not");
 #ifdef _USE_OSG
     opt.AddOption("info_text", "Show on-screen info text. Modes: 0=None 1=current 2=per_object 3=both. Toggle key 'i'", "mode", "1", true);
+    opt.AddOption("light_mode", "Show lights for light state actions. Modes: on, off, auto. Toggle key 'L'", "mode", "auto", true);
 #endif  // _USE_OSG
     opt.AddOption("logfile_path", "Logfile path/filename, e.g. \"../my_log.txt\"", "path", REPLAYER_LOG_FILENAME, true);
     opt.AddOption("log_level", "Log level debug, info, warn, error", "mode", "info", true);
@@ -954,6 +1004,19 @@ int main(int argc, char** argv)
 #endif  // _USE_OSG
         }
 
+#ifdef _USE_OSG
+        std::string light_mode = opt.GetOptionValueByEnum(esmini_options::CONFIG_ENUM::LIGHT_MODE);
+        if (light_mode == "on" || (light_mode == "auto" && player_->HasLightStates()))
+        {
+            viewer_->SetNodeMaskBits(roadgeom::NodeMask::NODE_MASK_LIGHT_STATE);
+        }
+        else
+        {
+            viewer_->ClearNodeMaskBits(roadgeom::NodeMask::NODE_MASK_LIGHT_STATE);
+        }
+        viewer_->SetShowLights(player_->HasLightStates());
+#endif  // _USE_OSG
+
         if (opt.GetOptionSet("repeat"))
         {
             player_->SetRepeat(true);
@@ -1240,10 +1303,9 @@ int main(int argc, char** argv)
                     }
 
 #ifdef _USE_OSG
-                    if (state == nullptr || (state->info.visibilityMask & 0x01) == 0)  // no state for given object (index) at this timeframe
+                    if (state == nullptr)  // no state for given object (index) at this timeframe
                     {
-                        setEntityVisibility(index, false);
-
+                        setEntityVisibility(index, 0);
                         if (index == viewer_->currentCarInFocus_)
                         {
                             // Update overlay info text
@@ -1258,12 +1320,12 @@ int main(int argc, char** argv)
                         }
                         continue;
                     }
-                    setEntityVisibility(index, true);
+                    setEntityVisibility(index, state->info.visibilityMask);
 
                     // on screen text following each entity
                     snprintf(sc->entityModel->on_screen_info_.string_,
                              sizeof(sc->entityModel->on_screen_info_.string_),
-                             " %s (%d) %.2fm\n %.2fkm/h road %d lane %d/%.2f s %.2f\n x %.2f y %.2f hdg %.2f\n osi x %.2f y %.2f \n|",
+                             " %s (%d) %.2fm\n %.2fkm/h road %d lane %d/%.2f s %.2f\n x %.2f y %.2f hdg %.2f\n osi gid %u x %.2f y %.2f \n|",
                              state->info.name.c_str(),
                              state->info.id,
                              entry.odometer,
@@ -1275,6 +1337,7 @@ int main(int argc, char** argv)
                              sc->pos.x,
                              sc->pos.y,
                              sc->pos.h,
+                             state->info.gid,
                              sc->pos.x + sc->bounding_box.center_.x_ * cos(sc->pos.h),
                              sc->pos.y + sc->bounding_box.center_.x_ * sin(sc->pos.h));
                     sc->entityModel->on_screen_info_.osg_text_->setText(sc->entityModel->on_screen_info_.string_);
@@ -1367,14 +1430,14 @@ int main(int argc, char** argv)
                         for (size_t i = 0; i < scenarioEntity.size(); i++)
                         {
                             bool is_ghost = std::find(ghost_indices.begin(), ghost_indices.end(), static_cast<int>(i)) != ghost_indices.end();
-                            if (is_ghost || !scenarioEntity[i].visible)
+                            if (is_ghost || (scenarioEntity[i].visibility_mask & 1) == 0)
                             {
                                 continue;
                             }
                             for (size_t j = i + 1; j < scenarioEntity.size(); j++)
                             {
                                 is_ghost = std::find(ghost_indices.begin(), ghost_indices.end(), static_cast<int>(j)) != ghost_indices.end();
-                                if (is_ghost || !scenarioEntity[j].visible)
+                                if (is_ghost || (scenarioEntity[j].visibility_mask & 1) == 0)
                                 {
                                     continue;
                                 }
@@ -1435,12 +1498,19 @@ int main(int argc, char** argv)
                 ScenarioEntity* c = &scenarioEntity[j];
                 if (c->entityModel != nullptr)
                 {
-                    c->entityModel->SetPosition(c->pos.x, c->pos.y, c->pos.z);
-                    c->entityModel->SetRotation(c->pos.h, c->pos.p, c->pos.r);
+                    // update object, its shadow (projected on road surface) and its wheels
+                    entity_pos.SetInertiaPos(c->pos.x, c->pos.y, c->pos.z, c->pos.h, c->pos.p, c->pos.r);
+                    c->entityModel->UpdatePositionAndOrientation(&entity_pos);
 
                     if (c->entityModel->GetType() == viewer::EntityModel::EntityType::VEHICLE)
                     {
                         (static_cast<viewer::CarModel*>(c->entityModel))->UpdateWheels(c->wheel_angle, c->wheel_rotation);
+
+                        auto& cache = player_->object_state_cache_[c->id];
+                        if (cache.has_lightstate)
+                        {
+                            static_cast<viewer::CarModel*>(c->entityModel)->UpdateLight(cache.state.info.light_state);
+                        }
                     }
                 }
             }

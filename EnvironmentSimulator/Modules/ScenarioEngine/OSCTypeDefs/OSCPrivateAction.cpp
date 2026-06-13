@@ -683,17 +683,12 @@ void AcquirePositionAction::Start(double simTime)
     start_wp.SetModeBits(roadmanager::Position::PosModeType::INIT, roadmanager::Position::PosMode::H_REL | roadmanager::Position::PosMode::H_SET);
     route_->AddWaypoint(start_wp);
     route_->AddWaypoint(target_position_);
+    route_->CheckValid();
 
     object_->pos_.SetRoute(route_);
     object_->dirty_.SetBits(Object::DirtyBit::ROUTE);
 
     OSCAction::Start(simTime);
-
-    if (object_->IsControllerModeOnDomains(ControlOperationMode::MODE_OVERRIDE, static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)))
-    {
-        // lateral motion controlled elsewhere
-        return;
-    }
 }
 
 void AcquirePositionAction::Step(double simTime, double dt)
@@ -705,6 +700,34 @@ void AcquirePositionAction::Step(double simTime, double dt)
 }
 
 void AcquirePositionAction::ReplaceObjectRefs(Object* obj1, Object* obj2)
+{
+    if (object_ == obj1)
+    {
+        object_ = obj2;
+    }
+}
+
+RandomRouteAction::~RandomRouteAction()
+{
+}
+
+void RandomRouteAction::Start(double simTime)
+{
+    object_->SetJunctionSelectorStrategy(roadmanager::Junction::JunctionStrategyType::RANDOM);
+    object_->SetJunctionSelectorAngleRandom();
+
+    OSCAction::Start(simTime);
+}
+
+void RandomRouteAction::Step(double simTime, double dt)
+{
+    (void)simTime;
+    (void)dt;
+
+    OSCAction::End();
+}
+
+void RandomRouteAction::ReplaceObjectRefs(Object* obj1, Object* obj2)
 {
     if (object_ == obj1)
     {
@@ -3098,6 +3121,450 @@ void VisibilityAction::Step(double simTime, double dt)
     (void)dt;
 
     OSCAction::End();
+}
+
+void LightStateAction::SetVehicleLightState(Object::VehicleLightStatus* vehicleLight, double luminousity)
+{
+    luminousity = CLAMP(luminousity, 0.0, MAX_INTENSITY_LUM);
+
+    for (size_t i = 0; i < RGB_ARRAY_SIZE_; i++)
+    {
+        // scale luminosity non linear to achieve visible and somewhat natural distribution in the candela span [0,12000]
+        // some non linear function candidates: https://www.desmos.com/calculator/zfeesbxgu6
+        double x                  = luminousity / MAX_INTENSITY_LUM;
+        double k                  = 0.25;  // Adjust this value to change the curvature of the intensity function
+        vehicleLight->emission[i] = vehicleLight->maxRgb[i] * pow(x, k);
+    }
+
+    vehicleLight->luminousIntensity = luminousity;
+
+    return;
+}
+
+void LightStateAction::Start(double simTime)
+{
+    // Make sure transition flag is reset, in case we have maximumExecutionCount > 1
+    SetInitState();
+
+    SetVehicleLights(GetVehicleLightType());
+    if (vehicleLights_.front().vehicleLight_->type == Object::VehicleLightType::UNDEFINED)
+    {
+        // The light attached to the action hasn't been initialized, so we assume no light has been initialized.
+        // Thus, we initialize all of them with basic values below. This should only happen when running headless...
+        InitializeLights();
+    }
+
+    HandleConflictingLights(GetVehicleLightType());
+
+    for (auto& lightState : vehicleLights_)
+    {
+        const auto& vehicleLight = lightState.vehicleLight_;
+
+        if (actionVehicleLightStatus_.mode == Object::VehicleLightMode::FLASHING)
+        {
+            if (vehicleLight->mode == Object::VehicleLightMode::ON)
+            {
+                // Reset the light to 0 emission and UNKNOWN state if its been on, so we can blink them on/off in unison
+                ResetLight(*vehicleLight);
+            }
+
+            flashStatus_   = FlashingStatus::OFF;
+            flashingTimer_ = flashingOffDuration_;  // Expire off timer, so we turn on the lights instantly
+        }
+
+        lightState.previousIntensity_ = vehicleLight->luminousIntensity;
+        vehicleLight->mode            = actionVehicleLightStatus_.mode;
+        vehicleLight->color           = actionVehicleLightStatus_.color;
+
+        // vehicleLight_->rgb/maxRgb are initialized with min/max values for the material color
+        std::copy_n(vehicleLight->rgb, RGB_ARRAY_SIZE_, lightState.previousMinRgb_);
+        std::copy_n(vehicleLight->maxRgb, RGB_ARRAY_SIZE_, lightState.previousMaxRgb_);
+
+        // We don't have a color specified in the action, so we should work with fallback or material colors
+        if (!GetColorSet())
+        {
+            std::copy_n(vehicleLight->baseRgb, RGB_ARRAY_SIZE_, actionVehicleLightStatus_.rgb);
+        }
+
+        // Find min/max rgb for the color to scale between
+        GetRgbMinMaxColor(actionVehicleLightStatus_.rgb, lightState.minRgb_, lightState.maxRgb_);
+
+        std::copy_n(lightState.minRgb_, RGB_ARRAY_SIZE_, vehicleLight->rgb);
+        std::copy_n(lightState.maxRgb_, RGB_ARRAY_SIZE_, vehicleLight->maxRgb);
+    }
+
+    OSCAction::Start(simTime);
+}
+
+void LightStateAction::Step(double simTime, double dt)
+{
+    (void)simTime;
+    bool end_action = false;
+
+    bool instantTransition = NEAR_NUMBERS(transitionTime_, 0.0);
+    if ((instantTransition || transitionTimer_ > transitionTime_ - SMALL_NUMBER) && !transitioned_)
+    {
+        if (!instantTransition)
+        {
+            LOG_INFO("{}: Transition completed in {:.2f}s", this->GetName(), transitionTimer_);
+        }
+
+        if (actionVehicleLightStatus_.mode != Object::VehicleLightMode::FLASHING)
+        {
+            end_action = true;
+        }
+
+        transitioned_ = true;  // Make sure we only enter this if-statement once
+    }
+
+    if (transitionTimer_ <= transitionTime_ + SMALL_NUMBER)  // We enter here at least once, always
+    {
+        double transitionFactor = 1.0;
+        if (transitionTime_ != 0.0)
+        {
+            transitionFactor = transitionTimer_ / transitionTime_;
+        }
+        // for loop here on struct containing data of previous state
+        for (auto& lightState : vehicleLights_)
+        {
+            if (actionVehicleLightStatus_.mode == Object::VehicleLightMode::ON)
+            {
+                if (!luminousitySet_)
+                {
+                    actionVehicleLightStatus_.luminousIntensity = DEFAULT_LUMINOUS_INTENSITY_;
+                    luminousitySet_                             = true;
+                }
+
+                lightState.transitionLuminousity_ =
+                    lightState.previousIntensity_ + (actionVehicleLightStatus_.luminousIntensity - lightState.previousIntensity_) * transitionFactor;
+            }
+            else if (actionVehicleLightStatus_.mode == Object::VehicleLightMode::OFF)
+            {
+                lightState.transitionLuminousity_ = lightState.previousIntensity_ - lightState.previousIntensity_ * transitionFactor;
+            }
+            else if (actionVehicleLightStatus_.mode == Object::VehicleLightMode::FLASHING)
+            {
+                if (!luminousitySet_)
+                {
+                    actionVehicleLightStatus_.luminousIntensity = DEFAULT_LUMINOUS_INTENSITY_;
+                    luminousitySet_                             = true;
+                }
+                // Turn on the light
+                lightState.transitionLuminousity_ =
+                    lightState.previousIntensity_ + (actionVehicleLightStatus_.luminousIntensity - lightState.previousIntensity_) * transitionFactor;
+            }
+            else
+            {
+                LOG_ERROR("{}: Unknown vehicle light mode", this->GetName());
+                end_action = true;
+            }
+        }
+
+        // Transitioning from one state to another will alter the lights rgb values, so we need to update them until transition is complete.
+        for (const auto& lightState : vehicleLights_)
+        {
+            for (size_t i = 0; i < RGB_ARRAY_SIZE_; i++)
+            {
+                lightState.vehicleLight_->rgb[i] =
+                    lightState.previousMinRgb_[i] + (lightState.minRgb_[i] - lightState.previousMinRgb_[i]) * transitionFactor;
+                lightState.vehicleLight_->maxRgb[i] =
+                    lightState.previousMaxRgb_[i] + (lightState.maxRgb_[i] - lightState.previousMaxRgb_[i]) * transitionFactor;
+            }
+        }
+
+        transitionTimer_ += dt;
+    }
+
+    if (actionVehicleLightStatus_.mode == Object::VehicleLightMode::FLASHING)
+    {
+        if (flashStatus_ == FlashingStatus::OFF && flashingTimer_ >= flashingOffDuration_ - SMALL_NUMBER)
+        {
+            for (auto& lightState : vehicleLights_)
+            {
+                lightState.luminousIntensity_ = lightState.transitionLuminousity_;
+            }
+            flashingTimer_ = 0.0;
+            flashStatus_   = FlashingStatus::ON;
+        }
+        // Lamp on, we want to turn it off after the on-timer has expired
+        else if (flashStatus_ == FlashingStatus::ON && flashingTimer_ >= flashingOnDuration_ - SMALL_NUMBER)
+        {
+            for (auto& lightState : vehicleLights_)
+            {
+                lightState.luminousIntensity_ = 0.0;
+            }
+            flashingTimer_ = 0.0;
+            flashStatus_   = FlashingStatus::OFF;
+        }
+
+        flashingTimer_ += dt;
+    }
+    else
+    {
+        for (auto& lightState : vehicleLights_)
+        {
+            lightState.luminousIntensity_ = lightState.transitionLuminousity_;
+        }
+    }
+
+    for (auto& lightState : vehicleLights_)
+    {
+        SetVehicleLightState(lightState.vehicleLight_, lightState.luminousIntensity_);
+    }
+
+    // Light has been manipulated, this dirty
+    object_->dirty_.SetBits(static_cast<uint64_t>(Object::DirtyBit::LIGHT_STATE));
+
+    if (end_action)
+    {
+        OSCAction::End();
+        return;
+    }
+}
+
+LightStateAction::~LightStateAction()
+{
+    vehicleLights_.clear();
+}
+
+void LightStateAction::HandleConflictingLights(const Object::VehicleLightType& type)
+{
+    switch (type)
+    {
+        case Object::VehicleLightType::FOG_LIGHTS_FRONT:
+        case Object::VehicleLightType::FOG_LIGHTS_REAR:
+            ResetLight(object_->vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::FOG_LIGHTS)]);
+            break;
+        case Object::VehicleLightType::INDICATOR_LEFT:
+            ResetLight(object_->vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::WARNING_LIGHTS)]);
+            ResetLight(
+                object_->vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::INDICATOR_RIGHT)]);  // Can't be on at the same time in OSI
+            break;
+        case Object::VehicleLightType::INDICATOR_RIGHT:
+            ResetLight(object_->vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::WARNING_LIGHTS)]);
+            ResetLight(
+                object_->vehLghtStsList[static_cast<size_t>(Object::VehicleLightType::INDICATOR_LEFT)]);  // Can't be on at the same time in OSI
+            break;
+        default:
+            break;
+    }
+}
+
+void LightStateAction::ResetLight(Object::VehicleLightStatus& light, Object::VehicleLightMode mode)
+{
+    light.mode        = mode;
+    light.emission[0] = 0.0;
+    light.emission[1] = 0.0;
+    light.emission[2] = 0.0;
+}
+
+void LightStateAction::SetInitState()
+{
+    transitioned_    = false;
+    transitionTimer_ = 0.0;
+    flashingTimer_   = 0.0;
+    vehicleLights_   = {};
+}
+
+bool LightStateAction::CheckConflictingLights(const Object::VehicleLightType& type)
+{
+    bool same_light_type  = actionVehicleLightStatus_.type == type;
+    auto is_flashing_type = [](const Object::VehicleLightType& t)
+    {
+        return t == Object::VehicleLightType::WARNING_LIGHTS || t == Object::VehicleLightType::INDICATOR_LEFT ||
+               t == Object::VehicleLightType::INDICATOR_RIGHT;
+    };
+
+    auto is_fog_all_type = [](const Object::VehicleLightType& t) { return t == Object::VehicleLightType::FOG_LIGHTS; };
+
+    auto is_fog_front_rear_type = [](const Object::VehicleLightType& t)
+    { return t == Object::VehicleLightType::FOG_LIGHTS_FRONT || t == Object::VehicleLightType::FOG_LIGHTS_REAR; };
+
+    bool confl_indicator_types = is_flashing_type(actionVehicleLightStatus_.type) && is_flashing_type(type);
+    bool confl_fog_light_types = (is_fog_all_type(actionVehicleLightStatus_.type) && is_fog_front_rear_type(type)) ||
+                                 (is_fog_all_type(type) && is_fog_front_rear_type(actionVehicleLightStatus_.type));
+
+    return same_light_type || confl_indicator_types || confl_fog_light_types;
+}
+
+void LightStateAction::InitializeLights()
+{
+    for (size_t i = 0; i < static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE); i++)
+    {
+        auto& light = object_->vehLghtStsList[i];
+        if (light.type != Object::VehicleLightType::UNDEFINED)
+        {
+            continue;
+        }
+
+        light.type        = static_cast<Object::VehicleLightType>(i);
+        light.mode        = Object::VehicleLightMode::UNKNOWN;
+        light.emission[0] = 0.0;
+        light.emission[1] = 0.0;
+        light.emission[2] = 0.0;
+        SetRgbFromTypeEnum(light.type, light.baseRgb);
+        GetRgbMinMaxColor(light.baseRgb, light.rgb, light.maxRgb);
+    }
+}
+
+Object::VehicleLightType LightStateAction::GetVehicleLightTypeFromStr(const std::string& lightType)
+{
+    auto lightTypeEnum = Object::VehicleLightType::UNDEFINED;
+    auto it            = lightTypeMap.find(lightType);
+    if (it != lightTypeMap.end())
+    {
+        lightTypeEnum = it->second;
+    }
+
+    return lightTypeEnum;
+}
+
+Object::VehicleLightColor LightStateAction::GetVehicleLightColorFromStr(const std::string& colorType)
+{
+    auto lightColorEnum = Object::VehicleLightColor::UNKNOWN;
+    auto it             = lightColorMap.find(colorType);
+    if (it != lightColorMap.end())
+    {
+        lightColorEnum = it->second;
+    }
+
+    return lightColorEnum;
+}
+
+Object::VehicleLightMode LightStateAction::GetVehicleLightModeFromStr(const std::string& mode)
+{
+    auto lightModeEnum = Object::VehicleLightMode::UNKNOWN;
+    auto it            = lightModeMap.find(mode);
+    if (it != lightModeMap.end())
+    {
+        lightModeEnum = it->second;
+    }
+
+    return lightModeEnum;
+}
+
+void LightStateAction::CmykToRgb(const double* cmyk, double* rgb)
+{
+    rgb[0] = (1 - cmyk[0]) * (1 - cmyk[3]);
+    rgb[1] = (1 - cmyk[1]) * (1 - cmyk[3]);
+    rgb[2] = (1 - cmyk[2]) * (1 - cmyk[3]);
+}
+
+void LightStateAction::SetRgbFromColorEnum(const Object::VehicleLightColor& color)
+{
+    std::vector<double> base_color = {actionVehicleLightStatus_.rgb[0], actionVehicleLightStatus_.rgb[1], actionVehicleLightStatus_.rgb[2]};
+    auto                it         = baseColorMap.find(color);
+    if (it != baseColorMap.end())
+    {
+        base_color = it->second;
+    }
+
+    std::copy_n(base_color.data(), RGB_ARRAY_SIZE_, actionVehicleLightStatus_.rgb);
+
+    return;
+}
+
+std::vector<double> LightStateAction::GetRgbFromColorEnum(const Object::VehicleLightColor& color)
+{
+    std::vector<double> base_color = {actionVehicleLightStatus_.rgb[0], actionVehicleLightStatus_.rgb[1], actionVehicleLightStatus_.rgb[2]};
+    auto                it         = baseColorMap.find(color);
+    if (it != baseColorMap.end())
+    {
+        base_color = it->second;
+    }
+
+    return base_color;
+}
+
+void LightStateAction::UpdateArray(double* arr, size_t size, const std::vector<double>& vals)
+{
+    if (vals.size() != size)
+    {
+        return;
+    }
+    for (size_t i = 0; i < vals.size(); i++)
+    {
+        arr[i] = vals[i];
+    }
+}
+
+void LightStateAction::SetRgbFromTypeEnum(const Object::VehicleLightType& type, double* arr)
+{
+    switch (type)
+    {
+        case Object::VehicleLightType::DAYTIME_RUNNING_LIGHTS:
+        case Object::VehicleLightType::LOW_BEAM:
+        case Object::VehicleLightType::HIGH_BEAM:
+        case Object::VehicleLightType::REVERSING_LIGHTS:
+        case Object::VehicleLightType::TAIL_LIGHTS:
+        case Object::VehicleLightType::LICENSE_PLATE_ILLUMINATION:
+            arr[0] = 0.5;
+            arr[1] = 0.5;
+            arr[2] = 0.5;
+            break;
+        case Object::VehicleLightType::FOG_LIGHTS_FRONT:
+            arr[0] = 0.8;
+            arr[1] = 0.8;
+            arr[2] = 0.8;
+            break;
+        case Object::VehicleLightType::FOG_LIGHTS_REAR:
+            arr[0] = 0.6;
+            arr[1] = 0.0;
+            arr[2] = 0.0;
+            break;
+        case Object::VehicleLightType::BRAKE_LIGHTS:
+            arr[0] = 0.5;
+            arr[1] = 0.0;
+            arr[2] = 0.0;
+            break;
+        case Object::VehicleLightType::INDICATOR_LEFT:
+        case Object::VehicleLightType::INDICATOR_RIGHT:
+            arr[0] = 0.5;
+            arr[1] = 0.375;
+            arr[2] = 0.0;
+            break;
+        case Object::VehicleLightType::SPECIAL_PURPOSE_LIGHTS:
+            arr[0] = 0.3;
+            arr[1] = 0.3;
+            arr[2] = 0.5;
+            break;
+        default:
+            break;
+    }
+}
+
+void LightStateAction::SetVehicleLights(const Object::VehicleLightType& type)
+{
+    if (type == Object::VehicleLightType::FOG_LIGHTS)
+    {
+        object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type)].mode = actionVehicleLightStatus_.mode;  // Save mode
+
+        VehicleLightState fogLightFront;
+        fogLightFront.vehicleLight_ = &object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type) + 1];
+        VehicleLightState fogLightRear;
+        fogLightRear.vehicleLight_ = &object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type) + 2];
+
+        vehicleLights_.emplace_back(fogLightFront);
+        vehicleLights_.emplace_back(fogLightRear);
+    }
+    else if (actionVehicleLightStatus_.type == Object::VehicleLightType::WARNING_LIGHTS)
+    {
+        object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type)].mode = actionVehicleLightStatus_.mode;  // Save mode
+
+        VehicleLightState indicatorLeft;
+        indicatorLeft.vehicleLight_ = &object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type) + 1];
+        VehicleLightState indicatorRight;
+        indicatorRight.vehicleLight_ = &object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type) + 2];
+
+        vehicleLights_.emplace_back(indicatorLeft);
+        vehicleLights_.emplace_back(indicatorRight);
+    }
+    else
+    {
+        VehicleLightState light;
+        light.vehicleLight_ = &object_->vehLghtStsList[static_cast<size_t>(actionVehicleLightStatus_.type)];
+        vehicleLights_.emplace_back(light);
+    }
 }
 
 int OverrideControlAction::AddOverrideStatus(Object::OverrideActionStatus status)

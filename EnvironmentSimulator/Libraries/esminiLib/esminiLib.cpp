@@ -419,10 +419,8 @@ static int InitScenario()
     // Create scenario engine
     try
     {
-        fprintf(stderr, "[esminiLib] InitScenario: Instantiating ScenarioPlayer...\n");
         // Initialize the scenario engine and viewer
         player     = new ScenarioPlayer(argc_, argv_);
-        fprintf(stderr, "[esminiLib] InitScenario: Calling player->Init()...\n");
         int retval = player->Init();
         if (retval == -1)
         {
@@ -594,7 +592,6 @@ extern "C"
 
     SE_DLL_API int SE_InitWithArgs(int argc, const char *argv[])
     {
-        fprintf(stderr, "[esminiLib] SE_InitWithArgs called. argc=%d\n", argc);
         resetScenario();
 
         if (argv && !strncmp(argv[0], "--", 2))
@@ -605,11 +602,9 @@ extern "C"
 
         for (int i = 0; i < argc; i++)
         {
-            if (argv[i]) fprintf(stderr, "[esminiLib] Arg[%d]: %s\n", i, argv[i]);
             AddArgument(argv[i], false);
         }
 
-        fprintf(stderr, "[esminiLib] Calling InitScenario...\n");
         return InitScenario();
     }
 
@@ -1504,10 +1499,112 @@ extern "C"
         return obj->pos_.GetInLaneType();
     }
 
-    SE_DLL_API int SE_GetOverrideActionStatus(int objectId, SE_OverrideActionList *list)
+    static roadmanager::LaneRoadMark *GetRoadMarkAtS(roadmanager::Lane *lane, roadmanager::LaneSection *lsec, double s)
+    {
+        if (lane == nullptr || lsec == nullptr)
+        {
+            return nullptr;
+        }
+        unsigned int n = lane->GetNumberOfRoadMarks();
+        if (n == 0)
+        {
+            return nullptr;
+        }
+        roadmanager::LaneRoadMark *active = nullptr;
+        double                     lsec_s = lsec->GetS();
+        for (unsigned int i = 0; i < n; i++)
+        {
+            roadmanager::LaneRoadMark *rm = lane->GetLaneRoadMarkByIdx(i);
+            if (rm != nullptr && (lsec_s + rm->GetSOffset()) <= s)
+            {
+                active = rm;
+            }
+        }
+        return active;
+    }
+
+    static bool RoadMarkAllowsLaneChange(roadmanager::LaneRoadMark *rm, int direction)
+    {
+        if (rm == nullptr)
+        {
+            // no road mark info -> assume allowed
+            return true;
+        }
+        roadmanager::LaneRoadMark::RoadMarkLaneChange lc = rm->GetLaneChange();
+        if (lc == roadmanager::LaneRoadMark::BOTH)
+        {
+            return true;
+        }
+        if (lc == roadmanager::LaneRoadMark::NONE_LANECHANGE)
+        {
+            return false;
+        }
+        if (lc == roadmanager::LaneRoadMark::INCREASE && direction > 0)
+        {
+            return true;
+        }
+        if (lc == roadmanager::LaneRoadMark::DECREASE && direction < 0)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    SE_DLL_API int SE_ObjectCanChangeLanes(int object_id)
     {
         Object *obj = nullptr;
-        if (getObjectById(objectId, obj) == -1)
+        if (getObjectById(object_id, obj) == -1)
+        {
+            return -1;
+        }
+
+        int lane_id = obj->pos_.GetLaneId();
+        if (lane_id == 0)
+        {
+            return 0;
+        }
+
+        roadmanager::Road *road = obj->pos_.GetRoadById(obj->pos_.GetTrackId());
+        if (road == nullptr)
+        {
+            return -1;
+        }
+
+        double s = obj->pos_.GetS();
+
+        if (road->GetDrivingLaneById(s, lane_id) == nullptr)
+        {
+            return 0;
+        }
+
+        bool has_left  = (lane_id + 1 != 0) && (road->GetDrivingLaneById(s, lane_id + 1) != nullptr);
+        bool has_right = (lane_id - 1 != 0) && (road->GetDrivingLaneById(s, lane_id - 1) != nullptr);
+
+        roadmanager::LaneSection *lsec      = road->GetLaneSectionByS(s);
+        bool                      can_left  = false;
+        bool                      can_right = false;
+
+        if (has_left && lsec != nullptr)
+        {
+            roadmanager::Lane         *markLane = (lane_id > 0) ? lsec->GetLaneById(lane_id) : lsec->GetLaneById(lane_id + 1);
+            roadmanager::LaneRoadMark *rm       = GetRoadMarkAtS(markLane, lsec, s);
+            can_left                            = RoadMarkAllowsLaneChange(rm, 1);
+        }
+
+        if (has_right && lsec != nullptr)
+        {
+            roadmanager::Lane         *markLane = (lane_id < 0) ? lsec->GetLaneById(lane_id) : lsec->GetLaneById(lane_id - 1);
+            roadmanager::LaneRoadMark *rm       = GetRoadMarkAtS(markLane, lsec, s);
+            can_right                           = RoadMarkAllowsLaneChange(rm, -1);
+        }
+
+        return (can_left ? 1 : 0) | (can_right ? 2 : 0);
+    }
+
+    SE_DLL_API int SE_GetOverrideActionStatus(int object_id, SE_OverrideActionList *list)
+    {
+        Object *obj = nullptr;
+        if (getObjectById(object_id, obj) == -1)
         {
             printf("no obj\n");
             return -1;
@@ -1556,39 +1653,17 @@ extern "C"
     SE_DLL_API int SE_OpenOSISocket(const char *ipaddr)
     {
 #ifdef _USE_OSI
-        LOG_INFO("SE_OpenOSISocket: _USE_OSI is DEFINED");
         if (player == nullptr)
         {
-            LOG_ERROR("SE_OpenOSISocket: player is nullptr!");
             return -1;
         }
 
-        if (player->osiReporter == nullptr)
-        {
-            LOG_ERROR("SE_OpenOSISocket: osiReporter is nullptr!");
-            return -1;
-        }
-
-        // Set OSI frequency to 1 (send every frame) if not already set
-        if (player->osiReporter->GetOSIFrequency() == 0)
-        {
-            LOG_INFO("SE_OpenOSISocket: OSI frequency was 0, setting to 1 (send every frame)");
-            player->osiReporter->SetOSIFrequency(1);
-        }
-        else
-        {
-            LOG_INFO("SE_OpenOSISocket: OSI frequency already set to {}", player->osiReporter->GetOSIFrequency());
-        }
-
-        LOG_INFO("SE_OpenOSISocket: Calling OpenSocket({})", ipaddr);
-        int result = player->osiReporter->OpenSocket(ipaddr);
-        LOG_INFO("SE_OpenOSISocket: OpenSocket returned {}", result);
-        return result;
+        player->osiReporter->OpenSocket(ipaddr);
 #else
-        LOG_WARN("SE_OpenOSISocket: _USE_OSI is NOT DEFINED - OSI support is disabled!");
         (void)ipaddr;
-        return -1;
 #endif  // _USE_OSI
+
+        return 0;
     }
 
     SE_DLL_API void SE_SetOSIStaticReportMode(SE_OSIStaticReportMode mode)

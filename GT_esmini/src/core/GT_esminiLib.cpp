@@ -1495,3 +1495,50 @@ GT_ESMINI_API int GT_SetDriveMode(const char* mode)
     return s_hvdEstimator.SetActiveMode(std::string(mode)) ? 0 : -1;
 }
 
+// GT-flavored variant of SE_OpenOSISocket (auto-enables per-frame OSI frequency);
+// core SE_OpenOSISocket is vanilla upstream (audit BND-2 / R5-U1).
+//
+// Opens the OSI groundtruth UDP socket and, unlike vanilla SE_OpenOSISocket,
+// forces the OSI frequency to 1 (send every frame) when it was left at 0. The
+// in-process verification harness (gt_lib.py / gt_sim_test) relies on this so
+// that GT_Step emits OSI each frame even when --osi was not given a frequency.
+// Returns the actual OpenSocket result (0 on success, -1 on failure); -1 if
+// player/osiReporter are null or _USE_OSI is undefined.
+GT_ESMINI_API int GT_OpenOSISocket(const char* ipaddr)
+{
+#ifdef _USE_OSI
+    LOG_INFO("GT_OpenOSISocket: _USE_OSI is DEFINED");
+    if (player == nullptr)
+    {
+        LOG_ERROR("GT_OpenOSISocket: player is nullptr!");
+        return -1;
+    }
+
+    if (player->osiReporter == nullptr)
+    {
+        LOG_ERROR("GT_OpenOSISocket: osiReporter is nullptr!");
+        return -1;
+    }
+
+    // Set OSI frequency to 1 (send every frame) if not already set
+    if (player->osiReporter->GetOSIFrequency() == 0)
+    {
+        LOG_INFO("GT_OpenOSISocket: OSI frequency was 0, setting to 1 (send every frame)");
+        player->osiReporter->SetOSIFrequency(1);
+    }
+    else
+    {
+        LOG_INFO("GT_OpenOSISocket: OSI frequency already set to {}", player->osiReporter->GetOSIFrequency());
+    }
+
+    LOG_INFO("GT_OpenOSISocket: Calling OpenSocket({})", ipaddr);
+    int result = player->osiReporter->OpenSocket(ipaddr);
+    LOG_INFO("GT_OpenOSISocket: OpenSocket returned {}", result);
+    return result;
+#else
+    LOG_WARN("GT_OpenOSISocket: _USE_OSI is NOT DEFINED - OSI support is disabled!");
+    (void)ipaddr;
+    return -1;
+#endif  // _USE_OSI
+}
+

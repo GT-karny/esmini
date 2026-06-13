@@ -203,6 +203,20 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, int buf_size);
 
+    /**
+     * GT-flavored variant of SE_OpenOSISocket (auto-enables per-frame OSI frequency);
+     * core SE_OpenOSISocket is vanilla upstream (audit BND-2 / R5-U1).
+     *
+     * Opens the OSI groundtruth UDP socket. Unlike vanilla SE_OpenOSISocket, this
+     * forces the OSI frequency to 1 (send every frame) when it was left at 0, so the
+     * in-process verification harness emits OSI each GT_Step even without --osi <hz>.
+     *
+     * @param ipaddr Destination IP for the OSI groundtruth UDP stream
+     * @return 0 on success, -1 on failure (null player/osiReporter, OpenSocket error,
+     *         or _USE_OSI undefined)
+     */
+    GT_ESMINI_API int GT_OpenOSISocket(const char* ipaddr);
+
 #ifdef __cplusplus
 }
 #endif

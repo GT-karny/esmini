@@ -1,0 +1,5 @@
+# WASM build output (mirrors the root .gitignore rule for the old core location
+# EnvironmentSimulator/Libraries/esminiJS/build*/*, now that the GT variant lives here).
+build/
+build*/
+*.js.map
