@@ -210,6 +210,20 @@ P0表の8件 + 追加衛生:
 - **設定エルゴノミクス修正**: policy_*_enabled の絶対パス ConfigFile 注入回避(パス解決バグ)を正規修正 — 現状ユーザーが普通に有効化すると踏む
 - ドキュメント刷新: README/CLAUDE.md は **直近60コミット(VirtualDriver/RouteDrive/Kinematic/検証スタック)が全く記載されていない**。HostVehicleData velocity の deprecated フィールド脱却、Electron アイコン
 
+### F6: AutoLight 環境駆動拡張 — 自動ヘッドライト(週6以降、ユーザー発案 2026-06-13)
+
+> 前提: **R5-U3(ライトストレージ統合)完了後**に着手 — AUTO系ライトがOSGビューワー/dat記録までそのまま効く状態で実装する。
+
+現状の `AutoLightController` は車両状態駆動の3系統のみ(ブレーキ/後退灯/ウインカー)。環境駆動の第4ルール `UpdateHeadlights()` を追加する:
+
+1. **夜間判定 → ロービームON/OFF**: OpenSCENARIO `Environment`(TimeOfDay / sun illuminance・elevation)をScenarioEngineから取得し、しきい値でロービーム点灯。3.3.0マージでEnvironment周りは更新済み
+2. **トンネル判定 → ロービームON/OFF**: OpenDRIVE `<tunnel>` を自車(s, road)と照合。**要調査**: upstream RoadManagerがtunnelをパースするか(しない場合はGT側抽出 = Phase 3eのpriority抽出と同型のパターン)
+3. **自動ハイビーム**: ロービーム点灯中かつ前方に他車両(先行車・対向車とも)が一定距離内に居なければハイビーム化、検知で減光。前方スキャンはVDポリシー共通構造を流用。チラつき防止のヒステリシス必須
+
+- 出力は既存の `LightSource` 優先度 **AUTO** に乗せる(SCENARIO/MANUALが常に勝つ既存設計を維持)
+- 受入: 夜Environment+トンネル入りxodr+先行車シナリオで ON→OFF→ハイビーム→減光 の遷移をビューワー目視+dat記録で確認。判定純ロジック(照度しきい値/トンネル区間/前方クリア判定)はctest単体テスト追加
+- 参考: upstream `auto_light.xosc` はシナリオ駆動のデモであり本件とは別物(GTはセンサー的環境判定を実装する)
+
 ### 推奨順序(リファクタと統合)
 
 ```
@@ -217,8 +231,8 @@ P0表の8件 + 追加衛生:
 週2     : F1 シナリオ量産基盤(+R2 を裏で並走) ← 実施中
 週3     : R5 upstream 3.3.0 追従(U1 前処理 → U2 マージ。F2 着手前に必須)
 週4-5   : F2 Phase 3d(回帰ゲート有効状態で。R5-U3 ストレージ統合を並走可)
-週6     : F3 Phase 3e + F4 CI回帰完成
-週7以降 : F5 仕上げ + R3/R4/R5-U4 を継続消化
+週6     : F3 Phase 3e + F4 CI回帰完成(容量があれば F6 AutoLight環境駆動を開始)
+週7以降 : F5 仕上げ + F6 AutoLight環境駆動 + R3/R4/R5-U4 を継続消化
 ```
 
 ---
