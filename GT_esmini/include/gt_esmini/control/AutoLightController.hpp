@@ -94,6 +94,7 @@ namespace gt_esmini
         
         // Robustness
         double timeSinceLastUpdate_;   // For frequency limiting
+        double simClock_ = 0.0;        // Accumulated sim time for the blink ticker
 
         // Thresholds
         static constexpr double BRAKE_ON_THRESHOLD = -1.2;     // m/s^2 (Hard Decel Trigger)

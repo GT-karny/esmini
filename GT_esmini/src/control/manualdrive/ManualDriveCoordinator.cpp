@@ -181,6 +181,10 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
                 set_light(VehicleLightType::HIGH_BEAM,       c.high_beam_on_);
                 set_light(VehicleLightType::FOG_LIGHTS,      c.fog_light_on_);
                 set_light(VehicleLightType::WARNING_LIGHTS,  c.hazard_on_);
+
+                // R5-U3: advance the GT blink ticker (no-op unless a GT writer set FLASHING).
+                c.light_sim_clock_ += dt;
+                ext->Tick(c.light_sim_clock_, dt);
             }
         }
     }

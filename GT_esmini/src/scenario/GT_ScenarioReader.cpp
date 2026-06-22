@@ -14,6 +14,7 @@
 #endif
 #include "gt_esmini/scenario/GT_ScenarioReader.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
+#include "gt_esmini/scenario/VehicleLightBridge.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include <vector>
 #include <string>
@@ -33,280 +34,29 @@ namespace gt_esmini
     {
     }
 
-    scenarioengine::OSCPrivateAction* GT_ScenarioReader::parseOSCPrivateAction(pugi::xml_node           actionNode,
-                                                                                scenarioengine::Object*  object,
-                                                                                scenarioengine::Event*   parent)
-    {
-        for (pugi::xml_node actionChild = actionNode.first_child(); actionChild; actionChild = actionChild.next_sibling())
-        {
-            if (std::string(actionChild.name()) == "AppearanceAction")
-            {
-                return ParseAppearanceAction(actionChild, object, parent);
-            }
-            else if (std::string(actionChild.name()) == "LightStateAction")
-            {
-                // Support LightStateAction directly under PrivateAction (without AppearanceAction wrapper)
-                OSCLightStateAction* action = ParseLightStateAction(actionChild);
-                if (action != nullptr)
-                {
-                    if (object != nullptr && object->type_ == scenarioengine::Object::Type::VEHICLE)
-                    {
-                        scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(object);
-                        auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-                        if (ext == nullptr)
-                        {
-                            ext = new VehicleLightExtension(vehicle);
-                            VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-                        }
-                    }
-                    action->parent_ = parent;
-                    action->object_ = object;
-                }
-                return action;
-            }
-        }
-        
-        // Delegate all other actions to parent class
-        return scenarioengine::ScenarioReader::parseOSCPrivateAction(actionNode, object, parent);
-    }
-
-    OSCLightStateAction* GT_ScenarioReader::ParseLightStateAction(pugi::xml_node node)
-    {
-        OSCLightStateAction* action = new OSCLightStateAction(nullptr);
-        
-        // Parse LightType
-        pugi::xml_node lightTypeNode = node.child("LightType");
-        if (lightTypeNode.empty())
-        {
-            LOG_ERROR("LightStateAction: Missing mandatory LightType element");
-            delete action;
-            return nullptr;
-        }
-        
-        pugi::xml_node vehicleLightNode = lightTypeNode.child("VehicleLight");
-        if (vehicleLightNode.empty())
-        {
-            LOG_ERROR("LightStateAction: Missing VehicleLight element in LightType");
-            delete action;
-            return nullptr;
-        }
-        
-        std::string lightTypeStr = parameters.ReadAttribute(vehicleLightNode, "vehicleLightType"); // Assumes 'parameters' member is available and initialized, or use generic reading
-        // Wait, 'parameters' is member of ScenarioReader? Check inheritance. 
-        // ScenarioReader has 'OSCParameterDeclarations parameters'. Yes.
-        
-        if (lightTypeStr.empty())
-        {
-            LOG_ERROR("LightStateAction: Missing mandatory vehicleLightType attribute");
-            delete action;
-            return nullptr;
-        }
-        
-        // Convert string to VehicleLightType enum
-        if (lightTypeStr == "daytimeRunningLights")
-            action->lightType_ = VehicleLightType::DAYTIME_RUNNING_LIGHTS;
-        else if (lightTypeStr == "lowBeam")
-            action->lightType_ = VehicleLightType::LOW_BEAM;
-        else if (lightTypeStr == "highBeam")
-            action->lightType_ = VehicleLightType::HIGH_BEAM;
-        else if (lightTypeStr == "fogLights")
-            action->lightType_ = VehicleLightType::FOG_LIGHTS;
-        else if (lightTypeStr == "fogLightsFront")
-            action->lightType_ = VehicleLightType::FOG_LIGHTS_FRONT;
-        else if (lightTypeStr == "fogLightsRear")
-            action->lightType_ = VehicleLightType::FOG_LIGHTS_REAR;
-        else if (lightTypeStr == "brakeLights")
-            action->lightType_ = VehicleLightType::BRAKE_LIGHTS;
-        else if (lightTypeStr == "warningLights")
-            action->lightType_ = VehicleLightType::WARNING_LIGHTS;
-        else if (lightTypeStr == "indicatorLeft")
-            action->lightType_ = VehicleLightType::INDICATOR_LEFT;
-        else if (lightTypeStr == "indicatorRight")
-            action->lightType_ = VehicleLightType::INDICATOR_RIGHT;
-        else if (lightTypeStr == "reversingLights")
-            action->lightType_ = VehicleLightType::REVERSING_LIGHTS;
-        else if (lightTypeStr == "licensePlateIllumination")
-            action->lightType_ = VehicleLightType::LICENSE_PLATE_ILLUMINATION;
-        else if (lightTypeStr == "specialPurposeLights")
-            action->lightType_ = VehicleLightType::SPECIAL_PURPOSE_LIGHTS;
-        else
-        {
-            LOG_WARN("LightStateAction: Unknown vehicleLightType '{}', defaulting to brakeLights", lightTypeStr);
-            action->lightType_ = VehicleLightType::BRAKE_LIGHTS;
-        }
-        
-        // Parse LightState
-        pugi::xml_node lightStateNode = node.child("LightState");
-        if (lightStateNode.empty())
-        {
-            LOG_ERROR("LightStateAction: Missing mandatory LightState element");
-            delete action;
-            return nullptr;
-        }
-        
-        std::string modeStr = parameters.ReadAttribute(lightStateNode, "mode");
-        if (modeStr.empty())
-        {
-            LOG_ERROR("LightStateAction: Missing mandatory mode attribute");
-            delete action;
-            return nullptr;
-        }
-        
-        // Convert string to LightState::Mode enum
-        if (modeStr == "on")
-            action->lightState_.mode = LightState::Mode::ON;
-        else if (modeStr == "off")
-            action->lightState_.mode = LightState::Mode::OFF;
-        else if (modeStr == "flashing")
-            action->lightState_.mode = LightState::Mode::FLASHING;
-        else
-        {
-            LOG_WARN("LightStateAction: Unknown mode '{}', defaulting to off", modeStr);
-            action->lightState_.mode = LightState::Mode::OFF;
-        }
-        
-        // Parse optional attributes
-        if (!lightStateNode.attribute("luminousIntensity").empty())
-        {
-            action->lightState_.luminousIntensity = strtod(parameters.ReadAttribute(lightStateNode, "luminousIntensity").c_str(), nullptr);
-        }
-        
-        if (!lightStateNode.attribute("flashingOnDuration").empty())
-        {
-            action->lightState_.flashingOnDuration = strtod(parameters.ReadAttribute(lightStateNode, "flashingOnDuration").c_str(), nullptr);
-        }
-        
-        if (!lightStateNode.attribute("flashingOffDuration").empty())
-        {
-            action->lightState_.flashingOffDuration = strtod(parameters.ReadAttribute(lightStateNode, "flashingOffDuration").c_str(), nullptr);
-        }
-        
-        // Parse optional Color element
-        pugi::xml_node colorNode = lightStateNode.child("Color");
-        if (!colorNode.empty())
-        {
-            if (!colorNode.attribute("r").empty())
-                action->lightState_.colorR = strtod(parameters.ReadAttribute(colorNode, "r").c_str(), nullptr);
-            if (!colorNode.attribute("g").empty())
-                action->lightState_.colorG = strtod(parameters.ReadAttribute(colorNode, "g").c_str(), nullptr);
-            if (!colorNode.attribute("b").empty())
-                action->lightState_.colorB = strtod(parameters.ReadAttribute(colorNode, "b").c_str(), nullptr);
-        }
-        
-        // Parse transitionTime attribute based on XML (node is LightStateAction)
-        if (!node.attribute("transitionTime").empty())
-        {
-            action->transitionTime_ = strtod(parameters.ReadAttribute(node, "transitionTime").c_str(), nullptr);
-        }
-        
-        return action;
-    }
-
-    scenarioengine::OSCPrivateAction* GT_ScenarioReader::ParseAppearanceAction(pugi::xml_node          node,
-                                                                                scenarioengine::Object* object,
-                                                                                scenarioengine::Event*  parent)
-    {
-        pugi::xml_node appearanceChild = node.first_child();
-        
-        if (appearanceChild.empty())
-        {
-            LOG_WARN("AppearanceAction: No child element found");
-            return nullptr;
-        }
-        
-        if (std::string(appearanceChild.name()) == "LightStateAction")
-        {
-            OSCLightStateAction* action = ParseLightStateAction(appearanceChild);
-            
-            if (action != nullptr)
-            {
-                // Register VehicleLightExtension to Vehicle if not already registered
-                if (object != nullptr && object->type_ == scenarioengine::Object::Type::VEHICLE)
-                {
-                    scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(object);
-                    
-                    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-                    if (ext == nullptr)
-                    {
-                        ext = new VehicleLightExtension(vehicle);
-                        VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-                    }
-                }
-                
-                // Set parent for the action
-                action->parent_ = parent;
-                action->object_ = object;
-            }
-            
-            return action;
-        }
-        else
-        {
-            LOG_WARN("AppearanceAction: Unsupported child element '{}'", appearanceChild.name());
-            return nullptr;
-        }
-    }
-
     void GT_ScenarioReader::ParseExtensionActions(const pugi::xml_document& doc, scenarioengine::StoryBoard& storyBoard)
     {
         pugi::xml_node oscNode = doc.child("OpenSCENARIO");
         pugi::xml_node sbNode = oscNode.child("Storyboard");
 
-        if (sbNode.empty()) return;
+        if (sbNode.empty())
+        {
+            // No storyboard, but still register any scenario light ownership (none here).
+            return;
+        }
 
         // 0. Parse TrafficSignalController definitions from RoadNetwork
         ParseTrafficSignalControllers(doc);
 
         // 1. Parse Init actions
+        // R5-U3: Init LightStateAction/AppearanceAction are handled natively by SE_Init.
+        // We only handle GT-specific Init GlobalAction > TrafficSignalControllerAction here.
         pugi::xml_node initNode = sbNode.child("Init");
         if (!initNode.empty())
         {
             pugi::xml_node actionsNode = initNode.child("Actions");
             if (!actionsNode.empty())
             {
-                for (pugi::xml_node privNode = actionsNode.child("Private"); privNode; privNode = privNode.next_sibling("Private"))
-                {
-                    std::string entityRef = parameters.ReadAttribute(privNode, "entityRef");
-                    scenarioengine::Object* object = entities->GetObjectByName(entityRef);
-                    if (!object) continue;
-
-                    for (pugi::xml_node actionNode = privNode.first_child(); actionNode; actionNode = actionNode.next_sibling())
-                    {
-                         if (std::string(actionNode.name()) == "AppearanceAction")
-                         {
-                             auto* action = ParseAppearanceAction(actionNode, object, nullptr);
-                             if (action)
-                             {
-                                 storyBoard.init_.private_action_.push_back(action);
-                                 // Execute immediately since StartTrigger for Init has already passed
-                                 action->Start(0.0);
-                             }
-                         }
-                         else if (std::string(actionNode.name()) == "PrivateAction")
-                         {
-                             pugi::xml_node lsaNode = actionNode.child("LightStateAction");
-                             if (!lsaNode.empty())
-                             {
-                                 OSCLightStateAction* action = ParseLightStateAction(lsaNode);
-                                 if (action && object->type_ == scenarioengine::Object::Type::VEHICLE)
-                                 {
-                                     auto* vehicle = static_cast<scenarioengine::Vehicle*>(object);
-                                     auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-                                     if (ext == nullptr)
-                                     {
-                                         ext = new VehicleLightExtension(vehicle);
-                                         gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-                                     }
-                                     action->parent_ = nullptr;
-                                     action->object_ = object;
-                                     storyBoard.init_.private_action_.push_back(action);
-                                     action->Start(0.0);
-                                 }
-                             }
-                         }
-                    }
-                }
-
                 // 1b. Parse Init GlobalAction > TrafficSignalControllerAction
                 for (pugi::xml_node gaNode = actionsNode.child("GlobalAction"); gaNode; gaNode = gaNode.next_sibling("GlobalAction"))
                 {
@@ -320,7 +70,7 @@ namespace gt_esmini
             }
         }
 
-        // 2. Parse Stories
+        // 2. Parse Stories (TrafficSignalController actions + conditions only).
         for (pugi::xml_node storyNode = sbNode.child("Story"); storyNode; storyNode = storyNode.next_sibling("Story"))
         {
             std::string storyName = parameters.ReadAttribute(storyNode, "name");
@@ -359,47 +109,6 @@ namespace gt_esmini
                             // Scan actions in Event
                             for (pugi::xml_node actionNode = evtNode.child("Action"); actionNode; actionNode = actionNode.next_sibling("Action"))
                             {
-                                pugi::xml_node privNode = actionNode.child("PrivateAction");
-                                if (!privNode.empty())
-                                {
-                                    pugi::xml_node appNode = privNode.child("AppearanceAction");
-                                    if (!appNode.empty())
-                                    {
-                                        // Found one!
-                                        // Create action for EACH actor
-                                        for(auto* actor : mgObj->actor_)
-                                        {
-                                            auto* action = ParseAppearanceAction(appNode, actor->object_, evtObj);
-                                            if (action)
-                                            {
-                                                evtObj->action_.push_back(action);
-                                            }
-                                        }
-                                    }
-
-                                    pugi::xml_node lsaNode = privNode.child("LightStateAction");
-                                    if (!lsaNode.empty())
-                                    {
-                                        for (auto* actor : mgObj->actor_)
-                                        {
-                                            auto* action = ParseLightStateAction(lsaNode);
-                                            if (action && actor->object_->type_ == scenarioengine::Object::Type::VEHICLE)
-                                            {
-                                                auto* vehicle = static_cast<scenarioengine::Vehicle*>(actor->object_);
-                                                auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-                                                if (ext == nullptr)
-                                                {
-                                                    ext = new VehicleLightExtension(vehicle);
-                                                    gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-                                                }
-                                                action->parent_ = evtObj;
-                                                action->object_ = actor->object_;
-                                                evtObj->action_.push_back(action);
-                                            }
-                                        }
-                                    }
-                                }
-
                                 // Check for GlobalAction > TrafficSignalControllerAction
                                 pugi::xml_node globalNode = actionNode.child("GlobalAction");
                                 if (!globalNode.empty())
@@ -463,6 +172,12 @@ namespace gt_esmini
                 }
             }
         }
+
+        // R5-U3: register SCENARIO light ownership from the native storyboard. The native
+        // ScenarioReader (SE_Init) already created the native LightStateActions; we scan
+        // them here so GT controllers (AutoLight / ManualDrive / Virtual / RealDriver) defer
+        // to scenario-owned lights via IsScenarioControlled(). Latch is evaluated lazily.
+        ScenarioLightRegistry::Instance().RegisterFromStoryboard(storyBoard);
     }
 
     // =========================================================================

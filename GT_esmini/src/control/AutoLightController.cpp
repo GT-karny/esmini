@@ -61,6 +61,11 @@ namespace gt_esmini
             return;
         }
 
+        // R5-U3: advance the GT blink ticker EVERY frame (before the frequency limit) so
+        // GT-written FLASHING lights (indicators) animate smoothly in the viewer / .dat.
+        simClock_ += dt;
+        lightExt_->Tick(simClock_, dt);
+
         // Frequency Limiting
         timeSinceLastUpdate_ += dt;
         if (timeSinceLastUpdate_ < UPDATE_INTERVAL)

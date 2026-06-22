@@ -140,6 +140,7 @@ namespace gt_esmini
         id_t prevTrackId_     = ID_UNDEFINED;  // detect road change to reset lcDirThisRoad_
         bool indicatorLeftOn_  = false; // cached output state (avoid redundant writes)
         bool indicatorRightOn_ = false;
+        double lightSimClock_  = 0.0;   // accumulated sim time for the GT blink ticker (R5-U3)
     };
 
     scenarioengine::Controller* InstantiateControllerRouteDrive(void* args);
