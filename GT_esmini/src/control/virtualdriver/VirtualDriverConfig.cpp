@@ -85,6 +85,7 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_bool("policy_lead_enabled", policy_lead_enabled);
         parse_bool("policy_traffic_light_enabled", policy_traffic_light_enabled);
         parse_bool("policy_stop_yield_enabled", policy_stop_yield_enabled);
+        parse_bool("policy_conflict_enabled", policy_conflict_enabled);
         parse_double("idm_time_headway", idm_time_headway);
         parse_double("idm_min_gap", idm_min_gap);
         parse_double("idm_max_accel", idm_max_accel);
@@ -104,6 +105,14 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         parse_double("creep_advance", creep_advance);
         parse_double("yield_creep_speed", yield_creep_speed);
         parse_double("sign_stop_margin", sign_stop_margin);
+        parse_double("conflict_lookahead", conflict_lookahead);
+        parse_double("conflict_stop_margin", conflict_stop_margin);
+        parse_double("conflict_zone_half", conflict_zone_half);
+        parse_double("conflict_accept_gap", conflict_accept_gap);
+        parse_double("conflict_min_cross_angle_deg", conflict_min_cross_angle_deg);
+        parse_double("conflict_other_min_speed", conflict_other_min_speed);
+        parse_double("conflict_nominal_speed", conflict_nominal_speed);
+        parse_double("conflict_release_extra", conflict_release_extra);
 
         parse_bool("override_enabled", override_enabled);
         parse_bool("override_button", override_button);
@@ -206,6 +215,21 @@ StopYieldSignAwareConfig VirtualDriverConfig::StopYieldConfig() const
     c.yield_creep_speed      = yield_creep_speed;
     c.lookahead              = sign_lookahead;
     c.stop_margin            = sign_stop_margin;
+    return c;
+}
+
+ConflictPointResolverConfig VirtualDriverConfig::ConflictConfig() const
+{
+    ConflictPointResolverConfig c;
+    c.lookahead           = conflict_lookahead;
+    c.stop_margin         = conflict_stop_margin;
+    c.zone_half           = conflict_zone_half;
+    c.accept_gap          = conflict_accept_gap;
+    c.min_cross_angle_deg = conflict_min_cross_angle_deg;
+    c.other_min_speed     = conflict_other_min_speed;
+    c.nominal_speed       = conflict_nominal_speed;
+    c.release_extra       = conflict_release_extra;
+    c.step                = scan_step;
     return c;
 }
 

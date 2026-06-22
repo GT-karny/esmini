@@ -15,6 +15,7 @@
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
@@ -110,6 +111,8 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
         traffic_policy_mgr_->Add(std::make_unique<TrafficLightAware>(vd_config_.TrafficLightConfig()));
     if (vd_config_.policy_stop_yield_enabled)
         traffic_policy_mgr_->Add(std::make_unique<StopYieldSignAware>(vd_config_.StopYieldConfig()));
+    if (vd_config_.policy_conflict_enabled)
+        traffic_policy_mgr_->Add(std::make_unique<ConflictPointResolver>(vd_config_.ConflictConfig()));
 
     override_mgr_.Configure(io_config_);
 

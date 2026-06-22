@@ -9,6 +9,7 @@
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
 
 namespace gt_esmini
@@ -72,6 +73,7 @@ struct VirtualDriverConfig
     bool   policy_lead_enabled          = false;
     bool   policy_traffic_light_enabled = false;
     bool   policy_stop_yield_enabled    = false;
+    bool   policy_conflict_enabled      = false;
     // 3a — lead-vehicle IDM follow.
     double idm_time_headway   = 1.5;   // [s]
     double idm_min_gap        = 2.0;   // [m]
@@ -94,6 +96,15 @@ struct VirtualDriverConfig
     double creep_advance      = 4.0;   // [m] how far past the line to creep
     double yield_creep_speed  = 3.0;   // [m/s] YIELD = decelerate only
     double sign_stop_margin   = 3.0;   // [m] halt this far before the sign (front at line, stays in scan)
+    // 3d — conflict-point resolver (unsignalised crossing yield).
+    double conflict_lookahead           = 120.0; // [m]   path prediction horizon (ego + others)
+    double conflict_stop_margin         = 4.0;   // [m]   stop this far before the crossing
+    double conflict_zone_half           = 3.0;   // [m]   half-length of the crossing conflict zone
+    double conflict_accept_gap          = 2.0;   // [s]   required clear time gap to commit
+    double conflict_min_cross_angle_deg = 20.0;  // [deg] reject near-parallel (same-direction) overlaps
+    double conflict_other_min_speed     = 0.5;   // [m/s] ignore (near-)stationary others unless on the crossing
+    double conflict_nominal_speed       = 5.0;   // [m/s] floor on v_ego for the arrival estimate (anti-chatter)
+    double conflict_release_extra       = 1.5;   // [s]   extra clear margin a committed yield holds until (hysteresis)
 
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
@@ -121,6 +132,7 @@ struct VirtualDriverConfig
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;
     StopYieldSignAwareConfig       StopYieldConfig() const;
+    ConflictPointResolverConfig    ConflictConfig() const;
 };
 
 }  // namespace gt_esmini

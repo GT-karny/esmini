@@ -40,6 +40,7 @@
     "policy_lead_enabled": false,
     "policy_traffic_light_enabled": false,
     "policy_stop_yield_enabled": false,
+    "policy_conflict_enabled": false,
 
     "_policy_lead": "3a lead-vehicle IDM follow",
     "idm_time_headway": 1.5,
@@ -65,6 +66,16 @@
     "creep_advance": 4.0,
     "yield_creep_speed": 3.0,
     "sign_stop_margin": 3.0,
+
+    "_policy_conflict": "3d conflict-point resolver. Predicts ego + others' route polylines, finds the nearest genuine crossing (>= min_cross_angle_deg), and yields when the crossing stream occupies the conflict zone in the window the ego would traverse it (within accept_gap clear margin). Emits STOP_AT_S conflict_stop_margin before the crossing. Anti-chatter: ego arrival estimate is floored at conflict_nominal_speed, and a committed yield is latched until the oncoming stream clears by accept_gap+conflict_release_extra. Default OFF.",
+    "conflict_lookahead": 120.0,
+    "conflict_stop_margin": 4.0,
+    "conflict_zone_half": 3.0,
+    "conflict_accept_gap": 2.0,
+    "conflict_min_cross_angle_deg": 20.0,
+    "conflict_other_min_speed": 0.5,
+    "conflict_nominal_speed": 5.0,
+    "conflict_release_extra": 1.5,
 
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": true,
