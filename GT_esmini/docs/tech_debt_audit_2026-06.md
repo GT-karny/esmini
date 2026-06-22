@@ -19,6 +19,22 @@
 > 検証: ALL ビルド緑 / 単体32緑 / 回帰ゲート PASS / **挙動バッチ per-scenario 完全一致**(8 pass / 2 fail、fail = green_no_stop + red_stop_green_go で不変)/ validate_catalog 39/39 / **カタログバッチ 36/36 per-scenario 一致**(needs-review 36 / error 0)。新3Dモデルパック `models_with_lights.7z` 取得済み(車両 osgb 全更新、resources/models は gitignore)。`light_state.xosc` ヘッドレスでネイティブ LightStateAction の実行確認(ビューワー点灯目視は未)。
 > 非自明な発見: (1) 移設後の GT wasm コピーは **3.3.0 コア+再同期 GT_RoadManager に対してもビルド成功**(em++ 起動に emsdk python の PATH 追加が必要)。XOSC サニタイザ(AppearanceAction/LightStateAction 除去)は 3.3.0 では機能上不要だが、ネイティブ実行と GT VehicleLightExtension の二重適用問題が U3 の論点になるため**温存**。(2) roadgen フォークは自前ヘッダ(GT_RoadGeom.hpp)持ちの自己完結ターゲットで 3.3.0 影響なし(事前調査の CreateOutlineObject 互換性懸念は誤検出)。
 > 残: U3(ライトストレージ統合)/ U4(OSI ライト出力ポート)は週4-5。dev_v0.12 への取込はユーザー判断待ち。
+>
+> **進捗 2026-06-23(週4-5: R5-U3 完了)**: ライトストレージ統合を `feature/upstream-u3-lights` で完了(2コミット `4123abf2` native / `551f7f43` wasm、ベース=dev_v0.12 `f2674640`、ロールバック点 `pre-u3-lights` タグ)。dev_v0.12 への取込はユーザー判断待ち。
+> 成果: GT のライト状態書込み先を upstream `Object::vehLghtStsList[]` + `DirtyBit::LIGHT_STATE` へ移行し**単一の真実**化。新 `VehicleLightBridge`(`ApplyLight` 書込=ネイティブ emission 数式ミラー・変化時のみ dirty / `ReadLight` 単一読出 helper / `LightBlinkTicker` GT-FLASHING を sim 時刻駆動・シナリオ所有スロットはスキップ)+ `ScenarioLightRegistry`(ネイティブ storyboard から SCENARIO 所有を latch、SCENARIO>MANUAL>AUTO 優先順位を温存)。GT_ScenarioReader のライト傍受を撤去しネイティブ `LightStateAction` に委譲(GT `OSCLightStateAction` 削除、GT `LightState`/`VehicleLightType` 語彙は存置)。**CTL-8(ライトグルー重複)の大半を解消**(g_LightStateProvider / 両 BuildLightMaskFromExtension / HVDEstimator / GT_GetLightState / GT_SetExternalLightState を bridge 経由へ)。
+> サニタイザ: ライトアクション除去を撤廃。bare `PrivateAction>LightStateAction` はネイティブ要求形へ**リラップ**。ライト無しシナリオには **既存 Init Private** に no-op `licensePlateIllumination` を注入(二重 Private を作らない=`activateObject` 二重活性化回避)し `HasLightStateAction()` を立て OSG ビューワーのライトゲートを GT 専用ライトでも有効化。
+> 検証: ALL ビルド緑 / ctest `test_ScenarioReaderParsing` 緑 / 回帰ゲート phase3 per-scenario 不変(8 pass / 2 fail)/ カタログ 36/36 per-scenario 不変(対 pre-U3 ベースライン)/ 機能プローブ5本 PASS(ネイティブ→GT 読み抜け・GT writer→storage・bare-form リラップ実行・dat LIGHT_STATE 記録 scenario=113/GT=18 packets)。wasm は emscripten/ninja で再ビルド緑(esmini.js 再生成)。**ビューワー点灯 / dat→replayer 再現の目視はユーザーのチェックポイント**(未実施)。
+> 残: U4(GT_OSIReporter への OSI ライト出力ポート + g_LightStateProvider 二重系の完全解消)は週7以降(スコープ外のまま)。下記「静的レビュー」追記の HostVehicleReporter / TerrainTracker / Winsock 等は U3 と独立の既存負債。
+
+> **追記 2026-06-23(静的レビュー / branch `feature/upstream-u3-lights`)**: `GT_esmini/` 範囲のみを再確認。`EnvironmentSimulator/` は純正 esmini のため不変。ビルド/テストは未実行(作業ツリーに未コミットのライト統合変更あり)。今回の新規/再確認事項は以下。
+> - **High: CMake と未追跡ファイルの不整合** — `CMakeLists.txt` が `VehicleLightBridge.hpp/.cpp` を参照し、追跡済みソースも `ScenarioLightRegistry` に依存している一方、当該2ファイルは untracked。CMake だけをコミット/stash すると configure/compile が壊れる。対策: `GT_esmini/include/gt_esmini/scenario/VehicleLightBridge.hpp` と `GT_esmini/src/scenario/VehicleLightBridge.cpp` を同一コミットに含める。
+> - **Medium: HostVehicleReporter の `target_ip` 優先順位バグ** — `Init(..., target_ip = "127.0.0.1")` の非空デフォルトにより、第3引数省略時も config の `target_ip` が常に上書きされる。対策: デフォルトを空文字にするか optional/明示指定フラグで判定する。
+> - **Medium: HostVehicleReporter の手書き JSON パース** — `line.find(key)` の部分一致判定が残存。`gear_ratio`/`reverse_gear_ratio` 型の既知バグと同種なので、共通 JSON パーサへ統一する。
+> - **Medium: `TerrainTracker` は実質デッドコード** — `enabled_ = false` 固定、`SetEnabled(true)` 呼び出しなし、更新処理は no-op。一方 README は地形追従を実装済み機能として記載している。対策: 実装するか README に未実装/凍結を明記する。
+> - **Medium: Winsock ライフサイクルの設計リスク** — `GT_UDP_Sender` がインスタンスごとに `WSAStartup`/`WSACleanup` する。単純ケースは参照カウント上均衡するため即時破壊ではないが、他 UDP/TCP 経路と混在するためプロセス単位 RAII へ集約するのが安全。
+> - **Low/Medium: 本番ログ残骸と共有状態** — `GT_InitWithArgs` の常時 stderr、`ControllerRealDriver` の `std::cout`/`printf`/`[DEBUG]` ログが残る。`static double last_steering_debug` は複数 controller 間で共有されるため、インスタンスメンバ化する。
+> - **リファクタ候補** — owning raw pointer を `std::unique_ptr` 化、`#undef Object` の分散を共通ヘッダへ隔離、`Phase 1: Stub` コメント整理、`GT_OSIReporter`/`GT_RoadManager`/`roadgen` のフォークコピー負債削減と回帰テスト追加。
+> - **改善済み確認** — `RealVehicle` の quoted-key 解析、`HeadingCorrectionManager` の offset 修正説明、OSI lane_link null チェック、`scripts/dat.py` 復旧、PyInstaller の `virtual_driver.json`/`route_drive_controller.json` 同梱は確認済み。
 
 - 実施日: 2026-06-13(HEAD `8773c463`, branch `dev_v0.12`)
 - 手法: 11領域並列監査 + 全指摘の敵対的再検証(25エージェント、1,036ツール実行)。**99件全件が証拠付きで確認済み**(refuted 0件。一部は数値補正のみの adjusted)
