@@ -1,0 +1,18 @@
+scenario: 07_oncoming_yield__p007
+category: 07_oncoming_yield
+# Phase 3d (F2) PROCEED case. The oncoming through-car is slow (8 m/s) and cannot
+# reach the junction conflict point before the ego clears it (it arrives ~14.8 s vs
+# the ego crossing ~9-10 s), so ConflictPointResolver must NOT yield. The ego keeps
+# its normal junction-turn speed (~4.9 m/s floor from the curvature cap) and
+# completes the left turn. min_speed_above is the positive control against an
+# over-triggering conflict yield (which would drive the trough below ~3 like p017).
+must:
+  - event: min_speed_above
+    threshold: 3.5
+    after: { sim_time: 6.0 }
+    before: { sim_time: 15.0 }
+    reason: "十分なギャップ(対向8m/s)では譲らず旋回巡航を維持(譲り停止しない)"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 18.0 }
+    reason: "旋回完了後に巡航復帰"

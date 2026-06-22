@@ -1,0 +1,24 @@
+scenario: 07_oncoming_yield__p017
+category: 07_oncoming_yield
+# Phase 3d (F2) YIELD case. Ego left-turns (road1 -> conn102 -> road2) across a
+# 14 m/s oncoming through-car (road0 -> conn100 -> road1) that reaches the junction
+# conflict point essentially together with the ego (first_gap 1.5 s, tight).
+# ConflictPointResolver must make the ego slow to a crawl to let it pass, then
+# commit the turn. Without the policy the ego holds the junction-curvature floor
+# (~4.9 m/s) straight through the turn; the conflict yield drives it well below that
+# in a brief V-dip as the oncoming crosses (full-res trough: 2.9 -> 1.97 -> 2.9 over
+# t8.5..9.0). The post-clear speed_above guards against "waits forever".
+must:
+  # The yield is a brief V-dip (the oncoming crosses quickly), so the window sits
+  # inside the sub-3 trough: full-res speeds over t8.55..8.90 are 2.76 -> 1.97,
+  # max 2.76 (<= 3.0, and far below the ~4.9 no-yield junction floor). Widening the
+  # window catches the recovery shoulders (>3) and is the continuing-tuning task.
+  - event: speed_below
+    threshold: 3.0
+    after: { sim_time: 8.55 }
+    before: { sim_time: 8.9 }
+    reason: "対向直進車(14m/s)の通過に合わせてクロール減速(旋回曲率キャップ~4.9を明確に下回る)"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 16.0 }
+    reason: "対向車通過後に発進し巡航復帰(待ちっぱなしでない)"

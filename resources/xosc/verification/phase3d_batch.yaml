@@ -1,0 +1,32 @@
+name: phase3d_conflict
+# Phase 3d (F2) oncoming-yield / left-turn-across-traffic verification batch.
+# ConflictPointResolver gap acceptance on the representative pair:
+#   p017 (14 m/s oncoming, first_gap 1.5 s, tight) -> YIELD  (ego crawls, lets it pass, then turns)
+#   p007 ( 8 m/s oncoming, first_gap 4.5 s)        -> PROCEED (gap sufficient, no yield)
+# The discriminator that actually separates yield/proceed here is the oncoming
+# SPEED, not the nominal first_gap label: the VirtualDriver slows to ~4.9 m/s for
+# the junction turn itself, so its real crossing is ~9-10 s; a 14 m/s oncoming then
+# conflicts (yield), an 8 m/s one arrives too late (proceed). See the expectations
+# files for the per-variant rationale.
+#
+# policies:[conflict] enables ConflictPointResolver via a per-run absolute-path
+# ConfigFile (base config + policy_conflict_enabled=true), injected by gt_sim_test.
+#
+# Week 4-5 minimal DoD: representative pair machine-judged. Threshold tuning over
+# the full 24-variant 07 sweep (and the borderline 14 m/s wide-gap cases, which the
+# current policy conservatively yields) is a continuing task.
+#
+# Run:
+#   py GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/phase3d_batch.yaml --out test_results/web/phase3d
+defaults:
+  dt: 0.05
+  max_time: 35.0
+  snapshots: 3
+scenarios:
+  - scenario: resources/scenario_authoring/scenario_templates/generated/07_oncoming_yield__p017.xosc
+    expectations: resources/xosc/verification/07_oncoming_yield/p017_yield.expectations.yaml
+    policies: [conflict]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/07_oncoming_yield__p007.xosc
+    expectations: resources/xosc/verification/07_oncoming_yield/p007_proceed.expectations.yaml
+    policies: [conflict]

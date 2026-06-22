@@ -947,6 +947,7 @@ _POLICY_FLAG = {
     "lead": "policy_lead_enabled",
     "traffic_light": "policy_traffic_light_enabled",
     "stop_yield": "policy_stop_yield_enabled",
+    "conflict": "policy_conflict_enabled",
 }
 
 
