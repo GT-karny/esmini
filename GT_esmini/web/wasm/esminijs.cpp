@@ -4,6 +4,7 @@
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/scenario/GT_ScenarioReader.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
+#include "gt_esmini/scenario/VehicleLightBridge.hpp"
 #include "pugixml.hpp"
 #include <iostream>
 #include <functional>
@@ -93,8 +94,19 @@ namespace esmini
         pugi::xml_document originalDoc;
         pugi::xml_parse_result parseResult = originalDoc.load_file(this->xosc_file.c_str());
 
-        // Create a sanitized copy that strips GT extension actions
-        // (vanilla ScenarioReader throws on AppearanceAction/LightStateAction)
+        // The wasm project compiles against the v3.3.0 core, which has a native
+        // scenarioengine::LightStateAction parser/executor. So the native ScenarioEngine
+        // now PARSES AND EXECUTES AppearanceAction/LightStateAction itself (writing
+        // Object::vehLghtStsList[] + DirtyBit::LIGHT_STATE) — we no longer strip them.
+        //
+        // The only remaining sanitization is robustness for the documented GT "bare" form:
+        // a <LightStateAction> placed DIRECTLY under <PrivateAction> (no <AppearanceAction>
+        // wrapper). The native reader throws on that, so we REWRAP it in place into the
+        // standard PrivateAction > AppearanceAction > LightStateAction shape (deep-copying
+        // the node so all attributes/children survive). Mirrors the `rewrap` pass in
+        // CreateSanitizedScenario() in GT_esmini/src/core/GT_esminiLib.cpp. The viewer-gate
+        // injection from that helper is intentionally NOT ported (OSG-viewer-only; irrelevant
+        // to the three.js/web render path).
         std::string sanitizedPath = this->xosc_file + ".sanitized.tmp";
         bool useSanitized = false;
 
@@ -103,29 +115,34 @@ namespace esmini
             pugi::xml_document sanitizedDoc;
             sanitizedDoc.reset(originalDoc);
 
-            std::function<void(pugi::xml_node)> strip;
-            strip = [&](pugi::xml_node node) {
+            std::function<void(pugi::xml_node)> rewrap;
+            rewrap = [&](pugi::xml_node node) {
                 for (pugi::xml_node child = node.first_child(); child; )
                 {
                     pugi::xml_node next = child.next_sibling();
                     std::string name = child.name();
-                    if (name == "AppearanceAction" || name == "LightStateAction")
+
+                    if (name == "LightStateAction" && std::string(node.name()) == "PrivateAction")
                     {
+                        pugi::xml_node wrapper = node.insert_child_before("AppearanceAction", child);
+                        wrapper.append_copy(child);  // deep copy: attributes + children preserved
                         node.remove_child(child);
                     }
                     else
                     {
-                        strip(child);
+                        rewrap(child);
                     }
                     child = next;
                 }
             };
-            strip(sanitizedDoc);
+            rewrap(sanitizedDoc);
 
             useSanitized = sanitizedDoc.save_file(sanitizedPath.c_str());
         }
 
-        // Initialize ScenarioEngine with sanitized XOSC (no extension actions)
+        // Initialize ScenarioEngine. If the rewrap temp was written use it (it is
+        // semantically identical to the original apart from the wrapper normalization);
+        // otherwise fall back to the original file.
         this->scenarioEngine  = new scenarioengine::ScenarioEngine(
             useSanitized ? sanitizedPath : this->xosc_file, false);
         registerCallbacks();
@@ -167,6 +184,9 @@ namespace esmini
 
         // Clear VehicleLightExtension state for clean re-initialization
         gt_esmini::VehicleExtensionManager::Instance().Clear();
+
+        // Clear scenario light-ownership registry (registered by ParseExtensionActions)
+        gt_esmini::ScenarioLightRegistry::Instance().Clear();
 
         if (scenarioEngine)
         {
@@ -419,16 +439,12 @@ namespace esmini
     {
         emscripten::val arr = emscripten::val::array();
 
-        auto& extMgr = gt_esmini::VehicleExtensionManager::Instance();
-
+        // Read light state from the single source of truth (native
+        // Object::vehLghtStsList[]) via the bridge — no VehicleLightExtension required
+        // (none are registered in the wasm path). ReadLight() works for any Object.
         for (auto* obj : scenarioEngine->entities_.object_)
         {
             if (obj->type_ != scenarioengine::Object::Type::VEHICLE)
-                continue;
-
-            auto* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-            auto* ext     = extMgr.GetExtension(vehicle);
-            if (!ext)
                 continue;
 
             emscripten::val vObj = emscripten::val::object();
@@ -436,15 +452,15 @@ namespace esmini
             vObj.set("name", std::string(obj->name_));
 
             // head_light: LOW_BEAM or HIGH_BEAM → "on"
-            auto lowBeam  = ext->GetLightState(gt_esmini::VehicleLightType::LOW_BEAM);
-            auto highBeam = ext->GetLightState(gt_esmini::VehicleLightType::HIGH_BEAM);
+            auto lowBeam  = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::LOW_BEAM);
+            auto highBeam = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::HIGH_BEAM);
             bool headOn   = (lowBeam.mode != gt_esmini::LightState::Mode::OFF) ||
                             (highBeam.mode != gt_esmini::LightState::Mode::OFF);
             vObj.set("head_light", headOn ? std::string("on") : std::string("off"));
 
             // indicator: left / right / warning / off
-            auto indL = ext->GetLightState(gt_esmini::VehicleLightType::INDICATOR_LEFT);
-            auto indR = ext->GetLightState(gt_esmini::VehicleLightType::INDICATOR_RIGHT);
+            auto indL = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::INDICATOR_LEFT);
+            auto indR = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::INDICATOR_RIGHT);
             bool leftOn  = (indL.mode != gt_esmini::LightState::Mode::OFF);
             bool rightOn = (indR.mode != gt_esmini::LightState::Mode::OFF);
 
@@ -458,31 +474,31 @@ namespace esmini
             vObj.set("indicator", indicator);
 
             // brake_light: off / normal
-            auto brake = ext->GetLightState(gt_esmini::VehicleLightType::BRAKE_LIGHTS);
+            auto brake = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::BRAKE_LIGHTS);
             vObj.set("brake_light", (brake.mode != gt_esmini::LightState::Mode::OFF)
                                         ? std::string("normal") : std::string("off"));
 
             // fog_light
-            auto fogF = ext->GetLightState(gt_esmini::VehicleLightType::FOG_LIGHTS_FRONT);
-            auto fogR = ext->GetLightState(gt_esmini::VehicleLightType::FOG_LIGHTS_REAR);
-            auto fog  = ext->GetLightState(gt_esmini::VehicleLightType::FOG_LIGHTS);
+            auto fogF = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::FOG_LIGHTS_FRONT);
+            auto fogR = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::FOG_LIGHTS_REAR);
+            auto fog  = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::FOG_LIGHTS);
             bool fogOn = (fogF.mode != gt_esmini::LightState::Mode::OFF) ||
                          (fogR.mode != gt_esmini::LightState::Mode::OFF) ||
                          (fog.mode  != gt_esmini::LightState::Mode::OFF);
             vObj.set("fog_light", fogOn ? std::string("on") : std::string("off"));
 
             // reversing_light
-            auto rev = ext->GetLightState(gt_esmini::VehicleLightType::REVERSING_LIGHTS);
+            auto rev = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::REVERSING_LIGHTS);
             vObj.set("reversing_light", (rev.mode != gt_esmini::LightState::Mode::OFF)
                                             ? std::string("on") : std::string("off"));
 
             // warning_lights (hazard)
-            auto warn = ext->GetLightState(gt_esmini::VehicleLightType::WARNING_LIGHTS);
+            auto warn = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::WARNING_LIGHTS);
             vObj.set("warning_light", (warn.mode != gt_esmini::LightState::Mode::OFF)
                                           ? std::string("on") : std::string("off"));
 
             // daytime_running_lights
-            auto drl = ext->GetLightState(gt_esmini::VehicleLightType::DAYTIME_RUNNING_LIGHTS);
+            auto drl = gt_esmini::ReadLight(obj, gt_esmini::VehicleLightType::DAYTIME_RUNNING_LIGHTS);
             vObj.set("daytime_running_light", (drl.mode != gt_esmini::LightState::Mode::OFF)
                                                   ? std::string("on") : std::string("off"));
 

@@ -20,7 +20,7 @@ Files here (all GT content; the upstream core copies are untouched / vanilla):
 | File | Notes |
 | :--- | :--- |
 | `CMakeLists.txt` | Standalone emscripten project. Identical to the GT core copy except relative paths (this dir is 3 levels under the repo root). |
-| `esminijs.cpp` / `esminijs.hpp` | `OpenScenario` class: XOSC sanitizer (strips `AppearanceAction`/`LightStateAction`), `GT_ScenarioReader::ParseExtensionActions`, step API, vehicle-light / traffic-signal introspection. |
+| `esminijs.cpp` / `esminijs.hpp` | `OpenScenario` class: XOSC sanitizer (R5-U3: rewraps bare `<PrivateAction><LightStateAction>` into the native `AppearanceAction` wrapper; light actions are now PARSED+EXECUTED by the native v3.3.0 `LightStateAction`, no longer stripped), `GT_ScenarioReader::ParseExtensionActions`, step API, vehicle-light (via `VehicleLightBridge::ReadLight`) / traffic-signal introspection. |
 | `embind.cpp` | embind bindings for the step API, `StoryBoardEvent`/`ConditionEvent`, and the introspection functions. |
 | `embind_rm.cpp` | `RoadManagerJS` wasm wrapper (coordinate conversion, no running scenario needed). |
 | `gt_embind_route.cpp` | `GTRouteJS` — LaneIndependentRouter route binding (already lived here). |
