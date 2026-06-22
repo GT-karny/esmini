@@ -59,33 +59,11 @@ namespace gt_esmini
         SPECIAL_PURPOSE_LIGHTS
     };
 
-    /**
-     * @brief LightStateAction class (inherits from esmini's OSCPrivateAction)
-     * 
-     * Phase 1: Stub implementation
-     * Phase 2: Implement actual action execution logic
-     */
-    class OSCLightStateAction : public scenarioengine::OSCPrivateAction
-    {
-    public:
-        OSCLightStateAction(scenarioengine::StoryBoardElement* parent);
-        virtual ~OSCLightStateAction();
-
-        void Start(double simTime) override;
-        void Step(double simTime, double dt) override;
-        void End() override;
-
-        scenarioengine::OSCPrivateAction* Copy() override;
-        std::string                       Type2Str() override { return "LightStateAction"; }
-
-        VehicleLightType lightType_;
-        LightState       lightState_;
-        double           transitionTime_;
-
-    private:
-        double startTime_;
-        bool   isTransitioning_;
-    };
+    // R5-U3: GT OSCLightStateAction has been removed. Scenario LightStateAction is now
+    // handled exclusively by the NATIVE scenarioengine::LightStateAction (created during
+    // SE_Init), which writes Object::vehLghtStsList[] + DirtyBit::LIGHT_STATE. The GT
+    // LightState struct + VehicleLightType enum above remain in use repo-wide as the GT
+    // light vocabulary (translated to/from the native storage by VehicleLightBridge).
 
     /**
      * @brief TrafficSignalControllerAction — switches a controller to a named phase

@@ -643,14 +643,9 @@ int HVDEstimator::BuildLightMaskForObject(scenarioengine::Object* obj)
         return 0;
     }
 
-    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-    if (!ext)
-    {
-        return 0;
-    }
-
+    // R5-U3: read straight from native storage via the bridge (no extension needed).
     auto is_on = [&](VehicleLightType type) -> bool {
-        return ext->GetLightState(type).mode == LightState::Mode::ON;
+        return ReadLight(obj, type).mode == LightState::Mode::ON;
     };
 
     int mask = 0;

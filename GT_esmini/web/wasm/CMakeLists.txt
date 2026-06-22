@@ -150,7 +150,10 @@ set(GT_SCENARIO_WASM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/scenario/ExtraCondition.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/scenario/ExtraEntities.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/scenario/GT_ScenarioReader.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../src/scenario/TrafficSignalController.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../src/scenario/TrafficSignalController.cpp"
+    # R5-U3: light-storage bridge (ReadLight/ApplyLight + ScenarioLightRegistry).
+    # Required by getVehicleLightStates() and GT_ScenarioReader::ParseExtensionActions.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../src/scenario/VehicleLightBridge.cpp")
 
 # GT_esmini route embind binding (LaneIndependentRouter -> GTRouteJS)
 # gt_embind_route.cpp now lives alongside this CMakeLists.

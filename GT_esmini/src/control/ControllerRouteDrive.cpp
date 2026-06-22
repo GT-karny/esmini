@@ -181,6 +181,17 @@ void gt_esmini::ControllerRouteDrive::ReportKeyEvent(int key, bool down)
 
 void gt_esmini::ControllerRouteDrive::Step(double timeStep)
 {
+    // R5-U3: advance the GT blink ticker so RouteDrive FLASHING indicators animate.
+    if (object_ && object_->type_ == scenarioengine::Object::Type::VEHICLE)
+    {
+        auto* veh = static_cast<scenarioengine::Vehicle*>(object_);
+        if (auto* ext = VehicleExtensionManager::Instance().GetExtension(veh))
+        {
+            lightSimClock_ += timeStep;
+            ext->Tick(lightSimClock_, timeStep);
+        }
+    }
+
     if (object_->pos_.GetRoute() == nullptr)
     {
         // No route assigned: behave as the plain default controller.

@@ -600,12 +600,10 @@ void ControllerVirtualDriver::GetPowertrainForOSI(double& rpm, double& torque) c
 int ControllerVirtualDriver::BuildLightMaskFromExtension() const
 {
     if (!object_ || object_->type_ != scenarioengine::Object::Type::VEHICLE) return 0;
-    auto* vehicle = static_cast<scenarioengine::Vehicle*>(object_);
-    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-    if (!ext) return 0;
 
+    // R5-U3: read straight from native storage via the bridge (no extension needed).
     auto is_on = [&](VehicleLightType type) {
-        return ext->GetLightState(type).mode == LightState::Mode::ON;
+        return ReadLight(object_, type).mode == LightState::Mode::ON;
     };
 
     int mask = 0;

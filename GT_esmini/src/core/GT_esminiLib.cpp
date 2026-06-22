@@ -140,6 +140,8 @@ public:
         controllers_.clear();
         // Also clear extensions? They are owned by VehicleExtensionManager
         gt_esmini::VehicleExtensionManager::Instance().Clear();
+        // R5-U3: scenario light ownership registry shares this lifecycle.
+        gt_esmini::ScenarioLightRegistry::Instance().Clear();
     }
 
 private:
@@ -292,64 +294,170 @@ namespace
     }
 }  // namespace
 
-// Basic XOSC sanitizer to allow SE_Init to pass even with unsupported actions.
-// When inject_road_model is true, also injects a pre-generated <SceneGraphFile> (see above).
+// Basic XOSC sanitizer. When inject_road_model is true, also injects a pre-generated
+// <SceneGraphFile> (see above).
+//
+// R5-U3: AppearanceAction / LightStateAction are NO LONGER stripped. Upstream esmini
+// v3.3.0 added a native LightStateAction parser+executor (writes Object::vehLghtStsList[]
+// + DirtyBit::LIGHT_STATE), so the native ScenarioReader in SE_Init now handles those
+// nodes directly with full fidelity (transitions / candela / flashing / conflict). Leaving
+// them in is precisely the "delegate to the native parser" path.
+//
+// R5-U3 follow-ups:
+//  - A bare <LightStateAction> placed directly under <PrivateAction> (without the
+//    <AppearanceAction> wrapper) was accepted by the pre-U3 GT parser but trips the native
+//    reader's "Action is not supported" throw. It is REWRAPPED in place (not dropped) so
+//    such scenarios keep executing their light actions.
+//  - If the scenario contains NO light action at all, a no-op native light action
+//    (licensePlateIllumination off) is injected into Storyboard/Init/Actions so the native
+//    reader sets has_lightstate_action_ -> playerbase.cpp gates viewer UpdateLight() on it
+//    -> GT-writer-only lights (AutoLight / ManualDrive) become visible in the OSG viewer.
+//    licensePlateIllumination is outside the OSI/HVD lightMask mappings; cost is one dat
+//    LIGHT_STATE packet at t=0. The marker comment GT_VIEWER_LIGHT_GATE is written to the
+//    temp file for diagnosability (pugixml default parse flags drop comments on re-load,
+//    so the native parser never sees it).
 static bool CreateSanitizedScenario(const char* inFile, const std::string& outFile, bool inject_road_model = false)
 {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(inFile);
     if (!result) return false;
 
-    // We need to remove AppearanceAction and LightStateAction nodes
-    // because standard esmini ScenarioReader throws exception on them.
-    // Traversing to find them.
-    
-    // Recursive lambda to strip unsupported nodes
-    std::function<void(pugi::xml_node)> stripUnsupported;
-    stripUnsupported = [&](pugi::xml_node node) {
+    // Pass 1: rewrap bare-form light actions (PrivateAction > LightStateAction) into the
+    // standard PrivateAction > AppearanceAction > LightStateAction shape, preserving all
+    // attributes and child nodes.
+    std::function<void(pugi::xml_node)> rewrap;
+    rewrap = [&](pugi::xml_node node) {
         for (pugi::xml_node child = node.first_child(); child; )
         {
             pugi::xml_node next = child.next_sibling();
             std::string name = child.name();
-            if (name == "AppearanceAction")
-            {
-                node.remove_child(child);
-            }
-            else
-            {
-                stripUnsupported(child);
-            }
-            child = next;
-        }
-    };
-    
-    // Refined logic: stripUnsupported traverses all.
-    // However, we just need to target AppearanceAction which is under Private -> PrivateAction
-    // Let's keep it simple: any node named AppearanceAction is removed.
-    // (Standard Reader throws if name is not Longitudinal or Lateral)
-    // Actually, ScenarioReader throws if it finds ANY child of PrivateAction it doesn't know.
-    // So we remove AppearanceAction and LightStateAction children.
-    
-    std::function<void(pugi::xml_node)> strip;
-    strip = [&](pugi::xml_node node) {
-        for (pugi::xml_node child = node.first_child(); child; )
-        {
-            pugi::xml_node next = child.next_sibling();
-            std::string name = child.name();
-            
-            if (name == "AppearanceAction" || name == "LightStateAction")
-            {
-                node.remove_child(child);
-            }
-            else
-            {
-                strip(child);
-            }
-            child = next;
-        }
-    };
 
-    strip(doc);
+            if (name == "LightStateAction" && std::string(node.name()) == "PrivateAction")
+            {
+                pugi::xml_node wrapper = node.insert_child_before("AppearanceAction", child);
+                wrapper.append_copy(child);  // deep copy: attributes + children preserved
+                node.remove_child(child);
+                LOG_INFO("GT sanitizer: rewrapped bare LightStateAction under PrivateAction into AppearanceAction wrapper (native parser form)");
+            }
+            else
+            {
+                rewrap(child);
+            }
+            child = next;
+        }
+    };
+    rewrap(doc);
+
+    // Pass 2: viewer-gate injection. If the document contains no light action anywhere,
+    // append a no-op one so the native reader flags HasLightStateAction().
+    bool hasLightNode = false;
+    std::function<void(pugi::xml_node)> findLight;
+    findLight = [&](pugi::xml_node n) {
+        if (hasLightNode) return;
+        for (pugi::xml_node c = n.first_child(); c && !hasLightNode; c = c.next_sibling())
+        {
+            std::string nm = c.name();
+            if (nm == "LightStateAction" || nm == "AppearanceAction")
+            {
+                hasLightNode = true;
+                return;
+            }
+            findLight(c);
+        }
+    };
+    findLight(doc);
+
+    if (!hasLightNode)
+    {
+        pugi::xml_node osc      = doc.child("OpenSCENARIO");
+        pugi::xml_node entities = osc.child("Entities");
+        pugi::xml_node actions  = osc.child("Storyboard").child("Init").child("Actions");
+        if (entities && actions)
+        {
+            auto is_vehicle = [&](const char* name) -> bool {
+                for (pugi::xml_node so = entities.child("ScenarioObject"); so; so = so.next_sibling("ScenarioObject"))
+                {
+                    if (std::string(so.attribute("name").value()) == name)
+                    {
+                        return !so.child("Vehicle").empty();
+                    }
+                }
+                return false;
+            };
+
+            // Reuse an EXISTING Init <Private> block. The native reader calls
+            // activateObject() once per Private block, so creating a SECOND Private for an
+            // already-activated entity aborts init ("Already active"). Prefer a Private whose
+            // entity is a Vehicle; otherwise the first Private. Only when the scenario has no
+            // Init Private at all do we create one (for the first Vehicle / first object) —
+            // there is no prior activation to duplicate in that case.
+            pugi::xml_node targetPriv;
+            pugi::xml_node firstPriv;
+            for (pugi::xml_node p = actions.child("Private"); p; p = p.next_sibling("Private"))
+            {
+                if (!firstPriv)
+                {
+                    firstPriv = p;
+                }
+                if (is_vehicle(p.attribute("entityRef").value()))
+                {
+                    targetPriv = p;
+                    break;
+                }
+            }
+            if (!targetPriv)
+            {
+                targetPriv = firstPriv;
+            }
+
+            std::string entityName;
+            if (targetPriv)
+            {
+                entityName = targetPriv.attribute("entityRef").value();
+            }
+            else
+            {
+                // No Init Private blocks at all: create one for the first Vehicle (or first
+                // object). The native action only touches Object::vehLghtStsList (a base
+                // Object member), so it degrades gracefully on any entity type.
+                pugi::xml_node chosen;
+                for (pugi::xml_node so = entities.child("ScenarioObject"); so; so = so.next_sibling("ScenarioObject"))
+                {
+                    if (so.child("Vehicle"))
+                    {
+                        chosen = so;
+                        break;
+                    }
+                }
+                if (!chosen)
+                {
+                    chosen = entities.child("ScenarioObject");
+                }
+                const char* nm = chosen ? chosen.attribute("name").value() : "";
+                if (chosen && nm[0] != '\0' && nm[0] != '$')
+                {
+                    targetPriv = actions.append_child("Private");
+                    targetPriv.append_attribute("entityRef") = nm;
+                    entityName = nm;
+                }
+            }
+
+            if (targetPriv && !entityName.empty() && entityName[0] != '$')  // skip parameterized names
+            {
+                pugi::xml_node pa  = targetPriv.append_child("PrivateAction");
+                pugi::xml_node app = pa.append_child("AppearanceAction");
+                pugi::xml_node lsa = app.append_child("LightStateAction");
+                lsa.append_attribute("transitionTime") = "0";
+                pugi::xml_node lt = lsa.append_child("LightType");
+                pugi::xml_node vl = lt.append_child("VehicleLight");
+                vl.append_attribute("vehicleLightType") = "licensePlateIllumination";
+                pugi::xml_node ls = lsa.append_child("LightState");
+                ls.append_attribute("mode") = "off";
+                LOG_INFO("GT sanitizer: injected no-op LightStateAction (licensePlateIllumination off) into Init Private for entity '{}' to enable the viewer light gate",
+                         entityName);
+            }
+        }
+    }
 
     if (inject_road_model)
     {
@@ -455,14 +563,10 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
 
         GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
-            auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
-            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (ext) {
-                return ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(t));
-            }
-            gt_esmini::LightState emptyState;
-            emptyState.mode = gt_esmini::LightState::Mode::OFF;
-            return emptyState;
+            // R5-U3: read straight from the native vehLghtStsList[] via the bridge. Works
+            // for ANY vehicle, with or without a VehicleLightExtension.
+            auto* obj = static_cast<scenarioengine::Object*>(static_cast<scenarioengine::Vehicle*>(v));
+            return gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(t));
         });
 
         // 6. Register OSIReporter for global access (for Light state)
@@ -950,14 +1054,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
 
         GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
-            auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
-            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (ext) {
-                return ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(t));
-            }
-            gt_esmini::LightState emptyState;
-            emptyState.mode = gt_esmini::LightState::Mode::OFF;
-            return emptyState;
+            // R5-U3: read straight from the native vehLghtStsList[] via the bridge. Works
+            // for ANY vehicle, with or without a VehicleLightExtension.
+            auto* obj = static_cast<scenarioengine::Object*>(static_cast<scenarioengine::Vehicle*>(v));
+            return gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(t));
         });
 
         // 6. Register OSIReporter for global access (for Light state)
@@ -1260,14 +1360,9 @@ GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType)
     {
         if (obj->id_ == vehicleId && obj->type_ == scenarioengine::Object::Type::VEHICLE)
         {
-             scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-             auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-             if (ext)
-             {
-                 gt_esmini::LightState state = ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(lightType));
-                 return static_cast<int>(state.mode);
-             }
-             return -1; // Extension not found
+             // R5-U3: read straight from the native storage via the bridge (no extension needed).
+             gt_esmini::LightState state = gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(lightType));
+             return static_cast<int>(state.mode);
         }
     }
     return -1; // Vehicle not found
@@ -1281,19 +1376,11 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
     {
         if (obj->id_ == vehicleId && obj->type_ == scenarioengine::Object::Type::VEHICLE)
         {
-            scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-            
-            // Ensure extension exists
-            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (!ext)
-            {
-                ext = new gt_esmini::VehicleLightExtension(vehicle);
-                gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-            }
-
+            // R5-U3: write straight to native storage via the bridge. Preserves the prior
+            // bypass semantics (no LightSource tracking, no extension required).
             gt_esmini::LightState state;
             state.mode = static_cast<gt_esmini::LightState::Mode>(mode);
-            ext->SetLightState(static_cast<gt_esmini::VehicleLightType>(lightType), state);
+            gt_esmini::ApplyLight(obj, static_cast<gt_esmini::VehicleLightType>(lightType), state);
             return;
         }
     }
