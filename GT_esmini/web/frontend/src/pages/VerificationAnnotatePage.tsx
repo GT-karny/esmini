@@ -11,8 +11,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  api, type AnnotationLabel, type AnnotationRun, type MatchResult, type SimulationRequest,
+  api, type AnnotationLabel, type AnnotationRun, type MatchResult,
 } from '../api/client';
+import { buildSimulationRequest } from '../api/simulationRequest';
 import { LiveSceneView } from '../components/LiveSceneView';
 import { TelemetryInfoRows } from '../components/verification/TelemetryPanels';
 import {
@@ -139,27 +140,18 @@ export function VerificationAnnotatePage() {
   const canDriverView = !!(selected?.project_id && selected?.scenario_file);
   const driverViewMut = useMutation({
     mutationFn: () => {
-      const req: SimulationRequest = {
-        scenario_id: selected!.scenario_file!,
-        project_id: selected!.project_id!,
-        controller: { controller_type: 'virtual_driver' },
+      const req = buildSimulationRequest({
+        scenarioId: selected!.scenario_file!,
+        projectId: selected!.project_id!,
+        controllerType: 'virtual_driver',
         execution: {
           headless: false,                    // show the native 3D window
-          record: false,
-          hz: 100,
           no_realtime: false,                 // real-time so it's watchable
-          timeout: 120,
-          osi: { enabled: false, ip: '127.0.0.1' },
-          autolight: false,
-          vehicle_physics: false,
-          kinematic_mode: false,
-          route_drive_mode: false,
           threads: true,
-          window: { x: 80, y: 80, w: 1280, h: 720 },
+          window: { x: 80, y: 80 },
           extra_args: ['--camera_mode', 'driver'],
-          drive_mode: 'comfort',
         },
-      };
+      });
       return api.createSimulation(req);
     },
   });

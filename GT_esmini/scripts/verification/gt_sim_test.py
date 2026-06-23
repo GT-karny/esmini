@@ -55,6 +55,69 @@ _MOVING_TYPE_MAP = {0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: 
 
 
 # ---------------------------------------------------------------------------
+# OBB (oriented bounding box) separation — SAT
+# ---------------------------------------------------------------------------
+
+def _obb_corners(cx: float, cy: float, h: float, length: float, width: float) -> list[tuple[float, float]]:
+    """Four world corners of an oriented rectangle centered at (cx,cy), heading h,
+    extents length (along heading) x width (across). NOTE: the OSI scene reports the
+    body CENTER, so we center the box on (cx,cy) — adjacent-lane passing then reads
+    as a clean gap, not an overlap."""
+    ch, sh = math.cos(h), math.sin(h)
+    hl, hw = length / 2.0, width / 2.0
+    # local corners (along, across) -> world
+    out = []
+    for ax, ay in ((hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)):
+        out.append((cx + ax * ch - ay * sh, cy + ax * sh + ay * ch))
+    return out
+
+
+def _obb_separation(a: dict, b: dict) -> float:
+    """Separation distance between two oriented rectangles via the Separating Axis
+    Theorem. Each box dict carries x,y,h,length,width (CENTER position).
+
+    Returns:
+      <= 0.0 if the rectangles OVERLAP (0.0 = touching/overlap; we collapse the
+             penetration case to 0.0 — overlap is overlap for the anti-collision gate),
+      > 0.0  the positive clearance gap otherwise. The reported gap is the MAX over
+             the (up to 4) candidate separating axes of the positive axis-gap — i.e.
+             the SAT separation distance (conservative: it is the smallest distance by
+             which one box must move along some axis to separate, taken as the max
+             positive axis gap, which lower-bounds the true Euclidean gap)."""
+    ca = _obb_corners(a["x"], a["y"], a["h"], a.get("length", 4.0), a.get("width", 2.0))
+    cb = _obb_corners(b["x"], b["y"], b["h"], b.get("length", 4.0), b.get("width", 2.0))
+
+    # Candidate axes = the 2 unique edge normals of each box (4 total).
+    def _axes(corners):
+        axes = []
+        for i in range(4):
+            ex = corners[(i + 1) % 4][0] - corners[i][0]
+            ey = corners[(i + 1) % 4][1] - corners[i][1]
+            n = math.hypot(ex, ey)
+            if n > 1e-12:
+                axes.append((-ey / n, ex / n))  # edge normal (unit)
+        return axes
+
+    axes = _axes(ca) + _axes(cb)
+    max_gap = -float("inf")  # positive on a separating axis; we want the largest
+    overlap_on_all = True
+    for ax, ay in axes:
+        amin = min(px * ax + py * ay for px, py in ca)
+        amax = max(px * ax + py * ay for px, py in ca)
+        bmin = min(px * ax + py * ay for px, py in cb)
+        bmax = max(px * ax + py * ay for px, py in cb)
+        # gap > 0 -> the projections are disjoint on this axis (a separating axis).
+        gap = max(bmin - amax, amin - bmax)
+        if gap > 0:
+            overlap_on_all = False
+            if gap > max_gap:
+                max_gap = gap
+    if overlap_on_all:
+        return 0.0  # no separating axis -> the boxes overlap (collision)
+    return max_gap
+
+
+# ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
 
@@ -806,6 +869,74 @@ def _eval_must(must: dict, frames: list[dict]) -> dict:
         detail = (f"p{pct:g} THW = {val:.2f}s over {len(thws)} frames "
                   f"(want {min_thw}..{max_thw}s)")
         return res("pass" if (lo_ok and hi_ok) else "fail", detail)
+
+    if kind == "min_separation_above":
+        # Anti-collision gate: over the window, the minimum center-to-center
+        # distance between the ego (is_host) and EVERY other scene object must stay
+        # >= threshold. Requires capture_osi (telemetry.scene). Unlike a speed proxy
+        # this cannot false-positive: it measures the actual closing distance, so it
+        # catches a collision regardless of how the ego moves.
+        thr = float(must["threshold"])
+        worst_sep = None  # (sep, frame_idx)
+        for i, fr in enumerate(frames):
+            if not _time_window_ok(fr["sim_time"], must):
+                continue
+            scene = fr.get("scene")
+            if not scene:
+                continue
+            ego = next((o for o in scene["objects"] if o.get("is_host")), None)
+            if ego is None:
+                continue
+            for o in scene["objects"]:
+                if o.get("is_host"):
+                    continue
+                sep = math.hypot(o["x"] - ego["x"], o["y"] - ego["y"])
+                if worst_sep is None or sep < worst_sep[0]:
+                    worst_sep = (sep, i)
+        if worst_sep is None:
+            return res("skip", "no scene frames in time window")
+        sep, worst_i = worst_sep
+        ok = sep >= thr
+        detail = (f"min center-to-center separation = {sep:.2f} m at "
+                  f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?)")
+        return res("pass" if ok else "fail", detail, None if ok else worst_i)
+
+    if kind == "min_obb_separation_above":
+        # Anti-collision gate, OBB (oriented bounding box) edition. Over the window,
+        # the minimum SAT separation between the ego (is_host) length x width
+        # footprint and EVERY other scene object footprint must stay >= threshold.
+        # 0 (or negative) means the oriented rectangles OVERLAP (collision); a small
+        # positive threshold adds a safety gap. Unlike center-to-center distance this
+        # correctly reads adjacent-lane passing (~2.8 m center gap) as SAFE — the
+        # bodies do not overlap. Requires capture_osi (telemetry.scene).
+        thr = float(must["threshold"])
+        worst = None  # (sep, frame_idx)
+        any_overlap = False
+        for i, fr in enumerate(frames):
+            if not _time_window_ok(fr["sim_time"], must):
+                continue
+            scene = fr.get("scene")
+            if not scene:
+                continue
+            ego = next((o for o in scene["objects"] if o.get("is_host")), None)
+            if ego is None:
+                continue
+            for o in scene["objects"]:
+                if o.get("is_host"):
+                    continue
+                sep = _obb_separation(ego, o)
+                if sep <= 0.0:
+                    any_overlap = True
+                if worst is None or sep < worst[0]:
+                    worst = (sep, i)
+        if worst is None:
+            return res("skip", "no scene frames in time window")
+        sep, worst_i = worst
+        ok = sep >= thr
+        detail = (f"min OBB separation = {sep:.2f} m at "
+                  f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?); "
+                  f"overlap occurred: {any_overlap}")
+        return res("pass" if ok else "fail", detail, None if ok else worst_i)
 
     return {"event": kind, "status": "skip", "detail": "unknown event type", "reason": reason}
 

@@ -1,4 +1,7 @@
 #include "gt_esmini/control/ControllerVirtualDriver.hpp"
+#include "gt_esmini/control/common/JunctionTurn.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
+#include "gt_esmini/control/common/TransitionDynamics.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
@@ -28,29 +31,10 @@
 #include <cmath>
 #include <memory>
 
-namespace gt_esmini { extern std::string GetCurrentModuleDirectory(); }
-
 using namespace scenarioengine;
 
 namespace gt_esmini
 {
-
-namespace
-{
-// Evaluate an OpenSCENARIO speed TransitionDynamics shape at progress p in [0,1].
-double EvalSpeedShape(OSCPrivateAction::DynamicsShape shape, double v0, double dv, double p)
-{
-    p = std::min(1.0, std::max(0.0, p));
-    switch (shape)
-    {
-        case OSCPrivateAction::DynamicsShape::SINUSOIDAL: return v0 - dv * (std::cos(M_PI * p) - 1.0) / 2.0;
-        case OSCPrivateAction::DynamicsShape::CUBIC:      return v0 + dv * p * p * (3.0 - 2.0 * p);
-        case OSCPrivateAction::DynamicsShape::LINEAR:     return v0 + dv * p;
-        case OSCPrivateAction::DynamicsShape::STEP:       return v0 + dv;
-        default:                                          return v0 + dv;
-    }
-}
-}  // namespace
 
 ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     : Controller(args)
@@ -452,7 +436,7 @@ double ControllerVirtualDriver::ResolveTargetSpeed()
         else
         {
             const double p = std::min(1.0, std::max(0.0, (sim_time_ - speed_start_t_) / dur));
-            v_ref = EvalSpeedShape(td.shape_, v0, vt - v0, p);
+            v_ref = EvaluateTransitionShape(td.shape_, v0, vt - v0, p);
         }
         last_target_speed_  = v_ref;
         last_action_target_ = vt;  // remember the commanded endpoint
@@ -502,52 +486,9 @@ int ControllerVirtualDriver::DetectJunctionTurn(double speed) const
     roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
     if (!odr) return 0;
 
-    // Walk a copy of the ego route forward; find the first real (non-junction)
-    // road reached *after* passing through a junction connecting road, and
-    // compare its driving direction to the current one. Mirrors
-    // ControllerRouteDrive::JunctionTurnDirection() but scans the route via
-    // MoveAlongS (VirtualDriver has no precomputed waypoints_).
-    roadmanager::Position pos;
-    pos.Duplicate(object_->pos_);
-    pos.CopyRoute(object_->pos_);
-
-    const double cur_h     = object_->pos_.GetDrivingDirection();
-    const id_t   cur_track = object_->pos_.GetTrackId();
-
     // Lead-time based lookahead so the signal pre-arms before the intersection.
     const double lookahead = std::max(15.0, speed * vd_config_.indicator_lead_time + 10.0);
-    const double step      = 2.0;
-    double       traveled  = 0.0;
-    bool         passed_junction = false;
-
-    while (traveled < lookahead)
-    {
-        int ret = static_cast<int>(pos.MoveAlongS(step));
-        if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC))
-            break;
-        traveled += step;
-
-        const id_t t = pos.GetTrackId();
-        if (t == cur_track) continue;
-
-        roadmanager::Road* r = odr->GetRoadById(t);
-        if (!r) continue;
-
-        if (r->GetJunction() != ID_UNDEFINED)
-        {
-            passed_junction = true;  // on a junction connecting road
-            continue;
-        }
-        if (!passed_junction)
-            return 0;  // direct successor road (no junction) = straight continuation
-
-        const double diff = GetAngleInIntervalMinusPIPlusPI(pos.GetDrivingDirection() - cur_h);
-        constexpr double threshold = 0.10;  // rad (matches RouteDrive / AutoLight)
-        if (diff > threshold)  return +1;  // left
-        if (diff < -threshold) return -1;  // right
-        return 0;
-    }
-    return 0;
+    return RouteLookaheadJunctionTurnDirection(object_->pos_, odr, lookahead);
 }
 
 void ControllerVirtualDriver::ApplyLights(const PedalSteerCommand& cmd, const IndicatorSnapshot& ind)
@@ -565,7 +506,21 @@ void ControllerVirtualDriver::ApplyLights(const PedalSteerCommand& cmd, const In
         ext->SetLightSource(type, LightSource::MANUAL_DRIVE);
     };
 
-    set_light(VehicleLightType::BRAKE_LIGHTS,    cmd.brake > 0.05);
+    // Debounce the brake light: the speed PID emits brake micro-pulses
+    // (0 -> 0.2-0.3 -> 0 every ~0.15 s) while tracking the stepped speed reference,
+    // which would flicker the light on/off ~tens of times per decel. Latch ON on
+    // any brake and hold for 0.35 s past the last pulse so the gaps are bridged.
+    // (sim_time_ is advanced at the top of Step, so it is current here.)
+    if (cmd.brake > 0.05)
+    {
+        brake_light_on_         = true;
+        brake_light_hold_until_ = sim_time_ + 0.35;
+    }
+    else if (sim_time_ >= brake_light_hold_until_)
+    {
+        brake_light_on_ = false;
+    }
+    set_light(VehicleLightType::BRAKE_LIGHTS,    brake_light_on_);
     set_light(VehicleLightType::REVERSING_LIGHTS, cmd.gear == -1);
     set_light(VehicleLightType::INDICATOR_LEFT,  ind.left_on);
     set_light(VehicleLightType::INDICATOR_RIGHT, ind.right_on);

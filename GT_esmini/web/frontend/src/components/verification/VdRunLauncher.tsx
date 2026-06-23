@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { api, type SimulationRequest } from '../../api/client';
+import { api } from '../../api/client';
+import { buildSimulationRequest } from '../../api/simulationRequest';
 
 /**
  * Compact launcher for the VERIFY page: pick a project + scenario and start a
@@ -30,27 +31,14 @@ export function VdRunLauncher({
 
   const start = useMutation({
     mutationFn: () => {
-      const req: SimulationRequest = {
-        scenario_id: scenarioFile,
-        project_id: projectId || undefined,
-        controller: { controller_type: 'virtual_driver' },
+      const req = buildSimulationRequest({
+        scenarioId: scenarioFile,
+        projectId,
+        controllerType: 'virtual_driver',
         execution: {
-          headless: true,
-          record: false,
-          hz: 100,
-          no_realtime: false,
-          timeout: 120,
-          osi: { enabled: true, ip: '127.0.0.1' }, // required for the full scene
-          autolight: false,
-          vehicle_physics: false,
-          kinematic_mode: false,
-          route_drive_mode: false,
-          threads: false,
-          window: { x: 60, y: 60, w: 1280, h: 720 },
-          extra_args: [],
-          drive_mode: 'comfort',
+          osi: { enabled: true }, // required for the full scene
         },
-      };
+      });
       return api.createSimulation(req);
     },
     onSuccess: (job) => onStarted(job.job_id, { override, projectId, scenarioFile }),

@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import type { VdTelemetryFrame } from '../api/client';
+import { useWebSocketStream, type WebSocketConnectionStatus } from './useWebSocketStream';
 
-export type VdConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type VdConnectionStatus = WebSocketConnectionStatus;
 
 interface VdStreamResult {
   status: VdConnectionStatus;
@@ -21,73 +22,37 @@ const MAX_HISTORY = 2000; // ~100 s @ 20 Hz
  * the same overlay/chart components drive both live and replay.
  */
 export function useVdStream(jobId: string | null): VdStreamResult {
-  const [status, setStatus] = useState<VdConnectionStatus>('connecting');
   const [frame, setFrame] = useState<VdTelemetryFrame | null>(null);
   const [history, setHistory] = useState<VdTelemetryFrame[]>([]);
   const [frameCount, setFrameCount] = useState(0);
-  const wsRef = useRef<WebSocket | null>(null);
   const lastRenderRef = useRef(0);
   const historyRef = useRef<VdTelemetryFrame[]>([]);
 
-  const connect = useCallback(() => {
-    if (!jobId) return;
+  const status = useWebSocketStream({
+    path: jobId ? `/ws/vd/${jobId}` : null,
+    onReset: () => {
+      historyRef.current = [];
+      setHistory([]);
+      setFrame(null);
+      setFrameCount(0);
+      lastRenderRef.current = 0;
+    },
+    onMessage: (msg) => {
+      if (msg.type === 'virtual_driver_telemetry') {
+        const tel = msg as VdTelemetryFrame;
+        historyRef.current.push(tel);
+        if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
+        setFrameCount((c) => c + 1);
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/vd/${jobId}`;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => setStatus('connected');
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'end') {
-          setStatus('disconnected');
-          return;
+        const now = performance.now();
+        if (now - lastRenderRef.current >= THROTTLE_MS) {
+          setFrame(tel);
+          setHistory(historyRef.current.slice());
+          lastRenderRef.current = now;
         }
-        if (msg.error) {
-          setStatus('error');
-          return;
-        }
-        if (msg.type === 'virtual_driver_telemetry') {
-          const tel = msg as VdTelemetryFrame;
-          historyRef.current.push(tel);
-          if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
-          setFrameCount((c) => c + 1);
-
-          const now = performance.now();
-          if (now - lastRenderRef.current >= THROTTLE_MS) {
-            setFrame(tel);
-            setHistory(historyRef.current.slice());
-            lastRenderRef.current = now;
-          }
-        }
-      } catch {
-        // ignore parse errors
       }
-    };
-
-    ws.onerror = () => setStatus('error');
-    ws.onclose = () => setStatus('disconnected');
-  }, [jobId]);
-
-  useEffect(() => {
-    historyRef.current = [];
-    setHistory([]);
-    setFrame(null);
-    setFrameCount(0);
-    if (!jobId) {
-      setStatus('disconnected');
-      return;
-    }
-    setStatus('connecting');
-    connect();
-    return () => {
-      wsRef.current?.close();
-    };
-  }, [connect, jobId]);
+    },
+  });
 
   return { status, frame, history, frameCount };
 }

@@ -540,16 +540,9 @@ real_vehicle_params.json  ← ここに配置
 | `WaypointPort` | `54996` | `type=2` waypoint送信先ポート |
 | `SendWaypoints` | `false` | waypoint送信の有効/無効 |
 
-### Terrain Trackingの有効/無効
+### Terrain / 外製ダイナミクスとの継ぎ目
 
-コード内で `TerrainTracker::SetEnabled(false)` を呼び出すことで無効化できます。
-
-現在、xoscやコマンドラインからの切り替えは未実装です。必要な場合はコードを修正してください。
-
-```cpp
-// TerrainTrackerを無効化する例（ControllerRealDriver.cpp内）
-gt_esmini::TerrainTracker::SetEnabled(false);
-```
+`TerrainTracker` スタブは削除済みです。地形や外製ダイナミクス由来の姿勢を合成したい場合は、`RealVehicle::SetTerrainAttitude()` / `GetCombinedAttitude()` の継ぎ目に実プロバイダを接続してください。
 
 ### デバッグ用の出力確認
 
@@ -831,8 +824,6 @@ if (speed_abs > critical_speed) {
 - [RealVehicle.cpp](../../src/control/RealVehicle.cpp) - 物理シミュレーション実装
 - [RealVehicle.hpp](../../include/gt_esmini/control/RealVehicle.hpp) - クラス定義
 - [ControllerRealDriver.cpp](../../src/control/ControllerRealDriver.cpp) - UDP入力とパラメータ読み込み
-- [TerrainTracker.hpp](../../include/gt_esmini/control/TerrainTracker.hpp) - 地形追跡クラス定義
-- [TerrainTracker.cpp](../../src/control/TerrainTracker.cpp) - 地形追跡実装
 
 ---
 

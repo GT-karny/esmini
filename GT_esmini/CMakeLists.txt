@@ -105,11 +105,6 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/LatPathPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/LonProfilePlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/RealDriverCoordinator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/TerrainTracker.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/DriverInputReceiver.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehicleStateUpdater.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/EsminiStateApplier.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/HeadingCorrectionManager.cpp
@@ -128,6 +123,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/TrafficLightAware.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/StopYieldSignAware.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/ConflictPointResolver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ModuleDirectory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
@@ -150,11 +146,6 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/LatPathPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/LonProfilePlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/RealDriverCoordinator.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/TerrainTracker.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/DriverInputReceiver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/HeadingCorrectionManager.hpp
@@ -176,7 +167,11 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/VehicleCommand.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/PhysicsInitParams.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/IPhysicsBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/JunctionTurn.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/ModuleDirectory.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/TransitionDynamics.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/common/SimpleJson.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IShortPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IDriverModel.hpp

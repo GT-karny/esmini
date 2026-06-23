@@ -7,7 +7,7 @@ This document defines the architectural boundaries for `GT_esmini` after the fea
 - `core`: Public C API facade (`GT_Init`, `GT_Step`, `GT_Close`, `GT_ReportObjectVel`), config path resolution, shared abstractions.
 - `scenario`: OpenSCENARIO extension parsing and runtime entities (`GT_ScenarioReader`, `ExtraAction`, `ExtraEntities`, `GT_TrafficSignalController`).
 - `io`: UDP transport and packet-level I/O (`GT_UDP`).
-- `control`: Real-time control pipeline (`ControllerManualDrive`, `RealVehicle`, `TerrainTracker`, `AutoLightController`) and split responsibilities (`ManualDriveCoordinator`, `IndicatorFSM`, `IInputSource`, `IPhysicsBackend`).
+- `control`: Real-time control pipeline (`ControllerManualDrive`, `RealVehicle`, `AutoLightController`) and split responsibilities (`ManualDriveCoordinator`, `IndicatorFSM`, `IInputSource`, `IPhysicsBackend`).
 - `osi`: OSI/HostVehicleData reporting (`GT_OSIReporter*`, `GT_HostVehicleReporter`) and provider interfaces.
 
 ## 2. Dependency Rules

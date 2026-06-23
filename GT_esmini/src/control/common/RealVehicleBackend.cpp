@@ -1,10 +1,9 @@
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "Entities.hpp"
 
 #include <cmath>
-
-namespace gt_esmini { extern std::string GetCurrentModuleDirectory(); }
 
 namespace gt_esmini
 {

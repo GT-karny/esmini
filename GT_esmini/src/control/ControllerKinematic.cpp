@@ -12,6 +12,7 @@
  */
 
 #include "gt_esmini/control/ControllerKinematic.hpp"
+#include "gt_esmini/control/common/TransitionDynamics.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
@@ -27,28 +28,6 @@
 using namespace scenarioengine;
 
 static constexpr double MAX_CURVATURE = 0.25;  // |κ| ≤ 0.25 → R ≥ 4 m
-
-// Evaluate TransitionDynamics shape at arbitrary progress [0,1].
-// Mirrors OSCPrivateAction::TransitionDynamics::Evaluate() but accepts
-// an arbitrary progress value instead of using internal param_val_.
-static double EvalTransition(OSCPrivateAction::DynamicsShape shape,
-                             double startVal, double A, double progress)
-{
-    progress = CLAMP(progress, 0.0, 1.0);
-    switch (shape)
-    {
-        case OSCPrivateAction::DynamicsShape::SINUSOIDAL:
-            return startVal - A * (cos(M_PI * progress) - 1.0) / 2.0;
-        case OSCPrivateAction::DynamicsShape::CUBIC:
-            return startVal + A * progress * progress * (3.0 - 2.0 * progress);
-        case OSCPrivateAction::DynamicsShape::LINEAR:
-            return startVal + A * progress;
-        case OSCPrivateAction::DynamicsShape::STEP:
-            return startVal + A;
-        default:
-            return startVal;
-    }
-}
 
 Controller* gt_esmini::InstantiateControllerKinematic(void* args)
 {
@@ -217,7 +196,7 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         double A = td->GetTargetVal() - startVal;
         double P = td->GetParamTargetVal();
         double cur_p = td->GetParamVal();
-        double cur_off = EvalTransition(td->shape_, startVal, A, cur_p / P);
+        double cur_off = EvaluateTransitionShape(td->shape_, startVal, A, cur_p / P);
         bool tb = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
                    td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
 
@@ -246,7 +225,7 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
                 double A         = td->GetTargetVal() - startVal;
                 double P         = td->GetParamTargetVal();
                 double cur_p     = td->GetParamVal();
-                double cur_off   = EvalTransition(td->shape_, startVal, A, cur_p / P);
+                double cur_off   = EvaluateTransitionShape(td->shape_, startVal, A, cur_p / P);
                 bool   tb        = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
                              td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
                 double lane_sign = static_cast<double>(SIGN(object_->pos_.GetLaneId()));
@@ -309,7 +288,7 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
 
                 future_p = std::min(future_p, la.P);  // clamp to action range
 
-                double future_off = EvalTransition(la.shape, la.startVal, la.A, future_p / la.P);
+                double future_off = EvaluateTransitionShape(la.shape, la.startVal, la.A, future_p / la.P);
                 double delta_t = (future_off - la.current_off) * la.lane_sign;
 
                 px += delta_t * tx;

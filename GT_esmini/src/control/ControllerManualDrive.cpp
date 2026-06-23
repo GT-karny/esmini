@@ -1,4 +1,5 @@
 #include "gt_esmini/control/ControllerManualDrive.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
@@ -16,8 +17,6 @@
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
-
-namespace gt_esmini { extern std::string GetCurrentModuleDirectory(); }
 
 namespace gt_esmini
 {

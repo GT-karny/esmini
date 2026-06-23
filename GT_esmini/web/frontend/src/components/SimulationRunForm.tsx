@@ -8,6 +8,7 @@ import type {
   ParameterPreset,
   ManualDriveConfig,
 } from '../api/client';
+import { buildSimulationRequest } from '../api/simulationRequest';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
@@ -250,9 +251,9 @@ export function SimulationRunForm({
   };
 
   // Build the simulation request from current form state
-  const buildRequest = (): SimulationRequest => ({
-    scenario_id: scenarioFile,
-    project_id: projectId || undefined,
+  const buildRequest = (): SimulationRequest => buildSimulationRequest({
+    scenarioId: scenarioFile,
+    projectId,
     controller: {
       controller_type: controllerType,
       ...(controllerType === 'manual' ? { manual_drive: manualDriveConfig } : {}),
@@ -275,7 +276,7 @@ export function SimulationRunForm({
       extra_args: [],
       drive_mode: driveMode,
     },
-    param_overrides: getActiveOverrides(),
+    paramOverrides: getActiveOverrides(),
   });
 
   // Expose request builder to parent

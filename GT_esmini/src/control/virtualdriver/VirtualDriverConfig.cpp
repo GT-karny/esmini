@@ -1,131 +1,164 @@
 #include "gt_esmini/control/virtualdriver/VirtualDriverConfig.hpp"
+#include "gt_esmini/common/SimpleJson.hpp"
 #include "logger.hpp"
 
-#include <fstream>
 #include <string>
 
 namespace gt_esmini
 {
+namespace
+{
+struct DoubleField
+{
+    const char* key;
+    double VirtualDriverConfig::*member;
+};
+
+struct IntField
+{
+    const char* key;
+    int VirtualDriverConfig::*member;
+};
+
+struct BoolField
+{
+    const char* key;
+    bool VirtualDriverConfig::*member;
+};
+
+struct StringField
+{
+    const char* key;
+    std::string VirtualDriverConfig::*member;
+};
+
+const StringField kStringFields[] = {
+    {"vehicle_params_file", &VirtualDriverConfig::vehicle_params_file},
+    {"override_lateral", &VirtualDriverConfig::override_lateral},
+    {"override_longitudinal", &VirtualDriverConfig::override_longitudinal},
+    {"input_type", &VirtualDriverConfig::input_type},
+    {"input_transport", &VirtualDriverConfig::input_transport},
+};
+
+const DoubleField kDoubleFields[] = {
+    {"horizon_s", &VirtualDriverConfig::horizon_s},
+    {"short_dt", &VirtualDriverConfig::short_dt},
+    {"max_lateral_accel", &VirtualDriverConfig::max_lateral_accel},
+    {"comfort_decel", &VirtualDriverConfig::comfort_decel},
+    {"comfort_jerk", &VirtualDriverConfig::comfort_jerk},
+    {"scan_distance", &VirtualDriverConfig::scan_distance},
+    {"scan_step", &VirtualDriverConfig::scan_step},
+    {"turn_speed", &VirtualDriverConfig::turn_speed},
+    {"min_turn_speed", &VirtualDriverConfig::min_turn_speed},
+    {"stop_band", &VirtualDriverConfig::stop_band},
+    {"lookahead_gain", &VirtualDriverConfig::lookahead_gain},
+    {"min_lookahead", &VirtualDriverConfig::min_lookahead},
+    {"max_lookahead", &VirtualDriverConfig::max_lookahead},
+    {"max_steer_angle", &VirtualDriverConfig::max_steer_angle},
+    {"steering_sign", &VirtualDriverConfig::steering_sign},
+    {"speed_kp", &VirtualDriverConfig::speed_kp},
+    {"speed_ki", &VirtualDriverConfig::speed_ki},
+    {"speed_kd", &VirtualDriverConfig::speed_kd},
+    {"control_point_offset", &VirtualDriverConfig::control_point_offset},
+    {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
+    {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
+    {"indicator_min_on_time", &VirtualDriverConfig::indicator_min_on_time},
+    {"idm_time_headway", &VirtualDriverConfig::idm_time_headway},
+    {"idm_min_gap", &VirtualDriverConfig::idm_min_gap},
+    {"idm_max_accel", &VirtualDriverConfig::idm_max_accel},
+    {"idm_comfort_decel", &VirtualDriverConfig::idm_comfort_decel},
+    {"idm_desired_speed", &VirtualDriverConfig::idm_desired_speed},
+    {"idm_lookahead", &VirtualDriverConfig::idm_lookahead},
+    {"idm_lateral_tol", &VirtualDriverConfig::idm_lateral_tol},
+    {"idm_target_horizon", &VirtualDriverConfig::idm_target_horizon},
+    {"tl_lookahead", &VirtualDriverConfig::tl_lookahead},
+    {"tl_yellow_decel", &VirtualDriverConfig::tl_yellow_decel},
+    {"tl_stop_margin", &VirtualDriverConfig::tl_stop_margin},
+    {"sign_lookahead", &VirtualDriverConfig::sign_lookahead},
+    {"stop_hold_time", &VirtualDriverConfig::stop_hold_time},
+    {"stop_detect_speed", &VirtualDriverConfig::stop_detect_speed},
+    {"stop_line_tol", &VirtualDriverConfig::stop_line_tol},
+    {"creep_speed", &VirtualDriverConfig::creep_speed},
+    {"creep_advance", &VirtualDriverConfig::creep_advance},
+    {"yield_creep_speed", &VirtualDriverConfig::yield_creep_speed},
+    {"sign_stop_margin", &VirtualDriverConfig::sign_stop_margin},
+    {"conflict_lookahead", &VirtualDriverConfig::conflict_lookahead},
+    {"conflict_step", &VirtualDriverConfig::conflict_step},
+    {"conflict_lane_margin", &VirtualDriverConfig::conflict_lane_margin},
+    {"conflict_standoff", &VirtualDriverConfig::conflict_standoff},
+    {"conflict_release_buffer", &VirtualDriverConfig::conflict_release_buffer},
+    {"conflict_pet", &VirtualDriverConfig::conflict_pet},
+    {"conflict_nominal_speed", &VirtualDriverConfig::conflict_nominal_speed},
+    {"conflict_min_cross_angle_deg", &VirtualDriverConfig::conflict_min_cross_angle_deg},
+    {"conflict_other_min_speed", &VirtualDriverConfig::conflict_other_min_speed},
+    {"steering_threshold", &VirtualDriverConfig::steering_threshold},
+    {"throttle_threshold", &VirtualDriverConfig::throttle_threshold},
+    {"brake_threshold", &VirtualDriverConfig::brake_threshold},
+    {"auto_return_timeout", &VirtualDriverConfig::auto_return_timeout},
+};
+
+const BoolField kBoolFields[] = {
+    {"respect_speed_limit", &VirtualDriverConfig::respect_speed_limit},
+    {"policy_lead_enabled", &VirtualDriverConfig::policy_lead_enabled},
+    {"policy_traffic_light_enabled", &VirtualDriverConfig::policy_traffic_light_enabled},
+    {"policy_stop_yield_enabled", &VirtualDriverConfig::policy_stop_yield_enabled},
+    {"policy_conflict_enabled", &VirtualDriverConfig::policy_conflict_enabled},
+    {"override_enabled", &VirtualDriverConfig::override_enabled},
+    {"override_button", &VirtualDriverConfig::override_button},
+};
+
+const IntField kIntFields[] = {
+    {"input_port", &VirtualDriverConfig::input_port},
+};
+
+bool WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)
+{
+    if (!root.Find(key)) return false;
+    LOG_WARN("VirtualDriverConfig: Ignoring '{}' because it is not {}", key, expected_type);
+    return true;
+}
+}  // namespace
 
 bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
 {
     LOG_INFO("VirtualDriverConfig: Loading from '{}'", filepath);
-    std::ifstream file(filepath);
-    if (!file.is_open())
+
+    simplejson::Value root;
+    std::string error;
+    if (!simplejson::LoadFile(filepath, root, &error))
     {
-        LOG_WARN("VirtualDriverConfig: Failed to open '{}'", filepath);
+        LOG_WARN("VirtualDriverConfig: Failed to load '{}': {}", filepath, error);
+        return false;
+    }
+    if (!root.IsObject())
+    {
+        LOG_WARN("VirtualDriverConfig: Root JSON value in '{}' is not an object", filepath);
         return false;
     }
 
-    std::string line;
-    while (std::getline(file, line))
+    for (const auto& field : kStringFields)
     {
-        auto key_matches = [&](const std::string& key) -> bool {
-            return line.find("\"" + key + "\"") != std::string::npos;
-        };
-        auto parse_string = [&](const std::string& key, std::string& val) {
-            if (!key_matches(key)) return;
-            size_t colon = line.find(":");
-            if (colon == std::string::npos) return;
-            std::string result;
-            for (char c : line.substr(colon + 1))
-                if (c != '"' && c != ',' && c != ' ' && c != '\t' && c != '\r')
-                    result += c;
-            if (!result.empty()) val = result;
-        };
-        auto parse_double = [&](const std::string& key, double& val) {
-            if (!key_matches(key)) return;
-            size_t colon = line.find(":");
-            if (colon == std::string::npos) return;
-            try { val = std::stod(line.substr(colon + 1)); } catch (...) {}
-        };
-        auto parse_int = [&](const std::string& key, int& val) {
-            if (!key_matches(key)) return;
-            size_t colon = line.find(":");
-            if (colon == std::string::npos) return;
-            try { val = std::stoi(line.substr(colon + 1)); } catch (...) {}
-        };
-        auto parse_bool = [&](const std::string& key, bool& val) {
-            if (!key_matches(key)) return;
-            size_t colon = line.find(":");
-            if (colon == std::string::npos) return;
-            val = line.substr(colon + 1).find("true") != std::string::npos;
-        };
-
-        parse_string("vehicle_params_file", vehicle_params_file);
-
-        parse_double("horizon_s", horizon_s);
-        parse_double("short_dt", short_dt);
-
-        parse_double("max_lateral_accel", max_lateral_accel);
-        parse_double("comfort_decel", comfort_decel);
-        parse_double("comfort_jerk", comfort_jerk);
-        parse_double("scan_distance", scan_distance);
-        parse_double("scan_step", scan_step);
-        parse_double("turn_speed", turn_speed);
-        parse_double("min_turn_speed", min_turn_speed);
-        parse_double("stop_band", stop_band);
-        parse_bool("respect_speed_limit", respect_speed_limit);
-
-        parse_double("lookahead_gain", lookahead_gain);
-        parse_double("min_lookahead", min_lookahead);
-        parse_double("max_lookahead", max_lookahead);
-        parse_double("max_steer_angle", max_steer_angle);
-        parse_double("steering_sign", steering_sign);
-        parse_double("speed_kp", speed_kp);
-        parse_double("speed_ki", speed_ki);
-        parse_double("speed_kd", speed_kd);
-
-        parse_double("control_point_offset", control_point_offset);
-        parse_double("control_point_min_speed", control_point_min_speed);
-
-        parse_double("indicator_lead_time", indicator_lead_time);
-        parse_double("indicator_min_on_time", indicator_min_on_time);
-
-        parse_bool("policy_lead_enabled", policy_lead_enabled);
-        parse_bool("policy_traffic_light_enabled", policy_traffic_light_enabled);
-        parse_bool("policy_stop_yield_enabled", policy_stop_yield_enabled);
-        parse_bool("policy_conflict_enabled", policy_conflict_enabled);
-        parse_double("idm_time_headway", idm_time_headway);
-        parse_double("idm_min_gap", idm_min_gap);
-        parse_double("idm_max_accel", idm_max_accel);
-        parse_double("idm_comfort_decel", idm_comfort_decel);
-        parse_double("idm_desired_speed", idm_desired_speed);
-        parse_double("idm_lookahead", idm_lookahead);
-        parse_double("idm_lateral_tol", idm_lateral_tol);
-        parse_double("idm_target_horizon", idm_target_horizon);
-        parse_double("tl_lookahead", tl_lookahead);
-        parse_double("tl_yellow_decel", tl_yellow_decel);
-        parse_double("tl_stop_margin", tl_stop_margin);
-        parse_double("sign_lookahead", sign_lookahead);
-        parse_double("stop_hold_time", stop_hold_time);
-        parse_double("stop_detect_speed", stop_detect_speed);
-        parse_double("stop_line_tol", stop_line_tol);
-        parse_double("creep_speed", creep_speed);
-        parse_double("creep_advance", creep_advance);
-        parse_double("yield_creep_speed", yield_creep_speed);
-        parse_double("sign_stop_margin", sign_stop_margin);
-        parse_double("conflict_lookahead", conflict_lookahead);
-        parse_double("conflict_stop_margin", conflict_stop_margin);
-        parse_double("conflict_zone_half", conflict_zone_half);
-        parse_double("conflict_accept_gap", conflict_accept_gap);
-        parse_double("conflict_min_cross_angle_deg", conflict_min_cross_angle_deg);
-        parse_double("conflict_other_min_speed", conflict_other_min_speed);
-        parse_double("conflict_nominal_speed", conflict_nominal_speed);
-        parse_double("conflict_release_extra", conflict_release_extra);
-
-        parse_bool("override_enabled", override_enabled);
-        parse_bool("override_button", override_button);
-        parse_double("steering_threshold", steering_threshold);
-        parse_double("throttle_threshold", throttle_threshold);
-        parse_double("brake_threshold", brake_threshold);
-        parse_double("auto_return_timeout", auto_return_timeout);
-        parse_string("override_lateral", override_lateral);
-        parse_string("override_longitudinal", override_longitudinal);
-
-        parse_string("input_type", input_type);
-        parse_int("input_port", input_port);
-        parse_string("input_transport", input_transport);
+        std::string parsed;
+        if (root.GetString(field.key, parsed)) (this->*(field.member)) = parsed;
+        else WarnIfWrongType(root, field.key, "a string");
+    }
+    for (const auto& field : kDoubleFields)
+    {
+        double parsed = 0.0;
+        if (root.GetDouble(field.key, parsed)) (this->*(field.member)) = parsed;
+        else WarnIfWrongType(root, field.key, "a number");
+    }
+    for (const auto& field : kBoolFields)
+    {
+        bool parsed = false;
+        if (root.GetBool(field.key, parsed)) (this->*(field.member)) = parsed;
+        else WarnIfWrongType(root, field.key, "a boolean");
+    }
+    for (const auto& field : kIntFields)
+    {
+        int parsed = 0;
+        if (root.GetInt(field.key, parsed)) (this->*(field.member)) = parsed;
+        else WarnIfWrongType(root, field.key, "an integer");
     }
 
     LOG_INFO("VirtualDriverConfig: planner(horizon={:.1f}s dt={:.2f}) driver(la_gain={:.2f} kp={:.2f}) input={}",
@@ -222,14 +255,14 @@ ConflictPointResolverConfig VirtualDriverConfig::ConflictConfig() const
 {
     ConflictPointResolverConfig c;
     c.lookahead           = conflict_lookahead;
-    c.stop_margin         = conflict_stop_margin;
-    c.zone_half           = conflict_zone_half;
-    c.accept_gap          = conflict_accept_gap;
+    c.step                = conflict_step;
+    c.lane_margin         = conflict_lane_margin;
+    c.standoff            = conflict_standoff;
+    c.release_buffer      = conflict_release_buffer;
+    c.pet                 = conflict_pet;
+    c.nominal_speed       = conflict_nominal_speed;
     c.min_cross_angle_deg = conflict_min_cross_angle_deg;
     c.other_min_speed     = conflict_other_min_speed;
-    c.nominal_speed       = conflict_nominal_speed;
-    c.release_extra       = conflict_release_extra;
-    c.step                = scan_step;
     return c;
 }
 

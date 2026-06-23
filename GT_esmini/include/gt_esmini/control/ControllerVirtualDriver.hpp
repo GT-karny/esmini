@@ -107,6 +107,13 @@ private:
     double last_target_speed_ = 0.0;  // current speed reference (held between actions)
     bool   target_initialized_ = false;
 
+    // Brake-light debounce: the speed PID emits brake micro-pulses while tracking
+    // the stepped speed-planner reference, which would flicker the brake light. The
+    // light latches ON on any brake and stays on for a short hold after the last
+    // pulse, bridging the gaps between pulses.
+    bool   brake_light_on_         = false;
+    double brake_light_hold_until_ = 0.0;
+
     // Active SpeedAction dynamics tracking (Option C): reconstruct the commanded
     // speed profile from the action's TransitionDynamics. esmini's SpeedAction::Start
     // (which runs under MODE_ADDITIVE) sets start/target speed and normalizes the

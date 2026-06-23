@@ -99,7 +99,85 @@ TEST(StopFsm, ApproachHoldCreepClearSequence)
     EXPECT_EQ(c.kind, PolicyConstraint::Kind::NONE);
 }
 
-// ───────────────── Phase 3d: conflict-point geometry / timing ──────────────
+// ───────────────── Phase 3d: conflict-corridor geometry ────────────────────
+// The resolver now models each vehicle as a width-inflated path CORRIDOR (strip
+// of convex quads) and finds the TRUE polygon intersection of two corridors via
+// Sutherland–Hodgman convex clipping + shoelace area. These pure helpers are the
+// load-bearing geometry; the timing/latch is exercised behaviourally (gt_sim_test
+// phase3d batch + scratch trace).
+
+using conflict_geom::Pt;
+
+TEST(ConflictGeom, PolygonAreaUnitSquare)
+{
+    std::vector<Pt> sq = {{0, 0}, {2, 0}, {2, 2}, {0, 2}};
+    EXPECT_NEAR(conflict_geom::PolygonArea(sq), 4.0, 1e-9);
+    // Winding-agnostic: reversed (CW) winding gives the same absolute area.
+    std::vector<Pt> sq_cw = {{0, 0}, {0, 2}, {2, 2}, {2, 0}};
+    EXPECT_NEAR(conflict_geom::PolygonArea(sq_cw), 4.0, 1e-9);
+    // Degenerate (< 3 verts) -> 0.
+    std::vector<Pt> two = {{0, 0}, {1, 1}};
+    EXPECT_NEAR(conflict_geom::PolygonArea(two), 0.0, 1e-12);
+}
+
+TEST(ConflictGeom, PolygonAreaTriangle)
+{
+    std::vector<Pt> tri = {{0, 0}, {4, 0}, {0, 3}};
+    EXPECT_NEAR(conflict_geom::PolygonArea(tri), 6.0, 1e-9);  // 0.5 * 4 * 3
+}
+
+TEST(ConflictClip, OverlappingQuadsGiveExpectedArea)
+{
+    // subject = [0,2]x[0,2] (area 4); clip = [1,3]x[1,3]. Intersection = [1,2]x[1,2]
+    // -> a unit square of area 1.
+    std::vector<Pt> subject = {{0, 0}, {2, 0}, {2, 2}, {0, 2}};
+    std::vector<Pt> clip    = {{1, 1}, {3, 1}, {3, 3}, {1, 3}};
+    auto out = conflict_geom::ConvexClip(subject, clip);
+    EXPECT_GE(out.size(), 3u);
+    EXPECT_NEAR(conflict_geom::PolygonArea(out), 1.0, 1e-9);
+}
+
+TEST(ConflictClip, DisjointQuadsGiveEmpty)
+{
+    std::vector<Pt> subject = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    std::vector<Pt> clip    = {{5, 5}, {6, 5}, {6, 6}, {5, 6}};
+    auto out = conflict_geom::ConvexClip(subject, clip);
+    EXPECT_NEAR(conflict_geom::PolygonArea(out), 0.0, 1e-9);
+}
+
+TEST(ConflictClip, SubjectFullyInsideClipReturnsSubject)
+{
+    // subject is wholly inside clip -> the clipped polygon is the subject itself.
+    std::vector<Pt> subject = {{1, 1}, {2, 1}, {2, 2}, {1, 2}};
+    std::vector<Pt> clip    = {{0, 0}, {4, 0}, {4, 4}, {0, 4}};
+    auto out = conflict_geom::ConvexClip(subject, clip);
+    EXPECT_NEAR(conflict_geom::PolygonArea(out), 1.0, 1e-9);
+}
+
+TEST(ConflictClip, RotatedCrossingCorridorQuads)
+{
+    // A horizontal corridor quad crossed by a diagonal one (mimics the ego turn
+    // sweeping across an oncoming lane). subject is the unit-height horizontal
+    // band [-2,2]x[-1,1]; clip is a 45° band. The clipped intersection is a
+    // non-empty convex polygon with positive area, and it is contained in the
+    // subject (area <= subject area = 8).
+    std::vector<Pt> subject = {{-2, -1}, {2, -1}, {2, 1}, {-2, 1}};
+    // Clip: a parallelogram crossing diagonally through the origin.
+    std::vector<Pt> clip = {{-1, -2}, {1, 0}, {-1, 2}, {-3, 0}};
+    auto out = conflict_geom::ConvexClip(subject, clip);
+    const double area = conflict_geom::PolygonArea(out);
+    EXPECT_GT(area, 0.0);
+    EXPECT_LE(area, 8.0 + 1e-9);
+}
+
+TEST(ConflictClip, CwClipPolygonHandledLikeCcw)
+{
+    // ConvexClip must auto-orient the clip; a CW-wound clip gives the same result.
+    std::vector<Pt> subject = {{0, 0}, {2, 0}, {2, 2}, {0, 2}};
+    std::vector<Pt> clip_cw = {{1, 1}, {1, 3}, {3, 3}, {3, 1}};  // CW
+    auto out = conflict_geom::ConvexClip(subject, clip_cw);
+    EXPECT_NEAR(conflict_geom::PolygonArea(out), 1.0, 1e-9);
+}
 
 TEST(ConflictGeom, SegmentsIntersectCleanCrossing)
 {
@@ -145,56 +223,4 @@ TEST(ConflictGeom, CrossingAnglePerpendicularAndParallel)
     EXPECT_NEAR(conflict_geom::CrossingAngleDeg(1, 0, 0, 1), 90.0, 1e-6);  // perpendicular
     EXPECT_NEAR(conflict_geom::CrossingAngleDeg(1, 0, 1, 0), 0.0, 1e-6);   // parallel
     EXPECT_NEAR(conflict_geom::CrossingAngleDeg(1, 0, -1, 0), 0.0, 1e-6);  // anti-parallel -> folded to 0
-}
-
-TEST(ConflictGap, OtherArrivesWellAfterEgoProceeds)
-{
-    // Ego reaches the point at t=2s; other not entering until t=10s (and clears at 12).
-    EXPECT_EQ(conflict_geom::GapDecision(2.0, 10.0, 12.0, 2.0), conflict_geom::GapAction::PROCEED);
-}
-
-TEST(ConflictGap, TemporalOverlapYields)
-{
-    // Ego arrives at t=5s while the other occupies [4,6] -> overlap -> YIELD.
-    EXPECT_EQ(conflict_geom::GapDecision(5.0, 4.0, 6.0, 2.0), conflict_geom::GapAction::YIELD);
-}
-
-TEST(ConflictGap, OtherAlreadyClearedProceeds)
-{
-    // Other cleared at t=1s; ego arrives at t=5s, well past t_exit + accept_gap (3s).
-    EXPECT_EQ(conflict_geom::GapDecision(5.0, 0.0, 1.0, 2.0), conflict_geom::GapAction::PROCEED);
-}
-
-TEST(ConflictGap, EgoArrivesJustInsideAcceptGapOfEnterYields)
-{
-    // Other enters at t=8s; ego arrives at t=6.5s = t_enter - 1.5s, inside accept_gap=2s -> YIELD.
-    EXPECT_EQ(conflict_geom::GapDecision(6.5, 8.0, 10.0, 2.0), conflict_geom::GapAction::YIELD);
-    // Just outside the margin (t_ego = t_enter - 2.5 < t_enter - accept_gap) -> PROCEED.
-    EXPECT_EQ(conflict_geom::GapDecision(5.5, 8.0, 10.0, 2.0), conflict_geom::GapAction::PROCEED);
-}
-
-// --- hysteresis at the call-site (entry vs wider release margin) ------------
-// GapDecision stays PURE; the resolver's latch calls it twice with the entry
-// margin (accept_gap) and the release margin (accept_gap + release_extra). These
-// lock in the two-margin intent: a borderline-late other that YIELDs on entry
-// still YIELDs under the wider release margin, so a committed stop HOLDS instead
-// of releasing the moment the entry test flickers to PROCEED.
-
-TEST(ConflictGap, BorderlineLateYieldsOnEntryMargin)
-{
-    // Other cleared the zone at t=4s (just BEFORE the ego's floored arrival t=5s).
-    // With the entry margin accept_gap=2s the clear band reaches t_exit+2 = 6s >= 5
-    // -> still YIELD (the gap is too tight to commit).
-    EXPECT_EQ(conflict_geom::GapDecision(5.0, 2.0, 4.0, 2.0), conflict_geom::GapAction::YIELD);
-}
-
-TEST(ConflictGap, SameGeometryStillYieldsUnderWiderReleaseMargin)
-{
-    // Identical geometry; widen by release_extra=1.5 (accept_gap 2 -> 3.5). The
-    // clear band now reaches t_exit+3.5 = 7.5s, comfortably past the ego's t=5s
-    // -> the committed yield HOLDS (no premature release / no chatter).
-    constexpr double accept_gap   = 2.0;
-    constexpr double release_extra = 1.5;
-    EXPECT_EQ(conflict_geom::GapDecision(5.0, 2.0, 4.0, accept_gap + release_extra),
-              conflict_geom::GapAction::YIELD);
 }

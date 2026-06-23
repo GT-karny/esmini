@@ -83,7 +83,7 @@ ADAS/AD開発向けに、OSI出力を強化しています。
 - `include/gt_esmini/core`: 公開C APIと共通抽象 (`IConfigLoader`)
 - `include/gt_esmini/scenario`: OpenSCENARIO拡張 (`GT_ScenarioReader`, `TrafficSignalController`)
 - `include/gt_esmini/io`: UDP I/O
-- `include/gt_esmini/control`: ManualDrive制御 / 物理 / 姿勢更新 (`ControllerManualDrive`, `RealVehicle`, `TerrainTracker`, `AutoLightController`)
+- `include/gt_esmini/control`: ManualDrive制御 / 物理 / 姿勢更新 (`ControllerManualDrive`, `RealVehicle`, `AutoLightController`)
 - `include/gt_esmini/osi`: OSI/HostVehicleData連携
 - `src/{core,scenario,io,control,osi}`: 実装本体
 - `config/`: 実行時設定 (`real_vehicle_params.json`, `host_vehicle_config.json`, `manual_drive.json`)

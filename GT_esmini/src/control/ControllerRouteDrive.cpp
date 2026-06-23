@@ -15,6 +15,7 @@
 #include <fstream>
 
 #include "gt_esmini/control/ControllerRouteDrive.hpp"
+#include "gt_esmini/control/common/JunctionTurn.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
@@ -339,19 +340,9 @@ void gt_esmini::ControllerRouteDrive::Step(double timeStep)
                             break;
                         }
                     }
-                    if (connRoad && connRoad->GetLength() > 0.1)
+                    if (IsSharpJunctionConnector(connRoad))
                     {
-                        roadmanager::Position p0;
-                        roadmanager::Position pE;
-                        p0.SetTrackPos(connRoad->GetId(), 0.0, 0.0);
-                        pE.SetTrackPos(connRoad->GetId(), connRoad->GetLength(), 0.0);
-                        const double dh       = fabs(GetAngleInIntervalMinusPIPlusPI(pE.GetH() - p0.GetH()));
-                        const double turnRate = dh / connRoad->GetLength();
-                        constexpr double SHARP_TURN_RATE = 0.04;  // rad/m (~2.3°/m)
-                        if (turnRate >= SHARP_TURN_RATE)
-                        {
-                            exitContinuation = false;  // sharp connector ⇒ true turn-lane turn
-                        }
+                        exitContinuation = false;  // sharp connector ⇒ true turn-lane turn
                     }
                 }
 
@@ -435,18 +426,7 @@ int gt_esmini::ControllerRouteDrive::JunctionTurnDirection() const
     // CCW (left) turn maps directly to vehicle-left regardless of road s-direction.
     const double targetH  = target->GetDrivingDirection();
     const double currentH = cur.GetDrivingDirection();
-    const double diff     = GetAngleInIntervalMinusPIPlusPI(targetH - currentH);
-
-    constexpr double threshold = 0.10;  // rad (matches AutoLightController)
-    if (diff > threshold)
-    {
-        return 1;  // vehicle-left
-    }
-    if (diff < -threshold)
-    {
-        return -1;  // vehicle-right
-    }
-    return 0;
+    return TurnDirectionFromHeadingDelta(targetH - currentH);
 }
 
 void gt_esmini::ControllerRouteDrive::ApplyIndicator(int dir)

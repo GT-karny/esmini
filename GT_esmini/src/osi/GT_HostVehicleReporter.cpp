@@ -11,11 +11,11 @@
 
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "CommonMini.hpp"
+#include "gt_esmini/common/SimpleJson.hpp"
 #include "logger.hpp"
 #include "Entities.hpp"
 #include "osi_hostvehicledata.pb.h"
 
-#include <fstream>
 #include <cstring>
 
 namespace gt_esmini
@@ -60,10 +60,8 @@ void GT_HostVehicleReporter::Init(int udp_port, const std::string& config_file, 
     // Use config port if set, otherwise use parameter
     int port = config_file.empty() ? udp_port : config_.udp_port;
     
-    // Determine target IP:
-    // If argument is provided (not empty), it takes precedence over config and main default.
-    std::string final_ip = config_.target_ip; // Start with config (default is "127.0.0.1")
-    
+    // Empty target_ip means use config/default. A non-empty argument is an explicit override.
+    std::string final_ip = config_.target_ip;
     if (!target_ip.empty())
     {
         final_ip = target_ip;
@@ -92,115 +90,36 @@ void GT_HostVehicleReporter::Init(int udp_port, const std::string& config_file, 
 
 void GT_HostVehicleReporter::LoadConfig(const std::string& config_file)
 {
-    std::ifstream file(config_file);
-    if (!file.is_open())
+    simplejson::Value root;
+    std::string error;
+    if (!simplejson::LoadFile(config_file, root, &error))
     {
-        LOG_INFO("GT_HostVehicleReporter: Config file not found, using defaults: {}", config_file);
+        if (error == "failed to open file")
+        {
+            LOG_INFO("GT_HostVehicleReporter: Config file not found, using defaults: {}", config_file);
+        }
+        else
+        {
+            LOG_WARN("GT_HostVehicleReporter: Failed to parse config '{}': {}", config_file, error);
+        }
+        return;
+    }
+    if (!root.IsObject())
+    {
+        LOG_WARN("GT_HostVehicleReporter: Root JSON value in '{}' is not an object", config_file);
         return;
     }
 
-    std::string line;
-
-    auto parse_val = [&](const std::string& key, double& val)
-    {
-        if (line.find(key) != std::string::npos)
-        {
-            size_t colon = line.find(":");
-            if (colon != std::string::npos)
-            {
-                try
-                {
-                    std::string value_str = line.substr(colon + 1);
-                    size_t comma = value_str.find(",");
-                    if (comma != std::string::npos)
-                    {
-                        value_str = value_str.substr(0, comma);
-                    }
-                    val = std::stod(value_str);
-                }
-                catch (...)
-                {
-                    LOG_WARN("GT_HostVehicleReporter: Failed to parse {} from config", key);
-                }
-            }
-        }
-    };
-
-    auto parse_int = [&](const std::string& key, int& val)
-    {
-        if (line.find(key) != std::string::npos)
-        {
-            size_t colon = line.find(":");
-            if (colon != std::string::npos)
-            {
-                try
-                {
-                    std::string value_str = line.substr(colon + 1);
-                    size_t comma = value_str.find(",");
-                    if (comma != std::string::npos)
-                    {
-                        value_str = value_str.substr(0, comma);
-                    }
-                    val = std::stoi(value_str);
-                }
-                catch (...)
-                {
-                    LOG_WARN("GT_HostVehicleReporter: Failed to parse {} from config", key);
-                }
-            }
-        }
-    };
-
-    auto parse_bool = [&](const std::string& key, bool& val)
-    {
-        if (line.find(key) != std::string::npos)
-        {
-            if (line.find("true") != std::string::npos)
-            {
-                val = true;
-            }
-            else if (line.find("false") != std::string::npos)
-            {
-                val = false;
-            }
-        }
-    };
-    
-    auto parse_str = [&](const std::string& key, std::string& val)
-    {
-        if (line.find(key) != std::string::npos)
-        {
-            size_t colon = line.find(":");
-            if (colon != std::string::npos)
-            {
-                std::string value_str = line.substr(colon + 1);
-                // Remove trailing comma if exists
-                size_t comma = value_str.find(",");
-                if (comma != std::string::npos)
-                {
-                    value_str = value_str.substr(0, comma);
-                }
-                
-                // Trim quotes and whitespace
-                // Simple trim
-                size_t first = value_str.find_first_not_of(" \t\"");
-                size_t last = value_str.find_last_not_of(" \t\"");
-                if (first != std::string::npos && last != std::string::npos)
-                {
-                    val = value_str.substr(first, last - first + 1);
-                }
-            }
-        }
-    };
-
-    while (std::getline(file, line))
-    {
-        parse_val("steering_input_to_wheel_ratio", config_.steering_input_to_wheel_ratio);
-        parse_int("udp_port", config_.udp_port);
-        parse_bool("enable_host_vehicle_data", config_.enabled);
-        parse_str("target_ip", config_.target_ip);
-        parse_str("target_vehicle", config_.target_vehicle);
-    }
+    if (root.Find("steering_input_to_wheel_ratio") && !root.GetDouble("steering_input_to_wheel_ratio", config_.steering_input_to_wheel_ratio))
+        LOG_WARN("GT_HostVehicleReporter: Failed to parse steering_input_to_wheel_ratio from config");
+    if (root.Find("udp_port") && !root.GetInt("udp_port", config_.udp_port))
+        LOG_WARN("GT_HostVehicleReporter: Failed to parse udp_port from config");
+    if (root.Find("enable_host_vehicle_data") && !root.GetBool("enable_host_vehicle_data", config_.enabled))
+        LOG_WARN("GT_HostVehicleReporter: Failed to parse enable_host_vehicle_data from config");
+    if (root.Find("target_ip") && !root.GetString("target_ip", config_.target_ip))
+        LOG_WARN("GT_HostVehicleReporter: Failed to parse target_ip from config");
+    if (root.Find("target_vehicle") && !root.GetString("target_vehicle", config_.target_vehicle))
+        LOG_WARN("GT_HostVehicleReporter: Failed to parse target_vehicle from config");
 
     LOG_INFO("GT_HostVehicleReporter: Config loaded: steering_ratio={}, udp_port={}, target_ip={}, enabled={}, target_vehicle={}",
              config_.steering_input_to_wheel_ratio,

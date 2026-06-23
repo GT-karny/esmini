@@ -134,7 +134,7 @@ def _count_files(root_path: Path) -> tuple[int, int, int]:
         if p.is_file():
             total += 1
             suffix = p.suffix.lower()
-            if suffix == ".xosc" and not p.name.endswith(".temp.xosc"):
+            if suffix == ".xosc":
                 scenarios += 1
             elif suffix == ".xodr":
                 roads += 1
@@ -492,8 +492,6 @@ async def list_scenarios(project_id: str) -> list[ScenarioInfo] | None:
 
     scenarios: list[ScenarioInfo] = []
     for xosc in sorted(scan_dir.glob("*.xosc")):
-        if xosc.name.endswith(".temp.xosc"):
-            continue
         rel = str(xosc.relative_to(root)).replace("\\", "/")
         info = _parse_xosc(xosc, rel)
         scenarios.append(info)

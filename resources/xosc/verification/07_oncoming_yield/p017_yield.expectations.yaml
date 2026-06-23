@@ -1,24 +1,42 @@
 scenario: 07_oncoming_yield__p017
 category: 07_oncoming_yield
-# Phase 3d (F2) YIELD case. Ego left-turns (road1 -> conn102 -> road2) across a
-# 14 m/s oncoming through-car (road0 -> conn100 -> road1) that reaches the junction
-# conflict point essentially together with the ego (first_gap 1.5 s, tight).
-# ConflictPointResolver must make the ego slow to a crawl to let it pass, then
-# commit the turn. Without the policy the ego holds the junction-curvature floor
-# (~4.9 m/s) straight through the turn; the conflict yield drives it well below that
-# in a brief V-dip as the oncoming crosses (full-res trough: 2.9 -> 1.97 -> 2.9 over
-# t8.5..9.0). The post-clear speed_above guards against "waits forever".
+# Phase 3d (F2) YIELD case — CORRIDOR space-time model.
+# Ego left-turns (road1 -> conn102 -> road2) across a 14 m/s oncoming through-car
+# (road0 -> conn100 -> road1). Each vehicle's future motion is a width-inflated
+# path CORRIDOR (ribbon of convex quads); the conflict REGION is the TRUE polygon
+# intersection of the two corridors (Sutherland-Hodgman clip), an AREA at the
+# junction where the ego sweep crosses the oncoming lane. Length-aware
+# constant-speed timing of when each body occupies the region (with a 1.5 s PET
+# pad) says the 14 m/s oncoming would be in the region as the ego arrives -> YIELD.
+# The resolver emits STOP_AT_S a `conflict_standoff` (5 m) before the region entry
+# and HOLDS it with a POSITIONAL release: held until the oncoming body has driven
+# past the region exit by conflict_release_buffer (3 m). Crawl is allowed — the
+# ego decelerates to a deep crawl (~1.35 m/s, well below the ~4.9 no-yield junction
+# curvature floor) rather than a hard 0, lets the oncoming pass, then completes the
+# turn and resumes.
+#
+# Collision metric = OBB (oriented bounding box) overlap, NOT center-to-center.
+# At closest approach the two 5x2 m bodies pass anti-parallel SIDE-BY-SIDE (ego
+# y~1.4, onc y~-1.5), so the center distance is only ~2.94 m (bounded by lane
+# geometry) yet the FOOTPRINTS do NOT overlap: min OBB separation ~0.90 m. With
+# the policy OFF the same encounter has the ego nose into the region and the OBBs
+# OVERLAP (min OBB sep = 0.00 m = collision). The threshold below (0.5) sits above
+# the collision floor (0.0, overlap) and below the post-fix clearance (0.90), so it
+# discriminates a clean pass from a collision. (A larger float is geometrically
+# unattainable in an adjacent-lane pass; the standoff lever barely moves it — 5->8 m
+# only shifts 0.90->0.98 — because the limiter is the side-by-side lateral gap.)
 must:
-  # The yield is a brief V-dip (the oncoming crosses quickly), so the window sits
-  # inside the sub-3 trough: full-res speeds over t8.55..8.90 are 2.76 -> 1.97,
-  # max 2.76 (<= 3.0, and far below the ~4.9 no-yield junction floor). Widening the
-  # window catches the recovery shoulders (>3) and is the continuing-tuning task.
+  - event: min_obb_separation_above
+    threshold: 0.5
+    after: { sim_time: 7.0 }
+    before: { sim_time: 13.0 }
+    reason: "衝突回避ゲート(OBB): 対向車との footprint 最小分離(実測0.90m@t9.65, 非重なり=非衝突)。譲らない場合は0.00m=OBB重なり=衝突。0.5は衝突(0.0)と clean pass(0.90)を弁別。直進レーン横断の並走幾何によりOBB分離~0.9mが上限(standoffを上げても5->8mで0.90->0.98と微増のみ)"
   - event: speed_below
-    threshold: 3.0
-    after: { sim_time: 8.55 }
-    before: { sim_time: 8.9 }
-    reason: "対向直進車(14m/s)の通過に合わせてクロール減速(旋回曲率キャップ~4.9を明確に下回る)"
+    threshold: 2.5
+    after: { sim_time: 8.5 }
+    before: { sim_time: 9.7 }
+    reason: "譲り減速の深いクロール(実測 窓内最大1.75, 最小1.35 @t9.1-9.7)。旋回曲率キャップ~4.9を明確に下回る(=確かに譲っている)。完全停止には至らずクロール(crawl-allowed設計)。窓は深いクロール相の内側でリカバリの肩を含まない"
   - event: speed_above
     threshold: 12.0
-    after: { sim_time: 16.0 }
-    reason: "対向車通過後に発進し巡航復帰(待ちっぱなしでない)"
+    after: { sim_time: 17.5 }
+    reason: "対向車通過後に旋回完了し巡航復帰(実測 t18.60 に12m/s到達, 待ちっぱなしでない)"
