@@ -135,9 +135,9 @@ namespace gt_esmini
         double pitch_rate_;
         double roll_rate_;
 
-        // Terrain vs Dynamic separation (NEW)
-        double terrain_pitch_ = 0.0;  // From TerrainTracker
-        double terrain_roll_ = 0.0;   // From TerrainTracker
+        // Terrain/external attitude vs dynamic body attitude separation.
+        double terrain_pitch_ = 0.0;
+        double terrain_roll_ = 0.0;
         double dynamic_pitch_ = 0.0;  // From spring-damper acceleration
         double dynamic_roll_ = 0.0;   // From spring-damper lateral force
 

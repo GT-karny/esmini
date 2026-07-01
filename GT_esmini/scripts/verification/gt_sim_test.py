@@ -55,6 +55,69 @@ _MOVING_TYPE_MAP = {0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: 
 
 
 # ---------------------------------------------------------------------------
+# OBB (oriented bounding box) separation — SAT
+# ---------------------------------------------------------------------------
+
+def _obb_corners(cx: float, cy: float, h: float, length: float, width: float) -> list[tuple[float, float]]:
+    """Four world corners of an oriented rectangle centered at (cx,cy), heading h,
+    extents length (along heading) x width (across). NOTE: the OSI scene reports the
+    body CENTER, so we center the box on (cx,cy) — adjacent-lane passing then reads
+    as a clean gap, not an overlap."""
+    ch, sh = math.cos(h), math.sin(h)
+    hl, hw = length / 2.0, width / 2.0
+    # local corners (along, across) -> world
+    out = []
+    for ax, ay in ((hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)):
+        out.append((cx + ax * ch - ay * sh, cy + ax * sh + ay * ch))
+    return out
+
+
+def _obb_separation(a: dict, b: dict) -> float:
+    """Separation distance between two oriented rectangles via the Separating Axis
+    Theorem. Each box dict carries x,y,h,length,width (CENTER position).
+
+    Returns:
+      <= 0.0 if the rectangles OVERLAP (0.0 = touching/overlap; we collapse the
+             penetration case to 0.0 — overlap is overlap for the anti-collision gate),
+      > 0.0  the positive clearance gap otherwise. The reported gap is the MAX over
+             the (up to 4) candidate separating axes of the positive axis-gap — i.e.
+             the SAT separation distance (conservative: it is the smallest distance by
+             which one box must move along some axis to separate, taken as the max
+             positive axis gap, which lower-bounds the true Euclidean gap)."""
+    ca = _obb_corners(a["x"], a["y"], a["h"], a.get("length", 4.0), a.get("width", 2.0))
+    cb = _obb_corners(b["x"], b["y"], b["h"], b.get("length", 4.0), b.get("width", 2.0))
+
+    # Candidate axes = the 2 unique edge normals of each box (4 total).
+    def _axes(corners):
+        axes = []
+        for i in range(4):
+            ex = corners[(i + 1) % 4][0] - corners[i][0]
+            ey = corners[(i + 1) % 4][1] - corners[i][1]
+            n = math.hypot(ex, ey)
+            if n > 1e-12:
+                axes.append((-ey / n, ex / n))  # edge normal (unit)
+        return axes
+
+    axes = _axes(ca) + _axes(cb)
+    max_gap = -float("inf")  # positive on a separating axis; we want the largest
+    overlap_on_all = True
+    for ax, ay in axes:
+        amin = min(px * ax + py * ay for px, py in ca)
+        amax = max(px * ax + py * ay for px, py in ca)
+        bmin = min(px * ax + py * ay for px, py in cb)
+        bmax = max(px * ax + py * ay for px, py in cb)
+        # gap > 0 -> the projections are disjoint on this axis (a separating axis).
+        gap = max(bmin - amax, amin - bmax)
+        if gap > 0:
+            overlap_on_all = False
+            if gap > max_gap:
+                max_gap = gap
+    if overlap_on_all:
+        return 0.0  # no separating axis -> the boxes overlap (collision)
+    return max_gap
+
+
+# ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
 
@@ -146,7 +209,12 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
                 for ident in ref.identifier:
                     if ident.startswith("entity_name:"):
                         name = ident[len("entity_name:"):]
-        objects.append({
+        # When OSI reports no body extents (dim <= 0) we emit the 4.0x2.0 m default
+        # so the geometry maths still run, but flag it: an OBB anti-collision gate
+        # must NOT report a clean measured pass on fabricated dimensions (a larger
+        # real vehicle could overlap where the default footprint clears).
+        dims_fallback = dim.length <= 0 or dim.width <= 0
+        obj = {
             "id": o.id.value,
             "name": name,
             "x": round(pos.x, 3),
@@ -157,7 +225,10 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "width": round(dim.width, 2) if dim.width > 0 else 2.0,
             "is_host": (host_id is not None and o.id.value == host_id),
             "type": _MOVING_TYPE_MAP.get(o.type, "unknown"),
-        })
+        }
+        if dims_fallback:
+            obj["dims_fallback"] = True
+        objects.append(obj)
 
     traffic_lights = []
     for tl in gt.traffic_light:
@@ -807,6 +878,98 @@ def _eval_must(must: dict, frames: list[dict]) -> dict:
                   f"(want {min_thw}..{max_thw}s)")
         return res("pass" if (lo_ok and hi_ok) else "fail", detail)
 
+    if kind == "min_separation_above":
+        # Anti-collision gate: over the window, the minimum center-to-center
+        # distance between the ego (is_host) and EVERY other scene object must stay
+        # >= threshold. Requires capture_osi (telemetry.scene). Unlike a speed proxy
+        # this cannot false-positive: it measures the actual closing distance, so it
+        # catches a collision regardless of how the ego moves.
+        thr = float(must["threshold"])
+        worst_sep = None  # (sep, frame_idx)
+        for i, fr in enumerate(frames):
+            if not _time_window_ok(fr["sim_time"], must):
+                continue
+            scene = fr.get("scene")
+            if not scene:
+                continue
+            ego = next((o for o in scene["objects"] if o.get("is_host")), None)
+            if ego is None:
+                continue
+            for o in scene["objects"]:
+                if o.get("is_host"):
+                    continue
+                sep = math.hypot(o["x"] - ego["x"], o["y"] - ego["y"])
+                if worst_sep is None or sep < worst_sep[0]:
+                    worst_sep = (sep, i)
+        if worst_sep is None:
+            return res("skip", "no scene frames in time window")
+        sep, worst_i = worst_sep
+        ok = sep >= thr
+        detail = (f"min center-to-center separation = {sep:.2f} m at "
+                  f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?)")
+        return res("pass" if ok else "fail", detail, None if ok else worst_i)
+
+    if kind == "min_obb_separation_above":
+        # Anti-collision gate, OBB (oriented bounding box) edition. Over the window,
+        # the minimum SAT separation between the ego (is_host) length x width
+        # footprint and EVERY other scene object footprint must stay >= threshold.
+        # 0 (or negative) means the oriented rectangles OVERLAP (collision); a small
+        # positive threshold adds a safety gap. Unlike center-to-center distance this
+        # correctly reads adjacent-lane passing (~2.8 m center gap) as SAFE — the
+        # bodies do not overlap. Requires capture_osi (telemetry.scene).
+        thr = float(must["threshold"])
+        worst = None  # (sep, frame_idx)
+        any_overlap = False
+        # Track fabricated dimensions: an object with dims_fallback (or missing
+        # length/width) had no real OSI extents, so its footprint is a 4.0x2.0 m
+        # guess. A measured PASS on such a footprint is untrustworthy (a larger real
+        # body could overlap where the default clears) -> we must not report clean.
+        fallback_names: set = set()
+
+        def _is_fallback(o: dict) -> bool:
+            return bool(o.get("dims_fallback")) or "length" not in o or "width" not in o
+
+        for i, fr in enumerate(frames):
+            if not _time_window_ok(fr["sim_time"], must):
+                continue
+            scene = fr.get("scene")
+            if not scene:
+                continue
+            ego = next((o for o in scene["objects"] if o.get("is_host")), None)
+            if ego is None:
+                continue
+            for o in scene["objects"]:
+                if o.get("is_host"):
+                    continue
+                if _is_fallback(ego):
+                    fallback_names.add(ego.get("name") or f"host#{ego.get('id')}")
+                if _is_fallback(o):
+                    fallback_names.add(o.get("name") or f"#{o.get('id')}")
+                sep = _obb_separation(ego, o)
+                if sep <= 0.0:
+                    any_overlap = True
+                if worst is None or sep < worst[0]:
+                    worst = (sep, i)
+        if worst is None:
+            return res("skip", "no scene frames in time window")
+        sep, worst_i = worst
+        ok = sep >= thr
+        # A real measured pass requires real dims. If an involved body carried
+        # fallback extents, a clean result is inconclusive — report skip (which the
+        # verdict rolls up to needs-review) rather than a false green. An overlap /
+        # fail is still authoritative: the default footprint is a LOWER bound, so an
+        # overlap on it implies overlap on the (larger-or-equal) real body too.
+        if ok and fallback_names:
+            names = ", ".join(sorted(fallback_names))
+            return res("skip", f"OBB separation inconclusive: object(s) lacked real "
+                               f"OSI dimensions ({names}); measured min "
+                               f"{sep:.2f} m uses a 4.0x2.0 m fallback footprint, so a "
+                               f"clean pass is not trustworthy")
+        detail = (f"min OBB separation = {sep:.2f} m at "
+                  f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?); "
+                  f"overlap occurred: {any_overlap}")
+        return res("pass" if ok else "fail", detail, None if ok else worst_i)
+
     return {"event": kind, "status": "skip", "detail": "unknown event type", "reason": reason}
 
 
@@ -947,6 +1110,7 @@ _POLICY_FLAG = {
     "lead": "policy_lead_enabled",
     "traffic_light": "policy_traffic_light_enabled",
     "stop_yield": "policy_stop_yield_enabled",
+    "conflict": "policy_conflict_enabled",
 }
 
 

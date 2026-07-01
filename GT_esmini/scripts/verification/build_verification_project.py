@@ -125,8 +125,6 @@ def build(out_dir: Path, make_zip: bool) -> Path:
         num = cat.split("_", 1)[0]
         policy = CATEGORY_POLICY.get(num)
         for xosc in sorted(cat_dir.glob("*.xosc")):
-            if xosc.name.endswith(".temp.xosc"):
-                continue
             tree = ET.parse(xosc)
             root = tree.getroot()
             copies = _collect_and_rewrite(root, xosc.parent)

@@ -1,4 +1,5 @@
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
+#include "gt_esmini/control/common/TransitionDynamics.hpp"
 
 #include "Entities.hpp"
 #include "OSCPrivateAction.hpp"
@@ -15,26 +16,6 @@ namespace gt_esmini
 
 namespace
 {
-// Evaluate a TransitionDynamics shape at arbitrary progress [0,1].
-// (Mirrors the helper in ControllerKinematic.cpp.)
-double EvalShape(OSCPrivateAction::DynamicsShape shape, double startVal, double A, double progress)
-{
-    progress = CLAMP(progress, 0.0, 1.0);
-    switch (shape)
-    {
-        case OSCPrivateAction::DynamicsShape::SINUSOIDAL:
-            return startVal - A * (std::cos(M_PI * progress) - 1.0) / 2.0;
-        case OSCPrivateAction::DynamicsShape::CUBIC:
-            return startVal + A * progress * progress * (3.0 - 2.0 * progress);
-        case OSCPrivateAction::DynamicsShape::LINEAR:
-            return startVal + A * progress;
-        case OSCPrivateAction::DynamicsShape::STEP:
-            return startVal + A;
-        default:
-            return startVal;
-    }
-}
-
 struct LatInfo
 {
     OSCPrivateAction::DynamicsShape shape;
@@ -111,7 +92,7 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
         double A        = td->GetTargetVal() - startVal;
         double P        = td->GetParamTargetVal();
         double cur_p    = td->GetParamVal();
-        double cur_off  = EvalShape(td->shape_, startVal, A, cur_p / P);
+        double cur_off  = EvaluateTransitionShape(td->shape_, startVal, A, cur_p / P);
         bool   tb       = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
                            td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
         double lane_sign = static_cast<double>(SIGN(obj->pos_.GetLaneId()));
@@ -184,7 +165,7 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
                 double future_p = la.time_based ? (la.current_p + acc_dist / abs_nominal)
                                                 : (la.current_p + acc_dist);
                 future_p = std::min(future_p, la.P);
-                double future_off = EvalShape(la.shape, la.startVal, la.A, future_p / la.P);
+                double future_off = EvaluateTransitionShape(la.shape, la.startVal, la.A, future_p / la.P);
                 double delta_t = (future_off - la.current_off) * la.lane_sign;
                 px += delta_t * tx;
                 py += delta_t * ty;

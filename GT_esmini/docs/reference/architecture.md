@@ -276,7 +276,6 @@ GT_esmini/
 │   ├── control/                 # 制御・物理
 │   │   ├── ControllerManualDrive.hpp
 │   │   ├── RealVehicle.hpp
-│   │   ├── TerrainTracker.hpp
 │   │   └── AutoLightController.hpp
 │   └── osi/                     # OSI出力
 │       ├── GT_OSIReporter.hpp

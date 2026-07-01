@@ -25,8 +25,6 @@ def list_scenarios(search: str | None = None) -> list[ScenarioListItem]:
         return results
 
     for xosc in sorted(SCENARIOS_DIR.glob("*.xosc")):
-        if xosc.name.endswith(".temp.xosc"):
-            continue
         if search and search.lower() not in xosc.stem.lower():
             continue
         stat = xosc.stat()

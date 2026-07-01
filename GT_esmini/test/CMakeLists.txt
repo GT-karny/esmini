@@ -6,6 +6,8 @@ set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-
 # Unit Tests
 set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_SimpleJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_CommonControlHelpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ControllerRealDriverUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_LonProfilePlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_LonProfilePlannerModule.cpp
@@ -112,7 +114,6 @@ endif()
 
 # Register Integration Tests
 file(GLOB SCENARIO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/scenarios/*.xosc")
-list(FILTER SCENARIO_FILES EXCLUDE REGEX "\\.temp\\.xosc$")
 set(SCENARIO_INDEX 0)
 foreach(SCENARIO ${SCENARIO_FILES})
     get_filename_component(TEST_NAME ${SCENARIO} NAME_WE)

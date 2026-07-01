@@ -1,0 +1,29 @@
+scenario: 07_oncoming_yield__p007
+category: 07_oncoming_yield
+# Phase 3d (F2) PROCEED case — CORRIDOR space-time model. The oncoming through-car
+# is slow (8 m/s) and, by the length-aware constant-speed corridor timing, will not
+# occupy the conflict region in the window the ego traverses it (its body clears
+# before the ego arrives, even with the 1.5 s PET pad), so the ConflictPointResolver
+# must NOT yield: no conflict_point STOP_AT_S is ever emitted (verified). The ego
+# keeps its normal junction-turn speed (~4.9 m/s floor from the curvature cap) and
+# completes the left turn.
+#
+# min_speed_above is the positive control against an over-triggering conflict yield
+# (which would drive the trough to a crawl like p017's ~1.35). min_obb_separation_above
+# proves the ego is never anywhere near the slow oncoming (OBB footprints stay well
+# clear).
+must:
+  - event: min_speed_above
+    threshold: 3.5
+    after: { sim_time: 6.0 }
+    before: { sim_time: 15.0 }
+    reason: "十分なギャップ(対向8m/s)では譲らず旋回巡航を維持(実測 窓内最小4.88, 譲り停止しない)。p017のクロール(~1.35)と弁別"
+  - event: min_obb_separation_above
+    threshold: 5.0
+    after: { sim_time: 6.0 }
+    before: { sim_time: 15.0 }
+    reason: "譲っていない証左(OBB): 低速対向車との footprint 最小分離は実測9.11m@t13.30(5.0を大きく上回る=接近しない)"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 16.0 }
+    reason: "旋回完了後に巡航復帰(実測 t16.60 に12m/s到達)"

@@ -40,6 +40,7 @@
     "policy_lead_enabled": false,
     "policy_traffic_light_enabled": false,
     "policy_stop_yield_enabled": false,
+    "policy_conflict_enabled": false,
 
     "_policy_lead": "3a lead-vehicle IDM follow",
     "idm_time_headway": 1.5,
@@ -65,6 +66,18 @@
     "creep_advance": 4.0,
     "yield_creep_speed": 3.0,
     "sign_stop_margin": 3.0,
+
+    "_policy_conflict": "3d conflict-corridor resolver. Each vehicle's future motion is a width-inflated path CORRIDOR (ribbon of convex quads, half_width + conflict_lane_margin). The conflict REGION is the TRUE polygon intersection of the ego corridor and an oncoming corridor (Sutherland-Hodgman clip; the cluster nearest the ego). Length-aware constant-speed timing of when each body occupies the region (with conflict_pet post-encroachment pad) decides yield; the ego arrival is floored at conflict_nominal_speed (anti-chatter). On conflict, emits STOP_AT_S conflict_standoff before the region entry. Crawl is allowed (the planner may bottom out ~1-2 m/s); the standoff keeps the ego footprint out of the region. POSITIONAL release: held until the governing oncoming's body has driven past the region exit by conflict_release_buffer. The ego (turning/crossing vehicle) always yields to oncoming through-traffic here; the road RoadRule is read for F3 only. Default OFF.",
+    "conflict_lookahead": 120.0,
+    "conflict_step": 1.0,
+    "conflict_lane_margin": 0.25,
+    "conflict_standoff": 5.0,
+    "conflict_release_buffer": 3.0,
+    "conflict_pet": 1.5,
+    "conflict_nominal_speed": 5.0,
+    "conflict_min_cross_angle_deg": 20.0,
+    "conflict_other_min_speed": 0.5,
+    "conflict_area_eps": 0.10,
 
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": true,

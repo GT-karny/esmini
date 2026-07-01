@@ -38,6 +38,7 @@
 #include <filesystem>
 #include <cstdint>
 #include <cstdlib>
+#include <chrono>
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
@@ -57,8 +58,7 @@
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
 
-// Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
-namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
@@ -164,6 +164,90 @@ void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)>
 // single-threaded runtime road tessellation. Falls back silently to runtime generation.
 namespace
 {
+    std::filesystem::path GT_SanitizedScenarioTempDir()
+    {
+        return std::filesystem::temp_directory_path() / "GT_esmini" / "sanitized_scenarios";
+    }
+
+    void GT_CleanupSanitizedScenarioTempDirOnce()
+    {
+        static bool cleaned = false;
+        if (cleaned)
+        {
+            return;
+        }
+        cleaned = true;
+
+        std::error_code ec;
+        const auto dir = GT_SanitizedScenarioTempDir();
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+    }
+
+    std::filesystem::path GT_MakeSanitizedScenarioPath(const char* inFile)
+    {
+        GT_CleanupSanitizedScenarioTempDirOnce();
+
+        std::error_code ec;
+        const auto dir = GT_SanitizedScenarioTempDir();
+        std::filesystem::create_directories(dir, ec);
+
+        const auto stem = std::filesystem::path(inFile ? inFile : "scenario").stem().string();
+        const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+        return dir / (stem + ".sanitized." + std::to_string(tick) + ".xosc");
+    }
+
+    void GT_RemoveSanitizedScenario(const std::string& path)
+    {
+        if (path.empty()) return;
+        std::error_code ec;
+        const auto temp_dir = std::filesystem::weakly_canonical(GT_SanitizedScenarioTempDir(), ec);
+        const auto candidate = std::filesystem::weakly_canonical(path, ec);
+        if (!ec && candidate.string().find(temp_dir.string()) == 0)
+        {
+            std::filesystem::remove(candidate, ec);
+        }
+    }
+
+    bool GT_IsRelativeScenarioPathValue(const std::string& value)
+    {
+        if (value.empty() || value[0] == '$' || value.find("://") != std::string::npos)
+        {
+            return false;
+        }
+        return std::filesystem::path(value).is_relative();
+    }
+
+    void GT_AbsolutizeScenarioPaths(pugi::xml_node node, const std::filesystem::path& base_dir)
+    {
+        for (pugi::xml_attribute attr : node.attributes())
+        {
+            const std::string name = attr.name();
+            if (name != "filepath" && name != "path")
+            {
+                continue;
+            }
+
+            const std::string value = attr.value();
+            if (!GT_IsRelativeScenarioPathValue(value))
+            {
+                continue;
+            }
+
+            std::error_code ec;
+            const auto abs = std::filesystem::absolute(base_dir / value, ec);
+            if (!ec)
+            {
+                attr.set_value(abs.string().c_str());
+            }
+        }
+
+        for (pugi::xml_node child = node.first_child(); child; child = child.next_sibling())
+        {
+            GT_AbsolutizeScenarioPaths(child, base_dir);
+        }
+    }
+
     uint64_t GT_FnvHashFile(const std::filesystem::path& p)
     {
         std::ifstream f(p, std::ios::binary);
@@ -464,6 +548,8 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
         GT_InjectCachedRoadModel(doc, inFile);
     }
 
+    GT_AbsolutizeScenarioPaths(doc, std::filesystem::path(inFile).parent_path());
+
     return doc.save_file(outFile.c_str());
 }
 
@@ -472,7 +558,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     // 1. Create a sanitized version of the scenario
     // esmini throws error on AppearanceAction/LightStateAction.
     // We strip them for the main initialization.
-    std::string sanitizedFile = std::string(oscFilename) + ".temp.xosc";
+    std::string sanitizedFile = GT_MakeSanitizedScenarioPath(oscFilename).string();
     if (!CreateSanitizedScenario(oscFilename, sanitizedFile))
     {
          std::cerr << "GT_Init: Failed to create sanitized scenario file." << std::endl;
@@ -493,7 +579,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
 
     // Clean up temp file
-    std::remove(sanitizedFile.c_str()); 
+    GT_RemoveSanitizedScenario(sanitizedFile);
 
     if (ret != 0)
     {
@@ -647,7 +733,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 break;
             }
         }
-        sanitizedFile = std::string(filename) + ".temp.xosc";
+        sanitizedFile = GT_MakeSanitizedScenarioPath(filename).string();
         if (!CreateSanitizedScenario(filename, sanitizedFile, !headless))
         {
              std::cerr << "GT_InitWithArgs: Failed to create sanitized scenario file." << std::endl;
@@ -769,8 +855,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     int ret = SE_InitWithArgs(static_cast<int>(newArgv.size()), newArgv.data());
     std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
     
-    // Clean up temp file (or keep for debug?)
-    // std::remove(sanitizedFile.c_str()); 
+    GT_RemoveSanitizedScenario(sanitizedFile);
 
     if (ret != 0)
     {

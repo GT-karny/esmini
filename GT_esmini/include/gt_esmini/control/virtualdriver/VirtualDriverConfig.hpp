@@ -9,6 +9,7 @@
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
 
 namespace gt_esmini
@@ -16,10 +17,9 @@ namespace gt_esmini
 
 // Runtime config for ControllerVirtualDriver (config/virtual_driver.json).
 //
-// Keys are flat and uniquely named so the line-based parser (mirroring
-// ManualDriveConfig) cannot cross-match. The input/override subsystems reuse
-// ManualDrive's IInputSource + OverrideManager; ToManualDriveIO-style mapping
-// is done in the controller from these fields.
+// Keys are flat and uniquely named for the shared SimpleJson loader. The
+// input/override subsystems reuse ManualDrive's IInputSource + OverrideManager;
+// ToManualDriveIO-style mapping is done in the controller from these fields.
 struct VirtualDriverConfig
 {
     // --- Physics backend ---
@@ -72,6 +72,7 @@ struct VirtualDriverConfig
     bool   policy_lead_enabled          = false;
     bool   policy_traffic_light_enabled = false;
     bool   policy_stop_yield_enabled    = false;
+    bool   policy_conflict_enabled      = false;
     // 3a — lead-vehicle IDM follow.
     double idm_time_headway   = 1.5;   // [s]
     double idm_min_gap        = 2.0;   // [m]
@@ -94,6 +95,18 @@ struct VirtualDriverConfig
     double creep_advance      = 4.0;   // [m] how far past the line to creep
     double yield_creep_speed  = 3.0;   // [m/s] YIELD = decelerate only
     double sign_stop_margin   = 3.0;   // [m] halt this far before the sign (front at line, stays in scan)
+    // 3d — conflict-corridor resolver (unsignalised crossing yield, space-time
+    // occupancy of width-inflated path corridors; see ConflictPointResolver).
+    double conflict_lookahead           = 120.0; // [m]   path prediction horizon (ego + others)
+    double conflict_step                = 1.0;   // [m]   corridor sampling resolution (arc fidelity)
+    double conflict_lane_margin         = 0.25;  // [m]   lateral safety added to each half-width
+    double conflict_standoff            = 5.0;   // [m]   stop this far before the conflict-region entry
+    double conflict_release_buffer      = 3.0;   // [m]   extra travel past the region exit before release
+    double conflict_pet                 = 1.5;   // [s]   post-encroachment safety time
+    double conflict_nominal_speed       = 5.0;   // [m/s] floor on v_ego for the arrival estimate (anti-chatter)
+    double conflict_min_cross_angle_deg = 20.0;  // [deg] same-direction filter (reject near-parallel overlaps)
+    double conflict_other_min_speed     = 0.5;   // [m/s] ignore (near-)stationary others not yet at their region
+    double conflict_area_eps            = 0.10;  // [m^2] min clipped quad-pair area to call it a conflict (detection sensitivity)
 
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
@@ -121,6 +134,7 @@ struct VirtualDriverConfig
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;
     StopYieldSignAwareConfig       StopYieldConfig() const;
+    ConflictPointResolverConfig    ConflictConfig() const;
 };
 
 }  // namespace gt_esmini

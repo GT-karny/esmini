@@ -152,11 +152,7 @@ add_library(${TARGET} SHARED esmini.cpp
     ../GT_esmini/src/control/AutoLightController.cpp
     ../GT_esmini/src/control/RealVehicle.cpp
     ../GT_esmini/src/control/ControllerRealDriver.cpp
-    ../GT_esmini/src/control/TerrainTracker.cpp
-    ../GT_esmini/src/control/DriverInputReceiver.cpp
-    ../GT_esmini/src/control/VehicleStateUpdater.cpp
-    ../GT_esmini/src/control/EsminiStateApplier.cpp
-    ../GT_esmini/src/control/ControlDecisionEngine.cpp
+    ../GT_esmini/src/control/common/ModuleDirectory.cpp
     ../GT_esmini/src/io/GT_UDP.cpp
     ../GT_esmini/src/osi/GT_HostVehicleReporter.cpp
 )
