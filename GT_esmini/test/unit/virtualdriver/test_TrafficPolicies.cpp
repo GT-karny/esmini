@@ -224,3 +224,65 @@ TEST(ConflictGeom, CrossingAnglePerpendicularAndParallel)
     EXPECT_NEAR(conflict_geom::CrossingAngleDeg(1, 0, 1, 0), 0.0, 1e-6);   // parallel
     EXPECT_NEAR(conflict_geom::CrossingAngleDeg(1, 0, -1, 0), 0.0, 1e-6);  // anti-parallel -> folded to 0
 }
+
+// ───────────── Phase 3d: positional-release projection (turning other) ─────────
+// The yield hold releases once the governing other's rear has cleared the region
+// exit by release_buffer, measured as forward = dot(origin - exit, EXIT TANGENT).
+// The fix stores the exit tangent (fixed direction the other left the region) and
+// projects onto THAT, not the other's instantaneous heading — so a vehicle that
+// turns at/after the conflict is still measured correctly. These tests exercise
+// ForwardDistanceAlong, the exact primitive the release uses in Evaluate().
+
+TEST(ConflictRelease, ForwardDistanceAlongAxis)
+{
+    // Exit at origin, tangent +x (unit). Origin 5 m down +x -> forward = 5.
+    EXPECT_NEAR(conflict_geom::ForwardDistanceAlong(5, 0, 0, 0, 1, 0), 5.0, 1e-9);
+    // Non-unit axis is normalized: axis (3,0) -> still 5 m, not 15.
+    EXPECT_NEAR(conflict_geom::ForwardDistanceAlong(5, 0, 0, 0, 3, 0), 5.0, 1e-9);
+    // Lateral-only displacement projects to 0 along the tangent.
+    EXPECT_NEAR(conflict_geom::ForwardDistanceAlong(0, 4, 0, 0, 1, 0), 0.0, 1e-9);
+    // Behind the exit -> negative.
+    EXPECT_NEAR(conflict_geom::ForwardDistanceAlong(-2, 0, 0, 0, 1, 0), -2.0, 1e-9);
+    // Degenerate axis -> 0 (no false release).
+    EXPECT_NEAR(conflict_geom::ForwardDistanceAlong(5, 0, 0, 0, 0, 0), 0.0, 1e-12);
+}
+
+TEST(ConflictRelease, TurningOtherClearsAlongStoredTangentNotHeading)
+{
+    // Region exit at (0,0); the other traversed it heading +x, so the stored exit
+    // tangent is (1,0). After clearing, the other turns and now heads +y (its
+    // instantaneous heading = (0,1)). Its origin has driven 6 m past the exit and
+    // then curved up: origin ≈ (6, 3).
+    const double exit_x = 0.0, exit_y = 0.0;
+    const double tan_x  = 1.0, tan_y  = 0.0;   // fixed axis captured at the exit
+    const double ox = 6.0, oy = 3.0;           // origin after turning up
+
+    // Correct (fixed-tangent) forward distance: projects onto +x -> 6 m. With a
+    // g_len/2 = 2.5 and release_buffer 3.0, rear_past_exit = 6 - 2.5 = 3.5 >= 3.0
+    // -> RELEASED (correct).
+    const double forward_fixed = conflict_geom::ForwardDistanceAlong(ox, oy, exit_x, exit_y, tan_x, tan_y);
+    EXPECT_NEAR(forward_fixed, 6.0, 1e-9);
+    EXPECT_GE(forward_fixed - 2.5, 3.0);  // releases
+
+    // The OLD instantaneous-heading projection (heading now +y) would measure
+    // forward = dot((6,3),(0,1)) = 3 m -> rear_past_exit = 0.5 < 3.0 -> hold NEVER
+    // releases even though the other is well clear. Demonstrates the bug the fix
+    // avoids.
+    const double heading_x = 0.0, heading_y = 1.0;
+    const double forward_heading = conflict_geom::ForwardDistanceAlong(ox, oy, exit_x, exit_y, heading_x, heading_y);
+    EXPECT_NEAR(forward_heading, 3.0, 1e-9);
+    EXPECT_LT(forward_heading - 2.5, 3.0);  // would (wrongly) stay held
+}
+
+TEST(ConflictRelease, StraightOtherHoldsUntilRearClears)
+{
+    // Sanity: for a NON-turning other, fixed tangent == heading, so the release
+    // behaves as before. Exit at (10,0), tangent +x, other origin advancing along x.
+    const double exit_x = 10.0, exit_y = 0.0, tx = 1.0, ty = 0.0, g_half = 2.5, buf = 3.0;
+    // Origin at 12 -> forward 2, rear_past_exit = -0.5 -> held.
+    double f = conflict_geom::ForwardDistanceAlong(12.0, 0.0, exit_x, exit_y, tx, ty);
+    EXPECT_LT(f - g_half, buf);
+    // Origin at 15.6 -> forward 5.6, rear_past_exit = 3.1 -> released.
+    f = conflict_geom::ForwardDistanceAlong(15.6, 0.0, exit_x, exit_y, tx, ty);
+    EXPECT_GE(f - g_half, buf);
+}

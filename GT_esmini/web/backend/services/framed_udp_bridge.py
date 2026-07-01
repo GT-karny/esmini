@@ -23,10 +23,16 @@ class _SubscriberState:
 class _FramedUdpProtocol(asyncio.DatagramProtocol):
     """Receives single-packet framed payloads and forwards valid frames."""
 
+    # Rate-limit the size-mismatch diagnostic: log the first occurrence and then
+    # every Nth after, so a persistent header/truncation mismatch stays visible
+    # without flooding the log at datagram rate.
+    _MISMATCH_LOG_EVERY = 500
+
     def __init__(self, label: str, on_payload: Callable[[bytes], None]) -> None:
         self._label = label
         self._on_payload = on_payload
         self._transport: asyncio.DatagramTransport | None = None
+        self._mismatch_count = 0
 
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:  # type: ignore[override]
         self._transport = transport
@@ -39,6 +45,15 @@ class _FramedUdpProtocol(asyncio.DatagramProtocol):
         payload = data[_HEADER_SIZE:]
 
         if len(payload) != size:
+            # A header-size/truncation mismatch drops the frame; without a log this
+            # looks like a healthy connection delivering zero frames. Warn (rate-limited).
+            self._mismatch_count += 1
+            if self._mismatch_count == 1 or self._mismatch_count % self._MISMATCH_LOG_EVERY == 0:
+                logger.warning(
+                    "%s dropped framed datagram: payload len=%d != header size=%d "
+                    "(total=%d, mismatches so far=%d)",
+                    self._label, len(payload), size, len(data), self._mismatch_count,
+                )
             return
 
         self._on_payload(payload)

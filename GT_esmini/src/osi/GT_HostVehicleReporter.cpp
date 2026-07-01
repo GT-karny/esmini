@@ -100,7 +100,7 @@ void GT_HostVehicleReporter::LoadConfig(const std::string& config_file)
         }
         else
         {
-            LOG_WARN("GT_HostVehicleReporter: Failed to parse config '{}': {}", config_file, error);
+            LOG_WARN("GT_HostVehicleReporter: Failed to parse config '{}': {} -- continuing with ALL built-in defaults (udp_port/target_ip/enable_host_vehicle_data unchanged)", config_file, error);
         }
         return;
     }

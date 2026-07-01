@@ -4,6 +4,7 @@
 #include "RoadManager.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -70,6 +71,14 @@ double PolygonArea(const std::vector<Pt>& poly)
     return std::fabs(acc) * 0.5;
 }
 
+double ForwardDistanceAlong(double px, double py, double rx, double ry,
+                            double ax, double ay)
+{
+    const double n = std::sqrt(ax * ax + ay * ay);
+    if (n < 1.0e-12) return 0.0;
+    return ((px - rx) * ax + (py - ry) * ay) / n;  // dot(P-R, axis) / |axis|
+}
+
 namespace
 {
 // Signed area * 2 (keeps the winding sign) — used to orient the clip polygon.
@@ -92,17 +101,30 @@ std::vector<Pt> ConvexClip(const std::vector<Pt>& subject, const std::vector<Pt>
 {
     if (subject.size() < 3 || clip.size() < 3) return {};
 
+    // Inputs are convex quads (4 verts) and each Sutherland–Hodgman pass adds at
+    // most one vertex per clip edge, so the working polygon never exceeds a small
+    // bound. Use fixed-capacity stack buffers (no per-call heap churn — this runs
+    // O(ego_quads * other_quads) times per vehicle per frame).
+    constexpr size_t kCap = 16;
+    if (subject.size() > kCap) return {};  // defensive; corridor quads are always 4
+
     // Orient the clip polygon CCW so that "inside" is consistently the LEFT side
     // of each directed clip edge (cross >= 0). Sutherland–Hodgman requires a
     // convex clip polygon (the corridor quads are convex).
-    std::vector<Pt> clip_ccw = clip;
-    if (SignedArea2(clip_ccw) < 0.0)
-        std::reverse(clip_ccw.begin(), clip_ccw.end());
+    std::array<Pt, kCap> clip_ccw;
+    const size_t         cn = clip.size();
+    if (cn > kCap) return {};
+    std::copy(clip.begin(), clip.end(), clip_ccw.begin());
+    if (SignedArea2(clip) < 0.0)
+        std::reverse(clip_ccw.begin(), clip_ccw.begin() + cn);
 
-    std::vector<Pt> output = subject;
-    const size_t    cn     = clip_ccw.size();
+    std::array<Pt, kCap> output;
+    size_t               out_n = subject.size();
+    std::copy(subject.begin(), subject.end(), output.begin());
 
-    for (size_t e = 0; e < cn && !output.empty(); ++e)
+    std::array<Pt, kCap> input;
+
+    for (size_t e = 0; e < cn && out_n > 0; ++e)
     {
         const Pt& A = clip_ccw[e];
         const Pt& B = clip_ccw[(e + 1) % cn];
@@ -120,35 +142,33 @@ std::vector<Pt> ConvexClip(const std::vector<Pt>& subject, const std::vector<Pt>
             const double denom = ex * dpy - ey * dpx;  // edge x (P->Q)
             if (std::fabs(denom) < 1.0e-15)
                 return p;  // (near-)parallel; degenerate — return P
-            // Solve A + s*edge = P + tt*(Q-P) for tt.
-            const double tt = (ex * (p[1] - A[1]) - ey * (p[0] - A[0])) / (ex * dpy - ey * dpx) * -1.0;
+            // Solve A + s*edge = P + tt*(Q-P) for tt (reuse denom).
+            const double tt = -(ex * (p[1] - A[1]) - ey * (p[0] - A[0])) / denom;
             return {p[0] + tt * dpx, p[1] + tt * dpy};
         };
 
-        std::vector<Pt> input;
-        input.swap(output);
-        const size_t in = input.size();
+        const size_t in = out_n;
+        std::copy(output.begin(), output.begin() + in, input.begin());
+        out_n = 0;
         for (size_t i = 0; i < in; ++i)
         {
             const Pt& cur  = input[i];
             const Pt& prev = input[(i + in - 1) % in];
-            const double dc = inside(cur);
-            const double dp = inside(prev);
-            const bool cur_in  = dc >= 0.0;
-            const bool prev_in = dp >= 0.0;
+            const bool cur_in  = inside(cur) >= 0.0;
+            const bool prev_in = inside(prev) >= 0.0;
             if (cur_in)
             {
-                if (!prev_in)
-                    output.push_back(intersect(prev, cur));
-                output.push_back(cur);
+                if (!prev_in && out_n < kCap)
+                    output[out_n++] = intersect(prev, cur);
+                if (out_n < kCap) output[out_n++] = cur;
             }
-            else if (prev_in)
+            else if (prev_in && out_n < kCap)
             {
-                output.push_back(intersect(prev, cur));
+                output[out_n++] = intersect(prev, cur);
             }
         }
     }
-    return output;
+    return std::vector<Pt>(output.begin(), output.begin() + out_n);
 }
 }  // namespace conflict_geom
 
@@ -164,6 +184,25 @@ struct PathPoint
     double s_cum = 0.0;  // cumulative route distance from the start [m]
 };
 
+// Axis-aligned bounding box, for cheap overlap pre-rejects before the exact clip.
+struct Aabb
+{
+    double xmin =  std::numeric_limits<double>::infinity();
+    double ymin =  std::numeric_limits<double>::infinity();
+    double xmax = -std::numeric_limits<double>::infinity();
+    double ymax = -std::numeric_limits<double>::infinity();
+
+    void Expand(double x, double y)
+    {
+        xmin = std::min(xmin, x); xmax = std::max(xmax, x);
+        ymin = std::min(ymin, y); ymax = std::max(ymax, y);
+    }
+    bool Overlaps(const Aabb& o) const
+    {
+        return xmin <= o.xmax && o.xmin <= xmax && ymin <= o.ymax && o.ymin <= ymax;
+    }
+};
+
 // One corridor quad: the width-inflated ribbon segment from path[i] to path[i+1],
 // tagged with the path arc-length span it covers.
 struct CorridorQuad
@@ -171,7 +210,20 @@ struct CorridorQuad
     std::vector<Pt> poly;  // 4 verts (CCW-ish), the inflated segment
     double          s0 = 0.0;
     double          s1 = 0.0;
+    Aabb            box;   // AABB of poly (per-quad pre-reject)
 };
+
+// Whole-corridor AABB (union of every quad box) — coarse pre-reject.
+Aabb CorridorBounds(const std::vector<CorridorQuad>& corr)
+{
+    Aabb b;
+    for (const auto& q : corr)
+    {
+        b.xmin = std::min(b.xmin, q.box.xmin); b.xmax = std::max(b.xmax, q.box.xmax);
+        b.ymin = std::min(b.ymin, q.box.ymin); b.ymax = std::max(b.ymax, q.box.ymax);
+    }
+    return b;
+}
 
 // Walk a vehicle's route forward into a {x, y, s_cum} polyline, mirroring the
 // RouteSignalScan idiom (isolated Position copy + CopyRoute + MoveAlongS). Stops
@@ -182,6 +234,7 @@ std::vector<PathPoint> PredictPath(Object* obj, double lookahead, double step)
     if (!obj) return out;
 
     step = std::max(0.25, step);
+    out.reserve(static_cast<size_t>(lookahead / step) + 2);  // samples ≈ lookahead/step + start
 
     roadmanager::Position pos;
     pos.Duplicate(obj->pos_);
@@ -229,6 +282,7 @@ std::vector<CorridorQuad> BuildCorridor(const std::vector<PathPoint>& path, doub
             Pt{b.x - nx * half_extent, b.y - ny * half_extent},
             Pt{a.x - nx * half_extent, a.y - ny * half_extent},
         };
+        for (const Pt& p : q.poly) q.box.Expand(p[0], p[1]);
         quads.push_back(std::move(q));
     }
     return quads;
@@ -279,6 +333,11 @@ RegionSpan FindConflictRegion(const std::vector<CorridorQuad>& ego,
 {
     RegionSpan span;
 
+    // (0) Coarse whole-corridor AABB reject: if the corridors' bounding boxes are
+    // disjoint they cannot intersect — skip the O(N*M) clip entirely.
+    if (!CorridorBounds(ego).Overlaps(CorridorBounds(other)))
+        return span;
+
     // Collect every conflicting (ego s-mid) with the other-span it overlaps.
     struct Hit
     {
@@ -289,6 +348,8 @@ RegionSpan FindConflictRegion(const std::vector<CorridorQuad>& ego,
     {
         for (const auto& oq : other)
         {
+            // Per-quad AABB pre-check before the exact (heavier) convex clip.
+            if (!eq.box.Overlaps(oq.box)) continue;
             const double area = conflict_geom::PolygonArea(conflict_geom::ConvexClip(eq.poly, oq.poly));
             if (area > eps)
                 hits.push_back({eq.s0, eq.s1, oq.s0, oq.s1});
@@ -352,8 +413,8 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
 
     Object*          ego   = ctx.ego;
     const double     v_ego = ego->GetSpeed();
-    constexpr double eps   = 1.0e-3;
-    constexpr double area_eps = 0.10;  // [m^2] min clipped area to call a quad pair conflicting
+    constexpr double eps      = 1.0e-3;
+    const double     area_eps = cfg_.area_eps;  // [m^2] min clipped area to call a quad pair conflicting
 
     const double ego_len      = ego->boundingbox_.dimensions_.length_;
     const double ego_half_w   = 0.5 * ego->boundingbox_.dimensions_.width_;
@@ -383,7 +444,17 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
     double gov_se_in    = 0.0;  // ego region entry arc-length of the governing conflict
     double gov_exit_x   = 0.0;  // governing other's region-exit world point (release ref)
     double gov_exit_y   = 0.0;
+    double gov_exit_tx  = 1.0;  // other's path tangent at the exit (fixed release axis)
+    double gov_exit_ty  = 0.0;
     int    gov_other_id = -1;
+
+    // Cache of the scan pass keyed on the CURRENTLY-latched governing id, so the
+    // latch block below reuses this frame's PredictPath/region instead of redoing
+    // all of it for the same entity (they are identical). Populated only when the
+    // latched governing id is visited AND yields a found region here.
+    bool                   have_gov_scan = false;
+    std::vector<PathPoint> gov_scan_path;
+    RegionSpan             gov_scan_rgn;
 
     for (auto* other : ctx.entities->object_)
     {
@@ -403,6 +474,15 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         const RegionSpan rgn = FindConflictRegion(ego_corridor, oth_corridor, area_eps,
                                                   std::max(2.0, 2.0 * cfg_.step));
         if (!rgn.found) continue;
+
+        // Cache for the latch block: this is the same PredictPath+region the latch
+        // would otherwise recompute for the currently-latched governing entity.
+        if (committed_ && other->GetId() == committed_other_id_)
+        {
+            have_gov_scan = true;
+            gov_scan_path = oth_path;
+            gov_scan_rgn  = rgn;
+        }
 
         // (a) Same-direction filter: if the two corridors run nearly parallel /
         // same-heading through the region, it is a following relationship, not a
@@ -440,10 +520,14 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         {
             double ex = 0.0, ey = 0.0;
             PathPointAtS(oth_path, rgn.so_out, ex, ey);  // region-exit world point on the other's route
+            double tx = 1.0, ty = 0.0;
+            PathHeadingAtS(oth_path, rgn.so_out, tx, ty);  // fixed release axis (path tangent at exit)
             gov_found    = true;
             gov_se_in    = rgn.se_in;
             gov_exit_x   = ex;
             gov_exit_y   = ey;
+            gov_exit_tx  = tx;
+            gov_exit_ty  = ty;
             gov_other_id = other->GetId();
         }
     }
@@ -464,14 +548,24 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
 
             // Re-derive the governing other's region from the CURRENT geometry so
             // the ego stop stays pinned to a fixed absolute location even as the
-            // ego crawls. While the region is still found ahead of the other, the
-            // refreshed region-exit world point becomes the release reference.
-            std::vector<PathPoint>    gpath  = PredictPath(gov, cfg_.lookahead, cfg_.step);
-            std::vector<CorridorQuad> g_corr = BuildCorridor(gpath, g_half_ext);
-            RegionSpan rgn;
-            if (!g_corr.empty())
-                rgn = FindConflictRegion(ego_corridor, g_corr, area_eps,
-                                         std::max(2.0, 2.0 * cfg_.step));
+            // ego crawls. Reuse this frame's scan result for the governing entity
+            // when the scan already found it (identical PredictPath+region), else
+            // recompute (the scan may have filtered it before recording a region).
+            std::vector<PathPoint> gpath;
+            RegionSpan             rgn;
+            if (have_gov_scan)
+            {
+                gpath = std::move(gov_scan_path);
+                rgn   = gov_scan_rgn;
+            }
+            else
+            {
+                gpath = PredictPath(gov, cfg_.lookahead, cfg_.step);
+                std::vector<CorridorQuad> g_corr = BuildCorridor(gpath, g_half_ext);
+                if (!g_corr.empty())
+                    rgn = FindConflictRegion(ego_corridor, g_corr, area_eps,
+                                             std::max(2.0, 2.0 * cfg_.step));
+            }
 
             if (rgn.found)
             {
@@ -482,20 +576,32 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
                     committed_exit_x_ = ex;
                     committed_exit_y_ = ey;
                 }
+                // Refresh the fixed release axis: the other's path tangent AT the
+                // exit (its direction of travel leaving the region), not its
+                // instantaneous heading — robust to the other turning near/after
+                // the exit.
+                double tx = committed_exit_tx_, ty = committed_exit_ty_;
+                if (PathHeadingAtS(gpath, rgn.so_out, tx, ty))
+                {
+                    committed_exit_tx_ = tx;
+                    committed_exit_ty_ = ty;
+                }
             }
 
             // Positional release: the other's body has physically cleared the
             // stored region-exit world point. Signed distance of the other's
-            // CURRENT origin past the exit along its heading; cleared once the rear
-            // is beyond the exit by `release_buffer`.
-            //   forward = dot(origin - exit, heading)
+            // CURRENT origin past the exit along the EXIT TANGENT (the fixed
+            // direction it left the region), cleared once the rear is beyond the
+            // exit by `release_buffer`. Using the stored tangent instead of the
+            // other's live heading keeps the measure correct when the other turns
+            // at/after the conflict (its heading would otherwise mis-project the
+            // displacement -> yield held forever or released early).
+            //   forward = dot(origin - exit, exit_tangent)
             //   rear_past_exit = forward - g_len/2
             const double ox  = gov->pos_.GetX();
             const double oy  = gov->pos_.GetY();
-            const double oh  = gov->pos_.GetH();
-            const double hx  = std::cos(oh);
-            const double hy  = std::sin(oh);
-            const double forward = (ox - committed_exit_x_) * hx + (oy - committed_exit_y_) * hy;
+            const double forward = conflict_geom::ForwardDistanceAlong(
+                ox, oy, committed_exit_x_, committed_exit_y_, committed_exit_tx_, committed_exit_ty_);
             const double rear_past_exit = forward - g_len * 0.5;
             released = (rear_past_exit >= cfg_.release_buffer);
         }
@@ -511,6 +617,8 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
                 committed_other_id_ = gov_other_id;
                 committed_exit_x_   = gov_exit_x;
                 committed_exit_y_   = gov_exit_y;
+                committed_exit_tx_  = gov_exit_tx;
+                committed_exit_ty_  = gov_exit_ty;
             }
             else
             {
@@ -525,6 +633,8 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         committed_other_id_ = gov_other_id;
         committed_exit_x_   = gov_exit_x;
         committed_exit_y_   = gov_exit_y;
+        committed_exit_tx_  = gov_exit_tx;
+        committed_exit_ty_  = gov_exit_ty;
     }
 
     if (!committed_) return snap;  // free to proceed — no constraint

@@ -77,6 +77,7 @@
     "conflict_nominal_speed": 5.0,
     "conflict_min_cross_angle_deg": 20.0,
     "conflict_other_min_speed": 0.5,
+    "conflict_area_eps": 0.10,
 
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": true,

@@ -106,6 +106,7 @@ struct VirtualDriverConfig
     double conflict_nominal_speed       = 5.0;   // [m/s] floor on v_ego for the arrival estimate (anti-chatter)
     double conflict_min_cross_angle_deg = 20.0;  // [deg] same-direction filter (reject near-parallel overlaps)
     double conflict_other_min_speed     = 0.5;   // [m/s] ignore (near-)stationary others not yet at their region
+    double conflict_area_eps            = 0.10;  // [m^2] min clipped quad-pair area to call it a conflict (detection sensitivity)
 
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;

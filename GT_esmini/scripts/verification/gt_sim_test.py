@@ -209,7 +209,12 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
                 for ident in ref.identifier:
                     if ident.startswith("entity_name:"):
                         name = ident[len("entity_name:"):]
-        objects.append({
+        # When OSI reports no body extents (dim <= 0) we emit the 4.0x2.0 m default
+        # so the geometry maths still run, but flag it: an OBB anti-collision gate
+        # must NOT report a clean measured pass on fabricated dimensions (a larger
+        # real vehicle could overlap where the default footprint clears).
+        dims_fallback = dim.length <= 0 or dim.width <= 0
+        obj = {
             "id": o.id.value,
             "name": name,
             "x": round(pos.x, 3),
@@ -220,7 +225,10 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "width": round(dim.width, 2) if dim.width > 0 else 2.0,
             "is_host": (host_id is not None and o.id.value == host_id),
             "type": _MOVING_TYPE_MAP.get(o.type, "unknown"),
-        })
+        }
+        if dims_fallback:
+            obj["dims_fallback"] = True
+        objects.append(obj)
 
     traffic_lights = []
     for tl in gt.traffic_light:
@@ -912,6 +920,15 @@ def _eval_must(must: dict, frames: list[dict]) -> dict:
         thr = float(must["threshold"])
         worst = None  # (sep, frame_idx)
         any_overlap = False
+        # Track fabricated dimensions: an object with dims_fallback (or missing
+        # length/width) had no real OSI extents, so its footprint is a 4.0x2.0 m
+        # guess. A measured PASS on such a footprint is untrustworthy (a larger real
+        # body could overlap where the default clears) -> we must not report clean.
+        fallback_names: set = set()
+
+        def _is_fallback(o: dict) -> bool:
+            return bool(o.get("dims_fallback")) or "length" not in o or "width" not in o
+
         for i, fr in enumerate(frames):
             if not _time_window_ok(fr["sim_time"], must):
                 continue
@@ -924,6 +941,10 @@ def _eval_must(must: dict, frames: list[dict]) -> dict:
             for o in scene["objects"]:
                 if o.get("is_host"):
                     continue
+                if _is_fallback(ego):
+                    fallback_names.add(ego.get("name") or f"host#{ego.get('id')}")
+                if _is_fallback(o):
+                    fallback_names.add(o.get("name") or f"#{o.get('id')}")
                 sep = _obb_separation(ego, o)
                 if sep <= 0.0:
                     any_overlap = True
@@ -933,6 +954,17 @@ def _eval_must(must: dict, frames: list[dict]) -> dict:
             return res("skip", "no scene frames in time window")
         sep, worst_i = worst
         ok = sep >= thr
+        # A real measured pass requires real dims. If an involved body carried
+        # fallback extents, a clean result is inconclusive — report skip (which the
+        # verdict rolls up to needs-review) rather than a false green. An overlap /
+        # fail is still authoritative: the default footprint is a LOWER bound, so an
+        # overlap on it implies overlap on the (larger-or-equal) real body too.
+        if ok and fallback_names:
+            names = ", ".join(sorted(fallback_names))
+            return res("skip", f"OBB separation inconclusive: object(s) lacked real "
+                               f"OSI dimensions ({names}); measured min "
+                               f"{sep:.2f} m uses a 4.0x2.0 m fallback footprint, so a "
+                               f"clean pass is not trustworthy")
         detail = (f"min OBB separation = {sep:.2f} m at "
                   f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?); "
                   f"overlap occurred: {any_overlap}")

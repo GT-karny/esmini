@@ -44,6 +44,14 @@ std::vector<Pt> ConvexClip(const std::vector<Pt>& subject, const std::vector<Pt>
 // Shoelace area of a polygon, absolute value (winding-agnostic). 0 for < 3 verts.
 double PolygonArea(const std::vector<Pt>& poly);
 
+// Signed forward distance of point P past a reference point R, measured along a
+// FIXED axis (ax, ay). = dot(P - R, axis) / |axis|. This is the positional-release
+// primitive: the governing other's origin projected onto the exit tangent it left
+// the conflict region along — robust to the other turning after the exit (its live
+// heading would mis-project). Returns 0 for a degenerate axis.
+double ForwardDistanceAlong(double px, double py, double rx, double ry,
+                            double ax, double ay);
+
 }  // namespace conflict_geom
 
 // Config for ConflictPointResolver. Flat keys are surfaced in VirtualDriverConfig
@@ -63,6 +71,7 @@ struct ConflictPointResolverConfig
     double nominal_speed       = 5.0;    // [m/s] floor on v_ego for the arrival estimate (anti-chatter)
     double min_cross_angle_deg = 20.0;   // [deg] same-direction filter (reject near-parallel)
     double other_min_speed     = 0.5;    // [m/s] ignore (near-)stationary others not yet at their region
+    double area_eps            = 0.10;   // [m^2] min clipped quad-pair area to call it a conflict
 };
 
 // Phase 3d (F2): yield at an unsignalised crossing conflict, modelled as a
@@ -114,6 +123,14 @@ private:
     // does not depend on the region staying inside the other's forward prediction.
     double committed_exit_x_       = 0.0;
     double committed_exit_y_       = 0.0;
+    // Unit tangent of the other's predicted PATH at the exit sample (its direction
+    // of travel THROUGH the exit), captured at commit and refreshed while the
+    // region is still found. The positional release projects the other's
+    // displacement-past-exit onto THIS fixed tangent, not the other's instantaneous
+    // heading — so a vehicle that turns at/after the conflict is still measured
+    // as clearing along the direction it actually left the region.
+    double committed_exit_tx_      = 1.0;
+    double committed_exit_ty_      = 0.0;
 };
 
 }  // namespace gt_esmini

@@ -44,27 +44,52 @@ struct Value
         return it == object_value.end() ? nullptr : &it->second;
     }
 
-    bool GetBool(const std::string& key, bool& out) const
+    // Coerce a string to a number if (and only if) its ENTIRE content parses as
+    // one (leading/trailing whitespace tolerated). Returns false otherwise.
+    static bool StringToNumber(const std::string& text, double& out)
     {
-        const Value* value = Find(key);
-        if (!value || !value->IsBool()) return false;
-        out = value->bool_value;
+        const char* begin = text.c_str();
+        char* end = nullptr;
+        const double value = std::strtod(begin, &end);
+        if (end == begin) return false;  // no conversion at all
+        while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) ++end;
+        if (*end != '\0') return false;  // trailing garbage (e.g. "1.2.3")
+        out = value;
         return true;
     }
 
+    // Accepts a real JSON bool, or the strings "true"/"false" (case-insensitive)
+    // that pre-refactor line parsers tolerated.
+    bool GetBool(const std::string& key, bool& out) const
+    {
+        const Value* value = Find(key);
+        if (!value) return false;
+        if (value->IsBool()) { out = value->bool_value; return true; }
+        if (value->IsString())
+        {
+            std::string lowered = value->string_value;
+            for (char& c : lowered) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (lowered == "true") { out = true; return true; }
+            if (lowered == "false") { out = false; return true; }
+        }
+        return false;
+    }
+
+    // Accepts a real JSON number, or a string whose entire content is a number.
     bool GetDouble(const std::string& key, double& out) const
     {
         const Value* value = Find(key);
-        if (!value || !value->IsNumber()) return false;
-        out = value->number_value;
-        return true;
+        if (!value) return false;
+        if (value->IsNumber()) { out = value->number_value; return true; }
+        if (value->IsString()) return StringToNumber(value->string_value, out);
+        return false;
     }
 
     bool GetInt(const std::string& key, int& out) const
     {
-        const Value* value = Find(key);
-        if (!value || !value->IsNumber()) return false;
-        out = static_cast<int>(value->number_value);
+        double value = 0.0;
+        if (!GetDouble(key, value)) return false;
+        out = static_cast<int>(value);
         return true;
     }
 
@@ -128,6 +153,9 @@ private:
             SkipWhitespace();
             if (Consume('}')) { out = Value::ObjectValue(object); return true; }
             if (!Expect(',')) return false;
+            // Tolerate a trailing comma: `,` followed by the closing brace.
+            SkipWhitespace();
+            if (Consume('}')) { out = Value::ObjectValue(object); return true; }
         }
         return Fail("unterminated object");
     }
@@ -146,6 +174,9 @@ private:
             SkipWhitespace();
             if (Consume(']')) { out = Value::ArrayValue(array); return true; }
             if (!Expect(',')) return false;
+            // Tolerate a trailing comma: `,` followed by the closing bracket.
+            SkipWhitespace();
+            if (Consume(']')) { out = Value::ArrayValue(array); return true; }
         }
         return Fail("unterminated array");
     }
@@ -253,9 +284,27 @@ private:
         return Fail(message);
     }
 
+    // Treats standard JSON whitespace AND `//`-to-EOL line comments as skippable.
+    // Hand-edited config files commonly carry both; the pre-refactor line parsers
+    // tolerated them.
     void SkipWhitespace()
     {
-        while (pos_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[pos_]))) ++pos_;
+        while (pos_ < text_.size())
+        {
+            const char ch = text_[pos_];
+            if (std::isspace(static_cast<unsigned char>(ch)))
+            {
+                ++pos_;
+                continue;
+            }
+            if (ch == '/' && pos_ + 1 < text_.size() && text_[pos_ + 1] == '/')
+            {
+                pos_ += 2;
+                while (pos_ < text_.size() && text_[pos_] != '\n') ++pos_;
+                continue;
+            }
+            break;
+        }
     }
 
     bool Fail(const std::string& message) const

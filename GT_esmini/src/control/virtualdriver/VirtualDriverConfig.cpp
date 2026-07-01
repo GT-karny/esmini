@@ -91,6 +91,7 @@ const DoubleField kDoubleFields[] = {
     {"conflict_nominal_speed", &VirtualDriverConfig::conflict_nominal_speed},
     {"conflict_min_cross_angle_deg", &VirtualDriverConfig::conflict_min_cross_angle_deg},
     {"conflict_other_min_speed", &VirtualDriverConfig::conflict_other_min_speed},
+    {"conflict_area_eps", &VirtualDriverConfig::conflict_area_eps},
     {"steering_threshold", &VirtualDriverConfig::steering_threshold},
     {"throttle_threshold", &VirtualDriverConfig::throttle_threshold},
     {"brake_threshold", &VirtualDriverConfig::brake_threshold},
@@ -111,11 +112,10 @@ const IntField kIntFields[] = {
     {"input_port", &VirtualDriverConfig::input_port},
 };
 
-bool WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)
+void WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)
 {
-    if (!root.Find(key)) return false;
+    if (!root.Find(key)) return;
     LOG_WARN("VirtualDriverConfig: Ignoring '{}' because it is not {}", key, expected_type);
-    return true;
 }
 }  // namespace
 
@@ -127,7 +127,8 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
     std::string error;
     if (!simplejson::LoadFile(filepath, root, &error))
     {
-        LOG_WARN("VirtualDriverConfig: Failed to load '{}': {}", filepath, error);
+        LOG_WARN("VirtualDriverConfig: Failed to load '{}': {} — continuing with ALL built-in defaults",
+                 filepath, error);
         return false;
     }
     if (!root.IsObject())
@@ -263,6 +264,7 @@ ConflictPointResolverConfig VirtualDriverConfig::ConflictConfig() const
     c.nominal_speed       = conflict_nominal_speed;
     c.min_cross_angle_deg = conflict_min_cross_angle_deg;
     c.other_min_speed     = conflict_other_min_speed;
+    c.area_eps            = conflict_area_eps;
     return c;
 }
 
