@@ -1,0 +1,21 @@
+# g6: 1.8 junction <boundary> construct (plan cluster 8).
+# t_junction (1.8) gained a <boundary> child (after connection/crossPath/
+# priority/controller/surface/planView/objects, before elevationGrid). A
+# <boundary> holds one or more <segment>; with @type="lane" the segment is
+# t_junction_boundary_segment_lane (attrs: roadId, boundaryLane, sStart, sEnd,
+# type -- all optional). We enclose the junction with four lane segments, one
+# per incoming leg (roads 0..3), tracing the outer drivable edge. This is a
+# minimal but well-formed boundary (< 40 lines), so g6 is NOT skipped.
+id: g6_junction_boundary_18
+base: EnvironmentSimulator/Unittest/xodr/simple_4way_intersection.xodr
+rev: "8"
+ops:
+  - op: add_xml
+    xpath: "junction[@id='1']"
+    xml: |
+      <boundary>
+          <segment type="lane" roadId="0" boundaryLane="-1" sStart="end" sEnd="end"/>
+          <segment type="lane" roadId="1" boundaryLane="-1" sStart="start" sEnd="start"/>
+          <segment type="lane" roadId="2" boundaryLane="-1" sStart="start" sEnd="start"/>
+          <segment type="lane" roadId="3" boundaryLane="-1" sStart="start" sEnd="start"/>
+      </boundary>

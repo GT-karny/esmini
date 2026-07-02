@@ -1,0 +1,32 @@
+# g4: 1.9 smooth-contour outline corner "curveLocal" (plan cluster 19a).
+# Adds an <object> whose <outline> uses <curveLocal> instead of cornerRoad/
+# cornerLocal. In t_road_objects_object_outlines_outline the choice allows
+# "one or more <curveLocal>". Each <curveLocal> requires u,v,z,height,
+# length(>0),hdg and one of <arc>/<line>/<paramPoly3>; <arc> requires
+# curvature. We give two curveLocal segments (a smooth curved contour).
+# Object required attrs (t_road_objects_object): s, t, zOffset, id. No @type is
+# set (so the per-type asserts don't apply) and no radius/width/length on the
+# object (satisfies the "one of radius | width+length | none" assert).
+id: g4_curvelocal_corner_19
+base: resources/xodr/straight_500m.xodr
+rev: "9"
+ops:
+  # Base normalisation: center lane forbids <userData> under 1.8+ (see g1 note).
+  - op: remove_element
+    xpath: "road[@id='1']/lanes/laneSection/center/lane/userData"
+  - op: add_xml
+    xpath: "road[@id='1']/objects"
+    xml: |
+      <object id="9001" name="smooth_island" s="120.0" t="0.0" zOffset="0.0"
+              hdg="0.0" height="0.15">
+          <outline id="0" fillType="grass" closed="true">
+              <curveLocal id="0" u="0.0" v="0.0" z="0.0" height="0.15"
+                          length="6.2831853" hdg="0.0">
+                  <arc curvature="0.2"/>
+              </curveLocal>
+              <curveLocal id="1" u="0.0" v="10.0" z="0.0" height="0.15"
+                          length="6.2831853" hdg="3.1415927">
+                  <arc curvature="0.2"/>
+              </curveLocal>
+          </outline>
+      </object>

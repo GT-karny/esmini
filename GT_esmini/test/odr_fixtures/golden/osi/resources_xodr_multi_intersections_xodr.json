@@ -1,0 +1,1210 @@
+{
+ "lane_boundary_count": 339,
+ "lane_count": 171,
+ "lanes": [
+  {
+   "centerline_points": 4,
+   "id": 0,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 1,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 2,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 3,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 8,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 10,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 11,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 12,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 30,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 31,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 33,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 38,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 40,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 42,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 10,
+   "id": 75,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 10,
+   "id": 76,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 10,
+   "id": 77,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 10,
+   "id": 78,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 8,
+   "id": 80,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 86,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 88,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 89,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 90,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 129,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 130,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 131,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 132,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 137,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 8,
+   "id": 141,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 143,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 10,
+   "id": 144,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 10,
+   "id": 145,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 185,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 186,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 187,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 189,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 194,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 196,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 197,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 199,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 217,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 218,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 219,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 221,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 226,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 228,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 229,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 231,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 271,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 272,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 273,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 275,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 280,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 282,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 283,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 285,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 315,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 316,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 317,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 318,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 323,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 325,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 326,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 327,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 345,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 346,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 348,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 353,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 355,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 357,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 397,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 398,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 399,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 400,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 405,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 407,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 408,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 409,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 456,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 457,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 458,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 459,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 464,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 466,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 467,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 468,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 498,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 499,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 500,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 502,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 507,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 509,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 510,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 512,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 530,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 531,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 532,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 534,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 539,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 541,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 542,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 544,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 584,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 585,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 586,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 588,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 593,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 595,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 596,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 598,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 29,
+   "id": 628,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 31,
+   "id": 629,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 31,
+   "id": 630,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 31,
+   "id": 632,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 33,
+   "id": 637,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 34,
+   "id": 639,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 34,
+   "id": 640,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 35,
+   "id": 642,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 643,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 644,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 645,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 647,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 652,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 654,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 655,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 657,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 675,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 676,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 677,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 679,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 684,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 686,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 687,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 689,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 729,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 4,
+   "id": 730,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 731,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 733,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 738,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 740,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 741,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 4,
+   "id": 743,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 27,
+   "id": 773,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 30,
+   "id": 774,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 30,
+   "id": 775,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 30,
+   "id": 777,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 31,
+   "id": 782,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 32,
+   "id": 784,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 32,
+   "id": 785,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 35,
+   "id": 787,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 35,
+   "id": 788,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 32,
+   "id": 789,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 32,
+   "id": 790,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 31,
+   "id": 792,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 30,
+   "id": 797,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 30,
+   "id": 799,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 30,
+   "id": 800,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 27,
+   "id": 802,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 27,
+   "id": 803,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 30,
+   "id": 804,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 30,
+   "id": 805,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 30,
+   "id": 807,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 31,
+   "id": 812,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 32,
+   "id": 814,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 32,
+   "id": 815,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 35,
+   "id": 817,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 0,
+   "id": 818,
+   "subtype": 0,
+   "type": 4
+  },
+  {
+   "centerline_points": 0,
+   "id": 819,
+   "subtype": 0,
+   "type": 4
+  },
+  {
+   "centerline_points": 0,
+   "id": 820,
+   "subtype": 0,
+   "type": 4
+  },
+  {
+   "centerline_points": 0,
+   "id": 821,
+   "subtype": 0,
+   "type": 4
+  },
+  {
+   "centerline_points": 0,
+   "id": 822,
+   "subtype": 0,
+   "type": 4
+  }
+ ],
+ "stationary_objects": {
+  "count": 0,
+  "types": {}
+ },
+ "traffic_light_count": 170,
+ "traffic_light_ids": [
+  15,
+  16,
+  18,
+  19,
+  20,
+  22,
+  23,
+  25,
+  26,
+  27,
+  45,
+  46,
+  48,
+  49,
+  50,
+  52,
+  53,
+  55,
+  56,
+  57,
+  93,
+  94,
+  96,
+  97,
+  98,
+  100,
+  101,
+  102,
+  104,
+  105,
+  146,
+  147,
+  148,
+  150,
+  151,
+  154,
+  155,
+  157,
+  158,
+  159,
+  200,
+  201,
+  202,
+  204,
+  205,
+  208,
+  209,
+  211,
+  212,
+  213,
+  234,
+  235,
+  236,
+  238,
+  239,
+  241,
+  242,
+  243,
+  245,
+  246,
+  288,
+  289,
+  290,
+  292,
+  293,
+  295,
+  296,
+  297,
+  299,
+  300,
+  330,
+  331,
+  332,
+  334,
+  335,
+  337,
+  338,
+  339,
+  341,
+  342,
+  360,
+  361,
+  362,
+  364,
+  365,
+  367,
+  368,
+  369,
+  371,
+  372,
+  412,
+  413,
+  414,
+  416,
+  417,
+  419,
+  420,
+  421,
+  423,
+  424,
+  469,
+  470,
+  471,
+  473,
+  474,
+  477,
+  478,
+  479,
+  481,
+  482,
+  513,
+  514,
+  515,
+  517,
+  518,
+  521,
+  522,
+  524,
+  525,
+  526,
+  547,
+  548,
+  549,
+  551,
+  552,
+  554,
+  555,
+  556,
+  558,
+  559,
+  601,
+  602,
+  603,
+  605,
+  606,
+  608,
+  609,
+  610,
+  612,
+  613,
+  658,
+  659,
+  660,
+  662,
+  663,
+  666,
+  667,
+  669,
+  670,
+  671,
+  692,
+  693,
+  694,
+  696,
+  697,
+  699,
+  700,
+  701,
+  703,
+  704,
+  746,
+  747,
+  748,
+  750,
+  751,
+  753,
+  754,
+  755,
+  757,
+  758
+ ],
+ "traffic_sign_count": 59
+}

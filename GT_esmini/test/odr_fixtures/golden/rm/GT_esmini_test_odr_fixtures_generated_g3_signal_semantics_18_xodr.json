@@ -1,0 +1,235 @@
+{
+ "load_ok": true,
+ "num_roads": 1,
+ "roads": [
+  {
+   "id": "1",
+   "lane_samples": [
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 64,
+       "width": 6.0
+      },
+      {
+       "id": -2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": 3,
+       "type": 64,
+       "width": 6.0
+      }
+     ],
+     "num_lanes": 7,
+     "s": 1.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 64,
+       "width": 6.0
+      },
+      {
+       "id": -2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": 3,
+       "type": 64,
+       "width": 6.0
+      }
+     ],
+     "num_lanes": 7,
+     "s": 125.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 64,
+       "width": 6.0
+      },
+      {
+       "id": -2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": 3,
+       "type": 64,
+       "width": 6.0
+      }
+     ],
+     "num_lanes": 7,
+     "s": 250.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 64,
+       "width": 6.0
+      },
+      {
+       "id": -2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": 3,
+       "type": 64,
+       "width": 6.0
+      }
+     ],
+     "num_lanes": 7,
+     "s": 375.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 64,
+       "width": 6.0
+      },
+      {
+       "id": -2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 8,
+       "width": 1.68
+      },
+      {
+       "id": 3,
+       "type": 64,
+       "width": 6.0
+      }
+     ],
+     "num_lanes": 7,
+     "s": 499.0
+    }
+   ],
+   "length": 500.0,
+   "position_probe": {
+    "h": 3.141593,
+    "lane": 1,
+    "s": 250.0,
+    "x": 250.0,
+    "y": 1.535,
+    "z": 0.0
+   },
+   "signs": [
+    {
+     "id": 2001,
+     "name": "odr18_yield_semantics",
+     "orientation": 1,
+     "s": 250.0,
+     "t": -6.0,
+     "z_offset": 2.0
+    }
+   ]
+  }
+ ]
+}

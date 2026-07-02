@@ -260,6 +260,19 @@ jobs:
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
         run: python3 scripts/run_schema_comply.py resources EnvironmentSimulator
 
+      # OpenDRIVE conformance harness, SCHEMA layer only (no RM/OSI DLL layers).
+      # CONSERVATIVE integration: the RM/OSI golden layers carry cross-OS float
+      # risk, so they stay local (regression-gate Step 1.5); CI runs only the
+      # deterministic schema + matrix-coverage checks. Official ASAM fixtures
+      # auto-SKIP when the thirdparty zips are absent (always, in CI), and the
+      # absent build tree is irrelevant because no DLL is loaded. Same guard as
+      # schema validation above (runs once, Linux/Release).
+      - name: Run OpenDRIVE conformance (schema layer)
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        run: |
+          python3 -m pip install --user xmlschema lxml pyyaml
+          python3 scripts/run_odr_conformance.py --layers schema --check-matrix
+
       - name: Run C# wrapper check
         if: runner.os == 'Windows' && matrix.configuration == 'Release'
         uses: ./.github/actions/wrapper_check
