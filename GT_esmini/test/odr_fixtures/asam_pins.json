@@ -1,0 +1,22 @@
+{
+  "_comment": "Integrity pins for the ASAM OpenDRIVE 1.9.0 source zips (local-only, never committed). odr_fixture_setup.py verifies these before extracting. Regenerate with: python scripts/odr_fixture_setup.py --print-pins (see GT_esmini/test/odr_fixtures/README.md).",
+  "source_dir": "thirdparty/opendrive/1.9",
+  "zips": {
+    "examples": {
+      "filename": "ASAM_OpenDRIVE_v1-9-0_examples_and_use-cases.zip",
+      "sha256": "1142865e58efe4b700b11ba420f8ae1f751446b03f25f5071e7fcc1a8697d4c9",
+      "size": 3783926,
+      "expected_xodr": 36,
+      "expected_xsd": 0,
+      "target": "official"
+    },
+    "schema": {
+      "filename": "ASAM_OpenDRIVE_v1-9-0_xsd_schema_files.zip",
+      "sha256": "e229f3b7ff017191e622ba1d22701ccc28186fccbe213932173ef3aeffc2f7b0",
+      "size": 39286,
+      "expected_xodr": 0,
+      "expected_xsd": 7,
+      "target": "schema19"
+    }
+  }
+}

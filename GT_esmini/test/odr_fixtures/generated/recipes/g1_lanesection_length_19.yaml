@@ -1,0 +1,19 @@
+# g1: 1.9 laneSection @length (t_road_lanes_laneSection/@length, type t_grEqZero).
+# Introduced 1.9 (see plan 1.2). On a single-laneSection straight road the
+# length is redundant with the road length, but exercises the L1 parse path.
+# Constraint honoured: <lanes> carries no layer, so the 1.9 assert
+#   "if (@layer='permanent') then not(laneSection/@length)"  is satisfied.
+id: g1_lanesection_length_19
+base: resources/xodr/straight_500m.xodr
+rev: "9"
+ops:
+  # Base normalisation: the center lane (t_road_lanes_laneSection_center_lane)
+  # allows only link?,roadMark* -- no g_additionalData -- so the base's viStyleDef
+  # <userData> on lane id=0 is invalid under 1.8+. Strip it so the fixture is
+  # schema-clean and the injected 1.9 construct is the only novelty under test.
+  - op: remove_element
+    xpath: "road[@id='1']/lanes/laneSection/center/lane/userData"
+  - op: set_attr
+    xpath: "road[@id='1']/lanes/laneSection"
+    attr: "length"
+    value: "500.0"

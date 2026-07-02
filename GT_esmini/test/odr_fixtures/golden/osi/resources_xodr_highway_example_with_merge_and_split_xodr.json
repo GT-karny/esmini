@@ -1,0 +1,271 @@
+{
+ "lane_boundary_count": 66,
+ "lane_count": 43,
+ "lanes": [
+  {
+   "centerline_points": 8,
+   "id": 0,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 8,
+   "id": 2,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 8,
+   "id": 6,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 8,
+   "id": 8,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 8,
+   "id": 10,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 14,
+   "id": 12,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 13,
+   "id": 14,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 14,
+   "id": 18,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 14,
+   "id": 20,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 14,
+   "id": 22,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 15,
+   "id": 24,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 5,
+   "id": 26,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 5,
+   "id": 28,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 5,
+   "id": 32,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 5,
+   "id": 34,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 6,
+   "id": 36,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 6,
+   "id": 38,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 40,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 42,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 46,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 48,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 50,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 52,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 54,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 56,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 60,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 62,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 64,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 66,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 68,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 70,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 74,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 76,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 78,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 82,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 13,
+   "id": 100,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 13,
+   "id": 102,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 13,
+   "id": 106,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 13,
+   "id": 108,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 12,
+   "id": 110,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 10,
+   "id": 128,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 0,
+   "id": 132,
+   "subtype": 0,
+   "type": 4
+  },
+  {
+   "centerline_points": 0,
+   "id": 133,
+   "subtype": 0,
+   "type": 4
+  }
+ ],
+ "stationary_objects": {
+  "count": 0,
+  "types": {}
+ },
+ "traffic_light_count": 0,
+ "traffic_light_ids": [],
+ "traffic_sign_count": 0
+}

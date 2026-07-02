@@ -1,0 +1,151 @@
+{
+ "load_ok": true,
+ "num_roads": 1,
+ "roads": [
+  {
+   "id": "1",
+   "lane_samples": [
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -2,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      }
+     ],
+     "num_lanes": 4,
+     "s": 1.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -2,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      }
+     ],
+     "num_lanes": 4,
+     "s": 500.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -2,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      }
+     ],
+     "num_lanes": 4,
+     "s": 1000.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -2,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      }
+     ],
+     "num_lanes": 4,
+     "s": 1500.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -3,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -2,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.0
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      }
+     ],
+     "num_lanes": 4,
+     "s": 1999.0
+    }
+   ],
+   "length": 2000.0,
+   "position_probe": {
+    "h": 3.141593,
+    "lane": -1,
+    "s": 1000.0,
+    "x": 500.0,
+    "y": 259.125356,
+    "z": 0.0
+   },
+   "signs": []
+  }
+ ]
+}

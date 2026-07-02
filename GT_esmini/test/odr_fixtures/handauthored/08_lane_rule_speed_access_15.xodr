@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="5" name="08_lane_rule_speed_access_15" version="1.00" date="2026-07-02T00:00:00" north="0.0" south="0.0" east="0.0" west="0.0"/>
+    <road name="main" length="120.0" id="1" junction="-1">
+        <link/>
+        <type s="0.0" type="town"/>
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="120.0">
+                <line/>
+            </geometry>
+        </planView>
+        <elevationProfile>
+            <elevation s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
+        </elevationProfile>
+        <lateralProfile/>
+        <lanes>
+            <laneOffset s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
+            <laneSection s="0.0">
+                <left>
+                    <!-- driving lane carrying speed + access + rule (1.5 flavor).
+                         Child order per XSD: link, width, roadMark, material, visibility, speed, access, height, rule. -->
+                    <lane id="1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                        <speed sOffset="0.0" max="50" unit="km/h"/>
+                        <access sOffset="0.0" rule="allow" restriction="passengerCar"/>
+                        <rule sOffset="0.0" value="no stopping"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false">
+                        <link/>
+                        <roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="0.12" laneChange="both"/>
+                    </lane>
+                </center>
+                <right>
+                    <!-- bus/access lane: access rule=deny restriction=passengerCar, plus lane speed + rule -->
+                    <lane id="-1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                        <speed sOffset="0.0" max="30" unit="km/h"/>
+                        <speed sOffset="60.0" max="50" unit="km/h"/>
+                        <access sOffset="0.0" rule="deny" restriction="passengerCar"/>
+                        <access sOffset="0.0" rule="allow" restriction="bus"/>
+                        <rule sOffset="0.0" value="no overtaking"/>
+                    </lane>
+                    <lane id="-2" type="biking" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="1.5" b="0.0" c="0.0" d="0.0"/>
+                        <access sOffset="0.0" rule="allow" restriction="bicycle"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <objects/>
+        <signals/>
+    </road>
+</OpenDRIVE>

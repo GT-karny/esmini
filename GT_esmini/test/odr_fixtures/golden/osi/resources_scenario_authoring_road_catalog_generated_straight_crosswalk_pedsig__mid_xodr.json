@@ -1,0 +1,42 @@
+{
+ "lane_boundary_count": 5,
+ "lane_count": 4,
+ "lanes": [
+  {
+   "centerline_points": 11,
+   "id": 0,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 11,
+   "id": 1,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 11,
+   "id": 5,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 11,
+   "id": 7,
+   "subtype": 4,
+   "type": 3
+  }
+ ],
+ "stationary_objects": {
+  "count": 1,
+  "types": {
+   "1": 1
+  }
+ },
+ "traffic_light_count": 2,
+ "traffic_light_ids": [
+  8,
+  9
+ ],
+ "traffic_sign_count": 0
+}

@@ -180,10 +180,10 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 - **スコープ**: クラスタ4+22意味論(lane link @layer、laneLink from/toLayer、laneValidity @layer)。@temporary/@invalidatedの(road,id)→フラグ集合をGT_OSIReporterとVD RouteSignalScan/RouteCrosswalkScanが参照(打ち消し標識を無効扱い)。
 - **受入**: Ex_Lane_MultiLaneLayer(road 1)とEx_Motorway_roadworks(road 8)のs標本プローブ — permanentモードは全点permanent一致、temporary opt-inはs∈[2000,5083]内でtemporary・外でpermanent(**s=100/5500がマージ証明点**)/ 両rev9ファイルで[ODR-UNSUPPORTED]==0(属性含む)/ **レーングローバルID安定性ゴールデン**(AddLane/SetGlobalId :2375/:1237の逐次割当が静かな破壊モード)/ invalidated信号のOSI非出力(記録済み判断どおり)/ GT_RoadGen二重テッセレーションなし。
 
-### P9 — railroad/station+include/userData閉鎖+web公開+resyncリハーサル+ゼロ監査 — 1週
+### P9 — railroad/station+include/userData残課題の確定+web公開+resyncリハーサル+ゼロ監査 — 1週
 
 - **プログラム終了判定**: 全フィクスチャで要素+属性の[ODR-UNSUPPORTED]==0。
-- **スコープ**: クラスタ20(switch/mainTrack/sideTrack/partner、station/platform/segment: L1+RM-API公開、**不活性と文書明記**)/ 15閉鎖(includeは解決実装 or P1ハードエラー維持をユーザー判断)/ 13/14残 / ルートループ網羅(junctionGroup/station/vmsGroup)/ web公開: GT_RM_\* C関数+rm_lib.py+annotation UIへのパース警告表示(dedupe済み)。
+- **スコープ**: クラスタ20(switch/mainTrack/sideTrack/partner、station/platform/segment: L1+RM-API公開、**不活性と文書明記**)/ 15クローズ(P1の暫定処置を確定: includeは解決実装 or 診断付きハードエラーのまま仕様化をユーザー判断、userDataは注釈UIへ公開して消費側まで完結)/ 13/14残 / ルートループ網羅(junctionGroup/station/vmsGroup)/ web公開: GT_RM_\* C関数+rm_lib.py+annotation UIへのパース警告表示(dedupe済み)。
 - **resyncリハーサル(命名成果物)**: upstream ab7c404d(またはv3.4)の新規コピーへ~12マーカーを関数名アンカーで再適用 → upstreamパースループとの被覆diffで「handled-by-upstream」状態へのホワイトリスト再基準化(upstream側がネイティブ対応した要素はGT処理を撤去し二重パース回避)→ ゴールデン再生成を単一レビューコミットで — の**書面チェックリスト**化。恒久的な**二重処理ガード**(合成ID重複なし・GTホワイトリストとupstreamパースの両属なし)をハーネスに常設。
 - **成果物**: `GT_esmini/docs/opendrive_16_19_support.md` — クラスタ0-22×レベルL1-L5の対応状況表(**保留レベル全掲載の「あらゆる要素」正直台帳**、ユーザー拒否権用)。
 
