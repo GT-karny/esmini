@@ -1,0 +1,908 @@
+{
+  "DriverScript/resources/xodr/fabriksgatan_traffic_lights.xodr": {
+    "load": true,
+    "signals": {
+      "1:_Sg12": "TrafficLight",
+      "2:_Sg13": "TrafficLight",
+      "3:_Sg14": "TrafficLight"
+    }
+  },
+  "DriverScript/resources/xodr/soderleden.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/Junction_with_building0.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/Weird_looking_building_local_coord.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/Weird_looking_building_road_coord.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/circular_road.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/connected_junctions_simple.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/consecutive_roads.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/curve_road_mixed.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/direct_junction_simple.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/fabriksgatan_mixed_id_types.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/fade_roadmarks.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/find_closest_road_pos.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/four_lanes_with_offset.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/highway_example_with_merge_and_split.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/highway_exit.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/highway_intersection_test0.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/highway_merge.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/highway_split.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/highway_split_lht.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/junction_simple_unordered_road_elements.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/lane_offset_intersection.xodr": {
+    "load": true,
+    "signals": {
+      "3:sign_16": "Signal",
+      "4:stop_line_17": "Signal"
+    }
+  },
+  "EnvironmentSimulator/Unittest/xodr/lane_width_and_offset.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/mixed_roads.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/multi_intersections.xodr": {
+    "load": true,
+    "signals": {
+      "0:Sg274Hoechstgeschw50_02.flt": "Signal",
+      "0:Sg274Hoechstgeschw70_02.flt": "Signal",
+      "0:SgRMArrowLeft.flt": "Signal",
+      "0:SgRMArrowStraightRight.flt": "Signal",
+      "0:SgRMCrosswalk-4Lanes-4m.flt": "Signal",
+      "0:SgRMHoldingline-1Lane.flt": "Signal",
+      "0:SgRMHoldingline-2Lane.flt": "Signal",
+      "12401:SgRMHoldingline-1Lane.flt": "Signal",
+      "12402:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "12403:Sg205VorfahrtGew02.flt": "Signal",
+      "12404:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "12405:Sg205VorfahrtGew02.flt": "Signal",
+      "12407:_Sg12407": "TrafficLight",
+      "12408:_Sg12408": "TrafficLight",
+      "12417:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "12420:_Sg12420": "TrafficLight",
+      "12421:_Sg12421": "TrafficLight",
+      "15439:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "15440:_Sg15440": "TrafficLight",
+      "15441:_Sg15441": "TrafficLight",
+      "15442:SgRMHoldingline-1Lane.flt": "Signal",
+      "15454:_Sg15454": "TrafficLight",
+      "15455:_Sg15455": "TrafficLight",
+      "18474:_Sg18474": "TrafficLight",
+      "18475:_Sg18475": "TrafficLight",
+      "18476:SgRMHoldingline-1Lane.flt": "Signal",
+      "18478:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "18482:_Sg18482": "TrafficLight",
+      "18483:_Sg18483": "TrafficLight",
+      "21494:SgRMHoldingline-1Lane.flt": "Signal",
+      "21495:_Sg21495": "TrafficLight",
+      "21496:_Sg21496": "TrafficLight",
+      "21516:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "21517:_Sg21517": "TrafficLight",
+      "21518:_Sg21518": "TrafficLight",
+      "24521:SgRMHoldingline-1Lane.flt": "Signal",
+      "24522:Sg205VorfahrtGew02.flt": "Signal",
+      "24523:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "24524:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "24527:_Sg24527": "TrafficLight",
+      "24528:_Sg24528": "TrafficLight",
+      "24537:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "24540:_Sg24540": "TrafficLight",
+      "24541:_Sg24541": "TrafficLight",
+      "27559:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "27560:_Sg27560": "TrafficLight",
+      "27561:_Sg27561": "TrafficLight",
+      "27562:SgRMHoldingline-1Lane.flt": "Signal",
+      "27574:_Sg27574": "TrafficLight",
+      "27575:_Sg27575": "TrafficLight",
+      "281:_Sg281": "TrafficLight",
+      "282:Sg205VorfahrtGew02.flt": "Signal",
+      "283:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "284:SgRMHoldingline-1Lane.flt": "Signal",
+      "286:_Sg286": "TrafficLight",
+      "287:_Sg287": "TrafficLight",
+      "288:_Sg288": "TrafficLight",
+      "289:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "290:_Sg290": "TrafficLight",
+      "291:_Sg291": "TrafficLight",
+      "292:SgRMHoldingline-1Lane.flt": "Signal",
+      "293:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "294:_Sg294": "TrafficLight",
+      "295:_Sg295": "TrafficLight",
+      "296:Sg205VorfahrtGew02.flt": "Signal",
+      "300:_Sg300": "TrafficLight",
+      "301:_Sg301": "TrafficLight",
+      "302:_Sg302": "TrafficLight",
+      "303:_Sg303": "TrafficLight",
+      "304:_Sg304": "TrafficLight",
+      "30594:_Sg30594": "TrafficLight",
+      "30595:_Sg30595": "TrafficLight",
+      "30596:SgRMHoldingline-1Lane.flt": "Signal",
+      "30598:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "305:_Sg305": "TrafficLight",
+      "30602:_Sg30602": "TrafficLight",
+      "30603:_Sg30603": "TrafficLight",
+      "306:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "307:_Sg307": "TrafficLight",
+      "308:_Sg308": "TrafficLight",
+      "3311:SgRMHoldingline-1Lane.flt": "Signal",
+      "3312:Sg205VorfahrtGew02.flt": "Signal",
+      "3313:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "3314:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "3317:_Sg3317": "TrafficLight",
+      "3318:_Sg3318": "TrafficLight",
+      "3327:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "3330:_Sg3330": "TrafficLight",
+      "3331:_Sg3331": "TrafficLight",
+      "33611:SgRMHoldingline-1Lane.flt": "Signal",
+      "33612:Sg205VorfahrtGew02.flt": "Signal",
+      "33613:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "33614:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "33617:_Sg33617": "TrafficLight",
+      "33618:_Sg33618": "TrafficLight",
+      "33627:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "33630:_Sg33630": "TrafficLight",
+      "33631:_Sg33631": "TrafficLight",
+      "36649:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "36650:_Sg36650": "TrafficLight",
+      "36651:_Sg36651": "TrafficLight",
+      "36652:SgRMHoldingline-1Lane.flt": "Signal",
+      "36664:_Sg36664": "TrafficLight",
+      "36665:_Sg36665": "TrafficLight",
+      "39684:_Sg39684": "TrafficLight",
+      "39685:_Sg39685": "TrafficLight",
+      "39686:SgRMHoldingline-1Lane.flt": "Signal",
+      "39688:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "39692:_Sg39692": "TrafficLight",
+      "39693:_Sg39693": "TrafficLight",
+      "6349:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "6350:_Sg6350": "TrafficLight",
+      "6351:_Sg6351": "TrafficLight",
+      "6352:SgRMHoldingline-1Lane.flt": "Signal",
+      "6364:_Sg6364": "TrafficLight",
+      "6365:_Sg6365": "TrafficLight",
+      "9384:_Sg9384": "TrafficLight",
+      "9385:_Sg9385": "TrafficLight",
+      "9386:SgRMHoldingline-1Lane.flt": "Signal",
+      "9388:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "9392:_Sg9392": "TrafficLight",
+      "9393:_Sg9393": "TrafficLight"
+    }
+  },
+  "EnvironmentSimulator/Unittest/xodr/multi_intersections_changed_speeds.xodr": {
+    "load": true,
+    "signals": {
+      "0:Sg274Hoechstgeschw50_02.flt": "Signal",
+      "0:Sg274Hoechstgeschw70_02.flt": "Signal",
+      "0:SgRMArrowLeft.flt": "Signal",
+      "0:SgRMArrowStraightRight.flt": "Signal",
+      "0:SgRMCrosswalk-4Lanes-4m.flt": "Signal",
+      "0:SgRMHoldingline-1Lane.flt": "Signal",
+      "0:SgRMHoldingline-2Lane.flt": "Signal",
+      "12401:SgRMHoldingline-1Lane.flt": "Signal",
+      "12402:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "12403:Sg205VorfahrtGew02.flt": "Signal",
+      "12404:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "12405:Sg205VorfahrtGew02.flt": "Signal",
+      "12407:_Sg12407": "TrafficLight",
+      "12408:_Sg12408": "TrafficLight",
+      "12417:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "12420:_Sg12420": "TrafficLight",
+      "12421:_Sg12421": "TrafficLight",
+      "15439:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "15440:_Sg15440": "TrafficLight",
+      "15441:_Sg15441": "TrafficLight",
+      "15442:SgRMHoldingline-1Lane.flt": "Signal",
+      "15454:_Sg15454": "TrafficLight",
+      "15455:_Sg15455": "TrafficLight",
+      "18474:_Sg18474": "TrafficLight",
+      "18475:_Sg18475": "TrafficLight",
+      "18476:SgRMHoldingline-1Lane.flt": "Signal",
+      "18478:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "18482:_Sg18482": "TrafficLight",
+      "18483:_Sg18483": "TrafficLight",
+      "21494:SgRMHoldingline-1Lane.flt": "Signal",
+      "21495:_Sg21495": "TrafficLight",
+      "21496:_Sg21496": "TrafficLight",
+      "21516:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "21517:_Sg21517": "TrafficLight",
+      "21518:_Sg21518": "TrafficLight",
+      "24521:SgRMHoldingline-1Lane.flt": "Signal",
+      "24522:Sg205VorfahrtGew02.flt": "Signal",
+      "24523:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "24524:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "24527:_Sg24527": "TrafficLight",
+      "24528:_Sg24528": "TrafficLight",
+      "24537:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "24540:_Sg24540": "TrafficLight",
+      "24541:_Sg24541": "TrafficLight",
+      "27559:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "27560:_Sg27560": "TrafficLight",
+      "27561:_Sg27561": "TrafficLight",
+      "27562:SgRMHoldingline-1Lane.flt": "Signal",
+      "27574:_Sg27574": "TrafficLight",
+      "27575:_Sg27575": "TrafficLight",
+      "281:_Sg281": "TrafficLight",
+      "282:Sg205VorfahrtGew02.flt": "Signal",
+      "283:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "284:SgRMHoldingline-1Lane.flt": "Signal",
+      "286:_Sg286": "TrafficLight",
+      "287:_Sg287": "TrafficLight",
+      "288:_Sg288": "TrafficLight",
+      "289:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "290:_Sg290": "TrafficLight",
+      "291:_Sg291": "TrafficLight",
+      "292:SgRMHoldingline-1Lane.flt": "Signal",
+      "293:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "294:_Sg294": "TrafficLight",
+      "295:_Sg295": "TrafficLight",
+      "296:Sg205VorfahrtGew02.flt": "Signal",
+      "300:_Sg300": "TrafficLight",
+      "301:_Sg301": "TrafficLight",
+      "302:_Sg302": "TrafficLight",
+      "303:_Sg303": "TrafficLight",
+      "304:_Sg304": "TrafficLight",
+      "30594:_Sg30594": "TrafficLight",
+      "30595:_Sg30595": "TrafficLight",
+      "30596:SgRMHoldingline-1Lane.flt": "Signal",
+      "30598:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "305:_Sg305": "TrafficLight",
+      "30602:_Sg30602": "TrafficLight",
+      "30603:_Sg30603": "TrafficLight",
+      "306:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "307:_Sg307": "TrafficLight",
+      "308:_Sg308": "TrafficLight",
+      "3311:SgRMHoldingline-1Lane.flt": "Signal",
+      "3312:Sg205VorfahrtGew02.flt": "Signal",
+      "3313:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "3314:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "3317:_Sg3317": "TrafficLight",
+      "3318:_Sg3318": "TrafficLight",
+      "3327:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "3330:_Sg3330": "TrafficLight",
+      "3331:_Sg3331": "TrafficLight",
+      "33611:SgRMHoldingline-1Lane.flt": "Signal",
+      "33612:Sg205VorfahrtGew02.flt": "Signal",
+      "33613:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "33614:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "33617:_Sg33617": "TrafficLight",
+      "33618:_Sg33618": "TrafficLight",
+      "33627:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "33630:_Sg33630": "TrafficLight",
+      "33631:_Sg33631": "TrafficLight",
+      "36649:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "36650:_Sg36650": "TrafficLight",
+      "36651:_Sg36651": "TrafficLight",
+      "36652:SgRMHoldingline-1Lane.flt": "Signal",
+      "36664:_Sg36664": "TrafficLight",
+      "36665:_Sg36665": "TrafficLight",
+      "39684:_Sg39684": "TrafficLight",
+      "39685:_Sg39685": "TrafficLight",
+      "39686:SgRMHoldingline-1Lane.flt": "Signal",
+      "39688:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "39692:_Sg39692": "TrafficLight",
+      "39693:_Sg39693": "TrafficLight",
+      "6349:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "6350:_Sg6350": "TrafficLight",
+      "6351:_Sg6351": "TrafficLight",
+      "6352:SgRMHoldingline-1Lane.flt": "Signal",
+      "6364:_Sg6364": "TrafficLight",
+      "6365:_Sg6365": "TrafficLight",
+      "9384:_Sg9384": "TrafficLight",
+      "9385:_Sg9385": "TrafficLight",
+      "9386:SgRMHoldingline-1Lane.flt": "Signal",
+      "9388:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "9392:_Sg9392": "TrafficLight",
+      "9393:_Sg9393": "TrafficLight"
+    }
+  },
+  "EnvironmentSimulator/Unittest/xodr/multi_lane_3way_intersection.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/multi_lanesections.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/mw_100m.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/offset.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/oppositeLaneRoad.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/pitch_by_super_elevation.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/ref_point.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/road_straight_curve_junction.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/roadmarks.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/route_strategy_test_road.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/route_strategy_test_road_LHT.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/simple_3way_intersection.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/simple_3way_intersection_lht.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/simple_3way_motorway.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/simple_4way_intersection.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/simple_highway.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/slope_up_leaning_right.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/slope_up_slope_down.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/some_signs.xodr": {
+    "load": true,
+    "signals": {
+      "0:de_274-50": "Signal",
+      "10:speed_50_6": "Signal",
+      "11:speed_50_7": "Signal",
+      "1:de_274-50": "Signal",
+      "2:de_274-30": "Signal",
+      "3:de_274-50": "Signal",
+      "4:274-50": "Signal",
+      "5:274-50": "Signal",
+      "6:274-50": "Signal",
+      "7:274-50": "Signal",
+      "8:274-50": "Signal",
+      "9:274-50": "Signal"
+    }
+  },
+  "EnvironmentSimulator/Unittest/xodr/star.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/stationary_objects.xodr": {
+    "load": true,
+    "signals": {
+      "1:speed_50_1": "Signal"
+    }
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_20m.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_2x100m_opposite.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_3000m.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_500_superelevation_elevation.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_500_superelevation_elevation_curve.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_500m_signs_lht.xodr": {
+    "load": true,
+    "signals": {
+      "1:speed_30_0": "Signal",
+      "2:speed_30_1": "Signal",
+      "3:_Sg14": "TrafficLight"
+    }
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_highway_500m.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/straight_road.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/tilted_crest.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/timing_scenario0.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/two_pitched_and_rolled_roads.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "EnvironmentSimulator/Unittest/xodr/two_roads_overhang.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/generated/g1_lanesection_length_19.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/generated/g2_lanes_layer_19.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/generated/g3_signal_semantics_18.xodr": {
+    "load": true,
+    "signals": {
+      "2001:odr18_yield_semantics": "Signal"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/generated/g4_curvelocal_corner_19.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/generated/g5_junction_lanelink_layer_19.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/generated/g6_junction_boundary_18.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/01_crossing_junction_18.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/02_invalid_junction_connection_14.xodr": {
+    "load": false,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/03_dynamic_signal_demote_18.xodr": {
+    "load": true,
+    "signals": {
+      "1:tl_de_2021": "Signal",
+      "2:tl_odr_2021": "Signal",
+      "3:tl_odr_absent": "TrafficLight"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/04_signal_position_road_15.xodr": {
+    "load": true,
+    "signals": {
+      "1:sign_posroad": "Signal",
+      "2:sign_posinertial": "Signal"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/05_vms_boards.xodr": {
+    "load": true,
+    "signals": {
+      "1:gantry_vms": "Signal"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/06_temporary_invalidated_19.xodr": {
+    "load": true,
+    "signals": {
+      "1:temp_speed": "Signal",
+      "2:invalidated_speed": "Signal"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/07_license_default_regulations_18.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/08_lane_rule_speed_access_15.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/09_lane_attributes_18.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/10_object_reference_15.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/11_bridge_15.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/12_repeat_lateral_poly_19.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/13_lane_types_16_18.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/14_crg_offsets_19.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/15_roadmark_sway_15.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/16_include_error_15.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/17_userdata_dataquality_15.xodr": {
+    "load": true,
+    "signals": {
+      "300:yield": "Signal"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/18_removed16_neighbor_16.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/scenario_authoring/road_catalog/generated/4way_priority__main_ns.xodr": {
+    "load": true,
+    "signals": {
+      "0:priority_road_N": "Signal",
+      "1:priority_road_S": "Signal",
+      "2:yield_E": "Signal",
+      "3:yield_W": "Signal"
+    }
+  },
+  "resources/scenario_authoring/road_catalog/generated/straight_crosswalk__mid.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/scenario_authoring/road_catalog/generated/straight_crosswalk_pedsig__mid.xodr": {
+    "load": true,
+    "signals": {
+      "10:ped_signal": "TrafficLight"
+    }
+  },
+  "resources/scenario_authoring/road_catalog/generated/t_junction__a90.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/scenario_authoring/road_catalog/generated/t_junction_priority__a90.xodr": {
+    "load": true,
+    "signals": {
+      "0:yield_minor": "Signal"
+    }
+  },
+  "resources/xodr/circle_300m.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/crest-curve.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/curve_r100.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/curves.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/curves_elevation.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/decelerate_curve_r60.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/e6mini-lht.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/e6mini.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/fabriksgatan.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/fabriksgatan_traffic_lights.xodr": {
+    "load": true,
+    "signals": {
+      "1:_Sg12": "TrafficLight",
+      "2:_Sg13": "TrafficLight",
+      "3:_Sg14": "TrafficLight"
+    }
+  },
+  "resources/xodr/fabriksgatan_traffic_lights_ctrl.xodr": {
+    "load": true,
+    "signals": {
+      "1:_Sg12": "TrafficLight",
+      "2:_Sg13": "TrafficLight",
+      "3:_Sg14": "TrafficLight"
+    }
+  },
+  "resources/xodr/highway_example_with_merge_and_split.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/jolengatan.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/multi_intersections.xodr": {
+    "load": true,
+    "signals": {
+      "0:Sg274Hoechstgeschw50_02.flt": "Signal",
+      "0:Sg274Hoechstgeschw70_02.flt": "Signal",
+      "0:SgRMArrowLeft.flt": "Signal",
+      "0:SgRMArrowStraightRight.flt": "Signal",
+      "0:SgRMCrosswalk-4Lanes-4m.flt": "Signal",
+      "0:SgRMHoldingline-1Lane.flt": "Signal",
+      "0:SgRMHoldingline-2Lane.flt": "Signal",
+      "12401:SgRMHoldingline-1Lane.flt": "Signal",
+      "12402:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "12403:Sg205VorfahrtGew02.flt": "Signal",
+      "12404:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "12405:Sg205VorfahrtGew02.flt": "Signal",
+      "12407:_Sg12407": "TrafficLight",
+      "12408:_Sg12408": "TrafficLight",
+      "12417:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "12420:_Sg12420": "TrafficLight",
+      "12421:_Sg12421": "TrafficLight",
+      "15439:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "15440:_Sg15440": "TrafficLight",
+      "15441:_Sg15441": "TrafficLight",
+      "15442:SgRMHoldingline-1Lane.flt": "Signal",
+      "15454:_Sg15454": "TrafficLight",
+      "15455:_Sg15455": "TrafficLight",
+      "18474:_Sg18474": "TrafficLight",
+      "18475:_Sg18475": "TrafficLight",
+      "18476:SgRMHoldingline-1Lane.flt": "Signal",
+      "18478:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "18482:_Sg18482": "TrafficLight",
+      "18483:_Sg18483": "TrafficLight",
+      "21494:SgRMHoldingline-1Lane.flt": "Signal",
+      "21495:_Sg21495": "TrafficLight",
+      "21496:_Sg21496": "TrafficLight",
+      "21516:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "21517:_Sg21517": "TrafficLight",
+      "21518:_Sg21518": "TrafficLight",
+      "24521:SgRMHoldingline-1Lane.flt": "Signal",
+      "24522:Sg205VorfahrtGew02.flt": "Signal",
+      "24523:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "24524:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "24527:_Sg24527": "TrafficLight",
+      "24528:_Sg24528": "TrafficLight",
+      "24537:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "24540:_Sg24540": "TrafficLight",
+      "24541:_Sg24541": "TrafficLight",
+      "27559:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "27560:_Sg27560": "TrafficLight",
+      "27561:_Sg27561": "TrafficLight",
+      "27562:SgRMHoldingline-1Lane.flt": "Signal",
+      "27574:_Sg27574": "TrafficLight",
+      "27575:_Sg27575": "TrafficLight",
+      "281:_Sg281": "TrafficLight",
+      "282:Sg205VorfahrtGew02.flt": "Signal",
+      "283:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "284:SgRMHoldingline-1Lane.flt": "Signal",
+      "286:_Sg286": "TrafficLight",
+      "287:_Sg287": "TrafficLight",
+      "288:_Sg288": "TrafficLight",
+      "289:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "290:_Sg290": "TrafficLight",
+      "291:_Sg291": "TrafficLight",
+      "292:SgRMHoldingline-1Lane.flt": "Signal",
+      "293:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "294:_Sg294": "TrafficLight",
+      "295:_Sg295": "TrafficLight",
+      "296:Sg205VorfahrtGew02.flt": "Signal",
+      "300:_Sg300": "TrafficLight",
+      "301:_Sg301": "TrafficLight",
+      "302:_Sg302": "TrafficLight",
+      "303:_Sg303": "TrafficLight",
+      "304:_Sg304": "TrafficLight",
+      "30594:_Sg30594": "TrafficLight",
+      "30595:_Sg30595": "TrafficLight",
+      "30596:SgRMHoldingline-1Lane.flt": "Signal",
+      "30598:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "305:_Sg305": "TrafficLight",
+      "30602:_Sg30602": "TrafficLight",
+      "30603:_Sg30603": "TrafficLight",
+      "306:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "307:_Sg307": "TrafficLight",
+      "308:_Sg308": "TrafficLight",
+      "3311:SgRMHoldingline-1Lane.flt": "Signal",
+      "3312:Sg205VorfahrtGew02.flt": "Signal",
+      "3313:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "3314:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "3317:_Sg3317": "TrafficLight",
+      "3318:_Sg3318": "TrafficLight",
+      "3327:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "3330:_Sg3330": "TrafficLight",
+      "3331:_Sg3331": "TrafficLight",
+      "33611:SgRMHoldingline-1Lane.flt": "Signal",
+      "33612:Sg205VorfahrtGew02.flt": "Signal",
+      "33613:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "33614:Sg306Vorfahrtstrasse02.flt": "Signal",
+      "33617:_Sg33617": "TrafficLight",
+      "33618:_Sg33618": "TrafficLight",
+      "33627:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "33630:_Sg33630": "TrafficLight",
+      "33631:_Sg33631": "TrafficLight",
+      "36649:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "36650:_Sg36650": "TrafficLight",
+      "36651:_Sg36651": "TrafficLight",
+      "36652:SgRMHoldingline-1Lane.flt": "Signal",
+      "36664:_Sg36664": "TrafficLight",
+      "36665:_Sg36665": "TrafficLight",
+      "39684:_Sg39684": "TrafficLight",
+      "39685:_Sg39685": "TrafficLight",
+      "39686:SgRMHoldingline-1Lane.flt": "Signal",
+      "39688:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "39692:_Sg39692": "TrafficLight",
+      "39693:_Sg39693": "TrafficLight",
+      "6349:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "6350:_Sg6350": "TrafficLight",
+      "6351:_Sg6351": "TrafficLight",
+      "6352:SgRMHoldingline-1Lane.flt": "Signal",
+      "6364:_Sg6364": "TrafficLight",
+      "6365:_Sg6365": "TrafficLight",
+      "9384:_Sg9384": "TrafficLight",
+      "9385:_Sg9385": "TrafficLight",
+      "9386:SgRMHoldingline-1Lane.flt": "Signal",
+      "9388:SgRMCrosswalk-2Lanes-4m.flt": "Signal",
+      "9392:_Sg9392": "TrafficLight",
+      "9393:_Sg9393": "TrafficLight"
+    }
+  },
+  "resources/xodr/parking_demo.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/soderleden.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/straight_500m.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/straight_500m_plain.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/straight_500m_roadmarks.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/straight_500m_signs.xodr": {
+    "load": true,
+    "signals": {
+      "0:speed_50_0_0": "Signal",
+      "10:speed_50_6": "Signal",
+      "11:speed_50_7": "Signal",
+      "12:construction_zone_s0": "Signal",
+      "13:construction_zone_s1": "Signal",
+      "1:de_274-50": "Signal",
+      "1:speed_50_1": "Signal",
+      "20:speed_lowest_50": "Signal",
+      "21:speed_highest_70": "Signal",
+      "2:speed_30_0": "Signal",
+      "3:speed_30_1": "Signal",
+      "4:speed_50_2": "Signal",
+      "5:speed_50_3": "Signal",
+      "6:speed_50_4": "Signal",
+      "7:speed_50_5": "Signal",
+      "8:speed_30_2": "Signal",
+      "9:speed_30_3": "Signal"
+    }
+  },
+  "resources/xodr/straight_stop_sign.xodr": {
+    "load": true,
+    "signals": {
+      "10:stop": "Signal"
+    }
+  },
+  "resources/xodr/straight_yield_sign.xodr": {
+    "load": true,
+    "signals": {
+      "10:yield": "Signal"
+    }
+  },
+  "resources/xodr/striaghtAndCurves.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/tunnels.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/two_plus_one.xodr": {
+    "load": true,
+    "signals": {}
+  },
+  "resources/xodr/velodrome.xodr": {
+    "load": true,
+    "signals": {}
+  }
+}

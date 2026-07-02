@@ -15,11 +15,12 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PIDPurePursuitDriver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_TrafficPolicies.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSideModel.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
 
-unittest(${UNIT_TEST_TARGET} "${UNIT_TEST_SOURCES}" 
+unittest(${UNIT_TEST_TARGET} "${UNIT_TEST_SOURCES}"
     ${TARGET_STATIC}
     ScenarioEngine
     CommonMini
@@ -30,6 +31,27 @@ unittest(${UNIT_TEST_TARGET} "${UNIT_TEST_SOURCES}"
 target_include_directories(${UNIT_TEST_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini/include
 )
+
+# [GT_ODR] test_OdrSideModel.cpp (inside the umbrella gate binary) reads a real repo control file
+# via GT_ODR_REPO_ROOT (plan P1 miniature acceptance criterion).
+target_compile_definitions(${UNIT_TEST_TARGET} PRIVATE GT_ODR_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
+# [GT_ODR] Separate, slower ctest target: TrafficLight-classification + load-status probe over the
+# whole xodr asset universe (plan P1 / P3 audit-universe seed). Golden-diff assertion mode, with a
+# GT_ODR_PROBE_UPDATE=1 baseline-capture mode. Uses the same unittest() macro pattern; the macro's
+# executable target name IS the first argument, so definitions attach directly to it.
+set(ODR_PROBE_TARGET test_OdrAssetProbe)
+unittest(${ODR_PROBE_TARGET} "${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrAssetProbe.cpp"
+    ${TARGET_STATIC}
+    ScenarioEngine
+    CommonMini
+    RoadManager
+    ${FMT_LIBRARIES}
+)
+target_include_directories(${ODR_PROBE_TARGET} PRIVATE
+    ${CMAKE_SOURCE_DIR}/GT_esmini/include
+)
+target_compile_definitions(${ODR_PROBE_TARGET} PRIVATE GT_ODR_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 
 # PythonDriver Unit Tests (requires Python3::Python target from parent CMakeLists.txt)
 if(TARGET Python3::Python)
