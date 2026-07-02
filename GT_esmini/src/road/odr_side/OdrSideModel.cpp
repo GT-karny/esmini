@@ -55,6 +55,9 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
         bool found_include = false;
         detail::RunCoverageWalk(root, *model, found_include);
 
+        // P2: focused lane-detail pass (clusters 3+16 L1 storage; sparse on legacy assets).
+        detail::ParseLaneExtras(root, *model);
+
         // Register BEFORE returning (even on include hard-error) so diagnostics/stats are queryable.
         {
             std::lock_guard<std::mutex> lock(RegistryMutex());
@@ -75,6 +78,24 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
         Registry()[opendrive_key] = std::move(model);
     }
     return true;
+}
+
+bool BuildSideModel(const pugi::xml_document& doc, roadmanager::OpenDrive* od)
+{
+    // Same registration/audit semantics as the opaque-key overload (key = od). The fork hook
+    // `BuildSideModel(doc, this)` binds HERE by exact match -- no fork change was needed for P2.
+    const bool ok = BuildSideModel(doc, static_cast<const void*>(od));
+    if (ok && od != nullptr)
+    {
+        const OdrSideModel* m = GetSideModel(od);
+        if (m != nullptr)
+        {
+            // P2 border->width normalization through the public Lane API (plan P2; no-op when
+            // no lane authored <border> -- keeps legacy parses bit-identical).
+            detail::ApplyBorderWidths(*m, od);
+        }
+    }
+    return ok;
 }
 
 const OdrSideModel* GetSideModel(const void* opendrive_key)

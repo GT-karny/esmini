@@ -105,7 +105,7 @@ elements:
   - path: road/lanes/laneSection/center/lane
     attrs: [type, id, level]
     evidence: "4119-4234"
-    notes: "Identical handling for all three sides (single code path at 4119). @type mapped to LANE_TYPE_* (24 strings incl. mwyEntry/mwyExit aliases); unknown -> LOG_ERROR (4223) leaving LANE_TYPE_NONE. walking/curb/shared/slipLane (1.6/1.8) are NOT in the map -> silently become LANE_TYPE_NONE (plan breakage #2). @level is a STANDARD <=1.5 lane attribute present on essentially every lane (whitelisted-only, consumed: none - GT_RoadManager.cpp does not read it) and is added to the whitelist 2026-07-02 for plan P1 to keep the 1.4/1.5 control set warning-free. @direction, @advisory, @dynamicLaneDirection, @dynamicLaneType, @roadWorks (1.8 extensions) remain NOT whitelisted -> they correctly flag as [ODR-UNSUPPORTED] (cluster 3)."
+    notes: "Identical handling for all three sides (single code path at 4119). @type mapped to LANE_TYPE_* (24 strings incl. mwyEntry/mwyExit aliases + since P2 [GT_ODR:lane-types] walking->SIDEWALK / curb->CURB / shared->BIDIRECTIONAL / slipLane->CONNECTING_RAMP, fixing plan breakage #2); unknown -> LOG_ERROR (4223) leaving LANE_TYPE_NONE. @level is a STANDARD <=1.5 lane attribute present on essentially every lane (whitelisted-only, consumed: none - GT_RoadManager.cpp does not read it) and is added to the whitelist 2026-07-02 for plan P1 to keep the 1.4/1.5 control set warning-free. The 1.8 lane attributes (direction/advisory/dynamic*/roadWorks) are whitelisted on left/right lanes only (P2) - the 1.8 XSD does not accept them on center lanes, so center keeps flagging them."
   - path: road/lanes/laneSection/center/lane/height
     attrs: [sOffset, inner, outer]
     evidence: "4270-4275"
@@ -134,6 +134,10 @@ elements:
     attrs: [length, tOffset, sOffset, width, rule]
     evidence: "4530-4559"
     notes: "@rule none|caution|no passing (unknown->LOG_ERROR 4555). No @space/@color read here (repeat forced false, STANDARD color)."
+  - path: road/lanes/laneSection/center/lane/roadMark/sway
+    attrs: [ds, a, b, c, d]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1). NOTE: the P2 lane pass (ReadLaneNode) is side-agnostic, but center-lane whitelist additions are limited to the schema-legal <sway>; schema-illegal center placements of speed/access/rule/border intentionally remain [ODR-UNSUPPORTED]-flagged as a diagnostic."
   - path: road/lanes/laneSection/center/lane/roadMark/type
     attrs: [name, width]
     evidence: "4451-4456"
@@ -150,9 +154,20 @@ elements:
     evidence: "4102-4117"
     notes: "Side dispatch only (no attrs)."
   - path: road/lanes/laneSection/left/lane
-    attrs: [type, id, level]
-    evidence: "4119-4234"
-    notes: "See center/lane note (shared code path). @level whitelisted-only (standard <=1.5, consumed: none), added 2026-07-02 for plan P1."
+    attrs: [type, id, level, direction, advisory, dynamicLaneDirection, dynamicLaneType, roadWorks]
+    evidence: "4119-4234; P2 attrs: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "See center/lane note (shared code path). @level whitelisted-only (standard <=1.5, consumed: none), added 2026-07-02 for plan P1. The five 1.8 lane attributes (direction/advisory/dynamicLaneDirection/dynamicLaneType/roadWorks) are stored raw in OdrLaneExtras since P2 (cluster 3 L1; @direction L2 on the hold ledger)."
+  - path: road/lanes/laneSection/left/lane/access
+    attrs: [sOffset, rule, restriction]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1). @restriction is the <=1.5 attribute form; the 1.6+ child form is the <restriction> element below."
+  - path: road/lanes/laneSection/left/lane/access/restriction
+    attrs: [type]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+  - path: road/lanes/laneSection/left/lane/border
+    attrs: [sOffset, a, b, c, d]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode + ApplyBorderWidths"
+    notes: "Stored in OdrLaneExtras AND normalized to LaneWidth records (width = side_sign*(border_i - border_{i-1}), public Lane::AddLaneWidth; width prevails when both authored)."
   - path: road/lanes/laneSection/left/lane/height
     attrs: [sOffset, inner, outer]
     evidence: "4270-4275"
@@ -183,9 +198,21 @@ elements:
   - path: road/lanes/laneSection/left/lane/roadMark/type
     attrs: [name, width]
     evidence: "4451-4456"
+  - path: road/lanes/laneSection/left/lane/roadMark/sway
+    attrs: [ds, a, b, c, d]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1)."
   - path: road/lanes/laneSection/left/lane/roadMark/type/line
     attrs: [length, space, tOffset, sOffset, color, rule, width]
     evidence: "4459-4515, 1527-1578"
+  - path: road/lanes/laneSection/left/lane/rule
+    attrs: [sOffset, value]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1)."
+  - path: road/lanes/laneSection/left/lane/speed
+    attrs: [sOffset, max, unit]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode + GetLaneSpeedLimit"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1) and consumed as an L2 speed-limit ceiling by the VD ManeuverAwareSpeedPlanner (min with road-type speed; absent -> bit-identical legacy path)."
   - path: road/lanes/laneSection/left/lane/width
     attrs: [sOffset, a, b, c, d]
     evidence: "4259-4266"
@@ -194,9 +221,20 @@ elements:
     evidence: "4102-4117"
     notes: "Side dispatch only (no attrs)."
   - path: road/lanes/laneSection/right/lane
-    attrs: [type, id, level]
-    evidence: "4119-4234"
-    notes: "See center/lane note (shared code path). @level whitelisted-only (standard <=1.5, consumed: none), added 2026-07-02 for plan P1."
+    attrs: [type, id, level, direction, advisory, dynamicLaneDirection, dynamicLaneType, roadWorks]
+    evidence: "4119-4234; P2 attrs: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "See center/lane note (shared code path). @level whitelisted-only (standard <=1.5, consumed: none), added 2026-07-02 for plan P1. The five 1.8 lane attributes are stored raw in OdrLaneExtras since P2 (cluster 3 L1; @direction L2 on the hold ledger)."
+  - path: road/lanes/laneSection/right/lane/access
+    attrs: [sOffset, rule, restriction]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1). @restriction is the <=1.5 attribute form; the 1.6+ child form is the <restriction> element below."
+  - path: road/lanes/laneSection/right/lane/access/restriction
+    attrs: [type]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+  - path: road/lanes/laneSection/right/lane/border
+    attrs: [sOffset, a, b, c, d]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode + ApplyBorderWidths"
+    notes: "Stored in OdrLaneExtras AND normalized to LaneWidth records (width = side_sign*(border_i - border_{i-1}), public Lane::AddLaneWidth; width prevails when both authored)."
   - path: road/lanes/laneSection/right/lane/height
     attrs: [sOffset, inner, outer]
     evidence: "4270-4275"
@@ -227,9 +265,21 @@ elements:
   - path: road/lanes/laneSection/right/lane/roadMark/type
     attrs: [name, width]
     evidence: "4451-4456"
+  - path: road/lanes/laneSection/right/lane/roadMark/sway
+    attrs: [ds, a, b, c, d]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1)."
   - path: road/lanes/laneSection/right/lane/roadMark/type/line
     attrs: [length, space, tOffset, sOffset, color, rule, width]
     evidence: "4459-4515, 1527-1578"
+  - path: road/lanes/laneSection/right/lane/rule
+    attrs: [sOffset, value]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1)."
+  - path: road/lanes/laneSection/right/lane/speed
+    attrs: [sOffset, max, unit]
+    evidence: "P2: odr_side/OdrLaneExtras.cpp ReadLaneNode + GetLaneSpeedLimit"
+    notes: "Stored in OdrLaneExtras (cluster 16 L1) and consumed as an L2 speed-limit ceiling by the VD ManeuverAwareSpeedPlanner (min with road-type speed; absent -> bit-identical legacy path)."
   - path: road/lanes/laneSection/right/lane/width
     attrs: [sOffset, a, b, c, d]
     evidence: "4259-4266"

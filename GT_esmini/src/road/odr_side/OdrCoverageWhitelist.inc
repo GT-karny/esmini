@@ -8,7 +8,7 @@
 // comma-separated set of attributes the parser reads on that element; an empty
 // string means 'no attributes read' (container or attribute-less element).
 //
-// Counts: 88 element paths, 289 (path,attr) pairs.
+// Counts: 101 element paths, 342 (path,attr) pairs.
 
 // clang-format off
 static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
@@ -38,11 +38,15 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/lanes/laneSection/center/lane/roadMark", "color,height,laneChange,material,sOffset,type,weight,width"},
     {"road/lanes/laneSection/center/lane/roadMark/explicit", ""},
     {"road/lanes/laneSection/center/lane/roadMark/explicit/line", "length,rule,sOffset,tOffset,width"},
+    {"road/lanes/laneSection/center/lane/roadMark/sway", "a,b,c,d,ds"},
     {"road/lanes/laneSection/center/lane/roadMark/type", "name,width"},
     {"road/lanes/laneSection/center/lane/roadMark/type/line", "color,length,rule,sOffset,space,tOffset,width"},
     {"road/lanes/laneSection/center/lane/width", "a,b,c,d,sOffset"},
     {"road/lanes/laneSection/left", ""},
-    {"road/lanes/laneSection/left/lane", "id,level,type"},
+    {"road/lanes/laneSection/left/lane", "advisory,direction,dynamicLaneDirection,dynamicLaneType,id,level,roadWorks,type"},
+    {"road/lanes/laneSection/left/lane/access", "restriction,rule,sOffset"},
+    {"road/lanes/laneSection/left/lane/access/restriction", "type"},
+    {"road/lanes/laneSection/left/lane/border", "a,b,c,d,sOffset"},
     {"road/lanes/laneSection/left/lane/height", "inner,outer,sOffset"},
     {"road/lanes/laneSection/left/lane/link", ""},
     {"road/lanes/laneSection/left/lane/link/predecessor", "id"},
@@ -51,11 +55,17 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/lanes/laneSection/left/lane/roadMark", "color,height,laneChange,material,sOffset,type,weight,width"},
     {"road/lanes/laneSection/left/lane/roadMark/explicit", ""},
     {"road/lanes/laneSection/left/lane/roadMark/explicit/line", "length,rule,sOffset,tOffset,width"},
+    {"road/lanes/laneSection/left/lane/roadMark/sway", "a,b,c,d,ds"},
     {"road/lanes/laneSection/left/lane/roadMark/type", "name,width"},
     {"road/lanes/laneSection/left/lane/roadMark/type/line", "color,length,rule,sOffset,space,tOffset,width"},
+    {"road/lanes/laneSection/left/lane/rule", "sOffset,value"},
+    {"road/lanes/laneSection/left/lane/speed", "max,sOffset,unit"},
     {"road/lanes/laneSection/left/lane/width", "a,b,c,d,sOffset"},
     {"road/lanes/laneSection/right", ""},
-    {"road/lanes/laneSection/right/lane", "id,level,type"},
+    {"road/lanes/laneSection/right/lane", "advisory,direction,dynamicLaneDirection,dynamicLaneType,id,level,roadWorks,type"},
+    {"road/lanes/laneSection/right/lane/access", "restriction,rule,sOffset"},
+    {"road/lanes/laneSection/right/lane/access/restriction", "type"},
+    {"road/lanes/laneSection/right/lane/border", "a,b,c,d,sOffset"},
     {"road/lanes/laneSection/right/lane/height", "inner,outer,sOffset"},
     {"road/lanes/laneSection/right/lane/link", ""},
     {"road/lanes/laneSection/right/lane/link/predecessor", "id"},
@@ -64,8 +74,11 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/lanes/laneSection/right/lane/roadMark", "color,height,laneChange,material,sOffset,type,weight,width"},
     {"road/lanes/laneSection/right/lane/roadMark/explicit", ""},
     {"road/lanes/laneSection/right/lane/roadMark/explicit/line", "length,rule,sOffset,tOffset,width"},
+    {"road/lanes/laneSection/right/lane/roadMark/sway", "a,b,c,d,ds"},
     {"road/lanes/laneSection/right/lane/roadMark/type", "name,width"},
     {"road/lanes/laneSection/right/lane/roadMark/type/line", "color,length,rule,sOffset,space,tOffset,width"},
+    {"road/lanes/laneSection/right/lane/rule", "sOffset,value"},
+    {"road/lanes/laneSection/right/lane/speed", "max,sOffset,unit"},
     {"road/lanes/laneSection/right/lane/width", "a,b,c,d,sOffset"},
     {"road/lanes/laneSection/userData", ""},
     {"road/lateralProfile", ""},

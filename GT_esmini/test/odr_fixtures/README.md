@@ -39,7 +39,10 @@ DriverScript/.venv/Scripts/python.exe scripts/run_odr_conformance.py \
   to a file -- the DLL floods stdout and some files crash) -> deterministic extract (roads / lane
   samples / position probe / signs, floats rounded to 1e-6) compared with `golden/rm/<slug>.json`
   (abs tol 1e-6 on floats, exact otherwise).
-- **Layer 3 (osi, profile `full`)**: control_set only. A minimal probe `.xosc` (Ego teleported to
+- **Layer 3 (osi, profile `full`)**: control_set + fixtures opted in via manifest `osi: true`
+  (since P2: `13_lane_types_16_18`; a fixture may additionally set `osi_expect_no_unknown: true`
+  to turn any `TYPE_UNKNOWN` lane classification into a FAIL -- plan P2 acceptance (i)).
+  A minimal probe `.xosc` (Ego teleported to
   road[0] midpoint) drives `GT_esminiLib` `SE_Init`/`SE_StepDT(0.05)`/`SE_GetOSIGroundTruth`; the
   serialized `osi3::GroundTruth` is decoded with esmini's own `scripts/osi3` bindings and reduced to a
   deterministic lane/boundary/object/sign/light summary compared with `golden/osi/<slug>.json`.
@@ -127,7 +130,9 @@ When the ASAM source zips are (legitimately) updated:
 
 ## P0 baseline (frozen in `manifest.yaml` + `golden/`)
 
-`manifest.yaml` = **31 control_set** (26 `resources/xodr/*.xodr` + 5 `resources/scenario_authoring/road_catalog/generated/*.xodr`) + **60 fixtures** (36 official + 18 handauthored + 6 generated). `run_odr_conformance.py --profile full` is green: schema 80 PASS / 11 XFAIL, rm 88 PASS / 3 XFAIL, osi 31 PASS (0 FAIL / 0 XPASS). Goldens: 88 RM + 31 OSI, byte-stable across a double generation.
+`manifest.yaml` = **31 control_set** (26 `resources/xodr/*.xodr` + 5 `resources/scenario_authoring/road_catalog/generated/*.xodr`) + **60 fixtures** (36 official + 18 handauthored + 6 generated). `run_odr_conformance.py --profile full` is green: schema 80 PASS / 11 XFAIL, rm 88 PASS / 3 XFAIL, osi 32 PASS (31 control + fixture 13 opt-in; 0 FAIL / 0 XPASS). Goldens: 88 RM + 32 OSI.
+
+P2 (2026-07-03) intentionally regenerated 15 RM goldens (lane-type NONE->SIDEWALK/CURB/BIDIRECTIONAL/CONNECTING_RAMP flips in fixtures using walking/curb/shared/slipLane + the Ex_Lane-Border border->width normalization) and added the fixture-13 OSI golden; every control_set golden stayed byte-identical (legacy invariance proof).
 
 The frozen known-broken baselines (XFAIL) are:
 

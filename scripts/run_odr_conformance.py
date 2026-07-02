@@ -87,7 +87,7 @@ PROBE_TIMEOUT = 60  # seconds per isolated probe
 
 # Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
 # per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
-FORK_ODR_EXPECT_LINES = 16
+FORK_ODR_EXPECT_LINES = 21  # P2: +5 [GT_ODR:lane-types] (see gt_roadmanager_patches.md)
 FORK_LINE_BUDGET = 150
 
 # Status tags.
@@ -634,8 +634,15 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
             continue
         extract = {k: v for k, v in res.items() if not k.startswith("_") and k != "init_ok"}
         status, gstat = _golden_compare("osi", p, extract, update, "pass", "pass")
+        detail = ""
+        # P2 acceptance (i): opt-in zero-TYPE_UNKNOWN lane classification check.
+        if e.get("osi_expect_no_unknown"):
+            unknown = [l["id"] for l in extract.get("lanes", []) if l.get("type") == 0]
+            if unknown:
+                status = FAIL
+                detail = f"osi_expect_no_unknown: TYPE_UNKNOWN lanes {unknown}"
         rows.append({**e, "layer": "osi", "observed": "ok", "status": status,
-                     "golden": gstat, "detail": "", "markers": markers})
+                     "golden": gstat, "detail": detail, "markers": markers})
     return rows
 
 
@@ -1000,6 +1007,10 @@ def _assemble(manifest: dict, only: str):
             "requires": fx.get("requires") or [],
             "expected_unsupported": fx.get("expected_unsupported"),
             "expected_unsupported_entries": fx.get("expected_unsupported_entries"),
+            # P2: fixtures may opt into the OSI layer (manifest `osi: true`); optionally with the
+            # zero-TYPE_UNKNOWN lane-classification acceptance check (`osi_expect_no_unknown: true`).
+            "osi": bool(fx.get("osi")),
+            "osi_expect_no_unknown": bool(fx.get("osi_expect_no_unknown")),
         })
     if only:
         control = [e for e in control if only in e["id"] or only in e["path"]]
@@ -1071,7 +1082,7 @@ def main(argv=None) -> int:
         rm_rows = layer_rm(list(control) + list(fixtures), args.rmdll, args.update_golden)
         layers["rm"] = rm_rows
 
-    # --- Layer 3: osi (control_set ONLY, profile full) ---
+    # --- Layer 3: osi (control_set + manifest `osi: true` fixtures, profile full) ---
     if "osi" in active_layers:
         osi_py = detect_osi_interpreter()
         if osi_py is None:
@@ -1080,7 +1091,8 @@ def main(argv=None) -> int:
                   "Install osi3 or use the web venv to enable layer 3.", file=sys.stderr)
         else:
             print(f"\nOSI worker interpreter: {_rel(osi_py)}")
-            osi_rows = layer_osi(control, args.dll, args.update_golden, osi_py, args.rmdll)
+            osi_entries = list(control) + [f for f in fixtures if f.get("osi")]
+            osi_rows = layer_osi(osi_entries, args.dll, args.update_golden, osi_py, args.rmdll)
             layers["osi"] = osi_rows
 
     # --- Matrix ---

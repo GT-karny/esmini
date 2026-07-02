@@ -43,6 +43,18 @@ bool IsRemovedIn16(const std::string& path);
 // turns that into a hard error / false return). rev_minor drives removed-in-1.6 classification.
 void RunCoverageWalk(const pugi::xml_node& root, OdrSideModel& model, bool& found_include);
 
+// ---- OdrLaneExtras.cpp (plan P2) ----
+
+// Focused second pass over road/lanes/laneSection/{left,center,right}/lane, filling
+// model.lane_extras (sparse: one entry per lane carrying at least one P2 datum).
+void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model);
+
+// Border->width normalization: for every lane in `model` that authored <border> elements and
+// whose runtime Lane has zero LaneWidth records, synthesize width polynomials
+// width = side_sign * (border_outer - border_inner) (piecewise cubic algebra) and inject them
+// through the public Lane::AddLaneWidth API. Called only from the typed BuildSideModel overload.
+void ApplyBorderWidths(const OdrSideModel& model, roadmanager::OpenDrive* od);
+
 }  // namespace detail
 }  // namespace odr
 }  // namespace gt_esmini

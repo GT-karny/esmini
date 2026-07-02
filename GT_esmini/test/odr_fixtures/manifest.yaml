@@ -191,14 +191,20 @@ fixtures:
   features:
   - road/lanes/laneSection/left/lane@type
   - road/lanes/laneSection/right/lane@type
-  expected_unsupported_entries: []  # audit predicts ZERO entries
+  expected_unsupported_entries: []  # audit predicts ZERO entries (lane@type VALUES are not audited)
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
+  # P2 (2026-07-03): opt this fixture into the OSI layer (acceptance i: walking/curb OSI golden with
+  # zero TYPE_UNKNOWN). The RM golden flips lane types NONE->SIDEWALK/CURB/BIDIRECTIONAL/CONNECTING_RAMP
+  # in the P2 golden-update commit.
+  osi: true
+  osi_expect_no_unknown: true
   notes: >-
-    P2 cluster 3 lane types. Tokens: walking(1.8)/shared(1.8)/slipLane(1.8) currently-unparsed -> LOG_ERROR
-    'unknown lane type' but load continues (observed for curb/walking/slipLane/shared). curb existed since
-    1.5 but the parse string is dead (enum+OSI mapping present, no Str2Type entry). sidewalk(<=1.5) +
-    driving(<=1.4) are the passing controls.
+    P2 cluster 3 lane types. Since [GT_ODR:lane-types]: walking->LANE_TYPE_SIDEWALK, curb->LANE_TYPE_CURB
+    (revives the dead hpp:903 enum + existing OSI NONDRIVING/BORDER mapping), shared->LANE_TYPE_BIDIRECTIONAL,
+    slipLane->LANE_TYPE_CONNECTING_RAMP (nearest-enum rationale in gt_roadmanager_patches.md). The
+    'unknown lane type' LOG_ERROR no longer fires for these tokens; exact source strings are kept in
+    OdrLaneExtras. sidewalk(<=1.5) + driving(<=1.4) are the passing controls.
 - id: 14_crg_offsets_19
   path: GT_esmini/test/odr_fixtures/handauthored/14_crg_offsets_19.xodr
   source: handauthored
@@ -245,13 +251,14 @@ fixtures:
   - road/lanes/laneSection/center/lane/roadMark/sway@b
   - road/lanes/laneSection/center/lane/roadMark/sway@c
   - road/lanes/laneSection/center/lane/roadMark/sway@d
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection/center/lane/roadMark/sway|ctx=1'
+  # P2 flip (2026-07-03): roadMark <sway> is now whitelisted and stored in OdrLaneExtras (cluster 16 L1)
+  # -> the audit must emit ZERO entries for this fixture.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
     P2 cluster 16 lane detail sway. LOWEST rev with <sway> is 1.5 (new in 1.5M) -> filename suffix _15.
-    Currently unparsed; loads today, sway dropped.
+    Stored in OdrLaneExtras since P2 (was: loads, sway dropped).
 - id: 16_include_error_15
   path: GT_esmini/test/odr_fixtures/handauthored/16_include_error_15.xodr
   source: handauthored
@@ -600,21 +607,16 @@ fixtures:
   - road/lanes/laneSection/right/lane@roadWorks
   - road/lanes/laneSection/left/lane@type=stop
   - road/lanes/laneSection/right/lane@type=roadWorks
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection/left/lane@advisory|ctx=1'
-  - 'road/lanes/laneSection/left/lane@direction|ctx=1'
-  - 'road/lanes/laneSection/left/lane@dynamicLaneDirection|ctx=1'
-  - 'road/lanes/laneSection/left/lane@dynamicLaneType|ctx=1'
-  - 'road/lanes/laneSection/right/lane@advisory|ctx=1'
-  - 'road/lanes/laneSection/right/lane@direction|ctx=1'
-  - 'road/lanes/laneSection/right/lane@roadWorks|ctx=1'
+  # P2 flip (2026-07-03): the five 1.8 lane attributes are now whitelisted (parser_coverage.yaml)
+  # and stored in OdrLaneExtras (L1) -> the audit must emit ZERO entries for this fixture.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
     Consumed by P2 (lane attributes L1 storage; @direction L2 is on the hold ledger, cluster 3). All five
     1.8 lane attributes (direction, advisory, dynamicLaneDirection, dynamicLaneType, roadWorks) are left/right-lane
-    only - the center lane (t_road_lanes_laneSection_center_lane) does NOT accept them. Silently ignored
-    today.
+    only - the center lane (t_road_lanes_laneSection_center_lane) does NOT accept them. Stored in
+    OdrLaneExtras since P2 (was: silently ignored).
 - id: lane_rule_speed_access_15
   path: GT_esmini/test/odr_fixtures/handauthored/08_lane_rule_speed_access_15.xodr
   source: handauthored
@@ -638,19 +640,16 @@ fixtures:
   - road/lanes/laneSection/right/lane/access@rule
   - road/lanes/laneSection/right/lane/access@restriction
   - road/lanes/laneSection/right/lane/rule@value
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection/left/lane/access|ctx=1'
-  - 'road/lanes/laneSection/left/lane/rule|ctx=1'
-  - 'road/lanes/laneSection/left/lane/speed|ctx=1'
-  - 'road/lanes/laneSection/right/lane/access|ctx=1'
-  - 'road/lanes/laneSection/right/lane/rule|ctx=1'
-  - 'road/lanes/laneSection/right/lane/speed|ctx=1'
+  # P2 flip (2026-07-03): lane access/rule/speed (+ access/restriction child) are now whitelisted
+  # and stored in OdrLaneExtras (cluster 16 L1) -> the audit must emit ZERO entries for this fixture.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    Consumed by P2 (lane access/rule/speed L1; lane <speed> -> LonProfilePlanner L2, cluster 16). 1.5
+    Consumed by P2 (lane access/rule/speed L1; lane <speed> -> VD speed-limit ceiling L2, cluster 16). 1.5
     access requires BOTH @rule (allow/deny) AND @restriction. Lane child order enforced: link, width,
-    ..., speed, access, height, rule.
+    ..., speed, access, height, rule. This file doubles as the acceptance-(iii) lane-speed hand-authored
+    fixture: its RM golden freezes that lane <speed> parsing does not disturb geometry/load.
 - id: license_default_regulations_18
   path: GT_esmini/test/odr_fixtures/handauthored/07_license_default_regulations_18.xodr
   source: handauthored
