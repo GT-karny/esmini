@@ -1,0 +1,24 @@
+catalog_id: 09_crosswalk_pedestrian__p020
+kind: scenario
+road_ref: straight_crosswalk_pedsig__mid
+phase: 3d-crosswalk
+tests_for: crossing ped at a GREEN pedestrian signal — ego must yield (stop)
+expected_behavior: GREEN pedestrian signal and the pedestrian is crossing; stop before
+  the crosswalk and yield.
+evaluation: annotation
+policies:
+- crosswalk
+generator:
+  script: scenario_templates/gen_09_crosswalk_pedestrian.py
+  params:
+    kind: green_crossing
+    ego_speed: 13.9
+    ego_arrival_s: 10.791
+    crosswalk_s: 250.0
+    direction: from_left
+    ped_speed: 1.4
+    timing_offset: conflict
+    release_t: 6.327
+    ped_signal: green
+    ped_signal_state: off;on
+generated_at_commit: 2bb7b898

@@ -1,0 +1,23 @@
+catalog_id: 09_crosswalk_pedestrian__p011
+kind: scenario
+road_ref: straight_crosswalk__mid
+phase: 3d-crosswalk
+tests_for: crosswalk yield to a pedestrian crossing at 2 m/s from_right with conflict
+  timing (ped mid-ego-lane at ego arrival)
+expected_behavior: Decelerate smoothly and stop (or deep-crawl) before the crosswalk,
+  let the pedestrian clear the path, then resume without chatter.
+evaluation: annotation
+policies:
+- crosswalk
+generator:
+  script: scenario_templates/gen_09_crosswalk_pedestrian.py
+  params:
+    kind: crossing
+    ego_speed: 13.9
+    ego_arrival_s: 10.791
+    crosswalk_s: 250.0
+    direction: from_right
+    ped_speed: 2.0
+    timing_offset: conflict
+    release_t: 9.416
+generated_at_commit: 2bb7b898

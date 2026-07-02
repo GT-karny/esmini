@@ -1,0 +1,23 @@
+scenario: 09_crosswalk_pedestrian__p017
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) — THE ped-signal DISCRIMINATOR.
+# Road B (straight_crosswalk_pedsig__mid): dynamic 1000002 ped-signal (xodr id
+# 10, orientation "-", no driving-lane validity) held RED by a single long
+# TrafficSignalController phase (state "on;off" = red lamp constant — verified
+# via OSI: lamp entity 8 red/constant, 9 green/off). A ped WAITS at the crosswalk
+# edge but is held by the red, so with crosswalk_ped_signal_aware the WAITING
+# yield must be suppressed: the ego must NOT stop (measured min speed 13.90 in
+# the window — identical to the no-ped control). Stopping here is the
+# false-positive this variant exists to catch (contrast p013: same waiting ped,
+# no signal -> full stop-and-hold; p019: GREEN -> stop).
+must:
+  - event: min_speed_above
+    threshold: 10.0
+    after: { sim_time: 8.0 }
+    before: { sim_time: 13.0 }
+    reason: "赤歩行者信号で待機中の歩行者には譲らない（実測 窓内min13.90=歩行者不在対照p015と同一プロファイル）。ここで停止するとp013(無信号待機=停止)との弁別に失敗"
+  - event: min_obb_separation_above
+    threshold: 0.3
+    after: { sim_time: 6.0 }
+    before: { sim_time: 13.0 }
+    reason: "歩行者は歩道上で待機のまま（実測 最小分離4.89m@t10.60 — 存在するが進路に入らない）。信号で保持されている歩行者の存在確認を兼ねる"

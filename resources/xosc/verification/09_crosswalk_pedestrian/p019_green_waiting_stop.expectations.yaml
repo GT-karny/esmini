@@ -1,0 +1,20 @@
+scenario: 09_crosswalk_pedestrian__p019
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) — GREEN ped-signal + waiting ped -> ego must yield.
+# Road B, ped-signal held GREEN (state "off;on" = green lamp constant, verified
+# via OSI). The waiting ped is entitled to cross, so the WAITING rule stays
+# active: full stop and hold, exactly like the unsignalized p013 (measured
+# v=0.00 @t15.45, held 0.00 through the run end; ped never actually crosses, so
+# no resume is asserted). Discriminates the signal POLARITY against p017 (RED,
+# same ped, same road -> no stop).
+must:
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 16.0 }
+    before: { sim_time: 30.0 }
+    reason: "青歩行者信号の待機歩行者に譲り停止保持（実測 窓内max0.00, 停止到達t15.45）。p017(赤=不停止)との信号極性弁別"
+  - event: min_obb_separation_above
+    threshold: 0.3
+    after: { sim_time: 6.0 }
+    before: { sim_time: 30.0 }
+    reason: "衝突回避ゲート(OBB): 待機歩行者との最小分離 実測4.89m（歩道上に静止）"

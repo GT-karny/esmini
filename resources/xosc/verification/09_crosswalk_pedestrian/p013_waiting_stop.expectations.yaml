@@ -1,0 +1,20 @@
+scenario: 09_crosswalk_pedestrian__p013
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) WAITING-STOP case — CrosswalkPedestrianAware, unsignalized.
+# Ped stands at the crosswalk edge (left sidewalk centre |t|=4.5, 0.5 m outside
+# the footprint t-edge, inside crosswalk_wait_margin 2.0), never released. With
+# crosswalk_yield_to_waiting (JP default) the ego must stop and hold: measured
+# v=0.00 @t15.45, held 0.00 through the end of the run (the ped never crosses, so
+# no resume is asserted). No ped-signal on this road — the waiting rule is active.
+# Windows/thresholds from the policy-ON measurement run (2026-07-02).
+must:
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 16.0 }
+    before: { sim_time: 30.0 }
+    reason: "待機歩行者への譲り停止保持（実測 窓内max0.00, 停止到達t15.45から保持）。歩行者は渡らないため復帰は要求しない。OFFでは巡航13.9で通過"
+  - event: min_obb_separation_above
+    threshold: 0.3
+    after: { sim_time: 6.0 }
+    before: { sim_time: 30.0 }
+    reason: "衝突回避ゲート(OBB): 待機歩行者との最小分離 実測4.89m（歩道上に静止、接近しない）"

@@ -329,3 +329,92 @@ def write_scenario(scenario: xosc.Scenario, xosc_path: Path) -> None:
     """
     scenario.write_xml(str(xosc_path))
     normalize_header_date(xosc_path, PINNED_XOSC_DATE.strftime("%Y-%m-%dT%H:%M:%S"))
+
+
+# ---------------------------------------------------------------------------
+# Pedestrian helpers (scenario set 09 — crosswalk; F2 Phase 3d extension)
+# ---------------------------------------------------------------------------
+
+def make_pedestrian(name: str = "pedestrian_adult") -> xosc.Pedestrian:
+    """Return an INLINE Pedestrian entity matching the upstream
+    PedestrianCatalog pedestrian_adult (mass 80, model EPTa, BB 0.6 long x
+    0.5 wide x 1.8 high, center (0.06, 0, 0.923)).
+
+    Inline — not a CatalogReference — so generated scenarios carry no catalog
+    directory resolution dependency (they live outside resources/xosc and are
+    copied around by the policy-injection harness). The REAL bounding-box dims
+    matter: the OSI OBB anti-collision matcher (min_obb_separation_above in
+    gt_sim_test) downgrades pass->skip when an object reports no real extents
+    (4.0x2.0 fallback), which would gut the crosswalk anti-collision gate.
+    Verified: OSI reports length 0.6 / width 0.5 / type 'pedestrian' for this
+    entity. model_id 7 = walkman.osgb (resources/model_ids.txt) so the viewer
+    shows the standard walking figure.
+    """
+    bb = xosc.BoundingBox(0.5, 0.6, 1.8, 0.06, 0.0, 0.923)
+    ped = xosc.Pedestrian(
+        name, 80.0, xosc.PedestrianCategory.pedestrian, bb, model="EPTa"
+    )
+    ped.add_property("model_id", "7")
+    ped.add_property("scaleMode", "BBToModel")
+    return ped
+
+
+def make_crossing_trajectory(
+    name: str, road_id: int, s: float, from_lane: int, to_lane: int
+) -> xosc.Trajectory:
+    """A 2-vertex straight polyline crossing the road laterally at fixed *s*.
+
+    The vertices deliberately carry NO Orientation element. esmini resolves an
+    explicit relative vertex heading against the LANE driving direction (left
+    lanes point -s), which flips the trajectory's explicit H away from the
+    crossing direction; FollowTrajectoryAction::Start then computes
+    initialHeadingSign_ = -1, the trajectory s immediately runs below 0 and the
+    action ends on the first step (the ped reverts to default lane-follow and
+    walks ALONG the road — verified empirically). With no explicit orientation
+    esmini auto-aligns the entity heading with the trajectory tangent
+    (OSCPrivateAction.cpp Start(), heading-not-specified branch) and the ped
+    walks straight across at its current speed.
+    """
+    v0 = xosc.LanePosition(s, 0.0, str(from_lane), str(road_id))
+    v1 = xosc.LanePosition(s, 0.0, str(to_lane), str(road_id))
+    traj = xosc.Trajectory(name, closed=False)
+    traj.add_shape(xosc.Polyline([], [v0, v1]))
+    return traj
+
+
+def make_ped_crossing_act(
+    act_name: str,
+    actor: str,
+    release_t: float,
+    walk_speed: float,
+    trajectory: xosc.Trajectory,
+) -> xosc.Act:
+    """Story Act that releases a pedestrian crossing at *release_t*.
+
+    One Event with two actions (upstream pedestrian.xosc pattern):
+      * AbsoluteSpeedAction (step) to *walk_speed*, and
+      * FollowTrajectoryAction (followingMode=follow, TimeReference None) along
+        *trajectory* (from make_crossing_trajectory).
+    The ped is teleported AT REST in Init (speed 0) and starts walking when
+    SimulationTime exceeds release_t — the same deterministic release-time
+    launch model make_launch_act uses for NPC vehicles. After the trajectory is
+    exhausted esmini reverts the ped to default lane-follow on the destination
+    sidewalk (it keeps walking along it), which is plausible background motion.
+    """
+    act = xosc.Act(act_name, sim_time_trigger(f"{act_name}_start", 0.0))
+    mg = xosc.ManeuverGroup(f"{actor}_mg")
+    mg.add_actor(actor)
+    man = xosc.Maneuver(f"{actor}_walk")
+    ev = xosc.Event(f"{actor}_go", xosc.Priority.overwrite)
+    ev.add_action(
+        f"{actor}_speed", xosc.AbsoluteSpeedAction(walk_speed, step_dynamics())
+    )
+    ev.add_action(
+        f"{actor}_traj",
+        xosc.FollowTrajectoryAction(trajectory, xosc.FollowingMode.follow),
+    )
+    ev.add_trigger(sim_time_trigger(f"{actor}_trig", release_t))
+    man.add_event(ev)
+    mg.add_maneuver(man)
+    act.add_maneuver_group(mg)
+    return act

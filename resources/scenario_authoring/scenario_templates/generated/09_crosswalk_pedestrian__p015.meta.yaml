@@ -1,0 +1,18 @@
+catalog_id: 09_crosswalk_pedestrian__p015
+kind: scenario
+road_ref: straight_crosswalk__mid
+phase: 3d-crosswalk
+tests_for: 'negative control: empty crosswalk must not slow the ego'
+expected_behavior: Maintain cruise speed through the empty crosswalk; no unnecessary
+  braking or stop.
+evaluation: annotation
+policies:
+- crosswalk
+generator:
+  script: scenario_templates/gen_09_crosswalk_pedestrian.py
+  params:
+    kind: no_ped
+    ego_speed: 13.9
+    ego_arrival_s: 10.791
+    crosswalk_s: 250.0
+generated_at_commit: 2bb7b898

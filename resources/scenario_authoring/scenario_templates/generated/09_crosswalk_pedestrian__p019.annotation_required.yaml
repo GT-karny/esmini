@@ -1,0 +1,11 @@
+catalog_id: 09_crosswalk_pedestrian__p019
+labels:
+- id: yielded_to_waiting_ped
+  question: 横断歩道の歩行者（横断中／待機中）への譲りは適切か？（信号赤で待機中の歩行者には譲らないのが正解）
+  type: pass_fail_discussion
+- id: no_unnecessary_stop
+  question: 不要な停止・過剰な減速がないか？（歩行者不在／横断済み／赤信号待機の場面で巡航を維持できているか）
+  type: pass_fail_discussion
+- id: smooth_stop_no_chatter
+  question: 停止・再発進は滑らかか？（急減速・チャタリング・ブレーキ点滅がないか）
+  type: pass_fail_discussion

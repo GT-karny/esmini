@@ -1,0 +1,25 @@
+catalog_id: 09_crosswalk_pedestrian__p018
+kind: scenario
+road_ref: straight_crosswalk_pedsig__mid
+phase: 3d-crosswalk
+tests_for: 'safety over signal: ped crosses AGAINST the red pedestrian signal — ego
+  must still stop'
+expected_behavior: 'The pedestrian violates the red — safety wins over signal state:
+  stop before the crosswalk and yield.'
+evaluation: annotation
+policies:
+- crosswalk
+generator:
+  script: scenario_templates/gen_09_crosswalk_pedestrian.py
+  params:
+    kind: red_jaywalk
+    ego_speed: 13.9
+    ego_arrival_s: 10.791
+    crosswalk_s: 250.0
+    direction: from_left
+    ped_speed: 1.4
+    timing_offset: conflict
+    release_t: 6.327
+    ped_signal: red
+    ped_signal_state: on;off
+generated_at_commit: 2bb7b898

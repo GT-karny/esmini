@@ -1,0 +1,23 @@
+catalog_id: 09_crosswalk_pedestrian__p016
+kind: scenario
+road_ref: straight_crosswalk__mid
+phase: 3d-crosswalk
+tests_for: 'negative control: pedestrian released early fully clears the road well
+  before ego arrival — no stop'
+expected_behavior: Pedestrian has fully cleared the roadway before arrival; maintain
+  cruise speed, no unnecessary stop.
+evaluation: annotation
+policies:
+- crosswalk
+generator:
+  script: scenario_templates/gen_09_crosswalk_pedestrian.py
+  params:
+    kind: already_crossed
+    ego_speed: 13.9
+    ego_arrival_s: 10.791
+    crosswalk_s: 250.0
+    direction: from_left
+    ped_speed: 1.4
+    timing_offset: early
+    release_t: 1.0
+generated_at_commit: 2bb7b898
