@@ -11,7 +11,7 @@ LAYERS
   2. rm       -- isolated esminiRMLib RM_Init probes -> a deterministic JSON extract
                  (roads/lanes/positions/signs, floats rounded to 1e-6) compared with
                  golden/rm/<slug>.json (abs tol 1e-6 on floats, exact otherwise).
-  3. osi      -- (profile full) isolated GT_esminiLib SE_Init/SE_StepDT/
+  3. osi      -- (profile full) control_set + fixtures flagged `osi: true`; isolated GT_esminiLib SE_Init/SE_StepDT/
                  SE_GetOSIGroundTruth probes decoded with esmini's own osi3 bindings
                  -> deterministic JSON extract compared with golden/osi/<slug>.json.
 
@@ -87,7 +87,7 @@ PROBE_TIMEOUT = 60  # seconds per isolated probe
 
 # Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
 # per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
-FORK_ODR_EXPECT_LINES = 21  # P2: +5 [GT_ODR:lane-types] (see gt_roadmanager_patches.md)
+FORK_ODR_EXPECT_LINES = 30  # P2 21 + P3 [GT_ODR:tl-gate] 9 (see gt_roadmanager_patches.md)
 FORK_LINE_BUDGET = 150
 
 # Status tags.
@@ -595,7 +595,9 @@ def detect_osi_interpreter() -> str | None:
 
 
 def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) -> list:
-    """OSI layer runs on control_set only. Needs a fresh RM probe for the teleport pose."""
+    """OSI layer: control_set + fixtures flagged `osi: true` in the manifest (P3: fixture-scoped
+    OSI observables, e.g. traffic_light presence for the demote fixture). Needs a fresh RM probe
+    for the teleport pose."""
     rows = []
     for e in entries:
         p = e["path"]
@@ -1007,7 +1009,7 @@ def _assemble(manifest: dict, only: str):
             "requires": fx.get("requires") or [],
             "expected_unsupported": fx.get("expected_unsupported"),
             "expected_unsupported_entries": fx.get("expected_unsupported_entries"),
-            # P2: fixtures may opt into the OSI layer (manifest `osi: true`); optionally with the
+            # P2/P3: fixtures may opt into the OSI layer (manifest `osi: true`); optionally with the
             # zero-TYPE_UNKNOWN lane-classification acceptance check (`osi_expect_no_unknown: true`).
             "osi": bool(fx.get("osi")),
             "osi_expect_no_unknown": bool(fx.get("osi_expect_no_unknown")),

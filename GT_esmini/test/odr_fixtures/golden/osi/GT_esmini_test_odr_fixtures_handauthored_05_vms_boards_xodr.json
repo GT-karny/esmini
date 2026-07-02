@@ -1,0 +1,29 @@
+{
+ "lane_boundary_count": 3,
+ "lane_count": 2,
+ "lanes": [
+  {
+   "centerline_points": 4,
+   "id": 0,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 3,
+   "subtype": 2,
+   "type": 2
+  }
+ ],
+ "stationary_objects": {
+  "count": 0,
+  "types": {}
+ },
+ "traffic_light_count": 3,
+ "traffic_light_ids": [
+  4,
+  5,
+  6
+ ],
+ "traffic_sign_count": 0
+}

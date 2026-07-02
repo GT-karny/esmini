@@ -471,6 +471,11 @@ void TrafficLight::SetTrafficLightInfo()
     else
     {
         light_type_ = TrafficLightType::TYPE_UNDEFINED;
+        // [GT_ODR:tl-gate] unsupported type combo: 0 lamps. nr_lamps_ has no default initializer (hpp is
+        // pristine upstream), so it was GARBAGE here -- GetNrLamps() consumers (OSI reporter, VD policies)
+        // then throw via lamps_.at() across the C API. Latent upstream bug, exposed once ANY dynamic
+        // signal becomes a TrafficLight (P3). Upstream PR candidate alongside PR-1b.
+        nr_lamps_ = 0;
         LOG_WARN("TrafficLight: Traffic light type '{}' subtype '{}' not supported", GetType(), GetSubType());
     }
 }
@@ -4896,7 +4901,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     Position pos(r->GetId(), s, t);
 
                     Signal* sig;
-                    if (country == "opendrive" && country_revision < 2013 && dynamic)  // why country_revision < 2013??
+                    // [GT_ODR:tl-gate] any dynamic signal is a TrafficLight, independent of country/countryRevision
+                    // (plan P3 cluster 11; audited: golden/trafficlight_classification.json + odr_tl_classification_audit.py)
+                    (void)country_revision;  // still read by the country-rev patch (upstream PR-1); no longer gates classification
+                    if (dynamic)
                     {
                         sig = new TrafficLight(s,
                                                t,

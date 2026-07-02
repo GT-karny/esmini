@@ -395,21 +395,19 @@ fixtures:
   - road/signals/signal@orientation
   - road/signals/signal@zOffset
   expected_unsupported_entries: []  # audit predicts ZERO entries
+  osi: true  # P3: fixture-scoped OSI probe (traffic_light observable, acceptance (i))
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    Consumed by P1 (countryRevision read) + P3 (TrafficLight gate). Today's classification per GT_RoadManager.cpp:4819-4824
-    (inverted .empty() guard) and the gate at :4887 (country=="opendrive" && country_revision<2013 &&
-    dynamic):
-      (a) id=1 country="DE" countryRevision="2021"  -> lowercased "de" != "opendrive"
-          -> STATIC Signal (1.8 idiom, gate false on country).
-      (b) id=2 country="OpenDRIVE" countryRevision="2021" -> "opendrive", but the
-          inverted guard keeps country_revision=2013, so 2013<2013 is false
-          -> STATIC Signal. THIS IS THE DEMOTE REPRODUCTION (breakage #1).
-      (c) id=3 country="OpenDRIVE" WITHOUT countryRevision -> .empty() true ->
-          as_uint() of absent attr = 0, 0<2013 true, dynamic -> TrafficLight (control).
-    Verified at load: exactly ONE "TrafficLight: Traffic light type '1000001' subtype '-1' not supported"
-    warning fires (only signal c is constructed as a TrafficLight); a and b are plain Signals.
+    Consumed by P1 (countryRevision read) + P3 (TrafficLight gate -- LANDED [GT_ODR:tl-gate]). Since P3
+    the gate is @dynamic ONLY, so all three signals classify as TrafficLight:
+      (a) id=1 country="DE" countryRevision="2021"      -> TrafficLight (pre-P3: static, country gate)
+      (b) id=2 country="OpenDRIVE" countryRevision="2021" -> TrafficLight (pre-P3: static, rev gate --
+          the demote reproduction / breakage #1)
+      (c) id=3 country="OpenDRIVE" (no countryRevision)   -> TrafficLight (unchanged control case)
+    Classification frozen in golden/trafficlight_classification.json; reviewed asset-universe diff in
+    GT_esmini/docs/odr_p3_tl_gate_audit.md. OSI traffic_light>0 for this fixture is asserted by the
+    fixture-scoped OSI probe (acceptance (i)).
 - id: g1_lanesection_length_19
   path: GT_esmini/test/odr_fixtures/generated/g1_lanesection_length_19.xodr
   source: generated
@@ -1199,6 +1197,7 @@ fixtures:
   - road/signals/signal/vmsBoard/displayArea@height
   expected_unsupported_entries:
   - 'road/signals/signal/vmsBoard|ctx=1'
+  osi: true  # P3: fixture-scoped OSI probe (traffic_light observable, acceptance (i))
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-

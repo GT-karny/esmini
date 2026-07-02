@@ -544,8 +544,8 @@
   "GT_esmini/test/odr_fixtures/handauthored/03_dynamic_signal_demote_18.xodr": {
     "load": true,
     "signals": {
-      "1:tl_de_2021": "Signal",
-      "2:tl_odr_2021": "Signal",
+      "1:tl_de_2021": "TrafficLight",
+      "2:tl_odr_2021": "TrafficLight",
       "3:tl_odr_absent": "TrafficLight"
     }
   },
@@ -559,7 +559,7 @@
   "GT_esmini/test/odr_fixtures/handauthored/05_vms_boards.xodr": {
     "load": true,
     "signals": {
-      "1:gantry_vms": "Signal"
+      "1:gantry_vms": "TrafficLight"
     }
   },
   "GT_esmini/test/odr_fixtures/handauthored/06_temporary_invalidated_19.xodr": {
