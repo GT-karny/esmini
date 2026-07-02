@@ -75,6 +75,7 @@
 #include "odrSpiral.h"
 #include "pugixml.hpp"
 #include "CommonMini.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"  // [GT_ODR:hook] GT ODR side model (plan P1)
 
 using namespace std;
 using namespace roadmanager;
@@ -2999,6 +3000,12 @@ RMObject::ObjectType RMObject::Str2Type(std::string type)
         }
     }
 
+    if (type == "roadSurface")
+    {
+        // [GT_ODR:obj-roadsurface] known 1.8+ object type with no ObjectType enum slot (hpp is pristine); accept quietly as NONE (L1, plan P1)
+        return RMObject::ObjectType::NONE;
+    }
+
     LOG_ERROR("Unsupported object type: {} - interpret as NONE", type);
 
     return RMObject::ObjectType::NONE;
@@ -4816,9 +4823,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     double      z_offset = atof(signal.attribute("zOffset").value());
                     std::string country  = ToLower(signal.attribute("country").value());
 
-                    unsigned int country_revision = 2013;  // default
+                    unsigned int country_revision = 0;  // [GT_ODR:country-rev] absent => 0 (legacy; upstream read the attribute only when absent)
 
-                    if (signal.attribute("countryRevision").empty())
+                    if (!signal.attribute("countryRevision").empty())
                     {
                         country_revision = signal.attribute("countryRevision").as_uint();
                     }
@@ -5432,8 +5439,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                 if (connecting_road == nullptr)
                 {
-                    LOG_WARN("Missing connecting road with id {}", connecting_road_id_str);
-                    return false;
+                    // [GT_ODR:junc-abort] degrade abort to WARN + skip this connection (plan P1)
+                    LOG_WARN("Missing connecting road with id {} - skipping connection in junction {}", connecting_road_id_str, jid_str);
+                    continue;
                 }
 
                 // Check that the connecting road is referring back to this junction
@@ -5485,6 +5493,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         }
 
         junction_.push_back(j);
+    }
+
+    // [GT_ODR:hook] GT ODR side model + coverage audit; <include> is a hard error (plan P1)
+    if (!gt_esmini::odr::BuildSideModel(doc, this))
+    {
+        return false;
     }
 
     CheckConnections();

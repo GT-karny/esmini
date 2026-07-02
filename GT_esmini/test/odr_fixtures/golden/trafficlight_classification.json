@@ -538,7 +538,7 @@
     "signals": {}
   },
   "GT_esmini/test/odr_fixtures/handauthored/02_invalid_junction_connection_14.xodr": {
-    "load": false,
+    "load": true,
     "signals": {}
   },
   "GT_esmini/test/odr_fixtures/handauthored/03_dynamic_signal_demote_18.xodr": {
@@ -606,7 +606,7 @@
     "signals": {}
   },
   "GT_esmini/test/odr_fixtures/handauthored/16_include_error_15.xodr": {
-    "load": true,
+    "load": false,
     "signals": {}
   },
   "GT_esmini/test/odr_fixtures/handauthored/17_userdata_dataquality_15.xodr": {

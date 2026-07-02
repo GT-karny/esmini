@@ -127,6 +127,8 @@ fixtures:
   - road/objects/objectReference/validity
   - road/objects/objectReference/validity@fromLane
   - road/objects/objectReference/validity@toLane
+  expected_unsupported_entries:
+  - 'road/objects/objectReference|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -148,6 +150,8 @@ fixtures:
   - road/objects/bridge/validity
   - road/objects/bridge/validity@fromLane
   - road/objects/bridge/validity@toLane
+  expected_unsupported_entries:
+  - 'road/objects/bridge|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -166,6 +170,11 @@ fixtures:
   - road/objects/object/repeat@bT
   - road/objects/object/repeat@cT
   - road/objects/object/repeat@dT
+  expected_unsupported_entries:
+  - 'road/objects/object/repeat@bT|ctx=1'
+  - 'road/objects/object/repeat@cT|ctx=1'
+  - 'road/objects/object/repeat@dT|ctx=1'
+  - 'road/objects/object/repeat@detachFromReferenceLine|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -182,6 +191,7 @@ fixtures:
   features:
   - road/lanes/laneSection/left/lane@type
   - road/lanes/laneSection/right/lane@type
+  expected_unsupported_entries: []  # audit predicts ZERO entries
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -212,6 +222,8 @@ fixtures:
   - road/surface/CRG@zOffset
   - road/surface/CRG@zScale
   - road/surface/CRG@hOffset
+  expected_unsupported_entries:
+  - 'road/surface/CRG|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -233,6 +245,8 @@ fixtures:
   - road/lanes/laneSection/center/lane/roadMark/sway@b
   - road/lanes/laneSection/center/lane/roadMark/sway@c
   - road/lanes/laneSection/center/lane/roadMark/sway@d
+  expected_unsupported_entries:
+  - 'road/lanes/laneSection/center/lane/roadMark/sway|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -248,11 +262,14 @@ fixtures:
   features:
   - road/include
   - road/include@file
-  expected: {schema: pass, rm_init: pass}
-  observed: {schema: pass, rm_init: pass}
+  expected_unsupported_entries: []  # audit predicts ZERO entries
+  expected: {schema: pass, rm_init: fail}
+  observed: {schema: pass, rm_init: fail}
   expected_notes: >-
-    rm_init passes TODAY (include silently ignored). P1 turns <include> into a hard parse error by design
-    -> this expectation will flip to rm_init: fail in P1.
+    P1 FLIP (rm_init pass -> fail): the [GT_ODR:hook] BuildSideModel call makes an <include> element a
+    hard parse error by design (gt_roadmanager_patches.md sec 2, patch 5); resolution decision deferred
+    to P9. The stale pre-flip golden (golden/rm/*16_include*) has been deleted. include is never itself
+    an [ODR-UNSUPPORTED]/[ODR-REMOVED-1.6] entry, so this fixture predicts ZERO audit entries.
   notes: >-
     P1+P9 cluster 15 additionalData: include. Placed at road-level (g_additionalData tail of t_road).
     file points at a nonexistent include; currently loaded silently (observed INIT:0).
@@ -293,6 +310,7 @@ fixtures:
   - road/signals/signal/userData@code
   - road/signals/signal/userData@value
   - road/signals/signal/dataQuality
+  expected_unsupported_entries: []  # audit predicts ZERO entries
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -335,6 +353,13 @@ fixtures:
   - road/lanes/laneSection/left/lane@type=walking
   - road/lanes/laneSection/right/lane@type=walking
   - road@rule
+  expected_unsupported_entries:
+  - 'junction/crossPath|ctx=555'
+  - 'junction/roadSection|ctx=666'
+  - 'junction@mainRoad|ctx=555'
+  - 'junction@orientation|ctx=555'
+  - 'junction@sEnd|ctx=555'
+  - 'junction@sStart|ctx=555'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -362,6 +387,7 @@ fixtures:
   - road/signals/signal@subtype
   - road/signals/signal@orientation
   - road/signals/signal@zOffset
+  expected_unsupported_entries: []  # audit predicts ZERO entries
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -388,6 +414,8 @@ fixtures:
   - 3
   features:
   - road/lanes/laneSection@length
+  expected_unsupported_entries:
+  - 'road/lanes/laneSection@length|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -410,6 +438,9 @@ fixtures:
   - road/lanes@layer
   - road/lanes[2]
   - road/lanes[2]/laneSection@length
+  expected_unsupported_entries:
+  - 'road/lanes/laneSection@length|ctx=1'
+  - 'road/lanes@layer|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -431,6 +462,8 @@ fixtures:
   - road/signals/signal
   - road/signals/signal/semantics
   - road/signals/signal/semantics/priority@type
+  expected_unsupported_entries:
+  - 'road/signals/signal/semantics|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -458,6 +491,8 @@ fixtures:
   - road/objects/object/outline/curveLocal@length
   - road/objects/object/outline/curveLocal@hdg
   - road/objects/object/outline/curveLocal/arc@curvature
+  expected_unsupported_entries:
+  - 'road/objects/object/outline|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -478,6 +513,9 @@ fixtures:
   features:
   - junction/connection/laneLink@fromLayer
   - junction/connection/laneLink@toLayer
+  expected_unsupported_entries:
+  - 'junction/connection/laneLink@fromLayer|ctx=1'
+  - 'junction/connection/laneLink@toLayer|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -504,6 +542,8 @@ fixtures:
   - junction/boundary/segment@boundaryLane
   - junction/boundary/segment@sStart
   - junction/boundary/segment@sEnd
+  expected_unsupported_entries:
+  - 'junction/boundary|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -526,11 +566,14 @@ fixtures:
   - junction/connection@contactPoint
   - junction/connection/laneLink@from
   - junction/connection/laneLink@to
-  expected: {schema: pass, rm_init: fail}
-  observed: {schema: pass, rm_init: fail}
+  expected_unsupported_entries: []  # audit predicts ZERO entries
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
   expected_notes: >-
-    junction abort reproduction; rm_init flips to warn+pass at P1 hardening (GT_RoadManager.cpp:5429-5437
-    return-false -> WARN degrade). RE-LABELLED to 1.4H (was 1.5): the 1.5 XSD keyref r_junction_connection_connectingRoad
+    P1 FLIP (rm_init fail -> pass): the [GT_ODR:junc-abort] patch degrades the whole-parse abort to a
+    WARN + skipped connection, so the dangling connectingRoad "99" no longer fails the load (see
+    gt_roadmanager_patches.md sec 2, patch 4). The load now survives with junction 2 present and the
+    bad connection dropped. RE-LABELLED to 1.4H (was 1.5): the 1.5 XSD keyref r_junction_connection_connectingRoad
     (refer=k_roadId) enforces referential integrity on junction/connection/@connectingRoad, so a dangling
     "99" is REJECTED by xmlschema, making schema=pass and the RM abort mutually exclusive. OpenDRIVE_1.4H.xsd
     has ZERO xs:keyref (verified), so the dangling connectingRoad is a plain xsd:string that passes schema
@@ -557,6 +600,14 @@ fixtures:
   - road/lanes/laneSection/right/lane@roadWorks
   - road/lanes/laneSection/left/lane@type=stop
   - road/lanes/laneSection/right/lane@type=roadWorks
+  expected_unsupported_entries:
+  - 'road/lanes/laneSection/left/lane@advisory|ctx=1'
+  - 'road/lanes/laneSection/left/lane@direction|ctx=1'
+  - 'road/lanes/laneSection/left/lane@dynamicLaneDirection|ctx=1'
+  - 'road/lanes/laneSection/left/lane@dynamicLaneType|ctx=1'
+  - 'road/lanes/laneSection/right/lane@advisory|ctx=1'
+  - 'road/lanes/laneSection/right/lane@direction|ctx=1'
+  - 'road/lanes/laneSection/right/lane@roadWorks|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -587,6 +638,13 @@ fixtures:
   - road/lanes/laneSection/right/lane/access@rule
   - road/lanes/laneSection/right/lane/access@restriction
   - road/lanes/laneSection/right/lane/rule@value
+  expected_unsupported_entries:
+  - 'road/lanes/laneSection/left/lane/access|ctx=1'
+  - 'road/lanes/laneSection/left/lane/rule|ctx=1'
+  - 'road/lanes/laneSection/left/lane/speed|ctx=1'
+  - 'road/lanes/laneSection/right/lane/access|ctx=1'
+  - 'road/lanes/laneSection/right/lane/rule|ctx=1'
+  - 'road/lanes/laneSection/right/lane/speed|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -615,6 +673,9 @@ fixtures:
   - header/defaultRegulations/signalRegulations@subtype
   - header/defaultRegulations/signalRegulations/semantics
   - header/defaultRegulations/signalRegulations/semantics/priority@type
+  expected_unsupported_entries:
+  - 'header/defaultRegulations|ctx='
+  - 'header/license|ctx='
   expected: {schema: fail, rm_init: pass}
   observed: {schema: fail, rm_init: pass}
   expected_notes: >-
@@ -882,7 +943,13 @@ fixtures:
   features: []
   expected: {schema: pass, rm_init: fail}
   observed: {schema: pass, rm_init: crash}
-  expected_notes: rm_init_cpp_exception_junction_abort
+  expected_notes: >-
+    P1 flip ATTEMPTED then REVERTED (kept frozen): verified empirically post-build that the
+    [GT_ODR:junc-abort] degradation does NOT rescue this file -- RM_Init still throws a C++ exception
+    (WinError 0xe06d7363) downstream of the junction laneLink processing, unrelated to the
+    "Missing connecting road" return-false path patch 4 addresses. Crash site: after the junction
+    connection/laneLink loop (last logs = "[ODR-UNSUPPORTED] junction/connection/laneLink@overlapZone
+    (road=4/5)"). Deferred to a later junction phase.
 - id: official_ex_smoothobjectoutline_traffic_island
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_SmoothObjectOutline/Ex_SmoothObjectOutline_traffic_island.xodr
   source: official
@@ -1014,7 +1081,13 @@ fixtures:
   features: []
   expected: {schema: pass, rm_init: fail}
   observed: {schema: pass, rm_init: crash}
-  expected_notes: rm_init_cpp_exception_junction_abort
+  expected_notes: >-
+    P1 flip ATTEMPTED then REVERTED (kept frozen): verified empirically post-build that the
+    [GT_ODR:junc-abort] degradation does NOT rescue this file -- RM_Init still throws a C++ exception
+    (WinError 0xe06d7363), unrelated to patch 4's "Missing connecting road" return-false path. Crash
+    site: signal-validity resolution -- "GetLaneSectionIdxByS: s 111.5 is beyond the last lane section"
+    then "Signal::SetAllValidLanes: No lane section found at s=111.5 for signal id 10" (a signal placed
+    past the end of track 6, which is 80 m long). Deferred to a later phase.
 - id: official_uc_x_junction
   path: GT_esmini/test/odr_fixtures/official/use_cases/UC_Junction/UC_X_Junction.xodr
   source: official
@@ -1038,6 +1111,8 @@ fixtures:
   - road/link/neighbor@side
   - road/link/neighbor@elementId
   - road/link/neighbor@direction
+  expected_unsupported_entries:
+  - 'road/link/neighbor|ctx=1|removed16'
   expected: {schema: fail, rm_init: pass}
   observed: {schema: fail, rm_init: pass}
   expected_notes: >-
@@ -1070,6 +1145,9 @@ fixtures:
   - road/signals/signal/positionInertial@y
   - road/signals/signal/positionInertial@z
   - road/signals/signal/positionInertial@hdg
+  expected_unsupported_entries:
+  - 'road/signals/signal/positionInertial|ctx=1'
+  - 'road/signals/signal/positionRoad|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -1089,6 +1167,11 @@ fixtures:
   - road/signals/signal@invalidated
   - road/objects/object@temporary
   - road/objects/object@invalidated
+  expected_unsupported_entries:
+  - 'road/objects/object@invalidated|ctx=1'
+  - 'road/objects/object@temporary|ctx=1'
+  - 'road/signals/signal@invalidated|ctx=1'
+  - 'road/signals/signal@temporary|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -1115,6 +1198,8 @@ fixtures:
   - road/signals/signal/vmsBoard/displayArea@z
   - road/signals/signal/vmsBoard/displayArea@width
   - road/signals/signal/vmsBoard/displayArea@height
+  expected_unsupported_entries:
+  - 'road/signals/signal/vmsBoard|ctx=1'
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-

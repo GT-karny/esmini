@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,11 @@ _WEB_VENV_PY = os.path.join(_REPO_ROOT, "GT_esmini", "web", ".venv", "Scripts", 
 
 FLOAT_TOL = 1e-6
 PROBE_TIMEOUT = 60  # seconds per isolated probe
+
+# Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
+# per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
+FORK_ODR_EXPECT_LINES = 16
+FORK_LINE_BUDGET = 150
 
 # Status tags.
 PASS, FAIL, XFAIL, XPASS, SKIP = "PASS", "FAIL", "XFAIL", "XPASS", "SKIP"
@@ -364,6 +370,48 @@ def _count_markers(log_text: str) -> dict:
     }
 
 
+# Match one audit log line's payload (the logger prefixes [time] [level] [file::func::line]; the
+# payload runs to end-of-line with NOTHING after it -- see logger.cpp AddTimeAndMetaData).
+_RE_UNSUP = re.compile(r"\[ODR-UNSUPPORTED\]\s+(?P<body>.+?)\s*$", re.M)
+_RE_REMOVED = re.compile(r"\[ODR-REMOVED-1\.6\]\s+(?P<body>.+?)\s*$", re.M)
+_RE_ROAD = re.compile(r"\s*\(road=(?P<ctx>[^)]*)\)\s*$")
+
+
+def _human_to_stored_unsup(body: str) -> str:
+    """'road/objects/object/repeat@bT (road=1)' -> 'road/objects/object/repeat@bT|ctx=1'.
+    No '(road=..)' suffix -> ctx=''. Works for both element and '<path>@<attr>' bodies."""
+    m = _RE_ROAD.search(body)
+    if m:
+        ctx = m.group("ctx")
+        path = body[: m.start()].rstrip()
+    else:
+        ctx = ""
+        path = body.strip()
+    return f"{path}|ctx={ctx}"
+
+
+def _human_to_stored_removed(body: str) -> str:
+    """'road/link/neighbor (road=1) (removed in OpenDRIVE 1.6)' ->
+    'road/link/neighbor|ctx=1|removed16'."""
+    # Strip the trailing removal note first.
+    note = " (removed in OpenDRIVE 1.6)"
+    if body.endswith(note):
+        body = body[: -len(note)]
+    base = _human_to_stored_unsup(body)  # yields '<path>|ctx=<ctx>'
+    return base + "|removed16"
+
+
+def _extract_audit_entries(log_text: str) -> set:
+    """Parse a worker's captured DLL log into the STORED-format entry set (OdrSideModel.hpp
+    contract), so it can be compared against manifest `expected_unsupported_entries`. Deduped."""
+    out = set()
+    for m in _RE_UNSUP.finditer(log_text):
+        out.add(_human_to_stored_unsup(m.group("body")))
+    for m in _RE_REMOVED.finditer(log_text):
+        out.add(_human_to_stored_removed(m.group("body")))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Layer 1: schema
 # ---------------------------------------------------------------------------
@@ -436,9 +484,14 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
             observed_load = "fail"
             detail = f"RM_Init rc={res.get('rc', res.get('error'))}"
         status, gstat = _golden_compare("rm", p, extract, update, e["expected_rm"], observed_load)
+        audit_status = _audit_check(e, markers, res.get("_log", ""))
+        # An audit prediction mismatch (or control-set warn) fails the row so it counts toward exit.
+        if audit_status is not None and audit_status.startswith("FAIL"):
+            status = FAIL
+            detail = (detail + " | " if detail else "") + "audit " + audit_status
         rows.append({**e, "layer": "rm", "observed": observed_load, "status": status,
                      "golden": gstat, "detail": detail, "markers": markers,
-                     "audit_status": _audit_check(e, markers)})
+                     "audit_status": audit_status})
     return rows
 
 
@@ -662,28 +715,68 @@ def _golden_compare(kind, repo_rel, extract, update, expected_load, observed_loa
 # ---------------------------------------------------------------------------
 # Audit plumbing (P1-ready, inert in P0)
 # ---------------------------------------------------------------------------
-def _audit_check(entry: dict, markers: dict):
-    """Compare marker counts/entries to any expected_unsupported* in the manifest entry.
+def _audit_check(entry: dict, markers: dict, log_text: str = ""):
+    """Compare the DLL's audit output to the manifest expectations for this entry.
 
-    Returns None (no expectation), "ok", or a "FAIL: ..." string.
+    Enforcement (returns None if nothing to enforce, "ok", or "FAIL: ..."):
+      * control_set  -> ALWAYS enforce audit-count == 0 (the 1.4/1.5 zero-warn acceptance,
+        plan sec 3.3). Any [ODR-UNSUPPORTED]/[ODR-REMOVED-1.6] on a repo asset is a failure.
+      * expected_unsupported_entries (list) -> exact SET comparison of stored-format entries
+        parsed from the log against the predicted list (attribute-granular; the primary check).
+      * expected_unsupported (dict {elements, attributes}) -> total ODR-UNSUPPORTED count check
+        (kept for back-compat; only used if no entry list is given).
     """
+    problems = []
+
+    # control_set: hard zero-warn (independent of any explicit field).
+    if entry.get("kind") == "control_set":
+        got = markers.get("ODR-UNSUPPORTED", 0) + markers.get("ODR-REMOVED-1.6", 0)
+        if got != 0:
+            observed = sorted(_extract_audit_entries(log_text))
+            problems.append(f"control_set must be audit-zero but observed {got}: {observed[:8]}")
+        return "ok" if not problems else "FAIL: " + "; ".join(problems)
+
     exp = entry.get("expected_unsupported")
     exp_entries = entry.get("expected_unsupported_entries")
     if exp is None and exp_entries is None:
         return None
-    problems = []
-    if isinstance(exp, dict):
-        # {elements: N, attributes: N} -> compare against total ODR-UNSUPPORTED count.
-        want = int(exp.get("elements", 0)) + int(exp.get("attributes", 0))
-        got = markers.get("ODR-UNSUPPORTED", 0)
-        if want != got:
-            problems.append(f"expected_unsupported total {want} != observed {got}")
+
     if isinstance(exp_entries, list):
-        # entries are exact marker lines expected in the log; we only have counts here,
-        # so compare the count (P1 will capture full lines).
-        if len(exp_entries) != markers.get("ODR-UNSUPPORTED", 0):
-            problems.append(f"expected_unsupported_entries count {len(exp_entries)} != observed {markers.get('ODR-UNSUPPORTED', 0)}")
+        want = set(exp_entries)
+        got = _extract_audit_entries(log_text)
+        missing = sorted(want - got)
+        extra = sorted(got - want)
+        if missing:
+            problems.append(f"missing {len(missing)}: {missing[:6]}")
+        if extra:
+            problems.append(f"unexpected {len(extra)}: {extra[:6]}")
+    elif isinstance(exp, dict):
+        want_n = int(exp.get("elements", 0)) + int(exp.get("attributes", 0))
+        got_n = markers.get("ODR-UNSUPPORTED", 0)
+        if want_n != got_n:
+            problems.append(f"expected_unsupported total {want_n} != observed {got_n}")
+
     return "ok" if not problems else "FAIL: " + "; ".join(problems)
+
+
+def run_fork_drift() -> dict:
+    """Run the pure-text fork-drift check (check_fork_drift.check_drift).
+
+    Returns a dict: {ran: bool, ok: bool, odr_lines: int, summary: str, unattributed: [...]}.
+    Enforces the FORK_ODR_EXPECT_LINES budget in addition to no-unattributed-drift.
+    """
+    try:
+        import check_fork_drift as cfd
+    except Exception as e:  # pragma: no cover - import guard
+        return {"ran": False, "ok": False, "odr_lines": 0,
+                "summary": f"fork-drift: ERROR (cannot import check_fork_drift: {e})", "unattributed": []}
+    res = cfd.check_drift()
+    ok = bool(res.get("ok")) and res.get("odr_lines") == FORK_ODR_EXPECT_LINES
+    summary = cfd.format_summary(res, FORK_LINE_BUDGET)
+    if res.get("ok") and res.get("odr_lines") != FORK_ODR_EXPECT_LINES:
+        summary += f"  [BUDGET MISMATCH: {res.get('odr_lines')} != expected {FORK_ODR_EXPECT_LINES}]"
+    return {"ran": True, "ok": ok, "odr_lines": res.get("odr_lines", 0),
+            "summary": summary, "unattributed": res.get("unattributed", [])}
 
 
 def _selftest_audit() -> bool:
@@ -826,7 +919,8 @@ def _print_layer(name: str, rows: list) -> None:
             print(f"    {r['status']:<6} {r.get('id', r['path'])}  {r.get('detail','')}  {('golden='+g) if g else ''}")
 
 
-def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke_res, audit_selftest) -> None:
+def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke_res, audit_selftest,
+                  fork_drift=None) -> None:
     os.makedirs(report_dir, exist_ok=True)
     summary = {name: _tally(rows) for name, rows in layers.items()}
     jreport = {
@@ -836,6 +930,9 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
         "layers": {name: [{k: v for k, v in r.items() if k not in ("_log",)} for r in rows]
                    for name, rows in layers.items()},
     }
+    if fork_drift is not None:
+        jreport["fork_drift"] = {"ok": fork_drift["ok"], "odr_lines": fork_drift["odr_lines"],
+                                 "summary": fork_drift["summary"]}
     if matrix_res is not None:
         jreport["matrix"] = {"ok": matrix_res[0], "fails": matrix_res[2]}
     if smoke_res is not None:
@@ -845,7 +942,10 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
 
     # Markdown
     md = ["# OpenDRIVE conformance report", "",
-          f"- profile: **{profile}**", f"- audit self-test: **{'PASS' if audit_selftest else 'FAIL'}**", ""]
+          f"- profile: **{profile}**", f"- audit self-test: **{'PASS' if audit_selftest else 'FAIL'}**"]
+    if fork_drift is not None:
+        md.append(f"- {fork_drift['summary']}")
+    md.append("")
     for name, rows in layers.items():
         t = _tally(rows)
         md.append(f"## Layer: {name}")
@@ -948,6 +1048,9 @@ def main(argv=None) -> int:
     if not audit_selftest:
         print("WARNING: audit self-test FAILED (marker counting mechanism broken)", file=sys.stderr)
 
+    # Fork-drift check (pure text, no DLLs -- runs in every profile / layer subset).
+    fork_drift = run_fork_drift()
+
     control, fixtures = _assemble(manifest, args.only)
 
     layers = {}
@@ -997,6 +1100,14 @@ def main(argv=None) -> int:
     if not audit_selftest:
         exit_bad += 1
 
+    # --- Fork drift (always) ---
+    print("\n=== Fork drift ===")
+    print("  " + fork_drift["summary"])
+    if not fork_drift["ok"]:
+        for b in fork_drift["unattributed"]:
+            print(f"    UNATTRIBUTED  fork L{b['fork_span'][0]}-{b['fork_span'][1]}  {b.get('sample','')}")
+        exit_bad += 1
+
     if matrix_res is not None:
         print("\n=== Matrix check ===")
         for line in matrix_res[1]:
@@ -1016,7 +1127,7 @@ def main(argv=None) -> int:
             if not ok:
                 exit_bad += 1
 
-    write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest)
+    write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest, fork_drift)
 
     print("\n" + ("=" * 60))
     total = {PASS: 0, FAIL: 0, XFAIL: 0, XPASS: 0, SKIP: 0}

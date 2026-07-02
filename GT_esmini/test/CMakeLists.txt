@@ -16,6 +16,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_TrafficPolicies.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSideModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrForkPatches.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
