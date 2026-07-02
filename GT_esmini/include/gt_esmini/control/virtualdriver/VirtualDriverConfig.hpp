@@ -10,6 +10,7 @@
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
+#include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
 
 namespace gt_esmini
@@ -73,6 +74,7 @@ struct VirtualDriverConfig
     bool   policy_traffic_light_enabled = false;
     bool   policy_stop_yield_enabled    = false;
     bool   policy_conflict_enabled      = false;
+    bool   policy_crosswalk_enabled     = false;
     // 3a — lead-vehicle IDM follow.
     double idm_time_headway   = 1.5;   // [s]
     double idm_min_gap        = 2.0;   // [m]
@@ -107,6 +109,16 @@ struct VirtualDriverConfig
     double conflict_min_cross_angle_deg = 20.0;  // [deg] same-direction filter (reject near-parallel overlaps)
     double conflict_other_min_speed     = 0.5;   // [m/s] ignore (near-)stationary others not yet at their region
     double conflict_area_eps            = 0.10;  // [m^2] min clipped quad-pair area to call it a conflict (detection sensitivity)
+    // 3d ext — crosswalk pedestrian yield (crossing rule = unconditional collision
+    // avoidance; waiting rule = courtesy/law, signal-gatable). See CrosswalkPedestrianAware.
+    double crosswalk_lookahead              = 80.0;  // [m]   route scan horizon
+    double crosswalk_step                   = 1.0;   // [m]   scan sampling (fine enough for ~3-4 m wide crosswalks)
+    double crosswalk_standoff               = 3.0;   // [m]   stop this far before the footprint entry
+    double crosswalk_wait_margin            = 2.0;   // [m]   ped within this distance of the footprint (outside it) counts as waiting
+    bool   crosswalk_yield_to_waiting       = true;  // JP-law default: yield to peds waiting to cross
+    bool   crosswalk_ped_signal_aware       = true;  // gate the WAITING rule on a linked pedestrian signal
+    double crosswalk_signal_link_radius     = 10.0;  // [m]   |signal_s - crosswalk_s| on the same road
+    double crosswalk_release_lateral_margin = 0.5;   // [m]   passage band = ego half-width + this
 
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
@@ -135,6 +147,7 @@ struct VirtualDriverConfig
     TrafficLightAwareConfig        TrafficLightConfig() const;
     StopYieldSignAwareConfig       StopYieldConfig() const;
     ConflictPointResolverConfig    ConflictConfig() const;
+    CrosswalkPedestrianAwareConfig CrosswalkConfig() const;
 };
 
 }  // namespace gt_esmini

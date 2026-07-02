@@ -92,6 +92,12 @@ const DoubleField kDoubleFields[] = {
     {"conflict_min_cross_angle_deg", &VirtualDriverConfig::conflict_min_cross_angle_deg},
     {"conflict_other_min_speed", &VirtualDriverConfig::conflict_other_min_speed},
     {"conflict_area_eps", &VirtualDriverConfig::conflict_area_eps},
+    {"crosswalk_lookahead", &VirtualDriverConfig::crosswalk_lookahead},
+    {"crosswalk_step", &VirtualDriverConfig::crosswalk_step},
+    {"crosswalk_standoff", &VirtualDriverConfig::crosswalk_standoff},
+    {"crosswalk_wait_margin", &VirtualDriverConfig::crosswalk_wait_margin},
+    {"crosswalk_signal_link_radius", &VirtualDriverConfig::crosswalk_signal_link_radius},
+    {"crosswalk_release_lateral_margin", &VirtualDriverConfig::crosswalk_release_lateral_margin},
     {"steering_threshold", &VirtualDriverConfig::steering_threshold},
     {"throttle_threshold", &VirtualDriverConfig::throttle_threshold},
     {"brake_threshold", &VirtualDriverConfig::brake_threshold},
@@ -104,6 +110,9 @@ const BoolField kBoolFields[] = {
     {"policy_traffic_light_enabled", &VirtualDriverConfig::policy_traffic_light_enabled},
     {"policy_stop_yield_enabled", &VirtualDriverConfig::policy_stop_yield_enabled},
     {"policy_conflict_enabled", &VirtualDriverConfig::policy_conflict_enabled},
+    {"policy_crosswalk_enabled", &VirtualDriverConfig::policy_crosswalk_enabled},
+    {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
+    {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
     {"override_button", &VirtualDriverConfig::override_button},
 };
@@ -265,6 +274,20 @@ ConflictPointResolverConfig VirtualDriverConfig::ConflictConfig() const
     c.min_cross_angle_deg = conflict_min_cross_angle_deg;
     c.other_min_speed     = conflict_other_min_speed;
     c.area_eps            = conflict_area_eps;
+    return c;
+}
+
+CrosswalkPedestrianAwareConfig VirtualDriverConfig::CrosswalkConfig() const
+{
+    CrosswalkPedestrianAwareConfig c;
+    c.lookahead              = crosswalk_lookahead;
+    c.step                   = crosswalk_step;
+    c.standoff               = crosswalk_standoff;
+    c.wait_margin            = crosswalk_wait_margin;
+    c.yield_to_waiting       = crosswalk_yield_to_waiting;
+    c.ped_signal_aware       = crosswalk_ped_signal_aware;
+    c.signal_link_radius     = crosswalk_signal_link_radius;
+    c.release_lateral_margin = crosswalk_release_lateral_margin;
     return c;
 }
 
