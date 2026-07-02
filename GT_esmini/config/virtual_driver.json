@@ -41,6 +41,7 @@
     "policy_traffic_light_enabled": false,
     "policy_stop_yield_enabled": false,
     "policy_conflict_enabled": false,
+    "policy_crosswalk_enabled": false,
 
     "_policy_lead": "3a lead-vehicle IDM follow",
     "idm_time_headway": 1.5,
@@ -78,6 +79,16 @@
     "conflict_min_cross_angle_deg": 20.0,
     "conflict_other_min_speed": 0.5,
     "conflict_area_eps": 0.10,
+
+    "_policy_crosswalk": "3d ext crosswalk pedestrian yield. Walks the ego route for OpenDRIVE crosswalk objects and yields to pedestrians. Two-layer: CROSSING rule (a ped ON the footprint blocks — unconditional collision avoidance, never signal-gated) + WAITING rule (a ped within crosswalk_wait_margin of the footprint, about to cross — courtesy/law, JP default crosswalk_yield_to_waiting). The waiting rule is gated by a linked pedestrian signal (type 1000002 within crosswalk_signal_link_radius on the same road) when crosswalk_ped_signal_aware: RED ped phase suppresses it (proceed), GREEN/ambiguous keeps it active. Passage band = ego half-width + crosswalk_release_lateral_margin (a ped outside the band moving away does not block). On block, latches and emits STOP_AT_S crosswalk_standoff before the footprint entry; releases when no blocking ped remains. Covers the speed-0 waiting ped that the occupancy-based conflict resolver misses (empty corridor). Default OFF.",
+    "crosswalk_lookahead": 80.0,
+    "crosswalk_step": 1.0,
+    "crosswalk_standoff": 3.0,
+    "crosswalk_wait_margin": 2.0,
+    "crosswalk_yield_to_waiting": true,
+    "crosswalk_ped_signal_aware": true,
+    "crosswalk_signal_link_radius": 10.0,
+    "crosswalk_release_lateral_margin": 0.5,
 
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": true,

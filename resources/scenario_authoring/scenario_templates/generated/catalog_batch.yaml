@@ -86,3 +86,63 @@ scenarios:
   policies: []
 - scenario: resources/scenario_authoring/scenario_templates/generated/08_unsignalized_junction__p012.xosc
   policies: []
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p001.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p002.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p003.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p004.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p005.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p006.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p007.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p008.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p009.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p010.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p011.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p012.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p013.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p014.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p015.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p016.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p017.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p018.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p019.xosc
+  policies:
+  - crosswalk
+- scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p020.xosc
+  policies:
+  - crosswalk

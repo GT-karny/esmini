@@ -1,0 +1,22 @@
+scenario: 09_crosswalk_pedestrian__p016
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) NEGATIVE control — already-crossed.
+# Ped released at t=1.0 (1.4 m/s from_left) fully clears the roadway at ~t6.7,
+# ~4 s before ego arrival (10.79). The ego must not STOP. NOTE (measured, policy
+# ON): the ego still dips to 5.90 m/s @t10.65 — after crossing, the ped keeps
+# walking along the far sidewalk near the footprint (esmini default lane-follow
+# after the trajectory ends) and briefly re-arms the waiting rule until the
+# lateral-release margin clears it. The gate therefore asserts "no yield stop"
+# (threshold 3.0 sits above the p005/p013 stop/crawl <=1) rather than full
+# cruise. A stricter no-slowdown gate would fail on current policy conservatism —
+# revisit threshold when the policy adds walker-heading discrimination.
+must:
+  - event: min_speed_above
+    threshold: 3.0
+    after: { sim_time: 8.0 }
+    before: { sim_time: 13.0 }
+    reason: "横断済み歩行者では停止しない（実測 窓内min5.90@t10.65 — 横断後に歩道上を歩き続ける歩行者でwaitingルールが一時作動する保守的減速はある）。3.0は譲り停止/クロール(<=1)と弁別。歩行者向き判定が入ったら閾値を引き上げ再調整"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 12.0 }
+    reason: "一時減速からの即時復帰（実測 t12.40にv>=12再到達, 停止に落ちない）"

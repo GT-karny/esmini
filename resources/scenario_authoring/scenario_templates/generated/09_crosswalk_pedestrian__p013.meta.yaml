@@ -1,0 +1,20 @@
+catalog_id: 09_crosswalk_pedestrian__p013
+kind: scenario
+road_ref: straight_crosswalk__mid
+phase: 3d-crosswalk
+tests_for: yield decision for a pedestrian WAITING at the crosswalk edge (from_left,
+  off the roadway, never enters)
+expected_behavior: Recognize the waiting pedestrian at the crosswalk edge and yield
+  (stop/creep) at the crosswalk; no plow-through at cruise speed.
+evaluation: annotation
+policies:
+- crosswalk
+generator:
+  script: scenario_templates/gen_09_crosswalk_pedestrian.py
+  params:
+    kind: waiting
+    ego_speed: 13.9
+    ego_arrival_s: 10.791
+    crosswalk_s: 250.0
+    direction: from_left
+generated_at_commit: 2bb7b898

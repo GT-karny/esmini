@@ -1,0 +1,14 @@
+scenario: 09_crosswalk_pedestrian__p015
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) NEGATIVE control — empty crosswalk, ego alone.
+# The crosswalk object alone must NOT trigger any braking: measured min speed
+# 13.90 across the window (cruise hold 13.80-13.90 for the whole run). Guards
+# against a false-positive yield on the bare footprint scan.
+# Window covers the crosswalk approach+transit (ego crosses s 240..260 at
+# t 10.07..11.51 at 13.9 m/s). Policy-ON measurement run (2026-07-02).
+must:
+  - event: min_speed_above
+    threshold: 10.0
+    after: { sim_time: 8.0 }
+    before: { sim_time: 13.0 }
+    reason: "不要停止なしゲート: 歩行者不在の横断歩道では巡航維持（実測 窓内min13.90）。footprint検知だけで譲るfalse-positiveを弁別"
