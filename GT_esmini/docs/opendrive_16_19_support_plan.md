@@ -4,8 +4,28 @@
 - 策定方法: 2段階のマルチエージェント調査・設計
   - 調査(11エージェント): 1.9 XSD解析 / ASAMリリースパッケージ採掘 / upstream RoadManagerカバレッジ監査 / GT側タッチポイント監査 / エコシステム調査 + 完全性クリティーク + 実測検証(公式サンプルのロード試験・OSI出力デコード・XSD世代間構造diff・スキーマ検証E2E)
   - 設計(9エージェント): 完全要素マトリクス / アーキテクチャ設計 / ランタイム改修点特定 / テスト戦略 → 計画起草 → 3視点敵対審査(実現性・網羅性・回帰/ガバナンス、指摘は全件コード検証) → 改訂
-- ステータス: **P0+P1 完了(2026-07-03、feature/odr1619-p0p1)**。§10 の 1(CMake R1例外)・2(150行上限)・7(ASAM=テスト時zip展開・コミットしない)は 2026-07-02 承認済。実装記録: [gt_roadmanager_patches.md](gt_roadmanager_patches.md)(フォーク16/150行)。P1 での実測差分: 公式 Ex_Slip_Lane/UC_T_Junction のクラッシュは junction 中断以外が真因(凍結維持、P5 で再訪)。残承認: §10 の 3・4(P6 前)、5・6(P9 まで)
+- ステータス: **P0+P1 完了・dev_v0.12 マージ済**(§0 実装状況を参照)
 - 総工数: **約15〜17週**(開発者1名+AIエージェント、各フェーズ独立マージ可能)
+
+---
+
+## 0. 実装状況(2026-07-03 時点)
+
+| フェーズ | 状態 | 主要コミット | 内容 |
+|---|---|---|---|
+| **P0** | ✅ 完了 (2026-07-03) | 649c81a2, 88b14f8c | フィクスチャ60本(手書き18+生成6+公式36)、3層ハーネス `scripts/run_odr_conformance.py`(スキーマ80P/11XF・RM 88P/3XF・OSI 31P)、ゴールデン119本(二重生成バイト同一)、トレーサビリティ行列(18クラスタ充足+5明示保留)、回帰ゲートStep 1.5(ハード)+CI(ubuntuスキーマ+行列のみの保守的統合) |
+| **P1** | ✅ 完了 (2026-07-03) | 2c13045a, 4aafef2a, 5a1aa8f4 | `gt_esmini::odr` OdrSideModel+属性粒度監査(ホワイトリスト88パス/289ペア、コントロール~113ファイル警告ゼロ・フィクスチャ20要素+23属性検出)、フォークパッチ**16/150行**([gt_roadmanager_patches.md](gt_roadmanager_patches.md))、ガバナンステスト(マーカーctest+`check_fork_drift.py`)、挙動不変証明(TrafficLight分類ベースライン: 意図された2フリップ以外114ファイル/428信号完全一致、RM/OSIゴールデン不変、phase3バッチper-scenario不変、validate_catalog 61/61) |
+| P2〜P10 | 未着手 | — | 次=P2(レーン型+border→width正規化、1週) |
+
+- **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)の順で dev_v0.12 へマージ済(マージ後ツリーは検証済みツリーと同一)。
+- **承認済**(2026-07-02): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない**(CIではofficial層自動SKIP)。**残承認**: §10-3・4(P6着手前)、§10-5・6(P9まで)。
+- **実装時の実測差分(計画からの補正)**:
+  1. 公式 `Ex_Slip_Lane`/`UC_T_Junction` のクラッシュ真因は junction 中断**以外**(信号validity解決のs範囲外等)→ P1では凍結維持、**P5で再訪**(§1.3の想定補正)。
+  2. `crossPath` は1.8 XSD上 **virtual junction** の持ち物(crossing junctionは `roadSection` のみ)— fixture 01 は両構造を併用。
+  3. `defaultRegulations` はASAM出荷XSD自体の欠陥(abstract必須子)で1.8/1.9とも検証不能 → 恒久期待フェイル登録。
+  4. `roadSurface` は `ObjectType` enum欠落(hpp凍結)のため Str2Type での静音NONE化に設計変更(パッチ表6)。
+  5. 1.5 XSDのkeyref参照整合性により「スキーマ緑+RM中断」フィクスチャはrev 1.4で作成(fixture 02)。
+- 既存資産の既知不適合を台帳化(資産は無改変・XFAIL登録): `fabriksgatan_traffic_lights_ctrl.xodr`(revMinor=4+top-level controller)、catalog生成道路5本(空elevationProfile等)。
 
 ---
 
