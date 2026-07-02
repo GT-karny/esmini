@@ -413,6 +413,14 @@
    },
    "signs": [
     {
+     "id": 27,
+     "name": "Sg306Vorfahrtstrasse02",
+     "orientation": 1,
+     "s": 5.0,
+     "t": -4.75,
+     "z_offset": 1.78
+    },
+    {
      "id": 40,
      "name": "Sg430-20RichtungAutobahn",
      "orientation": 1,
@@ -2423,6 +2431,14 @@
      "s": 13.549601,
      "t": 6.75,
      "z_offset": 1.82
+    },
+    {
+     "id": 113,
+     "name": "Sg222RechtsVorbei03",
+     "orientation": 1,
+     "s": 16.937001,
+     "t": 8.47,
+     "z_offset": 0.42
     }
    ]
   },
@@ -3083,7 +3099,16 @@
     "y": 1016.31381,
     "z": 8.0
    },
-   "signs": []
+   "signs": [
+    {
+     "id": 86,
+     "name": "Sg306Vorfahrtstrasse02",
+     "orientation": 1,
+     "s": 5.0,
+     "t": -4.75,
+     "z_offset": 1.78
+    }
+   ]
   },
   {
    "id": "24",
@@ -3227,6 +3252,14 @@
      "s": 13.55,
      "t": 6.75,
      "z_offset": 1.82
+    },
+    {
+     "id": 325,
+     "name": "Sg222RechtsVorbei03",
+     "orientation": 1,
+     "s": 16.76476,
+     "t": 8.47,
+     "z_offset": 0.42
     }
    ]
   },
@@ -3333,12 +3366,36 @@
      "z_offset": 0.42
     },
     {
+     "id": 115,
+     "name": "Sg267EinfahrtVerboten03",
+     "orientation": -1,
+     "s": 10.997671,
+     "t": -12.25,
+     "z_offset": 1.82
+    },
+    {
      "id": 108,
      "name": "Sg205VorfahrtGew02",
      "orientation": 1,
      "s": 15.1098,
      "t": 0.5,
      "z_offset": 1.84
+    },
+    {
+     "id": 46,
+     "name": "Sg267EinfahrtVerboten03",
+     "orientation": -1,
+     "s": 15.301107,
+     "t": 0.5,
+     "z_offset": 1.82
+    },
+    {
+     "id": 113,
+     "name": "Sg222RechtsVorbei03",
+     "orientation": 1,
+     "s": 20.465231,
+     "t": 0.47,
+     "z_offset": 0.42
     }
    ]
   },
@@ -3586,6 +3643,14 @@
     "z": 8.0
    },
    "signs": [
+    {
+     "id": 120,
+     "name": "Sg306Vorfahrtstrasse02",
+     "orientation": 1,
+     "s": 5.0,
+     "t": -6.75,
+     "z_offset": 1.78
+    },
     {
      "id": 116,
      "name": "Sg436KirchenLi",
@@ -3859,7 +3924,16 @@
     "y": 984.039662,
     "z": 8.0
    },
-   "signs": []
+   "signs": [
+    {
+     "id": 27,
+     "name": "Sg306Vorfahrtstrasse02",
+     "orientation": 1,
+     "s": 5.0,
+     "t": -4.75,
+     "z_offset": 1.78
+    }
+   ]
   },
   {
    "id": "29",
@@ -5617,12 +5691,36 @@
      "z_offset": 0.42
     },
     {
+     "id": 49,
+     "name": "Sg267EinfahrtVerboten03",
+     "orientation": -1,
+     "s": 10.710775,
+     "t": -12.5,
+     "z_offset": 1.82
+    },
+    {
      "id": 379,
      "name": "Sg205VorfahrtGew02",
      "orientation": 1,
      "s": 15.109843,
      "t": 0.5,
      "z_offset": 1.84
+    },
+    {
+     "id": 104,
+     "name": "Sg267EinfahrtVerboten03",
+     "orientation": -1,
+     "s": 15.301107,
+     "t": 0.75,
+     "z_offset": 1.82
+    },
+    {
+     "id": 325,
+     "name": "Sg222RechtsVorbei03",
+     "orientation": 1,
+     "s": 20.273967,
+     "t": 0.47,
+     "z_offset": 0.42
     }
    ]
   },
@@ -5991,6 +6089,14 @@
     "z": 8.0
    },
    "signs": [
+    {
+     "id": 120,
+     "name": "Sg306Vorfahrtstrasse02",
+     "orientation": 1,
+     "s": 5.0,
+     "t": -6.75,
+     "z_offset": 1.78
+    },
     {
      "id": 546,
      "name": "SgRMHoldingline-1Lane",
@@ -8211,6 +8317,14 @@
     "z": 8.0
    },
    "signs": [
+    {
+     "id": 86,
+     "name": "Sg306Vorfahrtstrasse02",
+     "orientation": 1,
+     "s": 5.0,
+     "t": -4.75,
+     "z_offset": 1.78
+    },
     {
      "id": 48,
      "name": "Sg430-20RichtungAutobahn",

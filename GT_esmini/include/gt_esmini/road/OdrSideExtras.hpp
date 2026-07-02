@@ -3,8 +3,9 @@
 // Plan: GT_esmini/docs/opendrive_16_19_support_plan.md (§3.1 OdrSideModel).
 //
 // P1 reserved these as empty placeholder skeletons; P2 fills OdrLaneExtras (lane types /
-// 1.8 lane attributes / access / rule / speed / roadMark sway / borders). The remaining
-// structs stay empty until their phases (P3/P4 signals, P5-P7 junctions, P9 railroad).
+// 1.8 lane attributes / access / rule / speed / roadMark sway / borders); P3 fills
+// OdrSignalExtras (cluster 12 L1: signal <dependency> / <reference>). The remaining
+// structs stay empty until their phases (P4 signal semantics/VMS, P5-P7 junctions, P9 railroad).
 //
 // Namespace: gt_esmini::odr
 #pragma once
@@ -84,10 +85,35 @@ struct OdrLaneExtras
     std::vector<OdrLaneBorder>   borders;  // source data for the P2 border->width normalization
 };
 
-// Per-signal extras: semantics family + participants, boards/VMS, positionRoad/Inertial,
-// signalReference, dependency, temporary/invalidated flags. Populated in P3/P4.
+// <signal>/<dependency>: this signal controls the state of the referenced signal (id), with an
+// optional free-text type. L1 storage only (plan cluster 12; runtime semantics deferred).
+struct OdrSignalDependency
+{
+    std::string id;    // @id -- the CONTROLLED signal's id
+    std::string type;  // @type (optional)
+};
+
+// <signal>/<reference>: link between this signal and another signal or object (e.g. a static
+// board that belongs to a signal). L1 storage only.
+struct OdrSignalReferenceLink
+{
+    std::string element_type;  // @elementType: "object" | "signal"
+    std::string element_id;    // @elementId
+    std::string type;          // @type (optional)
+};
+
+// Per-signal extras (P3, cluster 12 L1): the <dependency>/<reference> children of one <signal>.
+// One entry per signal that HAS at least one such child (signals without them get no entry).
+// positionRoad/positionInertial are consumed directly by [GT_ODR:sig-pos] (ResolveSignalPose)
+// and road-level <signalReference> is materialized by [GT_ODR:sig-ref]; neither needs storage.
+// semantics family / boards / VMS / temporary-invalidated flags land here in P4/P8.
 struct OdrSignalExtras
 {
+    std::string road_id;    // owning <road>@id
+    std::string signal_id;  // <signal>@id
+
+    std::vector<OdrSignalDependency>    dependencies;
+    std::vector<OdrSignalReferenceLink> references;
 };
 
 // Per-junction extras: crossing junction + crossPath (pedestrian crossing), virtual junction,

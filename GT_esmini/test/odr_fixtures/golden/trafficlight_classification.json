@@ -619,6 +619,22 @@
     "load": true,
     "signals": {}
   },
+  "GT_esmini/test/odr_fixtures/handauthored/19_signal_reference_18.xodr": {
+    "load": true,
+    "signals": {
+      "1:tl_main": "TrafficLight",
+      "2:stop_main": "Signal"
+    }
+  },
+  "GT_esmini/test/odr_fixtures/handauthored/20_signal_pos_omitted_19.xodr": {
+    "load": true,
+    "signals": {
+      "1:posroad_omitted": "Signal",
+      "2:posinertial_omitted": "Signal",
+      "3:no_pose_omitted": "Signal",
+      "4:posinertial_offroad": "Signal"
+    }
+  },
   "resources/scenario_authoring/road_catalog/generated/4way_priority__main_ns.xodr": {
     "load": true,
     "signals": {

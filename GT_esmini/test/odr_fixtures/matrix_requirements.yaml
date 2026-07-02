@@ -105,6 +105,10 @@ clusters:
     patterns:
       - "road/signals/signal/positionRoad"
       - "road/signals/signal/positionInertial"
+      - "road/signals/signalReference"
+      - "road/signals/signal/dependency"
+      - "road/signals/signal/reference"
+      - "signal-st-omitted-19"
 
   13:
     title: "VMS / variable message boards"

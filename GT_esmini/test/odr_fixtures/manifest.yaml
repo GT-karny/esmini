@@ -1142,14 +1142,14 @@ fixtures:
   - road/signals/signal/positionInertial@y
   - road/signals/signal/positionInertial@z
   - road/signals/signal/positionInertial@hdg
-  expected_unsupported_entries:
-  - 'road/signals/signal/positionInertial|ctx=1'
-  - 'road/signals/signal/positionRoad|ctx=1'
+  expected_unsupported_entries: []  # P3 [GT_ODR:sig-pos] LANDED: both elements consumed, audit-zero
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    Consumed by P3 (positionRoad -> referenced-road attach; positionInertial -> XYZ2TrackPos). Elements
-    silently ignored today. LOWEST rev with these elements is 1.5M (confirmed NOT PRESENT in OpenDRIVE_1.4H.xsd),
+    Consumed by P3 [GT_ODR:sig-pos] (LANDED): positionRoad -> referenced-road attach (zOffset/hOffset/
+    pitch/roll overrides); positionInertial -> XYZ2TrackPos reverse mapping (off-road -> WARN + skip);
+    landing unit-tested (test_OdrForkPatches.SignalPoseOverrides), 1.9 s/t-omission + off-road cases in
+    fixture 20. LOWEST rev with these elements is 1.5M (confirmed NOT PRESENT in OpenDRIVE_1.4H.xsd),
     so file stays _15. 1.5 signal REQUIRES height + width (unlike 1.8); country union has no alpha-2 in
     1.5, so alpha-3 "DEU" is used.
 - id: temporary_invalidated_19
@@ -1205,3 +1205,55 @@ fixtures:
     1.8 (t_road_signals_vmsBoard + t_road_signals_displayArea, children of <signal>); 1.9 keeps the same
     construct, so _18 chosen. Content is silently dropped by GT_RoadManager today; static/dynamic content
     L3 is on the P0/8 hold ledger.
+- id: signal_reference_18
+  path: GT_esmini/test/odr_fixtures/handauthored/19_signal_reference_18.xodr
+  source: handauthored
+  rev: '1.8'
+  requires: []
+  clusters:
+  - 12
+  features:
+  - road/signals/signalReference
+  - road/signals/signalReference@s
+  - road/signals/signalReference@t
+  - road/signals/signalReference@id
+  - road/signals/signalReference@orientation
+  - road/signals/signalReference/validity
+  - road/signals/signal/dependency
+  - road/signals/signal/dependency@id
+  - road/signals/signal/dependency@type
+  - road/signals/signal/reference
+  - road/signals/signal/reference@elementType
+  - road/signals/signal/reference@elementId
+  - road/signals/signal/reference@type
+  expected_unsupported_entries: []  # P3: signalReference/dependency/reference all consumed
+  osi: true  # clone of the dynamic light must add traffic_light entities (P3 acceptance (iii))
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P3 [GT_ODR:sig-ref] (LANDED): road 2's <signalReference id="1"> materializes a TrafficLight clone
+    (reference's s/t/orientation/validity), id="2" a static Signal clone. Clones appear in the RM golden
+    signs of road 2 and (dynamic one) in the OSI traffic_light set. A DANGLING reference cannot be
+    schema-valid (1.8 XSD keyref k_road_signals_signalId -- P0 known trap), so the WARN+skip path is
+    unit-tested via temp file (SignalReferenceDanglingSkip) and observed on official UC_5Road_Junction.
+    <dependency>/<reference> children are stored L1 in OdrSideModel::signal_extras.
+- id: signal_pos_omitted_19
+  path: GT_esmini/test/odr_fixtures/handauthored/20_signal_pos_omitted_19.xodr
+  source: handauthored
+  rev: '1.9'
+  requires: []
+  clusters:
+  - 12
+  features:
+  - road/signals/signal/positionRoad
+  - road/signals/signal/positionInertial
+  - road/signals/signal/positionInertial@hdg
+  - signal-st-omitted-19
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    1.9 signal @s/@t omission (P3 [GT_ODR:sig-pos]): id=1 backfills s/t from same-road <positionRoad>
+    (RM golden shows s=40/t=-4); id=2 backfills from reverse-mapped <positionInertial> (s=90/t=-4,
+    hdg override); id=3 has NO position child -> WARN diagnostic, s=0/t=0; id=4 has an OFF-ROAD
+    <positionInertial> (5000,5000) -> WARN + override skipped, keeps s=120/t=-4 (P3 acceptance (iv)).
