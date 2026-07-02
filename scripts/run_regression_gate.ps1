@@ -10,6 +10,14 @@
                suite (test_ScenarioReaderParsing, test_PythonDriverBridge,
                GT_esmini_Integration_*). A failure here fails the whole gate.
 
+      Step 1.5 - OpenDRIVE conformance, quick profile (HARD gate)
+               Runs scripts/run_odr_conformance.py --profile quick (schema layer
+               + esminiRMLib RM probe layer + XFAIL/XPASS semantics; exit 0 iff
+               no FAIL/XPASS). Uses the same verification venv as Step 2. Official
+               ASAM fixtures auto-SKIP when the thirdparty zips are absent; the RM
+               layer needs the built esminiRMLib.dll. A nonzero exit fails the
+               gate. Skip with -SkipOdr.
+
       Step 2 - VirtualDriver behavioral batch (reported gate, skippable)
                Runs the gt_sim_test phase-3 traffic-policy batch in-process via
                the GT C-API (GT_esminiLib.dll) and reports the verdict:
@@ -38,6 +46,9 @@
 .PARAMETER BuildDir
     CMake build directory. Default: build.
 
+.PARAMETER SkipOdr
+    Skip Step 1.5 (OpenDRIVE conformance, quick profile) entirely.
+
 .PARAMETER SkipBehavioral
     Skip Step 2 entirely (e.g. when no Release build / venv is available).
 
@@ -63,12 +74,14 @@
 .EXAMPLE
     pwsh scripts/run_regression_gate.ps1
     pwsh scripts/run_regression_gate.ps1 -SkipBehavioral
+    pwsh scripts/run_regression_gate.ps1 -SkipOdr
     pwsh scripts/run_regression_gate.ps1 -FailOnBehavioral
 #>
 [CmdletBinding()]
 param(
     [string]$Config = "Release",
     [string]$BuildDir = "build",
+    [switch]$SkipOdr,
     [switch]$SkipBehavioral,
     [switch]$FailOnBehavioral,
     [string]$Python = "",
@@ -103,6 +116,44 @@ if ($step1 -ne 0) {
     $overallOk = $false
 } else {
     Write-Host "Step 1: PASS" -ForegroundColor Green
+}
+
+# ----------------------------------------------------------------------------
+# Step 1.5 - OpenDRIVE conformance, quick profile (HARD gate)
+# ----------------------------------------------------------------------------
+if ($SkipOdr) {
+    Write-Host "==== Step 1.5: OpenDRIVE conformance (quick) - SKIPPED (-SkipOdr) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 1.5: OpenDRIVE conformance (quick) ====" -ForegroundColor Cyan
+
+    # Resolve the verification venv python the same way Step 2 does (needs
+    # xmlschema/lxml/pyyaml; DriverScript/.venv satisfies these).
+    $odrPy = $Python
+    if ([string]::IsNullOrWhiteSpace($odrPy)) {
+        foreach ($cand in @("DriverScript/.venv/Scripts/python.exe",
+                            "GT_esmini/web/.venv/Scripts/python.exe")) {
+            $full = Resolve-RepoPath $cand
+            if (Test-Path $full) { $odrPy = $full; break }
+        }
+    }
+
+    $odrHarness = Resolve-RepoPath "scripts/run_odr_conformance.py"
+
+    if ([string]::IsNullOrWhiteSpace($odrPy) -or -not (Test-Path $odrPy)) {
+        Write-Host "Step 1.5: FAIL - verification venv python not found (DriverScript/.venv or GT_esmini/web/.venv)" -ForegroundColor Red
+        Write-Host "    (create the venv, pass -Python, or skip with -SkipOdr)" -ForegroundColor Yellow
+        $overallOk = $false
+    } else {
+        Write-Host "Step 1.5: $odrPy $odrHarness --profile quick" -ForegroundColor Cyan
+        & $odrPy $odrHarness --profile quick
+        $step15 = $LASTEXITCODE
+        if ($step15 -ne 0) {
+            Write-Host "Step 1.5: FAIL (exit $step15)" -ForegroundColor Red
+            $overallOk = $false
+        } else {
+            Write-Host "Step 1.5: PASS" -ForegroundColor Green
+        }
+    }
 }
 
 # ----------------------------------------------------------------------------

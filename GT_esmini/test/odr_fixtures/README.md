@@ -74,6 +74,22 @@ reports revMinor-9 files as `SKIP_NO_SCHEMA19` (a failure only under `--strict`)
 This lets CI run the harness unconditionally and simply skip the ASAM-derived parts
 when the assets are unavailable.
 
+## Gates & CI
+
+Where each layer runs (conservative split: DLL golden layers local, deterministic checks in CI):
+
+| Layer / check | Regression gate (local) | CI (`ci.yml`) |
+| :-- | :-- | :-- |
+| schema | Step 1.5 (`--profile quick`) | `test-no-external-modules`, ubuntu/Release: `--layers schema --check-matrix` |
+| RM probe + `golden/rm/` | Step 1.5 (`--profile quick`) | -- (cross-OS float risk; local only) |
+| OSI probe + `golden/osi/` | manual `--profile full` | -- (local only) |
+| matrix coverage | (via `--check-matrix`, optional) | yes (in the schema step above) |
+| app smoke | manual `--smoke` | -- |
+
+- **Regression gate** (`scripts/run_regression_gate.ps1`): **Step 1.5** runs `run_odr_conformance.py --profile quick` (schema + RM) as a HARD gate, using the `DriverScript/.venv` python. Skip with `-SkipOdr`. RM needs the built `esminiRMLib.dll`; official ASAM fixtures auto-SKIP if the thirdparty zips are absent.
+- **CI**: the ubuntu/Release `test-no-external-modules` job installs `xmlschema lxml pyyaml` and runs `--layers schema --check-matrix` only. No DLL is loaded (build-tree independent) and the ASAM layer SKIPs (zips never present in CI). The RM/OSI golden layers are deliberately kept out of the 3-OS matrix to avoid cross-OS float divergence in the goldens.
+- **After a parser change**: run `--profile full` (adds OSI) with `--smoke` locally, and regenerate/review goldens in a single commit (see `--update-golden` above).
+
 ## Setup (extraction bootstrap)
 
 ```
