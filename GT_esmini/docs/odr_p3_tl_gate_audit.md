@@ -78,6 +78,18 @@ value 属性を除去(fabriksgatan と同形へ。分類 diff・RM ゴールデ�
   (`UpdateStaticTrafficSignals` の分岐)。1.5 コントロールセット(31 本)にフリップは無く、
   traffic_sign 一覧は不変(受入 (i) 後段、OSI ゴールデン一致で機械検証)。
 
+## web WS 位相チャンネル確認(sig-ref クローン / 新規昇格 TL への耐性、受入 (vi))
+
+- 送出側 `GT_esmini/web/backend/api/osi_stream.py` `_gt_to_json`: `gt.traffic_light` を毎フレーム
+  走査し **OSI ランプ id**(`tl.id.value`)キーの JSON を WS へ送出。OSI ランプ id は
+  `TrafficLight::SetTrafficLightInfo` が `GetNewGlobalId()` で採番するため、signalReference クローン
+  (xodr signal id は原本と同一)でも**ランプ id は必ず一意** — 既知罠「OSI signal id ≠ xodr id」は
+  このチャンネルでは id 衝突を生まない(xodr id は `source_reference` にのみ出現し WS JSON 未使用)。
+- 受信側 `LiveSceneView.tsx` `renderTrafficLights`: React key = `tl-off-${id}` / `tl-on-${id}`
+  (ランプ id)。ステートレスなフレーム毎描画のため、クローンや新規昇格 TL による**エンティティ増加は
+  そのまま追加描画**され、キー衝突・再レンダー不整合は発生しない。
+- 0 灯 TrafficLight(未対応 type 組合せ)は per-lamp 出力が無いため WS にも現れない(上記劣化と同件)。
+
 ## 凍結
 
 - 本コミットで `golden/trafficlight_classification.json` を AFTER 状態に更新(ゲート緩和と同一コミット
