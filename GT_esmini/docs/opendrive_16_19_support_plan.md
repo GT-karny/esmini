@@ -18,7 +18,7 @@
 | **P2** | ✅ 完了 (2026-07-03) | 4a8d8f4b, 041c7c0b, dd2592c8 (merge b395ef00) | クラスタ3+16: [GT_ODR:lane-types] 5行(walking→SIDEWALK / curb→CURB / shared→BIDIRECTIONAL / slipLane→CONNECTING_RAMP、フォーク計 **21/150行**)、OdrLaneExtras(1.8レーン属性+access/rule/speed/sway/border L1、レガシー資産ではスパース=空)、border→width正規化(公開AddLaneWidth経由・型付きBuildSideModelオーバーロードで**フォーク改変ゼロ、lane-borderコンティンジェンシー不使用**、Ex_Lane-Border偽グリーン解消)、lane speed L2(ManeuverAwareSpeedPlanner min接続・レガシー経路ビット同一をphase3 per-scenario一致で証明)、OSI TYPE_UNKNOWNゼロ(fixture 13の`osi: true`+`osi_expect_no_unknown`機械検証、OSI層にフィクスチャopt-in拡張)、rm_lib/web同期+enum往復ctest(OdrLaneTypeSync)、ゴールデン意図変化15 RM+新規1 OSI(コントロールセット31件はバイト同一) |
 | P3〜P10 | 未着手 | — | 次=P3(動的信号ゲート緩和+signal配置/参照、1週。feature/odr1619-p3 が並行作業中 → 本マージ後に rebase+監査diff再取得、マーカー数/EXPECT_LINES は合算) |
 
-- **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)の順で dev_v0.12 へマージ済(マージ後ツリーは検証済みツリーと同一)。
+- **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)→ feature/odr1619-p2(**b395ef00**、2026-07-03)の順で dev_v0.12 へマージ済。P2はマージ後ツリーで再ビルド+unit ctest+conformance quick 全緑を再検証済(マージ差分はdocsのみ=検証済みツリー保存)。P3(feature/odr1619-p3、並行worktree)は本マージ後に rebase する取り決め。
 - **承認済**(2026-07-02): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない**(CIではofficial層自動SKIP)。**残承認**: §10-3・4(P6着手前)、§10-5・6(P9まで)。
 - **実装時の実測差分(計画からの補正)**:
   1. 公式 `Ex_Slip_Lane`/`UC_T_Junction` のクラッシュ真因は junction 中断**以外**(信号validity解決のs範囲外等)→ P1では凍結維持、**P5で再訪**(§1.3の想定補正)。
