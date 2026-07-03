@@ -131,7 +131,7 @@ When the ASAM source zips are (legitimately) updated:
 
 ## P0 baseline (frozen in `manifest.yaml` + `golden/`)
 
-`manifest.yaml` = **31 control_set** (26 `resources/xodr/*.xodr` + 5 `resources/scenario_authoring/road_catalog/generated/*.xodr`) + **62 fixtures** (36 official + 20 handauthored + 6 generated; 19/20 added in P3). `run_odr_conformance.py --profile full` is green: schema 82 PASS / 11 XFAIL, rm 90 PASS / 3 XFAIL, osi 35 PASS (31 control + fixtures 13/03/05/19 opt-in; 0 FAIL / 0 XPASS). Goldens: 90 RM + 35 OSI.
+`manifest.yaml` = **31 control_set** (26 `resources/xodr/*.xodr` + 5 `resources/scenario_authoring/road_catalog/generated/*.xodr`) + **62 fixtures** (36 official + 20 handauthored + 6 generated; 19/20 added in P3). `run_odr_conformance.py --profile full` is green: schema 82 PASS / 11 XFAIL, rm 92 PASS / 1 XFAIL, osi 35 PASS (31 control + fixtures 13/03/05/19 opt-in; 0 FAIL / 0 XPASS). Goldens: 92 RM + 35 OSI.
 
 P2 (2026-07-03) intentionally regenerated 15 RM goldens (lane-type NONE->SIDEWALK/CURB/BIDIRECTIONAL/CONNECTING_RAMP flips in fixtures using walking/curb/shared/slipLane + the Ex_Lane-Border border->width normalization) and added the fixture-13 OSI golden; every control_set golden stayed byte-identical (legacy invariance proof).
 
@@ -143,6 +143,6 @@ clone signs (UC_Motorway-Exit-Entry x2, UC_5Road_Junction); control_set goldens 
 The frozen known-broken baselines (XFAIL) are:
 
 - **Schema XFAIL (11)** = 5 fixtures + 6 control_set. Fixtures: `07_license_default_regulations` (ASAM `_OpenDriveElement`-abstract XSD defect, both 1.8/1.9), `18_removed16_neighbor` (element removed in 1.6 -- P1 `[ODR-REMOVED-1.6]` target), and 3 official mislabels (`Ex_Objects`, `Ex_Parkingspace_rhomboid`, `Ex_SmoothObjectOutline_traffic_island`). Control_set: `fabriksgatan_traffic_lights_ctrl.xodr` (revMinor=4 + top-level `<controller>`) and the 5 `road_catalog/generated/*.xodr` (empty `<elevationProfile>` / crosswalk object missing `@validLength`/`@height` -- scenariogeneration artifacts; `resources/` is off-limits so these are frozen, not fixed).
-- **RM_Init XFAIL (3)**: `02_invalid_junction_connection_14` (dangling `connectingRoad="99"` aborts the parse -- relabeled to 1.4H so schema PASSes while the RM abort survives) + 2 official junction crashes (`Ex_Slip_Lane`, `UC_T_Junction`; unhandled C++ exception across the FFI, WinError `0xe06d7363`). All frozen as expected `rm_init: fail` until plan phase **P1** (abort hardening).
+- **RM_Init XFAIL (1)**: `16_include_error_15` (P1 made `<include>` a hard error by design; resolution decision deferred to P9). The two official junction crashes (`Ex_Slip_Lane`, `UC_T_Junction`) were FIXED in the post-P3 crash-fix pass ([GT_ODR:direct-junc-log] upstream fmt argument bug + [GT_ODR:sig-lanes-guard] out-of-range signal s) and now PASS with RM goldens; `02_invalid_junction_connection_14` has PASSed since P1 (junction-abort resilience).
 
-Fixture `16_include_error_15` currently PASSes rm_init (`<include>` is silently ignored today); P1 turns it into a hard error and its expectation flips then.
+

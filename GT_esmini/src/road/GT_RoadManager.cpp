@@ -544,8 +544,15 @@ void Signal::SetAllValidLanes(Signal* sig, Road* r)
 
     if (ls == nullptr)
     {
-        LOG_ERROR_AND_QUIT("Signal::SetAllValidLanes: No lane section found at s={} for signal id {}", sig->GetS(), sig->GetId());
-        return;  // for cppcheck
+        // [GT_ODR:sig-lanes-guard] malformed asset (signal s outside the road range, e.g. official
+        // UC_T_Junction s=111.5 on an 80 m road): WARN + no valid lanes. Was LOG_ERROR_AND_QUIT,
+        // whose throw crosses the C API as 0xe06d7363 and killed the whole load. Upstream PR candidate.
+        LOG_WARN("Signal::SetAllValidLanes: no lane section at s={:.2f} for signal id {} (road {}, length {:.2f}); no valid lanes assigned",
+                 sig->GetS(),
+                 sig->GetId(),
+                 r->GetIdStr(),
+                 r->GetLength());
+        return;
     }
 
     drivable_lanes.reserve(ls->GetNumberOfLanes());
@@ -6681,7 +6688,11 @@ int OpenDrive::CheckJunctionConnection(Junction* junction, Connection* connectio
                      connection->GetContactPoint() == ContactPointType::CONTACT_POINT_END &&
                      link[i]->GetContactPointType() == ContactPointType::CONTACT_POINT_JUNCTION && link[i]->GetElementId() != junction->GetId()))
                 {
-                    LOG_ERROR("Expected direct junction linkedRoad to connect back to junction id {}, found id {}", link[i]->GetElementId());
+                    // [GT_ODR:direct-junc-log] upstream fmt bug: 2 placeholders / 1 argument -> fmt::format_error
+                    // ("argument not found") thrown DURING logging, killing the whole load (official Ex_Slip_Lane).
+                    LOG_ERROR("Expected direct junction linkedRoad to connect back to junction id {}, found id {}",
+                              junction->GetId(),
+                              link[i]->GetElementId());
                     return -1;
                 }
 

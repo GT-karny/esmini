@@ -6,7 +6,7 @@
 //   1. MarkerCount  -- assert the on-disk marker inventory matches the patch manifest so a
 //      stray/removed fork edit trips ctest. KEEP IN SYNC WITH:
 //          GT_esmini/docs/gt_roadmanager_patches.md
-//      (13x "[GT_ODR:" + >=1 "[GT_LHT]" in GT_RoadManager.cpp; 2x "[GT_ODR:cmake]" in the
+//      (15x "[GT_ODR:" + >=1 "[GT_LHT]" in GT_RoadManager.cpp; 2x "[GT_ODR:cmake]" in the
 //       RoadManager CMakeLists). Source-of-truth via the GT_ODR_REPO_ROOT compile def.
 //
 //   2. Behavioral proofs of the individual patches, driven through the REAL parser
@@ -195,8 +195,8 @@ TEST(OdrForkPatches, MarkerCount)
     const std::string cpp_path = root + "/GT_esmini/src/road/GT_RoadManager.cpp";
     std::string       cpp;
     ASSERT_TRUE(ReadFileToString(cpp_path, cpp)) << "cannot read " << cpp_path;
-    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 13u)
-        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 13).";
+    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 15u)
+        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 15).";
     EXPECT_GE(CountOccurrences(cpp, "[GT_LHT]"), 1u)
         << "GT_RoadManager.cpp lost its [GT_LHT] patch 1-A marker.";
 
@@ -528,5 +528,22 @@ TEST(OdrForkPatches, SignalExtrasDependencyReference)
     EXPECT_EQ(ex.references[0].element_id, "2");
     EXPECT_EQ(ex.references[0].type, "controls");
 
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
+
+// 9. [GT_ODR:sig-lanes-guard]: a signal whose s lies beyond the road length must NOT kill the load
+//    (was LOG_ERROR_AND_QUIT -> throw across the C API; official UC_T_Junction reproduction).
+TEST(OdrForkPatches, SignalBeyondRoadLengthSurvives)
+{
+    std::string xodr = OneDynamicSignalRoad("tl_far", "OpenDRIVE", "");
+    const std::string s70 = "<signal s=\"70.0\"";
+    const std::size_t at = xodr.find(s70);
+    ASSERT_NE(at, std::string::npos);
+    xodr.replace(at, s70.size(), "<signal s=\"400.0\"");  // road is 150 m long
+    const std::string path = WriteTemp("sig_far.xodr", xodr);
+    ASSERT_TRUE(LoadXodr(path)) << "an out-of-range signal s must not abort the load";
+    roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "tl_far");
+    ASSERT_NE(sig, nullptr);
+    EXPECT_TRUE(sig->GetAllValidGlobalLanes().empty()) << "no valid lanes assigned for the malformed signal";
     roadmanager::Position::GetOpenDrive()->Clear();
 }

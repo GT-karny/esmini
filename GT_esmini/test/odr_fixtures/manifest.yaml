@@ -938,15 +938,14 @@ fixtures:
   - asam_zips
   clusters: []
   features: []
-  expected: {schema: pass, rm_init: fail}
-  observed: {schema: pass, rm_init: crash}
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
   expected_notes: >-
-    P1 flip ATTEMPTED then REVERTED (kept frozen): verified empirically post-build that the
-    [GT_ODR:junc-abort] degradation does NOT rescue this file -- RM_Init still throws a C++ exception
-    (WinError 0xe06d7363) downstream of the junction laneLink processing, unrelated to the
-    "Missing connecting road" return-false path patch 4 addresses. Crash site: after the junction
-    connection/laneLink loop (last logs = "[ODR-UNSUPPORTED] junction/connection/laneLink@overlapZone
-    (road=4/5)"). Deferred to a later junction phase.
+    FIXED (post-P3 crash-fix pass): the abort was an UPSTREAM fmt bug -- the direct-junction
+    "linkedRoad connect back" LOG_ERROR has 2 placeholders but 1 argument, so fmt::format_error
+    ("argument not found") was thrown DURING logging and crossed the C API (0xe06d7363). Patched as
+    [GT_ODR:direct-junc-log] (arguments completed; the malformed connection is still rejected with
+    return -1, the rest of the file loads). Upstream PR candidate; RoadManager.cpp:6621 in v3.3.0.
 - id: official_ex_smoothobjectoutline_traffic_island
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_SmoothObjectOutline/Ex_SmoothObjectOutline_traffic_island.xodr
   source: official
@@ -1076,15 +1075,12 @@ fixtures:
   - asam_zips
   clusters: []
   features: []
-  expected: {schema: pass, rm_init: fail}
-  observed: {schema: pass, rm_init: crash}
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
   expected_notes: >-
-    P1 flip ATTEMPTED then REVERTED (kept frozen): verified empirically post-build that the
-    [GT_ODR:junc-abort] degradation does NOT rescue this file -- RM_Init still throws a C++ exception
-    (WinError 0xe06d7363), unrelated to patch 4's "Missing connecting road" return-false path. Crash
-    site: signal-validity resolution -- "GetLaneSectionIdxByS: s 111.5 is beyond the last lane section"
-    then "Signal::SetAllValidLanes: No lane section found at s=111.5 for signal id 10" (a signal placed
-    past the end of track 6, which is 80 m long). Deferred to a later phase.
+    FIXED (post-P3 crash-fix pass): Signal::SetAllValidLanes hit LOG_ERROR_AND_QUIT (throw across
+    the C API, 0xe06d7363) for signal id=10 s=111.5 on the 80 m road 6. Patched as
+    [GT_ODR:sig-lanes-guard]: WARN + no valid lanes for out-of-range signal s. Upstream PR candidate.
 - id: official_uc_x_junction
   path: GT_esmini/test/odr_fixtures/official/use_cases/UC_Junction/UC_X_Junction.xodr
   source: official

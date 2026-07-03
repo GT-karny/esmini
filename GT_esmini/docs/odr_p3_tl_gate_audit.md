@@ -63,8 +63,10 @@
 ゲート緩和により「任意 type の動的信号」が TrafficLight 化されるため P3 で顕在化(fixture 03 の
 OSI プローブで実測)。`[GT_ODR:tl-gate]` ブロック 2 として `nr_lamps_ = 0` を設定(独立 upstream PR 候補)。
 
-なお 0 灯 TrafficLight は OSI に per-lamp エンティティを 1 つも出さない(pre-P3 は誤って
-traffic_sign として出ていた)。既知の劣化として記録し、type カタログ強化は P4(クラスタ 10/13)で扱う。
+なお 0 灯 TrafficLight は OSI に per-lamp エンティティを 1 つも出さなかった(pre-P3 は誤って
+traffic_sign として出ていた)— **post-P3 のクラッシュ修正パスで解消**: `GT_OSIReporter_Traffic.cpp`
+(GT 所有)が 0 灯 TL を traffic_sign へフォールバックし、可視性を維持する。type カタログ強化は
+P4(クラスタ 10/13)で扱う。
 P0 フィクスチャ 03/05 は `value="0.0"` が複合 type(`1000001-0.0`)を灯火型テーブル外にしていたため
 value 属性を除去(fabriksgatan と同形へ。分類 diff・RM ゴールデンに影響なし、OSI 観測が有効化)。
 
