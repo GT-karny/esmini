@@ -181,6 +181,10 @@ REPO_ROOT = REPO_ROOT_LIT
 rmdll = RMDLL_LIT
 xodr = XODR_LIT
 out = OUT_LIT
+# z-grid probe requests (harness extension A). List of [s, t] (road[0]) or [road_id, s, t]
+# (road_id is the STRING road id, matching the extract's road "id"). Empty when the manifest
+# carries no rm_z_probe field -> the z_probe key is NOT added to the extract (byte-identical guard).
+ZPROBE = ZPROBE_LIT
 TOL = 6
 sys.path.insert(0, os.path.join(REPO_ROOT, "GT_esmini", "scripts"))
 from rm_lib import EsminiRMLib
@@ -203,9 +207,14 @@ try:
     nroads = lib.GetNumberOfRoads()
     res["num_roads"] = nroads
     roads = []
+    rid_by_str = {}          # string road id -> numeric rid (for the z-grid probe)
+    first_rid = None
     for ri in range(nroads):
         rid = lib.GetIdOfRoadFromIndex(ri)
+        if first_rid is None:
+            first_rid = rid
         length = float(lib.GetRoadLength(rid))
+        rid_by_str[lib.GetRoadIdString(rid)] = rid
         rd = {"id": lib.GetRoadIdString(rid), "length": r(length)}
         jstr = lib.GetJunctionIdString(rid)
         # RM_ID_UNDEFINED string is "" -> only record real junction ids
@@ -264,6 +273,33 @@ try:
         roads.append(rd)
     roads.sort(key=lambda x: x["id"])
     res["roads"] = roads
+    # --- z-grid probe (harness extension A): sample world z at each requested (s,t). ---
+    # Only emit z_probe when the manifest requested points (byte-identical golden guard).
+    if ZPROBE:
+        z_probe = []
+        for spec in ZPROBE:
+            if len(spec) == 3:
+                road_str, s, t = str(spec[0]), float(spec[1]), float(spec[2])
+                rid = rid_by_str.get(road_str, None)
+            else:
+                s, t = float(spec[0]), float(spec[1])
+                # road[0] = the FIRST road by string id (matches roads[0] after sort).
+                road_str = roads[0]["id"] if roads else ""
+                rid = rid_by_str.get(road_str, first_rid)
+            entry = {"road": road_str, "s": r(s), "t": r(t)}
+            if rid is None:
+                entry["z"] = None
+            else:
+                h = lib.CreatePosition()
+                pr = lib.SetRoadPosition(h, rid, s, t, True)
+                if pr == 0:
+                    rcp, pd = lib.GetPositionData(h)
+                    entry["z"] = r(pd.z) if rcp == 0 else None
+                else:
+                    entry["z"] = None
+                lib.DeletePosition(h)
+            z_probe.append(entry)
+        res["z_probe"] = z_probe
     lib.Close()
 except Exception as e:
     res = {"load_ok": False, "error": "%s: %s" % (type(e).__name__, e)}
@@ -276,6 +312,7 @@ REPO_ROOT = REPO_ROOT_LIT
 dll = DLL_LIT
 xosc = XOSC_LIT
 out = OUT_LIT
+DUMP_POLYGONS = DUMP_POLYGONS_LIT  # harness extension B: per-stationary-object base_polygon dump
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))  # esmini's own osi3 bindings
 
 def r(v):
@@ -330,6 +367,32 @@ try:
         "traffic_light_count": len(g.traffic_light),
         "traffic_light_ids": tl_ids,
     }
+    # Harness extension B: per-stationary-object base_polygon dump (opt-in). Winding from the
+    # signed area (shoelace) of the 2D base polygon; degenerate if |area| < 1e-9 or < 3 points.
+    # Only added when requested -> non-flagged fixtures keep byte-identical OSI extracts.
+    if DUMP_POLYGONS:
+        polys = []
+        for so in g.stationary_object:
+            pts = list(so.base.base_polygon)
+            n = len(pts)
+            if n < 3:
+                winding = "degenerate"
+            else:
+                area2 = 0.0
+                for i in range(n):
+                    x1, y1 = pts[i].x, pts[i].y
+                    x2, y2 = pts[(i + 1) % n].x, pts[(i + 1) % n].y
+                    area2 += x1 * y2 - x2 * y1
+                if abs(area2) < 2e-9:  # |signed area| < 1e-9
+                    winding = "degenerate"
+                elif area2 > 0:
+                    winding = "ccw"
+                else:
+                    winding = "cw"
+            polys.append({"id": int(so.id.value), "type": int(so.classification.type),
+                          "base_polygon_points": n, "winding": winding})
+        polys.sort(key=lambda x: x["id"])
+        res["stationary_polygons"] = polys
 except Exception as e:
     res = {"init_ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 json.dump(res, open(out, "w"))
@@ -460,6 +523,35 @@ def _cmp_status(expected: str, observed: str) -> str:
 # ---------------------------------------------------------------------------
 # Layer 2: RM probes + goldens
 # ---------------------------------------------------------------------------
+def _rm_expect_z_check(entry: dict, observed_z_probe):
+    """Harness extension A: assert observed world z at each requested (s,t) against the manifest
+    `rm_expect_z: [{road, s, t, z}]` (abs tol 1e-6), INDEPENDENT of the golden. Returns None when
+    nothing to enforce, "ok", or "FAIL: ...". Matches expected rows to observed z_probe rows by
+    (road, s, t) with the same 1e-6 rounding the extract uses."""
+    exp = entry.get("rm_expect_z")
+    if not exp:
+        return None
+    if not observed_z_probe:
+        return "FAIL: rm_expect_z set but no z_probe observed (load fail or rm_z_probe missing)"
+    # index observed by (road, rounded s, rounded t)
+    obs = {}
+    for row in observed_z_probe:
+        obs[(str(row.get("road", "")), _round(float(row["s"])), _round(float(row["t"])))] = row.get("z")
+    problems = []
+    for want in exp:
+        key = (str(want.get("road", "")), _round(float(want["s"])), _round(float(want["t"])))
+        if key not in obs:
+            problems.append(f"no observed z at road={key[0]} s={key[1]} t={key[2]}")
+            continue
+        got = obs[key]
+        if got is None:
+            problems.append(f"observed z is None at {key}")
+            continue
+        if abs(float(got) - float(want["z"])) > FLOAT_TOL:
+            problems.append(f"z at {key}: observed {got} != expected {want['z']}")
+    return "ok" if not problems else "FAIL: " + "; ".join(problems[:6])
+
+
 def layer_rm(entries: list, rmdll: str, update: bool) -> list:
     rows = []
     for e in entries:
@@ -469,8 +561,9 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
             rows.append({**e, "layer": "rm", "status": SKIP, "detail": "file absent"})
             continue
         # Build worker with a concrete OUT path via mkstemp done inside _run_worker;
-        # we pass OUT_LIT as a sentinel that _run_worker replaces.
-        res = _run_worker_rm(ap, rmdll)
+        # we pass OUT_LIT as a sentinel that _run_worker replaces. z_probe = harness extension A.
+        z_probe_req = e.get("rm_z_probe") or []
+        res = _run_worker_rm(ap, rmdll, z_probe=z_probe_req)
         markers = _count_markers(res.get("_log", ""))
         extract = None
         if res.get("__worker_failed__"):
@@ -479,11 +572,19 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
         elif res.get("load_ok"):
             observed_load = "pass"
             detail = ""
-            extract = {"load_ok": True, **{k: res[k] for k in ("num_roads", "roads") if k in res}}
+            # Only add z_probe to the extract when the fixture requested points -> fixtures without
+            # rm_z_probe produce BYTE-IDENTICAL extracts (the worker omits the key entirely).
+            keys = ("num_roads", "roads", "z_probe")
+            extract = {"load_ok": True, **{k: res[k] for k in keys if k in res}}
         else:
             observed_load = "fail"
             detail = f"RM_Init rc={res.get('rc', res.get('error'))}"
         status, gstat = _golden_compare("rm", p, extract, update, e["expected_rm"], observed_load)
+        # rm_expect_z: golden-independent absolute-tolerance z assertion (harness extension A).
+        z_status = _rm_expect_z_check(e, res.get("z_probe"))
+        if z_status is not None and z_status.startswith("FAIL"):
+            status = FAIL
+            detail = (detail + " | " if detail else "") + "z_probe " + z_status
         audit_status = _audit_check(e, markers, res.get("_log", ""))
         # An audit prediction mismatch (or control-set warn) fails the row so it counts toward exit.
         if audit_status is not None and audit_status.startswith("FAIL"):
@@ -495,7 +596,7 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
     return rows
 
 
-def _run_worker_rm(abs_xodr: str, rmdll: str) -> dict:
+def _run_worker_rm(abs_xodr: str, rmdll: str, z_probe=None) -> dict:
     fd, script = tempfile.mkstemp(suffix="_rm.py", prefix="odrconf_", dir=WORK_DIR)
     os.close(fd)
     out = script + ".json"
@@ -503,6 +604,7 @@ def _run_worker_rm(abs_xodr: str, rmdll: str) -> dict:
             .replace("REPO_ROOT_LIT", repr(_REPO_ROOT))
             .replace("RMDLL_LIT", repr(rmdll))
             .replace("XODR_LIT", repr(abs_xodr))
+            .replace("ZPROBE_LIT", repr(z_probe or []))
             .replace("OUT_LIT", repr(out)))
     return _run_worker_script(body, out, script)
 
@@ -620,7 +722,7 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
         os.close(fd)
         with open(xoscf, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(xosc)
-        res = _run_worker_osi(xoscf, dll, osi_py)
+        res = _run_worker_osi(xoscf, dll, osi_py, dump_polygons=e.get("osi_dump_stationary_polygons"))
         try:
             os.remove(xoscf)
         except OSError:
@@ -678,7 +780,7 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
     return rows
 
 
-def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str) -> dict:
+def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = False) -> dict:
     fd, script = tempfile.mkstemp(suffix="_osi.py", prefix="odrconf_", dir=WORK_DIR)
     os.close(fd)
     out = script + ".json"
@@ -686,6 +788,7 @@ def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str) -> dict:
             .replace("REPO_ROOT_LIT", repr(_REPO_ROOT))
             .replace("DLL_LIT", repr(dll))
             .replace("XOSC_LIT", repr(abs_xosc))
+            .replace("DUMP_POLYGONS_LIT", repr(bool(dump_polygons)))
             .replace("OUT_LIT", repr(out)))
     return _run_worker_script(body, out, script, interp=osi_py)
 
@@ -1047,6 +1150,11 @@ def _assemble(manifest: dict, only: str):
             "osi_expect_no_intersection_lane": bool(fx.get("osi_expect_no_intersection_lane")),
             "osi_expect_lane_type_sidewalk_min": fx.get("osi_expect_lane_type_sidewalk_min"),
             "osi_expect_stationary_min": fx.get("osi_expect_stationary_min"),
+            # P7 harness extension A: opt-in z-grid probe + golden-independent z assertion.
+            "rm_z_probe": fx.get("rm_z_probe"),
+            "rm_expect_z": fx.get("rm_expect_z"),
+            # P7 harness extension B: opt-in base_polygon dump for stationary objects.
+            "osi_dump_stationary_polygons": bool(fx.get("osi_dump_stationary_polygons")),
         })
     if only:
         control = [e for e in control if only in e["id"] or only in e["path"]]
