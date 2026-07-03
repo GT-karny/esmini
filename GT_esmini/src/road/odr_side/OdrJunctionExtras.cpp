@@ -158,6 +158,13 @@ constexpr unsigned int kCrosswalkSynthIdBase = 900000000u;  // 9e8; base + runni
 // unresolvable. ~4 m total crossing -> 2 m half width.
 constexpr double kDefaultCrosswalkHalfWidth = 2.0;
 
+// Lateral margin [m] added to EACH side of the drivable carriageway when sizing the crosswalk's
+// span across the crossed road. Painted crossings run kerb-to-kerb, a little past the outermost
+// driving-lane edge; authored crosswalk assets encode the same (e.g. straight_crosswalk__mid spans
+// the 7 m driving carriageway + ~0.5 m each side = 8 m). Matching this keeps the CROSSING/WAITING
+// yield-release geometry identical to an authored object over the same road (P5 acceptance ii).
+constexpr double kCrosswalkCarriagewayMargin = 0.5;
+
 // How many centerline samples for the PedPath polyline (>= 2). ~0.5-1 m step over a ~short span.
 constexpr int kPedPathMinSamples = 2;
 
@@ -301,9 +308,22 @@ void SynthesizeCrosswalks(OdrSideModel& model, roadmanager::OpenDrive* od)
             const double cross_center_s = FindCrossingS(crossing_rid, crossing_len, cpx, cpy);
 
             // Longitudinal half-extent of the footprint ALONG the crossing road = how far the crossing
-            // road must run to cover the crossed carriageway. Use the crossed road's total transverse
-            // width (both sides) as the span; guard with a small floor.
-            double carriageway = crossed->GetWidth(cross_s, 0);  // side 0 = both sides, any lane type
+            // road must run to cover the crossed DRIVABLE carriageway. A real painted crossing spans the
+            // roadway, NOT the flanking sidewalks/verges: including sidewalks over-extends the footprint
+            // laterally, which lets a pedestrian who has already cleared the driving lanes but is still
+            // on the sidewalk fall under the CROSSING "out-of-band + moving-away" exemption and release
+            // the yield one lane too early (P5 acceptance ii regression). Mask to the driving family so
+            // the footprint matches an authored crosswalk over the same road; guard with a small floor
+            // (also covers a degenerate/all-nondriving crossed section).
+            double carriageway = crossed->GetWidth(cross_s, 0, roadmanager::Lane::LaneType::LANE_TYPE_ANY_DRIVING);
+            if (carriageway >= 1.0)
+            {
+                carriageway += 2.0 * kCrosswalkCarriagewayMargin;  // kerb-to-kerb: past the outer lane edge
+            }
+            else
+            {
+                carriageway = crossed->GetWidth(cross_s, 0);  // fall back to any-type width (no margin)
+            }
             if (carriageway < 1.0)
             {
                 carriageway = 7.0;  // ~2 lanes; conservative floor so the crosswalk straddles the road
