@@ -19,6 +19,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrForkPatches.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrLaneTypeSync.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrLaneExtras.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSignalSemantics.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
