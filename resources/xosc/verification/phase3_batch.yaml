@@ -41,6 +41,12 @@ scenarios:
   - scenario: resources/xosc/verification/04_traffic_signs/yield_slow_then_proceed.xosc
     expectations: resources/xosc/verification/04_traffic_signs/yield_slow_then_proceed.expectations.yaml
     policies: [stop_yield]
+  # P4 L2: STOP recognised via <semantics><priority type="stopLine"/> on a
+  # catalog-UNCLASSIFIED sign (@type 9001 not in de) — the semantics fallback,
+  # not the country catalog, classifies it.
+  - scenario: resources/xosc/verification/04_traffic_signs/semantic_stop_sign_full_stop.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/semantic_stop_sign_full_stop.expectations.yaml
+    policies: [stop_yield]
   # --- 06 lead vehicle (Phase 3a: LeadVehicleAware) -----------------------
   - scenario: resources/xosc/verification/06_lead_vehicle/follow_steady.xosc
     expectations: resources/xosc/verification/06_lead_vehicle/follow_steady.expectations.yaml

@@ -79,6 +79,188 @@ roadmanager::Signal* FindSignalByXodrId(roadmanager::OpenDrive* odr, int id)
     return nullptr;
 }
 
+// ---- P4 helpers (clusters 10/13/14) ----------------------------------------------------------
+
+// Collect participant children (<vehicle>/<person>/<animal>) of a semantic subtype into `out`.
+// vehicle/person carry a <type> child (e_vehicleCategory / e_personCategory); animal carries none.
+void CollectParticipants(const pugi::xml_node& parent, std::vector<OdrSemanticParticipant>& out)
+{
+    for (pugi::xml_node p = parent.first_child(); p; p = p.next_sibling())
+    {
+        if (p.type() != pugi::node_element)
+        {
+            continue;
+        }
+        const char* n = p.name();
+        if (std::strcmp(n, "vehicle") != 0 && std::strcmp(n, "person") != 0 && std::strcmp(n, "animal") != 0)
+        {
+            continue;
+        }
+        OdrSemanticParticipant part;
+        part.kind     = n;
+        part.category = p.child("type").text().get();  // "" for animal / when absent
+        out.push_back(std::move(part));
+    }
+}
+
+// Normalize a <speed> semantic. Attribute form (1.8.1/1.9): <speed type value unit/>. Draft
+// child-element form fallback: <speed><maximum value unit/></speed> -> type=child tag name. Both
+// yield the same OdrSemanticSpeed.
+OdrSemanticSpeed NormalizeSpeed(const pugi::xml_node& speed_node)
+{
+    OdrSemanticSpeed s;
+    if (!speed_node.attribute("type").empty() || !speed_node.attribute("value").empty() ||
+        !speed_node.attribute("unit").empty())
+    {
+        // Attribute form (canonical).
+        s.type      = speed_node.attribute("type").value();
+        s.value_str = speed_node.attribute("value").value();
+        s.value     = speed_node.attribute("value").as_double(0.0);
+        s.unit      = speed_node.attribute("unit").value();
+        return s;
+    }
+    // Child-element form fallback: first element child names the speed type.
+    for (pugi::xml_node c = speed_node.first_child(); c; c = c.next_sibling())
+    {
+        if (c.type() != pugi::node_element)
+        {
+            continue;
+        }
+        s.type      = c.name();
+        s.value_str = c.attribute("value").value();
+        s.value     = c.attribute("value").as_double(0.0);
+        s.unit      = c.attribute("unit").value();
+        break;
+    }
+    return s;
+}
+
+}  // namespace
+
+namespace detail
+{
+void ParseSemantics(const pugi::xml_node& sem, OdrSemantics& out)
+{
+    for (pugi::xml_node e = sem.first_child(); e; e = e.next_sibling())
+    {
+        if (e.type() != pugi::node_element)
+        {
+            continue;
+        }
+        const char* n = e.name();
+        if (std::strcmp(n, "speed") == 0)
+        {
+            out.speeds.push_back(NormalizeSpeed(e));
+        }
+        else if (std::strcmp(n, "lane") == 0)
+        {
+            out.lane_types.emplace_back(e.attribute("type").value());
+        }
+        else if (std::strcmp(n, "priority") == 0)
+        {
+            out.priority_types.emplace_back(e.attribute("type").value());
+        }
+        else if (std::strcmp(n, "prohibited") == 0)
+        {
+            CollectParticipants(e, out.prohibited);
+        }
+        else if (std::strcmp(n, "warning") == 0)
+        {
+            out.warning_count++;
+        }
+        else if (std::strcmp(n, "routing") == 0)
+        {
+            out.routing_count++;
+        }
+        else if (std::strcmp(n, "streetname") == 0)
+        {
+            out.streetname_count++;
+        }
+        else if (std::strcmp(n, "parking") == 0)
+        {
+            out.parking_count++;
+        }
+        else if (std::strcmp(n, "tourist") == 0)
+        {
+            out.tourist_count++;
+        }
+        else if (std::strcmp(n, "supplementaryTime") == 0)
+        {
+            OdrSemanticTime t;
+            t.type      = e.attribute("type").value();
+            t.value_str = e.attribute("value").value();
+            t.value     = e.attribute("value").as_double(0.0);
+            out.supplementary_time.push_back(std::move(t));
+        }
+        else if (std::strcmp(n, "supplementaryAllows") == 0)
+        {
+            CollectParticipants(e, out.supplementary_allows);
+        }
+        else if (std::strcmp(n, "supplementaryProhibits") == 0)
+        {
+            CollectParticipants(e, out.supplementary_prohibits);
+        }
+        else if (std::strcmp(n, "supplementaryDistance") == 0)
+        {
+            OdrSemanticDistance d;
+            d.type      = e.attribute("type").value();
+            d.value_str = e.attribute("value").value();
+            d.value     = e.attribute("value").as_double(0.0);
+            d.unit      = e.attribute("unit").value();
+            out.supplementary_distance.push_back(std::move(d));
+        }
+        else if (std::strcmp(n, "supplementaryEnvironment") == 0)
+        {
+            out.supplementary_environment.emplace_back(e.attribute("type").value());
+        }
+        else if (std::strcmp(n, "supplementaryExplanatory") == 0)
+        {
+            out.supplementary_explanatory_count++;
+        }
+        // additionalData (userData/dataQuality) and the XSD _OpenDriveElement placeholder are ignored.
+    }
+}
+}  // namespace detail
+
+namespace
+{
+// Parse a <staticBoard> into OdrStaticBoard (t_road_signals_staticBoard: no scalar attributes; carries
+// <sign> children with board-local v/z).
+OdrStaticBoard ReadStaticBoard(const pugi::xml_node& b)
+{
+    OdrStaticBoard s;
+    for (pugi::xml_node sn = b.child("sign"); sn; sn = sn.next_sibling("sign"))
+    {
+        OdrBoardSign sign;
+        sign.v = sn.attribute("v").value();
+        sign.z = sn.attribute("z").value();
+        s.signs.push_back(std::move(sign));
+    }
+    return s;
+}
+
+// Parse a <vmsBoard> (+ <displayArea> children) into OdrVmsBoard.
+OdrVmsBoard ReadVmsBoard(const pugi::xml_node& b)
+{
+    OdrVmsBoard v;
+    v.display_type   = b.attribute("displayType").value();
+    v.display_width  = b.attribute("displayWidth").value();
+    v.display_height = b.attribute("displayHeight").value();
+    v.v              = b.attribute("v").value();
+    v.z              = b.attribute("z").value();
+    for (pugi::xml_node da = b.child("displayArea"); da; da = da.next_sibling("displayArea"))
+    {
+        OdrDisplayArea a;
+        a.index  = da.attribute("index").value();
+        a.width  = da.attribute("width").value();
+        a.height = da.attribute("height").value();
+        a.v      = da.attribute("v").value();
+        a.z      = da.attribute("z").value();
+        v.display_areas.push_back(std::move(a));
+    }
+    return v;
+}
+
 }  // namespace
 
 SignalPoseResolution ResolveSignalPose(const pugi::xml_node&   signal_node,
@@ -479,7 +661,22 @@ void CollectSignalExtras(const pugi::xml_node& root, OdrSideModel& model)
                 r.type         = ref.attribute("type").value();
                 extras.references.push_back(std::move(r));
             }
-            if (!extras.dependencies.empty() || !extras.references.empty())
+            // P4 cluster 10: <semantics> (at most one per XSD; parse the block, even when empty).
+            if (pugi::xml_node sem = sig.child("semantics"))
+            {
+                extras.has_semantics = true;
+                ParseSemantics(sem, extras.semantics);
+            }
+            // P4 cluster 13: <staticBoard> / <vmsBoard> children (1.8 + 1.9 same placement on <signal>).
+            for (pugi::xml_node sb = sig.child("staticBoard"); sb; sb = sb.next_sibling("staticBoard"))
+            {
+                extras.static_boards.push_back(ReadStaticBoard(sb));
+            }
+            for (pugi::xml_node vb = sig.child("vmsBoard"); vb; vb = vb.next_sibling("vmsBoard"))
+            {
+                extras.vms_boards.push_back(ReadVmsBoard(vb));
+            }
+            if (!extras.dependencies.empty() || !extras.references.empty() || extras.HasAnyP4())
             {
                 extras.road_id   = road_node.attribute("id").value();
                 extras.signal_id = sig.attribute("id").value();
@@ -489,7 +686,125 @@ void CollectSignalExtras(const pugi::xml_node& root, OdrSideModel& model)
     }
 }
 
+void CollectHeaderAndGroupExtras(const pugi::xml_node& root, OdrSideModel& model)
+{
+    // ---- cluster 13: document-level <vmsGroup> (OpenDRIVE root child, 1.9) ----
+    for (pugi::xml_node vg = root.child("vmsGroup"); vg; vg = vg.next_sibling("vmsGroup"))
+    {
+        OdrVmsGroup group;
+        group.id = vg.attribute("id").value();
+        for (pugi::xml_node br = vg.child("vmsBoardReference"); br; br = br.next_sibling("vmsBoardReference"))
+        {
+            OdrVmsBoardReference ref;
+            ref.signal_id   = br.attribute("signalId").value();
+            ref.vms_index   = br.attribute("vmsIndex").value();
+            ref.group_index = br.attribute("groupIndex").value();
+            group.board_references.push_back(std::move(ref));
+        }
+        model.vms_groups.push_back(std::move(group));
+    }
+
+    // ---- cluster 14: header/license + header/defaultRegulations ----
+    const pugi::xml_node header = root.child("header");
+    if (!header)
+    {
+        return;
+    }
+    if (pugi::xml_node lic = header.child("license"))
+    {
+        model.has_license      = true;
+        model.license.name     = lic.attribute("name").value();
+        model.license.spdxid   = lic.attribute("spdxid").value();
+        model.license.text     = lic.attribute("text").value();
+        model.license.resource = lic.attribute("resource").value();
+    }
+    if (pugi::xml_node dr = header.child("defaultRegulations"))
+    {
+        for (pugi::xml_node reg = dr.first_child(); reg; reg = reg.next_sibling())
+        {
+            if (reg.type() != pugi::node_element)
+            {
+                continue;
+            }
+            const bool is_road   = std::strcmp(reg.name(), "roadRegulations") == 0;
+            const bool is_signal = std::strcmp(reg.name(), "signalRegulations") == 0;
+            if (!is_road && !is_signal)
+            {
+                continue;  // _OpenDriveElement placeholder / additionalData
+            }
+            OdrDefaultRegulation entry;
+            entry.is_signal = is_signal;
+            entry.type      = reg.attribute("type").value();
+            if (is_signal)
+            {
+                entry.subtype = reg.attribute("subtype").value();
+            }
+            if (pugi::xml_node sem = reg.child("semantics"))
+            {
+                entry.has_semantics = true;
+                ParseSemantics(sem, entry.semantics);
+            }
+            model.default_regulations.push_back(std::move(entry));
+        }
+    }
+}
+
 }  // namespace detail
+
+// ---- P4 signal-extras lookup accessors -------------------------------------------------------
+
+const OdrSignalExtras* GetSignalExtras(const void* opendrive_key, const std::string& road_id, const std::string& signal_id)
+{
+    const OdrSideModel* m = GetSideModel(opendrive_key);
+    if (m == nullptr)
+    {
+        return nullptr;
+    }
+    const OdrSignalExtras* found = nullptr;
+    for (const OdrSignalExtras& e : m->signal_extras)
+    {
+        if (e.road_id == road_id && e.signal_id == signal_id)
+        {
+            if (found != nullptr)
+            {
+                // Should not happen (signal ids are unique per road, XSD key k_road_signals_signalId);
+                // first match wins, WARN so a malformed asset is visible.
+                LOG_WARN("[GT_ODR:sig-p4] duplicate signal extras for road={} signal={}; using the first",
+                         road_id,
+                         signal_id);
+                break;
+            }
+            found = &e;
+        }
+    }
+    return found;
+}
+
+const OdrSignalExtras* GetSignalExtras(const roadmanager::OpenDrive* od, const roadmanager::Signal* sig)
+{
+    if (od == nullptr || sig == nullptr)
+    {
+        return nullptr;
+    }
+    // Find the road that owns this Signal (pointer identity), then use its authored id + the signal's
+    // (numeric) id rendered as a string -- the same key CollectSignalExtras stored.
+    for (unsigned int ri = 0; ri < od->GetNumOfRoads(); ++ri)
+    {
+        roadmanager::Road* road = od->GetRoadByIdx(ri);
+        if (road == nullptr)
+        {
+            continue;
+        }
+        for (unsigned int si = 0; si < road->GetNumberOfSignals(); ++si)
+        {
+            if (road->GetSignal(si) == sig)
+            {
+                return GetSignalExtras(static_cast<const void*>(od), road->GetIdStr(), std::to_string(sig->GetId()));
+            }
+        }
+    }
+    return nullptr;
+}
 
 }  // namespace odr
 }  // namespace gt_esmini

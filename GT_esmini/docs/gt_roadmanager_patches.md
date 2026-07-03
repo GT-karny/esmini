@@ -60,3 +60,36 @@
 
 - パッチ 11/12 の期待フリップ: 公式 `Ex_Slip_Lane` / `UC_T_Junction` の rm_init **fail→pass**(manifest 更新済み、新規 RM ゴールデン 2 本)。他の全資産はクラッシュ経路に入らないため不変(conformance full 209P/12XF/0F、既存ゴールデン全一致で機械検証)。
 - 併せて GT 所有 `GT_OSIReporter_Traffic.cpp`(フォーク外・行数予算対象外)で 0 灯 TrafficLight を traffic_sign へフォールバック(P3 監査文書の既知劣化の解消。1.5 コントロールセットの OSI ゴールデンはフリップ信号ゼロのため不変)。
+
+## 6. P4 挙動影響 — signal semantics の L2/L3(2026-07-03)
+
+**フォーク追加行数: 0 / 150(P4 の挙動配線はフォーク外の GT ファイルのみ)。** L1(semantics/boards/header regulations のパース→GT サイドモデル格納)は既存 `[GT_ODR:cmake]` スワップゾーンの `OdrSignalExtras.cpp` に閉じ、`GT_RoadManager.cpp` および `EnvironmentSimulator/` は不変。fork-drift は 62/150 のまま(機械検証: `check_fork_drift.py --expect-odr-lines 62` 緑)。
+
+### 6.1 分類方針: カタログ優先・semantics フォールバック(設計判断 1)
+
+国別交通標識カタログ(`resources/traffic_signals/<country>_traffic_signals.txt`)は、出荷済み全資産で使われている**キュレーション済み・テスト済みの唯一の正規経路**。カタログが `@type` を知らない標識だけが OSI 未分類のまま残る(パース時 `osi_type` はカタログ未ヒットの番兵 = `INT_MAX_SENTINEL`、明示 type でマップ先が UNKNOWN の場合は 0)。この**未分類標識に限り** signal `<semantics>` の `<priority @type>` で補完する。理由: カタログは国固有の意味を持つ curated マッピングであり、semantics は「カタログが知らない標識のギャップ」だけを埋める。既存資産の分類は一切変えない。
+
+- **L2 フック位置**: `GT_esmini/src/control/virtualdriver/policies/StopYieldSignAware.cpp`(`Evaluate` 内 `effective_osi` ラムダ)。`GetOSIType()` が既に `TYPE_STOP`(17)/`TYPE_GIVE_WAY`(16)なら semantics は一切参照しない(カタログ優先)。未分類のときのみ `gt_esmini::odr::GetSignalExtras(Position::GetOpenDrive(), sig)` を引き、`has_semantics` かつ `<priority>` が下表に該当すれば effective OSI type を差し替える。`Signal*` ポインタキー(`semantic_class_cache_`)で毎フレームの O(道路×標識)ルックアップを 1 回にメモ化。**semantics 無しの標識は「lookup → null/empty → 即デフォルト経路」で pre-P4 とビット一致**(位相3系バッチが回帰センサ)。
+- **L3(OSI)フック位置**: `GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp`(`UpdateStaticTrafficSignals` の sign ブランチ末尾)。`extras == null || !has_semantics` で即スキップ → 既存資産の直列化はバイト不変(conformance full の OSI 35 件・ゴールデン変化 0 で機械検証)。
+
+### 6.2 priority マッピング表(設計判断 2 — 挙動を持つのはこの 2 種のみ)
+
+| `<priority @type>`(1.9 XSD verbatim) | 挙動 | 対応 OSI | 備考 |
+| :--- | :--- | :--- | :--- |
+| `stop` / `stopLine` | STOP 標識扱い(dwell+creep FSM) | `TYPE_STOP`(17) | `Signal::TYPE_STOP` と同一挙動 |
+| `yield` | GIVE_WAY 扱い(creep 減速のみ、full stop は 3d) | `TYPE_GIVE_WAY`(16) | `Signal::TYPE_GIVE_WAY` と同一挙動 |
+| `trafficLight` | 挙動なし | — | 動的側の P3 `[GT_ODR:tl-gate]` と対 |
+| `4way` / `keepClearLine` / `noParkingLine` / `noTurnOnRed` / `priorityRoad` / `priorityRoadEnd` / `priorityToTheRightRule` / `stopLine` 以外 / `turnOnRedAllowed` / `waitingLine` | 挙動なし(情報のみ) | — | P4 では未配線 |
+
+純関数 `ClassifyPriorityTypes(priority_types)` がドキュメント順で最初の挙動型を返す(STOP が GIVE_WAY に優先するのは資産が両者を混在させないため、位置順で決定)。単体テスト `test_TrafficPolicies.cpp`(`SemanticPriorityFallback.*` 6 件)。
+
+### 6.3 speed/lane semantics のスコープ(設計判断 3)
+
+- **speed/lane semantics の L2 は accessor 止まり(P4 では挙動配線なし)**。速度標識の意味論は「標識通過後に上書きされるまで制限が持続する」ゾーン状態を要し、cluster-14 のデフォルト速度と同様に延期。
+- **L3(OSI)は semantic speed を出力する**: カタログ未分類 かつ 標識自身が `@value` 未設定(未設定 `@value` は `value_ == 0.0` + 空 `@unit` として現れる)のときのみ、`value.value` + `value_unit`(`km/h`→KILOMETER_PER_HOUR / `mph`→MILE_PER_HOUR / `m/s`→OTHER、既存カタログ m/s マッピングに整合)を補完。**TYPE は差し替えない** — `SPEED_LIMIT_BEGIN` はゾーン状態依存(判断 3)につき投機的な型マッピングを避ける。board 内容の OSI 出力は延期(plan §8 item 7)。
+
+### 6.4 検証
+
+- 挙動フィクスチャ(受入 ii): `resources/xodr/straight_semantic_stop_sign.xodr`(`@type=9001`=de カタログ非在 + `<priority type="stopLine"/>`)+ `semantic_stop_sign_full_stop.xosc/.expectations.yaml`。**red→green**: T1 実装前は VD が停止せず `stopped_at_stop_sign` = 0.00s で FAIL、実装後は 4.35s(カタログ版 `stop_sign_full_stop` と同値)で PASS。`phase3_batch.yaml` に 1 エントリ追加。
+- 不変性: `phase3_batch`(既存 10 件すべて verdict 一致 + 新規 1 件 PASS)/ `phase3d_crosswalk_batch`(scene 09 歩行者信号ゲート = 7 件すべて一致)。L3 正例: 新フィクスチャの OSI `traffic_sign` が `type=17`(STOP)を出力(GT_esminiLib SE_GetOSIGroundTruth 直接プローブで確認)。semantics 無しのカタログ未分類標識は `type=0` のまま(pre-P4 と一致)。
+- ゲート: `test_ScenarioReaderParsing` 緑 / `check_fork_drift.py --expect-odr-lines 62` 緑 / conformance `--profile full` = 214P/13XF/0F/0XPASS(OSI ゴールデン変化 0)。

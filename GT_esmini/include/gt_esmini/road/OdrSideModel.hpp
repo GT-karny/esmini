@@ -99,6 +99,14 @@ public:
     // ---- cluster 1/21: coverage audit ----
     OdrAuditStats audit;
 
+    // ---- cluster 14: header license + default regulations (P4 L1) ----
+    bool                              has_license = false;
+    OdrLicense                        license;
+    std::vector<OdrDefaultRegulation> default_regulations;  // roadRegulations + signalRegulations, DOM order
+
+    // ---- cluster 13: document-level vmsGroup list (P4 L1) ----
+    std::vector<OdrVmsGroup> vms_groups;
+
     // ---- extras skeletons (architecture placeholders, P2..P9) ----
     std::vector<OdrLaneExtras>     lane_extras;
     std::vector<OdrSignalExtras>   signal_extras;
@@ -143,6 +151,21 @@ double GetLaneSpeedLimitForPosition(const roadmanager::Position& pos);
 
 // Fetch the model registered under `opendrive_key`, or nullptr if none.
 const OdrSideModel* GetSideModel(const void* opendrive_key);
+
+// ---- P4 signal-extras lookup (clusters 10/13 L1) ----
+// Find the OdrSignalExtras for (road_id, signal_id) -- both AUTHORED xodr strings -- in the model
+// registered under `opendrive_key`. Returns nullptr when no side model is registered, or the signal
+// carries no stored extras (no dependency/reference/semantics/board). Deterministic: signal ids are
+// unique within a road (XSD key k_road_signals_signalId), so the (road_id, signal_id) pair is unique.
+const OdrSignalExtras* GetSignalExtras(const void* opendrive_key, const std::string& road_id, const std::string& signal_id);
+
+// Convenience overload for runtime VD/OSI consumers: resolve extras from a live roadmanager::Signal*
+// via the same xodr-id idiom [GT_ODR:sig-ref] uses (FindSignalByXodrId): the side model is keyed on
+// the OpenDrive singleton, and the signal's owning road id + its GetId() (rendered as the authored
+// string) form the lookup key. Signal ids are unique per road, but the SAME numeric id may recur on
+// different roads; this resolves against the road the Signal belongs to, so it is unambiguous.
+// `od` is the OpenDrive the signal was parsed from (the registry key). Returns nullptr on any miss.
+const OdrSignalExtras* GetSignalExtras(const roadmanager::OpenDrive* od, const roadmanager::Signal* sig);
 
 // Remove the model registered under `opendrive_key` (no-op if none).
 void ClearSideModel(const void* opendrive_key);

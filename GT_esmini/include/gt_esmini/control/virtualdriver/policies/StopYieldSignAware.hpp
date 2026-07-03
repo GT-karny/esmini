@@ -1,11 +1,39 @@
 #pragma once
 
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
 
 namespace gt_esmini
 {
+
+// ─────────────────────── P4 L2: semantics priority fallback ────────────────────
+// Catalog-FIRST, semantics-FALLBACK classification (ODR 1.6-1.9 plan P4, decision
+// 1). The country traffic-signal catalog is the curated, tested path for every
+// shipped asset; a signal whose OpenDRIVE @type the catalog does not know is left
+// OSI-unclassified. For those — and ONLY those — a signal <semantics> block's
+// <priority @type> can still classify it. Per decision 2 the ONLY priority types
+// with a P4 behavioral effect are:
+//     stop / stopLine -> STOP     (same behaviour as OSI TYPE_STOP = 17)
+//     yield           -> GIVE_WAY (same behaviour as OSI TYPE_GIVE_WAY = 16)
+// every other priority type (4way, priorityRoad, trafficLight, ...) is
+// informational in P4 and produces NO behavioural effect (trafficLight pairs with
+// the P3 dynamic gate; the rest are deferred).
+enum class PriorityClass
+{
+    NONE,      // no mapping / not a behavioural priority type
+    STOP,      // stop | stopLine
+    GIVE_WAY,  // yield
+};
+
+// Pure classifier over a signal's <priority @type> strings (verbatim 1.9 XSD enum
+// values, in document order). Returns the FIRST behavioural mapping found (STOP or
+// GIVE_WAY); NONE when the list is empty or carries no behavioural priority type.
+// STOP wins over GIVE_WAY only by earlier document position — assets do not mix
+// stop+yield on one sign. Kept pure (no esmini types) so it is unit-testable.
+PriorityClass ClassifyPriorityTypes(const std::vector<std::string>& priority_types);
 
 // STOP-sign behaviour as a small state machine, factored out for unit testing.
 // Reproduces "stop fully -> creep forward a little to check -> go". The
@@ -66,6 +94,12 @@ public:
 private:
     StopYieldSignAwareConfig          cfg_;
     std::unordered_map<int, stop_fsm::State> stop_states_;  // keyed by signal id
+    // P4 L2: memoized semantics-fallback classification per signal pointer. The
+    // side-model lookup (GetSignalExtras) is O(roads*signals) and only relevant for
+    // catalog-unclassified signals, so cache the resolved PriorityClass once. Keyed
+    // by the roadmanager::Signal* (stable for a loaded network); void* to keep the
+    // header free of RoadManager includes.
+    std::unordered_map<const void*, PriorityClass> semantic_class_cache_;
 };
 
 }  // namespace gt_esmini
