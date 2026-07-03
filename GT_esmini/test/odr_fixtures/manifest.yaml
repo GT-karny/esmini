@@ -365,6 +365,12 @@ fixtures:
   - 'junction@orientation|ctx=555'
   - 'junction@sEnd|ctx=555'
   - 'junction@sStart|ctx=555'
+  osi: true  # P5: fixture-scoped OSI probe (acceptance (i), breakage #3/#4 machine-verification)
+  # Junctions 555 (virtual) + 666 (crossing) carry NO <connection> -> the [GT_ODR:junc-crossing]
+  # IsOsiIntersection empty-connection guard suppresses the ghost TYPE_INTERSECTION lane (breakage #3).
+  osi_expect_no_intersection_lane: true
+  osi_expect_lane_type_sidewalk_min: 2  # road 1 walking lanes 2/-2 + road 2 walking -1 (P2 SIDEWALK map)
+  osi_expect_stationary_min: 1          # the crossPath-synthesized CROSSWALK StationaryObject (breakage #4)
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -887,6 +893,14 @@ fixtures:
   - asam_zips
   clusters: []
   features: []
+  osi: true  # P5: the ASAM crossPath reference -- OSI acceptance (i) on the OFFICIAL asset (breakage #3/#4).
+  # Virtual junction 555 carries crossPath but NO <connection> -> guard suppresses the ghost intersection
+  # lane (0 TYPE_INTERSECTION). walking lanes -> SIDEWALK. Two StationaryObjects: the authored trafficIsland
+  # + the crossPath-synthesized CROSSWALK. Official xodr is gitignored; only its OSI golden is committed
+  # (P0/P2 official-golden precedent). SKIPs cleanly when the ASAM zip is not extracted (file absent).
+  osi_expect_no_intersection_lane: true
+  osi_expect_lane_type_sidewalk_min: 1
+  osi_expect_stationary_min: 2
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
@@ -1382,6 +1396,13 @@ fixtures:
   - road/lanes/laneSection/right/lane@type=walking
   - road@rule
   expected_unsupported_entries: []
+  osi: true  # P5: fixture-scoped OSI probe (acceptance (i), breakage #3/#4 machine-verification)
+  # NOTE: junction 900 (common) HAS a resolvable <connection> -> it LEGITIMATELY emits one OSI
+  # TYPE_INTERSECTION lane (empty centerline by upstream design, cf. multi_intersections control), so
+  # osi_expect_no_intersection_lane is deliberately NOT set here -- the guard is a no-op for junctions
+  # with connections and must not over-suppress. We still assert the walking lane + crosswalk survive.
+  osi_expect_lane_type_sidewalk_min: 2  # mainRoad walking 2/-2 + pedestrian road walking -1 (P2 SIDEWALK)
+  osi_expect_stationary_min: 1          # the crossPath-synthesized CROSSWALK StationaryObject (breakage #4)
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
