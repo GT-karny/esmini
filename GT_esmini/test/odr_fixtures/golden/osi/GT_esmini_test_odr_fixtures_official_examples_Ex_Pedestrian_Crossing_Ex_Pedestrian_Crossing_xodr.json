@@ -1,0 +1,153 @@
+{
+ "lane_boundary_count": 27,
+ "lane_count": 23,
+ "lanes": [
+  {
+   "centerline_points": 2,
+   "id": 0,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 1,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 2,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 3,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 5,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 6,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 7,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 8,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 3,
+   "id": 9,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 10,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 12,
+   "id": 11,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 12,
+   "id": 12,
+   "subtype": 7,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 14,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 3,
+   "id": 15,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 16,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 17,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 18,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 19,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 20,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 22,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 2,
+   "id": 23,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 24,
+   "subtype": 4,
+   "type": 3
+  },
+  {
+   "centerline_points": 2,
+   "id": 27,
+   "subtype": 4,
+   "type": 3
+  }
+ ],
+ "stationary_objects": {
+  "count": 2,
+  "types": {
+   "1": 2
+  }
+ },
+ "traffic_light_count": 0,
+ "traffic_light_ids": [],
+ "traffic_sign_count": 0
+}

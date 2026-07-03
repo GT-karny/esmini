@@ -33,7 +33,8 @@ list(APPEND SOURCES
     "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrSideParser.cpp"
     "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrCoverageAudit.cpp"
     "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrLaneExtras.cpp"
-    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrSignalExtras.cpp")
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrSignalExtras.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrJunctionExtras.cpp")
 
 add_library(
     pugixml_lib

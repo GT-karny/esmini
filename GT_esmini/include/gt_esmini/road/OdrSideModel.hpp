@@ -170,6 +170,17 @@ const OdrSignalExtras* GetSignalExtras(const roadmanager::OpenDrive* od, const r
 // Remove the model registered under `opendrive_key` (no-op if none).
 void ClearSideModel(const void* opendrive_key);
 
+// ---- P5 junction accessors (clusters 5/7/22; F3 priority handoff) ----
+// The junction extras entry for `junction_id` in the side model registered under `opendrive_key`,
+// or nullptr when there is no side model / no matching junction (junction ids are string-typed as
+// authored, consistent with OdrJunctionExtras::junction_id). Implemented in OdrJunctionExtras.cpp.
+const OdrJunctionExtras* GetJunctionExtras(const void* opendrive_key, const std::string& junction_id);
+
+// Copy the <priority high low> list (XSD allows multiple) for `junction_id` into `out`. Returns
+// false (and leaves `out` untouched) when there is no side model or no entry for that junction. The
+// canonical junction-priority source for feature F3.
+bool GetJunctionPriorities(const void* opendrive_key, const std::string& junction_id, std::vector<OdrJunctionPriority>& out);
+
 // ---------------------------------------------------------------------------
 // P3 signal placement / cross-reference helpers (clusters 11/12).
 // Implemented in odr_side/OdrSignalExtras.cpp; called from the two thin fork

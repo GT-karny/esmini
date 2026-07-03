@@ -87,7 +87,7 @@ PROBE_TIMEOUT = 60  # seconds per isolated probe
 
 # Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
 # per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
-FORK_ODR_EXPECT_LINES = 62  # P2 21 + P3 27 + crash fixes 14 (sig-lanes-guard 9 + direct-junc-log 5)
+FORK_ODR_EXPECT_LINES = 75  # P2 21 + P3 27 + crash fixes 14 + P5 junc-crossing 13 (crossing dispatch 7 + IsOsiIntersection guard 6)
 FORK_LINE_BUDGET = 150
 
 # Status tags.
@@ -637,12 +637,42 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
         extract = {k: v for k, v in res.items() if not k.startswith("_") and k != "init_ok"}
         status, gstat = _golden_compare("osi", p, extract, update, "pass", "pass")
         detail = ""
+        # Opt-in OSI content checks (manifest-driven, generic). Each records the FIRST failure
+        # into `detail`; any one flips the row to FAIL so it counts toward the harness exit code.
+        # OSI Lane classification enum (osi3): UNKNOWN=0 OTHER=1 DRIVING=2 NONDRIVING=3 INTERSECTION=4;
+        # Subtype SIDEWALK=4. StationaryObject CROSSWALK -> TYPE_OTHER (see GT_OSIReporter).
+        lanes = extract.get("lanes", [])
+        checks = []
         # P2 acceptance (i): opt-in zero-TYPE_UNKNOWN lane classification check.
         if e.get("osi_expect_no_unknown"):
-            unknown = [l["id"] for l in extract.get("lanes", []) if l.get("type") == 0]
+            unknown = [l["id"] for l in lanes if l.get("type") == 0]
             if unknown:
-                status = FAIL
-                detail = f"osi_expect_no_unknown: TYPE_UNKNOWN lanes {unknown}"
+                checks.append(f"osi_expect_no_unknown: TYPE_UNKNOWN lanes {unknown}")
+        # P5 acceptance (i)/(#3,#4): the IsOsiIntersection empty-connection guard suppresses the ghost
+        # TYPE_INTERSECTION lane emitted for a junction with ZERO resolvable connections. Set on the
+        # crossPath fixtures whose (virtual/crossing) junctions carry no <connection> -> the OSI ground
+        # truth must contain NO intersection lane at all. (Junctions WITH connections legitimately emit
+        # an intersection lane whose centerline is empty by upstream design, so we do NOT flag empty
+        # centerlines globally -- see fixture 21 / multi_intersections control.)
+        if e.get("osi_expect_no_intersection_lane"):
+            inter = [l["id"] for l in lanes if l.get("type") == 4]
+            if inter:
+                checks.append(f"osi_expect_no_intersection_lane: ghost TYPE_INTERSECTION lanes {inter}")
+        # P5 acceptance (#3): the walking lane(s) survive as OSI NONDRIVING/SIDEWALK (P2 lane-type map).
+        min_sw = e.get("osi_expect_lane_type_sidewalk_min")
+        if min_sw is not None:
+            nsw = sum(1 for l in lanes if l.get("subtype") == 4)
+            if nsw < int(min_sw):
+                checks.append(f"osi_expect_lane_type_sidewalk_min={min_sw}: only {nsw} SIDEWALK lane(s)")
+        # P5 acceptance (#4): the crossPath-synthesized CROSSWALK is present as a StationaryObject.
+        min_stat = e.get("osi_expect_stationary_min")
+        if min_stat is not None:
+            nstat = int(extract.get("stationary_objects", {}).get("count", 0))
+            if nstat < int(min_stat):
+                checks.append(f"osi_expect_stationary_min={min_stat}: only {nstat} stationary object(s)")
+        if checks:
+            status = FAIL
+            detail = " | ".join(checks)
         rows.append({**e, "layer": "osi", "observed": "ok", "status": status,
                      "golden": gstat, "detail": detail, "markers": markers})
     return rows
@@ -1013,6 +1043,10 @@ def _assemble(manifest: dict, only: str):
             # zero-TYPE_UNKNOWN lane-classification acceptance check (`osi_expect_no_unknown: true`).
             "osi": bool(fx.get("osi")),
             "osi_expect_no_unknown": bool(fx.get("osi_expect_no_unknown")),
+            # P5: opt-in OSI content checks for the crossPath fixtures (acceptance i / breakage #3,#4).
+            "osi_expect_no_intersection_lane": bool(fx.get("osi_expect_no_intersection_lane")),
+            "osi_expect_lane_type_sidewalk_min": fx.get("osi_expect_lane_type_sidewalk_min"),
+            "osi_expect_stationary_min": fx.get("osi_expect_stationary_min"),
         })
     if only:
         control = [e for e in control if only in e["id"] or only in e["path"]]

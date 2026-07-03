@@ -17,6 +17,12 @@ namespace odr
 namespace detail
 {
 
+// ---- OdrSideModel.cpp ----
+
+// Non-const registry lookup (mirrors the public const GetSideModel). For in-TU passes that write
+// synthesis products back into the model. The public API stays read-only.
+OdrSideModel* GetSideModelMutable(const void* opendrive_key);
+
 // ---- OdrSideParser.cpp ----
 
 // Read header revMajor/revMinor/name/version into `model`; LOG_INFO the detected version once and
@@ -70,6 +76,20 @@ void CollectHeaderAndGroupExtras(const pugi::xml_node& root, OdrSideModel& model
 // Parse a <semantics> node into `out` (shared by signals and header regulations). Both the 1.9/1.8
 // attribute-form <speed> and a hypothesised child-element form normalize to the same OdrSemanticSpeed.
 void ParseSemantics(const pugi::xml_node& semantics_node, OdrSemantics& out);
+
+// ---- OdrJunctionExtras.cpp (P5) ----
+
+// Focused pass over <junction> children, filling model.junction_extras (sparse: one entry per
+// junction carrying crossPath / roadSection / priority / controller / laneLink-layer data).
+// Clusters 5 (crossPath/roadSection), 7 (priority + laneLink overlapZone), 22 (laneLink layers).
+void ParseJunctionExtras(const pugi::xml_node& root, OdrSideModel& model);
+
+// P5 stage 2: for every parsed crossPath (any junction type) synthesize a closed 4-corner CROSSWALK
+// RMObject straddling the crossed road and register it via the public Road::AddObject API, and store
+// a sampled crossing-road centerline polyline back into the model's crossPath records. Mutates `od`
+// only (adds objects), and writes synth_object_id / ped_path into `model`. Called only from the
+// typed BuildSideModel overload. No-op when the model carries no crossPath (legacy assets).
+void SynthesizeCrosswalks(OdrSideModel& model, roadmanager::OpenDrive* od);
 
 }  // namespace detail
 }  // namespace odr

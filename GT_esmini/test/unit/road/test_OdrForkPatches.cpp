@@ -6,7 +6,7 @@
 //   1. MarkerCount  -- assert the on-disk marker inventory matches the patch manifest so a
 //      stray/removed fork edit trips ctest. KEEP IN SYNC WITH:
 //          GT_esmini/docs/gt_roadmanager_patches.md
-//      (15x "[GT_ODR:" + >=1 "[GT_LHT]" in GT_RoadManager.cpp; 2x "[GT_ODR:cmake]" in the
+//      (17x "[GT_ODR:" + >=1 "[GT_LHT]" in GT_RoadManager.cpp; 2x "[GT_ODR:cmake]" in the
 //       RoadManager CMakeLists). Source-of-truth via the GT_ODR_REPO_ROOT compile def.
 //
 //   2. Behavioral proofs of the individual patches, driven through the REAL parser
@@ -191,12 +191,12 @@ TEST(OdrForkPatches, MarkerCount)
     const std::string root = RepoRoot();
     ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
 
-    // GT_RoadManager.cpp: exactly 12 [GT_ODR: and at least 1 [GT_LHT].
+    // GT_RoadManager.cpp: exactly 17 [GT_ODR: and at least 1 [GT_LHT].
     const std::string cpp_path = root + "/GT_esmini/src/road/GT_RoadManager.cpp";
     std::string       cpp;
     ASSERT_TRUE(ReadFileToString(cpp_path, cpp)) << "cannot read " << cpp_path;
-    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 15u)
-        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 15).";
+    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 17u)
+        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 17).";
     EXPECT_GE(CountOccurrences(cpp, "[GT_LHT]"), 1u)
         << "GT_RoadManager.cpp lost its [GT_LHT] patch 1-A marker.";
 

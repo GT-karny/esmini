@@ -330,30 +330,45 @@ elements:
   - path: junction
     attrs: [id, name, type]
     evidence: "5393-5410, 6905-6960 (id via EstablishUniqueIds)"
-    notes: "@id read twice (EstablishUniqueIds 6913/6915 + jid_str 5397). @type 'direct'->DIRECT, 'virtual'->LOG_WARN+DEFAULT (5406), else DEFAULT. 'crossing' junctions fall through to DEFAULT (plan breakage #3). @mainRoad/@sStart/@sEnd/@orientation (virtual) NOT read."
+    notes: "@id read twice (EstablishUniqueIds 6913/6915 + jid_str 5397). @type 'direct'->DIRECT, 'virtual'->LOG_WARN+DEFAULT, 'crossing'->LOG_WARN+DEFAULT ([GT_ODR:junc-crossing] recognizes it, roadSection captured GT-side), else DEFAULT. @mainRoad/@sStart/@sEnd/@orientation (virtual) NOT read (cluster 6, P6)."
   - path: junction/connection
     attrs: [id, incomingRoad, connectingRoad, linkedRoad, contactPoint]
     evidence: "5412-5462"
-    notes: "@linkedRoad read ONLY for DIRECT junctions; @connectingRoad read otherwise (5423-5430) - mutually exclusive by junction type. @id read then discarded ((void)idc 5418) -> consumed: partial. Missing connecting road -> LOG_WARN + return false (ABORTS whole parse, subtlety 5436). @type/@from/@to (crossing crossPath) NOT read."
+    notes: "@linkedRoad read ONLY for DIRECT junctions; @connectingRoad read otherwise (5423-5430) - mutually exclusive by junction type. @id read then discarded ((void)idc 5418) -> consumed: partial. Missing connecting road -> [GT_ODR:junc-abort] WARN + skip connection (no longer aborts). @type NOT read."
   - path: junction/connection/laneLink
-    attrs: [from, to]
-    evidence: "5466-5471"
-    notes: "@fromLayer/@toLayer/@overlapZone (1.9/1.8) NOT read."
+    attrs: [from, to, overlapZone, fromLayer, toLayer]
+    evidence: "5466-5471; overlapZone/fromLayer/toLayer -> OdrJunctionExtras.cpp (side model L1)"
+    notes: "@from/@to read by the fork. @overlapZone (1.8) / @fromLayer,@toLayer (1.9) captured L1 in OdrJunctionExtras (cluster 7/22, P5; semantics deferred to P8)."
   - path: junction/controller
     attrs: [id, type, sequence]
-    evidence: "5477-5484"
-    notes: "junction-scoped controller (distinct from top-level controller)."
+    evidence: "5477-5484; also OdrJunctionExtras.cpp (side model L1 duplicate)"
+    notes: "junction-scoped controller (distinct from top-level controller). Also mirrored L1 into OdrJunctionExtras for side completeness (P5)."
   - path: junction/priority
     attrs: [high, low]
-    evidence: "n/a (NOT read by parser)"
+    evidence: "OdrJunctionExtras.cpp (side model L1); not read by the fork parser"
     notes: >
-      consumed: none. <priority high low> (junction connection priority) is a STANDARD OpenDRIVE
-      element since <=1.5 (XSD t_junction_priority 1272-1276) that GT_RoadManager.cpp does NOT read.
-      It is cluster 7 (junction priority; the canonical priority source for feature F3, targeted for
-      real L1 storage in plan P5 / the F3 week). Emitted by priority_injector.py, so it appears in
-      generated road-catalog fixtures (4way_priority__*, t_junction_priority__*). Whitelisted here as
-      a known tracked element (attrs high/low listed) to keep the control set warning-free in P1;
-      the actual priority data is captured into OdrJunctionExtras in P5. Added 2026-07-02 for plan P1.
+      consumed: L1 (P5). <priority high low> (junction connection priority) is a STANDARD OpenDRIVE
+      element since <=1.5 (XSD t_junction_priority 1272-1276) that GT_RoadManager.cpp does NOT read,
+      but is now captured into OdrJunctionExtras and exposed via GetJunctionPriorities() -- the
+      canonical priority source for feature F3 (cluster 7). Emitted by priority_injector.py, so it
+      appears in generated road-catalog fixtures (4way_priority__*, t_junction_priority__*).
+      Whitelisted (attrs high/low listed) to keep the control set warning-free. Captured L1 in P5.
+  - path: junction/crossPath
+    attrs: [id, crossingRoad, roadAtStart, roadAtEnd]
+    evidence: "OdrJunctionExtras.cpp (side model L1, P5)"
+    notes: "1.8/1.9 pedestrian crossing carried by a common/virtual junction. Captured L1 in OdrJunctionExtras (cluster 5, P5); crossPath -> CROSSWALK object synthesis is P5 stage 2."
+  - path: junction/crossPath/startLaneLink
+    attrs: [s, from, to]
+    evidence: "OdrJunctionExtras.cpp (side model L1, P5)"
+    notes: "crossPath start lane link (@s on the crossing road, @from/@to lane ids). Captured L1 in OdrJunctionExtras (cluster 5, P5)."
+  - path: junction/crossPath/endLaneLink
+    attrs: [s, from, to]
+    evidence: "OdrJunctionExtras.cpp (side model L1, P5)"
+    notes: "crossPath end lane link (@s on the crossing road, @from/@to lane ids). Captured L1 in OdrJunctionExtras (cluster 5, P5)."
+  - path: junction/roadSection
+    attrs: [id, roadId, sStart, sEnd]
+    evidence: "OdrJunctionExtras.cpp (side model L1, P5)"
+    notes: "1.8 crossing-junction roadSection: the s-range of a road where crossing traffic can appear. Captured L1 in OdrJunctionExtras (cluster 5, P5)."
   - path: road
     attrs: [id, name, length, junction, rule]
     evidence: "3766-3797, 6905-6960 (id via EstablishUniqueIds)"
@@ -903,11 +918,18 @@ summary:
   # <=1.5 attributes, NOT 1.6-1.9 extensions, so suppressing them raises no honesty concern; genuine
   # 1.8 lane attrs (direction/advisory/dynamic*/roadWorks) remain unlisted and still flag.
   # Also whitelisted-only (consumed: none, all STANDARD <=1.5, keep control set clean):
-  #   object@subtype/dynamic/validLength, outline@fillType/laneType/outer, roadMark@material,
-  #   junction/priority (element, attrs high/low). junction/priority is cluster 7 (F3 source, P5).
-  total_element_paths: 88
+  #   object@subtype/dynamic/validLength, outline@fillType/laneType/outer, roadMark@material.
+  #
+  # P5 (cluster 5/7/22) added 4 junction element paths that ARE consumed at side-model L1 (not by the
+  # fork parser): junction/crossPath, junction/crossPath/startLaneLink, junction/crossPath/endLaneLink,
+  # junction/roadSection -> captured into OdrJunctionExtras (OdrJunctionExtras.cpp). junction/priority
+  # was reclassified from whitelist-only(consumed:none) to L1-captured (cluster 7, F3 source). The
+  # laneLink @overlapZone/@fromLayer/@toLayer attributes were added to the junction/connection/laneLink
+  # attr set (also L1-captured). These are NOT [ODR-UNSUPPORTED] suppressions -- they are real L1 storage.
+  total_element_paths: 92                  # +4 P5 junction paths (crossPath/startLaneLink/endLaneLink/roadSection)
   total_element_paths_original_read: 78
-  total_element_paths_whitelist_only: 10  # 9 containers/surface + junction/priority (cluster 7)
+  total_element_paths_whitelist_only: 9    # 9 containers/surface (junction/priority reclassified to L1-captured, P5)
+  total_element_paths_side_model_l1: 5     # P5: crossPath + start/endLaneLink + roadSection + priority (OdrJunctionExtras.cpp)
   total_distinct_attributes_read: 94
   total_distinct_attributes_whitelist_only_note: >
     Whitelist-only attrs (consumed: none): header name/version/date/north/south/east/west/vendor,

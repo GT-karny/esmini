@@ -60,6 +60,9 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
         // P2: focused lane-detail pass (clusters 3+16 L1 storage; sparse on legacy assets).
         detail::ParseLaneExtras(root, *model);
 
+        // P5: junction pass (clusters 5/7/22 L1: crossPath/roadSection/priority/laneLink layers).
+        detail::ParseJunctionExtras(root, *model);
+
         // Register BEFORE returning (even on include hard-error) so diagnostics/stats are queryable.
         {
             std::lock_guard<std::mutex> lock(RegistryMutex());
@@ -89,12 +92,16 @@ bool BuildSideModel(const pugi::xml_document& doc, roadmanager::OpenDrive* od)
     const bool ok = BuildSideModel(doc, static_cast<const void*>(od));
     if (ok && od != nullptr)
     {
-        const OdrSideModel* m = GetSideModel(od);
+        OdrSideModel* m = detail::GetSideModelMutable(od);
         if (m != nullptr)
         {
             // P2 border->width normalization through the public Lane API (plan P2; no-op when
             // no lane authored <border> -- keeps legacy parses bit-identical).
             detail::ApplyBorderWidths(*m, od);
+
+            // P5 stage 2: crossPath -> synthesized CROSSWALK RMObject + PedPath polyline (no-op when
+            // no crossPath was parsed -- keeps legacy parses bit-identical).
+            detail::SynthesizeCrosswalks(*m, od);
         }
     }
     return ok;
@@ -107,6 +114,19 @@ const OdrSideModel* GetSideModel(const void* opendrive_key)
     auto                        it  = reg.find(opendrive_key);
     return it == reg.end() ? nullptr : it->second.get();
 }
+
+namespace detail
+{
+// Non-const registry lookup for in-TU passes that write synthesis products back into the model
+// (P5 crosswalk synth_object_id / ped_path). Not exported: the public API stays read-only.
+OdrSideModel* GetSideModelMutable(const void* opendrive_key)
+{
+    std::lock_guard<std::mutex> lock(RegistryMutex());
+    auto&                       reg = Registry();
+    auto                        it  = reg.find(opendrive_key);
+    return it == reg.end() ? nullptr : it->second.get();
+}
+}  // namespace detail
 
 void ClearSideModel(const void* opendrive_key)
 {
