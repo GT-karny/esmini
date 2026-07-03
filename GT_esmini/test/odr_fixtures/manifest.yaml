@@ -544,9 +544,7 @@ fixtures:
   features:
   - junction/connection/laneLink@fromLayer
   - junction/connection/laneLink@toLayer
-  expected_unsupported_entries:
-  - 'junction/connection/laneLink@fromLayer|ctx=1'
-  - 'junction/connection/laneLink@toLayer|ctx=1'
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -554,8 +552,9 @@ fixtures:
     id=0. DEVIATION FROM SPEC-IN-PLAN: the 1.9 Junction XSD has NO connection-level layer attribute --
     the abstract t_junction_connection carries only id/incomingRoad/contactPoint, and only the <laneLink>
     child gained fromLayer/toLayer. So the plan's "and connection-level if present" does not apply; only
-    laneLink-level layer attributes exist and are exercised here. Upstream RM ignores both attributes
-    (slot reserved P5, semantics P8).
+    laneLink-level layer attributes exist and are exercised here. P5: @fromLayer/@toLayer are now captured
+    L1 into OdrJunctionExtras::lane_link_extras (cluster 22 slot reservation, semantics P8), so they no
+    longer flag as [ODR-UNSUPPORTED] (expected_unsupported_entries flipped to empty; was 2 entries).
 - id: g6_junction_boundary_18
   path: GT_esmini/test/odr_fixtures/generated/g6_junction_boundary_18.xodr
   source: generated
