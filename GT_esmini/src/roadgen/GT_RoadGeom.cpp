@@ -1078,8 +1078,12 @@ namespace roadgeom
 
                                 geom->getOrCreateStateSet()->setAttributeAndModes(materialAsphalt_.get());
                             }
+                            // ODR P2: LANE_TYPE_CURB joins the concrete family (walking maps to
+                            // LANE_TYPE_SIDEWALK in the fork and is covered by the existing branch;
+                            // shared/slipLane map to driving-family enums -> asphalt above).
                             else if (lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_BIKING) ||
-                                     lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_SIDEWALK))
+                                     lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_SIDEWALK) ||
+                                     lane->IsType(roadmanager::Lane::LaneType::LANE_TYPE_CURB))
                             {
                                 material_t = MaterialType::CONCRETE;
                                 osg::ref_ptr<osg::Material> materialConcrete_ =

@@ -36,10 +36,15 @@
 
 #include "gt_esmini/road/OdrSideExtras.hpp"
 
-// Light forward declaration -- no heavy pugixml include in the public header.
+// Light forward declarations -- no heavy pugixml / RoadManager includes in the public header.
 namespace pugi
 {
 class xml_document;
+}
+namespace roadmanager
+{
+class OpenDrive;
+class Position;
 }
 
 namespace gt_esmini
@@ -109,6 +114,24 @@ public:
 // uses a singleton OpenDrive and each DLL statically links its own copy of this module (no
 // cross-DLL registry sharing).
 bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key);
+
+// Typed overload -- this is the one the fork hook binds to (`BuildSideModel(doc, this)` inside
+// OpenDrive::ParseOpenDriveXML resolves here by exact match, no fork change needed). Behaves like
+// the opaque-key overload (key = od) and ADDITIONALLY applies the P2 border->width normalization
+// to od's freshly parsed lanes through the public Lane API (AddLaneWidth): for every lane that
+// authored <border> elements and zero <width> elements, width_i = side_sign * (border_i -
+// border_{i-1}) as piecewise-cubic algebra (plan P2, Ex_Lane-Border false-green fix).
+bool BuildSideModel(const pugi::xml_document& doc, roadmanager::OpenDrive* od);
+
+// ---- P2 cluster 16 L2: lane <speed> lookup ----
+// Speed limit [m/s] authored via lane <speed> at (road_id, lane_id, s), resolved against the side
+// model registered under `opendrive_key`. Returns 0.0 when no lane speed record applies (callers
+// MUST treat <= 0 as "no lane limit" and keep their existing road-type-speed path bit-identical).
+double GetLaneSpeedLimit(const void* opendrive_key, const std::string& road_id, int lane_id, double s);
+
+// Convenience wrapper for runtime consumers (VD speed planning): resolves the OpenDrive singleton
+// + road id string + lane id + s from `pos`. Same <= 0 contract as above.
+double GetLaneSpeedLimitForPosition(const roadmanager::Position& pos);
 
 // Fetch the model registered under `opendrive_key`, or nullptr if none.
 const OdrSideModel* GetSideModel(const void* opendrive_key);

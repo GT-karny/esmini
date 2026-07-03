@@ -20,7 +20,9 @@ _lock = threading.Lock()
 # Cache: xodr absolute path → geometry dict
 _cache: dict[str, dict] = {}
 
-# Lane type bitmask constants (from RoadManager.hpp)
+# Lane type bitmask constants -- values mirror RoadManager.hpp Lane::LaneType.
+# MUST stay in sync with the C++ enum; machine-checked by ctest OdrLaneTypeSync
+# (GT_esmini/test/unit/road/test_OdrLaneTypeSync.cpp) -- plan P2.
 _LANE_TYPE_NONE = 1 << 0
 _LANE_TYPE_DRIVING = 1 << 1
 _LANE_TYPE_STOP = 1 << 2
@@ -30,12 +32,17 @@ _LANE_TYPE_SIDEWALK = 1 << 5
 _LANE_TYPE_BORDER = 1 << 6
 _LANE_TYPE_RESTRICTED = 1 << 7
 _LANE_TYPE_PARKING = 1 << 8
+_LANE_TYPE_BIDIRECTIONAL = 1 << 9
 _LANE_TYPE_CURB = 1 << 21
+_LANE_TYPE_CONNECTING_RAMP = 1 << 22
 
-# Types considered "drivable" (lane dividers between these are lane_divider)
+# Types considered "drivable" (lane dividers between these are lane_divider).
+# BIDIRECTIONAL/CONNECTING_RAMP cover ODR "shared"/"slipLane" lanes, which the
+# [GT_ODR:lane-types] fork patch maps onto these enums (plan P2).
 _DRIVABLE_MASK = (
     _LANE_TYPE_DRIVING | _LANE_TYPE_STOP | _LANE_TYPE_SHOULDER
     | _LANE_TYPE_BIKING | _LANE_TYPE_RESTRICTED | _LANE_TYPE_PARKING
+    | _LANE_TYPE_BIDIRECTIONAL | _LANE_TYPE_CONNECTING_RAMP
 )
 
 # Sampling step in meters along the road
@@ -52,7 +59,8 @@ def _classify_boundary(inner_type: int, outer_type: int, is_outermost: bool) -> 
         return "center_line"
 
     if is_outermost:
-        if outer_type & _LANE_TYPE_SIDEWALK:
+        # Curb renders like a sidewalk edge in the 2D viewer
+        if outer_type & (_LANE_TYPE_SIDEWALK | _LANE_TYPE_CURB):
             return "sidewalk_edge"
         return "road_edge"
 
@@ -62,7 +70,7 @@ def _classify_boundary(inner_type: int, outer_type: int, is_outermost: bool) -> 
 
     # Transition from drivable to non-drivable
     if (inner_type & _DRIVABLE_MASK) and not (outer_type & _DRIVABLE_MASK):
-        if outer_type & _LANE_TYPE_SIDEWALK:
+        if outer_type & (_LANE_TYPE_SIDEWALK | _LANE_TYPE_CURB):
             return "sidewalk_edge"
         return "road_edge"
 

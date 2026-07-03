@@ -4225,6 +4225,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             {
                                 lane_type = Lane::LANE_TYPE_CONNECTING_RAMP;
                             }
+                            // [GT_ODR:lane-types] ODR 1.6/1.8 tokens -> nearest existing enums (plan P2; rationale in gt_roadmanager_patches.md)
+                            else if (lane_type_str == "walking")  { lane_type = Lane::LANE_TYPE_SIDEWALK; }
+                            else if (lane_type_str == "curb")     { lane_type = Lane::LANE_TYPE_CURB; }
+                            else if (lane_type_str == "shared")   { lane_type = Lane::LANE_TYPE_BIDIRECTIONAL; }
+                            else if (lane_type_str == "slipLane") { lane_type = Lane::LANE_TYPE_CONNECTING_RAMP; }
                             else
                             {
                                 LOG_ERROR("unknown lane type: {} (road id={})", lane_type_str, r->GetId());

@@ -1,5 +1,6 @@
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/common/JunctionTurn.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
@@ -74,7 +75,17 @@ std::vector<ScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig&
             v_curve = std::sqrt(cfg.max_lateral_accel / std::fabs(kappa));
         }
 
-        const double v_limit = cfg.respect_speed_limit ? pos.GetSpeedLimit() : kUnconstrained;
+        double v_limit = cfg.respect_speed_limit ? pos.GetSpeedLimit() : kUnconstrained;
+        if (cfg.respect_speed_limit)
+        {
+            // ODR P2 (cluster 16 L2): fold the lane <speed> limit into the ceiling. Returns <= 0
+            // when no lane speed record applies (all legacy assets) -> v_limit stays bit-identical.
+            const double v_lane = gt_esmini::odr::GetLaneSpeedLimitForPosition(pos);
+            if (v_lane > 0.0)
+            {
+                v_limit = std::min(v_limit, v_lane);
+            }
+        }
         roadmanager::Road* road = odr.GetRoadById(pos.GetTrackId());
         const bool on_junction = IsTurningConnector(road, connector_is_turn);
         const double v_turn = on_junction ? cfg.turn_speed : kUnconstrained;
