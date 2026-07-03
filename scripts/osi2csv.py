@@ -2,18 +2,32 @@ import os
 import struct
 import argparse
 import math
+import gzip
 
 from osi3.osi_groundtruth_pb2 import *
 
 class OSIFile():
     def __init__(self, filename):
+        self.filename = filename
+
         try:
-            self.file = open(filename, 'rb')
+            # 1. Open the file to check the magic bytes
+            with open(self.filename, 'rb') as f:
+                magic_bytes = f.read(2)
+
+            # Check for Gzip magic number (0x1F, 0x8B)
+            is_gzipped = (magic_bytes == b'\x1f\x8b')
+
+            # 2. Open the correct stream type based on the check
+            if is_gzipped:
+                print(f"Detected Gzip compression for {self.filename}. Decompressing...")
+                self.file = gzip.GzipFile(fileobj=open(self.filename, 'rb'), mode='rb')
+            else:
+                self.file = open(self.filename, 'rb')
         except OSError:
             print('ERROR: Could not open file {} for reading'.format(filename))
             raise
 
-        self.filename = filename
         self.osi_msg = GroundTruth()
 
     def save_csv(self):
@@ -25,12 +39,15 @@ class OSIFile():
             raise
 
         # write header
-        fcsv.write('time, id, name, type, x, y, z, vx, vy, vz, ax, ay, az, h, p, r, vh, vp, vr, ah, ap, ar, speed, wheel_angle, wheel_rot\n')
+        fcsv.write('time, id, name, scenario_id, type, x, y, z, vx, vy, vz, ax, ay, az, h, p, r, vh, vp, vr, ah, ap, ar, speed, wheel_angle, wheel_rot\n')
 
         # write data
         while self.read_next_message():
             t = self.osi_msg.timestamp.seconds + self.osi_msg.timestamp.nanos * 1e-9
             for o in self.osi_msg.moving_object:
+                # try read object scenario id
+                obj_sid = next((int(s.split(':', 1)[1]) for s in o.source_reference[0].identifier
+                                if s.startswith('entity_id:')), None)
                 if o.type == 0:
                     type = 'UNKNOWN'
                 elif o.type == 1:
@@ -43,10 +60,12 @@ class OSIFile():
                     type = 'ANIMAL'
                 else:
                     type = 'ERROR'
-                fcsv.write('{:.6f}, {}, {}, {}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}\n'.format(
+
+                fcsv.write('{:.6f}, {}, {}, {}, {}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}\n'.format(
                     t,
                     o.id.value,
                     'obj' + str(o.id.value),
+                    obj_sid,
                     type,
                     o.base.position.x,
                     o.base.position.y,
