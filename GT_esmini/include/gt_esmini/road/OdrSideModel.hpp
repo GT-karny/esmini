@@ -219,6 +219,50 @@ bool GetJunctionGroups(const void* opendrive_key, std::vector<OdrJunctionGroup>&
 bool IsJunctionInRoundabout(const void* opendrive_key, const std::string& junction_id);
 
 // ---------------------------------------------------------------------------
+// P7 WP4 (cluster 8 L3): authored junction <boundary> -> world polyline. FLAGGED, default OFF.
+// ---------------------------------------------------------------------------
+
+// One evaluated world-space vertex of an authored junction boundary polyline.
+struct OdrBoundaryPoint
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+// Evaluate the authored <boundary>/<segment> list for `junction_id` (stored L1 by
+// OdrJunctionGeom.cpp) into an ordered world-space polyline, appended to `xyz_out`. Segments are
+// walked in AUTHORED order (XSD guarantees they run counter-clockwise and form a closed boundary):
+//
+//   * type="lane": walk the referenced road's edge -- the OUTER edge of @boundaryLane (relative to
+//     the road center; signed t = sign(boundaryLane) * LaneSection::GetOuterOffset(s, boundaryLane))
+//     -- from sStart to sEnd, sampling world XYZ via roadmanager::Position::SetTrackPos. sStart/sEnd
+//     accept the XSD keywords "start"/"begin" (-> s=0) and "end" (-> road length) as well as a
+//     numeric s (clamped to [0, length]). Sampling step is <= 2 m with >= 2 points emitted per
+//     non-degenerate segment; a degenerate (sStart==sEnd) segment emits its single point.
+//   * type="joint": a STRAIGHT connection perpendicular to a road end -- it contributes no vertices
+//     of its own (the polyline already connects consecutive lane-segment endpoints with a straight
+//     edge, which is exactly the joint). Documented no-op; kept for authored-order fidelity.
+//
+// Returns false (leaving `xyz_out` untouched) on any degenerate/dangling input: no side model, no
+// boundary authored, unknown roadId, unresolvable lane/lane-section, or fewer than 3 resulting
+// points (a polygon needs >= 3). Every failure logs a WARN so the caller can fall back to the
+// upstream heuristic. Pure-ish (reads only od + the side model registered under `od`); the one side
+// effect is a scratch roadmanager::Position it constructs and discards.
+bool BuildAuthoredJunctionBoundaryPolyline(const void*                     opendrive_key,
+                                           const std::string&              junction_id,
+                                           roadmanager::OpenDrive*         od,
+                                           std::vector<OdrBoundaryPoint>&  xyz_out);
+
+// Flag gate for the WP4 OSI post-pass (GT_OSIReporter). Default OFF. Read ONCE from env
+// GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY on first query ("1"/"true", case-insensitive -> ON; anything
+// else / unset -> OFF). The setter overrides the env read for tests (same idiom as WP2's
+// SetCurveLocalMaxSegmentLength). When OFF the post-pass is a hard no-op and every existing OSI
+// golden stays byte-identical.
+void SetUseAuthoredJunctionBoundary(bool on);
+bool GetUseAuthoredJunctionBoundary();
+
+// ---------------------------------------------------------------------------
 // P7 fork helpers (T2). Implemented in OdrObjectExtras.cpp; the fork call sites in
 // GT_RoadManager.cpp are wired in a LATER WP, so these are temporarily unreferenced by the fork.
 // ---------------------------------------------------------------------------

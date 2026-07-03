@@ -4,6 +4,7 @@
 // OdrJunctionGroup L1 storage + the roundabout policy hint. Template mirrors test_OdrJunctionExtras.cpp.
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -97,6 +98,74 @@ TEST(OdrJunctionGeom, Fixtureg8JunctionGrid)
     EXPECT_EQ(geom->object_count, 1) << "one junction-level object counted";
 
     odr->Clear();
+}
+
+// ================================================================================================
+// WP4 (cluster 8 L3): authored junction <boundary> -> world polyline + feature flag gate.
+// ================================================================================================
+
+// ---- polyline builder on the g6 fixture junction (>3 pts, finite, ordered) ----
+TEST(OdrJunctionGeom, WP4AuthoredBoundaryPolyline)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(Fix("generated/g6_junction_boundary_18.xodr")));
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+
+    std::vector<gt_esmini::odr::OdrBoundaryPoint> poly;
+    ASSERT_TRUE(gt_esmini::odr::BuildAuthoredJunctionBoundaryPolyline(odr, "1", odr, poly));
+    EXPECT_GT(poly.size(), 3u) << "closed junction boundary must yield a real polygon";
+    for (const auto& p : poly)
+    {
+        EXPECT_TRUE(std::isfinite(p.x));
+        EXPECT_TRUE(std::isfinite(p.y));
+        EXPECT_TRUE(std::isfinite(p.z));
+    }
+    // Ordered: consecutive points are not all identical (the polyline advances around the junction).
+    bool advanced = false;
+    for (size_t i = 1; i < poly.size(); i++)
+    {
+        if (std::fabs(poly[i].x - poly[0].x) > 1e-6 || std::fabs(poly[i].y - poly[0].y) > 1e-6)
+        {
+            advanced = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(advanced) << "boundary polyline must span more than a single point";
+
+    odr->Clear();
+}
+
+// ---- dangling / unparseable references -> false (caller falls back to heuristic) ----
+TEST(OdrJunctionGeom, WP4DanglingBoundaryRefReturnsFalse)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(Fix("generated/g6_junction_boundary_18.xodr")));
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+
+    std::vector<gt_esmini::odr::OdrBoundaryPoint> poly;
+    // Unknown junction id -> no side-model boundary entry -> false, out untouched.
+    EXPECT_FALSE(gt_esmini::odr::BuildAuthoredJunctionBoundaryPolyline(odr, "no_such_junction", odr, poly));
+    EXPECT_TRUE(poly.empty());
+
+    // Null OpenDrive -> false.
+    EXPECT_FALSE(gt_esmini::odr::BuildAuthoredJunctionBoundaryPolyline(odr, "1", nullptr, poly));
+    EXPECT_TRUE(poly.empty());
+
+    odr->Clear();
+}
+
+// ---- feature flag: default OFF; setter toggles; env-independent under the setter ----
+TEST(OdrJunctionGeom, WP4FeatureFlagDefaultOff)
+{
+    // The setter makes the flag deterministic regardless of the environment.
+    gt_esmini::odr::SetUseAuthoredJunctionBoundary(false);
+    EXPECT_FALSE(gt_esmini::odr::GetUseAuthoredJunctionBoundary()) << "default OFF";
+
+    gt_esmini::odr::SetUseAuthoredJunctionBoundary(true);
+    EXPECT_TRUE(gt_esmini::odr::GetUseAuthoredJunctionBoundary());
+
+    gt_esmini::odr::SetUseAuthoredJunctionBoundary(false);
+    EXPECT_FALSE(gt_esmini::odr::GetUseAuthoredJunctionBoundary());
 }
 
 // ---- sparse: a legacy junction with no boundary/grid/objects/surface yields no geom entry ----

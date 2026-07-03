@@ -12,11 +12,14 @@
 // Sparse: a junction produces an OdrJunctionGeomExtras entry only when it carries a boundary /
 // elevationGrid / junction-level objects / junction-level surface. junctionGroup is document-level and
 // stored whenever authored.
+#include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
-#include "CommonMini.hpp"  // LOG_*
+#include "CommonMini.hpp"  // LOG_*, SMALL_NUMBER
+#include "RoadManager.hpp"  // roadmanager::OpenDrive / Road / LaneSection / Position (WP4 boundary eval)
 #include "gt_esmini/road/OdrSideModel.hpp"
 #include "logger.hpp"
 #include "odr_side_internal.hpp"
@@ -229,6 +232,264 @@ bool IsJunctionInRoundabout(const void* opendrive_key, const std::string& juncti
         }
     }
     return false;
+}
+
+// ================================================================================================
+// P7 WP4 (cluster 8 L3): authored junction <boundary> -> world polyline. FLAGGED, default OFF.
+// ================================================================================================
+namespace
+{
+// ---- feature flag (WP2 SetCurveLocalMaxSegmentLength idiom: env read once, setter overrides) ----
+bool g_use_authored_boundary  = false;
+bool g_use_authored_inited     = false;
+
+bool EnvIsTruthy(const char* v)
+{
+    if (v == nullptr || v[0] == '\0')
+    {
+        return false;
+    }
+    std::string s(v);
+    for (char& c : s)
+    {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return s == "1" || s == "true" || s == "yes" || s == "on";
+}
+
+// Resolve an sStart/sEnd token: XSD t_grEqZeroOrContactPoint allows "start"/"begin"/"end" keywords
+// or a non-negative s value. Returns the resolved s clamped to [0, road_len]; `ok` reports parse
+// success (an empty token is treated as "start" -> 0.0, which is the schema-implied default anchor).
+double ResolveSegmentS(const std::string& tok, double road_len, bool& ok)
+{
+    ok = true;
+    if (tok.empty() || tok == "start" || tok == "begin")
+    {
+        return 0.0;
+    }
+    if (tok == "end")
+    {
+        return road_len;
+    }
+    char*        endp = nullptr;
+    const double v    = std::strtod(tok.c_str(), &endp);
+    if (endp == tok.c_str() || !std::isfinite(v))
+    {
+        ok = false;
+        return 0.0;
+    }
+    if (v < 0.0)
+    {
+        return 0.0;
+    }
+    if (v > road_len)
+    {
+        return road_len;
+    }
+    return v;
+}
+
+// Sample the OUTER edge of `boundary_lane` on `road` from s0->s1 (either direction) and append the
+// world points to `out`. Signed lateral offset = sign(boundary_lane) * GetOuterOffset(); a
+// boundary_lane of 0 (center) degenerates to the reference line. Emits >= 2 points for a real span
+// and exactly 1 for a degenerate (s0==s1) point-segment. Returns false on any RM resolution failure.
+bool SampleLaneEdge(roadmanager::Road*             road,
+                    int                            boundary_lane,
+                    double                         s0,
+                    double                         s1,
+                    std::vector<OdrBoundaryPoint>& out,
+                    const std::string&             junction_id)
+{
+    const double road_len = road->GetLength();
+    const double span     = std::fabs(s1 - s0);
+
+    // step <= 2 m, >= 2 points for a non-degenerate span.
+    int n_pts = 2;
+    if (span > SMALL_NUMBER)
+    {
+        n_pts = static_cast<int>(std::ceil(span / 2.0)) + 1;
+        if (n_pts < 2)
+        {
+            n_pts = 2;
+        }
+    }
+    else
+    {
+        n_pts = 1;  // degenerate point-segment (sStart==sEnd, e.g. a junction contact point)
+    }
+
+    roadmanager::Position pos;
+    for (int i = 0; i < n_pts; i++)
+    {
+        const double f = (n_pts == 1) ? 0.0 : static_cast<double>(i) / static_cast<double>(n_pts - 1);
+        double       s = s0 + (s1 - s0) * f;
+        if (s < 0.0)
+        {
+            s = 0.0;
+        }
+        else if (s > road_len)
+        {
+            s = road_len;
+        }
+
+        double t = 0.0;
+        if (boundary_lane != 0)
+        {
+            roadmanager::LaneSection* ls = road->GetLaneSectionByS(s);
+            if (ls == nullptr)
+            {
+                LOG_WARN("[GT_ODR] authored junction boundary: no lane section at road {} s {} (junction {})",
+                         road->GetId(),
+                         s,
+                         junction_id);
+                return false;
+            }
+            const double outer = ls->GetOuterOffset(s, boundary_lane);
+            t                  = (boundary_lane < 0) ? -outer : outer;
+        }
+
+        if (static_cast<int>(pos.SetTrackPos(road->GetId(), s, t)) < 0)
+        {
+            LOG_WARN("[GT_ODR] authored junction boundary: SetTrackPos failed at road {} s {} t {} (junction {})",
+                     road->GetId(),
+                     s,
+                     t,
+                     junction_id);
+            return false;
+        }
+
+        OdrBoundaryPoint p;
+        p.x = pos.GetX();
+        p.y = pos.GetY();
+        p.z = pos.GetZ();
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+        {
+            LOG_WARN("[GT_ODR] authored junction boundary: non-finite point at road {} s {} (junction {})",
+                     road->GetId(),
+                     s,
+                     junction_id);
+            return false;
+        }
+        out.push_back(p);
+    }
+    return true;
+}
+}  // namespace
+
+void SetUseAuthoredJunctionBoundary(bool on)
+{
+    g_use_authored_boundary = on;
+    g_use_authored_inited   = true;  // suppress the env read so tests are deterministic
+}
+
+bool GetUseAuthoredJunctionBoundary()
+{
+    if (!g_use_authored_inited)
+    {
+        g_use_authored_boundary = EnvIsTruthy(std::getenv("GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY"));
+        g_use_authored_inited   = true;
+    }
+    return g_use_authored_boundary;
+}
+
+bool BuildAuthoredJunctionBoundaryPolyline(const void*                    opendrive_key,
+                                           const std::string&             junction_id,
+                                           roadmanager::OpenDrive*        od,
+                                           std::vector<OdrBoundaryPoint>& xyz_out)
+{
+    if (od == nullptr)
+    {
+        return false;
+    }
+    const OdrJunctionGeomExtras* geom = GetJunctionGeom(opendrive_key, junction_id);
+    if (geom == nullptr || geom->boundary.empty())
+    {
+        return false;  // no authored boundary -> caller keeps the heuristic (not a warning)
+    }
+
+    std::vector<OdrBoundaryPoint> pts;
+    for (const OdrJunctionBoundarySegment& seg : geom->boundary)
+    {
+        if (seg.type == "joint")
+        {
+            // A "joint" segment is perpendicular to a road start/end -- a STRAIGHT connection between
+            // the preceding and following lane segments. The polyline already joins consecutive
+            // vertices with a straight edge, so a joint contributes no vertices of its own. Kept as a
+            // documented no-op to preserve authored-order fidelity.
+            continue;
+        }
+        if (seg.type != "lane")
+        {
+            LOG_WARN("[GT_ODR] authored junction boundary: unsupported segment type '{}' (junction {}) -> heuristic",
+                     seg.type,
+                     junction_id);
+            return false;
+        }
+
+        // roadId (string) -> numeric road id.
+        char*         road_endp = nullptr;
+        const long    road_id_l = std::strtol(seg.road_id.c_str(), &road_endp, 10);
+        if (road_endp == seg.road_id.c_str())
+        {
+            LOG_WARN("[GT_ODR] authored junction boundary: non-numeric roadId '{}' (junction {}) -> heuristic",
+                     seg.road_id,
+                     junction_id);
+            return false;
+        }
+        roadmanager::Road* road = od->GetRoadById(static_cast<id_t>(road_id_l));
+        if (road == nullptr)
+        {
+            LOG_WARN("[GT_ODR] authored junction boundary: dangling roadId '{}' (junction {}) -> heuristic",
+                     seg.road_id,
+                     junction_id);
+            return false;
+        }
+
+        // boundaryLane (int; may be empty -> 0/center).
+        int boundary_lane = 0;
+        if (!seg.boundary_lane.empty())
+        {
+            char* lane_endp = nullptr;
+            boundary_lane   = static_cast<int>(std::strtol(seg.boundary_lane.c_str(), &lane_endp, 10));
+            if (lane_endp == seg.boundary_lane.c_str())
+            {
+                LOG_WARN("[GT_ODR] authored junction boundary: non-numeric boundaryLane '{}' (junction {}) -> heuristic",
+                         seg.boundary_lane,
+                         junction_id);
+                return false;
+            }
+        }
+
+        const double road_len = road->GetLength();
+        bool         s0_ok = false, s1_ok = false;
+        const double s0 = ResolveSegmentS(seg.s_start, road_len, s0_ok);
+        const double s1 = ResolveSegmentS(seg.s_end, road_len, s1_ok);
+        if (!s0_ok || !s1_ok)
+        {
+            LOG_WARN("[GT_ODR] authored junction boundary: unparseable sStart/sEnd ('{}'/'{}') road {} (junction {}) -> heuristic",
+                     seg.s_start,
+                     seg.s_end,
+                     seg.road_id,
+                     junction_id);
+            return false;
+        }
+
+        if (!SampleLaneEdge(road, boundary_lane, s0, s1, pts, junction_id))
+        {
+            return false;  // SampleLaneEdge already logged
+        }
+    }
+
+    if (pts.size() < 3)
+    {
+        LOG_WARN("[GT_ODR] authored junction boundary: only {} point(s) evaluated (junction {}) -> heuristic",
+                 pts.size(),
+                 junction_id);
+        return false;
+    }
+
+    xyz_out.insert(xyz_out.end(), pts.begin(), pts.end());
+    return true;
 }
 
 }  // namespace odr

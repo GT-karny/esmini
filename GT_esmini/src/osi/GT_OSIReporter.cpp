@@ -16,6 +16,7 @@
 #include "OSITrafficCommand.hpp"
 #include "OSCPrivateAction.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"  // WP4: authored junction boundary -> OSI intersection contour
 // #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include <cmath>
 #include <string>
@@ -395,6 +396,86 @@ void OSIReporter::SerializeDynamicAndStaticData()
     osiGroundTruth.size = static_cast<unsigned int>(osiGroundTruth.ground_truth.size());
 }
 
+namespace
+{
+// [GT_ODR:junc-boundary] P7 WP4 (cluster 8 L3), FLAGGED default OFF. Post-pass over the intersection
+// lanes the PRISTINE upstream OSIReporter::UpdateOSIIntersection() just produced: for every junction
+// that (a) is an OSI intersection and (b) has an authored <boundary> the side model could evaluate to
+// a >= 3-point world polyline, synthesize ONE osi3::LaneBoundary and REPLACE the intersection lane's
+// free_lane_boundary_id list with just that new boundary id. Otherwise the heuristic result is left
+// untouched. Runs in GT code only; upstream stays pristine.
+//
+// Synthetic id scheme: every RM/OSI global id (lanes, lane boundaries, junctions, roadmark lines) is
+// drawn from ONE monotonic counter via CommonMini GetNewGlobalId(). By the time this post-pass runs
+// all real ids are already assigned, so a fresh GetNewGlobalId() is guaranteed collision-free against
+// every existing boundary id -- no documented offset needed.
+void ApplyAuthoredJunctionBoundaries(roadmanager::OpenDrive* opendrive)
+{
+    if (opendrive == nullptr || !gt_esmini::odr::GetUseAuthoredJunctionBoundary())
+    {
+        return;  // hard default-OFF no-op: no observable change anywhere
+    }
+
+    const void* key = static_cast<const void*>(opendrive);
+    for (unsigned int i = 0; i < opendrive->GetNumOfJunctions(); i++)
+    {
+        roadmanager::Junction* junction = opendrive->GetJunctionByIdx(i);
+        if (junction == nullptr || !junction->IsOsiIntersection())
+        {
+            continue;
+        }
+
+        std::vector<gt_esmini::odr::OdrBoundaryPoint> poly;
+        if (!gt_esmini::odr::BuildAuthoredJunctionBoundaryPolyline(key, junction->GetIdStr(), opendrive, poly))
+        {
+            continue;  // no authored boundary / dangling ref / degenerate -> keep heuristic
+        }
+
+        // Locate the intersection lane the base pass added (osi lane id == junction global id).
+        const id_t   junction_gid = junction->GetGlobalId();
+        osi3::Lane*  osi_lane     = nullptr;
+        for (int j = 0; j < obj_osi_internal.static_gt->lane_size(); j++)
+        {
+            osi3::Lane* cand = obj_osi_internal.static_gt->mutable_lane(j);
+            if (cand->mutable_id()->value() == junction_gid)
+            {
+                osi_lane = cand;
+                break;
+            }
+        }
+        if (osi_lane == nullptr)
+        {
+            continue;  // base pass produced no intersection lane for this junction -> nothing to replace
+        }
+
+        // Synthesize one LaneBoundary from the authored polyline.
+        osi3::LaneBoundary* osi_lb = obj_osi_internal.static_gt->add_lane_boundary();
+        const id_t          lb_id  = GetNewGlobalId();
+        osi_lb->mutable_id()->set_value(lb_id);
+        for (const gt_esmini::odr::OdrBoundaryPoint& p : poly)
+        {
+            osi3::LaneBoundary_BoundaryPoint* bp = osi_lb->add_boundary_line();
+            bp->mutable_position()->set_x(p.x);
+            bp->mutable_position()->set_y(p.y);
+            bp->mutable_position()->set_z(p.z);
+        }
+        osi_lb->mutable_classification()->set_type(
+            osi3::LaneBoundary_Classification_Type::LaneBoundary_Classification_Type_TYPE_ROAD_EDGE);
+
+        // REPLACE the heuristic free-lane-boundary ids with the single authored contour id.
+        osi_lane->mutable_classification()->clear_free_lane_boundary_id();
+        osi_lane->mutable_classification()->add_free_lane_boundary_id()->set_value(lb_id);
+
+        LOG_INFO("[GT_ODR:junc-boundary] junction {} (osi lane {}): replaced heuristic free lane boundary with "
+                 "authored contour (boundary id {}, {} pts)",
+                 junction->GetIdStr(),
+                 junction_gid,
+                 lb_id,
+                 poly.size());
+    }
+}
+}  // namespace
+
 int OSIReporter::CreateOSIStaticGroundTruthFromODR()
 {
     int retval = 0;
@@ -426,6 +507,9 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
     UpdateOSIRoadLane();
     UpdateOSILaneBoundary();
     UpdateOSIIntersection();
+    // [GT_ODR:junc-boundary] WP4 flagged post-pass: swap heuristic free lane boundary for the authored
+    // junction <boundary> contour (default OFF -> hard no-op, all OSI goldens byte-identical).
+    ApplyAuthoredJunctionBoundaries(opendrive);
     UpdateStaticTrafficSignals();
 
     // Set the original geo reference string as is
