@@ -91,6 +91,27 @@ void ParseJunctionExtras(const pugi::xml_node& root, OdrSideModel& model);
 // typed BuildSideModel overload. No-op when the model carries no crossPath (legacy assets).
 void SynthesizeCrosswalks(OdrSideModel& model, roadmanager::OpenDrive* od);
 
+// ---- OdrObjectExtras.cpp (P7 clusters 17/18/19) ----
+
+// Focused pass over road/objects children (object/objectReference/bridge), road/surface, and
+// road/lateralProfile, filling model.object_extras / model.road_surface_crgs / model.road_lateral.
+// `doc_dir` is the directory of the xodr (for CRG file-existence diagnostics; "" -> skip the check).
+void ParseObjectExtras(const pugi::xml_node& root, OdrSideModel& model, const std::string& doc_dir);
+
+// P7 stage 2 (typed overload only): synthesize BRIDGE + objectReference clone RMObjects and apply the
+// lateralProfile shape/crossSectionSurface -> equivalent superelevation degrade. Mutates `od`
+// (adds objects / superelevation records) and writes synth ids / degrade bookkeeping into `model`.
+// No-op on legacy assets (no bridge/objectReference/shape/crossSectionSurface).
+void SynthesizeBridges(OdrSideModel& model, roadmanager::OpenDrive* od);
+void SynthesizeObjectReferences(OdrSideModel& model, roadmanager::OpenDrive* od);
+void ApplyLateralProfileDegrade(OdrSideModel& model, roadmanager::OpenDrive* od);
+
+// ---- OdrJunctionGeom.cpp (P7 clusters 8/9) ----
+
+// Focused pass over <junction> children (boundary/elevationGrid/objects/surface) + document-level
+// <junctionGroup>, filling model.junction_geom / model.junction_groups. `doc_dir` as above (CRG).
+void ParseJunctionGeom(const pugi::xml_node& root, OdrSideModel& model, const std::string& doc_dir);
+
 }  // namespace detail
 }  // namespace odr
 }  // namespace gt_esmini

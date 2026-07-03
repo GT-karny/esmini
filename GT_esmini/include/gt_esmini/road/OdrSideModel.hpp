@@ -53,6 +53,8 @@ namespace roadmanager
 {
 class OpenDrive;
 class Position;
+class RMObject;
+class Outline;
 }
 
 namespace gt_esmini
@@ -112,6 +114,17 @@ public:
     std::vector<OdrSignalExtras>   signal_extras;
     std::vector<OdrJunctionExtras> junction_extras;
     std::vector<OdrRailroad>       railroads;
+
+    // ---- P7 clusters 17/18/19 (OdrObjectExtras.cpp) ----
+    std::vector<OdrObjectExtras>       object_extras;      // per-object family L1 (cluster 19)
+    std::vector<OdrObjectReference>    object_references;  // <objectReference> (cluster 19b)
+    std::vector<OdrBridge>             bridges;            // <bridge> (cluster 19b)
+    std::vector<OdrRoadLateralProfile> road_lateral;       // per-road shape/crossSectionSurface (cluster 17)
+    std::vector<OdrCrgRecord>          road_surface_crgs;  // road-level <surface><CRG> (cluster 18)
+
+    // ---- P7 clusters 8/9 (OdrJunctionGeom.cpp) ----
+    std::vector<OdrJunctionGeomExtras> junction_geom;   // per-junction boundary/grid/objects/surface
+    std::vector<OdrJunctionGroup>      junction_groups; // document-level <junctionGroup>
 };
 
 // Walk `doc`, build a side model, and register it under `opendrive_key` (an opaque instance
@@ -180,6 +193,66 @@ const OdrJunctionExtras* GetJunctionExtras(const void* opendrive_key, const std:
 // false (and leaves `out` untouched) when there is no side model or no entry for that junction. The
 // canonical junction-priority source for feature F3.
 bool GetJunctionPriorities(const void* opendrive_key, const std::string& junction_id, std::vector<OdrJunctionPriority>& out);
+
+// ---------------------------------------------------------------------------
+// P7 accessors (clusters 8/9/17/19). All keyed on the OpenDrive* registry key like the P5 junction
+// accessors; upstream RoadManager stays pristine. Implemented in OdrObjectExtras.cpp (object/lateral)
+// and OdrJunctionGeom.cpp (junction geometry / group). All return nullptr / false on any miss.
+// ---------------------------------------------------------------------------
+
+// Object-family extras for (road_id, object_id) -- both AUTHORED strings. nullptr on miss.
+const OdrObjectExtras* GetObjectExtras(const void* opendrive_key, const std::string& road_id, const std::string& object_id);
+
+// Road lateralProfile extras (shape / crossSectionSurface) for `road_id`. nullptr on miss.
+const OdrRoadLateralProfile* GetRoadLateralProfile(const void* opendrive_key, const std::string& road_id);
+
+// Junction geometry extras (boundary/elevationGrid/objects/surface) for `junction_id`. nullptr on miss.
+// The later OSI reporter WP consumes the authored boundary polygon through this handle.
+const OdrJunctionGeomExtras* GetJunctionGeom(const void* opendrive_key, const std::string& junction_id);
+
+// Copy the document-level <junctionGroup> list into `out`. Returns false (out untouched) when there is
+// no side model or no junctionGroup was authored.
+bool GetJunctionGroups(const void* opendrive_key, std::vector<OdrJunctionGroup>& out);
+
+// Policy hint: true iff `junction_id` is a member of any <junctionGroup type="roundabout">. Side helper
+// only -- no consumer wiring / no policy change (that is a later feature-week concern).
+bool IsJunctionInRoundabout(const void* opendrive_key, const std::string& junction_id);
+
+// ---------------------------------------------------------------------------
+// P7 fork helpers (T2). Implemented in OdrObjectExtras.cpp; the fork call sites in
+// GT_RoadManager.cpp are wired in a LATER WP, so these are temporarily unreferenced by the fork.
+// ---------------------------------------------------------------------------
+
+// Test knob for AppendCurveLocalCorners: max chord length [m] per tessellated segment (default 1.0).
+// Read once from env GT_ODR_CURVELOCAL_SEGLEN on first use; this setter overrides it for tests.
+void   SetCurveLocalMaxSegmentLength(double meters);
+double GetCurveLocalMaxSegmentLength();
+
+// [T2a] Tessellate a 1.9 <curveLocal> outline element into OutlineCornerLocal corners appended to
+// `outline`. Reads @u/@v/@z/@height/@length/@hdg + the single child geometry (arc|line|paramPoly3)
+// and samples it by arc length (max segment = GetCurveLocalMaxSegmentLength, >= 3 pts/segment) in the
+// object-local (u,v) plane, preserving authored winding. `next_corner_id` is the running id assigned
+// to appended corners (advanced past those consumed). Closure is left to the outline's closed_ flag
+// (no duplicate closing point emitted). Degenerate input (zero-length / NaN) -> WARN + skip, return
+// false. Returns true when >= 1 corner was appended. The fork wiring lives in a LATER WP.
+bool AppendCurveLocalCorners(const pugi::xml_node& curve_local_node,
+                             roadmanager::Road*    road,
+                             roadmanager::RMObject* obj,
+                             roadmanager::Outline* outline,
+                             unsigned int&         next_corner_id);
+
+// [T2b] Adjust one repeat-instance pose by the 1.9 lateral polynomial (@bT/@cT/@dT) and, when
+// @detachFromReferenceLine is true, remap onto the start->end chord. `frac` in [0,1] is the normalized
+// position along the repeat; s_io/t_io are updated in place. Looks the polynomial up from the side
+// model via (road_id, object_id). Returns false quickly (leaving s_io/t_io untouched) when the object
+// has NO lateral-poly record (legacy bit-identical fast path). See the .cpp doc block for the exact
+// parameterization reading. The fork wiring lives in a LATER WP.
+bool AdjustRepeatInstancePose(const roadmanager::RMObject* obj,
+                              const roadmanager::Road*     road,
+                              double                       s_inst,
+                              double                       frac,
+                              double&                      s_io,
+                              double&                      t_io);
 
 // ---------------------------------------------------------------------------
 // P3 signal placement / cross-reference helpers (clusters 11/12).
