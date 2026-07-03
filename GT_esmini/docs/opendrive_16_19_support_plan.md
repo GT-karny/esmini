@@ -22,7 +22,7 @@
 - **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)→ feature/odr1619-p2(**b395ef00**)→ feature/odr1619-p3(**085b59f9**、2026-07-03、P2マージ済みdev先端へrebase後に単独着地・マージ木=検証済みブランチ木)の順で dev_v0.12 へマージ済。P3はrebase後ツリーで再ビルド+unit ctest+conformance full(207P/0F)+回帰ゲート(挙動バッチper-scenario不変)+監査diff再取得(`--check-golden after`一致)を再検証済。併せてtest_OdrAssetProbeのbyte比較がautocrlf checkoutで壊れる潜在問題(P1由来)をEOL非依存化で修正(98fc3d28)。
 - **承認済**(2026-07-02): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない**(CIではofficial層自動SKIP)。**残承認**: §10-3・4(P6着手前)、§10-5・6(P9まで)。
 - **実装時の実測差分(計画からの補正)**:
-  1. 公式 `Ex_Slip_Lane`/`UC_T_Junction` のクラッシュ真因は junction 中断**以外**(信号validity解決のs範囲外等)→ P1では凍結維持、**P5で再訪**(§1.3の想定補正)。
+  1. 公式 `Ex_Slip_Lane`/`UC_T_Junction` のクラッシュ真因は junction 中断**以外** → **post-P3 のクラッシュ修正パスで解消済**(merge d17cfea4): UC_T_Junction=`SetAllValidLanes` の範囲外 s での throw([GT_ODR:sig-lanes-guard])、Ex_Slip_Lane=direct junction 検査 LOG_ERROR の **fmt プレースホルダ/引数不一致という upstream バグ**([GT_ODR:direct-junc-log]、RoadManager.cpp:6621)。両ファイル rm_init pass 化(rm 92P/1XF)、フォーク計 62/150。P5 での再訪は不要になった。
   2. `crossPath` は1.8 XSD上 **virtual junction** の持ち物(crossing junctionは `roadSection` のみ)— fixture 01 は両構造を併用。
   3. `defaultRegulations` はASAM出荷XSD自体の欠陥(abstract必須子)で1.8/1.9とも検証不能 → 恒久期待フェイル登録。
   4. `roadSurface` は `ObjectType` enum欠落(hpp凍結)のため Str2Type での静音NONE化に設計変更(パッチ表6)。
