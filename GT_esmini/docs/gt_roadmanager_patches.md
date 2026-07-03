@@ -4,7 +4,7 @@
 - スワップ機構: `EnvironmentSimulator/Modules/RoadManager/CMakeLists.txt` が upstream `RoadManager.cpp` の代わりに本ファイルをビルド(.cpp のみ差し替え、`RoadManager.hpp` は pristine)
 - ガバナンス: [opendrive_16_19_support_plan.md](opendrive_16_19_support_plan.md) §3.2
   - フォーク行数**ハード上限 150 行**(2026-07-02 ユーザー承認)。超過は都度承認。
-  - マーカー数は ctest(`test_ScenarioReaderParsing` 内 OdrForkMarkers テスト)で機械監視。本表と一致しない場合テスト失敗。
+  - マーカー数は ctest(`test_ScenarioReaderParsing` 内 `OdrForkPatches.MarkerCount` テスト、`GT_esmini/test/unit/road/test_OdrForkPatches.cpp`)で機械監視。本表と一致しない場合テスト失敗。
   - マーカー外ドリフトは `scripts/check_fork_drift.py`(upstream `RoadManager.cpp` との diff がマーカーブロック+ヘッダコメントに限定されることを検証)。
   - 再同期手順: 計画 P9 の書面チェックリスト(関数名アンカーで再適用)。
 
@@ -94,3 +94,146 @@
 - 挙動フィクスチャ(受入 ii): `resources/xodr/straight_semantic_stop_sign.xodr`(`@type=9001`=de カタログ非在 + `<priority type="stopLine"/>`)+ `semantic_stop_sign_full_stop.xosc/.expectations.yaml`。**red→green**: T1 実装前は VD が停止せず `stopped_at_stop_sign` = 0.00s で FAIL、実装後は 4.35s(カタログ版 `stop_sign_full_stop` と同値)で PASS。`phase3_batch.yaml` に 1 エントリ追加。
 - 不変性: `phase3_batch`(既存 10 件すべて verdict 一致 + 新規 1 件 PASS)/ `phase3d_crosswalk_batch`(scene 09 歩行者信号ゲート = 7 件すべて一致)。L3 正例: 新フィクスチャの OSI `traffic_sign` が `type=17`(STOP)を出力(GT_esminiLib SE_GetOSIGroundTruth 直接プローブで確認)。semantics 無しのカタログ未分類標識は `type=0` のまま(pre-P4 と一致)。
 - ゲート: `test_ScenarioReaderParsing` 緑 / `check_fork_drift.py --expect-odr-lines 62` 緑 / conformance `--profile full` = 214P/13XF/0F/0XPASS(OSI ゴールデン変化 0)。
+
+## 7. 第2種(in-place core edits)マニフェスト — P6 virtual junction
+
+第2種編集とは、2026-07-04 の R1 緩和でユーザー承認された pristine コアファイル(`EnvironmentSimulator/` 配下)への **in-place 直接編集**を指す(第1種=`GT_RoadManager.cpp` フォークの既存 150 行レジーム)。下の fenced YAML ブロックが**唯一の真実(single source of truth)**であり、`scripts/check_core_census.py`・`scripts/check_fork_drift.py`・`scripts/run_odr_conformance.py`・ctest センサス(`OdrForkPatches.MarkerCount` / `OdrForkPatches.SecondClassZeroEditBaseline`)はすべて本ブロックをパースする — スクリプト側への期待値の埋め込みは禁止(`check_fork_drift.py` の陳腐化した `_DEFAULT_EXPECT_ODR=16` が動機となった失敗事例)。予算・ファイルセットは 2026-07-04 ユーザー承認([odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md) §5/§10)。ベースラインは Stage 0b(upstream v3.4.0 マージ)後に `check_core_census.py record-baselines` の 1 コマンドで再記録する。
+
+<!-- GT-2ND-CLASS-MANIFEST-BEGIN -->
+```yaml
+version: 1
+baseline_upstream_tag: v3.3.0            # becomes v3.4.0 at Stage 0b (re-run: check_core_census.py record-baselines)
+# --- ctest simple-parse keys (keep exactly these key names, one per line) ---
+fork_odr_marker_total: 17
+fork_lht_marker_min: 1
+cmake_marker_total: 2
+fork_odr_expect_lines: 75
+fork_line_budget: 150
+# --- combined budgets: rows sharing a budget_group are summed against one budget ---
+budget_groups:
+  router: 220
+# --- 2nd-class file set (user-approved 2026-07-04; ScenarioEngine excluded) ---
+second_class_files:
+  - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp
+    upstream_blob_sha: 8dbd661856ced5d7b120901a4c82dfe1fe9b6838
+    budget_nonblank: 75
+    additive_only: true
+    marker_census: {}                    # per-marker-id -> nonblank added lines (empty = zero-edit baseline)
+    pr_slice: "PR-A..D"
+    status: baseline
+  - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
+    upstream_blob_sha: d5203b0f531ba0b942933f3457921997f71896a8
+    budget_nonblank: 550
+    additive_only: false
+    marker_census: {}
+    pr_slice: "PR-A..D"
+    status: baseline
+  - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.cpp
+    upstream_blob_sha: 06a03974266f5852de645c74c6d48c77af5579e2
+    budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
+    budget_group: router
+    additive_only: false
+    marker_census: {}
+    pr_slice: "PR-C"
+    status: baseline
+  - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.hpp
+    upstream_blob_sha: bf0cd4c7a74ab03e66f54db1d594b392797bf0b8
+    budget_nonblank: 0                   # shares the 220-line router budget with the .cpp row (budget_group)
+    budget_group: router
+    additive_only: false
+    marker_census: {}
+    pr_slice: "PR-C"
+    status: baseline
+  - path: EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
+    upstream_blob_sha: 91774d0c6fc2e479b23671579aa9c066536fa81f
+    budget_nonblank: 30
+    additive_only: false
+    marker_census: {}
+    pr_slice: "PR-D"
+    status: deferred-until-PR-D
+  - path: EnvironmentSimulator/Modules/Controllers/ControllerLooming.cpp
+    upstream_blob_sha: 93b039f40f11577e79ff05f541ba294af6f757b0
+    budget_nonblank: 10
+    additive_only: false
+    marker_census: {}
+    pr_slice: "PR-C"
+    status: baseline
+# --- fork (1st-class, existing 150-line regime; census cross-checked two-sided) ---
+fork_file:
+  path: GT_esmini/src/road/GT_RoadManager.cpp
+  pristine_counterpart: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
+  marker_census:        # measured per-id NONBLANK added lines vs the upstream snapshot; sums to fork_odr_expect_lines (75)
+    hook: 6             # include 1 + BuildSideModel call-site 5
+    country-rev: 2      # init line 1 + condition-flip line 1 (flip line via legacy_sites)
+    junc-abort: 3
+    obj-roadsurface: 5
+    lane-types: 5
+    tl-gate: 9          # SetTrafficLightInfo nr_lamps_ block 5 + gate relaxation 4
+    sig-pos: 9          # pose-resolution block 7 + 2 SetSignal-ctor-arg lines
+    sig-ref: 9          # else-if 1 + post-parse materialization hunk 8
+    sig-lanes-guard: 9
+    direct-junc-log: 5
+    junc-crossing: 13   # crossing type dispatch 7 + IsOsiIntersection empty-connection guard 6
+  lht_census: 8         # [GT_LHT]-attributed: comment hunk 5 + 3 swapped-branch lines (legacy_sites)
+  header_census: 16     # the "GT_esmini modification" file-header comment block
+  legacy_sites:         # pre-S0 hunks whose ADDED lines carry no in-hunk marker (attribution by exact
+                        # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
+                        # new hunks must carry in-hunk markers)
+    - marker: country-rev
+      fork_lines: "4845-4845"
+      count: 1
+      note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
+    - marker: GT_LHT
+      fork_lines: "5884-5884"
+      count: 1
+      note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk at :5878"
+    - marker: GT_LHT
+      fork_lines: "5886-5886"
+      count: 1
+      note: "LHT 1-A swapped branch body (last lane section)"
+    - marker: GT_LHT
+      fork_lines: "5890-5890"
+      count: 1
+      note: "LHT 1-A swapped else-branch body (first lane section)"
+# --- overlap residuals (v1: zero residuals; sites declared for S2/S5) ---
+overlap_residuals:
+  - site: "Junction::GetRoadConnectionByIdx"
+    fork_markers: ["[GT_LHT]"]
+    vj_marker: "vj-lanes"
+    residual_nonblank: 0
+    fork_variant_test: "pending (fixture 23b, S5)"
+  - site: "ParseOpenDriveXML junction/connection loop"
+    fork_markers: ["[GT_ODR:junc-crossing]", "[GT_ODR:junc-abort]"]
+    vj_marker: "vj-parse-junction"
+    residual_nonblank: 0
+    fork_variant_test: "pending (parse-variant fixture, S2)"
+# --- interpretation rules (recorded per design §5; :interp goldens re-baseline on upstream convergence) ---
+rules:
+  elementdir_reverse_merge: >-
+    INTERPRETIVE (:interp). elementDir '+' means the linked main road is traversed in
+    increasing s across the anchor; '-' decreasing. Synthesized counter-connections
+    (branch->main) invert the composition: landing heading on the main road = main-road
+    tangent at anchor_s, flipped when elementDir '-'; departure main->branch selects the
+    branch contact end per the same rule. Absent/UNKNOWN elementDir falls back to
+    geometric nearest-heading with WARN. ASAM 10.4 does not pin the reverse composition;
+    surfaced upstream in #592/PR-B.
+  vj_lanes_merged_semantics: >-
+    Junction::GetRoadConnectionByIdx merged fork rule: incoming_contact_s_>=0 ->
+    GetLaneSectionByS(anchor) takes precedence; else contactPoint==END -> last lane
+    section ([GT_LHT] rule); else first section. Fork-variant test: LHT junction fixture
+    x VJ counter-connection (23b).
+  pristine_marker_strip: >-
+    The pristine copies CARRY [GT_ODR:vj-*] markers permanently; upstream PR branches
+    are GENERATED by script-stripping markers (S8 tooling). Marker grammar: single
+    [GT_ODR:<id>] inside hunks <=15 nonblank lines; block [GT_ODR:<id>-begin]/[GT_ODR:<id>-end]
+    for larger hunks; :interp suffix on interpretation-point hunks.
+exclusions:
+  - target: wasm (GT_esmini/web/wasm, esminiJS)
+    reason: >-
+      Pre-existing link break independent of P6: wasm CMakeLists.txt:61-72 swaps in
+      GT_RoadManager.cpp which includes gt_esmini/road/OdrSideModel.hpp (fork :78), but
+      the wasm target does not compile GT_esmini/src/road/odr_side/*.cpp -> unresolved
+      BuildSideModel at link. Structural evidence (emsdk build not run). wasm targets are
+      excluded from the VJ invariance contract until the odr_side link repair lands.
+```
+<!-- GT-2ND-CLASS-MANIFEST-END -->

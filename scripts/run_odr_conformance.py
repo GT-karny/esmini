@@ -85,10 +85,19 @@ _WEB_VENV_PY = os.path.join(_REPO_ROOT, "GT_esmini", "web", ".venv", "Scripts", 
 FLOAT_TOL = 1e-6
 PROBE_TIMEOUT = 60  # seconds per isolated probe
 
-# Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
-# per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
-FORK_ODR_EXPECT_LINES = 75  # P2 21 + P3 27 + crash fixes 14 + P5 junc-crossing 13 (crossing dispatch 7 + IsOsiIntersection guard 6)
-FORK_LINE_BUDGET = 150
+# Fork-drift / core-census checks (pure text; run in every profile). Expected [GT_ODR:]
+# non-blank line count + budget are sourced from the machine-readable manifest block in
+# GT_esmini/docs/gt_roadmanager_patches.md (single source of truth -- no expected values
+# embedded here); an unreadable manifest is a hard startup failure.
+import gt_patch_manifest  # noqa: E402
+
+try:
+    _PATCH_MANIFEST = gt_patch_manifest.load_manifest(_REPO_ROOT)
+except ValueError as _e:
+    raise SystemExit(f"FATAL: cannot load the GT patch manifest "
+                     f"(GT_esmini/docs/gt_roadmanager_patches.md): {_e}")
+FORK_ODR_EXPECT_LINES = _PATCH_MANIFEST["fork_odr_expect_lines"]
+FORK_LINE_BUDGET = _PATCH_MANIFEST["fork_line_budget"]
 
 # Status tags.
 PASS, FAIL, XFAIL, XPASS, SKIP = "PASS", "FAIL", "XFAIL", "XPASS", "SKIP"
@@ -818,6 +827,30 @@ def run_fork_drift() -> dict:
             "summary": summary, "unattributed": res.get("unattributed", [])}
 
 
+def run_core_census() -> dict:
+    """Run the AUTHORITATIVE manifest-driven census checker (check_core_census) + its selftest.
+
+    Both must pass. Returns {ran, ok, summary, failures}. Pure text, runs in every profile
+    (quick / full / schema-only), like run_fork_drift().
+    """
+    try:
+        import check_core_census as ccc
+    except Exception as e:  # pragma: no cover - import guard
+        return {"ran": False, "ok": False, "failures": [],
+                "summary": f"core-census: ERROR (cannot import check_core_census: {e})"}
+    try:
+        selftest_ok = ccc.run_selftest(quiet=True)
+        res = ccc.run_check(_REPO_ROOT)
+    except (RuntimeError, ValueError) as e:
+        return {"ran": True, "ok": False, "failures": [str(e)],
+                "summary": f"core-census: ERROR ({e})"}
+    ok = selftest_ok and res["ok"]
+    summary = ccc.format_summary(res)
+    if not selftest_ok:
+        summary += "  [SELFTEST FAILED]"
+    return {"ran": True, "ok": ok, "summary": summary, "failures": res.get("failures", [])}
+
+
 def _selftest_audit() -> bool:
     """Unit-smoke the audit mechanism with a fake log text (no fixture carries it yet)."""
     fake_log = "prefix [ODR-UNSUPPORTED] road/surface/CRG\n[ODR-UNSUPPORTED] road/surface/CRG@xOffset\n[ODR-REMOVED-1.6] road/link/neighbor\n"
@@ -959,7 +992,7 @@ def _print_layer(name: str, rows: list) -> None:
 
 
 def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke_res, audit_selftest,
-                  fork_drift=None) -> None:
+                  fork_drift=None, core_census=None) -> None:
     os.makedirs(report_dir, exist_ok=True)
     summary = {name: _tally(rows) for name, rows in layers.items()}
     jreport = {
@@ -972,6 +1005,9 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
     if fork_drift is not None:
         jreport["fork_drift"] = {"ok": fork_drift["ok"], "odr_lines": fork_drift["odr_lines"],
                                  "summary": fork_drift["summary"]}
+    if core_census is not None:
+        jreport["core_census"] = {"ok": core_census["ok"], "summary": core_census["summary"],
+                                  "failures": core_census["failures"]}
     if matrix_res is not None:
         jreport["matrix"] = {"ok": matrix_res[0], "fails": matrix_res[2]}
     if smoke_res is not None:
@@ -984,6 +1020,8 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
           f"- profile: **{profile}**", f"- audit self-test: **{'PASS' if audit_selftest else 'FAIL'}**"]
     if fork_drift is not None:
         md.append(f"- {fork_drift['summary']}")
+    if core_census is not None:
+        md.append(f"- {core_census['summary']}")
     md.append("")
     for name, rows in layers.items():
         t = _tally(rows)
@@ -1095,8 +1133,9 @@ def main(argv=None) -> int:
     if not audit_selftest:
         print("WARNING: audit self-test FAILED (marker counting mechanism broken)", file=sys.stderr)
 
-    # Fork-drift check (pure text, no DLLs -- runs in every profile / layer subset).
+    # Fork-drift + core-census checks (pure text, no DLLs -- run in every profile / layer subset).
     fork_drift = run_fork_drift()
+    core_census = run_core_census()
 
     control, fixtures = _assemble(manifest, args.only)
 
@@ -1148,12 +1187,17 @@ def main(argv=None) -> int:
     if not audit_selftest:
         exit_bad += 1
 
-    # --- Fork drift (always) ---
-    print("\n=== Fork drift ===")
+    # --- Fork drift + core census (always) ---
+    print("\n=== Fork drift / core census ===")
     print("  " + fork_drift["summary"])
     if not fork_drift["ok"]:
         for b in fork_drift["unattributed"]:
             print(f"    UNATTRIBUTED  fork L{b['fork_span'][0]}-{b['fork_span'][1]}  {b.get('sample','')}")
+        exit_bad += 1
+    print("  " + core_census["summary"])
+    if not core_census["ok"]:
+        for f in core_census["failures"]:
+            print(f"    CENSUS  {f}")
         exit_bad += 1
 
     if matrix_res is not None:
@@ -1175,7 +1219,8 @@ def main(argv=None) -> int:
             if not ok:
                 exit_bad += 1
 
-    write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest, fork_drift)
+    write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest,
+                  fork_drift, core_census)
 
     print("\n" + ("=" * 60))
     total = {PASS: 0, FAIL: 0, XFAIL: 0, XPASS: 0, SKIP: 0}

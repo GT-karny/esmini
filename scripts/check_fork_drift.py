@@ -19,8 +19,16 @@ via a difflib line-level diff. EVERY changed/added/removed hunk must be attribut
 Any hunk that is NOT attributable is "unattributed drift" and fails the check (exit 1).
 
 It also reports the total number of NON-BLANK added/changed fork lines attributable to
-"[GT_ODR:" blocks. Per GT_esmini/docs/gt_roadmanager_patches.md that budget is 16
-(include 1 + country-rev 2 + junc-abort 3 + hook 5 + obj-roadsurface 5) of a 150-line hard cap.
+"[GT_ODR:" blocks. The expected count and the 150-line hard cap are SOURCED FROM THE
+MACHINE-READABLE MANIFEST in GT_esmini/docs/gt_roadmanager_patches.md (fenced YAML block,
+parsed via gt_patch_manifest.py) -- never from a constant in this file (the stale
+`_DEFAULT_EXPECT_ODR = 16` this replaced is the motivating failure). If the manifest is
+unreadable the count check is SKIPPED with a stderr warning, never compared against a
+stale constant.
+
+NOTE: this script is the coarse-grained LEGACY check (proximity attribution, see
+_classify_block). The AUTHORITATIVE checker is scripts/check_core_census.py (sound
+in-hunk attribution, two-sided fork/pristine census).
 
 Pure text, no build/DLL needed. Importable: `check_drift()` returns a result dict; the
 conformance harness (run_odr_conformance.py) calls it so quick/full profiles gate on it.
@@ -60,9 +68,22 @@ _CTX = 3
 # the [GT_LHT] 1-A block: marker at the top, three swapped branches a dozen lines below). This
 # bound keeps over-attribution tight (a stray edit further than this from any marker is caught).
 _MARKER_FORWARD = 15
-# Expected [GT_ODR:] non-blank line budget (manifest gt_roadmanager_patches.md).
-_DEFAULT_EXPECT_ODR = 16
+# Fallback display-only budget when the manifest is unreadable. The expected [GT_ODR:]
+# line count has NO fallback: it comes from the manifest (gt_patch_manifest.load_manifest)
+# or the count check is skipped with a warning -- never a stale constant.
 _DEFAULT_BUDGET = 150
+
+
+def _manifest_values():
+    """(expect_odr_lines, budget) from the machine-readable manifest, or (None, None)."""
+    try:
+        import gt_patch_manifest
+        m = gt_patch_manifest.load_manifest(_REPO_ROOT)
+        return m["fork_odr_expect_lines"], m["fork_line_budget"]
+    except Exception as e:
+        print(f"WARNING: cannot read patch manifest ({e}); "
+              "skipping the [GT_ODR:] line-count check", file=sys.stderr)
+        return None, None
 
 
 def _read_lines(path: str) -> list[str]:
@@ -222,25 +243,36 @@ def main(argv=None) -> int:
     ap.add_argument("--fork", default=DEFAULT_FORK)
     ap.add_argument("--pristine", default=DEFAULT_PRISTINE)
     ap.add_argument("--expect-odr-lines", type=int, default=None,
-                    help="if set, also require the [GT_ODR:] non-blank line count to equal N (manifest: %d)" % _DEFAULT_EXPECT_ODR)
-    ap.add_argument("--budget", type=int, default=_DEFAULT_BUDGET, help="hard line-budget shown in the summary (default 150)")
+                    help="require the [GT_ODR:] non-blank line count to equal N "
+                         "(default: fork_odr_expect_lines from the gt_roadmanager_patches.md manifest)")
+    ap.add_argument("--budget", type=int, default=None,
+                    help="hard line-budget shown in the summary (default: manifest fork_line_budget, else 150)")
     ap.add_argument("--quiet", action="store_true", help="only print the one-line summary")
     ap.add_argument("--json", action="store_true", help="print the full result dict as JSON")
     args = ap.parse_args(argv)
+
+    expect_odr = args.expect_odr_lines
+    budget = args.budget
+    if expect_odr is None or budget is None:
+        m_expect, m_budget = _manifest_values()
+        if expect_odr is None:
+            expect_odr = m_expect  # may stay None -> count check skipped (warned above)
+        if budget is None:
+            budget = m_budget if m_budget is not None else _DEFAULT_BUDGET
 
     res = check_drift(args.fork, args.pristine)
 
     if args.json:
         print(json.dumps(res, indent=2))
     elif args.quiet:
-        print(format_summary(res, args.budget))
+        print(format_summary(res, budget))
     else:
-        _print_report(res, args.expect_odr_lines, args.budget)
+        _print_report(res, expect_odr, budget)
 
     ok = res["ok"]
-    if args.expect_odr_lines is not None and res.get("odr_lines") != args.expect_odr_lines:
+    if expect_odr is not None and res.get("odr_lines") != expect_odr:
         if not args.json:
-            print(f"  MISMATCH: [GT_ODR:] non-blank lines {res.get('odr_lines')} != expected {args.expect_odr_lines}",
+            print(f"  MISMATCH: [GT_ODR:] non-blank lines {res.get('odr_lines')} != expected {expect_odr}",
                   file=sys.stderr)
         ok = False
     return 0 if ok else 1

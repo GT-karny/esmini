@@ -26,9 +26,12 @@
 #include <gtest/gtest.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "RoadManager.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"
@@ -73,6 +76,90 @@ std::size_t CountOccurrences(const std::string& hay, const std::string& needle)
         pos += needle.size();
     }
     return n;
+}
+
+// -- machine-readable patch manifest (single source of truth) ----------------------------------
+//
+// Census expectations are PARSED from the fenced YAML block in
+// GT_esmini/docs/gt_roadmanager_patches.md (between the GT-2ND-CLASS-MANIFEST sentinels), the
+// same block scripts/gt_patch_manifest.py serves to the python checkers. No expected values are
+// hardcoded here (the stale check_fork_drift `_DEFAULT_EXPECT_ODR=16` incident is why). The
+// parser is deliberately dumb and robust: line-trim + startswith on a handful of flat keys.
+
+std::string Trim(const std::string& s)
+{
+    const std::string ws = " \t\r\n";
+    const std::size_t b  = s.find_first_not_of(ws);
+    if (b == std::string::npos)
+    {
+        return std::string();
+    }
+    const std::size_t e = s.find_last_not_of(ws);
+    return s.substr(b, e - b + 1);
+}
+
+// The manifest YAML block text (between the BEGIN/END sentinels); empty string on failure.
+std::string ReadManifestBlock()
+{
+    const std::string root = RepoRoot();
+    if (root.empty())
+    {
+        return std::string();
+    }
+    std::string doc;
+    if (!ReadFileToString(root + "/GT_esmini/docs/gt_roadmanager_patches.md", doc))
+    {
+        return std::string();
+    }
+    const std::size_t b = doc.find("GT-2ND-CLASS-MANIFEST-BEGIN");
+    const std::size_t e = doc.find("GT-2ND-CLASS-MANIFEST-END");
+    if (b == std::string::npos || e == std::string::npos || e <= b)
+    {
+        return std::string();
+    }
+    return doc.substr(b, e - b);
+}
+
+// Parse `key: <int>` from the block (naive line scan; strips a trailing # comment). -1 if absent.
+int ManifestInt(const std::string& block, const std::string& key)
+{
+    std::istringstream in(block);
+    std::string        line;
+    const std::string  prefix = key + ":";
+    while (std::getline(in, line))
+    {
+        const std::string t = Trim(line);
+        if (t.compare(0, prefix.size(), prefix) == 0)
+        {
+            std::string val = t.substr(prefix.size());
+            const std::size_t hash = val.find('#');
+            if (hash != std::string::npos)
+            {
+                val = val.substr(0, hash);
+            }
+            return std::atoi(Trim(val).c_str());
+        }
+    }
+    return -1;
+}
+
+// Collect the `- path:` values of the second_class_files rows. (fork_file's path uses `path:`
+// WITHOUT the list dash, so this naive scan only picks up the second-class rows.)
+std::vector<std::string> ManifestSecondClassPaths(const std::string& block)
+{
+    std::vector<std::string> paths;
+    std::istringstream       in(block);
+    std::string              line;
+    const std::string        prefix = "- path:";
+    while (std::getline(in, line))
+    {
+        const std::string t = Trim(line);
+        if (t.compare(0, prefix.size(), prefix) == 0)
+        {
+            paths.push_back(Trim(t.substr(prefix.size())));
+        }
+    }
+    return paths;
 }
 
 // A scratch directory for the temp xodr files. Prefer <repo>/build (gitignored) so nothing
@@ -185,29 +272,67 @@ std::string OneDynamicSignalRoad(const std::string& sig_name, const std::string&
 
 }  // namespace
 
-// 1. Marker inventory matches the patch manifest (gt_roadmanager_patches.md).
+// 1. Marker inventory matches the patch manifest (gt_roadmanager_patches.md). Expected counts are
+//    PARSED from the machine-readable manifest block (fork_odr_marker_total / fork_lht_marker_min /
+//    cmake_marker_total) -- keep the YAML the single source of truth, never this file.
 TEST(OdrForkPatches, MarkerCount)
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
 
-    // GT_RoadManager.cpp: exactly 17 [GT_ODR: and at least 1 [GT_LHT].
+    const std::string block = ReadManifestBlock();
+    ASSERT_FALSE(block.empty()) << "GT-2ND-CLASS-MANIFEST YAML block not found in gt_roadmanager_patches.md";
+    const int odr_total   = ManifestInt(block, "fork_odr_marker_total");
+    const int lht_min     = ManifestInt(block, "fork_lht_marker_min");
+    const int cmake_total = ManifestInt(block, "cmake_marker_total");
+    ASSERT_GT(odr_total, 0) << "fork_odr_marker_total missing from the manifest block";
+    ASSERT_GT(lht_min, 0) << "fork_lht_marker_min missing from the manifest block";
+    ASSERT_GT(cmake_total, 0) << "cmake_marker_total missing from the manifest block";
+
+    // GT_RoadManager.cpp: exactly fork_odr_marker_total [GT_ODR: and >= fork_lht_marker_min [GT_LHT].
     const std::string cpp_path = root + "/GT_esmini/src/road/GT_RoadManager.cpp";
     std::string       cpp;
     ASSERT_TRUE(ReadFileToString(cpp_path, cpp)) << "cannot read " << cpp_path;
-    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 17u)
-        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 17).";
-    EXPECT_GE(CountOccurrences(cpp, "[GT_LHT]"), 1u)
+    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), static_cast<std::size_t>(odr_total))
+        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from the gt_roadmanager_patches.md manifest.";
+    EXPECT_GE(CountOccurrences(cpp, "[GT_LHT]"), static_cast<std::size_t>(lht_min))
         << "GT_RoadManager.cpp lost its [GT_LHT] patch 1-A marker.";
 
-    // RoadManager/CMakeLists.txt: exactly 2 [GT_ODR:cmake] markers -- the single R1 swap-zone
-    // exception spans TWO edits (the odr_side/*.cpp source-list APPEND and the GT_esmini/include
-    // include-directory APPEND). See gt_roadmanager_patches.md §0.
+    // RoadManager/CMakeLists.txt: exactly cmake_marker_total [GT_ODR:cmake] markers -- the single
+    // R1 swap-zone exception spans TWO edits (the odr_side/*.cpp source-list APPEND and the
+    // GT_esmini/include include-directory APPEND). See gt_roadmanager_patches.md §0.
     const std::string cmake_path = root + "/EnvironmentSimulator/Modules/RoadManager/CMakeLists.txt";
     std::string       cmake;
     ASSERT_TRUE(ReadFileToString(cmake_path, cmake)) << "cannot read " << cmake_path;
-    EXPECT_EQ(CountOccurrences(cmake, "[GT_ODR:cmake]"), 2u)
-        << "RoadManager/CMakeLists.txt [GT_ODR:cmake] marker count drifted from gt_roadmanager_patches.md §0 (expected 2: source-list + include-dir).";
+    EXPECT_EQ(CountOccurrences(cmake, "[GT_ODR:cmake]"), static_cast<std::size_t>(cmake_total))
+        << "RoadManager/CMakeLists.txt [GT_ODR:cmake] marker count drifted from the manifest (source-list + include-dir).";
+}
+
+// 1b. 2nd-class file set (P6 virtual junction, manifest section 7): every file listed under
+//     second_class_files currently carries ZERO [GT_ODR: markers (zero-edit baseline, status
+//     "baseline"/"deferred-until-PR-D").
+//     NOTE: this assertion will be UPDATED when S1 lands the first [GT_ODR:vj-*] markers in the
+//     pristine copies -- it then becomes a per-file census assertion against each row's
+//     marker_census instead of a flat zero check.
+TEST(OdrForkPatches, SecondClassZeroEditBaseline)
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
+
+    const std::string block = ReadManifestBlock();
+    ASSERT_FALSE(block.empty()) << "GT-2ND-CLASS-MANIFEST YAML block not found in gt_roadmanager_patches.md";
+    const std::vector<std::string> paths = ManifestSecondClassPaths(block);
+    ASSERT_GE(paths.size(), 6u) << "second_class_files rows missing from the manifest block";
+
+    for (const std::string& rel : paths)
+    {
+        const std::string path = root + "/" + rel;
+        std::string       content;
+        ASSERT_TRUE(ReadFileToString(path, content)) << "cannot read 2nd-class file " << path;
+        EXPECT_EQ(CountOccurrences(content, "[GT_ODR:"), 0u)
+            << rel << " carries [GT_ODR:] markers but its manifest marker_census is the zero-edit "
+            << "baseline (update the manifest row AND this test when S1 lands vj-* markers).";
+    }
 }
 
 // 2. [GT_ODR:tl-gate] (plan P3): TrafficLight iff @dynamic=="yes" -- country/countryRevision no
