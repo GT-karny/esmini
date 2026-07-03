@@ -114,12 +114,13 @@
          @overlapZone/@fromLayer/@toLayer attributes (cluster 22 L1 slot reservation; semantics P8). -->
     <junction name="commonCrossPath" id="900">
         <connection id="0" incomingRoad="1" connectingRoad="3" contactPoint="start">
-            <laneLink from="-1" to="-1" overlapZone="0.5" fromLayer="0" toLayer="0"/>
+            <laneLink from="-1" to="-1" overlapZone="0.5" fromLayer="permanent" toLayer="permanent"/>
         </connection>
-        <priority high="1" low="2"/>
+        <!-- Schema order per t_junction_common: connection -> crossPath -> priority -> controller. -->
         <crossPath id="0" crossingRoad="2" roadAtStart="1" roadAtEnd="1">
             <startLaneLink s="59.0" from="2" to="-1"/>
             <endLaneLink s="59.0" from="-2" to="-1"/>
         </crossPath>
+        <priority high="1" low="2"/>
     </junction>
 </OpenDRIVE>
