@@ -56,6 +56,14 @@
     Make a Step 2 behavioral 'fail' verdict fail the whole gate. Without this,
     Step 2 failures are reported as warnings and do not change the exit code.
 
+.PARAMETER TelemetryGolden
+    OPTIONAL (P6 S0 oracle; default OFF keeps the gate byte-compatible). After
+    Step 2, run scripts/telemetry_golden.py diff for the phase3 batch (and the
+    catalog batch when GT_esmini/test/telemetry_goldens/catalog exists) and
+    treat any per-frame telemetry deviation beyond the same-build noise floor
+    as a HARD gate failure. This is the continuous value-level motion-invariance
+    check for VJ stages S4-S6.
+
 .PARAMETER Python
     Path to the Python interpreter for Step 2. Default: auto-detect
     DriverScript/.venv then GT_esmini/web/.venv.
@@ -84,6 +92,7 @@ param(
     [switch]$SkipOdr,
     [switch]$SkipBehavioral,
     [switch]$FailOnBehavioral,
+    [switch]$TelemetryGolden,
     [string]$Python = "",
     [string]$Batch = "resources/xosc/verification/phase3_batch.yaml",
     [string]$OutDir = "test_results/regression/phase3",
@@ -223,6 +232,57 @@ if ($SkipBehavioral) {
             } else {
                 Write-Host "Step 2: WARN (behavioral fail, not gating)  $verdictText" -ForegroundColor Yellow
                 Write-Host "    Pass -FailOnBehavioral to make this fail the gate." -ForegroundColor Yellow
+            }
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.5 - Telemetry tolerance goldens (optional, -TelemetryGolden; P6 S0)
+# ----------------------------------------------------------------------------
+if ($TelemetryGolden) {
+    Write-Host "==== Step 2.5: telemetry golden diff (-TelemetryGolden) ====" -ForegroundColor Cyan
+
+    # Same venv resolution as Steps 1.5/2 (telemetry_golden re-runs the batch
+    # in-process, so it needs the same pyyaml+osi3 venv and the Release DLL).
+    $tgPy = $Python
+    if ([string]::IsNullOrWhiteSpace($tgPy)) {
+        foreach ($cand in @("DriverScript/.venv/Scripts/python.exe",
+                            "GT_esmini/web/.venv/Scripts/python.exe")) {
+            $full = Resolve-RepoPath $cand
+            if (Test-Path $full) { $tgPy = $full; break }
+        }
+    }
+    $tgScript = Resolve-RepoPath "scripts/telemetry_golden.py"
+
+    if ([string]::IsNullOrWhiteSpace($tgPy) -or -not (Test-Path $tgPy)) {
+        Write-Host "Step 2.5: FAIL - verification venv python not found (DriverScript/.venv or GT_esmini/web/.venv)" -ForegroundColor Red
+        $overallOk = $false
+    } else {
+        # Tolerances = measured same-build noise floor with margin (see
+        # telemetry_golden.py docstring): the sim is NOT bit-reproducible across
+        # process runs (~<=1e-3 position, one-frame speed transients up to a*dt).
+        # Position stays the tight discriminator; a real VJ regression moves x/y
+        # far beyond 5 mm.
+        $tgTol = @("--tol-pos", "5e-3", "--tol-h", "1e-3", "--tol-v", "5e-2")
+        $tgTargets = @(
+            @{ Label = "phase3"; Batch = (Resolve-RepoPath $Batch) }
+        )
+        $catalogBatch = Resolve-RepoPath "resources/scenario_authoring/scenario_templates/generated/catalog_batch.yaml"
+        $catalogGoldens = Resolve-RepoPath "GT_esmini/test/telemetry_goldens/catalog"
+        if ((Test-Path $catalogGoldens) -and (Test-Path $catalogBatch)) {
+            $tgTargets += @{ Label = "catalog"; Batch = $catalogBatch }
+        }
+        foreach ($tg in $tgTargets) {
+            $tgArgs = @($tgScript, "diff", "--batch", $tg.Batch, "--label", $tg.Label) + $tgTol
+            if (-not [string]::IsNullOrWhiteSpace($Dll)) { $tgArgs += @("--dll", (Resolve-RepoPath $Dll)) }
+            Write-Host "Step 2.5: $tgPy $($tgArgs -join ' ')" -ForegroundColor Cyan
+            & $tgPy @tgArgs
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Step 2.5: FAIL (telemetry golden diff, label=$($tg.Label))" -ForegroundColor Red
+                $overallOk = $false
+            } else {
+                Write-Host "Step 2.5: PASS (label=$($tg.Label))" -ForegroundColor Green
             }
         }
     }

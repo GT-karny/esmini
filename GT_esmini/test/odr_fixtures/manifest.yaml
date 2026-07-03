@@ -1129,6 +1129,14 @@ fixtures:
   - asam_zips
   clusters: []
   features: []
+  # P6 S0: NONDETERMINISTIC in the motion layer BY UPSTREAM DESIGN -- this map has two
+  # geometrically-parallel connecting roads (122/670, same end heading to within 1e-10)
+  # reachable from one incoming lane, and MoveAlongS tie-breaks EQUAL |angle-diff|
+  # candidates randomly (RoadManager.cpp:10147, random_device-seeded). No
+  # junctionSelectorAngle can separate identical headings, so no stable golden exists;
+  # the motion layer SKIPs it (schema/rm coverage unaffected). Verified 2026-07-04:
+  # repeated runs flip 122<->670.
+  motion_nondeterministic: true
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
