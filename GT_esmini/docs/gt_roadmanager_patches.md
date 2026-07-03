@@ -102,7 +102,7 @@
 <!-- GT-2ND-CLASS-MANIFEST-BEGIN -->
 ```yaml
 version: 1
-baseline_upstream_tag: v3.3.0            # becomes v3.4.0 at Stage 0b (re-run: check_core_census.py record-baselines)
+baseline_upstream_tag: v3.4.0            # recorded at Stage 0b (merge d7821fd3); re-record: check_core_census.py record-baselines
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
 fork_odr_marker_total: 17
 fork_lht_marker_min: 1
@@ -122,7 +122,7 @@ second_class_files:
     pr_slice: "PR-A..D"
     status: baseline
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-    upstream_blob_sha: d5203b0f531ba0b942933f3457921997f71896a8
+    upstream_blob_sha: 932165b98754d49edccdba0c879ef8b31a9c74df
     budget_nonblank: 550
     additive_only: false
     marker_census: {}
@@ -145,7 +145,7 @@ second_class_files:
     pr_slice: "PR-C"
     status: baseline
   - path: EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
-    upstream_blob_sha: 91774d0c6fc2e479b23671579aa9c066536fa81f
+    upstream_blob_sha: 9c4ea053e24c70330e24da357e3558e80b8617b0
     budget_nonblank: 30
     additive_only: false
     marker_census: {}
@@ -180,19 +180,19 @@ fork_file:
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4845-4845"
+      fork_lines: "4852-4852"
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
     - marker: GT_LHT
-      fork_lines: "5884-5884"
+      fork_lines: "5891-5891"
       count: 1
-      note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk at :5878"
+      note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk at :5885"
     - marker: GT_LHT
-      fork_lines: "5886-5886"
+      fork_lines: "5893-5893"
       count: 1
       note: "LHT 1-A swapped branch body (last lane section)"
     - marker: GT_LHT
-      fork_lines: "5890-5890"
+      fork_lines: "5897-5897"
       count: 1
       note: "LHT 1-A swapped else-branch body (first lane section)"
 # --- overlap residuals (v1: zero residuals; sites declared for S2/S5) ---
