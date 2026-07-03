@@ -60,6 +60,9 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
         // P2: focused lane-detail pass (clusters 3+16 L1 storage; sparse on legacy assets).
         detail::ParseLaneExtras(root, *model);
 
+        // P5: junction pass (clusters 5/7/22 L1: crossPath/roadSection/priority/laneLink layers).
+        detail::ParseJunctionExtras(root, *model);
+
         // Register BEFORE returning (even on include hard-error) so diagnostics/stats are queryable.
         {
             std::lock_guard<std::mutex> lock(RegistryMutex());

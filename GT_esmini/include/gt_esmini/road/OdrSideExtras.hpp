@@ -287,11 +287,82 @@ struct OdrDefaultRegulation
     OdrSemantics semantics;
 };
 
+// A crossPath lane link (<startLaneLink>/<endLaneLink>): where on the crossing road (s) and which
+// lane ids (from/to) the crossing connects. L1 raw storage.
+struct OdrCrossPathLaneLink
+{
+    double s    = 0.0;  // @s -- position on the crossing road
+    int    from = 0;    // @from lane id
+    int    to   = 0;    // @to lane id
+};
+
+// <junction>/<crossPath> (1.8/1.9 pedestrian crossing carried by a common/virtual junction). L1
+// storage only (crossPath -> CROSSWALK object synthesis is P5 stage 2; semantics stay deferred).
+struct OdrCrossPath
+{
+    std::string          id;             // @id
+    std::string          crossing_road;  // @crossingRoad -- the road that crosses
+    std::string          road_at_start;  // @roadAtStart
+    std::string          road_at_end;    // @roadAtEnd
+    OdrCrossPathLaneLink start_lane_link;
+    OdrCrossPathLaneLink end_lane_link;
+};
+
+// <junction>/<roadSection> (1.8 crossing-junction: the s-range of a road where crossing traffic can
+// appear). L1 storage only.
+struct OdrJunctionRoadSection
+{
+    std::string id;       // @id
+    std::string road_id;  // @roadId
+    double      s_start = 0.0;
+    double      s_end   = 0.0;
+};
+
+// <junction>/<priority> (STANDARD since <=1.5; the canonical priority source for feature F3). XSD
+// allows MULTIPLE <priority> per junction, so these are stored as a list. Raw @high/@low strings.
+struct OdrJunctionPriority
+{
+    std::string high;  // @high -- the higher-priority connecting road id
+    std::string low;   // @low  -- the lower-priority connecting road id
+};
+
+// <junction>/<controller> (junction-scoped controller). L1 duplicate of the fork parse for side
+// completeness (the fork already stores these on Junction; this mirrors them for the side model).
+struct OdrJunctionController
+{
+    std::string id;        // @id
+    std::string type;      // @type
+    int         sequence = 0;  // @sequence
+};
+
+// <junction>/<connection>/<laneLink> 1.8/1.9 layer attributes (cluster 22 L1 slot reservation;
+// semantics deferred to P8). Keyed by owning connection id + the laneLink's from/to lane ids so an
+// F-week consumer can correlate against the fork-parsed Connection lane links. Raw strings ("" =
+// attribute absent).
+struct OdrLaneLinkExtras
+{
+    std::string connection_id;  // owning <connection>@id
+    int         from = 0;       // <laneLink>@from
+    int         to   = 0;       // <laneLink>@to
+    std::string overlap_zone;   // @overlapZone (1.8)
+    std::string from_layer;     // @fromLayer (1.9)
+    std::string to_layer;       // @toLayer (1.9)
+};
+
 // Per-junction extras: crossing junction + crossPath (pedestrian crossing), virtual junction,
-// junction priority + laneLink overlapZone, boundary/elevationGrid, junctionGroup. Populated in
-// P5 (crossPath/priority) and P6/P7.
+// junction priority + laneLink overlapZone/layer, controllers. Populated in P5 (crossPath /
+// roadSection / priority / laneLink layer L1) and extended in P6/P7. Sparse: one entry per junction
+// that carries at least one of these extras (plain junctions with none produce NO entry).
 struct OdrJunctionExtras
 {
+    std::string junction_id;  // <junction>@id as authored
+    std::string type_str;     // <junction>@type ("" = default/common, "virtual", "crossing", "direct")
+
+    std::vector<OdrCrossPath>           cross_paths;
+    std::vector<OdrJunctionRoadSection> road_sections;
+    std::vector<OdrJunctionPriority>    priorities;   // XSD allows multiple
+    std::vector<OdrJunctionController>  controllers;  // L1 duplicate of fork parse
+    std::vector<OdrLaneLinkExtras>      lane_link_extras;  // cluster 22 L1 slot reservation
 };
 
 // Railroad + station family (switch/mainTrack/sideTrack/partner, station/platform/segment).

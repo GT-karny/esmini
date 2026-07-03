@@ -71,6 +71,13 @@ void CollectHeaderAndGroupExtras(const pugi::xml_node& root, OdrSideModel& model
 // attribute-form <speed> and a hypothesised child-element form normalize to the same OdrSemanticSpeed.
 void ParseSemantics(const pugi::xml_node& semantics_node, OdrSemantics& out);
 
+// ---- OdrJunctionExtras.cpp (P5) ----
+
+// Focused pass over <junction> children, filling model.junction_extras (sparse: one entry per
+// junction carrying crossPath / roadSection / priority / controller / laneLink-layer data).
+// Clusters 5 (crossPath/roadSection), 7 (priority + laneLink overlapZone), 22 (laneLink layers).
+void ParseJunctionExtras(const pugi::xml_node& root, OdrSideModel& model);
+
 }  // namespace detail
 }  // namespace odr
 }  // namespace gt_esmini

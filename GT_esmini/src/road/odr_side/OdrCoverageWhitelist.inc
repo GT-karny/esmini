@@ -8,7 +8,7 @@
 // comma-separated set of attributes the parser reads on that element; an empty
 // string means 'no attributes read' (container or attribute-less element).
 //
-// Counts: 214 element paths, 422 (path,attr) pairs.
+// Counts: 218 element paths, 439 (path,attr) pairs.
 
 // clang-format off
 static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
@@ -88,9 +88,13 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"header/offset", "hdg,x,y,z"},
     {"junction", "id,name,type"},
     {"junction/connection", "connectingRoad,contactPoint,id,incomingRoad,linkedRoad"},
-    {"junction/connection/laneLink", "from,to"},
+    {"junction/connection/laneLink", "from,fromLayer,overlapZone,to,toLayer"},
     {"junction/controller", "id,sequence,type"},
+    {"junction/crossPath", "crossingRoad,id,roadAtEnd,roadAtStart"},
+    {"junction/crossPath/endLaneLink", "from,s,to"},
+    {"junction/crossPath/startLaneLink", "from,s,to"},
     {"junction/priority", "high,low"},
+    {"junction/roadSection", "id,roadId,sEnd,sStart"},
     {"road", "id,junction,length,name,rule"},
     {"road/elevationProfile", ""},
     {"road/elevationProfile/elevation", "a,b,c,d,s"},
