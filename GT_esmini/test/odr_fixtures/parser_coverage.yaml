@@ -48,7 +48,285 @@ elements:
   - path: header/offset
     attrs: [x, y, z, hdg]
     evidence: "3748-3761"
-    notes: "Dispatched by name in header children loop. Stored in geo_offset_ and applied to planView geometry (3941-3946). Other header attrs (name, version, date, north/south/east/west, vendor) and children (license, defaultRegulations) are NOT read."
+    notes: "Dispatched by name in header children loop. Stored in geo_offset_ and applied to planView geometry (3941-3946). Other header attrs (name, version, date, north/south/east/west, vendor) and children (license, defaultRegulations) are NOT read by upstream; license/defaultRegulations are stored by the GT side model (P4, below)."
+  # ---- P4 cluster 14: header/license + header/defaultRegulations (L1 store on OdrSideModel) ----
+  - path: header/license
+    attrs: [name, spdxid, text, resource]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "t_license (name/spdxid/text/resource, all optional). Stored in OdrSideModel::license (has_license flag). Not read by upstream RM; informational L1."
+  - path: header/defaultRegulations
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "t_header_defaultRegulations container. Children roadRegulations/signalRegulations stored in OdrSideModel::default_regulations (DOM order). The mandatory XSD1.1 <_OpenDriveElement/> placeholder is ignored (whitelisted below to keep the audit zero)."
+  - path: header/defaultRegulations/_OpenDriveElement
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (skipped)"
+    notes: "Abstract XSD1.1 placeholder mandated by t_header_defaultRegulations (minOccurs=1). Carries no data; whitelisted so the coverage audit does not flag it. (Same schema defect frozen as schema=fail in manifest fixture 07.)"
+  - path: header/defaultRegulations/roadRegulations
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "t_header_roadRegulation: @type (e_roadType). Reuses the <semantics> content model. Stored as OdrDefaultRegulation (is_signal=false)."
+  - path: header/defaultRegulations/roadRegulations/_OpenDriveElement
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp (skipped placeholder)"
+    notes: "Mandatory XSD1.1 abstract placeholder in t_header_roadRegulation."
+  - path: header/defaultRegulations/signalRegulations
+    attrs: [type, subtype]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "t_header_signalRegulation: @type/@subtype (both xs:string). Reuses <semantics>. Stored as OdrDefaultRegulation (is_signal=true)."
+  - path: header/defaultRegulations/signalRegulations/_OpenDriveElement
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp (skipped placeholder)"
+    notes: "Mandatory XSD1.1 abstract placeholder in t_header_signalRegulation."
+  # ---- P4 cluster 14: header regulation <semantics> subtrees (reuse t_signals_semantics) ----
+  - path: header/defaultRegulations/roadRegulations/semantics
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "t_signals_semantics container (traffic-behaviour block). Subtype children below."
+  - path: header/defaultRegulations/roadRegulations/semantics/speed
+    attrs: [type, value, unit]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_speed type; value(double); e_unitSpeed unit. Normalised to OdrSemanticSpeed."
+  - path: header/defaultRegulations/roadRegulations/semantics/lane
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_lane type."
+  - path: header/defaultRegulations/roadRegulations/semantics/priority
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_priority type (4way|stop|stopLine|yield|...)."
+  - path: header/defaultRegulations/roadRegulations/semantics/prohibited
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "prohibited participants container."
+  - path: header/defaultRegulations/roadRegulations/semantics/prohibited/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> child = e_vehicleCategory."
+  - path: header/defaultRegulations/roadRegulations/semantics/prohibited/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: header/defaultRegulations/roadRegulations/semantics/prohibited/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> child = e_personCategory."
+  - path: header/defaultRegulations/roadRegulations/semantics/prohibited/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_personCategory (child text)."
+  - path: header/defaultRegulations/roadRegulations/semantics/prohibited/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "animal participant (no children)."
+  - path: header/defaultRegulations/roadRegulations/semantics/warning
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "warning (presence-only)."
+  - path: header/defaultRegulations/roadRegulations/semantics/routing
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "routing (presence-only)."
+  - path: header/defaultRegulations/roadRegulations/semantics/streetname
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "streetname (presence-only)."
+  - path: header/defaultRegulations/roadRegulations/semantics/parking
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "parking (presence-only)."
+  - path: header/defaultRegulations/roadRegulations/semantics/tourist
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "tourist (presence-only)."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryTime
+    attrs: [type, value]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_supplementaryTime type; value."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryAllows
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "supplementaryAllows participants container."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryAllows/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_vehicleCategory."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryAllows/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryAllows/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_personCategory."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryAllows/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_personCategory (child text)."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryAllows/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "animal participant."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryProhibits
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "supplementaryProhibits participants container."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryProhibits/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_vehicleCategory."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryProhibits/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryProhibits/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_personCategory."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryProhibits/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_personCategory (child text)."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryProhibits/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "animal participant."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryDistance
+    attrs: [type, value, unit]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_supplementaryDistance type; value; e_unitDistance unit."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryEnvironment
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_supplementaryEnvironment type (fog|rain|snow)."
+  - path: header/defaultRegulations/roadRegulations/semantics/supplementaryExplanatory
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "supplementaryExplanatory (presence-only)."
+  - path: header/defaultRegulations/signalRegulations/semantics
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "t_signals_semantics container (traffic-behaviour block). Subtype children below."
+  - path: header/defaultRegulations/signalRegulations/semantics/speed
+    attrs: [type, value, unit]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_speed type; value(double); e_unitSpeed unit. Normalised to OdrSemanticSpeed."
+  - path: header/defaultRegulations/signalRegulations/semantics/lane
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_lane type."
+  - path: header/defaultRegulations/signalRegulations/semantics/priority
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_priority type (4way|stop|stopLine|yield|...)."
+  - path: header/defaultRegulations/signalRegulations/semantics/prohibited
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "prohibited participants container."
+  - path: header/defaultRegulations/signalRegulations/semantics/prohibited/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> child = e_vehicleCategory."
+  - path: header/defaultRegulations/signalRegulations/semantics/prohibited/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: header/defaultRegulations/signalRegulations/semantics/prohibited/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> child = e_personCategory."
+  - path: header/defaultRegulations/signalRegulations/semantics/prohibited/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_personCategory (child text)."
+  - path: header/defaultRegulations/signalRegulations/semantics/prohibited/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "animal participant (no children)."
+  - path: header/defaultRegulations/signalRegulations/semantics/warning
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "warning (presence-only)."
+  - path: header/defaultRegulations/signalRegulations/semantics/routing
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "routing (presence-only)."
+  - path: header/defaultRegulations/signalRegulations/semantics/streetname
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "streetname (presence-only)."
+  - path: header/defaultRegulations/signalRegulations/semantics/parking
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "parking (presence-only)."
+  - path: header/defaultRegulations/signalRegulations/semantics/tourist
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "tourist (presence-only)."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryTime
+    attrs: [type, value]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_supplementaryTime type; value."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryAllows
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "supplementaryAllows participants container."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryAllows/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_vehicleCategory."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryAllows/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryAllows/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_personCategory."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryAllows/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_personCategory (child text)."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryAllows/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "animal participant."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryProhibits
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "supplementaryProhibits participants container."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryProhibits/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_vehicleCategory."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryProhibits/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryProhibits/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "participant; <type> = e_personCategory."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryProhibits/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_personCategory (child text)."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryProhibits/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "animal participant."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryDistance
+    attrs: [type, value, unit]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_supplementaryDistance type; value; e_unitDistance unit."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryEnvironment
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "e_signals_semantics_supplementaryEnvironment type (fog|rain|snow)."
+  - path: header/defaultRegulations/signalRegulations/semantics/supplementaryExplanatory
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
+    notes: "supplementaryExplanatory (presence-only)."
   - path: junction
     attrs: [id, name, type]
     evidence: "5393-5410, 6905-6960 (id via EstablishUniqueIds)"
@@ -425,6 +703,131 @@ elements:
     attrs: [elementId, elementType, type]
     evidence: "odr_side/OdrSignalExtras.cpp CollectSignalExtras (P3 cluster 12 L1)"
     notes: "L1 storage in OdrSideModel::signal_extras; runtime semantics deferred."
+  # ---- P4 cluster 10: signal <semantics> subtree (L1 store OdrSignalExtras.semantics) ----
+  - path: road/signals/signal/semantics
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "t_signals_semantics container (traffic-behaviour block). Subtype children below."
+  - path: road/signals/signal/semantics/speed
+    attrs: [type, value, unit]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_signals_semantics_speed type; value(double); e_unitSpeed unit. Normalised to OdrSemanticSpeed."
+  - path: road/signals/signal/semantics/lane
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_signals_semantics_lane type."
+  - path: road/signals/signal/semantics/priority
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_signals_semantics_priority type (4way|stop|stopLine|yield|...)."
+  - path: road/signals/signal/semantics/prohibited
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "prohibited participants container."
+  - path: road/signals/signal/semantics/prohibited/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "participant; <type> child = e_vehicleCategory."
+  - path: road/signals/signal/semantics/prohibited/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: road/signals/signal/semantics/prohibited/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "participant; <type> child = e_personCategory."
+  - path: road/signals/signal/semantics/prohibited/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_personCategory (child text)."
+  - path: road/signals/signal/semantics/prohibited/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "animal participant (no children)."
+  - path: road/signals/signal/semantics/warning
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "warning (presence-only)."
+  - path: road/signals/signal/semantics/routing
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "routing (presence-only)."
+  - path: road/signals/signal/semantics/streetname
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "streetname (presence-only)."
+  - path: road/signals/signal/semantics/parking
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "parking (presence-only)."
+  - path: road/signals/signal/semantics/tourist
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "tourist (presence-only)."
+  - path: road/signals/signal/semantics/supplementaryTime
+    attrs: [type, value]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_signals_semantics_supplementaryTime type; value."
+  - path: road/signals/signal/semantics/supplementaryAllows
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "supplementaryAllows participants container."
+  - path: road/signals/signal/semantics/supplementaryAllows/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "participant; <type> = e_vehicleCategory."
+  - path: road/signals/signal/semantics/supplementaryAllows/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: road/signals/signal/semantics/supplementaryAllows/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "participant; <type> = e_personCategory."
+  - path: road/signals/signal/semantics/supplementaryAllows/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_personCategory (child text)."
+  - path: road/signals/signal/semantics/supplementaryAllows/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "animal participant."
+  - path: road/signals/signal/semantics/supplementaryProhibits
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "supplementaryProhibits participants container."
+  - path: road/signals/signal/semantics/supplementaryProhibits/vehicle
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "participant; <type> = e_vehicleCategory."
+  - path: road/signals/signal/semantics/supplementaryProhibits/vehicle/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_vehicleCategory (child text)."
+  - path: road/signals/signal/semantics/supplementaryProhibits/person
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "participant; <type> = e_personCategory."
+  - path: road/signals/signal/semantics/supplementaryProhibits/person/type
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_personCategory (child text)."
+  - path: road/signals/signal/semantics/supplementaryProhibits/animal
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "animal participant."
+  - path: road/signals/signal/semantics/supplementaryDistance
+    attrs: [type, value, unit]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_signals_semantics_supplementaryDistance type; value; e_unitDistance unit."
+  - path: road/signals/signal/semantics/supplementaryEnvironment
+    attrs: [type]
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "e_signals_semantics_supplementaryEnvironment type (fog|rain|snow)."
+  - path: road/signals/signal/semantics/supplementaryExplanatory
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics (P4 cluster 10 L1)"
+    notes: "supplementaryExplanatory (presence-only)."
   - path: road/signals/signalReference
     attrs: [s, t, id, orientation]
     evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref], P3 cluster 12)"
@@ -433,6 +836,36 @@ elements:
     attrs: [fromLane, toLane]
     evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref])"
     notes: "Applied to the CLONE (not the referenced signal)."
+  # ---- P4 cluster 13: signal boards (staticBoard / vmsBoard / displayArea) ----
+  - path: road/signals/signal/staticBoard
+    attrs: [width, height, zOffset]
+    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
+    notes: "t_road_signals_staticBoard (extends t_road_signals_board). <sign> children (board content) counted only; L1."
+  - path: road/signals/signal/staticBoard/sign
+    attrs: [v, z]
+    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
+    notes: "sign on a static board (t_road_signals_board_sign): local v/z."
+  - path: road/signals/signal/vmsBoard
+    attrs: [displayType, displayWidth, displayHeight, v, z, width, height]
+    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
+    notes: "t_road_signals_vmsBoard (variable message board). @displayType e_road_signals_displayType. Stored in OdrVmsBoard."
+  - path: road/signals/signal/vmsBoard/displayArea
+    attrs: [index, width, height, v, z]
+    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
+    notes: "t_road_signals_displayArea: recommended visualization rectangle in board-local coords. Stored in OdrDisplayArea."
+  # ---- P4 cluster 13: document-level <vmsGroup> ----
+  - path: vmsGroup
+    attrs: [id]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 13 L1)"
+    notes: "t_signalGroup_vmsGroup (OpenDRIVE root child, 1.9). Groups vmsBoards on one gantry. Stored in OdrSideModel::vms_groups."
+  - path: vmsGroup/vmsBoardReference
+    attrs: [signalId, vmsIndex, groupIndex]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 13 L1)"
+    notes: "t_signalGroup_vmsBoardReference: (signalId,vmsIndex,groupIndex). Stored in OdrVmsBoardReference."
+  - path: vmsGroup/_OpenDriveElement
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp CollectHeaderAndGroupExtras (P4 cluster 13 L1)"
+    notes: "Mandatory XSD1.1 abstract placeholder in t_signalGroup_vmsGroup (minOccurs=1). Ignored; whitelisted so audit stays zero."
   - path: road/surface
     attrs: []
     evidence: "n/a (NOT read by parser)"

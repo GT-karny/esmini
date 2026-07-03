@@ -55,10 +55,21 @@ void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model);
 // through the public Lane::AddLaneWidth API. Called only from the typed BuildSideModel overload.
 void ApplyBorderWidths(const OdrSideModel& model, roadmanager::OpenDrive* od);
 
-// ---- OdrSignalExtras.cpp (P3) ----
+// ---- OdrSignalExtras.cpp (P3 + P4) ----
 
-// Collect <signal>/<dependency> + <signal>/<reference> into model.signal_extras (cluster 12 L1).
+// Collect <signal>/<dependency> + <signal>/<reference> (P3 cluster 12 L1) AND the P4 signal-namespace
+// extras -- <semantics> (cluster 10), <staticBoard>/<vmsBoard>/<displayArea> (cluster 13) -- into
+// model.signal_extras (sparse: one entry per signal carrying any such child).
 void CollectSignalExtras(const pugi::xml_node& root, OdrSideModel& model);
+
+// Collect the P4 document/header-level extras: root <vmsGroup> (cluster 13) and
+// header/license + header/defaultRegulations (cluster 14, each regulation reusing the <semantics>
+// content model). Sparse: nothing stored when the elements are absent.
+void CollectHeaderAndGroupExtras(const pugi::xml_node& root, OdrSideModel& model);
+
+// Parse a <semantics> node into `out` (shared by signals and header regulations). Both the 1.9/1.8
+// attribute-form <speed> and a hypothesised child-element form normalize to the same OdrSemanticSpeed.
+void ParseSemantics(const pugi::xml_node& semantics_node, OdrSemantics& out);
 
 }  // namespace detail
 }  // namespace odr

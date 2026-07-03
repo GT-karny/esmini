@@ -467,16 +467,17 @@ fixtures:
   - road/signals/signal
   - road/signals/signal/semantics
   - road/signals/signal/semantics/priority@type
-  expected_unsupported_entries:
-  - 'road/signals/signal/semantics|ctx=1'
+  # P4 flip (2026-07-03): <semantics> (+ all subtype children) whitelisted (parser_coverage.yaml)
+  # and stored in OdrSignalExtras.semantics (L1) -> the audit must emit ZERO entries for this fixture.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
     1.8 signal <semantics> (the harmonised traffic-behaviour block). A static yield sign (type 205, country
     DE) carries <semantics><priority type="yield"/>. <semantics> is the last child of t_road_signals_signal.
     Required signal attrs (dynamic/id/orientation/subtype/type + road s/t) derived from the 1.8 Signal
-    XSD. Upstream RM parses the <signal> but ignores <semantics> (P4 wires it into StopYieldSignAware
-    et al.). Base-normalisation removes center-lane <userData>.
+    XSD. Stored in OdrSignalExtras.semantics since P4 (was: silently ignored).
+    Base-normalisation removes center-lane <userData>.
 - id: g4_curvelocal_corner_19
   path: GT_esmini/test/odr_fixtures/generated/g4_curvelocal_corner_19.xodr
   source: generated
@@ -670,9 +671,10 @@ fixtures:
   - header/defaultRegulations/signalRegulations@subtype
   - header/defaultRegulations/signalRegulations/semantics
   - header/defaultRegulations/signalRegulations/semantics/priority@type
-  expected_unsupported_entries:
-  - 'header/defaultRegulations|ctx='
-  - 'header/license|ctx='
+  # P4 flip (2026-07-03): header/license + header/defaultRegulations (+ road/signalRegulations,
+  # each reusing the semantics content model) whitelisted (parser_coverage.yaml) and stored on
+  # OdrSideModel.license / default_regulations (L1) -> the audit must emit ZERO entries.
+  expected_unsupported_entries: []
   expected: {schema: fail, rm_init: pass}
   observed: {schema: fail, rm_init: pass}
   expected_notes: >-
@@ -1191,8 +1193,9 @@ fixtures:
   - road/signals/signal/vmsBoard/displayArea@z
   - road/signals/signal/vmsBoard/displayArea@width
   - road/signals/signal/vmsBoard/displayArea@height
-  expected_unsupported_entries:
-  - 'road/signals/signal/vmsBoard|ctx=1'
+  # P4 flip (2026-07-03): vmsBoard + displayArea whitelisted (parser_coverage.yaml) and stored in
+  # OdrSignalExtras.vms_boards (L1) -> the audit must emit ZERO entries for this fixture.
+  expected_unsupported_entries: []
   osi: true  # P3: fixture-scoped OSI probe (traffic_light observable, acceptance (i))
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
