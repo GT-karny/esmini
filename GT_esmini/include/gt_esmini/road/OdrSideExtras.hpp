@@ -287,13 +287,27 @@ struct OdrDefaultRegulation
     OdrSemantics semantics;
 };
 
-// A crossPath lane link (<startLaneLink>/<endLaneLink>): where on the crossing road (s) and which
-// lane ids (from/to) the crossing connects. L1 raw storage.
+// A crossPath lane link (<startLaneLink>/<endLaneLink>). Per OpenDRIVE_Junction.xsd
+// (t_junction_crossPath_laneLink): @s is the "s-coordinate of either start or end point in linked
+// road" -- the LINKED road being @roadAtStart (startLaneLink) / @roadAtEnd (endLaneLink), i.e. the
+// CROSSED road, NOT the crossing road. @from is the lane id on that linked (crossed) road; @to is
+// the lane id on @crossingRoad. L1 raw storage.
 struct OdrCrossPathLaneLink
 {
-    double s    = 0.0;  // @s -- position on the crossing road
-    int    from = 0;    // @from lane id
-    int    to   = 0;    // @to lane id
+    double s    = 0.0;  // @s -- position on the LINKED (crossed) road (roadAtStart / roadAtEnd)
+    int    from = 0;    // @from lane id (on the linked/crossed road)
+    int    to   = 0;    // @to lane id (on @crossingRoad)
+};
+
+// One sample of a synthesized pedestrian-path polyline: the crossingRoad centerline sampled across
+// the crossing span. World coordinates + the road-frame s on the crossing road. L1/L2 storage for
+// future policies (no consumer yet). Populated by the P5 stage-2 crosswalk synthesis.
+struct OdrPedPathSample
+{
+    double s = 0.0;  // road-frame s on the crossing road
+    double x = 0.0;  // world x
+    double y = 0.0;  // world y
+    double z = 0.0;  // world z
 };
 
 // <junction>/<crossPath> (1.8/1.9 pedestrian crossing carried by a common/virtual junction). L1
@@ -306,6 +320,16 @@ struct OdrCrossPath
     std::string          road_at_end;    // @roadAtEnd
     OdrCrossPathLaneLink start_lane_link;
     OdrCrossPathLaneLink end_lane_link;
+
+    // ---- P5 stage 2 synthesis products (filled by SynthesizeCrosswalks, empty until then) ----
+    // Sampled crossing-road centerline across the crossing span (world x/y/z + crossing-road s).
+    // L1/L2 storage for future pedestrian policies; no runtime consumer yet.
+    std::vector<OdrPedPathSample> ped_path;
+
+    // The synthetic CROSSWALK RMObject id assigned to this crossPath, or 0 when no object was
+    // synthesized (unresolvable crossing road / id collision / degenerate geometry). Diagnostic
+    // handle only (the object itself lives on the crossed Road via Road::AddObject).
+    unsigned int synth_object_id = 0;  // 0 = none
 };
 
 // <junction>/<roadSection> (1.8 crossing-junction: the s-range of a road where crossing traffic can
