@@ -4,7 +4,7 @@
 - 策定方法: 2段階のマルチエージェント調査・設計
   - 調査(11エージェント): 1.9 XSD解析 / ASAMリリースパッケージ採掘 / upstream RoadManagerカバレッジ監査 / GT側タッチポイント監査 / エコシステム調査 + 完全性クリティーク + 実測検証(公式サンプルのロード試験・OSI出力デコード・XSD世代間構造diff・スキーマ検証E2E)
   - 設計(9エージェント): 完全要素マトリクス / アーキテクチャ設計 / ランタイム改修点特定 / テスト戦略 → 計画起草 → 3視点敵対審査(実現性・網羅性・回帰/ガバナンス、指摘は全件コード検証) → 改訂
-- ステータス: **P0+P1 完了・dev_v0.12 マージ済**(§0 実装状況を参照)
+- ステータス: **P0〜P3 完了・dev_v0.12 マージ済**(§0 実装状況を参照)
 - 総工数: **約15〜17週**(開発者1名+AIエージェント、各フェーズ独立マージ可能)
 
 ---
@@ -16,9 +16,10 @@
 | **P0** | ✅ 完了 (2026-07-03) | 649c81a2, 88b14f8c | フィクスチャ60本(手書き18+生成6+公式36)、3層ハーネス `scripts/run_odr_conformance.py`(スキーマ80P/11XF・RM 88P/3XF・OSI 31P)、ゴールデン119本(二重生成バイト同一)、トレーサビリティ行列(18クラスタ充足+5明示保留)、回帰ゲートStep 1.5(ハード)+CI(ubuntuスキーマ+行列のみの保守的統合) |
 | **P1** | ✅ 完了 (2026-07-03) | 2c13045a, 4aafef2a, 5a1aa8f4 | `gt_esmini::odr` OdrSideModel+属性粒度監査(ホワイトリスト88パス/289ペア、コントロール~113ファイル警告ゼロ・フィクスチャ20要素+23属性検出)、フォークパッチ**16/150行**([gt_roadmanager_patches.md](gt_roadmanager_patches.md))、ガバナンステスト(マーカーctest+`check_fork_drift.py`)、挙動不変証明(TrafficLight分類ベースライン: 意図された2フリップ以外114ファイル/428信号完全一致、RM/OSIゴールデン不変、phase3バッチper-scenario不変、validate_catalog 61/61) |
 | **P2** | ✅ 完了 (2026-07-03) | 4a8d8f4b, 041c7c0b, dd2592c8 (merge b395ef00) | クラスタ3+16: [GT_ODR:lane-types] 5行(walking→SIDEWALK / curb→CURB / shared→BIDIRECTIONAL / slipLane→CONNECTING_RAMP、フォーク計 **21/150行**)、OdrLaneExtras(1.8レーン属性+access/rule/speed/sway/border L1、レガシー資産ではスパース=空)、border→width正規化(公開AddLaneWidth経由・型付きBuildSideModelオーバーロードで**フォーク改変ゼロ、lane-borderコンティンジェンシー不使用**、Ex_Lane-Border偽グリーン解消)、lane speed L2(ManeuverAwareSpeedPlanner min接続・レガシー経路ビット同一をphase3 per-scenario一致で証明)、OSI TYPE_UNKNOWNゼロ(fixture 13の`osi: true`+`osi_expect_no_unknown`機械検証、OSI層にフィクスチャopt-in拡張)、rm_lib/web同期+enum往復ctest(OdrLaneTypeSync)、ゴールデン意図変化15 RM+新規1 OSI(コントロールセット31件はバイト同一) |
-| P3〜P10 | 未着手 | — | 次=P3(動的信号ゲート緩和+signal配置/参照、1週。feature/odr1619-p3 が並行作業中 → 本マージ後に rebase+監査diff再取得、マーカー数/EXPECT_LINES は合算) |
+| **P3** | ✅ 完了 (2026-07-03) | a005b1ac, 5eeca863, d81fcb9d, 98fc3d28 (merge 085b59f9) | クラスタ11+12: **[GT_ODR:tl-gate]**(TrafficLight=@dynamicのみ、全資産監査とatomic 1コミット — 解析的監査 `odr_tl_classification_audit.py` をC++プローブとbefore/after二重照合、コミット済みユニバース150ファイル/794信号でフリップ=P0フィクスチャ3件のみ・**本番資産0件**・ASAM公式46件昇格=実測破損#1修正、レビュー済みdiff [odr_p3_tl_gate_audit.md](odr_p3_tl_gate_audit.md))+`nr_lamps_`未初期化upstream潜在バグ修正(0灯TLのFFIクラッシュ)、**[GT_ODR:sig-pos]**(positionRoad=参照先road接続+zOffset/hOffset/pitch/roll上書き、positionInertial=センターライン評価逆写像(XYZ2TrackPosはOSIポイント依存でパース時不可)+場外WARN+skip、1.9 s/t省略backfill+診断)、**[GT_ODR:sig-ref]**(signalReference→参照側s/t/orientation/validityのクローン実体化、dynamic→TLクローン、dangling WARN+skip、フック時実体化で前方参照対応)、dependency/reference L1(OdrSignalExtras)、フォーク計 **48/150行**(P3追加27)・マーカー13、フィクスチャ19/20追加(62本)+OSI層opt-in(03/05/19)、公式RMゴールデン3本にクローンsign(UC_Motorway-Exit-Entry×2/UC_5Road_Junction)、conformance full 207P/14XF、phase3+phase3d+crosswalk per-scenario不変(mainビルド両走行比較)、web WS位相チャンネル耐性確認(OSIランプidキー) |
+| P4〜P10 | 未着手 | — | 次=P4(signal semantics族+boards+header regulations、1週・フォーク0行) |
 
-- **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)→ feature/odr1619-p2(**b395ef00**、2026-07-03)の順で dev_v0.12 へマージ済。P2はマージ後ツリーで再ビルド+unit ctest+conformance quick 全緑を再検証済(マージ差分はdocsのみ=検証済みツリー保存)。P3(feature/odr1619-p3、並行worktree)は本マージ後に rebase する取り決め。
+- **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)→ feature/odr1619-p2(**b395ef00**)→ feature/odr1619-p3(**085b59f9**、2026-07-03、P2マージ済みdev先端へrebase後に単独着地・マージ木=検証済みブランチ木)の順で dev_v0.12 へマージ済。P3はrebase後ツリーで再ビルド+unit ctest+conformance full(207P/0F)+回帰ゲート(挙動バッチper-scenario不変)+監査diff再取得(`--check-golden after`一致)を再検証済。併せてtest_OdrAssetProbeのbyte比較がautocrlf checkoutで壊れる潜在問題(P1由来)をEOL非依存化で修正(98fc3d28)。
 - **承認済**(2026-07-02): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない**(CIではofficial層自動SKIP)。**残承認**: §10-3・4(P6着手前)、§10-5・6(P9まで)。
 - **実装時の実測差分(計画からの補正)**:
   1. 公式 `Ex_Slip_Lane`/`UC_T_Junction` のクラッシュ真因は junction 中断**以外**(信号validity解決のs範囲外等)→ P1では凍結維持、**P5で再訪**(§1.3の想定補正)。
@@ -26,6 +27,9 @@
   3. `defaultRegulations` はASAM出荷XSD自体の欠陥(abstract必須子)で1.8/1.9とも検証不能 → 恒久期待フェイル登録。
   4. `roadSurface` は `ObjectType` enum欠落(hpp凍結)のため Str2Type での静音NONE化に設計変更(パッチ表6)。
   5. 1.5 XSDのkeyref参照整合性により「スキーマ緑+RM中断」フィクスチャはrev 1.4で作成(fixture 02)。
+  6. `Position::XYZ2TrackPos` はレーンOSIポイント(SetRoadOSIで後段生成)依存で**パース時に使用不可** → P3のpositionInertial逆写像はセンターライン評価(SetTrackPos+粗サンプル+三分探索)で実装(§5 P3の想定補正)。
+  7. dangling signalReference は 1.8 XSD keyref(k_road_signals_signalId)がスキーマ棄却 → WARN+skip経路はtempファイル単体テスト+公式資産で担保(コミットフィクスチャには置けない)。
+  8. `TrafficLight::SetTrafficLightInfo` は未対応type組合せで `nr_lamps_` を未初期化のまま残す(upstream潜在バグ、ゲート緩和で顕在化)→ フォークで `nr_lamps_=0` 修正、独立PR候補。
 - 既存資産の既知不適合を台帳化(資産は無改変・XFAIL登録): `fabriksgatan_traffic_lights_ctrl.xodr`(revMinor=4+top-level controller)、catalog生成道路5本(空elevationProfile等)。
 
 ---
