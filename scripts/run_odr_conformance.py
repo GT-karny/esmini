@@ -87,7 +87,7 @@ PROBE_TIMEOUT = 60  # seconds per isolated probe
 
 # Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
 # per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
-FORK_ODR_EXPECT_LINES = 75  # P2 21 + P3 27 + crash fixes 14 + P5 junc-crossing 13 (crossing dispatch 7 + IsOsiIntersection guard 6)
+FORK_ODR_EXPECT_LINES = 90  # P2 21 + P3 27 + crash fixes 14 + P5 junc-crossing 13 + P7 15 (curvelocal 12 + repeat-cubics 3)
 FORK_LINE_BUDGET = 150
 
 # Status tags.

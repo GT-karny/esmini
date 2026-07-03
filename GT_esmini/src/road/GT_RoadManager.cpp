@@ -5196,9 +5196,13 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 }
 
                 pugi::xml_node outlines_node = object.child("outlines");
-                if (outlines_node != NULL)
+                // [GT_ODR:curvelocal] accept the 1.9 SINGULAR <object><outline> form too (upstream reads only
+                // <outlines><outline>); iterate <outline> siblings by name so the corner loop below is shared.
+                pugi::xml_node outline_container = (outlines_node != NULL) ? outlines_node : object;
+                if (outline_container != NULL)
                 {
-                    for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
+                    for (pugi::xml_node outline_node = outline_container.child("outline"); outline_node;
+                         outline_node = outline_node.next_sibling("outline"))
                     {
                         id_t     id      = outline_node.attribute("id").as_uint();
                         bool     closed  = !strcmp(outline_node.attribute("closed").value(), "true") ? true : false;
@@ -5226,6 +5230,12 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                                 corner = static_cast<OutlineCorner*>(
                                     new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
+                            }
+                            else if (!strcmp(corner_node.name(), "curveLocal"))
+                            {
+                                // [GT_ODR:curvelocal] 1.9 <curveLocal> outline -> tessellated OutlineCornerLocal corners (plan P7)
+                                unsigned int next_corner_id = static_cast<unsigned int>(outline->corner_.size());
+                                gt_esmini::odr::AppendCurveLocalCorners(corner_node, r, obj, outline, next_corner_id);
                             }
                             if (corner != nullptr)
                             {
@@ -5763,6 +5773,9 @@ std::vector<RepeatInstance> RMObject::GetRepeatInstances(Road* road) const
             break;  // instance would reach outside the road
         }
 
+        // [GT_ODR:repeat-cubics] 1.9 repeat lateral cubic (@bT/@cT/@dT) + detachFromReferenceLine (plan P7);
+        // returns false (s/t untouched) for legacy objects -> bit-identical path
+        gt_esmini::odr::AdjustRepeatInstancePose(this, road, cur_s, factor, ri.s, ri.t);
         pos.SetTrackPosMode(road->GetId(),
                             ri.s,
                             ri.t,
