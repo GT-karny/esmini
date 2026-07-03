@@ -237,6 +237,11 @@ bool ReadFileToString(const std::string& path, std::string& out)
     std::ostringstream ss;
     ss << in.rdbuf();
     out = ss.str();
+    // EOL-insensitive: the committed golden blob is LF but autocrlf checkouts materialize CRLF
+    // on Windows; the probe always serializes LF. Compare normalized (latent since P1, exposed
+    // by any fresh checkout -- the pre-P3 worktrees only passed because the on-disk golden was
+    // the probe's own LF output, never a git checkout).
+    out.erase(std::remove(out.begin(), out.end(), ''), out.end());
     return true;
 }
 
