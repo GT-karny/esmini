@@ -478,6 +478,31 @@ fixtures:
     Required signal attrs (dynamic/id/orientation/subtype/type + road s/t) derived from the 1.8 Signal
     XSD. Stored in OdrSignalExtras.semantics since P4 (was: silently ignored).
     Base-normalisation removes center-lane <userData>.
+- id: g7_semantics_19
+  path: GT_esmini/test/odr_fixtures/generated/g7_semantics_19.xodr
+  source: generated
+  recipe: generated/recipes/g7_semantics_19.yaml
+  base: resources/xodr/straight_500m.xodr
+  rev: '1.9'
+  requires: []
+  clusters:
+  - 10
+  features:
+  - road/signals/signal
+  - road/signals/signal/semantics
+  - road/signals/signal/semantics/speed
+  - road/signals/signal/semantics/speed@type
+  - road/signals/signal/semantics/speed@value
+  - road/signals/signal/semantics/speed@unit
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    1.9 signal <semantics> with ATTRIBUTE-form <speed type="maximum" value="80" unit="km/h"/> (verified
+    against the extracted 1.9 OpenDRIVE_Signal.xsd t_signals_semantics_speed). Complements g3 (1.8
+    <priority>); together they pin the semantics-speed normalization (attribute form and the child-element
+    draft form both -> the same OdrSemanticSpeed). Stored in OdrSignalExtras.semantics. Base-normalisation
+    removes center-lane <userData>.
 - id: g4_curvelocal_corner_19
   path: GT_esmini/test/odr_fixtures/generated/g4_curvelocal_corner_19.xodr
   source: generated
@@ -1204,6 +1229,75 @@ fixtures:
     1.8 (t_road_signals_vmsBoard + t_road_signals_displayArea, children of <signal>); 1.9 keeps the same
     construct, so _18 chosen. Content is silently dropped by GT_RoadManager today; static/dynamic content
     L3 is on the P0/8 hold ledger.
+- id: boards_vmsgroup_19
+  path: GT_esmini/test/odr_fixtures/handauthored/21_boards_vmsgroup_19.xodr
+  source: handauthored
+  rev: '1.9'
+  requires: []
+  clusters:
+  - 13
+  features:
+  - road/signals/signal/staticBoard
+  - road/signals/signal/staticBoard/sign
+  - road/signals/signal/staticBoard/sign@v
+  - road/signals/signal/staticBoard/sign@z
+  - road/signals/signal/vmsBoard
+  - road/signals/signal/vmsBoard@displayType
+  - road/signals/signal/vmsBoard/displayArea
+  - vmsGroup
+  - vmsGroup@id
+  - vmsGroup/vmsBoardReference
+  - vmsGroup/vmsBoardReference@signalId
+  - vmsGroup/vmsBoardReference@vmsIndex
+  - vmsGroup/vmsBoardReference@groupIndex
+  expected_unsupported_entries: []
+  expected: {schema: fail, rm_init: pass}
+  observed: {schema: fail, rm_init: pass}
+  expected_notes: >-
+    schema=fail is BY DESIGN (XFAIL). <vmsGroup> (t_signalGroup_vmsGroup) mandates a child literally
+    named <_OpenDriveElement> (minOccurs=1) whose type _OpenDriveElement is abstract="true" with no
+    concrete substitution -> xmlschema rejects it ("_OpenDriveElement is abstract"). This is the SAME
+    ASAM XSD-1.1 defect frozen for fixture 07 (defaultRegulations). The authored <_OpenDriveElement/>
+    placeholder is required by the schema but cannot validate; kept so the vmsGroup feature rows are
+    real. staticBoard + vmsBoard on <signal> validate fine; the vmsGroup defect drives the whole-file
+    fail. rm_init passes (esmini ignores all three; GT stores them in the side model).
+  notes: >-
+    Consumed by P4 (boards + vmsGroup L1, cluster 13). 1.9 gantry: a type="multiBoard" signal carries
+    BOTH <staticBoard> and <vmsBoard> (1.9 placement = children of <signal>, identical to 1.8); a
+    second VMS signal + a document-level <vmsGroup> group the two boards via <vmsBoardReference>.
+    Stored in OdrSignalExtras.static_boards/vms_boards + OdrSideModel.vms_groups.
+- id: signal_semantics_participants_19
+  path: GT_esmini/test/odr_fixtures/handauthored/22_signal_semantics_participants_19.xodr
+  source: handauthored
+  rev: '1.9'
+  requires: []
+  clusters:
+  - 10
+  features:
+  - road/signals/signal/semantics
+  - road/signals/signal/semantics/speed
+  - road/signals/signal/semantics/speed@type
+  - road/signals/signal/semantics/speed@value
+  - road/signals/signal/semantics/speed@unit
+  - road/signals/signal/semantics/supplementaryProhibits
+  - road/signals/signal/semantics/supplementaryProhibits/vehicle
+  - road/signals/signal/semantics/supplementaryProhibits/vehicle/type
+  - road/signals/signal/semantics/supplementaryProhibits/person
+  - road/signals/signal/semantics/supplementaryProhibits/person/type
+  - road/signals/signal/semantics/supplementaryProhibits/animal
+  - road/signals/signal/semantics/supplementaryEnvironment@type
+  - road/signals/signal/semantics/supplementaryDistance@type
+  - road/signals/signal/semantics/supplementaryDistance@value
+  - road/signals/signal/semantics/supplementaryDistance@unit
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    Consumed by P4 (signal semantics + participants L1, cluster 10). 1.9 speed-limit sign: ATTRIBUTE-form
+    <speed type="maximum" value="60" unit="km/h"/> plus a <supplementaryProhibits> exception carrying
+    two e_vehicleCategory vehicles (heavyTruck, bus), a pedestrian <person>, and an <animal/>, plus
+    supplementaryEnvironment/supplementaryDistance. Exercises participant <type> child parsing +
+    attribute-form speed normalization. Stored in OdrSignalExtras.semantics.
 - id: signal_reference_18
   path: GT_esmini/test/odr_fixtures/handauthored/19_signal_reference_18.xodr
   source: handauthored

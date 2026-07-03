@@ -838,20 +838,20 @@ elements:
     notes: "Applied to the CLONE (not the referenced signal)."
   # ---- P4 cluster 13: signal boards (staticBoard / vmsBoard / displayArea) ----
   - path: road/signals/signal/staticBoard
-    attrs: [width, height, zOffset]
-    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
-    notes: "t_road_signals_staticBoard (extends t_road_signals_board). <sign> children (board content) counted only; L1."
+    attrs: []
+    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard (P4 cluster 13 L1)"
+    notes: "t_road_signals_staticBoard extends t_road_signals_board (-> _OpenDriveElement): NO scalar attributes. Carries <sign> children. Stored in OdrStaticBoard."
   - path: road/signals/signal/staticBoard/sign
     attrs: [v, z]
-    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
-    notes: "sign on a static board (t_road_signals_board_sign): local v/z."
+    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard (P4 cluster 13 L1)"
+    notes: "t_road_signals_board_sign: board-local v/z. Stored in OdrBoardSign."
   - path: road/signals/signal/vmsBoard
-    attrs: [displayType, displayWidth, displayHeight, v, z, width, height]
-    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
-    notes: "t_road_signals_vmsBoard (variable message board). @displayType e_road_signals_displayType. Stored in OdrVmsBoard."
+    attrs: [displayType, displayWidth, displayHeight, v, z]
+    evidence: "odr_side/OdrSignalExtras.cpp ReadVmsBoard (P4 cluster 13 L1)"
+    notes: "t_road_signals_vmsBoard extends t_road_signals_board and adds displayType (e_road_signals_displayType)/displayWidth/displayHeight/v/z + <displayArea> children. Stored in OdrVmsBoard."
   - path: road/signals/signal/vmsBoard/displayArea
     attrs: [index, width, height, v, z]
-    evidence: "odr_side/OdrSignalExtras.cpp ReadStaticBoard/ReadVmsBoard (P4 cluster 13 L1)"
+    evidence: "odr_side/OdrSignalExtras.cpp ReadVmsBoard (P4 cluster 13 L1)"
     notes: "t_road_signals_displayArea: recommended visualization rectangle in board-local coords. Stored in OdrDisplayArea."
   # ---- P4 cluster 13: document-level <vmsGroup> ----
   - path: vmsGroup

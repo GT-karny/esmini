@@ -93,6 +93,8 @@ clusters:
     patterns:
       - "road/signals/signal/semantics"               # 1.8 <semantics> (g3)
       - "road/signals/signal/semantics/priority@type"
+      - "road/signals/signal/semantics/speed@type"    # P4: 1.9 attribute-form speed (g7 / fixture 22)
+      - "road/signals/signal/semantics/supplementaryProhibits/vehicle/type"  # P4: participants (fixture 22)
 
   11:
     title: "dynamic signal modernization + countryRevision bug fix"
@@ -115,6 +117,8 @@ clusters:
     patterns:
       - "road/signals/signal/vmsBoard"
       - "road/signals/signal/vmsBoard/displayArea"
+      - "road/signals/signal/staticBoard"             # P4: 1.9 static board (fixture 21)
+      - "vmsGroup/vmsBoardReference"                  # P4: document-level vmsGroup (fixture 21)
 
   14:
     title: "header license + defaultRegulations"

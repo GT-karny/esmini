@@ -8,7 +8,7 @@
 // comma-separated set of attributes the parser reads on that element; an empty
 // string means 'no attributes read' (container or attribute-less element).
 //
-// Counts: 214 element paths, 427 (path,attr) pairs.
+// Counts: 214 element paths, 422 (path,attr) pairs.
 
 // clang-format off
 static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
@@ -213,10 +213,10 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/signals/signal/semantics/supplementaryTime", "type,value"},
     {"road/signals/signal/semantics/tourist", ""},
     {"road/signals/signal/semantics/warning", ""},
-    {"road/signals/signal/staticBoard", "height,width,zOffset"},
+    {"road/signals/signal/staticBoard", ""},
     {"road/signals/signal/staticBoard/sign", "v,z"},
     {"road/signals/signal/validity", "fromLane,toLane"},
-    {"road/signals/signal/vmsBoard", "displayHeight,displayType,displayWidth,height,v,width,z"},
+    {"road/signals/signal/vmsBoard", "displayHeight,displayType,displayWidth,v,z"},
     {"road/signals/signal/vmsBoard/displayArea", "height,index,v,width,z"},
     {"road/signals/signalReference", "id,orientation,s,t"},
     {"road/signals/signalReference/validity", "fromLane,toLane"},

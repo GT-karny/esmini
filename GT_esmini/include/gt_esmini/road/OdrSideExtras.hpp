@@ -195,18 +195,23 @@ struct OdrDisplayArea
     std::string z;       // @z (board-local)
 };
 
-// A <staticBoard> child of a <signal> (t_road_signals_staticBoard; extends t_road_signals_board).
-// Board geometry (@width/@height/@zOffset...) is on the shared board base; captured verbatim as a
-// key/value list to stay forward-compatible with the board base without re-deriving it here.
+// A <sign> on a static board (t_road_signals_board_sign): board-local @v/@z placement.
+struct OdrBoardSign
+{
+    std::string v;  // @v (board-local)
+    std::string z;  // @z
+};
+
+// A <staticBoard> child of a <signal> (t_road_signals_staticBoard; extends t_road_signals_board,
+// which extends _OpenDriveElement -> NO scalar board attributes). Carries <sign> children.
 struct OdrStaticBoard
 {
-    std::string width;    // @width  (from t_road_signals_board)
-    std::string height;   // @height
-    std::string z_offset; // @zOffset
+    std::vector<OdrBoardSign> signs;
 };
 
 // A <vmsBoard> child of a <signal> (variable message board), 1.8 + 1.9 (same placement: child of
-// <signal>). Carries display metadata + <displayArea> children.
+// <signal>). t_road_signals_vmsBoard extends t_road_signals_board and adds displayType/
+// displayHeight/displayWidth/v/z + <displayArea> children.
 struct OdrVmsBoard
 {
     std::string display_type;    // @displayType (e_road_signals_displayType)
@@ -214,8 +219,6 @@ struct OdrVmsBoard
     std::string display_height;  // @displayHeight
     std::string v;               // @v
     std::string z;               // @z
-    std::string width;           // @width  (board base, when present)
-    std::string height;          // @height (board base)
     std::vector<OdrDisplayArea> display_areas;
 };
 

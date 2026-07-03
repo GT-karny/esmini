@@ -224,13 +224,18 @@ void ParseSemantics(const pugi::xml_node& sem, OdrSemantics& out)
 
 namespace
 {
-// Parse a <staticBoard> into OdrStaticBoard (shared t_road_signals_board base: @width/@height/@zOffset).
+// Parse a <staticBoard> into OdrStaticBoard (t_road_signals_staticBoard: no scalar attributes; carries
+// <sign> children with board-local v/z).
 OdrStaticBoard ReadStaticBoard(const pugi::xml_node& b)
 {
     OdrStaticBoard s;
-    s.width    = b.attribute("width").value();
-    s.height   = b.attribute("height").value();
-    s.z_offset = b.attribute("zOffset").value();
+    for (pugi::xml_node sn = b.child("sign"); sn; sn = sn.next_sibling("sign"))
+    {
+        OdrBoardSign sign;
+        sign.v = sn.attribute("v").value();
+        sign.z = sn.attribute("z").value();
+        s.signs.push_back(std::move(sign));
+    }
     return s;
 }
 
@@ -243,8 +248,6 @@ OdrVmsBoard ReadVmsBoard(const pugi::xml_node& b)
     v.display_height = b.attribute("displayHeight").value();
     v.v              = b.attribute("v").value();
     v.z              = b.attribute("z").value();
-    v.width          = b.attribute("width").value();   // t_road_signals_board base
-    v.height         = b.attribute("height").value();  // t_road_signals_board base
     for (pugi::xml_node da = b.child("displayArea"); da; da = da.next_sibling("displayArea"))
     {
         OdrDisplayArea a;
