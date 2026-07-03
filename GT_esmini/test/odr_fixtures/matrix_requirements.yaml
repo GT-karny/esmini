@@ -74,13 +74,16 @@ clusters:
 
   7:
     title: "junction priority + laneLink overlapZone (F3 canonical source)"
-    deferred: "F3 week (P5-adjacent): priority fixtures pending"
+    patterns:
+      - "junction/priority"                           # <priority high low> L1 capture (P5, F3 source)
+      - "junction/connection/laneLink@overlapZone"    # 1.8 laneLink overlapZone (P5 L1 slot)
     notes: >-
-      No P0 fixture carries junction/priority or laneLink@overlapZone feature rows. The plan sources the
-      canonical <priority> accessor in P5 and consumes it in the separated F3 week. The control_set roads
+      P5 sources the canonical <priority> accessor (GetJunctionPriorities) in OdrJunctionExtras.cpp and
+      consumes it in the separated F3 week. The handauthored fixture 21_common_junction_crosspath_19
+      carries junction/priority + laneLink@overlapZone feature rows so this cluster is now satisfied
+      (previously deferred to the F3 week). The control_set roads
       resources/scenario_authoring/road_catalog/generated/{t_junction_priority__a90,4way_priority__main_ns}.xodr
-      already exercise <priority> at load (RM golden), but control_set entries carry no `features` rows to
-      match here, so this cluster is deferred until the F3-week fixtures land.
+      also exercise <priority> at load (RM golden) but carry no `features` rows to match here.
 
   8:
     title: "junction boundary/elevationGrid/planView etc"

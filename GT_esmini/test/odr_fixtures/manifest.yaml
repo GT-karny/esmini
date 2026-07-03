@@ -361,8 +361,6 @@ fixtures:
   - road/lanes/laneSection/right/lane@type=walking
   - road@rule
   expected_unsupported_entries:
-  - 'junction/crossPath|ctx=555'
-  - 'junction/roadSection|ctx=666'
   - 'junction@mainRoad|ctx=555'
   - 'junction@orientation|ctx=555'
   - 'junction@sEnd|ctx=555'
@@ -375,10 +373,12 @@ fixtures:
     routes @type via xs:alternative: t_junction_crossing carries ONLY <roadSection> while <crossPath>
     belongs to t_junction_common (default) and t_junction_virtual. Authored both constructs in their schema-correct
     homes: a type=crossing junction (id 666) with roadSection, and a type=virtual junction (id 555) with
-    crossPath, mirroring the ASAM Ex_Pedestrian_Crossing reference. rm_init passes with degradation exactly
-    as the plan predicts (breakage #3): "unknown lane type: walking", "Virtual junction type found. Not
-    supported yet" (crossPath dropped), and the ghost-intersection error ("Type of roads are missing ...
-    assuming that it is an intersection").
+    crossPath, mirroring the ASAM Ex_Pedestrian_Crossing reference. P5: junction/crossPath and
+    junction/roadSection are now captured by OdrJunctionExtras.cpp (side model L1) so they no longer flag as
+    [ODR-UNSUPPORTED]; the virtual-junction attrs (@mainRoad/@sStart/@sEnd/@orientation on 555) remain
+    cluster 6 (P6) and still flag. rm_init passes with degradation exactly as the plan predicts (breakage #3):
+    "unknown lane type: walking" and the [GT_ODR:junc-crossing] WARN for the crossing junction (roadSection
+    handled GT-side).
 - id: dynamic_signal_demote_18
   path: GT_esmini/test/odr_fixtures/handauthored/03_dynamic_signal_demote_18.xodr
   source: handauthored
@@ -1350,3 +1350,49 @@ fixtures:
     (RM golden shows s=40/t=-4); id=2 backfills from reverse-mapped <positionInertial> (s=90/t=-4,
     hdg override); id=3 has NO position child -> WARN diagnostic, s=0/t=0; id=4 has an OFF-ROAD
     <positionInertial> (5000,5000) -> WARN + override skipped, keeps s=120/t=-4 (P3 acceptance (iv)).
+- id: common_junction_crosspath_19
+  path: GT_esmini/test/odr_fixtures/handauthored/21_common_junction_crosspath_19.xodr
+  source: handauthored
+  rev: '1.9'
+  requires: []
+  clusters:
+  - 5
+  - 7
+  - 22
+  features:
+  - junction/crossPath
+  - junction/crossPath@id
+  - junction/crossPath@crossingRoad
+  - junction/crossPath@roadAtStart
+  - junction/crossPath@roadAtEnd
+  - junction/crossPath/startLaneLink
+  - junction/crossPath/startLaneLink@s
+  - junction/crossPath/startLaneLink@from
+  - junction/crossPath/startLaneLink@to
+  - junction/crossPath/endLaneLink
+  - junction/crossPath/endLaneLink@s
+  - junction/crossPath/endLaneLink@from
+  - junction/crossPath/endLaneLink@to
+  - junction/priority
+  - junction/priority@high
+  - junction/priority@low
+  - junction/connection/laneLink@overlapZone
+  - junction/connection/laneLink@fromLayer
+  - junction/connection/laneLink@toLayer
+  - road/lanes/laneSection/left/lane@type=walking
+  - road/lanes/laneSection/right/lane@type=walking
+  - road@rule
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    Consumed by P5 (cluster 5 crossPath + cluster 7 junction priority/laneLink overlapZone F3 source +
+    cluster 22 laneLink 1.9 layer attrs). 1.9-form COMMON junction (default type, id 900) carrying a
+    schema-valid <connection>, a <priority high="1" low="2">, and a <crossPath crossingRoad="2"> with
+    start/endLaneLink; the connection's <laneLink> carries @overlapZone/@fromLayer/@toLayer (cluster 22
+    L1 slot reservation, semantics deferred to P8). All junction/crossPath, junction/roadSection,
+    junction/priority and laneLink layer paths are captured L1 by OdrJunctionExtras.cpp so NONE flag as
+    [ODR-UNSUPPORTED] (expected_unsupported_entries empty). Schema layer SKIPs without the local ASAM
+    1.9 XSD bootstrap (schema19 absent); expected schema pass mirrors the sibling *_19 handauthored
+    fixtures. Priority is exposed to F3 via GetJunctionPriorities(). rm_init passes; no ghost-intersection
+    error because junction 900 has a resolvable <connection>.
