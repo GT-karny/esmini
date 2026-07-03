@@ -103,6 +103,58 @@ TEST(StopFsm, ApproachHoldCreepClearSequence)
     EXPECT_EQ(c.kind, PolicyConstraint::Kind::NONE);
 }
 
+// ───────────── P4 L2: semantics priority fallback classifier ───────────────
+// ClassifyPriorityTypes is the pure classifier that StopYieldSignAware consults
+// ONLY when the country catalog left a sign OSI-unclassified (catalog-first,
+// decision 1). It maps the verbatim 1.9 <priority @type> strings to a behavioural
+// class: stop/stopLine -> STOP, yield -> GIVE_WAY, everything else -> NONE
+// (decision 2). The catalog-first gate itself lives in Evaluate() (only reached
+// when GetOSIType() is neither TYPE_STOP nor TYPE_GIVE_WAY) and is exercised
+// behaviourally by the phase3 batch (semantic_stop_sign_full_stop = green;
+// catalog stop_sign_full_stop unchanged).
+
+TEST(SemanticPriorityFallback, StopLineAndStopMapToStop)
+{
+    EXPECT_EQ(ClassifyPriorityTypes({"stopLine"}), PriorityClass::STOP);
+    EXPECT_EQ(ClassifyPriorityTypes({"stop"}), PriorityClass::STOP);
+}
+
+TEST(SemanticPriorityFallback, YieldMapsToGiveWay)
+{
+    EXPECT_EQ(ClassifyPriorityTypes({"yield"}), PriorityClass::GIVE_WAY);
+}
+
+TEST(SemanticPriorityFallback, NonBehaviouralTypesAreNone)
+{
+    // trafficLight pairs with the P3 dynamic gate; the rest are informational in P4.
+    EXPECT_EQ(ClassifyPriorityTypes({"trafficLight"}), PriorityClass::NONE);
+    EXPECT_EQ(ClassifyPriorityTypes({"priorityRoad"}), PriorityClass::NONE);
+    EXPECT_EQ(ClassifyPriorityTypes({"4way"}), PriorityClass::NONE);
+    EXPECT_EQ(ClassifyPriorityTypes({"priorityToTheRightRule"}), PriorityClass::NONE);
+}
+
+TEST(SemanticPriorityFallback, EmptyPriorityListIsNone)
+{
+    // No <semantics> / no <priority> -> NONE, i.e. the raw catalog OSI type is kept
+    // and the code path stays bit-identical to the pre-P4 behaviour.
+    EXPECT_EQ(ClassifyPriorityTypes({}), PriorityClass::NONE);
+}
+
+TEST(SemanticPriorityFallback, FirstBehaviouralTypeInDocumentOrderWins)
+{
+    // Non-behavioural entries are skipped until the first behavioural one; earlier
+    // document position decides between STOP and GIVE_WAY (assets do not mix them).
+    EXPECT_EQ(ClassifyPriorityTypes({"trafficLight", "stopLine"}), PriorityClass::STOP);
+    EXPECT_EQ(ClassifyPriorityTypes({"priorityRoad", "yield", "stop"}), PriorityClass::GIVE_WAY);
+    EXPECT_EQ(ClassifyPriorityTypes({"stop", "yield"}), PriorityClass::STOP);
+}
+
+TEST(SemanticPriorityFallback, UnknownStringIsNone)
+{
+    // Defensive: a garbage / future @type value must not accidentally classify.
+    EXPECT_EQ(ClassifyPriorityTypes({"notARealType"}), PriorityClass::NONE);
+}
+
 // ───────────────── Phase 3d: conflict-corridor geometry ────────────────────
 // The resolver now models each vehicle as a width-inflated path CORRIDOR (strip
 // of convex quads) and finds the TRUE polygon intersection of two corridors via
