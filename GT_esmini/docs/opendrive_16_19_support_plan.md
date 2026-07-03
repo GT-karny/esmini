@@ -190,12 +190,14 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 - **成果物**: [GT_ODR:junc-crossing]+IsOsiIntersection空接続ガード ~10行 / OdrJunctionExtras / **crossPath→合成RMObject(CROSSWALK)**(OutlineCornerRoad footprint、公開`Road::AddObject`(hpp:3074)経由、tunnel合成前例:8585-8631、予約IDレンジ)+PedPathポリライン側面登録 / F3用priorityアクセサ。
 - **受入**: Ex_Pedestrian_CrossingのOSIゴールデンで幽霊intersectionなし・横断路walkingレーン存在・crosswalk StationaryObject出力(破損#3/#4修正)/ RouteCrosswalkScanが合成CROSSWALKを**ポリシーコードdiffゼロ**で拾う(crossPath版crosswalk道路でscene 09マッチャ)/ IsOsiIntersectionガードは既存資産でOSI diff空 / phase3d+crosswalkバッチper-scenario不変。
 
-### P6 — Junction第2弾: virtual junctionのパース時正規化 — 2週
+### P6 — Junction第2弾: virtual junctionの**コアネイティブ実装** — 5〜7週(ランタイム)+PR整備 【2026-07-04 全面改訂】
 
-- **方式**: mainRoadをsStart/sEndで分割しDEFAULT junctionを合成 → MoveAlongS/RoadPath/LaneIndependentRouter(未スワップのpristine upstream)が無改変で動く。ネイティブ中間接続意味論は保留(§8)。
-- **Day-1スパイク**: 公開RoadManager.hpp APIのみで道路1本を分割できるか検証(幾何サブセグメント再パラメータ化、elevation/laneOffset再基準化、跨りlaneSection、signal/object 1個ずつ)— `Road::geometry_`はprivate(hpp:3181)。**不可の場合のコンティンジェンシー(+25フォーク行、最終手段は加算ヘッダマーカー例外)は今回の承認で事前決定**(週8での突発エスカレーションを回避)。
-- **決定事項(実装前)**: 正規化でroad id/s座標が変わり、**分割域を越えるxosc RoadPosition/LanePosition参照が壊れる** → GT_ScenarioReaderでの旧id/s remap shim か「文書化された制限+検証時診断」かを事前決定。.datのid変化も文書化(ビルド内では自己整合、サイドテーブルで逆引き)。
-- **受入**: 正規化ゾーン通過のRM走行ゴールデン / 合成junctionにミラー接続が存在(CheckConnections後トポロジ)/ xosc位置参照テスト(ゾーン内・越え、決定どおり)/ 正規化ゾーン内でConflictPointResolverが競合解決する挙動バッチ / 分割不変単体テスト(分割前後でz/幅/signal-sサンプル一致)/ 非virtualフィクスチャは全て許容誤差内不変。
+> **経緯**: 当初のパース時正規化(道路分割)は「規格をGT方言に翻訳し、road id/s座標を書き換える」ためユーザー却下。同日、**コアEnvironmentSimulator/ファイルへのin-place編集(R1第2種緩和)を承認** — 地図は無変形のまま、ランタイムが道路途中の接続を直接理解する。実装契約の全文: **[odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md)**(設計Workflow 7エージェント+2敵対審査、メジャー6件を実測検証済み)。
+- **方式**: 「直進はタダ、右左折が機能」— 全変更はVJレジストリ(既存資産では空=構造的ゼロコスト)にガードされた加算分岐。DIRECT junction前例のテンプレートを踏襲。dual-homing(pristine RoadManager.cpp=PR媒体+マーカー付き / フォークGT_RoadManager.cpp=ビルド実効、二側センサスでミラー忘れを機械検出)。オーバーラップ2箇所([GT_LHT]×vj-lanes、junc-abort/crossing×vj-parse)は残差記帳+fork-variantテスト。
+- **ステージ**: S0 ガバナンス+オラクル整備(motion-traversalゴールデン/telemetryゴールデン/センサスチェッカ+レッドテスト) → S0b **upstream v3.4.0マージ**=ベースライン → S1 hpp(加算のみ≤75行) → S2 パース → S3 合成/membership/OSI分類 → S4 path/route(Calculate起点シーディング+SetTrackS修正) → S5 motion(最高リスク) → S6 router(pristine-only) → S7 OSI+消費者(AutoLight含む) → S7b VDシーン → S8 PRパッケージ(PR-A〜D、実提出はユーザー操作)。
+- **第2種予算**(フォーク150行とは別枠、承認済み): hpp≤75 / pristine cpp≤550 / router≤220 / OSIReporter≤30 / Looming≤10。
+- **受入**: 設計書§6のステージ別受入(T1〜T6)+全82本のupstream RoadManager_test緑維持+全既存資産でmotion-traversal/telemetryゴールデン許容誤差内不変+S4-S6は-FailOnBehavioral連続。
+- **収束戦略**: ゴールデンをCONTRACTUAL/INTERPRETIVEに分離、upstreamネイティブ実装到来時はtake-theirs。レビュー地平=PR-A後6ヶ月 or 2リリース。
 
 ### P7 — object幾何+横断面+CRG/bridge L1+junction残L1(網羅ウェーブ1) — 1.5週
 
@@ -228,7 +230,7 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 - **次のupstream resync**: **P8完了後**に1回(フル[GT_ODR]セットでの再コピー)。P9リハーサルのチェックリストを使用。
 - **R4**: 本計画のマニフェスト/マーカー/ctest機構+P9リハーサルは「パッチあたりマージコスト」を下げる。ドリフト自体の削減はP10のPR受理時のみ、と正直にフレーミング。
 - **R3**: run_odr_conformance.pyは壊れているGT_Loader統合テスト群の再作成テンプレートになる(P0以降)。
-- 実行順: P0→P1→P2→P3→P4→P5→(F3週)→P6→P7→P8→P9、P10並走。P4とP7はF3都合で入替可。
+- 実行順【2026-07-04改訂】: P0→P1→(P2∥P3)→(P4∥P5)→**P7∥P8∥P9a(3並列)**→**P6ネイティブ(最後に単独、S0bでv3.4.0マージ)**→**P9b**(ゼロ監査最終スイープ+レーンレイヤweb API+resyncリハーサル+最終ステータス表、~2日)。P10並走。**F3は無期延期**(ODR計画側に依存ゼロ、P5のGetJunctionPrioritiesアクセサは不活性で待機、製品都合で任意の後日に実施)。P9は分割: P9a=railroad/include確定/web公開(レイヤ情報除く)=並列可、P9b=全マージ後の薄い締め。
 
 ---
 
@@ -244,7 +246,8 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 | PR-3 | crossing junctionのWARN同等化+IsOsiIntersection空接続幽霊ガード+junctionアボートWARN劣化 | 中 |
 | PR-4 | 最小signalReference(Signalクローン方式)(任意) | 低-中 |
 | PR-5 | resources/schema/OpenDRIVE_1.9 local_schema+revMinor-9マッピング(upstream 1.8前例852351c1踏襲) | 高 |
-| Issue | XSD 1.1のXML宣言罠の文書化+#592へフィクスチャコーパス提供コメント | — |
+| PR-VJ A〜D | **virtual junctionネイティブ実装の4分割PR**(A=パースのみ/B=接続+membership+OSI分類/C=位置・ルーティング/D=OSIレーンペアリング)。#592へ設計スケッチ先行、`dev`ターゲット、pristine-first・GT依存ゼロ、Unittestフィクスチャ+RoadManager_test同梱。詳細: [odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md) §5 | 中(受理で第2種ドリフト消滅=最大のR4アップサイド) |
+| Issue | XSD 1.1のXML宣言罠の文書化+#592へフィクスチャコーパス提供コメント+VJ設計スケッチ(membership/elementDir をupstream判断として提起) | — |
 
 **還元しないもの**: OdrSideModelアーキテクチャ、レーンレイヤ、crossPath合成、semantics族、virtual junction正規化(upstreamに1.8/1.9ロードマップが無い現状では過大/意見的)。
 
@@ -256,7 +259,7 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 
 1. **CRG実評価**(クラスタ18のL1超): OpenCRGライブラリのvendor+Track2XYZ/標高評価書換が必要(爆風半径1位)。L1は属性格納+ファイル存在WARN。
 2. **crossSectionSurface/shapeのネイティブz評価**(17): 同じく半径1位(剛体ロールモデルはt依存高さを表現不能)。P7は明示WARN付きsuperelevation近似。需要実証時に別スパイク。
-3. **virtual junctionネイティブ中間接続**(6): 「junctionは道路端」不変条件をMoveAlongS/RoadPathで壊し、pristineなLaneIndependentRouter.cppの編集(R1違反)を強いる。正規化で等価挙動を提供。
+3. **【2026-07-04スコープ内へ昇格】virtual junctionネイティブ実装はP6本体になった**(R1第2種緩和の承認による)。v1で保留する下位項目は設計書§9参照: kind-2(topological)接続のルーティング使用 / orientation方向フィルタ強制 / main-road span上のjunction-id報告(upstreamへ提起) / VJアンカーでのランダム分岐 / lockOnLane完全対応。
 4. **レーンレイヤ実行時切替**(4): ロード時選択のみ。走行ごと再パースがWebランナー運用と一致。
 5. **lane @direction のL2**(3): 走行方向判断6箇所以上に波及しLHTホットスポット(パッチ1-A)と重なる。判断箇所サーベイのスパイク(+~25フォーク行、150行上限内で事前承認済み)を独立フェーズとして将来実施。
 6. **railroad L2-L4**(20): 鉄道ランタイム/車両モデル/シナリオ需要なし。L1+API公開、不活性と文書化。
@@ -288,8 +291,9 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 
 1. **CMake swap-zone拡張**(EnvironmentSimulator/Modules/RoadManager/CMakeLists.txtへ odr_side/\*.cpp+GT includeディレクトリ追加)= 既存3行例外を超える**新R1例外**(P1マージ前)
 2. **フォーク行数ハード上限150行**(基本105-115+列挙済みコンティンジェンシー)
-3. **P6コンティンジェンシーの事前承認**(公開API不可→+25フォーク行、最終手段=加算ヘッダマーカー例外)
-4. **P6のxosc位置参照方針**(remap shim か 文書化された制限+診断か)— P6実装前
+3. ~~P6コンティンジェンシー(+25フォーク行)~~ — 正規化案の廃止で**無効化**(2026-07-04。承認自体は取得済みだった)
+4. ~~P6のxosc位置参照方針(remap/診断)~~ — ネイティブ実装でroad id/s座標が不変となり**発生源ごと消滅**(2026-07-04)
+4b. **P6第2種予算+open decisions 7件** — 2026-07-04承認済み(推奨値どおり: hpp≤75/cpp≤550/router≤220/OSIReporter≤30/Looming≤10、membership v1=false/−1、elementDir=INTERPRETIVE文書化、v3.4.0ベースライン、PR-A早期**準備**(提出はユーザー操作)、ファイルセット確定、レビュー地平6ヶ月or2リリース)。詳細: [odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md) §10
 5. **§8保留台帳の承認**(いずれかをスコープ内へ昇格させる場合は工数再見積り)
 6. **`<include>`の扱い**(解決実装 or ハードエラー維持)— P9まで
 7. **ASAMフィクスチャ再配布可否の確認** — P0初日
