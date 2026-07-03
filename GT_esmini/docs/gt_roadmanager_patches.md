@@ -103,3 +103,19 @@
 
 - パッチ 14(curvelocal): 既存全 xodr 資産に `<curveLocal>` トークン無し(リポジトリ xodr ユニバース全 grep = ヒットはテストフィクスチャ `g4_curvelocal_corner_19.xodr` と公式 `Ex_SmoothObjectOutline` のみ、コントロール/本番資産 0 件)→ curveLocal else-if は既存資産で一度も入らず、cornerRoad/cornerLocal 経路は完全不変。単数形受入も複数形資産では `next_sibling("outline")` が上流の無名 `next_sibling()` と等価(`<outlines>` 内は `<outline>` のみ)につきビット同一。**レガシー資産はビット同一**(RM ゴールデン不変で証明。RM 抽出はオブジェクトをダンプしないため g4 の RM ゴールデンも不変)。意図された挙動変化は g4 の OSI stationary polygon が base_polygon **0 点(degenerate)→ 16 点(ccw、非退化)** へ = 2 本の curveLocal 弧(各 length 6.283、max 1.0m/seg)のテッセレーションが OSI に通ったことの実証。OSI ゴールデンは WP4 以降で新規化(現状 MISSING)。
 - パッチ 15(repeat-cubics): 既存全 xodr 資産に repeat `@bT/@cT/@dT` トークン無し(リポジトリ xodr ユニバース全 grep = ヒットはテストフィクスチャ `12_repeat_lateral_poly_19.xodr` のみ、コントロール/本番資産 0 件)→ `AdjustRepeatInstancePose` は横多項式レコードを持たない全レガシーオブジェクトに対し**即 false・s/t 無改変**を返す高速経路をたどり、`GetRepeatInstances` の離散インスタンス s/t は完全不変。**レガシー資産はビット同一**(RM ゴールデン不変で証明。連続アウトライン経路 `CreateContinuousRepeatOutline` は非対象)。12_repeat フィクスチャの OSI 観測は stationary count=1・base_polygon 482 点(連続アウトライン経路由来、パッチ対象外)、横シフト自体は WP2 単体テスト(`AdjustRepeatInstancePose.*`)が機械検証。
+
+### 7.1 WP4: 旗付き authored junction boundary → OSI 交差点輪郭(クラスタ8/9 L3、コミット 47cb8a32)
+
+コアフォーク**追加ゼロ**(90/150 不変・マーカー20 不変・EnvironmentSimulator diff ゼロ)。実装は GT 側 `OdrJunctionGeom.cpp`(WP2 の L1 boundary 格納を世界座標ポリラインへ評価する `BuildAuthoredJunctionBoundaryPolyline()`)+ `GT_OSIReporter.cpp`(継承 `UpdateOSIIntersection()` 後の後段パス `ApplyAuthoredJunctionBoundaries()`)に閉じる。
+
+- **フラグ `GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY`(デフォルト OFF)**: 1/true/yes/on で ON。OFF は完全 no-op(後段パスが即 return) → **既存 OSI ゴールデン全件バイト同一**(コントロールセット + フィクスチャとも不変)。ON 時のみ、`IsOsiIntersection` かつ buildable な polyline を持つ junction について、交差点レーンの `free_lane_boundary_id` リストを合成 `osi3::LaneBoundary` 1 本(id は CommonMini `GetNewGlobalId()` の単調カウンタで衝突なし)で置換。
+- **type="lane" セグメント評価**: 参照 road の boundaryLane OUTER エッジ(符号付き t=sign(lane)*GetOuterOffset)を sStart→sEnd(start/begin→0・end→length・数値)で `Position::SetTrackPos` により ≤2m ステップサンプリング(スパン当り ≥2 点、接触点 degenerate は 1 点)。type="joint" は文書化された no-op(連続レーンセグメント間の直線接続)。dangling/degenerate 参照は WARN+false で呼出側が heuristic を温存。
+- **検証(WP5)**: `scripts/probe_authored_junction_boundary.py` が OFF/ON の 2 走行を比較 — 手書き authored-boundary フィクスチャで **OFF free_lane_boundary=[29,37,47,59](各 12 点の heuristic)→ ON=[62](authored 輪郭 1 本・4 点)** を機械アサート(両アサート pass)。プログラム的 `SetUseAuthoredJunctionBoundary(bool)` オーバーライドで単体テスト可能。
+
+### 7.2 WP5 最終検証(2026-07-04、受入ゲート i〜vii)
+
+- **(i) GT_RoadGen 公式ジオメトリ資産**: Ex_SmoothObjectOutline_traffic_island / Ex_TrafficIsland-CornerRoad / Ex_Objects / Ex_CrossSectionSurface 4 本 / UC_RoadShape の計 8 資産すべて **exit 0・.osgb > 4KB**(最小 UC_RoadShape=4358B、最大 Ex_Objects=77838B)。
+- **(iii) ゴールデンレビュー**: 新規 9 本のみ(RM 23/24/25/26/g8 + OSI g4/10/11/26)。g4 OSI base_polygon=16pt ccw、11_bridge stationary type2(TYPE_BRIDGE)×1、10_object_reference stationary×2、26_object_details stationary×3(非クラッシュ証明)、23/24 RM z_probe=±0.059988@t=±3(解析 rm_expect_z 一致)。既存ゴールデンは `--update-golden` 後も全件 CRLF ゴーストのみ(`git diff` 空)=回帰ゼロ。full profile **233P/0F/13XF/0XP**。
+- **(iv) 1.4/1.5 コントロール .osgb サイズ帯**: fabriksgatan/e6mini/straight_500m を P7 exe と dev_v0.12 baseline exe で生成 → **3 資産ともバイト同一(0.0000% 差)**。
+- **(vi) 不変スイート**: Release ビルド 0 error、unit ctest **163/163**、conformance full 緑、回帰ゲート(Step1/1.5 緑・Step2 は既知 TL 2 件=`red_stop_green_go`/`green_no_stop` のみ fail=dev 基準一致・他 9 件 pass)、validate_catalog **61/61**、quick smoke(esmini/replayer/odrviewer)3/3、フラグ probe OFF/ON 両アサート pass。
+- **(vii) ジオメトリフィクスチャのビューア確認**: 7 フィクスチャ(g4/11/10/26/24/23/g8)を odrviewer `--capture_screen` で撮影 — bridge span・objectReference 2 本のポール・object_details のボックス群・g8 の X 交差点を目視確認。23/24 の断面傾斜(superelevation 劣化、z≈0.06m@t=3)は微小につき既定アングルでは非可視(道路ジオメトリ自体は正常描画)。
