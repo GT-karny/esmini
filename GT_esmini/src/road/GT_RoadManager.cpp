@@ -5439,6 +5439,13 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
             LOG_WARN("Virtual junction type found. Not supported yet. Continue treating it as default type");
             junction_type = Junction::JunctionType::DEFAULT;
         }
+        else if (junction_type_str == "crossing")
+        {
+            // [GT_ODR:junc-crossing] recognize 1.8 crossing junction type (plan P5); roadSection is
+            // captured GT-side in OdrJunctionExtras, keep JunctionType::DEFAULT (hpp enum is frozen)
+            LOG_WARN("Crossing junction type found. roadSection handled GT-side. Continue treating it as default type");
+            junction_type = Junction::JunctionType::DEFAULT;
+        }
 
         Junction* j = new Junction(junction_ids_[junction_.size()].first, jid_str, name, junction_type);
 
@@ -5937,8 +5944,12 @@ bool Junction::IsOsiIntersection() const
     }
     else
     {
-        LOG_ERROR_ONCE("Type of roads are missing, cannot determine for OSI intersection or not, assuming that it is an intersection.");
-        return true;
+        // [GT_ODR:junc-crossing] a junction with zero resolvable connections must NOT become an OSI
+        // TYPE_INTERSECTION (crossing/virtual junctions carry roadSection/crossPath, not connections;
+        // upstream assumed intersection -> ghost intersection lanes). Plan P5. All control assets have
+        // connections, so this is a no-op there.
+        LOG_ERROR_ONCE("Junction has no resolvable connections; not treating it as an OSI intersection.");
+        return false;
     }
 }
 
