@@ -15,7 +15,8 @@
 |---|---|---|---|
 | **P0** | ✅ 完了 (2026-07-03) | 649c81a2, 88b14f8c | フィクスチャ60本(手書き18+生成6+公式36)、3層ハーネス `scripts/run_odr_conformance.py`(スキーマ80P/11XF・RM 88P/3XF・OSI 31P)、ゴールデン119本(二重生成バイト同一)、トレーサビリティ行列(18クラスタ充足+5明示保留)、回帰ゲートStep 1.5(ハード)+CI(ubuntuスキーマ+行列のみの保守的統合) |
 | **P1** | ✅ 完了 (2026-07-03) | 2c13045a, 4aafef2a, 5a1aa8f4 | `gt_esmini::odr` OdrSideModel+属性粒度監査(ホワイトリスト88パス/289ペア、コントロール~113ファイル警告ゼロ・フィクスチャ20要素+23属性検出)、フォークパッチ**16/150行**([gt_roadmanager_patches.md](gt_roadmanager_patches.md))、ガバナンステスト(マーカーctest+`check_fork_drift.py`)、挙動不変証明(TrafficLight分類ベースライン: 意図された2フリップ以外114ファイル/428信号完全一致、RM/OSIゴールデン不変、phase3バッチper-scenario不変、validate_catalog 61/61) |
-| P2〜P10 | 未着手 | — | 次=P2(レーン型+border→width正規化、1週) |
+| **P2** | ✅ 完了 (2026-07-03) | 4a8d8f4b, 041c7c0b, dd2592c8 (merge b395ef00) | クラスタ3+16: [GT_ODR:lane-types] 5行(walking→SIDEWALK / curb→CURB / shared→BIDIRECTIONAL / slipLane→CONNECTING_RAMP、フォーク計 **21/150行**)、OdrLaneExtras(1.8レーン属性+access/rule/speed/sway/border L1、レガシー資産ではスパース=空)、border→width正規化(公開AddLaneWidth経由・型付きBuildSideModelオーバーロードで**フォーク改変ゼロ、lane-borderコンティンジェンシー不使用**、Ex_Lane-Border偽グリーン解消)、lane speed L2(ManeuverAwareSpeedPlanner min接続・レガシー経路ビット同一をphase3 per-scenario一致で証明)、OSI TYPE_UNKNOWNゼロ(fixture 13の`osi: true`+`osi_expect_no_unknown`機械検証、OSI層にフィクスチャopt-in拡張)、rm_lib/web同期+enum往復ctest(OdrLaneTypeSync)、ゴールデン意図変化15 RM+新規1 OSI(コントロールセット31件はバイト同一) |
+| P3〜P10 | 未着手 | — | 次=P3(動的信号ゲート緩和+signal配置/参照、1週。feature/odr1619-p3 が並行作業中 → 本マージ後に rebase+監査diff再取得、マーカー数/EXPECT_LINES は合算) |
 
 - **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)の順で dev_v0.12 へマージ済(マージ後ツリーは検証済みツリーと同一)。
 - **承認済**(2026-07-02): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない**(CIではofficial層自動SKIP)。**残承認**: §10-3・4(P6着手前)、§10-5・6(P9まで)。
