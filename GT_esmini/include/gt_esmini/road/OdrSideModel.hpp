@@ -40,6 +40,14 @@
 namespace pugi
 {
 class xml_document;
+class xml_node;
+}
+
+namespace roadmanager
+{
+class OpenDrive;
+class Road;
+class Signal;
 }
 namespace roadmanager
 {
@@ -138,6 +146,59 @@ const OdrSideModel* GetSideModel(const void* opendrive_key);
 
 // Remove the model registered under `opendrive_key` (no-op if none).
 void ClearSideModel(const void* opendrive_key);
+
+// ---------------------------------------------------------------------------
+// P3 signal placement / cross-reference helpers (clusters 11/12).
+// Implemented in odr_side/OdrSignalExtras.cpp; called from the two thin fork
+// hooks [GT_ODR:sig-pos] and [GT_ODR:sig-ref] in GT_RoadManager.cpp.
+// ---------------------------------------------------------------------------
+
+// Where a signal's PHYSICAL pose comes from, resolved by ResolveSignalPose(). The fork builds
+// roadmanager::Position(road->GetId(), s, t) from it; `road` is never null on return (defaults
+// to the signal's logical road when no position child exists or resolution fails).
+struct SignalPoseResolution
+{
+    roadmanager::Road* road = nullptr;
+    double             s    = 0.0;
+    double             t    = 0.0;
+    bool               has_world_h = false;  // positionInertial@hdg present -> absolute heading
+    double             world_h     = 0.0;
+};
+
+// [GT_ODR:sig-pos] Resolve <positionRoad>/<positionInertial> under `signal_node` (plan P3,
+// cluster 12):
+//   * <positionRoad>: attach the physical pose to the referenced road at (@s,@t); @zOffset/@hOffset
+//     (and @pitch/@roll when present) override the signal's own values. Unknown @roadId -> WARN +
+//     logical pose. Referenced roads must appear BEFORE the referring signal's road in the
+//     document (parse-time limitation, documented in gt_roadmanager_patches.md).
+//   * <positionInertial>: reverse-map (@x,@y,@z) via Position::XYZ2TrackPos to road/s/t. Off-road
+//     (projection clamped beyond road ends, or |t| > 30 m) -> WARN + logical pose (skip).
+//     @hdg (when present) becomes an absolute world heading override.
+//   * 1.9 s/t omission: when the signal's own @s/@t are absent they are backfilled from the
+//     resolved pose IF it lies on the signal's logical road; absent s/t WITHOUT any position
+//     child is diagnosed with a WARN (defaults to 0/0).
+// Mutates sig_s/sig_t (backfill) and z_offset/h_offset/pitch/roll (overrides) accordingly.
+SignalPoseResolution ResolveSignalPose(const pugi::xml_node& signal_node,
+                                       roadmanager::OpenDrive* odr,
+                                       roadmanager::Road*      logical_road,
+                                       double&                 sig_s,
+                                       double&                 sig_t,
+                                       double&                 z_offset,
+                                       double&                 h_offset,
+                                       double&                 pitch,
+                                       double&                 roll);
+
+// [GT_ODR:sig-ref] Materialize every road-level <signalReference> in `doc` as a clone of the
+// referenced Signal (plan P3, cluster 12): the clone carries the REFERENCE's s/t/orientation and
+// <validity> children, everything else from the referenced signal; dynamic targets clone as
+// TrafficLight (consistent with [GT_ODR:tl-gate]). Clones are added to their road via
+// Road::AddSignal with a fresh global id + SetAllValidLanes. Must run AFTER all roads are parsed
+// (document-wide forward references) -- i.e. from the fork hook site just before
+// CheckConnections(). Unresolvable references (unknown signal id / road) -> WARN + skip.
+// Returns the created signals so the CALLER (fork) can register dynamic ones in
+// OpenDrive::dynamic_signals_ (private member, hence not done here).
+std::vector<roadmanager::Signal*> MaterializeSignalReferences(const pugi::xml_document& doc,
+                                                              roadmanager::OpenDrive*   odr);
 
 }  // namespace odr
 }  // namespace gt_esmini

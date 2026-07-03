@@ -2189,7 +2189,16 @@
     "y": 71.725497,
     "z": 0.0
    },
-   "signs": []
+   "signs": [
+    {
+     "id": 2,
+     "name": "SgRMHoldingline-2Lane",
+     "orientation": -1,
+     "s": 2.5,
+     "t": -2.7,
+     "z_offset": 0.0
+    }
+   ]
   },
   {
    "id": "5",

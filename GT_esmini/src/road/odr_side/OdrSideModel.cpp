@@ -54,6 +54,7 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
 
         bool found_include = false;
         detail::RunCoverageWalk(root, *model, found_include);
+        detail::CollectSignalExtras(root, *model);  // P3 cluster 12 L1 (<dependency>/<reference>)
 
         // P2: focused lane-detail pass (clusters 3+16 L1 storage; sparse on legacy assets).
         detail::ParseLaneExtras(root, *model);

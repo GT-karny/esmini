@@ -471,6 +471,11 @@ void TrafficLight::SetTrafficLightInfo()
     else
     {
         light_type_ = TrafficLightType::TYPE_UNDEFINED;
+        // [GT_ODR:tl-gate] unsupported type combo: 0 lamps. nr_lamps_ has no default initializer (hpp is
+        // pristine upstream), so it was GARBAGE here -- GetNrLamps() consumers (OSI reporter, VD policies)
+        // then throw via lamps_.at() across the C API. Latent upstream bug, exposed once ANY dynamic
+        // signal becomes a TrafficLight (P3). Upstream PR candidate alongside PR-1b.
+        nr_lamps_ = 0;
         LOG_WARN("TrafficLight: Traffic light type '{}' subtype '{}' not supported", GetType(), GetSubType());
     }
 }
@@ -4893,10 +4898,19 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     double      pitch    = atof(signal.attribute("pitch").value());
                     double      roll     = atof(signal.attribute("roll").value());
 
-                    Position pos(r->GetId(), s, t);
+                    // [GT_ODR:sig-pos] <positionRoad>/<positionInertial> physical pose + s/t-omission handling (plan P3
+                    // cluster 12; logic in odr_side/OdrSignalExtras.cpp -- off-road positionInertial WARNs + keeps logical pose)
+                    gt_esmini::odr::SignalPoseResolution gt_sp =
+                        gt_esmini::odr::ResolveSignalPose(signal, this, r, s, t, z_offset, h_offset, pitch, roll);
+                    Position pos(gt_sp.road->GetId(), gt_sp.s, gt_sp.t);
+                    double   gt_sig_h =
+                        gt_sp.has_world_h ? gt_sp.world_h : pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0);
 
                     Signal* sig;
-                    if (country == "opendrive" && country_revision < 2013 && dynamic)  // why country_revision < 2013??
+                    // [GT_ODR:tl-gate] any dynamic signal is a TrafficLight, independent of country/countryRevision
+                    // (plan P3 cluster 11; audited: golden/trafficlight_classification.json + odr_tl_classification_audit.py)
+                    (void)country_revision;  // still read by the country-rev patch (upstream PR-1); no longer gates classification
+                    if (dynamic)
                     {
                         sig = new TrafficLight(s,
                                                t,
@@ -4921,7 +4935,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                pos.GetX(),
                                                pos.GetY(),
                                                pos.GetZ(),
-                                               pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0));
+                                               gt_sig_h);  // [GT_ODR:sig-pos]
                     }
                     else
                     {
@@ -4948,7 +4962,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                          pos.GetX(),
                                          pos.GetY(),
                                          pos.GetZ(),
-                                         pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0));
+                                         gt_sig_h);  // [GT_ODR:sig-pos]
                     }
 
                     if (sig == NULL)
@@ -4975,7 +4989,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                     r->AddSignal(sig);
                 }
-                else
+                else if (strcmp(signal.name(), "signalReference") != 0)  // [GT_ODR:sig-ref] materialized post-parse (see hook below)
                 {
                     LOG_ERROR_ONCE("INFO: signal element \"{}\" not supported yet", signal.name());
                 }
@@ -5504,6 +5518,15 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
     if (!gt_esmini::odr::BuildSideModel(doc, this))
     {
         return false;
+    }
+
+    // [GT_ODR:sig-ref] materialize <signalReference> clones (needs ALL roads parsed -- document-wide forward
+    // references); clones carry the referrer's s/t/orientation/validity (plan P3 cluster 12). Register dynamic
+    // clones like the parse loop does (dynamic_signals_ is private, hence here and not in the GT helper).
+    for (Signal* gt_sig : gt_esmini::odr::MaterializeSignalReferences(doc, this))
+    {
+        if (gt_sig->IsDynamic())
+            dynamic_signals_.push_back(gt_sig);
     }
 
     CheckConnections();

@@ -55,6 +55,11 @@ void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model);
 // through the public Lane::AddLaneWidth API. Called only from the typed BuildSideModel overload.
 void ApplyBorderWidths(const OdrSideModel& model, roadmanager::OpenDrive* od);
 
+// ---- OdrSignalExtras.cpp (P3) ----
+
+// Collect <signal>/<dependency> + <signal>/<reference> into model.signal_extras (cluster 12 L1).
+void CollectSignalExtras(const pugi::xml_node& root, OdrSideModel& model);
+
 }  // namespace detail
 }  // namespace odr
 }  // namespace gt_esmini

@@ -36,20 +36,20 @@
         </lanes>
         <objects/>
         <signals>
-            <!-- (a) dynamic + alpha-2 country "DE" + explicit countryRevision: classifies as static Signal today
-                 (country != "opendrive" -> gate false). 1.8 idiom. -->
+            <!-- (a) dynamic + alpha-2 country "DE" + explicit countryRevision: 1.8 idiom.
+                 Pre-P3: static Signal (country != "opendrive" -> gate false).
+                 Since [GT_ODR:tl-gate] (P3): TrafficLight (dynamic=yes is the sole gate input). -->
             <signal s="30.0" t="-4.0" id="1" name="tl_de_2021" dynamic="yes" orientation="-" zOffset="5.0"
-                    country="DE" countryRevision="2021" type="1000001" subtype="-1" value="0.0" height="0.5" width="0.4"/>
-            <!-- (b) dynamic + country "OpenDRIVE" WITH explicit countryRevision="2021": DEMOTE reproduction.
-                 country=="opendrive" but the inverted .empty() guard at ~4821 keeps country_revision=2013,
-                 so (2013 < 2013) is false -> static Signal instead of TrafficLight. This is the bug target. -->
+                    country="DE" countryRevision="2021" type="1000001" subtype="-1" height="0.5" width="0.4"/>
+            <!-- (b) dynamic + country "OpenDRIVE" WITH explicit countryRevision="2021": DEMOTE reproduction
+                 (breakage #1). Pre-P3: static Signal (P1 honored the explicit 2021, 2021<2013 false).
+                 Since [GT_ODR:tl-gate] (P3): TrafficLight. -->
             <signal s="70.0" t="-4.0" id="2" name="tl_odr_2021" dynamic="yes" orientation="-" zOffset="5.0"
-                    country="OpenDRIVE" countryRevision="2021" type="1000001" subtype="-1" value="0.0" height="0.5" width="0.4"/>
-            <!-- (c) dynamic + country "OpenDRIVE" WITHOUT countryRevision (control): the absent attr makes
-                 .empty() true -> country_revision read as as_uint() of absent attr = 0, (0 < 2013) true,
-                 dynamic true -> becomes a TrafficLight today. -->
+                    country="OpenDRIVE" countryRevision="2021" type="1000001" subtype="-1" height="0.5" width="0.4"/>
+            <!-- (c) dynamic + country "OpenDRIVE" WITHOUT countryRevision (control): TrafficLight both
+                 pre-P3 (absent => 0 < 2013) and post-P3 (dynamic). Anchors the no-flip control case. -->
             <signal s="110.0" t="-4.0" id="3" name="tl_odr_absent" dynamic="yes" orientation="-" zOffset="5.0"
-                    country="OpenDRIVE" type="1000001" subtype="-1" value="0.0" height="0.5" width="0.4"/>
+                    country="OpenDRIVE" type="1000001" subtype="-1" height="0.5" width="0.4"/>
         </signals>
     </road>
 </OpenDRIVE>

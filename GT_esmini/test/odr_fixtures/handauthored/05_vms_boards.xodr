@@ -39,7 +39,7 @@
             <!-- Variable message sign: a <signal> carrying the 1.8 <vmsBoard> board/display construct.
                  vmsBoard has displayType (enum), displayWidth/displayHeight, v/z, and <displayArea> children. -->
             <signal s="75.0" t="0.0" id="1" name="gantry_vms" dynamic="yes" orientation="+" zOffset="6.0"
-                    country="DE" type="1000001" subtype="-1" value="0.0" height="2.0" width="4.0">
+                    country="DE" type="1000001" subtype="-1" height="2.0" width="4.0">
                 <vmsBoard displayType="LED" displayWidth="4.0" displayHeight="2.0" v="0.0" z="6.0">
                     <displayArea index="0" v="0.0" z="6.0" width="4.0" height="2.0"/>
                 </vmsBoard>

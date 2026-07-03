@@ -11,7 +11,7 @@ Machine-verifiable conformance baseline for the OpenDRIVE 1.6-1.9 support plan
 | `schema19/` | **NO** (gitignored) | The 7 OpenDRIVE 1.9 `.xsd` files, extracted with their XML declaration bumped to `version="1.1"` (see below). |
 | `reports/` | **NO** (gitignored) | Generated validation / probe reports (JSON). |
 | `work/` | **NO** (gitignored) | Scratch space for harness runs. |
-| `handauthored/` | **yes** | GT-authored fixtures 01-18 (crossing junctions, objectReference, bridge, lane rule/speed, repeat polynomials, removed-in-1.6 neighbor, etc.). |
+| `handauthored/` | **yes** | GT-authored fixtures 01-20 (crossing junctions, objectReference, bridge, lane rule/speed, repeat polynomials, removed-in-1.6 neighbor, etc.). |
 | `generated/` | **yes** | Injector-produced fixtures g1-g6 (`scripts/odr_feature_injector.py`) + `recipes/`. |
 | `golden/` | **yes** | RM (`golden/rm/`) + OSI (`golden/osi/`) golden extracts (tolerance-based; regen with `--update-golden`). |
 | `asam_pins.json` | **yes** | Integrity pins (sha256/size/counts) for the source zips. |
@@ -40,7 +40,8 @@ DriverScript/.venv/Scripts/python.exe scripts/run_odr_conformance.py \
   samples / position probe / signs, floats rounded to 1e-6) compared with `golden/rm/<slug>.json`
   (abs tol 1e-6 on floats, exact otherwise).
 - **Layer 3 (osi, profile `full`)**: control_set + fixtures opted in via manifest `osi: true`
-  (since P2: `13_lane_types_16_18`; a fixture may additionally set `osi_expect_no_unknown: true`
+  (P2: `13_lane_types_16_18`; P3: `03_dynamic_signal_demote_18`, `05_vms_boards`,
+  `19_signal_reference_18`; a fixture may additionally set `osi_expect_no_unknown: true`
   to turn any `TYPE_UNKNOWN` lane classification into a FAIL -- plan P2 acceptance (i)).
   A minimal probe `.xosc` (Ego teleported to
   road[0] midpoint) drives `GT_esminiLib` `SE_Init`/`SE_StepDT(0.05)`/`SE_GetOSIGroundTruth`; the
@@ -130,9 +131,14 @@ When the ASAM source zips are (legitimately) updated:
 
 ## P0 baseline (frozen in `manifest.yaml` + `golden/`)
 
-`manifest.yaml` = **31 control_set** (26 `resources/xodr/*.xodr` + 5 `resources/scenario_authoring/road_catalog/generated/*.xodr`) + **60 fixtures** (36 official + 18 handauthored + 6 generated). `run_odr_conformance.py --profile full` is green: schema 80 PASS / 11 XFAIL, rm 88 PASS / 3 XFAIL, osi 32 PASS (31 control + fixture 13 opt-in; 0 FAIL / 0 XPASS). Goldens: 88 RM + 32 OSI.
+`manifest.yaml` = **31 control_set** (26 `resources/xodr/*.xodr` + 5 `resources/scenario_authoring/road_catalog/generated/*.xodr`) + **62 fixtures** (36 official + 20 handauthored + 6 generated; 19/20 added in P3). `run_odr_conformance.py --profile full` is green: schema 82 PASS / 11 XFAIL, rm 90 PASS / 3 XFAIL, osi 35 PASS (31 control + fixtures 13/03/05/19 opt-in; 0 FAIL / 0 XPASS). Goldens: 90 RM + 35 OSI.
 
 P2 (2026-07-03) intentionally regenerated 15 RM goldens (lane-type NONE->SIDEWALK/CURB/BIDIRECTIONAL/CONNECTING_RAMP flips in fixtures using walking/curb/shared/slipLane + the Ex_Lane-Border border->width normalization) and added the fixture-13 OSI golden; every control_set golden stayed byte-identical (legacy invariance proof).
+
+P3 (2026-07-03) refroze `golden/trafficlight_classification.json` atomically with the `[GT_ODR:tl-gate]`
+relaxation (reviewed diff: `GT_esmini/docs/odr_p3_tl_gate_audit.md`), added fixtures 19/20 (+ RM/OSI
+goldens) and regenerated 3 official RM goldens whose `<signalReference>` elements now materialize as
+clone signs (UC_Motorway-Exit-Entry x2, UC_5Road_Junction); control_set goldens stayed byte-identical.
 
 The frozen known-broken baselines (XFAIL) are:
 

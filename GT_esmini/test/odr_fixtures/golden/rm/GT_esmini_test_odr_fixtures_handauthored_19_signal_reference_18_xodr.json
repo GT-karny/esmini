@@ -1,0 +1,280 @@
+{
+ "load_ok": true,
+ "num_roads": 2,
+ "roads": [
+  {
+   "id": "1",
+   "lane_samples": [
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 1.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 37.5
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 75.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 112.5
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 149.0
+    }
+   ],
+   "length": 150.0,
+   "position_probe": {
+    "h": 3.141593,
+    "lane": 1,
+    "s": 75.0,
+    "x": 75.0,
+    "y": 1.75,
+    "z": 0.0
+   },
+   "signs": [
+    {
+     "id": 1,
+     "name": "tl_main",
+     "orientation": 1,
+     "s": 100.0,
+     "t": -4.0,
+     "z_offset": 4.0
+    },
+    {
+     "id": 2,
+     "name": "stop_main",
+     "orientation": 1,
+     "s": 110.0,
+     "t": -4.0,
+     "z_offset": 2.0
+    }
+   ]
+  },
+  {
+   "id": "2",
+   "lane_samples": [
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 1.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 25.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 50.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 75.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.5
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.5
+      }
+     ],
+     "num_lanes": 3,
+     "s": 99.0
+    }
+   ],
+   "length": 100.0,
+   "position_probe": {
+    "h": 3.141593,
+    "lane": 1,
+    "s": 50.0,
+    "x": 250.0,
+    "y": 1.75,
+    "z": 0.0
+   },
+   "signs": [
+    {
+     "id": 1,
+     "name": "tl_main",
+     "orientation": 1,
+     "s": 50.0,
+     "t": -4.0,
+     "z_offset": 4.0
+    },
+    {
+     "id": 2,
+     "name": "stop_main",
+     "orientation": -1,
+     "s": 60.0,
+     "t": 4.0,
+     "z_offset": 2.0
+    }
+   ]
+  }
+ ]
+}

@@ -6,16 +6,15 @@
 //   1. MarkerCount  -- assert the on-disk marker inventory matches the patch manifest so a
 //      stray/removed fork edit trips ctest. KEEP IN SYNC WITH:
 //          GT_esmini/docs/gt_roadmanager_patches.md
-//      (6x "[GT_ODR:" + >=1 "[GT_LHT]" in GT_RoadManager.cpp; 1x "[GT_ODR:cmake]" in the
+//      (13x "[GT_ODR:" + >=1 "[GT_LHT]" in GT_RoadManager.cpp; 2x "[GT_ODR:cmake]" in the
 //       RoadManager CMakeLists). Source-of-truth via the GT_ODR_REPO_ROOT compile def.
 //
 //   2. Behavioral proofs of the individual patches, driven through the REAL parser
 //      (roadmanager::Position::GetOpenDrive()->LoadOpenDriveFile), using tiny deterministic
 //      temp xodr files:
-//        - CountryRevisionLegacyPreserving : the [GT_ODR:country-rev] legacy-preserving read
-//          (absent=>0, explicit honored). Case (b) countryRevision="2012" -> TrafficLight is
-//          the regression that FAILED before the patch (old default 2013 => 2012<2013 never
-//          reached because the attribute was only read when ABSENT).
+//        - TrafficLightGateRelaxation : the [GT_ODR:tl-gate] P3 gate (TrafficLight iff @dynamic).
+//          Also anchors that the P1 [GT_ODR:country-rev] read stays legacy-preserving (absent=>0)
+//          for diagnostics, while no longer gating classification.
 //        - IncludeHardError          : [GT_ODR:hook] BuildSideModel makes <include> a hard error.
 //        - JunctionAbortResilience   : [GT_ODR:junc-abort] a dangling connectingRoad no longer
 //          aborts the whole parse (load survives, the connection is skipped).
@@ -192,12 +191,12 @@ TEST(OdrForkPatches, MarkerCount)
     const std::string root = RepoRoot();
     ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
 
-    // GT_RoadManager.cpp: exactly 5 [GT_ODR: and at least 1 [GT_LHT].
+    // GT_RoadManager.cpp: exactly 12 [GT_ODR: and at least 1 [GT_LHT].
     const std::string cpp_path = root + "/GT_esmini/src/road/GT_RoadManager.cpp";
     std::string       cpp;
     ASSERT_TRUE(ReadFileToString(cpp_path, cpp)) << "cannot read " << cpp_path;
-    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 6u)
-        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 6).";
+    EXPECT_EQ(CountOccurrences(cpp, "[GT_ODR:"), 13u)
+        << "GT_RoadManager.cpp [GT_ODR:] marker count drifted from gt_roadmanager_patches.md (expected 13).";
     EXPECT_GE(CountOccurrences(cpp, "[GT_LHT]"), 1u)
         << "GT_RoadManager.cpp lost its [GT_LHT] patch 1-A marker.";
 
@@ -211,50 +210,66 @@ TEST(OdrForkPatches, MarkerCount)
         << "RoadManager/CMakeLists.txt [GT_ODR:cmake] marker count drifted from gt_roadmanager_patches.md §0 (expected 2: source-list + include-dir).";
 }
 
-// 2. countryRevision legacy-preserving read: absent=>0 (honored), explicit values honored.
-//    The gate is: TrafficLight iff ToLower(country)=="opendrive" && country_revision<2013 && dynamic.
-TEST(OdrForkPatches, CountryRevisionLegacyPreserving)
+// 2. [GT_ODR:tl-gate] (plan P3): TrafficLight iff @dynamic=="yes" -- country/countryRevision no
+//    longer gate the classification. The P1 [GT_ODR:country-rev] read (absent=>0, explicit honored)
+//    is retained for diagnostics / upstream PR-1, but is classification-irrelevant since P3.
+//    Cases (b')/(c')/(d') were STATIC Signals before P3 (see golden/trafficlight_classification.json
+//    history + GT_esmini/docs/odr_p3_tl_gate_audit.md for the reviewed asset-universe diff).
+TEST(OdrForkPatches, TrafficLightGateRelaxation)
 {
-    // (a) country="OpenDRIVE" WITHOUT countryRevision -> absent=>0, 0<2013 -> TrafficLight.
+    // (a) dynamic, country="OpenDRIVE", no countryRevision -> TrafficLight (was already TL pre-P3).
     {
         const std::string path = WriteTemp("cr_absent.xodr", OneDynamicSignalRoad("tl_absent", "OpenDRIVE", ""));
         ASSERT_TRUE(LoadXodr(path)) << "load failed: " << path;
         roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "tl_absent");
         ASSERT_NE(sig, nullptr) << "signal tl_absent not found";
-        EXPECT_TRUE(IsTrafficLight(sig)) << "(a) absent countryRevision must classify as TrafficLight (absent=>0<2013)";
+        EXPECT_TRUE(IsTrafficLight(sig)) << "(a) dynamic signal must classify as TrafficLight";
     }
 
-    // (b) country="OpenDRIVE" countryRevision="2012" -> explicit honored, 2012<2013 -> TrafficLight.
-    //     THIS FAILED BEFORE THE PATCH: the old code defaulted country_revision=2013 and only read
-    //     the attribute when it was ABSENT, so an explicit 2012 was never applied -> stayed 2013
-    //     -> 2013<2013 false -> demoted to a plain Signal.
+    // (b') dynamic, country="OpenDRIVE" countryRevision="2013" -> TrafficLight.
+    //      THE 1.8-idiom demote reproduction (ASAM officials write exactly this; 2013<2013 was false
+    //      pre-P3 -> static Signal -> OSI traffic_light lost). P3 fixes it.
     {
         const std::string path =
-            WriteTemp("cr_2012.xodr", OneDynamicSignalRoad("tl_2012", "OpenDRIVE", " countryRevision=\"2012\""));
+            WriteTemp("cr_2013.xodr", OneDynamicSignalRoad("tl_2013", "OpenDRIVE", " countryRevision=\"2013\""));
         ASSERT_TRUE(LoadXodr(path)) << "load failed: " << path;
-        roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "tl_2012");
-        ASSERT_NE(sig, nullptr) << "signal tl_2012 not found";
-        EXPECT_TRUE(IsTrafficLight(sig)) << "(b) explicit countryRevision=2012 must classify as TrafficLight (regression pre-patch)";
+        roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "tl_2013");
+        ASSERT_NE(sig, nullptr) << "signal tl_2013 not found";
+        EXPECT_TRUE(IsTrafficLight(sig)) << "(b') countryRevision=2013 dynamic must be TrafficLight since P3";
     }
 
-    // (c) country="OpenDRIVE" countryRevision="2021" -> explicit honored, 2021>=2013 -> plain Signal.
+    // (c') dynamic, country="OpenDRIVE" countryRevision="2021" -> TrafficLight (was Signal pre-P3).
     {
         const std::string path =
             WriteTemp("cr_2021.xodr", OneDynamicSignalRoad("tl_2021", "OpenDRIVE", " countryRevision=\"2021\""));
         ASSERT_TRUE(LoadXodr(path)) << "load failed: " << path;
         roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "tl_2021");
         ASSERT_NE(sig, nullptr) << "signal tl_2021 not found";
-        EXPECT_FALSE(IsTrafficLight(sig)) << "(c) countryRevision=2021 must stay a plain Signal (>=2013)";
+        EXPECT_TRUE(IsTrafficLight(sig)) << "(c') countryRevision=2021 dynamic must be TrafficLight since P3";
     }
 
-    // (d) country="DE" dynamic -> gate country mismatch -> plain Signal (unchanged by the patch).
+    // (d') dynamic, country="DE" (alpha-2, 1.8 idiom) -> TrafficLight (was Signal pre-P3).
     {
         const std::string path =
             WriteTemp("cr_de.xodr", OneDynamicSignalRoad("tl_de", "DE", " countryRevision=\"2021\""));
         ASSERT_TRUE(LoadXodr(path)) << "load failed: " << path;
         roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "tl_de");
         ASSERT_NE(sig, nullptr) << "signal tl_de not found";
-        EXPECT_FALSE(IsTrafficLight(sig)) << "(d) country=DE must stay a plain Signal (gate country mismatch)";
+        EXPECT_TRUE(IsTrafficLight(sig)) << "(d') country=DE dynamic must be TrafficLight since P3";
+    }
+
+    // (e) NOT dynamic (dynamic="no") -> plain Signal: @dynamic remains the sole gate input.
+    {
+        std::string xodr = OneDynamicSignalRoad("static_sign", "OpenDRIVE", "");
+        const std::string dyn_yes = "dynamic=\"yes\"";
+        const std::size_t at = xodr.find(dyn_yes);
+        ASSERT_NE(at, std::string::npos);
+        xodr.replace(at, dyn_yes.size(), "dynamic=\"no\"");
+        const std::string path = WriteTemp("cr_static.xodr", xodr);
+        ASSERT_TRUE(LoadXodr(path)) << "load failed: " << path;
+        roadmanager::Signal* sig = FindSignalByName(roadmanager::Position::GetOpenDrive(), "static_sign");
+        ASSERT_NE(sig, nullptr) << "signal static_sign not found";
+        EXPECT_FALSE(IsTrafficLight(sig)) << "(e) dynamic=no must stay a plain Signal";
     }
 
     roadmanager::Position::GetOpenDrive()->Clear();
@@ -347,6 +362,171 @@ TEST(OdrForkPatches, HookIntegration)
     ASSERT_NE(sm, nullptr) << "the [GT_ODR:hook] BuildSideModel call must register a side model keyed by the OpenDrive*";
     EXPECT_EQ(sm->rev_major, 1) << "side model rev_major should be 1 for this header";
     EXPECT_EQ(sm->rev_minor, 8) << "side model rev_minor should be 8 for this header";
+
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
+
+// -- P3 [GT_ODR:sig-pos] / [GT_ODR:sig-ref] behavioral proofs (committed fixtures 19/20) ----------
+
+namespace
+{
+
+// Find a signal by name on ONE road (clones share the referenced signal's name across roads).
+roadmanager::Signal* FindSignalOnRoad(roadmanager::Road* road, const std::string& name)
+{
+    if (road == nullptr)
+    {
+        return nullptr;
+    }
+    for (unsigned int si = 0; si < road->GetNumberOfSignals(); ++si)
+    {
+        roadmanager::Signal* sig = road->GetSignal(si);
+        if (sig != nullptr && sig->GetName() == name)
+        {
+            return sig;
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+// 6. [GT_ODR:sig-pos]: positionRoad/positionInertial physical pose + 1.9 s/t omission + off-road skip.
+TEST(OdrForkPatches, SignalPoseOverrides)
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE(root.empty());
+    ASSERT_TRUE(LoadXodr(root + "/GT_esmini/test/odr_fixtures/handauthored/20_signal_pos_omitted_19.xodr"));
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+
+    // id=1: s/t omitted, <positionRoad roadId="1" s="40" t="-4" zOffset="2.5" hOffset="0.1"> -> backfilled.
+    roadmanager::Signal* s1 = FindSignalByName(odr, "posroad_omitted");
+    ASSERT_NE(s1, nullptr);
+    EXPECT_NEAR(s1->GetS(), 40.0, 1e-9);
+    EXPECT_NEAR(s1->GetT(), -4.0, 1e-9);
+    EXPECT_NEAR(s1->GetX(), 40.0, 1e-6);
+    EXPECT_NEAR(s1->GetY(), -4.0, 1e-6);
+    EXPECT_NEAR(s1->GetZOffset(), 2.5, 1e-9);   // positionRoad@zOffset override
+    EXPECT_NEAR(s1->GetHOffset(), 0.1, 1e-9);   // positionRoad@hOffset override
+
+    // id=2: s/t omitted, <positionInertial x="90" y="-4" hdg="pi"> -> reverse-mapped + backfilled + world h.
+    roadmanager::Signal* s2 = FindSignalByName(odr, "posinertial_omitted");
+    ASSERT_NE(s2, nullptr);
+    EXPECT_NEAR(s2->GetS(), 90.0, 1e-3);
+    EXPECT_NEAR(s2->GetT(), -4.0, 1e-3);
+    EXPECT_NEAR(s2->GetX(), 90.0, 1e-3);
+    EXPECT_NEAR(s2->GetY(), -4.0, 1e-3);
+    EXPECT_NEAR(s2->GetH(), 3.1415926535, 1e-6);  // hdg override (absolute)
+
+    // id=3: s/t omitted, no position child -> WARN diagnostic, defaults 0/0.
+    roadmanager::Signal* s3 = FindSignalByName(odr, "no_pose_omitted");
+    ASSERT_NE(s3, nullptr);
+    EXPECT_NEAR(s3->GetS(), 0.0, 1e-9);
+    EXPECT_NEAR(s3->GetT(), 0.0, 1e-9);
+
+    // id=4: explicit s/t, OFF-ROAD positionInertial (5000,5000) -> override skipped, logical pose kept.
+    roadmanager::Signal* s4 = FindSignalByName(odr, "posinertial_offroad");
+    ASSERT_NE(s4, nullptr);
+    EXPECT_NEAR(s4->GetS(), 120.0, 1e-9);
+    EXPECT_NEAR(s4->GetX(), 120.0, 1e-6) << "off-road positionInertial must NOT move the signal";
+    EXPECT_NEAR(s4->GetY(), -4.0, 1e-6);
+
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
+
+// 7. [GT_ODR:sig-ref]: signalReference clones (referrer s/t/orientation/validity; dynamic -> TrafficLight;
+//    dangling -> skip; dynamic clone registered as a dynamic signal).
+TEST(OdrForkPatches, SignalReferenceClone)
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE(root.empty());
+    ASSERT_TRUE(LoadXodr(root + "/GT_esmini/test/odr_fixtures/handauthored/19_signal_reference_18.xodr"));
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+
+    roadmanager::Road* road1 = odr->GetRoadByIdStr("1");
+    roadmanager::Road* road2 = odr->GetRoadByIdStr("2");
+    ASSERT_NE(road1, nullptr);
+    ASSERT_NE(road2, nullptr);
+
+    EXPECT_EQ(road1->GetNumberOfSignals(), 2u) << "originals untouched";
+    EXPECT_EQ(road2->GetNumberOfSignals(), 2u) << "both references materialized as clones";
+
+    // Dynamic clone: TrafficLight, reference's s/t/orientation, reference's validity.
+    roadmanager::Signal* c1 = FindSignalOnRoad(road2, "tl_main");
+    ASSERT_NE(c1, nullptr);
+    EXPECT_TRUE(IsTrafficLight(c1)) << "dynamic target must clone as TrafficLight ([GT_ODR:tl-gate] consistent)";
+    EXPECT_NEAR(c1->GetS(), 50.0, 1e-9);
+    EXPECT_NEAR(c1->GetT(), -4.0, 1e-9);
+    ASSERT_EQ(c1->validity_.size(), 1u) << "validity comes from the REFERENCE";
+    EXPECT_EQ(c1->validity_[0].fromLane_, -1);
+    EXPECT_EQ(c1->validity_[0].toLane_, -1);
+    roadmanager::Signal* o1 = FindSignalOnRoad(road1, "tl_main");
+    ASSERT_NE(o1, nullptr);
+    EXPECT_NE(c1->GetGlobalId(), o1->GetGlobalId()) << "clone gets a FRESH global id";
+    EXPECT_EQ(c1->GetId(), o1->GetId()) << "clone keeps the xodr signal id";
+
+    // Static clone with flipped orientation.
+    roadmanager::Signal* c2 = FindSignalOnRoad(road2, "stop_main");
+    ASSERT_NE(c2, nullptr);
+    EXPECT_FALSE(IsTrafficLight(c2));
+    EXPECT_NEAR(c2->GetS(), 60.0, 1e-9);
+    EXPECT_EQ(c2->GetOrientation(), roadmanager::Signal::NEGATIVE);
+
+    // The dynamic clone is registered like parse-time dynamic signals.
+    int dyn_named = 0;
+    for (roadmanager::Signal* d : odr->GetDynamicSignals())
+    {
+        if (d != nullptr && d->GetName() == "tl_main")
+        {
+            ++dyn_named;
+        }
+    }
+    EXPECT_EQ(dyn_named, 2) << "original + clone must both be in dynamic_signals_";
+
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
+
+// 7b. [GT_ODR:sig-ref]: a DANGLING reference (schema-invalid per the 1.8 keyref, so temp-file only)
+//     is WARNed and skipped without aborting the parse.
+TEST(OdrForkPatches, SignalReferenceDanglingSkip)
+{
+    std::string xodr = OneDynamicSignalRoad("tl_target", "OpenDRIVE", "");
+    const std::string refs =
+        "      <signalReference s=\"20.0\" t=\"-4.0\" id=\"77\" orientation=\"+\"/>\n"
+        "    </signals>";
+    const std::size_t at = xodr.find("    </signals>");
+    ASSERT_NE(at, std::string::npos);
+    xodr.replace(at, std::string("    </signals>").size(), refs);
+    const std::string path = WriteTemp("sigref_dangling.xodr", xodr);
+    ASSERT_TRUE(LoadXodr(path)) << "a dangling signalReference must not abort the parse";
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    roadmanager::Road* road = odr->GetRoadByIdStr("1");
+    ASSERT_NE(road, nullptr);
+    EXPECT_EQ(road->GetNumberOfSignals(), 1u) << "no clone materialized for the dangling id";
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
+
+// 8. Cluster 12 L1: <signal>/<dependency> + <signal>/<reference> stored in OdrSideModel::signal_extras.
+TEST(OdrForkPatches, SignalExtrasDependencyReference)
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE(root.empty());
+    ASSERT_TRUE(LoadXodr(root + "/GT_esmini/test/odr_fixtures/handauthored/19_signal_reference_18.xodr"));
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+
+    const gt_esmini::odr::OdrSideModel* sm = gt_esmini::odr::GetSideModel(odr);
+    ASSERT_NE(sm, nullptr);
+    ASSERT_EQ(sm->signal_extras.size(), 1u) << "only signal 1 carries dependency/reference children";
+    const gt_esmini::odr::OdrSignalExtras& ex = sm->signal_extras[0];
+    EXPECT_EQ(ex.road_id, "1");
+    EXPECT_EQ(ex.signal_id, "1");
+    ASSERT_EQ(ex.dependencies.size(), 1u);
+    EXPECT_EQ(ex.dependencies[0].id, "2");
+    EXPECT_EQ(ex.dependencies[0].type, "limitLine");
+    ASSERT_EQ(ex.references.size(), 1u);
+    EXPECT_EQ(ex.references[0].element_type, "signal");
+    EXPECT_EQ(ex.references[0].element_id, "2");
+    EXPECT_EQ(ex.references[0].type, "controls");
 
     roadmanager::Position::GetOpenDrive()->Clear();
 }

@@ -400,15 +400,39 @@ elements:
   - path: road/signals
     attrs: []
     evidence: "4759-4765"
-    notes: "Children loop dispatches ONLY 'signal' (else LOG_ERROR_ONCE 'not supported yet' 4968). signalReference is therefore NOT read (plan cluster 12 backlog)."
+    notes: "Children loop dispatches 'signal'; 'signalReference' is skipped there and materialized post-parse by [GT_ODR:sig-ref] (odr_side/OdrSignalExtras.cpp MaterializeSignalReferences, P3 cluster 12). Anything else -> LOG_ERROR_ONCE 'not supported yet'."
   - path: road/signals/signal
     attrs: [s, t, id, name, dynamic, orientation, zOffset, country, countryRevision, type, subtype, value, unit, height, width, length, text, hOffset, pitch, roll]
     evidence: "4765-4882"
-    notes: "@dynamic yes|no (unknown->LOG_WARN 4790). @orientation none|+|- (unknown->LOG_ERROR 4813). @countryRevision has INVERTED read bug (4821): read only when .empty() (plan subtlety / breakage #1). @length used as sign depth. @type/@subtype/@value drive country-signal-catalog OSI type lookup. TrafficLight vs Signal promotion gated on country=='opendrive' && country_revision<2013 && dynamic (4887). @width/@height/@hOffset/@pitch/@roll stored. @temporary/@invalidated (1.9) NOT read."
+    notes: "@dynamic yes|no (unknown->LOG_WARN 4790). @orientation none|+|- (unknown->LOG_ERROR 4813). @countryRevision read is legacy-preserving since P1 [GT_ODR:country-rev] (4826-4831: absent->0, explicit honored; upstream's inverted .empty() read fixed). @length used as sign depth. @type/@subtype/@value drive country-signal-catalog OSI type lookup. TrafficLight vs Signal promotion gated on @dynamic ONLY since P3 [GT_ODR:tl-gate] (~4894); country/countryRevision no longer classification-relevant (audit: golden/trafficlight_classification.json + docs/odr_p3_tl_gate_audit.md). @width/@height/@hOffset/@pitch/@roll stored. @temporary/@invalidated (1.9) NOT read."
   - path: road/signals/signal/validity
     attrs: [fromLane, toLane]
     evidence: "4947-4953"
-    notes: "@name attr of validity (lane sub-set) not read; only fromLane/toLane. signal/dependency and signal/reference children NOT read."
+    notes: "@name attr of validity (lane sub-set) not read; only fromLane/toLane."
+  - path: road/signals/signal/positionRoad
+    attrs: [roadId, s, t, zOffset, hOffset, pitch, roll]
+    evidence: "odr_side/OdrSignalExtras.cpp ResolveSignalPose ([GT_ODR:sig-pos], P3 cluster 12)"
+    notes: "Physical pose attaches to @roadId at (@s,@t); @zOffset/@hOffset (+@pitch/@roll when present) override the signal's own values. Referenced road must be declared BEFORE the referring signal's road (parse-time limitation, WARN otherwise). s/t-omitted signals (1.9) backfill logical s/t when the pose is on the own road."
+  - path: road/signals/signal/positionInertial
+    attrs: [x, y, z, hdg, pitch, roll]
+    evidence: "odr_side/OdrSignalExtras.cpp ResolveSignalPose ([GT_ODR:sig-pos], P3 cluster 12)"
+    notes: "Reverse-mapped to road/s/t via Position::XYZ2TrackPos. Off-road (|t|>30m or projection clamped beyond road ends, reconstruction error >0.5m) -> WARN + override skipped. @hdg becomes an absolute world-heading override."
+  - path: road/signals/signal/dependency
+    attrs: [id, type]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectSignalExtras (P3 cluster 12 L1)"
+    notes: "L1 storage in OdrSideModel::signal_extras; runtime semantics deferred."
+  - path: road/signals/signal/reference
+    attrs: [elementId, elementType, type]
+    evidence: "odr_side/OdrSignalExtras.cpp CollectSignalExtras (P3 cluster 12 L1)"
+    notes: "L1 storage in OdrSideModel::signal_extras; runtime semantics deferred."
+  - path: road/signals/signalReference
+    attrs: [s, t, id, orientation]
+    evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref], P3 cluster 12)"
+    notes: "Materialized post-parse (all roads present -> document-wide forward references work) as a clone of the referenced signal carrying the reference's s/t/orientation/validity; dynamic targets clone as TrafficLight. Dangling @id -> WARN + skip. Dynamic clones are registered in dynamic_signals_ by the fork hook."
+  - path: road/signals/signalReference/validity
+    attrs: [fromLane, toLane]
+    evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref])"
+    notes: "Applied to the CLONE (not the referenced signal)."
   - path: road/surface
     attrs: []
     evidence: "n/a (NOT read by parser)"
