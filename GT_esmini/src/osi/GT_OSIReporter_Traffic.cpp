@@ -34,7 +34,13 @@ int OSIReporter::UpdateStaticTrafficSignals()
 
             if (signal)
             {
-                if (signal->IsDynamic() && !signal->GetHasOSCAction())
+                // A TrafficLight with an unsupported type combo has 0 lamps and would emit NO OSI
+                // entity at all (AddTrafficLightToGt is per-lamp). Fall back to the traffic_sign
+                // branch so the signal stays visible in the ground truth (pre-P3 behavior for
+                // signals the relaxed [GT_ODR:tl-gate] now promotes). P4 (signal semantics) will
+                // widen the traffic-light type catalog.
+                roadmanager::TrafficLight *gt_tl = dynamic_cast<roadmanager::TrafficLight *>(signal);
+                if (signal->IsDynamic() && !signal->GetHasOSCAction() && gt_tl != nullptr && gt_tl->GetNrLamps() > 0)
                 {
                     AddTrafficLightToGt(obj_osi_internal.static_gt, signal);
                 }
