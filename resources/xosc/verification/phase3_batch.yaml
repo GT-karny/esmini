@@ -47,6 +47,11 @@ scenarios:
   - scenario: resources/xosc/verification/04_traffic_signs/semantic_stop_sign_full_stop.xosc
     expectations: resources/xosc/verification/04_traffic_signs/semantic_stop_sign_full_stop.expectations.yaml
     policies: [stop_yield]
+  # P8 acceptance (iv): the STOP sign is invalidated="true" (1.9) -> the invalidated filter
+  # (D4/D5) drops it from the route signal scan, so the ego IGNORES it and does not stop.
+  - scenario: resources/xosc/verification/04_traffic_signs/invalidated_stop_sign_ignored.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/invalidated_stop_sign_ignored.expectations.yaml
+    policies: [stop_yield]
   # --- 06 lead vehicle (Phase 3a: LeadVehicleAware) -----------------------
   - scenario: resources/xosc/verification/06_lead_vehicle/follow_steady.xosc
     expectations: resources/xosc/verification/06_lead_vehicle/follow_steady.expectations.yaml

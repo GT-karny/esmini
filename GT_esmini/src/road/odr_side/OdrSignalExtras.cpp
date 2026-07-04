@@ -676,7 +676,32 @@ void CollectSignalExtras(const pugi::xml_node& root, OdrSideModel& model)
             {
                 extras.vms_boards.push_back(ReadVmsBoard(vb));
             }
-            if (!extras.dependencies.empty() || !extras.references.empty() || extras.HasAnyP4())
+            // P8 (1.9): @temporary / @invalidated plain xs:boolean flags (sparse -- record only when
+            // authored). as_bool handles "true"/"false"/"1"/"0".
+            if (!sig.attribute("temporary").empty())
+            {
+                extras.temporary_present = true;
+                extras.temporary         = sig.attribute("temporary").as_bool(false);
+            }
+            if (!sig.attribute("invalidated").empty())
+            {
+                extras.invalidated_present = true;
+                extras.invalidated         = sig.attribute("invalidated").as_bool(false);
+            }
+            // P8 cluster 22 L1: <validity> records carrying @layer (sparse).
+            for (pugi::xml_node vn = sig.child("validity"); vn; vn = vn.next_sibling("validity"))
+            {
+                if (vn.attribute("layer").empty())
+                {
+                    continue;
+                }
+                OdrValidityLayer vl;
+                vl.from_lane = vn.attribute("fromLane").value();
+                vl.to_lane   = vn.attribute("toLane").value();
+                vl.layer     = vn.attribute("layer").value();
+                extras.validity_layers.push_back(std::move(vl));
+            }
+            if (!extras.dependencies.empty() || !extras.references.empty() || extras.HasAnyP4() || extras.HasAnyP8())
             {
                 extras.road_id   = road_node.attribute("id").value();
                 extras.signal_id = sig.attribute("id").value();

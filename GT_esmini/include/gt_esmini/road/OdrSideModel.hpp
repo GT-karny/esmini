@@ -31,6 +31,7 @@
 
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -125,6 +126,20 @@ public:
     // ---- P7 clusters 8/9 (OdrJunctionGeom.cpp) ----
     std::vector<OdrJunctionGeomExtras> junction_geom;   // per-junction boundary/grid/objects/surface
     std::vector<OdrJunctionGroup>      junction_groups; // document-level <junctionGroup>
+
+    // ---- P8 cluster 4/22 (OdrLaneLayers.cpp): 1.9 lane-layer shadow storage. Sparse: one entry per
+    // road that authored @layer or more than one <lanes> element. ----
+    std::vector<OdrRoadLaneLayers> lane_layers;
+
+    // ---- P8 (plan D3): synthetic merged-<lanes> DOM documents built by SelectLanesLayer (temporary
+    // mode), keyed by road id. Owned here so they outlive the fork parse (RoadManager + ParseLaneExtras
+    // both walk the same cached node). pugi::xml_document is only forward-declared in this header, so
+    // OdrSideModel needs an out-of-line destructor (defined in OdrSideModel.cpp where the type is
+    // complete) -- the unique_ptr member alone would otherwise force the destructor here.
+    std::map<std::string, std::unique_ptr<pugi::xml_document>> merged_lanes_docs;
+
+    OdrSideModel();
+    ~OdrSideModel();
 };
 
 // Walk `doc`, build a side model, and register it under `opendrive_key` (an opaque instance
@@ -297,6 +312,32 @@ bool AdjustRepeatInstancePose(const roadmanager::RMObject* obj,
                               double                       frac,
                               double&                      s_io,
                               double&                      t_io);
+
+// ---------------------------------------------------------------------------
+// P8 (cluster 4/22): 1.9 lane-layer selection. Implemented in odr_side/OdrLaneLayers.cpp.
+// ---------------------------------------------------------------------------
+
+// Select the <lanes> node the RoadManager fork walks for `road_node` (the [GT_ODR:lane-layers] fork
+// hook calls this in place of road_node.child("lanes")). `opendrive_key` is the opaque parse key
+// (the OpenDrive* being parsed) -- the SAME key BuildSideModel is registered under -- so the merged
+// DOM has a home to live in (a per-key pending registry).
+//
+// Mode is read ONCE from env GT_ODR_LANE_LAYERS (case-insensitive; "temporary" opts into the merge,
+// unset/"permanent" selects the permanent layer, unknown values WARN + permanent -- plan D1). In
+// permanent mode (or on a single-<lanes> road) the ORIGINAL permanent node is returned unchanged (no
+// copy -> lane global-id ordering is provably stable). In temporary mode the permanent + temporary
+// layers are merged over the temporary s-range into a synthetic <lanes> document (plan D2/D3); the
+// result is cached per (opendrive_key, road_id) so repeat calls (RoadManager + ParseLaneExtras)
+// return the SAME node. Legacy assets (one untagged <lanes>) always take the no-copy fast path.
+pugi::xml_node SelectLanesLayer(const pugi::xml_node& road_node, const void* opendrive_key);
+
+// Test override for the GT_ODR_LANE_LAYERS mode (same idiom as WP4's SetUseAuthoredJunctionBoundary).
+// In production the mode is latched ONCE from the env var on first use (D1: no runtime switching);
+// this setter lets a unit test flip between permanent and temporary in a single process. Pass
+// on=true for the temporary merge, on=false for permanent. SetLaneLayerModeUseEnv() reverts to the
+// env-driven latch. NOT for production wiring.
+void SetLaneLayerModeForTest(bool temporary_on);
+void SetLaneLayerModeUseEnv();
 
 // ---------------------------------------------------------------------------
 // P3 signal placement / cross-reference helpers (clusters 11/12).

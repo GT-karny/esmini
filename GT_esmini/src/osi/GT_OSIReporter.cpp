@@ -491,6 +491,19 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
                 roadmanager::RMObject *object = road->GetRoadObject(j);
                 if (object)
                 {
+                    // P8: invalidated (1.9) -> excluded from OSI ground truth (see gt_roadmanager_patches.md P8).
+                    // A model-invalid object is not part of the static ground truth. Objects without stored
+                    // extras (the majority) and P5-synthesized CROSSWALKs (no authored entry) return nullptr
+                    // here and are emitted unchanged.
+                    const std::string odr_road_id =
+                        road->GetIdStr().empty() ? std::to_string(road->GetId()) : road->GetIdStr();
+                    const gt_esmini::odr::OdrObjectExtras *inv_ox =
+                        gt_esmini::odr::GetObjectExtras(opendrive, odr_road_id, std::to_string(object->GetId()));
+                    if (inv_ox != nullptr && inv_ox->invalidated)
+                    {
+                        continue;
+                    }
+
                     if (UpdateOSIStationaryObjectODR(object, road))
                     {
                         retval = -1;

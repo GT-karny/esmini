@@ -61,7 +61,7 @@ _CTX = 3
 # bound keeps over-attribution tight (a stray edit further than this from any marker is caught).
 _MARKER_FORWARD = 15
 # Expected [GT_ODR:] non-blank line budget (manifest gt_roadmanager_patches.md).
-_DEFAULT_EXPECT_ODR = 90
+_DEFAULT_EXPECT_ODR = 92
 _DEFAULT_BUDGET = 150
 
 

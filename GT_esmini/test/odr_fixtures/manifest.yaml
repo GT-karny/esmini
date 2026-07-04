@@ -432,12 +432,13 @@ fixtures:
   - 3
   features:
   - road/lanes/laneSection@length
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection@length|ctx=1'
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    1.9 laneSection @length set to 500.0 on the single laneSection. <lanes> carries no layer, satisfying
+    1.9 laneSection @length set to 500.0 on the single laneSection. laneSection@length whitelisted in P8
+    (L1 info in OdrRoadLaneLayers; esmini computes section extents itself) -> expected_unsupported flipped
+    to empty. <lanes> carries no layer, satisfying
     the 1.9 assert "if(@layer='permanent') then not(laneSection/@length)". A base-normalisation remove_element
     strips the center lane's pre-1.8 <userData> (center lane t_road_lanes_laneSection_center_lane allows
     only link?,roadMark* -- no g_additionalData -- so the base is not 1.8+ schema-clean without it). Cluster
@@ -456,17 +457,16 @@ fixtures:
   - road/lanes@layer
   - road/lanes[2]
   - road/lanes[2]/laneSection@length
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection@length|ctx=1'
-  - 'road/lanes@layer|ctx=1'
+  expected_unsupported_entries: []  # P8 [GT_ODR:lane-layers] LANDED: @layer + laneSection@length whitelisted, audit-zero
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
     The "<lanes layer> x2" 1.9 construct: existing lanes tagged layer="permanent" plus a second layer="temporary"
     <lanes> with its own laneSection (center + one driving lane). Permanent layer's laneSection has no
     @length (1.9 assert); the temporary layer carries @length (a roadworks sub-range idiom -- where @length
-    becomes meaningful). Upstream RM reads only the first <lanes>; the temporary layer is silently dropped
-    (P8 will add s-range merge). Base-normalisation removes center-lane <userData>.
+    becomes meaningful). Consumed by P8 [GT_ODR:lane-layers] (LANDED): SelectLanesLayer selects the permanent
+    layer by default and merges the temporary s-range when GT_ODR_LANE_LAYERS=temporary; @layer + laneSection
+    @length are now whitelisted (audit-zero). Base-normalisation removes center-lane <userData>.
 - id: g3_signal_semantics_18
   path: GT_esmini/test/odr_fixtures/generated/g3_signal_semantics_18.xodr
   source: generated
@@ -803,8 +803,38 @@ fixtures:
   rev: '1.9'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneSection/right/lane/link/successor@layer
+  # P8 base (permanent-mode) proof points: with GT_ODR_LANE_LAYERS unset the RM structure is the
+  # PERMANENT layer at every s (the temporary [40,360] sub-range is NOT merged). lane -3 width at
+  # s=50 is the permanent constant 3.75 (contrast the __temporary variant: 3.625).
+  rm_lane_s_samples: [10, 50, 70, 350, 370]
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  expected_notes: ''
+- id: official_ex_lane_multilanelayer__temporary
+  path: GT_esmini/test/odr_fixtures/official/examples/Ex_Lane_MultiLaneLayer/Ex_Lane_MultiLaneLayer.xodr
+  source: official
+  rev: '1.9'
+  requires:
+  - asam_zips
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  # P8 temporary-merge variant: SAME xodr, RM probed with GT_ODR_LANE_LAYERS=temporary so the fork's
+  # SelectLanesLayer merges the temporary s-range [40,360] into the permanent structure. golden_suffix
+  # writes a DISTINCT golden (base + '__temporary'); the shared path is allowed by load_manifest for
+  # golden_suffix entries. s=10/370 (outside [40,360]) must match the base (permanent) values; s=50
+  # lane -3 width is the temporary poly (3.625, vs base 3.75) -- the merge proof.
+  rm_env: {GT_ODR_LANE_LAYERS: temporary}
+  golden_suffix: "__temporary"
+  rm_lane_s_samples: [10, 50, 70, 350, 370]
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
@@ -847,8 +877,39 @@ fixtures:
   rev: '1.9'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneOffset
+  # P8 base (permanent-mode) proof points on road 8 (length ~7083.567): with GT_ODR_LANE_LAYERS unset
+  # the RM structure is the PERMANENT layer everywhere (temp sub-range [2000,5083] NOT merged; the
+  # temporary layer's four laneOffsets are absent). s=100/5500 sit OUTSIDE [2000,5083] and are the
+  # permanent-invariance witnesses shared with the __temporary variant.
+  rm_lane_s_samples: [100, 2500, 3500, 4500, 5500]
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  expected_notes: ''
+- id: official_ex_motorway_roadworks_temporary_layer_lane_offset__temporary
+  path: GT_esmini/test/odr_fixtures/official/examples/Ex_Motorway_roadworks_temporary_layer_lane_offset/Ex_Motorway_roadworks_temporary_layer_lane_offset.xodr
+  source: official
+  rev: '1.9'
+  requires:
+  - asam_zips
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneOffset
+  # P8 temporary-merge variant: SAME xodr, GT_ODR_LANE_LAYERS=temporary -> SelectLanesLayer merges the
+  # temporary s-range [2000,5083] (its extra laneSections + 4 laneOffsets) into the permanent structure.
+  # s=100 and s=5500 (outside the range) must match the base (permanent) golden; s=2500/3500/4500
+  # (inside) reflect the merged temporary layer -- roadworks lane counts differ from the base.
+  rm_env: {GT_ODR_LANE_LAYERS: temporary}
+  golden_suffix: "__temporary"
+  rm_lane_s_samples: [100, 2500, 3500, 4500, 5500]
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
@@ -1211,17 +1272,19 @@ fixtures:
   - road/signals/signal@invalidated
   - road/objects/object@temporary
   - road/objects/object@invalidated
-  expected_unsupported_entries:
-  - 'road/objects/object@invalidated|ctx=1'
-  - 'road/objects/object@temporary|ctx=1'
-  - 'road/signals/signal@invalidated|ctx=1'
-  - 'road/signals/signal@temporary|ctx=1'
+  expected_unsupported_entries: []  # P8 LANDED: @temporary/@invalidated whitelisted on signal + object, audit-zero
+  # P8 stage 2 (D4): opt into the OSI layer to prove the invalidated FILTER end-to-end. signal id=1 is a
+  # valid speed sign (emitted); signal id=2 is invalidated (excluded). OSI ids != xodr ids, so the check is
+  # count-based: exactly ONE traffic_sign survives in the static ground truth.
+  osi: true
+  osi_expect_traffic_sign_count: 1
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    Consumed by P8 (temporary/invalidated flag sets feed OSIReporter + VD RouteSignalScan/RouteCrosswalkScan;
-    invalidated signal -> OSI non-output). Both attributes are plain xs:boolean (NOT custom enums) on
-    signal and object; all optional. Silently ignored today.
+    Consumed by P8 (LANDED, stage 1 L1): @temporary/@invalidated (plain xs:boolean, NOT custom enums) on signal
+    and object are stored L1 in OdrSignalExtras / OdrObjectExtras (GetSignalExtras / GetObjectExtras); an
+    invalidated signal is excluded from the OSI logical ground truth and an invalidated object from the OSI
+    StationaryObject output (consumer wiring is P8 stage 2). All attributes optional.
 - id: vms_boards_18
   path: GT_esmini/test/odr_fixtures/handauthored/05_vms_boards.xodr
   source: handauthored

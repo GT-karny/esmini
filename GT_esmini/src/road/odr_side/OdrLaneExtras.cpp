@@ -15,6 +15,7 @@
 
 #include "CommonMini.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"  // SelectLanesLayer (P8 D6)
 #include "logger.hpp"  // LOG_WARN/LOG_INFO/LOG_ERROR (fmt-style)
 #include "odr_side_internal.hpp"
 #include "pugixml.hpp"
@@ -215,6 +216,28 @@ bool ReadLaneNode(const pugi::xml_node& lane_node, OdrLaneExtras& ex)
         has_p2 = true;
     }
 
+    // P8 cluster 22 L1: lane <link>/<predecessor|successor> 1.9 @layer (sparse -- only when @layer
+    // is authored). Counts as P2/P8 data so the entry is stored.
+    if (pugi::xml_node link = lane_node.child("link"))
+    {
+        for (const char* dir : {"predecessor", "successor"})
+        {
+            for (pugi::xml_node ln = link.child(dir); ln; ln = ln.next_sibling(dir))
+            {
+                if (ln.attribute("layer").empty())
+                {
+                    continue;  // no @layer -> no record (bit-identical for legacy assets)
+                }
+                OdrLaneLinkLayer ll;
+                ll.link_dir = dir;
+                ll.id       = ln.attribute("id").value();
+                ll.layer    = ln.attribute("layer").value();
+                ex.link_layers.push_back(std::move(ll));
+                has_p2 = true;
+            }
+        }
+    }
+
     return has_p2;
 }
 
@@ -234,12 +257,15 @@ double SpeedToMs(double value, const std::string& unit)
 
 }  // namespace
 
-void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model)
+void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model, const void* opendrive_key)
 {
     for (pugi::xml_node road = root.child("road"); road; road = road.next_sibling("road"))
     {
         const std::string road_id = road.attribute("id").value();
-        pugi::xml_node    lanes   = road.child("lanes");
+        // Walk the SAME <lanes> view RoadManager uses (permanent selection or the temporary-merge
+        // synthetic DOM) so lane extras and the runtime lane structure agree (plan P8 D6). In
+        // permanent mode / on legacy assets this returns road.child("lanes") unchanged.
+        pugi::xml_node    lanes   = SelectLanesLayer(road, opendrive_key);
         if (!lanes)
         {
             continue;
