@@ -772,6 +772,14 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
             nstat = int(extract.get("stationary_objects", {}).get("count", 0))
             if nstat < int(min_stat):
                 checks.append(f"osi_expect_stationary_min={min_stat}: only {nstat} stationary object(s)")
+        # P8 acceptance (iv, D4): EXACT traffic_sign count in the static ground truth. Proves the
+        # invalidated-signal FILTER: an invalidated (1.9) signal must NOT emit an OSI traffic_sign, so
+        # the surviving count is exact (OSI ids != xodr ids -> count-based, not id-based).
+        exp_ts = e.get("osi_expect_traffic_sign_count")
+        if exp_ts is not None:
+            nts = int(extract.get("traffic_sign_count", 0))
+            if nts != int(exp_ts):
+                checks.append(f"osi_expect_traffic_sign_count={exp_ts}: got {nts} traffic_sign(s)")
         if checks:
             status = FAIL
             detail = " | ".join(checks)
@@ -1150,6 +1158,8 @@ def _assemble(manifest: dict, only: str):
             "osi_expect_no_intersection_lane": bool(fx.get("osi_expect_no_intersection_lane")),
             "osi_expect_lane_type_sidewalk_min": fx.get("osi_expect_lane_type_sidewalk_min"),
             "osi_expect_stationary_min": fx.get("osi_expect_stationary_min"),
+            # P8 acceptance (iv, D4): EXACT surviving traffic_sign count (invalidated-signal filter proof).
+            "osi_expect_traffic_sign_count": fx.get("osi_expect_traffic_sign_count"),
             # P7 harness extension A: opt-in z-grid probe + golden-independent z assertion.
             "rm_z_probe": fx.get("rm_z_probe"),
             "rm_expect_z": fx.get("rm_expect_z"),

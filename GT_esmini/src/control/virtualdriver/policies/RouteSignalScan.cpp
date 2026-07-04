@@ -2,6 +2,7 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -64,7 +65,7 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
     // travel direction `ds_dir`, applying to lane `lane_g`. `dist_at_s_from` is the
     // route distance of the s_from end; signal distance = that + |ss - s_from|.
     auto scanSegment =
-        [&out](roadmanager::Road* road, double s_from, double s_to, double ds_dir, id_t lane_g, double dist_at_s_from)
+        [&out, odr](roadmanager::Road* road, double s_from, double s_to, double ds_dir, id_t lane_g, double dist_at_s_from)
     {
         if (!road) return;
         const double lo = std::min(s_from, s_to);
@@ -79,6 +80,12 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
             if (ss < lo || ss > hi) continue;             // not inside this segment
             if (!SignalFacesTravel(sig, ds_dir)) continue;
             if (!SignalAppliesToLane(sig, lane_g)) continue;
+
+            // P8: invalidated (1.9) -> excluded from the VD signal scan (see gt_roadmanager_patches.md P8).
+            // Covers all downstream policies (StopYieldSignAware / TrafficLightAware consume this output).
+            // Signals without stored extras return nullptr and are kept unchanged.
+            const gt_esmini::odr::OdrSignalExtras* sx = gt_esmini::odr::GetSignalExtras(odr, sig);
+            if (sx != nullptr && sx->invalidated) continue;
 
             out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from))});
         }

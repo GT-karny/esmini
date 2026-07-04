@@ -1211,6 +1211,11 @@ fixtures:
   - road/objects/object@temporary
   - road/objects/object@invalidated
   expected_unsupported_entries: []  # P8 LANDED: @temporary/@invalidated whitelisted on signal + object, audit-zero
+  # P8 stage 2 (D4): opt into the OSI layer to prove the invalidated FILTER end-to-end. signal id=1 is a
+  # valid speed sign (emitted); signal id=2 is invalidated (excluded). OSI ids != xodr ids, so the check is
+  # count-based: exactly ONE traffic_sign survives in the static ground truth.
+  osi: true
+  osi_expect_traffic_sign_count: 1
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-

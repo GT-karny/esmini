@@ -452,3 +452,40 @@ TEST(OdrLaneLayers, Fixture06Flags)
 
     roadmanager::Position::GetOpenDrive()->Clear();
 }
+
+// P8 stage 2 (D4): the invalidated flag must be queryable through the EXACT accessor the OSI reporter
+// (UpdateStaticTrafficSignals) uses -- GetSignalExtras(od, Signal*) resolving from a live Signal
+// pointer, not the (road_id, signal_id) string key. This guards the reporter's filter code path.
+TEST(OdrLaneLayers, Fixture06SignalPointerPath)
+{
+    const std::string f06 = RepoRoot() + "/GT_esmini/test/odr_fixtures/handauthored/06_temporary_invalidated_19.xodr";
+    ASSERT_TRUE(LoadXodr(f06)) << "load failed: " << f06;
+
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    roadmanager::Road*      road = odr->GetRoadById(1);
+    ASSERT_NE(road, nullptr);
+
+    // Resolve each Signal* exactly as the OSI reporter loop does (road->GetSignal(j)), then query via
+    // the pointer overload -- the same call UpdateStaticTrafficSignals makes before its branch dispatch.
+    int checked = 0;
+    for (unsigned int j = 0; j < road->GetNumberOfSignals(); ++j)
+    {
+        roadmanager::Signal* sig = road->GetSignal(j);
+        ASSERT_NE(sig, nullptr);
+        const gt_esmini::odr::OdrSignalExtras* sx = gt_esmini::odr::GetSignalExtras(odr, sig);
+        ASSERT_NE(sx, nullptr) << "signal " << sig->GetId() << " extras missing via Signal* path";
+        if (sig->GetId() == 1)
+        {
+            EXPECT_FALSE(sx->invalidated) << "signal 1 is valid -> reporter must NOT skip it";
+            ++checked;
+        }
+        else if (sig->GetId() == 2)
+        {
+            EXPECT_TRUE(sx->invalidated) << "signal 2 is invalidated -> reporter must skip it";
+            ++checked;
+        }
+    }
+    EXPECT_EQ(checked, 2) << "both fixture signals should have been resolved via the Signal* path";
+
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
