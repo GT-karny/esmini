@@ -432,12 +432,13 @@ fixtures:
   - 3
   features:
   - road/lanes/laneSection@length
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection@length|ctx=1'
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    1.9 laneSection @length set to 500.0 on the single laneSection. <lanes> carries no layer, satisfying
+    1.9 laneSection @length set to 500.0 on the single laneSection. laneSection@length whitelisted in P8
+    (L1 info in OdrRoadLaneLayers; esmini computes section extents itself) -> expected_unsupported flipped
+    to empty. <lanes> carries no layer, satisfying
     the 1.9 assert "if(@layer='permanent') then not(laneSection/@length)". A base-normalisation remove_element
     strips the center lane's pre-1.8 <userData> (center lane t_road_lanes_laneSection_center_lane allows
     only link?,roadMark* -- no g_additionalData -- so the base is not 1.8+ schema-clean without it). Cluster

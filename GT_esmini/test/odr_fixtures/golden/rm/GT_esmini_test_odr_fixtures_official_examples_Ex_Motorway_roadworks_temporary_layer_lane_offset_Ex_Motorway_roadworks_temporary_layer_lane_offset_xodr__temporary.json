@@ -150,21 +150,6 @@
     {
      "lanes": [
       {
-       "id": -6,
-       "type": 64,
-       "width": 1.5
-      },
-      {
-       "id": -5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": -4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
        "id": -3,
        "type": 2,
        "width": 3.5
@@ -172,12 +157,12 @@
       {
        "id": -2,
        "type": 2,
-       "width": 3.5
+       "width": 2.5
       },
       {
        "id": -1,
-       "type": 8,
-       "width": 2.0
+       "type": 128,
+       "width": 1.0
       },
       {
        "id": 0,
@@ -186,36 +171,16 @@
       },
       {
        "id": 1,
-       "type": 8,
-       "width": 2.0
+       "type": 2,
+       "width": 2.5
       },
       {
        "id": 2,
        "type": 2,
        "width": 3.5
-      },
-      {
-       "id": 3,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": 6,
-       "type": 64,
-       "width": 1.5
       }
      ],
-     "num_lanes": 13,
+     "num_lanes": 6,
      "s": 3541.78332
     },
     {
@@ -436,19 +401,9 @@
     {
      "lanes": [
       {
-       "id": -6,
-       "type": 64,
-       "width": 1.5
-      },
-      {
-       "id": -5,
+       "id": -4,
        "type": 4,
        "width": 2.5
-      },
-      {
-       "id": -4,
-       "type": 2,
-       "width": 3.5
       },
       {
        "id": -3,
@@ -458,70 +413,25 @@
       {
        "id": -2,
        "type": 2,
-       "width": 3.5
+       "width": 2.5
       },
       {
        "id": -1,
-       "type": 8,
-       "width": 2.0
+       "type": 128,
+       "width": 6.0
       },
       {
        "id": 0,
        "type": 1,
        "width": 0.0
-      },
-      {
-       "id": 1,
-       "type": 8,
-       "width": 2.0
-      },
-      {
-       "id": 2,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 3,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": 6,
-       "type": 64,
-       "width": 1.5
       }
      ],
-     "num_lanes": 13,
+     "num_lanes": 5,
      "s": 2500.0
     },
     {
      "lanes": [
       {
-       "id": -6,
-       "type": 64,
-       "width": 1.5
-      },
-      {
-       "id": -5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": -4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
        "id": -3,
        "type": 2,
        "width": 3.5
@@ -529,12 +439,12 @@
       {
        "id": -2,
        "type": 2,
-       "width": 3.5
+       "width": 2.5
       },
       {
        "id": -1,
-       "type": 8,
-       "width": 2.0
+       "type": 128,
+       "width": 1.0
       },
       {
        "id": 0,
@@ -543,107 +453,42 @@
       },
       {
        "id": 1,
-       "type": 8,
-       "width": 2.0
+       "type": 2,
+       "width": 2.5
       },
       {
        "id": 2,
        "type": 2,
        "width": 3.5
-      },
-      {
-       "id": 3,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": 6,
-       "type": 64,
-       "width": 1.5
       }
      ],
-     "num_lanes": 13,
+     "num_lanes": 6,
      "s": 3500.0
     },
     {
      "lanes": [
       {
-       "id": -6,
-       "type": 64,
-       "width": 1.5
-      },
-      {
-       "id": -5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": -4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": -3,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": -2,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": -1,
-       "type": 8,
-       "width": 2.0
-      },
-      {
        "id": 0,
        "type": 1,
        "width": 0.0
       },
       {
        "id": 1,
-       "type": 8,
-       "width": 2.0
+       "type": 128,
+       "width": 5.989777
       },
       {
        "id": 2,
        "type": 2,
-       "width": 3.5
+       "width": 2.520447
       },
       {
        "id": 3,
        "type": 2,
        "width": 3.5
-      },
-      {
-       "id": 4,
-       "type": 2,
-       "width": 3.5
-      },
-      {
-       "id": 5,
-       "type": 4,
-       "width": 2.5
-      },
-      {
-       "id": 6,
-       "type": 64,
-       "width": 1.5
       }
      ],
-     "num_lanes": 13,
+     "num_lanes": 4,
      "s": 4500.0
     },
     {
@@ -721,9 +566,9 @@
    "length": 7083.56664,
    "position_probe": {
     "h": 4.712388,
-    "lane": 4,
+    "lane": 2,
     "s": 3541.78332,
-    "x": 769.25,
+    "x": 767.05,
     "y": 3475.436703,
     "z": 0.0
    },

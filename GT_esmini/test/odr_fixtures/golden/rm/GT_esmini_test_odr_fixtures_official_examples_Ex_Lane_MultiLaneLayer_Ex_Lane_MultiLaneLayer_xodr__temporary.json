@@ -66,22 +66,22 @@
       {
        "id": -5,
        "type": 64,
-       "width": 0.75
+       "width": 0.5
       },
       {
        "id": -4,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -3,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -2,
        "type": 64,
-       "width": 0.75
+       "width": 2.3
       },
       {
        "id": -1,
@@ -112,22 +112,22 @@
       {
        "id": -5,
        "type": 64,
-       "width": 0.75
+       "width": 0.5
       },
       {
        "id": -4,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -3,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -2,
        "type": 64,
-       "width": 0.75
+       "width": 2.3
       },
       {
        "id": -1,
@@ -158,22 +158,22 @@
       {
        "id": -5,
        "type": 64,
-       "width": 0.75
+       "width": 0.5
       },
       {
        "id": -4,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -3,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -2,
        "type": 64,
-       "width": 0.75
+       "width": 2.3
       },
       {
        "id": -1,
@@ -298,22 +298,22 @@
       {
        "id": -5,
        "type": 64,
-       "width": 0.75
+       "width": 0.625
       },
       {
        "id": -4,
        "type": 2,
-       "width": 3.75
+       "width": 3.625
       },
       {
        "id": -3,
        "type": 2,
-       "width": 3.75
+       "width": 3.625
       },
       {
        "id": -2,
        "type": 64,
-       "width": 0.75
+       "width": 1.525
       },
       {
        "id": -1,
@@ -344,22 +344,22 @@
       {
        "id": -5,
        "type": 64,
-       "width": 0.75
+       "width": 0.5
       },
       {
        "id": -4,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -3,
        "type": 2,
-       "width": 3.75
+       "width": 3.5
       },
       {
        "id": -2,
        "type": 64,
-       "width": 0.75
+       "width": 2.3
       },
       {
        "id": -1,
@@ -390,22 +390,22 @@
       {
        "id": -5,
        "type": 64,
-       "width": 0.75
+       "width": 0.625
       },
       {
        "id": -4,
        "type": 2,
-       "width": 3.75
+       "width": 3.625
       },
       {
        "id": -3,
        "type": 2,
-       "width": 3.75
+       "width": 3.625
       },
       {
        "id": -2,
        "type": 64,
-       "width": 0.75
+       "width": 1.525
       },
       {
        "id": -1,
@@ -474,7 +474,7 @@
     "lane": -3,
     "s": 200.0,
     "x": 100.0,
-    "y": -4.625,
+    "y": -6.05,
     "z": 0.0
    },
    "signs": []
