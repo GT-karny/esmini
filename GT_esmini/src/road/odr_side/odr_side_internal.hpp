@@ -52,14 +52,29 @@ void RunCoverageWalk(const pugi::xml_node& root, OdrSideModel& model, bool& foun
 // ---- OdrLaneExtras.cpp (plan P2) ----
 
 // Focused second pass over road/lanes/laneSection/{left,center,right}/lane, filling
-// model.lane_extras (sparse: one entry per lane carrying at least one P2 datum).
-void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model);
+// model.lane_extras (sparse: one entry per lane carrying at least one P2 datum). Walks the SAME
+// <lanes> view RoadManager uses (SelectLanesLayer(road, opendrive_key)) so the extras and the runtime
+// structure agree under a temporary lane-layer merge (plan P8 D6). `opendrive_key` is the parse key
+// SelectLanesLayer caches its merged DOM under.
+void ParseLaneExtras(const pugi::xml_node& root, OdrSideModel& model, const void* opendrive_key);
 
 // Border->width normalization: for every lane in `model` that authored <border> elements and
 // whose runtime Lane has zero LaneWidth records, synthesize width polynomials
 // width = side_sign * (border_outer - border_inner) (piecewise cubic algebra) and inject them
 // through the public Lane::AddLaneWidth API. Called only from the typed BuildSideModel overload.
 void ApplyBorderWidths(const OdrSideModel& model, roadmanager::OpenDrive* od);
+
+// ---- OdrLaneLayers.cpp (plan P8) ----
+
+// Focused pass over each road's <lanes> layers: fills model.lane_layers (sparse: one entry per road
+// that authored @layer or >1 <lanes>). Also records the active_mode resolved for this parse.
+void ParseLaneLayers(const pugi::xml_node& root, OdrSideModel& model);
+
+// Move any pending merged-<lanes> documents built for `opendrive_key` (by SelectLanesLayer) into the
+// side model `model`, so they live as long as the model (longer than the fork's parse). Called from
+// the typed BuildSideModel overload after the core build. No-op when nothing is pending (permanent
+// mode / legacy assets never register a pending doc).
+void MoveMergedLanesDocs(const void* opendrive_key, OdrSideModel& model);
 
 // ---- OdrSignalExtras.cpp (P3 + P4) ----
 

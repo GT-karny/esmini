@@ -456,17 +456,16 @@ fixtures:
   - road/lanes@layer
   - road/lanes[2]
   - road/lanes[2]/laneSection@length
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection@length|ctx=1'
-  - 'road/lanes@layer|ctx=1'
+  expected_unsupported_entries: []  # P8 [GT_ODR:lane-layers] LANDED: @layer + laneSection@length whitelisted, audit-zero
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
     The "<lanes layer> x2" 1.9 construct: existing lanes tagged layer="permanent" plus a second layer="temporary"
     <lanes> with its own laneSection (center + one driving lane). Permanent layer's laneSection has no
     @length (1.9 assert); the temporary layer carries @length (a roadworks sub-range idiom -- where @length
-    becomes meaningful). Upstream RM reads only the first <lanes>; the temporary layer is silently dropped
-    (P8 will add s-range merge). Base-normalisation removes center-lane <userData>.
+    becomes meaningful). Consumed by P8 [GT_ODR:lane-layers] (LANDED): SelectLanesLayer selects the permanent
+    layer by default and merges the temporary s-range when GT_ODR_LANE_LAYERS=temporary; @layer + laneSection
+    @length are now whitelisted (audit-zero). Base-normalisation removes center-lane <userData>.
 - id: g3_signal_semantics_18
   path: GT_esmini/test/odr_fixtures/generated/g3_signal_semantics_18.xodr
   source: generated
@@ -1211,17 +1210,14 @@ fixtures:
   - road/signals/signal@invalidated
   - road/objects/object@temporary
   - road/objects/object@invalidated
-  expected_unsupported_entries:
-  - 'road/objects/object@invalidated|ctx=1'
-  - 'road/objects/object@temporary|ctx=1'
-  - 'road/signals/signal@invalidated|ctx=1'
-  - 'road/signals/signal@temporary|ctx=1'
+  expected_unsupported_entries: []  # P8 LANDED: @temporary/@invalidated whitelisted on signal + object, audit-zero
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    Consumed by P8 (temporary/invalidated flag sets feed OSIReporter + VD RouteSignalScan/RouteCrosswalkScan;
-    invalidated signal -> OSI non-output). Both attributes are plain xs:boolean (NOT custom enums) on
-    signal and object; all optional. Silently ignored today.
+    Consumed by P8 (LANDED, stage 1 L1): @temporary/@invalidated (plain xs:boolean, NOT custom enums) on signal
+    and object are stored L1 in OdrSignalExtras / OdrObjectExtras (GetSignalExtras / GetObjectExtras); an
+    invalidated signal is excluded from the OSI logical ground truth and an invalidated object from the OSI
+    StationaryObject output (consumer wiring is P8 stage 2). All attributes optional.
 - id: vms_boards_18
   path: GT_esmini/test/odr_fixtures/handauthored/05_vms_boards.xodr
   source: handauthored

@@ -4090,7 +4090,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
             }
         }
 
-        pugi::xml_node lanes = road_node.child("lanes");
+        // [GT_ODR:lane-layers] 1.9 lane layers: permanent selection / temporary s-range merge in GT side model (plan P8)
+        pugi::xml_node lanes = gt_esmini::odr::SelectLanesLayer(road_node, this);
         if (lanes != NULL)
         {
             for (pugi::xml_node_iterator child = lanes.children().begin(); child != lanes.children().end(); child++)

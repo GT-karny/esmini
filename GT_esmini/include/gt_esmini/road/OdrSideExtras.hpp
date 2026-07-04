@@ -52,6 +52,17 @@ struct OdrLaneBorder
     double s_offset = 0.0, a = 0.0, b = 0.0, c = 0.0, d = 0.0;
 };
 
+// ---- P8 (cluster 22 L1): lane <link>/<predecessor|successor> 1.9 @layer. One entry per lane link
+// element that carries @layer (sparse -- absent @layer produces no entry). link_dir names which link
+// direction ("predecessor" | "successor"), id is the linked lane id (verbatim string), layer is the
+// authored @layer token ("permanent" | "temporary"). ----
+struct OdrLaneLinkLayer
+{
+    std::string link_dir;  // "predecessor" | "successor"
+    std::string id;        // linked lane @id (verbatim)
+    std::string layer;     // @layer ("permanent" | "temporary")
+};
+
 // Per-lane extras beyond what upstream RoadManager stores. One entry per <lane> element
 // (any side) that carries at least one P2 datum; plain driving lanes with none of these
 // produce NO entry (keeps the side model sparse on legacy assets).
@@ -83,6 +94,20 @@ struct OdrLaneExtras
     std::vector<OdrLaneRule>     rules;
     std::vector<OdrRoadMarkSway> sways;    // union of this lane's roadMark <sway> records
     std::vector<OdrLaneBorder>   borders;  // source data for the P2 border->width normalization
+
+    // P8 cluster 22 L1: lane <link>/<predecessor|successor> 1.9 @layer records (sparse -- only lane
+    // link elements carrying @layer). Counts as "has P2/P8 data" in ReadLaneNode's sparse gate.
+    std::vector<OdrLaneLinkLayer> link_layers;
+};
+
+// ---- P8 (cluster 22 L1): a <validity> record carrying the 1.9 @layer. Sparse -- one entry per
+// <validity> element (on a signal or object) that authored @layer; validity elements without @layer
+// produce no entry. from_lane/to_lane are the (verbatim) lane subset the validity applies to. ----
+struct OdrValidityLayer
+{
+    std::string from_lane;  // @fromLane (verbatim)
+    std::string to_lane;    // @toLane (verbatim)
+    std::string layer;      // @layer ("permanent" | "temporary")
 };
 
 // <signal>/<dependency>: this signal controls the state of the referenced signal (id), with an
@@ -243,10 +268,28 @@ struct OdrSignalExtras
     std::vector<OdrStaticBoard> static_boards;  // P4 cluster 13 (1.9 <staticBoard>)
     std::vector<OdrVmsBoard>    vms_boards;      // P4 cluster 13 (1.8+1.9 <vmsBoard>)
 
+    // P8 (1.9): plain xs:boolean flags. temporary = a temporary (e.g. roadworks) signal; invalidated
+    // = the regulation is cancelled/crossed-out (excluded from the OSI logical ground truth). Both
+    // *_present record whether the attribute was authored (sparse gate: an authored flag makes the
+    // signal carry P8 data even with no P3/P4 children).
+    bool temporary            = false;
+    bool temporary_present    = false;  // @temporary authored?
+    bool invalidated          = false;
+    bool invalidated_present  = false;  // @invalidated authored?
+
+    // P8 cluster 22 L1: <validity> records that authored @layer (sparse).
+    std::vector<OdrValidityLayer> validity_layers;
+
     // True when this signal carries any P4 datum (drives sparse storage together with P3 children).
     bool HasAnyP4() const
     {
         return has_semantics || !static_boards.empty() || !vms_boards.empty();
+    }
+
+    // True when this signal carries any P8 datum (flags or a validity @layer).
+    bool HasAnyP8() const
+    {
+        return temporary_present || invalidated_present || !validity_layers.empty();
     }
 };
 
@@ -557,10 +600,21 @@ struct OdrObjectExtras
     std::vector<OdrCrgRecord>       surface_crgs;// object-level <surface>/<CRG>
     OdrRepeatLateralPoly            repeat_poly; // <repeat> 1.9 lateral polynomial (has_poly gate)
 
+    // P8 (1.9): plain xs:boolean flags (same semantics as OdrSignalExtras). invalidated object is
+    // excluded from the OSI StationaryObject output; temporary is L1-only. *_present record authoring.
+    bool temporary            = false;
+    bool temporary_present    = false;  // @temporary authored?
+    bool invalidated          = false;
+    bool invalidated_present  = false;  // @invalidated authored?
+
+    // P8 cluster 22 L1: <validity> records that authored @layer (sparse).
+    std::vector<OdrValidityLayer> validity_layers;
+
     bool HasAny() const
     {
         return perp_to_road_present || !materials.empty() || !outlines.empty() || !skeleton.empty() ||
-               !borders.empty() || !surface_crgs.empty() || repeat_poly.has_poly;
+               !borders.empty() || !surface_crgs.empty() || repeat_poly.has_poly || temporary_present ||
+               invalidated_present || !validity_layers.empty();
     }
 };
 
@@ -662,6 +716,45 @@ struct OdrJunctionGroup
     std::string              name;      // @name
     std::string              type;      // @type (roundabout|interchange|unknown)
     std::vector<std::string> members;   // <junctionReference @junction> ids
+};
+
+// ===========================================================================
+// P8 (cluster 4/22): 1.9 lane layers. A road may carry MULTIPLE <lanes> elements, each tagged
+// @layer="permanent"|"temporary" (or untagged == permanent). The temporary layer describes a
+// roadworks sub-range that overrides the permanent lanes over an s-range [t0,t1). L1 SHADOW storage
+// only -- the s-range merge into a synthetic <lanes> that RoadManager walks is done in
+// OdrLaneLayers.cpp (SelectLanesLayer/BuildMergedLanes); this struct records what was AUTHORED so a
+// consumer/diagnostic can see the pre-merge layout. Sparse: one entry per road that authored either
+// a @layer attribute or more than one <lanes> element.
+// ===========================================================================
+
+// One laneSection summary inside a layer (DOM order). s + optional @length + lane count.
+struct OdrLaneLayerSection
+{
+    double s          = 0.0;
+    double length     = 0.0;
+    bool   has_length = false;  // @length authored (1.9; meaningful on temporary layers)
+    int    lane_count = 0;      // number of <lane> elements (all sides) in this section
+};
+
+// One <lanes> layer of a road (DOM order).
+struct OdrLaneLayer
+{
+    std::string                      name;  // @layer verbatim ("" when the attribute was absent == permanent)
+    std::vector<OdrLaneLayerSection> sections;
+    int                              lane_offset_count = 0;  // number of <laneOffset> in this layer
+};
+
+// Per-road lane-layer L1 record. temp_s_start/temp_s_end bound the temporary layer's coverage
+// [t0,t1); active_mode is the mode SelectLanesLayer resolved for this parse ("permanent"|"temporary").
+struct OdrRoadLaneLayers
+{
+    std::string               road_id;
+    std::vector<OdrLaneLayer> layers;       // one per <lanes> element (DOM order)
+    bool                      has_temporary = false;
+    double                    temp_s_start  = 0.0;  // t0 (valid only when has_temporary)
+    double                    temp_s_end    = 0.0;  // t1
+    std::string               active_mode;          // "permanent" | "temporary" (resolved at parse)
 };
 
 }  // namespace odr

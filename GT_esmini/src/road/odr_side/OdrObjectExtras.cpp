@@ -388,6 +388,32 @@ void ParseObjectExtras(const pugi::xml_node& root, OdrSideModel& model, const st
 
             ReadRepeatPoly(obj, ex.repeat_poly);
 
+            // P8 (1.9): @temporary / @invalidated plain xs:boolean flags (sparse -- record only when
+            // authored).
+            if (HasAttr(obj, "temporary"))
+            {
+                ex.temporary_present = true;
+                ex.temporary         = obj.attribute("temporary").as_bool(false);
+            }
+            if (HasAttr(obj, "invalidated"))
+            {
+                ex.invalidated_present = true;
+                ex.invalidated         = obj.attribute("invalidated").as_bool(false);
+            }
+            // P8 cluster 22 L1: <validity> records carrying @layer (sparse).
+            for (pugi::xml_node vn = obj.child("validity"); vn; vn = vn.next_sibling("validity"))
+            {
+                if (vn.attribute("layer").empty())
+                {
+                    continue;
+                }
+                OdrValidityLayer vl;
+                vl.from_lane = vn.attribute("fromLane").value();
+                vl.to_lane   = vn.attribute("toLane").value();
+                vl.layer     = vn.attribute("layer").value();
+                ex.validity_layers.push_back(std::move(vl));
+            }
+
             if (ex.HasAny())
             {
                 model.object_extras.push_back(std::move(ex));

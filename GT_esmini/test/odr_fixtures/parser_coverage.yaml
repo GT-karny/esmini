@@ -422,16 +422,16 @@ elements:
     attrs: [s, a, b, c, d]
     evidence: "4027-4036"
   - path: road/lanes
-    attrs: []
-    evidence: "4074-4077"
-    notes: "Generic children loop (4077) dispatches by name to exactly 'laneOffset' and 'laneSection'; any other child -> LOG_ERROR 'Unsupported lane type' (4748). No <lanes> attributes read (1.9 @layer NOT read)."
+    attrs: [layer]
+    evidence: "4074-4077; @layer -> odr_side/OdrLaneLayers.cpp SelectLanesLayer (P8 cluster 4)"
+    notes: "Generic children loop (4077) dispatches by name to exactly 'laneOffset' and 'laneSection'; any other child -> LOG_ERROR 'Unsupported lane type' (4748). Since P8 the fork walks SelectLanesLayer(road, this) (the [GT_ODR:lane-layers] hook) instead of the raw first <lanes>: @layer selects the permanent layer (default) or opts into the temporary s-range merge (GT_ODR_LANE_LAYERS=temporary). Multiple <lanes> layers are supported (permanent + temporary)."
   - path: road/lanes/laneOffset
     attrs: [s, a, b, c, d]
     evidence: "4079-4086"
   - path: road/lanes/laneSection
-    attrs: [s]
-    evidence: "4088-4100"
-    notes: "@s truncated to road length if beyond (4091). Children loop (4102) dispatches 'left'/'right'/'center' (else 'userData'->LOG_DEBUG skip 4109, else LOG_ERROR 4114). laneSection @length (1.9) and @singleSide NOT read."
+    attrs: [s, length]
+    evidence: "4088-4100; @length -> odr_side/OdrLaneLayers.cpp (P8 cluster 4: temporary-layer s-range)"
+    notes: "@s truncated to road length if beyond (4091). Children loop (4102) dispatches 'left'/'right'/'center' (else 'userData'->LOG_DEBUG skip 4109, else LOG_ERROR 4114). @length (1.9) bounds a temporary layer's coverage [t0,t1) in SelectLanesLayer/BuildMergedLanes and is shadow-stored in OdrRoadLaneLayers (P8); it is not otherwise consumed by upstream RM. @singleSide NOT read."
   - path: road/lanes/laneSection/center
     attrs: []
     evidence: "4102-4117"
@@ -448,11 +448,13 @@ elements:
     evidence: "4243-4244"
     notes: "Intermediate container navigated via lane_node->child('link') (4243). No attrs read; whitelisted so the audit DFS descends to predecessor/successor. Added 2026-07-02 for plan P1 OdrCoverageAudit."
   - path: road/lanes/laneSection/center/lane/link/predecessor
-    attrs: [id]
-    evidence: "4243-4255"
+    attrs: [id, layer]
+    evidence: "4243-4255; @layer -> odr_side/OdrLaneExtras.cpp ReadLaneNode (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrLaneExtras::link_layers; not otherwise consumed by upstream RM."
   - path: road/lanes/laneSection/center/lane/link/successor
-    attrs: [id]
-    evidence: "4243-4255"
+    attrs: [id, layer]
+    evidence: "4243-4255; @layer -> odr_side/OdrLaneExtras.cpp ReadLaneNode (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrLaneExtras::link_layers; not otherwise consumed by upstream RM."
   - path: road/lanes/laneSection/center/lane/material
     attrs: [sOffset, friction]
     evidence: "4664-4681"
@@ -510,11 +512,13 @@ elements:
     evidence: "4243-4244"
     notes: "Intermediate container navigated via lane_node->child('link') (4243). No attrs read; whitelisted so the audit DFS descends to predecessor/successor. Added 2026-07-02 for plan P1 OdrCoverageAudit."
   - path: road/lanes/laneSection/left/lane/link/predecessor
-    attrs: [id]
-    evidence: "4243-4255"
+    attrs: [id, layer]
+    evidence: "4243-4255; @layer -> odr_side/OdrLaneExtras.cpp ReadLaneNode (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrLaneExtras::link_layers; not otherwise consumed by upstream RM."
   - path: road/lanes/laneSection/left/lane/link/successor
-    attrs: [id]
-    evidence: "4243-4255"
+    attrs: [id, layer]
+    evidence: "4243-4255; @layer -> odr_side/OdrLaneExtras.cpp ReadLaneNode (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrLaneExtras::link_layers; not otherwise consumed by upstream RM."
   - path: road/lanes/laneSection/left/lane/material
     attrs: [sOffset, friction]
     evidence: "4664-4681"
@@ -577,11 +581,13 @@ elements:
     evidence: "4243-4244"
     notes: "Intermediate container navigated via lane_node->child('link') (4243). No attrs read; whitelisted so the audit DFS descends to predecessor/successor. Added 2026-07-02 for plan P1 OdrCoverageAudit."
   - path: road/lanes/laneSection/right/lane/link/predecessor
-    attrs: [id]
-    evidence: "4243-4255"
+    attrs: [id, layer]
+    evidence: "4243-4255; @layer -> odr_side/OdrLaneExtras.cpp ReadLaneNode (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrLaneExtras::link_layers; not otherwise consumed by upstream RM."
   - path: road/lanes/laneSection/right/lane/link/successor
-    attrs: [id]
-    evidence: "4243-4255"
+    attrs: [id, layer]
+    evidence: "4243-4255; @layer -> odr_side/OdrLaneExtras.cpp ReadLaneNode (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrLaneExtras::link_layers; not otherwise consumed by upstream RM."
   - path: road/lanes/laneSection/right/lane/material
     attrs: [sOffset, friction]
     evidence: "4664-4681"
@@ -698,16 +704,17 @@ elements:
     evidence: "4973-4976"
     notes: "Reads 'object' children (4976) and 'tunnel' children (5341). objectReference and bridge children NOT read (plan cluster 19b backlog)."
   - path: road/objects/object
-    attrs: [s, t, id, name, orientation, type, length, width, radius, zOffset, height, hdg, pitch, roll, subtype, dynamic, validLength, perpToRoad]
-    evidence: "4976-5034 (read attrs); subtype/dynamic/validLength whitelisted-only; perpToRoad -> OdrObjectExtras.cpp (P7 L1)"
+    attrs: [s, t, id, name, orientation, type, length, width, radius, zOffset, height, hdg, pitch, roll, subtype, dynamic, validLength, perpToRoad, temporary, invalidated]
+    evidence: "4976-5034 (read attrs); subtype/dynamic/validLength whitelisted-only; perpToRoad/temporary/invalidated -> OdrObjectExtras.cpp (P7/P8 L1)"
     notes: >
       READ: @type via RMObject::Str2Type; unknown -> LOG_ERROR 'Unsupported object type' (3002) -> NONE.
       @radius: if set alone -> width=length=2*radius; if with length/width -> LOG_WARN, radius dropped
       (5014-5028). WHITELISTED-ONLY (consumed: none): @subtype (1.5M), @dynamic (t_yesNo, required
       since 1.5M), @validLength (required, <=1.5) are STANDARD <=1.5 object attributes present on many
       repo objects; GT_RoadManager.cpp does not read them. Added 2026-07-02 for plan P1 to keep the
-      1.4/1.5 control set warning-free. @perpToRoad remains NOT whitelisted. @temporary/@invalidated
-      (1.9) also remain NOT whitelisted -> they correctly flag (cluster 4)."
+      1.4/1.5 control set warning-free. @perpToRoad stored L1 (P7). @temporary/@invalidated (1.9, plain
+      xs:boolean) stored L1 in OdrObjectExtras since P8; an invalidated object is excluded from the OSI
+      StationaryObject output (consumer wiring is P8 stage 2)."
   - path: road/objects/object/markings
     attrs: []
     evidence: "5256-5259"
@@ -836,15 +843,15 @@ elements:
     evidence: "OdrObjectExtras.cpp ParseObjectExtras + SynthesizeObjectReferences (P7 cluster 19b)"
     notes: "Reference to another object. Stored L1 in OdrSideModel::object_references and materialized as a clone RMObject on the declaring road (dangling -> WARN + skip)."
   - path: road/objects/objectReference/validity
-    attrs: [fromLane, toLane]
-    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7); validity descends like object/validity."
+    attrs: [fromLane, toLane, layer]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7); validity descends like object/validity. @layer (1.9) whitelisted-only P8."
   - path: road/objects/bridge
     attrs: [s, length, name, id, type]
     evidence: "OdrObjectExtras.cpp ParseObjectExtras + SynthesizeBridges (P7 cluster 19b)"
     notes: "Stored L1 in OdrSideModel::bridges and synthesized as a BRIDGE RMObject (OSI TYPE_BRIDGE). @type material class (concrete|steel|brick|wood)."
   - path: road/objects/bridge/validity
-    attrs: [fromLane, toLane]
-    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7)"
+    attrs: [fromLane, toLane, layer]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7). @layer (1.9) whitelisted-only P8."
   - path: road/objects/object/parkingSpace
     attrs: [access, restrictions]
     evidence: "5207-5253"
@@ -858,8 +865,9 @@ elements:
     evidence: "5314-5328"
     notes: "Direct read (not via ReadUserData). Only code=='texture' (->value as filename) and code=='textureScale' (->value as double) handled; other codes -> LOG_WARN (5327). esmini/GT extension."
   - path: road/objects/object/validity
-    attrs: [fromLane, toLane]
-    evidence: "5306-5311"
+    attrs: [fromLane, toLane, layer]
+    evidence: "5306-5311; @layer -> odr_side/OdrObjectExtras.cpp ParseObjectExtras (P8 cluster 22 L1)"
+    notes: "@layer (1.9) shadow-stored in OdrObjectExtras::validity_layers (sparse -- only when authored)."
   - path: road/objects/tunnel
     attrs: [daylight, id, length, lighting, name, s, type]
     evidence: "5341-5361"
@@ -894,13 +902,13 @@ elements:
     evidence: "4759-4765"
     notes: "Children loop dispatches 'signal'; 'signalReference' is skipped there and materialized post-parse by [GT_ODR:sig-ref] (odr_side/OdrSignalExtras.cpp MaterializeSignalReferences, P3 cluster 12). Anything else -> LOG_ERROR_ONCE 'not supported yet'."
   - path: road/signals/signal
-    attrs: [s, t, id, name, dynamic, orientation, zOffset, country, countryRevision, type, subtype, value, unit, height, width, length, text, hOffset, pitch, roll]
-    evidence: "4765-4882"
-    notes: "@dynamic yes|no (unknown->LOG_WARN 4790). @orientation none|+|- (unknown->LOG_ERROR 4813). @countryRevision read is legacy-preserving since P1 [GT_ODR:country-rev] (4826-4831: absent->0, explicit honored; upstream's inverted .empty() read fixed). @length used as sign depth. @type/@subtype/@value drive country-signal-catalog OSI type lookup. TrafficLight vs Signal promotion gated on @dynamic ONLY since P3 [GT_ODR:tl-gate] (~4894); country/countryRevision no longer classification-relevant (audit: golden/trafficlight_classification.json + docs/odr_p3_tl_gate_audit.md). @width/@height/@hOffset/@pitch/@roll stored. @temporary/@invalidated (1.9) NOT read."
+    attrs: [s, t, id, name, dynamic, orientation, zOffset, country, countryRevision, type, subtype, value, unit, height, width, length, text, hOffset, pitch, roll, temporary, invalidated]
+    evidence: "4765-4882; @temporary/@invalidated -> odr_side/OdrSignalExtras.cpp CollectSignalExtras (P8)"
+    notes: "@dynamic yes|no (unknown->LOG_WARN 4790). @orientation none|+|- (unknown->LOG_ERROR 4813). @countryRevision read is legacy-preserving since P1 [GT_ODR:country-rev] (4826-4831: absent->0, explicit honored; upstream's inverted .empty() read fixed). @length used as sign depth. @type/@subtype/@value drive country-signal-catalog OSI type lookup. TrafficLight vs Signal promotion gated on @dynamic ONLY since P3 [GT_ODR:tl-gate] (~4894); country/countryRevision no longer classification-relevant (audit: golden/trafficlight_classification.json + docs/odr_p3_tl_gate_audit.md). @width/@height/@hOffset/@pitch/@roll stored. @temporary/@invalidated (1.9, plain xs:boolean) stored L1 in OdrSignalExtras since P8; an invalidated signal is excluded from the OSI logical ground truth (consumer wiring is P8 stage 2)."
   - path: road/signals/signal/validity
-    attrs: [fromLane, toLane]
-    evidence: "4947-4953"
-    notes: "@name attr of validity (lane sub-set) not read; only fromLane/toLane."
+    attrs: [fromLane, toLane, layer]
+    evidence: "4947-4953; @layer -> odr_side/OdrSignalExtras.cpp CollectSignalExtras (P8 cluster 22 L1)"
+    notes: "@name attr of validity (lane sub-set) not read; only fromLane/toLane. @layer (1.9) shadow-stored in OdrSignalExtras::validity_layers (sparse -- only when authored)."
   - path: road/signals/signal/positionRoad
     attrs: [roadId, s, t, zOffset, hOffset, pitch, roll]
     evidence: "odr_side/OdrSignalExtras.cpp ResolveSignalPose ([GT_ODR:sig-pos], P3 cluster 12)"
@@ -1047,8 +1055,8 @@ elements:
     evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref], P3 cluster 12)"
     notes: "Materialized post-parse (all roads present -> document-wide forward references work) as a clone of the referenced signal carrying the reference's s/t/orientation/validity; dynamic targets clone as TrafficLight. Dangling @id -> WARN + skip. Dynamic clones are registered in dynamic_signals_ by the fork hook."
   - path: road/signals/signalReference/validity
-    attrs: [fromLane, toLane]
-    evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref])"
+    attrs: [fromLane, toLane, layer]
+    evidence: "odr_side/OdrSignalExtras.cpp MaterializeSignalReferences ([GT_ODR:sig-ref]). @layer (1.9) whitelisted-only P8."
     notes: "Applied to the CLONE (not the referenced signal)."
   # ---- P4 cluster 13: signal boards (staticBoard / vmsBoard / displayArea) ----
   - path: road/signals/signal/staticBoard

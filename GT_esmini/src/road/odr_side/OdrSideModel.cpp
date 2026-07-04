@@ -23,6 +23,11 @@ namespace gt_esmini
 namespace odr
 {
 
+// Out-of-line so the pugi::xml_document unique_ptr members (merged_lanes_docs) can stay behind a
+// forward declaration in the public header (this TU includes pugixml.hpp -> complete type here).
+OdrSideModel::OdrSideModel()  = default;
+OdrSideModel::~OdrSideModel() = default;
+
 namespace
 {
 // Instance-keyed registry. A std::map (not unordered) keeps behavior deterministic and needs no
@@ -38,7 +43,26 @@ std::mutex& RegistryMutex()
     static std::mutex m;
     return m;
 }
+
+// P8 (plan D3): pending merged-<lanes> DOM documents built by SelectLanesLayer BEFORE the side model
+// exists (the fork walks lanes at :4093, long before the [GT_ODR:hook] BuildSideModel call). Keyed by
+// (opendrive_key -> road_id -> document). Guarded by the SAME RegistryMutex(). MoveMergedLanesDocs
+// drains a key's map into the OdrSideModel when the model is built; a parse aborted before that leaves
+// stale entries which the NEXT parse for the same key overwrites/drains (harmless -- documented D3).
+std::map<const void*, std::map<std::string, std::unique_ptr<pugi::xml_document>>>& PendingMergedLanes()
+{
+    static std::map<const void*, std::map<std::string, std::unique_ptr<pugi::xml_document>>> pending;
+    return pending;
+}
 }  // namespace
+
+namespace detail
+{
+// Cross-TU access to the pending merged-lanes registry (SelectLanesLayer in OdrLaneLayers.cpp needs
+// to insert/lookup; both share RegistryMutex via these helpers).
+std::mutex& MergedLanesMutex();
+std::map<std::string, std::unique_ptr<pugi::xml_document>>& PendingMergedLanesFor(const void* opendrive_key);
+}  // namespace detail
 
 namespace
 {
@@ -72,11 +96,15 @@ bool BuildSideModelCore(const pugi::xml_document& doc, const void* opendrive_key
         detail::CollectSignalExtras(root, *model);  // P3 cluster 12 + P4 clusters 10/13 signal L1
         detail::CollectHeaderAndGroupExtras(root, *model);  // P4 clusters 13/14 (vmsGroup / header)
 
-        // P2: focused lane-detail pass (clusters 3+16 L1 storage; sparse on legacy assets).
-        detail::ParseLaneExtras(root, *model);
+        // P2: focused lane-detail pass (clusters 3+16 L1 storage; sparse on legacy assets). Walks the
+        // same SelectLanesLayer view RoadManager uses (P8 D6).
+        detail::ParseLaneExtras(root, *model, opendrive_key);
 
         // P5: junction pass (clusters 5/7/22 L1: crossPath/roadSection/priority/laneLink layers).
         detail::ParseJunctionExtras(root, *model);
+
+        // P8: 1.9 lane-layer shadow storage (clusters 4/22 L1: multi-<lanes>/@layer). Sparse.
+        detail::ParseLaneLayers(root, *model);
 
         // P7: object family + road surface/lateralProfile (clusters 17/18/19 L1) and junction
         // geometry + junctionGroup (clusters 8/9 L1). Pure storage; stage-2 synthesis is separate.
@@ -123,6 +151,10 @@ bool BuildSideModel(const pugi::xml_document& doc, roadmanager::OpenDrive* od)
         OdrSideModel* m = detail::GetSideModelMutable(od);
         if (m != nullptr)
         {
+            // P8 (plan D3): adopt any merged-<lanes> DOM documents SelectLanesLayer built during the
+            // fork parse (temporary mode) so they outlive the parse alongside the model.
+            detail::MoveMergedLanesDocs(od, *m);
+
             // P2 border->width normalization through the public Lane API (plan P2; no-op when
             // no lane authored <border> -- keeps legacy parses bit-identical).
             detail::ApplyBorderWidths(*m, od);
@@ -160,12 +192,39 @@ OdrSideModel* GetSideModelMutable(const void* opendrive_key)
     auto                        it  = reg.find(opendrive_key);
     return it == reg.end() ? nullptr : it->second.get();
 }
+
+// P8 (plan D3): the pending merged-lanes registry shares RegistryMutex(). SelectLanesLayer (in
+// OdrLaneLayers.cpp) locks it via these accessors while it inserts/looks up a per-road document.
+std::mutex& MergedLanesMutex()
+{
+    return RegistryMutex();
+}
+
+std::map<std::string, std::unique_ptr<pugi::xml_document>>& PendingMergedLanesFor(const void* opendrive_key)
+{
+    // Caller holds MergedLanesMutex(). Returns (creating if absent) the per-road map for this key.
+    return PendingMergedLanes()[opendrive_key];
+}
+
+void MoveMergedLanesDocs(const void* opendrive_key, OdrSideModel& model)
+{
+    std::lock_guard<std::mutex> lock(RegistryMutex());
+    auto&                       pending = PendingMergedLanes();
+    auto                        it      = pending.find(opendrive_key);
+    if (it == pending.end())
+    {
+        return;  // permanent mode / legacy assets: nothing pending
+    }
+    model.merged_lanes_docs = std::move(it->second);
+    pending.erase(it);
+}
 }  // namespace detail
 
 void ClearSideModel(const void* opendrive_key)
 {
     std::lock_guard<std::mutex> lock(RegistryMutex());
     Registry().erase(opendrive_key);
+    PendingMergedLanes().erase(opendrive_key);  // P8 D3: clear both
 }
 
 }  // namespace odr
