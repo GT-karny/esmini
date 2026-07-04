@@ -3826,6 +3826,8 @@ namespace roadmanager
 
         id_t                                      LookupIdFromStr(std::vector<std::pair<id_t, std::string>> &ids, std::string id_str);
         bool                                      ParseOpenDriveXML(const pugi::xml_document &doc);
+
+        void EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] anchor binding + counter-connection synthesis + registry (S3)
     };
 
     typedef struct

@@ -3738,6 +3738,16 @@ void OpenDrive::Clear()
     }
     junction_.clear();
 
+    // [GT_ODR:vj-synth] registry-owned synthesized RoadLinks (counter Connections died with the junctions above)
+    for (auto& vj_road_anchors : virtual_junction_anchors_)
+    {
+        for (VirtualJunctionAnchor& vj_anchor : vj_road_anchors.second)
+        {
+            delete vj_anchor.link_;
+        }
+    }
+    virtual_junction_anchors_.clear();
+
     SetSpeedUnit(SpeedUnit::UNDEFINED);
 
     geo_offset_.hdg_                = 0.0;
@@ -5650,6 +5660,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
     CheckConnections();
 
+    EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] virtual junction anchors (after CheckConnections)
+
     if (!SetRoadOSI())
     {
         LOG_ERROR("Failed to create OSI points for OpenDrive road!");
@@ -6039,6 +6051,12 @@ void Junction::SetGlobalId()
 
 bool Junction::IsOsiIntersection() const
 {
+    // [GT_ODR:vj-osi-class] a virtual junction has no junction area of its own (the unsplit main road keeps
+    // its regular lanes across the span) -> never an OSI intersection, same rationale as DIRECT below
+    if (type_ == JunctionType::VIRTUAL)
+    {
+        return false;
+    }
     if (type_ == JunctionType::DIRECT)
     {
         return false;  // direct junction has no area -> no free lane boundaries
@@ -6997,6 +7015,13 @@ int OpenDrive::CheckLink(Road* road, RoadLink* link, ContactPointType expected_c
     // does this connection exist in the other direction?
     if (link->GetElementType() == RoadLink::ElementType::ELEMENT_TYPE_ROAD)
     {
+        // [GT_ODR:vj-synth] a road link with elementS is a mid-road virtual junction anchor: no reciprocal link
+        // exists on the (unsplit) main road by design, so skip the reverse-link scan and its WARN. Existence and
+        // span validation happens in EstablishVirtualJunctionConnections() (runs after CheckConnections()).
+        if (link->GetElementS() >= 0.0)
+        {
+            return 0;
+        }
         Road* connecting_road = GetRoadById(link->GetElementId());
         if (connecting_road != nullptr)
         {
@@ -7063,6 +7088,125 @@ int OpenDrive::CheckConnections()
 
     return counter;
 }
+
+// [GT_ODR:vj-synth-begin] virtual junction link resolution (S3). CheckConnections() cannot resolve virtual
+// junctions: the unsplit main road never references the junction and branch roads reference the MAIN ROAD via
+// elementS. Per VIRTUAL junction: validate the span, synthesize the missing branch->main counter-connections
+// (CheckJunctionConnection auto-add template) and fill the per-main-road anchor registry. Ownership: counter
+// Connections belong to the junction (~Junction); registry RoadLinks belong to the registry (OpenDrive::Clear()).
+// Kind-2 topological connections (is_virtual_, null connecting road) are store-only in v1 and skipped here.
+// LaneRoadLaneConnection::contact_s_ is constructed on the fly by Junction::GetRoadConnectionByIdx at runtime,
+// so it is stamped there (S5, vj-lanes stage), not at load time.
+void OpenDrive::EstablishVirtualJunctionConnections()
+{
+    for (Junction* junction : junction_)
+    {
+        if (junction->GetType() != Junction::JunctionType::VIRTUAL)
+        {
+            continue;
+        }
+        const Junction::VirtualJunctionAttributes& vj_attr   = junction->GetVirtualAttributes();
+        Road*                                      main_road = GetRoadById(vj_attr.main_road_id_);
+        if (main_road == nullptr || vj_attr.s_start_ < 0.0 || vj_attr.s_end_ < vj_attr.s_start_ ||
+            vj_attr.s_end_ > main_road->GetLength() + 1e-3)
+        {
+            LOG_WARN("Virtual junction {} has an unusable span on main road {}, skipping it", junction->GetIdStr(), vj_attr.main_road_id_);
+            continue;
+        }
+        const unsigned int n_connections = junction->GetNumberOfConnections();  // counter-connections are appended below
+        for (unsigned int i = 0; i < n_connections; i++)
+        {
+            Connection* connection = junction->GetConnectionByIdx(i);
+            Road*       branch     = connection->GetConnectingRoad();
+            if (branch == nullptr || branch == main_road)
+            {
+                continue;  // kind-2 (store-only) or an authored counter-connection
+            }
+            // the anchor is the branch road's elementS link pointing at the main road
+            RoadLink* anchor_link = nullptr;
+            LinkType  anchor_end  = LinkType::PREDECESSOR;
+            for (LinkType link_type : {LinkType::PREDECESSOR, LinkType::SUCCESSOR})
+            {
+                RoadLink* branch_link = branch->GetLink(link_type);
+                if (branch_link != nullptr && branch_link->GetElementType() == RoadLink::ElementType::ELEMENT_TYPE_ROAD &&
+                    branch_link->GetElementId() == main_road->GetId() && branch_link->GetElementS() >= 0.0)
+                {
+                    anchor_link = branch_link;
+                    anchor_end  = link_type;
+                    break;
+                }
+            }
+            if (anchor_link == nullptr)
+            {
+                LOG_WARN("Virtual junction {} connecting road {} has no elementS link to the main road, skipping", junction->GetIdStr(), branch->GetIdStr());
+                continue;
+            }
+            // the connection's own <predecessor> elementS (incoming contact) takes precedence for the anchor s
+            const double               anchor_s     = connection->GetIncomingContactS() >= 0.0 ? connection->GetIncomingContactS() : anchor_link->GetElementS();
+            const RoadLink::ElementDir anchor_dir   = anchor_link->GetElementDir();
+            bool                       have_counter = false;
+            for (unsigned int k = 0; k < junction->GetNumberOfConnections() && !have_counter; k++)
+            {
+                have_counter = junction->GetConnectionByIdx(k)->GetIncomingRoad() == branch &&
+                               junction->GetConnectionByIdx(k)->GetConnectingRoad() == main_road;
+            }
+            if (!have_counter)
+            {
+                // elementDir reverse-merge rule (INTERPRETIVE, see manifest): '+' = the main road is traversed in
+                // increasing s across the anchor -> branch->main lands at anchor_s heading s-increasing = START
+                ContactPointType counter_contact = anchor_dir == RoadLink::DIR_PLUS    ? ContactPointType::CONTACT_POINT_START
+                                                   : anchor_dir == RoadLink::DIR_MINUS ? ContactPointType::CONTACT_POINT_END
+                                                                                       : ContactPointType::CONTACT_POINT_UNDEFINED;
+                const double     branch_contact_s = anchor_end == LinkType::PREDECESSOR ? 0.0 : branch->GetLength();
+                Connection*      counter          = new Connection(branch, main_road, counter_contact, branch_contact_s, anchor_s);
+                for (unsigned int l = 0; l < connection->GetNumberOfLaneLinks(); l++)
+                {
+                    counter->AddJunctionLaneLink(connection->GetLaneLink(l)->to_, connection->GetLaneLink(l)->from_);
+                }
+                junction->AddConnection(counter);
+            }
+            // registry-owned RoadLink = stable per-anchor identity for the main->branch hop (RoadPath dedup keys
+            // on link pointers, S4); it describes the branch ENTRY end (element_s_ < 0 = legacy end contact ON
+            // THE BRANCH) -- the anchor s on the main road lives on the anchor entry itself
+            RoadLink* registry_link = new RoadLink(anchor_dir == RoadLink::DIR_MINUS ? LinkType::PREDECESSOR : LinkType::SUCCESSOR,
+                                                   RoadLink::ElementType::ELEMENT_TYPE_ROAD,
+                                                   branch->GetId(),
+                                                   anchor_end == LinkType::PREDECESSOR ? ContactPointType::CONTACT_POINT_START
+                                                                                       : ContactPointType::CONTACT_POINT_END,
+                                                   -1.0,
+                                                   anchor_dir);
+            virtual_junction_anchors_[main_road->GetId()].push_back({junction, i, anchor_s, anchor_dir, registry_link});
+        }
+    }
+    for (auto& vj_road_anchors : virtual_junction_anchors_)
+    {
+        std::sort(vj_road_anchors.second.begin(),
+                  vj_road_anchors.second.end(),
+                  [](const VirtualJunctionAnchor& a, const VirtualJunctionAnchor& b) { return a.anchor_s_ < b.anchor_s_; });
+    }
+}
+
+Junction* OpenDrive::GetVirtualJunctionAtRoadS(id_t road_id, double s) const
+{
+    for (const VirtualJunctionAnchor& anchor : GetVirtualJunctionAnchors(road_id))
+    {
+        // [GT_ODR:vj-synth] inclusive span containment: s in [sStart, sEnd] on this main road
+        const Junction::VirtualJunctionAttributes& vj_attr = anchor.junction_->GetVirtualAttributes();
+        if (s >= vj_attr.s_start_ && s <= vj_attr.s_end_)
+        {
+            return anchor.junction_;
+        }
+    }
+    return nullptr;
+}
+
+const std::vector<OpenDrive::VirtualJunctionAnchor>& OpenDrive::GetVirtualJunctionAnchors(id_t road_id) const
+{
+    static const std::vector<VirtualJunctionAnchor> no_anchors;
+    const auto                                      anchors = virtual_junction_anchors_.find(road_id);
+    return anchors != virtual_junction_anchors_.end() ? anchors->second : no_anchors;
+}
+// [GT_ODR:vj-synth-end]
 
 void OpenDrive::Print() const
 {
@@ -11736,6 +11880,9 @@ int Position::GetInLaneType() const
 
 bool Position::IsInJunction() const
 {
+    // [GT_ODR:vj-membership:interp] v1 (deliberate): a position on a virtual-junction main-road SPAN keeps
+    // reporting false here and ID_UNDEFINED in GetJunctionId() -- the unsplit main road carries junction == -1.
+    // Flipping this would re-randomize ScenarioEngine junction selectors mid-road; surfaced upstream in #592.
     Road* road = GetOpenDrive()->GetRoadByIdx(track_idx_);
     if (road)
     {
@@ -12374,6 +12521,7 @@ id_t Position::GetTrackId() const
 
 id_t Position::GetJunctionId() const
 {
+    // [GT_ODR:vj-membership:interp] v1: virtual-junction main-road spans report ID_UNDEFINED (see IsInJunction)
     Road* road = GetOpenDrive()->GetRoadByIdx(track_idx_);
     if (road)
     {

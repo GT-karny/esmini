@@ -108,7 +108,7 @@
 version: 1
 baseline_upstream_tag: v3.4.0            # recorded at Stage 0b (merge d7821fd3); re-record: check_core_census.py record-baselines
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 29           # S2: +12 mirrored [GT_ODR:vj-parse-*] marker comments (byte-identical to pristine)
+fork_odr_marker_total: 38           # S2: +12 mirrored [GT_ODR:vj-parse-*]; S3: +9 mirrored [GT_ODR:vj-synth/membership/osi-class]
 fork_lht_marker_min: 1
 cmake_marker_total: 2
 fork_odr_expect_lines: 74           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 71) + residuals (3).
@@ -130,20 +130,25 @@ second_class_files:
     upstream_blob_sha: 8dbd661856ced5d7b120901a4c82dfe1fe9b6838
     budget_nonblank: 75
     additive_only: true
-    marker_census: {vj-model: 73}        # per-marker-id -> nonblank added lines (S1 data model, measured)
-    marker_occurrences: 15               # literal "[GT_ODR:" comment count (ctest SecondClassCensus)
+    marker_census: {vj-model: 73, vj-synth: 1}  # S1 data model + S3 EstablishVirtualJunctionConnections() decl (1 line, hpp 74/75)
+    marker_occurrences: 16               # literal "[GT_ODR:" comment count (ctest SecondClassCensus)
     pr_slice: "PR-A..D"
-    status: active-S1
+    status: active-S3
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
     upstream_blob_sha: 932165b98754d49edccdba0c879ef8b31a9c74df
     budget_nonblank: 550
     additive_only: false
-    marker_census: {vj-parse-link: 26, vj-parse-junction: 84}  # S2 parse (RoadLink elementS/elementDir + 6-arg ctor +
-                                                               # operator== | junction VIRTUAL dispatch/span attrs +
-                                                               # connection anchors/kind-2 + Connection 5-arg ctor)
-    marker_occurrences: 12
+    marker_census: {vj-parse-link: 26, vj-parse-junction: 84, vj-synth: 133, vj-membership: 4, vj-osi-class: 6}
+                        # S2 parse (RoadLink elementS/elementDir + 6-arg ctor + operator== | junction VIRTUAL
+                        # dispatch/span attrs + connection anchors/kind-2 + Connection 5-arg ctor).
+                        # S3 vj-synth 133 = EstablishVirtualJunctionConnections + 2 registry accessors block 116
+                        #   + CheckLink elementS short-circuit 7 + Clear() registry-link ownership 9 + call site 1
+                        #   (over the design's 50-70 sketch: Allman braces + clang-format arg-per-line; total 253/550).
+                        # S3 vj-membership 4 = comment-only pinning at IsInJunction/GetJunctionId (:interp, no behavior).
+                        # S3 vj-osi-class 6 = explicit VIRTUAL -> false branch in IsOsiIntersection.
+    marker_occurrences: 21
     pr_slice: "PR-A..D"
-    status: active-S2
+    status: active-S3
   - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.cpp
     upstream_blob_sha: 06a03974266f5852de645c74c6d48c77af5579e2
     budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
@@ -203,19 +208,19 @@ fork_file:
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4877-4877"    # S2 shift: +25 ([vj-parse-link] hunks above)
+      fork_lines: "4887-4887"    # S3 shift: +10 ([vj-synth] Clear() hunk above)
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
     - marker: GT_LHT
-      fork_lines: "5997-5997"    # S2 shift: +106 ([vj-parse-*] hunks above)
+      fork_lines: "6009-6009"    # S3 shift: +12 ([vj-synth] Clear() + call-site hunks above)
       count: 1
       note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk above"
     - marker: GT_LHT
-      fork_lines: "5999-5999"
+      fork_lines: "6011-6011"
       count: 1
       note: "LHT 1-A swapped branch body (last lane section)"
     - marker: GT_LHT
-      fork_lines: "6003-6003"
+      fork_lines: "6015-6015"
       count: 1
       note: "LHT 1-A swapped else-branch body (first lane section)"
 # --- overlap residuals (declared sites; S2 measured the parse-loop residual) ---
@@ -234,6 +239,13 @@ overlap_residuals:
                            # Dual-attributed; the fork code at the site is byte-identical to pristine
                            # EXCEPT the fork-only junc-crossing dispatch + junc-abort skip (P1/P5).
     fork_variant_test: "OdrVirtualJunction.Fixture23cParseVariantsThroughJuncAbort (fixture 23c: virtual connections with/without connectingRoad + dangling default connection through junc-abort)"
+  - site: "Junction::IsOsiIntersection"
+    fork_markers: ["[GT_ODR:junc-crossing]"]
+    vj_marker: "vj-osi-class"
+    residual_nonblank: 0   # S3 measured: the [vj-osi-class] VIRTUAL short-circuit sits at the function top,
+                           # the fork-only junc-crossing empty-connection guard in the trailing else -- the
+                           # hunks are DISJOINT (separate diff blocks, both attribute cleanly; no residual).
+    fork_variant_test: "OdrVirtualJunction.Fixture23S3OsiClassification (fork build: VIRTUAL short-circuits before the crossing guard; crossing junctions keep the P5 behavior)"
 # --- interpretation rules (recorded per design §5; :interp goldens re-baseline on upstream convergence) ---
 rules:
   elementdir_reverse_merge: >-
@@ -243,7 +255,11 @@ rules:
     tangent at anchor_s, flipped when elementDir '-'; departure main->branch selects the
     branch contact end per the same rule. Absent/UNKNOWN elementDir falls back to
     geometric nearest-heading with WARN. ASAM 10.4 does not pin the reverse composition;
-    surfaced upstream in #592/PR-B.
+    surfaced upstream in #592/PR-B. S3 concrete mapping (EstablishVirtualJunctionConnections):
+    counter Connection(incoming=branch, connecting=main) gets contact_point START for '+'
+    (land at anchor_s heading s-increasing), END for '-', UNDEFINED for unknown (runtime
+    geometric fallback, S5); incoming_contact_s_ = branch contact s (0 or branch length,
+    by which branch end anchors), outgoing_contact_s_ = anchor_s on the main road.
   vj_lanes_merged_semantics: >-
     Junction::GetRoadConnectionByIdx merged fork rule: incoming_contact_s_>=0 ->
     GetLaneSectionByS(anchor) takes precedence; else contactPoint==END -> last lane

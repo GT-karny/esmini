@@ -5,18 +5,21 @@
 // S2 [GT_ODR:vj-parse-link]/[GT_ODR:vj-parse-junction] (T1): end-to-end parse through the REAL
 // loader (roadmanager::Position::GetOpenDrive()->LoadOpenDriveFile, test_OdrForkPatches pattern)
 // on fixtures 23/23b/23c plus synthetic temp xodr strings (connection-less virtual junction,
-// denormal elementS, missing orientation). There is no log-capture helper in this suite, so the
-// "no 'Not supported yet' WARN" acceptance is asserted by STATE (GetType()==VIRTUAL proves the
-// WARN+DEFAULT branch was replaced); WARN wording is not asserted.
+// denormal elementS, missing orientation). The S2 "no WARN" acceptances were asserted by STATE;
+// S3 added a minimal RAII log-capture helper (VjLogCapture) for the zero-WARN load acceptance.
 //
-// Deliberately NOT tested (S3 scope): OpenDrive::GetVirtualJunctionAtRoadS / anchor registry.
+// S3 [GT_ODR:vj-synth]/[vj-membership]/[vj-osi-class]: counter-connection synthesis, the anchor
+// registry (GetVirtualJunctionAtRoadS/GetVirtualJunctionAnchors), the T2 pass-through invariant,
+// membership pinning (span reports false/ID_UNDEFINED) and IsOsiIntersection(VIRTUAL)==false.
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "RoadManager.hpp"
+#include "logger.hpp"
 
 using namespace roadmanager;
 
@@ -109,6 +112,46 @@ std::string TwoRoadNetwork(const std::string& link_attr_splice, const std::strin
            junction_xml +
            "</OpenDRIVE>\n";
 }
+
+// Minimal GT-owned RAII log capture: txtLogger fans every message out to registered callbacks
+// (logger.cpp TxtLogger::Log) regardless of console/file sinks. The callback is a plain function
+// pointer, so the accumulator is static. ~VjLogCapture uses ClearCallbacks(), which clears ALL
+// callbacks -- fine in this test binary (nothing else registers one).
+class VjLogCapture
+{
+public:
+    VjLogCapture()
+    {
+        Lines().clear();
+        txtLogger.RegisterCallback(&VjLogCapture::OnLog);
+    }
+    ~VjLogCapture()
+    {
+        txtLogger.ClearCallbacks();
+    }
+    static std::vector<std::string>& Lines()
+    {
+        static std::vector<std::string> lines;
+        return lines;
+    }
+    static bool Contains(const std::string& needle)
+    {
+        for (const std::string& line : Lines())
+        {
+            if (line.find(needle) != std::string::npos)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+private:
+    static void OnLog(const std::string& msg)
+    {
+        Lines().push_back(msg);
+    }
+};
 
 }  // namespace
 
@@ -246,7 +289,9 @@ TEST(OdrVirtualJunction, Fixture23Connections)
 
     Junction* junction = odr->GetJunctionByIdStr("888");
     ASSERT_NE(junction, nullptr);
-    ASSERT_EQ(junction->GetNumberOfConnections(), 2u);
+    // S2 parsed 2 connections; S3 EstablishVirtualJunctionConnections appends the branch->main
+    // counter-connection (covered by Fixture23S3CounterConnectionSynthesized). Parsed ones keep idx 0/1.
+    ASSERT_EQ(junction->GetNumberOfConnections(), 3u);
 
     Road* main_road = odr->GetRoadByIdStr("1");
     Road* branch    = odr->GetRoadByIdStr("2");
@@ -284,7 +329,7 @@ TEST(OdrVirtualJunction, Fixture23bLhtVariantParses)
     Junction* junction = odr->GetJunctionByIdStr("888");
     ASSERT_NE(junction, nullptr);
     EXPECT_EQ(junction->GetType(), Junction::VIRTUAL);
-    EXPECT_EQ(junction->GetNumberOfConnections(), 2u);
+    EXPECT_EQ(junction->GetNumberOfConnections(), 3u) << "2 parsed + 1 S3-synthesized counter-connection";
 
     Position::GetOpenDrive()->Clear();
 }
@@ -305,8 +350,9 @@ TEST(OdrVirtualJunction, Fixture23cParseVariantsThroughJuncAbort)
     Junction* junction = odr->GetJunctionByIdStr("999");
     ASSERT_NE(junction, nullptr);
     EXPECT_EQ(junction->GetType(), Junction::VIRTUAL);
-    ASSERT_EQ(junction->GetNumberOfConnections(), 2u)
-        << "kind-1 + kind-2 kept, dangling connection skipped (junc-abort still effective AFTER the vj branch)";
+    ASSERT_EQ(junction->GetNumberOfConnections(), 3u)
+        << "kind-1 + kind-2 kept, dangling connection skipped (junc-abort still effective AFTER the vj branch); "
+           "S3 appends the kind-1 counter-connection";
 
     Connection* kind1 = junction->GetConnectionByIdx(0);
     ASSERT_NE(kind1, nullptr);
@@ -386,4 +432,213 @@ TEST(OdrVirtualJunction, RoadLinkOperatorEqDistinguishesElementS)
 
     RoadLink other_dir(SUCCESSOR, RoadLink::ELEMENT_TYPE_ROAD, 1, CONTACT_POINT_UNDEFINED, 100.0, RoadLink::DIR_MINUS);
     EXPECT_FALSE(mid_contact == other_dir) << "operator== must distinguish element_dir_";
+}
+
+// ---------------------------------------------------------------------------------------------
+// S3 [GT_ODR:vj-synth]: counter-connection synthesis + anchor registry
+// ---------------------------------------------------------------------------------------------
+
+// Fixture 23: EstablishVirtualJunctionConnections() synthesizes the branch->main counter-connection
+// (CheckJunctionConnection auto-add template): connection count grows 2 -> 3, incoming=branch(2),
+// connecting=main(1), contact START (elementDir '+' reverse-merge rule: land at anchor_s heading
+// s-increasing), incoming_contact_s_ = 0 (the branch PREDECESSOR end anchors), outgoing_contact_s_ =
+// 100 (the anchor s on the main road), lane links reversed from the original connection.
+TEST(OdrVirtualJunction, Fixture23S3CounterConnectionSynthesized)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+    OpenDrive* odr = Position::GetOpenDrive();
+
+    Junction* junction  = odr->GetJunctionByIdStr("888");
+    Road*     main_road = odr->GetRoadByIdStr("1");
+    Road*     branch    = odr->GetRoadByIdStr("2");
+    ASSERT_NE(junction, nullptr);
+    ASSERT_NE(main_road, nullptr);
+    ASSERT_NE(branch, nullptr);
+    ASSERT_EQ(junction->GetNumberOfConnections(), 3u) << "2 parsed + 1 synthesized counter-connection";
+
+    Connection* counter = nullptr;
+    for (unsigned int i = 0; i < junction->GetNumberOfConnections(); i++)
+    {
+        Connection* connection = junction->GetConnectionByIdx(i);
+        if (connection->GetIncomingRoad() == branch && connection->GetConnectingRoad() == main_road)
+        {
+            counter = connection;
+        }
+    }
+    ASSERT_NE(counter, nullptr) << "branch->main counter-connection must be visible via GetConnectionByIdx";
+    EXPECT_EQ(counter->GetContactPoint(), CONTACT_POINT_START) << "elementDir '+' -> START at anchor_s (reverse-merge rule)";
+    EXPECT_DOUBLE_EQ(counter->GetIncomingContactS(), 0.0) << "branch contact s (predecessor end of road 2)";
+    EXPECT_DOUBLE_EQ(counter->GetOutgoingContactS(), 100.0) << "anchor s on the main road";
+    ASSERT_EQ(counter->GetNumberOfLaneLinks(), 1u);
+    EXPECT_EQ(counter->GetLaneLink(0)->from_, -1) << "lane link reversed from the original (from=-1 to=-1 is symmetric)";
+    EXPECT_EQ(counter->GetLaneLink(0)->to_, -1);
+    EXPECT_FALSE(counter->IsVirtual());
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// Fixture 23: the per-main-road anchor registry. GetVirtualJunctionAtRoadS does INCLUSIVE span
+// containment on [sStart, sEnd] = [95, 105] (documented boundary behavior: 95 and 105 hit, values
+// strictly outside miss); GetVirtualJunctionAnchors falls back to a static empty vector.
+TEST(OdrVirtualJunction, Fixture23S3AnchorRegistry)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+    OpenDrive* odr = Position::GetOpenDrive();
+
+    Junction*  junction  = odr->GetJunctionByIdStr("888");
+    Road*      main_road = odr->GetRoadByIdStr("1");
+    Road*      branch    = odr->GetRoadByIdStr("2");
+    const id_t main_id   = main_road->GetId();
+
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(main_id, 100.0), junction) << "anchor s inside the span";
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(main_id, 50.0), nullptr) << "on the main road but outside the span";
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(main_id, 95.0), junction) << "span start is INCLUSIVE";
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(main_id, 105.0), junction) << "span end is INCLUSIVE";
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(main_id, 94.999), nullptr) << "just below the span";
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(main_id, 105.001), nullptr) << "just above the span";
+    EXPECT_EQ(odr->GetVirtualJunctionAtRoadS(branch->GetId(), 10.0), nullptr) << "branch road has no spans";
+
+    const std::vector<OpenDrive::VirtualJunctionAnchor>& anchors = odr->GetVirtualJunctionAnchors(main_id);
+    ASSERT_GE(anchors.size(), 1u);
+    ASSERT_EQ(anchors.size(), 1u) << "one kind-1 connection = one anchor (the kind-2 connection is store-only)";
+    EXPECT_EQ(anchors[0].junction_, junction);
+    EXPECT_EQ(anchors[0].connection_idx_, 0u) << "index of the ORIGINAL main->branch connection";
+    EXPECT_DOUBLE_EQ(anchors[0].anchor_s_, 100.0);
+    EXPECT_EQ(anchors[0].dir_, RoadLink::DIR_PLUS);
+    ASSERT_NE(anchors[0].link_, nullptr) << "registry-owned synthesized RoadLink (stable per-anchor identity)";
+    EXPECT_EQ(anchors[0].link_->GetElementId(), branch->GetId());
+    EXPECT_EQ(anchors[0].link_->GetContactPointType(), CONTACT_POINT_START) << "branch entered at its predecessor end";
+    EXPECT_TRUE(odr->GetVirtualJunctionAnchors(static_cast<id_t>(987654)).empty()) << "static empty fallback";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// [GT_ODR:vj-osi-class] fork-variant test (manifest overlap_residuals: Junction::IsOsiIntersection):
+// the VIRTUAL short-circuit fires before everything else in the fork, where the trailing else also
+// carries the P5 [GT_ODR:junc-crossing] empty-connection guard -- junction 888 has connections AND
+// is virtual, so only the new branch can explain false here (a DEFAULT junction with town roads
+// and connections returns true).
+TEST(OdrVirtualJunction, Fixture23S3OsiClassification)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Junction* junction = Position::GetOpenDrive()->GetJunctionByIdStr("888");
+    ASSERT_NE(junction, nullptr);
+    EXPECT_EQ(junction->GetType(), Junction::VIRTUAL);
+    EXPECT_FALSE(junction->IsOsiIntersection()) << "virtual junctions are never OSI intersections (S3 acceptance)";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// S3 acceptance: the synthesis pass must NOT remap the branch road's lanes -- ids and count on
+// road 2 stay exactly as authored (left 1, center 0, right -1 in one lane section).
+TEST(OdrVirtualJunction, Fixture23S3BranchLanesNotRemapped)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Road* branch = Position::GetOpenDrive()->GetRoadByIdStr("2");
+    ASSERT_NE(branch, nullptr);
+    ASSERT_EQ(branch->GetNumberOfLaneSections(), 1u);
+    LaneSection* lane_section = branch->GetLaneSectionByIdx(0);
+    ASSERT_NE(lane_section, nullptr);
+    ASSERT_EQ(lane_section->GetNumberOfLanes(), 3u);
+    EXPECT_NE(lane_section->GetLaneById(1), nullptr);
+    EXPECT_NE(lane_section->GetLaneById(0), nullptr);
+    EXPECT_NE(lane_section->GetLaneById(-1), nullptr);
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// Kind-2 topological connection: still stored after the synthesis pass (skipped, not consumed --
+// no counter-connection is synthesized from it), and nothing crashed on its null connecting road.
+TEST(OdrVirtualJunction, Fixture23S3Kind2StoredNotSynthesized)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+    OpenDrive* odr = Position::GetOpenDrive();
+
+    Junction*    junction    = odr->GetJunctionByIdStr("888");
+    unsigned int kind2_count = 0;
+    for (unsigned int i = 0; i < junction->GetNumberOfConnections(); i++)
+    {
+        if (junction->GetConnectionByIdx(i)->IsVirtual())
+        {
+            EXPECT_EQ(junction->GetConnectionByIdx(i)->GetConnectingRoad(), nullptr);
+            kind2_count++;
+        }
+    }
+    EXPECT_EQ(kind2_count, 1u) << "kind-2 connection survives S3 (store-only in v1)";
+    EXPECT_EQ(junction->GetNumberOfConnections(), 3u) << "no counter synthesized from the kind-2 connection";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// ---------------------------------------------------------------------------------------------
+// S3 T2 pass-through invariant + [GT_ODR:vj-membership] pinning
+// ---------------------------------------------------------------------------------------------
+
+// T2 (stage-critical, design test plan): with NO route set, MoveAlongS across the anchor at s=100
+// must pass straight through -- the VJ anchor must neither divert nor stop the move. From s=50,
+// MoveAlongS(150) lands exactly at s == road length (200): upstream's end-of-road branch triggers
+// on STRICTLY greater (s_ + ds > length), so the exact-length move returns OK and stays on road 1;
+// the next move returns the END_OF_ROAD family code with the position clamped at s = 200.
+TEST(OdrVirtualJunction, Fixture23T2PassThroughInvariant)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Road*      main_road = Position::GetOpenDrive()->GetRoadByIdStr("1");
+    const id_t main_id   = main_road->GetId();
+
+    Position pos;
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(main_id, -1, 50.0, 0.0)), 0);
+    Position::ReturnCode ret = pos.MoveAlongS(150.0);
+    EXPECT_GE(static_cast<int>(ret), 0) << "crossing the anchor at s=100 must not fail or divert";
+    EXPECT_EQ(pos.GetTrackId(), main_id) << "T2: still on the main road (no diversion at the anchor)";
+    EXPECT_NEAR(pos.GetS(), main_road->GetLength(), 1e-9) << "T2: full 150 m travelled to the road end";
+
+    Position::ReturnCode end_ret = pos.MoveAlongS(1.0);
+    EXPECT_EQ(end_ret, Position::ReturnCode::ERROR_END_OF_ROAD) << "link-less main road end -> END_OF_ROAD family";
+    EXPECT_EQ(pos.GetTrackId(), main_id);
+    EXPECT_NEAR(pos.GetS(), main_road->GetLength(), 1e-9);
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// [GT_ODR:vj-membership] pinning (INTERPRETIVE, v1): a position ON the virtual junction span of the
+// main road keeps reporting "not in a junction" -- the unsplit main road carries junction == -1
+// (avoids ScenarioEngine junction-selector re-randomization; surfaced upstream in #592).
+TEST(OdrVirtualJunction, Fixture23MembershipPinnedFalseOnSpan)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    const id_t main_id = Position::GetOpenDrive()->GetRoadByIdStr("1")->GetId();
+    Position   pos;
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(main_id, -1, 100.0, 0.0)), 0);  // exactly at the anchor, inside [95, 105]
+    EXPECT_FALSE(pos.IsInJunction()) << "v1 membership: main-road span reports false";
+    EXPECT_EQ(pos.GetJunctionId(), ID_UNDEFINED) << "v1 membership: main-road span reports ID_UNDEFINED";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// S3 acceptance: fixture 23 loads with ZERO link WARNs -- the [vj-synth] CheckLink short-circuit
+// kills "Reversed road link" for the elementS link and the S2 [vj-parse-link] demotion killed the
+// parse-time "Missing contact point type" ERROR.
+TEST(OdrVirtualJunction, Fixture23ZeroWarnLoad)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+
+    VjLogCapture capture;
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+    EXPECT_FALSE(VjLogCapture::Contains("Reversed road link")) << "CheckLink short-circuit must silence the reverse-link WARN";
+    EXPECT_FALSE(VjLogCapture::Contains("Missing contact point type")) << "S2 parse demotion regression";
+    EXPECT_FALSE(VjLogCapture::Contains("unusable span")) << "the span [95, 105] on road 1 (length 200) is valid";
+    EXPECT_FALSE(VjLogCapture::Contains("no elementS link")) << "connection 0's branch road anchors via elementS";
+
+    Position::GetOpenDrive()->Clear();
 }
