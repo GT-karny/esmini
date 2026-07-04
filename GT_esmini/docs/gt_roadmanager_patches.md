@@ -108,10 +108,18 @@
 version: 1
 baseline_upstream_tag: v3.4.0            # recorded at Stage 0b (merge d7821fd3); re-record: check_core_census.py record-baselines
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 17
+fork_odr_marker_total: 29           # S2: +12 mirrored [GT_ODR:vj-parse-*] marker comments (byte-identical to pristine)
 fork_lht_marker_min: 1
 cmake_marker_total: 2
-fork_odr_expect_lines: 75
+fork_odr_expect_lines: 74           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 71) + residuals (3).
+                                    # S2 note: 75 -> 74 because the vj overlap re-aligned the junc-crossing dispatch diff
+                                    # (13 -> 9; 3 lines re-attributed to vj-parse-junction as the recorded residual, 1 line
+                                    # -- the virtual-branch closing brace -- now matches an equal snapshot line).
+fork_odr_drift_expect_lines: 75     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
+                                    # lines. Differs from fork_odr_expect_lines once mirrored vj hunks exist: mirrored hunks
+                                    # are invisible to the file diff, and the junc-crossing block re-aligns differently
+                                    # against the edited pristine (7 visible dispatch lines) than against the v3.4.0 blob
+                                    # (dual-attributed 3-line residual). Both totals stay under fork_line_budget.
 fork_line_budget: 150
 # --- combined budgets: rows sharing a budget_group are summed against one budget ---
 budget_groups:
@@ -130,10 +138,12 @@ second_class_files:
     upstream_blob_sha: 932165b98754d49edccdba0c879ef8b31a9c74df
     budget_nonblank: 550
     additive_only: false
-    marker_census: {}
-    marker_occurrences: 0
+    marker_census: {vj-parse-link: 26, vj-parse-junction: 84}  # S2 parse (RoadLink elementS/elementDir + 6-arg ctor +
+                                                               # operator== | junction VIRTUAL dispatch/span attrs +
+                                                               # connection anchors/kind-2 + Connection 5-arg ctor)
+    marker_occurrences: 12
     pr_slice: "PR-A..D"
-    status: baseline
+    status: active-S2
   - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.cpp
     upstream_blob_sha: 06a03974266f5852de645c74c6d48c77af5579e2
     budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
@@ -183,29 +193,32 @@ fork_file:
     sig-ref: 9          # else-if 1 + post-parse materialization hunk 8
     sig-lanes-guard: 9
     direct-junc-log: 5
-    junc-crossing: 13   # crossing type dispatch 7 + IsOsiIntersection empty-connection guard 6
+    junc-crossing: 9    # S2 re-measure: was 13 (dispatch 7 + IsOsiIntersection guard 6). The [vj-parse-junction]
+                        # dispatch replacement re-aligned the diff at the declared overlap site: 3 crossing-block
+                        # lead-in lines (close-brace + else-if + brace) now attribute to vj-parse-junction (the
+                        # +3 overlap residual below) and 1 line matches an equal snapshot line. Fork code unchanged.
   lht_census: 8         # [GT_LHT]-attributed: comment hunk 5 + 3 swapped-branch lines (legacy_sites)
   header_census: 16     # the "GT_esmini modification" file-header comment block
   legacy_sites:         # pre-S0 hunks whose ADDED lines carry no in-hunk marker (attribution by exact
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4852-4852"
+      fork_lines: "4877-4877"    # S2 shift: +25 ([vj-parse-link] hunks above)
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
     - marker: GT_LHT
-      fork_lines: "5891-5891"
+      fork_lines: "5997-5997"    # S2 shift: +106 ([vj-parse-*] hunks above)
       count: 1
-      note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk at :5885"
+      note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk above"
     - marker: GT_LHT
-      fork_lines: "5893-5893"
+      fork_lines: "5999-5999"
       count: 1
       note: "LHT 1-A swapped branch body (last lane section)"
     - marker: GT_LHT
-      fork_lines: "5897-5897"
+      fork_lines: "6003-6003"
       count: 1
       note: "LHT 1-A swapped else-branch body (first lane section)"
-# --- overlap residuals (v1: zero residuals; sites declared for S2/S5) ---
+# --- overlap residuals (declared sites; S2 measured the parse-loop residual) ---
 overlap_residuals:
   - site: "Junction::GetRoadConnectionByIdx"
     fork_markers: ["[GT_LHT]"]
@@ -215,8 +228,12 @@ overlap_residuals:
   - site: "ParseOpenDriveXML junction/connection loop"
     fork_markers: ["[GT_ODR:junc-crossing]", "[GT_ODR:junc-abort]"]
     vj_marker: "vj-parse-junction"
-    residual_nonblank: 0
-    fork_variant_test: "pending (parse-variant fixture, S2)"
+    residual_nonblank: 3   # S2 measured (fork 87 - pristine 84): the junc-crossing else-if lead-in
+                           # (virtual-branch close-brace + else-if + open-brace) attributes to the
+                           # nearest preceding marker = vj-parse-junction in the merged diff block.
+                           # Dual-attributed; the fork code at the site is byte-identical to pristine
+                           # EXCEPT the fork-only junc-crossing dispatch + junc-abort skip (P1/P5).
+    fork_variant_test: "OdrVirtualJunction.Fixture23cParseVariantsThroughJuncAbort (fixture 23c: virtual connections with/without connectingRoad + dangling default connection through junc-abort)"
 # --- interpretation rules (recorded per design §5; :interp goldens re-baseline on upstream convergence) ---
 rules:
   elementdir_reverse_merge: >-

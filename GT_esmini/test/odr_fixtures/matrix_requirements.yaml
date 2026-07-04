@@ -182,11 +182,16 @@ clusters:
   # ----- clusters with no P0 fixtures (deferred; enumerated for exhaustiveness over 0-22) -----
   6:
     title: "virtual junction"
-    deferred: "P6: virtual-junction normalization fixtures pending"
+    patterns:
+      - "junction@type=virtual"
+      - "junction@mainRoad"
+      - "junction/connection/predecessor@elementS"
+      - "road/link/predecessor@elementS"
     notes: >-
-      A type=virtual junction with crossPath already appears in fixture 01 (cluster 5's home for
-      crossPath), but no fixture targets virtual-junction *normalization* semantics. Those fixtures land
-      in P6 (parse-time mainRoad split).
+      P6 S2: fixtures 23/23b/23c (handauthored virtual_junction_*_17) provide native virtual-junction
+      parse coverage ([GT_ODR:vj-parse-link]/[GT_ODR:vj-parse-junction] in-place core edits -- NOT the
+      abandoned parse-time mainRoad split). Fixture 01 additionally carries a type=virtual junction from
+      cluster 5.
 
   9:
     title: "junctionGroup (roundabout/interchange)"

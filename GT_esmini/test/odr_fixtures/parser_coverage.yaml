@@ -328,13 +328,21 @@ elements:
     evidence: "odr_side/OdrSignalExtras.cpp ParseSemantics via CollectHeaderAndGroupExtras (P4 cluster 14 L1)"
     notes: "supplementaryExplanatory (presence-only)."
   - path: junction
-    attrs: [id, name, type]
-    evidence: "5393-5410, 6905-6960 (id via EstablishUniqueIds)"
-    notes: "@id read twice (EstablishUniqueIds 6913/6915 + jid_str 5397). @type 'direct'->DIRECT, 'virtual'->LOG_WARN+DEFAULT, 'crossing'->LOG_WARN+DEFAULT ([GT_ODR:junc-crossing] recognizes it, roadSection captured GT-side), else DEFAULT. @mainRoad/@sStart/@sEnd/@orientation (virtual) NOT read (cluster 6, P6)."
+    attrs: [id, name, type, mainRoad, sStart, sEnd, orientation]
+    evidence: "junction loop + [GT_ODR:vj-parse-junction] span block (P6 S2); id via EstablishUniqueIds"
+    notes: "@id read twice (EstablishUniqueIds + jid_str). @type 'direct'->DIRECT, 'virtual'->VIRTUAL (native since P6 S2, [GT_ODR:vj-parse-junction]), 'crossing'->LOG_WARN+DEFAULT ([GT_ODR:junc-crossing] recognizes it, roadSection captured GT-side), else DEFAULT. @mainRoad/@sStart/@sEnd/@orientation read into Junction::VirtualJunctionAttributes for virtual junctions (cluster 6, P6 S2); missing @orientation -> ORIENTATION_NONE + WARN."
   - path: junction/connection
-    attrs: [id, incomingRoad, connectingRoad, linkedRoad, contactPoint]
-    evidence: "5412-5462"
-    notes: "@linkedRoad read ONLY for DIRECT junctions; @connectingRoad read otherwise (5423-5430) - mutually exclusive by junction type. @id read then discarded ((void)idc 5418) -> consumed: partial. Missing connecting road -> [GT_ODR:junc-abort] WARN + skip connection (no longer aborts). @type NOT read."
+    attrs: [id, incomingRoad, connectingRoad, linkedRoad, contactPoint, type]
+    evidence: "junction/connection loop + [GT_ODR:vj-parse-junction] virtual-connection block (P6 S2)"
+    notes: "@linkedRoad read ONLY for DIRECT junctions; @connectingRoad read otherwise - mutually exclusive by junction type. @id read then discarded ((void)idc) -> consumed: partial. Missing connecting road -> [GT_ODR:junc-abort] WARN + skip connection (no longer aborts). @type read since P6 S2: 'virtual' without @connectingRoad = kind-2 topological connection (Connection with null connecting road + is_virtual_, store-only in v1)."
+  - path: junction/connection/predecessor
+    attrs: [elementType, elementId, elementS, elementDir]
+    evidence: "[GT_ODR:vj-parse-junction] connection anchor block (P6 S2)"
+    notes: "Virtual-junction connection anchor: @elementId (fallback incoming road) + @elementS (incoming_contact_s_) read; @elementType (XSD-fixed 'road') and @elementDir whitelisted-only at S2 -- the direction semantics are consumed at S3 synthesis via the road-link side ([GT_ODR:vj-synth])."
+  - path: junction/connection/successor
+    attrs: [elementType, elementId, elementS, elementDir]
+    evidence: "[GT_ODR:vj-parse-junction] connection anchor block (P6 S2)"
+    notes: "Virtual-junction connection outgoing anchor: @elementS read (outgoing_contact_s_); @elementId/@elementType/@elementDir whitelisted-only at S2 (S3 synthesis scope)."
   - path: junction/connection/laneLink
     attrs: [from, to, overlapZone, fromLayer, toLayer]
     evidence: "5466-5471; overlapZone/fromLayer/toLayer -> OdrJunctionExtras.cpp (side model L1)"
@@ -593,12 +601,12 @@ elements:
     evidence: "3900-3902"
     notes: "Intermediate container navigated via road_node.child('link') (3900). No attrs read; whitelisted so the audit DFS descends to predecessor/successor. NOTE: <neighbor> (road/link/neighbor, <=1.5) is NOT read and was REMOVED in OpenDRIVE 1.6 -> handled by the removed-in-1.6 table (cluster 21), not by this whitelist. Added 2026-07-02 for plan P1 OdrCoverageAudit."
   - path: road/link/predecessor
-    attrs: [elementType, elementId, contactPoint]
-    evidence: "3900-3912, 2562-2612"
-    notes: "Parsed in RoadLink ctor. @elementType road|junction (else LOG_ERROR 2609). @contactPoint start|end (road only). elementDir/elementS (1.7 direct-junction extras) NOT read."
+    attrs: [elementType, elementId, contactPoint, elementS, elementDir]
+    evidence: "RoadLink ctor + [GT_ODR:vj-parse-link] (P6 S2)"
+    notes: "Parsed in RoadLink ctor. @elementType road|junction (else LOG_ERROR). @contactPoint start|end (road only). @elementS/@elementDir (1.7 virtual-junction mid-road contact) read since P6 S2 into element_s_/element_dir_; non-finite/subnormal/negative elementS rejected with WARN + legacy fallback (official UC_ParamPoly3 carries 2.12e-314 garbage); the 'Missing contact point type' LOG_ERROR is demoted when a valid elementS is present."
   - path: road/link/successor
-    attrs: [elementType, elementId, contactPoint]
-    evidence: "3900-3912, 2562-2612"
+    attrs: [elementType, elementId, contactPoint, elementS, elementDir]
+    evidence: "RoadLink ctor + [GT_ODR:vj-parse-link] (P6 S2)"
     notes: "Same RoadLink ctor as predecessor."
   - path: road/objects
     attrs: []

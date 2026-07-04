@@ -2589,6 +2589,21 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
         element_id_ = Position::GetOpenDrive()->LookupRoadIdFromStr(element_id_str);
 
         element_type_ = ELEMENT_TYPE_ROAD;
+        // [GT_ODR:vj-parse-link] optional @elementS/@elementDir = mid-road contact on the linked road (virtual junctions)
+        if (!node.attribute("elementS").empty())
+        {
+            double element_s = node.attribute("elementS").as_double(-1.0);
+            if (!std::isfinite(element_s) || std::fpclassify(element_s) == FP_SUBNORMAL || element_s < 0.0)
+            {
+                LOG_WARN("Ignoring invalid link elementS value {} for element {}", node.attribute("elementS").value(), element_id_str);
+            }
+            else
+            {
+                element_s_                  = element_s;
+                std::string element_dir_str = node.attribute("elementDir").value();
+                element_dir_                = element_dir_str == "+" ? DIR_PLUS : (element_dir_str == "-" ? DIR_MINUS : DIR_UNKNOWN);
+            }
+        }
         if (contact_point_type == "start")
         {
             contact_point_type_ = CONTACT_POINT_START;
@@ -2599,7 +2614,10 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
         }
         else if (contact_point_type.empty())
         {
-            LOG_ERROR("Missing contact point type");
+            if (element_s_ < 0.0)  // [GT_ODR:vj-parse-link] @elementS replaces @contactPoint at mid-road contacts
+            {
+                LOG_ERROR("Missing contact point type");
+            }
         }
         else
         {
@@ -2624,10 +2642,17 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
     }
 }
 
+// [GT_ODR:vj-parse-link] programmatic link with a mid-road contact (virtual junction synthesis, S3)
+RoadLink::RoadLink(LinkType type, ElementType element_type, id_t element_id, ContactPointType contact_point, double element_s, ElementDir element_dir)
+    : type_(type), element_id_(element_id), element_type_(element_type), contact_point_type_(contact_point), element_s_(element_s), element_dir_(element_dir)
+{
+}
+
 bool RoadLink::operator==(const RoadLink& rhs) const
 {
     return (rhs.type_ == type_ && rhs.element_type_ == element_type_ && rhs.element_id_ == element_id_ &&
-            rhs.contact_point_type_ == contact_point_type_);
+            rhs.contact_point_type_ == contact_point_type_ && rhs.element_s_ == element_s_ &&
+            rhs.element_dir_ == element_dir_);  // [GT_ODR:vj-parse-link] mid-road contact identity
 }
 
 void RoadLink::Print() const
@@ -5443,8 +5468,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         }
         else if (junction_type_str == "virtual")
         {
-            LOG_WARN("Virtual junction type found. Not supported yet. Continue treating it as default type");
-            junction_type = Junction::JunctionType::DEFAULT;
+            junction_type = Junction::JunctionType::VIRTUAL;  // [GT_ODR:vj-parse-junction] native virtual junction (ASAM 10.4)
         }
         else if (junction_type_str == "crossing")
         {
@@ -5455,6 +5479,43 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         }
 
         Junction* j = new Junction(junction_ids_[junction_.size()].first, jid_str, name, junction_type);
+        // [GT_ODR:vj-parse-junction-begin] virtual junction span on the main road: @mainRoad/@sStart/@sEnd are
+        // mandatory per spec, @orientation is missing in official assets (Ex_Pedestrian_Crossing) -> NONE + WARN.
+        // An unusable span resets the attributes to "absent" but the junction stays VIRTUAL.
+        if (junction_type == Junction::JunctionType::VIRTUAL)
+        {
+            Junction::VirtualJunctionAttributes attributes;
+            attributes.main_road_id_    = LookupRoadIdFromStr(junction_node.attribute("mainRoad").value());
+            attributes.s_start_         = junction_node.attribute("sStart").as_double(-1.0);
+            attributes.s_end_           = junction_node.attribute("sEnd").as_double(-1.0);
+            std::string orientation_str = junction_node.attribute("orientation").value();
+            if (orientation_str == "+")
+            {
+                attributes.orientation_ = Junction::ORIENTATION_PLUS;
+            }
+            else if (orientation_str == "-")
+            {
+                attributes.orientation_ = Junction::ORIENTATION_MINUS;
+            }
+            else if (orientation_str != "none")
+            {
+                LOG_WARN("Virtual junction {} orientation '{}' missing or unsupported, treating as valid in both directions",
+                         jid_str,
+                         orientation_str);
+            }
+            if (!std::isfinite(attributes.s_start_) || !std::isfinite(attributes.s_end_) || attributes.s_start_ < 0.0 ||
+                attributes.s_end_ < attributes.s_start_)
+            {
+                LOG_WARN("Virtual junction {} has an invalid span sStart={} sEnd={}, ignoring the span attributes",
+                         jid_str,
+                         attributes.s_start_,
+                         attributes.s_end_);
+                attributes.s_start_ = -1.0;
+                attributes.s_end_   = -1.0;
+            }
+            j->SetVirtualAttributes(attributes);
+        }
+        // [GT_ODR:vj-parse-junction-end]
 
         for (pugi::xml_node connection_node = junction_node.child("connection"); connection_node;
              connection_node                = connection_node.next_sibling("connection"))
@@ -5466,6 +5527,41 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 std::string incoming_road_id_str = connection_node.attribute("incomingRoad").value();
                 Road*       incoming_road        = GetRoadByIdStr(incoming_road_id_str);
 
+                // [GT_ODR:vj-parse-junction-begin] virtual junction connection (ASAM 10.4): <predecessor>/<successor>
+                // carry the anchor s on the linked road; @incomingRoad may be absent or "-1" (derived from the
+                // predecessor); @type="virtual" without @connectingRoad = kind-2 topological connection, represented
+                // as a Connection with a null connecting road + is_virtual_ (store-only in v1; virtual junctions are
+                // never road-link targets, so the load-time consumers of connection_ do not dereference it)
+                double         vj_incoming_contact_s = -1.0;
+                double         vj_outgoing_contact_s = -1.0;
+                pugi::xml_node vj_pred_node          = connection_node.child("predecessor");
+                pugi::xml_node vj_succ_node          = connection_node.child("successor");
+                if (!vj_pred_node.empty())
+                {
+                    vj_incoming_contact_s = vj_pred_node.attribute("elementS").as_double(-1.0);
+                    if (incoming_road == nullptr)
+                    {
+                        incoming_road = GetRoadByIdStr(vj_pred_node.attribute("elementId").value());
+                    }
+                }
+                if (!vj_succ_node.empty())
+                {
+                    vj_outgoing_contact_s = vj_succ_node.attribute("elementS").as_double(-1.0);
+                }
+                if (std::string(connection_node.attribute("type").value()) == "virtual" && connection_node.attribute("connectingRoad").empty())
+                {
+                    if (vj_pred_node.empty() && vj_succ_node.empty())
+                    {
+                        LOG_WARN("Virtual connection {} in junction {} lacks <predecessor>/<successor>, skipping", idc, jid_str);
+                        continue;
+                    }
+                    Connection* vj_connection =
+                        new Connection(incoming_road, nullptr, ContactPointType::CONTACT_POINT_UNDEFINED, vj_incoming_contact_s, vj_outgoing_contact_s);
+                    vj_connection->SetVirtual(true);
+                    j->AddConnection(vj_connection);
+                    continue;
+                }
+                // [GT_ODR:vj-parse-junction-end]
                 std::string connecting_road_id_str;
                 if (junction_type == Junction::JunctionType::DIRECT)
                 {
@@ -5485,7 +5581,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 }
 
                 // Check that the connecting road is referring back to this junction
-                if (j->GetType() != Junction::JunctionType::DIRECT && connecting_road->GetJunction() != j->GetId())
+                if (j->GetType() != Junction::JunctionType::DIRECT && j->GetType() != Junction::JunctionType::VIRTUAL &&
+                    connecting_road->GetJunction() != j->GetId())  // [GT_ODR:vj-parse-junction] VJ connecting roads are regular roads
                 {
                     LOG_WARN(
                         "Warning: Connecting road (id {}) junction attribute ({}) is not referring back to junction {} which is making use of it",
@@ -5509,7 +5606,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     LOG_ERROR("Unsupported contact point: {}", contact_point_str);
                 }
 
-                Connection* connection = new Connection(incoming_road, connecting_road, contact_point);
+                // [GT_ODR:vj-parse-junction] pass the parsed anchors through (both -1.0 on regular connections)
+                Connection* connection = new Connection(incoming_road, connecting_road, contact_point, vj_incoming_contact_s, vj_outgoing_contact_s);
 
                 for (pugi::xml_node lane_link_node = connection_node.child("laneLink"); lane_link_node;
                      lane_link_node                = lane_link_node.next_sibling("laneLink"))
@@ -5794,6 +5892,14 @@ Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointT
     incoming_road_   = incoming_road;
     connecting_road_ = connecting_road;
     contact_point_   = contact_point;
+}
+
+// [GT_ODR:vj-parse-junction] virtual junction connection: anchor s per road end from <predecessor>/<successor> @elementS
+Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointType contact_point, double incoming_s, double outgoing_s)
+    : Connection(incoming_road, connecting_road, contact_point)
+{
+    incoming_contact_s_ = incoming_s;
+    outgoing_contact_s_ = outgoing_s;
 }
 
 Connection::~Connection()

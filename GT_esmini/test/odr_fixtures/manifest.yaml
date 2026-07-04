@@ -360,11 +360,8 @@ fixtures:
   - road/lanes/laneSection/left/lane@type=walking
   - road/lanes/laneSection/right/lane@type=walking
   - road@rule
-  expected_unsupported_entries:
-  - 'junction@mainRoad|ctx=555'
-  - 'junction@orientation|ctx=555'
-  - 'junction@sEnd|ctx=555'
-  - 'junction@sStart|ctx=555'
+  expected_unsupported_entries: []  # P6 S2 FLIP: junction@mainRoad/@sStart/@sEnd/@orientation (ctx=555) are
+                                    # natively parsed since [GT_ODR:vj-parse-junction] -> no longer audited
   osi: true  # P5: fixture-scoped OSI probe (acceptance (i), breakage #3/#4 machine-verification)
   # Junctions 555 (virtual) + 666 (crossing) carry NO <connection> -> the [GT_ODR:junc-crossing]
   # IsOsiIntersection empty-connection guard suppresses the ghost TYPE_INTERSECTION lane (breakage #3).
@@ -381,8 +378,9 @@ fixtures:
     homes: a type=crossing junction (id 666) with roadSection, and a type=virtual junction (id 555) with
     crossPath, mirroring the ASAM Ex_Pedestrian_Crossing reference. P5: junction/crossPath and
     junction/roadSection are now captured by OdrJunctionExtras.cpp (side model L1) so they no longer flag as
-    [ODR-UNSUPPORTED]; the virtual-junction attrs (@mainRoad/@sStart/@sEnd/@orientation on 555) remain
-    cluster 6 (P6) and still flag. rm_init passes with degradation exactly as the plan predicts (breakage #3):
+    [ODR-UNSUPPORTED]; P6 S2: the virtual-junction attrs (@mainRoad/@sStart/@sEnd/@orientation on 555) are
+    natively parsed ([GT_ODR:vj-parse-junction]) and no longer flag either (junction 555 is now
+    JunctionType::VIRTUAL). rm_init passes with degradation exactly as the plan predicts (breakage #3):
     "unknown lane type: walking" and the [GT_ODR:junc-crossing] WARN for the crossing junction (roadSection
     handled GT-side).
 - id: dynamic_signal_demote_18
@@ -1424,3 +1422,86 @@ fixtures:
     1.9 XSD bootstrap (schema19 absent); expected schema pass mirrors the sibling *_19 handauthored
     fixtures. Priority is exposed to F3 via GetJunctionPriorities(). rm_init passes; no ghost-intersection
     error because junction 900 has a resolvable <connection>.
+- id: virtual_junction_17
+  path: GT_esmini/test/odr_fixtures/handauthored/23_virtual_junction_17.xodr
+  source: handauthored
+  rev: '1.7'
+  requires: []
+  clusters:
+  - 6
+  features:
+  - junction@type=virtual
+  - junction@mainRoad
+  - junction@sStart
+  - junction@sEnd
+  - junction@orientation
+  - junction/connection@type=virtual
+  - junction/connection/predecessor
+  - junction/connection/predecessor@elementId
+  - junction/connection/predecessor@elementS
+  - junction/connection/predecessor@elementDir
+  - junction/connection/successor
+  - junction/connection/successor@elementS
+  - junction/priority
+  - road/link/predecessor@elementS
+  - road/link/predecessor@elementDir
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P6 S2 fixture 23 ([GT_ODR:vj-parse-link]/[GT_ODR:vj-parse-junction], design sec 6): 1.7 virtual
+    junction 888 (mainRoad=1 sStart=95 sEnd=105 orientation=+) parsed NATIVELY as JunctionType::VIRTUAL
+    since P6 S2 (was WARN + DEFAULT). Main road 1 (L=200) carries NO links; branch road 2 attaches via
+    road-link <predecessor elementS=100 elementDir=+> (no contactPoint -- the demoted "Missing contact
+    point" path); the default-shaped connection carries the anchor <predecessor elementS=100> ->
+    incoming_contact_s_; the kind-2 <connection type=virtual> (no connectingRoad) is stored with
+    is_virtual_ + null connecting road (store-only in v1). At S2 the CheckLink reverse-link WARN for the
+    elementS link is still expected (silenced by [vj-synth] at S3). End-to-end asserts in
+    test_OdrVirtualJunction.cpp (T1).
+- id: virtual_junction_lht_17
+  path: GT_esmini/test/odr_fixtures/handauthored/23b_virtual_junction_lht_17.xodr
+  source: handauthored
+  rev: '1.7'
+  requires: []
+  clusters:
+  - 6
+  features:
+  - junction@type=virtual
+  - junction@mainRoad
+  - junction/connection/predecessor@elementS
+  - road@rule
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    LHT variant of fixture 23 (all roads rule=LHT, identical topology): S5 [vj-lanes] fork-variant test
+    data (LHT lane-section pick x VJ counter-connection, design sec 4 Stage 5 / manifest
+    vj_lanes_merged_semantics rule). At S2 it only needs to parse identically + freeze goldens.
+- id: virtual_junction_parse_variants_17
+  path: GT_esmini/test/odr_fixtures/handauthored/23c_virtual_junction_parse_variants_17.xodr
+  source: handauthored
+  rev: '1.7'
+  requires: []
+  clusters:
+  - 6
+  features:
+  - junction@type=virtual
+  - junction/connection@type=virtual
+  - junction/connection@connectingRoad
+  - junction/connection/predecessor@elementS
+  - junction/connection/successor@elementS
+  expected_unsupported_entries: []
+  expected: {schema: fail, rm_init: pass}
+  observed: {schema: fail, rm_init: pass}
+  expected_notes: intentional_dangling_connectingRoad_99_keyref_r_junction_connection_connectingRoad
+  notes: >-
+    P6 S2 parse-variant fixture (fork-variant data for the declared ParseOpenDriveXML junction-loop
+    OVERLAP with [GT_ODR:junc-abort], manifest overlap_residuals): junction 999 carries a kind-1
+    type=virtual connection WITH connectingRoad (normal Connection + anchor s), a kind-2 type=virtual
+    connection WITHOUT connectingRoad (stored is_virtual_; must NOT be caught by the fork's junc-abort
+    WARN+skip -- the @type check runs BEFORE the abort guard), and a default-shaped connection with a
+    DELIBERATELY dangling connectingRoad=99 (fork junc-abort skips it; upstream pristine would abort
+    the parse -- the recorded 3-line overlap residual). The dangling id violates the 1.7 keyref
+    r_junction_connection_connectingRoad -> expected schema FAIL by design (fixture 02 precedent is
+    keyref-free 1.4; this one pins the 1.7 keyref behavior). Asserted end-to-end by
+    OdrVirtualJunction.Fixture23cParseVariantsThroughJuncAbort.

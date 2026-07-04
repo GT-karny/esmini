@@ -75,11 +75,16 @@ _DEFAULT_BUDGET = 150
 
 
 def _manifest_values():
-    """(expect_odr_lines, budget) from the machine-readable manifest, or (None, None)."""
+    """(expect_odr_lines, budget) from the machine-readable manifest, or (None, None).
+
+    Prefers `fork_odr_drift_expect_lines` (the fork-vs-CURRENT-pristine-FILE metric this
+    legacy checker measures) over `fork_odr_expect_lines` (the fork-vs-upstream-BLOB metric
+    owned by check_core_census). The two diverged at P6 S2 when byte-identical vj hunks were
+    mirrored into the pristine copy (invisible to the file diff, visible to the blob diff)."""
     try:
         import gt_patch_manifest
         m = gt_patch_manifest.load_manifest(_REPO_ROOT)
-        return m["fork_odr_expect_lines"], m["fork_line_budget"]
+        return m.get("fork_odr_drift_expect_lines", m["fork_odr_expect_lines"]), m["fork_line_budget"]
     except Exception as e:
         print(f"WARNING: cannot read patch manifest ({e}); "
               "skipping the [GT_ODR:] line-count check", file=sys.stderr)

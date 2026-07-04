@@ -114,7 +114,10 @@ try:
 except ValueError as _e:
     raise SystemExit(f"FATAL: cannot load the GT patch manifest "
                      f"(GT_esmini/docs/gt_roadmanager_patches.md): {_e}")
-FORK_ODR_EXPECT_LINES = _PATCH_MANIFEST["fork_odr_expect_lines"]
+# check_fork_drift measures fork-vs-CURRENT-pristine-FILE: prefer the dedicated legacy metric key
+# (P6 S2: mirrored vj hunks are invisible to the file diff but visible to check_core_census's
+# fork-vs-upstream-BLOB census, so the two expectations legitimately differ).
+FORK_ODR_EXPECT_LINES = _PATCH_MANIFEST.get("fork_odr_drift_expect_lines", _PATCH_MANIFEST["fork_odr_expect_lines"])
 FORK_LINE_BUDGET = _PATCH_MANIFEST["fork_line_budget"]
 
 # Status tags.

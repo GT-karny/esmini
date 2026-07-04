@@ -8,7 +8,7 @@
 // comma-separated set of attributes the parser reads on that element; an empty
 // string means 'no attributes read' (container or attribute-less element).
 //
-// Counts: 218 element paths, 439 (path,attr) pairs.
+// Counts: 220 element paths, 456 (path,attr) pairs.
 
 // clang-format off
 static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
@@ -86,9 +86,11 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"header/geoReference", ""},
     {"header/license", "name,resource,spdxid,text"},
     {"header/offset", "hdg,x,y,z"},
-    {"junction", "id,name,type"},
-    {"junction/connection", "connectingRoad,contactPoint,id,incomingRoad,linkedRoad"},
+    {"junction", "id,mainRoad,name,orientation,sEnd,sStart,type"},
+    {"junction/connection", "connectingRoad,contactPoint,id,incomingRoad,linkedRoad,type"},
     {"junction/connection/laneLink", "from,fromLayer,overlapZone,to,toLayer"},
+    {"junction/connection/predecessor", "elementDir,elementId,elementS,elementType"},
+    {"junction/connection/successor", "elementDir,elementId,elementS,elementType"},
     {"junction/controller", "id,sequence,type"},
     {"junction/crossPath", "crossingRoad,id,roadAtEnd,roadAtStart"},
     {"junction/crossPath/endLaneLink", "from,s,to"},
@@ -157,8 +159,8 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/lateralProfile", ""},
     {"road/lateralProfile/superelevation", "a,b,c,d,s"},
     {"road/link", ""},
-    {"road/link/predecessor", "contactPoint,elementId,elementType"},
-    {"road/link/successor", "contactPoint,elementId,elementType"},
+    {"road/link/predecessor", "contactPoint,elementDir,elementId,elementS,elementType"},
+    {"road/link/successor", "contactPoint,elementDir,elementId,elementS,elementType"},
     {"road/objects", ""},
     {"road/objects/object", "dynamic,hdg,height,id,length,name,orientation,pitch,radius,roll,s,subtype,t,type,validLength,width,zOffset"},
     {"road/objects/object/markings", ""},
