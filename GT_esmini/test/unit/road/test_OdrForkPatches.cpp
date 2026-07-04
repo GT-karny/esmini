@@ -143,23 +143,51 @@ int ManifestInt(const std::string& block, const std::string& key)
     return -1;
 }
 
-// Collect the `- path:` values of the second_class_files rows. (fork_file's path uses `path:`
-// WITHOUT the list dash, so this naive scan only picks up the second-class rows.)
-std::vector<std::string> ManifestSecondClassPaths(const std::string& block)
+// One second_class_files row: its path plus the row-flat `marker_occurrences` expectation
+// (count of literal "[GT_ODR:" occurrences expected in the file; -1 when the key is missing).
+struct SecondClassRow
 {
-    std::vector<std::string> paths;
-    std::istringstream       in(block);
-    std::string              line;
-    const std::string        prefix = "- path:";
+    std::string path;
+    int         marker_occurrences = -1;
+};
+
+// Collect the second_class_files rows: a row starts at `- path:` and its keys run until the
+// next `- path:` or the top-level `fork_file:` section. (fork_file's path uses `path:` WITHOUT
+// the list dash, so the naive scan only opens rows on the dashed form.)
+std::vector<SecondClassRow> ManifestSecondClassRows(const std::string& block)
+{
+    std::vector<SecondClassRow> rows;
+    std::istringstream          in(block);
+    std::string                 line;
+    const std::string           row_prefix = "- path:";
+    const std::string           occ_prefix = "marker_occurrences:";
+    bool                        in_row     = false;
     while (std::getline(in, line))
     {
         const std::string t = Trim(line);
-        if (t.compare(0, prefix.size(), prefix) == 0)
+        if (t.compare(0, row_prefix.size(), row_prefix) == 0)
         {
-            paths.push_back(Trim(t.substr(prefix.size())));
+            SecondClassRow row;
+            row.path = Trim(t.substr(row_prefix.size()));
+            rows.push_back(row);
+            in_row = true;
+        }
+        else if (t.compare(0, std::string("fork_file:").size(), "fork_file:") == 0)
+        {
+            in_row = false;  // fork_file keys (incl. its own census) must not bleed into the last row
+        }
+        else if (in_row && t.compare(0, occ_prefix.size(), occ_prefix) == 0)
+        {
+            std::string val = t.substr(occ_prefix.size());
+            const std::size_t hash = val.find('#');
+            if (hash != std::string::npos)
+            {
+                val = val.substr(0, hash);
+            }
+            rows.back().marker_occurrences = std::atoi(Trim(val).c_str());
         }
     }
-    return paths;
+    return rows;
 }
 
 // A scratch directory for the temp xodr files. Prefer <repo>/build (gitignored) so nothing
@@ -309,29 +337,31 @@ TEST(OdrForkPatches, MarkerCount)
 }
 
 // 1b. 2nd-class file set (P6 virtual junction, manifest section 7): every file listed under
-//     second_class_files currently carries ZERO [GT_ODR: markers (zero-edit baseline, status
-//     "baseline"/"deferred-until-PR-D").
-//     NOTE: this assertion will be UPDATED when S1 lands the first [GT_ODR:vj-*] markers in the
-//     pristine copies -- it then becomes a per-file census assertion against each row's
-//     marker_census instead of a flat zero check.
-TEST(OdrForkPatches, SecondClassZeroEditBaseline)
+//     second_class_files carries EXACTLY its row's `marker_occurrences` literal "[GT_ODR:"
+//     markers. Updated at S1 (was SecondClassZeroEditBaseline, a flat zero check): the
+//     RoadManager.hpp row now declares the [GT_ODR:vj-model] data-model marker comments; all
+//     other rows still declare 0. The nonblank line-level census is enforced separately by
+//     scripts/check_core_census.py; this ctest guards the marker inventory without python.
+TEST(OdrForkPatches, SecondClassCensus)
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
 
     const std::string block = ReadManifestBlock();
     ASSERT_FALSE(block.empty()) << "GT-2ND-CLASS-MANIFEST YAML block not found in gt_roadmanager_patches.md";
-    const std::vector<std::string> paths = ManifestSecondClassPaths(block);
-    ASSERT_GE(paths.size(), 6u) << "second_class_files rows missing from the manifest block";
+    const std::vector<SecondClassRow> rows = ManifestSecondClassRows(block);
+    ASSERT_GE(rows.size(), 6u) << "second_class_files rows missing from the manifest block";
 
-    for (const std::string& rel : paths)
+    for (const SecondClassRow& row : rows)
     {
-        const std::string path = root + "/" + rel;
+        ASSERT_GE(row.marker_occurrences, 0)
+            << row.path << " row is missing the flat marker_occurrences key (added at S1)";
+        const std::string path = root + "/" + row.path;
         std::string       content;
         ASSERT_TRUE(ReadFileToString(path, content)) << "cannot read 2nd-class file " << path;
-        EXPECT_EQ(CountOccurrences(content, "[GT_ODR:"), 0u)
-            << rel << " carries [GT_ODR:] markers but its manifest marker_census is the zero-edit "
-            << "baseline (update the manifest row AND this test when S1 lands vj-* markers).";
+        EXPECT_EQ(CountOccurrences(content, "[GT_ODR:"), static_cast<std::size_t>(row.marker_occurrences))
+            << row.path << " [GT_ODR:] marker count drifted from its manifest marker_occurrences "
+            << "(update the manifest row when a stage lands/removes marked hunks).";
     }
 }
 

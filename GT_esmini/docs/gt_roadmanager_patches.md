@@ -14,6 +14,10 @@
 
 - **`[GT_ODR:cmake]` マーカー出現数: 2**(単一の swap-zone 例外だが 2 箇所の APPEND: ①`list(APPEND SOURCES odr_side/*.cpp)`、②`target_include_directories(... GT_esmini/include)`)。`test_OdrForkPatches.MarkerCount` ctest が本数を機械監視(本表と一致しない場合テスト失敗)。
 
+### 0b. OSI 外部パッケージパス固定(R1 例外 3 件目 — 2026-07-04、P6 S1 で顕在化)
+
+**`support/cmake/common/locations.cmake`** の `EXTERNALS_OSI_PATH` を upstream v3.4.0 の `externals/osi/${OSI_RELEASE_TAG}` 合成からフラット `externals/osi` に固定(`# [GT_ODR:osi-path]` マーカー 1 箇所、実質 1 行 + 説明コメント)。理由: GT は OSI 3.7.0 パッケージ(`externals/osi/v11`、リポジトリ追跡、ego Identifier wire 送出の修復 = commit 9fffa06e)を使用しており、upstream 合成パスは存在しない `externals/osi/<tag>/v11` を指して **upstream OSI 3.5.0 アーカイブを再ダウンロードし GT アップグレードを黙ってダウングレードする**(P6 S0b の再構成で実際に発生、`externals/osi/v3.5.0_2/` が落ちてきた)。v3.4.0 の OSI gzip 圧縮(OSIReporter.hpp が gzip_stream.h を無条件 include、osi.cmake が zlibstatic.lib をリンク)への対応として、zlib 1.2.13 成果物 4 点(zlib.h / zconf.h / zlibstatic.lib / zlibstaticd.lib、upstream v3.5.0_2 パッケージ由来 = 同一バージョン、GT libprotobuf は元から WITH_ZLIB=ON ビルドで GzipOutputStream 同梱)を `externals/osi/v11` に追加。将来の再生成は `scripts/generate_osi_libs.sh`(zlib ビルド済み)のパッケージング段で zlib を含めること。upstream の `set_osi_libs` は OSI 3.5.0 以外を FATAL とするため(osi.cmake:81)、この偏差は upstream 収束不能 — OSI 3.7.0 継続の間は永続 GT 例外。
+
 ## 1. フォーク内パッチ一覧
 
 | # | マーカー | 関数アンカー | 位置(2026-07-03 時点) | 行数 | 内容 | upstream PR |
@@ -97,7 +101,7 @@
 
 ## 7. 第2種(in-place core edits)マニフェスト — P6 virtual junction
 
-第2種編集とは、2026-07-04 の R1 緩和でユーザー承認された pristine コアファイル(`EnvironmentSimulator/` 配下)への **in-place 直接編集**を指す(第1種=`GT_RoadManager.cpp` フォークの既存 150 行レジーム)。下の fenced YAML ブロックが**唯一の真実(single source of truth)**であり、`scripts/check_core_census.py`・`scripts/check_fork_drift.py`・`scripts/run_odr_conformance.py`・ctest センサス(`OdrForkPatches.MarkerCount` / `OdrForkPatches.SecondClassZeroEditBaseline`)はすべて本ブロックをパースする — スクリプト側への期待値の埋め込みは禁止(`check_fork_drift.py` の陳腐化した `_DEFAULT_EXPECT_ODR=16` が動機となった失敗事例)。予算・ファイルセットは 2026-07-04 ユーザー承認([odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md) §5/§10)。ベースラインは Stage 0b(upstream v3.4.0 マージ)後に `check_core_census.py record-baselines` の 1 コマンドで再記録する。
+第2種編集とは、2026-07-04 の R1 緩和でユーザー承認された pristine コアファイル(`EnvironmentSimulator/` 配下)への **in-place 直接編集**を指す(第1種=`GT_RoadManager.cpp` フォークの既存 150 行レジーム)。下の fenced YAML ブロックが**唯一の真実(single source of truth)**であり、`scripts/check_core_census.py`・`scripts/check_fork_drift.py`・`scripts/run_odr_conformance.py`・ctest センサス(`OdrForkPatches.MarkerCount` / `OdrForkPatches.SecondClassCensus`)はすべて本ブロックをパースする — スクリプト側への期待値の埋め込みは禁止(`check_fork_drift.py` の陳腐化した `_DEFAULT_EXPECT_ODR=16` が動機となった失敗事例)。予算・ファイルセットは 2026-07-04 ユーザー承認([odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md) §5/§10)。ベースラインは Stage 0b(upstream v3.4.0 マージ)後に `check_core_census.py record-baselines` の 1 コマンドで再記録する。
 
 <!-- GT-2ND-CLASS-MANIFEST-BEGIN -->
 ```yaml
@@ -118,14 +122,16 @@ second_class_files:
     upstream_blob_sha: 8dbd661856ced5d7b120901a4c82dfe1fe9b6838
     budget_nonblank: 75
     additive_only: true
-    marker_census: {}                    # per-marker-id -> nonblank added lines (empty = zero-edit baseline)
+    marker_census: {vj-model: 73}        # per-marker-id -> nonblank added lines (S1 data model, measured)
+    marker_occurrences: 15               # literal "[GT_ODR:" comment count (ctest SecondClassCensus)
     pr_slice: "PR-A..D"
-    status: baseline
+    status: active-S1
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
     upstream_blob_sha: 932165b98754d49edccdba0c879ef8b31a9c74df
     budget_nonblank: 550
     additive_only: false
     marker_census: {}
+    marker_occurrences: 0
     pr_slice: "PR-A..D"
     status: baseline
   - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.cpp
@@ -134,6 +140,7 @@ second_class_files:
     budget_group: router
     additive_only: false
     marker_census: {}
+    marker_occurrences: 0
     pr_slice: "PR-C"
     status: baseline
   - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.hpp
@@ -142,6 +149,7 @@ second_class_files:
     budget_group: router
     additive_only: false
     marker_census: {}
+    marker_occurrences: 0
     pr_slice: "PR-C"
     status: baseline
   - path: EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
@@ -149,6 +157,7 @@ second_class_files:
     budget_nonblank: 30
     additive_only: false
     marker_census: {}
+    marker_occurrences: 0
     pr_slice: "PR-D"
     status: deferred-until-PR-D
   - path: EnvironmentSimulator/Modules/Controllers/ControllerLooming.cpp
@@ -156,6 +165,7 @@ second_class_files:
     budget_nonblank: 10
     additive_only: false
     marker_census: {}
+    marker_occurrences: 0
     pr_slice: "PR-C"
     status: baseline
 # --- fork (1st-class, existing 150-line regime; census cross-checked two-sided) ---
