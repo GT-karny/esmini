@@ -63,8 +63,13 @@ macro(set_project_external_paths)
         ${EXTERNALS_PATH}/googletest)
     set(EXTERNALS_OSG_PATH
         ${EXTERNALS_PATH}/osg)
+    # [GT_ODR:osi-path] GT_esmini: keep the flat osi base path -- the GT OSI 3.7.0 package lives in
+    # externals/osi/v11 (tracked in-repo, incl. zlib 1.2.13 artifacts for the v3.4.0 gzip feature).
+    # Upstream v3.4.0 appends ${OSI_RELEASE_TAG}, which composes externals/osi/<tag>/v11 = nonexistent
+    # and re-downloads the upstream OSI 3.5.0 archive, silently downgrading the GT OSI 3.7.0 upgrade
+    # (ego Identifier wire emission). Recorded in gt_roadmanager_patches.md section 0.
     set(EXTERNALS_OSI_PATH
-        ${EXTERNALS_PATH}/osi/${OSI_RELEASE_TAG})
+        ${EXTERNALS_PATH}/osi)
     set(EXTERNALS_PUGIXML_PATH
         ${EXTERNALS_PATH}/pugixml)
     set(EXTERNALS_SUMO_PATH
