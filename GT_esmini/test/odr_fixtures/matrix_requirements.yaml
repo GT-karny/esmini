@@ -88,8 +88,11 @@ clusters:
   8:
     title: "junction boundary/elevationGrid/planView etc"
     patterns:
-      - "junction/boundary"                           # 1.8 <boundary> (g6)
-      - "junction/boundary/segment@type"
+      - "junction/boundary"                           # 1.8 <boundary> (g6 + g8)
+      - "junction/boundary/segment@type"              # boundary segment @type (g6 + g8)
+      - "junction/elevationGrid"                      # P7: junction <elevationGrid> (g8)
+      - "junction/surface"                            # P7: junction-level <surface><CRG> (g8)
+      - "junction/objects"                            # P7: junction-level <objects> (g8)
 
   10:
     title: "signal semantics family + participants"
@@ -147,12 +150,15 @@ clusters:
 
   17:
     title: "cross-section: shape + crossSectionSurface"
-    deferred: "P7: shape / crossSectionSurface fixtures pending"
+    patterns:
+      - "road/lateralProfile/shape"                   # P7: lateralProfile <shape> (fixture 23)
+      - "road/lateralProfile/crossSectionSurface"     # P7: <crossSectionSurface> (fixture 24)
     notes: >-
-      No P0 fixture carries road/lateralProfile/shape or crossSectionSurface feature rows. The control_set
-      includes shape/crossSectionSurface geometry (official UC_RoadShape + Ex_CrossSectionSurface*, and
-      RM/OSI goldens over them), but those official fixtures carry empty `features` lists and cannot supply
-      a matchable pattern. Fixtures with explicit shape/crossSectionSurface feature rows land in P7.
+      P7 un-defers this cluster: the handauthored fixtures 23_lateral_shape_15 and
+      24_cross_section_surface_18 carry explicit road/lateralProfile/shape and
+      road/lateralProfile/crossSectionSurface feature rows. The official UC_RoadShape +
+      Ex_CrossSectionSurface* control roads also exercise this geometry at load (RM/OSI goldens) but
+      carry empty `features` lists, so they cannot supply the matchable patterns.
 
   18:
     title: "surface/CRG (road/junction/object)"
@@ -190,11 +196,14 @@ clusters:
 
   9:
     title: "junctionGroup (roundabout/interchange)"
-    deferred: "P7: junctionGroup fixtures pending"
+    patterns:
+      - "junctionGroup"                               # P7: <junctionGroup type=roundabout> (fixture 25)
+      - "junctionGroup/junctionReference"             # P7: <junctionReference> members (fixture 25)
     notes: >-
-      No P0 fixture carries junctionGroup feature rows. The control_set includes a roundabout
-      (official UC_2Lane-RoundAbout-3Arms) but its features list is empty; dedicated junctionGroup
-      fixtures land in P7.
+      P7 un-defers this cluster: the handauthored fixture 25_junction_group_15 carries a document-level
+      <junctionGroup type="roundabout"> with <junctionReference> members and the matching feature rows.
+      The control_set includes a roundabout (official UC_2Lane-RoundAbout-3Arms) but its features list
+      is empty, so it cannot supply the matchable pattern.
 
   20:
     title: "railroad + station"

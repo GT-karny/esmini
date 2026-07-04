@@ -27,6 +27,15 @@ elements:
   - path: controller/control
     attrs: [signalId, type]
     evidence: "5381-5387"
+  # ---- P7 cluster 9: document-level <junctionGroup> (OpenDRIVE root child; roundabout|interchange) ----
+  - path: junctionGroup
+    attrs: [id, name, type]
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 9 L1)"
+    notes: "Groups junctions (roundabout|interchange|unknown). Stored L1 in OdrSideModel::junction_groups; policy hint IsJunctionInRoundabout() (side-only, no consumer wiring)."
+  - path: junctionGroup/junctionReference
+    attrs: [junction]
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 9 L1)"
+    notes: "Member junction id."
   - path: header
     attrs: [revMajor, revMinor, name, version, date, north, south, east, west, vendor]
     evidence: "3733-3737 (revMajor/revMinor read); rest whitelisted-only (see notes)"
@@ -369,6 +378,38 @@ elements:
     attrs: [id, roadId, sStart, sEnd]
     evidence: "OdrJunctionExtras.cpp (side model L1, P5)"
     notes: "1.8 crossing-junction roadSection: the s-range of a road where crossing traffic can appear. Captured L1 in OdrJunctionExtras (cluster 5, P5)."
+  # ---- P7 cluster 8: junction geometry (boundary / elevationGrid / junction-level objects+surface) ----
+  # Stored L1 in OdrJunctionGeom.cpp (OdrJunctionGeomExtras), keyed by junction id; OdrJunctionExtras is
+  # intentionally untouched (P6 conflict-surface minimization).
+  - path: junction/boundary
+    attrs: []
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8); container for <segment>."
+  - path: junction/boundary/segment
+    attrs: [type, roadId, boundaryLane, sStart, sEnd]
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8 L1)"
+    notes: "Junction boundary segment (type lane|position|joint). Authored boundary polygon exposed via GetJunctionGeom for the later OSI WP."
+  - path: junction/elevationGrid
+    attrs: [gridSpacing, sStart]
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8 L1)"
+    notes: "Junction elevation grid. Stored L1; not evaluated."
+  - path: junction/elevationGrid/elevation
+    attrs: [center, left, right]
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8 L1)"
+    notes: "One grid row: center height + space-separated left/right height lists (raw)."
+  - path: junction/surface
+    attrs: []
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8); container for junction-level <CRG>."
+  - path: junction/surface/CRG
+    attrs: [file, sStart, sEnd, orientation, mode, purpose, sOffset, tOffset, xOffset, yOffset, zOffset, zScale, hOffset]
+    evidence: "OdrJunctionGeom.cpp ReadJunctionSurfaceCrgs (P7 cluster 18 L1)"
+    notes: "Junction-level surface CRG. Stored L1 (never evaluated); missing-file diagnostic as for road/object CRG."
+  - path: junction/objects
+    attrs: []
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8); container for junction-owned <object>."
+  - path: junction/objects/object
+    attrs: [type, name, id, s, t, zOffset, hdg, orientation, length, width, height, radius, pitch, roll, subtype, dynamic, validLength, perpToRoad]
+    evidence: "OdrJunctionGeom.cpp ParseJunctionGeom (P7 cluster 8 L1 count)"
+    notes: "Junction-level object. Counted L1 (OdrJunctionGeomExtras::object_count); full geometry synthesis deferred. Attr list mirrors the road-object attrs so a junction object with standard attrs does not flag."
   - path: road
     attrs: [id, name, length, junction, rule]
     evidence: "3766-3797, 6905-6960 (id via EstablishUniqueIds)"
@@ -587,7 +628,59 @@ elements:
   - path: road/lateralProfile/superelevation
     attrs: [s, a, b, c, d]
     evidence: "4050-4060"
-    notes: "lateralProfile is read ONLY for <superelevation> children (next_sibling('superelevation')). <shape> children are NOT read (plan cluster 17 backlog)."
+    notes: "lateralProfile is read ONLY for <superelevation> children (next_sibling('superelevation')) by the fork. <shape>/<crossSectionSurface> are captured L1 by the side model (P7 cluster 17) below."
+  # ---- P7 cluster 17: lateralProfile <shape> + <crossSectionSurface> (L1 + degrade-to-equivalent-
+  # superelevation, WARN'd approximation; see OdrObjectExtras.cpp ApplyLateralProfileDegrade). ----
+  - path: road/lateralProfile/shape
+    attrs: [s, t, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7 cluster 17 L1)"
+    notes: "Cross-section poly in t at each s. Stored L1 in OdrRoadLateralProfile::shapes; degraded to an equivalent piecewise-constant superelevation theta(s)=atan(b) when the road has no authored superelevation (native t-dependent shape NOT evaluated -- WARN'd approximation)."
+  - path: road/lateralProfile/crossSectionSurface
+    attrs: []
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7 cluster 17 L1)"
+    notes: "1.8+ cross section surface (mutually exclusive with superelevation/shape). Stored L1; degraded to equivalent superelevation from the linear-strip crossfall slope (WARN'd approximation)."
+  - path: road/lateralProfile/crossSectionSurface/tOffset
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <coefficients>."
+  - path: road/lateralProfile/crossSectionSurface/tOffset/coefficients
+    attrs: [s, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ReadCssCoefficients (P7)"
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <strip>."
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip
+    attrs: [id, mode]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7)"
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/width
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <coefficients>."
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/width/coefficients
+    attrs: [s, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ReadCssCoefficients (P7)"
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/constant
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <coefficients> (t-constant height)."
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/constant/coefficients
+    attrs: [s, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ReadCssCoefficients (P7)"
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/linear
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <coefficients> (t-linear height)."
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/linear/coefficients
+    attrs: [s, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ReadCssCoefficients (P7)"
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/quadratic
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <coefficients> (t-quadratic height)."
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/quadratic/coefficients
+    attrs: [s, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ReadCssCoefficients (P7)"
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/cubic
+    attrs: []
+    evidence: "OdrObjectExtras.cpp (P7); container for <coefficients> (t-cubic height)."
+  - path: road/lateralProfile/crossSectionSurface/surfaceStrips/strip/cubic/coefficients
+    attrs: [s, a, b, c, d]
+    evidence: "OdrObjectExtras.cpp ReadCssCoefficients (P7)"
   - path: road/link
     attrs: []
     evidence: "3900-3902"
@@ -605,8 +698,8 @@ elements:
     evidence: "4973-4976"
     notes: "Reads 'object' children (4976) and 'tunnel' children (5341). objectReference and bridge children NOT read (plan cluster 19b backlog)."
   - path: road/objects/object
-    attrs: [s, t, id, name, orientation, type, length, width, radius, zOffset, height, hdg, pitch, roll, subtype, dynamic, validLength]
-    evidence: "4976-5034 (read attrs); subtype/dynamic/validLength whitelisted-only (see notes)"
+    attrs: [s, t, id, name, orientation, type, length, width, radius, zOffset, height, hdg, pitch, roll, subtype, dynamic, validLength, perpToRoad]
+    evidence: "4976-5034 (read attrs); subtype/dynamic/validLength whitelisted-only; perpToRoad -> OdrObjectExtras.cpp (P7 L1)"
     notes: >
       READ: @type via RMObject::Str2Type; unknown -> LOG_ERROR 'Unsupported object type' (3002) -> NONE.
       @radius: if set alone -> width=length=2*radius; if with length/width -> LOG_WARN, radius dropped
@@ -646,14 +739,120 @@ elements:
   - path: road/objects/object/outlines/outline/cornerRoad
     attrs: [s, t, dz, height, id]
     evidence: "5178-5200"
+  # ---- P7 cluster 19: outline-level <markings> (1.9 idiom used by ASAM Ex_Objects) + <curveLocal> ----
+  - path: road/objects/object/outlines/outline/curveLocal
+    attrs: [id, u, v, z, height, length, hdg]
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7 cluster 19a fork helper; wiring later WP)"
+    notes: "1.9 smooth object outline segment (arc|line|paramPoly3 child). Tessellated to OutlineCornerLocal by the AppendCurveLocalCorners fork helper (deterministic point count, preserved winding). Outline attrs (@fillType/@laneType/@outer) stored L1 in OdrObjectExtras."
+  - path: road/objects/object/outlines/outline/curveLocal/arc
+    attrs: [curvature]
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+  - path: road/objects/object/outlines/outline/curveLocal/line
+    attrs: []
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+    notes: "A straight curveLocal segment (no attributes; t_..._curveLocal_line)."
+  - path: road/objects/object/outlines/outline/curveLocal/paramPoly3
+    attrs: [aU, bU, cU, dU, aV, bV, cV, dV, pRange]
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+  - path: road/objects/object/outlines/outline/markings
+    attrs: []
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7 cluster 19); container for outline-level <marking>."
+  - path: road/objects/object/outlines/outline/markings/marking
+    attrs: [width, color, zOffset, spaceLength, lineLength, startOffset, stopOffset, side, weight]
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7 cluster 19 L1)"
+    notes: "Outline-level marking (t_road_objects_object_marking, 1.9). Distinct from the object-level esmini/GT <markings>/<marking> path. Stored L1 in OdrObjectExtras::outlines[].markings."
+  - path: road/objects/object/outlines/outline/markings/marking/cornerReference
+    attrs: [id]
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7)"
+  # ---- P7 cluster 19: SINGULAR outline form (road/objects/object/outline). The g4 fixture uses the
+  # singular <outline> directly under <object> (a valid OpenDRIVE form: object -> outline, maxOccurs=1),
+  # whereas most assets use the plural <outlines>/<outline>. Both are ground truth; whitelist the full
+  # singular subtree so the audit DFS descends without flagging. Corner geometry is parsed by upstream
+  # RM (cornerRoad/cornerLocal) and by AppendCurveLocalCorners (curveLocal). ----
+  - path: road/objects/object/outline
+    attrs: [id, closed, fillType, laneType, outer]
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7 cluster 19 L1); upstream RM also accepts the singular form."
+    notes: "Singular object/outline form. Attrs @fillType/@laneType/@outer stored L1 in OdrObjectExtras (upstream reads only id/closed)."
+  - path: road/objects/object/outline/cornerLocal
+    attrs: [u, v, z, height, id]
+    evidence: "5187-5200 (upstream corner loop is form-agnostic)"
+  - path: road/objects/object/outline/cornerRoad
+    attrs: [s, t, dz, height, id]
+    evidence: "5178-5200"
+  - path: road/objects/object/outline/curveLocal
+    attrs: [id, u, v, z, height, length, hdg]
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+  - path: road/objects/object/outline/curveLocal/arc
+    attrs: [curvature]
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+  - path: road/objects/object/outline/curveLocal/line
+    attrs: []
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+  - path: road/objects/object/outline/curveLocal/paramPoly3
+    attrs: [aU, bU, cU, dU, aV, bV, cV, dV, pRange]
+    evidence: "OdrObjectExtras.cpp AppendCurveLocalCorners (P7)"
+  - path: road/objects/object/outline/markings
+    attrs: []
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7)"
+  - path: road/objects/object/outline/markings/marking
+    attrs: [width, color, zOffset, spaceLength, lineLength, startOffset, stopOffset, side, weight]
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7)"
+  - path: road/objects/object/outline/markings/marking/cornerReference
+    attrs: [id]
+    evidence: "OdrObjectExtras.cpp ReadOutline (P7)"
+  # ---- P7 cluster 19: object <material> / <skeleton> / <borders> / object-level <surface><CRG> ----
+  - path: road/objects/object/material
+    attrs: [surface, friction, roughness, roadMarkColor]
+    evidence: "OdrObjectExtras.cpp ReadObjectExtras (P7 cluster 19 L1)"
+    notes: "Object material (t_road_objects_object_material). Distinct from the LANE material path. Stored L1 in OdrObjectExtras::materials (not read by upstream RM at object scope)."
+  - path: road/objects/object/skeleton
+    attrs: []
+    evidence: "OdrObjectExtras.cpp ReadSkeleton (P7); container for polyline geometry."
+  - path: road/objects/object/skeleton/polyline
+    attrs: [id]
+    evidence: "OdrObjectExtras.cpp ReadSkeleton (P7 cluster 19 L1)"
+  - path: road/objects/object/skeleton/polyline/vertexRoad
+    attrs: [s, t, dz, radius, id, intersectionPoint]
+    evidence: "OdrObjectExtras.cpp ReadSkeleton (P7)"
+  - path: road/objects/object/skeleton/polyline/vertexLocal
+    attrs: [u, v, dz, radius, id, intersectionPoint]
+    evidence: "OdrObjectExtras.cpp ReadSkeleton (P7)"
+  - path: road/objects/object/borders
+    attrs: []
+    evidence: "OdrObjectExtras.cpp ReadObjectExtras (P7); container for <border>."
+  - path: road/objects/object/borders/border
+    attrs: [width, type, outlineId, useCompleteOutline]
+    evidence: "OdrObjectExtras.cpp ReadObjectExtras (P7 cluster 19 L1)"
+  - path: road/objects/object/surface
+    attrs: []
+    evidence: "OdrObjectExtras.cpp ReadSurfaceCrgs (P7); container for object-level <CRG>."
+  - path: road/objects/object/surface/CRG
+    attrs: [file, sStart, sEnd, orientation, mode, purpose, sOffset, tOffset, xOffset, yOffset, zOffset, zScale, hOffset, hideRoadSurfaceCRG]
+    evidence: "OdrObjectExtras.cpp ReadCrg (P7 cluster 18 L1)"
+    notes: "Object-level surface CRG. Stored L1 (never evaluated); file-existence diagnostic emitted when @file is missing. @hideRoadSurfaceCRG (object-scope) whitelisted-only."
+  # ---- P7 cluster 19b: <objectReference> + <bridge> (road/objects children) ----
+  - path: road/objects/objectReference
+    attrs: [s, t, id, zOffset, validLength, orientation]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras + SynthesizeObjectReferences (P7 cluster 19b)"
+    notes: "Reference to another object. Stored L1 in OdrSideModel::object_references and materialized as a clone RMObject on the declaring road (dangling -> WARN + skip)."
+  - path: road/objects/objectReference/validity
+    attrs: [fromLane, toLane]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7); validity descends like object/validity."
+  - path: road/objects/bridge
+    attrs: [s, length, name, id, type]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras + SynthesizeBridges (P7 cluster 19b)"
+    notes: "Stored L1 in OdrSideModel::bridges and synthesized as a BRIDGE RMObject (OSI TYPE_BRIDGE). @type material class (concrete|steel|brick|wood)."
+  - path: road/objects/bridge/validity
+    attrs: [fromLane, toLane]
+    evidence: "OdrObjectExtras.cpp ParseObjectExtras (P7)"
   - path: road/objects/object/parkingSpace
     attrs: [access, restrictions]
     evidence: "5207-5253"
     notes: "@access mapped to 8 ACCESS_* enums; unknown -> ACCESS_ALL (5248). marking child of parkingSpace NOT read."
   - path: road/objects/object/repeat
-    attrs: [s, length, distance, tStart, tEnd, heightStart, heightEnd, zOffsetStart, zOffsetEnd, widthStart, widthEnd, lengthStart, lengthEnd, radiusStart, radiusEnd]
-    evidence: "5039-5124, 3642-3668 (ReadAttribute)"
-    notes: "All 15 attrs read via ReadAttribute (first 9 required->LOG_WARN if missing, last 6 optional). @s beyond road length -> skip (5043). Lateral polynomial extension tStart/tEnd only (no bT/cT/dT - 1.9 NOT read). @distance<eps triggers continuous-outline synthesis."
+    attrs: [s, length, distance, tStart, tEnd, heightStart, heightEnd, zOffsetStart, zOffsetEnd, widthStart, widthEnd, lengthStart, lengthEnd, radiusStart, radiusEnd, bT, cT, dT, detachFromReferenceLine]
+    evidence: "5039-5124, 3642-3668 (ReadAttribute); bT/cT/dT/detachFromReferenceLine -> OdrObjectExtras.cpp (P7 L1)"
+    notes: "First 15 attrs read via ReadAttribute (first 9 required->LOG_WARN if missing, last 6 optional). @s beyond road length -> skip (5043). The 1.9 lateral-polynomial extension @bT/@cT/@dT/@detachFromReferenceLine is captured L1 into OdrObjectExtras::repeat_poly (cluster 19a, P7) and consumed by the AdjustRepeatInstancePose fork helper (fork wiring is a later WP). @distance<eps triggers continuous-outline synthesis."
   - path: road/objects/object/userData
     attrs: [code, value]
     evidence: "5314-5328"
@@ -894,6 +1093,11 @@ elements:
       as a known empty container ONLY: its attrs are empty and its children are NOT pre-whitelisted,
       so a <surface> carrying real <CRG> content still yields an honest [ODR-UNSUPPORTED]
       road/surface/CRG entry (cluster 18 backlog). Added 2026-07-02 for plan P1 OdrCoverageAudit.
+  # ---- P7 cluster 18: road-level <surface>/<CRG> (L1 store + file-existence diagnostic, never eval) ----
+  - path: road/surface/CRG
+    attrs: [file, sStart, sEnd, orientation, mode, purpose, sOffset, tOffset, xOffset, yOffset, zOffset, zScale, hOffset]
+    evidence: "OdrObjectExtras.cpp ReadCrg (P7 cluster 18 L1)"
+    notes: "Road-level surface CRG. Stored L1 in OdrSideModel::road_surface_crgs (never evaluated). @xOffset/@yOffset are 1.9 additions. LOG_WARN diagnostic when @file cannot be resolved relative to the xodr directory."
   - path: road/type
     attrs: [type, s]
     evidence: "3799-3897"

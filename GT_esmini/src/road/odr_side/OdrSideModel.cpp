@@ -10,8 +10,10 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "CommonMini.hpp"
+#include "RoadManager.hpp"  // roadmanager::OpenDrive::GetOpenDriveFilename (typed overload)
 #include "logger.hpp"  // LOG_WARN/LOG_INFO/LOG_ERROR (fmt-style)
 #include "odr_side_internal.hpp"
 #include "pugixml.hpp"
@@ -38,7 +40,20 @@ std::mutex& RegistryMutex()
 }
 }  // namespace
 
-bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
+namespace
+{
+// Directory containing `path` (POSIX/Windows separators), or "" when none. Used for the CRG
+// file-existence diagnostic; kept dependency-free (no <filesystem> at this layer).
+std::string DirOf(const std::string& path)
+{
+    const auto slash = path.find_last_of("/\\");
+    return (slash == std::string::npos) ? std::string() : path.substr(0, slash);
+}
+
+// Core builder shared by both public overloads. `doc_dir` = directory of the source xodr ("" when
+// unknown -> CRG existence checks are skipped). The typed overload additionally runs the mutating
+// stage-2 passes on `od` after this returns.
+bool BuildSideModelCore(const pugi::xml_document& doc, const void* opendrive_key, const std::string& doc_dir)
 {
     auto model = std::make_unique<OdrSideModel>();
 
@@ -63,6 +78,11 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
         // P5: junction pass (clusters 5/7/22 L1: crossPath/roadSection/priority/laneLink layers).
         detail::ParseJunctionExtras(root, *model);
 
+        // P7: object family + road surface/lateralProfile (clusters 17/18/19 L1) and junction
+        // geometry + junctionGroup (clusters 8/9 L1). Pure storage; stage-2 synthesis is separate.
+        detail::ParseObjectExtras(root, *model, doc_dir);
+        detail::ParseJunctionGeom(root, *model, doc_dir);
+
         // Register BEFORE returning (even on include hard-error) so diagnostics/stats are queryable.
         {
             std::lock_guard<std::mutex> lock(RegistryMutex());
@@ -84,12 +104,20 @@ bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
     }
     return true;
 }
+}  // namespace
+
+bool BuildSideModel(const pugi::xml_document& doc, const void* opendrive_key)
+{
+    // Opaque-key entry: no source path available, so CRG existence checks are skipped ("" doc_dir).
+    return BuildSideModelCore(doc, opendrive_key, std::string());
+}
 
 bool BuildSideModel(const pugi::xml_document& doc, roadmanager::OpenDrive* od)
 {
     // Same registration/audit semantics as the opaque-key overload (key = od). The fork hook
     // `BuildSideModel(doc, this)` binds HERE by exact match -- no fork change was needed for P2.
-    const bool ok = BuildSideModel(doc, static_cast<const void*>(od));
+    const std::string doc_dir = (od != nullptr) ? DirOf(od->GetOpenDriveFilename()) : std::string();
+    const bool        ok      = BuildSideModelCore(doc, static_cast<const void*>(od), doc_dir);
     if (ok && od != nullptr)
     {
         OdrSideModel* m = detail::GetSideModelMutable(od);
@@ -102,6 +130,12 @@ bool BuildSideModel(const pugi::xml_document& doc, roadmanager::OpenDrive* od)
             // P5 stage 2: crossPath -> synthesized CROSSWALK RMObject + PedPath polyline (no-op when
             // no crossPath was parsed -- keeps legacy parses bit-identical).
             detail::SynthesizeCrosswalks(*m, od);
+
+            // P7 stage 2: bridge/objectReference synthesis + lateralProfile degrade (no-op on legacy
+            // assets -- keeps parses bit-identical when none of these elements were authored).
+            detail::SynthesizeBridges(*m, od);
+            detail::SynthesizeObjectReferences(*m, od);
+            detail::ApplyLateralProfileDegrade(*m, od);
         }
     }
     return ok;
