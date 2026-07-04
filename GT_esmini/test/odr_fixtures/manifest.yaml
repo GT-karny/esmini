@@ -802,8 +802,38 @@ fixtures:
   rev: '1.9'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneSection/right/lane/link/successor@layer
+  # P8 base (permanent-mode) proof points: with GT_ODR_LANE_LAYERS unset the RM structure is the
+  # PERMANENT layer at every s (the temporary [40,360] sub-range is NOT merged). lane -3 width at
+  # s=50 is the permanent constant 3.75 (contrast the __temporary variant: 3.625).
+  rm_lane_s_samples: [10, 50, 70, 350, 370]
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  expected_notes: ''
+- id: official_ex_lane_multilanelayer__temporary
+  path: GT_esmini/test/odr_fixtures/official/examples/Ex_Lane_MultiLaneLayer/Ex_Lane_MultiLaneLayer.xodr
+  source: official
+  rev: '1.9'
+  requires:
+  - asam_zips
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  # P8 temporary-merge variant: SAME xodr, RM probed with GT_ODR_LANE_LAYERS=temporary so the fork's
+  # SelectLanesLayer merges the temporary s-range [40,360] into the permanent structure. golden_suffix
+  # writes a DISTINCT golden (base + '__temporary'); the shared path is allowed by load_manifest for
+  # golden_suffix entries. s=10/370 (outside [40,360]) must match the base (permanent) values; s=50
+  # lane -3 width is the temporary poly (3.625, vs base 3.75) -- the merge proof.
+  rm_env: {GT_ODR_LANE_LAYERS: temporary}
+  golden_suffix: "__temporary"
+  rm_lane_s_samples: [10, 50, 70, 350, 370]
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
@@ -846,8 +876,39 @@ fixtures:
   rev: '1.9'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneOffset
+  # P8 base (permanent-mode) proof points on road 8 (length ~7083.567): with GT_ODR_LANE_LAYERS unset
+  # the RM structure is the PERMANENT layer everywhere (temp sub-range [2000,5083] NOT merged; the
+  # temporary layer's four laneOffsets are absent). s=100/5500 sit OUTSIDE [2000,5083] and are the
+  # permanent-invariance witnesses shared with the __temporary variant.
+  rm_lane_s_samples: [100, 2500, 3500, 4500, 5500]
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  expected_notes: ''
+- id: official_ex_motorway_roadworks_temporary_layer_lane_offset__temporary
+  path: GT_esmini/test/odr_fixtures/official/examples/Ex_Motorway_roadworks_temporary_layer_lane_offset/Ex_Motorway_roadworks_temporary_layer_lane_offset.xodr
+  source: official
+  rev: '1.9'
+  requires:
+  - asam_zips
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneOffset
+  # P8 temporary-merge variant: SAME xodr, GT_ODR_LANE_LAYERS=temporary -> SelectLanesLayer merges the
+  # temporary s-range [2000,5083] (its extra laneSections + 4 laneOffsets) into the permanent structure.
+  # s=100 and s=5500 (outside the range) must match the base (permanent) golden; s=2500/3500/4500
+  # (inside) reflect the merged temporary layer -- roadworks lane counts differ from the base.
+  rm_env: {GT_ODR_LANE_LAYERS: temporary}
+  golden_suffix: "__temporary"
+  rm_lane_s_samples: [100, 2500, 3500, 4500, 5500]
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''

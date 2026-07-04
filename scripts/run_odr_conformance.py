@@ -149,13 +149,16 @@ def load_manifest() -> dict:
     with open(MANIFEST, "r", encoding="utf-8") as fh:
         m = yaml.safe_load(fh)
     # Validate: unique ids, unique paths, all paths exist (asam_zips entries skip-eligible).
+    # EXCEPTION (P8): a variant entry carrying `golden_suffix` deliberately re-uses a base entry's
+    # path (same xodr, different RM env/mode) but writes to a distinct golden slug, so duplicate
+    # paths are allowed ONLY for golden_suffix-bearing entries (its id is still unique).
     ids, paths, problems = set(), set(), []
     for fx in m.get("fixtures", []):
         fid, p = fx["id"], fx["path"]
         if fid in ids:
             problems.append(f"duplicate fixture id: {fid}")
         ids.add(fid)
-        if p in paths:
+        if p in paths and not fx.get("golden_suffix"):
             problems.append(f"duplicate fixture path: {p}")
         paths.add(p)
         if not os.path.exists(_abs(p)) and "asam_zips" not in (fx.get("requires") or []):
@@ -185,6 +188,10 @@ out = OUT_LIT
 # (road_id is the STRING road id, matching the extract's road "id"). Empty when the manifest
 # carries no rm_z_probe field -> the z_probe key is NOT added to the extract (byte-identical guard).
 ZPROBE = ZPROBE_LIT
+# Additional explicit-s lane samples (harness extension C, P8). List of s values applied to EVERY
+# road; emitted under a SEPARATE per-road key `lane_samples_at` (distinct from the default 5-point
+# `lane_samples`). Empty -> the key is NOT added (byte-identical golden guard, same rule as z_probe).
+LANE_S = LANE_S_LIT
 TOL = 6
 sys.path.insert(0, os.path.join(REPO_ROOT, "GT_esmini", "scripts"))
 from rm_lib import EsminiRMLib
@@ -241,6 +248,25 @@ try:
             lanes.sort(key=lambda x: x["id"])
             samples.append({"s": r(s), "num_lanes": int(nlanes), "lanes": lanes})
         rd["lane_samples"] = samples
+        # Additional explicit-s lane samples (harness extension C, P8). Emitted ONLY when the
+        # manifest carried rm_lane_s_samples -> the key is absent otherwise (byte-identical guard).
+        # Same per-s extraction as lane_samples; s clamped to [0, length].
+        if LANE_S:
+            samples_at = []
+            for s in LANE_S:
+                s = min(max(float(s), 0.0), length)
+                nlanes = lib.GetRoadNumberOfLanes(rid, s, -1)
+                lanes = []
+                for li in range(nlanes):
+                    rc2, lid = lib.GetLaneIdByIndex(rid, li, s, -1)
+                    if rc2 != 0:
+                        continue
+                    lt = lib.GetLaneTypeByRoadId(rid, lid, s)
+                    rcw, w = lib.GetLaneWidthByRoadId(rid, lid, s)
+                    lanes.append({"id": int(lid), "type": int(lt), "width": r(float(w)) if rcw == 0 else None})
+                lanes.sort(key=lambda x: x["id"])
+                samples_at.append({"s": r(s), "num_lanes": int(nlanes), "lanes": lanes})
+            rd["lane_samples_at"] = samples_at
         # position probe at first drivable lane, s = L/2
         ndriv = lib.GetRoadNumberOfDrivableLanes(rid, length * 0.5) if length > 0 else 0
         if ndriv > 0:
@@ -399,19 +425,27 @@ json.dump(res, open(out, "w"))
 '''
 
 
-def _run_worker_script(body: str, out: str, script: str, interp: str | None = None) -> dict:
+def _run_worker_script(body: str, out: str, script: str, interp: str | None = None,
+                       env_overrides: dict | None = None) -> dict:
     """Run a materialised worker script isolated (timeout); read its JSON result file.
 
     The DLLs flood stdout and some xodr files crash the process, so every probe runs in
     its own subprocess and communicates via a result FILE, never stdout. `interp` selects
     the interpreter (defaults to the running one; the OSI layer may pick a different osi3 host).
+    `env_overrides` (P8) augments the child env (os.environ copy + overrides) -- used to set
+    GT_ODR_LANE_LAYERS=temporary for the variant RM probes, which reach the fork's SelectLanesLayer
+    latch through the standard RM entry point (esminiRMLib), the only place it is read.
     """
     with open(script, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(body)
+    child_env = None
+    if env_overrides:
+        child_env = os.environ.copy()
+        child_env.update({str(k): str(v) for k, v in env_overrides.items()})
     log_text = ""
     try:
         proc = subprocess.run([interp or sys.executable, script], capture_output=True,
-                              timeout=PROBE_TIMEOUT, cwd=_REPO_ROOT)
+                              timeout=PROBE_TIMEOUT, cwd=_REPO_ROOT, env=child_env)
         log_text = (proc.stdout or b"").decode("utf-8", "replace") + (proc.stderr or b"").decode("utf-8", "replace")
         res = _load_json(out) if os.path.exists(out) else {"__worker_failed__": True, "returncode": proc.returncode}
     except subprocess.TimeoutExpired:
@@ -563,7 +597,9 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
         # Build worker with a concrete OUT path via mkstemp done inside _run_worker;
         # we pass OUT_LIT as a sentinel that _run_worker replaces. z_probe = harness extension A.
         z_probe_req = e.get("rm_z_probe") or []
-        res = _run_worker_rm(ap, rmdll, z_probe=z_probe_req)
+        lane_s_req = e.get("rm_lane_s_samples") or []
+        rm_env_req = e.get("rm_env") or None
+        res = _run_worker_rm(ap, rmdll, z_probe=z_probe_req, lane_s=lane_s_req, rm_env=rm_env_req)
         markers = _count_markers(res.get("_log", ""))
         extract = None
         if res.get("__worker_failed__"):
@@ -579,7 +615,8 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
         else:
             observed_load = "fail"
             detail = f"RM_Init rc={res.get('rc', res.get('error'))}"
-        status, gstat = _golden_compare("rm", p, extract, update, e["expected_rm"], observed_load)
+        status, gstat = _golden_compare("rm", p, extract, update, e["expected_rm"], observed_load,
+                                        golden_suffix=e.get("golden_suffix", ""))
         # rm_expect_z: golden-independent absolute-tolerance z assertion (harness extension A).
         z_status = _rm_expect_z_check(e, res.get("z_probe"))
         if z_status is not None and z_status.startswith("FAIL"):
@@ -596,7 +633,7 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
     return rows
 
 
-def _run_worker_rm(abs_xodr: str, rmdll: str, z_probe=None) -> dict:
+def _run_worker_rm(abs_xodr: str, rmdll: str, z_probe=None, lane_s=None, rm_env=None) -> dict:
     fd, script = tempfile.mkstemp(suffix="_rm.py", prefix="odrconf_", dir=WORK_DIR)
     os.close(fd)
     out = script + ".json"
@@ -605,8 +642,9 @@ def _run_worker_rm(abs_xodr: str, rmdll: str, z_probe=None) -> dict:
             .replace("RMDLL_LIT", repr(rmdll))
             .replace("XODR_LIT", repr(abs_xodr))
             .replace("ZPROBE_LIT", repr(z_probe or []))
+            .replace("LANE_S_LIT", repr(lane_s or []))
             .replace("OUT_LIT", repr(out)))
-    return _run_worker_script(body, out, script)
+    return _run_worker_script(body, out, script, env_overrides=rm_env or None)
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +775,8 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
                          "detail": f"SE_Init rc={res.get('rc', res.get('error'))}", "markers": markers})
             continue
         extract = {k: v for k, v in res.items() if not k.startswith("_") and k != "init_ok"}
-        status, gstat = _golden_compare("osi", p, extract, update, "pass", "pass")
+        status, gstat = _golden_compare("osi", p, extract, update, "pass", "pass",
+                                        golden_suffix=e.get("golden_suffix", ""))
         detail = ""
         # Opt-in OSI content checks (manifest-driven, generic). Each records the FIRST failure
         # into `detail`; any one flips the row to FAIL so it counts toward the harness exit code.
@@ -804,9 +843,11 @@ def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = 
 # ---------------------------------------------------------------------------
 # Golden compare / update
 # ---------------------------------------------------------------------------
-def _golden_path(kind: str, repo_rel: str) -> str:
+def _golden_path(kind: str, repo_rel: str, golden_suffix: str = "") -> str:
     base = GOLDEN_RM_DIR if kind == "rm" else GOLDEN_OSI_DIR
-    return os.path.join(base, _slug(repo_rel) + ".json")
+    # P8: `golden_suffix` (e.g. "__temporary") lets a variant entry (same xodr path, different RM
+    # env/mode) write to a distinct golden file so it does not collide with the base entry's slug.
+    return os.path.join(base, _slug(repo_rel) + (golden_suffix or "") + ".json")
 
 
 def _diff_json(a, b, path=""):
@@ -839,17 +880,18 @@ def _diff_json(a, b, path=""):
     return diffs
 
 
-def _golden_compare(kind, repo_rel, extract, update, expected_load, observed_load):
+def _golden_compare(kind, repo_rel, extract, update, expected_load, observed_load, golden_suffix=""):
     """Returns (status, golden_status_str).
 
     For fixtures whose expected load is fail (rm), no extract is produced; status is the
     XFAIL/XPASS/PASS/FAIL of the LOAD comparison and golden is 'n/a (load-fail expected)'.
+    `golden_suffix` (P8) disambiguates same-path variant entries (see _golden_path).
     """
     load_status = _cmp_status(_norm_expect(expected_load), observed_load)
     if extract is None:
         # No serialisable extract (load failed). Load comparison is the whole story.
         return load_status, "n/a"
-    gpath = _golden_path(kind, repo_rel)
+    gpath = _golden_path(kind, repo_rel, golden_suffix)
     if update:
         _write_json(gpath, extract)
         return (load_status if load_status in (PASS, XFAIL) else load_status), "written"
@@ -1163,6 +1205,12 @@ def _assemble(manifest: dict, only: str):
             # P7 harness extension A: opt-in z-grid probe + golden-independent z assertion.
             "rm_z_probe": fx.get("rm_z_probe"),
             "rm_expect_z": fx.get("rm_expect_z"),
+            # P8 harness layer-mode variants: extra explicit-s lane samples (-> lane_samples_at key),
+            # RM-subprocess env overrides (GT_ODR_LANE_LAYERS=temporary), and a golden-slug suffix so a
+            # same-path variant entry writes a distinct golden without colliding with its base entry.
+            "rm_lane_s_samples": fx.get("rm_lane_s_samples"),
+            "rm_env": fx.get("rm_env"),
+            "golden_suffix": fx.get("golden_suffix", ""),
             # P7 harness extension B: opt-in base_polygon dump for stationary objects.
             "osi_dump_stationary_polygons": bool(fx.get("osi_dump_stationary_polygons")),
         })

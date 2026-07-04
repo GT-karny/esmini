@@ -1,0 +1,23 @@
+scenario: invalidated_stop_sign_ignored
+category: 04_traffic_signs
+# P8 acceptance (iv): the INVERSE of semantic_stop_sign_full_stop. The road's STOP sign is
+# authored invalidated="true", so the P8 filter (D4/D5) removes it from the VirtualDriver
+# route signal scan -> StopYieldSignAware never sees a STOP -> the ego must NOT stop.
+#
+# The matcher grammar has no negation form, so "no stop at the sign" is expressed as a
+# min-speed floor over the sign's approach/passage window (min_speed_above, road_id-gated):
+# if the ego wrongly stopped for the invalidated sign, min speed would collapse to ~0 and this
+# FAILS. The window opens at sim_time 5.0 (past the 3 s linear accel ramp from the standstill
+# teleport; the ego is at full 13.889 m/s cruise well before the sign at s=200, reached ~t=13 s).
+# Ego-kinematic only (no OSI needed for these matchers). Pre-filter (invalidated ignored) the
+# ego full-stops at the line and min_speed_above FAILS (red) -- the discriminating assertion.
+must:
+  - event: min_speed_above
+    threshold: 8.0
+    road_id: 1
+    after: { sim_time: 5.0 }
+    reason: "invalidated標識は無視 → 停止線で減速・停止しない(巡航速度を維持)"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 18.0 }
+    reason: "標識通過後(s>200)も等速巡航を継続していること"

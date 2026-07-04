@@ -17,9 +17,14 @@
 // test reverts to SetLaneLayerModeUseEnv() and Clears the OpenDrive singleton on the way out.
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "RoadManager.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"
@@ -488,4 +493,186 @@ TEST(OdrLaneLayers, Fixture06SignalPointerPath)
     EXPECT_EQ(checked, 2) << "both fixture signals should have been resolved via the Signal* path";
 
     roadmanager::Position::GetOpenDrive()->Clear();
+}
+
+// ---------------------------------------------------------------------------
+// GlobalIdStability (P8 stage 3, WP2): lane global-ID stability golden.
+//
+//   Loads a committed control set in DEFAULT (permanent) mode and dumps, for every lane,
+//   {road_id, section_index, lane_id} -> GetGlobalId(), then compares against the committed
+//   golden GT_esmini/test/odr_fixtures/golden/lane_global_ids.json.
+//
+//   The acceptance guard this pins: permanent mode returns the ORIGINAL first-lanes node with NO
+//   copy (plan D2), so lane DOM-iteration order -- and therefore the monotonic global-id assignment
+//   (GT_RoadManager.cpp LaneSection::AddLane -> Lane::SetGlobalId -> GetNewGlobalId) -- is UNCHANGED
+//   by the P8 fork hook on control assets. This test machine-verifies that invariant.
+//
+//   NORMALIZATION (why the dump is offset-normalized, not raw g_id):
+//   GetNewGlobalId() is a FILE-STATIC monotonic counter in CommonMini.cpp (`global_id`). Although
+//   LoadOpenDriveFile(replace=true) -> Reset() -> Clear() -> ResetGlobalIdCounter() resets it to 0 at
+//   the START of every load (so a single file's ids are deterministic), the RAW ids of a road would
+//   still depend on how many lanes were assigned BEFORE that road within the same load. To make the
+//   golden robust against ANY such drift (multi-road files, junction lanes, future counter changes,
+//   or other tests sharing the gtest process), each lane's value is recorded RELATIVE to the FIRST
+//   lane of ITS OWN road: value = GetGlobalId() - g_id_of_first_lane_of_that_road. This offset is
+//   invariant under a uniform shift of the whole counter and pins exactly what P8 must not disturb:
+//   the intra-road lane ORDERING/spacing that flows from DOM-iteration order.
+//   Update mode mirrors test_OdrAssetProbe: env GT_ODR_PROBE_UPDATE=1 writes the golden and PASSes.
+
+namespace
+{
+
+// Control set (all committed / always present): two multi-section repo roads + the two P8 lane
+// fixtures. Relative to the repo root; forward slashes for stable golden keys.
+const char* kGlobalIdControlSet[] = {
+    "resources/xodr/fabriksgatan.xodr",
+    "resources/xodr/multi_intersections.xodr",
+    "GT_esmini/test/odr_fixtures/generated/g2_lanes_layer_19.xodr",
+    "GT_esmini/test/odr_fixtures/handauthored/06_temporary_invalidated_19.xodr",
+};
+
+// Dump one loaded OpenDrive into ordered {"road:<id>|sec:<idx>|lane:<id>" -> normalized offset}.
+std::map<std::string, long long> DumpNormalizedGlobalIds(roadmanager::OpenDrive* odr)
+{
+    std::map<std::string, long long> out;
+    if (odr == nullptr)
+    {
+        return out;
+    }
+    for (unsigned int ri = 0; ri < odr->GetNumOfRoads(); ++ri)
+    {
+        roadmanager::Road* road = odr->GetRoadByIdx(ri);
+        if (road == nullptr)
+        {
+            continue;
+        }
+        // First lane of THIS road (section 0, lane 0) anchors the offset normalization.
+        long long anchor       = 0;
+        bool      anchor_found = false;
+        for (unsigned int si = 0; si < road->GetNumberOfLaneSections() && !anchor_found; ++si)
+        {
+            roadmanager::LaneSection* ls = road->GetLaneSectionByIdx(si);
+            if (ls != nullptr && ls->GetNumberOfLanes() > 0)
+            {
+                roadmanager::Lane* l0 = ls->GetLaneByIdx(0);
+                if (l0 != nullptr)
+                {
+                    anchor       = static_cast<long long>(l0->GetGlobalId());
+                    anchor_found = true;
+                }
+            }
+        }
+        for (unsigned int si = 0; si < road->GetNumberOfLaneSections(); ++si)
+        {
+            roadmanager::LaneSection* ls = road->GetLaneSectionByIdx(si);
+            if (ls == nullptr)
+            {
+                continue;
+            }
+            for (unsigned int li = 0; li < ls->GetNumberOfLanes(); ++li)
+            {
+                roadmanager::Lane* lane = ls->GetLaneByIdx(li);
+                if (lane == nullptr)
+                {
+                    continue;
+                }
+                std::string key = "road:" + road->GetIdStr() + "|sec:" + std::to_string(si) + "|lane:" + std::to_string(lane->GetId());
+                out[key]        = static_cast<long long>(lane->GetGlobalId()) - anchor;
+            }
+        }
+    }
+    return out;
+}
+
+// Deterministic JSON: top-level keyed by relpath, each value an ordered map key->int (sorted keys).
+std::string SerializeGlobalIds(const std::map<std::string, std::map<std::string, long long>>& all)
+{
+    std::ostringstream os;
+    os << "{\n";
+    bool first_file = true;
+    for (const auto& kv : all)
+    {
+        if (!first_file)
+        {
+            os << ",\n";
+        }
+        first_file = false;
+        os << "  \"" << kv.first << "\": {";
+        bool first = true;
+        for (const auto& e : kv.second)
+        {
+            if (!first)
+            {
+                os << ",";
+            }
+            first = false;
+            os << "\n    \"" << e.first << "\": " << e.second;
+        }
+        if (!kv.second.empty())
+        {
+            os << "\n  ";
+        }
+        os << "}";
+    }
+    os << "\n}\n";
+    return os.str();
+}
+
+std::string GlobalIdGoldenPath()
+{
+    return RepoRoot() + "/GT_esmini/test/odr_fixtures/golden/lane_global_ids.json";
+}
+
+}  // namespace
+
+TEST(OdrLaneLayers, GlobalIdStability)
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
+
+    // Pin permanent mode regardless of ambient GT_ODR_LANE_LAYERS so the control assets always
+    // produce the ORIGINAL (un-merged) lane structure -- that is precisely what the golden freezes.
+    gt_esmini::odr::SetLaneLayerModeForTest(false);
+
+    std::map<std::string, std::map<std::string, long long>> all;
+    for (const char* rel : kGlobalIdControlSet)
+    {
+        const std::string abs_path = root + "/" + rel;
+        ASSERT_TRUE(LoadXodr(abs_path)) << "control-set load failed: " << abs_path;
+        all[rel] = DumpNormalizedGlobalIds(roadmanager::Position::GetOpenDrive());
+        roadmanager::Position::GetOpenDrive()->Clear();
+    }
+
+    gt_esmini::odr::SetLaneLayerModeUseEnv();
+
+    const std::string serialized = SerializeGlobalIds(all);
+    const std::string golden_path = GlobalIdGoldenPath();
+
+    const char* update    = std::getenv("GT_ODR_PROBE_UPDATE");
+    const bool  do_update = update != nullptr && std::string(update) == "1";
+
+    if (do_update)
+    {
+        std::error_code ec;
+        fs::create_directories(fs::path(golden_path).parent_path(), ec);
+        std::ofstream out(golden_path, std::ios::binary);
+        ASSERT_TRUE(out.good()) << "cannot write golden " << golden_path;
+        out << serialized;
+        out.close();
+        std::cout << "[GT_ODR lane-global-id] UPDATE wrote golden: " << all.size() << " files\n";
+        SUCCEED();
+        return;
+    }
+
+    // Compare mode (EOL-insensitive: committed golden is LF, autocrlf may materialize CRLF).
+    std::ifstream in(golden_path, std::ios::binary);
+    ASSERT_TRUE(in.good()) << "golden missing: " << golden_path
+                           << "\n  Run once with env GT_ODR_PROBE_UPDATE=1 to capture it.";
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string golden = ss.str();
+    golden.erase(std::remove(golden.begin(), golden.end(), '\r'), golden.end());
+
+    EXPECT_EQ(serialized, golden) << "lane global-id layout drifted from the golden (permanent-mode "
+                                     "control assets must keep the ORIGINAL first-lanes ordering).";
 }
