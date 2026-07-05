@@ -50,19 +50,31 @@
 
 ## 3. 保留台帳(L2 以上の未実装 — §10-5 承認対象。全項目 L1 は達成済み)
 
-計画 §8 と同一実体。番号は §8 に対応。
+計画 §8 と同一実体。番号は §8 に対応。各項目に **再開情報**(データ所在 → 次の一手 → 見積)を明記する — 後日どれを再開する場合も、この行+参照先だけで着手できる状態を承認条件とする(2026-07-05 ユーザー条件)。
 
 1. **CRG 実評価**(18): OpenCRG ライブラリ vendor+Track2XYZ/標高評価書換が必要(爆風半径1位)。現状=属性格納+ファイル存在 WARN。
-2. **crossSectionSurface/shape のネイティブ z 評価**(17): 同じく半径1位。現状=明示 WARN 付き superelevation 近似。**将来課題スコープ確定済**(2026-07-04 ユーザー指定): 目標=「車両が路面の曲面に沿って正しく傾く」まで(バンク走行物理含む)、見積 ~3〜5.5 週、着手前 Day-1 スパイク必須(hpp 不改変見込みの確定)。計画 §8-2 に詳細。
-3. **virtual junction v1 保留下位項目**(6、P6 設計書 §9): kind-2(topological)接続のルーティング使用(parse/store のみ)/ orientation 方向フィルタ強制 / main-road span 上の junction-id 報告(v1 は false/−1、upstream #592 へ提起する設計だったが PR 非提出により未提起)/ VJ アンカーでの junctionSelectorAngle ランダム分岐(v1 はルート駆動のみ)/ lockOnLane 完全対応。
-4. **レーンレイヤ実行時切替**(4): ロード時選択のみ(env `GT_ODR_LANE_LAYERS` プロセス毎ラッチ)。走行ごと再パースの Web ランナー運用と一致。
-5. **lane @direction の L2**(3): 走行方向判断 6 箇所以上+LHT ホットスポット(パッチ 1-A)重複。判断箇所サーベイのスパイク(+~25 フォーク行、事前承認済み枠)を独立フェーズとして将来実施。
-6. **railroad L2-L4**(20): 鉄道ランタイム/車両モデル/シナリオ需要なし。L1+API 公開、不活性と文書化。
-7. **VMS 動的コンテンツ**(13): ライブ表示制御はシナリオエンジン機能でパース範囲外。静的ボード内容の OSI TrafficSign 値出力も保留(L1 格納まで)。
-8. **junction 内部メッシュ**(8 の L4): boundary+elevationGrid からのメッシュ生成は消費者不在の GT_RoadGeom 新機能。L1+旗付き L3 輪郭まで。
-9. **lane `<speed>` の OSI 出力**(16 の L3)+**junction priority の消費**(7 の L2=F3): 前者は osi3 のレーン速度制限帰属のマッピング判断待ち。後者は **F3 週(無期延期)** — GetJunctionPriorities アクセサは不活性で待機、ConflictPointResolver Evaluate 状態モデル改修(複数競合ラッチ)と同時実施推奨。
-10. **speed/lane semantics の L2**(10)+**header defaultRegulations の適用**(14): 「標識通過後に上書きされるまで持続」のゾーン状態インフラが必要(同型 2 件)。アクセサ止まり。
-11. **scenariogeneration ライブラリ更新**: revMinor=5 天井は odr_feature_injector で回避済み。ライブラリ更新は別のオーサリングスタック判断。
+   **再開**: データ=`OdrSideModel::road_surface_crgs`(OdrObjectExtras.cpp ReadCrg、1.9 xy/h オフセット込み)/ 次の一手=OpenCRG C ライブラリの vendor 判断(ライセンス Apache 2.0)+`Position::Track2XYZ` からの z 合成(項目2と同一ホットパス — **項目2と同時実施を強く推奨**、別々にやると同経路を2回書き換える)/ 見積=項目2のスコープA(2〜3.5週)に +1〜2週(CRG ファイル評価器+フィクスチャ)。フィクスチャ=14_crg_offsets_19 ほか(実 .crg ファイルは未同梱 — 着手時に OpenCRG サンプル取得)。
+2. **crossSectionSurface/shape のネイティブ z 評価**(17): 現状=明示 WARN 付き superelevation 近似(θ=atan(b))。**将来課題スコープ確定済**(2026-07-04 ユーザー指定): 目標=「車両が路面の曲面に沿って正しく傾く」まで(バンク走行物理含む)。
+   **再開**: データ=`OdrSideModel::road_lateral`(OdrRoadLateralProfile、L1 格納済み)/ 次の一手=**Day-1 スパイク**(0.5〜1日: Track2XYZ から GetRoadLateralProfile を引いて z(s,t) 評価、hpp 不改変で済む見込みの確定=最重要。フォーク行数の事前承認が要る規模)/ 見積=スコープA(座標のみ)2〜3.5週、スコープB(バンク物理まで=目標)計 3〜5.5週。**全内訳・波及先20ファイル・退化分岐の要件は計画 §8-2 に確定済み**(メモリ strict_cant_future_task も同内容)。
+3. **virtual junction v1 保留下位項目**(6): kind-2(topological)接続のルーティング使用 / orientation 方向フィルタ強制 / main-road span 上の junction-id 報告(v1 は false/−1)/ VJ アンカーでの junctionSelectorAngle ランダム分岐(v1 はルート駆動のみ)/ lockOnLane 完全対応。
+   **再開**: データ=すべてパース済み(kind-2 は `Connection::is_virtual_`、orientation は `Junction::VirtualJunctionAttributes`)/ 次の一手=**P6 設計書 §9 が正典**(各項目の設計判断と保留理由)。実装地点: kind-2=vj-synth(EstablishVirtualJunctionConnections)、orientation 強制=vj-move のアンカー窓スキャン、membership=vj-membership 注釈箇所、ランダム分岐=vj-move の route-demand 分岐。**いずれも第2種予算(cpp 530/550 残20行・router 127/220 残93行)内か要再見積** / 見積=項目単位で 2〜5日、全部で ~2週。junction-id 報告は upstream #592 へ意味論を先に提起するのが安全(PR-VJ 非提出のため未提起)。
+4. **レーンレイヤ実行時切替**(4): ロード時選択のみ(env `GT_ODR_LANE_LAYERS` プロセス毎ラッチ)。
+   **再開**: データ=両レイヤとも DOM 保持済み(合成 DOM は `OdrSideModel::merged_lanes_docs`)/ 次の一手=ラッチ(OdrLaneLayers.cpp `LaneMode()`)をパース毎パラメータ化+再パース起点の API 追加。Web ランナーは走行ごと再パースなので**現需要はゼロ**(それが保留理由)/ 見積=2〜3日+レーングローバル ID 安定性ゴールデンの再検証。
+5. **lane @direction の L2**(3): 走行方向判断 6 箇所以上+LHT ホットスポット(パッチ 1-A)重複。
+   **再開**: データ=`OdrLaneExtras.direction`(verbatim 格納済み)/ 次の一手=**判断箇所サーベイのスパイク**(MoveAlongS/GetDrivingDirection 系 6+箇所の列挙が先、実装はその後)/ 見積=サーベイ 2〜3日+実装 ~1週。フォーク +~25 行のコンティンジェンシーは**事前承認済み枠**(計画 §3.2)。
+6. **railroad L2-L4**(20): 鉄道ランタイム/車両モデル/シナリオ需要なし。
+   **再開**: データ=`OdrSideModel::rail_switches/stations`+アクセサ `GetRailSwitch`/`GetRoadRailSwitches`/`GetStation`(全部 P9a 実装済み・web 表示済み)/ 次の一手=需要定義が先(鉄道車両モデル?踏切ゲート連動?)— データ側の追加作業はゼロ / 見積=需要次第(踏切信号連動だけなら ~1週)。
+7. **VMS 動的コンテンツ**(13): ライブ表示制御はシナリオエンジン機能でパース範囲外。
+   **再開**: データ=`OdrSignalExtras`(staticBoard/vmsBoard/displayArea/vmsGroup、L1 済み)/ 次の一手=(a)静的ボード内容の OSI TrafficSign value 出力なら `GT_OSIReporter_Traffic.cpp` の sign ブランチ拡張のみ(~2日)、(b)動的表示制御はシナリオ Action 新設(OSC 拡張、~1-2週)/ どちらも独立に着手可。
+8. **junction 内部メッシュ**(8 の L4): 消費者不在の GT_RoadGeom 新機能。
+   **再開**: データ=`OdrSideModel::junction_geom`(boundary/elevationGrid、L1 済み)+`BuildAuthoredJunctionBoundaryPolyline()`(世界座標評価器、P7 実装済み=流用可)/ 次の一手=GT_RoadGen に boundary 輪郭→三角形分割の生成パスを追加 / 見積=~1週(elevationGrid の z 補間込み)。
+9. **lane `<speed>` の OSI 出力**(16 の L3)+**junction priority の消費**(7 の L2=F3):
+   **再開(speed OSI)**: データ=`OdrLaneExtras.speeds`(GetLaneSpeedLimit 実装済み・VD L2 は接続済み)/ 次の一手=osi3 の Lane vs TrafficSign どちらに帰属させるかのマッピング判断のみ(判断後 ~2日)。
+   **再開(F3)**: データ=`GetJunctionPriorities`(P5、正典アクセサ・不活性待機)/ 次の一手=ConflictPointResolver の Evaluate 状態モデル改修(**複数競合ラッチと同時実施推奨** — メモリ phase3d_conflict_resolver に背景)/ 見積=~1週(F3 週として計画済み)。
+10. **speed/lane semantics の L2**(10)+**header defaultRegulations の適用**(14): 同型 2 件。
+    **再開**: データ=`OdrSemantics.speeds/lane_types`+`OdrSideModel::default_regulations`(L1 済み)/ 次の一手=「標識通過後、上書きまで持続」の**ゾーン状態インフラ**(VD 側に走行中の規制状態レジスタ)を1回作れば両方が乗る / 見積=インフラ ~1週+配線各 2〜3日。
+11. **scenariogeneration ライブラリ更新**: revMinor=5 天井は `odr_feature_injector` で回避済み(1.6-1.9 構文の注入生成は可能)。
+    **再開**: 次の一手=ライブラリ更新の追従判断のみ(オーサリングスタック都合)。ODR 側の追加作業なし。
 
 ## 4. 既知債・特記事項(承認材料としての開示)
 
