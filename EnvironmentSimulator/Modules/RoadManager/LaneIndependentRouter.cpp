@@ -4,6 +4,55 @@
 #include "LaneIndependentRouter.hpp"
 
 using namespace roadmanager;
+// [GT_ODR:vj-router-begin] Virtual-junction anchor injection: a main road carrying registry anchors can branch
+// off mid-road (design §4 STAGE 6). For a node sitting on such a road, entered at entryS and travelling toward
+// travelToEnd (true = +s / END contact, false = -s / START contact), enqueue one child node per anchor lying in
+// the [entry, traversal-end] window. The child rides the registry-owned anchor link (element_s_ < 0, a stable
+// per-anchor pointer) onto the branch; its anchorS records the main-road s where it left so the weight and the
+// emitted waypoint land at the branch-off, exactly like RoadPath::CheckRoad's anchor expansion. Node identity is
+// the anchor link pointer, so an anchor node never conflates with an end-contact node on the same road.
+static void InjectVirtualJunctionAnchorNodes(OpenDrive                                                        *odr,
+                                             Node                                                             *fromNode,
+                                             double                                                            entryS,
+                                             bool                                                              travelToEnd,
+                                             std::priority_queue<Node *, std::vector<Node *>, WeightCompare>  &pushTo,
+                                             const std::vector<Node *>                                        &visited,
+                                             RoadCalculations                                                 &roadCalc,
+                                             Position::RouteStrategy                                           routeStrategy)
+{
+    Road *road = fromNode->road;
+    for (const OpenDrive::VirtualJunctionAnchor &anchor : odr->GetVirtualJunctionAnchors(road->GetId()))
+    {
+        if (travelToEnd ? anchor.anchor_s_ < entryS : anchor.anchor_s_ > entryS)
+        {
+            continue;  // anchor is behind the travel direction from this entry
+        }
+        // dedup on the registry anchor link identity (visited set + fromNode's own chain)
+        bool alreadySeen = std::find_if(visited.begin(), visited.end(), [&anchor](const Node *n) { return n->link == anchor.link_; }) != visited.end();
+        for (Node *p = fromNode; !alreadySeen && p != nullptr; p = p->previous)
+        {
+            alreadySeen = p->link == anchor.link_;
+        }
+        if (alreadySeen)
+        {
+            continue;
+        }
+        Node *aNode          = new Node;
+        aNode->road          = road;
+        aNode->link          = anchor.link_;
+        aNode->currentLaneId = fromNode->currentLaneId;
+        aNode->fromLaneId    = fromNode->fromLaneId;
+        aNode->previous      = fromNode;
+        aNode->anchorS       = anchor.anchor_s_;
+        // weight = (accumulated BEFORE this road) + the PARTIAL main-road traversal to the branch-off. fromNode's
+        // own weight already spans the whole road to its far contact, so branch off the pre-road base instead.
+        double baseWeight    = fromNode->previous != nullptr ? fromNode->previous->weight : 0.0;
+        double partialLength = fabs(anchor.anchor_s_ - entryS);
+        aNode->weight        = baseWeight + roadCalc.CalcWeight(fromNode, routeStrategy, partialLength, road);
+        pushTo.push(aNode);
+    }
+}
+// [GT_ODR:vj-router-end]
 
 LaneIndependentRouter::LaneIndependentRouter(OpenDrive *odr) : odr_(odr), roadCalculations_(RoadCalculations())
 {
@@ -94,6 +143,14 @@ RoadLink *LaneIndependentRouter::GetNextLink(Node *currentNode, Road *nextRoad)
 {
     if (currentNode->link->GetElementType() == RoadLink::ELEMENT_TYPE_ROAD)
     {
+        // [GT_ODR:vj-router] the node's link is a branch road's OWN elementS link (contact UNDEFINED) merging back
+        // onto the unsplit main road mid-span. The onward link on the main road is picked by the elementDir rule:
+        // '+' means the main road continues in +s past the anchor (SUCCESSOR), '-' toward -s (PREDECESSOR). On a
+        // link-less main road this is null = end of route (the merge-back target is handled before GetNextLink).
+        if (currentNode->link->GetElementS() >= 0.0 && currentNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_UNDEFINED)
+        {
+            return nextRoad->GetLink(currentNode->link->GetElementDir() == RoadLink::DIR_MINUS ? LinkType::PREDECESSOR : LinkType::SUCCESSOR);
+        }
         // node link is a road, find link in the other end of it
         if (currentNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_END)
         {
@@ -134,7 +191,13 @@ RoadLink *LaneIndependentRouter::GetNextLink(Node *currentNode, Road *nextRoad)
 std::vector<std::pair<int, int>> LaneIndependentRouter::GetConnectingLanes(Node *currentNode, Road *nextRoad)
 {
     LaneSection *lanesection = nullptr;
-    if (currentNode->link->GetType() == LinkType::SUCCESSOR)
+    if (currentNode->anchorS >= 0.0)
+    {
+        // [GT_ODR:vj-router] the hop leaves the main road mid-road at the anchor s -- resolve source lanes at the
+        // anchor's lane section, not an end section (the VJ-aware GetConnectingLaneId then maps via the connection)
+        lanesection = currentNode->road->GetLaneSectionByS(currentNode->anchorS);
+    }
+    else if (currentNode->link->GetType() == LinkType::SUCCESSOR)
     {
         unsigned int nrOfLanesection = currentNode->road->GetNumberOfLaneSections();
         lanesection                  = currentNode->road->GetLaneSectionByIdx(nrOfLanesection - 1);
@@ -200,6 +263,21 @@ bool LaneIndependentRouter::FindGoal()
         if (!currentNode->link)
         {
             continue;
+        }
+        // [GT_ODR:vj-router] expand mid-road anchors on an already-reached (non-start) road: the road was entered
+        // at a contact end, so entryS/direction follow the node's far-end link type. The start road is seeded in
+        // CalculatePath (with the real start s), so skip anchor nodes and the start node here to avoid duplicates.
+        if (currentNode->previous != nullptr && currentNode->anchorS < 0.0)
+        {
+            bool travelToEnd = currentNode->link->GetType() == LinkType::SUCCESSOR;
+            InjectVirtualJunctionAnchorNodes(odr_,
+                                             currentNode,
+                                             travelToEnd ? 0.0 : currentNode->road->GetLength(),
+                                             travelToEnd,
+                                             unvisited_,
+                                             visited_,
+                                             roadCalculations_,
+                                             routeStrategy_);
         }
         std::vector<Road *> nextRoads = GetNextRoads(currentNode->link, currentNode->road);
         for (Road *nextRoad : nextRoads)
@@ -322,7 +400,15 @@ std::vector<Node> LaneIndependentRouter::CalculatePath(Position start, Position 
         return {};
     }
 
-    if (!nextElement)
+    // [GT_ODR:vj-router] a virtual-junction main road may carry NO end link yet still branch off mid-road through
+    // a registry anchor -- tolerate a missing end link when reachable anchors exist in the travel direction.
+    bool hasReachableAnchor = false;
+    for (const OpenDrive::VirtualJunctionAnchor &anchor : odr_->GetVirtualJunctionAnchors(startRoad->GetId()))
+    {
+        hasReachableAnchor = hasReachableAnchor || (contactPoint == ContactPointType::CONTACT_POINT_END ? anchor.anchor_s_ >= start.GetS()
+                                                                                                        : anchor.anchor_s_ <= start.GetS());
+    }
+    if (!nextElement && !hasReachableAnchor)
     {
         // No link (next road element) found
         LOG_ERROR("(LaneIndependentRouter::CalculatePath) Error: No link from start pos");
@@ -331,6 +417,16 @@ std::vector<Node> LaneIndependentRouter::CalculatePath(Position start, Position 
 
     Node *startNode = CreateStartNode(nextElement, startRoad, startLaneId, contactPoint, start);
     unvisited_.push(startNode);
+    // [GT_ODR:vj-router] a link-less main road seeds only anchor nodes; a linked road seeds both. entryS = the
+    // real start s, direction from the start heading (CONTACT_POINT_END == along +s).
+    InjectVirtualJunctionAnchorNodes(odr_,
+                                     startNode,
+                                     start.GetS(),
+                                     contactPoint == ContactPointType::CONTACT_POINT_END,
+                                     unvisited_,
+                                     visited_,
+                                     roadCalculations_,
+                                     routeStrategy_);
 
     bool              found = FindGoal();
     std::vector<Node> pathToGoal;
@@ -361,6 +457,20 @@ std::vector<Position> LaneIndependentRouter::GetWaypoints(std::vector<Node> path
         double laneLength = 0;
         double sPos       = 0;
         double heading    = 0;
+        // [GT_ODR:vj-router-begin] anchored transitions on a virtual-junction main road. A link-less start node (no
+        // end link, seeded only for its anchors) emits the route origin; an anchor node (its link rides the
+        // registry anchor onto the branch) emits the branch-off waypoint AT the anchor s on the main road. Heading
+        // is along +s for a '+' anchor (dir '-' would flip it), matching the elementDir reverse-merge convention.
+        if (current->link == nullptr || current->anchorS >= 0.0)
+        {
+            const double s = current->link == nullptr ? start.GetS() : current->anchorS;
+            const double h = (current->link != nullptr && current->link->GetElementDir() == RoadLink::DIR_MINUS) ? M_PI : 0.0;
+            Position     p(current->road->GetId(), current->currentLaneId, s, 0.0);
+            p.SetHeadingRelativeRoadDirection(h);
+            waypoints.push_back(p);
+            continue;
+        }
+        // [GT_ODR:vj-router-end]
         if (current->link->GetType() == LinkType::SUCCESSOR)
         {
             for (unsigned int i = 0; i < current->road->GetNumberOfLaneSections(); i++)
@@ -510,7 +620,13 @@ double RoadCalculations::CalcWeightWithPos(Node *previousNode, Position pos, Roa
 {
     double roadLength = 0;
 
-    if (previousNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_START)
+    // [GT_ODR:vj-router] merge-back target: the incoming link is a mid-road elementS anchor (contact UNDEFINED) that
+    // lands on the target road at element_s_; the traversed length is the partial |anchor - target s|, not a whole leg.
+    if (previousNode->link->GetElementS() >= 0.0)
+    {
+        roadLength = fabs(previousNode->link->GetElementS() - pos.GetS());
+    }
+    else if (previousNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_START)
     {
         roadLength = pos.GetS();
     }
@@ -541,7 +657,9 @@ double RoadCalculations::CalcWeight(Node *previousNode, Position::RouteStrategy 
     }
     else if (routeStrategy == Position::RouteStrategy::MIN_INTERSECTIONS)
     {
-        if (previousNode->link->GetElementType() == RoadLink::ELEMENT_TYPE_JUNCTION)
+        // [GT_ODR:vj-router] a link-less virtual-junction main-road start node has no link; branching off it
+        // mid-road crosses no ordinary junction, so it costs no intersection.
+        if (previousNode->link != nullptr && previousNode->link->GetElementType() == RoadLink::ELEMENT_TYPE_JUNCTION)
         {
             return 1;
         }

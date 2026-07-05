@@ -1179,6 +1179,13 @@ namespace roadmanager
             ELEMENT_TYPE_JUNCTION,
         } ElementType;
 
+        typedef enum  // [GT_ODR:vj-model] traversal direction of the linked element at a mid-road (elementS) contact
+        {
+            DIR_UNKNOWN,
+            DIR_PLUS,
+            DIR_MINUS,
+        } ElementDir;
+
         RoadLink()
         {
         }
@@ -1189,6 +1196,8 @@ namespace roadmanager
             element_type_       = element_type;
             contact_point_type_ = contact_point_type;
         }
+        // [GT_ODR:vj-model] virtual junction: link contact at s = element_s on the linked element (defined in RoadManager.cpp, S2)
+        RoadLink(LinkType type, ElementType element_type, id_t element_id, ContactPointType contact_point, double element_s, ElementDir element_dir);
         RoadLink(LinkType type, pugi::xml_node node);
         bool operator==(const RoadLink &rhs) const;
 
@@ -1208,6 +1217,14 @@ namespace roadmanager
         {
             return contact_point_type_;
         }
+        double GetElementS() const  // [GT_ODR:vj-model] contact s on the linked element; >= 0 discriminates a virtual-junction link
+        {
+            return element_s_;
+        }
+        ElementDir GetElementDir() const
+        {
+            return element_dir_;
+        }
         void SetElementId(id_t id)
         {
             element_id_ = id;
@@ -1220,6 +1237,8 @@ namespace roadmanager
         id_t             element_id_         = ID_UNDEFINED;
         ElementType      element_type_       = ELEMENT_TYPE_UNKNOWN;
         ContactPointType contact_point_type_ = CONTACT_POINT_UNDEFINED;
+        double           element_s_          = -1.0;         // [GT_ODR:vj-model] < 0 = legacy end contact; >= 0 = mid-road contact s
+        ElementDir       element_dir_        = DIR_UNKNOWN;  // traversal direction over the mid-road contact
     };
 
     struct LaneInfo
@@ -3226,6 +3245,7 @@ namespace roadmanager
         }
 
         ContactPointType contact_point_ = ContactPointType::CONTACT_POINT_UNDEFINED;
+        double           contact_s_     = -1.0;  // [GT_ODR:vj-model] main-road re-entry s for virtual junctions (< 0 = legacy placement)
 
     private:
         int  lane_id_            = 0;
@@ -3251,6 +3271,8 @@ namespace roadmanager
     {
     public:
         Connection(Road *incoming_road, Road *connecting_road, ContactPointType contact_point);
+        // [GT_ODR:vj-model] virtual connection: anchor s per road on the junction main road, from <predecessor>/<successor> @elementS (S2)
+        Connection(Road *incoming_road, Road *connecting_road, ContactPointType contact_point, double incoming_s, double outgoing_s);
         ~Connection();
         unsigned int GetNumberOfLaneLinks() const
         {
@@ -3273,7 +3295,23 @@ namespace roadmanager
         {
             return contact_point_;
         }
+        double GetIncomingContactS() const  // [GT_ODR:vj-model] anchor s of the incoming contact on the main road (< 0 = legacy)
+        {
+            return incoming_contact_s_;
+        }
+        double GetOutgoingContactS() const
+        {
+            return outgoing_contact_s_;
+        }
+        bool IsVirtual() const
+        {
+            return is_virtual_;
+        }
         void AddJunctionLaneLink(int from, int to);
+        void SetVirtual(bool is_virtual)  // [GT_ODR:vj-model] type="virtual" without connecting road (kind-2, store-only in v1)
+        {
+            is_virtual_ = is_virtual;
+        }
         void Print() const;
 
     private:
@@ -3281,6 +3319,8 @@ namespace roadmanager
         Road                           *connecting_road_;
         ContactPointType                contact_point_;
         std::vector<JunctionLaneLink *> lane_link_;
+        double                          incoming_contact_s_ = -1.0, outgoing_contact_s_ = -1.0;  // [GT_ODR:vj-model] main-road anchor s
+        bool                            is_virtual_         = false;  // kind-2 topological connection (no connecting road)
     };
 
     typedef struct
@@ -3355,6 +3395,13 @@ namespace roadmanager
             SELECTOR_ANGLE,  // choose road which heading (relative incoming road) is closest to specified angle
         } JunctionStrategyType;
 
+        typedef enum  // [GT_ODR:vj-model] virtual junction @orientation (NONE when the attribute is absent, e.g. Ex_Pedestrian_Crossing)
+        {
+            ORIENTATION_NONE,
+            ORIENTATION_PLUS,
+            ORIENTATION_MINUS,
+        } JunctionOrientation;
+
         Junction(id_t id, std::string id_str, std::string name, JunctionType type) : id_(id), id_str_(id_str), name_(name), type_(type)
         {
             SetGlobalId();
@@ -3426,6 +3473,22 @@ namespace roadmanager
             return connection_;
         }
 
+        struct VirtualJunctionAttributes  // [GT_ODR:vj-model] virtual junction span on the main road (@mainRoad/@sStart/@sEnd/@orientation)
+        {
+            id_t                main_road_id_ = ID_UNDEFINED;
+            double              s_start_      = -1.0;
+            double              s_end_        = -1.0;
+            JunctionOrientation orientation_  = ORIENTATION_NONE;
+        };
+        const VirtualJunctionAttributes &GetVirtualAttributes() const
+        {
+            return virtual_attributes_;
+        }
+        void SetVirtualAttributes(const VirtualJunctionAttributes &attributes)
+        {
+            virtual_attributes_ = attributes;
+        }
+
     private:
         std::vector<Connection *>       connection_;
         std::vector<JunctionController> controller_;
@@ -3434,6 +3497,7 @@ namespace roadmanager
         id_t                            global_id_;
         std::string                     name_;
         JunctionType                    type_;
+        VirtualJunctionAttributes       virtual_attributes_;  // [GT_ODR:vj-model] valid when type_ == VIRTUAL
     };
 
     typedef struct
@@ -3596,6 +3660,17 @@ namespace roadmanager
             return static_cast<unsigned int>(junction_.size());
         }
 
+        struct VirtualJunctionAnchor  // [GT_ODR:vj-model] branch connection anchored at s on a virtual junction main road (built in S3)
+        {
+            Junction            *junction_       = nullptr;
+            idx_t                connection_idx_ = IDX_UNDEFINED;
+            double               anchor_s_       = -1.0;
+            RoadLink::ElementDir dir_            = RoadLink::DIR_UNKNOWN;
+            RoadLink            *link_           = nullptr;  // synthesized branch link, owned by the registry
+        };
+        Junction                                 *GetVirtualJunctionAtRoadS(id_t road_id, double s) const;
+        const std::vector<VirtualJunctionAnchor> &GetVirtualJunctionAnchors(id_t road_id) const;
+
         bool IsIndirectlyConnected(id_t   road1_id,
                                    id_t   road2_id,
                                    id_t *&connecting_road_id,
@@ -3746,8 +3821,13 @@ namespace roadmanager
         std::vector<std::pair<id_t, std::string>> road_ids_;
         std::vector<std::pair<id_t, std::string>> junction_ids_;
         std::vector<Signal *>                     dynamic_signals_;
+
+        std::map<id_t, std::vector<VirtualJunctionAnchor>> virtual_junction_anchors_;  // [GT_ODR:vj-model] per-main-road anchor registry
+
         id_t                                      LookupIdFromStr(std::vector<std::pair<id_t, std::string>> &ids, std::string id_str);
         bool                                      ParseOpenDriveXML(const pugi::xml_document &doc);
+
+        void EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] anchor binding + counter-connection synthesis + registry (S3)
     };
 
     typedef struct
@@ -5213,6 +5293,7 @@ namespace roadmanager
             ContactPointType contactPoint;
             PathNode        *previous  = 0;
             int              direction = 0;
+            double           contact_s = -1.0;  // [GT_ODR:vj-model] mid-road anchor s on the linked element (< 0 = legacy end contact)
         };
 
         std::vector<PathNode *> visited_;

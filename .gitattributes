@@ -4,6 +4,10 @@
 # Misc
 *.zip filter=lfs diff=lfs merge=lfs -text
 
+# Upstream blob snapshots for the 2nd-class census checker (scripts/check_core_census.py):
+# must round-trip byte-exact (git blob SHA verified), so no eol conversion ever.
+GT_esmini/test/upstream_baselines/** -text
+
 # Libraries
 *.lai filter=lfs diff=lfs merge=lfs -text
 *.la filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="7" name="23c_virtual_junction_parse_variants_17" version="1.00" date="2026-07-04T00:00:00" north="0.0" south="0.0" east="0.0" west="0.0"/>
+    <!-- P6 S2 parse-variant fixture (fork-variant data for the ParseOpenDriveXML junction-loop OVERLAP with
+         [GT_ODR:junc-abort]): junction 999 carries
+           * connection 0: type="virtual" WITH connectingRoad (kind-1) -> normal Connection + anchor s
+           * connection 1: type="virtual" WITHOUT connectingRoad (kind-2) -> stored is_virtual_, must NOT
+             be skipped by the fork's junc-abort WARN path
+           * connection 2: default-shaped with a DANGLING connectingRoad="99" -> fork junc-abort skips it
+             (pristine upstream would abort the parse; declared overlap residual). The dangling id also
+             violates the 1.7 keyref r_junction_connection_connectingRoad -> expected schema FAIL. -->
+    <road name="mainRoad" length="200.0" id="1" junction="-1" rule="RHT">
+        <link/>
+        <type s="0.0" type="town">
+            <speed max="50" unit="km/h"/>
+        </type>
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="200.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneOffset s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false">
+                        <link/>
+                        <roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="0.12" laneChange="both"/>
+                    </lane>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <objects/>
+        <signals/>
+    </road>
+    <road name="branch" length="30.0" id="2" junction="-1" rule="RHT">
+        <link>
+            <predecessor elementType="road" elementId="1" elementS="120" elementDir="+"/>
+        </link>
+        <type s="0.0" type="town"/>
+        <planView>
+            <geometry s="0.0" x="120.0" y="0.0" hdg="-0.7853981633974483" length="30.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneOffset s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false">
+                        <link/>
+                    </lane>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <link>
+                            <predecessor id="-1"/>
+                        </link>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <objects/>
+        <signals/>
+    </road>
+    <junction name="parseVariants" type="virtual" id="999" mainRoad="1" sStart="115" sEnd="125" orientation="+">
+        <connection id="0" type="virtual" incomingRoad="1" connectingRoad="2" contactPoint="start">
+            <predecessor elementType="road" elementId="1" elementS="120" elementDir="+"/>
+            <laneLink from="-1" to="-1"/>
+        </connection>
+        <connection id="1" type="virtual">
+            <predecessor elementType="road" elementId="1" elementS="118" elementDir="+"/>
+            <successor elementType="road" elementId="2" elementS="0.0" elementDir="+"/>
+        </connection>
+        <connection id="2" incomingRoad="1" connectingRoad="99" contactPoint="start">
+            <laneLink from="-1" to="-1"/>
+        </connection>
+    </junction>
+</OpenDRIVE>

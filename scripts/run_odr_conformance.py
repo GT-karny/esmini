@@ -11,6 +11,11 @@ LAYERS
   2. rm       -- isolated esminiRMLib RM_Init probes -> a deterministic JSON extract
                  (roads/lanes/positions/signs, floats rounded to 1e-6) compared with
                  golden/rm/<slug>.json (abs tol 1e-6 on floats, exact otherwise).
+  2b. motion  -- isolated esminiRMLib MOTION-TRAVERSAL probes (P6 S0 oracle upgrade,
+                 odr_p6_virtual_junction_design.md sec 6): scripted RM_PositionMoveForward
+                 walks (ds=+/-5.0, junctionSelectorAngle=MOTION_JSELECT) across every road's
+                 first drivable lane from BOTH ends, freezing {road,lane,s,x,y,h} per step in
+                 golden/motion/<slug>.json. Same universe as rm; expected-fail rm entries SKIP.
   3. osi      -- (profile full) control_set + fixtures flagged `osi: true`; isolated GT_esminiLib SE_Init/SE_StepDT/
                  SE_GetOSIGroundTruth probes decoded with esmini's own osi3 bindings
                  -> deterministic JSON extract compared with golden/osi/<slug>.json.
@@ -34,14 +39,14 @@ USAGE
 -----
   run_odr_conformance.py [--profile quick|full] [--update-golden] [--check-matrix]
                          [--only <substr>] [--dll <path>] [--rmdll <path>]
-                         [--report-dir <dir>] [--smoke] [--layers schema[,rm,osi]]
+                         [--report-dir <dir>] [--smoke] [--layers schema[,rm,motion,osi]]
 
-  quick (default): layers 1+2 (schema + RM).   full: layers 1+2+3 (adds OSI).
+  quick (default): schema + rm + motion.   full: adds osi.
   --update-golden: (re)write goldens (sorted keys, indent 1, trailing newline).
   --check-matrix : verify matrix_requirements.yaml coverage; print cluster x fixture table.
   --only <substr>: restrict to manifest entries whose id or path contains <substr>.
   --smoke        : run 3 end-to-end app smokes (esmini / replayer / odrviewer).
-  --layers L,... : restrict to a subset of {schema,rm,osi} (intersected with the profile).
+  --layers L,... : restrict to a subset of {schema,rm,motion,osi} (intersected with the profile).
                    Default = profile behavior. `--layers schema --check-matrix` runs the
                    DLL-free schema+matrix path (CI-friendly; tolerates absent build/ASAM).
 
@@ -76,6 +81,7 @@ MANIFEST = os.path.join(FIX_DIR, "manifest.yaml")
 MATRIX = os.path.join(FIX_DIR, "matrix_requirements.yaml")
 GOLDEN_RM_DIR = os.path.join(FIX_DIR, "golden", "rm")
 GOLDEN_OSI_DIR = os.path.join(FIX_DIR, "golden", "osi")
+GOLDEN_MOTION_DIR = os.path.join(FIX_DIR, "golden", "motion")
 WORK_DIR = os.path.join(FIX_DIR, "work")
 DEFAULT_REPORT_DIR = os.path.join(FIX_DIR, "reports")
 
@@ -96,11 +102,35 @@ _WEB_VENV_PY = os.path.join(_REPO_ROOT, "GT_esmini", "web", ".venv", "Scripts", 
 
 FLOAT_TOL = 1e-6
 PROBE_TIMEOUT = 60  # seconds per isolated probe
+# Motion-traversal layer (P6 S0): fixed step, hard step cap, and a wider timeout (a walk
+# does up to 2 x roads x 200 MoveAlongS calls on the big official maps).
+MOTION_DS = 5.0
+MOTION_MAX_STEPS = 200
+MOTION_PROBE_TIMEOUT = 120
+# Junction selector angle for the walks. NOT 0.0: upstream MoveAlongS tie-breaks candidates
+# with EQUAL |angle-diff| randomly (RoadManager.cpp:10147, SE_Rand seeded from random_device
+# per process), so 0.0 is nondeterministic at symmetric junction arms (+/-90 deg ties on
+# X/T junctions -- observed on multi_intersections, UC_X_Junction, t_junction fixtures).
+# A tiny asymmetric offset (0.001 rad, still "straight") makes every comparison strict,
+# so the RNG is never consumed and the walk is bit-reproducible.
+MOTION_JSELECT = 0.001
 
-# Fork-drift check (pure text; runs in every profile). Expected [GT_ODR:] non-blank line budget
-# per GT_esmini/docs/gt_roadmanager_patches.md; failure = harness FAIL.
-FORK_ODR_EXPECT_LINES = 92  # P2 21 + P3 27 + crash fixes 14 + P5 junc-crossing 13 + P7 15 (curvelocal 12 + repeat-cubics 3) + P8 2 (lane-layers hook)
-FORK_LINE_BUDGET = 150
+# Fork-drift / core-census checks (pure text; run in every profile). Expected [GT_ODR:]
+# non-blank line count + budget are sourced from the machine-readable manifest block in
+# GT_esmini/docs/gt_roadmanager_patches.md (single source of truth -- no expected values
+# embedded here); an unreadable manifest is a hard startup failure.
+import gt_patch_manifest  # noqa: E402
+
+try:
+    _PATCH_MANIFEST = gt_patch_manifest.load_manifest(_REPO_ROOT)
+except ValueError as _e:
+    raise SystemExit(f"FATAL: cannot load the GT patch manifest "
+                     f"(GT_esmini/docs/gt_roadmanager_patches.md): {_e}")
+# check_fork_drift measures fork-vs-CURRENT-pristine-FILE: prefer the dedicated legacy metric key
+# (P6 S2: mirrored vj hunks are invisible to the file diff but visible to check_core_census's
+# fork-vs-upstream-BLOB census, so the two expectations legitimately differ).
+FORK_ODR_EXPECT_LINES = _PATCH_MANIFEST.get("fork_odr_drift_expect_lines", _PATCH_MANIFEST["fork_odr_expect_lines"])
+FORK_LINE_BUDGET = _PATCH_MANIFEST["fork_line_budget"]
 
 # Status tags.
 PASS, FAIL, XFAIL, XPASS, SKIP = "PASS", "FAIL", "XFAIL", "XPASS", "SKIP"
@@ -351,6 +381,94 @@ except Exception as e:
 json.dump(res, open(out, "w"))
 '''
 
+_MOTION_WORKER = r'''
+import sys, os, json
+REPO_ROOT = REPO_ROOT_LIT
+rmdll = RMDLL_LIT
+xodr = XODR_LIT
+out = OUT_LIT
+DS = DS_LIT
+MAX_STEPS = MAX_STEPS_LIT
+JSELECT = JSELECT_LIT
+TOL = 6
+sys.path.insert(0, os.path.join(REPO_ROOT, "GT_esmini", "scripts"))
+from rm_lib import EsminiRMLib
+
+def r(v):
+    if isinstance(v, float):
+        x = round(v, TOL)
+        return 0.0 if x == 0.0 else x
+    return v
+
+res = {"load_ok": False}
+try:
+    lib = EsminiRMLib(rmdll)
+    rc = lib.Init(xodr)
+    if rc != 0:
+        res = {"load_ok": False, "rc": rc}
+        json.dump(res, open(out, "w"))
+        sys.exit(0)
+    res["load_ok"] = True
+
+    def snap(handle):
+        rcp, pd = lib.GetPositionData(handle)
+        if rcp != 0:
+            return None
+        return {"road": lib.GetRoadIdString(pd.roadId), "lane": int(pd.laneId),
+                "s": r(float(pd.s)), "x": r(pd.x), "y": r(pd.y), "h": r(pd.h)}
+
+    # Stable road order = sort by original string id (same convention as the rm extract).
+    roads = []
+    for ri in range(lib.GetNumberOfRoads()):
+        rid = lib.GetIdOfRoadFromIndex(ri)
+        roads.append((lib.GetRoadIdString(rid), rid))
+    roads.sort(key=lambda t: t[0])
+
+    walks = []
+    for rid_str, rid in roads:
+        length = float(lib.GetRoadLength(rid))
+        if length <= 0:
+            continue
+        if lib.GetRoadNumberOfDrivableLanes(rid, length * 0.5) <= 0:
+            continue
+        rcd, dlane = lib.GetDrivableLaneIdByIndex(rid, 0, length * 0.5)
+        if rcd != 0:
+            continue
+        # Walk the first drivable lane from BOTH ends: "+" = start at s=0, move +DS along
+        # heading; "-" = start at s=length, move -DS. junctionSelectorAngle=JSELECT (a hair
+        # off straight so upstream's random equal-angle tie-break never fires -- see
+        # MOTION_JSELECT); crossing INTO connecting roads is part of the frozen record.
+        for dirn, start_s, ds in (("+", 0.0, DS), ("-", length, -DS)):
+            h = lib.CreatePosition()
+            walk = {"start_road": rid_str, "dir": dirn, "steps": []}
+            pr = lib.SetLanePosition(h, rid, dlane, 0.0, start_s, True)
+            if pr != 0:
+                walk["set_rc"] = int(pr)
+                walks.append(walk)
+                lib.DeletePosition(h)
+                continue
+            st = snap(h)
+            if st is not None:
+                walk["steps"].append(st)
+            end_rc = 0
+            for _ in range(MAX_STEPS):
+                mrc = lib.PositionMoveForward(h, ds, JSELECT)
+                st = snap(h)
+                if st is not None:
+                    walk["steps"].append(st)
+                if mrc < 0:
+                    end_rc = int(mrc)  # end-of-road / error: frozen as part of the golden
+                    break
+            walk["end_rc"] = end_rc  # 0 = step cap reached (loops) or clean walk
+            walks.append(walk)
+            lib.DeletePosition(h)
+    res["walks"] = walks
+    lib.Close()
+except Exception as e:
+    res = {"load_ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+json.dump(res, open(out, "w"))
+'''
+
 _OSI_WORKER = r'''
 import sys, os, json, ctypes
 REPO_ROOT = REPO_ROOT_LIT
@@ -445,7 +563,7 @@ json.dump(res, open(out, "w"))
 
 
 def _run_worker_script(body: str, out: str, script: str, interp: str | None = None,
-                       env_overrides: dict | None = None) -> dict:
+                       timeout: int = PROBE_TIMEOUT, env_overrides: dict | None = None) -> dict:
     """Run a materialised worker script isolated (timeout); read its JSON result file.
 
     The DLLs flood stdout and some xodr files crash the process, so every probe runs in
@@ -464,7 +582,7 @@ def _run_worker_script(body: str, out: str, script: str, interp: str | None = No
     log_text = ""
     try:
         proc = subprocess.run([interp or sys.executable, script], capture_output=True,
-                              timeout=PROBE_TIMEOUT, cwd=_REPO_ROOT, env=child_env)
+                              timeout=timeout, cwd=_REPO_ROOT, env=child_env)
         log_text = (proc.stdout or b"").decode("utf-8", "replace") + (proc.stderr or b"").decode("utf-8", "replace")
         res = _load_json(out) if os.path.exists(out) else {"__worker_failed__": True, "returncode": proc.returncode}
     except subprocess.TimeoutExpired:
@@ -682,6 +800,65 @@ def _run_worker_rm(abs_xodr: str, rmdll: str, z_probe=None, lane_s=None, rm_env=
 
 
 # ---------------------------------------------------------------------------
+# Layer 2b: motion-traversal probes + goldens (P6 S0 oracle upgrade)
+# ---------------------------------------------------------------------------
+def layer_motion(entries: list, rmdll: str, update: bool) -> list:
+    """Motion-traversal goldens (odr_p6_virtual_junction_design.md sec 6): for every entry
+    whose rm_init is expected to pass, walk each road's first drivable lane from BOTH ends
+    (RM_PositionMoveForward, ds=+/-MOTION_DS, junctionSelectorAngle=MOTION_JSELECT,
+    MOTION_MAX_STEPS cap) and freeze {road,lane,s,x,y,h} per step in golden/motion/<slug>.json. Junction
+    traversal continuation is exactly what P6 will touch, so crossing INTO connecting roads
+    is part of the record. Expected-fail rm entries SKIP (no walk on a failed load); the rm
+    layer already owns the load XFAIL bookkeeping and the audit checks."""
+    rows = []
+    for e in entries:
+        p = e["path"]
+        ap = _abs(p)
+        if not os.path.exists(ap):
+            rows.append({**e, "layer": "motion", "status": SKIP, "detail": "file absent"})
+            continue
+        if e["expected_rm"] in ("fail", "spec_fail"):
+            rows.append({**e, "layer": "motion", "status": SKIP,
+                         "detail": "rm_init expected-fail (no motion walk)"})
+            continue
+        if e.get("motion_nondeterministic"):
+            rows.append({**e, "layer": "motion", "status": SKIP,
+                         "detail": "manifest motion_nondeterministic: upstream random "
+                                   "equal-angle tie-break -> no stable golden (see manifest note)"})
+            continue
+        res = _run_worker_motion(ap, rmdll)
+        if res.get("__worker_failed__"):
+            rows.append({**e, "layer": "motion", "status": FAIL, "observed": "fail",
+                         "detail": "worker crash/timeout: " + json.dumps(
+                             {k: v for k, v in res.items() if k != "_log"})})
+            continue
+        if not res.get("load_ok"):
+            rows.append({**e, "layer": "motion", "status": FAIL, "observed": "fail",
+                         "detail": f"RM_Init rc={res.get('rc', res.get('error'))}"})
+            continue
+        extract = {"load_ok": True, "walks": res.get("walks", [])}
+        status, gstat = _golden_compare("motion", p, extract, update, "pass", "pass")
+        rows.append({**e, "layer": "motion", "observed": "pass", "status": status,
+                     "golden": gstat, "detail": ""})
+    return rows
+
+
+def _run_worker_motion(abs_xodr: str, rmdll: str) -> dict:
+    fd, script = tempfile.mkstemp(suffix="_motion.py", prefix="odrconf_", dir=WORK_DIR)
+    os.close(fd)
+    out = script + ".json"
+    body = (_MOTION_WORKER
+            .replace("REPO_ROOT_LIT", repr(_REPO_ROOT))
+            .replace("RMDLL_LIT", repr(rmdll))
+            .replace("XODR_LIT", repr(abs_xodr))
+            .replace("OUT_LIT", repr(out))
+            .replace("DS_LIT", repr(MOTION_DS))
+            .replace("MAX_STEPS_LIT", repr(MOTION_MAX_STEPS))
+            .replace("JSELECT_LIT", repr(MOTION_JSELECT)))
+    return _run_worker_script(body, out, script, timeout=MOTION_PROBE_TIMEOUT)
+
+
+# ---------------------------------------------------------------------------
 # Layer 3: OSI probes + goldens (control_set only, profile full)
 # ---------------------------------------------------------------------------
 _PROBE_XOSC = """<?xml version="1.0" encoding="UTF-8"?>
@@ -878,7 +1055,7 @@ def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = 
 # Golden compare / update
 # ---------------------------------------------------------------------------
 def _golden_path(kind: str, repo_rel: str, golden_suffix: str = "") -> str:
-    base = GOLDEN_RM_DIR if kind == "rm" else GOLDEN_OSI_DIR
+    base = {"rm": GOLDEN_RM_DIR, "osi": GOLDEN_OSI_DIR, "motion": GOLDEN_MOTION_DIR}[kind]
     # P8: `golden_suffix` (e.g. "__temporary") lets a variant entry (same xodr path, different RM
     # env/mode) write to a distinct golden file so it does not collide with the base entry's slug.
     return os.path.join(base, _slug(repo_rel) + (golden_suffix or "") + ".json")
@@ -1024,6 +1201,30 @@ def run_fork_drift() -> dict:
             "summary": summary, "unattributed": res.get("unattributed", [])}
 
 
+def run_core_census() -> dict:
+    """Run the AUTHORITATIVE manifest-driven census checker (check_core_census) + its selftest.
+
+    Both must pass. Returns {ran, ok, summary, failures}. Pure text, runs in every profile
+    (quick / full / schema-only), like run_fork_drift().
+    """
+    try:
+        import check_core_census as ccc
+    except Exception as e:  # pragma: no cover - import guard
+        return {"ran": False, "ok": False, "failures": [],
+                "summary": f"core-census: ERROR (cannot import check_core_census: {e})"}
+    try:
+        selftest_ok = ccc.run_selftest(quiet=True)
+        res = ccc.run_check(_REPO_ROOT)
+    except (RuntimeError, ValueError) as e:
+        return {"ran": True, "ok": False, "failures": [str(e)],
+                "summary": f"core-census: ERROR ({e})"}
+    ok = selftest_ok and res["ok"]
+    summary = ccc.format_summary(res)
+    if not selftest_ok:
+        summary += "  [SELFTEST FAILED]"
+    return {"ran": True, "ok": ok, "summary": summary, "failures": res.get("failures", [])}
+
+
 def _selftest_audit() -> bool:
     """Unit-smoke the audit mechanism with a fake log text (no fixture carries it yet)."""
     fake_log = "prefix [ODR-UNSUPPORTED] road/surface/CRG\n[ODR-UNSUPPORTED] road/surface/CRG@xOffset\n[ODR-REMOVED-1.6] road/link/neighbor\n"
@@ -1165,7 +1366,7 @@ def _print_layer(name: str, rows: list) -> None:
 
 
 def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke_res, audit_selftest,
-                  fork_drift=None) -> None:
+                  fork_drift=None, core_census=None) -> None:
     os.makedirs(report_dir, exist_ok=True)
     summary = {name: _tally(rows) for name, rows in layers.items()}
     jreport = {
@@ -1178,6 +1379,9 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
     if fork_drift is not None:
         jreport["fork_drift"] = {"ok": fork_drift["ok"], "odr_lines": fork_drift["odr_lines"],
                                  "summary": fork_drift["summary"]}
+    if core_census is not None:
+        jreport["core_census"] = {"ok": core_census["ok"], "summary": core_census["summary"],
+                                  "failures": core_census["failures"]}
     if matrix_res is not None:
         jreport["matrix"] = {"ok": matrix_res[0], "fails": matrix_res[2]}
     if smoke_res is not None:
@@ -1190,6 +1394,8 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
           f"- profile: **{profile}**", f"- audit self-test: **{'PASS' if audit_selftest else 'FAIL'}**"]
     if fork_drift is not None:
         md.append(f"- {fork_drift['summary']}")
+    if core_census is not None:
+        md.append(f"- {core_census['summary']}")
     md.append("")
     for name, rows in layers.items():
         t = _tally(rows)
@@ -1256,6 +1462,9 @@ def _assemble(manifest: dict, only: str):
             "osi_expect_no_intersection_lane": bool(fx.get("osi_expect_no_intersection_lane")),
             "osi_expect_lane_type_sidewalk_min": fx.get("osi_expect_lane_type_sidewalk_min"),
             "osi_expect_stationary_min": fx.get("osi_expect_stationary_min"),
+            # P6 S0: opt-out for maps whose MoveAlongS walk is nondeterministic by upstream
+            # design (random equal-angle tie-break on geometrically-parallel connections).
+            "motion_nondeterministic": bool(fx.get("motion_nondeterministic")),
             # P8 acceptance (iv, D4): EXACT surviving traffic_sign count (invalidated-signal filter proof).
             "osi_expect_traffic_sign_count": fx.get("osi_expect_traffic_sign_count"),
             # P7 harness extension A: opt-in z-grid probe + golden-independent z assertion.
@@ -1291,8 +1500,8 @@ def main(argv=None) -> int:
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument(
         "--layers", metavar="L1[,L2,...]", default="",
-        help="restrict to a comma-separated subset of {schema,rm,osi}. Default: derived "
-             "from --profile (quick=schema,rm; full=schema,rm,osi). Use e.g. "
+        help="restrict to a comma-separated subset of {schema,rm,motion,osi}. Default: derived "
+             "from --profile (quick=schema,rm,motion; full=schema,rm,motion,osi). Use e.g. "
              "'--layers schema --check-matrix' to run the schema layer only (no DLLs), "
              "the CI-friendly path that tolerates absent build tree / ASAM zips.",
     )
@@ -1300,12 +1509,12 @@ def main(argv=None) -> int:
 
     # Resolve the active layer set. Empty --layers keeps the profile behavior verbatim;
     # an explicit list intersects with the profile so 'osi' still requires --profile full.
-    profile_layers = ["schema", "rm"] + (["osi"] if args.profile == "full" else [])
+    profile_layers = ["schema", "rm", "motion"] + (["osi"] if args.profile == "full" else [])
     if args.layers.strip():
         requested = [x.strip().lower() for x in args.layers.split(",") if x.strip()]
-        unknown = [x for x in requested if x not in ("schema", "rm", "osi")]
+        unknown = [x for x in requested if x not in ("schema", "rm", "motion", "osi")]
         if unknown:
-            ap.error("--layers: unknown layer(s) %s (choose from schema, rm, osi)" % unknown)
+            ap.error("--layers: unknown layer(s) %s (choose from schema, rm, motion, osi)" % unknown)
         active_layers = [x for x in profile_layers if x in requested]
     else:
         active_layers = profile_layers
@@ -1317,8 +1526,9 @@ def main(argv=None) -> int:
     if not audit_selftest:
         print("WARNING: audit self-test FAILED (marker counting mechanism broken)", file=sys.stderr)
 
-    # Fork-drift check (pure text, no DLLs -- runs in every profile / layer subset).
+    # Fork-drift + core-census checks (pure text, no DLLs -- run in every profile / layer subset).
     fork_drift = run_fork_drift()
+    core_census = run_core_census()
 
     control, fixtures = _assemble(manifest, args.only)
 
@@ -1339,6 +1549,11 @@ def main(argv=None) -> int:
     if "rm" in active_layers:
         rm_rows = layer_rm(list(control) + list(fixtures), args.rmdll, args.update_golden)
         layers["rm"] = rm_rows
+
+    # --- Layer 2b: motion (same universe as rm; expected-fail rm entries SKIP) ---
+    if "motion" in active_layers:
+        motion_rows = layer_motion(list(control) + list(fixtures), args.rmdll, args.update_golden)
+        layers["motion"] = motion_rows
 
     # --- Layer 3: osi (control_set + manifest `osi: true` fixtures, profile full) ---
     if "osi" in active_layers:
@@ -1370,12 +1585,17 @@ def main(argv=None) -> int:
     if not audit_selftest:
         exit_bad += 1
 
-    # --- Fork drift (always) ---
-    print("\n=== Fork drift ===")
+    # --- Fork drift + core census (always) ---
+    print("\n=== Fork drift / core census ===")
     print("  " + fork_drift["summary"])
     if not fork_drift["ok"]:
         for b in fork_drift["unattributed"]:
             print(f"    UNATTRIBUTED  fork L{b['fork_span'][0]}-{b['fork_span'][1]}  {b.get('sample','')}")
+        exit_bad += 1
+    print("  " + core_census["summary"])
+    if not core_census["ok"]:
+        for f in core_census["failures"]:
+            print(f"    CENSUS  {f}")
         exit_bad += 1
 
     if matrix_res is not None:
@@ -1397,7 +1617,8 @@ def main(argv=None) -> int:
             if not ok:
                 exit_bad += 1
 
-    write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest, fork_drift)
+    write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest,
+                  fork_drift, core_census)
 
     print("\n" + ("=" * 60))
     total = {PASS: 0, FAIL: 0, XFAIL: 0, XPASS: 0, SKIP: 0}

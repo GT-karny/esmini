@@ -123,6 +123,15 @@ void ControllerLooming::Step(double timeStep)
                     break;  // currently intersection not considered.
                 }
 
+                // [GT_ODR:vj-looming] A mid-road virtual-junction anchor (element_s_ >= 0) has no end
+                // contact, so the contact-point direction merge below is undefined. The lookahead chain
+                // ends gracefully at the anchor (v1: same treatment as a junction, no straight-through
+                // tangent past the branch point).
+                if (roadLink->GetElementS() >= 0.0)
+                {
+                    break;
+                }
+
                 roadTemp = odr->GetRoadById(roadLink->GetElementId());
 
                 // we just entered a new road, and we have a road link.
