@@ -59,7 +59,12 @@ async def get_metrics(job_id: str) -> dict[str, Any]:
     if sim.status not in ("completed", "failed", "timeout"):
         return {"status": sim.status, "message": "Simulation not yet completed"}
 
-    metrics = result_service.compute_metrics(sim.output_dir)
+    try:
+        metrics = result_service.compute_metrics(sim.output_dir)
+    except result_service.DatFormatUnsupported as exc:
+        # P9b: explicit signal instead of a silent empty result (dat.py reads DAT v4
+        # only; esmini >= v3.4.0 records v5 -- see the known-debt ledger).
+        raise HTTPException(status_code=409, detail=str(exc))
     if metrics is None:
         raise HTTPException(status_code=404, detail="No simulation data found")
     return metrics
@@ -77,6 +82,9 @@ async def get_timeseries(
         raise HTTPException(status_code=404, detail="No output directory")
 
     field_list = fields.split(",") if fields else None
-    data = result_service.get_timeseries(sim.output_dir, field_list, entity)
+    try:
+        data = result_service.get_timeseries(sim.output_dir, field_list, entity)
+    except result_service.DatFormatUnsupported as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     actual_fields = list(data[0].keys()) if data else []
     return TimeseriesResponse(data=data, entity=entity, fields=actual_fields)

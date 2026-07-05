@@ -20,8 +20,35 @@ if str(GT_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(GT_SCRIPTS_DIR))
 
 
+# dat.py (GT_esmini/scripts) understands DAT format major version 4 ONLY, and calls
+# exit(-1) -- i.e. raises SystemExit INSIDE THIS SERVER PROCESS -- on any other major
+# version. Upstream esmini >= v3.4.0 records version 5. Guard explicitly (P9b known-debt
+# mitigation, SCR-1-shaped silent death; full v5 support is a separate task).
+_DAT_SUPPORTED_MAJOR = 4
+
+
+class DatFormatUnsupported(RuntimeError):
+    """sim.dat has a DAT major version dat.py cannot read (surfaced as HTTP 409)."""
+
+
+def _dat_major_version(dat_path: Path) -> int | None:
+    """First uint32 of a DAT file = major format version (dat.py reads it the same way)."""
+    try:
+        with open(dat_path, "rb") as f:
+            raw = f.read(4)
+        if len(raw) < 4:
+            return None
+        return int.from_bytes(raw, "little", signed=False)
+    except OSError:
+        return None
+
+
 def _ensure_csv(output_dir: Path) -> Path | None:
-    """Convert sim.dat to sim.csv if not already done."""
+    """Convert sim.dat to sim.csv if not already done.
+
+    Raises DatFormatUnsupported (explicit, user-visible) when sim.dat is a DAT
+    version dat.py cannot read -- NEVER let dat.py's exit(-1) reach the server.
+    """
     dat_path = output_dir / "sim.dat"
     csv_path = output_dir / "sim.csv"
     if csv_path.exists():
@@ -29,12 +56,28 @@ def _ensure_csv(output_dir: Path) -> Path | None:
     if not dat_path.exists():
         return None
 
+    major = _dat_major_version(dat_path)
+    if major is not None and major != _DAT_SUPPORTED_MAJOR:
+        raise DatFormatUnsupported(
+            f"sim.dat is DAT format v{major}; the bundled dat.py reader supports "
+            f"v{_DAT_SUPPORTED_MAJOR} only (esmini >= v3.4.0 records v5). "
+            "DAT-derived metrics/timeseries are unavailable for this run."
+        )
+
     try:
         from dat import DATFile
         dat = DATFile(str(dat_path), extended=True)
         dat.save_csv(extended=True, include_file_refs=True)
         dat.close()
         return csv_path if csv_path.exists() else None
+    except SystemExit as exc:
+        # dat.py exit(-1) escape hatch (header/version paths we did not pre-detect):
+        # convert to a caught, logged failure instead of killing the worker.
+        logger.error("dat.py aborted (SystemExit %s) converting %s", exc.code, dat_path)
+        raise DatFormatUnsupported(
+            "sim.dat could not be read by the bundled dat.py reader (it aborted); "
+            "the file may be a newer DAT format."
+        ) from exc
     except Exception as exc:
         logger.warning("DAT→CSV conversion failed for %s: %s", dat_path, exc, exc_info=True)
         return None
