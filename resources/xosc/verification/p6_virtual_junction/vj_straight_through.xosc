@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  P6 S7b VirtualDriver verification scene B: vj_straight_through
+  Ego (VirtualDriverController) starts on the unsplit main road 1 (s=10, lane -1)
+  with a route whose target is straight ahead on road 1 (s=180), i.e. BEYOND the
+  virtual-junction span [95,105] but STILL on road 1. This exercises the T2
+  pass-through invariant at VD level: the VD must drive straight THROUGH the
+  anchor (s=100) and never depart onto the branch road 2. The route never leaves
+  road 1, so its single leg is the whole main road -- a waypoint beyond the anchor
+  on road 1 is legal (it is positions beyond a LEG'S anchor that S4's SetTrackS
+  clamp rejects; here there is no branch leg).
+
+  Stay-on-main evidence: the ego stays on road 1 (lane_keep road_id=1) and its
+  y-coordinate stays ~0 (road 1 runs along +x); it must NOT follow road 2's
+  -45deg geometry. Reaching the end is asserted by position (x well past 105).
+
+  HARD RULE (design sec6 S7b): road_id assertions on road 1 are permitted;
+  junction-id / membership assertions are NOT (v1 reports -1/false on the span).
+
+  Modest init speed (~9 m/s ~= 32 km/h). Ego cruise is a running Story Event.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-07-04T10:00:00"
+               description="VirtualDriver P6 VJ: straight through the virtual junction (T2)"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="9.0"/>
+   </ParameterDeclarations>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/virtual_junction_23.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="180"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="DriveStory">
+         <Act name="DriveAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="30" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

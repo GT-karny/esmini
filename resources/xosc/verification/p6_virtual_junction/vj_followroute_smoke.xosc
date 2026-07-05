@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  P6 S7b ControllerFollowRoute smoke on the native virtual junction (fixture 23).
+  Deferred from S6: proves the upstream FollowRouteController (which consumes the
+  S6 anchor-aware LaneIndependentRouter) can plan and follow a route ACROSS the
+  virtual junction. Ego starts on main road 1 (s=10, lane -1) and is routed to
+  road 3 (s=40); FollowRoute must lane-plan through the anchor onto branch road 2
+  and onto road 3.
+
+  Run headless (record + verify from the .dat that the ego reached road 3):
+    build/EnvironmentSimulator/Applications/esmini/Release/esmini.exe \
+      --headless --osc <this file> --fixed_timestep 0.05 --record <dat>
+-->
+<OpenSCENARIO>
+    <FileHeader description="P6 VJ FollowRoute smoke across a virtual junction" author="GT_esmini"
+                revMajor="1" revMinor="1" date="2026-07-04T10:00:00"/>
+    <ParameterDeclarations/>
+    <CatalogLocations>
+        <VehicleCatalog>
+            <Directory path="../../Catalogs/Vehicles"/>
+        </VehicleCatalog>
+        <ControllerCatalog>
+            <Directory path="../../Catalogs/Controllers"/>
+        </ControllerCatalog>
+    </CatalogLocations>
+    <RoadNetwork>
+        <LogicFile filepath="../../../xodr/virtual_junction_23.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_red"/>
+            <ObjectController>
+                <CatalogReference catalogName="ControllerCatalog" entryName="followRoute"/>
+            </ObjectController>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition roadId="1" laneId="-1" s="10.0" offset="0.0"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" value="1.0" dynamicsDimension="time"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="9.0"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <ControllerAction>
+                            <ActivateControllerAction lateral="true" longitudinal="true"/>
+                        </ControllerAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <Story name="story_ego">
+            <Act name="act_ego">
+                <ManeuverGroup name="mg_ego" maximumExecutionCount="1">
+                    <Actors selectTriggeringEntities="false">
+                        <EntityRef entityRef="Ego"/>
+                    </Actors>
+                    <Maneuver name="man_ego">
+                        <Event name="ev_route" priority="overwrite" maximumExecutionCount="1">
+                            <Action name="act_route">
+                                <PrivateAction>
+                                    <RoutingAction>
+                                        <AssignRouteAction>
+                                            <Route name="ego_route" closed="false">
+                                                <Waypoint routeStrategy="shortest">
+                                                    <Position>
+                                                        <LanePosition roadId="1" laneId="-1" s="10.0" offset="0.0"/>
+                                                    </Position>
+                                                </Waypoint>
+                                                <Waypoint routeStrategy="shortest">
+                                                    <Position>
+                                                        <LanePosition roadId="3" laneId="-1" s="40.0" offset="0.0"/>
+                                                    </Position>
+                                                </Waypoint>
+                                            </Route>
+                                        </AssignRouteAction>
+                                    </RoutingAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="route_start" delay="0" conditionEdge="none">
+                                        <ByValueCondition>
+                                            <SimulationTimeCondition value="0" rule="greaterThan"/>
+                                        </ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                    </Maneuver>
+                </ManeuverGroup>
+                <StartTrigger>
+                    <ConditionGroup>
+                        <Condition name="act_start" delay="0" conditionEdge="none">
+                            <ByValueCondition>
+                                <SimulationTimeCondition value="0" rule="greaterThan"/>
+                            </ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StartTrigger>
+                <StopTrigger/>
+            </Act>
+        </Story>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition name="stop_sim" delay="0" conditionEdge="rising">
+                    <ByValueCondition>
+                        <SimulationTimeCondition value="30" rule="greaterThan"/>
+                    </ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

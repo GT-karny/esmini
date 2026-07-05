@@ -1,0 +1,25 @@
+scenario: vj_branch_turn
+category: p6_virtual_junction
+# P6 S7b scene A -- the VD routes ACROSS the virtual junction: departs main road 1
+# at the anchor (s=100) onto the -45deg branch road 2 and continues onto road 3.
+#
+# HARD RULE (design sec6 S7b): NO assertion on main-road-span junction ids. v1
+# reports junction=-1 / IsInJunction=false on road 1's span (interpretive,
+# surfaced upstream #592). "Reached road 3" is asserted by ROAD ID via lane_keep
+# (road id is the OpenDRIVE road, NOT a junction id) -- lawful under the rule.
+must:
+  # Reached road 3: by the late window the ego is on road 3 (proves the branch was
+  # taken -- road 3 is only reachable via road 2). road_id is an OpenDRIVE road id.
+  - event: lane_keep
+    road_id: 3
+    after: { sim_time: 20.0 }
+    reason: "仮想ジャンクションを分岐してroad 3に到達(分岐が実行された証拠)"
+  # Speed stays sane through the turn -- never stalls (turn is drivable).
+  - event: min_speed_above
+    threshold: 1.0
+    after: { sim_time: 3.0 }
+    reason: "分岐旋回中も失速しない(旋回が走行可能)"
+  # Speed never runs away above the commanded ~9 m/s (+ generous margin).
+  - event: speed_below
+    threshold: 12.0
+    reason: "指令速度を大きく超えない(制御が安定)"
