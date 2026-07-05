@@ -103,6 +103,8 @@
 
 第2種編集とは、2026-07-04 の R1 緩和でユーザー承認された pristine コアファイル(`EnvironmentSimulator/` 配下)への **in-place 直接編集**を指す(第1種=`GT_RoadManager.cpp` フォークの既存 150 行レジーム)。下の fenced YAML ブロックが**唯一の真実(single source of truth)**であり、`scripts/check_core_census.py`・`scripts/check_fork_drift.py`・`scripts/run_odr_conformance.py`・ctest センサス(`OdrForkPatches.MarkerCount` / `OdrForkPatches.SecondClassCensus`)はすべて本ブロックをパースする — スクリプト側への期待値の埋め込みは禁止(`check_fork_drift.py` の陳腐化した `_DEFAULT_EXPECT_ODR=16` が動機となった失敗事例)。予算・ファイルセットは 2026-07-04 ユーザー承認([odr_p6_virtual_junction_design.md](odr_p6_virtual_junction_design.md) §5/§10)。ベースラインは Stage 0b(upstream v3.4.0 マージ)後に `check_core_census.py record-baselines` の 1 コマンドで再記録する。
 
+**S5 インシデント記録(2026-07-05、訂正)**: S5 コミット c2737f1b の KNOWN-OPEN 注記(official_uc_parampoly3 motion ゴールデン FAIL を S2/S3 起因と推定)は**誤り**。真相 = S5 実装エージェントが最終 fork 編集後に esminiRMLib.dll を再リンクせず、中間状態 DLL で conformance を実行した stale-build 幽霊(「pristine を stash して無関係証明」も fork がビルド実体であるため無効な検証だった)。最終ソースでは [vj-enter] elementS 着地は VJ レジストリでゲートされ、非 VJ 資産の正当な elementS リンク(UC_ParamPoly3 road 7→2)は従来どおり不活性 = ゴールデン一致。オーケストレータのバイセクト(S3/S4/HEAD fork 差し替え+esminiRMLib 単体再ビルド)で確定、HEAD で 3 回連続決定論的 PASS、フルリビルド後 conformance full PASS=322/FAIL=0。**恒久ルール: ゲート実行前に対象 DLL 群の再ビルドを必ず挟む。非 VJ の直結 elementS ロードリンクは v1 ではパースのみ(走行遷移は従来挙動 = 設計 §9 スコープ)。**
+
 <!-- GT-2ND-CLASS-MANIFEST-BEGIN -->
 ```yaml
 version: 1
