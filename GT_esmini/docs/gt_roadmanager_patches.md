@@ -105,6 +105,8 @@
 
 **S5 インシデント記録(2026-07-05、訂正)**: S5 コミット c2737f1b の KNOWN-OPEN 注記(official_uc_parampoly3 motion ゴールデン FAIL を S2/S3 起因と推定)は**誤り**。真相 = S5 実装エージェントが最終 fork 編集後に esminiRMLib.dll を再リンクせず、中間状態 DLL で conformance を実行した stale-build 幽霊(「pristine を stash して無関係証明」も fork がビルド実体であるため無効な検証だった)。最終ソースでは [vj-enter] elementS 着地は VJ レジストリでゲートされ、非 VJ 資産の正当な elementS リンク(UC_ParamPoly3 road 7→2)は従来どおり不活性 = ゴールデン一致。オーケストレータのバイセクト(S3/S4/HEAD fork 差し替え+esminiRMLib 単体再ビルド)で確定、HEAD で 3 回連続決定論的 PASS、フルリビルド後 conformance full PASS=322/FAIL=0。**恒久ルール: ゲート実行前に対象 DLL 群の再ビルドを必ず挟む。非 VJ の直結 elementS ロードリンクは v1 ではパースのみ(走行遷移は従来挙動 = 設計 §9 スコープ)。**
 
+**挙動ゲート既知FAILベースライン(2026-07-05確定)**: phase3 の `red_stop_green_go` / `green_no_stop` は **pre-P6 から FAIL**(青信号後に発進しない VD 信号ポリシー側の未成熟)。機械的証明: S0.4 telemetry ゴールデン(P6 コアコード皆無の post-P5 ビルドで採取)と現行軌跡が全フレーム一致 = 挙動は P6 期間中不変。P6 の `-FailOnBehavioral` ゲート解釈 = **「この2件を超える新規 FAIL ゼロ」**。修正は VD ポリシー(F系)スコープであり P6 対象外。
+
 <!-- GT-2ND-CLASS-MANIFEST-BEGIN -->
 ```yaml
 version: 1
@@ -169,19 +171,28 @@ second_class_files:
     budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
     budget_group: router
     additive_only: false
-    marker_census: {}
-    marker_occurrences: 0
+    marker_census: {vj-router: 122}
+                        # S6 [GT_ODR:vj-router] (PRISTINE-ONLY, PR-C): LaneIndependentRouter across a virtual
+                        # junction. Block-form InjectVirtualJunctionAnchorNodes static helper (49) seeds/expands one
+                        # child per registry anchor (partial main-road weight, anchor link identity = dedup key);
+                        # GetNextLink branch-own elementS merge-back onto the unsplit main road (8); GetConnectingLanes
+                        # anchor lane section via GetLaneSectionByS(anchorS) (7); FindGoal expansion inject (15);
+                        # CalculatePath link-less-main tolerance + start-node anchor seeding (9+10); GetWaypoints
+                        # anchored/link-less waypoint block (14); CalcWeightWithPos partial |anchor-s| (7); CalcWeight
+                        # null-link start-node MIN_INTERSECTIONS guard (3). Router group cpp+hpp = 122+5 = 127/220.
+    marker_occurrences: 11               # literal "[GT_ODR:" count (begin/end pairs ×2 + 7 single-line markers)
     pr_slice: "PR-C"
-    status: baseline
+    status: active-S6
   - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.hpp
     upstream_blob_sha: bf0cd4c7a74ab03e66f54db1d594b392797bf0b8
     budget_nonblank: 0                   # shares the 220-line router budget with the .cpp row (budget_group)
     budget_group: router
     additive_only: false
-    marker_census: {}
-    marker_occurrences: 0
+    marker_census: {vj-router: 5}        # S6: Node gains a double anchorS field (mid-road entry s; < 0 = end contact)
+                                          # + operator== comment (the link ptr already distinguishes anchor nodes).
+    marker_occurrences: 2                # literal "[GT_ODR:" count (anchorS field comment + operator== comment)
     pr_slice: "PR-C"
-    status: baseline
+    status: active-S6
   - path: EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
     upstream_blob_sha: 9c4ea053e24c70330e24da357e3558e80b8617b0
     budget_nonblank: 30

@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "RoadManager.hpp"
+#include "LaneIndependentRouter.hpp"
 #include "logger.hpp"
 
 using namespace roadmanager;
@@ -1059,6 +1060,130 @@ TEST(OdrVirtualJunction, Fixture23bLhtVjLanesForkVariant)
     EXPECT_EQ(fc.GetConnectingRoadId(), branch->GetId()) << "forward connection targets the branch";
     EXPECT_DOUBLE_EQ(fc.contact_s_, -1.0) << "forward connection: no re-entry anchor s (legacy placement)";
     EXPECT_EQ(fc.contact_point_, CONTACT_POINT_START) << "[GT_LHT] fork pick: contactPoint START -> first section";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// ---------------------------------------------------------------------------------------------
+// S6 [GT_ODR:vj-router]: LaneIndependentRouter across the virtual-junction anchor (design §4 STAGE 6,
+// §6 S6 acceptance). Mirrors the FollowRoute_test.cpp driving pattern (Position start/target + router.
+// CalculatePath) and asserts the router finds the SAME logical path RoadPath did (roads 1->2->3, s at
+// the anchored transitions, and the reverse merge-back onto the main road).
+// ---------------------------------------------------------------------------------------------
+
+// Router forward: (road1 lane -1 s=10) -> (road3 lane -1 s=20) must resolve via the branch road 2 even though
+// the unsplit main road 1 carries NO end link. The path node road sequence is 1 -> 2 -> 3 (the anchor node
+// rides the registry-owned link off the main road onto the branch). Weight equals the RoadPath distance (140).
+TEST(OdrVirtualJunction, Fixture23S6RouterForwardThroughBranch)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Position start(1, -1, 10.0, 0.0);
+    start.SetHeadingRelativeRoadDirection(0.0);  // along +s (forward)
+    Position target(3, -1, 20.0, 0.0);
+
+    LaneIndependentRouter router(Position::GetOpenDrive());
+    std::vector<Node>     path = router.CalculatePath(start, target);
+
+    ASSERT_FALSE(path.empty()) << "the link-less main road must reach road 3 through the VJ anchor";
+    // Collapse the node road sequence (consecutive same-road nodes -> one entry): expect 1 -> 2 -> 3.
+    std::vector<id_t> roadSeq;
+    for (const Node& n : path)
+    {
+        if (roadSeq.empty() || roadSeq.back() != n.road->GetId())
+        {
+            roadSeq.push_back(n.road->GetId());
+        }
+    }
+    ASSERT_EQ(roadSeq.size(), 3u);
+    EXPECT_EQ(roadSeq[0], 1u);
+    EXPECT_EQ(roadSeq[1], 2u);
+    EXPECT_EQ(roadSeq[2], 3u);
+    EXPECT_EQ(path.back().road->GetId(), 3u) << "target road reached";
+    EXPECT_NEAR(path.back().weight, 140.0, 1e-6) << "90 (road1 10->100) + 30 (road2) + 20 (road3 0->20)";
+
+    // Waypoints carry the right s at the anchored transition: a road-1 waypoint sits AT the anchor s=100 (the
+    // branch-off), a road-2 waypoint exists, and the last waypoint is the target on road 3 at s=20.
+    std::vector<Position> wps = router.GetWaypoints(path, start, target);
+    ASSERT_GE(wps.size(), 3u);
+    bool hasAnchorWp = false;
+    bool hasBranchWp = false;
+    for (const Position& wp : wps)
+    {
+        if (wp.GetTrackId() == 1u && fabs(wp.GetS() - 100.0) < 1e-3)
+        {
+            hasAnchorWp = true;
+        }
+        if (wp.GetTrackId() == 2u)
+        {
+            hasBranchWp = true;
+        }
+    }
+    EXPECT_TRUE(hasAnchorWp) << "a road-1 waypoint lands at the anchor s=100 (branch-off)";
+    EXPECT_TRUE(hasBranchWp) << "the branch road 2 appears as a waypoint";
+    EXPECT_EQ(wps.back().GetTrackId(), 3u) << "final waypoint is the target on road 3";
+    EXPECT_NEAR(wps.back().GetS(), 20.0, 1e-3);
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// Router reverse (merge-back): (road3 lane -1 s=20) -> (road1 lane -1 s=10). The path leaves road 3 to road 2,
+// then road 2's own mid-road predecessor (elementS=100 -> road 1) merges back onto the main road at the anchor;
+// the target hit measures the partial |100 - 10| = 90 m on the main road. Symmetric total 140. Road seq 3->2->1.
+TEST(OdrVirtualJunction, Fixture23S6RouterReverseMergeBack)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Position start(3, -1, 20.0, 0.0);
+    start.SetHeadingRelativeRoadDirection(M_PI);  // face road 3's predecessor (toward road 2)
+    Position target(1, -1, 10.0, 0.0);
+
+    LaneIndependentRouter router(Position::GetOpenDrive());
+    std::vector<Node>     path = router.CalculatePath(start, target);
+
+    ASSERT_FALSE(path.empty()) << "reverse must merge back onto the main road at the anchor";
+    std::vector<id_t> roadSeq;
+    for (const Node& n : path)
+    {
+        if (roadSeq.empty() || roadSeq.back() != n.road->GetId())
+        {
+            roadSeq.push_back(n.road->GetId());
+        }
+    }
+    ASSERT_EQ(roadSeq.size(), 3u);
+    EXPECT_EQ(roadSeq[0], 3u);
+    EXPECT_EQ(roadSeq[1], 2u);
+    EXPECT_EQ(roadSeq[2], 1u) << "merged back onto the main road";
+    EXPECT_EQ(path.back().road->GetId(), 1u);
+    EXPECT_NEAR(path.back().weight, 140.0, 1e-6) << "20 (road3) + 30 (road2) + 90 (road1 100->10 via merge-back)";
+
+    std::vector<Position> wps = router.GetWaypoints(path, start, target);
+    ASSERT_FALSE(wps.empty());
+    EXPECT_EQ(wps.back().GetTrackId(), 1u) << "final waypoint is the target on the main road";
+    EXPECT_NEAR(wps.back().GetS(), 10.0, 1e-3);
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// T2-adjacent for the router: a plain road with an ordinary end link is unaffected by the VJ anchor machinery.
+// On fixture 23 there is no non-VJ router path to assert, so this pins that the anchor injection is INERT when
+// the start road has no anchors (road 3 has none): a request from road 3 that cannot reach its target returns
+// empty WITHOUT the anchor seeding fabricating a bogus path.
+TEST(OdrVirtualJunction, Fixture23S6RouterInertWithoutAnchors)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    // road 3 has no anchors and no successor link; a forward request off its end cannot progress -> empty path.
+    Position start(3, -1, 20.0, 0.0);
+    start.SetHeadingRelativeRoadDirection(0.0);  // +s: road 3 has no successor link and no anchors
+    Position target(1, -1, 10.0, 0.0);
+
+    LaneIndependentRouter router(Position::GetOpenDrive());
+    std::vector<Node>     path = router.CalculatePath(start, target);
+    EXPECT_TRUE(path.empty()) << "no anchors + no forward link -> no path (anchor injection stays inert)";
 
     Position::GetOpenDrive()->Clear();
 }
