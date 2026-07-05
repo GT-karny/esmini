@@ -183,6 +183,11 @@ TEST(OdrSideModel, UserDataAndDataQualityStoredNotAudited)
 }
 
 // 4. include -> BuildSideModel returns false.
+// PERMANENT SPEC (P9a, plan sec 10-6): <include> is a hard parse error by permanent design decision,
+// NOT a deferred TODO -- zero known real-world usage; resolution would need file IO/recursion/security
+// design with no consumer. BuildSideModel returning false here IS the specified correct behavior. The
+// exact [ODR-INCLUDE] diagnostic text is asserted at the conformance-harness level (fixture
+// 16_include_error_15, expected_diagnostics), not in this gtest.
 TEST(OdrSideModel, IncludeIsHardError)
 {
     const char* xml = R"(<OpenDRIVE>

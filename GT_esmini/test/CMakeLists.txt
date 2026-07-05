@@ -24,6 +24,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrObjectExtras.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrJunctionGeom.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrLaneLayers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrRailroad.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

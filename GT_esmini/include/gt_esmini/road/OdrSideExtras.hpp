@@ -432,10 +432,71 @@ struct OdrJunctionExtras
     std::vector<OdrLaneLinkExtras>      lane_link_extras;  // cluster 22 L1 slot reservation
 };
 
-// Railroad + station family (switch/mainTrack/sideTrack/partner, station/platform/segment).
-// L1-only, documented inactive. Populated in P9.
-struct OdrRailroad
+// ===========================================================================
+// P9a cluster 20: railroad/station -- L1 storage, INERT.
+//
+// The railroad (<road>/<railroad>/<switch>) and station (root-level <station>) families are parsed
+// into the side model (OdrRailroad.cpp) and are queryable via GetRailSwitch/GetRoadRailSwitches/
+// GetStation, but NOTHING consumes them at runtime: there is no rail runtime, no OSI output, no
+// policy. Documented-inactive per plan §5 P9. Raw strings kept verbatim per the L1 contract; the one
+// parsed convenience double is a track link's @s (for a future consumer's convenience).
+// ===========================================================================
+
+// One <mainTrack>/<sideTrack> of a <switch>: the track this switch links (@id) at position @s in the
+// authored direction @dir ("+"/"-"). L1 raw (id/dir verbatim; s parsed).
+struct OdrSwitchTrackLink
 {
+    std::string id;         // @id -- the linked track (road) id
+    double      s = 0.0;    // @s  -- position on that track
+    std::string dir;        // @dir ("+" | "-")
+};
+
+// One <road>/<railroad>/<switch>: a railway switch owned by a road. name/id/position verbatim
+// (@position = "dynamic" | "straight" | "turning"); a switch links exactly one mainTrack + one
+// sideTrack (has_* gate whether they were authored) and OPTIONALLY names a <partner> switch.
+struct OdrRailSwitch
+{
+    std::string road_id;   // owning <road>@id
+    std::string name;      // <switch>@name
+    std::string id;        // <switch>@id
+    std::string position;  // <switch>@position ("dynamic" | "straight" | "turning")
+
+    OdrSwitchTrackLink main_track;   // <mainTrack> @id/@s/@dir
+    OdrSwitchTrackLink side_track;    // <sideTrack> @id/@s/@dir
+    bool               has_main_track = false;
+    bool               has_side_track = false;
+
+    std::string partner_name;  // <partner>@name (optional)
+    std::string partner_id;    // <partner>@id   (optional)
+    bool        has_partner = false;
+};
+
+// One <station>/<platform>/<segment>: the s-range on a road (@roadId, @sStart..@sEnd) that a platform
+// covers, on the given @side ("left"|"right"|"both"). L1 raw (ids/side verbatim; s parsed).
+struct OdrStationSegment
+{
+    std::string road_id;         // @roadId -- the road this platform segment runs along
+    double      s_start = 0.0;   // @sStart
+    double      s_end   = 0.0;   // @sEnd
+    std::string side;            // @side ("left" | "right" | "both")
+};
+
+// One <station>/<platform>: a boarding platform, one or more <segment> spans on roads.
+struct OdrStationPlatform
+{
+    std::string                    id;    // @id
+    std::string                    name;  // @name
+    std::vector<OdrStationSegment> segments;
+};
+
+// A root-level <station> (railway/tram station). @type = "small" | "medium" | "large". One or more
+// <platform> children. L1 storage only; no runtime consumer (documented inert).
+struct OdrStation
+{
+    std::string                     id;    // @id
+    std::string                     name;  // @name
+    std::string                     type;  // @type ("small" | "medium" | "large")
+    std::vector<OdrStationPlatform> platforms;
 };
 
 // ===========================================================================

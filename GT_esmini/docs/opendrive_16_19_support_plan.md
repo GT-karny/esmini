@@ -216,6 +216,7 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 - **スコープ**: クラスタ20(switch/mainTrack/sideTrack/partner、station/platform/segment: L1+RM-API公開、**不活性と文書明記**)/ 15クローズ(P1の暫定処置を確定: includeは解決実装 or 診断付きハードエラーのまま仕様化をユーザー判断、userDataは注釈UIへ公開して消費側まで完結)/ 13/14残 / ルートループ網羅(junctionGroup/station/vmsGroup)/ web公開: GT_RM_\* C関数+rm_lib.py+annotation UIへのパース警告表示(dedupe済み)。
 - **resyncリハーサル(命名成果物)**: upstream ab7c404d(またはv3.4)の新規コピーへ~12マーカーを関数名アンカーで再適用 → upstreamパースループとの被覆diffで「handled-by-upstream」状態へのホワイトリスト再基準化(upstream側がネイティブ対応した要素はGT処理を撤去し二重パース回避)→ ゴールデン再生成を単一レビューコミットで — の**書面チェックリスト**化。恒久的な**二重処理ガード**(合成ID重複なし・GTホワイトリストとupstreamパースの両属なし)をハーネスに常設。
 - **成果物**: `GT_esmini/docs/opendrive_16_19_support.md` — クラスタ0-22×レベルL1-L5の対応状況表(**保留レベル全掲載の「あらゆる要素」正直台帳**、ユーザー拒否権用)。
+- **P9a 実装済(2026-07-05)**: クラスタ20(railroad/station)をL1不活性で実装 — OdrRailroad.cpp が `<road>/<railroad>/<switch>`(mainTrack/sideTrack/partner)+ root `<station>/<platform>/<segment>` をパース・格納、アクセサ `GetRailSwitch`/`GetRoadRailSwitches`/`GetStation` を公開(消費側なし=不活性)。Ex_Railway-Switch/Ex_Railway-Station で監査ゼロ強制。
 
 ### P10 — upstream還元+マージコスト削減トラック — 0.5-1週分散(P2-P9と並走)
 
@@ -300,7 +301,7 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 3. **P6コンティンジェンシーの事前承認**(公開API不可→+25フォーク行、最終手段=加算ヘッダマーカー例外)
 4. **P6のxosc位置参照方針**(remap shim か 文書化された制限+診断か)— P6実装前
 5. **§8保留台帳の承認**(いずれかをスコープ内へ昇格させる場合は工数再見積り)
-6. **`<include>`の扱い**(解決実装 or ハードエラー維持)— P9まで
+6. **`<include>`の扱い**(解決実装 or ハードエラー維持)— P9まで → **確定(P9a 2026-07-05, sec 10-6)**: ハードエラー+`[ODR-INCLUDE]`診断を**恒久仕様**として採用(使用例ゼロ・解決実装はファイルIO/再帰/パストラバーサル対策のセキュリティ設計を要するが消費者不在)。fixture `16_include_error_15`は`rm_init: spec_fail`+`expected_diagnostics`で**PASS**分類(恒久XFAILではない)。
 7. **ASAMフィクスチャ再配布可否の確認** — P0初日
 
 ---

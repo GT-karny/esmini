@@ -106,6 +106,14 @@ void ParseJunctionExtras(const pugi::xml_node& root, OdrSideModel& model);
 // typed BuildSideModel overload. No-op when the model carries no crossPath (legacy assets).
 void SynthesizeCrosswalks(OdrSideModel& model, roadmanager::OpenDrive* od);
 
+// ---- OdrRailroad.cpp (P9a cluster 20) ----
+
+// Focused pass over each <road>/<railroad>/<switch> (per-road railway switches) and each root-level
+// <station> (platforms/segments), filling model.rail_switches / model.stations. L1 storage only,
+// INERT (no runtime consumer). An empty <railroad/> stores nothing; a road/station with no relevant
+// children produces no entry (keeps the side model sparse on legacy assets).
+void ParseRailroad(const pugi::xml_node& root, OdrSideModel& model);
+
 // ---- OdrObjectExtras.cpp (P7 clusters 17/18/19) ----
 
 // Focused pass over road/objects children (object/objectReference/bridge), road/surface, and
