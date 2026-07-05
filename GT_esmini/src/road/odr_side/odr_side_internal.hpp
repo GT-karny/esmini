@@ -32,6 +32,10 @@ void ReadVersion(const pugi::xml_node& root, OdrSideModel& model);
 // Serialize `node` (including the element itself and its subtree) to a compact XML string.
 std::string NodeToXml(const pugi::xml_node& node);
 
+// P9b: road/<type @country> (1.6+ countryCode) L1 storage into model.road_type_extras. Sparse:
+// only <type> elements that author @country produce a record (upstream reads @type/@s itself).
+void ParseRoadTypeExtras(const pugi::xml_node& root, OdrSideModel& model);
+
 // ---- OdrCoverageAudit.cpp ----
 
 // True if `path` is a whitelisted element path (exact match against the generated table).

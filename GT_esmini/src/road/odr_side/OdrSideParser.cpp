@@ -66,6 +66,29 @@ std::string NodeToXml(const pugi::xml_node& node)
     return oss.str();
 }
 
+void ParseRoadTypeExtras(const pugi::xml_node& root, OdrSideModel& model)
+{
+    // P9b: road/<type @country> (t_road_type countryCode, 1.6+). Upstream reads @type/@s only;
+    // @country is stored here L1 (sparse: one record per <type> that authors the attribute).
+    for (pugi::xml_node road = root.child("road"); road; road = road.next_sibling("road"))
+    {
+        for (pugi::xml_node type_node = road.child("type"); type_node; type_node = type_node.next_sibling("type"))
+        {
+            pugi::xml_attribute country = type_node.attribute("country");
+            if (country.empty())
+            {
+                continue;
+            }
+            OdrRoadTypeExtra rec;
+            rec.road_id = road.attribute("id").value();
+            rec.s       = type_node.attribute("s").as_double(0.0);
+            rec.type    = type_node.attribute("type").value();
+            rec.country = country.value();
+            model.road_type_extras.push_back(std::move(rec));
+        }
+    }
+}
+
 }  // namespace detail
 }  // namespace odr
 }  // namespace gt_esmini

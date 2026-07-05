@@ -1138,9 +1138,9 @@ elements:
     evidence: "OdrObjectExtras.cpp ReadCrg (P7 cluster 18 L1)"
     notes: "Road-level surface CRG. Stored L1 in OdrSideModel::road_surface_crgs (never evaluated). @xOffset/@yOffset are 1.9 additions. LOG_WARN diagnostic when @file cannot be resolved relative to the xodr directory."
   - path: road/type
-    attrs: [type, s]
-    evidence: "3799-3897"
-    notes: "@type mapped to 13 ROADTYPE_* enums; unknown -> LOG_WARN + default ROADTYPE_UNKNOWN (3858). @s -> road_type_s_."
+    attrs: [type, s, country]
+    evidence: "3799-3897 + OdrSideParser.cpp ParseRoadTypeExtras (P9b)"
+    notes: "@type mapped to 13 ROADTYPE_* enums; unknown -> LOG_WARN + default ROADTYPE_UNKNOWN (3858). @s -> road_type_s_. @country (1.6+ countryCode, upstream-unread) stored L1 in OdrSideModel::road_type_extras since P9b (sparse; no runtime consumer) -- closes the pinned Ex_Railway-Station road/type@country audit entry."
   - path: road/type/speed
     attrs: [max, unit]
     evidence: "3867-3895"

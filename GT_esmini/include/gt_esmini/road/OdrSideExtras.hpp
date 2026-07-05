@@ -818,5 +818,19 @@ struct OdrRoadLaneLayers
     std::string               active_mode;          // "permanent" | "temporary" (resolved at parse)
 };
 
+// ===========================================================================
+// P9b: road/<type @country> (t_road_type countryCode, 1.6+). Upstream RoadManager reads @type/@s
+// only; the country code is stored here L1 (sparse: one record per <type> authoring @country).
+// No runtime consumer -- closes the last pinned [ODR-UNSUPPORTED] attribute (Ex_Railway-Station).
+// ===========================================================================
+
+struct OdrRoadTypeExtra
+{
+    std::string road_id;
+    double      s = 0.0;
+    std::string type;     // @type verbatim (also parsed by upstream)
+    std::string country;  // @country (ISO 3166 alpha-2 / deprecated alpha-3)
+};
+
 }  // namespace odr
 }  // namespace gt_esmini

@@ -107,6 +107,9 @@ bool BuildSideModelCore(const pugi::xml_document& doc, const void* opendrive_key
         // Storage only, INERT (no runtime consumer); no stage-2 synthesis.
         detail::ParseRailroad(root, *model);
 
+        // P9b: road/<type @country> L1 (sparse; closes the last pinned unsupported attribute).
+        detail::ParseRoadTypeExtras(root, *model);
+
         // P8: 1.9 lane-layer shadow storage (clusters 4/22 L1: multi-<lanes>/@layer). Sparse.
         detail::ParseLaneLayers(root, *model);
 

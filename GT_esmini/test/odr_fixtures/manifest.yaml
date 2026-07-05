@@ -1019,7 +1019,7 @@ fixtures:
   - station/platform/segment@sStart
   - station/platform/segment@sEnd
   - station/platform/segment@side
-  expected_unsupported_entries: ["road/type@country|ctx=4"]  # P9a: audit enforced; 1 known out-of-namespace leftover
+  expected_unsupported_entries: []  # P9b FLIP: road/type@country|ctx=4 closed (L1 stored, see below)
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: >-
@@ -1027,9 +1027,10 @@ fixtures:
     on every road, are parsed into the OdrRailroad side model (OdrSideModel::stations). Stored and
     queryable (GetStation) but INERT -- no runtime consumer (no rail runtime / no OSI / no policy).
     expected_unsupported_entries was absent before P9a (audit unchecked); it is now enforced. The
-    railroad/station NAMESPACE is audit-zero; the single pinned entry (road/type@country on road 4)
-    is out-of-namespace (cluster ownership: road/type, NOT cluster 20) and is deliberately NOT
-    whitelisted in P9a -- deferred to P9b's whole-file zero-audit sweep.
+    single P9a-pinned out-of-namespace entry (road/type@country on road 4) was CLOSED in P9b's
+    zero-audit sweep: @country (1.6+ countryCode, upstream-unread) is stored L1 in
+    OdrSideModel::road_type_extras (OdrSideParser.cpp ParseRoadTypeExtras, sparse, no runtime
+    consumer) and whitelisted via parser_coverage.yaml road/type attrs.
 - id: official_ex_railway_switch
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_Railway-Switch/Ex_Railway-Switch.xodr
   source: official
