@@ -71,6 +71,33 @@ list(
     "${CMAKE_CURRENT_SOURCE_DIR}/../../src/road/GT_RoadManager.cpp")
 message(STATUS "esminiJS: swapping RoadManager.cpp with GT_RoadManager.cpp")
 
+# [GT_ODR:cmake] P9b wasm link repair: compile the GT odr_side module into the wasm
+# target (GT_RoadManager.cpp includes gt_esmini/road/OdrSideModel.hpp and calls
+# BuildSideModel -> unresolved symbols without these). The source list is EXTRACTED
+# at configure time from the core RoadManager CMakeLists' [GT_ODR:cmake] APPEND list
+# (the single source of truth) instead of being hand-copied, so it cannot drift the
+# way GT_OSMP_FMU's copied list did (audit BLD-1).
+set(GT_ODR_CORE_CMAKELISTS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../EnvironmentSimulator/Modules/RoadManager/CMakeLists.txt")
+file(READ "${GT_ODR_CORE_CMAKELISTS}" GT_ODR_CORE_CMAKE_TEXT)
+string(
+    REGEX MATCHALL
+          "GT_esmini/src/road/odr_side/[A-Za-z0-9_]+\\.cpp"
+          GT_ODR_SIDE_RELS
+          "${GT_ODR_CORE_CMAKE_TEXT}")
+list(REMOVE_DUPLICATES GT_ODR_SIDE_RELS)
+list(LENGTH GT_ODR_SIDE_RELS GT_ODR_SIDE_COUNT)
+if(GT_ODR_SIDE_COUNT EQUAL 0)
+    message(
+        FATAL_ERROR
+            "esminiJS: no odr_side sources found in ${GT_ODR_CORE_CMAKELISTS}"
+            " -- did the [GT_ODR:cmake] APPEND list move? (sync contract, plan P9b)")
+endif()
+foreach(GT_ODR_SIDE_REL ${GT_ODR_SIDE_RELS})
+    list(APPEND ROADMANAGER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../../${GT_ODR_SIDE_REL}")
+endforeach()
+message(STATUS "esminiJS: odr_side sources from [GT_ODR:cmake] (${GT_ODR_SIDE_COUNT}): ${GT_ODR_SIDE_RELS}")
+
 file(
     GLOB
     PLAYERBASE_SOURCES

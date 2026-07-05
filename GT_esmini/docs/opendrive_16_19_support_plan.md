@@ -26,7 +26,7 @@
 | F3週 / P9b・P10 | 未着手 | — | 残=**P9b**(全マージ後の薄い締め: ゼロ監査最終スイープ+レーンレイヤ/VJメタデータweb API+WASMリンク修理+resyncリハーサル)/ **F3週**(junction優先権: GetJunctionPriorities消費+ConflictPointResolver Evaluate改修、無期延期中)/ P10 upstream還元(PR-VJ非提出決定によりR4アップサイドは縮小、要再評価) |
 
 - **マージ**: feature/phase3d-crosswalk(8a3ca458)→ feature/odr1619-p0p1(529a4523)→ feature/odr1619-p2(**b395ef00**)→ feature/odr1619-p3(**085b59f9**、2026-07-03、P2マージ済みdev先端へrebase後に単独着地・マージ木=検証済みブランチ木)→ post-P3クラッシュ修正(**d17cfea4**)→ feature/odr1619-p4(**09afd93c**、2026-07-03、dev先端2702d386ベースのためコンフリクトなしで着地)→ feature/odr1619-p5(**6f16e2dd**、2026-07-03、P4先行マージ済みdev先端1a051fefへrebase後に単独着地・マージ木=検証済みrebaseブランチ木で`git diff`空)の順で dev_v0.12 へマージ済 → feature/odr1619-p7(**114d9e5f**)→ feature/odr1619-p8(**4a08c403**)→ feature/odr1619-p9a(**88af7d06**)→ feature/odr1619-p6-vj(**14499123**、2026-07-05。P6側が先にdevをリコンサイル済み(f54cde34)のためfast-forward相当の無衝突着地。ポストマージ検証: unit ctest緑・core-census OK・conformance quick 306P/0F/0XP)。P4はマージ後ツリーで再ビルド+unit ctest+conformance quickを再検証済。P5はrebase後ツリー(P4のsemantics/OSI強化とunion解決: BuildSideModelディスパッチ両立・parser_coverage/whitelist再生成218パス・marker 17u/fork 75/150保持)で再ビルド+unit ctest(marker+OdrJunctionExtras 9件+P4のsemantics)+conformance full(**219P/0F/13XF**・fork-drift OK 75/150・matrix OK)+回帰ゲート(Step1/1.5緑・Step2は既知TL2件のみfail=dev基準と一致)+crosswalk/crosspathバッチ(7/7+1/1)+validate_catalog(61/61)を再検証済。ゴールデンは`--update-golden`後もP5新規4本・P4フィクスチャ含む全件がバイト同一(CRLFゴーストのみ)=回帰ゼロを確認、再取得コミット不要。P3はrebase後ツリーで再ビルド+unit ctest+conformance full(207P/0F)+回帰ゲート(挙動バッチper-scenario不変)+監査diff再取得(`--check-golden after`一致)を再検証済。併せてtest_OdrAssetProbeのbyte比較がautocrlf checkoutで壊れる潜在問題(P1由来)をEOL非依存化で修正(98fc3d28)。
-- **承認済**(2026-07-02): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない**(CIではofficial層自動SKIP)。**残承認**: §10-3・4(P6着手前)、§10-5・6(P9まで)。
+- **承認済**(2026-07-02〜05): §10-1 CMake swap-zone R1例外 / §10-2 フォーク150行上限 / §10-7 ASAM資産=**テスト時zip展開・展開物はコミットしない** / §10-3・4=P6ネイティブ再設計で無効化 / §10-4b P6第2種予算(2026-07-04) / §10-6=**P9aでinclude恒久ハードエラー仕様として確定済**。**残承認: §10-5のみ**(§8保留台帳=P9bの最終ステータス表レビューで承認)。
 - **実装時の実測差分(計画からの補正)**:
   1. 公式 `Ex_Slip_Lane`/`UC_T_Junction` のクラッシュ真因は junction 中断**以外** → **post-P3 のクラッシュ修正パスで解消済**(merge d17cfea4): UC_T_Junction=`SetAllValidLanes` の範囲外 s での throw([GT_ODR:sig-lanes-guard])、Ex_Slip_Lane=direct junction 検査 LOG_ERROR の **fmt プレースホルダ/引数不一致という upstream バグ**([GT_ODR:direct-junc-log]、RoadManager.cpp:6621)。両ファイル rm_init pass 化(rm 92P/1XF)、フォーク計 62/150。P5 での再訪は不要になった。
   2. `crossPath` は1.8 XSD上 **virtual junction** の持ち物(crossing junctionは `roadSection` のみ)— fixture 01 は両構造を併用。
@@ -214,13 +214,23 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 - **スコープ**: クラスタ4+22意味論(lane link @layer、laneLink from/toLayer、laneValidity @layer)。@temporary/@invalidatedの(road,id)→フラグ集合をGT_OSIReporterとVD RouteSignalScan/RouteCrosswalkScanが参照(打ち消し標識を無効扱い)。
 - **受入**: Ex_Lane_MultiLaneLayer(road 1)とEx_Motorway_roadworks(road 8)のs標本プローブ — permanentモードは全点permanent一致、temporary opt-inはs∈[2000,5083]内でtemporary・外でpermanent(**s=100/5500がマージ証明点**)/ 両rev9ファイルで[ODR-UNSUPPORTED]==0(属性含む)/ **レーングローバルID安定性ゴールデン**(AddLane/SetGlobalId :2375/:1237の逐次割当が静かな破壊モード)/ invalidated信号のOSI非出力(記録済み判断どおり)/ GT_RoadGen二重テッセレーションなし。
 
-### P9 — railroad/station+include/userData残課題の確定+web公開+resyncリハーサル+ゼロ監査 — 1週
+### P9a — railroad/station+include/userData残課題の確定+web公開(並列レーン、フォーク0行) — ✅完了 2026-07-05
 
-- **プログラム終了判定**: 全フィクスチャで要素+属性の[ODR-UNSUPPORTED]==0。
-- **スコープ**: クラスタ20(switch/mainTrack/sideTrack/partner、station/platform/segment: L1+RM-API公開、**不活性と文書明記**)/ 15クローズ(P1の暫定処置を確定: includeは解決実装 or 診断付きハードエラーのまま仕様化をユーザー判断、userDataは注釈UIへ公開して消費側まで完結)/ 13/14残 / ルートループ網羅(junctionGroup/station/vmsGroup)/ web公開: GT_RM_\* C関数+rm_lib.py+annotation UIへのパース警告表示(dedupe済み)。
-- **resyncリハーサル(命名成果物)**: upstream ab7c404d(またはv3.4)の新規コピーへ~12マーカーを関数名アンカーで再適用 → upstreamパースループとの被覆diffで「handled-by-upstream」状態へのホワイトリスト再基準化(upstream側がネイティブ対応した要素はGT処理を撤去し二重パース回避)→ ゴールデン再生成を単一レビューコミットで — の**書面チェックリスト**化。恒久的な**二重処理ガード**(合成ID重複なし・GTホワイトリストとupstreamパースの両属なし)をハーネスに常設。
-- **成果物**: `GT_esmini/docs/opendrive_16_19_support.md` — クラスタ0-22×レベルL1-L5の対応状況表(**保留レベル全掲載の「あらゆる要素」正直台帳**、ユーザー拒否権用)。
-- **P9a 実装済(2026-07-05)**: クラスタ20(railroad/station)をL1不活性で実装 — OdrRailroad.cpp が `<road>/<railroad>/<switch>`(mainTrack/sideTrack/partner)+ root `<station>/<platform>/<segment>` をパース・格納、アクセサ `GetRailSwitch`/`GetRoadRailSwitches`/`GetStation` を公開(消費側なし=不活性)。Ex_Railway-Switch/Ex_Railway-Station で監査ゼロ強制。
+> 【復元注記 2026-07-05】本§5のP9a/P9b分割とP9bのVJメタデータweb API+WASMリンク修理は2026-07-05にユーザー承認済みの内容だが、P6セッションのエージェント越権改定revertに巻き込まれて一度消えた(P6メモリ「提案未採用」は誤認 — 本セッションで承認済みだった)。ここに復元する。
+
+- **スコープ(実装済)**: クラスタ20(railroad/station L1+RM-API公開、**不活性と文書明記** — OdrRailroad.cpp、アクセサ `GetRailSwitch`/`GetRoadRailSwitches`/`GetStation`、Ex_Railway-Switch/Station監査ゼロ)/ 15クローズ(**include=恒久ハードエラー仕様化**=§10-6確定、userData注釈UI公開)/ 13/14残 / ルートループ網羅 / web公開(この時点で確定済みデータのみ): **[GT_ODR:rm-json] GT_RM_\* JSON C API+odr-metadata REST+注釈UI OpenDRIVEパネル**(semantics/priorities/crosswalk/パース警告dedupe済み)。
+- **除外(P9bへ)**: レーンレイヤ情報(P8依存)、VJメタデータ(P6依存)、WASMリンク修理(全odr_side出揃い後)。
+
+### P9b — 全マージ後の締め(ゼロ監査+P6/P8依存のweb公開+WASM点灯+resyncリハーサル) — ~3日【残作業】
+
+- **プログラム終了判定**: 全フィクスチャで要素+属性の[ODR-UNSUPPORTED]==0(公式36+手書き+injector+リポジトリ内資産)+トレーサビリティ行列全行充足。
+- **P6/P8依存のweb公開(P9aからの繰り延べ)**: P9a確立の GT_RM JSON API+odr-metadataパネルへ追加 —
+  - **レーンレイヤ**(P8): OdrRoadLaneLayersシャドウ(レイヤ有無/temporary被覆s範囲/laneSection@length)+現プロセスの選択モード(env `GT_ODR_LANE_LAYERS` ラッチ)
+  - **VJメタデータ**(P6): VJ一覧(junction id/mainRoad/sStart-sEnd/分岐アンカー数)+UIバッジ・スパンマーカー。プレビュー描画自体はP6でネイティブDLL継承済み=**メタデータ明示表示のみ新規**
+- **WASMリンク修理(命名成果物 — 全機能ブラウザ点灯)**: 【前提】P6のem++コンパイルチェックゲートは越権revert経緯で**実施されていない** → まずVJ編集コアTU(RoadManager.cpp/LaneIndependentRouter.cpp/ControllerLooming.cpp)+odr_side全群をem++単体コンパイルで確認し、非互換があれば予算内マーカー編集で修正。次に GT_esmini/web/wasm のemscriptenビルドへ odr_side/\*.cpp 全群を配線([GT_ODR:cmake]のAPPENDリストと同期、P1由来リンク破損の解消)→ esmini.js再生成+ブラウザスモーク(1.9レーンレイヤ/VJフィクスチャのロード・描画)。以降は手動スモーク+マニフェスト記載(CIレグ化は別判断)。
+- **resyncリハーサル(命名成果物)**: **第1種(fork 100/150・全マーカー)+第2種(hpp/cpp/router/looming+[GT_ODR:osi-path])**を upstream v3.4.0 の新規コピーへ関数名アンカーで再適用する乾式リハーサル → 「handled-by-upstream」ホワイトリスト再基準化手順+ゴールデン再生成単一コミット規約を含む**書面チェックリスト**化。恒久**二重処理ガード**(合成ID 900M/910M/920M重複なし・GTホワイトリストとupstreamパースの両属なし)をハーネス常設。
+- **成果物**: `GT_esmini/docs/opendrive_16_19_support.md` — クラスタ0-22×L1-L5対応状況表(保留レベル全掲載の「あらゆる要素」正直台帳=**§10-5承認の材料**。PR-VJ非提出状態・F3延期・既知債も記載)。
+- **隣接既知債(スコープ任意)**: `scripts/dat.py` がv4のみ対応で記録はv5(v3.4.0以降)— webのDAT→CSVメトリクスがSCR-1同型の沈黙死リスク。P9bで対応するか、最低限result_serviceに明示エラーを入れる。
 
 ### P10 — upstream還元+マージコスト削減トラック — 0.5-1週分散(P2-P9と並走)
 
@@ -235,7 +245,7 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 - **次のupstream resync**: **P8完了後**に1回(フル[GT_ODR]セットでの再コピー)。P9リハーサルのチェックリストを使用。
 - **R4**: 本計画のマニフェスト/マーカー/ctest機構+P9リハーサルは「パッチあたりマージコスト」を下げる。ドリフト自体の削減はP10のPR受理時のみ、と正直にフレーミング。
 - **R3**: run_odr_conformance.pyは壊れているGT_Loader統合テスト群の再作成テンプレートになる(P0以降)。
-- 実行順【2026-07-04改訂】: P0→P1→(P2∥P3)→(P4∥P5)→**P7∥P8∥P9a(3並列)**→**P6ネイティブ(最後に単独、S0bでv3.4.0マージ)**→**P9b**(ゼロ監査最終スイープ+レーンレイヤweb API+resyncリハーサル+最終ステータス表、~2日)。P10並走。**F3は無期延期**(ODR計画側に依存ゼロ、P5のGetJunctionPrioritiesアクセサは不活性で待機、製品都合で任意の後日に実施)。P9は分割: P9a=railroad/include確定/web公開(レイヤ情報除く)=並列可、P9b=全マージ後の薄い締め。
+- 実行順【2026-07-04改訂】: P0→P1→(P2∥P3)→(P4∥P5)→**P7∥P8∥P9a(3並列)**→**P6ネイティブ(最後に単独、S0bでv3.4.0マージ)**→**P9b**(ゼロ監査最終スイープ+レーンレイヤ/VJメタデータweb API+**WASMリンク修理=全機能ブラウザ点灯**+resyncリハーサル+最終ステータス表、~3日)。P10並走(PR-VJ非提出決定により縮小・要再評価)。**F3は無期延期**(ODR計画側に依存ゼロ、P5のGetJunctionPrioritiesアクセサは不活性で待機、製品都合で任意の後日に実施)。P9は分割: P9a=railroad/include確定/web公開(semantics/priority/crosswalk/警告)=完了、P9b=全マージ後の締め=唯一の残作業。
 
 ---
 
@@ -280,7 +290,7 @@ L2〜L4を保留するクラスタは§8の**保留台帳**に明記し、ユー
 9. **lane \<speed\>のOSI出力**(16のL3): VD LonProfilePlanner L2まで。osi3のレーン速度制限帰属はマッピング判断が必要。
 10. **scenariogenerationライブラリ更新**: revMinor=5天井はodr_feature_injectorで回避。ライブラリ更新は別のオーサリングスタック判断。
 11. **esmini_fmu(Protocol B)修理**: 既知の別件。CMake拡張は将来のGT_esminiLib_staticリンク修理を悪化させない形で書く。
-12. **esminiJS**: 新ソースはEmscripten互換規約でビルド同等性を保つが、**未テスト**とマニフェストに明記。
+12. **esminiJS/WASM**【2026-07-05スコープ内へ昇格・復元】: **P9bでWASMリンク修理(odr_side群のemscriptenビルド配線)を実施し、1.6-1.9全機能をブラウザ点灯**させる(§5 P9b)。P6ではem++コンパイルチェックゲートが(越権revert経緯で)未実施のため、P9b冒頭でVJ編集コアTUのem++確認から入る。CIレグは持たず手動ブラウザスモーク+マニフェスト記載(フルCIレグ化は別判断)。
 
 ---
 

@@ -336,14 +336,16 @@ rules:
     Fixture23T4SetRouteCalcRoutePositionNoCrash -- root cause was the same UNDEFINED-contact path; no
     separate hunk was needed beyond the [vj-enter] elementS landing (which stops MoveToConnectingRoad
     from the "Unsupported contact point type" error path on merge-back) plus the [vj-connect] flip.
-exclusions:
-  - target: wasm (GT_esmini/web/wasm, esminiJS)
-    reason: >-
-      Pre-existing link break independent of P6: wasm CMakeLists.txt:61-72 swaps in
-      GT_RoadManager.cpp which includes gt_esmini/road/OdrSideModel.hpp (fork :78), but
-      the wasm target does not compile GT_esmini/src/road/odr_side/*.cpp -> unresolved
-      BuildSideModel at link. Structural evidence (emsdk build not run). wasm targets are
-      excluded from the VJ invariance contract until the odr_side link repair lands.
+exclusions: []
+  # RESOLVED at P9b (was: wasm GT_esmini/web/wasm esminiJS -- the P1-era link break where
+  # the wasm target swapped in GT_RoadManager.cpp without compiling odr_side/*.cpp ->
+  # unresolved BuildSideModel at link). P9b wired the odr_side group into the wasm build
+  # by EXTRACTING the source list from the [GT_ODR:cmake] APPEND list at configure time
+  # (single source of truth, no hand copy; FATAL_ERROR when the list moves). Gate 4a:
+  # em++ 5.0.2 -fsyntax-only green on all VJ-edited core TUs + all odr_side sources
+  # (zero marker/budget changes). Link 71/71 -> esmini.js. Coverage regime = MANUAL
+  # BROWSER SMOKE (GT_esmini/web/wasm/smoke/index.html: Ex_Lane_MultiLaneLayer perm
+  # width 3.75 + fixture 23 VJ load/draw/anchor probe), no CI leg by design (plan §5 P9b).
 ```
 <!-- GT-2ND-CLASS-MANIFEST-END -->
 

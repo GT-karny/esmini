@@ -42,6 +42,9 @@ export function OdrMetadataPanel({
   const warnCount = w
     ? w.unsupported_elements + w.unsupported_attributes + w.removed16_hits
     : 0;
+  // P9b sections may be absent from an older backend payload — degrade to empty.
+  const vjs = data?.virtual_junctions ?? [];
+  const laneLayers = data?.lane_layers ?? { mode: 'permanent', roads: [] };
 
   return (
     <div className="rounded border border-glass-edge text-xs">
@@ -55,6 +58,14 @@ export function OdrMetadataPanel({
           &rsaquo;
         </span>
         <span className="font-medium text-foreground">OpenDRIVE metadata</span>
+        {vjs.length > 0 && (
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-primary/20 text-primary"
+            title={`${vjs.length} virtual junction(s) — 1.7+ mid-road branching (P6 native)`}
+          >
+            virtual junction{vjs.length === 1 ? '' : 's'} {vjs.length}
+          </span>
+        )}
         <span
           className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-mono ${
             warnCount > 0
@@ -91,6 +102,8 @@ export function OdrMetadataPanel({
                 />
               )}
               <SignalsSection signals={data.signals} />
+              <VirtualJunctionsSection junctions={vjs} />
+              <LaneLayersSection laneLayers={laneLayers} />
               <JunctionPrioritiesSection junctions={data.junction_priorities} />
               <CrosswalksSection crosswalks={data.crosswalks} />
               <RailroadSection railroad={data.railroad} />
@@ -287,6 +300,141 @@ function SignalsSection({ signals }: { signals: OdrMetadata['signals'] }) {
           </table>
         </div>
       )}
+    </Section>
+  );
+}
+
+/* ---------- 3b. virtual junctions (P9b / P6) ---------- */
+
+/**
+ * Span marker: the [s_start, s_end] window rendered against the main road's
+ * full length as a horizontal bar. Falls back to text-only when the road
+ * length is unknown (<= 0).
+ */
+function SpanBar({
+  start,
+  end,
+  total,
+  title,
+}: {
+  start: number;
+  end: number;
+  total: number;
+  title?: string;
+}) {
+  if (!(total > 0) || end < start) return null;
+  const left = Math.max(0, Math.min(100, (start / total) * 100));
+  const width = Math.max(1, Math.min(100 - left, ((end - start) / total) * 100));
+  return (
+    <div
+      className="relative h-1.5 rounded bg-glass-2 overflow-hidden"
+      title={title ?? `s ${start}–${end} of ${total}`}
+    >
+      <div
+        className="absolute top-0 h-full bg-primary/70 rounded"
+        style={{ left: `${left}%`, width: `${width}%` }}
+      />
+    </div>
+  );
+}
+
+function VirtualJunctionsSection({
+  junctions,
+}: {
+  junctions: OdrMetadata['virtual_junctions'];
+}) {
+  if (junctions.length === 0) return null; // sparse: hide entirely on legacy assets
+  return (
+    <Section title="Virtual junctions" count={junctions.length}>
+      <div className="flex flex-col gap-1.5">
+        {junctions.map((vj, i) => (
+          <div key={i} className="rounded bg-glass-1 px-2 py-1 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="px-1 py-0.5 rounded text-[9px] font-mono bg-primary/20 text-primary">
+                virtual junction
+              </span>
+              <span className="font-mono text-[10px] text-text-secondary">
+                {vj.junction_id}
+                {vj.name && <span className="text-text-tertiary"> ({vj.name})</span>}
+              </span>
+            </div>
+            <div className="font-mono text-[10px] text-text-tertiary">
+              main road {vj.main_road_id} · s {vj.s_start}–{vj.s_end}
+              {vj.orientation && <> · orient {vj.orientation}</>}
+              {' · '}
+              {vj.anchor_count} anchor{vj.anchor_count === 1 ? '' : 's'} ·{' '}
+              {vj.connection_count} connection{vj.connection_count === 1 ? '' : 's'}
+            </div>
+            <SpanBar
+              start={vj.s_start}
+              end={vj.s_end}
+              total={vj.main_road_length}
+              title={`junction ${vj.junction_id}: s ${vj.s_start}–${vj.s_end} on road ${vj.main_road_id} (length ${vj.main_road_length})`}
+            />
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/* ---------- 3c. lane layers (P9b / P8) ---------- */
+
+function LaneLayersSection({ laneLayers }: { laneLayers: OdrMetadata['lane_layers'] }) {
+  const { mode, roads } = laneLayers;
+  if (roads.length === 0) return null; // sparse: only 1.9 multi-layer assets appear
+  return (
+    <Section title="Lane layers" count={roads.length}>
+      <div className="text-[10px] text-text-tertiary mb-1">
+        process mode:{' '}
+        <span className={`font-mono ${mode === 'temporary' ? 'text-warning' : ''}`}>
+          {mode}
+        </span>{' '}
+        (env GT_ODR_LANE_LAYERS, latched per process)
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {roads.map((rd, i) => {
+          // Scale for the coverage bar: furthest authored s across all layers,
+          // or the temporary range end when it reaches beyond.
+          const maxS = Math.max(
+            rd.temp_s_end,
+            ...rd.layers.flatMap((l) =>
+              l.sections.map((sec) => sec.s + (sec.has_length ? sec.length : 0)),
+            ),
+          );
+          return (
+            <div key={i} className="rounded bg-glass-1 px-2 py-1 flex flex-col gap-1">
+              <div className="font-mono text-[10px] text-text-secondary">
+                road {rd.road_id}
+                <span className="text-text-tertiary"> · active {rd.active_mode}</span>
+              </div>
+              <div className="font-mono text-[10px] text-text-tertiary">
+                {rd.layers.map((l, k) => (
+                  <span key={k}>
+                    {k > 0 && ' · '}
+                    {l.name}: {l.sections.length} section
+                    {l.sections.length === 1 ? '' : 's'}
+                    {l.lane_offset_count > 0 && <>, {l.lane_offset_count} offset(s)</>}
+                  </span>
+                ))}
+              </div>
+              {rd.has_temporary && (
+                <>
+                  <div className="font-mono text-[10px] text-warning">
+                    temporary covers s {rd.temp_s_start}–{rd.temp_s_end}
+                  </div>
+                  <SpanBar
+                    start={rd.temp_s_start}
+                    end={rd.temp_s_end}
+                    total={maxS}
+                    title={`temporary layer coverage s ${rd.temp_s_start}–${rd.temp_s_end}`}
+                  />
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </Section>
   );
 }

@@ -347,12 +347,30 @@ extern "C"
      */
     GT_RM_DLL_API int GT_RM_GetRailroadJson(char* buffer, int bufferSize);
 
-    /*
-     * RESERVED for P9b (NOT implemented here): GT_RM_GetLaneLayersJson(char*,int)
-     * -- 1.9 lane-layer (cluster 4/22) info from the P8 OdrRoadLaneLayers shadow
-     * storage. Deferred to P9b because it depends on P8 lane-layer data landing;
-     * do not add it in P9a.
+    /**
+     * P9b: 1.9 lane-layer (cluster 4/22) info from the P8 OdrRoadLaneLayers shadow
+     * storage, plus the process-wide selection-mode latch (env GT_ODR_LANE_LAYERS,
+     * plan D1 -- latched once per process, no runtime switching).
+     * {"mode":"permanent"|"temporary",
+     *  "roads":[{"road_id":s,"active_mode":s,"has_temporary":b,
+     *    "temp_s_start":num,"temp_s_end":num,
+     *    "layers":[{"name":s,"lane_offset_count":N,
+     *      "sections":[{"s":num,"length":num,"has_length":b,"lane_count":N}]}]}]}
+     * `roads` is sparse: only roads that authored @layer or >1 <lanes> appear
+     * (legacy assets yield an empty array). "mode" is always present.
      */
+    GT_RM_DLL_API int GT_RM_GetLaneLayersJson(char* buffer, int bufferSize);
+
+    /**
+     * P9b: virtual-junction (P6, cluster 6) metadata -- one entry per junction
+     * with @type="virtual", from the parsed core model + the [GT_ODR:vj-model]
+     * anchor registry (GetVirtualJunctionAnchors). Metadata only; routing/motion
+     * behavior is the P6 native implementation.
+     * {"virtual_junctions":[{"junction_id":s,"name":s,"main_road_id":s,
+     *   "main_road_length":num,"s_start":num,"s_end":num,
+     *   "orientation":"+"|"-"|"","anchor_count":N,"connection_count":N}]}
+     */
+    GT_RM_DLL_API int GT_RM_GetVirtualJunctionsJson(char* buffer, int bufferSize);
 
 #ifdef __cplusplus
 }

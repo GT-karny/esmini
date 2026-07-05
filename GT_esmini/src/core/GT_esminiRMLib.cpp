@@ -929,3 +929,123 @@ GT_RM_DLL_API int GT_RM_GetRailroadJson(char* buffer, int bufferSize)
     w.EndObject();
     return Emit(w.Buffer(), buffer, bufferSize);
 }
+
+GT_RM_DLL_API int GT_RM_GetLaneLayersJson(char* buffer, int bufferSize)
+{
+    const OdrSideModel* m = GetSideModelForLoaded();
+    if (!m)
+    {
+        if (buffer != nullptr && bufferSize > 0) buffer[0] = '\0';
+        return -1;
+    }
+
+    JsonWriter w;
+    w.BeginObject();
+
+    // Process-wide selection latch (plan D1): what THIS process resolved from
+    // env GT_ODR_LANE_LAYERS. Per-road active_mode below records what the parse
+    // itself used (identical in production; may differ under test overrides).
+    w.KV("mode", gt_esmini::odr::GetLaneLayerModeName());
+
+    w.Key("roads");
+    w.BeginArray();
+    for (const auto& rl : m->lane_layers)
+    {
+        w.BeginObject();
+        w.KV("road_id", rl.road_id);
+        w.KV("active_mode", rl.active_mode);
+        w.KVb("has_temporary", rl.has_temporary);
+        w.KVd("temp_s_start", rl.temp_s_start);
+        w.KVd("temp_s_end", rl.temp_s_end);
+
+        w.Key("layers");
+        w.BeginArray();
+        for (const auto& layer : rl.layers)
+        {
+            w.BeginObject();
+            // "" == @layer absent == permanent; surface the effective name so the
+            // UI never renders an anonymous layer.
+            w.KV("name", layer.name.empty() ? std::string("permanent") : layer.name);
+            w.KVi("lane_offset_count", layer.lane_offset_count);
+            w.Key("sections");
+            w.BeginArray();
+            for (const auto& sec : layer.sections)
+            {
+                w.BeginObject();
+                w.KVd("s", sec.s);
+                w.KVd("length", sec.length);
+                w.KVb("has_length", sec.has_length);
+                w.KVi("lane_count", sec.lane_count);
+                w.EndObject();
+            }
+            w.EndArray();
+            w.EndObject();
+        }
+        w.EndArray();
+        w.EndObject();
+    }
+    w.EndArray();
+
+    w.EndObject();
+    return Emit(w.Buffer(), buffer, bufferSize);
+}
+
+GT_RM_DLL_API int GT_RM_GetVirtualJunctionsJson(char* buffer, int bufferSize)
+{
+    OpenDrive* odr = GetODR();
+    if (!odr)
+    {
+        if (buffer != nullptr && bufferSize > 0) buffer[0] = '\0';
+        return -1;
+    }
+
+    JsonWriter w;
+    w.BeginObject();
+
+    w.Key("virtual_junctions");
+    w.BeginArray();
+    for (unsigned int i = 0; i < odr->GetNumOfJunctions(); i++)
+    {
+        Junction* j = odr->GetJunctionByIdx(static_cast<idx_t>(i));
+        if (j == nullptr || j->GetType() != Junction::JunctionType::VIRTUAL)
+        {
+            continue;
+        }
+        const Junction::VirtualJunctionAttributes& va = j->GetVirtualAttributes();
+
+        w.BeginObject();
+        w.KV("junction_id", j->GetIdStr());
+        w.KV("name", j->GetName());
+
+        Road* main_road = (va.main_road_id_ != ID_UNDEFINED) ? odr->GetRoadById(va.main_road_id_) : nullptr;
+        w.KV("main_road_id", main_road ? main_road->GetIdStr() : std::string(""));
+        w.KVd("main_road_length", main_road ? main_road->GetLength() : -1.0);
+        w.KVd("s_start", va.s_start_);
+        w.KVd("s_end", va.s_end_);
+        w.KV("orientation",
+             va.orientation_ == Junction::ORIENTATION_PLUS    ? "+"
+             : va.orientation_ == Junction::ORIENTATION_MINUS ? "-"
+                                                              : "");
+
+        // Branch anchors registered on the main road ([GT_ODR:vj-model] registry,
+        // built in P6 S3) that belong to THIS junction.
+        int anchor_count = 0;
+        if (va.main_road_id_ != ID_UNDEFINED)
+        {
+            for (const auto& anchor : odr->GetVirtualJunctionAnchors(va.main_road_id_))
+            {
+                if (anchor.junction_ == j)
+                {
+                    anchor_count++;
+                }
+            }
+        }
+        w.KVi("anchor_count", anchor_count);
+        w.KVi("connection_count", static_cast<long long>(j->GetNumberOfConnections()));
+        w.EndObject();
+    }
+    w.EndArray();
+
+    w.EndObject();
+    return Emit(w.Buffer(), buffer, bufferSize);
+}

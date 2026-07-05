@@ -1225,6 +1225,27 @@ def run_core_census() -> dict:
     return {"ran": True, "ok": ok, "summary": summary, "failures": res.get("failures", [])}
 
 
+def run_resync_guards() -> dict:
+    """Run the P9b permanent double-processing guards (check_resync_guards).
+
+    Text-side: whitelist regen drift, parser_coverage duplicate paths, handled-by-upstream
+    contradiction, synth-id family disjointness. Pure text, runs in every profile like
+    run_fork_drift() / run_core_census(). The behavioral side (duplicate RMObject ids,
+    re-parse idempotence) is the OdrResyncGuards unit ctest.
+    """
+    try:
+        import check_resync_guards as crg
+    except Exception as e:  # pragma: no cover - import guard
+        return {"ran": False, "ok": False, "failures": [],
+                "summary": f"resync-guards: ERROR (cannot import check_resync_guards: {e})"}
+    try:
+        res = crg.run_check(_REPO_ROOT)
+    except Exception as e:
+        return {"ran": True, "ok": False, "failures": [str(e)],
+                "summary": f"resync-guards: ERROR ({e})"}
+    return {"ran": True, "ok": res["ok"], "summary": res["summary"], "failures": res["failures"]}
+
+
 def _selftest_audit() -> bool:
     """Unit-smoke the audit mechanism with a fake log text (no fixture carries it yet)."""
     fake_log = "prefix [ODR-UNSUPPORTED] road/surface/CRG\n[ODR-UNSUPPORTED] road/surface/CRG@xOffset\n[ODR-REMOVED-1.6] road/link/neighbor\n"
@@ -1366,7 +1387,7 @@ def _print_layer(name: str, rows: list) -> None:
 
 
 def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke_res, audit_selftest,
-                  fork_drift=None, core_census=None) -> None:
+                  fork_drift=None, core_census=None, resync_guards=None) -> None:
     os.makedirs(report_dir, exist_ok=True)
     summary = {name: _tally(rows) for name, rows in layers.items()}
     jreport = {
@@ -1382,6 +1403,9 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
     if core_census is not None:
         jreport["core_census"] = {"ok": core_census["ok"], "summary": core_census["summary"],
                                   "failures": core_census["failures"]}
+    if resync_guards is not None:
+        jreport["resync_guards"] = {"ok": resync_guards["ok"], "summary": resync_guards["summary"],
+                                    "failures": resync_guards["failures"]}
     if matrix_res is not None:
         jreport["matrix"] = {"ok": matrix_res[0], "fails": matrix_res[2]}
     if smoke_res is not None:
@@ -1396,6 +1420,8 @@ def write_reports(report_dir: str, profile: str, layers: dict, matrix_res, smoke
         md.append(f"- {fork_drift['summary']}")
     if core_census is not None:
         md.append(f"- {core_census['summary']}")
+    if resync_guards is not None:
+        md.append(f"- {resync_guards['summary']}")
     md.append("")
     for name, rows in layers.items():
         t = _tally(rows)
@@ -1526,9 +1552,10 @@ def main(argv=None) -> int:
     if not audit_selftest:
         print("WARNING: audit self-test FAILED (marker counting mechanism broken)", file=sys.stderr)
 
-    # Fork-drift + core-census checks (pure text, no DLLs -- run in every profile / layer subset).
+    # Fork-drift + core-census + resync-guard checks (pure text, no DLLs -- every profile).
     fork_drift = run_fork_drift()
     core_census = run_core_census()
+    resync_guards = run_resync_guards()
 
     control, fixtures = _assemble(manifest, args.only)
 
@@ -1597,6 +1624,11 @@ def main(argv=None) -> int:
         for f in core_census["failures"]:
             print(f"    CENSUS  {f}")
         exit_bad += 1
+    print("  " + resync_guards["summary"])
+    if not resync_guards["ok"]:
+        for f in resync_guards["failures"]:
+            print(f"    RESYNC-GUARD  {f}")
+        exit_bad += 1
 
     if matrix_res is not None:
         print("\n=== Matrix check ===")
@@ -1618,7 +1650,7 @@ def main(argv=None) -> int:
                 exit_bad += 1
 
     write_reports(args.report_dir, args.profile, layers, matrix_res, smoke_res, audit_selftest,
-                  fork_drift, core_census)
+                  fork_drift, core_census, resync_guards)
 
     print("\n" + ("=" * 60))
     total = {PASS: 0, FAIL: 0, XFAIL: 0, XPASS: 0, SKIP: 0}
