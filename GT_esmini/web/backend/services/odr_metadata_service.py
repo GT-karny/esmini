@@ -58,6 +58,8 @@ def _empty_metadata() -> dict:
         "junction_priorities": [],
         "crosswalks": [],
         "railroad": {"switches": [], "stations": []},
+        "lane_layers": {"mode": "permanent", "roads": []},
+        "virtual_junctions": [],
     }
 
 
@@ -144,6 +146,8 @@ def extract_odr_metadata(xodr_path: str | Path) -> dict:
             junctions = _safe_call(lib, "GetJunctionPrioritiesJson", {})
             crosswalks = _safe_call(lib, "GetCrosswalksJson", {})
             railroad = _safe_call(lib, "GetRailroadJson", {})
+            lane_layers = _safe_call(lib, "GetLaneLayersJson", {})
+            virtual_junctions = _safe_call(lib, "GetVirtualJunctionsJson", {})
 
             result = {
                 "warnings": audit or _empty_metadata()["warnings"],
@@ -156,6 +160,14 @@ def extract_odr_metadata(xodr_path: str | Path) -> dict:
                     "switches": railroad.get("switches", []),
                     "stations": railroad.get("stations", []),
                 },
+                # P9b: 1.9 lane layers (P8 shadow storage + process mode latch)
+                # and virtual-junction metadata (P6). Both degrade to empty when
+                # the DLL predates the exports (_safe_call / wrapper {}-fallback).
+                "lane_layers": {
+                    "mode": lane_layers.get("mode", "permanent"),
+                    "roads": lane_layers.get("roads", []),
+                },
+                "virtual_junctions": virtual_junctions.get("virtual_junctions", []),
             }
         except MetadataUnavailable:
             raise

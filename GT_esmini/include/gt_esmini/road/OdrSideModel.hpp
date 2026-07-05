@@ -136,6 +136,10 @@ public:
     // road that authored @layer or more than one <lanes> element. ----
     std::vector<OdrRoadLaneLayers> lane_layers;
 
+    // ---- P9b: road/<type @country> L1 (sparse; no runtime consumer). Closes the last pinned
+    // [ODR-UNSUPPORTED] attribute (official Ex_Railway-Station road 4). ----
+    std::vector<OdrRoadTypeExtra> road_type_extras;
+
     // ---- P8 (plan D3): synthetic merged-<lanes> DOM documents built by SelectLanesLayer (temporary
     // mode), keyed by road id. Owned here so they outlive the fork parse (RoadManager + ParseLaneExtras
     // both walk the same cached node). pugi::xml_document is only forward-declared in this header, so
@@ -367,6 +371,11 @@ pugi::xml_node SelectLanesLayer(const pugi::xml_node& road_node, const void* ope
 // env-driven latch. NOT for production wiring.
 void SetLaneLayerModeForTest(bool temporary_on);
 void SetLaneLayerModeUseEnv();
+
+// P9b: the lane-layer mode THIS process resolved (the D1 latch as currently effective: honors a
+// test override, otherwise the once-latched env value). Returns "permanent" or "temporary".
+// Read-only diagnostics for the GT_RM JSON API / web odr-metadata panel.
+const char* GetLaneLayerModeName();
 
 // ---------------------------------------------------------------------------
 // P3 signal placement / cross-reference helpers (clusters 11/12).

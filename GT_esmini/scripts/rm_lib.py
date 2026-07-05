@@ -907,6 +907,14 @@ class GtOdrMetadataLib:
         "GT_RM_GetRailroadJson",
     )
 
+    # P9b additions -- same buffer protocol, but OPTIONAL: a P9a-era DLL without
+    # these exports must keep working (the getters then return {} and the web
+    # backend degrades those sections to empty instead of failing the request).
+    _JSON_FUNCS_OPTIONAL = (
+        "GT_RM_GetLaneLayersJson",
+        "GT_RM_GetVirtualJunctionsJson",
+    )
+
     def __init__(self, lib_path):
         """Initialize the wrapper.
 
@@ -952,6 +960,15 @@ class GtOdrMetadataLib:
             fn = getattr(self.lib, name)
             fn.argtypes = [ctypes.c_char_p, ctypes.c_int]
             fn.restype = ctypes.c_int
+
+        # Optional P9b exports: sign them when present, remember absence otherwise.
+        self._optional_funcs = {}
+        for name in self._JSON_FUNCS_OPTIONAL:
+            fn = getattr(self.lib, name, None)
+            if fn is not None:
+                fn.argtypes = [ctypes.c_char_p, ctypes.c_int]
+                fn.restype = ctypes.c_int
+            self._optional_funcs[name] = fn
 
     # =========================================================================
     # Initialization / Management
@@ -1015,3 +1032,23 @@ class GtOdrMetadataLib:
     def GetRailroadJson(self):
         """Railroad switches + root-level stations dict (L1 / inert)."""
         return self._get_json(self.lib.GT_RM_GetRailroadJson)
+
+    def GetLaneLayersJson(self):
+        """P9b: 1.9 lane-layer shadow storage + process selection-mode latch dict.
+
+        {} when the DLL predates the P9b export or no side model is loaded.
+        """
+        fn = self._optional_funcs.get("GT_RM_GetLaneLayersJson")
+        if fn is None:
+            return {}
+        return self._get_json(fn)
+
+    def GetVirtualJunctionsJson(self):
+        """P9b: virtual-junction (P6) metadata dict (one entry per type="virtual").
+
+        {} when the DLL predates the P9b export or no map is loaded.
+        """
+        fn = self._optional_funcs.get("GT_RM_GetVirtualJunctionsJson")
+        if fn is None:
+            return {}
+        return self._get_json(fn)

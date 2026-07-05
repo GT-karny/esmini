@@ -91,6 +91,47 @@ export interface OdrRailStation {
   }>;
 }
 
+// P9b: 1.9 lane layers (P8 shadow storage + process selection-mode latch)
+export interface OdrLaneLayerSection {
+  s: number;
+  length: number;
+  has_length: boolean;
+  lane_count: number;
+}
+
+export interface OdrLaneLayer {
+  name: string; // "permanent" | "temporary" (effective name; never empty)
+  lane_offset_count: number;
+  sections: OdrLaneLayerSection[];
+}
+
+export interface OdrRoadLaneLayers {
+  road_id: string;
+  active_mode: string; // mode resolved at parse time for this road
+  has_temporary: boolean;
+  temp_s_start: number;
+  temp_s_end: number;
+  layers: OdrLaneLayer[];
+}
+
+export interface OdrLaneLayers {
+  mode: string; // process-wide GT_ODR_LANE_LAYERS latch: "permanent" | "temporary"
+  roads: OdrRoadLaneLayers[];
+}
+
+// P9b: virtual-junction (P6) metadata
+export interface OdrVirtualJunction {
+  junction_id: string;
+  name: string;
+  main_road_id: string;
+  main_road_length: number;
+  s_start: number;
+  s_end: number;
+  orientation: string; // "+" | "-" | ""
+  anchor_count: number;
+  connection_count: number;
+}
+
 export interface OdrMetadata {
   warnings: OdrAuditWarnings;
   user_data: OdrUserDataItem[];
@@ -99,6 +140,8 @@ export interface OdrMetadata {
   junction_priorities: OdrJunctionPriority[];
   crosswalks: OdrCrosswalk[];
   railroad: { switches: OdrRailSwitch[]; stations: OdrRailStation[] };
+  lane_layers: OdrLaneLayers;
+  virtual_junctions: OdrVirtualJunction[];
 }
 
 export interface Scenario {

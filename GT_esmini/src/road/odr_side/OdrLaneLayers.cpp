@@ -410,6 +410,11 @@ void SetLaneLayerModeUseEnv()
     ModeOverride() = -1;
 }
 
+const char* GetLaneLayerModeName()
+{
+    return (LaneMode() == LaneLayerMode::Temporary) ? "temporary" : "permanent";
+}
+
 namespace detail
 {
 
