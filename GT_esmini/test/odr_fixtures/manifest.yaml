@@ -20,7 +20,7 @@
 
 meta:
   version: 1
-  plan: GT_esmini/docs/opendrive_16_19_support_plan.md
+  plan: GT_esmini/docs/archive/odr_1619_program/opendrive_16_19_support_plan.md
   generated: '2026-07-02'
   note: Merged from manifest.frag.{official,hand1,hand2,gen}.yaml (now deleted). Paths are repo-root-relative.
     See GT_esmini/test/odr_fixtures/README.md.
@@ -429,7 +429,7 @@ fixtures:
           the demote reproduction / breakage #1)
       (c) id=3 country="OpenDRIVE" (no countryRevision)   -> TrafficLight (unchanged control case)
     Classification frozen in golden/trafficlight_classification.json; reviewed asset-universe diff in
-    GT_esmini/docs/odr_p3_tl_gate_audit.md. OSI traffic_light>0 for this fixture is asserted by the
+    GT_esmini/docs/archive/odr_1619_program/odr_p3_tl_gate_audit.md. OSI traffic_light>0 for this fixture is asserted by the
     fixture-scoped OSI probe (acceptance (i)).
 - id: g1_lanesection_length_19
   path: GT_esmini/test/odr_fixtures/generated/g1_lanesection_length_19.xodr

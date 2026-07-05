@@ -23,7 +23,7 @@
 # meta.clusters mirrors the plan sec 4 cluster titles for traceability.
 meta:
   version: 1
-  plan: GT_esmini/docs/opendrive_16_19_support_plan.md
+  plan: GT_esmini/docs/archive/odr_1619_program/opendrive_16_19_support_plan.md
   manifest: GT_esmini/test/odr_fixtures/manifest.yaml
 
 clusters:

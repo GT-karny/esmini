@@ -1,6 +1,7 @@
 # OpenDRIVE 1.6–1.9 対応ステータス表(最終・§10-5 承認材料)
 
 - 作成: 2026-07-05(P9b、計画 §5 P9b の命名成果物)
+- 本文中の「計画」= [archive/odr_1619_program/opendrive_16_19_support_plan.md](archive/odr_1619_program/opendrive_16_19_support_plan.md)、「P6 設計書」= [archive/odr_1619_program/odr_p6_virtual_junction_design.md](archive/odr_1619_program/odr_p6_virtual_junction_design.md)(プログラム終了に伴い経緯文書はアーカイブへ移動。**本書=課題・再開情報の現役台帳**は docs/ 直下に残置)
 - 対象コード: dev_v0.12 系(P0〜P9a マージ済 + feature/odr1619-p9b)
 - 目的: **クラスタ 0-22 × 対応レベル L1-L5 の正直台帳**。保留レベル(L2 以上の未実装)を漏れなく開示し、計画 §8「保留台帳」の承認(§10-5)の材料とする。
 - レベル定義(計画 §2): **L1**=パース+格納+属性粒度診断(サイレント欠落ゼロ)/ **L2**=ランタイム意味論 / **L3**=OSI ground truth / **L4**=可視化(GT_RoadGeom/ビューワー)/ **L5**=オーサリング+検証フィクスチャ。

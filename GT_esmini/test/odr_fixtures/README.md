@@ -1,7 +1,7 @@
 # OpenDRIVE 1.6-1.9 conformance fixtures
 
 Machine-verifiable conformance baseline for the OpenDRIVE 1.6-1.9 support plan
-(`GT_esmini/docs/opendrive_16_19_support_plan.md`, phase **P0**, section 3.3).
+(`GT_esmini/docs/archive/odr_1619_program/opendrive_16_19_support_plan.md`, phase **P0**, section 3.3).
 
 ## Directory layout
 
@@ -162,7 +162,7 @@ When the ASAM source zips are (legitimately) updated:
 P2 (2026-07-03) intentionally regenerated 15 RM goldens (lane-type NONE->SIDEWALK/CURB/BIDIRECTIONAL/CONNECTING_RAMP flips in fixtures using walking/curb/shared/slipLane + the Ex_Lane-Border border->width normalization) and added the fixture-13 OSI golden; every control_set golden stayed byte-identical (legacy invariance proof).
 
 P3 (2026-07-03) refroze `golden/trafficlight_classification.json` atomically with the `[GT_ODR:tl-gate]`
-relaxation (reviewed diff: `GT_esmini/docs/odr_p3_tl_gate_audit.md`), added fixtures 19/20 (+ RM/OSI
+relaxation (reviewed diff: `GT_esmini/docs/archive/odr_1619_program/odr_p3_tl_gate_audit.md`), added fixtures 19/20 (+ RM/OSI
 goldens) and regenerated 3 official RM goldens whose `<signalReference>` elements now materialize as
 clone signs (UC_Motorway-Exit-Entry x2, UC_5Road_Junction); control_set goldens stayed byte-identical.
 

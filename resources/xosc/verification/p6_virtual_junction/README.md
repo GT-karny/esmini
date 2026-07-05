@@ -1,7 +1,7 @@
 # P6 Virtual-Junction VD verification scenes (S7b)
 
 VirtualDriver routing scenes over the **native OpenDRIVE virtual junction**
-(P6, design `GT_esmini/docs/odr_p6_virtual_junction_design.md` §4/§6 S7b).
+(P6, design `GT_esmini/docs/archive/odr_1619_program/odr_p6_virtual_junction_design.md` §4/§6 S7b).
 
 Map: `resources/xodr/virtual_junction_23.xodr` — a copy of the P6 S2 authoritative
 fixture `GT_esmini/test/odr_fixtures/handauthored/23_virtual_junction_17.xodr`

@@ -8,7 +8,7 @@ This is a generalization of
 priority_injector injects one hard-coded construct (junction <priority>), this
 tool applies an *arbitrary* ordered list of edit operations described by a YAML
 recipe, so that OpenDRIVE 1.6-1.9 idiom fixtures can be authored on top of
-existing repository roads (see GT_esmini/docs/opendrive_16_19_support_plan.md
+existing repository roads (see GT_esmini/docs/archive/odr_1619_program/opendrive_16_19_support_plan.md
 P0, cluster 0/2).
 
 ``scenariogeneration`` caps revMinor at 5 and cannot emit 1.6+ constructs, so

@@ -1,6 +1,7 @@
 # upstream resync チェックリスト(ODR 1.6-1.9 パッチ再適用手順)
 
 - 作成: 2026-07-05(P9b、計画 §5 P9b の命名成果物)
+- 本文中の「計画」「P6設計書」はアーカイブ済み: [archive/odr_1619_program/](archive/odr_1619_program/)(計画=opendrive_16_19_support_plan.md、P6設計書=odr_p6_virtual_junction_design.md)。本書と台帳(gt_roadmanager_patches.md)は運用文書として docs/ 直下に残置。
 - 対象: 第1種(`GT_RoadManager.cpp` フォーク、100/150行・マーカー21種)+第2種(in-place コア編集: RoadManager.hpp/.cpp、LaneIndependentRouter.cpp/.hpp、ControllerLooming.cpp、予約 OSIReporter.cpp)+ R1 CMake 例外 3件([GT_ODR:cmake]×2箇所 / [GT_ODR:osi-path])
 - 機械真実源: [gt_roadmanager_patches.md](gt_roadmanager_patches.md) §7 の fenced YAML manifest(予算・census・blob SHA)。**本チェックリストは手順、数値は常に manifest が正**。
 - リハーサル実績: `scripts/odr_resync_rehearsal.py` が v3.4.0 スナップショットへの全ハンク乾式再適用を機械証明(2026-07-05: 7ファイル/126ハンク PASS、レポート `GT_esmini/test/odr_fixtures/reports/resync_rehearsal.md` にファイル別の関数アンカー×マーカー一覧)。次回 sync 前に**必ず再実行**し、着手時点のハンク台帳を確定すること。

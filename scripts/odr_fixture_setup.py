@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
 ---------------
-The OpenDRIVE 1.6-1.9 support plan (GT_esmini/docs/opendrive_16_19_support_plan.md,
+The OpenDRIVE 1.6-1.9 support plan (GT_esmini/docs/archive/odr_1619_program/opendrive_16_19_support_plan.md,
 P0 / section 3.3) needs a machine-verifiable conformance baseline built from the
 official ASAM 1.9.0 release package. The ASAM assets are redistribution-restricted,
 so this repository treats every extracted ASAM byte as LOCAL-ONLY: the extracted

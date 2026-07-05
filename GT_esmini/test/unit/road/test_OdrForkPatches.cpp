@@ -369,7 +369,7 @@ TEST(OdrForkPatches, SecondClassCensus)
 //    longer gate the classification. The P1 [GT_ODR:country-rev] read (absent=>0, explicit honored)
 //    is retained for diagnostics / upstream PR-1, but is classification-irrelevant since P3.
 //    Cases (b')/(c')/(d') were STATIC Signals before P3 (see golden/trafficlight_classification.json
-//    history + GT_esmini/docs/odr_p3_tl_gate_audit.md for the reviewed asset-universe diff).
+//    history + GT_esmini/docs/archive/odr_1619_program/odr_p3_tl_gate_audit.md for the reviewed asset-universe diff).
 TEST(OdrForkPatches, TrafficLightGateRelaxation)
 {
     // (a) dynamic, country="OpenDRIVE", no countryRevision -> TrafficLight (was already TL pre-P3).

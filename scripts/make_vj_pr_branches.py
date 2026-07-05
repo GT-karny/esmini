@@ -3,7 +3,7 @@
 
 The GT_esmini fork implements native OpenDRIVE virtual-junction (VJ) support as
 in-place edits to a handful of pristine core files, each hunk annotated with a
-``[GT_ODR:vj-*]`` marker (design doc: GT_esmini/docs/odr_p6_virtual_junction_design.md
+``[GT_ODR:vj-*]`` marker (design doc: GT_esmini/docs/archive/odr_1619_program/odr_p6_virtual_junction_design.md
 section 5 "PR packaging"). For upstream review the work is split into four
 STACKED slices (each branch contains the ones before it):
 
@@ -28,7 +28,7 @@ hunks are routed by their new-file offset (see HPP_HUNK_ROUTING).
 
 This script does NOT touch any remote: no fetch, push, or PR creation. It only
 produces local branches. Actual submission is the user's explicit action
-(see GT_esmini/docs/odr_p6_s8_handoff.md).
+(see GT_esmini/docs/archive/odr_1619_program/odr_p6_s8_handoff.md).
 
 Usage:
     make_vj_pr_branches.py [--base v3.4.0] [--from HEAD] [--dry-run]
@@ -292,7 +292,7 @@ def main(argv=None):
         print(f"  committed {br}: {len(touched)} file(s)")
 
     print("\nDone. Branches: " + ", ".join(BRANCH[s] for s in SLICES))
-    print("Nothing was pushed. See GT_esmini/docs/odr_p6_s8_handoff.md to submit.")
+    print("Nothing was pushed. See GT_esmini/docs/archive/odr_1619_program/odr_p6_s8_handoff.md to submit.")
     return 0
 
 
