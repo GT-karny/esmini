@@ -1578,6 +1578,12 @@ fixtures:
   - road/link/predecessor@elementS
   - road/link/predecessor@elementDir
   expected_unsupported_entries: []
+  osi: true  # P6 S7 (T5/T6): fixture-scoped OSI probe -- VIRTUAL junctions route to DIRECT-style
+  # per-laneLink lane_pairing ([GT_ODR:vj-osi-pair]) and emit NO junction area of their own.
+  osi_expect_no_intersection_lane: true  # junction 888 (VIRTUAL) -> IsOsiIntersection()==false, so the
+  # OSI ground truth must contain NO TYPE_INTERSECTION lane (the main road keeps its regular driving lanes
+  # across the span, the branch lanes stay TYPE_DRIVING). Pairing across the anchor is asserted separately
+  # by the S7 lane_pairing probe (test plan T5/T6).
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-

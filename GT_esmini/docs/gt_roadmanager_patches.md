@@ -216,10 +216,12 @@ second_class_files:
     upstream_blob_sha: 93b039f40f11577e79ff05f541ba294af6f757b0
     budget_nonblank: 10
     additive_only: false
-    marker_census: {}
-    marker_occurrences: 0
+    marker_census: {vj-looming: 8}       # S7: road-chain lookahead ends gracefully at a mid-road VJ anchor
+                                          # (element_s_ >= 0) -- the contact-point direction merge is undefined
+                                          # there. 4 comment + `if`/`{`/`break;`/`}` = 8 nonblank <= 10 budget.
+    marker_occurrences: 1                # single "[GT_ODR:vj-looming]" marker (hunk <= 15 ln)
     pr_slice: "PR-C"
-    status: baseline
+    status: active-S7
 # --- fork (1st-class, existing 150-line regime; census cross-checked two-sided) ---
 fork_file:
   path: GT_esmini/src/road/GT_RoadManager.cpp

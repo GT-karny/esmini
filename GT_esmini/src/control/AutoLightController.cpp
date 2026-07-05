@@ -859,11 +859,19 @@ namespace gt_esmini
                 // If ContactPoint is END: Connected Road ends at s=Length.
                 roadmanager::ContactPointType cp = link->GetContactPointType();
                 contactPointVal = (int)cp;
-                
+
                 double sPos = 0.0;
                 bool enterAtEnd = (cp == roadmanager::CONTACT_POINT_END);
-                
-                if (enterAtEnd)
+
+                // [GT_ODR:vj-osi-pair] Virtual-junction anchor (element_s_ >= 0): the next road is entered
+                // mid-road at the anchor s, not at s=0/length. The flow heading follows elementDir
+                // (DIR_MINUS = s-decreasing = "enter at end" semantics), not the (undefined) contact point.
+                if (link->GetElementS() >= 0.0)
+                {
+                    sPos       = link->GetElementS();
+                    enterAtEnd = (link->GetElementDir() == roadmanager::RoadLink::DIR_MINUS);
+                }
+                else if (enterAtEnd)
                 {
                     // Need Road Length to get position at End
                     roadmanager::Road *succRoad = vehicle_->pos_.GetRoadById(succId);
