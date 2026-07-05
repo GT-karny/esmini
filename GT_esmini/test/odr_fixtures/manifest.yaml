@@ -13,7 +13,10 @@
 #                    official/* require the ASAM zips (requires: [asam_zips]) and are skip-eligible
 #                    when absent. expected{} freezes the P0 baseline; XPASS (expected fail but
 #                    passed) fails the run to force manifest acknowledgement.
-#   * expected/observed schema: pass|fail ; rm_init: pass|fail (crash is frozen as fail).
+#   * expected/observed schema: pass|fail ; rm_init: pass|fail|spec_fail (crash is frozen as fail).
+#     spec_fail = a load failure that IS the specified correct behavior (permanent design decision,
+#     e.g. <include>, plan sec 10-6 / P9a): observed fail -> PASS, silent load -> FAIL. Pair with
+#     `expected_diagnostics: [<substr>,...]` (all substrings must appear in the RM-worker log).
 
 meta:
   version: 1
@@ -127,8 +130,11 @@ fixtures:
   - road/objects/objectReference/validity
   - road/objects/objectReference/validity@fromLane
   - road/objects/objectReference/validity@toLane
-  expected_unsupported_entries:
-  - 'road/objects/objectReference|ctx=1'
+  # P7 FLIP (red): objectReference gains L1 side-model storage in a later WP -> the audit must emit
+  # ZERO entries. Baseline DLL still emits 'road/objects/objectReference (road=1)', so this is RED now.
+  expected_unsupported_entries: []
+  osi: true  # P7: objectReference duplicates a stationary object -> later expect stationary count >=2
+  osi_dump_stationary_polygons: true
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -150,8 +156,12 @@ fixtures:
   - road/objects/bridge/validity
   - road/objects/bridge/validity@fromLane
   - road/objects/bridge/validity@toLane
-  expected_unsupported_entries:
-  - 'road/objects/bridge|ctx=1'
+  # P7 FLIP (red): bridge gains L1 storage + OSI StationaryObject (TYPE_BRIDGE=2) in a later WP ->
+  # the audit must emit ZERO entries. Baseline DLL still emits 'road/objects/bridge (road=1)' -> RED.
+  expected_unsupported_entries: []
+  osi: true  # P7: bridge -> later expect a stationary object (OSI type 2) present
+  osi_dump_stationary_polygons: true
+  osi_expect_stationary_min: 1
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -170,11 +180,10 @@ fixtures:
   - road/objects/object/repeat@bT
   - road/objects/object/repeat@cT
   - road/objects/object/repeat@dT
-  expected_unsupported_entries:
-  - 'road/objects/object/repeat@bT|ctx=1'
-  - 'road/objects/object/repeat@cT|ctx=1'
-  - 'road/objects/object/repeat@dT|ctx=1'
-  - 'road/objects/object/repeat@detachFromReferenceLine|ctx=1'
+  # P7 FLIP (red): the 1.9-only repeat lateral-polynomial attrs (bT/cT/dT/detachFromReferenceLine)
+  # get parsed in a later WP -> the audit must emit ZERO entries. Baseline DLL still emits all four
+  # repeat@* entries, so this fixture is RED now.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -228,8 +237,9 @@ fixtures:
   - road/surface/CRG@zOffset
   - road/surface/CRG@zScale
   - road/surface/CRG@hOffset
-  expected_unsupported_entries:
-  - 'road/surface/CRG|ctx=1'
+  # P7 FLIP (red): surface/CRG gains L1 storage + file-existence diagnostic in a later WP -> the audit
+  # must emit ZERO entries. Baseline DLL still emits 'road/surface/CRG (road=1)', so this is RED now.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -270,16 +280,25 @@ fixtures:
   - road/include
   - road/include@file
   expected_unsupported_entries: []  # audit predicts ZERO entries
-  expected: {schema: pass, rm_init: fail}
+  expected: {schema: pass, rm_init: spec_fail}
   observed: {schema: pass, rm_init: fail}
+  expected_diagnostics:
+  - '[ODR-INCLUDE] <include> is not supported: hard error by permanent design decision'
   expected_notes: >-
-    P1 FLIP (rm_init pass -> fail): the [GT_ODR:hook] BuildSideModel call makes an <include> element a
-    hard parse error by design (gt_roadmanager_patches.md sec 2, patch 5); resolution decision deferred
-    to P9. The stale pre-flip golden (golden/rm/*16_include*) has been deleted. include is never itself
-    an [ODR-UNSUPPORTED]/[ODR-REMOVED-1.6] entry, so this fixture predicts ZERO audit entries.
+    PERMANENT SPEC (P9a, 2026-07-05, plan sec 10-6 decided -- user-approved default): <include> is a
+    hard parse error emitting the [ODR-INCLUDE] diagnostic. Classified PASS via rm_init: spec_fail
+    because the error IS the specified correct behavior (observed load fail == spec honored; a silent
+    load would be a FAIL). expected_diagnostics asserts the diagnostic actually fires, proving the
+    fixture fails for the RIGHT reason. Rationale: zero known real-world usage of <include>; resolution
+    would require file IO / recursion / a path-traversal security design with no consumer to justify it.
+    include is never itself an [ODR-UNSUPPORTED]/[ODR-REMOVED-1.6] entry, so this fixture predicts ZERO
+    audit entries.
   notes: >-
-    P1+P9 cluster 15 additionalData: include. Placed at road-level (g_additionalData tail of t_road).
-    file points at a nonexistent include; currently loaded silently (observed INIT:0).
+    P1+P9a cluster 15 additionalData: include. Placed at road-level (g_additionalData tail of t_road).
+    file points at a nonexistent include. P1 history: the [GT_ODR:hook] BuildSideModel call flipped
+    rm_init pass -> fail, making <include> a hard parse error by design (gt_roadmanager_patches.md sec 2,
+    patch 5); the stale pre-flip golden (golden/rm/*16_include*) was deleted. P9a finalized this as the
+    permanent spec (rm_init: fail -> spec_fail).
 - id: 17_userdata_dataquality_15
   path: GT_esmini/test/odr_fixtures/handauthored/17_userdata_dataquality_15.xodr
   source: handauthored
@@ -423,12 +442,13 @@ fixtures:
   - 3
   features:
   - road/lanes/laneSection@length
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection@length|ctx=1'
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    1.9 laneSection @length set to 500.0 on the single laneSection. <lanes> carries no layer, satisfying
+    1.9 laneSection @length set to 500.0 on the single laneSection. laneSection@length whitelisted in P8
+    (L1 info in OdrRoadLaneLayers; esmini computes section extents itself) -> expected_unsupported flipped
+    to empty. <lanes> carries no layer, satisfying
     the 1.9 assert "if(@layer='permanent') then not(laneSection/@length)". A base-normalisation remove_element
     strips the center lane's pre-1.8 <userData> (center lane t_road_lanes_laneSection_center_lane allows
     only link?,roadMark* -- no g_additionalData -- so the base is not 1.8+ schema-clean without it). Cluster
@@ -447,17 +467,16 @@ fixtures:
   - road/lanes@layer
   - road/lanes[2]
   - road/lanes[2]/laneSection@length
-  expected_unsupported_entries:
-  - 'road/lanes/laneSection@length|ctx=1'
-  - 'road/lanes@layer|ctx=1'
+  expected_unsupported_entries: []  # P8 [GT_ODR:lane-layers] LANDED: @layer + laneSection@length whitelisted, audit-zero
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
     The "<lanes layer> x2" 1.9 construct: existing lanes tagged layer="permanent" plus a second layer="temporary"
     <lanes> with its own laneSection (center + one driving lane). Permanent layer's laneSection has no
     @length (1.9 assert); the temporary layer carries @length (a roadworks sub-range idiom -- where @length
-    becomes meaningful). Upstream RM reads only the first <lanes>; the temporary layer is silently dropped
-    (P8 will add s-range merge). Base-normalisation removes center-lane <userData>.
+    becomes meaningful). Consumed by P8 [GT_ODR:lane-layers] (LANDED): SelectLanesLayer selects the permanent
+    layer by default and merges the temporary s-range when GT_ODR_LANE_LAYERS=temporary; @layer + laneSection
+    @length are now whitelisted (audit-zero). Base-normalisation removes center-lane <userData>.
 - id: g3_signal_semantics_18
   path: GT_esmini/test/odr_fixtures/generated/g3_signal_semantics_18.xodr
   source: generated
@@ -526,8 +545,11 @@ fixtures:
   - road/objects/object/outline/curveLocal@length
   - road/objects/object/outline/curveLocal@hdg
   - road/objects/object/outline/curveLocal/arc@curvature
-  expected_unsupported_entries:
-  - 'road/objects/object/outline|ctx=1'
+  # P7 FLIP (red): curveLocal outline tessellation lands in a later WP -> the audit must emit ZERO
+  # entries. Baseline DLL still emits 'road/objects/object/outline (road=1)', so this fixture is RED now.
+  expected_unsupported_entries: []
+  osi: true  # P7: curveLocal outline -> later a StationaryObject with a polygon (point count/winding)
+  osi_dump_stationary_polygons: true
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -576,8 +598,9 @@ fixtures:
   - junction/boundary/segment@boundaryLane
   - junction/boundary/segment@sStart
   - junction/boundary/segment@sEnd
-  expected_unsupported_entries:
-  - 'junction/boundary|ctx=1'
+  # P7 FLIP (red): junction <boundary> gains L1 storage in a later WP -> the audit must emit ZERO
+  # entries. Baseline DLL still emits 'junction/boundary (road=1)', so this fixture is RED now.
+  expected_unsupported_entries: []
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
@@ -790,8 +813,38 @@ fixtures:
   rev: '1.9'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneSection/right/lane/link/successor@layer
+  # P8 base (permanent-mode) proof points: with GT_ODR_LANE_LAYERS unset the RM structure is the
+  # PERMANENT layer at every s (the temporary [40,360] sub-range is NOT merged). lane -3 width at
+  # s=50 is the permanent constant 3.75 (contrast the __temporary variant: 3.625).
+  rm_lane_s_samples: [10, 50, 70, 350, 370]
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  expected_notes: ''
+- id: official_ex_lane_multilanelayer__temporary
+  path: GT_esmini/test/odr_fixtures/official/examples/Ex_Lane_MultiLaneLayer/Ex_Lane_MultiLaneLayer.xodr
+  source: official
+  rev: '1.9'
+  requires:
+  - asam_zips
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  # P8 temporary-merge variant: SAME xodr, RM probed with GT_ODR_LANE_LAYERS=temporary so the fork's
+  # SelectLanesLayer merges the temporary s-range [40,360] into the permanent structure. golden_suffix
+  # writes a DISTINCT golden (base + '__temporary'); the shared path is allowed by load_manifest for
+  # golden_suffix entries. s=10/370 (outside [40,360]) must match the base (permanent) values; s=50
+  # lane -3 width is the temporary poly (3.625, vs base 3.75) -- the merge proof.
+  rm_env: {GT_ODR_LANE_LAYERS: temporary}
+  golden_suffix: "__temporary"
+  rm_lane_s_samples: [10, 50, 70, 350, 370]
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
@@ -834,8 +887,39 @@ fixtures:
   rev: '1.9'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneOffset
+  # P8 base (permanent-mode) proof points on road 8 (length ~7083.567): with GT_ODR_LANE_LAYERS unset
+  # the RM structure is the PERMANENT layer everywhere (temp sub-range [2000,5083] NOT merged; the
+  # temporary layer's four laneOffsets are absent). s=100/5500 sit OUTSIDE [2000,5083] and are the
+  # permanent-invariance witnesses shared with the __temporary variant.
+  rm_lane_s_samples: [100, 2500, 3500, 4500, 5500]
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  expected_notes: ''
+- id: official_ex_motorway_roadworks_temporary_layer_lane_offset__temporary
+  path: GT_esmini/test/odr_fixtures/official/examples/Ex_Motorway_roadworks_temporary_layer_lane_offset/Ex_Motorway_roadworks_temporary_layer_lane_offset.xodr
+  source: official
+  rev: '1.9'
+  requires:
+  - asam_zips
+  clusters:
+  - 4
+  features:
+  - road/lanes@layer
+  - road/lanes/laneSection@length
+  - road/lanes/laneOffset
+  # P8 temporary-merge variant: SAME xodr, GT_ODR_LANE_LAYERS=temporary -> SelectLanesLayer merges the
+  # temporary s-range [2000,5083] (its extra laneSections + 4 laneOffsets) into the permanent structure.
+  # s=100 and s=5500 (outside the range) must match the base (permanent) golden; s=2500/3500/4500
+  # (inside) reflect the merged temporary layer -- roadworks lane counts differ from the base.
+  rm_env: {GT_ODR_LANE_LAYERS: temporary}
+  golden_suffix: "__temporary"
+  rm_lane_s_samples: [100, 2500, 3500, 4500, 5500]
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   expected_notes: ''
@@ -919,22 +1003,68 @@ fixtures:
   rev: '1.8'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 20
+  features:
+  - road/railroad
+  - station
+  - station@id
+  - station@name
+  - station@type
+  - station/platform
+  - station/platform@id
+  - station/platform@name
+  - station/platform/segment
+  - station/platform/segment@roadId
+  - station/platform/segment@sStart
+  - station/platform/segment@sEnd
+  - station/platform/segment@side
+  expected_unsupported_entries: ["road/type@country|ctx=4"]  # P9a: audit enforced; 1 known out-of-namespace leftover
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
-  expected_notes: ''
+  expected_notes: >-
+    P9a cluster 20 L1: two root <station> (H12/H13) with platform/segment rows, plus empty <railroad/>
+    on every road, are parsed into the OdrRailroad side model (OdrSideModel::stations). Stored and
+    queryable (GetStation) but INERT -- no runtime consumer (no rail runtime / no OSI / no policy).
+    expected_unsupported_entries was absent before P9a (audit unchecked); it is now enforced. The
+    railroad/station NAMESPACE is audit-zero; the single pinned entry (road/type@country on road 4)
+    is out-of-namespace (cluster ownership: road/type, NOT cluster 20) and is deliberately NOT
+    whitelisted in P9a -- deferred to P9b's whole-file zero-audit sweep.
 - id: official_ex_railway_switch
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_Railway-Switch/Ex_Railway-Switch.xodr
   source: official
   rev: '1.8'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 20
+  features:
+  - road/railroad
+  - road/railroad/switch
+  - road/railroad/switch@name
+  - road/railroad/switch@id
+  - road/railroad/switch@position
+  - road/railroad/switch/mainTrack
+  - road/railroad/switch/mainTrack@id
+  - road/railroad/switch/mainTrack@s
+  - road/railroad/switch/mainTrack@dir
+  - road/railroad/switch/sideTrack
+  - road/railroad/switch/sideTrack@id
+  - road/railroad/switch/sideTrack@s
+  - road/railroad/switch/sideTrack@dir
+  - road/railroad/switch/partner
+  - road/railroad/switch/partner@name
+  - road/railroad/switch/partner@id
+  expected_unsupported_entries: []  # P9a: audit now enforced ZERO (railroad/switch whitelisted)
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
-  expected_notes: ''
+  expected_notes: >-
+    P9a cluster 20 L1: two <switch> (ids 12/32, cross-referencing partners) with mainTrack/sideTrack/
+    partner, plus empty <railroad/> on the remaining roads, are parsed into the OdrRailroad side model
+    (OdrSideModel::rail_switches). Stored and queryable (GetRailSwitch/GetRoadRailSwitches) but INERT --
+    no runtime consumer. <userData> with nested partRailML children is handled opaquely by the audit.
+    expected_unsupported_entries was absent before P9a (audit unchecked); it is now [] so the strict
+    zero-audit enforcement is on.
 - id: official_ex_roof_profile_1strip
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_CrossSectionSurface/Ex_Roof_Profile_1Strip.xodr
   source: official
@@ -1206,17 +1336,19 @@ fixtures:
   - road/signals/signal@invalidated
   - road/objects/object@temporary
   - road/objects/object@invalidated
-  expected_unsupported_entries:
-  - 'road/objects/object@invalidated|ctx=1'
-  - 'road/objects/object@temporary|ctx=1'
-  - 'road/signals/signal@invalidated|ctx=1'
-  - 'road/signals/signal@temporary|ctx=1'
+  expected_unsupported_entries: []  # P8 LANDED: @temporary/@invalidated whitelisted on signal + object, audit-zero
+  # P8 stage 2 (D4): opt into the OSI layer to prove the invalidated FILTER end-to-end. signal id=1 is a
+  # valid speed sign (emitted); signal id=2 is invalidated (excluded). OSI ids != xodr ids, so the check is
+  # count-based: exactly ONE traffic_sign survives in the static ground truth.
+  osi: true
+  osi_expect_traffic_sign_count: 1
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
   notes: >-
-    Consumed by P8 (temporary/invalidated flag sets feed OSIReporter + VD RouteSignalScan/RouteCrosswalkScan;
-    invalidated signal -> OSI non-output). Both attributes are plain xs:boolean (NOT custom enums) on
-    signal and object; all optional. Silently ignored today.
+    Consumed by P8 (LANDED, stage 1 L1): @temporary/@invalidated (plain xs:boolean, NOT custom enums) on signal
+    and object are stored L1 in OdrSignalExtras / OdrObjectExtras (GetSignalExtras / GetObjectExtras); an
+    invalidated signal is excluded from the OSI logical ground truth and an invalidated object from the OSI
+    StationaryObject output (consumer wiring is P8 stage 2). All attributes optional.
 - id: vms_boards_18
   path: GT_esmini/test/odr_fixtures/handauthored/05_vms_boards.xodr
   source: handauthored
@@ -1505,3 +1637,187 @@ fixtures:
     r_junction_connection_connectingRoad -> expected schema FAIL by design (fixture 02 precedent is
     keyref-free 1.4; this one pins the 1.7 keyref behavior). Asserted end-to-end by
     OdrVirtualJunction.Fixture23cParseVariantsThroughJuncAbort.
+- id: lateral_shape_15
+  path: GT_esmini/test/odr_fixtures/handauthored/23_lateral_shape_15.xodr
+  source: handauthored
+  rev: '1.5'
+  requires: []
+  clusters:
+  - 17
+  features:
+  - road/lateralProfile/shape
+  - road/lateralProfile/shape@s
+  - road/lateralProfile/shape@t
+  - road/lateralProfile/shape@a
+  - road/lateralProfile/shape@b
+  - road/lateralProfile/shape@c
+  - road/lateralProfile/shape@d
+  # P7 RED: <shape> (lateralProfile cross-section poly) lands L1 in a later WP with degrade-to-equivalent-
+  # superelevation (WARN). Audit must then emit ZERO entries; baseline DLL emits 'road/lateralProfile/shape
+  # (road=1)', so this fixture is RED now.
+  expected_unsupported_entries: []
+  # Harness extension A: sample world z at center (t=0) and t=+/-3 at a few s. Constant linear crossfall
+  # z(t)=0.02*t is authored (plus a cubic term from s=50). rm_expect_z is DEFERRED to WP2 (the degrade
+  # semantics constant is fixed there); leaving the assertion unset for now -- z_probe values still record.
+  rm_z_probe:
+  - [0.0, 0.0]
+  - [0.0, 3.0]
+  - [0.0, -3.0]
+  - [50.0, 0.0]
+  - [50.0, 3.0]
+  - [50.0, -3.0]
+  - [100.0, 0.0]
+  # WP2 (P7) analytic pin. Degrade: shape b=0.02 (same at all s) -> equivalent superelevation
+  # roll = atan(0.02); esmini world z(t) = z_centerline + sin(roll)*t (Track2XYZ rot_mat_road_[2][1]=
+  # cos(pitch)*sin(roll)*t, pitch=0, z_centerline=0). sin(atan(0.02)) = 0.02/sqrt(1.0004) = 0.019996001,
+  # so z(t=+/-3) = +/-0.059988. Piecewise-constant roll -> identical at s=0/50/100.
+  rm_expect_z:
+  - {road: '1', s: 0.0,  t: 0.0,  z: 0.0}
+  - {road: '1', s: 0.0,  t: 3.0,  z: 0.059988}
+  - {road: '1', s: 0.0,  t: -3.0, z: -0.059988}
+  - {road: '1', s: 50.0, t: 0.0,  z: 0.0}
+  - {road: '1', s: 50.0, t: 3.0,  z: 0.059988}
+  - {road: '1', s: 50.0, t: -3.0, z: -0.059988}
+  - {road: '1', s: 100.0, t: 0.0, z: 0.0}
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P7 cluster 17 lateralProfile <shape>. Straight 100 m road, flat elevation, three <shape> anchors
+    forming a constant linear crossfall z(t)=0.02*t, the s=50 anchor adding a small cubic term (d!=0).
+    <shape> is valid since <=1.5 (t_road_lateralProfile_shape, no _OpenDriveElement defect) so filename
+    is _15. Whitelist-red now: RoadManager ignores <shape> and flags it [ODR-UNSUPPORTED] today.
+- id: cross_section_surface_18
+  path: GT_esmini/test/odr_fixtures/handauthored/24_cross_section_surface_18.xodr
+  source: handauthored
+  rev: '1.8'
+  requires: []
+  clusters:
+  - 17
+  features:
+  - road/lateralProfile/crossSectionSurface
+  - road/lateralProfile/crossSectionSurface/tOffset
+  - road/lateralProfile/crossSectionSurface/surfaceStrips
+  - road/lateralProfile/crossSectionSurface/surfaceStrips/strip
+  - road/lateralProfile/crossSectionSurface/surfaceStrips/strip@id
+  - road/lateralProfile/crossSectionSurface/surfaceStrips/strip/width
+  - road/lateralProfile/crossSectionSurface/surfaceStrips/strip/constant
+  - road/lateralProfile/crossSectionSurface/surfaceStrips/strip/linear
+  # P7 RED: <crossSectionSurface> lands L1 in a later WP (degrade-to-equivalent-superelevation, WARN).
+  # Audit must then emit ZERO entries; baseline DLL emits 'road/lateralProfile/crossSectionSurface
+  # (road=1)', so this fixture is RED now.
+  expected_unsupported_entries: []
+  rm_z_probe:
+  - [0.0, 0.0]
+  - [0.0, 3.0]
+  - [0.0, -3.0]
+  - [50.0, 0.0]
+  # WP2 (P7) analytic pin. Degrade: crossSectionSurface linear inner-right strip (@id="-1")
+  # <linear><coefficients a="0.02"/> -> representative crossfall slope b_css=0.02 -> equivalent
+  # superelevation roll=atan(0.02). Same z(t)=sin(roll)*t formula as fixture 23:
+  # sin(atan(0.02))=0.019996001 -> z(t=+/-3)=+/-0.059988, z(t=0)=0 (single Elevation @ s=0 spans road).
+  rm_expect_z:
+  - {road: '1', s: 0.0,  t: 0.0,  z: 0.0}
+  - {road: '1', s: 0.0,  t: 3.0,  z: 0.059988}
+  - {road: '1', s: 0.0,  t: -3.0, z: -0.059988}
+  - {road: '1', s: 50.0, t: 0.0,  z: 0.0}
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P7 cluster 17 lateralProfile <crossSectionSurface> (rev 1.8). Structure copied from the official
+    Ex_CrossSectionSurface/Ex_CrossFall_LeftTurn_1: <tOffset> + <surfaceStrips> with <strip> carrying
+    width/constant and linear <coefficients>. crossSectionSurface is mutually exclusive with
+    superelevation/shape (t_road_lateralProfile assert). RoadManager ignores it and flags
+    [ODR-UNSUPPORTED] today.
+- id: junction_group_15
+  path: GT_esmini/test/odr_fixtures/handauthored/25_junction_group_15.xodr
+  source: handauthored
+  rev: '1.5'
+  requires: []
+  clusters:
+  - 9
+  features:
+  - junctionGroup
+  - junctionGroup@id
+  - junctionGroup@name
+  - junctionGroup@type
+  - junctionGroup/junctionReference
+  - junctionGroup/junctionReference@junction
+  # P7 RED: <junctionGroup> gains L1 storage in a later WP -> the audit must emit ZERO entries. Baseline
+  # DLL emits 'junctionGroup' (no road context -> ctx empty), so this fixture is RED now.
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P7 cluster 9 junctionGroup. Three arms (roads 1/2/3) feeding a common junction (id=100), plus a
+    document-level <junctionGroup type="roundabout"> referencing it via <junctionReference>. junctionGroup
+    is valid since <=1.5 (OpenDRIVE_1.5.xsd t_junctionGroup, NO _OpenDriveElement abstract-mandatory defect
+    -- unlike the 1.9 form), and the roundabout enum is one of {roundabout, unknown}, so filename is _15.
+    L1 fixture only. RoadManager ignores <junctionGroup> and flags it [ODR-UNSUPPORTED] today (emitted
+    with no (road=..) context, so the stored entry is 'junctionGroup|ctx=').
+- id: object_details_19
+  path: GT_esmini/test/odr_fixtures/handauthored/26_object_details_19.xodr
+  source: handauthored
+  rev: '1.9'
+  requires: []
+  clusters:
+  - 19
+  features:
+  - road/objects/object/material
+  - road/objects/object@perpToRoad
+  - road/objects/object/outline
+  - road/objects/object/outline@fillType
+  - road/objects/object/outline@laneType
+  - road/objects/object/outline@outer
+  - road/objects/object/outlines/outline/markings
+  - road/objects/object/skeleton
+  - road/objects/object/borders
+  - road/objects/object/surface
+  # P7 RED: object material/@perpToRoad/outline-attrs/outline-markings/skeleton/borders/object-surface all
+  # gain L1 storage in a later WP -> the audit must emit ZERO entries. Baseline DLL emits seven entries
+  # (perpToRoad, outline, material, surface, skeleton, outlines/outline/markings, borders), so RED now.
+  expected_unsupported_entries: []
+  osi: true  # P7: object detail objects -> later expect stationary objects (polygon dump enabled)
+  osi_dump_stationary_polygons: true
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P7 cluster 19 object detail attributes/elements (rev 1.9). Three objects: a roadSurface carrying
+    <material> + @perpToRoad + object-level <surface><CRG> + an <outline> with @fillType/@laneType/@outer;
+    a gantry carrying a <skeleton> polyline; a trafficIsland carrying <outlines>/<outline> with an
+    outline-level <markings> (the 1.9 idiom used by ASAM Ex_Objects) + object <borders> + <material>.
+    Per-@type asserts (t_road_objects_object) drive which children are placed on which object. Declared
+    rev 1.9 because outline-level <markings> and outline @laneType/@outer are 1.9-only. RoadManager ignores
+    all of these and flags them [ODR-UNSUPPORTED] today.
+- id: g8_junction_grid_18
+  path: GT_esmini/test/odr_fixtures/generated/g8_junction_grid_18.xodr
+  source: generated
+  recipe: generated/recipes/g8_junction_grid_18.yaml
+  base: EnvironmentSimulator/Unittest/xodr/simple_4way_intersection.xodr
+  rev: '1.8'
+  requires: []
+  clusters:
+  - 8
+  features:
+  - junction/surface
+  - junction/surface/CRG
+  - junction/objects
+  - junction/objects/object
+  - junction/boundary
+  - junction/boundary/segment
+  - junction/boundary/segment@type
+  - junction/elevationGrid
+  - junction/elevationGrid/elevation
+  # P7 RED: junction-level <surface>/<objects>/<boundary>/<elevationGrid> gain L1 storage in a later WP
+  # -> the audit must emit ZERO entries. Baseline DLL emits four entries (junction/surface, junction/objects,
+  # junction/boundary, junction/elevationGrid), so this fixture is RED now.
+  expected_unsupported_entries: []
+  expected: {schema: pass, rm_init: pass}
+  observed: {schema: pass, rm_init: pass}
+  notes: >-
+    P7 cluster 8 junction geometry context. Extends the g6 base (simple_4way_intersection) via a recipe
+    that injects the junction-level children g6 omits: <surface> (t_road_surface with a <CRG>), <objects>
+    (a junction-owned <object>), <boundary> (four type="lane" segments, so boundary/segment@type is
+    exercised here too), and <elevationGrid> (coarse z grid). t_junction_common child order
+    (connection*, ..., surface?, planView?, objects?, boundary?, elevationGrid?) is honored by appending
+    in sequence. <planView> is virtual-junction geometry (P6) and is intentionally omitted. Upstream RM
+    ignores all four and flags them [ODR-UNSUPPORTED] today.

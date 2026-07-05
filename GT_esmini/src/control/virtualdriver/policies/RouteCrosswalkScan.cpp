@@ -2,10 +2,12 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string>
 #include <unordered_set>
 
 using namespace scenarioengine;
@@ -379,6 +381,15 @@ CrosswalkScanResult ScanCrosswalksAhead(Object* ego, double lookahead, double st
             roadmanager::RMObject* obj = road->GetRoadObject(j);
             if (!obj) continue;
             if (obj->GetType() != roadmanager::RMObject::ObjectType::CROSSWALK) continue;
+
+            // P8: invalidated (1.9) -> excluded from the VD crosswalk scan (see gt_roadmanager_patches.md P8).
+            // P5-synthesized crossPath CROSSWALKs (ids >= 900000000) have NO authored object entry, so
+            // GetObjectExtras returns nullptr and they are (correctly) never skipped here.
+            const std::string odr_road_id =
+                road->GetIdStr().empty() ? std::to_string(road->GetId()) : road->GetIdStr();
+            const gt_esmini::odr::OdrObjectExtras* ox =
+                gt_esmini::odr::GetObjectExtras(odr, odr_road_id, std::to_string(obj->GetId()));
+            if (ox != nullptr && ox->invalidated) continue;
 
             const uint64_t key = (static_cast<uint64_t>(rid) << 32) | static_cast<uint64_t>(obj->GetId());
             if (!seen.insert(key).second) continue;  // already handled

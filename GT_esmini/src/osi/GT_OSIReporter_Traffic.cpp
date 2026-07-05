@@ -66,6 +66,17 @@ int OSIReporter::UpdateStaticTrafficSignals()
 
             if (signal)
             {
+                // P8: invalidated (1.9) -> excluded from OSI ground truth (see gt_roadmanager_patches.md P8).
+                // A cancelled/crossed-out regulation is not a logical traffic sign or light, so a single
+                // check here skips BOTH the TrafficLight and traffic_sign branches below. Signals without
+                // stored extras (the overwhelming majority) fall through unchanged (byte-identical output).
+                const gt_esmini::odr::OdrSignalExtras *inv_sx =
+                    gt_esmini::odr::GetSignalExtras(opendrive, signal);
+                if (inv_sx != nullptr && inv_sx->invalidated)
+                {
+                    continue;
+                }
+
                 // A TrafficLight with an unsupported type combo has 0 lamps and would emit NO OSI
                 // entity at all (AddTrafficLightToGt is per-lamp). Fall back to the traffic_sign
                 // branch so the signal stays visible in the ground truth (pre-P3 behavior for

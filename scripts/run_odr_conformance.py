@@ -23,6 +23,18 @@ LAYERS
 Every probe runs in its OWN subprocess (the DLLs flood stdout and some xodr files
 CRASH the process); the worker writes its JSON result to a FILE, never stdout.
 
+MANIFEST EXPECTATION VALUES (per layer, `expected.{schema,rm_init}`):
+  pass       -- must load/validate cleanly.
+  fail       -- a known/frozen breakage (scored XFAIL; an unexpected pass is XPASS -> exit non-zero).
+  spec_fail  -- the load failure IS the specified correct behavior (permanent design decision, e.g.
+                <include>, plan sec 10-6 / P9a). observed fail -> PASS; observed pass (silent load)
+                -> FAIL. Pair with `expected_diagnostics` to prove it failed for the right reason.
+  (`crash` is accepted as an alias for `fail`.)
+
+`expected_diagnostics: ["<substr>", ...]` (rm layer): every substring MUST appear in the RM-worker
+log or the row FAILs -- e.g. the [ODR-INCLUDE] permanent hard-error diagnostic for fixture
+16_include_error_15.
+
 USAGE
 -----
   run_odr_conformance.py [--profile quick|full] [--update-golden] [--check-matrix]
@@ -167,9 +179,16 @@ def _load_json(path: str):
 
 
 def _norm_expect(v) -> str:
-    """Manifest expected values: pass|fail|crash -> pass|fail (crash frozen as fail)."""
+    """Manifest expected values: pass|fail|spec_fail|crash -> pass|fail|spec_fail.
+
+    `crash` is frozen as `fail`. `spec_fail` is preserved verbatim: it means "a load failure IS
+    the specified correct behavior" (currently only <include>, plan sec 10-6 / P9a) and is scored
+    by _cmp_status so that observed==fail is a PASS and observed==pass (silent load) is a FAIL.
+    """
     v = str(v).strip().lower()
-    return "fail" if v == "crash" else v
+    if v == "crash":
+        return "fail"
+    return v
 
 
 # ---------------------------------------------------------------------------
@@ -179,13 +198,16 @@ def load_manifest() -> dict:
     with open(MANIFEST, "r", encoding="utf-8") as fh:
         m = yaml.safe_load(fh)
     # Validate: unique ids, unique paths, all paths exist (asam_zips entries skip-eligible).
+    # EXCEPTION (P8): a variant entry carrying `golden_suffix` deliberately re-uses a base entry's
+    # path (same xodr, different RM env/mode) but writes to a distinct golden slug, so duplicate
+    # paths are allowed ONLY for golden_suffix-bearing entries (its id is still unique).
     ids, paths, problems = set(), set(), []
     for fx in m.get("fixtures", []):
         fid, p = fx["id"], fx["path"]
         if fid in ids:
             problems.append(f"duplicate fixture id: {fid}")
         ids.add(fid)
-        if p in paths:
+        if p in paths and not fx.get("golden_suffix"):
             problems.append(f"duplicate fixture path: {p}")
         paths.add(p)
         if not os.path.exists(_abs(p)) and "asam_zips" not in (fx.get("requires") or []):
@@ -211,6 +233,14 @@ REPO_ROOT = REPO_ROOT_LIT
 rmdll = RMDLL_LIT
 xodr = XODR_LIT
 out = OUT_LIT
+# z-grid probe requests (harness extension A). List of [s, t] (road[0]) or [road_id, s, t]
+# (road_id is the STRING road id, matching the extract's road "id"). Empty when the manifest
+# carries no rm_z_probe field -> the z_probe key is NOT added to the extract (byte-identical guard).
+ZPROBE = ZPROBE_LIT
+# Additional explicit-s lane samples (harness extension C, P8). List of s values applied to EVERY
+# road; emitted under a SEPARATE per-road key `lane_samples_at` (distinct from the default 5-point
+# `lane_samples`). Empty -> the key is NOT added (byte-identical golden guard, same rule as z_probe).
+LANE_S = LANE_S_LIT
 TOL = 6
 sys.path.insert(0, os.path.join(REPO_ROOT, "GT_esmini", "scripts"))
 from rm_lib import EsminiRMLib
@@ -233,9 +263,14 @@ try:
     nroads = lib.GetNumberOfRoads()
     res["num_roads"] = nroads
     roads = []
+    rid_by_str = {}          # string road id -> numeric rid (for the z-grid probe)
+    first_rid = None
     for ri in range(nroads):
         rid = lib.GetIdOfRoadFromIndex(ri)
+        if first_rid is None:
+            first_rid = rid
         length = float(lib.GetRoadLength(rid))
+        rid_by_str[lib.GetRoadIdString(rid)] = rid
         rd = {"id": lib.GetRoadIdString(rid), "length": r(length)}
         jstr = lib.GetJunctionIdString(rid)
         # RM_ID_UNDEFINED string is "" -> only record real junction ids
@@ -262,6 +297,25 @@ try:
             lanes.sort(key=lambda x: x["id"])
             samples.append({"s": r(s), "num_lanes": int(nlanes), "lanes": lanes})
         rd["lane_samples"] = samples
+        # Additional explicit-s lane samples (harness extension C, P8). Emitted ONLY when the
+        # manifest carried rm_lane_s_samples -> the key is absent otherwise (byte-identical guard).
+        # Same per-s extraction as lane_samples; s clamped to [0, length].
+        if LANE_S:
+            samples_at = []
+            for s in LANE_S:
+                s = min(max(float(s), 0.0), length)
+                nlanes = lib.GetRoadNumberOfLanes(rid, s, -1)
+                lanes = []
+                for li in range(nlanes):
+                    rc2, lid = lib.GetLaneIdByIndex(rid, li, s, -1)
+                    if rc2 != 0:
+                        continue
+                    lt = lib.GetLaneTypeByRoadId(rid, lid, s)
+                    rcw, w = lib.GetLaneWidthByRoadId(rid, lid, s)
+                    lanes.append({"id": int(lid), "type": int(lt), "width": r(float(w)) if rcw == 0 else None})
+                lanes.sort(key=lambda x: x["id"])
+                samples_at.append({"s": r(s), "num_lanes": int(nlanes), "lanes": lanes})
+            rd["lane_samples_at"] = samples_at
         # position probe at first drivable lane, s = L/2
         ndriv = lib.GetRoadNumberOfDrivableLanes(rid, length * 0.5) if length > 0 else 0
         if ndriv > 0:
@@ -294,6 +348,33 @@ try:
         roads.append(rd)
     roads.sort(key=lambda x: x["id"])
     res["roads"] = roads
+    # --- z-grid probe (harness extension A): sample world z at each requested (s,t). ---
+    # Only emit z_probe when the manifest requested points (byte-identical golden guard).
+    if ZPROBE:
+        z_probe = []
+        for spec in ZPROBE:
+            if len(spec) == 3:
+                road_str, s, t = str(spec[0]), float(spec[1]), float(spec[2])
+                rid = rid_by_str.get(road_str, None)
+            else:
+                s, t = float(spec[0]), float(spec[1])
+                # road[0] = the FIRST road by string id (matches roads[0] after sort).
+                road_str = roads[0]["id"] if roads else ""
+                rid = rid_by_str.get(road_str, first_rid)
+            entry = {"road": road_str, "s": r(s), "t": r(t)}
+            if rid is None:
+                entry["z"] = None
+            else:
+                h = lib.CreatePosition()
+                pr = lib.SetRoadPosition(h, rid, s, t, True)
+                if pr == 0:
+                    rcp, pd = lib.GetPositionData(h)
+                    entry["z"] = r(pd.z) if rcp == 0 else None
+                else:
+                    entry["z"] = None
+                lib.DeletePosition(h)
+            z_probe.append(entry)
+        res["z_probe"] = z_probe
     lib.Close()
 except Exception as e:
     res = {"load_ok": False, "error": "%s: %s" % (type(e).__name__, e)}
@@ -394,6 +475,7 @@ REPO_ROOT = REPO_ROOT_LIT
 dll = DLL_LIT
 xosc = XOSC_LIT
 out = OUT_LIT
+DUMP_POLYGONS = DUMP_POLYGONS_LIT  # harness extension B: per-stationary-object base_polygon dump
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))  # esmini's own osi3 bindings
 
 def r(v):
@@ -448,6 +530,32 @@ try:
         "traffic_light_count": len(g.traffic_light),
         "traffic_light_ids": tl_ids,
     }
+    # Harness extension B: per-stationary-object base_polygon dump (opt-in). Winding from the
+    # signed area (shoelace) of the 2D base polygon; degenerate if |area| < 1e-9 or < 3 points.
+    # Only added when requested -> non-flagged fixtures keep byte-identical OSI extracts.
+    if DUMP_POLYGONS:
+        polys = []
+        for so in g.stationary_object:
+            pts = list(so.base.base_polygon)
+            n = len(pts)
+            if n < 3:
+                winding = "degenerate"
+            else:
+                area2 = 0.0
+                for i in range(n):
+                    x1, y1 = pts[i].x, pts[i].y
+                    x2, y2 = pts[(i + 1) % n].x, pts[(i + 1) % n].y
+                    area2 += x1 * y2 - x2 * y1
+                if abs(area2) < 2e-9:  # |signed area| < 1e-9
+                    winding = "degenerate"
+                elif area2 > 0:
+                    winding = "ccw"
+                else:
+                    winding = "cw"
+            polys.append({"id": int(so.id.value), "type": int(so.classification.type),
+                          "base_polygon_points": n, "winding": winding})
+        polys.sort(key=lambda x: x["id"])
+        res["stationary_polygons"] = polys
 except Exception as e:
     res = {"init_ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 json.dump(res, open(out, "w"))
@@ -455,19 +563,26 @@ json.dump(res, open(out, "w"))
 
 
 def _run_worker_script(body: str, out: str, script: str, interp: str | None = None,
-                       timeout: int = PROBE_TIMEOUT) -> dict:
+                       timeout: int = PROBE_TIMEOUT, env_overrides: dict | None = None) -> dict:
     """Run a materialised worker script isolated (timeout); read its JSON result file.
 
     The DLLs flood stdout and some xodr files crash the process, so every probe runs in
     its own subprocess and communicates via a result FILE, never stdout. `interp` selects
     the interpreter (defaults to the running one; the OSI layer may pick a different osi3 host).
+    `env_overrides` (P8) augments the child env (os.environ copy + overrides) -- used to set
+    GT_ODR_LANE_LAYERS=temporary for the variant RM probes, which reach the fork's SelectLanesLayer
+    latch through the standard RM entry point (esminiRMLib), the only place it is read.
     """
     with open(script, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(body)
+    child_env = None
+    if env_overrides:
+        child_env = os.environ.copy()
+        child_env.update({str(k): str(v) for k, v in env_overrides.items()})
     log_text = ""
     try:
         proc = subprocess.run([interp or sys.executable, script], capture_output=True,
-                              timeout=timeout, cwd=_REPO_ROOT)
+                              timeout=timeout, cwd=_REPO_ROOT, env=child_env)
         log_text = (proc.stdout or b"").decode("utf-8", "replace") + (proc.stderr or b"").decode("utf-8", "replace")
         res = _load_json(out) if os.path.exists(out) else {"__worker_failed__": True, "returncode": proc.returncode}
     except subprocess.TimeoutExpired:
@@ -569,16 +684,54 @@ def layer_schema(entries: list) -> list:
 
 
 def _cmp_status(expected: str, observed: str) -> str:
-    """expected/observed in {pass, fail}. Map to PASS/FAIL/XFAIL/XPASS."""
+    """observed in {pass, fail}; expected in {pass, fail, spec_fail}. Map to PASS/FAIL/XFAIL/XPASS.
+
+      * expected pass       : observed pass -> PASS,  observed fail -> FAIL.
+      * expected fail        : a known/frozen (XFAIL) breakage. observed fail -> XFAIL, pass -> XPASS.
+      * expected spec_fail   : the failure IS the specified correct behavior (permanent design, e.g.
+                               <include>, plan sec 10-6 / P9a). observed fail -> PASS (spec honored),
+                               observed pass -> FAIL (spec violation: the file loaded silently).
+    """
     if expected == "pass":
         return PASS if observed == "pass" else FAIL
-    # expected == fail
+    if expected == "spec_fail":
+        return PASS if observed == "fail" else FAIL
+    # expected == fail  (frozen known-broken baseline)
     return XFAIL if observed == "fail" else XPASS
 
 
 # ---------------------------------------------------------------------------
 # Layer 2: RM probes + goldens
 # ---------------------------------------------------------------------------
+def _rm_expect_z_check(entry: dict, observed_z_probe):
+    """Harness extension A: assert observed world z at each requested (s,t) against the manifest
+    `rm_expect_z: [{road, s, t, z}]` (abs tol 1e-6), INDEPENDENT of the golden. Returns None when
+    nothing to enforce, "ok", or "FAIL: ...". Matches expected rows to observed z_probe rows by
+    (road, s, t) with the same 1e-6 rounding the extract uses."""
+    exp = entry.get("rm_expect_z")
+    if not exp:
+        return None
+    if not observed_z_probe:
+        return "FAIL: rm_expect_z set but no z_probe observed (load fail or rm_z_probe missing)"
+    # index observed by (road, rounded s, rounded t)
+    obs = {}
+    for row in observed_z_probe:
+        obs[(str(row.get("road", "")), _round(float(row["s"])), _round(float(row["t"])))] = row.get("z")
+    problems = []
+    for want in exp:
+        key = (str(want.get("road", "")), _round(float(want["s"])), _round(float(want["t"])))
+        if key not in obs:
+            problems.append(f"no observed z at road={key[0]} s={key[1]} t={key[2]}")
+            continue
+        got = obs[key]
+        if got is None:
+            problems.append(f"observed z is None at {key}")
+            continue
+        if abs(float(got) - float(want["z"])) > FLOAT_TOL:
+            problems.append(f"z at {key}: observed {got} != expected {want['z']}")
+    return "ok" if not problems else "FAIL: " + "; ".join(problems[:6])
+
+
 def layer_rm(entries: list, rmdll: str, update: bool) -> list:
     rows = []
     for e in entries:
@@ -588,8 +741,11 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
             rows.append({**e, "layer": "rm", "status": SKIP, "detail": "file absent"})
             continue
         # Build worker with a concrete OUT path via mkstemp done inside _run_worker;
-        # we pass OUT_LIT as a sentinel that _run_worker replaces.
-        res = _run_worker_rm(ap, rmdll)
+        # we pass OUT_LIT as a sentinel that _run_worker replaces. z_probe = harness extension A.
+        z_probe_req = e.get("rm_z_probe") or []
+        lane_s_req = e.get("rm_lane_s_samples") or []
+        rm_env_req = e.get("rm_env") or None
+        res = _run_worker_rm(ap, rmdll, z_probe=z_probe_req, lane_s=lane_s_req, rm_env=rm_env_req)
         markers = _count_markers(res.get("_log", ""))
         extract = None
         if res.get("__worker_failed__"):
@@ -598,23 +754,38 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
         elif res.get("load_ok"):
             observed_load = "pass"
             detail = ""
-            extract = {"load_ok": True, **{k: res[k] for k in ("num_roads", "roads") if k in res}}
+            # Only add z_probe to the extract when the fixture requested points -> fixtures without
+            # rm_z_probe produce BYTE-IDENTICAL extracts (the worker omits the key entirely).
+            keys = ("num_roads", "roads", "z_probe")
+            extract = {"load_ok": True, **{k: res[k] for k in keys if k in res}}
         else:
             observed_load = "fail"
             detail = f"RM_Init rc={res.get('rc', res.get('error'))}"
-        status, gstat = _golden_compare("rm", p, extract, update, e["expected_rm"], observed_load)
+        status, gstat = _golden_compare("rm", p, extract, update, e["expected_rm"], observed_load,
+                                        golden_suffix=e.get("golden_suffix", ""))
+        # rm_expect_z: golden-independent absolute-tolerance z assertion (harness extension A).
+        z_status = _rm_expect_z_check(e, res.get("z_probe"))
+        if z_status is not None and z_status.startswith("FAIL"):
+            status = FAIL
+            detail = (detail + " | " if detail else "") + "z_probe " + z_status
         audit_status = _audit_check(e, markers, res.get("_log", ""))
         # An audit prediction mismatch (or control-set warn) fails the row so it counts toward exit.
         if audit_status is not None and audit_status.startswith("FAIL"):
             status = FAIL
             detail = (detail + " | " if detail else "") + "audit " + audit_status
+        # P9a: required-diagnostics gate (e.g. the [ODR-INCLUDE] permanent hard-error message). A
+        # missing diagnostic FAILs the row even if the load-fail itself was scored PASS (spec_fail).
+        diag_status = _diagnostics_check(e, res.get("_log", ""))
+        if diag_status is not None and diag_status.startswith("FAIL"):
+            status = FAIL
+            detail = (detail + " | " if detail else "") + "diagnostics " + diag_status
         rows.append({**e, "layer": "rm", "observed": observed_load, "status": status,
                      "golden": gstat, "detail": detail, "markers": markers,
                      "audit_status": audit_status})
     return rows
 
 
-def _run_worker_rm(abs_xodr: str, rmdll: str) -> dict:
+def _run_worker_rm(abs_xodr: str, rmdll: str, z_probe=None, lane_s=None, rm_env=None) -> dict:
     fd, script = tempfile.mkstemp(suffix="_rm.py", prefix="odrconf_", dir=WORK_DIR)
     os.close(fd)
     out = script + ".json"
@@ -622,8 +793,10 @@ def _run_worker_rm(abs_xodr: str, rmdll: str) -> dict:
             .replace("REPO_ROOT_LIT", repr(_REPO_ROOT))
             .replace("RMDLL_LIT", repr(rmdll))
             .replace("XODR_LIT", repr(abs_xodr))
+            .replace("ZPROBE_LIT", repr(z_probe or []))
+            .replace("LANE_S_LIT", repr(lane_s or []))
             .replace("OUT_LIT", repr(out)))
-    return _run_worker_script(body, out, script)
+    return _run_worker_script(body, out, script, env_overrides=rm_env or None)
 
 
 # ---------------------------------------------------------------------------
@@ -644,7 +817,7 @@ def layer_motion(entries: list, rmdll: str, update: bool) -> list:
         if not os.path.exists(ap):
             rows.append({**e, "layer": "motion", "status": SKIP, "detail": "file absent"})
             continue
-        if e["expected_rm"] == "fail":
+        if e["expected_rm"] in ("fail", "spec_fail"):
             rows.append({**e, "layer": "motion", "status": SKIP,
                          "detail": "rm_init expected-fail (no motion walk)"})
             continue
@@ -798,7 +971,7 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
         os.close(fd)
         with open(xoscf, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(xosc)
-        res = _run_worker_osi(xoscf, dll, osi_py)
+        res = _run_worker_osi(xoscf, dll, osi_py, dump_polygons=e.get("osi_dump_stationary_polygons"))
         try:
             os.remove(xoscf)
         except OSError:
@@ -813,7 +986,8 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
                          "detail": f"SE_Init rc={res.get('rc', res.get('error'))}", "markers": markers})
             continue
         extract = {k: v for k, v in res.items() if not k.startswith("_") and k != "init_ok"}
-        status, gstat = _golden_compare("osi", p, extract, update, "pass", "pass")
+        status, gstat = _golden_compare("osi", p, extract, update, "pass", "pass",
+                                        golden_suffix=e.get("golden_suffix", ""))
         detail = ""
         # Opt-in OSI content checks (manifest-driven, generic). Each records the FIRST failure
         # into `detail`; any one flips the row to FAIL so it counts toward the harness exit code.
@@ -848,6 +1022,14 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
             nstat = int(extract.get("stationary_objects", {}).get("count", 0))
             if nstat < int(min_stat):
                 checks.append(f"osi_expect_stationary_min={min_stat}: only {nstat} stationary object(s)")
+        # P8 acceptance (iv, D4): EXACT traffic_sign count in the static ground truth. Proves the
+        # invalidated-signal FILTER: an invalidated (1.9) signal must NOT emit an OSI traffic_sign, so
+        # the surviving count is exact (OSI ids != xodr ids -> count-based, not id-based).
+        exp_ts = e.get("osi_expect_traffic_sign_count")
+        if exp_ts is not None:
+            nts = int(extract.get("traffic_sign_count", 0))
+            if nts != int(exp_ts):
+                checks.append(f"osi_expect_traffic_sign_count={exp_ts}: got {nts} traffic_sign(s)")
         if checks:
             status = FAIL
             detail = " | ".join(checks)
@@ -856,7 +1038,7 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
     return rows
 
 
-def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str) -> dict:
+def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = False) -> dict:
     fd, script = tempfile.mkstemp(suffix="_osi.py", prefix="odrconf_", dir=WORK_DIR)
     os.close(fd)
     out = script + ".json"
@@ -864,6 +1046,7 @@ def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str) -> dict:
             .replace("REPO_ROOT_LIT", repr(_REPO_ROOT))
             .replace("DLL_LIT", repr(dll))
             .replace("XOSC_LIT", repr(abs_xosc))
+            .replace("DUMP_POLYGONS_LIT", repr(bool(dump_polygons)))
             .replace("OUT_LIT", repr(out)))
     return _run_worker_script(body, out, script, interp=osi_py)
 
@@ -871,9 +1054,11 @@ def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str) -> dict:
 # ---------------------------------------------------------------------------
 # Golden compare / update
 # ---------------------------------------------------------------------------
-def _golden_path(kind: str, repo_rel: str) -> str:
+def _golden_path(kind: str, repo_rel: str, golden_suffix: str = "") -> str:
     base = {"rm": GOLDEN_RM_DIR, "osi": GOLDEN_OSI_DIR, "motion": GOLDEN_MOTION_DIR}[kind]
-    return os.path.join(base, _slug(repo_rel) + ".json")
+    # P8: `golden_suffix` (e.g. "__temporary") lets a variant entry (same xodr path, different RM
+    # env/mode) write to a distinct golden file so it does not collide with the base entry's slug.
+    return os.path.join(base, _slug(repo_rel) + (golden_suffix or "") + ".json")
 
 
 def _diff_json(a, b, path=""):
@@ -906,17 +1091,21 @@ def _diff_json(a, b, path=""):
     return diffs
 
 
-def _golden_compare(kind, repo_rel, extract, update, expected_load, observed_load):
+def _golden_compare(kind, repo_rel, extract, update, expected_load, observed_load, golden_suffix=""):
     """Returns (status, golden_status_str).
 
-    For fixtures whose expected load is fail (rm), no extract is produced; status is the
-    XFAIL/XPASS/PASS/FAIL of the LOAD comparison and golden is 'n/a (load-fail expected)'.
+    For fixtures whose expected load is fail OR spec_fail (rm), no extract is produced; status is the
+    PASS/FAIL/XFAIL/XPASS of the LOAD comparison and golden is 'n/a' (load-fail expected). `spec_fail`
+    (plan sec 10-6 / P9a, e.g. <include>) behaves exactly like `fail` here at the extract level -- the
+    load fails so `extract` is None either way -- but _cmp_status scores the failure as PASS.
+    `golden_suffix` (P8) disambiguates same-path variant entries (see _golden_path).
     """
     load_status = _cmp_status(_norm_expect(expected_load), observed_load)
     if extract is None:
-        # No serialisable extract (load failed). Load comparison is the whole story.
+        # No serialisable extract (load failed, as expected for fail/spec_fail). Load comparison is
+        # the whole story.
         return load_status, "n/a"
-    gpath = _golden_path(kind, repo_rel)
+    gpath = _golden_path(kind, repo_rel, golden_suffix)
     if update:
         _write_json(gpath, extract)
         return (load_status if load_status in (PASS, XFAIL) else load_status), "written"
@@ -974,6 +1163,22 @@ def _audit_check(entry: dict, markers: dict, log_text: str = ""):
             problems.append(f"expected_unsupported total {want_n} != observed {got_n}")
 
     return "ok" if not problems else "FAIL: " + "; ".join(problems)
+
+
+def _diagnostics_check(entry: dict, log_text: str):
+    """P9a: assert every substring in the manifest `expected_diagnostics` list occurs in the RM-worker
+    log. Returns None when nothing to enforce, "ok", or "FAIL: diagnostic missing: ...".
+
+    This proves the fixture failed for the RIGHT reason (e.g. the [ODR-INCLUDE] permanent hard-error
+    diagnostic), not merely that it failed. Pairs with `rm_init: spec_fail`.
+    """
+    wanted = entry.get("expected_diagnostics")
+    if not wanted:
+        return None
+    missing = [s for s in wanted if s not in (log_text or "")]
+    if missing:
+        return "FAIL: diagnostic missing: " + "; ".join(repr(s) for s in missing[:6])
+    return "ok"
 
 
 def run_fork_drift() -> dict:
@@ -1246,6 +1451,9 @@ def _assemble(manifest: dict, only: str):
             "requires": fx.get("requires") or [],
             "expected_unsupported": fx.get("expected_unsupported"),
             "expected_unsupported_entries": fx.get("expected_unsupported_entries"),
+            # P9a: substrings that MUST appear in the RM-worker log for this fixture (e.g. the
+            # [ODR-INCLUDE] permanent hard-error diagnostic). Missing any -> the RM row FAILs.
+            "expected_diagnostics": fx.get("expected_diagnostics"),
             # P2/P3: fixtures may opt into the OSI layer (manifest `osi: true`); optionally with the
             # zero-TYPE_UNKNOWN lane-classification acceptance check (`osi_expect_no_unknown: true`).
             "osi": bool(fx.get("osi")),
@@ -1257,6 +1465,19 @@ def _assemble(manifest: dict, only: str):
             # P6 S0: opt-out for maps whose MoveAlongS walk is nondeterministic by upstream
             # design (random equal-angle tie-break on geometrically-parallel connections).
             "motion_nondeterministic": bool(fx.get("motion_nondeterministic")),
+            # P8 acceptance (iv, D4): EXACT surviving traffic_sign count (invalidated-signal filter proof).
+            "osi_expect_traffic_sign_count": fx.get("osi_expect_traffic_sign_count"),
+            # P7 harness extension A: opt-in z-grid probe + golden-independent z assertion.
+            "rm_z_probe": fx.get("rm_z_probe"),
+            "rm_expect_z": fx.get("rm_expect_z"),
+            # P8 harness layer-mode variants: extra explicit-s lane samples (-> lane_samples_at key),
+            # RM-subprocess env overrides (GT_ODR_LANE_LAYERS=temporary), and a golden-slug suffix so a
+            # same-path variant entry writes a distinct golden without colliding with its base entry.
+            "rm_lane_s_samples": fx.get("rm_lane_s_samples"),
+            "rm_env": fx.get("rm_env"),
+            "golden_suffix": fx.get("golden_suffix", ""),
+            # P7 harness extension B: opt-in base_polygon dump for stationary objects.
+            "osi_dump_stationary_polygons": bool(fx.get("osi_dump_stationary_polygons")),
         })
     if only:
         control = [e for e in control if only in e["id"] or only in e["path"]]

@@ -52,6 +52,17 @@ struct OdrLaneBorder
     double s_offset = 0.0, a = 0.0, b = 0.0, c = 0.0, d = 0.0;
 };
 
+// ---- P8 (cluster 22 L1): lane <link>/<predecessor|successor> 1.9 @layer. One entry per lane link
+// element that carries @layer (sparse -- absent @layer produces no entry). link_dir names which link
+// direction ("predecessor" | "successor"), id is the linked lane id (verbatim string), layer is the
+// authored @layer token ("permanent" | "temporary"). ----
+struct OdrLaneLinkLayer
+{
+    std::string link_dir;  // "predecessor" | "successor"
+    std::string id;        // linked lane @id (verbatim)
+    std::string layer;     // @layer ("permanent" | "temporary")
+};
+
 // Per-lane extras beyond what upstream RoadManager stores. One entry per <lane> element
 // (any side) that carries at least one P2 datum; plain driving lanes with none of these
 // produce NO entry (keeps the side model sparse on legacy assets).
@@ -83,6 +94,20 @@ struct OdrLaneExtras
     std::vector<OdrLaneRule>     rules;
     std::vector<OdrRoadMarkSway> sways;    // union of this lane's roadMark <sway> records
     std::vector<OdrLaneBorder>   borders;  // source data for the P2 border->width normalization
+
+    // P8 cluster 22 L1: lane <link>/<predecessor|successor> 1.9 @layer records (sparse -- only lane
+    // link elements carrying @layer). Counts as "has P2/P8 data" in ReadLaneNode's sparse gate.
+    std::vector<OdrLaneLinkLayer> link_layers;
+};
+
+// ---- P8 (cluster 22 L1): a <validity> record carrying the 1.9 @layer. Sparse -- one entry per
+// <validity> element (on a signal or object) that authored @layer; validity elements without @layer
+// produce no entry. from_lane/to_lane are the (verbatim) lane subset the validity applies to. ----
+struct OdrValidityLayer
+{
+    std::string from_lane;  // @fromLane (verbatim)
+    std::string to_lane;    // @toLane (verbatim)
+    std::string layer;      // @layer ("permanent" | "temporary")
 };
 
 // <signal>/<dependency>: this signal controls the state of the referenced signal (id), with an
@@ -243,10 +268,28 @@ struct OdrSignalExtras
     std::vector<OdrStaticBoard> static_boards;  // P4 cluster 13 (1.9 <staticBoard>)
     std::vector<OdrVmsBoard>    vms_boards;      // P4 cluster 13 (1.8+1.9 <vmsBoard>)
 
+    // P8 (1.9): plain xs:boolean flags. temporary = a temporary (e.g. roadworks) signal; invalidated
+    // = the regulation is cancelled/crossed-out (excluded from the OSI logical ground truth). Both
+    // *_present record whether the attribute was authored (sparse gate: an authored flag makes the
+    // signal carry P8 data even with no P3/P4 children).
+    bool temporary            = false;
+    bool temporary_present    = false;  // @temporary authored?
+    bool invalidated          = false;
+    bool invalidated_present  = false;  // @invalidated authored?
+
+    // P8 cluster 22 L1: <validity> records that authored @layer (sparse).
+    std::vector<OdrValidityLayer> validity_layers;
+
     // True when this signal carries any P4 datum (drives sparse storage together with P3 children).
     bool HasAnyP4() const
     {
         return has_semantics || !static_boards.empty() || !vms_boards.empty();
+    }
+
+    // True when this signal carries any P8 datum (flags or a validity @layer).
+    bool HasAnyP8() const
+    {
+        return temporary_present || invalidated_present || !validity_layers.empty();
     }
 };
 
@@ -389,10 +432,390 @@ struct OdrJunctionExtras
     std::vector<OdrLaneLinkExtras>      lane_link_extras;  // cluster 22 L1 slot reservation
 };
 
-// Railroad + station family (switch/mainTrack/sideTrack/partner, station/platform/segment).
-// L1-only, documented inactive. Populated in P9.
-struct OdrRailroad
+// ===========================================================================
+// P9a cluster 20: railroad/station -- L1 storage, INERT.
+//
+// The railroad (<road>/<railroad>/<switch>) and station (root-level <station>) families are parsed
+// into the side model (OdrRailroad.cpp) and are queryable via GetRailSwitch/GetRoadRailSwitches/
+// GetStation, but NOTHING consumes them at runtime: there is no rail runtime, no OSI output, no
+// policy. Documented-inactive per plan §5 P9. Raw strings kept verbatim per the L1 contract; the one
+// parsed convenience double is a track link's @s (for a future consumer's convenience).
+// ===========================================================================
+
+// One <mainTrack>/<sideTrack> of a <switch>: the track this switch links (@id) at position @s in the
+// authored direction @dir ("+"/"-"). L1 raw (id/dir verbatim; s parsed).
+struct OdrSwitchTrackLink
 {
+    std::string id;         // @id -- the linked track (road) id
+    double      s = 0.0;    // @s  -- position on that track
+    std::string dir;        // @dir ("+" | "-")
+};
+
+// One <road>/<railroad>/<switch>: a railway switch owned by a road. name/id/position verbatim
+// (@position = "dynamic" | "straight" | "turning"); a switch links exactly one mainTrack + one
+// sideTrack (has_* gate whether they were authored) and OPTIONALLY names a <partner> switch.
+struct OdrRailSwitch
+{
+    std::string road_id;   // owning <road>@id
+    std::string name;      // <switch>@name
+    std::string id;        // <switch>@id
+    std::string position;  // <switch>@position ("dynamic" | "straight" | "turning")
+
+    OdrSwitchTrackLink main_track;   // <mainTrack> @id/@s/@dir
+    OdrSwitchTrackLink side_track;    // <sideTrack> @id/@s/@dir
+    bool               has_main_track = false;
+    bool               has_side_track = false;
+
+    std::string partner_name;  // <partner>@name (optional)
+    std::string partner_id;    // <partner>@id   (optional)
+    bool        has_partner = false;
+};
+
+// One <station>/<platform>/<segment>: the s-range on a road (@roadId, @sStart..@sEnd) that a platform
+// covers, on the given @side ("left"|"right"|"both"). L1 raw (ids/side verbatim; s parsed).
+struct OdrStationSegment
+{
+    std::string road_id;         // @roadId -- the road this platform segment runs along
+    double      s_start = 0.0;   // @sStart
+    double      s_end   = 0.0;   // @sEnd
+    std::string side;            // @side ("left" | "right" | "both")
+};
+
+// One <station>/<platform>: a boarding platform, one or more <segment> spans on roads.
+struct OdrStationPlatform
+{
+    std::string                    id;    // @id
+    std::string                    name;  // @name
+    std::vector<OdrStationSegment> segments;
+};
+
+// A root-level <station> (railway/tram station). @type = "small" | "medium" | "large". One or more
+// <platform> children. L1 storage only; no runtime consumer (documented inert).
+struct OdrStation
+{
+    std::string                     id;    // @id
+    std::string                     name;  // @name
+    std::string                     type;  // @type ("small" | "medium" | "large")
+    std::vector<OdrStationPlatform> platforms;
+};
+
+// ===========================================================================
+// P7 (clusters 8/9/17/18/19): object-family L1 + lateralProfile shape/crossSectionSurface +
+// surface/CRG + junction geometry (boundary/elevationGrid/junctionGroup). All L1 (parse + store +
+// diagnose); no interpretation at storage time. Raw strings kept verbatim per the L1 contract, with
+// parsed convenience doubles where a downstream WP needs the numeric value.
+// ===========================================================================
+
+// ---- cluster 18: <surface><CRG> (road-level, object-level, junction-level). All attrs incl. the
+// 1.9 additions @xOffset/@yOffset. Raw string + parsed convenience double so the later OSI/eval WP
+// need not re-parse. No evaluation of any kind (CRG is stored L1 only, never evaluated).
+struct OdrCrgRecord
+{
+    std::string file;         // @file (path, resolved best-effort for the existence diagnostic)
+    std::string s_start;      // @sStart
+    std::string s_end;        // @sEnd
+    std::string orientation;  // @orientation (same|opposite)
+    std::string mode;         // @mode (attached|attached0|genuine|global)
+    std::string purpose;      // @purpose (elevation|friction)
+    double      s_offset = 0.0;  // @sOffset
+    double      t_offset = 0.0;  // @tOffset
+    double      x_offset = 0.0;  // @xOffset (1.9)
+    double      y_offset = 0.0;  // @yOffset (1.9)
+    double      z_offset = 0.0;  // @zOffset
+    double      z_scale  = 1.0;  // @zScale (default 1)
+    double      h_offset = 0.0;  // @hOffset
+    bool        file_exists    = false;  // resolved existence (best-effort; false when unresolved)
+    bool        file_checked   = false;  // whether an existence check was attempted
+};
+
+// ---- cluster 19: object <material> (t_road_objects_object_material). All attrs verbatim. ----
+struct OdrObjectMaterial
+{
+    std::string surface;          // @surface
+    std::string friction;         // @friction (verbatim; xs:double)
+    std::string roughness;        // @roughness
+    std::string road_mark_color;  // @roadMarkColor (1.9)
+};
+
+// ---- cluster 19: outline-level <markings>/<marking> (1.9 idiom used by ASAM Ex_Objects). L1 raw:
+// the marking's own attrs + its <cornerReference @id> members. ----
+struct OdrObjectMarking
+{
+    std::string width;         // @width
+    std::string color;         // @color
+    std::string z_offset;      // @zOffset
+    std::string space_length;  // @spaceLength
+    std::string line_length;   // @lineLength
+    std::string start_offset;  // @startOffset
+    std::string stop_offset;   // @stopOffset
+    std::string side;          // @side (optional)
+    std::string weight;        // @weight (optional)
+    std::vector<std::string> corner_reference_ids;  // <cornerReference @id> members
+};
+
+// ---- cluster 19: object <outline> L1 (attrs + outline-level markings). Covers BOTH the singular
+// (object/outline) and plural (object/outlines/outline) forms (the fixtures define both as ground
+// truth). Corner geometry itself is parsed by upstream RM (cornerRoad/cornerLocal) and by the
+// AppendCurveLocalCorners fork helper (curveLocal); here we only store the outline attributes upstream
+// drops (@fillType/@laneType/@outer) plus the 1.9 outline-level <markings>. ----
+struct OdrObjectOutline
+{
+    std::string id;         // @id
+    std::string fill_type;  // @fillType
+    std::string lane_type;  // @laneType
+    std::string outer;      // @outer
+    std::string closed;     // @closed
+    bool        singular_form = false;  // true = object/outline; false = object/outlines/outline
+    std::vector<OdrObjectMarking> markings;  // outline-level <markings>/<marking> (1.9)
+};
+
+// ---- cluster 19: object <skeleton> polyline vertex (t_road_objects_object_skeleton). Raw vertexRoad
+// (s/t/dz/...) or vertexLocal attrs. kind distinguishes the vertex flavor. ----
+struct OdrSkeletonVertex
+{
+    std::string kind;   // "vertexRoad" | "vertexLocal"
+    std::string s;      // @s (vertexRoad)
+    std::string t;      // @t (vertexRoad)
+    std::string u;      // @u (vertexLocal)
+    std::string v;      // @v (vertexLocal)
+    std::string dz;     // @dz
+    std::string radius; // @radius
+    std::string id;     // @id
+    std::string intersection_point;  // @intersectionPoint (t_bool)
+};
+
+// One <skeleton>/<polyline> (or other skeleton geometry). L1: its id + ordered vertices.
+struct OdrSkeletonPolyline
+{
+    std::string                    id;  // @id
+    std::vector<OdrSkeletonVertex> vertices;
+};
+
+// ---- cluster 19: object <borders>/<border> (t_road_objects_object_borders_border). Raw attrs. ----
+struct OdrObjectBorder
+{
+    std::string width;                  // @width
+    std::string type;                   // @type (concrete|curb|...)
+    std::string outline_id;             // @outlineId
+    std::string use_complete_outline;   // @useCompleteOutline (t_bool)
+};
+
+// ---- cluster 19: repeat lateral polynomial (1.9 @bT/@cT/@dT/@detachFromReferenceLine). Stored so the
+// AdjustRepeatInstancePose fork helper can look it up by (road_id, object_id) later. base_s/base_length
+// mirror the repeat's @s/@length for the pose remap. Parameterization: see AdjustRepeatInstancePose
+// doc comment (normalized fraction f in [0,1] along the repeat, per the plan's declared semantics). ----
+struct OdrRepeatLateralPoly
+{
+    double base_s      = 0.0;  // repeat @s
+    double base_length = 0.0;  // repeat @length
+    double t_start     = 0.0;  // repeat @tStart (linear ramp start)
+    double t_end       = 0.0;  // repeat @tEnd   (linear ramp end)
+    double bT          = 0.0;  // @bT
+    double cT          = 0.0;  // @cT
+    double dT          = 0.0;  // @dT
+    bool   detach_from_reference_line = false;  // @detachFromReferenceLine
+    bool   has_poly    = false;  // true when any of bT/cT/dT/detach was authored (sparse fast path)
+};
+
+// ---- cluster 19b: <objectReference> (t_road_objects_objectReference). Reference to another object;
+// carries its own s/t placement. L1 raw + parsed doubles for the synthesis clone. road_id is the
+// DECLARING road (where the reference lives + where the clone is synthesized). ----
+struct OdrObjectReference
+{
+    std::string  road_id;         // DECLARING road@id
+    std::string  ref_id;          // @id -- the REFERENCED object's id
+    double       s        = 0.0;  // @s
+    double       t        = 0.0;  // @t
+    double       z_offset = 0.0;  // @zOffset
+    std::string  valid_length;    // @validLength (verbatim)
+    std::string  orientation;     // @orientation (+|-|none)
+    unsigned int synth_object_id = 0;  // synthesized clone RMObject id (0 = none)
+};
+
+// ---- cluster 19b: <bridge> (t_road_objects_bridge). L1 raw + parsed; @type material class
+// (concrete|steel|brick|wood). road_id is the road the bridge spans. ----
+struct OdrBridge
+{
+    std::string  road_id;  // owning road@id
+    std::string  id;       // @id
+    std::string  name;     // @name
+    std::string  type;     // @type (e_bridgeType)
+    double       s      = 0.0;  // @s
+    double       length = 0.0;  // @length
+    unsigned int synth_object_id = 0;  // synthesized BRIDGE RMObject id (0 = none)
+};
+
+// Per-object extras beyond what upstream RMObject stores. One entry per <object> that carries at
+// least one P7 datum (sparse). Keyed by (road_id, object_id) as authored strings.
+struct OdrObjectExtras
+{
+    std::string road_id;    // owning <road>@id
+    std::string object_id;  // <object>@id
+
+    bool                            perp_to_road_present = false;  // @perpToRoad authored?
+    std::string                     perp_to_road;                  // @perpToRoad raw ("true"/"false")
+    std::vector<OdrObjectMaterial>  materials;   // <material> (XSD allows several)
+    std::vector<OdrObjectOutline>   outlines;    // outline attrs + outline-level markings (L1)
+    std::vector<OdrSkeletonPolyline> skeleton;   // <skeleton>/<polyline>
+    std::vector<OdrObjectBorder>    borders;     // <borders>/<border>
+    std::vector<OdrCrgRecord>       surface_crgs;// object-level <surface>/<CRG>
+    OdrRepeatLateralPoly            repeat_poly; // <repeat> 1.9 lateral polynomial (has_poly gate)
+
+    // P8 (1.9): plain xs:boolean flags (same semantics as OdrSignalExtras). invalidated object is
+    // excluded from the OSI StationaryObject output; temporary is L1-only. *_present record authoring.
+    bool temporary            = false;
+    bool temporary_present    = false;  // @temporary authored?
+    bool invalidated          = false;
+    bool invalidated_present  = false;  // @invalidated authored?
+
+    // P8 cluster 22 L1: <validity> records that authored @layer (sparse).
+    std::vector<OdrValidityLayer> validity_layers;
+
+    bool HasAny() const
+    {
+        return perp_to_road_present || !materials.empty() || !outlines.empty() || !skeleton.empty() ||
+               !borders.empty() || !surface_crgs.empty() || repeat_poly.has_poly || temporary_present ||
+               invalidated_present || !validity_layers.empty();
+    }
+};
+
+// ---- cluster 17: road <lateralProfile> shape + crossSectionSurface L1 + degrade bookkeeping. ----
+// One <shape> row: s + t + cubic poly (a/b/c/d) in t at that s.
+struct OdrLateralShape
+{
+    double s = 0.0;
+    double t = 0.0;
+    double a = 0.0, b = 0.0, c = 0.0, d = 0.0;
+};
+
+// One <coefficients> row inside a crossSectionSurface strip/tOffset (cubic in s: a/b/c/d @ s).
+struct OdrCssCoefficients
+{
+    double s = 0.0;
+    double a = 0.0, b = 0.0, c = 0.0, d = 0.0;
+};
+
+// One crossSectionSurface <strip>: id + t-dependence flavor (constant/linear/quadratic/cubic) with
+// its <width> and height coefficients. term_kind names which of constant|linear|quadratic|cubic was
+// authored (the strip's t-height flavor); coeffs holds that element's <coefficients> rows.
+struct OdrCssStrip
+{
+    std::string                     id;         // @id (1/-1/2/-2)
+    std::string                     mode;       // @mode (outer strips only)
+    std::string                     term_kind;  // "constant" | "linear" | "quadratic" | "cubic" | ""
+    std::vector<OdrCssCoefficients> width;      // <width><coefficients>
+    std::vector<OdrCssCoefficients> height;     // <constant|linear|quadratic|cubic><coefficients>
+};
+
+// The road-level lateralProfile extras (cluster 17). Sparse: one entry per road that authored a
+// <shape> or a <crossSectionSurface> (a road with only <superelevation> gets no entry -- that path is
+// handled bit-identically by upstream). Records whether a degrade-to-equivalent-superelevation was
+// applied and the equivalent crossfall used (diagnostic handle for the later report/OSI WP).
+struct OdrRoadLateralProfile
+{
+    std::string                  road_id;
+    std::vector<OdrLateralShape> shapes;             // <shape> rows (DOM order)
+    bool                         has_css = false;    // <crossSectionSurface> present
+    std::vector<OdrCssCoefficients> css_t_offset;    // crossSectionSurface/<tOffset><coefficients>
+    std::vector<OdrCssStrip>     css_strips;         // crossSectionSurface/surfaceStrips/<strip>
+
+    // Degrade bookkeeping (filled by ApplyLateralProfileDegrade in the typed BuildSideModel overload).
+    bool   authored_superelevation = false;  // road had authored <superelevation> -> degrade skipped
+    bool   degrade_applied         = false;  // equivalent superelevation was synthesized
+    double equiv_crossfall_slope   = 0.0;    // representative b (dz/dt at t=0) used for the degrade
+};
+
+// ===========================================================================
+// P7 cluster 8/9: junction geometry (boundary/elevationGrid) + junction-level objects/surface +
+// document-level junctionGroup. Stored in OdrJunctionGeom.cpp (new file), keyed by junction_id so
+// the existing OdrJunctionExtras struct/file stays untouched (P6 conflict-surface minimization).
+// ===========================================================================
+
+// One <junction><boundary><segment>. Raw attrs (segment types: lane|position|joint per XSD).
+struct OdrJunctionBoundarySegment
+{
+    std::string type;           // @type (lane|position|joint)
+    std::string road_id;        // @roadId
+    std::string boundary_lane;  // @boundaryLane
+    std::string s_start;        // @sStart (may be "start"/"end" keyword or a number)
+    std::string s_end;          // @sEnd
+};
+
+// One <junction><elevationGrid><elevation> row (center + left/right height lists, raw). ----
+struct OdrJunctionGridElevation
+{
+    std::string center;  // @center
+    std::string left;    // @left  (space-separated list, raw)
+    std::string right;   // @right (space-separated list, raw)
+};
+
+// Per-junction geometry extras (cluster 8). Sparse: one entry per junction carrying a boundary /
+// elevationGrid / junction-level objects / junction-level surface. Keyed by junction_id (authored).
+struct OdrJunctionGeomExtras
+{
+    std::string junction_id;  // <junction>@id
+
+    std::vector<OdrJunctionBoundarySegment> boundary;         // <boundary>/<segment>
+    std::string                             grid_spacing;     // <elevationGrid>@gridSpacing
+    std::string                             grid_s_start;     // <elevationGrid>@sStart
+    std::vector<OdrJunctionGridElevation>   grid_elevations;  // <elevationGrid>/<elevation>
+    bool                                    has_grid = false; // <elevationGrid> present
+    std::vector<OdrCrgRecord>               surface_crgs;     // junction-level <surface>/<CRG>
+    int                                     object_count = 0; // junction-level <objects>/<object> count (L1)
+
+    bool HasAny() const
+    {
+        return !boundary.empty() || has_grid || !surface_crgs.empty() || object_count > 0;
+    }
+};
+
+// ---- cluster 9: document-level <junctionGroup> (roundabout|interchange|unknown). L1: @id/@name/
+// @type + the <junctionReference @junction> member ids. ----
+struct OdrJunctionGroup
+{
+    std::string              id;        // @id
+    std::string              name;      // @name
+    std::string              type;      // @type (roundabout|interchange|unknown)
+    std::vector<std::string> members;   // <junctionReference @junction> ids
+};
+
+// ===========================================================================
+// P8 (cluster 4/22): 1.9 lane layers. A road may carry MULTIPLE <lanes> elements, each tagged
+// @layer="permanent"|"temporary" (or untagged == permanent). The temporary layer describes a
+// roadworks sub-range that overrides the permanent lanes over an s-range [t0,t1). L1 SHADOW storage
+// only -- the s-range merge into a synthetic <lanes> that RoadManager walks is done in
+// OdrLaneLayers.cpp (SelectLanesLayer/BuildMergedLanes); this struct records what was AUTHORED so a
+// consumer/diagnostic can see the pre-merge layout. Sparse: one entry per road that authored either
+// a @layer attribute or more than one <lanes> element.
+// ===========================================================================
+
+// One laneSection summary inside a layer (DOM order). s + optional @length + lane count.
+struct OdrLaneLayerSection
+{
+    double s          = 0.0;
+    double length     = 0.0;
+    bool   has_length = false;  // @length authored (1.9; meaningful on temporary layers)
+    int    lane_count = 0;      // number of <lane> elements (all sides) in this section
+};
+
+// One <lanes> layer of a road (DOM order).
+struct OdrLaneLayer
+{
+    std::string                      name;  // @layer verbatim ("" when the attribute was absent == permanent)
+    std::vector<OdrLaneLayerSection> sections;
+    int                              lane_offset_count = 0;  // number of <laneOffset> in this layer
+};
+
+// Per-road lane-layer L1 record. temp_s_start/temp_s_end bound the temporary layer's coverage
+// [t0,t1); active_mode is the mode SelectLanesLayer resolved for this parse ("permanent"|"temporary").
+struct OdrRoadLaneLayers
+{
+    std::string               road_id;
+    std::vector<OdrLaneLayer> layers;       // one per <lanes> element (DOM order)
+    bool                      has_temporary = false;
+    double                    temp_s_start  = 0.0;  // t0 (valid only when has_temporary)
+    double                    temp_s_end    = 0.0;  // t1
+    std::string               active_mode;          // "permanent" | "temporary" (resolved at parse)
 };
 
 }  // namespace odr

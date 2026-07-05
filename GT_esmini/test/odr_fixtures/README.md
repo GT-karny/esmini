@@ -56,6 +56,32 @@ DriverScript/.venv/Scripts/python.exe scripts/run_odr_conformance.py \
   / `[ODR-REMOVED-1.6]`; a fixture may later carry `expected_unsupported{}` / `expected_unsupported_entries`
   and the harness will PASS/FAIL against it (unit-smoked with a fake log each run).
 
+### Manifest expectation values (`expected.{schema,rm_init}`)
+
+| Value | Meaning | Scoring |
+| :-- | :-- | :-- |
+| `pass` | must load / validate cleanly | observed pass -> PASS; fail -> FAIL |
+| `fail` | a known / frozen breakage (red baseline) | observed fail -> XFAIL; pass -> **XPASS** (fails the run, forces a manifest update) |
+| `spec_fail` | a load failure that **is the specified correct behavior** (permanent design decision) | observed fail -> **PASS** (spec honored); observed pass (silent load) -> **FAIL** (spec violation) |
+
+(`crash` is accepted as an alias for `fail`.) Pair `spec_fail` with **`expected_diagnostics: ["<substr>", ...]`**:
+in the RM layer every listed substring must appear in the RM-worker log or the row FAILs -- this proves the
+fixture failed for the *right reason* (the diagnostic actually fired), not merely that it failed.
+
+### `<include>`: permanent hard-error spec (P9a)
+
+`<include>` is **not** resolved and never will be: it is a hard parse error by permanent design decision
+(plan sec 10-6, fixed in P9a 2026-07-05, user-approved default). Rationale: zero known real-world usage,
+and resolution would require file IO / recursion / a path-traversal security design with no consumer to
+justify it. The RM worker emits a diagnostic beginning with the exact prefix:
+
+```
+[ODR-INCLUDE] <include> is not supported: hard error by permanent design decision
+```
+
+Fixture **`16_include_error_15`** encodes this as `rm_init: spec_fail` + `expected_diagnostics: [<that prefix>]`,
+so the failure is machine-verified as **PASS** (not a perpetual XFAIL). A silent load would flip it to FAIL.
+
 Exit 0 iff zero FAIL and zero XPASS (SKIP / XFAIL are fine). Goldens are byte-stable across runs
 (verified by double-generation); `golden/` is committed, `reports/` and `work/` are gitignored.
 
@@ -143,6 +169,6 @@ clone signs (UC_Motorway-Exit-Entry x2, UC_5Road_Junction); control_set goldens 
 The frozen known-broken baselines (XFAIL) are:
 
 - **Schema XFAIL (11)** = 5 fixtures + 6 control_set. Fixtures: `07_license_default_regulations` (ASAM `_OpenDriveElement`-abstract XSD defect, both 1.8/1.9), `18_removed16_neighbor` (element removed in 1.6 -- P1 `[ODR-REMOVED-1.6]` target), and 3 official mislabels (`Ex_Objects`, `Ex_Parkingspace_rhomboid`, `Ex_SmoothObjectOutline_traffic_island`). Control_set: `fabriksgatan_traffic_lights_ctrl.xodr` (revMinor=4 + top-level `<controller>`) and the 5 `road_catalog/generated/*.xodr` (empty `<elevationProfile>` / crosswalk object missing `@validLength`/`@height` -- scenariogeneration artifacts; `resources/` is off-limits so these are frozen, not fixed).
-- **RM_Init XFAIL (1)**: `16_include_error_15` (P1 made `<include>` a hard error by design; resolution decision deferred to P9). The two official junction crashes (`Ex_Slip_Lane`, `UC_T_Junction`) were FIXED in the post-P3 crash-fix pass ([GT_ODR:direct-junc-log] upstream fmt argument bug + [GT_ODR:sig-lanes-guard] out-of-range signal s) and now PASS with RM goldens; `02_invalid_junction_connection_14` has PASSed since P1 (junction-abort resilience).
+- **RM_Init XFAIL (0)**: `16_include_error_15` was the sole RM XFAIL through P8 (P1 made `<include>` a hard error by design; resolution decision deferred). **P9a** finalized `<include>` as a permanent hard-error spec (plan sec 10-6) and reclassified this fixture to `rm_init: spec_fail` + `expected_diagnostics` -- it now scores **PASS** (see "`<include>`: permanent hard-error spec" above), so there are no remaining RM XFAILs. The two official junction crashes (`Ex_Slip_Lane`, `UC_T_Junction`) were FIXED in the post-P3 crash-fix pass ([GT_ODR:direct-junc-log] upstream fmt argument bug + [GT_ODR:sig-lanes-guard] out-of-range signal s) and now PASS with RM goldens; `02_invalid_junction_connection_14` has PASSed since P1 (junction-abort resilience).
 
 

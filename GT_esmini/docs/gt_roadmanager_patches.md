@@ -35,9 +35,13 @@
 | 11 | `[GT_ODR:sig-lanes-guard]` | `Signal::SetAllValidLanes` | ~:547-556 | 9 | **クラッシュ修正**: 信号 s が道路範囲外(公式 UC_T_Junction: 80m 道路に s=111.5)で `LOG_ERROR_AND_QUIT`(throw)が C API 境界を越え 0xe06d7363 でロード全体を殺していた → WARN+有効レーン未割当に劣化。P5 予定の再訪をバグ修正パスで前倒し | 高(upstream 同一コード) |
 | 12 | `[GT_ODR:direct-junc-log]` | `OpenDrive::CheckJunctionConnection`(direct junction 検査) | ~:6684-6689 | 5 | **クラッシュ修正(upstream fmt バグ)**: direct junction の linkedRoad 逆接続検査の LOG_ERROR がプレースホルダ 2 個/引数 1 個 → ログ出力中に `fmt::format_error`(argument not found)が throw されロード全体を殺していた(公式 Ex_Slip_Lane、upstream RoadManager.cpp:6621 と同一)→ 引数補完。不正接続自体は従来どおり return -1 で棄却 | **高**(明白な upstream バグ) |
 | 13 | `[GT_ODR:junc-crossing]`(×2: type dispatch + IsOsiIntersection ガード) | `OpenDrive::ParseOpenDriveXML`(junction ループ)+ `Junction::IsOsiIntersection` | ~:5442-5448 / ~:5947-5952 | 13 | **P5 crossing junction 対応**: ①`@type="crossing"` を既知型として認識(WARN + DEFAULT 維持、hpp enum 凍結。roadSection は GT 側 OdrJunctionExtras で捕捉)。②IsOsiIntersection の空/nullptr connection の else 分岐を `return true`→`return false` に(接続ゼロの junction=crossing/virtual は roadSection/crossPath を持ち connection を持たないため、ゴースト intersection レーンを生まない)。全コントロール資産は connection を持つため後者は no-op(P5 で機械証明: `--profile full --update-golden` 後、コントロールセットの OSI ゴールデンが**バイト同一**=空connection分岐に入った資産ゼロ。crossPath フィクスチャの OSI ゴールデン 3 本のみ新規) | **PR-3**(中、junc-abort 隣接) |
+| 14 | `[GT_ODR:curvelocal]`(×2: 単数 outline 形受入 + curveLocal else-if) | `OpenDrive::ParseOpenDriveXML`(object outline ループ + corner 子ループ) | ~:5199-5205 / ~:5236-5240 | 12 | **P7 1.9 `<curveLocal>` アウトライン対応**: ①**単数 `<object><outline>` 形の受入**(上流は `<outlines><outline>` の複数形のみ読取。g4 フィクスチャは単数形を使う): container を `outlines_node ? outlines_node : object` に切替え、outline 兄弟を **名前指定** `next_sibling("outline")` で反復(複数形資産はビット同一 — 上流の `<outlines>` 内は `<outline>` のみのため無名反復と等価)。②corner 子ループに `curveLocal` の else-if を追加、ロジックは持たず `gt_esmini::odr::AppendCurveLocalCorners(corner_node, r, obj, outline, next_corner_id)` に全委譲(arc/line/paramPoly3 を弧長でテッセレート → OutlineCornerLocal 群を outline へ直接追加、実装は WP2 の `odr_side/OdrObjectExtras.cpp`)。`next_corner_id` は現 outline の corner 数から採番。cornerRoad/cornerLocal 経路は不変。**注**: WP1/WP2 は corner ループを form-agnostic と仮定していたが実際の上流フォークは複数形限定だったため、g4(単数形)を機能させるべく単数形受入を curvelocal ブロックに内包(当初 ~10 行想定から +2 パッチ相当) | しない(GT専用、上流に curveLocal / 単数 outline 未対応) |
+| 15 | `[GT_ODR:repeat-cubics]`(×1) | `RMObject::GetRepeatInstances`(離散 repeat ループ) | ~:5776-5778 | 3 | **P7 1.9 repeat 横方向三次多項式 + detach 対応**: 離散 repeat インスタンスの線形 t 算出後・`pos.SetTrackPosMode` 直前に `gt_esmini::odr::AdjustRepeatInstancePose(this, road, cur_s, factor, ri.s, ri.t)` を挿入(factor = 正規化フラクション ∈[0,1])。@bT/@cT/@dT の三次 + detachFromReferenceLine を s/t に適用(実装は WP2 の `odr_side/OdrObjectExtras.cpp`)。ヘルパは横多項式レコードを持たないレガシーオブジェクトに対し**即 false・s/t 無改変**を返すため既存経路はビット同一。連続アウトライン経路(`CreateContinuousRepeatOutline`)は対象外(文書化済みスコープ) | しない(GT専用、上流に repeat 三次未対応) |
 
-- **`[GT_ODR:` マーカー出現数: 17**(hook×2 / country-rev×1 / junc-abort×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2)+ CMake 側 `[GT_ODR:cmake]`×2 箇所
-- **フォーク追加/変更行数: 75 / 150**(include 1 + country-rev 2 + junc-abort 3 + hook 5 + obj-roadsurface 5 + lane-types 5 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 13) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13
+| 16 | `[GT_ODR:lane-layers]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、lanes 選択点) | ~:4093-4094 | 2 | **P8 1.9 レーンレイヤ対応**: `road_node.child("lanes")`(第 1 ノードのみ読取=第 2 `<lanes layer>` の黙殺、最後のサイレント欠落クラス)を `gt_esmini::odr::SelectLanesLayer(road_node, this)` の薄いデリゲートに置換。permanent モード(デフォルト)= permanent ノードを**無コピー・同一ノードで**返す(AddLane/SetGlobalId の DOM 反復順が完全不変 → レーングローバル ID 安定が構造的に自明)。temporary opt-in(env `GT_ODR_LANE_LAYERS=temporary`)= GT 側 `odr_side/OdrLaneLayers.cpp` が laneSection/laneOffset を s 範囲マージした合成 `<lanes>` DOM を返す(合成 document の寿命はインスタンス別サイドモデルが所有 — pending レジストリ→`OdrSideModel::merged_lanes_docs`)。設計判断 D1-D6 は §9 | しない(GT専用、上流 1.9 レイヤ未対応) |
+
+- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 21**(hook×2 / country-rev×1 / junc-abort×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×2 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**P6 リコンサイル後の全 `[GT_ODR:` リテラル総数 = 75**(古典 21 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 75`(ctest `MarkerCount` が本値をパース)。
+- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 88 / 150**(include 1 + country-rev 2 + junc-abort 3 + hook 5 + obj-roadsurface 5 + lane-types 5 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 100`(古典 88 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 94`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
 - 事前承認済みコンティンジェンシー残(未使用): **lane-border フォールバック ~8 は P2 で不使用のまま温存** — border→width 正規化は公開 `Lane::AddLaneWidth` 経由で GT 側(`odr_side/OdrLaneExtras.cpp` の `ApplyBorderWidths`)に実装。既存フック呼び出し `BuildSideModel(doc, this)` が P2 新設の型付きオーバーロード(`roadmanager::OpenDrive*`)へ **exact match で自動束縛**されるため、フォーク改変ゼロで実現。/ P6 分割ヘルパー ~25 / lane @direction ~25
 
 ## 2. 挙動影響(P1 検証で証明)
@@ -112,23 +116,30 @@
 version: 1
 baseline_upstream_tag: v3.4.0            # recorded at Stage 0b (merge d7821fd3); re-record: check_core_census.py record-baselines
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 71           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
+fork_odr_marker_total: 75           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
                                     # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
+                                    # P6-reconcile: +4 = P7 curvelocal(×2)+repeat-cubics(×1) + P8 lane-layers(×1)
+                                    # merged from dev_v0.12 (measured literal count = 75).
 fork_lht_marker_min: 1
 cmake_marker_total: 2
-fork_odr_expect_lines: 83           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 71) + residuals (12).
+fork_odr_expect_lines: 100          # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 88) + residuals (12).
                                     # S2 note: 75 -> 74 because the vj overlap re-aligned the junc-crossing dispatch diff
                                     # (13 -> 9; 3 lines re-attributed to vj-parse-junction as the recorded residual, 1 line
                                     # -- the virtual-branch closing brace -- now matches an equal snapshot line).
                                     # S5 note: 74 -> 83 = the +9 vj-lanes overlap residual (fork GetRoadConnectionByIdx
                                     # carries the [GT_LHT] else-if branch inside the shared vj-lanes block: fork 24 - pristine 15).
-fork_odr_drift_expect_lines: 77     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
+                                    # P6-reconcile note: 83 -> 100 = fork-only marker_census 71 -> 88 (+curvelocal 12
+                                    # +repeat-cubics 3 +lane-layers 2, P7/P8 merged from dev_v0.12) + residuals 12.
+                                    # MEASURED via check_core_census.py (not arithmetic): fork-only census sum 88 + 12 = 100 <= 150.
+fork_odr_drift_expect_lines: 94     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
                                     # lines. Differs from fork_odr_expect_lines because mirrored vj hunks (vj-move/vj-enter/
                                     # vj-connect/vj-parse-*/vj-synth/vj-path/vj-route + the SHARED 15 pristine vj-lanes lines)
                                     # are byte-identical in both files -> invisible to the file diff. Only fork-ONLY [GT_ODR:]
                                     # lines drift: hook/lane-types/direct-junc-log/junc-abort/junc-crossing/tl-gate/sig-*/
                                     # obj-roadsurface/country-rev + the fork-extra vj-lanes lines (the [GT_LHT] else-if branch,
-                                    # only its [GT_ODR:]-tagged/adjacent lines counted here). Measured 77; stays under budget.
+                                    # only its [GT_ODR:]-tagged/adjacent lines counted here) + P7/P8 fork-only curvelocal/
+                                    # repeat-cubics/lane-layers (all fork-only, pristine has no counterpart -> fully visible to
+                                    # the file diff). P6-reconcile: 77 -> 94 MEASURED via check_fork_drift.py --quiet.
 fork_line_budget: 150
 # --- combined budgets: rows sharing a budget_group are summed against one budget ---
 budget_groups:
@@ -213,7 +224,7 @@ second_class_files:
 fork_file:
   path: GT_esmini/src/road/GT_RoadManager.cpp
   pristine_counterpart: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-  marker_census:        # measured per-id fork-ONLY NONBLANK added lines vs the upstream snapshot; sum 71 + residuals 12 = fork_odr_expect_lines (83)
+  marker_census:        # measured per-id fork-ONLY NONBLANK added lines vs the upstream snapshot; sum 88 + residuals 12 = fork_odr_expect_lines (100)
     hook: 6             # include 1 + BuildSideModel call-site 5
     country-rev: 2      # init line 1 + condition-flip line 1 (flip line via legacy_sites)
     junc-abort: 3
@@ -228,6 +239,11 @@ fork_file:
                         # dispatch replacement re-aligned the diff at the declared overlap site: 3 crossing-block
                         # lead-in lines (close-brace + else-if + brace) now attribute to vj-parse-junction (the
                         # +3 overlap residual below) and 1 line matches an equal snapshot line. Fork code unchanged.
+    curvelocal: 12      # P7 (merged from dev_v0.12): 10 attributed to the two [GT_ODR:curvelocal] markers
+                        # (singular-outline comment + curveLocal else-if) + 2 via legacy_sites (the shared
+                        # <outline> sibling-by-name for-loop, one diff block below the marker comment). MEASURED.
+    repeat-cubics: 3    # P7 (merged): AdjustRepeatInstancePose insertion + comment, single marker. MEASURED.
+    lane-layers: 2      # P8 (merged): road_node.child("lanes") -> SelectLanesLayer delegate + marker. MEASURED.
   lht_census: 0         # S5: was 8. The [GT_LHT] Patch 1-A comment (5) + swapped-branch lines (3) in
                         # GetRoadConnectionByIdx are now WRAPPED by the shared [GT_ODR:vj-lanes-begin/end]
                         # block -> the census attributes them to vj-lanes (block form takes precedence over
@@ -239,9 +255,14 @@ fork_file:
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4930-4930"    # S4 shift: +43 ([vj-connect] GetConnectingLaneId + 2 IsDirectlyConnected hunks above)
+      fork_lines: "4931-4931"    # P6-reconcile shift: 4930 -> 4931 (P7 hunks above shifted the flip line by +1)
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
+    - marker: curvelocal
+      fork_lines: "5290-5291"    # P6-reconcile (P7 merged): the singular-<outline> sibling-by-name for-loop
+      count: 2                   # (`for (... outline_node = outline_container.child("outline"); ...)`), one diff
+                                 # block below the [GT_ODR:curvelocal] marker comment (5285-5286). The marker'd
+      note: "singular-outline for-loop; the [GT_ODR:curvelocal] marker comment sits one diff block above (attributes the other 10 lines). Attributed here so curvelocal totals 12 (matches the §1 fork table)."
     # S5: the 3 GT_LHT legacy_sites (fork 6052/6054/6058) were REMOVED -- the [GT_LHT] Patch 1-A code in
     # GetRoadConnectionByIdx is now inside the [GT_ODR:vj-lanes] block (block-form attribution) and counted
     # as the vj-lanes overlap residual (9), not as loose LHT seam lines.
@@ -323,3 +344,47 @@ exclusions:
       excluded from the VJ invariance contract until the odr_side link repair lands.
 ```
 <!-- GT-2ND-CLASS-MANIFEST-END -->
+
+## 8. P7 追加分の挙動影響(2026-07-04)
+
+**フォーク追加行数: +15 / 150(75 → 90)。** WP3 は 2 パッチ(curvelocal 12 + repeat-cubics 3)を追加。挙動ロジックはいずれも WP2 の GT ヘルパ(`odr_side/OdrObjectExtras.cpp`)へ委譲しフォーク外に閉じるが、curvelocal は上流が単数 `<object><outline>` 形を読まない実態が判明したため、単数形受入(container 切替 + `next_sibling("outline")`)を同ブロックに内包した(WP1/WP2 の「corner ループは form-agnostic」という仮定の是正 — 当初 ~10 行想定を超過)。
+
+- パッチ 14(curvelocal): 既存全 xodr 資産に `<curveLocal>` トークン無し(リポジトリ xodr ユニバース全 grep = ヒットはテストフィクスチャ `g4_curvelocal_corner_19.xodr` と公式 `Ex_SmoothObjectOutline` のみ、コントロール/本番資産 0 件)→ curveLocal else-if は既存資産で一度も入らず、cornerRoad/cornerLocal 経路は完全不変。単数形受入も複数形資産では `next_sibling("outline")` が上流の無名 `next_sibling()` と等価(`<outlines>` 内は `<outline>` のみ)につきビット同一。**レガシー資産はビット同一**(RM ゴールデン不変で証明。RM 抽出はオブジェクトをダンプしないため g4 の RM ゴールデンも不変)。意図された挙動変化は g4 の OSI stationary polygon が base_polygon **0 点(degenerate)→ 16 点(ccw、非退化)** へ = 2 本の curveLocal 弧(各 length 6.283、max 1.0m/seg)のテッセレーションが OSI に通ったことの実証。OSI ゴールデンは WP4 以降で新規化(現状 MISSING)。
+- パッチ 15(repeat-cubics): 既存全 xodr 資産に repeat `@bT/@cT/@dT` トークン無し(リポジトリ xodr ユニバース全 grep = ヒットはテストフィクスチャ `12_repeat_lateral_poly_19.xodr` のみ、コントロール/本番資産 0 件)→ `AdjustRepeatInstancePose` は横多項式レコードを持たない全レガシーオブジェクトに対し**即 false・s/t 無改変**を返す高速経路をたどり、`GetRepeatInstances` の離散インスタンス s/t は完全不変。**レガシー資産はビット同一**(RM ゴールデン不変で証明。連続アウトライン経路 `CreateContinuousRepeatOutline` は非対象)。12_repeat フィクスチャの OSI 観測は stationary count=1・base_polygon 482 点(連続アウトライン経路由来、パッチ対象外)、横シフト自体は WP2 単体テスト(`AdjustRepeatInstancePose.*`)が機械検証。
+
+### 8.1 WP4: 旗付き authored junction boundary → OSI 交差点輪郭(クラスタ8/9 L3、コミット 47cb8a32)
+
+コアフォーク**追加ゼロ**(90/150 不変・マーカー20 不変・EnvironmentSimulator diff ゼロ)。実装は GT 側 `OdrJunctionGeom.cpp`(WP2 の L1 boundary 格納を世界座標ポリラインへ評価する `BuildAuthoredJunctionBoundaryPolyline()`)+ `GT_OSIReporter.cpp`(継承 `UpdateOSIIntersection()` 後の後段パス `ApplyAuthoredJunctionBoundaries()`)に閉じる。
+
+- **フラグ `GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY`(デフォルト OFF)**: 1/true/yes/on で ON。OFF は完全 no-op(後段パスが即 return) → **既存 OSI ゴールデン全件バイト同一**(コントロールセット + フィクスチャとも不変)。ON 時のみ、`IsOsiIntersection` かつ buildable な polyline を持つ junction について、交差点レーンの `free_lane_boundary_id` リストを合成 `osi3::LaneBoundary` 1 本(id は CommonMini `GetNewGlobalId()` の単調カウンタで衝突なし)で置換。
+- **type="lane" セグメント評価**: 参照 road の boundaryLane OUTER エッジ(符号付き t=sign(lane)*GetOuterOffset)を sStart→sEnd(start/begin→0・end→length・数値)で `Position::SetTrackPos` により ≤2m ステップサンプリング(スパン当り ≥2 点、接触点 degenerate は 1 点)。type="joint" は文書化された no-op(連続レーンセグメント間の直線接続)。dangling/degenerate 参照は WARN+false で呼出側が heuristic を温存。
+- **検証(WP5)**: `scripts/probe_authored_junction_boundary.py` が OFF/ON の 2 走行を比較 — 手書き authored-boundary フィクスチャで **OFF free_lane_boundary=[29,37,47,59](各 12 点の heuristic)→ ON=[62](authored 輪郭 1 本・4 点)** を機械アサート(両アサート pass)。プログラム的 `SetUseAuthoredJunctionBoundary(bool)` オーバーライドで単体テスト可能。
+
+### 8.2 WP5 最終検証(2026-07-04、受入ゲート i〜vii)
+
+- **(i) GT_RoadGen 公式ジオメトリ資産**: Ex_SmoothObjectOutline_traffic_island / Ex_TrafficIsland-CornerRoad / Ex_Objects / Ex_CrossSectionSurface 4 本 / UC_RoadShape の計 8 資産すべて **exit 0・.osgb > 4KB**(最小 UC_RoadShape=4358B、最大 Ex_Objects=77838B)。
+- **(iii) ゴールデンレビュー**: 新規 9 本のみ(RM 23/24/25/26/g8 + OSI g4/10/11/26)。g4 OSI base_polygon=16pt ccw、11_bridge stationary type2(TYPE_BRIDGE)×1、10_object_reference stationary×2、26_object_details stationary×3(非クラッシュ証明)、23/24 RM z_probe=±0.059988@t=±3(解析 rm_expect_z 一致)。既存ゴールデンは `--update-golden` 後も全件 CRLF ゴーストのみ(`git diff` 空)=回帰ゼロ。full profile **233P/0F/13XF/0XP**。
+- **(iv) 1.4/1.5 コントロール .osgb サイズ帯**: fabriksgatan/e6mini/straight_500m を P7 exe と dev_v0.12 baseline exe で生成 → **3 資産ともバイト同一(0.0000% 差)**。
+- **(vi) 不変スイート**: Release ビルド 0 error、unit ctest **163/163**、conformance full 緑、回帰ゲート(Step1/1.5 緑・Step2 は既知 TL 2 件=`red_stop_green_go`/`green_no_stop` のみ fail=dev 基準一致・他 9 件 pass)、validate_catalog **61/61**、quick smoke(esmini/replayer/odrviewer)3/3、フラグ probe OFF/ON 両アサート pass。
+- **(vii) ジオメトリフィクスチャのビューア確認**: 7 フィクスチャ(g4/11/10/26/24/23/g8)を odrviewer `--capture_screen` で撮影 — bridge span・objectReference 2 本のポール・object_details のボックス群・g8 の X 交差点を目視確認。23/24 の断面傾斜(superelevation 劣化、z≈0.06m@t=3)は微小につき既定アングルでは非可視(道路ジオメトリ自体は正常描画)。
+
+## 9. P8 追加分の挙動影響+設計判断(2026-07-04)
+
+**フォーク追加行数: +2 / 150(90 → 92)・マーカー 21。** 計画見込み ~22 行に対し実績 2 行: フックは `road_node.child("lanes")` → `SelectLanesLayer(road_node, this)` の置換のみで、レイヤ選択・s 範囲マージ・合成 DOM 所有・L1 格納の全量を GT 側 `odr_side/OdrLaneLayers.cpp`(新規、既存 `[GT_ODR:cmake]` APPEND リストへ 1 行追加 — マーカー数 2 不変)に委譲した。
+
+### 9.1 設計判断(審査済み設計の実装確定)
+
+- **D1 モード選択機構**: 環境変数 `GT_ODR_LANE_LAYERS`(未設定/`permanent`=デフォルト、`temporary`=opt-in マージ、大文字小文字非区別、未知値 WARN+permanent)。**プロセス毎に 1 回ラッチ**(実行時切替なし=走行ごと再パースの Web ランナー運用と一致)。理由: RM のみのエントリポイント(esminiRMLib / rm_lib.py / GT_RoadGen)は GT 設定ローダを通らないため、全経路で機能する唯一の低侵襲機構。単体テスト用に `SetLaneLayerModeForTest`/`SetLaneLayerModeUseEnv` オーバーライド(P7 WP4 の旗イディオム踏襲)。
+- **D2 マージ意味論(境界セクション)**: temporary 被覆範囲 [t0,t1](t0=temp 最小 laneSection s、t1=最終 temp セクション s+@length、無ければ道路端)。合成 `<lanes>` = permanent(s<t0)+ temporary 全部 + permanent(s≥t1)、laneOffset も同一規則。**境界規則**: t1 に一致する permanent セクションが無い場合、t1 時点で活性な permanent セクションを deep copy+s:=t1 で再オープンし、width は Taylor シフト(a'=a+b·ds+c·ds²+d·ds³ …)・height/roadMark は sOffset 繰り上げで再アンカー。laneOffset も同様に t1 で Taylor 再アンカー。中間 @length が次セクション s と不一致なら WARN(被覆は連続とみなす)。**両公式フィクスチャ(Ex_Lane_MultiLaneLayer [40,360] / Ex_Motorway_roadworks [2000,5083])は t0/t1 とも permanent セクション境界と一致するため再オープン経路は資産では不発** — 純ロジック単体テスト(test_OdrLaneLayers)で担保。出力順 = laneOffset 昇順 → laneSection 昇順(グローバル ID 決定性)。
+- **D3 合成 DOM 寿命**: pending レジストリ(RegistryMutex 共有、(OpenDrive*, road_id) キー、SelectLanesLayer が生成・キャッシュ=再呼出しは同一ノード)→ 型付き `BuildSideModel` 完了時に `OdrSideModel::merged_lanes_docs` へ移動(サイドモデルと同寿命 = フォークのパースより長生き)。`ClearSideModel` は両方クリア。
+- **D4 invalidated の OSI 扱い**: **論理層から除外** — invalidated 信号は OSI TrafficSign/TrafficLight に出力しない(打ち消された規制は ground truth の論理標識ではない)。物理表現の論点は**不発生**(esmini は標識ボードを StationaryObject として出力する経路を持たない)。invalidated **object** は StationaryObject 出力から除外(1.9 意味論=モデル上無効)。**temporary フラグは L1 情報のみ(挙動・出力への影響ゼロ)**。
+- **D5 VD**: RouteSignalScan(ScanSignalsAhead)の 1 箇所フィルタで StopYieldSignAware / TrafficLightAware の両ポリシーをカバー(両者は scan 出力を消費、独自反復なし)。「打ち消し標識に従わない」が意味論の本体 — 挙動フィクスチャ `invalidated_stop_sign_ignored`(P4 の semantic stop sign の invalidated 版、min_speed_above 8.0 + speed_above 12.0 で無停止を機械検証)。RouteCrosswalkScan は invalidated crosswalk をスキップ(P5 合成 CROSSWALK は extras 無し=null 経路で不影響)。
+- **D6 側モデルの一貫ビュー**: `ParseLaneExtras` は SelectLanesLayer の返す同一ノードを歩く(RM 構造と extras の食い違い防止)。監査(OdrCoverageAudit)は**オリジナル doc** を歩く(authored ファイルの監査が目的、合成 DOM は対象外)。
+
+### 9.2 挙動影響
+
+- **既存資産(単一 `<lanes>`)**: SelectLanesLayer は子 `<lanes>` が 1 個以下なら同一ノードを即返し(モード不問)→ **全コントロール資産でビット同一**。permanent モードは複数レイヤ資産でも第 1 非 temporary ノードを無コピー返却 → AddLane/SetGlobalId(:2388/:1252、DOM 反復順の逐次割当)が完全不変 = **OSI レーングローバル ID 安定**。機械検証: `golden/lane_global_ids.json`(test_OdrLaneLayers.GlobalIdStability、道路先頭レーン基準のオフセット正規化、GT_ODR_PROBE_UPDATE=1 で更新)+ コントロールセット RM/OSI ゴールデン不変。
+- **期待フリップ(意図された変化)**: manifest `expected_unsupported_entries` — `g2_lanes_layer_19`(road/lanes@layer、laneSection@length)と `temporary_invalidated_19`(signal/object@temporary/@invalidated ×4)が **[] にフリップ**(ホワイトリスト 659→676 ペア、gen_odr_whitelist.py 再生成)。両 rev9 公式ファイル+g2+06 で [ODR-UNSUPPORTED]==0(要素+属性)。
+- **マージ証明点(RM プローブ実測、esminiRMLib 経由=フォーク実効)**: MultiLaneLayer road 1 lane -3 幅 @s=50: permanent **3.75** / temporary **3.625**、s=10/370 は両モード一致(範囲外)。roadworks road 8 レーン数: permanent 全点 13 / temporary **s=100→13(範囲外=permanent 値)、s=2500→5、s=3500→6、s=4500→4、s=5500→13(範囲外=permanent 値)**。s=100/5500 の permanent 一致がマージの s 範囲境界の機械証明。
+- **クラスタ 22 の残余**: junction laneLink @fromLayer/@toLayer は P5 実装済みスロットで捕捉済み。P8 追加 = lane `<link><predecessor/successor @layer>`(OdrLaneExtras.link_layers、sparse)+ `<validity @layer>`(signal/object extras、sparse)+ laneSection @length(OdrRoadLaneLayers シャドウ、L1 情報のみ=esmini は自前計算)。
+- **rev9 の type 無し center lane**: :4147-4149 の LOG_ERROR は P1/P2 で抑止されて**いない**(申し送りの前提誤り)が、全対象フィクスチャの center lane は type="none" を明示するためスパム新規発生なし(フォーク無改変で据置)。
