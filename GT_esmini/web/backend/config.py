@@ -55,6 +55,8 @@ if PACKAGED:
 
     GT_SIM_EXE = PACKAGE_ROOT / "bin" / "GT_Sim.exe"
     ESMINI_RM_LIB = PACKAGE_ROOT / "bin" / "esminiRMLib.dll"
+    # GT_esminiLib.dll carries the GT ODR side-model metadata C API (plan P9a).
+    GT_ESMINI_LIB = PACKAGE_ROOT / "bin" / "GT_esminiLib.dll"
     SCENARIOS_DIR = PACKAGE_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = PACKAGE_ROOT / "DriverScript"
     SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
@@ -72,6 +74,10 @@ else:
 
     GT_SIM_EXE = REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_Sim.exe"
     ESMINI_RM_LIB = REPO_ROOT / "DriverScript" / "bin" / "esminiRMLib.dll"
+    # GT_esminiLib.dll carries the GT ODR side-model metadata C API (plan P9a).
+    # Mirrors ESMINI_RM_LIB's layout: the build copies it next to esminiRMLib.dll
+    # under DriverScript/bin/ (also present at build/GT_esmini/Release/).
+    GT_ESMINI_LIB = REPO_ROOT / "DriverScript" / "bin" / "GT_esminiLib.dll"
     SCENARIOS_DIR = REPO_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = REPO_ROOT / "DriverScript"
     SCRIPTS_DIR = REPO_ROOT / "scripts"
