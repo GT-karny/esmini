@@ -8,7 +8,7 @@
 // comma-separated set of attributes the parser reads on that element; an empty
 // string means 'no attributes read' (container or attribute-less element).
 //
-// Counts: 275 element paths, 676 (path,attr) pairs.
+// Counts: 283 element paths, 696 (path,attr) pairs.
 
 // clang-format off
 static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
@@ -236,6 +236,11 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/planView/geometry/paramPoly3", "aU,aV,bU,bV,cU,cV,dU,dV,pRange"},
     {"road/planView/geometry/poly3", "a,b,c,d"},
     {"road/planView/geometry/spiral", "curvEnd,curvStart"},
+    {"road/railroad", ""},
+    {"road/railroad/switch", "id,name,position"},
+    {"road/railroad/switch/mainTrack", "dir,id,s"},
+    {"road/railroad/switch/partner", "id,name"},
+    {"road/railroad/switch/sideTrack", "dir,id,s"},
     {"road/signals", ""},
     {"road/signals/signal", "country,countryRevision,dynamic,hOffset,height,id,invalidated,length,name,orientation,pitch,roll,s,subtype,t,temporary,text,type,unit,value,width,zOffset"},
     {"road/signals/signal/dependency", "id,type"},
@@ -284,6 +289,9 @@ static const GtOdrWhitelistRow kGtOdrWhitelist[] = {
     {"road/surface/CRG", "file,hOffset,mode,orientation,purpose,sEnd,sOffset,sStart,tOffset,xOffset,yOffset,zOffset,zScale"},
     {"road/type", "s,type"},
     {"road/type/speed", "max,unit"},
+    {"station", "id,name,type"},
+    {"station/platform", "id,name"},
+    {"station/platform/segment", "roadId,sEnd,sStart,side"},
     {"vmsGroup", "id"},
     {"vmsGroup/_OpenDriveElement", ""},
     {"vmsGroup/vmsBoardReference", "groupIndex,signalId,vmsIndex"},

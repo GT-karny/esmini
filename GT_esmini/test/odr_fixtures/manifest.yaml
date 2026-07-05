@@ -13,7 +13,10 @@
 #                    official/* require the ASAM zips (requires: [asam_zips]) and are skip-eligible
 #                    when absent. expected{} freezes the P0 baseline; XPASS (expected fail but
 #                    passed) fails the run to force manifest acknowledgement.
-#   * expected/observed schema: pass|fail ; rm_init: pass|fail (crash is frozen as fail).
+#   * expected/observed schema: pass|fail ; rm_init: pass|fail|spec_fail (crash is frozen as fail).
+#     spec_fail = a load failure that IS the specified correct behavior (permanent design decision,
+#     e.g. <include>, plan sec 10-6 / P9a): observed fail -> PASS, silent load -> FAIL. Pair with
+#     `expected_diagnostics: [<substr>,...]` (all substrings must appear in the RM-worker log).
 
 meta:
   version: 1
@@ -277,16 +280,25 @@ fixtures:
   - road/include
   - road/include@file
   expected_unsupported_entries: []  # audit predicts ZERO entries
-  expected: {schema: pass, rm_init: fail}
+  expected: {schema: pass, rm_init: spec_fail}
   observed: {schema: pass, rm_init: fail}
+  expected_diagnostics:
+  - '[ODR-INCLUDE] <include> is not supported: hard error by permanent design decision'
   expected_notes: >-
-    P1 FLIP (rm_init pass -> fail): the [GT_ODR:hook] BuildSideModel call makes an <include> element a
-    hard parse error by design (gt_roadmanager_patches.md sec 2, patch 5); resolution decision deferred
-    to P9. The stale pre-flip golden (golden/rm/*16_include*) has been deleted. include is never itself
-    an [ODR-UNSUPPORTED]/[ODR-REMOVED-1.6] entry, so this fixture predicts ZERO audit entries.
+    PERMANENT SPEC (P9a, 2026-07-05, plan sec 10-6 decided -- user-approved default): <include> is a
+    hard parse error emitting the [ODR-INCLUDE] diagnostic. Classified PASS via rm_init: spec_fail
+    because the error IS the specified correct behavior (observed load fail == spec honored; a silent
+    load would be a FAIL). expected_diagnostics asserts the diagnostic actually fires, proving the
+    fixture fails for the RIGHT reason. Rationale: zero known real-world usage of <include>; resolution
+    would require file IO / recursion / a path-traversal security design with no consumer to justify it.
+    include is never itself an [ODR-UNSUPPORTED]/[ODR-REMOVED-1.6] entry, so this fixture predicts ZERO
+    audit entries.
   notes: >-
-    P1+P9 cluster 15 additionalData: include. Placed at road-level (g_additionalData tail of t_road).
-    file points at a nonexistent include; currently loaded silently (observed INIT:0).
+    P1+P9a cluster 15 additionalData: include. Placed at road-level (g_additionalData tail of t_road).
+    file points at a nonexistent include. P1 history: the [GT_ODR:hook] BuildSideModel call flipped
+    rm_init pass -> fail, making <include> a hard parse error by design (gt_roadmanager_patches.md sec 2,
+    patch 5); the stale pre-flip golden (golden/rm/*16_include*) was deleted. P9a finalized this as the
+    permanent spec (rm_init: fail -> spec_fail).
 - id: 17_userdata_dataquality_15
   path: GT_esmini/test/odr_fixtures/handauthored/17_userdata_dataquality_15.xodr
   source: handauthored
@@ -993,22 +1005,68 @@ fixtures:
   rev: '1.8'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 20
+  features:
+  - road/railroad
+  - station
+  - station@id
+  - station@name
+  - station@type
+  - station/platform
+  - station/platform@id
+  - station/platform@name
+  - station/platform/segment
+  - station/platform/segment@roadId
+  - station/platform/segment@sStart
+  - station/platform/segment@sEnd
+  - station/platform/segment@side
+  expected_unsupported_entries: ["road/type@country|ctx=4"]  # P9a: audit enforced; 1 known out-of-namespace leftover
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
-  expected_notes: ''
+  expected_notes: >-
+    P9a cluster 20 L1: two root <station> (H12/H13) with platform/segment rows, plus empty <railroad/>
+    on every road, are parsed into the OdrRailroad side model (OdrSideModel::stations). Stored and
+    queryable (GetStation) but INERT -- no runtime consumer (no rail runtime / no OSI / no policy).
+    expected_unsupported_entries was absent before P9a (audit unchecked); it is now enforced. The
+    railroad/station NAMESPACE is audit-zero; the single pinned entry (road/type@country on road 4)
+    is out-of-namespace (cluster ownership: road/type, NOT cluster 20) and is deliberately NOT
+    whitelisted in P9a -- deferred to P9b's whole-file zero-audit sweep.
 - id: official_ex_railway_switch
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_Railway-Switch/Ex_Railway-Switch.xodr
   source: official
   rev: '1.8'
   requires:
   - asam_zips
-  clusters: []
-  features: []
+  clusters:
+  - 20
+  features:
+  - road/railroad
+  - road/railroad/switch
+  - road/railroad/switch@name
+  - road/railroad/switch@id
+  - road/railroad/switch@position
+  - road/railroad/switch/mainTrack
+  - road/railroad/switch/mainTrack@id
+  - road/railroad/switch/mainTrack@s
+  - road/railroad/switch/mainTrack@dir
+  - road/railroad/switch/sideTrack
+  - road/railroad/switch/sideTrack@id
+  - road/railroad/switch/sideTrack@s
+  - road/railroad/switch/sideTrack@dir
+  - road/railroad/switch/partner
+  - road/railroad/switch/partner@name
+  - road/railroad/switch/partner@id
+  expected_unsupported_entries: []  # P9a: audit now enforced ZERO (railroad/switch whitelisted)
   expected: {schema: pass, rm_init: pass}
   observed: {schema: pass, rm_init: pass}
-  expected_notes: ''
+  expected_notes: >-
+    P9a cluster 20 L1: two <switch> (ids 12/32, cross-referencing partners) with mainTrack/sideTrack/
+    partner, plus empty <railroad/> on the remaining roads, are parsed into the OdrRailroad side model
+    (OdrSideModel::rail_switches). Stored and queryable (GetRailSwitch/GetRoadRailSwitches) but INERT --
+    no runtime consumer. <userData> with nested partRailML children is handled opaquely by the audit.
+    expected_unsupported_entries was absent before P9a (audit unchecked); it is now [] so the strict
+    zero-audit enforcement is on.
 - id: official_ex_roof_profile_1strip
   path: GT_esmini/test/odr_fixtures/official/examples/Ex_CrossSectionSurface/Ex_Roof_Profile_1Strip.xodr
   source: official

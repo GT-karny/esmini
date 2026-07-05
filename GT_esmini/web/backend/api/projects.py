@@ -305,6 +305,70 @@ async def get_road_geometry(project_id: str, scenario_file: str):
     return geometry
 
 
+async def _resolve_scenario_xodr(project_id: str, scenario_file: str):
+    """Resolve a project scenario file to its OpenDRIVE (.xodr) absolute path.
+
+    Shared by the road-geometry and odr-metadata endpoints. Raises HTTPException
+    (404/400) on the same conditions the road-geometry endpoint does.
+    """
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+
+    proj = await project_service.get_project(project_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    root = Path(proj.root_path)
+    xosc_path = root / scenario_file
+    if not xosc_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_file}")
+
+    try:
+        tree = ET.parse(xosc_path)
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="Failed to parse XOSC")
+
+    logic = tree.getroot().find(".//RoadNetwork/LogicFile")
+    if logic is None:
+        raise HTTPException(status_code=404, detail="No road file in scenario")
+
+    road_filepath = logic.get("filepath", "")
+    if not road_filepath:
+        raise HTTPException(status_code=404, detail="Empty road file path")
+
+    road_path = Path(road_filepath)
+    if not road_path.is_absolute():
+        road_path = (xosc_path.parent / road_filepath).resolve()
+    if not road_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Road file not found: {road_filepath}")
+
+    return road_path
+
+
+@router.get("/{project_id}/scenarios/{scenario_file:path}/odr-metadata")
+async def get_odr_metadata(project_id: str, scenario_file: str):
+    """Extract OpenDRIVE side-model metadata from the scenario's road file.
+
+    Surfaces parse warnings, userData, signal semantics, junction priorities,
+    crosswalks and railroad records recorded by the GT ODR fork (plan P9a).
+    Returns 404 if the scenario/road is missing, 503 if the GT_esminiLib
+    metadata DLL/wrapper is unavailable.
+    """
+    import asyncio
+
+    from GT_esmini.web.backend.services import odr_metadata_service
+
+    road_path = await _resolve_scenario_xodr(project_id, scenario_file)
+
+    try:
+        metadata = await asyncio.to_thread(
+            odr_metadata_service.extract_odr_metadata, road_path
+        )
+    except odr_metadata_service.MetadataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return metadata
+
+
 @router.get("/{project_id}/scenarios/{scenario_file:path}/docs")
 async def get_scenario_docs(project_id: str, scenario_file: str):
     """Get markdown documentation for a scenario file."""

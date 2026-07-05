@@ -103,6 +103,10 @@ bool BuildSideModelCore(const pugi::xml_document& doc, const void* opendrive_key
         // P5: junction pass (clusters 5/7/22 L1: crossPath/roadSection/priority/laneLink layers).
         detail::ParseJunctionExtras(root, *model);
 
+        // P9a: railroad/station pass (cluster 20 L1: <road>/<railroad>/<switch> + root <station>).
+        // Storage only, INERT (no runtime consumer); no stage-2 synthesis.
+        detail::ParseRailroad(root, *model);
+
         // P8: 1.9 lane-layer shadow storage (clusters 4/22 L1: multi-<lanes>/@layer). Sparse.
         detail::ParseLaneLayers(root, *model);
 

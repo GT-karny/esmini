@@ -114,7 +114,12 @@ public:
     std::vector<OdrLaneExtras>     lane_extras;
     std::vector<OdrSignalExtras>   signal_extras;
     std::vector<OdrJunctionExtras> junction_extras;
-    std::vector<OdrRailroad>       railroads;
+
+    // ---- P9a cluster 20 (OdrRailroad.cpp): railroad switches (per-road) + root-level stations. L1
+    // storage only, INERT -- stored and queryable but no runtime consumer (no rail runtime / no OSI /
+    // no policy); documented-inactive per plan §5 P9. ----
+    std::vector<OdrRailSwitch> rail_switches;
+    std::vector<OdrStation>    stations;
 
     // ---- P7 clusters 17/18/19 (OdrObjectExtras.cpp) ----
     std::vector<OdrObjectExtras>       object_extras;      // per-object family L1 (cluster 19)
@@ -208,6 +213,30 @@ const OdrJunctionExtras* GetJunctionExtras(const void* opendrive_key, const std:
 // false (and leaves `out` untouched) when there is no side model or no entry for that junction. The
 // canonical junction-priority source for feature F3.
 bool GetJunctionPriorities(const void* opendrive_key, const std::string& junction_id, std::vector<OdrJunctionPriority>& out);
+
+// ---------------------------------------------------------------------------
+// P9a cluster 20 accessors (railroad/station). Implemented in odr_side/OdrRailroad.cpp, keyed on the
+// OpenDrive* registry key like the P5 junction accessors (upstream RoadManager stays pristine).
+//
+// IMPORTANT -- these expose L1 storage ONLY. The railroad/station data is stored and queryable but
+// INERT: there is NO runtime consumer (no rail runtime, no OSI output, no policy). This is
+// documented-inactive per plan §5 P9. Direct iteration over GetSideModel(key)->rail_switches /
+// ->stations stays available like other side-model data.
+// ---------------------------------------------------------------------------
+
+// The <switch>@id `switch_id` on road `road_id` (both AUTHORED strings), or nullptr when there is no
+// side model / no matching switch. Switch ids are unique within a road (per the railroad content
+// model), so (road_id, switch_id) is unambiguous.
+const OdrRailSwitch* GetRailSwitch(const void* opendrive_key, const std::string& road_id, const std::string& switch_id);
+
+// Copy every <switch> owned by road `road_id` into `out`. Returns false (leaving `out` untouched)
+// ONLY when there is no side model registered under `opendrive_key`; a road with an empty
+// <railroad/> (or none) yields true with an empty `out`.
+bool GetRoadRailSwitches(const void* opendrive_key, const std::string& road_id, std::vector<OdrRailSwitch>& out);
+
+// The root-level <station>@id `station_id` (authored string), or nullptr when there is no side model /
+// no matching station.
+const OdrStation* GetStation(const void* opendrive_key, const std::string& station_id);
 
 // ---------------------------------------------------------------------------
 // P7 accessors (clusters 8/9/17/19). All keyed on the OpenDrive* registry key like the P5 junction

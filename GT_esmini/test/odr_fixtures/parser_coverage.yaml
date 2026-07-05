@@ -897,6 +897,29 @@ elements:
   - path: road/planView/geometry/spiral
     attrs: [curvStart, curvEnd]
     evidence: "3961-3965"
+  # ---- P9a cluster 20: <road>/<railroad>/<switch> (railway switch). L1 store in OdrSideModel::
+  # rail_switches (OdrRailroad.cpp), INERT -- queryable via GetRailSwitch/GetRoadRailSwitches, no
+  # runtime consumer (no rail runtime / no OSI / no policy). Documented-inactive per plan §5 P9. ----
+  - path: road/railroad
+    attrs: []
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "Container for <switch> children (t_road_railroad). No attrs. Present (often empty <railroad/>) on many official rail files; whitelisted so the audit descends to <switch> and the empty form stays warning-free."
+  - path: road/railroad/switch
+    attrs: [id, name, position]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "t_road_railroad_switch. @position (dynamic|straight|turning). Stored L1 in OdrRailSwitch (INERT)."
+  - path: road/railroad/switch/mainTrack
+    attrs: [dir, id, s]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "The linked main track (t_road_railroad_switch_mainTrack). @dir (+|-). Stored L1 in OdrSwitchTrackLink."
+  - path: road/railroad/switch/sideTrack
+    attrs: [dir, id, s]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "The linked side track (t_road_railroad_switch_sideTrack). @dir (+|-). Stored L1 in OdrSwitchTrackLink."
+  - path: road/railroad/switch/partner
+    attrs: [id, name]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "Optional partnering switch (t_road_railroad_switch_partner). Stored L1 (has_partner gate)."
   - path: road/signals
     attrs: []
     evidence: "4759-4765"
@@ -1114,6 +1137,21 @@ elements:
     attrs: [max, unit]
     evidence: "3867-3895"
     notes: "Optional. @max converted to m/s by @unit (km/h, mph, m/s); unknown unit -> LOG_WARN + UNDEFINED (3888)."
+  # ---- P9a cluster 20: root-level <station>/<platform>/<segment> (railway/tram station). L1 store in
+  # OdrSideModel::stations (OdrRailroad.cpp), INERT -- queryable via GetStation, no runtime consumer.
+  # Documented-inactive per plan §5 P9. ----
+  - path: station
+    attrs: [id, name, type]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "Root-level <station> (t_station). @type (small|medium|large). Stored L1 in OdrStation (INERT)."
+  - path: station/platform
+    attrs: [id, name]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "t_station_platform. Stored L1 in OdrStationPlatform."
+  - path: station/platform/segment
+    attrs: [roadId, sEnd, sStart, side]
+    evidence: "OdrRailroad.cpp ParseRailroad (P9a cluster 20 L1)"
+    notes: "t_station_platform_segment: the s-range (@sStart..@sEnd) on @roadId, @side (left|right|both). Stored L1 in OdrStationSegment."
 summary:
   # 2026-07-02 (plan P1 OdrCoverageAudit): +9 whitelist-only paths added on top of the
   # original 78 audited-read paths. 8 are intermediate CONTAINERS the parser navigates by

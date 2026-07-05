@@ -874,3 +874,144 @@ class EsminiRMLib:
     def GetOptionSet(self, name):
         """Check if option is set."""
         return self.lib.RM_GetOptionSet(name.encode('utf-8'))
+
+
+import json
+
+
+class GtOdrMetadataLib:
+    """Wrapper over the GT ODR side-model JSON C API (P9a).
+
+    Exposes the GT-owned OpenDRIVE "side model" (version/audit, userData/dataQuality,
+    signal semantics, junction priorities, crossPaths, railroad switches/stations)
+    as Python dicts. Backed by GT_esminiLib.dll's GT_RM_* exports; see
+    GT_esmini/src/core/GT_esminiRMLib.cpp.
+
+    Loads the DLL via ctypes.CDLL. GT_RM_Init loads an .xodr into the internal
+    RoadManager (this also builds the side model via the GT fork hook), and each
+    GT_RM_GetXxxJson getter serializes one category of the whole document to UTF-8
+    JSON using the two-call size-then-fetch buffer protocol.
+
+    Public getter names (GetOdrAuditJson / GetUserDataJson / GetSignalSemanticsJson /
+    GetJunctionPrioritiesJson / GetCrosswalksJson / GetRailroadJson) are a FROZEN
+    contract consumed by the web backend -- do not rename.
+    """
+
+    # The six JSON getters share one signature: (char* buffer, int bufferSize) -> int.
+    _JSON_FUNCS = (
+        "GT_RM_GetOdrAuditJson",
+        "GT_RM_GetUserDataJson",
+        "GT_RM_GetSignalSemanticsJson",
+        "GT_RM_GetJunctionPrioritiesJson",
+        "GT_RM_GetCrosswalksJson",
+        "GT_RM_GetRailroadJson",
+    )
+
+    def __init__(self, lib_path):
+        """Initialize the wrapper.
+
+        Args:
+            lib_path (str): Path to GT_esminiLib.dll (the DLL carrying the GT_RM_* exports).
+
+        Raises:
+            FileNotFoundError: lib_path does not exist.
+            AttributeError: the DLL loaded but lacks the P9a GT_RM_GetXxxJson exports
+                (i.e. an older build). Surfaced with a clear message by callers.
+        """
+        if not os.path.exists(lib_path):
+            raise FileNotFoundError(f"GT_esminiLib not found at: {lib_path}")
+
+        try:
+            self.lib = ctypes.CDLL(lib_path)
+        except OSError as e:
+            print(f"Failed to load library: {e}")
+            raise
+
+        self._has_close = hasattr(self.lib, "GT_RM_Close")
+        self._setup_signatures()
+
+    def _setup_signatures(self):
+        # int GT_RM_Init(const char* odrFilename);
+        self.lib.GT_RM_Init.argtypes = [ctypes.c_char_p]
+        self.lib.GT_RM_Init.restype = ctypes.c_int
+
+        # void GT_RM_Close();  (present in current builds; guarded for older DLLs)
+        if self._has_close:
+            self.lib.GT_RM_Close.argtypes = []
+            self.lib.GT_RM_Close.restype = None
+
+        # int GT_RM_GetXxxJson(char* buffer, int bufferSize);  -- fail loudly (not a
+        # traceback deep in a call) if an older build lacks these exports.
+        missing = [name for name in self._JSON_FUNCS if not hasattr(self.lib, name)]
+        if missing:
+            raise AttributeError(
+                "GT_esminiLib is missing the P9a ODR metadata exports "
+                f"({', '.join(missing)}); rebuild GT_esminiLib.dll (Protocol A)."
+            )
+        for name in self._JSON_FUNCS:
+            fn = getattr(self.lib, name)
+            fn.argtypes = [ctypes.c_char_p, ctypes.c_int]
+            fn.restype = ctypes.c_int
+
+    # =========================================================================
+    # Initialization / Management
+    # =========================================================================
+
+    def Init(self, xodr_path):
+        """Load an OpenDRIVE file (also builds the GT side model). Returns 0 on success, -1 on failure."""
+        return self.lib.GT_RM_Init(xodr_path.encode("utf-8"))
+
+    def Close(self):
+        """Release resources. No-op when the DLL predates GT_RM_Close (the underlying
+        OpenDrive is statically managed, so no explicit teardown is required)."""
+        if self._has_close:
+            self.lib.GT_RM_Close()
+
+    # =========================================================================
+    # JSON getters (two-call size-then-fetch protocol)
+    # =========================================================================
+
+    def _get_json(self, fn):
+        """Run the uniform buffer protocol against `fn` and return the parsed dict.
+
+        First calls fn(None, 0) to learn the required byte length; then allocates a
+        create_string_buffer(required + 1) and calls again to fetch. Returns {} when
+        the C function returns -1 (no map loaded / no side model). Never parses a raw
+        c_char_p (NUL-truncation trap) -- always uses a sized create_string_buffer.
+        """
+        required = fn(None, 0)
+        if required < 0:
+            return {}
+        if required == 0:
+            return {}
+        buf = ctypes.create_string_buffer(required + 1)
+        written = fn(buf, required + 1)
+        if written < 0:
+            return {}
+        # buf.value stops at the first NUL, which is exactly our JSON payload end.
+        raw = buf.value.decode("utf-8")
+        return json.loads(raw)
+
+    def GetOdrAuditJson(self):
+        """Coverage-audit + version header dict. {} when no side model."""
+        return self._get_json(self.lib.GT_RM_GetOdrAuditJson)
+
+    def GetUserDataJson(self):
+        """userData / dataQuality blobs dict. {} when no side model."""
+        return self._get_json(self.lib.GT_RM_GetUserDataJson)
+
+    def GetSignalSemanticsJson(self):
+        """Per-signal side extras (semantics/dependencies/references/flags) dict."""
+        return self._get_json(self.lib.GT_RM_GetSignalSemanticsJson)
+
+    def GetJunctionPrioritiesJson(self):
+        """Junction <priority high low> lists (only junctions with priorities) dict."""
+        return self._get_json(self.lib.GT_RM_GetJunctionPrioritiesJson)
+
+    def GetCrosswalksJson(self):
+        """Flattened junction crossPath entries dict."""
+        return self._get_json(self.lib.GT_RM_GetCrosswalksJson)
+
+    def GetRailroadJson(self):
+        """Railroad switches + root-level stations dict (L1 / inert)."""
+        return self._get_json(self.lib.GT_RM_GetRailroadJson)

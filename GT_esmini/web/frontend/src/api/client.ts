@@ -14,6 +14,93 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // --- Types ---
 
+// --- OpenDRIVE side-model metadata (plan P9a) ---
+
+export interface OdrAuditWarnings {
+  version: { rev_major: number; rev_minor: number };
+  unsupported_elements: number;
+  unsupported_attributes: number;
+  removed16_hits: number;
+  entries: string[];
+}
+
+export interface OdrUserDataItem {
+  owner_path: string;
+  context_id: string;
+  xml: string;
+}
+
+export interface OdrSignalSemantics {
+  speeds: Array<{ type: string; value: number; unit: string }>;
+  lane_types: string[];
+  priority_types: string[];
+  prohibited: Array<{ kind: string; category: string }>;
+  warning_count: number;
+}
+
+export interface OdrSignal {
+  road_id: string;
+  signal_id: string;
+  has_semantics: boolean;
+  semantics: OdrSignalSemantics;
+  dependencies: Array<{ id: string; type: string }>;
+  references: Array<{ element_type: string; element_id: string; type: string }>;
+  temporary: boolean;
+  invalidated: boolean;
+}
+
+export interface OdrJunctionPriority {
+  junction_id: string;
+  type: string;
+  priorities: Array<{ high: string; low: string }>;
+}
+
+export interface OdrCrosswalk {
+  junction_id: string;
+  id: string;
+  crossing_road: string;
+  road_at_start: string;
+  road_at_end: string;
+  synth_object_id: number;
+}
+
+export interface OdrRailTrackRef {
+  id: string;
+  s: number;
+  dir: string;
+}
+
+export interface OdrRailSwitch {
+  road_id: string;
+  name: string;
+  id: string;
+  position: string;
+  main_track: OdrRailTrackRef;
+  side_track: OdrRailTrackRef;
+  partner: { name: string; id: string } | null;
+}
+
+export interface OdrRailStation {
+  id: string;
+  name: string;
+  type: string;
+  platforms: Array<{
+    id: string;
+    name: string;
+    segments: Array<{ road_id: string; s_start: number; s_end: number; side: string }>;
+  }>;
+}
+
+export interface OdrMetadata {
+  warnings: OdrAuditWarnings;
+  user_data: OdrUserDataItem[];
+  data_quality: OdrUserDataItem[];
+  signals: OdrSignal[];
+  junction_priorities: OdrJunctionPriority[];
+  crosswalks: OdrCrosswalk[];
+  railroad: { switches: OdrRailSwitch[]; stations: OdrRailStation[] };
+}
+
 export interface Scenario {
   id: string;
   filename: string;
@@ -482,6 +569,11 @@ export const api = {
   getRoadGeometry: (projectId: string, scenarioFile: string) =>
     request<{ boundaries: Array<{ road_id: number; type: string; points: [number, number][] }> }>(
       `/api/projects/${projectId}/scenarios/${scenarioFile}/road-geometry`,
+    ),
+
+  getOdrMetadata: (projectId: string, scenarioFile: string) =>
+    request<OdrMetadata>(
+      `/api/projects/${projectId}/scenarios/${scenarioFile}/odr-metadata`,
     ),
 
   // VirtualDriver verification (replay)

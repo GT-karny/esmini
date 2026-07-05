@@ -18,6 +18,18 @@ LAYERS
 Every probe runs in its OWN subprocess (the DLLs flood stdout and some xodr files
 CRASH the process); the worker writes its JSON result to a FILE, never stdout.
 
+MANIFEST EXPECTATION VALUES (per layer, `expected.{schema,rm_init}`):
+  pass       -- must load/validate cleanly.
+  fail       -- a known/frozen breakage (scored XFAIL; an unexpected pass is XPASS -> exit non-zero).
+  spec_fail  -- the load failure IS the specified correct behavior (permanent design decision, e.g.
+                <include>, plan sec 10-6 / P9a). observed fail -> PASS; observed pass (silent load)
+                -> FAIL. Pair with `expected_diagnostics` to prove it failed for the right reason.
+  (`crash` is accepted as an alias for `fail`.)
+
+`expected_diagnostics: ["<substr>", ...]` (rm layer): every substring MUST appear in the RM-worker
+log or the row FAILs -- e.g. the [ODR-INCLUDE] permanent hard-error diagnostic for fixture
+16_include_error_15.
+
 USAGE
 -----
   run_odr_conformance.py [--profile quick|full] [--update-golden] [--check-matrix]
@@ -137,9 +149,16 @@ def _load_json(path: str):
 
 
 def _norm_expect(v) -> str:
-    """Manifest expected values: pass|fail|crash -> pass|fail (crash frozen as fail)."""
+    """Manifest expected values: pass|fail|spec_fail|crash -> pass|fail|spec_fail.
+
+    `crash` is frozen as `fail`. `spec_fail` is preserved verbatim: it means "a load failure IS
+    the specified correct behavior" (currently only <include>, plan sec 10-6 / P9a) and is scored
+    by _cmp_status so that observed==fail is a PASS and observed==pass (silent load) is a FAIL.
+    """
     v = str(v).strip().lower()
-    return "fail" if v == "crash" else v
+    if v == "crash":
+        return "fail"
+    return v
 
 
 # ---------------------------------------------------------------------------
@@ -547,10 +566,19 @@ def layer_schema(entries: list) -> list:
 
 
 def _cmp_status(expected: str, observed: str) -> str:
-    """expected/observed in {pass, fail}. Map to PASS/FAIL/XFAIL/XPASS."""
+    """observed in {pass, fail}; expected in {pass, fail, spec_fail}. Map to PASS/FAIL/XFAIL/XPASS.
+
+      * expected pass       : observed pass -> PASS,  observed fail -> FAIL.
+      * expected fail        : a known/frozen (XFAIL) breakage. observed fail -> XFAIL, pass -> XPASS.
+      * expected spec_fail   : the failure IS the specified correct behavior (permanent design, e.g.
+                               <include>, plan sec 10-6 / P9a). observed fail -> PASS (spec honored),
+                               observed pass -> FAIL (spec violation: the file loaded silently).
+    """
     if expected == "pass":
         return PASS if observed == "pass" else FAIL
-    # expected == fail
+    if expected == "spec_fail":
+        return PASS if observed == "fail" else FAIL
+    # expected == fail  (frozen known-broken baseline)
     return XFAIL if observed == "fail" else XPASS
 
 
@@ -627,6 +655,12 @@ def layer_rm(entries: list, rmdll: str, update: bool) -> list:
         if audit_status is not None and audit_status.startswith("FAIL"):
             status = FAIL
             detail = (detail + " | " if detail else "") + "audit " + audit_status
+        # P9a: required-diagnostics gate (e.g. the [ODR-INCLUDE] permanent hard-error message). A
+        # missing diagnostic FAILs the row even if the load-fail itself was scored PASS (spec_fail).
+        diag_status = _diagnostics_check(e, res.get("_log", ""))
+        if diag_status is not None and diag_status.startswith("FAIL"):
+            status = FAIL
+            detail = (detail + " | " if detail else "") + "diagnostics " + diag_status
         rows.append({**e, "layer": "rm", "observed": observed_load, "status": status,
                      "golden": gstat, "detail": detail, "markers": markers,
                      "audit_status": audit_status})
@@ -883,13 +917,16 @@ def _diff_json(a, b, path=""):
 def _golden_compare(kind, repo_rel, extract, update, expected_load, observed_load, golden_suffix=""):
     """Returns (status, golden_status_str).
 
-    For fixtures whose expected load is fail (rm), no extract is produced; status is the
-    XFAIL/XPASS/PASS/FAIL of the LOAD comparison and golden is 'n/a (load-fail expected)'.
+    For fixtures whose expected load is fail OR spec_fail (rm), no extract is produced; status is the
+    PASS/FAIL/XFAIL/XPASS of the LOAD comparison and golden is 'n/a' (load-fail expected). `spec_fail`
+    (plan sec 10-6 / P9a, e.g. <include>) behaves exactly like `fail` here at the extract level -- the
+    load fails so `extract` is None either way -- but _cmp_status scores the failure as PASS.
     `golden_suffix` (P8) disambiguates same-path variant entries (see _golden_path).
     """
     load_status = _cmp_status(_norm_expect(expected_load), observed_load)
     if extract is None:
-        # No serialisable extract (load failed). Load comparison is the whole story.
+        # No serialisable extract (load failed, as expected for fail/spec_fail). Load comparison is
+        # the whole story.
         return load_status, "n/a"
     gpath = _golden_path(kind, repo_rel, golden_suffix)
     if update:
@@ -949,6 +986,22 @@ def _audit_check(entry: dict, markers: dict, log_text: str = ""):
             problems.append(f"expected_unsupported total {want_n} != observed {got_n}")
 
     return "ok" if not problems else "FAIL: " + "; ".join(problems)
+
+
+def _diagnostics_check(entry: dict, log_text: str):
+    """P9a: assert every substring in the manifest `expected_diagnostics` list occurs in the RM-worker
+    log. Returns None when nothing to enforce, "ok", or "FAIL: diagnostic missing: ...".
+
+    This proves the fixture failed for the RIGHT reason (e.g. the [ODR-INCLUDE] permanent hard-error
+    diagnostic), not merely that it failed. Pairs with `rm_init: spec_fail`.
+    """
+    wanted = entry.get("expected_diagnostics")
+    if not wanted:
+        return None
+    missing = [s for s in wanted if s not in (log_text or "")]
+    if missing:
+        return "FAIL: diagnostic missing: " + "; ".join(repr(s) for s in missing[:6])
+    return "ok"
 
 
 def run_fork_drift() -> dict:
@@ -1192,6 +1245,9 @@ def _assemble(manifest: dict, only: str):
             "requires": fx.get("requires") or [],
             "expected_unsupported": fx.get("expected_unsupported"),
             "expected_unsupported_entries": fx.get("expected_unsupported_entries"),
+            # P9a: substrings that MUST appear in the RM-worker log for this fixture (e.g. the
+            # [ODR-INCLUDE] permanent hard-error diagnostic). Missing any -> the RM row FAILs.
+            "expected_diagnostics": fx.get("expected_diagnostics"),
             # P2/P3: fixtures may opt into the OSI layer (manifest `osi: true`); optionally with the
             # zero-TYPE_UNKNOWN lane-classification acceptance check (`osi_expect_no_unknown: true`).
             "osi": bool(fx.get("osi")),

@@ -144,11 +144,15 @@ void WalkNode(const pugi::xml_node& node, const std::string& path, const std::st
     {
         if (std::strcmp(name, "include") == 0)
         {
-            // Hard error by design (plan P1). Clear diagnostic; do not descend.
+            // Hard error by PERMANENT design decision (plan sec 10-6, fixed in P9a). <include> resolution
+            // is intentionally not implemented: zero known real-world usage, and resolution would require
+            // file IO / recursion / a path-traversal security design with no consumer. Clear diagnostic;
+            // do not descend. (This is the specified correct behavior, NOT a deferred TODO.)
             std::string file = node.attribute("file").value();
             LOG_ERROR(
-                "[ODR-INCLUDE] <include> is not supported (hard error by design, plan P1; resolution "
-                "decision deferred to P9) file='{}' owner='{}'",
+                "[ODR-INCLUDE] <include> is not supported: hard error by permanent design decision "
+                "(plan sec 10-6, fixed in P9a; no known real-world usage -- resolution would require file "
+                "IO/recursion/security design with no consumer). file='{}' owner='{}'",
                 file,
                 path);
             st.found_include = true;

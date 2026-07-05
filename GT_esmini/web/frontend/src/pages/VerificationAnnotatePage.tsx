@@ -21,6 +21,7 @@ import {
 } from '../components/verification/ReplayTransport';
 import { RunListPanel, type RunFilter } from '../components/verification/RunListPanel';
 import { AnnotationLabelBar } from '../components/verification/AnnotationLabelBar';
+import { OdrMetadataPanel } from '../components/OdrMetadataPanel';
 
 const VERDICT_TEXT: Record<string, string> = {
   pass: 'text-success', fail: 'text-destructive',
@@ -301,6 +302,14 @@ export function VerificationAnnotatePage() {
           )}
 
           {frame && <TelemetryInfoRows frame={frame} />}
+
+          {selected?.project_id && selected?.scenario_file && (
+            <OdrMetadataPanel
+              key={`${selected.project_id}:${selected.scenario_file}`}
+              projectId={selected.project_id}
+              scenarioFile={selected.scenario_file}
+            />
+          )}
 
           {matchData && matchData.matches.length > 0 && (
             <MatchPanel matches={matchData.matches} onSelect={selectRun} />
