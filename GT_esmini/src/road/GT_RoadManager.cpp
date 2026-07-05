@@ -6043,13 +6043,25 @@ LaneRoadLaneConnection Junction::GetRoadConnectionByIdx(id_t roadId, int laneId,
                         lane_road_lane_connection.contact_point_ = connection->GetContactPoint();
                         lane_road_lane_connection.SetConnectingRoad(connection->GetConnectingRoad()->GetId());
                         lane_road_lane_connection.SetConnectingLane(lane_link->to_);
+                        // [GT_ODR:vj-lanes-begin] merged lane-section rule: a virtual-junction counter-connection
+                        // (branch->main) lands ON the connecting road at outgoing_contact_s_ (the anchor s on the
+                        // main road), so the target lane lives in the lane section AT that s -- pass it through on
+                        // contact_s_ so MoveToConnectingRoad places the re-entry there. Only when the connection
+                        // carries no anchor s (the ordinary case, outgoing_contact_s_ < 0) fall back to the
+                        // [GT_LHT] contactPoint end-section pick. Inert for every non-virtual connection.
+                        const double vj_contact_s            = connection->GetOutgoingContactS();
+                        lane_road_lane_connection.contact_s_ = vj_contact_s;
+                        unsigned int laneSectionIdx          = 0;
+                        if (vj_contact_s >= 0.0)
+                        {
+                            laneSectionIdx = connection->GetConnectingRoad()->GetLaneSectionIdxByS(vj_contact_s);
+                        }
                         // [GT_LHT] Patch 1-A: pick the lane section on the end of connectingRoad that
                         // the junction connection actually attaches to (its contactPoint), rather than
                         // guessing from the sign of lane_link->to_ (RHT-only assumption).
                         // contactPoint == START -> incoming side is at s=0 of connectingRoad -> first section.
                         // contactPoint == END   -> incoming side is at s=length of connectingRoad -> last section.
-                        unsigned int laneSectionIdx = 0;
-                        if (connection->GetContactPoint() == CONTACT_POINT_END)
+                        else if (connection->GetContactPoint() == CONTACT_POINT_END)
                         {
                             laneSectionIdx = connection->GetConnectingRoad()->GetNumberOfLaneSections() - 1;
                         }
@@ -6057,6 +6069,7 @@ LaneRoadLaneConnection Junction::GetRoadConnectionByIdx(id_t roadId, int laneId,
                         {
                             laneSectionIdx = 0;
                         }
+                        // [GT_ODR:vj-lanes-end]
                         Lane* lane = connection->GetConnectingRoad()->GetLaneSectionByIdx(laneSectionIdx)->GetLaneById(lane_link->to_);
 
                         if (lane == nullptr)
@@ -9964,6 +9977,27 @@ Position::XYZ2TrackPos(double x3, double y3, double z3, int mode, bool connected
                 {
                     change_direction = true;
                 }
+                // [GT_ODR:vj-connect-begin] elementDir merge rule for a virtual-junction anchor link (contactPoint
+                // UNDEFINED, so the END/START test above cannot fire): a '-' anchor is traversed s-decreasing across
+                // the join -> flip; '+'/UNKNOWN keep the heading. Covers BOTH an own elementS link (branch->main
+                // merge-back) and a registry anchor on the unsplit main road (main->branch), which carries no link.
+                for (LinkType lt : {LinkType::SUCCESSOR, LinkType::PREDECESSOR})
+                {
+                    RoadLink* vjl = current_road->GetLink(lt);
+                    if (vjl != nullptr && vjl->GetElementId() == roadMin->GetId() && vjl->GetElementS() >= 0.0 &&
+                        GetOpenDrive()->GetVirtualJunctionAtRoadS(roadMin->GetId(), vjl->GetElementS()) != nullptr)
+                    {
+                        change_direction = vjl->GetElementDir() == RoadLink::DIR_MINUS;
+                    }
+                }
+                for (const OpenDrive::VirtualJunctionAnchor& anchor : GetOpenDrive()->GetVirtualJunctionAnchors(current_road->GetId()))
+                {
+                    if (anchor.link_->GetElementId() == roadMin->GetId())
+                    {
+                        change_direction = anchor.dir_ == RoadLink::DIR_MINUS;
+                    }
+                }
+                // [GT_ODR:vj-connect-end]
             }
 
             // Now find closest lane at that lateral position, at updated s value
@@ -10696,6 +10730,38 @@ Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, Contact
     }
 
     double new_offset = offset_;
+    // [GT_ODR:vj-enter-begin] virtual-junction re-entry: a mid-road elementS link lands ON the main road at
+    // road_link->GetElementS() (NOT at s=0/length), in the lane section AT that s. The elementDir merge rule fixes
+    // BOTH the landing heading and the direction the remaining ds continues in: '+' -> the main road is traversed
+    // s-increasing across the join (heading 0, continue +s = START-like), '-' -> s-decreasing (heading PI = END-like),
+    // UNKNOWN -> keep the geometric heading with a WARN. contact_point_type is set so MoveAlongS's post-call ds-sign
+    // logic continues in the correct direction. Gated on the elementS landing s lying inside a virtual-junction span
+    // on the target road (GetVirtualJunctionAtRoadS != null) so an ORDINARY road link that merely carries an
+    // elementS attribute (spec-legal on 1.7+ links, e.g. official UC_ParamPoly3) keeps the upstream placement.
+    if (road_link->GetElementType() == RoadLink::ELEMENT_TYPE_ROAD && road_link->GetElementS() >= 0.0 &&
+        GetOpenDrive()->GetVirtualJunctionAtRoadS(next_road->GetId(), road_link->GetElementS()) != nullptr)
+    {
+        if (road_link->GetElementDir() == RoadLink::DIR_MINUS)
+        {
+            SetHeadingRelative(M_PI);
+            new_offset         = -offset_;
+            contact_point_type = ContactPointType::CONTACT_POINT_END;
+        }
+        else
+        {
+            if (road_link->GetElementDir() == RoadLink::DIR_UNKNOWN)
+            {
+                LOG_WARN("Virtual-junction re-entry on road {} at s={:.2f} lacks elementDir; assuming s-increasing heading",
+                         next_road->GetId(),
+                         road_link->GetElementS());
+            }
+            SetHeadingRelative(0.0);
+            contact_point_type = ContactPointType::CONTACT_POINT_START;
+        }
+        SetLanePos(next_road->GetId(), new_lane_id, road_link->GetElementS(), new_offset, next_road->GetLaneSectionIdxByS(road_link->GetElementS()));
+        return ret_val;
+    }
+    // [GT_ODR:vj-enter-end]
     if ((road_link->GetType() == LinkType::PREDECESSOR && contact_point_type == ContactPointType::CONTACT_POINT_START) ||
         (road_link->GetType() == LinkType::SUCCESSOR && contact_point_type == ContactPointType::CONTACT_POINT_END))
     {
@@ -10843,6 +10909,55 @@ Position::ReturnCode Position::MoveAlongS(double            ds,
     // move from road to road until ds-value is within road length or maximum of connections has been crossed
     for (int i = 0; done == false && i < max_links; i++)
     {
+        // [GT_ODR:vj-move-begin] mid-road virtual-junction branch: if the current road has registry anchors and
+        // one lies inside this step's traversal window (s_, s_+ds_road] (direction-aware) AND the active route
+        // demands that branch (its connecting road is a route waypoint), split the move at anchor_s, hand off to
+        // MoveToConnectingRoad from the anchor, then apply the remaining ds on the branch. The registry is EMPTY
+        // for every road in every non-virtual asset -> this is an O(1) empty-vector check on the hot path. No
+        // route, no windowed anchor, or no route demand -> fall straight through untouched (T2 invariant). The
+        // junctionSelectorAngle random tie-break (v1 out of scope for VJ) is never reached from here.
+        const std::vector<OpenDrive::VirtualJunctionAnchor>& vj_anchors = GetOpenDrive()->GetVirtualJunctionAnchors(track_id_);
+        if (!vj_anchors.empty() && route_ != nullptr && route_->IsValid())
+        {
+            for (const OpenDrive::VirtualJunctionAnchor& anchor : vj_anchors)
+            {
+                const bool forward   = ds_road >= 0.0;
+                const bool in_window = forward ? (anchor.anchor_s_ > s_ - SMALL_NUMBER && anchor.anchor_s_ <= s_ + ds_road + SMALL_NUMBER)
+                                               : (anchor.anchor_s_ < s_ + SMALL_NUMBER && anchor.anchor_s_ >= s_ + ds_road - SMALL_NUMBER);
+                if (!in_window)
+                {
+                    continue;
+                }
+                Road* branch = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_)->GetConnectingRoad();
+                bool  demand = false;
+                for (const Position& wp : route_->minimal_waypoints_)
+                {
+                    if (branch != nullptr && wp.GetTrackId() == branch->GetId())
+                    {
+                        demand = true;  // the branch continuation is a route waypoint -> the route turns here
+                        break;
+                    }
+                }
+                if (!demand)
+                {
+                    continue;
+                }
+                const double ds_remaining = ds_road - (anchor.anchor_s_ - s_);  // ds left once we reach the anchor
+                lane_section_idx_         = road->GetLaneSectionIdxByS(anchor.anchor_s_);
+                SetLanePos(track_id_, lane_id_, anchor.anchor_s_, offset_);  // land exactly on the anchor first
+                ContactPointType vj_contact = ContactPointType::CONTACT_POINT_UNDEFINED;
+                if (static_cast<int>(MoveToConnectingRoad(anchor.link_, vj_contact, junctionSelectorAngle)) < 0)
+                {
+                    break;  // could not enter the branch -> fall back to the normal end-of-road handling
+                }
+                // remaining ds runs along the branch in its s-direction (START contact '+' -> +s)
+                ds_road            = (vj_contact == ContactPointType::CONTACT_POINT_END) ? -fabs(ds_remaining) : fabs(ds_remaining);
+                signed_dLaneOffset = (vj_contact == ContactPointType::CONTACT_POINT_END) ? -dLaneOffset : dLaneOffset;
+                road               = GetOpenDrive()->GetRoadById(track_id_);
+                break;  // re-evaluate the (branch) road from the top of this same iteration's checks below
+            }
+        }
+        // [GT_ODR:vj-move-end]
         if (s_ + ds_road > GetOpenDrive()->GetRoadByIdx(track_idx_)->GetLength())
         {
             // beyond end of road, ensure last lane section

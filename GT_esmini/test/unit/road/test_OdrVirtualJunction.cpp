@@ -11,6 +11,12 @@
 // S3 [GT_ODR:vj-synth]/[vj-membership]/[vj-osi-class]: counter-connection synthesis, the anchor
 // registry (GetVirtualJunctionAtRoadS/GetVirtualJunctionAnchors), the T2 pass-through invariant,
 // membership pinning (span reports false/ID_UNDEFINED) and IsOsiIntersection(VIRTUAL)==false.
+//
+// S5 [GT_ODR:vj-move]/[vj-enter]/[vj-lanes] (T4): route-driven MoveAlongS across a mid-road anchor
+// (departure onto the branch + merge-back onto the main road), the T2 pass-through invariant held
+// exactly (no route -> straight through), the SetRoute+CalcRoutePosition no-crash case (S4 SEH),
+// the lockOnLane crossing test that replaces the S4 pinning test, and the 23b LHT fork-variant
+// pinning the GetRoadConnectionByIdx overlap semantics.
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -771,30 +777,40 @@ TEST(OdrVirtualJunction, Fixture23S4RouteBeforeAndAfterAnchor)
     Position::GetOpenDrive()->Clear();
 }
 
-// [GT_ODR:vj-connect] lockOnLane PINNING test (S4 DEFERRAL, manifest s4_deferrals): the lockOnLane
-// XYZ2TrackPos direction-flip is NOT yet elementDir-aware (deferred to S5). This test PINS the
-// current behavior so the deferral is explicit and a future S5 change is a visible diff: an XY probe
-// near the branch-off on the main road locks onto a lane on the main road (road 1) without crashing
-// and without a spurious cross onto the branch at the anchor.
-TEST(OdrVirtualJunction, Fixture23T5LockOnLanePinnedAcrossAnchor)
+// [GT_ODR:vj-connect] lockOnLane CROSSING test (S5, replaces the S4 pinning test): the elementDir-aware
+// direction flip is now live in XYZ2TrackPos. An XY probe near the branch-off on the main road still locks
+// sanely onto the main road (road 1) inside the VJ span WITHOUT a direction-flip mis-evaluation and WITHOUT
+// crashing; and a probe over road 2's geometry locks onto the branch. The point is that the elementDir merge
+// rule (contactPoint UNDEFINED on the elementS anchor link) no longer mis-fires the change_direction test.
+TEST(OdrVirtualJunction, Fixture23T5LockOnLaneCrossesAnchorSanely)
 {
     ASSERT_FALSE(RepoRoot().empty());
     ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
 
-    // Reference point on road 1 lane -1 just BEFORE the branch-off (s=98, inside the span [95,105] but
-    // clear of road 2's geometry origin at s=100), then read its world XY and re-probe with lockOnLane.
+    // Probe on road 1 lane -1 just before the branch-off (s=98, inside the span [95,105], clear of road 2's
+    // origin at s=100): lockOnLane must stay on the main road with the s recovered and the heading unflipped.
     Position ref;
     ASSERT_GE(static_cast<int>(ref.SetLanePos(1, -1, 98.0, 0.0)), 0);
-    const double px = ref.GetX();
-    const double py = ref.GetY();
+    const double h_ref = ref.GetH();
 
     Position probe;
     probe.SetLockOnLane(true);
-    probe.SetInertiaPos(px, py, 0.0, true);
-    // PIN the current (S5-deferred) behavior: lockOnLane resolves to the MAIN road (road 1) inside the VJ
-    // span -- it does NOT spuriously cross onto the branch (road 2). The elementDir-aware direction flip is
-    // deferred (manifest s4_deferrals); when it lands in S5 this assertion is the visible regression sensor.
-    EXPECT_EQ(probe.GetTrackId(), 1u) << "PINNED (S4): lockOnLane stays on the main road, no cross to the branch at the VJ anchor";
+    probe.SetInertiaPos(ref.GetX(), ref.GetY(), 0.0, true);
+    EXPECT_EQ(probe.GetTrackId(), 1u) << "lockOnLane stays on the main road inside the VJ span (no spurious branch cross)";
+    EXPECT_NEAR(probe.GetS(), 98.0, 0.5) << "s recovered on the main road";
+    // Heading is the load-bearing assertion: the elementDir merge rule must NOT flip the heading here (the
+    // anchor link points main->branch, so roadMin(main) != the anchor target, change_direction stays false).
+    // The exact lockOnLane lane pick near the branch origin is not asserted (pre-existing snapping behavior).
+    EXPECT_NEAR(fabs(GetAngleDifference(probe.GetH(), h_ref)), 0.0, 0.05) << "heading NOT flipped by the elementDir merge rule";
+
+    // Probe over road 2 geometry (a point well onto the branch): lockOnLane locks onto the branch (road 2),
+    // exercising the anchor-directed direct-connection path without a crash.
+    Position on_branch;
+    ASSERT_GE(static_cast<int>(on_branch.SetLanePos(2, -1, 15.0, 0.0)), 0);
+    Position probe2;
+    probe2.SetLockOnLane(true);
+    probe2.SetInertiaPos(on_branch.GetX(), on_branch.GetY(), 0.0, true);
+    EXPECT_EQ(probe2.GetTrackId(), 2u) << "a probe over the branch geometry locks onto the branch";
 
     Position::GetOpenDrive()->Clear();
 }
@@ -815,6 +831,234 @@ TEST(OdrVirtualJunction, Fixture23S4XyLocalizationStaysOnMainRoad)
     probe.SetInertiaPos(px, py, 0.0, true);
     EXPECT_EQ(probe.GetTrackId(), 1u) << "plain XY localization stays on the unsplit main road inside the VJ span";
     EXPECT_NEAR(probe.GetS(), 98.0, 1e-3) << "and recovers the main-road s (no anchor diversion)";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// ---------------------------------------------------------------------------------------------
+// S5 [GT_ODR:vj-move]/[vj-enter] (T4): route-driven MoveAlongS across the mid-road anchor.
+// ---------------------------------------------------------------------------------------------
+
+// Small helper: build the route (road1 lane -1 s=10) -> (road3 lane -1 s=20) auto-expanding branch road 2.
+namespace
+{
+Route* MakeVjRoute()
+{
+    Route*   route = new Route;
+    Position wp0;
+    wp0.SetLanePos(1, -1, 10.0, 0.0);
+    wp0.SetHeadingRelative(0.0);
+    Position wp1;
+    wp1.SetLanePos(3, -1, 20.0, 0.0);
+    route->AddWaypoint(wp0);
+    route->AddWaypoint(wp1);
+    return route;
+}
+}  // namespace
+
+// T4 departure: SetRoute (road1,-1,10)->(road3,-1,20); start on road 1 lane -1 at s=90 and MoveAlongS in
+// steps that cross the anchor at s=100. [vj-move] must detect the route demand (branch road 2 is a route
+// waypoint), split the move at s=100, and transition onto road 2. Then a further move must reach road 3.
+//   * step 1: from s=90 MoveAlongS(20) -> crosses the anchor; consumes 10 m on road 1 to s=100, then 10 m
+//             onto the branch -> lands on road 2 at s=10 (entered at its predecessor end, START, +s).
+//   * step 2: MoveAlongS(25) -> 20 m to the end of road 2 (length 30) + 5 m onto road 3 -> road 3 s=5.
+TEST(OdrVirtualJunction, Fixture23T4RouteDepartureOntoBranch)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Route* route = MakeVjRoute();
+    ASSERT_NEAR(route->GetLength(), 140.0, 1e-6);
+
+    Position pos;
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(1, -1, 90.0, 0.0)), 0);
+    pos.SetHeadingRelative(0.0);
+    pos.SetRoute(route);
+
+    // step 1: cross the anchor. Actual-distance move on a straight lane == road-s move.
+    Position::ReturnCode r1 = pos.MoveAlongS(20.0);
+    EXPECT_GE(static_cast<int>(r1), 0) << "route-driven cross of the anchor must not fail";
+    EXPECT_EQ(pos.GetTrackId(), 2u) << "T4: the route demanded the branch -> transitioned onto road 2 at the anchor";
+    EXPECT_NEAR(pos.GetS(), 10.0, 1e-3) << "10 m consumed to the anchor + 10 m onto the branch";
+    EXPECT_EQ(pos.GetLaneId(), -1) << "branch driving lane -1 (laneLink from=-1 to=-1)";
+
+    // step 2: continue to road 3.
+    Position::ReturnCode r2 = pos.MoveAlongS(25.0);
+    EXPECT_GE(static_cast<int>(r2), 0);
+    EXPECT_EQ(pos.GetTrackId(), 3u) << "T4: reached the continuation road 3";
+    EXPECT_NEAR(pos.GetS(), 5.0, 1e-3) << "20 m to the end of road 2 + 5 m onto road 3";
+
+    // heading after entry onto the branch is consistent with the branch geometry (hdg=-45deg = -pi/4).
+    Position on_branch;
+    on_branch.SetLanePos(2, -1, 10.0, 0.0);
+    on_branch.SetHeadingRelative(0.0);
+    EXPECT_NEAR(fabs(GetAngleDifference(on_branch.GetH(), -M_PI / 4.0)), 0.0, 1e-3)
+        << "branch lane -1 heading follows the -45deg branch geometry";
+
+    pos.SetRoute(nullptr);
+    delete route;
+    Position::GetOpenDrive()->Clear();
+}
+
+// T4 single-step departure exactly landing on the anchor: from s=95 a 5 m move ends exactly at s=100. The
+// anchor window is inclusive at anchor_s, so the entity should transition onto road 2 at s=0 (no branch
+// distance consumed). Documents the boundary handling of the [vj-move] window.
+TEST(OdrVirtualJunction, Fixture23T4RouteDepartureExactlyAtAnchor)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Route* route = MakeVjRoute();
+    Position pos;
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(1, -1, 95.0, 0.0)), 0);
+    pos.SetHeadingRelative(0.0);
+    pos.SetRoute(route);
+
+    Position::ReturnCode r = pos.MoveAlongS(5.0);
+    EXPECT_GE(static_cast<int>(r), 0);
+    EXPECT_EQ(pos.GetTrackId(), 2u) << "reaching the anchor exactly transitions onto the branch";
+    EXPECT_NEAR(pos.GetS(), 0.0, 1e-3) << "no ds left over past the anchor -> branch start";
+
+    pos.SetRoute(nullptr);
+    delete route;
+    Position::GetOpenDrive()->Clear();
+}
+
+// T4 merge-back: a vehicle on road 2 travelling toward the anchor (its predecessor is the elementS link to
+// road 1) merges back ONTO the main road at s=100. This is a pure [vj-enter] path (road 2's predecessor is a
+// mid-road ROAD elementS link, no route needed): heading PI on lane -1 means -s travel on the branch; a 30 m
+// move consumes 20 m to the branch predecessor end (s=0) then 10 m onto road 1. Per the elementDir '+' merge
+// rule the re-entry is START-like (main road traversed s-increasing across the join), so the entity lands at
+// the anchor s=100 and the remaining 10 m continues in the +s direction -> road 1 at s=110, lane -1. (The
+// design's "s=100 region" is met; the exact +s vs -s continuation is pinned here to elementDir '+'.)
+TEST(OdrVirtualJunction, Fixture23T4MergeBackOntoMainRoad)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Position pos;
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(2, -1, 20.0, 0.0)), 0);
+    pos.SetHeadingRelative(M_PI);  // face -s of the branch (toward the anchor/predecessor)
+
+    Position::ReturnCode r = pos.MoveAlongS(30.0);
+    EXPECT_GE(static_cast<int>(r), 0) << "merge-back must not fail (elementS re-entry)";
+    EXPECT_EQ(pos.GetTrackId(), 1u) << "T4: merged back onto the main road 1";
+    EXPECT_NEAR(pos.GetS(), 110.0, 1.0) << "landed at the anchor s=100 then 10 m further in the +s continuation (elementDir '+')";
+    EXPECT_EQ(pos.GetLaneId(), -1) << "lane -1 preserved across the merge-back";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// T2 STILL EXACT under the S5 code: with NO route set, MoveAlongS across the anchor passes straight through
+// (this is the S3 test re-asserted verbatim to prove [vj-move] short-circuits when route_ is null).
+TEST(OdrVirtualJunction, Fixture23T2PassThroughStillExactUnderS5)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Road*      main_road = Position::GetOpenDrive()->GetRoadByIdStr("1");
+    const id_t main_id   = main_road->GetId();
+
+    Position pos;
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(main_id, -1, 50.0, 0.0)), 0);
+    Position::ReturnCode ret = pos.MoveAlongS(150.0);
+    EXPECT_GE(static_cast<int>(ret), 0);
+    EXPECT_EQ(pos.GetTrackId(), main_id) << "T2: no route -> the VJ anchor neither diverts nor stops the move";
+    EXPECT_NEAR(pos.GetS(), main_road->GetLength(), 1e-9) << "full 150 m travelled on the main road";
+
+    Position::GetOpenDrive()->Clear();
+}
+
+// SetRoute + CalcRoutePosition, before AND after the anchor, must produce sane route-s and NOT crash (the S4
+// SEH case that could not be written until the S5 lockOnLane/along-route path was fixed). Probes:
+//   (road1 s=50)  -> on route, route-s 40   (before the anchor on the road1 leg [10,100])
+//   (road2 s=5)   -> on route, route-s 95   (90 to the branch-off + 5 on the branch)
+//   (road3 s=10)  -> on route, route-s 130  (90 + 30 + 10 on the continuation road)
+// CalcRoutePosition returns 0 when the probe road is directly on the route; the load-bearing assertion is NO
+// CRASH and a monotonic, sane GetPathS() at each probe.
+TEST(OdrVirtualJunction, Fixture23T4SetRouteCalcRoutePositionNoCrash)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23_virtual_junction_17.xodr")));
+
+    Route* route = MakeVjRoute();
+
+    Position pos;
+    pos.SetRoute(route);
+
+    // before the anchor (road1 s=50)
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(1, -1, 50.0, 0.0)), 0);
+    pos.SetHeadingRelative(0.0);
+    pos.CalcRoutePosition();
+    EXPECT_NEAR(route->GetPathS(), 40.0, 1e-2) << "route-s before the anchor";
+
+    // after the anchor on the branch (road2 s=5)
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(2, -1, 5.0, 0.0)), 0);
+    pos.SetHeadingRelative(0.0);
+    pos.CalcRoutePosition();
+    EXPECT_NEAR(route->GetPathS(), 95.0, 1e-2) << "route-s on the branch past the anchor";
+
+    // further along (road3 s=10)
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(3, -1, 10.0, 0.0)), 0);
+    pos.SetHeadingRelative(0.0);
+    pos.CalcRoutePosition();
+    EXPECT_NEAR(route->GetPathS(), 130.0, 1e-2) << "route-s on the continuation road";
+
+    // a position that leaves the route past the anchor on the unsplit main road (road1 s=150): must NOT crash;
+    // CalcRoutePosition threads XYZ2Route (the SEH path). We only assert it returns and is flagged off-route.
+    ASSERT_GE(static_cast<int>(pos.SetLanePos(1, -1, 150.0, 0.0)), 0);
+    pos.SetHeadingRelative(0.0);
+    EXPECT_LT(pos.CalcRoutePosition(), 0) << "past-anchor on the main road is off-route (no crash through XYZ2Route)";
+
+    pos.SetRoute(nullptr);
+    delete route;
+    Position::GetOpenDrive()->Clear();
+}
+
+// ---------------------------------------------------------------------------------------------
+// S5 [GT_ODR:vj-lanes] fork-variant (manifest overlap_residuals: Junction::GetRoadConnectionByIdx).
+// This test pins FORK behavior at the declared [GT_LHT] overlap: the merged rule picks the lane section AT
+// the anchor s for the virtual-junction counter-connection (branch->main lands on the main road at
+// outgoing_contact_s_), and the ordinary [GT_LHT] contactPoint pick for a regular connection. On the
+// single-section fixture roads the section index is 0 either way, so the load-bearing observation is that
+// GetRoadConnectionByIdx returns a well-formed connection carrying the anchor contact_s_ and the correct
+// target lane WITHOUT tripping the LHT sign-of-to_ assumption.
+TEST(OdrVirtualJunction, Fixture23bLhtVjLanesForkVariant)
+{
+    ASSERT_FALSE(RepoRoot().empty());
+    ASSERT_TRUE(LoadXodr(FixturePath("23b_virtual_junction_lht_17.xodr")));
+    OpenDrive* odr = Position::GetOpenDrive();
+
+    Junction* junction  = odr->GetJunctionByIdStr("888");
+    Road*     main_road = odr->GetRoadByIdStr("1");
+    Road*     branch    = odr->GetRoadByIdStr("2");
+    ASSERT_NE(junction, nullptr);
+
+    // Find the counter-connection index (incoming=branch(2), connecting=main(1)).
+    idx_t counter_idx = IDX_UNDEFINED;
+    for (unsigned int i = 0; i < junction->GetNumberOfConnections(); i++)
+    {
+        Connection* c = junction->GetConnectionByIdx(i);
+        if (c->GetIncomingRoad() == branch && c->GetConnectingRoad() == main_road)
+        {
+            counter_idx = i;
+        }
+    }
+    ASSERT_NE(counter_idx, IDX_UNDEFINED);
+
+    // The counter-connection lands on the MAIN road at the anchor s (outgoing_contact_s_ = 100): the merged
+    // vj-lanes rule stamps contact_s_ = 100 and resolves the target lane at GetLaneSectionByS(100).
+    LaneRoadLaneConnection cc = junction->GetRoadConnectionByIdx(branch->GetId(), -1, 0, Lane::LaneType::LANE_TYPE_ANY);
+    EXPECT_EQ(cc.GetConnectingRoadId(), main_road->GetId()) << "counter-connection targets the main road";
+    EXPECT_DOUBLE_EQ(cc.contact_s_, 100.0) << "vj-lanes stamps the anchor s (outgoing_contact_s_) for the re-entry landing";
+    EXPECT_EQ(cc.GetConnectinglaneId(), -1) << "target lane on the main road";
+
+    // The forward connection (incoming=main, connecting=branch, contactPoint START) uses the ordinary LHT
+    // pick (first section) and carries NO anchor s on the connecting road (outgoing_contact_s_ < 0).
+    LaneRoadLaneConnection fc = junction->GetRoadConnectionByIdx(main_road->GetId(), -1, 0, Lane::LaneType::LANE_TYPE_ANY);
+    EXPECT_EQ(fc.GetConnectingRoadId(), branch->GetId()) << "forward connection targets the branch";
+    EXPECT_DOUBLE_EQ(fc.contact_s_, -1.0) << "forward connection: no re-entry anchor s (legacy placement)";
+    EXPECT_EQ(fc.contact_point_, CONTACT_POINT_START) << "[GT_LHT] fork pick: contactPoint START -> first section";
 
     Position::GetOpenDrive()->Clear();
 }

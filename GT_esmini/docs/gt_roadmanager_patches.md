@@ -108,18 +108,23 @@
 version: 1
 baseline_upstream_tag: v3.4.0            # recorded at Stage 0b (merge d7821fd3); re-record: check_core_census.py record-baselines
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 63           # S2: +12 mirrored [GT_ODR:vj-parse-*]; S3: +9 mirrored [GT_ODR:vj-synth/membership/osi-class]; S4: +25 mirrored [GT_ODR:vj-path 15 / vj-connect 8 / vj-route 2]
+fork_odr_marker_total: 71           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
+                                    # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
 fork_lht_marker_min: 1
 cmake_marker_total: 2
-fork_odr_expect_lines: 74           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 71) + residuals (3).
+fork_odr_expect_lines: 83           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 71) + residuals (12).
                                     # S2 note: 75 -> 74 because the vj overlap re-aligned the junc-crossing dispatch diff
                                     # (13 -> 9; 3 lines re-attributed to vj-parse-junction as the recorded residual, 1 line
                                     # -- the virtual-branch closing brace -- now matches an equal snapshot line).
-fork_odr_drift_expect_lines: 75     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
-                                    # lines. Differs from fork_odr_expect_lines once mirrored vj hunks exist: mirrored hunks
-                                    # are invisible to the file diff, and the junc-crossing block re-aligns differently
-                                    # against the edited pristine (7 visible dispatch lines) than against the v3.4.0 blob
-                                    # (dual-attributed 3-line residual). Both totals stay under fork_line_budget.
+                                    # S5 note: 74 -> 83 = the +9 vj-lanes overlap residual (fork GetRoadConnectionByIdx
+                                    # carries the [GT_LHT] else-if branch inside the shared vj-lanes block: fork 24 - pristine 15).
+fork_odr_drift_expect_lines: 77     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
+                                    # lines. Differs from fork_odr_expect_lines because mirrored vj hunks (vj-move/vj-enter/
+                                    # vj-connect/vj-parse-*/vj-synth/vj-path/vj-route + the SHARED 15 pristine vj-lanes lines)
+                                    # are byte-identical in both files -> invisible to the file diff. Only fork-ONLY [GT_ODR:]
+                                    # lines drift: hook/lane-types/direct-junc-log/junc-abort/junc-crossing/tl-gate/sig-*/
+                                    # obj-roadsurface/country-rev + the fork-extra vj-lanes lines (the [GT_LHT] else-if branch,
+                                    # only its [GT_ODR:]-tagged/adjacent lines counted here). Measured 77; stays under budget.
 fork_line_budget: 150
 # --- combined budgets: rows sharing a budget_group are summed against one budget ---
 budget_groups:
@@ -133,12 +138,12 @@ second_class_files:
     marker_census: {vj-model: 73, vj-synth: 1}  # S1 data model + S3 EstablishVirtualJunctionConnections() decl (1 line, hpp 74/75)
     marker_occurrences: 16               # literal "[GT_ODR:" comment count (ctest SecondClassCensus)
     pr_slice: "PR-A..D"
-    status: active-S3
+    status: active-S5              # hpp FROZEN at 74/75 through S5 (no data-model change; S5 is cpp-only)
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
     upstream_blob_sha: 932165b98754d49edccdba0c879ef8b31a9c74df
     budget_nonblank: 550
     additive_only: false
-    marker_census: {vj-parse-link: 26, vj-parse-junction: 84, vj-synth: 133, vj-membership: 4, vj-osi-class: 6, vj-path: 84, vj-connect: 60, vj-route: 16}
+    marker_census: {vj-parse-link: 26, vj-parse-junction: 84, vj-synth: 133, vj-membership: 4, vj-osi-class: 6, vj-path: 84, vj-connect: 81, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
                         # S2 parse (RoadLink elementS/elementDir + 6-arg ctor + operator== | junction VIRTUAL
                         # dispatch/span attrs + connection anchors/kind-2 + Connection 5-arg ctor).
                         # S3 vj-synth 133 = EstablishVirtualJunctionConnections + 2 registry accessors block 116
@@ -146,10 +151,17 @@ second_class_files:
                         #   (over the design's 50-70 sketch: Allman braces + clang-format arg-per-line; total 253/550).
                         # S3 vj-membership 4 = comment-only pinning at IsInJunction/GetJunctionId (:interp, no behavior).
                         # S3 vj-osi-class 6 = explicit VIRTUAL -> false branch in IsOsiIntersection.
-                        # S4 vj-path/vj-connect/vj-route = RoadPath+Route+connectivity (values reconciled below).
-    marker_occurrences: 46               # literal "[GT_ODR:" count (S3 21 + S4 25: vj-path 15 + vj-connect 8 + vj-route 2)
+                        # S4 vj-path 84 / vj-route 16 = RoadPath+Route; vj-connect 60 = IsDirectlyConnected + curvature + GetConnectingLaneId.
+                        # S5 vj-lanes 15 = GetRoadConnectionByIdx merged lane-section pick + contact_s_ stamp (pristine side).
+                        # S5 vj-enter 32 = MoveToConnectingRoad elementS re-entry landing (heading/contact_point_type per
+                        #   elementDir), GATED on GetVirtualJunctionAtRoadS so ordinary 1.7+ elementS links (UC_ParamPoly3) are inert.
+                        # S5 vj-move 49 = MoveAlongS mid-road anchor window scan + route-demand branch split.
+                        # S5 vj-connect 60 -> 81 = the +21 lockOnLane XYZ2TrackPos elementDir-aware direction-flip hunk (own
+                        #   elementS link + registry anchor), the own-link path likewise gated on GetVirtualJunctionAtRoadS.
+                        # S5 additions = 15 + 32 + 49 + 21 = 117 nonblank, under the 135 S5 cap; cpp total 530/550.
+    marker_occurrences: 54               # literal "[GT_ODR:" count (S4 46 + S5 8: vj-lanes/vj-enter/vj-move begin+end + 4th vj-connect block)
     pr_slice: "PR-A..D"
-    status: active-S4
+    status: active-S5
   - path: EnvironmentSimulator/Modules/RoadManager/LaneIndependentRouter.cpp
     upstream_blob_sha: 06a03974266f5852de645c74c6d48c77af5579e2
     budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
@@ -188,7 +200,7 @@ second_class_files:
 fork_file:
   path: GT_esmini/src/road/GT_RoadManager.cpp
   pristine_counterpart: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-  marker_census:        # measured per-id NONBLANK added lines vs the upstream snapshot; sums to fork_odr_expect_lines (75)
+  marker_census:        # measured per-id fork-ONLY NONBLANK added lines vs the upstream snapshot; sum 71 + residuals 12 = fork_odr_expect_lines (83)
     hook: 6             # include 1 + BuildSideModel call-site 5
     country-rev: 2      # init line 1 + condition-flip line 1 (flip line via legacy_sites)
     junc-abort: 3
@@ -203,7 +215,12 @@ fork_file:
                         # dispatch replacement re-aligned the diff at the declared overlap site: 3 crossing-block
                         # lead-in lines (close-brace + else-if + brace) now attribute to vj-parse-junction (the
                         # +3 overlap residual below) and 1 line matches an equal snapshot line. Fork code unchanged.
-  lht_census: 8         # [GT_LHT]-attributed: comment hunk 5 + 3 swapped-branch lines (legacy_sites)
+  lht_census: 0         # S5: was 8. The [GT_LHT] Patch 1-A comment (5) + swapped-branch lines (3) in
+                        # GetRoadConnectionByIdx are now WRAPPED by the shared [GT_ODR:vj-lanes-begin/end]
+                        # block -> the census attributes them to vj-lanes (block form takes precedence over
+                        # the [GT_LHT] bucket), and they are recorded as the vj-lanes overlap residual (9 =
+                        # fork 24 - pristine 15). The remaining literal [GT_LHT] markers live in the file-header
+                        # comment block (__header__ bucket). fork_lht_marker_min: 1 still satisfied (4 literals).
   header_census: 16     # the "GT_esmini modification" file-header comment block
   legacy_sites:         # pre-S0 hunks whose ADDED lines carry no in-hunk marker (attribution by exact
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
@@ -212,25 +229,21 @@ fork_file:
       fork_lines: "4930-4930"    # S4 shift: +43 ([vj-connect] GetConnectingLaneId + 2 IsDirectlyConnected hunks above)
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
-    - marker: GT_LHT
-      fork_lines: "6052-6052"    # S4 shift: +43 ([vj-path]/[vj-connect] hunks in GetConnectingLaneId/CheckRoad/Calculate above)
-      count: 1
-      note: "LHT 1-A swapped branch condition (contactPoint==END); [GT_LHT] comment is a separate hunk above"
-    - marker: GT_LHT
-      fork_lines: "6054-6054"
-      count: 1
-      note: "LHT 1-A swapped branch body (last lane section)"
-    - marker: GT_LHT
-      fork_lines: "6058-6058"
-      count: 1
-      note: "LHT 1-A swapped else-branch body (first lane section)"
+    # S5: the 3 GT_LHT legacy_sites (fork 6052/6054/6058) were REMOVED -- the [GT_LHT] Patch 1-A code in
+    # GetRoadConnectionByIdx is now inside the [GT_ODR:vj-lanes] block (block-form attribution) and counted
+    # as the vj-lanes overlap residual (9), not as loose LHT seam lines.
 # --- overlap residuals (declared sites; S2 measured the parse-loop residual) ---
 overlap_residuals:
   - site: "Junction::GetRoadConnectionByIdx"
     fork_markers: ["[GT_LHT]"]
     vj_marker: "vj-lanes"
-    residual_nonblank: 0
-    fork_variant_test: "pending (fixture 23b, S5)"
+    residual_nonblank: 9   # S5 measured (fork vj-lanes 24 - pristine vj-lanes 15): the shared [GT_ODR:vj-lanes]
+                           # block wraps the merged lane-section rule. Both sides prepend the identical
+                           # `outgoing_contact_s_>=0 -> GetLaneSectionByS(anchor)` precedence + contact_s_ stamp;
+                           # they DIFFER only in the fall-through -- pristine keeps upstream's sign-of-to_ end-section
+                           # pick, the fork keeps the [GT_LHT] contactPoint pick (4 comment lines + `else if
+                           # contactPoint==END {...}` = the +9). Dual-attributed; fork-only lines count vs the 150 budget.
+    fork_variant_test: "OdrVirtualJunction.Fixture23bLhtVjLanesForkVariant (LHT fixture 23b: the counter-connection lands at the anchor lane section with contact_s_=100; the forward connection uses the [GT_LHT] contactPoint pick)"
   - site: "ParseOpenDriveXML junction/connection loop"
     fork_markers: ["[GT_ODR:junc-crossing]", "[GT_ODR:junc-abort]"]
     vj_marker: "vj-parse-junction"
@@ -262,26 +275,31 @@ rules:
     geometric fallback, S5); incoming_contact_s_ = branch contact s (0 or branch length,
     by which branch end anchors), outgoing_contact_s_ = anchor_s on the main road.
   vj_lanes_merged_semantics: >-
-    Junction::GetRoadConnectionByIdx merged fork rule: incoming_contact_s_>=0 ->
-    GetLaneSectionByS(anchor) takes precedence; else contactPoint==END -> last lane
-    section ([GT_LHT] rule); else first section. Fork-variant test: LHT junction fixture
-    x VJ counter-connection (23b).
+    Junction::GetRoadConnectionByIdx merged fork rule (S5 implemented): the connection's
+    outgoing_contact_s_ >= 0 (the anchor s ON THE CONNECTING/target road -- e.g. a branch->main
+    counter-connection lands on the main road at outgoing_contact_s_) -> GetLaneSectionByS(that s)
+    takes precedence AND is stamped onto LaneRoadLaneConnection.contact_s_ so [vj-enter] places the
+    re-entry there; else contactPoint==END -> last lane section ([GT_LHT] rule, FORK ONLY; pristine
+    keeps upstream's sign-of-to_ pick); else first section. (Design said "incoming_contact_s_" loosely;
+    the runtime needs the s on the connecting road = outgoing_contact_s_.) Fork-variant test:
+    OdrVirtualJunction.Fixture23bLhtVjLanesForkVariant (LHT fixture 23b x VJ counter-connection).
   pristine_marker_strip: >-
     The pristine copies CARRY [GT_ODR:vj-*] markers permanently; upstream PR branches
     are GENERATED by script-stripping markers (S8 tooling). Marker grammar: single
     [GT_ODR:<id>] inside hunks <=15 nonblank lines; block [GT_ODR:<id>-begin]/[GT_ODR:<id>-end]
     for larger hunks; :interp suffix on interpretation-point hunks.
-  s4_deferrals: >-
-    DEFERRED at S4 sign-off (pre-approved budget lever, design cap S4<=175): the lockOnLane
-    XYZ2TrackPos direction-flip (RoadManager.cpp change_direction @ closestPointDirectlyConnected)
-    is NOT elementDir-aware. For an elementS anchor link contactPoint is UNDEFINED, so the
-    existing END/START test never sets change_direction -> current behavior (no lateral flip on
-    a VJ-anchored lock) is PINNED by test OdrVirtualJunction.Fixture23T5LockOnLanePinnedAcrossAnchor.
-    S4 measured 160 nonblank (vj-path 84 + vj-connect 60 + vj-route 16), under the 175 cap; the
-    lockOnLane hunk (~10 nb) is scheduled with the S5 motion stage where MoveToConnectingRoad
-    already touches the elementDir merge rule. Position::Delta consumes RoadPath dist directly
-    (diff.ds = dist), so no separate Delta edit was needed -- the contact_s propagation lives on
-    the PathNode and the anchor-aware distance flows through Calculate.
+  s4_deferrals_CLOSED: >-
+    RESOLVED at S5: the lockOnLane XYZ2TrackPos direction-flip (RoadManager.cpp change_direction @
+    closestPointDirectlyConnected) is now elementDir-aware. The [GT_ODR:vj-connect] hunk (S5, the
+    +20 in vj-connect 60->80) extends the END/START change_direction test: an elementS anchor link
+    (own link OR registry anchor on the unsplit main road) with elementDir '-' flips the heading, '+'
+    /UNKNOWN keep it. The S4 pinning test Fixture23T5LockOnLanePinnedAcrossAnchor is REPLACED by the
+    real crossing test OdrVirtualJunction.Fixture23T5LockOnLaneCrossesAnchorSanely (heading not flipped
+    on the main-road probe; a branch-geometry probe locks onto the branch; no crash). The S4 SEH case
+    (SetRoute->CalcRoutePosition->XYZ2Route off-route/branch probing) is covered NO-CRASH by
+    Fixture23T4SetRouteCalcRoutePositionNoCrash -- root cause was the same UNDEFINED-contact path; no
+    separate hunk was needed beyond the [vj-enter] elementS landing (which stops MoveToConnectingRoad
+    from the "Unsupported contact point type" error path on merge-back) plus the [vj-connect] flip.
 exclusions:
   - target: wasm (GT_esmini/web/wasm, esminiJS)
     reason: >-
