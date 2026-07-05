@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<!--
+  P9b manual wasm smoke (plan §5 P9b, WASM link repair acceptance iii).
+
+  Loads build/esmini.js (the GT esminiJS module with odr_side wired in) in a real
+  browser and exercises the two 1.9-era fixtures the plan names:
+
+    1. Ex_Lane_MultiLaneLayer (ASAM official, rev 1.9 lane layers; extracted under
+       test/odr_fixtures/official/ by the conformance harness)
+    2. 23_virtual_junction_17 (handauthored virtual-junction fixture, P6)
+
+  For each fixture: RoadManagerJS.loadOpenDrive(xml) must return true (this walks
+  the FULL GT parse path incl. BuildSideModel -> proves the odr_side link repair),
+  then the road network is sampled via trackToWorld and drawn on a canvas.
+  PASS/FAIL verdicts are printed per fixture; the page background turns green/red.
+
+  How to run (manual smoke -- no CI leg by design):
+    1. Build esmini.js:  see ../build.sh (emsdk at E:\emsdk)
+    2. Serve the repo root:  python -m http.server 8123   (from the repo root)
+    3. Open http://127.0.0.1:8123/GT_esmini/web/wasm/smoke/index.html
+       (or headless: msedge --headless --screenshot=... same URL)
+-->
+<head>
+<meta charset="utf-8">
+<title>GT esminiJS P9b smoke</title>
+<style>
+  body { font-family: Consolas, monospace; font-size: 13px; margin: 12px; }
+  canvas { border: 1px solid #888; background: #fafafa; display: block; margin: 4px 0 12px; }
+  .pass { color: #0a7a2f; font-weight: bold; }
+  .fail { color: #b00020; font-weight: bold; }
+  h2 { margin: 8px 0 2px; font-size: 15px; }
+</style>
+</head>
+<body>
+<h1 id="verdict">running…</h1>
+<div id="out"></div>
+<script src="../build/esmini.js"></script>
+<script>
+'use strict';
+
+const FIXTURES = [
+  {
+    name: 'Ex_Lane_MultiLaneLayer (1.9 lane layers, ASAM official)',
+    url: '/GT_esmini/test/odr_fixtures/official/examples/Ex_Lane_MultiLaneLayer/Ex_Lane_MultiLaneLayer.xodr',
+    // permanent mode (no env in wasm): road 1 lane -3 width @s=50 must be the
+    // PERMANENT value 3.75 (P8 merge proof point; temporary would read 3.625).
+    check: (RM, log) => {
+      const w = RM.getLaneWidth(1, -3, 50.0);
+      log(`lane(1,-3)@s=50 width = ${w.toFixed(3)} (expect 3.750 permanent)`);
+      return Math.abs(w - 3.75) < 1e-6;
+    },
+  },
+  {
+    name: '23_virtual_junction_17 (virtual junction, P6 native)',
+    url: '/GT_esmini/test/odr_fixtures/handauthored/23_virtual_junction_17.xodr',
+    // VJ fixture: main road 1 (L=200) + branch 2 + continuation 3. A world probe
+    // near the anchor (road 1, s=100) must resolve back onto road 1 (the span is
+    // NOT split by the native implementation -- road ids/s stay authored).
+    check: (RM, log) => {
+      const n = RM.getNumberOfRoads();
+      log(`numberOfRoads = ${n} (expect 3)`);
+      const p = RM.trackToWorld(1, 100.0, 0.0);
+      const back = RM.worldToLane(p.x, p.y);
+      log(`anchor probe: road 1 s=100 -> (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) -> road ${back.road_id} s=${back.s.toFixed(1)}`);
+      return n === 3 && back.road_id === 1 && Math.abs(back.s - 100.0) < 0.5;
+    },
+  },
+];
+
+const out = document.getElementById('out');
+function section(title) {
+  const h = document.createElement('h2');
+  h.textContent = title;
+  out.appendChild(h);
+  const pre = document.createElement('div');
+  out.appendChild(pre);
+  return (msg, cls) => {
+    const d = document.createElement('div');
+    d.textContent = msg;
+    if (cls) d.className = cls;
+    pre.appendChild(d);
+  };
+}
+
+function drawRoads(RM) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 900; canvas.height = 320;
+  out.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  // Sample centerlines + edges for candidate road ids 0..40 (fixtures use small ids).
+  const polys = [];
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (let rid = 0; rid <= 40; rid++) {
+    const len = RM.getRoadLength(rid);
+    if (len <= 0) continue;
+    for (const t of [-3.0, 0.0, 3.0]) {
+      const pts = [];
+      const steps = Math.max(8, Math.min(200, Math.floor(len)));
+      for (let i = 0; i <= steps; i++) {
+        const p = RM.trackToWorld(rid, (len * i) / steps, t);
+        if (p.return_code < 0) continue;
+        pts.push([p.x, p.y]);
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      }
+      if (pts.length > 1) polys.push({ rid, t, pts });
+    }
+  }
+  const pad = 20;
+  const sx = (canvas.width - 2 * pad) / Math.max(1e-6, maxX - minX);
+  const sy = (canvas.height - 2 * pad) / Math.max(1e-6, maxY - minY);
+  const sc = Math.min(sx, sy);
+  const colors = ['#1565c0', '#e65100', '#2e7d32', '#6a1b9a', '#c62828', '#00838f'];
+  for (const poly of polys) {
+    ctx.beginPath();
+    ctx.strokeStyle = colors[poly.rid % colors.length];
+    ctx.lineWidth = poly.t === 0.0 ? 2 : 1;
+    ctx.setLineDash(poly.t === 0.0 ? [] : [4, 3]);
+    for (let i = 0; i < poly.pts.length; i++) {
+      const x = pad + (poly.pts[i][0] - minX) * sc;
+      const y = canvas.height - pad - (poly.pts[i][1] - minY) * sc;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  return polys.length;
+}
+
+async function main() {
+  const boot = section('module');
+  let Module;
+  try {
+    // MODULARIZE=1: esmini() returns a Promise of the module instance (the
+    // WASM_ASYNC_COMPILATION=0 flag only makes the wasm compile synchronous).
+    Module = await esmini();
+    boot('esmini.js instantiated OK', 'pass');
+  } catch (e) {
+    boot('esmini.js failed to instantiate: ' + e, 'fail');
+    finish(false);
+    return;
+  }
+  const RM = Module.RoadManagerJS;
+
+  let allOk = true;
+  for (const fx of FIXTURES) {
+    const log = section(fx.name);
+    try {
+      const xml = await (await fetch(fx.url)).text();
+      const loaded = RM.loadOpenDrive(xml);
+      log(`loadOpenDrive: ${loaded}`, loaded ? 'pass' : 'fail');
+      let ok = loaded;
+      if (loaded) {
+        const nPolys = drawRoads(RM);
+        log(`drew ${nPolys} polylines`);
+        ok = fx.check(RM, log) && nPolys > 0;
+      }
+      log(ok ? 'PASS' : 'FAIL', ok ? 'pass' : 'fail');
+      allOk = allOk && ok;
+    } catch (e) {
+      log('EXCEPTION: ' + e, 'fail');
+      allOk = false;
+    }
+  }
+  finish(allOk);
+}
+
+function finish(ok) {
+  const v = document.getElementById('verdict');
+  v.textContent = ok ? 'SMOKE PASS' : 'SMOKE FAIL';
+  v.className = ok ? 'pass' : 'fail';
+  document.body.style.background = ok ? '#f0fff4' : '#fff5f5';
+  document.title = (ok ? 'PASS ' : 'FAIL ') + document.title;
+  window.__smokeDone = true;
+  window.__smokeOk = ok;
+}
+
+main();
+</script>
+</body>
+</html>
