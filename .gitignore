@@ -18,6 +18,14 @@ version.cpp
 version.txt
 log.txt
 esmini-dyn.log
+replayer_log.txt
+# Root-level scratch logs from local gate/build runs (v0.12 hygiene; keep patterns narrow)
+/build_*.log
+/conf_*.log
+/gate_*.log
+/telemetry_*.log
+/web_*.log
+/imgui.ini
 externals/osg
 externals/osi/*
 !externals/osi/v11/
@@ -85,6 +93,7 @@ GT_esmini/web/frontend/README.md
 
 # External specs (large, not needed in git)
 thirdparty/opendrive/
+thirdparty/openscenario/
 thirdparty/openscenario-v1.2.0/
 thirdparty/osi-python/
 

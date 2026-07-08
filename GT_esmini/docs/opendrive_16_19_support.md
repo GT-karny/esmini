@@ -88,7 +88,7 @@
 | **挙動ゲート既知 FAIL 2 件** | phase3 `red_stop_green_go` / `green_no_stop` は pre-P6 からの VD 信号ポリシー未成熟(青後発進せず)。ODR 計画対象外(F 系スコープ)。ゲート解釈=「この 2 件を超える新規 FAIL ゼロ」。 |
 | **恒久 XFAIL 13 件** | スキーマ層のみ: ASAM XSD 自体の欠陥(defaultRegulations/vmsGroup の abstract 必須子)、意図的不正フィクスチャ、既存資産の既知不適合(fabriksgatan_traffic_lights_ctrl 等)。manifest に全件根拠付き台帳化。 |
 | **[GT_ODR:osi-path] 恒久 R1 例外** | GT の OSI 3.7.0 継続の間 upstream 収束不能(upstream は 3.5.0 を FATAL 強制)。台帳 §0b。 |
-| **theme-apex prebuild 既知バグ(P9b 発見・未修理)** | `packages/theme-apex` の clean スクリプトが dist のみ削除し tsconfig.tsbuildinfo を残すため、`npm run build`(prebuild フック)が **毎回空ビルド**になり frontend ビルドが TS2307 で失敗する。回避=tsbuildinfo 削除後に tsc 直叩き(P9b はこの回避で実施)。恒久修理は clean に tsbuildinfo 削除を足す 1 行(web 側の別コミット判断)。 |
+| **theme-apex prebuild 既知バグ(P9b 発見 → 修理済)** | `packages/theme-apex` の clean スクリプトが dist のみ削除し tsconfig.tsbuildinfo を残すため空ビルド化していた件。**commit 2685d899 で clean に tsbuildinfo 削除を追加し恒久修理済**(v0.12 パッケージビルドの fresh 再現なしで確認)。 |
 | **wasm カバレッジ=手動スモーク** | `GT_esmini/web/wasm/smoke/index.html`+resync チェックリスト項 26。CI レグ化は別判断(計画どおり)。 |
 
 ## 5. ガバナンス最終値(2026-07-05、機械真実源=台帳 §7 manifest)
