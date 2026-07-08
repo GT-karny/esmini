@@ -405,4 +405,4 @@ exclusions: []
 - **handled-by-upstream 移行(実績第1号)**: `curb` lane type — upstream v3.4.1 がネイティブ対応したため `[GT_ODR:lane-types]` の curb 行を撤去(5→4 行)。parser_coverage.yaml の notes/subtleties 更新。lane@type は「値」であり whitelist 要素対象外のため `handled_by_upstream:` フラグ行の追加は不要(gen_odr_whitelist 再生成差分ゼロ、resync-guards 緑)。
 - **census 再基準化**: baseline_upstream_tag v3.4.0→v3.4.1。スナップショット 2 本追記(RoadManager.cpp@0f46c9438473 / OSIReporter.cpp@752dcaa0f3db、`git cat-file blob` バイト厳密 — record-baselines は HEAD blob 方式のため GT パッチ混入回避で不使用)。legacy_sites 行スパン +3 シフト(country-rev 4931→4934 / curvelocal 5290-5291→5293-5294)。実測: fork_odr_expect_lines 100→**99** / fork_odr_drift_expect_lines 94→**93** / マーカーリテラル 75 不変。
 - **R1 CMake 例外**: [GT_ODR:cmake]×2 / [GT_ODR:osi-path] とも upstream 未接触で生存。
-- **ゴールデン**: (ゲート実行後に本行を確定)
+- **ゴールデン**: 再基準化**ゼロ**(`--update-golden` 不使用)。conformance full --check-matrix = PASS 350 / FAIL 0 / XFAIL 13 / XPASS 0(既存ゴールデン全一致 — curb は GT が先行対応済みだったため RM レーン型出力も不変)。unit ctest + upstream RoadManager_test(フォークビルド)緑、wasm 再ビルド+ブラウザスモーク PASS。
