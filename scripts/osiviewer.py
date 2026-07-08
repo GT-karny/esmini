@@ -25,6 +25,7 @@ import matplotlib.widgets as mw
 import matplotlib.patches as patches
 import matplotlib.transforms as transforms
 import numpy as np
+import gzip
 import os
 import sys
 import math
@@ -193,8 +194,16 @@ class View:
         fontsizes = [self.font_size]*len(labels)
         for l in labels:
             colors.append(self.plot_colors[l])
-        self.check = mw.CheckButtons(self.cbax, labels, [True]*len(labels), label_props={'color': colors, 'fontsize': fontsizes})
+        visibility_states = [l != "RoadMarking" for l in labels]
+        self.check = mw.CheckButtons(self.cbax, labels, visibility_states, label_props={'color': colors, 'fontsize': fontsizes})
+
+        # Apply initial visibility so plots match the default checkbox states.
+        for label, is_visible in zip(labels, visibility_states):
+            for plot in self.static_plots_by_type[label]:
+                plot.set_visible(is_visible)
+                plot.set_picker(True if is_visible else None)
         self.check.on_clicked(self.toggle_visibility)
+
 
         # grid toggle button
         self.gbax = plt.axes([0.05, 0.05, 0.2, 0.075])
@@ -706,8 +715,16 @@ class View:
             for bp in bps:
                 vertices.append((bp.x, bp.y))
             patch = self.ax.add_patch(patches.Polygon(vertices, label="road_marking".format(rm.id.value, index), facecolor='#FFFFFF', edgecolor='black', linewidth=1, picker=5))
+            # base_polygon is given relative to base.position (and orientation), so place it accordingly
+            hdg = rm.base.orientation.yaw
+            patch.set_transform(transforms.Affine2D().rotate_deg(np.rad2deg(hdg)).translate(rm.base.position.x, rm.base.position.y) + self.ax.transData)
             self.osi_ids_by_stationary[patch] = rm.id.value
             self.osi_idx_by_stationary[patch] = i
+
+            if not "RoadMarking" in self.static_plots_by_type:
+                self.plot_colors["RoadMarking"] = '#222222'
+                self.static_plots_by_type["RoadMarking"] = []
+            self.static_plots_by_type["RoadMarking"].append(patch)
 
         # stationary objects
         if len(gt.stationary_object) > 0:
@@ -801,7 +818,20 @@ class OSIFile:
         self.first_timestamp = 0.0
 
         try:
-            self.file = open(self.filename, 'rb')
+            # 1. Open the file to check the magic bytes
+            with open(self.filename, 'rb') as f:
+                magic_bytes = f.read(2)
+
+            # Check for Gzip magic number (0x1F, 0x8B)
+            is_gzipped = (magic_bytes == b'\x1f\x8b')
+
+            # 2. Open the correct stream type based on the check
+            if is_gzipped:
+                print(f"Detected Gzip compression for {self.filename}. Decompressing...")
+                self.file = gzip.GzipFile(fileobj=open(self.filename, 'rb'), mode='rb')
+            else:
+                self.file = open(self.filename, 'rb')
+
         except OSError:
             print('ERROR: Could not open file {} for reading'.format(self.filename))
             exit(-1)

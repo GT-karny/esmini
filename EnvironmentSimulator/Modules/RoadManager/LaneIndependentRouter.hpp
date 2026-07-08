@@ -22,7 +22,10 @@ namespace roadmanager
         double    weight;
         RoadLink *link;
         Node     *previous;
-        void      Print()
+        // [GT_ODR:vj-router] s at which this node ENTERED its road (>= 0 = mid-road virtual-junction anchor entry;
+        // < 0 = ordinary end-contact entry). Drives partial road lengths, anchor-aware lane sections and waypoints.
+        double anchorS = -1.0;
+        void   Print()
         {
             LOG_INFO("road={}, cl={}, fl={}, w={}", road->GetId(), currentLaneId, fromLaneId, weight);
         }
@@ -32,7 +35,7 @@ namespace roadmanager
             bool sameLaneId     = rhs.currentLaneId == currentLaneId;
             bool sameFromLaneId = rhs.fromLaneId == fromLaneId;
             bool sameLink       = rhs.link == link;
-            return sameRoadId && sameLaneId && sameFromLaneId && sameLink;
+            return sameRoadId && sameLaneId && sameFromLaneId && sameLink;  // [GT_ODR:vj-router] link ptr distinguishes anchor nodes
         }
     } Node;
 

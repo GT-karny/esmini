@@ -1,0 +1,26 @@
+scenario: 09_crosswalk_pedestrian__p018
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) — safety overrides the signal (jaywalk against RED).
+# Road B, ped-signal held RED, but the ped is RELEASED (1.4 m/s from_left,
+# conflict timing) and crosses against it. The RED suppresses only the WAITING
+# rule; the CROSSING rule (footprint occupancy) is never signal-gated, so the
+# ego must still yield. Measured (policy ON): deep deceleration to 3.90 m/s
+# @t11.85 (no full stop — the crossing rule releases as soon as the ped exits
+# the ego passage band, unlike p005 where the post-cross walker re-arms the
+# waiting rule into a full stop), min OBB separation 1.54 m @t12.95, resume
+# v>=12 @t13.90. Policy OFF: plow-through (OBB overlap ~t10.7).
+must:
+  - event: speed_below
+    threshold: 6.0
+    after: { sim_time: 11.0 }
+    before: { sim_time: 12.0 }
+    reason: "赤信号無視の横断者にも減速して譲る（実測 窓内max5.24, min3.90@t11.85）。CROSSINGルールは信号で抑制されない。深いクロールまで落ちる（完全停止はしない: 通過帯を抜けた時点で即解放）"
+  - event: min_obb_separation_above
+    threshold: 0.3
+    after: { sim_time: 6.0 }
+    before: { sim_time: 16.0 }
+    reason: "衝突回避ゲート(OBB): 実測1.54m@t12.95（非重なり）。OFFでは轢過（OBB重なり）。0.3は重なり(<=0)とclean(1.54)を弁別"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 13.5 }
+    reason: "横断者通過後の即時復帰（実測 t13.90にv>=12到達）"

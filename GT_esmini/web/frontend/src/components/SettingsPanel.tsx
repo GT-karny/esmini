@@ -20,6 +20,7 @@ const HARDCODED_DEFAULTS: ExecutionDefaults = {
   autolight: true,
   vehicle_physics: true,
   kinematic_mode: false,
+  route_drive_mode: false,
   threads: true,
   window: { x: 60, y: 60, w: 1280, h: 720 },
 };
@@ -56,6 +57,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
   const [autolight, setAutolight] = useState(defaults.autolight);
   const [vehiclePhysics, setVehiclePhysics] = useState(defaults.vehicle_physics);
   const [kinematicMode, setKinematicMode] = useState(defaults.kinematic_mode);
+  const [routeDriveMode, setRouteDriveMode] = useState(defaults.route_drive_mode);
   const [threads, setThreads] = useState(defaults.threads);
   const [winX, setWinX] = useState(defaults.window.x);
   const [winY, setWinY] = useState(defaults.window.y);
@@ -95,6 +97,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
       autolight,
       vehicle_physics: vehiclePhysics,
       kinematic_mode: kinematicMode,
+      route_drive_mode: routeDriveMode,
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
     });
@@ -112,6 +115,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
     setAutolight(d.autolight);
     setVehiclePhysics(d.vehicle_physics);
     setKinematicMode(d.kinematic_mode);
+    setRouteDriveMode(d.route_drive_mode);
     setThreads(d.threads);
     setWinX(d.window.x);
     setWinY(d.window.y);
@@ -134,6 +138,7 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
           <Checkbox label="AutoLight" checked={autolight} onChange={(e) => setAutolight(e.target.checked)} />
           <Checkbox label="Vehicle Physics" checked={vehiclePhysics} onChange={(e) => setVehiclePhysics(e.target.checked)} />
           <Checkbox label="Kinematic Controller" checked={kinematicMode} onChange={(e) => setKinematicMode(e.target.checked)} />
+          <Checkbox label="Route Drive Controller" checked={routeDriveMode} onChange={(e) => setRouteDriveMode(e.target.checked)} />
           <Checkbox label="OSI Output" checked={osiEnabled} onChange={(e) => setOsiEnabled(e.target.checked)} />
         </div>
 

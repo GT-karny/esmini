@@ -305,6 +305,70 @@ async def get_road_geometry(project_id: str, scenario_file: str):
     return geometry
 
 
+async def _resolve_scenario_xodr(project_id: str, scenario_file: str):
+    """Resolve a project scenario file to its OpenDRIVE (.xodr) absolute path.
+
+    Shared by the road-geometry and odr-metadata endpoints. Raises HTTPException
+    (404/400) on the same conditions the road-geometry endpoint does.
+    """
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+
+    proj = await project_service.get_project(project_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    root = Path(proj.root_path)
+    xosc_path = root / scenario_file
+    if not xosc_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_file}")
+
+    try:
+        tree = ET.parse(xosc_path)
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="Failed to parse XOSC")
+
+    logic = tree.getroot().find(".//RoadNetwork/LogicFile")
+    if logic is None:
+        raise HTTPException(status_code=404, detail="No road file in scenario")
+
+    road_filepath = logic.get("filepath", "")
+    if not road_filepath:
+        raise HTTPException(status_code=404, detail="Empty road file path")
+
+    road_path = Path(road_filepath)
+    if not road_path.is_absolute():
+        road_path = (xosc_path.parent / road_filepath).resolve()
+    if not road_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Road file not found: {road_filepath}")
+
+    return road_path
+
+
+@router.get("/{project_id}/scenarios/{scenario_file:path}/odr-metadata")
+async def get_odr_metadata(project_id: str, scenario_file: str):
+    """Extract OpenDRIVE side-model metadata from the scenario's road file.
+
+    Surfaces parse warnings, userData, signal semantics, junction priorities,
+    crosswalks and railroad records recorded by the GT ODR fork (plan P9a).
+    Returns 404 if the scenario/road is missing, 503 if the GT_esminiLib
+    metadata DLL/wrapper is unavailable.
+    """
+    import asyncio
+
+    from GT_esmini.web.backend.services import odr_metadata_service
+
+    road_path = await _resolve_scenario_xodr(project_id, scenario_file)
+
+    try:
+        metadata = await asyncio.to_thread(
+            odr_metadata_service.extract_odr_metadata, road_path
+        )
+    except odr_metadata_service.MetadataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return metadata
+
+
 @router.get("/{project_id}/scenarios/{scenario_file:path}/docs")
 async def get_scenario_docs(project_id: str, scenario_file: str):
     """Get markdown documentation for a scenario file."""
@@ -339,28 +403,55 @@ async def get_scenario_params(project_id: str, scenario_file: str):
 # Parameter presets
 # ---------------------------------------------------------------------------
 
+def _corrupt_to_http(e: project_service.PresetFileCorruptedError) -> HTTPException:
+    payload = {
+        "code": "preset_file_corrupted",
+        "path": str(e.path),
+        "message": str(e.original),
+    }
+    mark = getattr(e.original, "problem_mark", None)
+    if mark is not None:
+        payload["line"] = mark.line + 1
+        payload["column"] = mark.column + 1
+    return HTTPException(status_code=409, detail=payload)
+
+
 @router.get("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=list[ParameterPreset])
 async def list_presets(project_id: str, scenario_file: str):
     """List parameter presets for a scenario."""
-    return await project_service.list_presets(project_id, scenario_file)
+    try:
+        return await project_service.list_presets(project_id, scenario_file)
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
 
 
 @router.post("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=ParameterPreset, status_code=201)
 async def create_preset(project_id: str, scenario_file: str, req: PresetCreateRequest):
     """Create a parameter preset for a scenario."""
-    return await project_service.create_preset(
-        project_id, scenario_file, req.name, req.values,
-        description=req.description,
-    )
+    try:
+        return await project_service.create_preset(
+            project_id, scenario_file, req.name, req.values,
+            description=req.description,
+        )
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
 
 
 @router.put("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}", response_model=dict)
 async def update_preset(project_id: str, scenario_file: str, preset_id: str, req: PresetUpdateRequest):
     """Update a parameter preset."""
-    success = await project_service.update_preset(
-        project_id, scenario_file, preset_id, req.name, req.values,
-        description=req.description,
-    )
+    try:
+        success = await project_service.update_preset(
+            project_id, scenario_file, preset_id, req.name, req.values,
+            description=req.description,
+        )
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
+    except project_service.PresetNameConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "preset_name_conflict", "name": e.name},
+        )
     if not success:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "updated"}
@@ -369,7 +460,10 @@ async def update_preset(project_id: str, scenario_file: str, preset_id: str, req
 @router.delete("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}")
 async def delete_preset(project_id: str, scenario_file: str, preset_id: str):
     """Delete a parameter preset."""
-    success = await project_service.delete_preset(project_id, scenario_file, preset_id)
+    try:
+        success = await project_service.delete_preset(project_id, scenario_file, preset_id)
+    except project_service.PresetFileCorruptedError as e:
+        raise _corrupt_to_http(e)
     if not success:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "deleted"}

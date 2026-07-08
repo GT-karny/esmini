@@ -1,0 +1,176 @@
+{
+ "load_ok": true,
+ "num_roads": 1,
+ "roads": [
+  {
+   "id": "0",
+   "lane_samples": [
+    {
+     "lanes": [
+      {
+       "id": -2,
+       "type": 64,
+       "width": 7.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 64,
+       "width": 7.0
+      }
+     ],
+     "num_lanes": 5,
+     "s": 1.0
+    },
+    {
+     "lanes": [
+      {
+       "id": -2,
+       "type": 64,
+       "width": 7.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 64,
+       "width": 7.0
+      }
+     ],
+     "num_lanes": 5,
+     "s": 189.269908
+    },
+    {
+     "lanes": [
+      {
+       "id": -2,
+       "type": 64,
+       "width": 7.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 64,
+       "width": 7.0
+      }
+     ],
+     "num_lanes": 5,
+     "s": 378.539816
+    },
+    {
+     "lanes": [
+      {
+       "id": -2,
+       "type": 64,
+       "width": 7.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 64,
+       "width": 7.0
+      }
+     ],
+     "num_lanes": 5,
+     "s": 567.809725
+    },
+    {
+     "lanes": [
+      {
+       "id": -2,
+       "type": 64,
+       "width": 7.0
+      },
+      {
+       "id": -1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 0,
+       "type": 1,
+       "width": 0.0
+      },
+      {
+       "id": 1,
+       "type": 2,
+       "width": 3.07
+      },
+      {
+       "id": 2,
+       "type": 64,
+       "width": 7.0
+      }
+     ],
+     "num_lanes": 5,
+     "s": 756.079633
+    }
+   ],
+   "length": 757.079633,
+   "position_probe": {
+    "h": 3.141593,
+    "lane": 1,
+    "s": 378.539816,
+    "x": 378.539816,
+    "y": 1.535,
+    "z": 0.0
+   },
+   "signs": []
+  }
+ ]
+}

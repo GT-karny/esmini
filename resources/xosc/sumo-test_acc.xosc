@@ -1,0 +1,83 @@
+<?xml version="1.0" ?>
+<!-- sumo-test variant: ego driven by ACCController instead of the dormant
+     interactiveDriver. The ego now cruises toward SetSpeed but keeps a time gap
+     to slower SUMO traffic ahead (no more constant-20 plough-through).
+     Longitudinal domain only; lateral stays on default road-following. -->
+<OpenSCENARIO>
+    <FileHeader author="GT" date="2026-06-04T00:00:00" description="adaptspeed_example_acc" revMajor="1" revMinor="3"/>
+    <ParameterDeclarations/>
+    <CatalogLocations>
+        <VehicleCatalog>
+            <Directory path="../xosc/Catalogs/Vehicles"/>
+        </VehicleCatalog>
+        <ControllerCatalog>
+            <Directory path="../xosc/Catalogs/Controllers"/>
+        </ControllerCatalog>
+    </CatalogLocations>
+    <RoadNetwork>
+        <LogicFile filepath="../xodr/multi_intersections.xodr"/>
+        <SceneGraphFile filepath="../models/multi_intersections.osgb"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+           <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+           <ObjectController>
+              <CatalogReference catalogName="ControllerCatalog" entryName="ACCController">
+                 <ParameterAssignments>
+                    <ParameterAssignment parameterRef="SetSpeed" value="20"/>
+                    <ParameterAssignment parameterRef="TimeGap" value="1.5"/>
+                 </ParameterAssignments>
+              </CatalogReference>
+           </ObjectController>
+        </ScenarioObject>
+        <ScenarioObject name="SumoVehicles">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_yellow"/>
+            <ObjectController>
+                <Controller name="SumoTraffic">
+                    <Properties>
+                        <Property name="esminiController" value="SumoController" />
+                        <Property name="overrideVehicleScaleMode" value="BBToModel" />
+                        <File filepath="../sumo_inputs/multi_intersections.sumocfg"/>
+                    </Properties>
+                </Controller>
+            </ObjectController>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition laneId="1" offset="0" roadId="242" s="30"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsDimension="time" dynamicsShape="step" value="1"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="20"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <ActivateControllerAction longitudinal="true" lateral="false"/>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition conditionEdge="rising" delay="0" name="stop_simulation">
+                    <ByValueCondition>
+                        <SimulationTimeCondition rule="greaterThan" value="600"/>
+                    </ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

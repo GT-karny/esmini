@@ -1,0 +1,99 @@
+{
+ "lane_boundary_count": 27,
+ "lane_count": 14,
+ "lanes": [
+  {
+   "centerline_points": 114,
+   "id": 0,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 115,
+   "id": 2,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 116,
+   "id": 4,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 115,
+   "id": 8,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 116,
+   "id": 12,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 117,
+   "id": 14,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 117,
+   "id": 16,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 60,
+   "id": 27,
+   "subtype": 0,
+   "type": 0
+  },
+  {
+   "centerline_points": 61,
+   "id": 29,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 62,
+   "id": 31,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 62,
+   "id": 35,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 63,
+   "id": 38,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 63,
+   "id": 40,
+   "subtype": 8,
+   "type": 3
+  },
+  {
+   "centerline_points": 65,
+   "id": 42,
+   "subtype": 0,
+   "type": 0
+  }
+ ],
+ "stationary_objects": {
+  "count": 12,
+  "types": {
+   "8": 12
+  }
+ },
+ "traffic_light_count": 0,
+ "traffic_light_ids": [],
+ "traffic_sign_count": 0
+}

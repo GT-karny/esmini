@@ -1,22 +1,22 @@
 #include "gt_esmini/control/ControllerManualDrive.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
-#include "gt_esmini/control/manualdrive/IPhysicsBackend.hpp"
+#include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/NullFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/StubInputSource.hpp"
-#include "gt_esmini/control/manualdrive/RealVehicleBackend.hpp"
+#include "gt_esmini/control/common/RealVehicleBackend.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
+#include "gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp"
 #endif
 #include "gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
-
-namespace gt_esmini { extern std::string GetCurrentModuleDirectory(); }
 
 namespace gt_esmini
 {
@@ -59,6 +59,10 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     if (config_.input_type == "sdl2_wheel")
     {
         input_source_ = new SDL2WheelInput();
+    }
+    else if (config_.input_type == "sdl2_keyboard")
+    {
+        input_source_ = new SDL2KeyboardInput();
     }
     else
 #endif
@@ -142,8 +146,16 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
 
     if (object_)
     {
-        // Initialize physics backend from scenario object state
-        physics_backend_->Init(config_, object_);
+        // Initialize physics backend from scenario object state.
+        // Translate ManualDriveConfig → backend-agnostic PhysicsInitParams so the
+        // backend (shared with VirtualDriver) stays decoupled from this config schema.
+        PhysicsInitParams phys_params;
+        phys_params.vehicle_params_file   = config_.real_vehicle.vehicle_params_file;
+        phys_params.network_transport_type = config_.physics_network.transport_type;
+        phys_params.network_host           = config_.physics_network.host;
+        phys_params.network_cmd_port       = config_.physics_network.cmd_port;
+        phys_params.network_state_port     = config_.physics_network.state_port;
+        physics_backend_->Init(phys_params, object_);
         physics_backend_->SetInitialState(
             object_->pos_.GetX(),
             object_->pos_.GetY(),
@@ -187,7 +199,15 @@ void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, dou
     {
         steering = 0.0;
     }
-    gear      = last_cmd_.gear;
+    // Gear comes from the actual AT/drivetrain state, not the raw input.
+    if (current_hvd_.has_vehicle_powertrain())
+    {
+        gear = current_hvd_.vehicle_powertrain().gear_transmission();
+    }
+    else
+    {
+        gear = last_cmd_.gear;
+    }
     lightMask = BuildLightMaskFromExtension();
 }
 
@@ -196,13 +216,9 @@ int ControllerManualDrive::BuildLightMaskFromExtension() const
     if (!object_ || object_->type_ != scenarioengine::Object::Type::VEHICLE)
         return 0;
 
-    auto* vehicle = static_cast<scenarioengine::Vehicle*>(object_);
-    auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-    if (!ext)
-        return 0;
-
+    // R5-U3: read straight from native storage via the bridge (no extension needed).
     auto is_on = [&](VehicleLightType type) {
-        return ext->GetLightState(type).mode == LightState::Mode::ON;
+        return ReadLight(object_, type).mode == LightState::Mode::ON;
     };
 
     int mask = 0;

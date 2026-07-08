@@ -18,6 +18,7 @@
 #include <map>
 #include <vector>
 #include <list>
+#include <algorithm>
 #include <sstream>
 #include "pugixml.hpp"
 #include "CommonMini.hpp"
@@ -708,7 +709,8 @@ namespace roadmanager
             BROKEN_BROKEN = 7,
             BOTTS_DOTS    = 8,
             GRASS         = 9,
-            CURB          = 10
+            CURB          = 10,
+            EDGE          = 11,
         };
 
         enum RoadMarkWeight
@@ -1177,6 +1179,13 @@ namespace roadmanager
             ELEMENT_TYPE_JUNCTION,
         } ElementType;
 
+        typedef enum  // [GT_ODR:vj-model] traversal direction of the linked element at a mid-road (elementS) contact
+        {
+            DIR_UNKNOWN,
+            DIR_PLUS,
+            DIR_MINUS,
+        } ElementDir;
+
         RoadLink()
         {
         }
@@ -1187,6 +1196,8 @@ namespace roadmanager
             element_type_       = element_type;
             contact_point_type_ = contact_point_type;
         }
+        // [GT_ODR:vj-model] virtual junction: link contact at s = element_s on the linked element (defined in RoadManager.cpp, S2)
+        RoadLink(LinkType type, ElementType element_type, id_t element_id, ContactPointType contact_point, double element_s, ElementDir element_dir);
         RoadLink(LinkType type, pugi::xml_node node);
         bool operator==(const RoadLink &rhs) const;
 
@@ -1206,6 +1217,14 @@ namespace roadmanager
         {
             return contact_point_type_;
         }
+        double GetElementS() const  // [GT_ODR:vj-model] contact s on the linked element; >= 0 discriminates a virtual-junction link
+        {
+            return element_s_;
+        }
+        ElementDir GetElementDir() const
+        {
+            return element_dir_;
+        }
         void SetElementId(id_t id)
         {
             element_id_ = id;
@@ -1218,6 +1237,8 @@ namespace roadmanager
         id_t             element_id_         = ID_UNDEFINED;
         ElementType      element_type_       = ELEMENT_TYPE_UNKNOWN;
         ContactPointType contact_point_type_ = CONTACT_POINT_UNDEFINED;
+        double           element_s_          = -1.0;         // [GT_ODR:vj-model] < 0 = legacy end contact; >= 0 = mid-road contact s
+        ElementDir       element_dir_        = DIR_UNKNOWN;  // traversal direction over the mid-road contact
     };
 
     struct LaneInfo
@@ -2177,9 +2198,19 @@ namespace roadmanager
         {
             return this;
         }
+        void SetId(id_t id)
+        {
+            id_ = id;
+        }
+        id_t GetId() const
+        {
+            return id_;
+        }
         virtual ~OutlineCorner()
         {
         }
+
+        id_t id_ = ID_UNDEFINED;
     };
 
     class OutlineCornerRoad : public OutlineCorner
@@ -2259,6 +2290,12 @@ namespace roadmanager
         {
             corner_.push_back(outlineCorner);
         }
+        OutlineCorner *GetCornerById(id_t id) const
+        {
+            auto it = std::find_if(corner_.begin(), corner_.end(), [id](OutlineCorner *corner) { return corner->GetId() == id; });
+
+            return (it != corner_.end()) ? *it : nullptr;
+        }
         void SetCountourType(ContourType contourType)
         {
             contourType_ = contourType;
@@ -2315,6 +2352,54 @@ namespace roadmanager
     private:
         Access      access_{};
         std::string restrictions_;
+    };
+
+    // OpenDRIVE object marking (ASAM OpenDRIVE 1.8.0, section 13.8).
+    // A marking is either attached to one side of the object bounding box (side_ != NONE),
+    // or defined along outline edges by referencing outline corner ids (corner_references_).
+    class ObjectMarking
+    {
+    public:
+        enum class Side
+        {
+            NONE,  // no bounding box side; outline cornerReference based
+            FRONT,
+            REAR,
+            LEFT,
+            RIGHT
+        };
+
+        ObjectMarking() = default;
+
+        bool UsesOutline() const
+        {
+            return !corner_references_.empty();
+        }
+
+        static Side Str2Side(const std::string &str)
+        {
+            if (str == "front")
+                return Side::FRONT;
+            else if (str == "rear")
+                return Side::REAR;
+            else if (str == "left")
+                return Side::LEFT;
+            else if (str == "right")
+                return Side::RIGHT;
+            return Side::NONE;
+        }
+
+        RoadMarkColor                color_          = RoadMarkColor::WHITE;
+        double                       line_length_    = 0.0;  // length of the visible part [m]
+        double                       space_length_   = 0.0;  // length of the gap between visible parts [m]
+        double                       start_offset_   = 0.0;  // u-offset from start of bounding box side [m]
+        double                       stop_offset_    = 0.0;  // u-offset from end of bounding box side [m]
+        double                       width_          = 0.1;  // width of the marking [m]
+        double                       z_offset_       = 0.0;  // thickness of the marking above the road [m]
+        double                       lateral_offset_ = 0.0;  // custom (userData "lateralOffset"): shift marking sideways, left (+) / right (-) [m]
+        LaneRoadMark::RoadMarkWeight weight_         = LaneRoadMark::RoadMarkWeight::STANDARD;
+        Side                         side_           = Side::NONE;
+        std::vector<id_t>            corner_references_;  // referenced outline corner ids (>= 2 when outline based)
     };
 
     class Repeat
@@ -2378,6 +2463,14 @@ namespace roadmanager
         void SetLengthEnd(double lengthEnd)
         {
             lengthEnd_ = lengthEnd;
+        }
+        void SetRadiusStart(double radiusStart)
+        {
+            radiusStart_ = radiusStart;
+        }
+        void SetRadiusEnd(double radiusEnd)
+        {
+            radiusEnd_ = radiusEnd;
         }
         void SetHeightStart(double heightStart)
         {
@@ -2446,6 +2539,67 @@ namespace roadmanager
         double GetRadiusEnd() const
         {
             return radiusEnd_;
+        }
+    };
+
+    // One resolved placement of a road object. A non-repeated object yields a single instance at its
+    // own position; a repeated object (<repeat>) yields one instance per copy along the repeat span.
+    // The world position (x, y, z), heading (h) and per-instance dimensions are filled in, together
+    // with the road s/t of the instance and the outline scale factors (instance dimension relative to
+    // the dimension the outline geometry was authored at, i.e. the repeat start or the nominal value).
+    // This is the single source of truth shared by the 3D viewer and the OSI reporter so both place
+    // repeated objects, outlines and markings identically.
+    // A single outline corner resolved for one repeat instance. x/y are in the instance local frame
+    // (relative to the instance position and heading); z is world elevation; height is the (scaled)
+    // extrusion height of the corner. Computed once in RMObject::GetRepeatInstances and shared by the
+    // viewer and the OSI reporter.
+    struct ResolvedOutlineCorner
+    {
+        id_t   id        = ID_UNDEFINED;  // outline corner id (matches OutlineCorner::id_)
+        double x         = 0.0;           // instance local x (along instance heading), scaled by the instance size
+        double y         = 0.0;           // instance local y (to the left of instance heading), scaled by the instance size
+        double z         = 0.0;           // world z (incl. scaled base extrusion offset)
+        double height    = 0.0;           // scaled corner extrusion height
+        double marking_z = 0.0;           // world z for markings: object floor (no height scaling). x/y are shared with the outline edge.
+    };
+
+    struct RepeatInstance
+    {
+        double s         = 0.0;  // road s of the instance reference
+        double t         = 0.0;  // road t of the instance reference
+        double z_off     = 0.0;  // z offset applied on top of the road elevation
+        double inst_len  = 0.0;  // instance bounding box length
+        double inst_wid  = 0.0;  // instance bounding box width
+        double inst_hgt  = 0.0;  // instance bounding box height
+        double x         = 0.0;  // world x of the instance reference
+        double y         = 0.0;  // world y of the instance reference
+        double z         = 0.0;  // world z of the instance reference (road elevation + z_off)
+        double h         = 0.0;  // world heading of the instance (incl. object heading offset)
+        double p         = 0.0;  // world pitch of the instance
+        double r         = 0.0;  // world roll of the instance
+        double scale_len = 1.0;  // instance length / authored outline length (1.0 when not scaled)
+        double scale_wid = 1.0;  // instance width  / authored outline width
+        double scale_hgt = 1.0;  // instance height / authored outline height
+
+        // Outline corner positions resolved once for this instance and reused by both the viewer and
+        // the OSI reporter. Grouped per outline (outline_corners[outline_index][corner_index]). The x/y
+        // are expressed in the instance local frame (relative to the instance position/heading), so the
+        // OSI reporter can use them as-is for base_polygon, while the viewer rotates/translates them by
+        // the instance pose to obtain world coordinates.
+        std::vector<std::vector<ResolvedOutlineCorner>> outline_corners;
+
+        // Look up a resolved corner by its outline corner id (used by markings that reference corners).
+        const ResolvedOutlineCorner *FindCorner(id_t id) const
+        {
+            for (const std::vector<ResolvedOutlineCorner> &group : outline_corners)
+            {
+                auto it = std::find_if(group.begin(), group.end(), [id](const ResolvedOutlineCorner &corner) { return corner.id == id; });
+                if (it != group.end())
+                {
+                    return &(*it);
+                }
+            }
+            return nullptr;
         }
     };
 
@@ -2586,6 +2740,10 @@ namespace roadmanager
         {
             return width_;
         }
+        double GetRadius() const
+        {
+            return radius_;
+        }
         void SetHeight(double height)
         {
             height_ = height;
@@ -2597,6 +2755,10 @@ namespace roadmanager
         void SetWidth(double width)
         {
             width_ = width;
+        }
+        void SetRadius(double radius)
+        {
+            radius_ = radius;
         }
         void SetParkingSpace(ParkingSpace parking_space)
         {
@@ -2610,6 +2772,18 @@ namespace roadmanager
         {
             outlines_.push_back(outline);
         }
+        void AddMarking(const ObjectMarking &marking)
+        {
+            markings_.push_back(marking);
+        }
+        unsigned int GetNumberOfMarkings() const
+        {
+            return static_cast<unsigned int>(markings_.size());
+        }
+        const ObjectMarking *GetMarking(unsigned int i) const
+        {
+            return (i < markings_.size()) ? &markings_[i] : nullptr;
+        }
         void SetRepeat(Repeat *repeat);
         void AddRepeat(Repeat *repeat)
         {
@@ -2619,6 +2793,12 @@ namespace roadmanager
         {
             return repeat_;
         }
+
+        // Resolve the object into one or more placed instances. For a non-repeated object a single
+        // instance at the object's own position is returned. For a repeated object one instance is
+        // returned per copy that fits along the repeat span on 'road'. Shared by the viewer and the
+        // OSI reporter so repeated objects, outlines and markings are placed identically by both.
+        std::vector<RepeatInstance> GetRepeatInstances(Road *road) const;
 
         unsigned int GetNumberOfOutlines() const
         {
@@ -2632,6 +2812,18 @@ namespace roadmanager
         Outline *GetOutline(unsigned int i) const
         {
             return (i < outlines_.size()) ? outlines_[i] : 0;
+        }
+        OutlineCorner *GetOutlineCornerById(id_t id) const
+        {
+            for (Outline *outline : outlines_)
+            {
+                OutlineCorner *corner = outline->GetCornerById(id);
+                if (corner != nullptr)
+                {
+                    return corner;
+                }
+            }
+            return nullptr;
         }
         Repeat *GetRepeatByIdx(unsigned int i) const
         {
@@ -2661,29 +2853,49 @@ namespace roadmanager
         {
             model3d_full_path_ = path;
         }
+        std::string GetTextureFilename() const
+        {
+            return texture_filename_;
+        }
+        void SetTextureFilename(const std::string &path)
+        {
+            texture_filename_ = path;
+        }
+        double GetTextureScale() const
+        {
+            return texture_scale_;
+        }
+        void SetTextureScale(double scale)
+        {
+            texture_scale_ = scale;
+        }
 
     private:
-        std::string            name_;
-        ObjectType             type_;
-        id_t                   id_;
-        id_t                   g_id_;
-        double                 s_;
-        double                 t_;
-        double                 z_offset_;
-        Orientation            orientation_;
-        double                 length_;
-        double                 height_;
-        double                 width_;
-        double                 heading_;
-        double                 pitch_;
-        double                 roll_;
-        std::vector<Outline *> outlines_;
-        Repeat                *repeat_ = nullptr;
-        std::vector<Repeat *>  repeats_;
-        ParkingSpace           parking_space_;
-        double                 color_[4]              = {0.0, 0.0, 0.0, 0.0};
-        TunnelComponentType    tunnel_component_type_ = TunnelComponentType::NO_TUNNEL;
-        std::string            model3d_full_path_;
+        std::string                name_;
+        ObjectType                 type_;
+        id_t                       id_;
+        id_t                       g_id_;
+        double                     s_;
+        double                     t_;
+        double                     z_offset_;
+        Orientation                orientation_;
+        double                     length_;
+        double                     height_;
+        double                     width_;
+        double                     radius_ = 0.0;  // optional radius (ASAM OpenDRIVE 13.8): if > 0 the object is a cylinder
+        double                     heading_;
+        double                     pitch_;
+        double                     roll_;
+        std::vector<Outline *>     outlines_;
+        Repeat                    *repeat_ = nullptr;
+        std::vector<Repeat *>      repeats_;
+        ParkingSpace               parking_space_;
+        std::vector<ObjectMarking> markings_;
+        double                     color_[4]              = {0.0, 0.0, 0.0, 0.0};
+        TunnelComponentType        tunnel_component_type_ = TunnelComponentType::NO_TUNNEL;
+        std::string                model3d_full_path_;
+        std::string                texture_filename_;
+        double                     texture_scale_ = 1.0;
     };
 
     enum class SpeedUnit
@@ -3033,6 +3245,7 @@ namespace roadmanager
         }
 
         ContactPointType contact_point_ = ContactPointType::CONTACT_POINT_UNDEFINED;
+        double           contact_s_     = -1.0;  // [GT_ODR:vj-model] main-road re-entry s for virtual junctions (< 0 = legacy placement)
 
     private:
         int  lane_id_            = 0;
@@ -3058,6 +3271,8 @@ namespace roadmanager
     {
     public:
         Connection(Road *incoming_road, Road *connecting_road, ContactPointType contact_point);
+        // [GT_ODR:vj-model] virtual connection: anchor s per road on the junction main road, from <predecessor>/<successor> @elementS (S2)
+        Connection(Road *incoming_road, Road *connecting_road, ContactPointType contact_point, double incoming_s, double outgoing_s);
         ~Connection();
         unsigned int GetNumberOfLaneLinks() const
         {
@@ -3080,7 +3295,23 @@ namespace roadmanager
         {
             return contact_point_;
         }
+        double GetIncomingContactS() const  // [GT_ODR:vj-model] anchor s of the incoming contact on the main road (< 0 = legacy)
+        {
+            return incoming_contact_s_;
+        }
+        double GetOutgoingContactS() const
+        {
+            return outgoing_contact_s_;
+        }
+        bool IsVirtual() const
+        {
+            return is_virtual_;
+        }
         void AddJunctionLaneLink(int from, int to);
+        void SetVirtual(bool is_virtual)  // [GT_ODR:vj-model] type="virtual" without connecting road (kind-2, store-only in v1)
+        {
+            is_virtual_ = is_virtual;
+        }
         void Print() const;
 
     private:
@@ -3088,6 +3319,8 @@ namespace roadmanager
         Road                           *connecting_road_;
         ContactPointType                contact_point_;
         std::vector<JunctionLaneLink *> lane_link_;
+        double                          incoming_contact_s_ = -1.0, outgoing_contact_s_ = -1.0;  // [GT_ODR:vj-model] main-road anchor s
+        bool                            is_virtual_         = false;  // kind-2 topological connection (no connecting road)
     };
 
     typedef struct
@@ -3162,6 +3395,13 @@ namespace roadmanager
             SELECTOR_ANGLE,  // choose road which heading (relative incoming road) is closest to specified angle
         } JunctionStrategyType;
 
+        typedef enum  // [GT_ODR:vj-model] virtual junction @orientation (NONE when the attribute is absent, e.g. Ex_Pedestrian_Crossing)
+        {
+            ORIENTATION_NONE,
+            ORIENTATION_PLUS,
+            ORIENTATION_MINUS,
+        } JunctionOrientation;
+
         Junction(id_t id, std::string id_str, std::string name, JunctionType type) : id_(id), id_str_(id_str), name_(name), type_(type)
         {
             SetGlobalId();
@@ -3233,6 +3473,22 @@ namespace roadmanager
             return connection_;
         }
 
+        struct VirtualJunctionAttributes  // [GT_ODR:vj-model] virtual junction span on the main road (@mainRoad/@sStart/@sEnd/@orientation)
+        {
+            id_t                main_road_id_ = ID_UNDEFINED;
+            double              s_start_      = -1.0;
+            double              s_end_        = -1.0;
+            JunctionOrientation orientation_  = ORIENTATION_NONE;
+        };
+        const VirtualJunctionAttributes &GetVirtualAttributes() const
+        {
+            return virtual_attributes_;
+        }
+        void SetVirtualAttributes(const VirtualJunctionAttributes &attributes)
+        {
+            virtual_attributes_ = attributes;
+        }
+
     private:
         std::vector<Connection *>       connection_;
         std::vector<JunctionController> controller_;
@@ -3241,6 +3497,7 @@ namespace roadmanager
         id_t                            global_id_;
         std::string                     name_;
         JunctionType                    type_;
+        VirtualJunctionAttributes       virtual_attributes_;  // [GT_ODR:vj-model] valid when type_ == VIRTUAL
     };
 
     typedef struct
@@ -3403,6 +3660,17 @@ namespace roadmanager
             return static_cast<unsigned int>(junction_.size());
         }
 
+        struct VirtualJunctionAnchor  // [GT_ODR:vj-model] branch connection anchored at s on a virtual junction main road (built in S3)
+        {
+            Junction            *junction_       = nullptr;
+            idx_t                connection_idx_ = IDX_UNDEFINED;
+            double               anchor_s_       = -1.0;
+            RoadLink::ElementDir dir_            = RoadLink::DIR_UNKNOWN;
+            RoadLink            *link_           = nullptr;  // synthesized branch link, owned by the registry
+        };
+        Junction                                 *GetVirtualJunctionAtRoadS(id_t road_id, double s) const;
+        const std::vector<VirtualJunctionAnchor> &GetVirtualJunctionAnchors(id_t road_id) const;
+
         bool IsIndirectlyConnected(id_t   road1_id,
                                    id_t   road2_id,
                                    id_t *&connecting_road_id,
@@ -3553,8 +3821,13 @@ namespace roadmanager
         std::vector<std::pair<id_t, std::string>> road_ids_;
         std::vector<std::pair<id_t, std::string>> junction_ids_;
         std::vector<Signal *>                     dynamic_signals_;
+
+        std::map<id_t, std::vector<VirtualJunctionAnchor>> virtual_junction_anchors_;  // [GT_ODR:vj-model] per-main-road anchor registry
+
         id_t                                      LookupIdFromStr(std::vector<std::pair<id_t, std::string>> &ids, std::string id_str);
         bool                                      ParseOpenDriveXML(const pugi::xml_document &doc);
+
+        void EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] anchor binding + counter-connection synthesis + registry (S3)
     };
 
     typedef struct
@@ -5020,6 +5293,7 @@ namespace roadmanager
             ContactPointType contactPoint;
             PathNode        *previous  = 0;
             int              direction = 0;
+            double           contact_s = -1.0;  // [GT_ODR:vj-model] mid-road anchor s on the linked element (< 0 = legacy end contact)
         };
 
         std::vector<PathNode *> visited_;
@@ -5070,6 +5344,7 @@ namespace roadmanager
             GHOST_TRAIL_NO_VERTICES = -2,  // ghost trail trajectory has no vertices
             GHOST_TRAIL_TIME_PRIOR  = -3,  // given time < first timestamp in trajectory, snapped to start of trajectory
             GHOST_TRAIL_TIME_PAST   = -4,  // given time > last timestamp in trajectory, snapped to end of trajectory
+            GHOST_TRAIL_DIST_PAST   = -5,  // given distance > last vertex in trajectory, snapped to end of trajectory
         };
 
         PolyLineBase()
@@ -5111,8 +5386,26 @@ namespace roadmanager
          */
         idx_t Evaluate(double s);
 
+        /**
+         * Find closest point on the polyline to given XY position
+         * @param xin X coordinate of the point
+         * @param yin Y coordinate of the point
+         * @param pos Out: trajectory position info including position, heading, speed. See TrajVertex type.
+         * @param index Out: Returns the index matched trajectory segment
+         * @param startAtIndex Start searching from this vertex, typically cached value for incremental search, or 0 for global search
+         * @return 0 if successful, < 0 see GhostTrailReturnCode enum for error/information codes
+         */
         int FindClosestPoint(double xin, double yin, TrajVertex &pos, idx_t &index, idx_t startAtIndex = 0);
 
+        /**
+         * Get ghost state at a distance ahead
+         * @param s_start Start looking along trail from this s value
+         * @param distance Distance ahead from start s to look for the ghost state
+         * @param pos Out: trajectory position info including position, heading, speed. See TrajVertex type.
+         * @param index Out: Returns the index matched trajectory segment
+         * @param startAtIndex Start searching from this vertex, typically cached value for incremental search, or 0 for global search         *
+         * @return 0 if successful, < 0 see GhostTrailReturnCode enum for error/information codes
+         */
         int FindPointAhead(double s_start, double distance, TrajVertex &pos, idx_t &index, idx_t startAtIndex = 0);
 
         /**

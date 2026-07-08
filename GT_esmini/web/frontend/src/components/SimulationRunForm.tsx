@@ -8,9 +8,10 @@ import type {
   ParameterPreset,
   ManualDriveConfig,
 } from '../api/client';
+import { buildSimulationRequest } from '../api/simulationRequest';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
-import { ControllerSection } from './simulation/ControllerSection';
+import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
 import { ManualDrivePanel } from './simulation/ManualDrivePanel';
 import { QuickOptionsBar } from './simulation/QuickOptionsBar';
 import { ParameterOverrides } from './simulation/ParameterOverrides';
@@ -22,6 +23,13 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
   ffb_enabled: true,
   domain: { lateral: 'manual', longitudinal: 'manual' },
   sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1 } },
+  keyboard: {
+    steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
+    upshift: 'E', downshift: 'Q', override_key: 'O',
+    indicator_left: 'Z', indicator_right: 'X',
+    headlight: 'L', high_beam: 'K', fog_light: 'F', hazard: 'H',
+    steer_rate: 2.0, centering_rate: 3.0, pedal_press_rate: 4.0, pedal_release_rate: 6.0,
+  },
   input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
   physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
   ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },
@@ -67,9 +75,12 @@ export function SimulationRunForm({
   const queryClient = useQueryClient();
 
   // Controller state
-  const [controllerType, setControllerType] = useState<'default' | 'manual'>('default');
+  const [controllerType, setControllerType] = useState<ControllerType>('default');
   const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
   const [showManualPanel, setShowManualPanel] = useState(false);
+  const [driveMode, setDriveMode] = useState<'comfort' | 'sport'>('comfort');
+  const [laneChangeTiming, setLaneChangeTiming] = useState<'late' | 'normal' | 'early'>('normal');
+  const [laneChangeGap, setLaneChangeGap] = useState<'wide' | 'normal' | 'tight'>('normal');
 
   // Load saved manual drive config from server
   const { data: savedManualDriveConfig } = useQuery({
@@ -91,6 +102,7 @@ export function SimulationRunForm({
             ...savedManualDriveConfig.sdl2?.button_mapping,
           },
         },
+        keyboard: { ...DEFAULT_MANUAL_CONFIG.keyboard, ...savedManualDriveConfig.keyboard },
         input_network: { ...DEFAULT_MANUAL_CONFIG.input_network, ...savedManualDriveConfig.input_network },
         physics_network: { ...DEFAULT_MANUAL_CONFIG.physics_network, ...savedManualDriveConfig.physics_network },
         ffb: { ...DEFAULT_MANUAL_CONFIG.ffb, ...savedManualDriveConfig.ffb },
@@ -109,6 +121,7 @@ export function SimulationRunForm({
   const [autolight, setAutolight] = useState(true);
   const [vehiclePhysics, setVehiclePhysics] = useState(true);
   const [kinematicMode, setKinematicMode] = useState(false);
+  const [routeDriveMode, setRouteDriveMode] = useState(false);
   const [threads, setThreads] = useState(true);
   const [winX, setWinX] = useState(60);
   const [winY, setWinY] = useState(60);
@@ -138,12 +151,14 @@ export function SimulationRunForm({
     if (!rerunFrom) return;
     const opts = rerunFrom as {
       controller?: { controller_type?: string };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; threads?: boolean; window?: { x: number; y: number; w: number; h: number } };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
     if (opts.controller) {
       const ct = opts.controller.controller_type ?? 'default';
-      setControllerType((ct === 'manual' ? 'manual' : 'default') as 'default' | 'manual');
+      setControllerType(
+        (ct === 'manual' || ct === 'virtual_driver' ? ct : 'default') as ControllerType,
+      );
       if (ct === 'manual' && (opts.controller as any).manual_drive) {
         setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...(opts.controller as any).manual_drive });
       }
@@ -159,8 +174,12 @@ export function SimulationRunForm({
       if (exec.autolight !== undefined) setAutolight(exec.autolight);
       if (exec.vehicle_physics !== undefined) setVehiclePhysics(exec.vehicle_physics);
       if (exec.kinematic_mode !== undefined) setKinematicMode(exec.kinematic_mode);
+      if (exec.route_drive_mode !== undefined) setRouteDriveMode(exec.route_drive_mode);
+      if (exec.route_drive_timing) setLaneChangeTiming(exec.route_drive_timing);
+      if (exec.route_drive_gap) setLaneChangeGap(exec.route_drive_gap);
       if (exec.threads !== undefined) setThreads(exec.threads);
       if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
+      if (exec.drive_mode) setDriveMode(exec.drive_mode);
     }
     setShowAdvanced(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,6 +198,9 @@ export function SimulationRunForm({
       setAutolight(execDefaults.autolight);
       if (execDefaults.vehicle_physics !== undefined) setVehiclePhysics(execDefaults.vehicle_physics);
       if (execDefaults.kinematic_mode !== undefined) setKinematicMode(execDefaults.kinematic_mode);
+      if (execDefaults.route_drive_mode !== undefined) setRouteDriveMode(execDefaults.route_drive_mode);
+      if (execDefaults.route_drive_timing) setLaneChangeTiming(execDefaults.route_drive_timing);
+      if (execDefaults.route_drive_gap) setLaneChangeGap(execDefaults.route_drive_gap);
       if (execDefaults.threads !== undefined) setThreads(execDefaults.threads);
       if (execDefaults.window) {
         setWinX(execDefaults.window.x);
@@ -229,9 +251,9 @@ export function SimulationRunForm({
   };
 
   // Build the simulation request from current form state
-  const buildRequest = (): SimulationRequest => ({
-    scenario_id: scenarioFile,
-    project_id: projectId || undefined,
+  const buildRequest = (): SimulationRequest => buildSimulationRequest({
+    scenarioId: scenarioFile,
+    projectId,
     controller: {
       controller_type: controllerType,
       ...(controllerType === 'manual' ? { manual_drive: manualDriveConfig } : {}),
@@ -246,11 +268,15 @@ export function SimulationRunForm({
       autolight,
       vehicle_physics: vehiclePhysics,
       kinematic_mode: kinematicMode,
+      route_drive_mode: routeDriveMode,
+      route_drive_timing: laneChangeTiming,
+      route_drive_gap: laneChangeGap,
       threads,
       window: { x: winX, y: winY, w: winW, h: winH },
       extra_args: [],
+      drive_mode: driveMode,
     },
-    param_overrides: getActiveOverrides(),
+    paramOverrides: getActiveOverrides(),
   });
 
   // Expose request builder to parent
@@ -294,6 +320,13 @@ export function SimulationRunForm({
         controllerType={controllerType}
         setControllerType={setControllerType}
         onOpenManualSettings={() => setShowManualPanel(true)}
+        driveMode={driveMode}
+        setDriveMode={setDriveMode}
+        routeDriveMode={routeDriveMode}
+        laneChangeTiming={laneChangeTiming}
+        setLaneChangeTiming={setLaneChangeTiming}
+        laneChangeGap={laneChangeGap}
+        setLaneChangeGap={setLaneChangeGap}
       />
 
       <ManualDrivePanel
@@ -318,6 +351,8 @@ export function SimulationRunForm({
         setVehiclePhysics={setVehiclePhysics}
         kinematicMode={kinematicMode}
         setKinematicMode={setKinematicMode}
+        routeDriveMode={routeDriveMode}
+        setRouteDriveMode={setRouteDriveMode}
       />
 
       {/* Parameter Overrides (project context only, hidden when managed externally) */}
@@ -389,6 +424,25 @@ export function SimulationRunForm({
           &#9632; Stop
         </Button>
       </div>
+
+      {/* Live VirtualDriver telemetry — open a standalone window. Available even
+          before/without a run: it connects to the always-on stream and shows
+          "waiting" until a Virtual Driver simulation starts emitting. */}
+      {controllerType === 'virtual_driver' && (
+        <button
+          type="button"
+          onClick={() => {
+            const q = new URLSearchParams({ override: '1' });
+            if (projectId) q.set('project', projectId);
+            if (scenarioFile) q.set('scenario', scenarioFile);
+            window.open(`/live/vd/current?${q.toString()}`, 'vd-live', 'width=960,height=720');
+          }}
+          className="w-full mt-2 px-3 py-2 rounded text-sm border border-glass-edge text-text-secondary hover:bg-glass-2"
+          title="Open the live VirtualDriver telemetry + manual override in a separate window"
+        >
+          Live Telemetry ↗
+        </button>
+      )}
 
       {mutation.error && (
         <p className="text-destructive text-sm">{String(mutation.error)}</p>

@@ -1,5 +1,4 @@
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
-#include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
 #include "gt_esmini/control/manualdrive/UdpTransport.hpp"
 #include "gt_esmini/control/manualdrive/TcpTransport.hpp"
 #include "Entities.hpp"
@@ -33,41 +32,41 @@ NetworkPhysicsBridge::~NetworkPhysicsBridge()
     }
 }
 
-bool NetworkPhysicsBridge::Init(const ManualDriveConfig& config, const scenarioengine::Object* /*obj*/)
+bool NetworkPhysicsBridge::Init(const PhysicsInitParams& params, const scenarioengine::Object* /*obj*/)
 {
     auto create_transport = [&](const std::string& type) -> ITransport* {
         if (type == "tcp") return new TcpTransport();
         return new UdpTransport();
     };
 
-    const auto& net = config.physics_network;
+    const std::string& transport_type = params.network_transport_type;
 
     // Command transport: sends to external simulator
-    cmd_transport_ = create_transport(net.transport_type);
+    cmd_transport_ = create_transport(transport_type);
     TransportConfig cmd_tc;
-    cmd_tc.type        = net.transport_type;
-    cmd_tc.host        = net.host;
-    cmd_tc.target_port = net.cmd_port;
+    cmd_tc.type        = transport_type;
+    cmd_tc.host        = params.network_host;
+    cmd_tc.target_port = params.network_cmd_port;
     cmd_tc.is_server   = false;  // client mode
     if (!cmd_transport_->Open(cmd_tc))
     {
-        LOG_ERROR("NetworkPhysicsBridge: Failed to open command transport to {}:{}", net.host, net.cmd_port);
+        LOG_ERROR("NetworkPhysicsBridge: Failed to open command transport to {}:{}", params.network_host, params.network_cmd_port);
         return false;
     }
 
     // State transport: receives HVD from external simulator
-    state_transport_ = create_transport(net.transport_type);
+    state_transport_ = create_transport(transport_type);
     TransportConfig state_tc;
-    state_tc.type        = net.transport_type;
-    state_tc.listen_port = net.state_port;
+    state_tc.type        = transport_type;
+    state_tc.listen_port = params.network_state_port;
     state_tc.is_server   = true;  // server mode
     if (!state_transport_->Open(state_tc))
     {
-        LOG_ERROR("NetworkPhysicsBridge: Failed to open state transport on port {}", net.state_port);
+        LOG_ERROR("NetworkPhysicsBridge: Failed to open state transport on port {}", params.network_state_port);
         return false;
     }
 
-    LOG_INFO("NetworkPhysicsBridge: cmd→{}:{}, state←port {}", net.host, net.cmd_port, net.state_port);
+    LOG_INFO("NetworkPhysicsBridge: cmd→{}:{}, state←port {}", params.network_host, params.network_cmd_port, params.network_state_port);
     return true;
 }
 

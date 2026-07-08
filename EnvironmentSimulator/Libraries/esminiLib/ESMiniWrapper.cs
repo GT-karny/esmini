@@ -93,6 +93,8 @@ namespace ESMini
         SE_GHOST_TRAIL_TIME_PRIOR = -3,
         /// <summary>given time > last timestamp in trajectory, snapped to end of trajectory</summary>
         SE_GHOST_TRAIL_TIME_PAST = -4,
+        /// <summary>given distance > last vertex in trajectory, snapped to end of trajectory</summary>
+        SE_GHOST_TRAIL_DIST_PAST = -5,
     }
 
     public enum SE_RelativeDistanceType
@@ -102,6 +104,24 @@ namespace ESMini
         REL_DIST_LONGITUDINAL = 2,
         REL_DIST_CARTESIAN = 3,
         REL_DIST_EUCLIDIAN = 4,
+    }
+
+    public enum SE_VehicleLightType
+    {
+        DAYTIME_RUNNING_LIGHTS = 0,
+        LOW_BEAM = 1,
+        HIGH_BEAM = 2,
+        FOG_LIGHTS = 3,
+        FOG_LIGHTS_FRONT = 4,
+        FOG_LIGHTS_REAR = 5,
+        BRAKE_LIGHTS = 6,
+        WARNING_LIGHTS = 7,
+        INDICATOR_LEFT = 8,
+        INDICATOR_RIGHT = 9,
+        REVERSING_LIGHTS = 10,
+        TAIL_LIGHTS = 11,
+        LICENSE_PLATE_ILLUMINATION = 12,
+        SPECIAL_PURPOSE_LIGHTS = 13,
     }
 
     public enum SE_OSIStaticReportMode
@@ -193,6 +213,16 @@ namespace ESMini
         public int axle;
         /// <summary>The index of the wheel on the axle, counting in the direction of positive-y, that is, right-to-left. -1 indicates wheel</summary>
         public int index;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct SE_LightState
+    {
+        /// <summary>0 (off), 1 (on), 2 (flashing), 3 (unknown)</summary>
+        public int light_mode;
+        /// <summary>Is the lamp emitting light or not</summary>
+        [MarshalAs(UnmanagedType.I1)]
+        public bool emitting;
     }
 
     /// <summary>
@@ -1357,6 +1387,16 @@ namespace ESMini
         public static extern int SE_GetObjectState(int object_id, out SE_ScenarioObjectState state);
 
         /// <summary>
+        /// Get the light state of specified object
+        /// </summary>
+        /// <param name="object_id">Id of the object</param>
+        /// <param name="light_type">Enum specifying the type of light to get the state of</param>
+        /// <param name="light_state">Pointer/reference to a SE_LightState struct to be filled in</param>
+        /// <returns>0 if successful, -1 if not</returns>
+        [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int SE_GetObjectLightState(int object_id, SE_VehicleLightType light_type, out SE_LightState light_state);
+
+        /// <summary>
         /// Get the object route status
         /// </summary>
         /// <param name="object_id">Id of the object</param>
@@ -1378,13 +1418,25 @@ namespace ESMini
         public static extern int SE_GetObjectInLaneType(int object_id);
 
         /// <summary>
+        /// Check if lane change is possible for specified object based on number of drivable lanes
+        /// and road mark (line type) restrictions. A lane change direction is only reported as
+        /// possible when a neighboring driving lane exists AND the road mark on the boundary
+        /// allows crossing in that direction (e.g. broken line or laneChange="both"/"increase"/"decrease").
+        /// If the object is not currently in a driving lane, returns 0 (no lane change possible).
+        /// </summary>
+        /// <param name="object_id">Id of the object</param>
+        /// <returns>0 = no lane change possible (including when object is not in a driving lane), 1 = lane change to the left is possible, 2 = lane change to the right is possible, 3 = lane change to both left and right is possible, -1 = error (e.g. invalid object or missing road)</returns>
+        [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int SE_ObjectCanChangeLanes(int object_id);
+
+        /// <summary>
         /// Get the overrideActionStatus of specified object
         /// </summary>
-        /// <param name="objectId">Id of the object</param>
+        /// <param name="object_id">Id of the object</param>
         /// <param name="list">Pointer/reference to a SE_OverrideActionList struct to be filled in</param>
         /// <returns>0 if successful, -1 if not</returns>
         [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int SE_GetOverrideActionStatus(int objectId, out SE_OverrideActionList list);
+        public static extern int SE_GetOverrideActionStatus(int object_id, out SE_OverrideActionList list);
 
         /// <summary>
         /// Get the type name of the specifed vehicle-, pedestrian- or misc object
@@ -1421,7 +1473,7 @@ namespace ESMini
         /// <summary>
         /// Get ID of the ghost associated with given object
         /// </summary>
-        /// <param name="object_id">Id of the ghost object</param>
+        /// <param name="object_id">Id of the object to which the ghost is attached</param>
         /// <returns>ghost object ID, -1 if ghost does not exist for given object</returns>
         [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int SE_GetObjectGhostId(int object_id);
@@ -1877,7 +1929,7 @@ namespace ESMini
         /// <summary>
         /// The SE_GetOSILaneBoundaryIds function the global ids for left, far left, right and far right lane boundaries
         /// </summary>
-        /// <param name="object_id">Handle to the object to which the sensor should be attached</param>
+        /// <param name="object_id">Id of the object</param>
         /// <param name="ids">Reference to a struct which will be filled with the Ids</param>
         [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern void SE_GetOSILaneBoundaryIds(int object_id, out SE_LaneBoundaryId ids);

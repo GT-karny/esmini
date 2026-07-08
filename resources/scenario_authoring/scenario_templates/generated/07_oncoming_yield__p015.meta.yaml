@@ -1,0 +1,20 @@
+catalog_id: 07_oncoming_yield__p015
+kind: scenario
+road_ref: t_junction__a90
+phase: 3d
+tests_for: left-turn-across-traffic gap judgement vs a single oncoming car at 11 m/s;
+  probes the wide gap (clear-accept) (first_gap=4.5s)
+expected_behavior: Yield to the oncoming through-stream; commit the left turn only
+  when an adequate gap appears, with smooth deceleration/creep and no cut-off of the
+  oncoming car(s).
+evaluation: annotation
+generator:
+  script: scenario_templates/gen_07_oncoming_yield.py
+  params:
+    oncoming_speed: 11.0
+    first_gap_s: 4.5
+    oncoming_count: 1
+    inter_gap_s: null
+    ego_speed: 13.9
+    lht: false
+generated_at_commit: 33ffaf18

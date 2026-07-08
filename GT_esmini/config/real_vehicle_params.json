@@ -20,9 +20,109 @@
     "torque_peak_pos": 0.65,
     "torque_min": 0.3,
 
+    "_at_resistance_comment": "Below applies to forward-AT physics path only. Civic FL1 class: 1450kg, Cd≈0.27, A≈2.2m², Crr≈0.011 (typical passenger tire).",
+    "mass_kg": 1450.0,
+    "aero_drag_cd": 0.27,
+    "frontal_area_m2": 2.2,
+    "air_density": 1.225,
+    "rolling_resistance_coeff": 0.011,
+
     "understeer_factor": 0.0025,
     "critical_speed": 24.0,
     "max_understeer_reduction": 0.6,
+
+    "engine": {
+        "_comment": "Honda L15C7 1.5L turbo (Civic Hatchback Sport Touring FL1, 11th gen). 180hp@6000rpm, 177lb-ft (240Nm) flat 1700-4500rpm.",
+        "type": "1.5L_turbo_L15C7",
+        "idle_rpm": 700.0,
+        "max_rpm": 6500.0,
+        "rev_limit_rpm": 6500.0,
+        "torque_peak_nm": 240.0,
+        "torque_flat_rpm_low": 1700.0,
+        "torque_flat_rpm_high": 4500.0,
+        "torque_redline_factor": 0.70,
+        "engine_inertia_tau_s": 0.15,
+        "idle_governor_gain": 0.5,
+        "_creep_comment": "Residual TC pump torque at idle in gear -> creep without throttle. ~3 Nm gives ~5-7 km/h equilibrium creep on flat road.",
+        "idle_creep_torque_nm": 3.0,
+        "_idle_jitter_comment": "OU-process RPM noise at idle (fades out as TC locks up). sigma is the steady-state std-dev; ±2σ ≈ visible peak-to-peak. tau≈ISC bandwidth (~1 Hz). seed=0 -> nondeterministic.",
+        "idle_jitter_sigma_rpm": 20.0,
+        "idle_jitter_tau_s": 1.2,
+        "idle_jitter_seed": 0
+    },
+
+    "transmission": {
+        "_comment": "FL1 Sport Touring 6MT: same internal gearset as Civic Si, final drive 4.105 (Si is 4.353).",
+        "type": "6AT",
+        "gear_ratios": [3.642, 2.080, 1.361, 1.024, 0.830, 0.686],
+        "final_drive_ratio": 4.105,
+        "reverse_ratio": 3.583,
+        "drivetrain_efficiency": 0.92,
+        "_engine_drag_comment": "Compression braking via drag_torque*total_ratio*eta/r/mass. Base ~30 Nm + 10 Nm/krpm gives ~50 Nm at 2000 rpm -> 1st ~1.5 m/s2, 6th ~0.28 m/s2.",
+        "engine_drag_base_nm": 30.0,
+        "engine_drag_per_krpm": 10.0,
+        "torque_converter": {
+            "_comment": "slip_rpm_max: max engine slip above turbine at WOT/full slip. With idle=700, slip=1500 yields ~2200 flash stall.",
+            "v_lockup_mps": 8.0,
+            "slip_rpm_max": 1500.0
+        }
+    },
+
+    "at_controller": {
+        "manual_override_timeout_s": 10.0,
+        "paddle_simul_press_threshold_s": 0.15,
+        "min_gear_hold_s": 0.6,
+        "kickdown_factor": 1.35,
+        "low_speed_kmh_for_revert": 5.0
+    },
+
+    "pedal_estimation": {
+        "mass_kg": 1500.0,
+        "drag_coeff": 0.30,
+        "frontal_area_m2": 2.3,
+        "air_density": 1.225,
+        "rolling_resistance_coeff": 0.011,
+        "engine_brake_decel_mps2": 1.5,
+        "engine_brake_gear_factor": [1.6, 1.3, 1.1, 1.0, 0.85, 0.7]
+    },
+
+    "shift_schedule": {
+        "active_mode": "comfort",
+        "gear_ratios": [3.642, 2.080, 1.361, 1.024, 0.830, 0.686],
+        "final_drive_ratio": 4.105,
+        "modes": {
+            "comfort": {
+                "shift_up_kmh":   [20, 35, 54, 72,  88],
+                "shift_down_kmh": [14, 22, 36, 54,  72],
+                "kickdown_gain": 0.55,
+                "brake_downshift_threshold": 0.4,
+                "min_gear_hold_s": 0.5,
+                "rpm_tau_s": 0.2,
+                "v_lockup_mps": 5.0,
+                "shift_event_duration_s": 0.18,
+                "upshift_dip_rpm": 200.0,
+                "downshift_blip_rpm": 300.0,
+                "shift_torque_factor": 0.3,
+                "rpm_tau_up_s": 0.18,
+                "rpm_tau_down_s": 0.25
+            },
+            "sport": {
+                "shift_up_kmh":   [28, 48, 76, 100, 122],
+                "shift_down_kmh": [18, 30, 48,  72,  92],
+                "kickdown_gain": 0.6,
+                "brake_downshift_threshold": 0.25,
+                "min_gear_hold_s": 0.3,
+                "rpm_tau_s": 0.12,
+                "v_lockup_mps": 3.0,
+                "shift_event_duration_s": 0.12,
+                "upshift_dip_rpm": 400.0,
+                "downshift_blip_rpm": 500.0,
+                "shift_torque_factor": 0.15,
+                "rpm_tau_up_s": 0.10,
+                "rpm_tau_down_s": 0.13
+            }
+        }
+    },
 
     "heading_correction": {
         "default": {

@@ -22,6 +22,24 @@ set(SOURCES
 message(STATUS "GT_esmini: Swapping RoadManager.cpp with GT_RoadManager.cpp")
 list(APPEND SOURCES "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/GT_RoadManager.cpp")
 
+# [GT_ODR:cmake] R1 exception (approved 2026-07-02, plan GT_esmini/docs/opendrive_16_19_support_plan.md
+# P1 / §10.1): compile the GT OpenDRIVE side-model module INTO this upstream RoadManager static
+# target. Explicit list (NOT a glob) so it stays in lockstep with the manifest and never drifts.
+# These sources are NOT added to GT_esmini/CMakeLists.txt's GT_esminiLib source lists, so there is
+# no double compilation / duplicate symbols (GT_esminiLib links RoadManager, which already carries
+# them).
+list(APPEND SOURCES
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrSideModel.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrSideParser.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrCoverageAudit.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrLaneExtras.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrSignalExtras.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrJunctionExtras.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrObjectExtras.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrJunctionGeom.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrLaneLayers.cpp"
+    "${CMAKE_SOURCE_DIR}/GT_esmini/src/road/odr_side/OdrRailroad.cpp")
+
 add_library(
     pugixml_lib
     ${EXTERNALS_PUGIXML_PATH}/pugixml.cpp)
@@ -49,7 +67,9 @@ target_link_libraries(
 
 target_include_directories(
     ${TARGET}
-    PRIVATE ${COMMON_MINI_PATH})
+    PRIVATE ${COMMON_MINI_PATH}
+            # [GT_ODR:cmake] GT side-model public headers (gt_esmini/road/OdrSideModel.hpp).
+            ${CMAKE_SOURCE_DIR}/GT_esmini/include)
 
 target_include_directories(
     ${TARGET}

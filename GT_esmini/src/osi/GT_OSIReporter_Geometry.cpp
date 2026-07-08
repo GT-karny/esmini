@@ -129,6 +129,82 @@ int OSIReporter::UpdateOSIIntersection()
                 }
             }
         }
+        else if (junction->GetType() == roadmanager::Junction::JunctionType::VIRTUAL)
+        {
+            // [GT_ODR:vj-osi-pair-begin] A virtual junction has NO junction area of its own: the unsplit
+            // main road keeps its regular driving lanes across the span and the branch roads are ordinary
+            // roads (already emitted as TYPE_DRIVING by UpdateOSIRoadLane). So there is NO TYPE_INTERSECTION
+            // lane -- exactly like DIRECT above. All we owe OSI is the per-laneLink lane_pairing that ties
+            // the branch's entry lane to the MAIN road's lane AT THE ANCHOR SECTION (GetLaneSectionByS at
+            // the connection's incoming contact s), NOT an end section: the anchor lies mid-road.
+            for (auto &c : junction->GetConnections())
+            {
+                roadmanager::Road *main_in = c->GetIncomingRoad();
+                roadmanager::Road *branch  = c->GetConnectingRoad();
+                // Skip kind-2 topological connections (null connecting road, store-only in v1) and the
+                // synthesized branch->main counter-connections (connecting road == main road): pairing is
+                // registered once, on the branch lane, from the main-road-incoming (kind-1) connection.
+                if (main_in == nullptr || branch == nullptr || branch == main_in)
+                {
+                    continue;
+                }
+                const double anchor_s = c->GetIncomingContactS();
+                if (anchor_s < 0.0)
+                {
+                    continue;  // not a resolvable virtual anchor (should not happen for kind-1)
+                }
+                roadmanager::LaneSection *main_section   = main_in->GetLaneSectionByS(anchor_s);
+                roadmanager::LaneSection *branch_section = branch->GetLaneSectionByIdx(0);
+                if (main_section == nullptr || branch_section == nullptr)
+                {
+                    continue;
+                }
+                for (unsigned int l = 0; l < c->GetNumberOfLaneLinks(); l++)
+                {
+                    roadmanager::JunctionLaneLink *ll             = c->GetLaneLink(l);
+                    idx_t                          from_global_id = main_section->GetLaneGlobalIdById(ll->from_);
+                    idx_t                          to_global_id   = branch_section->GetLaneGlobalIdById(ll->to_);
+                    if (from_global_id == ID_UNDEFINED || to_global_id == ID_UNDEFINED)
+                    {
+                        continue;
+                    }
+                    // locate the branch entry lane (to-lane) and register the main-road lane as its neighbour
+                    for (unsigned int jj = 0; jj < obj_osi_internal.ln.size(); jj++)
+                    {
+                        if (obj_osi_internal.ln[jj]->mutable_id()->value() != to_global_id)
+                        {
+                            continue;
+                        }
+                        osi_lane                                            = obj_osi_internal.ln[jj];
+                        osi3::Lane_Classification_LanePairing *lane_pairing = nullptr;
+                        if (osi_lane->mutable_classification()->mutable_lane_pairing()->size() == 0)
+                        {
+                            lane_pairing = osi_lane->mutable_classification()->add_lane_pairing();
+                        }
+                        else
+                        {
+                            lane_pairing = osi_lane->mutable_classification()->mutable_lane_pairing(0);
+                        }
+                        // Same convention as the DIRECT branch: contact START -> the branch begins at the
+                        // anchor, so the main road is its antecessor; contact END -> its successor.
+                        if (c->GetContactPoint() == roadmanager::ContactPointType::CONTACT_POINT_START)
+                        {
+                            lane_pairing->mutable_antecessor_lane_id()->set_value(from_global_id);
+                        }
+                        else if (c->GetContactPoint() == roadmanager::ContactPointType::CONTACT_POINT_END)
+                        {
+                            lane_pairing->mutable_successor_lane_id()->set_value(from_global_id);
+                        }
+                        else
+                        {
+                            LOG_ERROR("Unexpected virtual junction lane link contact point (junction {})", junction->GetId());
+                        }
+                        break;
+                    }
+                }
+            }
+            // [GT_ODR:vj-osi-pair-end]
+        }
         else if (junction->IsOsiIntersection())
         {
             // genereric data for the junction
@@ -379,20 +455,37 @@ int OSIReporter::UpdateOSIIntersection()
                             incomming_road->GetDrivingLaneById(incomming_s_value, junctionlanelink->from_)->GetGlobalId());
 
                         roadmanager::Lane *lane = connecting_road->GetDrivingLaneById(connecting_outgoing_s_value, junctionlanelink->to_);
-                        roadmanager::Lane *successor_lane =
-                            lane != nullptr ? outgoing_road->GetDrivingLaneById(outgoing_s_value, lane->GetLink(connecting_road_link_type)->GetId())
-                                            : nullptr;
-                        if (lane != nullptr && successor_lane != nullptr)
-                        {
-                            laneparing->mutable_successor_lane_id()->set_value(successor_lane->GetGlobalId());
-                        }
-                        else
+                        if (!lane)
                         {
                             LOG_ERROR("Connecting road {} incoming road {} failed get lane by id {}",
                                       connecting_road->GetId(),
                                       connection->GetIncomingRoad()->GetId(),
                                       junctionlanelink->to_);
+                            continue;
                         }
+
+                        // GT-FORK sync: upstream 7a0844b1 (null lane_link check, esmini #780/#781)
+                        roadmanager::LaneLink *lane_link = lane->GetLink(connecting_road_link_type);
+                        if (!lane_link)
+                        {
+                            LOG_ERROR("Connecting road {} incoming road {} failed get lane by id {}, missing link: maybe vanishing lane?",
+                                      connecting_road->GetId(),
+                                      connection->GetIncomingRoad()->GetId(),
+                                      junctionlanelink->to_);
+                            continue;
+                        }
+
+                        roadmanager::Lane *successor_lane = outgoing_road->GetDrivingLaneById(outgoing_s_value, lane_link->GetId());
+                        if (!successor_lane)
+                        {
+                            LOG_ERROR("Outgoing road {} incoming road {} failed get lane by id {}",
+                                      outgoing_road->GetId(),
+                                      connection->GetIncomingRoad()->GetId(),
+                                      lane_link->GetId());
+                            continue;
+                        }
+
+                        laneparing->mutable_successor_lane_id()->set_value(successor_lane->GetGlobalId());
                     }
                 }
             }

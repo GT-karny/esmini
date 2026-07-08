@@ -88,6 +88,8 @@ Options:
       OpenSCENARIO XML string
   --osg_screenshot_event_handler
       Revert to OSG default jpg images ('c'/'C' keys handler)
+  --osi_compress
+      Compress OSI data with gzip
   --osi_crop_dynamic <id,radius>...
       Crop the dynamic osi data around the given object id with given radius
   --osi_exclude_ghost

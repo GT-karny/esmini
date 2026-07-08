@@ -35,6 +35,27 @@ class ManualDriveSDL2Config(BaseModel):
     button_mapping: ManualDriveButtonMapping = ManualDriveButtonMapping()
 
 
+class ManualDriveKeyboardConfig(BaseModel):
+    steer_left: str = "A"
+    steer_right: str = "D"
+    throttle: str = "W"
+    brake: str = "S"
+    clutch: str = "LShift"
+    upshift: str = "E"
+    downshift: str = "Q"
+    override_key: str = "O"
+    indicator_left: str = "Z"
+    indicator_right: str = "X"
+    headlight: str = "L"
+    high_beam: str = "K"
+    fog_light: str = "F"
+    hazard: str = "H"
+    steer_rate: float = 2.0
+    centering_rate: float = 3.0
+    pedal_press_rate: float = 4.0
+    pedal_release_rate: float = 6.0
+
+
 class ManualDriveDomainConfig(BaseModel):
     lateral: str = "manual"
     longitudinal: str = "manual"
@@ -74,6 +95,7 @@ class ManualDriveControllerConfig(BaseModel):
     ffb_enabled: bool = True
     domain: ManualDriveDomainConfig = ManualDriveDomainConfig()
     sdl2: ManualDriveSDL2Config = ManualDriveSDL2Config()
+    keyboard: ManualDriveKeyboardConfig = ManualDriveKeyboardConfig()
     input_network: ManualDriveNetworkInput = ManualDriveNetworkInput()
     physics_network: ManualDriveNetworkPhysics = ManualDriveNetworkPhysics()
     ffb: ManualDriveFFBConfig = ManualDriveFFBConfig()
@@ -107,9 +129,13 @@ class ExecutionConfig(BaseModel):
     autolight: bool = False
     vehicle_physics: bool = True
     kinematic_mode: bool = False
+    route_drive_mode: bool = False
+    route_drive_timing: str = "normal"  # RouteDrive lane-change Timing knob (late | normal | early)
+    route_drive_gap: str = "normal"     # RouteDrive lane-change Gap knob (wide | normal | tight)
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []
+    drive_mode: str = "comfort"  # HVDEstimator drive mode (comfort | sport)
 
 
 class SimulationRequest(BaseModel):
@@ -143,3 +169,7 @@ class SimulationListResponse(BaseModel):
 
 class SpeedRequest(BaseModel):
     speed_factor: float = Field(ge=0.1, le=100.0, description="Speed multiplier (1.0 = realtime)")
+
+
+class DriveModeRequest(BaseModel):
+    mode: str = Field(min_length=1, max_length=32, description="HVDEstimator drive mode (e.g. 'comfort', 'sport')")

@@ -27,22 +27,16 @@ classDiagram
     }
 
     class RealDriverCoordinator
-    class DriverInputReceiver
-    class VehicleStateUpdater
-    class ControlDecisionEngine
     class LonProfilePlanner
     class DriverOutputPort
     class LatPathPlanner
-    class EsminiStateApplier
 
     ControllerRealDriver --> RealDriverCoordinator : orchestrates frame
-    RealDriverCoordinator --> ControlDecisionEngine : setSpeed update
-    RealDriverCoordinator --> DriverInputReceiver : UDP input receive
-    RealDriverCoordinator --> VehicleStateUpdater : RealVehicle physics
+    RealDriverCoordinator --> ControllerRealDriver : setSpeed/input/physics direct calls
     RealDriverCoordinator --> LonProfilePlanner : build type=3 profile
     RealDriverCoordinator --> DriverOutputPort : send type=3
     RealDriverCoordinator --> LatPathPlanner : LAT action selection
-    RealDriverCoordinator --> EsminiStateApplier : gateway/object sync
+    RealDriverCoordinator --> ControllerRealDriver : gateway/object sync
 ```
 
 ## 2. Activation Flow
@@ -75,18 +69,14 @@ Notes:
 sequenceDiagram
     participant C as ControllerRealDriver
     participant R as RealDriverCoordinator
-    participant DE as ControlDecisionEngine
-    participant IN as DriverInputReceiver
-    participant VS as VehicleStateUpdater
     participant LP as LonProfilePlanner
     participant OUT as DriverOutputPort
     participant LAT as LatPathPlanner
-    participant EA as EsminiStateApplier
 
     C->>R: RunFrame(*this, timeStep)
-    R->>DE: UpdateSetSpeed(controller)
-    R->>IN: Receive(controller)
-    R->>VS: UpdatePhysics(controller, timeStep)
+    R->>C: UpdateSetSpeedFromScenarioObject()
+    R->>C: ReceiveLatestUdpInput()
+    R->>C: UpdateVehiclePhysics(timeStep)
     R->>LP: BuildProfile(currentSpeed, setSpeed)
     R->>OUT: SendLonProfile(type=3)
     R->>C: MaybeSendWaypoints(type=2, optional)
@@ -94,7 +84,7 @@ sequenceDiagram
     R->>C: UpdateHostVehicleReporter()
     alt object_ && gateway_
         R->>LAT: HandleActions(controller, "")
-        R->>EA: Apply(controller, pitch, roll, hasRunningScenarioLongAction)
+        R->>C: SyncGatewayObjectState(pitch, roll, hasRunningScenarioLongAction)
         R->>C: UpdateVehicleLights()
     end
     R->>C: Controller::Step(timeStep)
@@ -217,8 +207,7 @@ This controller uses two distinct speed domains by design:
   - `currentSpeed_ = object_->GetSpeed()`
   - `setSpeed_ = object_->GetSpeed()`
 - Per-frame update path:
-  - `RealDriverCoordinator::RunFrame()` calls `ControlDecisionEngine::UpdateSetSpeed()`
-  - `ControlDecisionEngine::UpdateSetSpeed()` calls `ControllerRealDriver::UpdateSetSpeedFromScenarioObject()`
+  - `RealDriverCoordinator::RunFrame()` calls `ControllerRealDriver::UpdateSetSpeedFromScenarioObject()`
   - `UpdateSetSpeedFromScenarioObject()` reads `object_->GetSpeed()` and updates `setSpeed_` on change.
 
 Implication:
@@ -262,7 +251,6 @@ Implication:
 ### 10.5 Key references
 
 - `GT_esmini/src/control/realdriver/RealDriverCoordinator.cpp`
-- `GT_esmini/src/control/ControlDecisionEngine.cpp`
 - `GT_esmini/src/control/ControllerRealDriver.cpp`
 - `GT_esmini/src/control/realdriver/LonProfilePlanner.cpp`
 - `GT_esmini/src/control/realdriver/DriverOutputPort.cpp`

@@ -1,23 +1,65 @@
-export type ControllerType = 'default' | 'manual';
+export type ControllerType = 'default' | 'manual' | 'virtual_driver';
+export type DriveMode = 'comfort' | 'sport';
+export type LaneChangeTiming = 'late' | 'normal' | 'early';
+export type LaneChangeGap = 'wide' | 'normal' | 'tight';
 
 export interface ControllerSectionProps {
-  controllerType: 'default' | 'manual';
-  setControllerType: (v: 'default' | 'manual') => void;
+  controllerType: ControllerType;
+  setControllerType: (v: ControllerType) => void;
   onOpenManualSettings?: () => void;
+  driveMode: DriveMode;
+  setDriveMode: (v: DriveMode) => void;
+  // RouteDrive lane-change timing knobs — only shown when Route Drive is enabled.
+  routeDriveMode?: boolean;
+  laneChangeTiming: LaneChangeTiming;
+  setLaneChangeTiming: (v: LaneChangeTiming) => void;
+  laneChangeGap: LaneChangeGap;
+  setLaneChangeGap: (v: LaneChangeGap) => void;
 }
 
 const btnBase = 'px-4 py-2 text-sm font-medium transition-colors cursor-pointer';
 const btnActive = 'bg-primary/80 text-background glow-edge';
 const btnInactive = 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground';
 
+const modeBtnBase = 'px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer';
+const modeBtnActive = 'bg-blue-500 text-white';
+const modeBtnInactive = 'bg-glass-1 text-text-secondary hover:bg-glass-hover hover:text-foreground';
+
+const driveModeTooltip =
+  'シフトポイントとシフト時挙動を切替えます。Sport は高回転側、ダウンシフト時 rev-match ブリップ、トルクインタラプト強め。Default controller / NPC のみに効果。Manual Drive 走行中の自車挙動には影響しません。';
+
 export function ControllerSection({
   controllerType,
   setControllerType,
   onOpenManualSettings,
+  driveMode,
+  setDriveMode,
+  routeDriveMode,
+  laneChangeTiming,
+  setLaneChangeTiming,
+  laneChangeGap,
+  setLaneChangeGap,
 }: ControllerSectionProps) {
   return (
     <div>
-      <h3 className="text-xs text-text-tertiary mb-2">Controller</h3>
+      <div className="flex items-end justify-between mb-2">
+        <h3 className="text-xs text-text-tertiary">Controller</h3>
+        <div className="flex items-center gap-1.5" title={driveModeTooltip}>
+          <span className="text-xs text-text-tertiary">Drive Mode</span>
+          <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+            {(['comfort', 'sport'] as DriveMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setDriveMode(m)}
+                className={`${modeBtnBase} ${driveMode === m ? modeBtnActive : modeBtnInactive}`}
+              >
+                {m === 'comfort' ? 'Comfort' : 'Sport'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setControllerType('default')}
@@ -51,11 +93,56 @@ export function ControllerSection({
             </svg>
           )}
         </button>
+        <button
+          onClick={() => setControllerType('virtual_driver')}
+          title="Full vehicle physics driven by an internal virtual driver (route follow + SpeedAction + lane change). Phase 1 MVP."
+          className={`${btnBase} ${controllerType === 'virtual_driver' ? btnActive : btnInactive}`}
+        >
+          Virtual Driver
+        </button>
       </div>
 
       {controllerType === 'manual' && (
         <div className="text-xs text-text-tertiary">
           Click the gear icon to configure Manual Drive settings.
+        </div>
+      )}
+
+      {routeDriveMode && (
+        <div
+          className="flex flex-col gap-2 mt-1"
+          title="Route Drive のレーンチェンジ挙動。Timing=いつ切るか(早め/遅め)、Gap=どれだけ狭い車間で踏み切るか。"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-tertiary">Lane Change · Timing</span>
+            <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+              {(['late', 'normal', 'early'] as LaneChangeTiming[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setLaneChangeTiming(t)}
+                  className={`${modeBtnBase} ${laneChangeTiming === t ? modeBtnActive : modeBtnInactive}`}
+                >
+                  {t === 'late' ? 'Late' : t === 'normal' ? 'Normal' : 'Early'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-tertiary">Lane Change · Gap</span>
+            <div className="inline-flex items-center gap-0.5 rounded border border-glass-edge p-0.5">
+              {(['wide', 'normal', 'tight'] as LaneChangeGap[]).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setLaneChangeGap(g)}
+                  className={`${modeBtnBase} ${laneChangeGap === g ? modeBtnActive : modeBtnInactive}`}
+                >
+                  {g === 'wide' ? 'Wide' : g === 'normal' ? 'Normal' : 'Tight'}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,0 +1,7 @@
+# authoring/build-time tooling only, NOT a runtime dependency
+# (dev-freeze does not apply; see scenario_authoring_foundation.md §3.2)
+# Install into DriverScript/.venv is already satisfied -- verify with:
+#   DriverScript/.venv/Scripts/python.exe -m pip show scenariogeneration
+scenariogeneration==0.16.5
+lxml>=6.1
+PyYAML>=6.0

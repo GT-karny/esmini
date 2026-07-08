@@ -1,0 +1,25 @@
+scenario: vj_straight_through
+category: p6_virtual_junction
+# P6 S7b scene B -- the T2 pass-through invariant at VD level: the VD drives
+# STRAIGHT THROUGH the virtual-junction span [95,105] on main road 1 and never
+# departs onto the branch. The route target is on road 1 (s=180), beyond the
+# anchor but still on the main road.
+#
+# HARD RULE (design sec6 S7b): road_id assertions on road 1 are permitted;
+# junction-id / membership assertions are NOT (v1 reports -1/false on the span).
+must:
+  # Stays on road 1 for the ENTIRE run -- never departs onto branch road 2.
+  # (road_id is an OpenDRIVE road id, not a junction id -> lawful under the rule.)
+  - event: lane_keep
+    road_id: 1
+    lane_id: -1
+    reason: "仮想ジャンクションを直進通過し常にroad 1に留まる(T2不変条件)"
+  # Never stalls -- keeps moving forward through the span.
+  - event: min_speed_above
+    threshold: 1.0
+    after: { sim_time: 3.0 }
+    reason: "スパン通過中も失速しない"
+  # Speed never runs away above the commanded ~9 m/s (+ generous margin).
+  - event: speed_below
+    threshold: 12.0
+    reason: "指令速度を大きく超えない(制御が安定)"

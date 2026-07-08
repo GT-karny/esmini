@@ -1,0 +1,21 @@
+catalog_id: 4way_priority__main_ns
+kind: road
+geometry_type: G5+G13
+signage: priority_road+yield
+priority:
+  main: ns
+  injected: true
+  main_legs:
+  - 1
+  - 3
+  minor_legs:
+  - 0
+  - 2
+generator:
+  script: road_catalog/gen_4way_priority.py
+  params:
+    main: ns
+    lanes: 1
+    leg_length: 100.0
+    signage: true
+generated_at_commit: '48325089'

@@ -2,7 +2,7 @@
 
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerRealDriverUtils.hpp"
-#include "gt_esmini/control/TerrainTracker.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/pythondriver/PythonDriverBridge.hpp"
 #include "gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
@@ -105,9 +105,6 @@ double ResolveLaneOffsetTarget(const scenarioengine::LatLaneOffsetAction& action
     return currentOffset + targetRel->value_;
 }
 }  // namespace
-
-// Reuse from ControllerRealDriver.cpp
-extern std::string GetCurrentModuleDirectory();
 
 scenarioengine::Controller* InstantiateControllerPythonDriver(void* args)
 {
@@ -716,11 +713,6 @@ void ControllerPythonDriver::UpdateVehiclePhysics(double timeStep)
 
     double terrain_pitch = 0.0;
     double terrain_roll  = 0.0;
-    if (object_ && TerrainTracker::IsEnabled())
-    {
-        terrain_pitch = object_->pos_.GetP();
-        terrain_roll  = object_->pos_.GetR();
-    }
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);

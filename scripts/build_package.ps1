@@ -51,7 +51,8 @@ $BuildRelease   = Join-Path $BuildDir "GT_esmini\Release"
 $RMLibRelease   = Join-Path $BuildDir "EnvironmentSimulator\Libraries\esminiRMLib\Release"
 $SDL2Dll        = Join-Path $RepoRoot "thirdparty\SDL2\lib\x64\SDL2.dll"
 $DriverBin      = Join-Path $RepoRoot "DriverScript\bin"
-$VenvPython     = Join-Path $RepoRoot "DriverScript\.venv\Scripts\python.exe"
+# Build venv (PyInstaller + web backend deps). Created via setup_web_venv.ps1.
+$VenvPython     = Join-Path $RepoRoot "GT_esmini\web\.venv\Scripts\python.exe"
 $EmbedPython    = Join-Path $RepoRoot "thirdparty\python-embed\python-3.12.10-embed-amd64"
 $FrontendDir    = Join-Path $RepoRoot "GT_esmini\web\frontend"
 $ElectronDir    = Join-Path $RepoRoot "GT_esmini\web\electron"
@@ -81,7 +82,8 @@ if (-not (Test-Path $EmbedPython)) {
     exit 1
 }
 if (-not (Test-Path $VenvPython)) {
-    Write-Host "ERROR: venv Python not found at $VenvPython" -ForegroundColor Red
+    Write-Host "ERROR: build venv Python not found at $VenvPython" -ForegroundColor Red
+    Write-Host "       Run: .\scripts\setup_web_venv.ps1" -ForegroundColor Yellow
     exit 1
 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -100,13 +102,13 @@ if (-not $SkipCMake) {
             -DUSE_OSI=ON `
             -DUSE_SUMO=ON `
             -DUSE_IMPLOT=ON `
-            -DUSE_SDL2=ON `
-            -DGT_ENABLE_SDL2=ON
+            -DGT_ENABLE_SDL2=ON `
+            -DGT_ENABLE_EMBEDDED_PYTHON=ON  # distribution keeps the v0.8-frozen PythonDriver; dev default is OFF
     }
 
     Write-Step "1" "C++ Build (Release)"
     Invoke-Checked "cmake build" {
-        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib
+        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib GT_RoadGen
     }
 } else {
     Write-Host "`n  -- Skipping CMake configure + C++ build --" -ForegroundColor Yellow
@@ -119,6 +121,14 @@ Write-Step "1b" "Stage build artifacts into BuildRelease + DriverScript/bin"
 if (-not (Test-Path $DriverBin)) { New-Item -ItemType Directory -Path $DriverBin -Force | Out-Null }
 Copy-Item "$BuildRelease\*.dll" $DriverBin -Force -ErrorAction SilentlyContinue
 Copy-Item "$BuildRelease\GT_Sim.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+# GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it from bin/
+# to pre-generate + cache the road model (skips the slow single-threaded core generation), so it
+# MUST be built (Step 1 target) and bundled alongside GT_Sim.exe.
+if (Test-Path "$BuildRelease\GT_RoadGen.exe") {
+    Copy-Item "$BuildRelease\GT_RoadGen.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "  !! WARNING: GT_RoadGen.exe not found at $BuildRelease — large OpenDRIVE road generation will be slow / may hang" -ForegroundColor Yellow
+}
 # esminiRMLib.dll lives under EnvironmentSimulator/Libraries/esminiRMLib/Release
 # — stage into $BuildRelease so build_package.py's *.dll glob picks it up.
 if (Test-Path "$RMLibRelease\esminiRMLib.dll") {

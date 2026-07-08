@@ -74,6 +74,9 @@ struct GtSimOptions
     // Control pipe (Windows)
     std::string control_pipe_name;  // empty = disabled
 
+    // HVDEstimator initial drive mode (empty = use config default)
+    std::string drive_mode;
+
     // Parameter overrides
     std::vector<ParamOverride> param_overrides;
 
@@ -97,7 +100,8 @@ static void PrintUsage()
     printf("  --video_headless     Run capture in headless mode (default: true)\n");
     printf("  --video_frames <n>   Number of frames to capture (-1 for continuous)\n");
     printf("  --video_prefix <p>   Capture file prefix (default: screen_shot_)\n");
-    printf("  --control_pipe <n>   Named pipe for runtime speed control (Windows)\n");
+    printf("  --control_pipe <n>   Named pipe for runtime control (SPEED:<f>, DRIVE_MODE:<m>, QUIT) [Windows]\n");
+    printf("  --drive_mode <name>  HVDEstimator drive mode at startup (e.g. comfort, sport)\n");
     printf("  --param <name,val>   Override scenario parameter (repeatable)\n");
     printf("\nSee esmini --help for engine options.\n");
 }
@@ -245,6 +249,12 @@ struct ControlPipe
                 }
                 catch (...) {}
             }
+            else if (line.rfind("DRIVE_MODE:", 0) == 0)
+            {
+                std::string mode = line.substr(11);
+                int rc = GT_SetDriveMode(mode.c_str());
+                printf("GT_Sim: DRIVE_MODE='%s' rc=%d\n", mode.c_str(), rc);
+            }
         }
     }
 
@@ -371,6 +381,10 @@ int main(int argc, const char* argv[])
         {
             opts.control_pipe_name = argv[++i];
         }
+        else if (arg == "--drive_mode" && i + 1 < argc)
+        {
+            opts.drive_mode = argv[++i];
+        }
         else if (arg == "--sv-port" && i + 1 < argc)
         {
             // Forward to GT_InitWithArgs (handled inside GT_esminiLib)
@@ -430,6 +444,17 @@ int main(int argc, const char* argv[])
     {
         printf("Failed to initialize GT_esmini\n");
         return -1;
+    }
+
+    // 1.0 Apply initial HVDEstimator drive mode if requested
+    if (!opts.drive_mode.empty())
+    {
+        int rc = GT_SetDriveMode(opts.drive_mode.c_str());
+        if (rc != 0)
+        {
+            printf("GT_Sim: warning - failed to set initial drive mode '%s' (rc=%d)\n",
+                   opts.drive_mode.c_str(), rc);
+        }
     }
 
     // 1.1 Apply parameter overrides
@@ -534,7 +559,7 @@ int main(int argc, const char* argv[])
     if (!opts.osi_ip.empty())
     {
         printf("GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
-        SE_OpenOSISocket(opts.osi_ip.c_str());
+        GT_OpenOSISocket(opts.osi_ip.c_str());
     }
 
     // 3b. Override SV reporter port if specified (handled inside GT_InitWithArgs via --sv-port)

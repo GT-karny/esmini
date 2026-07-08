@@ -26,10 +26,6 @@ class AssignRouteAction;
 
 namespace gt_esmini
 {
-    class DriverInputReceiver;
-    class VehicleStateUpdater;
-    class EsminiStateApplier;
-    class ControlDecisionEngine;
     class DriverOutputPort;
     class LatPathPlanner;
     class RealDriverCoordinator;
@@ -69,10 +65,6 @@ namespace gt_esmini
         const osi3::HostVehicleData& GetCachedHostVehicleData() const { return cached_hvd_; }
 
     private:
-        friend class DriverInputReceiver;
-        friend class VehicleStateUpdater;
-        friend class EsminiStateApplier;
-        friend class ControlDecisionEngine;
         friend class LonProfilePlanner;
         friend class DriverOutputPort;
         friend class LatPathPlanner;
@@ -185,10 +177,6 @@ namespace gt_esmini
         // Buffer for receiving UDP data
         std::vector<char> udp_buffer_;
 
-        DriverInputReceiver* driver_input_receiver_ = nullptr;
-        VehicleStateUpdater* vehicle_state_updater_ = nullptr;
-        EsminiStateApplier* esmini_state_applier_ = nullptr;
-        ControlDecisionEngine* control_decision_engine_ = nullptr;
         DriverOutputPort* driver_output_port_ = nullptr;
         LonProfilePlanner* lon_profile_planner_ = nullptr;
         LatPathPlanner* lat_path_planner_ = nullptr;

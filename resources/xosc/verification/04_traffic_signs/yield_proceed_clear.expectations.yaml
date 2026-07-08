@@ -1,0 +1,18 @@
+scenario: yield_proceed_clear
+category: 04_traffic_signs
+# A YIELD is not a STOP: with the way clear the ego must NOT come to a full stop.
+# min_speed_above (>0.5 m/s) in the sign vicinity proves it kept rolling; the
+# time window t=[11,18]s brackets the approach/pass of the sign at s=200 (the
+# min_speed_above matcher gates on road_id + time, not s_range). True control:
+# passes pre- and post-3c.
+must:
+  - event: min_speed_above
+    threshold: 0.5
+    road_id: 1
+    after: { sim_time: 11.0 }
+    before: { sim_time: 18.0 }
+    reason: "対向無しのYIELDでは完全停止しない(徐行でも止まり切らない)"
+  - event: speed_above
+    threshold: 8.0
+    after: { sim_time: 20.0 }
+    reason: "通過後は巡航へ復帰"

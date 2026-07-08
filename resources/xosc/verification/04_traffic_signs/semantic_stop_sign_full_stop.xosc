@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver P4 verification scenario 04_traffic_signs / semantic_stop_sign_full_stop
+  Twin of stop_sign_full_stop.xosc but the road's STOP sign is authored with an
+  OpenDRIVE @type (9001) that is NOT in the de catalog, so the catalog pipeline
+  leaves it OSI-UNCLASSIFIED. Only the P4 L2 semantics fallback in
+  StopYieldSignAware (which reads <priority type="stopLine"/> from the GT side
+  model when the catalog left the sign unclassified) can recognise it as a STOP.
+  Ego cruises at 13.889 m/s along lane -1 toward the sign at s=200, then
+  continues to s=480. There is NO scripted stop. Pre-L2 (catalog-first only) the
+  ego runs the sign and stopped_at_stop_sign correctly FAILS (red). With the L2
+  fallback it must full-stop at the line, hold, then proceed (green). Cruise is a
+  running Story Event (Init SpeedActions are invisible to the VirtualDriver).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-07-03T10:00:00"
+               description="VirtualDriver P4 verification: full stop at a semantics-only (catalog-unclassified) STOP sign"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_semantic_stop_sign.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="30"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="30"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="480"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="SignStory">
+         <Act name="SignAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="40" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

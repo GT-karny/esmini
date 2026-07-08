@@ -1,0 +1,227 @@
+# OpenDRIVE 1.6-1.9 traceability matrix requirements (P0, opendrive_16_19_support_plan.md sec 3.3 / sec 4).
+#
+# For each element cluster (plan sec 4 table, 0-22) this declares the feature patterns that MUST be
+# provided by at least one fixture in manifest.yaml. scripts/run_odr_conformance.py --check-matrix
+# matches each pattern (substring OR prefix) against every fixture's `features` rows and fails if any
+# non-deferred pattern matches zero fixtures ("no empty rows in the matrix").
+#
+# Matching semantics (see run_odr_conformance.py _pattern_matches):
+#   * a pattern with no wildcard matches a feature row if the pattern is a SUBSTRING of the row,
+#     OR the row starts with the pattern (prefix). This lets a pattern like
+#     "road/objects/object/repeat@bT" match exactly and "junction/crossPath" match every crossPath* row.
+#
+# Cluster handling summary:
+#   * clusters with >=1 P0 fixture   -> `patterns:` (1-4 real spec constructs the fixtures provide).
+#   * cluster 0 (regression-fix of already-supported 1.6/1.7 items) -> satisfied_by: control_set
+#     (the repo already ships loadable 1.6/1.7 roads; they anchor the "no regression" baseline).
+#   * cluster 2 (schema-validation tooling + fixture supply) -> satisfied_by: tooling
+#     (validate_xodr_schema.py + odr_feature_injector.py + this harness ARE cluster 2).
+#   * clusters with NO P0 fixture yet -> `deferred:` with the phase that will add fixtures. These are
+#     intentionally not matched (they would otherwise be empty rows); the plan schedules their fixtures
+#     later. Enumerated explicitly rather than omitted, so the matrix is exhaustive over 0-22.
+#
+# meta.clusters mirrors the plan sec 4 cluster titles for traceability.
+meta:
+  version: 1
+  plan: GT_esmini/docs/archive/odr_1619_program/opendrive_16_19_support_plan.md
+  manifest: GT_esmini/test/odr_fixtures/manifest.yaml
+
+clusters:
+  0:
+    title: "regression-fix of already-supported 1.6-1.9 items (direct junction, string road id, explicit roadmark line)"
+    satisfied_by: control_set
+    notes: >-
+      No dedicated fixture: the repo already ships loadable 1.6/1.7 control roads
+      (highway_example_with_merge_and_split.xodr rev6, crest-curve.xodr rev6, tunnels.xodr rev6,
+      two_plus_one.xodr rev5 direct-junction family) whose RM+OSI goldens freeze the "already works"
+      baseline this cluster must not regress.
+
+  1:
+    title: "version-recognition foundation + no-silent-drop diagnostics"
+    patterns:
+      - "junction/connection@connectingRoad"   # dangling ref -> whole-parse abort (P1 hardening target)
+      - "junction/connection/laneLink@from"
+
+  2:
+    title: "schema validation 1.9 + fixture supply (tooling)"
+    satisfied_by: tooling
+    notes: >-
+      Cluster 2 IS the tooling: scripts/validate_xodr_schema.py (revMinor-9 mapping over the extracted
+      1.9 XSDs), scripts/odr_feature_injector.py (generated/ fixtures), scripts/odr_fixture_setup.py and
+      this harness (run_odr_conformance.py). Not a DOM-feature cluster, so no feature pattern applies.
+
+  3:
+    title: "lane types + lane attributes (walking/curb/shared/slipLane, direction/advisory/dynamic*/roadWorks)"
+    patterns:
+      - "road/lanes/laneSection/left/lane@direction"
+      - "road/lanes/laneSection/right/lane@roadWorks"
+      - "road/lanes/laneSection/left/lane@type"       # walking/shared/slipLane tokens (13_lane_types)
+      - "road/lanes/laneSection@length"               # 1.9 laneSection @length (g1)
+
+  4:
+    title: "lane layers + temporary/roadworks package"
+    patterns:
+      - "road/lanes@layer"                            # 1.9 <lanes @layer> (g2)
+      - "road/signals/signal@temporary"               # 1.9 @temporary
+      - "road/objects/object@invalidated"             # 1.9 @invalidated
+
+  5:
+    title: "crossing junction + crossPath (pedestrian crossing)"
+    patterns:
+      - "junction/crossPath"                          # crossPath + all its startLaneLink/endLaneLink rows
+      - "junction/roadSection"                        # crossing-junction roadSection
+      - "road/lanes/laneSection/left/lane@type=walking"
+
+  7:
+    title: "junction priority + laneLink overlapZone (F3 canonical source)"
+    patterns:
+      - "junction/priority"                           # <priority high low> L1 capture (P5, F3 source)
+      - "junction/connection/laneLink@overlapZone"    # 1.8 laneLink overlapZone (P5 L1 slot)
+    notes: >-
+      P5 sources the canonical <priority> accessor (GetJunctionPriorities) in OdrJunctionExtras.cpp and
+      consumes it in the separated F3 week. The handauthored fixture 21_common_junction_crosspath_19
+      carries junction/priority + laneLink@overlapZone feature rows so this cluster is now satisfied
+      (previously deferred to the F3 week). The control_set roads
+      resources/scenario_authoring/road_catalog/generated/{t_junction_priority__a90,4way_priority__main_ns}.xodr
+      also exercise <priority> at load (RM golden) but carry no `features` rows to match here.
+
+  8:
+    title: "junction boundary/elevationGrid/planView etc"
+    patterns:
+      - "junction/boundary"                           # 1.8 <boundary> (g6 + g8)
+      - "junction/boundary/segment@type"              # boundary segment @type (g6 + g8)
+      - "junction/elevationGrid"                      # P7: junction <elevationGrid> (g8)
+      - "junction/surface"                            # P7: junction-level <surface><CRG> (g8)
+      - "junction/objects"                            # P7: junction-level <objects> (g8)
+
+  10:
+    title: "signal semantics family + participants"
+    patterns:
+      - "road/signals/signal/semantics"               # 1.8 <semantics> (g3)
+      - "road/signals/signal/semantics/priority@type"
+      - "road/signals/signal/semantics/speed@type"    # P4: 1.9 attribute-form speed (g7 / fixture 22)
+      - "road/signals/signal/semantics/supplementaryProhibits/vehicle/type"  # P4: participants (fixture 22)
+
+  11:
+    title: "dynamic signal modernization + countryRevision bug fix"
+    patterns:
+      - "road/signals/signal@countryRevision"         # inverted-read bug + demote reproduction
+      - "road/signals/signal@dynamic=yes"
+
+  12:
+    title: "signal placement + cross-reference (positionRoad/Inertial, signalReference, dependency)"
+    patterns:
+      - "road/signals/signal/positionRoad"
+      - "road/signals/signal/positionInertial"
+      - "road/signals/signalReference"
+      - "road/signals/signal/dependency"
+      - "road/signals/signal/reference"
+      - "signal-st-omitted-19"
+
+  13:
+    title: "VMS / variable message boards"
+    patterns:
+      - "road/signals/signal/vmsBoard"
+      - "road/signals/signal/vmsBoard/displayArea"
+      - "road/signals/signal/staticBoard"             # P4: 1.9 static board (fixture 21)
+      - "vmsGroup/vmsBoardReference"                  # P4: document-level vmsGroup (fixture 21)
+
+  14:
+    title: "header license + defaultRegulations"
+    patterns:
+      - "header/license"
+      - "header/defaultRegulations"
+      - "header/defaultRegulations/roadRegulations/semantics/priority@type"
+
+  15:
+    title: "additionalData: userData/include/dataQuality"
+    patterns:
+      - "road/include"                                # include error path (P1 hard error)
+      - "header/userData"
+      - "header/dataQuality"
+
+  16:
+    title: "lane detail: access/rule/speed/border/sway"
+    patterns:
+      - "road/lanes/laneSection/left/lane/speed"
+      - "road/lanes/laneSection/left/lane/access@rule"
+      - "road/lanes/laneSection/left/lane/rule@value"
+      - "road/lanes/laneSection/center/lane/roadMark/sway"
+
+  17:
+    title: "cross-section: shape + crossSectionSurface"
+    patterns:
+      - "road/lateralProfile/shape"                   # P7: lateralProfile <shape> (fixture 23)
+      - "road/lateralProfile/crossSectionSurface"     # P7: <crossSectionSurface> (fixture 24)
+    notes: >-
+      P7 un-defers this cluster: the handauthored fixtures 23_lateral_shape_15 and
+      24_cross_section_surface_18 carry explicit road/lateralProfile/shape and
+      road/lateralProfile/crossSectionSurface feature rows. The official UC_RoadShape +
+      Ex_CrossSectionSurface* control roads also exercise this geometry at load (RM/OSI goldens) but
+      carry empty `features` lists, so they cannot supply the matchable patterns.
+
+  18:
+    title: "surface/CRG (road/junction/object)"
+    patterns:
+      - "road/surface/CRG"
+      - "road/surface/CRG@xOffset"                    # 1.9-only CRG offset
+
+  19:
+    title: "object geometry extension + objectReference/bridge/misc"
+    patterns:
+      - "road/objects/object/repeat@bT"               # 1.9 repeat lateral polynomial
+      - "road/objects/objectReference"                # <=1.5 objectReference
+      - "road/objects/bridge"                         # bridge
+      - "road/objects/object/outline/curveLocal"      # 1.9 smooth outline corner
+
+  21:
+    title: "1.6 deprecation/removal handling"
+    patterns:
+      - "road/link/neighbor"                          # element REMOVED in 1.6 (fixture 18)
+
+  22:
+    title: "junction connection/laneLink 1.9 layer attributes"
+    patterns:
+      - "junction/connection/laneLink@fromLayer"
+      - "junction/connection/laneLink@toLayer"
+
+  # ----- clusters with no P0 fixtures (deferred; enumerated for exhaustiveness over 0-22) -----
+  6:
+    title: "virtual junction"
+    patterns:
+      - "junction@type=virtual"
+      - "junction@mainRoad"
+      - "junction/connection/predecessor@elementS"
+      - "road/link/predecessor@elementS"
+    notes: >-
+      P6 S2: fixtures 23/23b/23c (handauthored virtual_junction_*_17) provide native virtual-junction
+      parse coverage ([GT_ODR:vj-parse-link]/[GT_ODR:vj-parse-junction] in-place core edits -- NOT the
+      abandoned parse-time mainRoad split). Fixture 01 additionally carries a type=virtual junction from
+      cluster 5.
+
+  9:
+    title: "junctionGroup (roundabout/interchange)"
+    patterns:
+      - "junctionGroup"                               # P7: <junctionGroup type=roundabout> (fixture 25)
+      - "junctionGroup/junctionReference"             # P7: <junctionReference> members (fixture 25)
+    notes: >-
+      P7 un-defers this cluster: the handauthored fixture 25_junction_group_15 carries a document-level
+      <junctionGroup type="roundabout"> with <junctionReference> members and the matching feature rows.
+      The control_set includes a roundabout (official UC_2Lane-RoundAbout-3Arms) but its features list
+      is empty, so it cannot supply the matchable pattern.
+
+  20:
+    title: "railroad + station"
+    patterns:
+      - "road/railroad/switch"                         # P9a: <switch> (Ex_Railway-Switch)
+      - "road/railroad/switch/mainTrack"               # P9a: linked main track
+      - "road/railroad/switch/sideTrack"               # P9a: linked side track
+      - "road/railroad/switch/partner"                 # P9a: partner switch
+      - "station/platform/segment"                     # P9a: station platform segment (Ex_Railway-Station)
+    notes: >-
+      P9a un-defers this cluster (L1, INERT). The official Ex_Railway-Switch (2 <switch> with
+      mainTrack/sideTrack/partner) and Ex_Railway-Station (root <station>/platform/segment) fixtures now
+      carry the matching cluster-20 feature rows and expected_unsupported_entries: []. Parsed into the
+      OdrRailroad side model (OdrSideModel::rail_switches / ::stations); stored + queryable via
+      GetRailSwitch/GetRoadRailSwitches/GetStation but INERT -- no runtime consumer (no rail runtime /
+      no OSI / no policy), documented-inactive per plan §5 P9.

@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 05_anticipation / traffic_lights_junction
+  Stop-then-go reproduction of the Phase-1 residual bug: the ego cruises toward
+  the fabriksgatan junction, STOPS just before it (as at a red light), waits,
+  then RESUMES (green start) and must turn right (road 3 -> junction R~8m -> road 2).
+  Phase 1: green-start accelerates to full speed -> junction entry at cruise ->
+  steering saturates -> drifts onto the wrong connecting road. Phase 2: the
+  mid/long planner caps v_target for the junction even on green start, so the
+  car slows and takes the turn without drift.
+  Controller embedded + cruise/stop/go all as running Story Events (VirtualDriver
+  reads targets from getPrivateActions(); Init SpeedActions are invisible to it).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-06-03T10:00:00"
+               description="VirtualDriver verification: stop-then-go right turn at a junction (Phase-1 drift regression)"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/fabriksgatan_traffic_lights.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="3" laneId="-1" offset="0" s="11"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="3" laneId="-1" offset="0" s="11"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="1" offset="0" s="200"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="StopGoStory">
+         <Act name="StopGoAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="StopGoManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="StopAtLine" priority="overwrite">
+                     <Action name="StopAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="15.0" dynamicsDimension="distance"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0.0"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="StopTrigger" delay="0" conditionEdge="none">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="any">
+                                    <EntityRef entityRef="Ego"/>
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <TraveledDistanceCondition value="72.0"/>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="GoOnGreen" priority="overwrite">
+                     <Action name="GoAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="5.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="GreenTrigger" delay="0" conditionEdge="none">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="any">
+                                    <EntityRef entityRef="Ego"/>
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <StandStillCondition duration="2.0"/>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="35" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

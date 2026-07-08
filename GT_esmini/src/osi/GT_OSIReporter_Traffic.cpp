@@ -14,12 +14,44 @@
 #include "OSIReporter.hpp"
 #include "GT_OSIReporter_Internals.hpp"
 #include "OSITrafficCommand.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"
+#include "gt_esmini/road/OdrSideExtras.hpp"
+#include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <limits>
+#include <string>
 
 namespace
 {
 constexpr const char *kSourceRefTypeOdr = "net.asam.opendrive";
+
+// P4 L3: a catalog-classified sign has a real OSI type (16 GIVE_WAY, 17 STOP, ...).
+// A catalog MISS leaves osi_type at the RoadManager "no match" sentinel — the
+// protobuf enum's INT_MAX_SENTINEL_DO_NOT_USE_ value, i.e. int32 max (the pb.h in
+// this OSI drop does not export it as a named osi3:: constant, so match the raw
+// value) — and an explicitly typed-but-mapped-to-unknown sign is 0 (TYPE_UNKNOWN).
+// Both mean "the country catalog did not classify this sign", which is the ONLY
+// case in which the P4 semantics fallback is allowed to contribute (decision 1).
+inline bool OsiTypeIsCatalogUnclassified(int osi_type)
+{
+    return osi_type == static_cast<int>(osi3::TrafficSign_MainSign_Classification_Type_TYPE_UNKNOWN) ||
+           osi_type == static_cast<int>(std::numeric_limits<int32_t>::max());
 }
+
+// Map an OpenDRIVE semantics <speed @unit> (m/s|mph|km/h) onto an OSI
+// TrafficSignValue_Unit. Anything unexpected -> UNKNOWN (never invents a unit).
+inline osi3::TrafficSignValue_Unit SemanticSpeedUnitToOsi(const std::string &unit)
+{
+    if (unit == "km/h")
+        return osi3::TrafficSignValue_Unit_UNIT_KILOMETER_PER_HOUR;
+    if (unit == "mph")
+        return osi3::TrafficSignValue_Unit_UNIT_MILE_PER_HOUR;
+    if (unit == "m/s")
+        return osi3::TrafficSignValue_Unit_UNIT_OTHER;  // matches the catalog m/s mapping above
+    return osi3::TrafficSignValue_Unit_UNIT_UNKNOWN;
+}
+}  // namespace
 
 int OSIReporter::UpdateStaticTrafficSignals()
 {
@@ -34,7 +66,24 @@ int OSIReporter::UpdateStaticTrafficSignals()
 
             if (signal)
             {
-                if (signal->IsDynamic() && !signal->GetHasOSCAction())
+                // P8: invalidated (1.9) -> excluded from OSI ground truth (see gt_roadmanager_patches.md P8).
+                // A cancelled/crossed-out regulation is not a logical traffic sign or light, so a single
+                // check here skips BOTH the TrafficLight and traffic_sign branches below. Signals without
+                // stored extras (the overwhelming majority) fall through unchanged (byte-identical output).
+                const gt_esmini::odr::OdrSignalExtras *inv_sx =
+                    gt_esmini::odr::GetSignalExtras(opendrive, signal);
+                if (inv_sx != nullptr && inv_sx->invalidated)
+                {
+                    continue;
+                }
+
+                // A TrafficLight with an unsupported type combo has 0 lamps and would emit NO OSI
+                // entity at all (AddTrafficLightToGt is per-lamp). Fall back to the traffic_sign
+                // branch so the signal stays visible in the ground truth (pre-P3 behavior for
+                // signals the relaxed [GT_ODR:tl-gate] now promotes). P4 (signal semantics) will
+                // widen the traffic-light type catalog.
+                roadmanager::TrafficLight *gt_tl = dynamic_cast<roadmanager::TrafficLight *>(signal);
+                if (signal->IsDynamic() && !signal->GetHasOSCAction() && gt_tl != nullptr && gt_tl->GetNrLamps() > 0)
                 {
                     AddTrafficLightToGt(obj_osi_internal.static_gt, signal);
                 }
@@ -122,6 +171,53 @@ int OSIReporter::UpdateStaticTrafficSignals()
                     trafficSign->mutable_main_sign()->mutable_base()->mutable_position()->set_y(signal->GetY());
                     trafficSign->mutable_main_sign()->mutable_base()->mutable_position()->set_z(signal->GetZ() + signal->GetZOffset() +
                                                                                                 signal->GetHeight() / 2.0);
+
+                    // ── P4 L3: conservative TrafficSign enrichment from signal <semantics> ──
+                    // Catalog-FIRST (decision 1): only signals the country catalog left
+                    // UNCLASSIFIED may take a semantics-derived TYPE; the value/unit is only
+                    // filled when the sign carries none of its own. Any sign WITHOUT stored
+                    // extras (the overwhelming majority) skips this block entirely and
+                    // serializes byte-identically to the pre-P4 output.
+                    const gt_esmini::odr::OdrSignalExtras *sx =
+                        gt_esmini::odr::GetSignalExtras(opendrive, signal);
+                    if (sx != nullptr && sx->has_semantics)
+                    {
+                        auto *cls = trafficSign->mutable_main_sign()->mutable_classification();
+
+                        // (a) STOP / GIVE_WAY from <priority @type>, ONLY on a catalog miss.
+                        if (OsiTypeIsCatalogUnclassified(signal->GetOSIType()))
+                        {
+                            for (const std::string &pt : sx->semantics.priority_types)
+                            {
+                                if (pt == "stop" || pt == "stopLine")
+                                {
+                                    cls->set_type(osi3::TrafficSign_MainSign_Classification_Type_TYPE_STOP);
+                                    break;
+                                }
+                                if (pt == "yield")
+                                {
+                                    cls->set_type(osi3::TrafficSign_MainSign_Classification_Type_TYPE_GIVE_WAY);
+                                    break;
+                                }
+                            }
+                        }
+
+                        // (b) semantic speed -> value+unit, ONLY when the sign has no value of
+                        // its own (unset @value parses to value_ == 0.0 with an empty @unit).
+                        // No TYPE is set: SPEED_LIMIT_BEGIN semantics need zone state (deferred,
+                        // decision 3), so a speculative type mapping is avoided.
+                        const bool value_unset = std::strcmp(signal->GetUnit().c_str(), "") == 0 &&
+                                                 fabs(signal->GetValue()) < SMALL_NUMBER;
+                        if (value_unset && !sx->semantics.speeds.empty())
+                        {
+                            const gt_esmini::odr::OdrSemanticSpeed &sp = sx->semantics.speeds.front();
+                            if (!sp.value_str.empty())
+                            {
+                                cls->mutable_value()->set_value(sp.value);
+                                cls->mutable_value()->set_value_unit(SemanticSpeedUnitToOsi(sp.unit));
+                            }
+                        }
+                    }
 
                     auto source_reference = trafficSign->add_source_reference();
                     source_reference->set_type(kSourceRefTypeOdr);

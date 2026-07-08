@@ -12,19 +12,19 @@
 
 /*
  * GT_esmini modification (Clean Core exception):
- *   This file is a full copy of EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp,
- *   patched for LHT/RHT correctness of route estimation. Vanilla RoadManager.cpp is excluded
- *   from the RoadManager static library via CMakeLists.txt and replaced by this file.
+ *   This file is a full copy of EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
+ *   from upstream esmini v3.3.0 (upstream commit ab7c404d "Prepare release 3.3.0"). Vanilla
+ *   RoadManager.cpp is excluded from the RoadManager static library via
+ *   RoadManager/CMakeLists.txt and replaced by this file.
  *
- *   Patches applied ([GT_LHT] markers below, see GT_esmini/docs/opendrive-lht-rht.md):
+ *   Patch applied ([GT_LHT] marker below, see GT_esmini/docs/opendrive-lht-rht.md):
  *     1-A) Junction::GetRoadConnectionByIdx — use contactPoint instead of lane_link->to_
  *          sign to pick the correct lane section of connectingRoad (RHT-hardcoded before).
- *     1-B) Road::GetConnectingLaneId — trace the third hop through connectingRoad lane
- *          <link> to return the actual outgoing-road lane id.
- *     1-C) RoadPath::Calculate — replace GetHRelative()-based direction guess with
- *          rule-aware Position::GetDrivingDirectionRelativeRoad().
  *
- *   When updating against upstream, re-apply these patches (search for "GT_LHT").
+ *   Only patch 1-A is applied here. (Patches 1-B / 1-C are NOT applied — corrects audit
+ *   CORE-3, which noted the previous header falsely claimed them.)
+ *
+ *   When updating against upstream, re-apply this patch (search for "GT_LHT").
  */
 
 /*
@@ -75,6 +75,7 @@
 #include "odrSpiral.h"
 #include "pugixml.hpp"
 #include "CommonMini.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"  // [GT_ODR:hook] GT ODR side model (plan P1)
 
 using namespace std;
 using namespace roadmanager;
@@ -83,7 +84,7 @@ using namespace roadmanager;
 #define MAX_TRACK_DIST             10
 #define OSI_POINT_CALC_STEPSIZE    1     // [m]
 #define OSI_TANGENT_LINE_TOLERANCE 0.01  // [m]
-#define OSI_POINT_DIST_SCALE       0.025
+#define OSI_POINT_DIST_SCALE       1.0
 #define ROADMARK_WIDTH_STANDARD    0.15
 #define ROADMARK_WIDTH_BOLD        0.20
 #define NURBS_STEPLENGTH           1.0
@@ -470,6 +471,11 @@ void TrafficLight::SetTrafficLightInfo()
     else
     {
         light_type_ = TrafficLightType::TYPE_UNDEFINED;
+        // [GT_ODR:tl-gate] unsupported type combo: 0 lamps. nr_lamps_ has no default initializer (hpp is
+        // pristine upstream), so it was GARBAGE here -- GetNrLamps() consumers (OSI reporter, VD policies)
+        // then throw via lamps_.at() across the C API. Latent upstream bug, exposed once ANY dynamic
+        // signal becomes a TrafficLight (P3). Upstream PR candidate alongside PR-1b.
+        nr_lamps_ = 0;
         LOG_WARN("TrafficLight: Traffic light type '{}' subtype '{}' not supported", GetType(), GetSubType());
     }
 }
@@ -538,8 +544,15 @@ void Signal::SetAllValidLanes(Signal* sig, Road* r)
 
     if (ls == nullptr)
     {
-        LOG_ERROR_AND_QUIT("Signal::SetAllValidLanes: No lane section found at s={} for signal id {}", sig->GetS(), sig->GetId());
-        return;  // for cppcheck
+        // [GT_ODR:sig-lanes-guard] malformed asset (signal s outside the road range, e.g. official
+        // UC_T_Junction s=111.5 on an 80 m road): WARN + no valid lanes. Was LOG_ERROR_AND_QUIT,
+        // whose throw crosses the C API as 0xe06d7363 and killed the whole load. Upstream PR candidate.
+        LOG_WARN("Signal::SetAllValidLanes: no lane section at s={:.2f} for signal id {} (road {}, length {:.2f}); no valid lanes assigned",
+                 sig->GetS(),
+                 sig->GetId(),
+                 r->GetIdStr(),
+                 r->GetLength());
+        return;
     }
 
     drivable_lanes.reserve(ls->GetNumberOfLanes());
@@ -1606,6 +1619,8 @@ std::string LaneRoadMark::RoadMarkType2Str(RoadMarkType type)
             return "grass";
         case RoadMarkType::CURB:
             return "curb";
+        case RoadMarkType::EDGE:
+            return "edge";
         default:
             LOG_ERROR("Unexpected roadmark type id: {}", type);
     }
@@ -1924,6 +1939,15 @@ int Road::GetConnectingLaneId(RoadLink* road_link, int fromLaneId, id_t connecti
         return 0;
     }
 
+    // [GT_ODR:vj-path] registry-owned anchor link (virtual junction main->branch): lanes map via the junction connection
+    for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(GetId()))
+    {
+        if (anchor.link_ == road_link)
+        {
+            return anchor.junction_->GetConnectionByIdx(anchor.connection_idx_)->GetConnectingLaneId(fromLaneId);
+        }
+    }
+
     if (road_link->GetType() == LinkType::SUCCESSOR)
     {
         lane = lane_section_.back()->GetLaneById(fromLaneId);
@@ -2171,7 +2195,7 @@ id_t LaneSection::GetLaneGlobalIdByIdx(idx_t idx) const
 {
     if (idx >= lane_.size())
     {
-        LOG_ERROR("LaneSection::GetLaneIdByIdx Error: index {}, only {} lanes", idx, lane_.size());
+        LOG_ERROR("LaneSection::GetLaneGlobalIdByIdx Error: index {}, only {} lanes", idx, lane_.size());
         return ID_UNDEFINED;
     }
     else
@@ -2574,6 +2598,21 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
         element_id_ = Position::GetOpenDrive()->LookupRoadIdFromStr(element_id_str);
 
         element_type_ = ELEMENT_TYPE_ROAD;
+        // [GT_ODR:vj-parse-link] optional @elementS/@elementDir = mid-road contact on the linked road (virtual junctions)
+        if (!node.attribute("elementS").empty())
+        {
+            double element_s = node.attribute("elementS").as_double(-1.0);
+            if (!std::isfinite(element_s) || std::fpclassify(element_s) == FP_SUBNORMAL || element_s < 0.0)
+            {
+                LOG_WARN("Ignoring invalid link elementS value {} for element {}", node.attribute("elementS").value(), element_id_str);
+            }
+            else
+            {
+                element_s_                  = element_s;
+                std::string element_dir_str = node.attribute("elementDir").value();
+                element_dir_                = element_dir_str == "+" ? DIR_PLUS : (element_dir_str == "-" ? DIR_MINUS : DIR_UNKNOWN);
+            }
+        }
         if (contact_point_type == "start")
         {
             contact_point_type_ = CONTACT_POINT_START;
@@ -2584,7 +2623,10 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
         }
         else if (contact_point_type.empty())
         {
-            LOG_ERROR("Missing contact point type");
+            if (element_s_ < 0.0)  // [GT_ODR:vj-parse-link] @elementS replaces @contactPoint at mid-road contacts
+            {
+                LOG_ERROR("Missing contact point type");
+            }
         }
         else
         {
@@ -2609,10 +2651,17 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
     }
 }
 
+// [GT_ODR:vj-parse-link] programmatic link with a mid-road contact (virtual junction synthesis, S3)
+RoadLink::RoadLink(LinkType type, ElementType element_type, id_t element_id, ContactPointType contact_point, double element_s, ElementDir element_dir)
+    : type_(type), element_id_(element_id), element_type_(element_type), contact_point_type_(contact_point), element_s_(element_s), element_dir_(element_dir)
+{
+}
+
 bool RoadLink::operator==(const RoadLink& rhs) const
 {
     return (rhs.type_ == type_ && rhs.element_type_ == element_type_ && rhs.element_id_ == element_id_ &&
-            rhs.contact_point_type_ == contact_point_type_);
+            rhs.contact_point_type_ == contact_point_type_ && rhs.element_s_ == element_s_ &&
+            rhs.element_dir_ == element_dir_);  // [GT_ODR:vj-parse-link] mid-road contact identity
 }
 
 void RoadLink::Print() const
@@ -2961,6 +3010,13 @@ roadmanager::RMObject::RMObject(double      s,
         color_[2] = 0.22;
         color_[3] = 1.0;
     }
+    else if (type_ == ObjectType::TRAFFICISLAND)
+    {
+        color_[0] = 0.61f;
+        color_[1] = 0.61f;
+        color_[2] = 0.61f;
+        color_[3] = 1.0f;
+    }
     else
     {
         color_[0] = 0.4;
@@ -2995,6 +3051,12 @@ RMObject::ObjectType RMObject::Str2Type(std::string type)
         {
             return static_cast<ObjectType>(i);
         }
+    }
+
+    if (type == "roadSurface")
+    {
+        // [GT_ODR:obj-roadsurface] known 1.8+ object type with no ObjectType enum slot (hpp is pristine); accept quietly as NONE (L1, plan P1)
+        return RMObject::ObjectType::NONE;
     }
 
     LOG_ERROR("Unsupported object type: {} - interpret as NONE", type);
@@ -3198,6 +3260,23 @@ bool Road::IsDirectlyConnected(const Road* road, LinkType link_type, ContactPoin
     {
         return false;
     }
+    // [GT_ODR:vj-connect-begin] virtual junction: the unsplit main road carries no end link to its branches --
+    // registry anchors count as direct connections ('+'/unknown elementDir = successor side, '-' = predecessor side)
+    for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(GetId()))
+    {
+        Connection* connection = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_);
+        if (connection->GetIncomingRoad() == this && connection->GetConnectingRoad() == road &&
+            (link_type == LinkType::SUCCESSOR) == (anchor.dir_ != RoadLink::DIR_MINUS) &&
+            (fromLaneId == 0 || connection->GetConnectingLaneId(fromLaneId) != 0))
+        {
+            if (contact_point != nullptr)
+            {
+                *contact_point = connection->GetContactPoint();
+            }
+            return true;
+        }
+    }
+    // [GT_ODR:vj-connect-end]
 
     RoadLink* link = GetLink(link_type);
     if (link == nullptr)
@@ -3269,6 +3348,23 @@ bool Road::IsDirectlyConnected(const Road* road, double* curvature, int fromLane
     // Unspecified link, check both ends
     if (IsSuccessor(road, &contact_point, fromLaneId) || IsPredecessor(road, &contact_point, fromLaneId))
     {
+        // [GT_ODR:vj-connect-begin] contact UNDEFINED = elementS link (no contact point): curvature at the anchor s
+        RoadLink* vj_link = GetLink(LinkType::PREDECESSOR);
+        vj_link = vj_link != nullptr && vj_link->GetElementId() == road->GetId() && vj_link->GetElementS() >= 0.0 ? vj_link : GetLink(LinkType::SUCCESSOR);
+        if (contact_point == ContactPointType::CONTACT_POINT_UNDEFINED && vj_link != nullptr && vj_link->GetElementId() == road->GetId() &&
+            vj_link->GetElementS() >= 0.0)
+        {
+            for (size_t i = 0; i < road->geometry_.size(); i++)
+            {
+                Geometry* geom = road->geometry_[i];
+                if (curvature != nullptr && vj_link->GetElementS() >= geom->GetS() && vj_link->GetElementS() <= geom->GetS() + geom->GetLength())
+                {
+                    *curvature = geom->EvaluateCurvatureDS(vj_link->GetElementS() - geom->GetS());
+                }
+            }
+            return true;
+        }
+        // [GT_ODR:vj-connect-end]
         // Find out curvature
         if (contact_point == ContactPointType::CONTACT_POINT_START && road->geometry_.size() > 0)
         {
@@ -3685,6 +3781,16 @@ void OpenDrive::Clear()
     }
     junction_.clear();
 
+    // [GT_ODR:vj-synth] registry-owned synthesized RoadLinks (counter Connections died with the junctions above)
+    for (auto& vj_road_anchors : virtual_junction_anchors_)
+    {
+        for (VirtualJunctionAnchor& vj_anchor : vj_road_anchors.second)
+        {
+            delete vj_anchor.link_;
+        }
+    }
+    virtual_junction_anchors_.clear();
+
     SetSpeedUnit(SpeedUnit::UNDEFINED);
 
     geo_offset_.hdg_                = 0.0;
@@ -4069,7 +4175,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
             }
         }
 
-        pugi::xml_node lanes = road_node.child("lanes");
+        // [GT_ODR:lane-layers] 1.9 lane layers: permanent selection / temporary s-range merge in GT side model (plan P8)
+        pugi::xml_node lanes = gt_esmini::odr::SelectLanesLayer(road_node, this);
         if (lanes != NULL)
         {
             for (pugi::xml_node_iterator child = lanes.children().begin(); child != lanes.children().end(); child++)
@@ -4212,10 +4319,18 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                             {
                                 lane_type = Lane::LANE_TYPE_ON_RAMP;
                             }
+                            else if (lane_type_str == "curb")
+                            {
+                                lane_type = Lane::LANE_TYPE_CURB;
+                            }
                             else if (lane_type_str == "connectingRamp")
                             {
                                 lane_type = Lane::LANE_TYPE_CONNECTING_RAMP;
                             }
+                            // [GT_ODR:lane-types] ODR 1.6/1.8 tokens -> nearest existing enums (plan P2; rationale in gt_roadmanager_patches.md); "curb" handled by upstream since v3.4.1
+                            else if (lane_type_str == "walking")  { lane_type = Lane::LANE_TYPE_SIDEWALK; }
+                            else if (lane_type_str == "shared")   { lane_type = Lane::LANE_TYPE_BIDIRECTIONAL; }
+                            else if (lane_type_str == "slipLane") { lane_type = Lane::LANE_TYPE_CONNECTING_RAMP; }
                             else
                             {
                                 LOG_ERROR("unknown lane type: {} (road id={})", lane_type_str, r->GetId());
@@ -4337,6 +4452,10 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 {
                                     roadMark_type = LaneRoadMark::CURB;
                                 }
+                                else if (!strcmp(roadMark.attribute("type").value(), "edge"))
+                                {
+                                    roadMark_type = LaneRoadMark::EDGE;
+                                }
                                 else
                                 {
                                     LOG_ERROR("unknown lane road mark type: {} (road id={})", roadMark.attribute("type").value(), r->GetId());
@@ -4414,7 +4533,14 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 double roadMark_width;
                                 if (roadMark.attribute("width").empty())
                                 {
-                                    roadMark_width = (roadMark_weight == LaneRoadMark::BOLD) ? ROADMARK_WIDTH_BOLD : ROADMARK_WIDTH_STANDARD;
+                                    if (roadMark_type == LaneRoadMark::NONE_TYPE || roadMark_type == LaneRoadMark::EDGE)
+                                    {
+                                        roadMark_width = 0.0;  // no visible roadmark
+                                    }
+                                    else
+                                    {
+                                        roadMark_width = (roadMark_weight == LaneRoadMark::BOLD) ? ROADMARK_WIDTH_BOLD : ROADMARK_WIDTH_STANDARD;
+                                    }
                                 }
                                 else
                                 {
@@ -4558,11 +4684,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 {
                                     // no type or explicit elements - create standin type according to the specified roadMark type
                                     int side = lane->GetId() < 1 ? -1 : 1;
-                                    if (roadMark_type == LaneRoadMark::NONE_TYPE)
+                                    if (roadMark_type == LaneRoadMark::NONE_TYPE || roadMark_type == LaneRoadMark::EDGE)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, 0, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4571,7 +4697,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, 0, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4580,7 +4706,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4592,7 +4718,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(4, 8, 0, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4601,7 +4727,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(4, 8, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4613,7 +4739,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(4, 8, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4625,7 +4751,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                     {
                                         lane_roadMarkType = new LaneRoadMarkType("stand-in", roadMark_width);
                                         lane_roadMark->AddType(std::shared_ptr<LaneRoadMarkType>{lane_roadMarkType});
-                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::NONE;
+                                        LaneRoadMarkTypeLine::RoadMarkTypeLineRule rule = LaneRoadMarkTypeLine::RoadMarkTypeLineRule::NONE;
                                         LaneRoadMarkTypeLine*                      lane_roadMarkTypeLine =
                                             new LaneRoadMarkTypeLine(0, 0, -roadMark_width * side, 0, rule, roadMark_width, roadMark_color);
                                         lane_roadMarkType->AddLine(std::shared_ptr<LaneRoadMarkTypeLine>{lane_roadMarkTypeLine});
@@ -4803,9 +4929,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     double      z_offset = atof(signal.attribute("zOffset").value());
                     std::string country  = ToLower(signal.attribute("country").value());
 
-                    unsigned int country_revision = 2013;  // default
+                    unsigned int country_revision = 0;  // [GT_ODR:country-rev] absent => 0 (legacy; upstream read the attribute only when absent)
 
-                    if (signal.attribute("countryRevision").empty())
+                    if (!signal.attribute("countryRevision").empty())
                     {
                         country_revision = signal.attribute("countryRevision").as_uint();
                     }
@@ -4868,10 +4994,19 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     double      pitch    = atof(signal.attribute("pitch").value());
                     double      roll     = atof(signal.attribute("roll").value());
 
-                    Position pos(r->GetId(), s, t);
+                    // [GT_ODR:sig-pos] <positionRoad>/<positionInertial> physical pose + s/t-omission handling (plan P3
+                    // cluster 12; logic in odr_side/OdrSignalExtras.cpp -- off-road positionInertial WARNs + keeps logical pose)
+                    gt_esmini::odr::SignalPoseResolution gt_sp =
+                        gt_esmini::odr::ResolveSignalPose(signal, this, r, s, t, z_offset, h_offset, pitch, roll);
+                    Position pos(gt_sp.road->GetId(), gt_sp.s, gt_sp.t);
+                    double   gt_sig_h =
+                        gt_sp.has_world_h ? gt_sp.world_h : pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0);
 
                     Signal* sig;
-                    if (country == "opendrive" && country_revision < 2013 && dynamic)  // why country_revision < 2013??
+                    // [GT_ODR:tl-gate] any dynamic signal is a TrafficLight, independent of country/countryRevision
+                    // (plan P3 cluster 11; audited: golden/trafficlight_classification.json + odr_tl_classification_audit.py)
+                    (void)country_revision;  // still read by the country-rev patch (upstream PR-1); no longer gates classification
+                    if (dynamic)
                     {
                         sig = new TrafficLight(s,
                                                t,
@@ -4896,7 +5031,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                                pos.GetX(),
                                                pos.GetY(),
                                                pos.GetZ(),
-                                               pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0));
+                                               gt_sig_h);  // [GT_ODR:sig-pos]
                     }
                     else
                     {
@@ -4923,7 +5058,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                          pos.GetX(),
                                          pos.GetY(),
                                          pos.GetZ(),
-                                         pos.GetHRoad() + (orientation == Signal::Orientation::NEGATIVE ? M_PI : 0.0));
+                                         gt_sig_h);  // [GT_ODR:sig-pos]
                     }
 
                     if (sig == NULL)
@@ -4950,7 +5085,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                     r->AddSignal(sig);
                 }
-                else
+                else if (strcmp(signal.name(), "signalReference") != 0)  // [GT_ODR:sig-ref] materialized post-parse (see hook below)
                 {
                     LOG_ERROR_ONCE("INFO: signal element \"{}\" not supported yet", signal.name());
                 }
@@ -5002,17 +5137,13 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 {
                     if (!object.attribute("length").empty() || !object.attribute("width").empty())
                     {
-                        LOG_WARN("Found object {} radius {:.2f}. Circular objects not supported yet. Using length and width attributes instead",
-                                 name,
-                                 radius);
+                        LOG_WARN("Found object {} radius {:.2f} together with length/width. Using length and width attributes instead", name, radius);
+                        radius = 0.0;
                     }
                     else
                     {
-                        LOG_WARN(
-                            "Found object {} radius {:.2f}. Circular objects not supported yet. Setting length and width attributes to 2 * radius = {:.2f}",
-                            name,
-                            radius,
-                            2 * radius);
+                        // Circular (cylinder) object: keep the radius for visualization and set the
+                        // bounding box length/width to the diameter so downstream box based logic still works.
                         width  = 2 * radius;
                         length = 2 * radius;
                     }
@@ -5110,9 +5241,9 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     if (fabs(rlengthEnd) > SMALL_NUMBER)
                         repeat->SetLengthEnd(rlengthEnd);
                     if (fabs(rradiusStart) > SMALL_NUMBER)
-                        printf("Attribute object/repeat/radiusStart not supported yet\n");
+                        repeat->SetRadiusStart(rradiusStart);
                     if (fabs(rradiusEnd) > SMALL_NUMBER)
-                        printf("Attribute object/repeat/radiusEnd not supported yet\n");
+                        repeat->SetRadiusEnd(rradiusEnd);
                 }
 
                 if (obj == nullptr)
@@ -5148,10 +5279,19 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     obj->SetRepeat(Repeats[0]);
                 }
 
-                pugi::xml_node outlines_node = object.child("outlines");
-                if (outlines_node != NULL)
+                if (radius > SMALL_NUMBER)
                 {
-                    for (pugi::xml_node outline_node = outlines_node.child("outline"); outline_node; outline_node = outline_node.next_sibling())
+                    obj->SetRadius(radius);
+                }
+
+                pugi::xml_node outlines_node = object.child("outlines");
+                // [GT_ODR:curvelocal] accept the 1.9 SINGULAR <object><outline> form too (upstream reads only
+                // <outlines><outline>); iterate <outline> siblings by name so the corner loop below is shared.
+                pugi::xml_node outline_container = (outlines_node != NULL) ? outlines_node : object;
+                if (outline_container != NULL)
+                {
+                    for (pugi::xml_node outline_node = outline_container.child("outline"); outline_node;
+                         outline_node = outline_node.next_sibling("outline"))
                     {
                         id_t     id      = outline_node.attribute("id").as_uint();
                         bool     closed  = !strcmp(outline_node.attribute("closed").value(), "true") ? true : false;
@@ -5180,7 +5320,17 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                                 corner = static_cast<OutlineCorner*>(
                                     new OutlineCornerLocal(r->GetId(), obj->GetS(), obj->GetT(), u, v, zLocal, heightc, heading));
                             }
-                            outline->AddCorner(corner);
+                            else if (!strcmp(corner_node.name(), "curveLocal"))
+                            {
+                                // [GT_ODR:curvelocal] 1.9 <curveLocal> outline -> tessellated OutlineCornerLocal corners (plan P7)
+                                unsigned int next_corner_id = static_cast<unsigned int>(outline->corner_.size());
+                                gt_esmini::odr::AppendCurveLocalCorners(corner_node, r, obj, outline, next_corner_id);
+                            }
+                            if (corner != nullptr)
+                            {
+                                corner->SetId(corner_node.attribute("id").as_uint());
+                                outline->AddCorner(corner);
+                            }
                         }
                         obj->AddOutline(outline);
                     }
@@ -5235,12 +5385,79 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     obj->SetParkingSpace(roadmanager::ParkingSpace(access, restrictions));
                 }
 
+                pugi::xml_node markings_node = object.child("markings");
+                if (!markings_node.empty())
+                {
+                    for (pugi::xml_node marking_node = markings_node.child("marking"); marking_node;
+                         marking_node                = marking_node.next_sibling("marking"))
+                    {
+                        ObjectMarking marking;
+
+                        marking.color_        = LaneRoadMark::ParseColor(marking_node);
+                        marking.line_length_  = marking_node.attribute("lineLength").as_double();
+                        marking.space_length_ = marking_node.attribute("spaceLength").as_double();
+                        marking.start_offset_ = marking_node.attribute("startOffset").as_double();
+                        marking.stop_offset_  = marking_node.attribute("stopOffset").as_double();
+                        marking.side_         = ObjectMarking::Str2Side(marking_node.attribute("side").value());
+
+                        // Custom esmini feature (OpenDRIVE userData): shift the marking sideways from the
+                        // edge/side center, positive to the left, negative to the right [m].
+                        marking.lateral_offset_ = atof(ReadUserData(marking_node, "lateralOffset", "0.0"));
+
+                        if (!marking_node.attribute("width").empty())
+                        {
+                            marking.width_ = marking_node.attribute("width").as_double();
+                        }
+                        if (!marking_node.attribute("zOffset").empty())
+                        {
+                            marking.z_offset_ = marking_node.attribute("zOffset").as_double();
+                        }
+                        if (!strcmp(marking_node.attribute("weight").value(), "bold"))
+                        {
+                            marking.weight_ = LaneRoadMark::RoadMarkWeight::BOLD;
+                        }
+
+                        for (pugi::xml_node corner_ref_node = marking_node.child("cornerReference"); corner_ref_node;
+                             corner_ref_node                = corner_ref_node.next_sibling("cornerReference"))
+                        {
+                            marking.corner_references_.push_back(corner_ref_node.attribute("id").as_uint());
+                        }
+
+                        if (marking.side_ == ObjectMarking::Side::NONE && marking.corner_references_.size() < 2)
+                        {
+                            LOG_WARN("Object {} marking ignored: needs a valid 'side' or at least two cornerReference points (road id={})",
+                                     name,
+                                     r->GetId());
+                            continue;
+                        }
+
+                        obj->AddMarking(marking);
+                    }
+                }
+
                 for (pugi::xml_node validity_node = object.child("validity"); validity_node; validity_node = validity_node.next_sibling("validity"))
                 {
                     ValidityRecord validity;
                     validity.fromLane_ = atoi(validity_node.attribute("fromLane").value());
                     validity.toLane_   = atoi(validity_node.attribute("toLane").value());
                     obj->validity_.push_back(validity);
+                }
+
+                for (pugi::xml_node userDataNode = object.child("userData"); userDataNode; userDataNode = userDataNode.next_sibling("userData"))
+                {
+                    std::string key = userDataNode.attribute("code").value();
+                    if (key == "texture")
+                    {
+                        obj->SetTextureFilename(userDataNode.attribute("value").value());
+                    }
+                    else if (key == "textureScale")
+                    {
+                        obj->SetTextureScale(AVOID_ZERO(userDataNode.attribute("value").as_double()));
+                    }
+                    else
+                    {
+                        LOG_WARN("Unknown userData key: {}", key);
+                    }
                 }
 
                 if (obj != NULL)
@@ -5318,11 +5535,54 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         }
         else if (junction_type_str == "virtual")
         {
-            LOG_WARN("Virtual junction type found. Not supported yet. Continue treating it as default type");
+            junction_type = Junction::JunctionType::VIRTUAL;  // [GT_ODR:vj-parse-junction] native virtual junction (ASAM 10.4)
+        }
+        else if (junction_type_str == "crossing")
+        {
+            // [GT_ODR:junc-crossing] recognize 1.8 crossing junction type (plan P5); roadSection is
+            // captured GT-side in OdrJunctionExtras, keep JunctionType::DEFAULT (hpp enum is frozen)
+            LOG_WARN("Crossing junction type found. roadSection handled GT-side. Continue treating it as default type");
             junction_type = Junction::JunctionType::DEFAULT;
         }
 
         Junction* j = new Junction(junction_ids_[junction_.size()].first, jid_str, name, junction_type);
+        // [GT_ODR:vj-parse-junction-begin] virtual junction span on the main road: @mainRoad/@sStart/@sEnd are
+        // mandatory per spec, @orientation is missing in official assets (Ex_Pedestrian_Crossing) -> NONE + WARN.
+        // An unusable span resets the attributes to "absent" but the junction stays VIRTUAL.
+        if (junction_type == Junction::JunctionType::VIRTUAL)
+        {
+            Junction::VirtualJunctionAttributes attributes;
+            attributes.main_road_id_    = LookupRoadIdFromStr(junction_node.attribute("mainRoad").value());
+            attributes.s_start_         = junction_node.attribute("sStart").as_double(-1.0);
+            attributes.s_end_           = junction_node.attribute("sEnd").as_double(-1.0);
+            std::string orientation_str = junction_node.attribute("orientation").value();
+            if (orientation_str == "+")
+            {
+                attributes.orientation_ = Junction::ORIENTATION_PLUS;
+            }
+            else if (orientation_str == "-")
+            {
+                attributes.orientation_ = Junction::ORIENTATION_MINUS;
+            }
+            else if (orientation_str != "none")
+            {
+                LOG_WARN("Virtual junction {} orientation '{}' missing or unsupported, treating as valid in both directions",
+                         jid_str,
+                         orientation_str);
+            }
+            if (!std::isfinite(attributes.s_start_) || !std::isfinite(attributes.s_end_) || attributes.s_start_ < 0.0 ||
+                attributes.s_end_ < attributes.s_start_)
+            {
+                LOG_WARN("Virtual junction {} has an invalid span sStart={} sEnd={}, ignoring the span attributes",
+                         jid_str,
+                         attributes.s_start_,
+                         attributes.s_end_);
+                attributes.s_start_ = -1.0;
+                attributes.s_end_   = -1.0;
+            }
+            j->SetVirtualAttributes(attributes);
+        }
+        // [GT_ODR:vj-parse-junction-end]
 
         for (pugi::xml_node connection_node = junction_node.child("connection"); connection_node;
              connection_node                = connection_node.next_sibling("connection"))
@@ -5334,6 +5594,41 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 std::string incoming_road_id_str = connection_node.attribute("incomingRoad").value();
                 Road*       incoming_road        = GetRoadByIdStr(incoming_road_id_str);
 
+                // [GT_ODR:vj-parse-junction-begin] virtual junction connection (ASAM 10.4): <predecessor>/<successor>
+                // carry the anchor s on the linked road; @incomingRoad may be absent or "-1" (derived from the
+                // predecessor); @type="virtual" without @connectingRoad = kind-2 topological connection, represented
+                // as a Connection with a null connecting road + is_virtual_ (store-only in v1; virtual junctions are
+                // never road-link targets, so the load-time consumers of connection_ do not dereference it)
+                double         vj_incoming_contact_s = -1.0;
+                double         vj_outgoing_contact_s = -1.0;
+                pugi::xml_node vj_pred_node          = connection_node.child("predecessor");
+                pugi::xml_node vj_succ_node          = connection_node.child("successor");
+                if (!vj_pred_node.empty())
+                {
+                    vj_incoming_contact_s = vj_pred_node.attribute("elementS").as_double(-1.0);
+                    if (incoming_road == nullptr)
+                    {
+                        incoming_road = GetRoadByIdStr(vj_pred_node.attribute("elementId").value());
+                    }
+                }
+                if (!vj_succ_node.empty())
+                {
+                    vj_outgoing_contact_s = vj_succ_node.attribute("elementS").as_double(-1.0);
+                }
+                if (std::string(connection_node.attribute("type").value()) == "virtual" && connection_node.attribute("connectingRoad").empty())
+                {
+                    if (vj_pred_node.empty() && vj_succ_node.empty())
+                    {
+                        LOG_WARN("Virtual connection {} in junction {} lacks <predecessor>/<successor>, skipping", idc, jid_str);
+                        continue;
+                    }
+                    Connection* vj_connection =
+                        new Connection(incoming_road, nullptr, ContactPointType::CONTACT_POINT_UNDEFINED, vj_incoming_contact_s, vj_outgoing_contact_s);
+                    vj_connection->SetVirtual(true);
+                    j->AddConnection(vj_connection);
+                    continue;
+                }
+                // [GT_ODR:vj-parse-junction-end]
                 std::string connecting_road_id_str;
                 if (junction_type == Junction::JunctionType::DIRECT)
                 {
@@ -5347,12 +5642,14 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
 
                 if (connecting_road == nullptr)
                 {
-                    LOG_WARN("Missing connecting road with id {}", connecting_road_id_str);
-                    return false;
+                    // [GT_ODR:junc-abort] degrade abort to WARN + skip this connection (plan P1)
+                    LOG_WARN("Missing connecting road with id {} - skipping connection in junction {}", connecting_road_id_str, jid_str);
+                    continue;
                 }
 
                 // Check that the connecting road is referring back to this junction
-                if (j->GetType() != Junction::JunctionType::DIRECT && connecting_road->GetJunction() != j->GetId())
+                if (j->GetType() != Junction::JunctionType::DIRECT && j->GetType() != Junction::JunctionType::VIRTUAL &&
+                    connecting_road->GetJunction() != j->GetId())  // [GT_ODR:vj-parse-junction] VJ connecting roads are regular roads
                 {
                     LOG_WARN(
                         "Warning: Connecting road (id {}) junction attribute ({}) is not referring back to junction {} which is making use of it",
@@ -5376,7 +5673,8 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     LOG_ERROR("Unsupported contact point: {}", contact_point_str);
                 }
 
-                Connection* connection = new Connection(incoming_road, connecting_road, contact_point);
+                // [GT_ODR:vj-parse-junction] pass the parsed anchors through (both -1.0 on regular connections)
+                Connection* connection = new Connection(incoming_road, connecting_road, contact_point, vj_incoming_contact_s, vj_outgoing_contact_s);
 
                 for (pugi::xml_node lane_link_node = connection_node.child("laneLink"); lane_link_node;
                      lane_link_node                = lane_link_node.next_sibling("laneLink"))
@@ -5402,7 +5700,24 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         junction_.push_back(j);
     }
 
+    // [GT_ODR:hook] GT ODR side model + coverage audit; <include> is a hard error (plan P1)
+    if (!gt_esmini::odr::BuildSideModel(doc, this))
+    {
+        return false;
+    }
+
+    // [GT_ODR:sig-ref] materialize <signalReference> clones (needs ALL roads parsed -- document-wide forward
+    // references); clones carry the referrer's s/t/orientation/validity (plan P3 cluster 12). Register dynamic
+    // clones like the parse loop does (dynamic_signals_ is private, hence here and not in the GT helper).
+    for (Signal* gt_sig : gt_esmini::odr::MaterializeSignalReferences(doc, this))
+    {
+        if (gt_sig->IsDynamic())
+            dynamic_signals_.push_back(gt_sig);
+    }
+
     CheckConnections();
+
+    EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] virtual junction anchors (after CheckConnections)
 
     if (!SetRoadOSI())
     {
@@ -5465,12 +5780,198 @@ void RMObject::SetRepeat(Repeat* repeat)
     repeat_ = repeat;
 }
 
+std::vector<RepeatInstance> RMObject::GetRepeatInstances(Road* road) const
+{
+    std::vector<RepeatInstance> instances;
+
+    Repeat*    rep      = GetRepeat();
+    const bool repeated = (rep != nullptr && rep->GetLength() > SMALL_NUMBER && rep->GetDistance() > SMALL_NUMBER && road != nullptr);
+
+    // Resolve every outline corner once for the given instance and cache the result on the instance.
+    // The corner position is computed here (the single source of truth) and reused by both the viewer
+    // and the OSI reporter. cornerRoad corners are re-evaluated on the road at the instance position so
+    // they follow the road curvature; cornerLocal corners keep a fixed local shape. The result is stored
+    // in the instance local frame so OSI can use it directly for base_polygon, while the viewer rotates
+    // and translates it by the instance pose to obtain world coordinates.
+    auto resolve_corners = [this, road](RepeatInstance& ri)
+    {
+        const double ch = cos(ri.h);
+        const double sh = sin(ri.h);
+
+        // Resolve a single corner to world coordinates. The lateral position (wx, wy) is scaled by the
+        // instance length/width. The world z is split into a base part (independent of the height scale)
+        // and a unit extrusion offset (z_unit) that is multiplied by scale_hgt, so the caller can form
+        // both the scaled outline z (z_base + z_unit * scale_hgt) and the marking floor z (z_base +
+        // z_unit), which only differ in height scaling.
+        auto resolve_one = [this,
+                            road,
+                            &ri,
+                            ch,
+                            sh](OutlineCorner* corner, double scale_len, double scale_wid, double& wx, double& wy, double& z_base, double& z_unit)
+        {
+            if (OutlineCornerRoad* cr = dynamic_cast<OutlineCornerRoad*>(corner))
+            {
+                // cornerRoad: re-evaluate on the road at the instance position (curvature aware)
+                const double corner_s = ri.s + (cr->s_ - cr->center_s_) * scale_len;
+                const double corner_t = ri.t + (cr->t_ - cr->center_t_) * scale_wid;
+                Position     cp;
+                cp.SetTrackPos(road != nullptr ? road->GetId() : cr->roadId_, corner_s, corner_t);
+                wx     = cp.GetX();
+                wy     = cp.GetY();
+                z_base = cp.GetZ();
+                z_unit = cr->dz_;
+            }
+            else
+            {
+                // cornerLocal: fixed local (u, v) shape rigidly placed in the instance frame
+                double u, v, dummy_z;
+                corner->GetPosLocal(u, v, dummy_z);
+                double zloc = 0.0;
+                if (OutlineCornerLocal* cl = dynamic_cast<OutlineCornerLocal*>(corner))
+                {
+                    zloc = cl->zLocal_;
+                }
+                const double su = u * scale_len;
+                const double sv = v * scale_wid;
+                wx              = ri.x + su * ch - sv * sh;
+                wy              = ri.y + su * sh + sv * ch;
+                z_base          = ri.z;
+                z_unit          = zloc;
+            }
+        };
+
+        for (unsigned int k = 0; k < GetNumberOfOutlines(); k++)
+        {
+            Outline* outline = GetOutline(k);
+            if (outline == nullptr)
+            {
+                continue;
+            }
+
+            std::vector<ResolvedOutlineCorner> group;
+            group.reserve(outline->corner_.size());
+
+            for (OutlineCorner* corner : outline->corner_)
+            {
+                // Lateral position follows the (scaled) outline edge - shared by the outline mesh, the
+                // OSI outline polygon and the markings. Only z differs: the outline mesh scales the base
+                // extrusion offset by scale_hgt, while markings stay at the object floor (scale_hgt = 1)
+                // so they extend/shrink with the edge but do not move up/down with the height scaling.
+                double wx, wy, z_base, z_unit;
+                resolve_one(corner, ri.scale_len, ri.scale_wid, wx, wy, z_base, z_unit);
+
+                // Store in the instance local frame: R(-h) * (world - instance position)
+                ResolvedOutlineCorner rc;
+                rc.id           = corner->GetId();
+                const double dx = wx - ri.x;
+                const double dy = wy - ri.y;
+                rc.x            = dx * ch + dy * sh;
+                rc.y            = -dx * sh + dy * ch;
+                rc.z            = z_base + z_unit * ri.scale_hgt;
+                rc.height       = corner->GetHeight() * ri.scale_hgt;
+                rc.marking_z    = z_base + z_unit;
+                group.push_back(rc);
+            }
+
+            ri.outline_corners.push_back(std::move(group));
+        }
+    };
+
+    if (!repeated)
+    {
+        // Single instance placed at the object's own resolved position
+        RepeatInstance ri;
+        ri.s        = GetS();
+        ri.t        = GetT();
+        ri.z_off    = GetZOffset();
+        ri.inst_len = GetLength();
+        ri.inst_wid = GetWidth();
+        ri.inst_hgt = GetHeight();
+        ri.x        = GetX();
+        ri.y        = GetY();
+        ri.z        = GetZ() + GetZOffset();
+        ri.h        = GetH() + GetHOffset();
+        ri.p        = GetPitch();
+        ri.r        = GetRoll();
+        resolve_corners(ri);
+        instances.push_back(ri);
+        return instances;
+    }
+
+    // Angle of the repeat line relative to the road reference line (from delta t over the span)
+    const double h_offset = atan2(rep->GetTEnd() - rep->GetTStart(), rep->GetLength());
+    Position     pos;
+
+    for (double cur_s = 0.0; cur_s < rep->GetLength() + SMALL_NUMBER && cur_s < road->GetLength(); cur_s += rep->GetDistance())
+    {
+        RepeatInstance ri;
+        const double   factor = cur_s / rep->GetLength();
+        ri.s                  = rep->GetS() + cur_s;
+        ri.t                  = rep->GetTStart() + factor * (rep->GetTEnd() - rep->GetTStart());
+        ri.z_off              = rep->GetZOffsetStart() + factor * (rep->GetZOffsetEnd() - rep->GetZOffsetStart());
+        ri.inst_len           = (rep->GetLengthStart() > SMALL_NUMBER || rep->GetLengthEnd() > SMALL_NUMBER)
+                                    ? rep->GetLengthStart() + factor * (rep->GetLengthEnd() - rep->GetLengthStart())
+                                    : GetLength();
+        ri.inst_wid           = (rep->GetWidthStart() > SMALL_NUMBER || rep->GetWidthEnd() > SMALL_NUMBER)
+                                    ? rep->GetWidthStart() + factor * (rep->GetWidthEnd() - rep->GetWidthStart())
+                                    : GetWidth();
+        ri.inst_hgt           = (rep->GetHeightStart() > SMALL_NUMBER || rep->GetHeightEnd() > SMALL_NUMBER)
+                                    ? rep->GetHeightStart() + factor * (rep->GetHeightEnd() - rep->GetHeightStart())
+                                    : GetHeight();
+
+        // Scale factors for outline geometry: the authored outline represents the object at the start of
+        // the repeat span, so scale relative to the repeat start dimension (lengthStart/widthStart/
+        // heightStart) when given, otherwise relative to the object's nominal dimension. The result grows
+        // linearly from 1.0 (start) to end/start, matching how the bounding box grows from start to end.
+        const double ref_len = (rep->GetLengthStart() > SMALL_NUMBER) ? rep->GetLengthStart() : GetLength();
+        const double ref_wid = (rep->GetWidthStart() > SMALL_NUMBER) ? rep->GetWidthStart() : GetWidth();
+        const double ref_hgt = (rep->GetHeightStart() > SMALL_NUMBER) ? rep->GetHeightStart() : GetHeight();
+        ri.scale_len         = (ref_len > SMALL_NUMBER) ? ri.inst_len / ref_len : 1.0;
+        ri.scale_wid         = (ref_wid > SMALL_NUMBER) ? ri.inst_wid / ref_wid : 1.0;
+        ri.scale_hgt         = (ref_hgt > SMALL_NUMBER) ? ri.inst_hgt / ref_hgt : 1.0;
+
+        // Count instances by accumulated length only; the repeat start s offset compensates for the
+        // bounding box center, not the object border, so it must not reduce how many copies fit.
+        if (cur_s + ri.inst_len * cos(GetHOffset()) > road->GetLength())
+        {
+            break;  // instance would reach outside the road
+        }
+
+        // [GT_ODR:repeat-cubics] 1.9 repeat lateral cubic (@bT/@cT/@dT) + detachFromReferenceLine (plan P7);
+        // returns false (s/t untouched) for legacy objects -> bit-identical path
+        gt_esmini::odr::AdjustRepeatInstancePose(this, road, cur_s, factor, ri.s, ri.t);
+        pos.SetTrackPosMode(road->GetId(),
+                            ri.s,
+                            ri.t,
+                            Position::PosMode::H_REL | Position::PosMode::Z_REL | Position::PosMode::P_REL | Position::PosMode::R_REL);
+        pos.SetHeadingRelative(h_offset);
+        ri.x = pos.GetX();
+        ri.y = pos.GetY();
+        ri.z = pos.GetZ() + ri.z_off;
+        ri.h = pos.GetH() + GetHOffset();
+        ri.p = pos.GetP();
+        ri.r = pos.GetR();
+        resolve_corners(ri);
+        instances.push_back(ri);
+    }
+
+    return instances;
+}
+
 Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointType contact_point)
 {
     // Find corresponding road objects
     incoming_road_   = incoming_road;
     connecting_road_ = connecting_road;
     contact_point_   = contact_point;
+}
+
+// [GT_ODR:vj-parse-junction] virtual junction connection: anchor s per road end from <predecessor>/<successor> @elementS
+Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointType contact_point, double incoming_s, double outgoing_s)
+    : Connection(incoming_road, connecting_road, contact_point)
+{
+    incoming_contact_s_ = incoming_s;
+    outgoing_contact_s_ = outgoing_s;
 }
 
 Connection::~Connection()
@@ -5559,13 +6060,25 @@ LaneRoadLaneConnection Junction::GetRoadConnectionByIdx(id_t roadId, int laneId,
                         lane_road_lane_connection.contact_point_ = connection->GetContactPoint();
                         lane_road_lane_connection.SetConnectingRoad(connection->GetConnectingRoad()->GetId());
                         lane_road_lane_connection.SetConnectingLane(lane_link->to_);
+                        // [GT_ODR:vj-lanes-begin] merged lane-section rule: a virtual-junction counter-connection
+                        // (branch->main) lands ON the connecting road at outgoing_contact_s_ (the anchor s on the
+                        // main road), so the target lane lives in the lane section AT that s -- pass it through on
+                        // contact_s_ so MoveToConnectingRoad places the re-entry there. Only when the connection
+                        // carries no anchor s (the ordinary case, outgoing_contact_s_ < 0) fall back to the
+                        // [GT_LHT] contactPoint end-section pick. Inert for every non-virtual connection.
+                        const double vj_contact_s            = connection->GetOutgoingContactS();
+                        lane_road_lane_connection.contact_s_ = vj_contact_s;
+                        unsigned int laneSectionIdx          = 0;
+                        if (vj_contact_s >= 0.0)
+                        {
+                            laneSectionIdx = connection->GetConnectingRoad()->GetLaneSectionIdxByS(vj_contact_s);
+                        }
                         // [GT_LHT] Patch 1-A: pick the lane section on the end of connectingRoad that
                         // the junction connection actually attaches to (its contactPoint), rather than
                         // guessing from the sign of lane_link->to_ (RHT-only assumption).
                         // contactPoint == START -> incoming side is at s=0 of connectingRoad -> first section.
                         // contactPoint == END   -> incoming side is at s=length of connectingRoad -> last section.
-                        unsigned int laneSectionIdx = 0;
-                        if (connection->GetContactPoint() == CONTACT_POINT_END)
+                        else if (connection->GetContactPoint() == CONTACT_POINT_END)
                         {
                             laneSectionIdx = connection->GetConnectingRoad()->GetNumberOfLaneSections() - 1;
                         }
@@ -5573,6 +6086,7 @@ LaneRoadLaneConnection Junction::GetRoadConnectionByIdx(id_t roadId, int laneId,
                         {
                             laneSectionIdx = 0;
                         }
+                        // [GT_ODR:vj-lanes-end]
                         Lane* lane = connection->GetConnectingRoad()->GetLaneSectionByIdx(laneSectionIdx)->GetLaneById(lane_link->to_);
 
                         if (lane == nullptr)
@@ -5610,6 +6124,12 @@ void Junction::SetGlobalId()
 
 bool Junction::IsOsiIntersection() const
 {
+    // [GT_ODR:vj-osi-class] a virtual junction has no junction area of its own (the unsplit main road keeps
+    // its regular lanes across the span) -> never an OSI intersection, same rationale as DIRECT below
+    if (type_ == JunctionType::VIRTUAL)
+    {
+        return false;
+    }
     if (type_ == JunctionType::DIRECT)
     {
         return false;  // direct junction has no area -> no free lane boundaries
@@ -5628,8 +6148,12 @@ bool Junction::IsOsiIntersection() const
     }
     else
     {
-        LOG_ERROR_ONCE("Type of roads are missing, cannot determine for OSI intersection or not, assuming that it is an intersection.");
-        return true;
+        // [GT_ODR:junc-crossing] a junction with zero resolvable connections must NOT become an OSI
+        // TYPE_INTERSECTION (crossing/virtual junctions carry roadSection/crossPath, not connections;
+        // upstream assumed intersection -> ghost intersection lanes). Plan P5. All control assets have
+        // connections, so this is a no-op there.
+        LOG_ERROR_ONCE("Junction has no resolvable connections; not treating it as an OSI intersection.");
+        return false;
     }
 }
 
@@ -5737,7 +6261,14 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
     if (srcNode->link->GetElementType() == RoadLink::RoadLink::ELEMENT_TYPE_ROAD)
     {
         // node link is a road, find link in the other end of it
-        if (srcNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_END)
+        // [GT_ODR:vj-path] mid-road entry at elementS: traversal end follows elementDir, no opposite-end flip
+        if (srcNode->link->GetElementS() >= 0.0)
+        {
+            nextLink      = checkRoad->GetLink(srcNode->link->GetElementDir() == RoadLink::DIR_MINUS ? LinkType::PREDECESSOR : LinkType::SUCCESSOR);
+            contact_point = srcNode->link->GetElementDir() == RoadLink::DIR_MINUS ? ContactPointType::CONTACT_POINT_START
+                                                                                  : ContactPointType::CONTACT_POINT_END;
+        }
+        else if (srcNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_END)
         {
             nextLink      = checkRoad->GetLink(LinkType::PREDECESSOR);
             contact_point = ContactPointType::CONTACT_POINT_START;
@@ -5786,6 +6317,29 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
             }
         }
     }
+    // [GT_ODR:vj-path-begin] branch off mid-road: enqueue one node per virtual-junction registry anchor inside
+    // the traversal window (entry s -> exit end); node identity/dedup = the registry-owned anchor link pointer
+    const double entry_s = srcNode->link->GetElementS() >= 0.0
+                               ? srcNode->link->GetElementS()
+                               : (contact_point == ContactPointType::CONTACT_POINT_END ? 0.0 : checkRoad->GetLength());
+    for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(checkRoad->GetId()))
+    {
+        const auto is_anchor_link = [&anchor](const PathNode* node) { return node->link == anchor.link_; };
+        if ((contact_point == ContactPointType::CONTACT_POINT_END ? anchor.anchor_s_ >= entry_s : anchor.anchor_s_ <= entry_s) &&
+            std::none_of(visited_.begin(), visited_.end(), is_anchor_link) &&
+            std::none_of(unvisited_.begin(), unvisited_.end(), is_anchor_link))
+        {
+            PathNode* aNode     = new PathNode;
+            aNode->dist         = srcNode->dist + fabs(anchor.anchor_s_ - entry_s);
+            aNode->link         = anchor.link_;
+            aNode->fromRoad     = checkRoad;
+            aNode->fromLaneId   = checkRoad->GetConnectedLaneIdAtS(nextLaneId, entry_s, anchor.anchor_s_);
+            aNode->previous     = srcNode;
+            aNode->contactPoint = anchor.link_->GetContactPointType();
+            unvisited_.push_back(aNode);
+        }
+    }
+    // [GT_ODR:vj-path-end]
 
     if (nextLink == nullptr)
     {
@@ -5795,12 +6349,15 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
 
     if (contact_point == ContactPointType::CONTACT_POINT_START)
     {
-        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, -1.0, 0.0);
+        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, srcNode->link->GetElementS() >= 0.0 ? entry_s : -1.0, 0.0);  // [GT_ODR:vj-path]
     }
     else
     {
-        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, 0.0, -1.0);
+        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, srcNode->link->GetElementS() >= 0.0 ? entry_s : 0.0, -1.0);  // [GT_ODR:vj-path]
     }
+
+    // [GT_ODR:vj-path] edge weight: partial traversal when entered mid-road at elementS (entry_s is the road end otherwise)
+    const double edge_dist = contact_point == ContactPointType::CONTACT_POINT_END ? checkRoad->GetLength() - entry_s : entry_s;
 
     // Check if next node is already visited
     for (size_t i = 0; i < visited_.size(); i++)
@@ -5819,9 +6376,9 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
         if (unvisited_[i]->link == nextLink)
         {
             // Consider it, i.e. calc distance and potentially store it (if less than old)
-            if (srcNode->dist + checkRoad->GetLength() < unvisited_[i]->dist)
+            if (srcNode->dist + edge_dist < unvisited_[i]->dist)  // [GT_ODR:vj-path]
             {
-                unvisited_[i]->dist = srcNode->dist + checkRoad->GetLength();
+                unvisited_[i]->dist = srcNode->dist + edge_dist;  // [GT_ODR:vj-path]
             }
         }
     }
@@ -5830,7 +6387,8 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
     {
         // link not visited before, add it
         PathNode* pNode     = new PathNode;
-        pNode->dist         = srcNode->dist + checkRoad->GetLength();
+        pNode->dist         = srcNode->dist + edge_dist;         // [GT_ODR:vj-path]
+        pNode->contact_s    = nextLink->GetElementS();           // [GT_ODR:vj-path] mid-road anchor s on the linked element
         pNode->link         = nextLink;
         pNode->fromRoad     = checkRoad;
         pNode->fromLaneId   = nextLaneId;
@@ -5937,6 +6495,26 @@ int RoadPath::Calculate(double& dist, bool bothDirections, double maxDist)
 
             unvisited_.push_back(pNode);
         }
+        // [GT_ODR:vj-path-begin] seed one extra node per virtual-junction registry anchor on the start road,
+        // gated to anchors reachable in this search direction -- a link-less main road seeds nothing above,
+        // yet paths may leave it mid-road through an anchor
+        for (const OpenDrive::VirtualJunctionAnchor& anchor : odr->GetVirtualJunctionAnchors(startRoad->GetId()))
+        {
+            if ((contact_point == ContactPointType::CONTACT_POINT_END && anchor.anchor_s_ >= startPos_->GetS()) ||
+                (contact_point == ContactPointType::CONTACT_POINT_START && anchor.anchor_s_ < startPos_->GetS()))
+            {
+                PathNode* aNode     = new PathNode;
+                aNode->dist         = fabs(anchor.anchor_s_ - startPos_->GetS());
+                aNode->link         = anchor.link_;
+                aNode->fromRoad     = startRoad;
+                aNode->fromLaneId   = startRoad->GetConnectedLaneIdAtS(startPos_->GetLaneId(), startPos_->GetS(), anchor.anchor_s_);
+                aNode->previous     = 0;
+                aNode->contactPoint = anchor.link_->GetContactPointType();
+                aNode->direction    = contact_point == ContactPointType::CONTACT_POINT_END ? 1 : -1;
+                unvisited_.push_back(aNode);
+            }
+        }
+        // [GT_ODR:vj-path-end]
     }
 
     if (startRoad == targetRoad)
@@ -6007,7 +6585,13 @@ int RoadPath::Calculate(double& dist, bool bothDirections, double maxDist)
             if (nextRoad == targetRoad)
             {
                 // Special case: On same road, distance is equal to delta s, direction considered
-                if (link->GetContactPointType() == ContactPointType::CONTACT_POINT_START)
+                if (link->GetElementS() >= 0.0)
+                {
+                    // [GT_ODR:vj-path] arrived at the target mid-road via a virtual-junction anchor: the remaining
+                    // distance is measured from the anchor s (link end contact would over/under-count on the main road)
+                    tmpDist += fabs(link->GetElementS() - targetPos_->GetS());
+                }
+                else if (link->GetContactPointType() == ContactPointType::CONTACT_POINT_START)
                 {
                     tmpDist += targetPos_->GetS();
                 }
@@ -6043,7 +6627,16 @@ int RoadPath::Calculate(double& dist, bool bothDirections, double maxDist)
                 {
                     ContactPointType contact_point = ContactPointType::CONTACT_POINT_UNDEFINED;
                     // if (nextRoad->IsSuccessor(pivotRoad, &contact_point) || nextRoad->IsPredecessor(pivotRoad, &contact_point))
-                    if (pivotRoad->IsSuccessor(nextRoad, &contact_point) || pivotRoad->IsPredecessor(nextRoad, &contact_point))
+                    // [GT_ODR:vj-path] a virtual-junction connection lands mid-road with UNDEFINED contact -- the
+                    // anchor s (incoming/outgoing_contact_s_) gives the remaining distance instead of an end contact
+                    const double vj_anchor_s = junction->GetType() == Junction::JunctionType::VIRTUAL && junction->GetConnectionByIdx(j) != nullptr
+                                                   ? junction->GetConnectionByIdx(j)->GetOutgoingContactS()
+                                                   : -1.0;
+                    if (contact_point == ContactPointType::CONTACT_POINT_UNDEFINED && vj_anchor_s >= 0.0)  // [GT_ODR:vj-path]
+                    {
+                        tmpDist += fabs(vj_anchor_s - targetPos_->GetS());  // [GT_ODR:vj-path]
+                    }
+                    else if (pivotRoad->IsSuccessor(nextRoad, &contact_point) || pivotRoad->IsPredecessor(nextRoad, &contact_point))
                     {
                         if (contact_point == ContactPointType::CONTACT_POINT_START)
                         {
@@ -6183,6 +6776,32 @@ bool OpenDrive::IsIndirectlyConnected(id_t road1_id, id_t road2_id, id_t*& conne
 {
     Road* road1 = GetRoadById(road1_id);
     Road* road2 = GetRoadById(road2_id);
+    // [GT_ODR:vj-connect-begin] indirect via a virtual junction: the main road reaches road2 through a mid-road
+    // branch (the anchor connecting road), then onward via that branch's far-end link -- the main road itself
+    // carries no junction link, so the ELEMENT_TYPE_JUNCTION scan below never sees it. Inert without VJ anchors.
+    for (const VirtualJunctionAnchor& anchor : GetVirtualJunctionAnchors(road1_id))
+    {
+        Connection* connection = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_);
+        Road*       branch     = connection != nullptr ? connection->GetConnectingRoad() : nullptr;
+        if (branch == nullptr)
+        {
+            continue;
+        }
+        RoadLink* far = branch->GetLink(anchor.dir_ == RoadLink::DIR_MINUS ? PREDECESSOR : SUCCESSOR);
+        if (branch->GetId() == road2_id || (far != nullptr && far->GetElementType() == RoadLink::ELEMENT_TYPE_ROAD && far->GetElementId() == road2_id))
+        {
+            if (connecting_road_id != nullptr)
+            {
+                *connecting_road_id = branch->GetId();
+            }
+            if (connecting_lane_id != nullptr && lane1_id != 0)
+            {
+                *connecting_lane_id = connection->GetConnectingLaneId(lane1_id);
+            }
+            return true;
+        }
+    }
+    // [GT_ODR:vj-connect-end]
 
     LinkType link_type[2] = {SUCCESSOR, PREDECESSOR};
 
@@ -6379,7 +6998,11 @@ int OpenDrive::CheckJunctionConnection(Junction* junction, Connection* connectio
                      connection->GetContactPoint() == ContactPointType::CONTACT_POINT_END &&
                      link[i]->GetContactPointType() == ContactPointType::CONTACT_POINT_JUNCTION && link[i]->GetElementId() != junction->GetId()))
                 {
-                    LOG_ERROR("Expected direct junction linkedRoad to connect back to junction id {}, found id {}", link[i]->GetElementId());
+                    // [GT_ODR:direct-junc-log] upstream fmt bug: 2 placeholders / 1 argument -> fmt::format_error
+                    // ("argument not found") thrown DURING logging, killing the whole load (official Ex_Slip_Lane).
+                    LOG_ERROR("Expected direct junction linkedRoad to connect back to junction id {}, found id {}",
+                              junction->GetId(),
+                              link[i]->GetElementId());
                     return -1;
                 }
 
@@ -6560,6 +7183,13 @@ int OpenDrive::CheckLink(Road* road, RoadLink* link, ContactPointType expected_c
     // does this connection exist in the other direction?
     if (link->GetElementType() == RoadLink::ElementType::ELEMENT_TYPE_ROAD)
     {
+        // [GT_ODR:vj-synth] a road link with elementS is a mid-road virtual junction anchor: no reciprocal link
+        // exists on the (unsplit) main road by design, so skip the reverse-link scan and its WARN. Existence and
+        // span validation happens in EstablishVirtualJunctionConnections() (runs after CheckConnections()).
+        if (link->GetElementS() >= 0.0)
+        {
+            return 0;
+        }
         Road* connecting_road = GetRoadById(link->GetElementId());
         if (connecting_road != nullptr)
         {
@@ -6626,6 +7256,125 @@ int OpenDrive::CheckConnections()
 
     return counter;
 }
+
+// [GT_ODR:vj-synth-begin] virtual junction link resolution (S3). CheckConnections() cannot resolve virtual
+// junctions: the unsplit main road never references the junction and branch roads reference the MAIN ROAD via
+// elementS. Per VIRTUAL junction: validate the span, synthesize the missing branch->main counter-connections
+// (CheckJunctionConnection auto-add template) and fill the per-main-road anchor registry. Ownership: counter
+// Connections belong to the junction (~Junction); registry RoadLinks belong to the registry (OpenDrive::Clear()).
+// Kind-2 topological connections (is_virtual_, null connecting road) are store-only in v1 and skipped here.
+// LaneRoadLaneConnection::contact_s_ is constructed on the fly by Junction::GetRoadConnectionByIdx at runtime,
+// so it is stamped there (S5, vj-lanes stage), not at load time.
+void OpenDrive::EstablishVirtualJunctionConnections()
+{
+    for (Junction* junction : junction_)
+    {
+        if (junction->GetType() != Junction::JunctionType::VIRTUAL)
+        {
+            continue;
+        }
+        const Junction::VirtualJunctionAttributes& vj_attr   = junction->GetVirtualAttributes();
+        Road*                                      main_road = GetRoadById(vj_attr.main_road_id_);
+        if (main_road == nullptr || vj_attr.s_start_ < 0.0 || vj_attr.s_end_ < vj_attr.s_start_ ||
+            vj_attr.s_end_ > main_road->GetLength() + 1e-3)
+        {
+            LOG_WARN("Virtual junction {} has an unusable span on main road {}, skipping it", junction->GetIdStr(), vj_attr.main_road_id_);
+            continue;
+        }
+        const unsigned int n_connections = junction->GetNumberOfConnections();  // counter-connections are appended below
+        for (unsigned int i = 0; i < n_connections; i++)
+        {
+            Connection* connection = junction->GetConnectionByIdx(i);
+            Road*       branch     = connection->GetConnectingRoad();
+            if (branch == nullptr || branch == main_road)
+            {
+                continue;  // kind-2 (store-only) or an authored counter-connection
+            }
+            // the anchor is the branch road's elementS link pointing at the main road
+            RoadLink* anchor_link = nullptr;
+            LinkType  anchor_end  = LinkType::PREDECESSOR;
+            for (LinkType link_type : {LinkType::PREDECESSOR, LinkType::SUCCESSOR})
+            {
+                RoadLink* branch_link = branch->GetLink(link_type);
+                if (branch_link != nullptr && branch_link->GetElementType() == RoadLink::ElementType::ELEMENT_TYPE_ROAD &&
+                    branch_link->GetElementId() == main_road->GetId() && branch_link->GetElementS() >= 0.0)
+                {
+                    anchor_link = branch_link;
+                    anchor_end  = link_type;
+                    break;
+                }
+            }
+            if (anchor_link == nullptr)
+            {
+                LOG_WARN("Virtual junction {} connecting road {} has no elementS link to the main road, skipping", junction->GetIdStr(), branch->GetIdStr());
+                continue;
+            }
+            // the connection's own <predecessor> elementS (incoming contact) takes precedence for the anchor s
+            const double               anchor_s     = connection->GetIncomingContactS() >= 0.0 ? connection->GetIncomingContactS() : anchor_link->GetElementS();
+            const RoadLink::ElementDir anchor_dir   = anchor_link->GetElementDir();
+            bool                       have_counter = false;
+            for (unsigned int k = 0; k < junction->GetNumberOfConnections() && !have_counter; k++)
+            {
+                have_counter = junction->GetConnectionByIdx(k)->GetIncomingRoad() == branch &&
+                               junction->GetConnectionByIdx(k)->GetConnectingRoad() == main_road;
+            }
+            if (!have_counter)
+            {
+                // elementDir reverse-merge rule (INTERPRETIVE, see manifest): '+' = the main road is traversed in
+                // increasing s across the anchor -> branch->main lands at anchor_s heading s-increasing = START
+                ContactPointType counter_contact = anchor_dir == RoadLink::DIR_PLUS    ? ContactPointType::CONTACT_POINT_START
+                                                   : anchor_dir == RoadLink::DIR_MINUS ? ContactPointType::CONTACT_POINT_END
+                                                                                       : ContactPointType::CONTACT_POINT_UNDEFINED;
+                const double     branch_contact_s = anchor_end == LinkType::PREDECESSOR ? 0.0 : branch->GetLength();
+                Connection*      counter          = new Connection(branch, main_road, counter_contact, branch_contact_s, anchor_s);
+                for (unsigned int l = 0; l < connection->GetNumberOfLaneLinks(); l++)
+                {
+                    counter->AddJunctionLaneLink(connection->GetLaneLink(l)->to_, connection->GetLaneLink(l)->from_);
+                }
+                junction->AddConnection(counter);
+            }
+            // registry-owned RoadLink = stable per-anchor identity for the main->branch hop (RoadPath dedup keys
+            // on link pointers, S4); it describes the branch ENTRY end (element_s_ < 0 = legacy end contact ON
+            // THE BRANCH) -- the anchor s on the main road lives on the anchor entry itself
+            RoadLink* registry_link = new RoadLink(anchor_dir == RoadLink::DIR_MINUS ? LinkType::PREDECESSOR : LinkType::SUCCESSOR,
+                                                   RoadLink::ElementType::ELEMENT_TYPE_ROAD,
+                                                   branch->GetId(),
+                                                   anchor_end == LinkType::PREDECESSOR ? ContactPointType::CONTACT_POINT_START
+                                                                                       : ContactPointType::CONTACT_POINT_END,
+                                                   -1.0,
+                                                   anchor_dir);
+            virtual_junction_anchors_[main_road->GetId()].push_back({junction, i, anchor_s, anchor_dir, registry_link});
+        }
+    }
+    for (auto& vj_road_anchors : virtual_junction_anchors_)
+    {
+        std::sort(vj_road_anchors.second.begin(),
+                  vj_road_anchors.second.end(),
+                  [](const VirtualJunctionAnchor& a, const VirtualJunctionAnchor& b) { return a.anchor_s_ < b.anchor_s_; });
+    }
+}
+
+Junction* OpenDrive::GetVirtualJunctionAtRoadS(id_t road_id, double s) const
+{
+    for (const VirtualJunctionAnchor& anchor : GetVirtualJunctionAnchors(road_id))
+    {
+        // [GT_ODR:vj-synth] inclusive span containment: s in [sStart, sEnd] on this main road
+        const Junction::VirtualJunctionAttributes& vj_attr = anchor.junction_->GetVirtualAttributes();
+        if (s >= vj_attr.s_start_ && s <= vj_attr.s_end_)
+        {
+            return anchor.junction_;
+        }
+    }
+    return nullptr;
+}
+
+const std::vector<OpenDrive::VirtualJunctionAnchor>& OpenDrive::GetVirtualJunctionAnchors(id_t road_id) const
+{
+    static const std::vector<VirtualJunctionAnchor> no_anchors;
+    const auto                                      anchors = virtual_junction_anchors_.find(road_id);
+    return anchors != virtual_junction_anchors_.end() ? anchors->second : no_anchors;
+}
+// [GT_ODR:vj-synth-end]
 
 void OpenDrive::Print() const
 {
@@ -7336,25 +8085,21 @@ OpenDrive* Position::GetOpenDrive()
     return &od;
 }
 
-static double
-GetMaxSegmentLen(const Position* pivot, const Position* pos, double min, double max, double pitchResScale, double rollResScale, bool& osi_requirement)
+static double GetMaxSegmentLen(const Position* pivot, const Position* pos, double min, double max, double resScale, bool& osi_requirement)
 {
     double max_segment_length;
 
-    // Consider rate of change of pitch and roll for segment length to influence
+    // Consider local vertical change rate, including pitch and roll change rates and influence of banked curvature
     // the tesselation (triangulation) of road surface model
 
-    double zRoadPrimPrim                 = pos->GetZRoadPrimPrim();
-    double roadSuperElevationPrim        = pos->GetRoadSuperElevationPrim();
-    double max_segment_length_candidate1 = pitchResScale / MAX(SMALL_NUMBER, abs(zRoadPrimPrim));
-    double max_segment_length_candidate2 = rollResScale / MAX(SMALL_NUMBER, abs(roadSuperElevationPrim));
+    double zRoadPrimPrim          = pos->GetZRoadPrimPrim();
+    double roadSuperElevationPrim = pos->GetRoadSuperElevationPrim();
+    double roadXYCurvature        = pos->GetCurvature();
+    double rollAngle              = pos->GetR();
 
-    max_segment_length = MIN(max_segment_length_candidate1, max_segment_length_candidate2);
-
-    // Adjust for slope
-    max_segment_length = max_segment_length / sqrt(pow(pos->GetZRoadPrim(), 2) + 1);
-
-    max_segment_length = MAX(min, MIN(max, max_segment_length));
+    // calculate a combined factor 1. pitch change rate, 2. roll change rate, and 3. combo curvature and roll angle (local pitch change rate)
+    double polygonDensityFactor = sqrt(pow(zRoadPrimPrim, 2) + pow(roadSuperElevationPrim, 2) + pow(roadXYCurvature * sin(rollAngle), 2));
+    max_segment_length          = MAX(min, MIN(max, max * resScale / (1 + 1.75e3 * polygonDensityFactor)));
 
     if (pivot)
     {
@@ -7409,7 +8154,6 @@ int OpenDrive::CheckAndAddOSIPoint(Position&                 pos_pivot,
                                               &pos_candidate,
                                               min_segment_length,
                                               SE_Env::Inst().GetOSIMaxLongitudinalDistance(),
-                                              OSI_POINT_DIST_SCALE,
                                               OSI_POINT_DIST_SCALE,
                                               osi_requirement);
 
@@ -8439,12 +9183,12 @@ idx_t LaneSection::GetClosestLaneIdx(double s, double t, double laneOffset, int 
     {
         int lane_id = GetLaneIdByIdx(i);
 
-        double laneCenterOffset = SIGN(lane_id) * GetCenterOffset(s, lane_id);
-
         // Only consider lanes with matching lane type and side
         if (laneTypeMask & GetLaneById(lane_id)->GetLaneType() && (!noZeroWidth || GetWidth(s, lane_id) > SMALL_NUMBER) &&
             (side == 0 || SIGN(lane_id) == SIGN(side)))
         {
+            double laneCenterOffset = SIGN(lane_id) * GetCenterOffset(s, lane_id);
+
             // If position is within a lane, we can return it without further checks
             if (fabs(t - laneOffset - laneCenterOffset) < (GetWidth(s, lane_id) / 2.))
             {
@@ -9250,6 +9994,27 @@ Position::XYZ2TrackPos(double x3, double y3, double z3, int mode, bool connected
                 {
                     change_direction = true;
                 }
+                // [GT_ODR:vj-connect-begin] elementDir merge rule for a virtual-junction anchor link (contactPoint
+                // UNDEFINED, so the END/START test above cannot fire): a '-' anchor is traversed s-decreasing across
+                // the join -> flip; '+'/UNKNOWN keep the heading. Covers BOTH an own elementS link (branch->main
+                // merge-back) and a registry anchor on the unsplit main road (main->branch), which carries no link.
+                for (LinkType lt : {LinkType::SUCCESSOR, LinkType::PREDECESSOR})
+                {
+                    RoadLink* vjl = current_road->GetLink(lt);
+                    if (vjl != nullptr && vjl->GetElementId() == roadMin->GetId() && vjl->GetElementS() >= 0.0 &&
+                        GetOpenDrive()->GetVirtualJunctionAtRoadS(roadMin->GetId(), vjl->GetElementS()) != nullptr)
+                    {
+                        change_direction = vjl->GetElementDir() == RoadLink::DIR_MINUS;
+                    }
+                }
+                for (const OpenDrive::VirtualJunctionAnchor& anchor : GetOpenDrive()->GetVirtualJunctionAnchors(current_road->GetId()))
+                {
+                    if (anchor.link_->GetElementId() == roadMin->GetId())
+                    {
+                        change_direction = anchor.dir_ == RoadLink::DIR_MINUS;
+                    }
+                }
+                // [GT_ODR:vj-connect-end]
             }
 
             // Now find closest lane at that lateral position, at updated s value
@@ -9982,6 +10747,38 @@ Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, Contact
     }
 
     double new_offset = offset_;
+    // [GT_ODR:vj-enter-begin] virtual-junction re-entry: a mid-road elementS link lands ON the main road at
+    // road_link->GetElementS() (NOT at s=0/length), in the lane section AT that s. The elementDir merge rule fixes
+    // BOTH the landing heading and the direction the remaining ds continues in: '+' -> the main road is traversed
+    // s-increasing across the join (heading 0, continue +s = START-like), '-' -> s-decreasing (heading PI = END-like),
+    // UNKNOWN -> keep the geometric heading with a WARN. contact_point_type is set so MoveAlongS's post-call ds-sign
+    // logic continues in the correct direction. Gated on the elementS landing s lying inside a virtual-junction span
+    // on the target road (GetVirtualJunctionAtRoadS != null) so an ORDINARY road link that merely carries an
+    // elementS attribute (spec-legal on 1.7+ links, e.g. official UC_ParamPoly3) keeps the upstream placement.
+    if (road_link->GetElementType() == RoadLink::ELEMENT_TYPE_ROAD && road_link->GetElementS() >= 0.0 &&
+        GetOpenDrive()->GetVirtualJunctionAtRoadS(next_road->GetId(), road_link->GetElementS()) != nullptr)
+    {
+        if (road_link->GetElementDir() == RoadLink::DIR_MINUS)
+        {
+            SetHeadingRelative(M_PI);
+            new_offset         = -offset_;
+            contact_point_type = ContactPointType::CONTACT_POINT_END;
+        }
+        else
+        {
+            if (road_link->GetElementDir() == RoadLink::DIR_UNKNOWN)
+            {
+                LOG_WARN("Virtual-junction re-entry on road {} at s={:.2f} lacks elementDir; assuming s-increasing heading",
+                         next_road->GetId(),
+                         road_link->GetElementS());
+            }
+            SetHeadingRelative(0.0);
+            contact_point_type = ContactPointType::CONTACT_POINT_START;
+        }
+        SetLanePos(next_road->GetId(), new_lane_id, road_link->GetElementS(), new_offset, next_road->GetLaneSectionIdxByS(road_link->GetElementS()));
+        return ret_val;
+    }
+    // [GT_ODR:vj-enter-end]
     if ((road_link->GetType() == LinkType::PREDECESSOR && contact_point_type == ContactPointType::CONTACT_POINT_START) ||
         (road_link->GetType() == LinkType::SUCCESSOR && contact_point_type == ContactPointType::CONTACT_POINT_END))
     {
@@ -10129,6 +10926,55 @@ Position::ReturnCode Position::MoveAlongS(double            ds,
     // move from road to road until ds-value is within road length or maximum of connections has been crossed
     for (int i = 0; done == false && i < max_links; i++)
     {
+        // [GT_ODR:vj-move-begin] mid-road virtual-junction branch: if the current road has registry anchors and
+        // one lies inside this step's traversal window (s_, s_+ds_road] (direction-aware) AND the active route
+        // demands that branch (its connecting road is a route waypoint), split the move at anchor_s, hand off to
+        // MoveToConnectingRoad from the anchor, then apply the remaining ds on the branch. The registry is EMPTY
+        // for every road in every non-virtual asset -> this is an O(1) empty-vector check on the hot path. No
+        // route, no windowed anchor, or no route demand -> fall straight through untouched (T2 invariant). The
+        // junctionSelectorAngle random tie-break (v1 out of scope for VJ) is never reached from here.
+        const std::vector<OpenDrive::VirtualJunctionAnchor>& vj_anchors = GetOpenDrive()->GetVirtualJunctionAnchors(track_id_);
+        if (!vj_anchors.empty() && route_ != nullptr && route_->IsValid())
+        {
+            for (const OpenDrive::VirtualJunctionAnchor& anchor : vj_anchors)
+            {
+                const bool forward   = ds_road >= 0.0;
+                const bool in_window = forward ? (anchor.anchor_s_ > s_ - SMALL_NUMBER && anchor.anchor_s_ <= s_ + ds_road + SMALL_NUMBER)
+                                               : (anchor.anchor_s_ < s_ + SMALL_NUMBER && anchor.anchor_s_ >= s_ + ds_road - SMALL_NUMBER);
+                if (!in_window)
+                {
+                    continue;
+                }
+                Road* branch = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_)->GetConnectingRoad();
+                bool  demand = false;
+                for (const Position& wp : route_->minimal_waypoints_)
+                {
+                    if (branch != nullptr && wp.GetTrackId() == branch->GetId())
+                    {
+                        demand = true;  // the branch continuation is a route waypoint -> the route turns here
+                        break;
+                    }
+                }
+                if (!demand)
+                {
+                    continue;
+                }
+                const double ds_remaining = ds_road - (anchor.anchor_s_ - s_);  // ds left once we reach the anchor
+                lane_section_idx_         = road->GetLaneSectionIdxByS(anchor.anchor_s_);
+                SetLanePos(track_id_, lane_id_, anchor.anchor_s_, offset_);  // land exactly on the anchor first
+                ContactPointType vj_contact = ContactPointType::CONTACT_POINT_UNDEFINED;
+                if (static_cast<int>(MoveToConnectingRoad(anchor.link_, vj_contact, junctionSelectorAngle)) < 0)
+                {
+                    break;  // could not enter the branch -> fall back to the normal end-of-road handling
+                }
+                // remaining ds runs along the branch in its s-direction (START contact '+' -> +s)
+                ds_road            = (vj_contact == ContactPointType::CONTACT_POINT_END) ? -fabs(ds_remaining) : fabs(ds_remaining);
+                signed_dLaneOffset = (vj_contact == ContactPointType::CONTACT_POINT_END) ? -dLaneOffset : dLaneOffset;
+                road               = GetOpenDrive()->GetRoadById(track_id_);
+                break;  // re-evaluate the (branch) road from the top of this same iteration's checks below
+            }
+        }
+        // [GT_ODR:vj-move-end]
         if (s_ + ds_road > GetOpenDrive()->GetRoadByIdx(track_idx_)->GetLength())
         {
             // beyond end of road, ensure last lane section
@@ -11304,6 +12150,9 @@ int Position::GetInLaneType() const
 
 bool Position::IsInJunction() const
 {
+    // [GT_ODR:vj-membership:interp] v1 (deliberate): a position on a virtual-junction main-road SPAN keeps
+    // reporting false here and ID_UNDEFINED in GetJunctionId() -- the unsplit main road carries junction == -1.
+    // Flipping this would re-randomize ScenarioEngine junction selectors mid-road; surfaced upstream in #592.
     Road* road = GetOpenDrive()->GetRoadByIdx(track_idx_);
     if (road)
     {
@@ -11942,6 +12791,7 @@ id_t Position::GetTrackId() const
 
 id_t Position::GetJunctionId() const
 {
+    // [GT_ODR:vj-membership:interp] v1: virtual-junction main-road spans report ID_UNDEFINED (see IsInJunction)
     Road* road = GetOpenDrive()->GetRoadByIdx(track_idx_);
     if (road)
     {
@@ -12153,7 +13003,15 @@ int Position::SetRouteLanePosition(Route* route, double path_s, int lane_id, dou
     int dir = 1;
     if (SE_Env::Inst().GetOptions().GetOptionSet("align_routepositions"))
     {
-        dir = route->GetWaypoint()->GetRouteWaypointDir();
+        const Position* wp = route->GetWaypoint();
+        if (wp != nullptr)
+        {
+            dir = wp->GetRouteWaypointDir();
+        }
+        else
+        {
+            LOG_ERROR("SetRouteLanePosition: failed to get current waypoint, using default direction");
+        }
     }
 
     SetLanePos(route->GetTrackId(), SIGN(dir) * lane_id, route->GetTrackS(), SIGN(dir) * lane_offset);
@@ -12169,7 +13027,15 @@ int Position::SetRouteRoadPosition(Route* route, double path_s, double t)
     int dir = 1;
     if (SE_Env::Inst().GetOptions().GetOptionSet("align_routepositions"))
     {
-        dir = route->GetWaypoint()->GetRouteWaypointDir();
+        const Position* wp = route->GetWaypoint();
+        if (wp != nullptr)
+        {
+            dir = wp->GetRouteWaypointDir();
+        }
+        else
+        {
+            LOG_ERROR("SetRouteRoadPosition: failed to get current waypoint, using default direction");
+        }
     }
 
     SetTrackPos(route->GetTrackId(), route->GetTrackS(), SIGN(dir) * t);
@@ -12330,6 +13196,8 @@ void PolyLineBase::AddVertex(TrajVertex v)
             v.s = 0.0;
         }
     }
+
+    length_ = v.s;
 
     vertex_.push_back(v);
 }
@@ -12518,10 +13386,21 @@ int PolyLineBase::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_
 
     while (i + 1 < GetNumberOfVertices())
     {
-        ProjectPointOnLine2D(xin, yin, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, tmpPos.x, tmpPos.y);
+        bool inside = false;
+
+        if (ProjectPointOnLine2D(xin, yin, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, tmpPos.x, tmpPos.y) != 0)
+        {
+            // failed to project point, probably input points identical and no line could be formed
+            inside = false;
+            sLocal = 0.0;
+        }
+        else
+        {
+            inside = PointInBetweenVectorEndpoints(tmpPos.x, tmpPos.y, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, sLocal);
+        }
+
         double distTmp = PointDistance2D(xin, yin, tmpPos.x, tmpPos.y);
 
-        bool inside = PointInBetweenVectorEndpoints(tmpPos.x, tmpPos.y, vertex_[i].x, vertex_[i].y, vertex_[i + 1].x, vertex_[i + 1].y, sLocal);
         if (!inside)
         {
             // Find combined longitudinal and lateral distance to line endpoint
@@ -12542,7 +13421,7 @@ int PolyLineBase::FindClosestPoint(double xin, double yin, TrajVertex& pos, idx_
             sLocal *= (vertex_[i + 1].s - vertex_[i].s);
         }
 
-        if (distTmp < distMin)
+        if (distTmp < distMin + SMALL_NUMBER)  // accept moving forward to very close points
         {
             iMin      = i;
             sLocalMin = sLocal;
@@ -12604,7 +13483,8 @@ int PolyLineBase::FindPointAhead(double s_start, double distance, TrajVertex& po
 {
     index = Evaluate(s_start + distance, pos, startAtIndex);
 
-    return 0;
+    return s_start + distance > length_ + SMALL_NUMBER ? static_cast<int>(GhostTrailReturnCode::GHOST_TRAIL_DIST_PAST)
+                                                       : static_cast<int>(GhostTrailReturnCode::GHOST_TRAIL_OK);
 }
 
 int PolyLineBase::FindPointAtTime(double time, TrajVertex& pos, idx_t& index)
@@ -14633,6 +15513,22 @@ Position::ReturnCode Route::SetTrackS(id_t trackId, double s, bool update_state)
             // passed first or last wp?
             info_for_closest_wp.retval = Position::ReturnCode::OK;
             bool out_of_bounds         = false;
+            // [GT_ODR:vj-route-begin] anchor-span guard: a leg that branches off a virtual-junction main road only
+            // covers [wp.s, anchor_s]; a query beyond the anchor is on the (unsplit) main road but OFF the route --
+            // the whole-road dist_along_route above would over-extrapolate. Inert when the road has no VJ anchor.
+            if (i + 1 < minimal_waypoints_.size())
+            {
+                for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(trackId))
+                {
+                    if ((wp_dir > 0 && s > anchor.anchor_s_ + SMALL_NUMBER) || (wp_dir < 0 && s < anchor.anchor_s_ - SMALL_NUMBER))
+                    {
+                        info_for_closest_wp.dist_along_route = wp.GetRouteWaypointS() + fabs(anchor.anchor_s_ - wp.GetS());
+                        info_for_closest_wp.retval           = Position::ReturnCode::ERROR_NOT_ON_ROUTE;
+                        info_for_closest_wp.s                = anchor.anchor_s_;
+                    }
+                }
+            }
+            // [GT_ODR:vj-route-end]
             if (info_for_closest_wp.wp_index == 0)
             {
                 if ((wp_dir > 0 && s < wp.GetS()) || (wp_dir < 0 && s > wp.GetS()))
@@ -14742,7 +15638,13 @@ Position::ReturnCode Route::MovePathDS(double ds, double* remaining_dist, bool u
     }
 
     // Consider route direction
-    ds *= GetWaypoint()->GetRouteWaypointDir();
+    const Position* wp = GetWaypoint();
+    if (wp == nullptr)
+    {
+        LOG_ERROR("MovePathDS: failed to get current waypoint");
+        return Position::ReturnCode::ERROR_GENERIC;
+    }
+    ds *= wp->GetRouteWaypointDir();
     // printf("moving along path by ds = %.2f (route dir %d), from road %d s %.2f\n", ds, GetWaypoint()->GetRouteWaypointDir(),
     // currentPos_.GetTrackId(), currentPos_.GetS());
 
@@ -14766,11 +15668,21 @@ Position::ReturnCode Route::SetPathS(double s, double* remaining_dist, bool upda
 
         if (update_state)
         {
-            LOG_INFO("{}{} moved out of route at roadId={}, s={:.2f} (SetPathS())",
-                     getObjName().empty() ? "Position " : "Entity ",
-                     getObjName().empty() ? "" : getObjName(),
-                     GetWaypoint(waypoint_idx_)->GetTrackId(),
-                     local_s);
+            const Position* wp = GetWaypoint(waypoint_idx_);
+            if (wp != nullptr)
+            {
+                LOG_INFO("{}{} moved out of route at roadId={}, s={:.2f} (SetPathS())",
+                         getObjName().empty() ? "Position " : "Entity ",
+                         getObjName().empty() ? "" : getObjName(),
+                         wp->GetTrackId(),
+                         local_s);
+            }
+            else
+            {
+                LOG_INFO("{}{} moved out of route (no valid waypoint) (SetPathS())",
+                         getObjName().empty() ? "Position " : "Entity ",
+                         getObjName().empty() ? "" : getObjName());
+            }
             on_route_ = false;
         }
 
@@ -14783,9 +15695,9 @@ Position::ReturnCode Route::SetPathS(double s, double* remaining_dist, bool upda
     if (minimal_waypoints_.size() == 0)
     {
         path_s_       = 0.0;
-        waypoint_idx_ = 0;
-        currentPos_.SetTrackPos(GetWaypoint(waypoint_idx_)->GetTrackId(), 0.0, 0.0);
-        return Position::ReturnCode::OK;
+        waypoint_idx_ = IDX_UNDEFINED;
+        LOG_ERROR("SetPathS called on route with no waypoints");
+        return Position::ReturnCode::ERROR_GENERIC;
     }
 
     const Position* wp = nullptr;

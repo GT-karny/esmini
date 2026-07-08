@@ -1,0 +1,22 @@
+# Expected events for the Phase 1 VirtualDriver MVP scenario.
+# Matched against gt_sim_test telemetry (gt_sim_test assert). Schema: verification_environment.md S5.1.
+scenario: virtual_driver_basic
+controller: VirtualDriver
+must:
+  - event: lane_keep
+    road_id: 0
+    lane_id: -3
+    before: { sim_time: 5.0 }
+    reason: "Holds the start lane before the lane-change action triggers (~t6)"
+  - event: speed_above
+    threshold: 10.0
+    after: { sim_time: 4.0 }
+    reason: "Accelerates to the commanded cruise speed (~15 m/s)"
+  - event: speed_below
+    threshold: 1.0
+    after: { sim_time: 15.0 }
+    reason: "Comes to a stop for the StopAction"
+notes: >
+  Smoke-level expectations for the in-process gt_sim_test loop. lane_change_count
+  is intentionally omitted (the MVP briefly touches -2 then returns, so the count
+  is not yet a stable contract).

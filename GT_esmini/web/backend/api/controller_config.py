@@ -27,20 +27,6 @@ async def get_presets() -> list[dict[str, Any]]:
                 "python": DEFAULT_CONTROLLER_CONFIG["python"],
             },
         },
-        {
-            "name": "Python Driver (Recommended)",
-            "description": "PythonDriverController with EmbeddedController",
-            "config": {
-                "controller_type": "python",
-                "python": {
-                    "script": "DriverScript/pythondriver/scenario_drive_embedded.py",
-                    "class": "EmbeddedController",
-                    "python_home": "",
-                    "trace_enabled": True,
-                    "trace_dir": "",
-                },
-            },
-        },
     ]
 
 

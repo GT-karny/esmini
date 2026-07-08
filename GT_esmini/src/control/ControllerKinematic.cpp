@@ -12,6 +12,8 @@
  */
 
 #include "gt_esmini/control/ControllerKinematic.hpp"
+#include "gt_esmini/control/common/TransitionDynamics.hpp"
+#include "gt_esmini/control/ControllerRouteDrive.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
 // #include "ScenarioGateway.hpp" // removed in v3.0.0
@@ -26,28 +28,6 @@
 using namespace scenarioengine;
 
 static constexpr double MAX_CURVATURE = 0.25;  // |κ| ≤ 0.25 → R ≥ 4 m
-
-// Evaluate TransitionDynamics shape at arbitrary progress [0,1].
-// Mirrors OSCPrivateAction::TransitionDynamics::Evaluate() but accepts
-// an arbitrary progress value instead of using internal param_val_.
-static double EvalTransition(OSCPrivateAction::DynamicsShape shape,
-                             double startVal, double A, double progress)
-{
-    progress = CLAMP(progress, 0.0, 1.0);
-    switch (shape)
-    {
-        case OSCPrivateAction::DynamicsShape::SINUSOIDAL:
-            return startVal - A * (cos(M_PI * progress) - 1.0) / 2.0;
-        case OSCPrivateAction::DynamicsShape::CUBIC:
-            return startVal + A * progress * progress * (3.0 - 2.0 * progress);
-        case OSCPrivateAction::DynamicsShape::LINEAR:
-            return startVal + A * progress;
-        case OSCPrivateAction::DynamicsShape::STEP:
-            return startVal + A;
-        default:
-            return startVal;
-    }
-}
 
 Controller* gt_esmini::InstantiateControllerKinematic(void* args)
 {
@@ -195,6 +175,7 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         double current_p;    // current param
         double current_off;  // current offset = f(current_p/P)
         bool   time_based;   // TIME or RATE dimension
+        double lane_sign;    // SIGN(target_lane_id) — converts offset_agnostic → lane-frame Δt
     };
     std::vector<LatInfo> lat_actions;
 
@@ -215,11 +196,42 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         double A = td->GetTargetVal() - startVal;
         double P = td->GetParamTargetVal();
         double cur_p = td->GetParamVal();
-        double cur_off = EvalTransition(td->shape_, startVal, A, cur_p / P);
+        double cur_off = EvaluateTransitionShape(td->shape_, startVal, A, cur_p / P);
         bool tb = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
                    td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
 
-        lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb});
+        // For LaneChangeAction, object_->pos_ is updated to the target lane each
+        // step (OSCPrivateAction.cpp:966-969), so its current laneId equals the
+        // target. For LaneOffsetAction the lane is unchanged. Both cases:
+        // SIGN(object_->pos_.GetLaneId()) gives the correct sign factor.
+        double lane_sign = static_cast<double>(SIGN(object_->pos_.GetLaneId()));
+
+        lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb, lane_sign});
+    }
+
+    // A stacked RouteDriveController owns/steps its lane-change action itself, so
+    // it does NOT appear in getPrivateActions(). Pull its in-progress LC in too,
+    // otherwise the steering preview would ignore the route-driven lane change.
+    if (scenarioengine::Controller* rc =
+            object_->GetAssignedControllerOftype(static_cast<scenarioengine::Controller::Type>(gt_esmini::CONTROLLER_TYPE_ROUTE_DRIVE)))
+    {
+        const LatLaneChangeAction* lc = static_cast<gt_esmini::ControllerRouteDrive*>(rc)->GetActiveLaneChangeAction();
+        if (lc)
+        {
+            const OSCPrivateAction::TransitionDynamics* td = &lc->transition_;
+            if (td->GetParamTargetVal() >= 1e-6)
+            {
+                double startVal  = td->GetStartVal();
+                double A         = td->GetTargetVal() - startVal;
+                double P         = td->GetParamTargetVal();
+                double cur_p     = td->GetParamVal();
+                double cur_off   = EvaluateTransitionShape(td->shape_, startVal, A, cur_p / P);
+                bool   tb        = (td->dimension_ == OSCPrivateAction::DynamicsDimension::TIME ||
+                             td->dimension_ == OSCPrivateAction::DynamicsDimension::RATE);
+                double lane_sign = static_cast<double>(SIGN(object_->pos_.GetLaneId()));
+                lat_actions.push_back({td->shape_, startVal, A, P, cur_p, cur_off, tb, lane_sign});
+            }
+        }
     }
 
     // --- Build polyline ---
@@ -252,9 +264,18 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
         // --- Overlay lateral action displacements ---
         if (!lat_actions.empty())
         {
-            double road_h = pos.GetH();
-            double nx = -sin(road_h);  // road-left normal
-            double ny =  cos(road_h);
+            // esmini's TransitionDynamics holds offset_agnostic = SIGN(laneId) *
+            // offset_in_lane (see OSCPrivateAction.cpp:896,1073). Per-step it
+            // writes back via SetLanePos with offset = offset_agnostic *
+            // SIGN(target_lane_id) (line 969). So the world-frame +t
+            // displacement is delta_offset_agnostic * SIGN(target_lane_id).
+            // Apply along the road's +t axis (= road heading rotated +90°),
+            // which is independent of vehicle heading — correct for any
+            // driving direction (forward / against-s) and any cross-reference
+            // lane changes (e.g. -1 → +1).
+            double road_h = pos.GetHRoad();
+            double tx = -sin(road_h);  // +t axis in world frame
+            double ty =  cos(road_h);
 
             for (auto& la : lat_actions)
             {
@@ -267,11 +288,11 @@ void gt_esmini::ControllerKinematic::BuildPathFromRoad(double total_dist, double
 
                 future_p = std::min(future_p, la.P);  // clamp to action range
 
-                double future_off = EvalTransition(la.shape, la.startVal, la.A, future_p / la.P);
-                double delta = future_off - la.current_off;
+                double future_off = EvaluateTransitionShape(la.shape, la.startVal, la.A, future_p / la.P);
+                double delta_t = (future_off - la.current_off) * la.lane_sign;
 
-                px += delta * nx;
-                py += delta * ny;
+                px += delta_t * tx;
+                py += delta_t * ty;
             }
         }
 

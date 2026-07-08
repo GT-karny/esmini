@@ -30,23 +30,35 @@
 #include <memory>
 #include <functional>
 #include <string>
+#include <sstream>
+#include <cstring>
 #include <iostream>
 #include <cstdio>
+#include <fstream>
+#include <filesystem>
+#include <cstdint>
+#include <cstdlib>
+#include <chrono>
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
+#endif
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/ControllerKinematic.hpp"
+#include "gt_esmini/control/ControllerRouteDrive.hpp"
+#include "gt_esmini/control/ControllerVirtualDriver.hpp"
+#include "gt_esmini/control/virtualdriver/VirtualDriverTelemetryJson.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
 #include "gt_esmini/io/GT_ScenarioVariablesReporter.hpp"
+#include "gt_esmini/io/GT_VirtualDriverReporter.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
 
-// Forward declaration for GetCurrentModuleDirectory (defined in ControllerRealDriver.cpp)
-namespace gt_esmini { std::string GetCurrentModuleDirectory(); }
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
@@ -128,6 +140,8 @@ public:
         controllers_.clear();
         // Also clear extensions? They are owned by VehicleExtensionManager
         gt_esmini::VehicleExtensionManager::Instance().Clear();
+        // R5-U3: scenario light ownership registry shares this lifecycle.
+        gt_esmini::ScenarioLightRegistry::Instance().Clear();
     }
 
 private:
@@ -144,64 +158,398 @@ void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)>
 
 // --- GT_esminiLib C-API Implementation ---
 
-// Basic XOSC sanitizer to allow SE_Init to pass even with unsupported actions
-static bool CreateSanitizedScenario(const char* inFile, const std::string& outFile)
+// ============================ GT road-model cache ============================
+// Pre-generate the road 3D mesh with the parallel GT_RoadGen tool (cache-keyed by xodr
+// content hash) and inject it as <SceneGraphFile> so the esmini viewer SKIPS its slow,
+// single-threaded runtime road tessellation. Falls back silently to runtime generation.
+namespace
+{
+    std::filesystem::path GT_SanitizedScenarioTempDir()
+    {
+        return std::filesystem::temp_directory_path() / "GT_esmini" / "sanitized_scenarios";
+    }
+
+    void GT_CleanupSanitizedScenarioTempDirOnce()
+    {
+        static bool cleaned = false;
+        if (cleaned)
+        {
+            return;
+        }
+        cleaned = true;
+
+        std::error_code ec;
+        const auto dir = GT_SanitizedScenarioTempDir();
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+    }
+
+    std::filesystem::path GT_MakeSanitizedScenarioPath(const char* inFile)
+    {
+        GT_CleanupSanitizedScenarioTempDirOnce();
+
+        std::error_code ec;
+        const auto dir = GT_SanitizedScenarioTempDir();
+        std::filesystem::create_directories(dir, ec);
+
+        const auto stem = std::filesystem::path(inFile ? inFile : "scenario").stem().string();
+        const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+        return dir / (stem + ".sanitized." + std::to_string(tick) + ".xosc");
+    }
+
+    void GT_RemoveSanitizedScenario(const std::string& path)
+    {
+        if (path.empty()) return;
+        std::error_code ec;
+        const auto temp_dir = std::filesystem::weakly_canonical(GT_SanitizedScenarioTempDir(), ec);
+        const auto candidate = std::filesystem::weakly_canonical(path, ec);
+        if (!ec && candidate.string().find(temp_dir.string()) == 0)
+        {
+            std::filesystem::remove(candidate, ec);
+        }
+    }
+
+    bool GT_IsRelativeScenarioPathValue(const std::string& value)
+    {
+        if (value.empty() || value[0] == '$' || value.find("://") != std::string::npos)
+        {
+            return false;
+        }
+        return std::filesystem::path(value).is_relative();
+    }
+
+    void GT_AbsolutizeScenarioPaths(pugi::xml_node node, const std::filesystem::path& base_dir)
+    {
+        for (pugi::xml_attribute attr : node.attributes())
+        {
+            const std::string name = attr.name();
+            if (name != "filepath" && name != "path")
+            {
+                continue;
+            }
+
+            const std::string value = attr.value();
+            if (!GT_IsRelativeScenarioPathValue(value))
+            {
+                continue;
+            }
+
+            std::error_code ec;
+            const auto abs = std::filesystem::absolute(base_dir / value, ec);
+            if (!ec)
+            {
+                attr.set_value(abs.string().c_str());
+            }
+        }
+
+        for (pugi::xml_node child = node.first_child(); child; child = child.next_sibling())
+        {
+            GT_AbsolutizeScenarioPaths(child, base_dir);
+        }
+    }
+
+    uint64_t GT_FnvHashFile(const std::filesystem::path& p)
+    {
+        std::ifstream f(p, std::ios::binary);
+        if (!f)
+        {
+            return 0;
+        }
+        uint64_t h = 1469598103934665603ULL;  // FNV-1a 64-bit offset basis
+        char     buf[1 << 16];
+        while (f)
+        {
+            f.read(buf, sizeof(buf));
+            std::streamsize n = f.gcount();
+            for (std::streamsize i = 0; i < n; i++)
+            {
+                h ^= static_cast<uint8_t>(buf[i]);
+                h *= 1099511628211ULL;
+            }
+        }
+        return h;
+    }
+
+    int GT_RunProcess(const std::string& cmdline)
+    {
+#ifdef _WIN32
+        // cmd /c needs the whole command wrapped in an extra pair of quotes when it
+        // contains multiple quoted tokens (paths with spaces).
+        std::string wrapped = "\"" + cmdline + "\"";
+        return std::system(wrapped.c_str());
+#else
+        return std::system(cmdline.c_str());
+#endif
+    }
+
+    // Returns absolute path to a cached .osgb road model for `xodrAbs`, generating it via
+    // GT_RoadGen if not already cached. Returns "" on any failure (caller falls back).
+    std::string GT_EnsureCachedRoadModel(const std::filesystem::path& xodrAbs)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        if (!fs::exists(xodrAbs, ec))
+        {
+            return "";
+        }
+
+        uint64_t h = GT_FnvHashFile(xodrAbs);
+        if (h == 0)
+        {
+            return "";
+        }
+
+        fs::path exeDir   = gt_esmini::GetCurrentModuleDirectory();
+        fs::path cacheDir = exeDir / "model_cache";
+        fs::create_directories(cacheDir, ec);
+
+        char hbuf[20];
+        snprintf(hbuf, sizeof(hbuf), "%016llx", static_cast<unsigned long long>(h));
+        fs::path cachePath = cacheDir / (std::string(hbuf) + ".osgb");
+
+        if (fs::exists(cachePath, ec))
+        {
+            return cachePath.string();  // cache hit
+        }
+
+        fs::path gen = exeDir / "GT_RoadGen.exe";
+        if (!fs::exists(gen, ec))
+        {
+            gen = exeDir / "GT_RoadGen";  // non-Windows
+            if (!fs::exists(gen, ec))
+            {
+                return "";
+            }
+        }
+
+        std::string cmd = "\"" + gen.string() + "\" \"" + xodrAbs.string() + "\" \"" + cachePath.string() + "\" --threads 0";
+        std::cerr << "[GT_esmini] generating road model: " << cmd << std::endl;
+        int rc = GT_RunProcess(cmd);
+        if (rc == 0 && fs::exists(cachePath, ec))
+        {
+            return cachePath.string();
+        }
+
+        std::cerr << "[GT_esmini] road model generation failed (rc=" << rc << "); using runtime generation" << std::endl;
+        return "";
+    }
+
+    // Resolve the OpenDRIVE path referenced by the scenario, then inject a cached road
+    // <SceneGraphFile> into RoadNetwork (no-op if one already exists or anything fails).
+    void GT_InjectCachedRoadModel(pugi::xml_document& doc, const char* inFile)
+    {
+        namespace fs = std::filesystem;
+        pugi::xml_node rn = doc.child("OpenSCENARIO").child("RoadNetwork");
+        if (!rn || rn.child("SceneGraphFile"))
+        {
+            return;  // no road network, or an explicit model is already specified
+        }
+        pugi::xml_node lf = rn.child("LogicFile");
+        std::string    xodrRel = lf ? lf.attribute("filepath").as_string() : "";
+        if (xodrRel.empty())
+        {
+            return;
+        }
+
+        std::error_code ec;
+        fs::path        xodr(xodrRel);
+        if (xodr.is_relative())
+        {
+            xodr = fs::path(inFile).parent_path() / xodr;
+        }
+        if (!fs::exists(xodr, ec))
+        {
+            // Fallback to esmini's resources/xodr (bare-filename scenarios)
+            fs::path alt = fs::path(gt_esmini::GetCurrentModuleDirectory()) / ".." / "resources" / "xodr" / fs::path(xodrRel).filename();
+            if (fs::exists(alt, ec))
+            {
+                xodr = alt;
+            }
+        }
+        xodr = fs::weakly_canonical(xodr, ec);
+
+        std::string model = GT_EnsureCachedRoadModel(xodr);
+        if (!model.empty())
+        {
+            pugi::xml_node sg = rn.append_child("SceneGraphFile");
+            sg.append_attribute("filepath").set_value(model.c_str());
+            std::cerr << "[GT_esmini] injected cached road model: " << model << std::endl;
+        }
+    }
+}  // namespace
+
+// Basic XOSC sanitizer. When inject_road_model is true, also injects a pre-generated
+// <SceneGraphFile> (see above).
+//
+// R5-U3: AppearanceAction / LightStateAction are NO LONGER stripped. Upstream esmini
+// v3.3.0 added a native LightStateAction parser+executor (writes Object::vehLghtStsList[]
+// + DirtyBit::LIGHT_STATE), so the native ScenarioReader in SE_Init now handles those
+// nodes directly with full fidelity (transitions / candela / flashing / conflict). Leaving
+// them in is precisely the "delegate to the native parser" path.
+//
+// R5-U3 follow-ups:
+//  - A bare <LightStateAction> placed directly under <PrivateAction> (without the
+//    <AppearanceAction> wrapper) was accepted by the pre-U3 GT parser but trips the native
+//    reader's "Action is not supported" throw. It is REWRAPPED in place (not dropped) so
+//    such scenarios keep executing their light actions.
+//  - If the scenario contains NO light action at all, a no-op native light action
+//    (licensePlateIllumination off) is injected into Storyboard/Init/Actions so the native
+//    reader sets has_lightstate_action_ -> playerbase.cpp gates viewer UpdateLight() on it
+//    -> GT-writer-only lights (AutoLight / ManualDrive) become visible in the OSG viewer.
+//    licensePlateIllumination is outside the OSI/HVD lightMask mappings; cost is one dat
+//    LIGHT_STATE packet at t=0. The marker comment GT_VIEWER_LIGHT_GATE is written to the
+//    temp file for diagnosability (pugixml default parse flags drop comments on re-load,
+//    so the native parser never sees it).
+static bool CreateSanitizedScenario(const char* inFile, const std::string& outFile, bool inject_road_model = false)
 {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(inFile);
     if (!result) return false;
 
-    // We need to remove AppearanceAction and LightStateAction nodes
-    // because standard esmini ScenarioReader throws exception on them.
-    // Traversing to find them.
-    
-    // Recursive lambda to strip unsupported nodes
-    std::function<void(pugi::xml_node)> stripUnsupported;
-    stripUnsupported = [&](pugi::xml_node node) {
+    // Pass 1: rewrap bare-form light actions (PrivateAction > LightStateAction) into the
+    // standard PrivateAction > AppearanceAction > LightStateAction shape, preserving all
+    // attributes and child nodes.
+    std::function<void(pugi::xml_node)> rewrap;
+    rewrap = [&](pugi::xml_node node) {
         for (pugi::xml_node child = node.first_child(); child; )
         {
             pugi::xml_node next = child.next_sibling();
             std::string name = child.name();
-            if (name == "AppearanceAction")
-            {
-                node.remove_child(child);
-            }
-            else
-            {
-                stripUnsupported(child);
-            }
-            child = next;
-        }
-    };
-    
-    // Refined logic: stripUnsupported traverses all.
-    // However, we just need to target AppearanceAction which is under Private -> PrivateAction
-    // Let's keep it simple: any node named AppearanceAction is removed.
-    // (Standard Reader throws if name is not Longitudinal or Lateral)
-    // Actually, ScenarioReader throws if it finds ANY child of PrivateAction it doesn't know.
-    // So we remove AppearanceAction and LightStateAction children.
-    
-    std::function<void(pugi::xml_node)> strip;
-    strip = [&](pugi::xml_node node) {
-        for (pugi::xml_node child = node.first_child(); child; )
-        {
-            pugi::xml_node next = child.next_sibling();
-            std::string name = child.name();
-            
-            if (name == "AppearanceAction" || name == "LightStateAction")
-            {
-                node.remove_child(child);
-            }
-            else
-            {
-                strip(child);
-            }
-            child = next;
-        }
-    };
 
-    strip(doc);
-    
+            if (name == "LightStateAction" && std::string(node.name()) == "PrivateAction")
+            {
+                pugi::xml_node wrapper = node.insert_child_before("AppearanceAction", child);
+                wrapper.append_copy(child);  // deep copy: attributes + children preserved
+                node.remove_child(child);
+                LOG_INFO("GT sanitizer: rewrapped bare LightStateAction under PrivateAction into AppearanceAction wrapper (native parser form)");
+            }
+            else
+            {
+                rewrap(child);
+            }
+            child = next;
+        }
+    };
+    rewrap(doc);
+
+    // Pass 2: viewer-gate injection. If the document contains no light action anywhere,
+    // append a no-op one so the native reader flags HasLightStateAction().
+    bool hasLightNode = false;
+    std::function<void(pugi::xml_node)> findLight;
+    findLight = [&](pugi::xml_node n) {
+        if (hasLightNode) return;
+        for (pugi::xml_node c = n.first_child(); c && !hasLightNode; c = c.next_sibling())
+        {
+            std::string nm = c.name();
+            if (nm == "LightStateAction" || nm == "AppearanceAction")
+            {
+                hasLightNode = true;
+                return;
+            }
+            findLight(c);
+        }
+    };
+    findLight(doc);
+
+    if (!hasLightNode)
+    {
+        pugi::xml_node osc      = doc.child("OpenSCENARIO");
+        pugi::xml_node entities = osc.child("Entities");
+        pugi::xml_node actions  = osc.child("Storyboard").child("Init").child("Actions");
+        if (entities && actions)
+        {
+            auto is_vehicle = [&](const char* name) -> bool {
+                for (pugi::xml_node so = entities.child("ScenarioObject"); so; so = so.next_sibling("ScenarioObject"))
+                {
+                    if (std::string(so.attribute("name").value()) == name)
+                    {
+                        return !so.child("Vehicle").empty();
+                    }
+                }
+                return false;
+            };
+
+            // Reuse an EXISTING Init <Private> block. The native reader calls
+            // activateObject() once per Private block, so creating a SECOND Private for an
+            // already-activated entity aborts init ("Already active"). Prefer a Private whose
+            // entity is a Vehicle; otherwise the first Private. Only when the scenario has no
+            // Init Private at all do we create one (for the first Vehicle / first object) —
+            // there is no prior activation to duplicate in that case.
+            pugi::xml_node targetPriv;
+            pugi::xml_node firstPriv;
+            for (pugi::xml_node p = actions.child("Private"); p; p = p.next_sibling("Private"))
+            {
+                if (!firstPriv)
+                {
+                    firstPriv = p;
+                }
+                if (is_vehicle(p.attribute("entityRef").value()))
+                {
+                    targetPriv = p;
+                    break;
+                }
+            }
+            if (!targetPriv)
+            {
+                targetPriv = firstPriv;
+            }
+
+            std::string entityName;
+            if (targetPriv)
+            {
+                entityName = targetPriv.attribute("entityRef").value();
+            }
+            else
+            {
+                // No Init Private blocks at all: create one for the first Vehicle (or first
+                // object). The native action only touches Object::vehLghtStsList (a base
+                // Object member), so it degrades gracefully on any entity type.
+                pugi::xml_node chosen;
+                for (pugi::xml_node so = entities.child("ScenarioObject"); so; so = so.next_sibling("ScenarioObject"))
+                {
+                    if (so.child("Vehicle"))
+                    {
+                        chosen = so;
+                        break;
+                    }
+                }
+                if (!chosen)
+                {
+                    chosen = entities.child("ScenarioObject");
+                }
+                const char* nm = chosen ? chosen.attribute("name").value() : "";
+                if (chosen && nm[0] != '\0' && nm[0] != '$')
+                {
+                    targetPriv = actions.append_child("Private");
+                    targetPriv.append_attribute("entityRef") = nm;
+                    entityName = nm;
+                }
+            }
+
+            if (targetPriv && !entityName.empty() && entityName[0] != '$')  // skip parameterized names
+            {
+                pugi::xml_node pa  = targetPriv.append_child("PrivateAction");
+                pugi::xml_node app = pa.append_child("AppearanceAction");
+                pugi::xml_node lsa = app.append_child("LightStateAction");
+                lsa.append_attribute("transitionTime") = "0";
+                pugi::xml_node lt = lsa.append_child("LightType");
+                pugi::xml_node vl = lt.append_child("VehicleLight");
+                vl.append_attribute("vehicleLightType") = "licensePlateIllumination";
+                pugi::xml_node ls = lsa.append_child("LightState");
+                ls.append_attribute("mode") = "off";
+                LOG_INFO("GT sanitizer: injected no-op LightStateAction (licensePlateIllumination off) into Init Private for entity '{}' to enable the viewer light gate",
+                         entityName);
+            }
+        }
+    }
+
+    if (inject_road_model)
+    {
+        GT_InjectCachedRoadModel(doc, inFile);
+    }
+
+    GT_AbsolutizeScenarioPaths(doc, std::filesystem::path(inFile).parent_path());
+
     return doc.save_file(outFile.c_str());
 }
 
@@ -210,7 +558,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     // 1. Create a sanitized version of the scenario
     // esmini throws error on AppearanceAction/LightStateAction.
     // We strip them for the main initialization.
-    std::string sanitizedFile = std::string(oscFilename) + ".temp.xosc";
+    std::string sanitizedFile = GT_MakeSanitizedScenarioPath(oscFilename).string();
     if (!CreateSanitizedScenario(oscFilename, sanitizedFile))
     {
          std::cerr << "GT_Init: Failed to create sanitized scenario file." << std::endl;
@@ -224,12 +572,14 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 #endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
 
     // Clean up temp file
-    std::remove(sanitizedFile.c_str()); 
+    GT_RemoveSanitizedScenario(sanitizedFile);
 
     if (ret != 0)
     {
@@ -290,6 +640,8 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
             auto& vpm = gt_esmini::VehiclePhysicsManager::Instance();
             vpm.LoadProfiles(paramsFile);
             vpm.Init(&player->scenarioEngine->entities_);
+
+            s_hvdEstimator.LoadParams(paramsFile);
         }
 
         // 5. Register Hook for OSIReporter
@@ -297,14 +649,10 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
 
         GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
-            auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
-            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (ext) {
-                return ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(t));
-            }
-            gt_esmini::LightState emptyState;
-            emptyState.mode = gt_esmini::LightState::Mode::OFF;
-            return emptyState;
+            // R5-U3: read straight from the native vehLghtStsList[] via the bridge. Works
+            // for ANY vehicle, with or without a VehicleLightExtension.
+            auto* obj = static_cast<scenarioengine::Object*>(static_cast<scenarioengine::Vehicle*>(v));
+            return gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(t));
         });
 
         // 6. Register OSIReporter for global access (for Light state)
@@ -361,7 +709,11 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // Capture OSI IP and SV port if provided
     std::string osiTargetIp = "";
     int svPort = 48200;  // default SV reporter port
+    int vdPort = 48202;  // default VirtualDriver telemetry reporter port
     bool kinematicModeEnabled = false;
+    bool routeDriveModeEnabled = false;
+    std::string routeDriveTiming = "normal";  // late | normal | early (Timing knob)
+    std::string routeDriveGap    = "normal";  // wide | normal | tight (Gap knob)
 
     // If filename found, sanitized it
     std::string sanitizedFile;
@@ -371,8 +723,18 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     if (filename)
     {
         std::cerr << "[GT_esmini] Sanitizing filename: " << filename << std::endl;
-        sanitizedFile = std::string(filename) + ".temp.xosc";
-        if (!CreateSanitizedScenario(filename, sanitizedFile))
+        // A viewer runs unless --headless is requested; only then is a road 3D model needed.
+        bool headless = false;
+        for (int hi = 0; hi < argc; hi++)
+        {
+            if (argv[hi] && strcmp(argv[hi], "--headless") == 0)
+            {
+                headless = true;
+                break;
+            }
+        }
+        sanitizedFile = GT_MakeSanitizedScenarioPath(filename).string();
+        if (!CreateSanitizedScenario(filename, sanitizedFile, !headless))
         {
              std::cerr << "GT_InitWithArgs: Failed to create sanitized scenario file." << std::endl;
              // Try proceeding with original filename (might crash if unsupported actions present)
@@ -402,7 +764,11 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                       strcmp(argv[i], "--video_frames") == 0 ||
                       strcmp(argv[i], "--video_prefix") == 0 ||
                       strcmp(argv[i], "--sv-port") == 0 ||
-                      strcmp(argv[i], "--kinematic-mode") == 0))
+                      strcmp(argv[i], "--vd-port") == 0 ||
+                      strcmp(argv[i], "--kinematic-mode") == 0 ||
+                      strcmp(argv[i], "--route-drive-mode") == 0 ||
+                      strcmp(argv[i], "--route-drive-timing") == 0 ||
+                      strcmp(argv[i], "--route-drive-gap") == 0))
             {
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
@@ -437,9 +803,29 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                         i++; // Skip the port value
                     }
                 }
+                else if (strcmp(argv[i], "--vd-port") == 0)
+                {
+                    if (i + 1 < argc)
+                    {
+                        try { vdPort = std::stoi(argv[i+1]); } catch (...) {}
+                        i++; // Skip the port value
+                    }
+                }
                 else if (strcmp(argv[i], "--kinematic-mode") == 0)
                 {
                     kinematicModeEnabled = true;
+                }
+                else if (strcmp(argv[i], "--route-drive-mode") == 0)
+                {
+                    routeDriveModeEnabled = true;
+                }
+                else if (strcmp(argv[i], "--route-drive-timing") == 0)
+                {
+                    if (i + 1 < argc) { routeDriveTiming = argv[i + 1]; i++; }
+                }
+                else if (strcmp(argv[i], "--route-drive-gap") == 0)
+                {
+                    if (i + 1 < argc) { routeDriveGap = argv[i + 1]; i++; }
                 }
             }
             else
@@ -461,14 +847,15 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 #endif
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerManualDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
     int ret = SE_InitWithArgs(static_cast<int>(newArgv.size()), newArgv.data());
     std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
     
-    // Clean up temp file (or keep for debug?)
-    // std::remove(sanitizedFile.c_str()); 
+    GT_RemoveSanitizedScenario(sanitizedFile);
 
     if (ret != 0)
     {
@@ -559,6 +946,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             vpm.LoadProfiles(paramsFile);
             vpm.Init(&player->scenarioEngine->entities_);
 
+            // Share the same params file with HVDEstimator (pedal_estimation + shift_schedule)
+            s_hvdEstimator.LoadParams(paramsFile);
+
             // Check for --vehicle-physics argument in original argv
             for (int i = 0; i < argc; i++)
             {
@@ -592,6 +982,88 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             }
         }
 
+        // 4c-2. RouteDriveController auto-assignment (Route Drive Mode) — ego only.
+        // Runs BEFORE the Kinematic block so the Kinematic guard can detect and
+        // stack onto the RouteDrive-controlled ego.
+        if (routeDriveModeEnabled)
+        {
+            // Resolve ego: HVD target vehicle by name, else first VEHICLE.
+            std::string egoName;
+            if (gt_esmini::GT_HostVehicleReporter::Instance().IsInitialized())
+            {
+                egoName = gt_esmini::GT_HostVehicleReporter::Instance().GetTargetVehicle();
+            }
+            Object* ego          = nullptr;
+            Object* firstVehicle = nullptr;
+            for (auto* obj : player->scenarioEngine->entities_.object_)
+            {
+                if (!obj || obj->type_ != scenarioengine::Object::Type::VEHICLE)
+                {
+                    continue;
+                }
+                if (firstVehicle == nullptr)
+                {
+                    firstVehicle = obj;
+                }
+                if (!egoName.empty() && obj->GetName() == egoName)
+                {
+                    ego = obj;
+                    break;
+                }
+            }
+            if (ego == nullptr)
+            {
+                ego = firstVehicle;
+            }
+
+            if (ego != nullptr && ego->GetNrOfAssignedControllers() == 0)
+            {
+                std::string          exeDirRD     = gt_esmini::GetCurrentModuleDirectory();
+                gt_esmini::ConfigLoader config_loaderRD;
+                std::string          rdConfigPath = config_loaderRD.ResolveConfigPath(exeDirRD, "route_drive_controller.json");
+
+                scenarioengine::OSCProperties        propsRD;
+                scenarioengine::Controller::InitArgs initArgsRD;
+                initArgsRD.name            = std::string("RouteDriveController_") + ego->GetName();
+                initArgsRD.type            = CONTROLLER_ROUTE_DRIVE_TYPE_NAME;
+                initArgsRD.properties      = &propsRD;
+                initArgsRD.scenario_engine = player->scenarioEngine;
+                initArgsRD.parameters      = nullptr;
+
+                auto* rdCtrl = new gt_esmini::ControllerRouteDrive(&initArgsRD);
+                rdCtrl->LoadConfig(rdConfigPath);
+                // CLI Timing/Gap knobs override the JSON defaults.
+                {
+                    double alpha = (routeDriveTiming == "late") ? 0.0 : (routeDriveTiming == "early") ? 1.0 : 0.5;
+                    double beta  = (routeDriveGap == "wide") ? 0.0 : (routeDriveGap == "tight") ? 1.0 : 0.5;
+                    rdCtrl->SetTimingGap(alpha, beta);
+                    std::cout << "GT_Init: RouteDrive timing=" << routeDriveTiming << " gap=" << routeDriveGap << std::endl;
+                }
+                rdCtrl->LinkObject(ego);
+                ego->AssignController(rdCtrl);
+                rdCtrl->Init();
+
+                ControlActivationMode rdModes[static_cast<unsigned int>(ControlDomains::COUNT)];
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)]  = ControlActivationMode::UNDEFINED;
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)]   = ControlActivationMode::ON;
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_LIGHT)] = ControlActivationMode::UNDEFINED;
+                rdModes[static_cast<unsigned int>(ControlDomains::DOMAIN_ANIM)]  = ControlActivationMode::UNDEFINED;
+                rdCtrl->Activate(rdModes);
+
+                player->scenarioEngine->scenarioReader->AddController(rdCtrl);
+                std::cout << "GT_Init: RouteDriveController assigned to ego '" << ego->GetName() << "'." << std::endl;
+            }
+            else if (ego != nullptr)
+            {
+                std::cout << "GT_Init: RouteDriveController skipped - ego '" << ego->GetName()
+                          << "' already has an explicit controller." << std::endl;
+            }
+            else
+            {
+                std::cout << "GT_Init: RouteDriveController - no ego vehicle found." << std::endl;
+            }
+        }
+
         // 4d. KinematicController auto-assignment (Kinematic Mode)
         if (kinematicModeEnabled)
         {
@@ -606,8 +1078,15 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 {
                     continue;
                 }
-                // Only assign to vehicles without an explicit controller
-                if (obj->GetNrOfAssignedControllers() > 0)
+                // Assign to vehicles without an explicit controller. Also stack
+                // onto a vehicle whose ONLY controller is the RouteDriveController
+                // (so Route Drive + Kinematic compose on the ego). Vehicles with
+                // RealDriver/ManualDrive/etc. keep being skipped.
+                int  nCtrl         = obj->GetNrOfAssignedControllers();
+                bool onlyRouteDrive =
+                    (nCtrl == 1 && obj->GetAssignedControllerOftype(
+                                       static_cast<scenarioengine::Controller::Type>(gt_esmini::CONTROLLER_TYPE_ROUTE_DRIVE)) != nullptr);
+                if (nCtrl > 0 && !onlyRouteDrive)
                 {
                     continue;
                 }
@@ -660,14 +1139,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
 
         GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
-            auto* vehicle = static_cast<scenarioengine::Vehicle*>(v);
-            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (ext) {
-                return ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(t));
-            }
-            gt_esmini::LightState emptyState;
-            emptyState.mode = gt_esmini::LightState::Mode::OFF;
-            return emptyState;
+            // R5-U3: read straight from the native vehLghtStsList[] via the bridge. Works
+            // for ANY vehicle, with or without a VehicleLightExtension.
+            auto* obj = static_cast<scenarioengine::Object*>(static_cast<scenarioengine::Vehicle*>(v));
+            return gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(t));
         });
 
         // 6. Register OSIReporter for global access (for Light state)
@@ -689,6 +1164,10 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
         // 8. Initialize Scenario Variables Reporter (JSON over UDP)
         gt_esmini::GT_ScenarioVariablesReporter::Instance().Init(svPort, osiTargetIp);
+
+        // 9. Initialize VirtualDriver telemetry Reporter (JSON over UDP).
+        //    Sends each step only when a VirtualDriver controller is present.
+        gt_esmini::GT_VirtualDriverReporter::Instance().Init(vdPort, osiTargetIp);
     }
 
     // [GT_MOD] DIAGNOSTIC
@@ -783,6 +1262,10 @@ GT_ESMINI_API void GT_Step(double dt)
                 {
                     ctrl = egoObject->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME);
                 }
+                if (!ctrl)
+                {
+                    ctrl = egoObject->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME);
+                }
                 if (ctrl)
                 {
                     auto pushControllerState = [&](auto* concreteCtrl) {
@@ -855,6 +1338,10 @@ GT_ESMINI_API void GT_Step(double dt)
                     {
                         pushControllerState(manualDrive);
                     }
+                    else if (auto* virtualDriver = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
+                    {
+                        pushControllerState(virtualDriver);
+                    }
                 }
                 else
                 {
@@ -888,6 +1375,21 @@ GT_ESMINI_API void GT_Step(double dt)
 
     // Broadcast scenario variables (JSON over UDP, independent of OSI)
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Update();
+
+    // Broadcast live VirtualDriver telemetry (JSON over UDP). Only the ego's
+    // VirtualDriver controller (if any) is reported; no-op otherwise. Shares the
+    // exact JSON shape with GT_GetVirtualDriverTelemetry() via ToJson().
+    if (gt_esmini::GT_VirtualDriverReporter::Instance().IsInitialized() &&
+        player && player->scenarioEngine && !player->scenarioEngine->entities_.object_.empty())
+    {
+        scenarioengine::Object* egoObj = player->scenarioEngine->entities_.object_[0];
+        scenarioengine::Controller* ctrl =
+            egoObj ? egoObj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME) : nullptr;
+        if (auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
+        {
+            gt_esmini::GT_VirtualDriverReporter::Instance().Send(gt_esmini::ToJson(vd->GetTelemetry()));
+        }
+    }
 }
 
 GT_ESMINI_API void GT_EnableVehiclePhysics()
@@ -930,6 +1432,7 @@ GT_ESMINI_API void GT_Close()
     gt_esmini::HeadingCorrectionManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Close();
+    gt_esmini::GT_VirtualDriverReporter::Instance().Close();
     AutoLightManager::Instance().Close();
     SE_Close();
 }
@@ -942,14 +1445,9 @@ GT_ESMINI_API int GT_GetLightState(int vehicleId, int lightType)
     {
         if (obj->id_ == vehicleId && obj->type_ == scenarioengine::Object::Type::VEHICLE)
         {
-             scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-             auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-             if (ext)
-             {
-                 gt_esmini::LightState state = ext->GetLightState(static_cast<gt_esmini::VehicleLightType>(lightType));
-                 return static_cast<int>(state.mode);
-             }
-             return -1; // Extension not found
+             // R5-U3: read straight from the native storage via the bridge (no extension needed).
+             gt_esmini::LightState state = gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(lightType));
+             return static_cast<int>(state.mode);
         }
     }
     return -1; // Vehicle not found
@@ -963,19 +1461,11 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
     {
         if (obj->id_ == vehicleId && obj->type_ == scenarioengine::Object::Type::VEHICLE)
         {
-            scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-            
-            // Ensure extension exists
-            auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (!ext)
-            {
-                ext = new gt_esmini::VehicleLightExtension(vehicle);
-                gt_esmini::VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-            }
-
+            // R5-U3: write straight to native storage via the bridge. Preserves the prior
+            // bypass semantics (no LightSource tracking, no extension required).
             gt_esmini::LightState state;
             state.mode = static_cast<gt_esmini::LightState::Mode>(mode);
-            ext->SetLightState(static_cast<gt_esmini::VehicleLightType>(lightType), state);
+            gt_esmini::ApplyLight(obj, static_cast<gt_esmini::VehicleLightType>(lightType), state);
             return;
         }
     }
@@ -1118,6 +1608,38 @@ GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, 
     return 0;
 }
 
+GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, int buf_size)
+{
+    if (!out_json || buf_size <= 0) return -1;
+    if (!player || !player->scenarioEngine) return -1;
+
+    int actual_id = vehicle_id;
+    if (actual_id < 0 && !player->scenarioEngine->entities_.object_.empty())
+        actual_id = player->scenarioEngine->entities_.object_[0]->id_;
+    if (actual_id < 0) return -1;
+
+    scenarioengine::Object* obj = player->scenarioEngine->entities_.GetObjectById(actual_id);
+    if (!obj) return -1;
+
+    scenarioengine::Controller* ctrl = obj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME);
+    auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl);
+    if (!vd) return -1;
+
+    const gt_esmini::VirtualDriverTelemetry& t = vd->GetTelemetry();
+
+    std::string s = gt_esmini::ToJson(t);
+    int n = static_cast<int>(s.size());
+    if (n >= buf_size)
+    {
+        std::memcpy(out_json, s.c_str(), static_cast<size_t>(buf_size - 1));
+        out_json[buf_size - 1] = '\0';
+        return buf_size - 1;
+    }
+    std::memcpy(out_json, s.c_str(), static_cast<size_t>(n));
+    out_json[n] = '\0';
+    return n;
+}
+
 GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque)
 {
 #ifdef _USE_OSI
@@ -1137,5 +1659,58 @@ GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, doubl
         }
     }
 #endif
+}
+
+GT_ESMINI_API int GT_SetDriveMode(const char* mode)
+{
+    if (mode == nullptr) return -1;
+    return s_hvdEstimator.SetActiveMode(std::string(mode)) ? 0 : -1;
+}
+
+// GT-flavored variant of SE_OpenOSISocket (auto-enables per-frame OSI frequency);
+// core SE_OpenOSISocket is vanilla upstream (audit BND-2 / R5-U1).
+//
+// Opens the OSI groundtruth UDP socket and, unlike vanilla SE_OpenOSISocket,
+// forces the OSI frequency to 1 (send every frame) when it was left at 0. The
+// in-process verification harness (gt_lib.py / gt_sim_test) relies on this so
+// that GT_Step emits OSI each frame even when --osi was not given a frequency.
+// Returns the actual OpenSocket result (0 on success, -1 on failure); -1 if
+// player/osiReporter are null or _USE_OSI is undefined.
+GT_ESMINI_API int GT_OpenOSISocket(const char* ipaddr)
+{
+#ifdef _USE_OSI
+    LOG_INFO("GT_OpenOSISocket: _USE_OSI is DEFINED");
+    if (player == nullptr)
+    {
+        LOG_ERROR("GT_OpenOSISocket: player is nullptr!");
+        return -1;
+    }
+
+    if (player->osiReporter == nullptr)
+    {
+        LOG_ERROR("GT_OpenOSISocket: osiReporter is nullptr!");
+        return -1;
+    }
+
+    // Set OSI frequency to 1 (send every frame) if not already set
+    if (player->osiReporter->GetOSIFrequency() == 0)
+    {
+        LOG_INFO("GT_OpenOSISocket: OSI frequency was 0, setting to 1 (send every frame)");
+        player->osiReporter->SetOSIFrequency(1);
+    }
+    else
+    {
+        LOG_INFO("GT_OpenOSISocket: OSI frequency already set to {}", player->osiReporter->GetOSIFrequency());
+    }
+
+    LOG_INFO("GT_OpenOSISocket: Calling OpenSocket({})", ipaddr);
+    int result = player->osiReporter->OpenSocket(ipaddr);
+    LOG_INFO("GT_OpenOSISocket: OpenSocket returned {}", result);
+    return result;
+#else
+    LOG_WARN("GT_OpenOSISocket: _USE_OSI is NOT DEFINED - OSI support is disabled!");
+    (void)ipaddr;
+    return -1;
+#endif  // _USE_OSI
 }
 

@@ -1,0 +1,17 @@
+scenario: follow_hard_brake
+category: 06_lead_vehicle
+# Requires OSI capture (batch osi:true). The lead brakes hard at t=8s. The ego
+# must brake and keep a safe gap. p10 THW (the worst tail of the distribution)
+# must stay above a safety floor through the braking transient; pre-Phase-3a the
+# ego rams the lead -> p10 THW collapses toward 0 -> FAILS.
+must:
+  - event: maintained_following_distance
+    min_thw: 0.6             # safety floor on the worst-case tail
+    percentile: 10
+    after: { sim_time: 8.0 } # the braking transient and recovery
+    reason: "急制動する先行車に対しても安全車間を維持(追突しない)"
+  - event: speed_below
+    threshold: 5.0
+    after: { sim_time: 17.0 }   # by here the ego has tracked the brake down (14->~4)
+    before: { sim_time: 24.0 }
+    reason: "先行車の急減速に追従して減速(巡航から大きく減速)"

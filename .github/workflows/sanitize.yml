@@ -2,13 +2,14 @@ name: Sanitize
 
 on:
   schedule:
-    # This will run the sanitize job Nightly at 3AM every day for the dev branch
+    # This will run the sanitize job Nightly at 2:37AM every day for the dev branch
     # * is a special character in YAML so you have to quote this string
-    - cron: '0 3 * * *'
+    - cron: '37 2 * * *'
 
   workflow_dispatch:
 
 jobs:
+
   sanitize:
     strategy:
       matrix:
@@ -30,9 +31,24 @@ jobs:
             git checkout dev
           fi
 
+      - name: Check recent commits
+        id: changes
+        run: |
+          COUNT=$(git rev-list --count --since="24 hours ago" origin/dev)
+          echo "$COUNT commits over the last 24 hours found on dev"
+          echo "commit_count=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Skip job
+        if: steps.changes.outputs.commit_count == '0'
+        run: |
+          echo "No new commits on dev. Skipping."
+          exit 0
+
       - uses: ./.github/actions/setup_tools_shared
+        if: steps.changes.outputs.commit_count != '0'
 
       - name: Cache
+        if: steps.changes.outputs.commit_count != '0'
         uses: actions/cache@v5
         with:
           path: |
@@ -44,14 +60,16 @@ jobs:
           key: ${{ runner.os }}-external-resources
 
       - name: CMake Configure - Ubuntu
-        if: runner.os == 'Linux'
+        if: steps.changes.outputs.commit_count != '0' && runner.os == 'Linux'
         shell: pwsh
         run: cmake . -B build -G Ninja -DENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_OSI=ON -DUSE_GTEST=ON -DUSE_OSG=OFF -DUSE_SUMO=OFF -DUSE_IMPLOT=OFF
 
-
       - name: CMake Build
+        if: steps.changes.outputs.commit_count != '0'
         run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
 
       - name: Run Tests
+        if: steps.changes.outputs.commit_count != '0'
         # Use xvfb on Linux and extend timeout allowing for slow execution
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -t 120
+        run: |
+          ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -t 120

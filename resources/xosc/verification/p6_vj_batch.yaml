@@ -1,0 +1,30 @@
+name: p6_virtual_junction
+# P6 S7b virtual-junction VD routing batch (design odr_p6_virtual_junction_design.md
+# sec4/sec6 S7b). Two NEW scenes exercise the VirtualDriver across the native
+# virtual junction (fixture 23, resources/xodr/virtual_junction_23.xodr):
+#   A vj_branch_turn      -- route road1 -> road3: departs the main road at the
+#                            anchor (s=100) onto branch road 2, reaches road 3.
+#   B vj_straight_through -- route stays on road1 (s=180): drives straight THROUGH
+#                            the junction span (T2 pass-through), never departs.
+#
+# HARD RULE (design sec6 S7b + membership decision): NO expectation asserts a
+# junction id / membership on main road 1's span (v1 reports -1/false there;
+# interpretive, surfaced upstream #592). Road-id assertions on road 1 are fine.
+#
+# These are pure routing scenes -- no traffic policy, so no `policies:` (the ego
+# routes on its own). osi:false: no lead/second object, so no scene needed.
+#
+# Run (annotation-UI registration is optional/out-of-scope here -- to register
+# results in the web annotation UI, add: --out test_results/web/p6_vj):
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py \
+#       batch resources/xosc/verification/p6_vj_batch.yaml --out test_results/web/p6_vj
+defaults:
+  dt: 0.05
+  max_time: 30.0
+  snapshots: 3
+  osi: false
+scenarios:
+  - scenario: resources/xosc/verification/p6_virtual_junction/vj_branch_turn.xosc
+    expectations: resources/xosc/verification/p6_virtual_junction/vj_branch_turn.expectations.yaml
+  - scenario: resources/xosc/verification/p6_virtual_junction/vj_straight_through.xosc
+    expectations: resources/xosc/verification/p6_virtual_junction/vj_straight_through.expectations.yaml

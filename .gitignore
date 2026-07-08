@@ -18,6 +18,14 @@ version.cpp
 version.txt
 log.txt
 esmini-dyn.log
+replayer_log.txt
+# Root-level scratch logs from local gate/build runs (v0.12 hygiene; keep patterns narrow)
+/build_*.log
+/conf_*.log
+/gate_*.log
+/telemetry_*.log
+/web_*.log
+/imgui.ini
 externals/osg
 externals/osi/*
 !externals/osi/v11/
@@ -37,7 +45,6 @@ compile_commands.json
 out/build/**
 EnvironmentSimulator/Libraries/esminiJS/build*/*
 support/generated
-pylint_report.txt
 CMakeUserPresets.json
 .DS_Store
 EnvironmentSimulator/Libraries/esminiJS/example/esmini.js
@@ -54,6 +61,7 @@ video_error.txt
 frame_count.txt
 gtsim_exit_code.txt
 .venv/
+*.egg-info/
 
 # GT_esmini trace files (should be in test_results/)
 /python_trace.jsonl
@@ -66,6 +74,7 @@ node_modules/
 # Build / packaging artifacts
 dist/
 test_results/
+results/
 GT_esmini/web/pyinstaller/dist/
 GT_esmini/web/pyinstaller/build_temp/
 GT_esmini/web/electron/dist/
@@ -76,10 +85,35 @@ GT_esmini/web/frontend/README.md
 # Claude Code
 .claude/plans/
 
+# Vendored runtimes: keep binaries that global *.dll/*.exe/*.zip rules would drop (fresh-clone runnability)
+!thirdparty/python-embed/**/*.dll
+!thirdparty/python-embed/**/*.exe
+!thirdparty/python-embed/**/*.zip
+!thirdparty/SDL2/**/*.dll
+
 # External specs (large, not needed in git)
 thirdparty/opendrive/
+thirdparty/openscenario/
 thirdparty/openscenario-v1.2.0/
 thirdparty/osi-python/
 
 # Claude Code skills (external toolkits)
 .claude/skills/skill-creator/
+
+# Machine-local Claude Code settings (not shared across machines)
+.claude/settings.local.json
+
+# TypeScript incremental build info (generated, machine-local)
+*.tsbuildinfo
+
+# Scratch / exploratory work (not for review)
+scratch/
+
+# Scenario authoring: regenerated validation report (not committed)
+resources/scenario_authoring/validate_report.md
+
+# ODR conformance fixtures: ASAM-derived content is local-only (never committed)
+GT_esmini/test/odr_fixtures/official/
+GT_esmini/test/odr_fixtures/schema19/
+GT_esmini/test/odr_fixtures/reports/
+GT_esmini/test/odr_fixtures/work/

@@ -1,0 +1,38 @@
+scenario: decelerate_for_curve
+category: 05_anticipation
+# No Default baseline: mid/long judgment is from VirtualDriver telemetry only.
+# Mid/long anticipation checks. These are EXPECTED TO FAIL until the Phase 2
+# mid/long planner (A2) lands: without curvature-aware speed planning the
+# physics car enters the R60 curve at cruise (no anticipatory deceleration).
+# Position equivalence vs Default is intentionally NOT asserted here — a
+# zero-inertia Default car takes R60 at 13.889 m/s, so XY/speed RMSE is
+# meaningless for the mid/long case. We judge "physically plausible deceleration"
+# from the VirtualDriver telemetry alone.
+must:
+  - event: speed_reduction_before_landmark
+    landmark_s: 500            # road 0 s where the R60 arc begins
+    road_id: 0
+    target_speed: 11.0         # ~sqrt(2.0 * 60) = 10.95 m/s comfort speed for R60
+    tolerance: 1.0
+    reason: "Anticipate the R60 curve: slow to a comfortable speed before s=500"
+  - event: deceleration_profile_smooth
+    # Scoped to the deceleration approach [onset -> curve entry s=500] via
+    # landmark_s/road_id. max_decel is the comfort gate; max_jerk is a slam-stop
+    # guard at a 0.45 s comfort timescale (smooth_window 9). Sub-3 ride-comfort
+    # jerk is gated by the frozen longitudinal PID (out of Phase-2 scope).
+    max_decel: 3.5            # m/s^2 — comfortable, not a slam-stop
+    max_jerk: 9.0             # m/s^3 @ smooth_window 9 — slam-stop guard
+    smooth_window: 9
+    landmark_s: 500
+    road_id: 0
+    after: { sim_time: 4.0 }   # skip the launch-from-rest transient
+    reason: "Deceleration into the curve is controlled (bounded decel/jerk), not a slam-stop"
+  - event: lane_keep
+    road_id: 0
+    lane_id: -1
+    after: { sim_time: 4.0 }
+    reason: "Stays in the routed lane through the curve (no off-lane drift from steering saturation)"
+notes: >
+  Pre-Phase-2 baseline: speed_reduction / deceleration_profile_smooth fail
+  (no anticipation) and lane_keep may fail if Pure-Pursuit saturates in the curve.
+  Post-Phase-2 acceptance: all three should pass.

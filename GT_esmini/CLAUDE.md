@@ -7,7 +7,7 @@ This document defines the architectural boundaries for `GT_esmini` after the fea
 - `core`: Public C API facade (`GT_Init`, `GT_Step`, `GT_Close`, `GT_ReportObjectVel`), config path resolution, shared abstractions.
 - `scenario`: OpenSCENARIO extension parsing and runtime entities (`GT_ScenarioReader`, `ExtraAction`, `ExtraEntities`, `GT_TrafficSignalController`).
 - `io`: UDP transport and packet-level I/O (`GT_UDP`).
-- `control`: Real-time control pipeline (`ControllerManualDrive`, `RealVehicle`, `TerrainTracker`, `AutoLightController`) and split responsibilities (`ManualDriveCoordinator`, `IndicatorFSM`, `IInputSource`, `IPhysicsBackend`).
+- `control`: Real-time control pipeline (`ControllerManualDrive`, `RealVehicle`, `AutoLightController`) and split responsibilities (`ManualDriveCoordinator`, `IndicatorFSM`, `IInputSource`, `IPhysicsBackend`).
 - `osi`: OSI/HostVehicleData reporting (`GT_OSIReporter*`, `GT_HostVehicleReporter`) and provider interfaces.
 
 ## 2. Dependency Rules
@@ -78,6 +78,8 @@ Key files: `src/scenario/GT_TrafficSignalController.*`
 ## 9. Development Freeze
 
 Python-related features (PythonDriverController, Embedded Python, DriverScript) are **development-frozen** as of v0.8. Existing functionality remains available but no new features are planned.
+
+Since the R2 decoupling (audit SUB-1), the embedded-Python stack is **opt-in**: `GT_ENABLE_EMBEDDED_PYTHON` defaults OFF (no Python3 dev headers needed; PythonDriverController excluded from the build). Distribution packages configure with `-DGT_ENABLE_EMBEDDED_PYTHON=ON` via `scripts/build_package.ps1`.
 
 ## 10. Documentation Policy
 

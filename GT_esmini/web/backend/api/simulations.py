@@ -9,6 +9,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationRequest,
     SimulationStatus,
     SpeedRequest,
+    DriveModeRequest,
 )
 from GT_esmini.web.backend.services import project_service, scenario_service, simulation_runner
 from GT_esmini.web.backend.services.simulation_runner import SimulationConflictError
@@ -106,3 +107,24 @@ async def set_simulation_speed(job_id: str, body: SpeedRequest):
             detail="Failed to communicate with simulation process",
         )
     return {"job_id": job_id, "speed_factor": body.speed_factor}
+
+
+@router.put("/{job_id}/drive_mode")
+async def set_simulation_drive_mode(job_id: str, body: DriveModeRequest):
+    """Change the HVDEstimator drive mode of a running job."""
+    sim = await simulation_runner.get_simulation_status(job_id)
+    if sim is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+    if sim.status != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not running (status: {sim.status})",
+        )
+
+    success = await simulation_runner.set_drive_mode(job_id, body.mode)
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to communicate with simulation process",
+        )
+    return {"job_id": job_id, "mode": body.mode}

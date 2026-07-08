@@ -18,6 +18,26 @@
         "port": 9100,
         "level": "pedal_steer"
     },
+    "keyboard": {
+        "steer_left": "A",
+        "steer_right": "D",
+        "throttle": "W",
+        "brake": "S",
+        "clutch": "LShift",
+        "upshift": "E",
+        "downshift": "Q",
+        "override_key": "O",
+        "indicator_left": "Z",
+        "indicator_right": "X",
+        "headlight": "L",
+        "high_beam": "K",
+        "fog_light": "F",
+        "hazard": "H",
+        "steer_rate": 2.0,
+        "centering_rate": 3.0,
+        "pedal_press_rate": 4.0,
+        "pedal_release_rate": 6.0
+    },
     "physics": {
         "vehicle_params_file": "real_vehicle_params.json",
         "host": "127.0.0.1",

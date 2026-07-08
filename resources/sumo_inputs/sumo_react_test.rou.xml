@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Validation route for ego-awareness test.
+     A steady stream of normal (right-of-way obeying) cars travels +x along the
+     single driving lane edge "-1.0.00" of straight.net.xml. The ego is parked
+     mid-lane (s=250). If SUMO sees the ego, these cars queue behind it; if not,
+     they drive straight through. vClass=passenger (NOT "ignoring") so the
+     car-following model applies normally. -->
+<routes>
+    <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="5.0" minGap="2.5" maxSpeed="13.89" vClass="passenger"/>
+    <route id="r0" edges="-1.0.00"/>
+    <flow id="stream" type="car" route="r0" begin="0" end="120" period="4"/>
+</routes>

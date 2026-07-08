@@ -1,0 +1,42 @@
+# g8: 1.8 junction <surface>/<objects>/<boundary>/<elevationGrid> (plan cluster 8, P7).
+# Extends the same base as g6 (simple_4way_intersection) but injects the junction-level
+# geometry-context children that g6 does not: <surface> (t_road_surface with a <CRG>),
+# <objects> (junction-owned object), <boundary> (four lane segments, so cluster-8
+# boundary/segment@type is exercised here too), and <elevationGrid> (coarse z grid).
+#
+# t_junction_common child order is: connection*, crossPath*, priority*, controller*,
+# surface?, planView?, objects?, boundary?, elevationGrid?. The base junction has only
+# <connection> children, so appending surface -> objects -> boundary -> elevationGrid (each
+# op appends last) yields the schema-correct order. <planView> is virtual-junction geometry
+# (P6) and is intentionally OMITTED (not trivially valid on a common junction here).
+id: g8_junction_grid_18
+base: EnvironmentSimulator/Unittest/xodr/simple_4way_intersection.xodr
+rev: "8"
+ops:
+  - op: add_xml
+    xpath: "junction[@id='1']"
+    xml: |
+      <surface>
+          <CRG file="./does_not_exist.crg" sStart="0.0" sEnd="10.0" orientation="same" mode="global" purpose="elevation"/>
+      </surface>
+  - op: add_xml
+    xpath: "junction[@id='1']"
+    xml: |
+      <objects>
+          <object type="none" name="junction_marker" id="900" s="0.0" t="0.0" zOffset="0.0" hdg="0.0" orientation="none" length="1.0" width="1.0" height="0.2"/>
+      </objects>
+  - op: add_xml
+    xpath: "junction[@id='1']"
+    xml: |
+      <boundary>
+          <segment type="lane" roadId="0" boundaryLane="-1" sStart="end" sEnd="end"/>
+          <segment type="lane" roadId="1" boundaryLane="-1" sStart="start" sEnd="start"/>
+          <segment type="lane" roadId="2" boundaryLane="-1" sStart="start" sEnd="start"/>
+          <segment type="lane" roadId="3" boundaryLane="-1" sStart="start" sEnd="start"/>
+      </boundary>
+  - op: add_xml
+    xpath: "junction[@id='1']"
+    xml: |
+      <elevationGrid gridSpacing="1.0" sStart="0.0">
+          <elevation center="0.0" left="0.0 0.0" right="0.0 0.0"/>
+      </elevationGrid>

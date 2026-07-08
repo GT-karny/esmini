@@ -111,6 +111,9 @@ namespace esmini_options
         HIDE_OBJ_OUTLINE,                // 100
         AXIS_INDICATOR,                  // 101
         GUI,                             // 102
+        LIGHT_MODE,                      // 103
+        PRECISION,                       // 104
+        OSI_COMPRESS,                    // 105
         CONFIGS_COUNT                    // this must be the last enum value
     };
 
@@ -150,6 +153,7 @@ namespace esmini_options
         {"ignore_p", IGNORE_P},
         {"ignore_r", IGNORE_R},
         {"info_text", INFO_TEXT},
+        {"light_mode", LIGHT_MODE},
         {"log_append", LOG_APPEND},
         {"logfile_path", LOGFILE_PATH},
         {"log_meta_data", LOG_META_DATA},
@@ -158,6 +162,7 @@ namespace esmini_options
         {"log_skip_modules", LOG_SKIP_MODULES},
         {"osc_str", OSC_STR},
         {"osg_screenshot_event_handler", OSG_SCREENSHOT_EVENT_HANDLER},
+        {"osi_compress", OSI_COMPRESS},
         {"osi_crop_dynamic", OSI_CROP_DYNAMIC},
         {"osi_exclude_ghost", OSI_EXCLUDE_GHOST},
         {"osi_file", OSI_FILE},
@@ -173,6 +178,7 @@ namespace esmini_options
         {"player_server", PLAYER_SERVER},
         {"plot", PLOT},
         {"pline_interpolation", PLINE_INTERPOLATION},
+        {"precision", PRECISION},
         {"record", RECORD},
         {"road_features", ROAD_FEATURES},
         {"return_nr_permutations", RETURN_NR_PERMUTATIONS},

@@ -3,6 +3,7 @@
 build_type=Release
 add_performance_test=false
 add_wrapper_test=false
+skip_smoke_test=false
 timeout=40
 
 help_and_exit () {
@@ -11,8 +12,9 @@ help_and_exit () {
     echo "   -h, --help  this help"
     echo "   -b, --build_type <Release|Debug> (default: "$build_type")"
     echo "   -p, --add_performance_test (requires Release build type)"
-    echo "   -w, --add_wrapper_test"
+    echo "   -s, --skip_smoke_test"
     echo "   -t, --timeout <SECONDS> (default: "$timeout")"
+    echo "   -w, --add_wrapper_test"
     exit -1
 }
 
@@ -22,13 +24,14 @@ while [[ "$#" -gt 0 ]]; do
         -b|--build_type) build_type="$2"; shift ;;
         -p|--add_performance_test) add_performance_test=true ;;
         -w|--add_wrapper_test) add_wrapper_test=true ;;
+        -s|--skip_smoke_test) skip_smoke_test=true ;;
         -t|--timeout) timeout="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit -1 ;;
     esac
     shift
 done
 
-echo "build_type: $build_type, timeout: $timeout, add_performance_test: $add_performance_test", "add_wrapper_test: $add_wrapper_test"
+echo "build_type: $build_type, timeout: $timeout, add_performance_test: $add_performance_test", "add_wrapper_test: $add_wrapper_test", "skip_smoke_test: $skip_smoke_test"
 
 # Run from esmini root ddirectory: ./scripts/run_unittests.sh
 
@@ -47,18 +50,16 @@ export SMOKE_TEST_FOLDER=${workingDir}/test
 export ESMINI_CS_WRAPPER_FOLDER=${workingDir}/test/CSharpWrappers/build/${build_type}
 export ESMINI_CS_WRAPPER_BINARY=libesmini_cs_wrapper_test
 
-if [[ "$OSTYPE" == "msys" ]]; then
+if [[ "$OSTYPE" =~ ^(msys|cygwin)$ ]]; then
     export PATH=${PATH}":${workingDir}/build/EnvironmentSimulator/Libraries/esminiLib/${build_type}:${workingDir}/build/EnvironmentSimulator/Libraries/esminiRMLib/${build_type}"
     export EXE_FOLDER="./$build_type"
     export PYTHON="python"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export LD_LIBRARY_PATH=${workingDir}/build/EnvironmentSimulator"/externals/OSI/linux/lib-dyn"
     export path="../../../bin"
     export EXE_FOLDER="."
     export PYTHON="python3"
     export ASAN_OPTIONS="$ASAN_OPTIONS:detect_leaks=1"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export LD_LIBRARY_PATH=${workingDir}/build/EnvironmentSimulator"/externals/OSI/mac/lib-dyn"
     export path="../../../bin"
     export EXE_FOLDER="."
     export PYTHON="python3"
@@ -66,11 +67,11 @@ else
     echo "Unsupported OS: " $OSTYPE
 fi
 
-if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
+if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
 
     cd $UNIT_TEST_FOLDER
 
-    echo $'\n'Run unit tests:
+    echo $'\n'Run unit tests on $OSTYPE:
 
     echo $'\n'OperatingSystem_test:
     if ! ${EXE_FOLDER}/OperatingSystem_test --disable_stdout; then
@@ -128,23 +129,25 @@ if [[ "$OSTYPE" == "msys" ]] && [[ "$add_wrapper_test" == true ]]; then
     fi
 fi
 
-echo $'\n'Run smoke tests:
+if [[ "$skip_smoke_test" == false ]]; then
+    echo $'\n'Run smoke tests:
 
-cd $SMOKE_TEST_FOLDER
-if ! ${PYTHON} smoke_test.py "-t $timeout"; then
-    exit_with_msg "smoke test failed"
-fi
+    cd $SMOKE_TEST_FOLDER
+    if ! ${PYTHON} smoke_test.py "-t $timeout"; then
+        exit_with_msg "smoke test failed"
+    fi
 
-echo $'\n'Run ALKS test suite:
+    echo $'\n'Run ALKS test suite:
 
-if ! ${PYTHON} alks_suite.py -t $timeout; then
-    exit_with_msg "alks_suite test failed"
-fi
+    if ! ${PYTHON} alks_suite.py -t $timeout; then
+        exit_with_msg "alks_suite test failed"
+    fi
 
-echo $'\n'Run NCAP test suite:
+    echo $'\n'Run NCAP test suite:
 
-if ! ${PYTHON} ncap_suite.py -t $timeout; then
-    exit_with_msg "ncap_suite test failed"
+    if ! ${PYTHON} ncap_suite.py -t $timeout; then
+        exit_with_msg "ncap_suite test failed"
+    fi
 fi
 
 if  [[ "$add_performance_test" == true ]] && [[ "$build_type" == "Release" ]]; then

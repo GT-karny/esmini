@@ -1,0 +1,27 @@
+# g7: 1.9 signal <semantics> with ATTRIBUTE-form <speed> (plan cluster 10).
+# The 1.9 (and 1.8.1) speed semantic is authored in attribute form:
+#   <speed type="maximum" value="80" unit="km/h"/>
+# (verified against the extracted 1.9 OpenDRIVE_Signal.xsd t_signals_semantics_speed:
+#  attributes type=e_signals_semantics_speed, value=xs:double, unit=e_unitSpeed).
+# This complements g3 (1.8 semantics via <priority>); together they anchor the
+# semantics normalization: both this attribute form and any child-element draft
+# form parse to the identical OdrSemanticSpeed (see test_OdrSignalSemantics.cpp).
+# Required signal attrs derived from t_road_signals_signal(+_road):
+#   dynamic, id, orientation, subtype, type (required); s/t/zOffset (road, opt).
+id: g7_semantics_19
+base: resources/xodr/straight_500m.xodr
+rev: "9"
+ops:
+  # Base normalisation: center lane forbids <userData> under 1.8+ (see g1/g3 note).
+  - op: remove_element
+    xpath: "road[@id='1']/lanes/laneSection/center/lane/userData"
+  - op: add_xml
+    xpath: "road[@id='1']/signals"
+    xml: |
+      <signal s="250.0" t="-6.0" zOffset="2.0" id="2001" name="odr19_speed_semantics"
+              dynamic="no" orientation="+" country="DE" type="274" subtype="-1"
+              height="0.8" width="0.8">
+          <semantics>
+              <speed type="maximum" value="80" unit="km/h"/>
+          </semantics>
+      </signal>

@@ -297,6 +297,7 @@ namespace scenarioengine
     struct PropertyTimeline
     {
         Timeline<int>                     model_id_;
+        Timeline<id_t>                    obj_gid_;
         Timeline<int>                     obj_type_;
         Timeline<int>                     obj_category_;
         Timeline<int>                     ctrl_type_;
@@ -320,6 +321,7 @@ namespace scenarioengine
         Timeline<std::string>             model3d_;
         Timeline<std::vector<SE_Point2D>> outline_;
         Timeline<std::string>             bb_color_;
+        Timeline<Dat::LightState>         light_state_[static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE)];
     };
 
     // Custom comparator ensuring map has ids ordered as:
@@ -340,20 +342,22 @@ namespace scenarioengine
 
     struct ObjectInfoStructDat
     {
-        int            id;
-        int            model_id;
-        int            obj_type;      // 0=None, 1=Vehicle, 2=Pedestrian, 3=MiscObj (see Object::Type enum)
-        int            obj_category;  // sub type for vehicle, pedestrian and miscobj
-        int            ctrl_type;     // See Controller::Type enum
-        double         timeStamp;
-        std::string    name;
-        double         speed;
-        double         wheel_angle;  // Only used for vehicle
-        double         wheel_rot;    // Only used for vehicle
-        OSCBoundingBox boundingbox;
-        int            scaleMode;       // 0=None, 1=BoundingBoxToModel, 2=ModelToBoundingBox (see enum EntityScaleMode)
-        int            visibilityMask;  // bitmask according to Object::Visibility (1 = Graphics, 2 = Traffic, 4 = Sensors)
-        bool           active;
+        int                        id;
+        id_t                       gid;  // global ID, used for OSI
+        int                        model_id;
+        int                        obj_type;      // 0=None, 1=Vehicle, 2=Pedestrian, 3=MiscObj (see Object::Type enum)
+        int                        obj_category;  // sub type for vehicle, pedestrian and miscobj
+        int                        ctrl_type;     // See Controller::Type enum
+        double                     timeStamp;
+        std::string                name;
+        double                     speed;
+        double                     wheel_angle;  // Only used for vehicle
+        double                     wheel_rot;    // Only used for vehicle
+        OSCBoundingBox             boundingbox;
+        int                        scaleMode;       // 0=None, 1=BoundingBoxToModel, 2=ModelToBoundingBox (see enum EntityScaleMode)
+        int                        visibilityMask;  // bitmask according to Object::Visibility (1 = Graphics, 2 = Traffic, 4 = Sensors)
+        bool                       active;
+        Object::VehicleLightStatus light_state[static_cast<size_t>(Object::VehicleLightType::VEHICLE_LIGHT_SIZE)];
     };
 
     struct ObjectStateStructDat
@@ -366,6 +370,7 @@ namespace scenarioengine
     {
         ObjectStateStructDat state;
         double               odometer;
+        bool                 has_lightstate = false;
     };
 
 #ifdef _USE_OSG
@@ -461,6 +466,14 @@ namespace scenarioengine
         {
             repeat_ = repeat;
         }
+        bool HasLightStates() const
+        {
+            return lightstate_entities_.size() > 0;
+        }
+        bool EntityHasLightState(int id) const
+        {
+            return static_cast<size_t>(id) < lightstate_entities_.size() && lightstate_entities_[static_cast<size_t>(id)] == 1;
+        }
 
     private:
         std::vector<std::string> scenarios_;
@@ -473,8 +486,9 @@ namespace scenarioengine
         unsigned int             index_      = 0;
         bool                     repeat_     = false;
         std::string              create_datfile_;
-        std::vector<id_t>        unknown_pids;
-        bool                     eos_received_ = false;  // end of scenario packet
+        std::vector<id_t>        skipped_pids_;
+        bool                     eos_received_        = false;  // end of scenario packet
+        std::vector<uint8_t>     lightstate_entities_ = {};
 
         /* PacketHandler stuff */
         std::unique_ptr<Dat::DatReader>              dat_reader_;
@@ -486,7 +500,7 @@ namespace scenarioengine
         std::vector<std::vector<Dat::PacketGeneric>> generic_packets_ = {};
         std::vector<PacketSlice>                     packet_slices_   = {};
         std::vector<std::vector<PacketSlice>>        ghost_restarts_;
-        std::vector<std::pair<double, double>>       restart_timestamps_;  // start, stop of each ghost reset
+        std::vector<std::pair<double, double>>       restart_timestamps_;  // start & stop of each ghost reset
         Timeline<double>                             dts_;
     };
 

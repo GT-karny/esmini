@@ -111,6 +111,12 @@ set(FMT_INSTALL
     CACHE BOOL
           "If FMT should be installed")
 
+# ############################### Setting external dependency lib versions ############################################################
+# Available versions can be found in support/cmake/common/version_mapping.cmake
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/common/version_mapping.cmake)
+set_default_dependency_libs_versions()
+
 # ############################### Setting project rules ############################################################
 
 set_property(
@@ -140,11 +146,13 @@ endif()
 
 # ############################### Loading common packages ############################################################
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/common/version_mapping.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/common/color.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/common/locations.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/common/definitions.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/common/flags.cmake)
 
+set_tags_from_version()
 set_project_internal_paths()
 set_project_external_paths()
 set_project_os_specific_paths()
@@ -299,5 +307,8 @@ set(EXTERNALS_FMT_PATH
 
 add_subdirectory(EnvironmentSimulator)
 add_subdirectory(GT_esmini)
-add_subdirectory(GT_OSMP_FMU)
+# EXCLUDE_FROM_ALL: esmini_fmu's hand-copied GT source list has drifted and the target
+# cannot link (audit BLD-1); keeping it in ALL_BUILD broke the documented full build.
+# Build explicitly with `cmake --build build --target esmini_fmu` once repaired.
+add_subdirectory(GT_OSMP_FMU EXCLUDE_FROM_ALL)
 

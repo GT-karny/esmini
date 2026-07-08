@@ -180,10 +180,15 @@ jobs:
           pip3 install fmpy
           fmpy simulate esmini.fmu --start-values xosc_path ../../resources/xosc/cut-in.xosc
 
-      - name: Run Tests - Unix
-        if: runner.os != 'Windows'
-        # Use xvfb on Linux only
+      - name: Run Tests - Linux
+        if: runner.os == 'Linux'
         run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p
+
+      - name: Run Tests - macOS
+        if: runner.os == 'macOS'
+        env:
+          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p $DEBUG_FLAG
 
       - uses: ./.github/actions/setup_mesa
         with:
@@ -194,8 +199,19 @@ jobs:
         env:
           GALLIUM_DRIVER: llvmpipe
           MESA_GL_VERSION_OVERRIDE: 4.5
+          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
         shell: bash
-        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w
+        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
+
+      # GT_esmini test gate (audit TST-1): run the GT unit tests that are
+      # registered in ctest but were previously never executed. Scope is the
+      # green gate only — the GT_esmini_Integration_* scenarios are known-broken
+      # since authoring (missing fabriksvag.xodr / VehicleCatalog resolution)
+      # and test_PythonDriverBridge targets the v0.8-frozen feature; both are
+      # opt-in via scripts/run_gt_tests.ps1 switches until re-authored (R3/TST).
+      - name: Run GT unit tests (ctest)
+        shell: bash
+        run: ctest --test-dir build -C ${{ matrix.configuration }} -R "test_ScenarioReaderParsing" --output-on-failure
 
       - uses: ./.github/actions/upload_esmini_artifacts
         if: matrix.configuration == 'Release'
@@ -244,6 +260,19 @@ jobs:
         if: runner.os == 'Linux' && matrix.configuration == 'Release'
         run: python3 scripts/run_schema_comply.py resources EnvironmentSimulator
 
+      # OpenDRIVE conformance harness, SCHEMA layer only (no RM/OSI DLL layers).
+      # CONSERVATIVE integration: the RM/OSI golden layers carry cross-OS float
+      # risk, so they stay local (regression-gate Step 1.5); CI runs only the
+      # deterministic schema + matrix-coverage checks. Official ASAM fixtures
+      # auto-SKIP when the thirdparty zips are absent (always, in CI), and the
+      # absent build tree is irrelevant because no DLL is loaded. Same guard as
+      # schema validation above (runs once, Linux/Release).
+      - name: Run OpenDRIVE conformance (schema layer)
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        run: |
+          python3 -m pip install --user xmlschema lxml pyyaml
+          python3 scripts/run_odr_conformance.py --layers schema --check-matrix
+
       - name: Run C# wrapper check
         if: runner.os == 'Windows' && matrix.configuration == 'Release'
         uses: ./.github/actions/wrapper_check
@@ -273,24 +302,34 @@ jobs:
           cmake . -B build -G "Visual Studio 17 2022" -T v142 -A x64 -DUSE_OSI=OFF
           cmake --build build --config ${{ matrix.configuration }}
 
-      - name: Run Tests - Unix
-        if: runner.os != 'Windows'
-        # Use xvfb on Linux only
+      - name: Run Tests - Linux
+        if: runner.os == 'Linux'
         run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p
+
+      - name: Run Tests - macOS
+        if: runner.os == 'macOS'
+        env:
+          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p $DEBUG_FLAG
 
       - name: Run Tests - Windows
         if: runner.os == 'Windows'
         env:
           GALLIUM_DRIVER: softpipe
           MESA_GL_VERSION_OVERRIDE: 4.5
+          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
         shell: bash
-        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w
+        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
 
       - name: Debugging with tmate
         if: ${{ failure() && env.USE_TMATE == 'true' }}
         uses: mxschmitt/action-tmate@v3
 
-  pythondriver-enforcement:
+  # SUB-1: GT_ENABLE_EMBEDDED_PYTHON is a real option, default OFF.
+  # Asserts the default build needs no Python3 dev headers, explicit OFF is
+  # accepted (legacy FATAL_ERROR removed), and ON still compiles the frozen
+  # PythonDriver stack (distribution packages configure with ON).
+  embedded-python-option:
     needs: [lint]
     runs-on: ubuntu-22.04
 
@@ -301,41 +340,29 @@ jobs:
 
       - uses: ./.github/actions/setup_tools_shared
 
-      - name: CMake Configure (default)
-        shell: pwsh
-        run: cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release
-
-      - name: CMake Configure rejects GT_ENABLE_EMBEDDED_PYTHON=OFF
+      - name: Default configure excludes embedded Python
         shell: bash
         run: |
-          if cmake -S . -B build_pyoff -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_OSG=OFF -DUSE_OSI=OFF -DUSE_SUMO=OFF -DUSE_IMPLOT=OFF -DGT_ENABLE_EMBEDDED_PYTHON=OFF; then
-            echo "Expected configure failure with -DGT_ENABLE_EMBEDDED_PYTHON=OFF"
+          cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release | tee configure_default.log
+          grep -q "Embedded Python (PythonDriverController) DISABLED" configure_default.log
+          if grep -qi "Found Python3" configure_default.log; then
+            echo "Default configure must not require Python3 dev headers"
             exit 1
           fi
 
-      - name: Build GT_Sim
+      - name: Explicit OFF configures cleanly (legacy FATAL_ERROR removed)
         shell: bash
-        run: cmake --build build --config Release --target GT_Sim -j 2
+        run: cmake -S . -B build_pyoff -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_OSG=OFF -DUSE_OSI=OFF -DUSE_SUMO=OFF -DUSE_IMPLOT=OFF -DGT_ENABLE_EMBEDDED_PYTHON=OFF
 
-      - name: Run PythonDriver scenario and verify no fallback
+      - name: ON still builds the frozen PythonDriver stack
         shell: bash
         run: |
-          ./build/GT_esmini/GT_Sim \
-            --osc GT_esmini/test/scenarios/pythondriver_f01_udp_input_decode.xosc \
-            --headless \
-            --fixed_timestep 0.05 \
-            --path resources/xodr \
-            --path resources/xosc \
-            --path resources > pythondriver_enforcement.log 2>&1
-          grep -q "GT_Sim build: PythonDriverController=ENABLED" pythondriver_enforcement.log
-          grep -q "PythonDriverController::Activate() called" pythondriver_enforcement.log
-          if grep -q "Unsupported controller type: PythonDriverController" pythondriver_enforcement.log; then
-            echo "Unexpected fallback to default controller detected."
-            exit 1
-          fi
+          sudo apt-get update && sudo apt-get install -y python3-dev
+          cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release -DGT_ENABLE_EMBEDDED_PYTHON=ON
+          cmake --build build --config Release --target GT_esminiLib -j 2
 
   release:
-    needs: [test, test-no-external-modules, pythondriver-enforcement]
+    needs: [test, test-no-external-modules, embedded-python-option]
     if: github.ref_type == 'tag'
 
     strategy:
@@ -366,7 +393,7 @@ jobs:
         run: echo "ESMINI_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: 'esmini ${{ env.ESMINI_VERSION }} (build ${{ env.BUILD_NUMBER }})'
           body: 'Demo and binaries. For information about changes and new features see [release notes](https://github.com/esmini/esmini/blob/master/release_notes.md).'

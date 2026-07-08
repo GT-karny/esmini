@@ -1,0 +1,19 @@
+scenario: semantic_stop_sign_full_stop
+category: 04_traffic_signs
+# P4 twin of stop_sign_full_stop: the sign's OpenDRIVE @type (9001) is NOT in the
+# de catalog, so it is OSI-UNCLASSIFIED. Only the P4 L2 semantics fallback
+# (<priority type="stopLine"/> -> STOP) makes StopYieldSignAware treat it as a
+# STOP. Ego-kinematic only (no OSI needed for these matchers). Pre-L2
+# (catalog-first only) the ego runs the sign and stopped_at_stop_sign FAILS.
+must:
+  - event: stopped_at_stop_sign
+    sign_id: 10
+    road_id: 1
+    s_range: [190, 201]      # semantics STOP / stop line at s=200 on road 1
+    min_duration: 1.0        # a real stop, not a roll-through
+    stop_speed: 0.3
+    reason: "semantics(priority=stopLine)由来のSTOP停止線で完全停止"
+  - event: speed_above
+    threshold: 3.0
+    after: { sim_time: 22.0 }
+    reason: "安全確認後に発進(再加速)"

@@ -7,6 +7,9 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { SimulationsPage } from './pages/SimulationsPage';
 import { SimulationDetailPage } from './pages/SimulationDetailPage';
+import { VerificationReplayPage } from './pages/VerificationReplayPage';
+import { VerificationAnnotatePage } from './pages/VerificationAnnotatePage';
+import { VdLivePage } from './pages/VdLivePage';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WindowControls, isElectron } from './components/WindowControls';
 
@@ -97,6 +100,8 @@ function NavBar({ onSettingsClick }: { onSettingsClick: () => void }) {
           <>
             <NavLink to="/" className={linkClass} end>Projects</NavLink>
             <NavLink to="/simulations" className={linkClass}>Jobs</NavLink>
+            <NavLink to="/verification" className={linkClass} end>Verify</NavLink>
+            <NavLink to="/verification/annotate" className={linkClass}>Annotate</NavLink>
             <ProjectsRootIndicator />
           </>
         )}
@@ -200,25 +205,38 @@ function ProjectsRootIndicator() {
   );
 }
 
-export default function App() {
+// Main app shell (NavBar + nested routes + settings). Rendered for every route
+// except the layout-less standalone windows under /live/*.
+function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  return (
+    <div className="h-screen flex flex-col overflow-hidden">
+      <NavBar onSettingsClick={() => setSettingsOpen(true)} />
+      <main className="flex-1 overflow-hidden">
+        <Routes>
+          <Route path="/" element={<div className="h-full overflow-y-auto px-6 py-6"><ProjectsPage /></div>} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="/simulations" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationsPage /></div>} />
+          <Route path="/simulations/:jobId" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationDetailPage /></div>} />
+          <Route path="/verification" element={<VerificationReplayPage />} />
+          <Route path="/verification/annotate" element={<VerificationAnnotatePage />} />
+        </Routes>
+      </main>
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </div>
+  );
+}
 
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <CursorLight />
-        <div className="h-screen flex flex-col overflow-hidden">
-          <NavBar onSettingsClick={() => setSettingsOpen(true)} />
-          <main className="flex-1 overflow-hidden">
-            <Routes>
-              <Route path="/" element={<div className="h-full overflow-y-auto px-6 py-6"><ProjectsPage /></div>} />
-              <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
-              <Route path="/simulations" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationsPage /></div>} />
-              <Route path="/simulations/:jobId" element={<div className="h-full overflow-y-auto px-6 py-6"><SimulationDetailPage /></div>} />
-            </Routes>
-          </main>
-          <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-        </div>
+        <Routes>
+          {/* Standalone window (no NavBar) — opened via window.open() */}
+          <Route path="/live/vd/:jobId" element={<VdLivePage />} />
+          <Route path="/*" element={<AppShell />} />
+        </Routes>
       </BrowserRouter>
     </QueryClientProvider>
   );

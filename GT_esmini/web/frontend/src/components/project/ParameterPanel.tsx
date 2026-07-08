@@ -5,6 +5,32 @@ import { TextInput, Checkbox } from '../ui/Input';
 import { EmptyState } from '../ui/EmptyState';
 import { PresetSelector } from './PresetSelector';
 
+interface CorruptDetail {
+  path: string;
+  message: string;
+  line?: number;
+}
+
+function extractCorruptDetail(err: unknown): CorruptDetail | null {
+  if (!(err instanceof Error)) return null;
+  const m = err.message.match(/^409:\s*(\{.*\})$/s);
+  if (!m) return null;
+  try {
+    const parsed = JSON.parse(m[1]);
+    const detail = parsed?.detail;
+    if (detail && detail.code === 'preset_file_corrupted') {
+      return {
+        path: String(detail.path ?? ''),
+        message: String(detail.message ?? ''),
+        line: typeof detail.line === 'number' ? detail.line : undefined,
+      };
+    }
+  } catch {
+    // fallthrough
+  }
+  return null;
+}
+
 interface ParameterPanelProps {
   projectId: string;
   scenario: ScenarioInfo | null;
@@ -21,11 +47,14 @@ export function ParameterPanel({
   const scenarioFile = scenario?.file ?? '';
   const scenarioParams = scenario?.params ?? [];
 
-  const { data: presets } = useQuery({
+  const { data: presets, error: presetsError } = useQuery({
     queryKey: ['presets', projectId, scenarioFile],
     queryFn: () => api.getPresets(projectId, scenarioFile),
     enabled: !!scenarioFile,
+    retry: false,
   });
+
+  const corruptDetail = extractCorruptDetail(presetsError);
 
   // Default values from scenario params
   const defaultValues = useMemo(() => {
@@ -77,6 +106,17 @@ export function ParameterPanel({
         Parameters
       </h3>
 
+      {/* Corrupt preset file banner */}
+      {corruptDetail && (
+        <div className="mb-2 px-2 py-1.5 bg-destructive/10 border border-destructive/40 text-[10px] text-destructive">
+          <div className="font-medium">Preset file is corrupted — saving is disabled.</div>
+          <div className="text-text-tertiary mt-0.5 break-all">
+            {corruptDetail.path}
+            {corruptDetail.line ? ` (line ${corruptDetail.line})` : ''}: {corruptDetail.message}
+          </div>
+        </div>
+      )}
+
       {/* Preset tabs */}
       <PresetSelector
         projectId={projectId}
@@ -85,6 +125,7 @@ export function ParameterPanel({
         currentValues={paramOverrides}
         defaultValues={defaultValues}
         onLoad={onParamOverridesChange}
+        disabled={!!corruptDetail}
       />
 
       {/* Parameter inputs */}

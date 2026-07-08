@@ -1,0 +1,24 @@
+# VirtualDriver verification - expected events (declaration only in Step 1).
+# Matching engine arrives in Step 3 (gt_sim_test assert). Schema: verification_environment.md S5.1.
+scenario: lane_change_simple
+category: 02_basic_control
+baseline:
+  controller: Default
+  source: results/baselines/lane_change_simple/groundtruth.osi
+must:
+  - event: lane_keep
+    lane_id: -1
+    road_id: 1
+    before: { sim_time: 3.0 }
+    reason: "Starts in lane -1 before the change is triggered"
+  - event: lane_change_count
+    count: 1
+    reason: "Exactly one lane change is performed"
+  - event: lane_keep
+    lane_id: 1
+    road_id: 1
+    after: { sim_time: 9.0 }
+    reason: "Settles in target lane 1 after the sinusoidal change completes"
+notes: >
+  Lateral-tracking baseline. Step 3 compares the VirtualDriver lateral profile
+  (offset RMSE, change timing) against the Default baseline.

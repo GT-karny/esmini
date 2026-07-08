@@ -1,21 +1,16 @@
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerRealDriverUtils.hpp"
-#include "gt_esmini/control/DriverInputReceiver.hpp"
-#include "gt_esmini/control/VehicleStateUpdater.hpp"
-#include "gt_esmini/control/EsminiStateApplier.hpp"
-#include "gt_esmini/control/ControlDecisionEngine.hpp"
 #include "gt_esmini/control/realdriver/DriverOutputPort.hpp"
 #include "gt_esmini/control/realdriver/LatPathPlanner.hpp"
 #include "gt_esmini/control/realdriver/RealDriverCoordinator.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
-#include <windows.h> // For GetModuleFileName
 #include <cmath>     // For std::sqrt, std::atan2, M_PI
 #include <algorithm>
 #include "logger.hpp"
 // #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "Entities.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp" // For Light Extension
-#include "gt_esmini/control/TerrainTracker.hpp" // For terrain tracking
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "Storyboard.hpp"      // For Event
 #include "OSCPrivateAction.hpp" // For LongSpeedAction
@@ -25,6 +20,17 @@ namespace gt_esmini
 {
 namespace
 {
+// Normalize heading to [-π, π].
+// PythonDriver carries identical logic in SyncObjectPoseFromRealVehicle /
+// SyncGatewayObjectState / RegenerateWaypointsFor*; keep as a shared helper
+// here rather than repeating the while-loop at every call site.
+static double NormalizeHeadingPi(double h)
+{
+    while (h > M_PI)  h -= 2.0 * M_PI;
+    while (h < -M_PI) h += 2.0 * M_PI;
+    return h;
+}
+
 WaypointData MakeWaypointFromPosition(const roadmanager::Position& pos, double laneOffsetOverride)
 {
     WaypointData wp;
@@ -93,25 +99,6 @@ scenarioengine::Controller* InstantiateControllerRealDriver(void* args)
     return new ControllerRealDriver(initArgs);
 }
 
-// Helper to get directory of current module/executable
-std::string GetCurrentModuleDirectory()
-{
-    char buffer[MAX_PATH];
-    // Get path of current process executable
-    // If we wanted the DLL path specifically (if this code is in a DLL), we would need the HMODULE.
-    // NULL gets the path of the exe (e.g. GT_Sim.exe or Python.exe)
-    if (GetModuleFileNameA(NULL, buffer, MAX_PATH) != 0)
-    {
-        std::string path(buffer);
-        size_t last_slash = path.find_last_of("\\/");
-        if (last_slash != std::string::npos)
-        {
-            return path.substr(0, last_slash);
-        }
-    }
-    return ".";
-}
-
 ControllerRealDriver::ControllerRealDriver(InitArgs* args)
     : Controller(args),
       udpServer_(nullptr),
@@ -126,10 +113,6 @@ ControllerRealDriver::ControllerRealDriver(InitArgs* args)
       sendWaypoints_(false),
       currentWaypointIndex_(0),
       waypointsExtracted_(false),
-      driver_input_receiver_(new DriverInputReceiver()),
-      vehicle_state_updater_(new VehicleStateUpdater()),
-      esmini_state_applier_(new EsminiStateApplier()),
-      control_decision_engine_(new ControlDecisionEngine()),
       driver_output_port_(new DriverOutputPort()),
       lon_profile_planner_(new LonProfilePlanner()),
       lat_path_planner_(new LatPathPlanner()),
@@ -187,10 +170,6 @@ ControllerRealDriver::~ControllerRealDriver()
     if (udpServer_) delete udpServer_;
     if (udpClient_) delete udpClient_;
     if (waypointClient_) delete waypointClient_;
-    delete driver_input_receiver_;
-    delete vehicle_state_updater_;
-    delete esmini_state_applier_;
-    delete control_decision_engine_;
     delete driver_output_port_;
     delete lon_profile_planner_;
     delete lat_path_planner_;
@@ -336,26 +315,36 @@ scenarioengine::OSCPrivateAction* ControllerRealDriver::GetRunningPrivateActionB
     // 1. Search initActions_
     for (auto* action : object_->initActions_)
     {
-        if (action->action_type_ == type &&
-            action->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        if (!action || action->GetBaseType() != scenarioengine::OSCAction::BaseType::PRIVATE)
         {
-            return action;
+            continue;
+        }
+        auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+        if (pa->action_type_ == type &&
+            pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+        {
+            return pa;
         }
     }
 
     // 2. Search objectEvents_
     for (auto* event : object_->objectEvents_)
     {
+        if (!event)
+        {
+            continue;
+        }
         for (auto* action : event->action_)
         {
-            if (action->GetBaseType() == scenarioengine::OSCAction::BaseType::PRIVATE)
+            if (!action || action->GetBaseType() != scenarioengine::OSCAction::BaseType::PRIVATE)
             {
-                auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
-                if (pa->action_type_ == type &&
-                    pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
-                {
-                    return pa;
-                }
+                continue;
+            }
+            auto* pa = static_cast<scenarioengine::OSCPrivateAction*>(action);
+            if (pa->action_type_ == type &&
+                pa->GetCurrentState() == scenarioengine::StoryBoardElement::State::RUNNING)
+            {
+                return pa;
             }
         }
     }
@@ -540,11 +529,6 @@ void ControllerRealDriver::UpdateVehiclePhysics(double timeStep)
 
     double terrain_pitch = 0.0;
     double terrain_roll = 0.0;
-    if (object_ && TerrainTracker::IsEnabled())
-    {
-        terrain_pitch = object_->pos_.GetP();
-        terrain_roll = object_->pos_.GetR();
-    }
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
     static double last_steering_debug = 0.0;
@@ -661,10 +645,13 @@ void ControllerRealDriver::SyncObjectPoseFromRealVehicle()
 
     double dx, dy, dz_unused;
     real_vehicle_.GetBodyPositionOffset(dx, dy, dz_unused);
-    const double h = real_vehicle_.heading_;
+    // CRITICAL FIX: Normalize heading to [-π, π] before writing to esmini object
+    // real_vehicle_.heading_ should already be normalized by UpdatePhysics(), but we normalize
+    // again here as a safety measure to ensure esmini always receives correct heading range
+    const double h = NormalizeHeadingPi(real_vehicle_.heading_);
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
-    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, real_vehicle_.heading_);
+    object_->pos_.SetInertiaPos(real_vehicle_.posX_ + w_dx, real_vehicle_.posY_ + w_dy, h);
     object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
 }
 
@@ -677,7 +664,8 @@ void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double c
 
     double dx, dy, dz;
     real_vehicle_.GetBodyPositionOffset(dx, dy, dz);
-    const double h = real_vehicle_.heading_;
+    // CRITICAL FIX: Normalize heading to [-π, π] before writing to gateway
+    const double h = NormalizeHeadingPi(real_vehicle_.heading_);
     const double w_dx = dx * std::cos(h) - dy * std::sin(h);
     const double w_dy = dx * std::sin(h) + dy * std::cos(h);
 
@@ -686,7 +674,7 @@ void ControllerRealDriver::SyncGatewayObjectState(double combinedPitch, double c
         real_vehicle_.posX_ + w_dx,
         real_vehicle_.posY_ + w_dy,
         real_vehicle_.posZ_ + dz,
-        real_vehicle_.heading_,
+        h,
         combinedPitch,
         combinedRoll);
     object_->dirty_.SetBits(scenarioengine::Object::DirtyBit::LATERAL | scenarioengine::Object::DirtyBit::LONGITUDINAL);
@@ -960,8 +948,10 @@ void ControllerRealDriver::RegenerateWaypointsForLaneOffset(double targetOffset,
 
     if (!object_) return;
 
+    // Normalize heading before using for waypoint generation
+    const double normalized_heading_lo = NormalizeHeadingPi(real_vehicle_.heading_);
     roadmanager::Position posBase;
-    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading_lo,
                               roadmanager::Position::PosMode::H_ABS);
     const double startOffset = posBase.GetOffset();
     const double totalDist = realdetail::kWaypointTotalDistance;
@@ -1061,13 +1051,15 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
     if (!object_) return;
 
     double speed = std::max(object_->GetSpeed(), 5.0); // Minimum 5 m/s for calculation
-    double transitionDist = speed * transitionDuration;
+    double transitionDist = speed * std::max(transitionDuration, 0.1);
     const double totalDist = realdetail::kWaypointTotalDistance;   // Generate 500m ahead
 
+    // Normalize heading before using for waypoint generation
+    const double normalized_heading_lc = NormalizeHeadingPi(real_vehicle_.heading_);
     // [GT_MOD] Use real_vehicle_ position as base, NOT object_->pos_.
     // object_->pos_ may already be overwritten by LaneChangeAction at this point.
     roadmanager::Position posBase;
-    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, real_vehicle_.heading_,
+    posBase.SetInertiaPosMode(real_vehicle_.posX_, real_vehicle_.posY_, normalized_heading_lc,
                               roadmanager::Position::PosMode::H_ABS);
     int currentLaneId = posBase.GetLaneId();
 

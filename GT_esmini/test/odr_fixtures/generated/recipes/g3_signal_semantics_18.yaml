@@ -1,0 +1,24 @@
+# g3: 1.8 signal <semantics> (t_signals_semantics, plan cluster 10).
+# Adds a <signal> to the (empty) <signals> container carrying a <semantics>
+# child. <semantics> is the last child in t_road_signals_signal's sequence.
+# We use the <priority> semantic with type="yield" (e_signals_semantics_priority
+# enumerates 4way|keepClearLine|...|yield) -- a sensible, common regulation.
+# Required signal attrs derived from t_road_signals_signal(+_road):
+#   dynamic, id, orientation, subtype, type (required); s/t/zOffset (road, opt).
+id: g3_signal_semantics_18
+base: resources/xodr/straight_500m.xodr
+rev: "8"
+ops:
+  # Base normalisation: center lane forbids <userData> under 1.8+ (see g1 note).
+  - op: remove_element
+    xpath: "road[@id='1']/lanes/laneSection/center/lane/userData"
+  - op: add_xml
+    xpath: "road[@id='1']/signals"
+    xml: |
+      <signal s="250.0" t="-6.0" zOffset="2.0" id="2001" name="odr18_yield_semantics"
+              dynamic="no" orientation="+" country="DE" type="205" subtype="-1"
+              height="0.8" width="0.8">
+          <semantics>
+              <priority type="yield"/>
+          </semantics>
+      </signal>

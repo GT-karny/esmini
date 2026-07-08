@@ -1,0 +1,23 @@
+scenario: 09_crosswalk_crosspath__p005
+category: 09_crosswalk_pedestrian
+# P5 crossPath variant of p005 (acceptance ii): SAME crossing-stop case as
+# p005_crossing_stop, but the crosswalk is SYNTHESIZED from a <crossPath> on a virtual
+# junction (OdrJunctionExtras.cpp) instead of an authored <object type="crosswalk">.
+# CrosswalkPedestrianAware must yield to the pedestrian at the SYNTHESIZED crosswalk with
+# ZERO policy-code change -- if the VD does not stop, debug the SYNTHESIS footprint/pose,
+# never the policy. Matchers/thresholds copied verbatim from p005_crossing_stop.
+must:
+  - event: speed_below
+    threshold: 1.5
+    after: { sim_time: 14.0 }
+    before: { sim_time: 16.0 }
+    reason: "横断者への譲り停止（synthesized crossPath crosswalk）。窓は停止・深クロール相の内側。OFFではこの窓で巡航13.9のまま"
+  - event: min_obb_separation_above
+    threshold: 0.3
+    after: { sim_time: 6.0 }
+    before: { sim_time: 20.0 }
+    reason: "衝突回避ゲート(OBB): 歩行者footprint(0.6x0.5実寸)との最小分離。0.3は重なり(<=0)とclean(1.54)を弁別"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 17.5 }
+    reason: "歩行者通過後の巡航復帰（停止しっぱなしでない）"

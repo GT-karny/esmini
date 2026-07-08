@@ -37,60 +37,24 @@ namespace gt_esmini
 
     public:
         /**
-         * @brief Parse OSC Private Action (overrides parent class method via name hiding)
-         * 
-         * Checks for AppearanceAction and delegates to ParseAppearanceAction.
-         * All other actions are delegated to parent class implementation.
-         * 
-         * Phase 2: Implement to support AppearanceAction
-         * 
-         * @param actionNode PrivateAction XML node
-         * @param object Target object
-         * @param parent Parent event
-         * @return Parsed OSCPrivateAction
-         */
-        scenarioengine::OSCPrivateAction* parseOSCPrivateAction(pugi::xml_node           actionNode,
-                                                                scenarioengine::Object*  object,
-                                                                scenarioengine::Event*   parent);
-
-        /**
          * @brief Parse Extension Actions from full XML document
-         * 
-         * Re-scans the document for actions that regular ScenarioReader ignores
-         * (like AppearanceAction/LightStateAction) and injects them into the Storyboard.
-         * 
+         *
+         * Re-scans the document for actions the regular ScenarioReader does not handle in
+         * the GT-specific way (TrafficSignalController definitions/actions/conditions) and
+         * injects them into the Storyboard.
+         *
+         * R5-U3: LightStateAction/AppearanceAction are NO LONGER intercepted here. The
+         * native ScenarioReader (used by SE_Init) creates the native LightStateAction with
+         * full fidelity (transitions / candela / flashing / conflict handling), which writes
+         * Object::vehLghtStsList[] + DirtyBit::LIGHT_STATE. After parsing, this method also
+         * registers SCENARIO light ownership from the native storyboard for GT arbitration.
+         *
          * @param doc Parsed XML document
          * @param storyBoard Storyboard where actions should be attached
          */
         void ParseExtensionActions(const pugi::xml_document& doc, scenarioengine::StoryBoard& storyBoard);
 
     protected:
-        /**
-         * @brief Parse LightStateAction
-         * 
-         * Phase 1: Stub implementation
-         * Phase 2: Implement actual parsing logic
-         * 
-         * @param node LightStateAction XML node
-         * @return Parsed OSCLightStateAction
-         */
-        OSCLightStateAction* ParseLightStateAction(pugi::xml_node node);
-
-        /**
-         * @brief Parse AppearanceAction (including LightStateAction)
-         * 
-         * Phase 1: Stub implementation
-         * Phase 2: Implement actual parsing logic
-         * 
-         * @param node AppearanceAction XML node
-         * @param object Target object
-         * @param parent Parent event
-         * @return Parsed OSCPrivateAction
-         */
-        scenarioengine::OSCPrivateAction* ParseAppearanceAction(pugi::xml_node           node,
-                                                                scenarioengine::Object*  object,
-                                                                scenarioengine::Event*   parent);
-                                                                
         /**
          * @brief Parse TrafficSignalController definitions from RoadNetwork
          */

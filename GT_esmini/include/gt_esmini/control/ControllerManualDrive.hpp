@@ -61,6 +61,9 @@ private:
     IndicatorFSM indicator_fsm_;
     uint32_t     prev_buttons_  = 0;
     double       prev_steering_ = 0.0;
+
+    // Accumulated sim time for the GT light blink ticker (R5-U3).
+    double       light_sim_clock_ = 0.0;
 };
 
 scenarioengine::Controller* InstantiateControllerManualDrive(void* args);

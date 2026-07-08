@@ -1,0 +1,69 @@
+<?xml version="1.0" ?>
+<!-- Validation scenario: does SUMO traffic react to (consider) the ego?
+     The ego is parked, stopped, mid-lane on road 1 / laneId -1 (= SUMO edge
+     "-1.0.00"), directly in the path of a +x stream of SUMO cars. A reacting
+     SUMO fleet queues up behind the ego; an ignoring fleet drives through it.
+     Run headless and analyse the recording with scripts/_sumo_ego_react_probe.py. -->
+<OpenSCENARIO>
+    <FileHeader author="GT" date="2026-06-04T00:00:00" description="sumo_ego_awareness_probe" revMajor="1" revMinor="3"/>
+    <ParameterDeclarations/>
+    <CatalogLocations>
+        <VehicleCatalog>
+            <Directory path="../xosc/Catalogs/Vehicles"/>
+        </VehicleCatalog>
+    </CatalogLocations>
+    <RoadNetwork>
+        <LogicFile filepath="../xodr/straight_500m.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+        </ScenarioObject>
+        <ScenarioObject name="SumoVehicles">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_yellow"/>
+            <ObjectController>
+                <Controller name="SumoTraffic">
+                    <Properties>
+                        <Property name="esminiController" value="SumoController"/>
+                        <Property name="overrideVehicleScaleMode" value="BBToModel"/>
+                        <File filepath="../sumo_inputs/sumo_react_test.sumocfg"/>
+                    </Properties>
+                </Controller>
+            </ObjectController>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition laneId="-1" offset="0" roadId="1" s="250"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsDimension="time" dynamicsShape="step" value="0"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="0"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition conditionEdge="rising" delay="0" name="stop_simulation">
+                    <ByValueCondition>
+                        <SimulationTimeCondition rule="greaterThan" value="120"/>
+                    </ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

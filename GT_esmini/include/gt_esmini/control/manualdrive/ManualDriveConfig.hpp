@@ -28,6 +28,32 @@ struct ManualDriveConfig
         int    hazard_button        = -1;
     } sdl2;
 
+    // Input: SDL2 keyboard
+    // Key names are SDL scancode names ("A", "Space", "Left", "LShift", ...).
+    // Empty string disables the binding.
+    struct
+    {
+        std::string steer_left      = "A";
+        std::string steer_right     = "D";
+        std::string throttle        = "W";
+        std::string brake           = "S";
+        std::string clutch          = "LShift";
+        std::string upshift         = "E";
+        std::string downshift       = "Q";
+        std::string override_key    = "O";
+        std::string indicator_left  = "Z";
+        std::string indicator_right = "X";
+        std::string headlight       = "L";
+        std::string high_beam       = "K";
+        std::string fog_light       = "F";
+        std::string hazard          = "H";
+
+        double steer_rate         = 2.0;  // /s, full lock in 0.5 s
+        double centering_rate     = 3.0;  // /s, return to center
+        double pedal_press_rate   = 4.0;  // /s, full press in 0.25 s
+        double pedal_release_rate = 6.0;  // /s
+    } keyboard;
+
     // Indicator auto-cancel
     double indicator_cancel_angle = 0.06;  // normalized (~20 deg)
 

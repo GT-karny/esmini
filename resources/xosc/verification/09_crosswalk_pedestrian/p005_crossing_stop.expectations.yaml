@@ -1,0 +1,25 @@
+scenario: 09_crosswalk_pedestrian__p005
+category: 09_crosswalk_pedestrian
+# Phase 3d ext (F2) CROSSING-STOP case — CrosswalkPedestrianAware.
+# Ped (1.4 m/s, from_left, conflict timing: mid-ego-lane at ego arrival t=10.79)
+# crosses the s=250 crosswalk. Policy ON the ego decelerates from ~t7, reaches a
+# full stop (measured v=0.00 @t14.55) before the crosswalk standoff, lets the ped
+# clear, resumes (v>=12 first @t18.30). Policy OFF the ego plows through: closest
+# ego-ped CENTER distance 0.25 m @t10.70 = OBB overlap = collision.
+# All windows/thresholds from the policy-ON measurement run (crosswalk policy DLL,
+# scratch spot-check 2026-07-02).
+must:
+  - event: speed_below
+    threshold: 1.5
+    after: { sim_time: 14.0 }
+    before: { sim_time: 16.0 }
+    reason: "横断者への譲り停止（実測 窓内max0.94, v=0.00@t14.55）。窓は停止・深クロール相の内側（t16.5でv5.9まで復帰が始まるため before=16.0）。OFFではこの窓で巡航13.9のまま"
+  - event: min_obb_separation_above
+    threshold: 0.3
+    after: { sim_time: 6.0 }
+    before: { sim_time: 20.0 }
+    reason: "衝突回避ゲート(OBB): 歩行者footprint(0.6x0.5実寸)との最小分離 実測1.54m@t17.35（非重なり）。OFFでは中心間0.25m@t10.7=OBB重なり=轢過。0.3は重なり(<=0)とclean(1.54)を弁別"
+  - event: speed_above
+    threshold: 12.0
+    after: { sim_time: 17.5 }
+    reason: "歩行者通過後の巡航復帰（実測 t18.30にv>=12到達, 停止しっぱなしでない）"

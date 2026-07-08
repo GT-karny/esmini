@@ -246,14 +246,16 @@ void HeadingCorrectionManager::LoadProfiles(const std::string& configPath)
 
     std::string hcBlock = extractBlock(hc_brace);
 
-    // Parse "default" sub-block
+    // Parse "default" sub-block.
+    // Note: positions found in hcBlock are relative to hcBlock, but extractBlock
+    // operates on `content`. Add hc_brace to convert to content-absolute positions.
     size_t defPos = hcBlock.find("\"default\"");
     if (defPos != std::string::npos)
     {
         size_t defBrace = hcBlock.find('{', defPos);
         if (defBrace != std::string::npos)
         {
-            std::string defBlock = extractBlock(defBrace);
+            std::string defBlock = extractBlock(hc_brace + defBrace);
             defaultParams_       = parseParams(defBlock, defaultParams_);
         }
     }
@@ -269,7 +271,7 @@ void HeadingCorrectionManager::LoadProfiles(const std::string& configPath)
             size_t catBrace = hcBlock.find('{', catPos);
             if (catBrace != std::string::npos)
             {
-                std::string     catBlock = extractBlock(catBrace);
+                std::string     catBlock = extractBlock(hc_brace + catBrace);
                 CategoryProfile profile;
                 profile.key    = cat;
                 profile.params = parseParams(catBlock, defaultParams_);
@@ -280,7 +282,10 @@ void HeadingCorrectionManager::LoadProfiles(const std::string& configPath)
 
     profilesLoaded_ = true;
     std::cout << "HeadingCorrectionManager: Loaded profiles ("
-              << categoryProfiles_.size() << " category overrides)" << std::endl;
+              << categoryProfiles_.size() << " category overrides)"
+              << " | default blend_factor=" << defaultParams_.blend_factor
+              << " max_correction_deg=" << defaultParams_.max_correction_deg
+              << std::endl;
 }
 
 HeadingCorrectionManager::Params HeadingCorrectionManager::ResolveParams(int category) const

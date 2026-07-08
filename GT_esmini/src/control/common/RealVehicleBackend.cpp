@@ -1,0 +1,152 @@
+#include "gt_esmini/control/common/RealVehicleBackend.hpp"
+#include "gt_esmini/control/common/ModuleDirectory.hpp"
+#include "gt_esmini/core/ConfigLoader.hpp"
+#include "Entities.hpp"
+
+#include <cmath>
+
+namespace gt_esmini
+{
+
+bool RealVehicleBackend::Init(const PhysicsInitParams& params, const scenarioengine::Object* obj)
+{
+    // Load vehicle parameters
+    std::string exe_dir = GetCurrentModuleDirectory();
+    ConfigLoader loader;
+    std::string params_path = loader.ResolveConfigPath(exe_dir, params.vehicle_params_file);
+    real_vehicle_.LoadParameters(params_path);
+
+    // Initialize vehicle dimensions from scenario object
+    if (obj)
+    {
+        real_vehicle_.length_ = obj->boundingbox_.dimensions_.length_;
+    }
+
+    return true;
+}
+
+osi3::HostVehicleData RealVehicleBackend::StepPedalSteer(const PedalSteerCommand& cmd, double dt)
+{
+    last_cmd_ = cmd;
+    // ManualDrive always drives the forward-AT path so paddle inputs become
+    // real gear changes through AutoTransmission + EngineModel. Non-paddle
+    // input sources (e.g. NetworkInputBridge) leave the paddle bits false,
+    // which keeps the AT in DRIVE with auto-shifting.
+    real_vehicle_.UpdatePhysicsAT(dt, cmd.throttle, cmd.brake, cmd.steering,
+                                   cmd.paddle_up_pressed, cmd.paddle_down_pressed);
+    return BuildHVD(cmd);
+}
+
+#ifdef GT_ENABLE_OSI_MOTION_REQUEST
+osi3::HostVehicleData RealVehicleBackend::StepMotionRequest(const osi3::MotionRequest& req, double dt)
+{
+    // TODO Phase 5+: PID control to convert MotionRequest → PedalSteer
+    // For now, treat as zero input
+    PedalSteerCommand cmd;
+    last_cmd_ = cmd;
+    real_vehicle_.UpdatePhysics(dt, 0.0, 0.0, 0.0, 1);
+    return BuildHVD(cmd);
+}
+#endif
+
+void RealVehicleBackend::SetInitialState(double x, double y, double z, double h, double speed)
+{
+    real_vehicle_.SetPos(x, y, z, h);
+    real_vehicle_.SetSpeed(speed);
+}
+
+void RealVehicleBackend::SyncState(double x, double y, double z, double h, double speed)
+{
+    // Position-only resync: preserves gear, RPM, and other dynamic state
+    real_vehicle_.SetPos(x, y, z, h);
+    real_vehicle_.SetSpeed(speed);
+}
+
+bool RealVehicleBackend::GetPose(double& x, double& y, double& z, double& h, double& speed) const
+{
+    // Live state of the kinematic model. Always valid: SetInitialState seeds it
+    // from object->pos_ at Activate and re-seeds it on teleport (handled in the
+    // controller's Step), so this returns the new pose even on a teleport frame.
+    // Note: the model's planar origin coincides with object->pos_ X/Y because the
+    // body offset has no XY component (only a Z pivot correction), so this stays
+    // consistent with the route the planner walks from object->pos_.
+    x     = real_vehicle_.posX_;
+    y     = real_vehicle_.posY_;
+    z     = real_vehicle_.posZ_;
+    h     = real_vehicle_.heading_;
+    speed = real_vehicle_.speed_;
+    return true;
+}
+
+void RealVehicleBackend::GetBodyPositionOffset(double& dx, double& dy, double& dz) const
+{
+    // const_cast is safe here: GetBodyPositionOffset doesn't modify state,
+    // but the base class method isn't marked const
+    const_cast<RealVehicle&>(real_vehicle_).GetBodyPositionOffset(dx, dy, dz);
+}
+
+void RealVehicleBackend::GetCombinedAttitude(double& pitch, double& roll) const
+{
+    const_cast<RealVehicle&>(real_vehicle_).GetCombinedAttitude(pitch, roll);
+}
+
+void RealVehicleBackend::SyncRoadZ(double road_z)
+{
+    real_vehicle_.SetZ(road_z);
+}
+
+void RealVehicleBackend::GetDynamicAttitude(double& pitch, double& roll) const
+{
+    pitch = real_vehicle_.GetDynamicPitch();
+    roll  = real_vehicle_.GetDynamicRoll();
+}
+
+osi3::HostVehicleData RealVehicleBackend::BuildHVD(const PedalSteerCommand& cmd) const
+{
+    osi3::HostVehicleData hvd;
+
+    // Location (BaseMoving) — position, velocity, orientation
+    auto* location = hvd.mutable_location();
+    location->mutable_position()->set_x(real_vehicle_.posX_);
+    location->mutable_position()->set_y(real_vehicle_.posY_);
+    location->mutable_position()->set_z(real_vehicle_.posZ_);
+
+    location->mutable_orientation()->set_yaw(real_vehicle_.heading_);
+    location->mutable_orientation()->set_pitch(real_vehicle_.pitch_);
+    double roll_val = 0.0;
+    double pitch_val = 0.0;
+    const_cast<RealVehicle&>(real_vehicle_).GetCombinedAttitude(pitch_val, roll_val);
+    location->mutable_orientation()->set_roll(roll_val);
+
+    location->mutable_velocity()->set_x(real_vehicle_.speed_ * std::cos(real_vehicle_.heading_));
+    location->mutable_velocity()->set_y(real_vehicle_.speed_ * std::sin(real_vehicle_.heading_));
+
+    // Acceleration (vehicle frame: x=longitudinal, y=lateral)
+    location->mutable_acceleration()->set_x(real_vehicle_.longAcc_);
+    location->mutable_acceleration()->set_y(real_vehicle_.latAcc_);
+
+    // Angular velocity (yaw rate)
+    location->mutable_orientation_rate()->set_yaw(real_vehicle_.headingDot_);
+
+    // Vehicle Steering
+    auto* steering = hvd.mutable_vehicle_steering();
+    auto* wheel = steering->mutable_vehicle_steering_wheel();
+    wheel->set_angle(real_vehicle_.wheelAngle_);
+
+    // Vehicle Powertrain — gear comes from the AT (drivetrain-engaged gear),
+    // not the raw command, so OSI reflects the actual physical state.
+    auto* powertrain = hvd.mutable_vehicle_powertrain();
+    powertrain->set_pedal_position_acceleration(cmd.throttle);
+    powertrain->set_gear_transmission(real_vehicle_.GetCurrentGear());
+    auto* motor = powertrain->add_motor();
+    motor->set_rpm(real_vehicle_.GetRPM());
+    motor->set_torque(real_vehicle_.GetTorqueOutput());
+
+    // Vehicle Brake System
+    auto* brake = hvd.mutable_vehicle_brake_system();
+    brake->set_pedal_position_brake(cmd.brake);
+
+    return hvd;
+}
+
+} // namespace gt_esmini

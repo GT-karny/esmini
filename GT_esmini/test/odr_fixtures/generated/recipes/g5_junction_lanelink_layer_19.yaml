@@ -1,0 +1,20 @@
+# g5: 1.9 junction connection laneLink layer attributes (plan cluster 22).
+# 1.9 adds fromLayer/toLayer (e_layerType) to t_junction_connection_laneLink.
+# We set them on the first laneLink of the first connection of the 4-way
+# junction. NOTE: in the 1.9 Junction XSD there is NO connection-level layer
+# attribute -- the abstract t_junction_connection carries only id/incomingRoad/
+# contactPoint, and only the <laneLink> child gained fromLayer/toLayer. So this
+# recipe exercises only the laneLink-level layer attributes (the plan's
+# "connection-level if present" does not apply here).
+id: g5_junction_lanelink_layer_19
+base: EnvironmentSimulator/Unittest/xodr/simple_4way_intersection.xodr
+rev: "9"
+ops:
+  - op: set_attr
+    xpath: "junction[@id='1']/connection[@id='0']/laneLink[1]"
+    attr: "fromLayer"
+    value: "permanent"
+  - op: set_attr
+    xpath: "junction[@id='1']/connection[@id='0']/laneLink[1]"
+    attr: "toLayer"
+    value: "permanent"

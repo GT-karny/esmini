@@ -1,0 +1,64 @@
+name: phase3_policies
+# Phase 3 traffic-policy verification batch (03 signals / 04 signs / 06 lead car).
+# osi:true -> gt_sim_test captures the OSI groundtruth (objects + signal phase)
+# into telemetry.scene, which the stopped_at_signal (require_red) and
+# maintained_following_distance (THW) matchers read. NOTE: these scenarios embed
+# the VirtualDriverController but carry NO scripted stop/follow — the ego must
+# decide on its own via the A3 traffic policies. Until A3's policies land, the
+# discriminating matchers correctly FAIL (overall=fail with visible progress,
+# exactly like 05 pre-Phase-2). No `baseline:` — judgment is from VirtualDriver
+# telemetry + the captured scene, not position-equivalence vs Default.
+#
+# Run:
+#   py GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/phase3_batch.yaml --out test_results/web/phase3
+defaults:
+  dt: 0.05
+  max_time: 40.0
+  snapshots: 3
+  osi: true
+scenarios:
+  # --- 03 traffic signals (Phase 3b: TrafficLightAware) -------------------
+  - scenario: resources/xosc/verification/03_traffic_signals/red_stop_green_go.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/red_stop_green_go.expectations.yaml
+    policies: [traffic_light]
+  - scenario: resources/xosc/verification/03_traffic_signals/red_hold.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/red_hold.expectations.yaml
+    policies: [traffic_light]
+  - scenario: resources/xosc/verification/03_traffic_signals/green_no_stop.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/green_no_stop.expectations.yaml
+    policies: [traffic_light]
+  - scenario: resources/xosc/verification/03_traffic_signals/yellow_decision_stop.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/yellow_decision_stop.expectations.yaml
+    policies: [traffic_light]
+  # --- 04 traffic signs (Phase 3c: StopYieldSignAware) --------------------
+  - scenario: resources/xosc/verification/04_traffic_signs/stop_sign_full_stop.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/stop_sign_full_stop.expectations.yaml
+    policies: [stop_yield]
+  - scenario: resources/xosc/verification/04_traffic_signs/yield_proceed_clear.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/yield_proceed_clear.expectations.yaml
+    policies: [stop_yield]
+  - scenario: resources/xosc/verification/04_traffic_signs/yield_slow_then_proceed.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/yield_slow_then_proceed.expectations.yaml
+    policies: [stop_yield]
+  # P4 L2: STOP recognised via <semantics><priority type="stopLine"/> on a
+  # catalog-UNCLASSIFIED sign (@type 9001 not in de) — the semantics fallback,
+  # not the country catalog, classifies it.
+  - scenario: resources/xosc/verification/04_traffic_signs/semantic_stop_sign_full_stop.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/semantic_stop_sign_full_stop.expectations.yaml
+    policies: [stop_yield]
+  # P8 acceptance (iv): the STOP sign is invalidated="true" (1.9) -> the invalidated filter
+  # (D4/D5) drops it from the route signal scan, so the ego IGNORES it and does not stop.
+  - scenario: resources/xosc/verification/04_traffic_signs/invalidated_stop_sign_ignored.xosc
+    expectations: resources/xosc/verification/04_traffic_signs/invalidated_stop_sign_ignored.expectations.yaml
+    policies: [stop_yield]
+  # --- 06 lead vehicle (Phase 3a: LeadVehicleAware) -----------------------
+  - scenario: resources/xosc/verification/06_lead_vehicle/follow_steady.xosc
+    expectations: resources/xosc/verification/06_lead_vehicle/follow_steady.expectations.yaml
+    policies: [lead]
+  - scenario: resources/xosc/verification/06_lead_vehicle/follow_hard_brake.xosc
+    expectations: resources/xosc/verification/06_lead_vehicle/follow_hard_brake.expectations.yaml
+    policies: [lead]
+  - scenario: resources/xosc/verification/06_lead_vehicle/follow_stop_and_go.xosc
+    expectations: resources/xosc/verification/06_lead_vehicle/follow_stop_and_go.expectations.yaml
+    policies: [lead]

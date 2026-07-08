@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ego-awareness validation config. Reuses the straight 500 m net.
+     time-to-teleport=-1 disables SUMO's jam-teleport so a queue forming
+     behind a stopped ego is preserved (not warped away) for observation. -->
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+    <input>
+        <net-file value="straight.net.xml"/>
+        <route-files value="sumo_react_test.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="200"/>
+        <step-length value="0.01"/>
+    </time>
+    <time-to-teleport value="-1"/>
+</configuration>

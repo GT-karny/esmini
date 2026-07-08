@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 03_traffic_signals / yellow_decision_stop
+  The signal (road 3, s=109) is GREEN for 4s, then YELLOW for 8s, then RED. The
+  yellow onset (t=4s) catches the ego ~68 m from the stop line — beyond the
+  braking distance, so the safe decision is to STOP (TrafficLightAware only stops
+  on yellow when there is room to stop comfortably). No scripted stop:
+  the TrafficLightAware policy (Phase 3b, A3) must make the yellow->stop decision.
+  Pre-3b the ego runs through -> stopped_at_signal correctly FAILS.
+  require_red is relaxed (stop onset may be during yellow). Cruise is a running
+  Story Event; signal driven by a GT_TrafficSignalController.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-06-04T10:00:00"
+               description="VirtualDriver verification: yellow decision -> stop"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/fabriksgatan_traffic_lights.xodr"/>
+      <TrafficSignals>
+         <TrafficSignalController name="MainController" delay="0">
+            <Phase name="green" duration="4">
+               <TrafficSignalState trafficSignalId="1" state="off;off;on"/>
+               <TrafficSignalState trafficSignalId="2" state="on;off"/>
+               <TrafficSignalState trafficSignalId="3" state="on;off"/>
+            </Phase>
+            <Phase name="yellow" duration="8">
+               <TrafficSignalState trafficSignalId="1" state="off;on;off"/>
+               <TrafficSignalState trafficSignalId="2" state="on;off"/>
+               <TrafficSignalState trafficSignalId="3" state="on;off"/>
+            </Phase>
+            <Phase name="red" duration="40">
+               <TrafficSignalState trafficSignalId="1" state="on;off;off"/>
+               <TrafficSignalState trafficSignalId="2" state="off;on"/>
+               <TrafficSignalState trafficSignalId="3" state="off;on"/>
+            </Phase>
+         </TrafficSignalController>
+      </TrafficSignals>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="3" laneId="-1" offset="0" s="11"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="3" laneId="-1" offset="0" s="11"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="12"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="SignalStory">
+         <Act name="SignalAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="25" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

@@ -14,6 +14,136 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // --- Types ---
 
+// --- OpenDRIVE side-model metadata (plan P9a) ---
+
+export interface OdrAuditWarnings {
+  version: { rev_major: number; rev_minor: number };
+  unsupported_elements: number;
+  unsupported_attributes: number;
+  removed16_hits: number;
+  entries: string[];
+}
+
+export interface OdrUserDataItem {
+  owner_path: string;
+  context_id: string;
+  xml: string;
+}
+
+export interface OdrSignalSemantics {
+  speeds: Array<{ type: string; value: number; unit: string }>;
+  lane_types: string[];
+  priority_types: string[];
+  prohibited: Array<{ kind: string; category: string }>;
+  warning_count: number;
+}
+
+export interface OdrSignal {
+  road_id: string;
+  signal_id: string;
+  has_semantics: boolean;
+  semantics: OdrSignalSemantics;
+  dependencies: Array<{ id: string; type: string }>;
+  references: Array<{ element_type: string; element_id: string; type: string }>;
+  temporary: boolean;
+  invalidated: boolean;
+}
+
+export interface OdrJunctionPriority {
+  junction_id: string;
+  type: string;
+  priorities: Array<{ high: string; low: string }>;
+}
+
+export interface OdrCrosswalk {
+  junction_id: string;
+  id: string;
+  crossing_road: string;
+  road_at_start: string;
+  road_at_end: string;
+  synth_object_id: number;
+}
+
+export interface OdrRailTrackRef {
+  id: string;
+  s: number;
+  dir: string;
+}
+
+export interface OdrRailSwitch {
+  road_id: string;
+  name: string;
+  id: string;
+  position: string;
+  main_track: OdrRailTrackRef;
+  side_track: OdrRailTrackRef;
+  partner: { name: string; id: string } | null;
+}
+
+export interface OdrRailStation {
+  id: string;
+  name: string;
+  type: string;
+  platforms: Array<{
+    id: string;
+    name: string;
+    segments: Array<{ road_id: string; s_start: number; s_end: number; side: string }>;
+  }>;
+}
+
+// P9b: 1.9 lane layers (P8 shadow storage + process selection-mode latch)
+export interface OdrLaneLayerSection {
+  s: number;
+  length: number;
+  has_length: boolean;
+  lane_count: number;
+}
+
+export interface OdrLaneLayer {
+  name: string; // "permanent" | "temporary" (effective name; never empty)
+  lane_offset_count: number;
+  sections: OdrLaneLayerSection[];
+}
+
+export interface OdrRoadLaneLayers {
+  road_id: string;
+  active_mode: string; // mode resolved at parse time for this road
+  has_temporary: boolean;
+  temp_s_start: number;
+  temp_s_end: number;
+  layers: OdrLaneLayer[];
+}
+
+export interface OdrLaneLayers {
+  mode: string; // process-wide GT_ODR_LANE_LAYERS latch: "permanent" | "temporary"
+  roads: OdrRoadLaneLayers[];
+}
+
+// P9b: virtual-junction (P6) metadata
+export interface OdrVirtualJunction {
+  junction_id: string;
+  name: string;
+  main_road_id: string;
+  main_road_length: number;
+  s_start: number;
+  s_end: number;
+  orientation: string; // "+" | "-" | ""
+  anchor_count: number;
+  connection_count: number;
+}
+
+export interface OdrMetadata {
+  warnings: OdrAuditWarnings;
+  user_data: OdrUserDataItem[];
+  data_quality: OdrUserDataItem[];
+  signals: OdrSignal[];
+  junction_priorities: OdrJunctionPriority[];
+  crosswalks: OdrCrosswalk[];
+  railroad: { switches: OdrRailSwitch[]; stations: OdrRailStation[] };
+  lane_layers: OdrLaneLayers;
+  virtual_junctions: OdrVirtualJunction[];
+}
+
 export interface Scenario {
   id: string;
   filename: string;
@@ -65,6 +195,26 @@ export interface ManualDriveConfig {
       hazard: number;
     };
   };
+  keyboard: {
+    steer_left: string;
+    steer_right: string;
+    throttle: string;
+    brake: string;
+    clutch: string;
+    upshift: string;
+    downshift: string;
+    override_key: string;
+    indicator_left: string;
+    indicator_right: string;
+    headlight: string;
+    high_beam: string;
+    fog_light: string;
+    hazard: string;
+    steer_rate: number;
+    centering_rate: number;
+    pedal_press_rate: number;
+    pedal_release_rate: number;
+  };
   input_network: { transport_type: string; port: number; level: string };
   physics_network: { transport_type: string; host: string; cmd_port: number; state_port: number };
   ffb: { spring_coefficient: number; damper_coefficient: number; constant_gain: number; max_force: number };
@@ -105,6 +255,9 @@ export interface ExecutionDefaults {
   autolight: boolean;
   vehicle_physics: boolean;
   kinematic_mode: boolean;
+  route_drive_mode: boolean;
+  route_drive_timing?: 'late' | 'normal' | 'early';
+  route_drive_gap?: 'wide' | 'normal' | 'tight';
   threads: boolean;
   window: WindowConfig;
 }
@@ -123,9 +276,13 @@ export interface SimulationRequest {
     autolight: boolean;
     vehicle_physics: boolean;
     kinematic_mode: boolean;
+    route_drive_mode: boolean;
+    route_drive_timing?: 'late' | 'normal' | 'early';
+    route_drive_gap?: 'wide' | 'normal' | 'tight';
     threads: boolean;
     window: WindowConfig;
     extra_args: string[];
+    drive_mode?: 'comfort' | 'sport';
   };
   param_overrides?: Record<string, string>;
 }
@@ -208,6 +365,184 @@ export interface ParameterPreset {
   values: Record<string, string>;
 }
 
+// --- VirtualDriver verification (replay) ---
+
+export interface VdPreviewPoint {
+  x: number;
+  y: number;
+  v: number;
+  t: number;
+}
+
+/* Mid/long planner output (Phase 2). Optional on the telemetry frame: emitted
+ * once A2's VirtualDriverTelemetryJson.cpp serializes the `midlong` section.
+ * Until then it is undefined and the v_target chart / maneuver-marker layers
+ * degrade gracefully. Keys/shape must match the C++ serializer — this interface
+ * is the single frontend reconciliation point (see plan §2a). */
+export type MidLongConstraintKind = 'curve' | 'junction' | 'speed_limit' | 'stop';
+
+export interface MidLongConstraint {
+  s: number;     // route s the constraint applies at [m]
+  x: number;     // world position [m]
+  y: number;     // world position [m]
+  v: number;     // target speed at the constraint [m/s]
+  kind: MidLongConstraintKind;
+}
+
+export interface MidLongProfile {
+  v_target_profile: [number, number][];  // (s [m], v_max [m/s]) pairs along the route
+  constraints?: MidLongConstraint[];       // [A2] labelled constraint points (with XY)
+  valid: boolean;
+}
+
+/* [A3 / Phase 3] Traffic-policy output. Each enabled policy (lead-vehicle /
+ * traffic-light / stop-yield sign) emits PolicyConstraints; the mid/long planner
+ * folds them into the v_target ceiling. Shape mirrors the C++ serializer
+ * (VirtualDriverTelemetryJson.cpp `policy` block). PolicyConstraint carries no
+ * world XY (kind/s/value/source only) — the planner echoes stop/yield points into
+ * `midlong.constraints` (with XY, kind 'stop') for scene markers, so the scene
+ * layer reuses maneuverMarkers; this `policy` block drives the timeline panel. */
+export type PolicyConstraintKind =
+  | 'none' | 'stop_at_s' | 'max_speed' | 'max_speed_to_s' | 'yield' | 'wait_until';
+
+export interface PolicyConstraint {
+  kind: PolicyConstraintKind;
+  s: number;        // route s ahead of the ego the constraint applies at/until [m]
+  value: number;    // speed [m/s] or time [s] depending on kind
+  source: string;   // "lead_vehicle" | "traffic_light" | "stop_sign" | "yield_sign" | ...
+}
+
+export interface TrafficPolicySnapshot {
+  valid: boolean;
+  constraints: PolicyConstraint[];
+}
+
+export interface VdTelemetryFrame {
+  sim_time: number;
+  ego: {
+    x: number; y: number; z: number; h: number; speed: number;
+    track?: number; lane?: number; offset?: number; s?: number;
+  };
+  override: { lateral: boolean; longitudinal: boolean };
+  driver: {
+    throttle: number; brake: number; steer: number;
+    lateral_error: number; heading_error: number; speed_error: number;
+    lookahead: number; valid: boolean;
+  };
+  indicator: { left: boolean; right: boolean };
+  preview: { dt: number; valid: boolean; points: VdPreviewPoint[] };
+  midlong?: MidLongProfile;  // Phase 2+ (optional; see MidLongProfile)
+  policy?: TrafficPolicySnapshot;  // Phase 3+ (optional; see TrafficPolicySnapshot)
+}
+
+export interface VerificationRun {
+  id: string;
+  meta: Record<string, unknown> & { scenario?: string; frames?: number; sim_duration_s?: number };
+  has_compare: boolean;
+  has_verdict: boolean;
+}
+
+export interface BaselinePoint {
+  t: number;
+  x: number;
+  y: number;
+  speed: number;
+}
+
+export interface VerdictResult {
+  event: string;
+  status: 'pass' | 'fail' | 'skip';
+  detail?: string;
+  reason?: string;
+  t?: number;
+  idx?: number;
+}
+
+/** One recorded OSI scene frame (other traffic + signal phases) for replay. */
+export interface SceneFrame {
+  sim_time: number;
+  objects: Record<string, unknown>[];
+  traffic_lights: Record<string, unknown>[];
+}
+
+export interface VerificationTelemetry {
+  id: string;
+  meta: Record<string, unknown> & { project_id?: string | null; scenario_file?: string };
+  frames: VdTelemetryFrame[];
+  scene: SceneFrame[];
+  compare: { xy_rmse_m?: number; speed_rmse_mps?: number; xy_max_dev_m?: number } | null;
+  verdict: { overall?: string; summary?: { pass: number; fail: number; skip: number }; results?: VerdictResult[] } | null;
+  baseline_track: BaselinePoint[] | null;
+}
+
+// --- VirtualDriver verification (annotation) ---
+
+export type AnnotationLabel = 'pass' | 'fail' | 'needs-discussion';
+
+/** A run from the verification_runs registry, joined with its human annotation. */
+export interface AnnotationRun {
+  run_id: string;
+  source: 'toplevel' | 'batch' | 'gui';
+  batch_id: string | null;
+  scenario: string | null;
+  scenario_stem: string | null;
+  project_id: string | null;
+  scenario_file: string | null;
+  frames: number | null;
+  sim_duration_s: number | null;
+  verdict_overall: string | null;  // pass|fail|needs-review|error (auto)
+  verdict_summary: { pass: number; fail: number; skip: number } | null;
+  has_compare: boolean;
+  has_verdict: boolean;
+  label: AnnotationLabel | null;    // human label
+  comment: string | null;
+  labeled: boolean;
+  updated_at: string | null;
+}
+
+export interface Annotation {
+  run_id: string;
+  label: AnnotationLabel;
+  comment: string;
+  labeler: string;
+  scenario?: string | null;
+  scenario_stem?: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AnnotationInput {
+  label: AnnotationLabel;
+  comment?: string;
+  labeler?: string;
+}
+
+export interface MatchResult {
+  run_id: string;
+  label: AnnotationLabel;
+  comment: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface AnnotationRunFilters {
+  status?: string;
+  batch_id?: string;
+  labeled?: boolean;
+  source?: string;
+}
+
+function annotationQuery(params?: AnnotationRunFilters): string {
+  if (!params) return '';
+  const q = new URLSearchParams();
+  if (params.status) q.set('status', params.status);
+  if (params.batch_id) q.set('batch_id', params.batch_id);
+  if (params.source) q.set('source', params.source);
+  if (params.labeled != null) q.set('labeled', String(params.labeled));
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
 // --- API functions ---
 
 export const api = {
@@ -277,6 +612,56 @@ export const api = {
   getRoadGeometry: (projectId: string, scenarioFile: string) =>
     request<{ boundaries: Array<{ road_id: number; type: string; points: [number, number][] }> }>(
       `/api/projects/${projectId}/scenarios/${scenarioFile}/road-geometry`,
+    ),
+
+  getOdrMetadata: (projectId: string, scenarioFile: string) =>
+    request<OdrMetadata>(
+      `/api/projects/${projectId}/scenarios/${scenarioFile}/odr-metadata`,
+    ),
+
+  // VirtualDriver verification (replay)
+  getVerificationRuns: () =>
+    request<{ runs: VerificationRun[] }>(`/api/verification/runs`),
+  getVerificationTelemetry: (runId: string) =>
+    request<VerificationTelemetry>(`/api/verification/runs/${encodeURIComponent(runId)}/telemetry`),
+  runBaselineCompare: (runId: string) =>
+    request<Record<string, unknown>>(
+      `/api/verification/runs/${encodeURIComponent(runId)}/baseline-compare`,
+      { method: 'POST' },
+    ),
+  runAssertions: (runId: string) =>
+    request<Record<string, unknown>>(
+      `/api/verification/runs/${encodeURIComponent(runId)}/assert`,
+      { method: 'POST' },
+    ),
+
+  // VirtualDriver verification (annotation) — registry-backed runs + human labels
+  getAnnotationRuns: (params?: AnnotationRunFilters) =>
+    request<{ runs: AnnotationRun[] }>(
+      `/api/verification/runs2${annotationQuery(params)}`,
+    ),
+  getRunDetail: (runId: string) =>
+    request<AnnotationRun>(`/api/verification/run-detail/${encodeURIComponent(runId)}`),
+  getAnnotation: async (runId: string): Promise<Annotation | null> => {
+    const res = await fetch(`${BASE}/api/verification/annotation/${encodeURIComponent(runId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    return res.json();
+  },
+  setAnnotation: (runId: string, body: AnnotationInput) =>
+    request<Annotation>(`/api/verification/annotation/${encodeURIComponent(runId)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  matchAnnotations: (runId: string, k = 5) =>
+    request<{ target: { run_id: string; scenario_stem: string | null }; matches: MatchResult[] }>(
+      `/api/verification/match`,
+      { method: 'POST', body: JSON.stringify({ run_id: runId, k }) },
+    ),
+  scanRegistry: (force = true) =>
+    request<{ count: number; scanned: number; skipped: boolean }>(
+      `/api/verification/registry/scan?force=${force}`,
+      { method: 'POST' },
     ),
 
   getScenarioDocs: async (projectId: string, scenarioFile: string): Promise<string | null> => {
@@ -357,6 +742,18 @@ export const api = {
   cancelSimulation: (jobId: string) =>
     request<{ job_id: string; status: string }>(`/api/simulations/${jobId}`, {
       method: 'DELETE',
+    }),
+
+  setSimulationSpeed: (jobId: string, speedFactor: number) =>
+    request<{ job_id: string; speed_factor: number }>(`/api/simulations/${jobId}/speed`, {
+      method: 'PUT',
+      body: JSON.stringify({ speed_factor: speedFactor }),
+    }),
+
+  setDriveMode: (jobId: string, mode: 'comfort' | 'sport') =>
+    request<{ job_id: string; mode: string }>(`/api/simulations/${jobId}/drive_mode`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
     }),
 
   // Results

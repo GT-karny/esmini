@@ -6,7 +6,7 @@ from pathlib import Path
 
 def _load_validator_module():
     repo_root = Path(__file__).resolve().parents[2]
-    script_path = repo_root / "scripts" / "validate_realdriver_feature_results.py"
+    script_path = repo_root / "archive" / "frozen_python_verification" / "scripts" / "validate_realdriver_feature_results.py"
     spec = importlib.util.spec_from_file_location("validator_mod", script_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

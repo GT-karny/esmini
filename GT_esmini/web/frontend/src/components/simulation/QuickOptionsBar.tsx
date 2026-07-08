@@ -13,6 +13,8 @@ export interface QuickOptionsBarProps {
   setVehiclePhysics: (v: boolean) => void;
   kinematicMode: boolean;
   setKinematicMode: (v: boolean) => void;
+  routeDriveMode: boolean;
+  setRouteDriveMode: (v: boolean) => void;
 }
 
 const IconWindow = ({ headless }: { headless: boolean }) =>
@@ -59,6 +61,13 @@ const IconKinematicMode = () => (
   </svg>
 );
 
+const IconRouteDrive = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+    <path d="M3 14l4-12h2l4 12h-2l-.8-2.5H5.8L5 14H3zm3.3-4h3.4L8 4.6 6.3 10z" />
+    <path d="M13 5.5l1.5-1.5M13 8h2" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+  </svg>
+);
+
 export function QuickOptionsBar({
   headless,
   setHeadless,
@@ -72,6 +81,8 @@ export function QuickOptionsBar({
   setVehiclePhysics,
   kinematicMode,
   setKinematicMode,
+  routeDriveMode,
+  setRouteDriveMode,
 }: QuickOptionsBarProps) {
   return (
     <div className="flex items-center gap-2">
@@ -81,6 +92,7 @@ export function QuickOptionsBar({
       <IconToggle icon={<IconAutoLight />} label="AutoLight" active={autolight} onChange={setAutolight} />
       <IconToggle icon={<IconVehiclePhysics />} label="Physics" active={vehiclePhysics} onChange={setVehiclePhysics} />
       <IconToggle icon={<IconKinematicMode />} label="Kinematic" active={kinematicMode} onChange={setKinematicMode} />
+      <IconToggle icon={<IconRouteDrive />} label="Route Drive" active={routeDriveMode} onChange={setRouteDriveMode} />
     </div>
   );
 }

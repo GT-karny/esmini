@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 05_anticipation / speed_limit_change
+  Ego cruises at 13.889 m/s on a straight road, then a commanded speed reduction
+  (to 8.33 m/s = 30 km/h) is issued before the "speed-limit" landmark at s=250.
+  Unlike the curve/right-turn scenarios this deceleration is COMMANDED (a Story
+  Event), so it exercises smooth following of a SpeedAction profile and should
+  pass the deceleration_profile_smooth / speed_reduction_before_landmark matchers
+  even in Phase 1 (the SpeedAction-dynamics reconstruction path).
+  Both the cruise and the slowdown are running Story Events (NOT Init) so the
+  VirtualDriver can read the targets via getPrivateActions().
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-06-03T10:00:00"
+               description="VirtualDriver verification: smooth deceleration to a reduced speed limit before a landmark"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+      <ParameterDeclaration name="LimitSpeed" parameterType="double" value="8.33"/>
+   </ParameterDeclarations>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="fastest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="20"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="fastest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-1" offset="0" s="450"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="SpeedLimitStory">
+         <Act name="SpeedLimitAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="SpeedManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="Slow" priority="overwrite">
+                     <Action name="SlowAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="sinusoidal" value="5.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$LimitSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="SlowStart" delay="0" conditionEdge="none">
+                              <ByEntityCondition>
+                                 <TriggeringEntities triggeringEntitiesRule="any">
+                                    <EntityRef entityRef="Ego"/>
+                                 </TriggeringEntities>
+                                 <EntityCondition>
+                                    <TraveledDistanceCondition value="150.0"/>
+                                 </EntityCondition>
+                              </ByEntityCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="30" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

@@ -55,11 +55,15 @@ if PACKAGED:
 
     GT_SIM_EXE = PACKAGE_ROOT / "bin" / "GT_Sim.exe"
     ESMINI_RM_LIB = PACKAGE_ROOT / "bin" / "esminiRMLib.dll"
+    # GT_esminiLib.dll carries the GT ODR side-model metadata C API (plan P9a).
+    GT_ESMINI_LIB = PACKAGE_ROOT / "bin" / "GT_esminiLib.dll"
     SCENARIOS_DIR = PACKAGE_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = PACKAGE_ROOT / "DriverScript"
     SCRIPTS_DIR = PACKAGE_ROOT / "scripts"
+    GT_SCRIPTS_DIR = PACKAGE_ROOT / "GT_esmini" / "scripts"
     CONFIG_DIR = PACKAGE_ROOT / "config"
     RESULTS_DIR = PACKAGE_ROOT / "data" / "results"
+    ANNOTATIONS_DIR = PACKAGE_ROOT / "data" / "annotations"
     PROJECTS_DIR = PACKAGE_ROOT / "data" / "projects"
     TEMP_SCENARIOS_DIR = PACKAGE_ROOT / "data" / "_temp_scenarios"
     TEMP_ROADS_DIR = PACKAGE_ROOT / "data" / "_temp_roads"
@@ -70,21 +74,33 @@ else:
 
     GT_SIM_EXE = REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_Sim.exe"
     ESMINI_RM_LIB = REPO_ROOT / "DriverScript" / "bin" / "esminiRMLib.dll"
+    # GT_esminiLib.dll carries the GT ODR side-model metadata C API (plan P9a).
+    # Mirrors ESMINI_RM_LIB's layout: the build copies it next to esminiRMLib.dll
+    # under DriverScript/bin/ (also present at build/GT_esmini/Release/).
+    GT_ESMINI_LIB = REPO_ROOT / "DriverScript" / "bin" / "GT_esminiLib.dll"
     SCENARIOS_DIR = REPO_ROOT / "resources" / "xosc"
     DRIVERSCRIPT_DIR = REPO_ROOT / "DriverScript"
     SCRIPTS_DIR = REPO_ROOT / "scripts"
+    GT_SCRIPTS_DIR = REPO_ROOT / "GT_esmini" / "scripts"
     CONFIG_DIR = REPO_ROOT / "GT_esmini" / "config"
     RESULTS_DIR = REPO_ROOT / "test_results" / "web"
+    ANNOTATIONS_DIR = REPO_ROOT / "test_results" / "annotations"
     PROJECTS_DIR = REPO_ROOT / "test_results" / "web" / "projects"
     TEMP_SCENARIOS_DIR = REPO_ROOT / "test_results" / "web" / "_temp_scenarios"
     TEMP_ROADS_DIR = REPO_ROOT / "test_results" / "web" / "_temp_roads"
     DB_PATH = REPO_ROOT / "GT_esmini" / "web" / "gt_sim.db"
     RESOURCES_DIR = REPO_ROOT / "resources"
 
-# Ensure scripts/ is importable
-if str(SCRIPTS_DIR) not in sys.path:
+# Ensure scripts/ is importable.
+# Each insert is guarded so the web server starts even if a directory is absent
+# (e.g. packaged layouts without DriverScript, or CI without DriverScript checkout).
+if SCRIPTS_DIR.is_dir() and str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-if str(DRIVERSCRIPT_DIR) not in sys.path:
+if GT_SCRIPTS_DIR.is_dir() and str(GT_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(GT_SCRIPTS_DIR))
+# DriverScript is frozen (dev-frozen v0.8). Only add to path when present so
+# import-time coupling cannot crash the server if the checkout is absent.
+if DRIVERSCRIPT_DIR.is_dir() and str(DRIVERSCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(DRIVERSCRIPT_DIR))
 
 # Python script scan directories (relative to REPO_ROOT/PACKAGE_ROOT)
@@ -115,6 +131,7 @@ HTTP_PORT = int(os.environ.get("GT_SIM_HTTP_PORT", "8000"))
 SV_LISTEN_PORT = int(os.environ.get("GT_SIM_SV_PORT", "48200"))
 SV_MULTICAST_GROUP = os.environ.get("GT_SIM_SV_MULTICAST_GROUP", "239.0.0.1")
 SV_MULTICAST_PORT = int(os.environ.get("GT_SIM_SV_MULTICAST_PORT", "48201"))
+VD_LISTEN_PORT = int(os.environ.get("GT_SIM_VD_PORT", "48202"))
 
 # Default execution parameters
 DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
@@ -127,6 +144,9 @@ DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "autolight": True,
     "vehicle_physics": True,
     "kinematic_mode": False,
+    "route_drive_mode": False,
+    "route_drive_timing": "normal",
+    "route_drive_gap": "normal",
     "threads": True,
     "window": {"x": 60, "y": 60, "w": 1280, "h": 720},
 }
@@ -201,4 +221,13 @@ def save_thresholds(data: dict[str, Any]) -> None:
     else:
         path = REPO_ROOT / "GT_esmini" / "test" / "comparison_thresholds.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    path.write_text(
+        yaml.dump(
+            data,
+            allow_unicode=True,
+            default_flow_style=False,
+            width=float("inf"),
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )

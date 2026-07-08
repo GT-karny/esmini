@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="0"
+               date="2026-05-26T10:00:00"
+               description="RouteDriveController Timing-knob demo. Route road0 lane -1 -> road1 lane -3 forces a change to a PERSISTENT lane (-3 exists from the road start), so Timing=Early changes far upstream while Late waits near the junction. Run with --route-drive-mode --kinematic-mode --route-drive-timing early|late."
+               author="GT_esmini"/>
+   <ParameterDeclarations/>
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../xosc/Catalogs/Vehicles"/>
+      </VehicleCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/highway_example_with_merge_and_split.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" s="10.0" offset="0.0"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="fastest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" s="10.0" offset="0.0"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="fastest">
+                              <Position>
+                                 <LanePosition roadId="1" laneId="-3" s="50.0" offset="0.0"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="15"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="Story"/>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="40" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

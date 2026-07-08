@@ -1,0 +1,16 @@
+catalog_id: straight_crosswalk_pedsig__mid
+kind: road
+geometry_type: G1S
+signage: ped_signal
+rule: RHT
+generator:
+  script: road_catalog/gen_straight_crosswalk.py
+  params:
+    road_len: 500.0
+    drive_lane_width: 3.5
+    sidewalk_width: 2.0
+    crosswalk_s: 250.0
+    crosswalk_half_s: 2.0
+    crosswalk_half_t: 4.0
+    ped_signal: true
+generated_at_commit: 2bb7b898

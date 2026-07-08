@@ -1,0 +1,35 @@
+{
+ "lane_boundary_count": 3,
+ "lane_count": 2,
+ "lanes": [
+  {
+   "centerline_points": 4,
+   "id": 0,
+   "subtype": 2,
+   "type": 2
+  },
+  {
+   "centerline_points": 4,
+   "id": 4,
+   "subtype": 2,
+   "type": 2
+  }
+ ],
+ "stationary_objects": {
+  "count": 1,
+  "types": {
+   "2": 1
+  }
+ },
+ "stationary_polygons": [
+  {
+   "base_polygon_points": 4,
+   "id": 6,
+   "type": 2,
+   "winding": "cw"
+  }
+ ],
+ "traffic_light_count": 0,
+ "traffic_light_ids": [],
+ "traffic_sign_count": 0
+}

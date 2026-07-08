@@ -159,6 +159,19 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API void GT_SetHostVehiclePowertrain(int vehicle_id, double rpm, double torque);
 
+    /**
+     * Set the active drive mode for the HVDEstimator (affects HVD reporting
+     * for vehicles that don't have a GT custom controller assigned).
+     *
+     * Built-in modes (loaded from real_vehicle_params.json shift_schedule.modes):
+     *   "comfort" - relaxed shift points, low RPM cruise (default)
+     *   "sport"   - high RPM shift points, kickdown bias, rev-match blip on downshift
+     *
+     * @param mode Mode name (case-sensitive, null-terminated)
+     * @return 0 on success, -1 if mode is unknown
+     */
+    GT_ESMINI_API int GT_SetDriveMode(const char* mode);
+
     // =====================================
     // Traffic Signal State API
     // =====================================
@@ -174,6 +187,35 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      * @return 0: success, -1: not found or not a traffic light
      */
     GT_ESMINI_API int GT_GetTrafficSignalState(int road_id, int index, char* state, int bufferSize);
+
+    /**
+     * Get VirtualDriver telemetry for a vehicle as a JSON string.
+     *
+     * Returns the aggregate VirtualDriverTelemetry (ego state, override flags,
+     * short-plan preview, driver-model diagnostics, indicator) serialized to
+     * JSON, so Web / Python / Electron can all read it without ABI marshaling.
+     *
+     * @param vehicle_id Vehicle (object) id assigned a VirtualDriverController
+     * @param out_json   Output buffer for the JSON string
+     * @param buf_size   Size of out_json
+     * @return Number of bytes written (excluding NUL), or -1 if the vehicle has
+     *         no VirtualDriverController / on error.
+     */
+    GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, int buf_size);
+
+    /**
+     * GT-flavored variant of SE_OpenOSISocket (auto-enables per-frame OSI frequency);
+     * core SE_OpenOSISocket is vanilla upstream (audit BND-2 / R5-U1).
+     *
+     * Opens the OSI groundtruth UDP socket. Unlike vanilla SE_OpenOSISocket, this
+     * forces the OSI frequency to 1 (send every frame) when it was left at 0, so the
+     * in-process verification harness emits OSI each GT_Step even without --osi <hz>.
+     *
+     * @param ipaddr Destination IP for the OSI groundtruth UDP stream
+     * @return 0 on success, -1 on failure (null player/osiReporter, OpenSocket error,
+     *         or _USE_OSI undefined)
+     */
+    GT_ESMINI_API int GT_OpenOSISocket(const char* ipaddr);
 
 #ifdef __cplusplus
 }

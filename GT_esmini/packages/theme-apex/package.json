@@ -13,7 +13,8 @@
     "./styles": "./src/styles/apex.css"
   },
   "scripts": {
-    "build": "tsc --project tsconfig.json",
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true});\"",
+    "build": "npm run clean && tsc --project tsconfig.json",
     "dev": "tsc --project tsconfig.json --watch"
   },
   "dependencies": {

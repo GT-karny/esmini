@@ -2,11 +2,6 @@
 
 set(TARGET_SHARED GT_esminiLib)
 set(TARGET_STATIC GT_esminiLib_static)
-set(GT_CORE_TARGET gt_core)
-set(GT_IO_TARGET gt_io)
-set(GT_SCENARIO_TARGET gt_scenario)
-set(GT_CONTROL_TARGET gt_control)
-set(GT_OSI_TARGET gt_osi)
 
 # ############################### Loading desired rules ##############################################################################################
 
@@ -30,30 +25,27 @@ if(NOT USE_OSG)
     set_osg_libs()
 endif()
 
-# PythonDriverController is mandatory for GT_esmini builds.
-# This option is intentionally removed to avoid producing non-PythonDriver binaries.
-if(DEFINED GT_ENABLE_EMBEDDED_PYTHON)
-    if(NOT GT_ENABLE_EMBEDDED_PYTHON)
-        message(FATAL_ERROR
-            "GT_ENABLE_EMBEDDED_PYTHON option is removed. "
-            "PythonDriverController support is always enabled and cannot be configured.")
-    endif()
-    # Clean up legacy cache entries from older build trees.
-    unset(GT_ENABLE_EMBEDDED_PYTHON CACHE)
-    unset(GT_ENABLE_EMBEDDED_PYTHON)
-endif()
+# Embedded-Python PythonDriverController stack (v0.8-frozen feature).
+# OFF by default: dev builds need no Python3 dev headers and produce no python312.dll
+# dependency. Distribution packages keep the frozen stack — scripts/build_package.ps1
+# configures with -DGT_ENABLE_EMBEDDED_PYTHON=ON explicitly.
+option(GT_ENABLE_EMBEDDED_PYTHON "Build the frozen embedded-Python PythonDriverController stack (requires Python3 dev headers)" OFF)
 
-# Prefer bundled embeddable Python (primarily on Windows).
-set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
-if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
-    set(Python3_ROOT_DIR "${GT_EMBEDDED_PYTHON_HOME}" CACHE PATH "Embedded Python root")
-    set(Python3_FIND_STRATEGY LOCATION)
-    set(Python3_FIND_REGISTRY NEVER)
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    # Prefer bundled embeddable Python (primarily on Windows).
+    set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-3.12.10-embed-amd64")
+    if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+        set(Python3_ROOT_DIR "${GT_EMBEDDED_PYTHON_HOME}" CACHE PATH "Embedded Python root")
+        set(Python3_FIND_STRATEGY LOCATION)
+        set(Python3_FIND_REGISTRY NEVER)
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Development)
+    message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, version ${Python3_VERSION})")
+    message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
+    message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
+else()
+    message(STATUS "GT_esmini: Embedded Python (PythonDriverController) DISABLED — frozen stack excluded")
 endif()
-find_package(Python3 REQUIRED COMPONENTS Development)
-message(STATUS "GT_esmini: Embedded Python enabled (${Python3_EXECUTABLE}, version ${Python3_VERSION})")
-message(STATUS "GT_esmini: Python include: ${Python3_INCLUDE_DIRS}")
-message(STATUS "GT_esmini: Python library: ${Python3_LIBRARIES}")
 
 # ############################### Optional: SDL2 for racing wheel FFB support ########################################################################
 
@@ -70,17 +62,20 @@ endif()
 set(GT_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/GT_esminiLib.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/GT_esminiRMLib.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/ConfigLoader.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/ConfigLoader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/IdleJitter.cpp)
 
 set(GT_CORE_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/GT_esminiLib.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/GT_esminiRMLib.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/ConfigLoader.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IConfigLoader.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IConfigLoader.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/core/IdleJitter.hpp)
 
 set(GT_IO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_UDP.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_ScenarioVariablesReporter.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_ScenarioVariablesReporter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GT_VirtualDriverReporter.cpp)
 
 set(GT_IO_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/io/GT_UDP.hpp
@@ -90,6 +85,7 @@ set(GT_SCENARIO_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraAction.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraCondition.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/ExtraEntities.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/VehicleLightBridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/GT_ScenarioReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/scenario/TrafficSignalController.cpp)
 
@@ -97,6 +93,7 @@ set(GT_SCENARIO_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraAction.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraCondition.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/ExtraEntities.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/VehicleLightBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/GT_ScenarioReader.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/scenario/TrafficSignalController.hpp)
 
@@ -108,19 +105,33 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/LatPathPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/LonProfilePlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/RealDriverCoordinator.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/TerrainTracker.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/DriverInputReceiver.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehicleStateUpdater.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/EsminiStateApplier.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControlDecisionEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ObservedVehiclePhysics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/VehiclePhysicsManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/HeadingCorrectionManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerKinematic.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerRouteDrive.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerManualDrive.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerVirtualDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/TrajectoryShortPlanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/PIDPurePursuitDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteSignalScan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteCrosswalkScan.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/LeadVehicleAware.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/TrafficLightAware.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/StopYieldSignAware.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/ConflictPointResolver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/CrosswalkPedestrianAware.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ModuleDirectory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/RealVehicleBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/EngineModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AutoTransmission.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveCoordinator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/UdpTransport.cpp
@@ -137,26 +148,50 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/LatPathPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/LonProfilePlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/realdriver/RealDriverCoordinator.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/TerrainTracker.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/DriverInputReceiver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehicleStateUpdater.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/EsminiStateApplier.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControlDecisionEngine.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ObservedVehiclePhysics.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/VehiclePhysicsManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/HeadingCorrectionManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerKinematic.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerManualDrive.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerVirtualDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/VirtualDriverConfig.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveTypes.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IInputSource.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IPhysicsBackend.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/IFFBSink.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ITransport.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NullFFBSink.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/StubInputSource.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveConfig.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/OverrideManager.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/EngineModel.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AutoTransmission.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/ShiftLogic.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/VehicleCommand.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/PhysicsInitParams.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/IPhysicsBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/JunctionTurn.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/ModuleDirectory.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/RealVehicleBackend.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/TransitionDynamics.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/common/SimpleJson.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IShortPlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IDriverModel.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IMidLongPlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ITrafficPolicy.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IIndicatorPolicy.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/RouteSignalScan.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/RouteCrosswalkScan.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp
@@ -164,23 +199,27 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkInputBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp)
 
-# Embedded Python controller sources (always enabled)
-list(APPEND GT_CONTROL_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerPythonDriver.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverBridge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverCoordinator.cpp)
-list(APPEND GT_CONTROL_HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+# Embedded Python controller sources (conditional on GT_ENABLE_EMBEDDED_PYTHON)
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    list(APPEND GT_CONTROL_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerPythonDriver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverBridge.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/pythondriver/PythonDriverCoordinator.cpp)
+    list(APPEND GT_CONTROL_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerPythonDriver.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverBridge.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/pythondriver/PythonDriverCoordinator.hpp)
+endif()
 
 # SDL2 racing wheel sources (conditional)
 if(GT_ENABLE_SDL2)
     list(APPEND GT_CONTROL_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDL2WheelInput.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDL2KeyboardInput.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SDLFFBSink.cpp)
     list(APPEND GT_CONTROL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDL2WheelInput.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SDLFFBSink.hpp)
 endif()
 
@@ -195,19 +234,10 @@ set(GT_OSI_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/HVDEstimator.hpp)
 
 # ############################### Creating library ##################################################################################################
-add_library(${GT_CORE_TARGET} STATIC ${GT_CORE_SOURCES} ${GT_CORE_HEADERS})
-add_library(${GT_IO_TARGET} STATIC ${GT_IO_SOURCES} ${GT_IO_HEADERS})
-add_library(${GT_SCENARIO_TARGET} STATIC ${GT_SCENARIO_SOURCES} ${GT_SCENARIO_HEADERS})
-add_library(${GT_CONTROL_TARGET} STATIC ${GT_CONTROL_SOURCES} ${GT_CONTROL_HEADERS})
-add_library(${GT_OSI_TARGET} STATIC ${GT_OSI_SOURCES} ${GT_OSI_HEADERS})
-
-set(GT_INTERNAL_TARGETS
-    ${GT_CORE_TARGET}
-    ${GT_IO_TARGET}
-    ${GT_SCENARIO_TARGET}
-    ${GT_CONTROL_TARGET}
-    ${GT_OSI_TARGET})
-
+# NOTE: the former per-module static libs (gt_core/gt_io/gt_scenario/gt_control/gt_osi)
+# were removed (audit BLD-4): nothing consumed them and every GT source was compiled
+# three times (gt_* + GT_esminiLib + GT_esminiLib_static). The module split lives on in
+# the GT_*_SOURCES variables.
 add_library(${TARGET_SHARED} SHARED)
 add_library(${TARGET_STATIC} STATIC)
 
@@ -227,7 +257,7 @@ set_target_properties(
 target_compile_definitions(${TARGET_STATIC} PRIVATE GT_ESMINI_STATIC _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 target_compile_definitions(${TARGET_SHARED} PRIVATE _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
 
-foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC})
+foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 
     target_link_libraries(${TARGET} PRIVATE project_options)
 
@@ -268,36 +298,11 @@ foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS} ${TARGET_SHARED} ${TARGET_STATIC}
 
 endforeach()
 
-foreach(TARGET IN ITEMS ${GT_INTERNAL_TARGETS})
-    target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
-endforeach()
-
 target_include_directories(${TARGET_SHARED} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(${TARGET_STATIC} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(${GT_IO_TARGET} PRIVATE ${GT_CORE_TARGET} ${SOCK_LIB})
-target_include_directories(${GT_IO_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
-target_link_libraries(${GT_SCENARIO_TARGET} PRIVATE ${GT_CORE_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
-target_link_libraries(${GT_CONTROL_TARGET} PRIVATE
-    ${GT_CORE_TARGET}
-    ${GT_IO_TARGET}
-    ${GT_SCENARIO_TARGET}
-    PlayerBase
-    ScenarioEngine
-    CommonMini
-    Controllers
-    RoadManager
-    ${TIME_LIB}
-    ${SOCK_LIB})
-target_link_libraries(${GT_OSI_TARGET} PRIVATE ${GT_CORE_TARGET} ${GT_SCENARIO_TARGET} ScenarioEngine CommonMini RoadManager ${TIME_LIB} ${SOCK_LIB})
-if(USE_OSG)
-    target_link_libraries(${GT_CONTROL_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
-    target_link_libraries(${GT_OSI_TARGET} PRIVATE ViewerBase RoadGeom ${OSG_LIBRARIES})
-endif()
-
 if(GT_ENABLE_SDL2)
-    foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${GT_CORE_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
+    foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
         target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_SDL2)
         target_link_libraries(${TARGET} PRIVATE SDL2::SDL2)
     endforeach()
@@ -363,18 +368,16 @@ if(USE_OSI)
     target_link_libraries(${TARGET_STATIC} PRIVATE ${OSI_LIBRARIES})
 endif()
 
-foreach(TARGET IN ITEMS ${GT_CONTROL_TARGET} ${TARGET_SHARED} ${TARGET_STATIC})
-    target_link_libraries(${TARGET} PRIVATE Python3::Python)
-    target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
-    if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
-        target_compile_definitions(${TARGET} PRIVATE GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
-    endif()
-endforeach()
-# Also add compile definition to gt_core (for GT_esminiLib.cpp registration)
-target_compile_definitions(${GT_CORE_TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
+if(GT_ENABLE_EMBEDDED_PYTHON)
+    foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
+        target_link_libraries(${TARGET} PRIVATE Python3::Python)
+        target_compile_definitions(${TARGET} PRIVATE GT_ENABLE_EMBEDDED_PYTHON)
+        if(EXISTS "${GT_EMBEDDED_PYTHON_HOME}")
+            target_compile_definitions(${TARGET} PRIVATE GT_EMBEDDED_PYTHON_HOME="${GT_EMBEDDED_PYTHON_HOME}")
+        endif()
+    endforeach()
+endif()
 # Add esminiLib include path for SE_GetOSIGroundTruth / SE_GetODRFilename
-target_include_directories(${GT_CONTROL_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
 target_include_directories(${TARGET_SHARED} PRIVATE
     ${CMAKE_SOURCE_DIR}/EnvironmentSimulator/Libraries/esminiLib)
 target_include_directories(${TARGET_STATIC} PRIVATE
@@ -432,6 +435,54 @@ if(BUILD_EXAMPLES)
         TARGETS ${GT_SIM_TARGET}
         DESTINATION "${CODE_EXAMPLES_BIN_PATH}")
 endif(BUILD_EXAMPLES)
+
+# ############################### GT_RoadGen Executable ############################################################################################
+# Standalone, per-road MULTITHREADED OpenDRIVE -> .osgb road-surface generator.
+# GT_Sim invokes it (cache-keyed by xodr hash) and injects the result via --model so the
+# core viewer skips its slow single-threaded road-mesh generation.
+# Isolated target: it does NOT link the core RoadGeom/ViewerBase libs, so the forked
+# `roadgeom` namespace in GT_RoadGeom.* cannot clash with upstream.
+if(USE_OSG)
+    find_package(Threads REQUIRED)
+
+    set(GT_ROADGEN_TARGET GT_RoadGen)
+    add_executable(${GT_ROADGEN_TARGET}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_RoadGeom.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_trafficlightmodel.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_RoadGen_main.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_RoadGeom.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen/GT_trafficlightmodel.hpp)
+
+    set_target_properties(${GT_ROADGEN_TARGET} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+    # OSG_LIBRARY_STATIC: roadgeom.cpp statically registers OSG plugins (USE_OSGPLUGIN/serializers).
+    target_compile_definitions(${GT_ROADGEN_TARGET} PRIVATE OSG_LIBRARY_STATIC _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOGDI)
+
+    target_include_directories(${GT_ROADGEN_TARGET} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/roadgen
+        ${COMMON_MINI_PATH})
+    target_include_directories(${GT_ROADGEN_TARGET} SYSTEM PRIVATE
+        ${ROAD_MANAGER_PATH}
+        ${EXTERNALS_OSG_INCLUDES}
+        ${EXTERNALS_PUGIXML_PATH}
+        ${EXTERNALS_FMT_INCLUDES})
+
+    target_link_libraries(${GT_ROADGEN_TARGET} PRIVATE
+        RoadManager
+        CommonMini
+        Threads::Threads
+        ${TIME_LIB}
+        ${SOCK_LIB})
+    if(USE_OSG)
+        target_link_libraries(${GT_ROADGEN_TARGET} PRIVATE ${OSG_LIBRARIES})
+    endif()
+
+    disable_iwyu(${GT_ROADGEN_TARGET})
+
+    install(
+        TARGETS ${GT_ROADGEN_TARGET}
+        DESTINATION "${INSTALL_PATH}")
+endif()
 
 # ############################### Config Copy (dev build) ##########################################################################################
 # Copy GT_esmini/config/ → build/GT_esmini/config/ (sibling of Release/)

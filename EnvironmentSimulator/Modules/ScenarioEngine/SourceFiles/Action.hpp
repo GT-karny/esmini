@@ -44,6 +44,8 @@ namespace scenarioengine
             SYNCHRONIZE_ACTION        = 17,
             CONNECT_TRAILER_ACTION    = 18,
             DISCONNECT_TRAILER_ACTION = 19,
+            LIGHT_STATE_ACTION        = 20,
+            RANDOM_ROUTE_ACTION       = 21,
 
             // Global actions
             GLOBAL_ACTION_BASE_INDEX = 30,

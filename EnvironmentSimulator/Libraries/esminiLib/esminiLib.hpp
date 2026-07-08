@@ -77,6 +77,12 @@ typedef struct
     // not existing.
 } SE_WheelData;
 
+typedef struct
+{
+    int  light_mode;  // 0 (off), 1 (on), 2 (flashing), 3 (unknown)
+    bool emitting;    // Is the lamp emitting light or not
+} SE_LightState;
+
 // asciidoc tag::SE_RoadInfo_struct[]
 typedef struct
 {
@@ -333,6 +339,7 @@ typedef enum
     SE_GHOST_TRAIL_NO_VERTICES = -2,  // ghost trail trajectory has no vertices
     SE_GHOST_TRAIL_TIME_PRIOR  = -3,  // given time < first timestamp in trajectory, snapped to start of trajectory
     SE_GHOST_TRAIL_TIME_PAST   = -4,  // given time > last timestamp in trajectory, snapped to end of trajectory
+    SE_GHOST_TRAIL_DIST_PAST   = -5,  // given distance > last vertex in trajectory, snapped to end of trajectory
 } SE_GhostTrailReturnCode;            // mirror roadmanager::GhostTrailReturnCode
 
 typedef enum
@@ -343,6 +350,24 @@ typedef enum
     REL_DIST_CARTESIAN    = 3,
     REL_DIST_EUCLIDIAN    = 4
 } SE_RelativeDistanceType;
+
+typedef enum
+{
+    DAYTIME_RUNNING_LIGHTS     = 0,
+    LOW_BEAM                   = 1,
+    HIGH_BEAM                  = 2,
+    FOG_LIGHTS                 = 3,
+    FOG_LIGHTS_FRONT           = 4,
+    FOG_LIGHTS_REAR            = 5,
+    BRAKE_LIGHTS               = 6,
+    WARNING_LIGHTS             = 7,
+    INDICATOR_LEFT             = 8,
+    INDICATOR_RIGHT            = 9,
+    REVERSING_LIGHTS           = 10,
+    TAIL_LIGHTS                = 11,
+    LICENSE_PLATE_ILLUMINATION = 12,
+    SPECIAL_PURPOSE_LIGHTS     = 13,
+} SE_VehicleLightType;
 
 typedef enum
 {
@@ -1101,6 +1126,15 @@ extern "C"
     SE_DLL_API int SE_GetObjectState(int object_id, SE_ScenarioObjectState *state);
 
     /**
+            Get the light state of specified object
+            @param object_id Id of the object
+            @param light_type Enum specifying the type of light to get the state of
+            @param light_state Pointer/reference to a SE_LightState struct to be filled in
+            @return 0 if successful, -1 if not
+    */
+    SE_DLL_API int SE_GetObjectLightState(int object_id, SE_VehicleLightType light_type, SE_LightState *light_state);
+
+    /**
             Get the object route status
             @param object_id Id of the object
             @return 0 if route not assigned, 1 if outside assigned route, 2 if on assigned route, -1 on error
@@ -1120,12 +1154,27 @@ extern "C"
     SE_DLL_API int SE_GetObjectInLaneType(int object_id);
 
     /**
+            Check if lane change is possible for specified object based on number of drivable lanes
+            and road mark (line type) restrictions. A lane change direction is only reported as
+            possible when a neighboring driving lane exists AND the road mark on the boundary
+            allows crossing in that direction (e.g. broken line or laneChange="both"/"increase"/"decrease").
+            If the object is not currently in a driving lane, returns 0 (no lane change possible).
+            @param object_id Id of the object
+            @return 0 = no lane change possible (including when object is not in a driving lane),
+                    1 = lane change to the left is possible,
+                    2 = lane change to the right is possible,
+                    3 = lane change to both left and right is possible,
+                   -1 = error (e.g. invalid object or missing road)
+    */
+    SE_DLL_API int SE_ObjectCanChangeLanes(int object_id);
+
+    /**
             Get the overrideActionStatus of specified object
-            @param objectId Id of the object
+            @param object_id Id of the object
             @param list Pointer/reference to a SE_OverrideActionList struct to be filled in
             @return 0 if successful, -1 if not
     */
-    SE_DLL_API int SE_GetOverrideActionStatus(int objectId, SE_OverrideActionList *list);
+    SE_DLL_API int SE_GetOverrideActionStatus(int object_id, SE_OverrideActionList *list);
 
     /**
             Get the type name of the specifed vehicle-, pedestrian- or misc object
@@ -1157,7 +1206,7 @@ extern "C"
 
     /**
             Get ID of the ghost associated with given object
-            @param object_id Id of the ghost object
+            @param object_id Id of the object to which the ghost is attached
             @return ghost object ID, -1 if ghost does not exist for given object
     */
     SE_DLL_API int SE_GetObjectGhostId(int object_id);
@@ -1596,7 +1645,7 @@ extern "C"
 
     /**
             The SE_GetOSILaneBoundaryIds function the global ids for left, far left, right and far right lane boundaries
-            @param object_id Handle to the object to which the sensor should be attached
+            @param object_id Id of the object
             @param ids Reference to a struct which will be filled with the Ids
     */
     SE_DLL_API void SE_GetOSILaneBoundaryIds(int object_id, SE_LaneBoundaryId *ids);

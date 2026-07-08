@@ -1,0 +1,22 @@
+scenario: follow_stop_and_go
+category: 06_lead_vehicle
+# Requires OSI capture (batch osi:true). Lead stops at t=6s and resumes at t=15s.
+# The ego must stop behind it and re-accelerate. Pre-Phase-3a the ego does not
+# react and rams the stopped lead -> THW collapses (FAIL). speed_below confirms
+# the ego comes to (near) a stop behind the lead; speed_above confirms it gets
+# going again after the lead resumes.
+must:
+  - event: maintained_following_distance
+    min_thw: 0.5
+    percentile: 10
+    after: { sim_time: 6.0 }
+    reason: "停止・再発進する先行車に対し安全車間を維持(追突しない)"
+  - event: speed_below
+    threshold: 2.0
+    after: { sim_time: 14.0 }   # ego has settled to a near-stop behind the stopped lead
+    before: { sim_time: 16.0 }
+    reason: "先行車の停止に合わせてほぼ停止する(クロール)"
+  - event: speed_above
+    threshold: 5.0
+    after: { sim_time: 22.0 }
+    reason: "先行車の再発進に合わせて再加速する"

@@ -1,0 +1,10 @@
+{
+    "winker_lead_time": 2.0,
+    "lane_change_time": 4.0,
+    "min_dist_for_collision": 10.0,
+    "timing": "normal",
+    "gap": "normal",
+    "look_ahead_dist": 200.0,
+    "gap_comfort_distance": 25.0,
+    "debug_log": false
+}

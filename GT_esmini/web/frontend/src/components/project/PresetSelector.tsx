@@ -4,6 +4,7 @@ import { api, type ParameterPreset } from '../../api/client';
 import { TextInput } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { usePresetWatcher } from '../../hooks/usePresetWatcher';
 
 interface PresetSelectorProps {
   projectId: string;
@@ -12,6 +13,7 @@ interface PresetSelectorProps {
   currentValues: Record<string, string>;
   defaultValues: Record<string, string>;
   onLoad: (values: Record<string, string>) => void;
+  disabled?: boolean;
 }
 
 export function PresetSelector({
@@ -21,6 +23,7 @@ export function PresetSelector({
   currentValues,
   defaultValues,
   onLoad,
+  disabled = false,
 }: PresetSelectorProps) {
   const queryClient = useQueryClient();
   const [activePresetId, setActivePresetId] = useState<string | null>(null); // null = "Default"
@@ -31,6 +34,33 @@ export function PresetSelector({
 
   const invalidatePresets = () =>
     queryClient.invalidateQueries({ queryKey: ['presets', projectId, scenarioFile] });
+
+  // External edit watcher: shows banner; Reload re-applies the active preset
+  // (or scenario defaults) using the freshly fetched values.
+  const { externalChangePending, reload: clearWatcherFlag } = usePresetWatcher({
+    projectId,
+    scenarioFile,
+  });
+
+  const handleReloadFromFile = async () => {
+    clearWatcherFlag();
+    const fresh = await queryClient.fetchQuery({
+      queryKey: ['presets', projectId, scenarioFile],
+      queryFn: () => api.getPresets(projectId, scenarioFile),
+    });
+    if (activePresetId === null) {
+      onLoad(defaultValues);
+      return;
+    }
+    const target = fresh.find((p) => p.preset_id === activePresetId);
+    if (target) {
+      onLoad({ ...defaultValues, ...target.values });
+    } else {
+      // Active preset was deleted externally — fall back to defaults.
+      setActivePresetId(null);
+      onLoad(defaultValues);
+    }
+  };
 
   const createMut = useMutation({
     mutationFn: () => api.createPreset(projectId, scenarioFile, newName.trim(), currentValues),
@@ -88,11 +118,29 @@ export function PresetSelector({
   };
 
   const handleSaveNew = () => {
+    if (disabled) return;
     if (newName.trim()) createMut.mutate();
   };
 
+  if (disabled) {
+    return null;
+  }
+
   return (
     <div className="mb-3">
+      {/* External edit notification */}
+      {externalChangePending && (
+        <div className="mb-2 px-2 py-1.5 bg-warning/10 border border-warning/40 text-[10px] text-warning flex items-center justify-between gap-2">
+          <span>Preset file changed externally.</span>
+          <button
+            onClick={handleReloadFromFile}
+            className="px-1.5 py-0.5 text-[10px] bg-warning/20 hover:bg-warning/30 text-warning cursor-pointer"
+          >
+            Reload
+          </button>
+        </div>
+      )}
+
       {/* Tabs row */}
       <div className="flex items-center gap-0.5 flex-wrap border-b border-glass-edge mb-2">
         {/* Default tab */}

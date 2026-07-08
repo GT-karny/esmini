@@ -503,7 +503,7 @@ if ($videoEnabledEffective -and $videoJobs.Count -gt 0) {
         }
     }
     elseif ($GenerateVideoFor -eq "fail_only") {
-        & $PythonExe scripts/validate_realdriver_feature_results.py --matrix $MatrixPath --thresholds $ThresholdPath --run-dir $runDir --golden-root $GoldenRoot
+        & $PythonExe archive/frozen_python_verification/scripts/validate_realdriver_feature_results.py --matrix $MatrixPath --thresholds $ThresholdPath --run-dir $runDir --golden-root $GoldenRoot
         $preSummaryPath = Join-Path $runDir "summary.json"
         if (Test-Path $preSummaryPath) {
             $preSummary = Get-Content -Raw -Path $preSummaryPath | ConvertFrom-Json
@@ -616,7 +616,7 @@ if ($videoEnabledEffective -and $videoJobs.Count -gt 0) {
     }
 }
 
-& $PythonExe scripts/validate_realdriver_feature_results.py --matrix $MatrixPath --thresholds $ThresholdPath --run-dir $runDir --golden-root $GoldenRoot @u
+& $PythonExe archive/frozen_python_verification/scripts/validate_realdriver_feature_results.py --matrix $MatrixPath --thresholds $ThresholdPath --run-dir $runDir --golden-root $GoldenRoot @u
 $validateExit = $LASTEXITCODE
 & $PythonExe scripts/render_realdriver_report.py --run-dir $runDir
 Write-Host "[RealDriver] Completed. Report: $runDir/report.html"

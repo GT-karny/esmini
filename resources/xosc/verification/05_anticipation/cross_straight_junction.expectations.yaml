@@ -1,0 +1,28 @@
+scenario: cross_straight_junction
+category: 05_anticipation
+# No Default baseline: mid/long judgment is from VirtualDriver telemetry only.
+# Inverse of decelerate_for_right_turn: the ego drives STRAIGHT through the same
+# junction (road 3 lane -1 -> connecting road 12 -> road 1 lane -1). Connecting
+# road 12 is nearly straight (turnRate ~0.003 rad/m << SHARP_TURN_RATE 0.04), so
+# the ManeuverAwareSpeedPlanner must NOT cap it at turn_speed and must NOT emit a
+# "junction" constraint. Pre-fix (P2 issue 1) both checks FAIL (blanket junction
+# cap to 5 m/s); post-fix they pass (the ego keeps cruising through).
+must:
+  - event: no_constraint_kind
+    kind: junction
+    after: { sim_time: 1.0 }   # skip the very first frame(s) settling
+    reason: "A straight pass-through connecting road must not raise a junction constraint"
+  - event: min_speed_above
+    threshold: 10.0            # cruise 13.889; turn_speed cap (the bug) is 5.0
+    road_id: 12                # only while on the junction connecting road
+    after: { sim_time: 1.0 }
+    reason: "No over-deceleration crossing a junction the ego drives straight through"
+notes: >
+  Geometry: route road3(lane -1) -> fabriksgatan junction connecting road 12 ->
+  road1(lane -1). Connecting road 12 is a paramPoly3 with ~zero curvature, so both
+  the curvature ceiling (v_curve ~26 m/s) and the (now turn-gated) junction cap
+  leave cruise untouched. Discriminators: no_constraint_kind:junction +
+  min_speed_above on road 12. Pre-Phase-2-fix the planner caps the connector to
+  5 m/s and pins a junction constraint; post-fix neither happens. The companion
+  decelerate_for_right_turn scenario asserts the opposite (a real turn still slows),
+  so the pair brackets the turn-vs-straight gate.

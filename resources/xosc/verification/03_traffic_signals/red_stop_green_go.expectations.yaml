@@ -1,0 +1,19 @@
+scenario: red_stop_green_go
+category: 03_traffic_signals
+# Requires OSI capture (batch osi:true) so signal phase is available for
+# require_red. Judgment: the ego stops at the stop line while red, then resumes
+# on green. Pre-Phase-3b (no TrafficLightAware policy) the ego runs the red and
+# stopped_at_signal correctly FAILS — this is the discriminator for 3b.
+must:
+  - event: stopped_at_signal
+    signal_id: 1
+    road_id: 3
+    s_range: [96, 110]       # stop line at signal s=109 on road 3
+    min_duration: 1.0        # holds a full stop while red (red lasts to t=13s)
+    stop_speed: 0.3
+    require_red: true        # confirm signal 1 was red at stop onset (OSI)
+    reason: "赤信号で停止線手前に完全停止"
+  - event: speed_above
+    threshold: 5.0
+    after: { sim_time: 20.0 }
+    reason: "青に変わって発進(緑 t=18s 以降)"

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="8" name="03_dynamic_signal_demote_18" version="1.00" date="2026-07-02T00:00:00" north="0.0" south="0.0" east="0.0" west="0.0"/>
+    <road name="main" length="150.0" id="1" junction="-1">
+        <link/>
+        <type s="0.0" type="town">
+            <speed max="50" unit="km/h"/>
+        </type>
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="150.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneOffset s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false">
+                        <link/>
+                        <roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="0.12" laneChange="both"/>
+                    </lane>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <link/>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <objects/>
+        <signals>
+            <!-- (a) dynamic + alpha-2 country "DE" + explicit countryRevision: 1.8 idiom.
+                 Pre-P3: static Signal (country != "opendrive" -> gate false).
+                 Since [GT_ODR:tl-gate] (P3): TrafficLight (dynamic=yes is the sole gate input). -->
+            <signal s="30.0" t="-4.0" id="1" name="tl_de_2021" dynamic="yes" orientation="-" zOffset="5.0"
+                    country="DE" countryRevision="2021" type="1000001" subtype="-1" height="0.5" width="0.4"/>
+            <!-- (b) dynamic + country "OpenDRIVE" WITH explicit countryRevision="2021": DEMOTE reproduction
+                 (breakage #1). Pre-P3: static Signal (P1 honored the explicit 2021, 2021<2013 false).
+                 Since [GT_ODR:tl-gate] (P3): TrafficLight. -->
+            <signal s="70.0" t="-4.0" id="2" name="tl_odr_2021" dynamic="yes" orientation="-" zOffset="5.0"
+                    country="OpenDRIVE" countryRevision="2021" type="1000001" subtype="-1" height="0.5" width="0.4"/>
+            <!-- (c) dynamic + country "OpenDRIVE" WITHOUT countryRevision (control): TrafficLight both
+                 pre-P3 (absent => 0 < 2013) and post-P3 (dynamic). Anchors the no-flip control case. -->
+            <signal s="110.0" t="-4.0" id="3" name="tl_odr_absent" dynamic="yes" orientation="-" zOffset="5.0"
+                    country="OpenDRIVE" type="1000001" subtype="-1" height="0.5" width="0.4"/>
+        </signals>
+    </road>
+</OpenDRIVE>

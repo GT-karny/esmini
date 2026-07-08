@@ -40,9 +40,9 @@ public:
      * Initialize HostVehicleData reporter
      * @param udp_port UDP port for transmission (default: 48199)
      * @param config_file Path to configuration JSON file
-     * @param target_ip Target IP address for transmission (default: "127.0.0.1")
+     * @param target_ip Target IP address override. Empty means use config/default.
      */
-    void Init(int udp_port = 48199, const std::string& config_file = "", const std::string& target_ip = "127.0.0.1");
+    void Init(int udp_port = 48199, const std::string& config_file = "", const std::string& target_ip = "");
 
     /**
      * Load configuration from JSON file

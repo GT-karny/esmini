@@ -90,6 +90,17 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 | [RoadManager API](reference/rm_lib_reference.md) | Python RM ライブラリ |
 | [配布ガイド](reference/distribution_guide.md) | リリースパッケージ構成 |
 
+## 開発計画 (Planning)
+
+| ドキュメント | 内容 |
+|:---|:---|
+| [技術的負債監査 & ロードマップ](tech_debt_audit_2026-06.md) | 2026-06 監査99件・リファクタ(R0〜R5)・機能開発(F1〜F6)ロードマップと進捗 |
+| [新機能提案(多視点分析)](feature_proposals_2026-06.md) | ADAS/SiL・HMI/DiL・V&V・実データ・credibility 等9視点による45提案と優先度 |
+| [OpenDRIVE 1.6–1.9 対応ステータス表](opendrive_16_19_support.md) | **✅ プログラム完了(2026-07-05)**。クラスタ×レベル対応表+**課題(保留台帳=再開情報付き)**+既知債。課題を探すならここ |
+| [GT_RoadManager パッチ台帳](gt_roadmanager_patches.md) | フォーク/第2種パッチの機械真実源(census/予算 — スクリプト・ctest が参照) |
+| [upstream resync チェックリスト](odr_resync_checklist.md) | 本家esmini更新時のパッチ再適用手順(運用文書) |
+| [ODR 1.6-1.9 プログラム経緯アーカイブ](archive/odr_1619_program/README.md) | 完了済み計画書・P6設計書・監査等の凍結文書 |
+
 ## トラブルシューティング
 
 - [トラブルシューティング](troubleshooting.md) - よくある問題と解決方法

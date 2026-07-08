@@ -13,6 +13,7 @@
 #undef Object
 #endif
 #include "gt_esmini/control/AutoLightController.hpp"
+#include "gt_esmini/control/ControllerRouteDrive.hpp"  // CONTROLLER_TYPE_ROUTE_DRIVE
 #include <cmath>
 #include <algorithm>
 
@@ -60,6 +61,11 @@ namespace gt_esmini
             return;
         }
 
+        // R5-U3: advance the GT blink ticker EVERY frame (before the frequency limit) so
+        // GT-written FLASHING lights (indicators) animate smoothly in the viewer / .dat.
+        simClock_ += dt;
+        lightExt_->Tick(simClock_, dt);
+
         // Frequency Limiting
         timeSinceLastUpdate_ += dt;
         if (timeSinceLastUpdate_ < UPDATE_INTERVAL)
@@ -83,7 +89,12 @@ namespace gt_esmini
         // Update state
         prevSpeed_ = speed;
         prevLaneId_ = vehicle_->pos_.GetLaneId();
-        prev_t_ = vehicle_->pos_.GetOffset();
+        // Store prev_t_ in vehicle-frame (vehicle-left positive) so t_dot is
+        // consistent across calls regardless of road s-direction. GetOffset()
+        // alone is in road t-frame and flips sign for against-s driving.
+        const double sign_drive_post =
+            (vehicle_->pos_.GetDrivingDirectionRelativeRoad() < 0) ? -1.0 : 1.0;
+        prev_t_ = vehicle_->pos_.GetOffset() * sign_drive_post;
         
         // Reset timer
         timeSinceLastUpdate_ = 0.0;
@@ -254,11 +265,44 @@ namespace gt_esmini
             return;
         }
 
+        // RouteDriveController owns the turn signals (lane change + junction turn) while
+        // it is actively following a route. Hands off here so the two controllers don't
+        // both write the indicators (AutoLight runs last and would otherwise overwrite
+        // RouteDrive's intent — sometimes with a wrong direction). When no route is
+        // assigned, RouteDrive does not manage indicators, so AutoLight stays in control.
+        const bool routeDriveOwnsIndicators =
+            vehicle_->IsAnyActiveControllerOfType(
+                static_cast<scenarioengine::Controller::Type>(gt_esmini::CONTROLLER_TYPE_ROUTE_DRIVE)) &&
+            vehicle_->pos_.GetRoute() != nullptr;
+        if (routeDriveOwnsIndicators)
+        {
+            // Reset the FSM so AutoLight resumes cleanly once the route ends / RouteDrive
+            // deactivates. prev_t_ / prevLaneId_ keep updating in Update(), so t_dot stays
+            // continuous on resume.
+            indicatorState_    = IndicatorState::OFF;
+            indicatorTimer_    = 0.0;
+            prepareTimerLeft_  = 0.0;
+            prepareTimerRight_ = 0.0;
+            prepareOffTimer_   = 0.0;
+            centerHoldTimer_   = 0.0;
+            lastJunctionId_    = vehicle_->pos_.GetJunctionId();  // avoid spurious just-exited-junction trigger
+            return;  // leave indicator output to RouteDrive's ApplyIndicator
+        }
+
         // Inputs
         double steer = vehicle_->GetWheelAngle(); // Radians (Positive Left)
         id_t junctionId = vehicle_->pos_.GetJunctionId();
         int currentLaneId = vehicle_->pos_.GetLaneId();
-        double t = vehicle_->pos_.GetOffset(); // Lane Center Offset (Positive Left)
+        // GetOffset() is in road t-frame (+t = road-left in s direction).
+        // For vehicles driving against s, +t equals vehicle-RIGHT, so the
+        // raw value cannot be used as "vehicle-left positive". Multiply by
+        // GetDrivingDirectionRelativeRoad() (-1 when against s) to get the
+        // vehicle-frame lateral position. Same factor is applied to laneId
+        // diff in the post-LC fallback below so all four cases (RHT/LHT
+        // forward/against-s) collapse to "+ = vehicle-left".
+        const double sign_drive =
+            (vehicle_->pos_.GetDrivingDirectionRelativeRoad() < 0) ? -1.0 : 1.0;
+        double t = vehicle_->pos_.GetOffset() * sign_drive; // vehicle-left positive
         
         // [User Request] Immediate Cancellation on Junction Exit
         bool justExitedJunction = (lastJunctionId_ != -1 && junctionId == -1);
@@ -323,9 +367,14 @@ namespace gt_esmini
             else if (t > 0.5) laneChgRight = true;
             else
             {
-                 // Fallback to LaneID diff if t is near 0 (perfect fit?)
-                 if (currentLaneId - prevLaneId_ > 0) laneChgLeft = true;
-                 else if (currentLaneId - prevLaneId_ < 0) laneChgRight = true;
+                 // Fallback to LaneID diff if t is near 0. Sign of (curr-prev)
+                 // alone doesn't tell direction in vehicle frame: compare RHT
+                 // (-2→-1 = vehicle-left, diff=+1) vs LHT against-s
+                 // (-1→-2 = vehicle-left, diff=-1). Multiply by sign_drive to
+                 // unify: laneDiff>0 ⇔ vehicle-left across all cases.
+                 int laneDiff = (currentLaneId - prevLaneId_) * static_cast<int>(sign_drive);
+                 if (laneDiff > 0) laneChgLeft = true;
+                 else if (laneDiff < 0) laneChgRight = true;
             }
         }
 
@@ -810,11 +859,19 @@ namespace gt_esmini
                 // If ContactPoint is END: Connected Road ends at s=Length.
                 roadmanager::ContactPointType cp = link->GetContactPointType();
                 contactPointVal = (int)cp;
-                
+
                 double sPos = 0.0;
                 bool enterAtEnd = (cp == roadmanager::CONTACT_POINT_END);
-                
-                if (enterAtEnd)
+
+                // [GT_ODR:vj-osi-pair] Virtual-junction anchor (element_s_ >= 0): the next road is entered
+                // mid-road at the anchor s, not at s=0/length. The flow heading follows elementDir
+                // (DIR_MINUS = s-decreasing = "enter at end" semantics), not the (undefined) contact point.
+                if (link->GetElementS() >= 0.0)
+                {
+                    sPos       = link->GetElementS();
+                    enterAtEnd = (link->GetElementDir() == roadmanager::RoadLink::DIR_MINUS);
+                }
+                else if (enterAtEnd)
                 {
                     // Need Road Length to get position at End
                     roadmanager::Road *succRoad = vehicle_->pos_.GetRoadById(succId);
