@@ -1909,15 +1909,6 @@ int Road::GetConnectingLaneId(RoadLink* road_link, int fromLaneId, id_t connecti
         return 0;
     }
 
-    // [GT_ODR:vj-path] registry-owned anchor link (virtual junction main->branch): lanes map via the junction connection
-    for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(GetId()))
-    {
-        if (anchor.link_ == road_link)
-        {
-            return anchor.junction_->GetConnectionByIdx(anchor.connection_idx_)->GetConnectingLaneId(fromLaneId);
-        }
-    }
-
     if (road_link->GetType() == LinkType::SUCCESSOR)
     {
         lane = lane_section_.back()->GetLaneById(fromLaneId);
@@ -2568,21 +2559,6 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
         element_id_ = Position::GetOpenDrive()->LookupRoadIdFromStr(element_id_str);
 
         element_type_ = ELEMENT_TYPE_ROAD;
-        // [GT_ODR:vj-parse-link] optional @elementS/@elementDir = mid-road contact on the linked road (virtual junctions)
-        if (!node.attribute("elementS").empty())
-        {
-            double element_s = node.attribute("elementS").as_double(-1.0);
-            if (!std::isfinite(element_s) || std::fpclassify(element_s) == FP_SUBNORMAL || element_s < 0.0)
-            {
-                LOG_WARN("Ignoring invalid link elementS value {} for element {}", node.attribute("elementS").value(), element_id_str);
-            }
-            else
-            {
-                element_s_                  = element_s;
-                std::string element_dir_str = node.attribute("elementDir").value();
-                element_dir_                = element_dir_str == "+" ? DIR_PLUS : (element_dir_str == "-" ? DIR_MINUS : DIR_UNKNOWN);
-            }
-        }
         if (contact_point_type == "start")
         {
             contact_point_type_ = CONTACT_POINT_START;
@@ -2593,10 +2569,7 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
         }
         else if (contact_point_type.empty())
         {
-            if (element_s_ < 0.0)  // [GT_ODR:vj-parse-link] @elementS replaces @contactPoint at mid-road contacts
-            {
-                LOG_ERROR("Missing contact point type");
-            }
+            LOG_ERROR("Missing contact point type");
         }
         else
         {
@@ -2621,17 +2594,10 @@ RoadLink::RoadLink(LinkType type, pugi::xml_node node)
     }
 }
 
-// [GT_ODR:vj-parse-link] programmatic link with a mid-road contact (virtual junction synthesis, S3)
-RoadLink::RoadLink(LinkType type, ElementType element_type, id_t element_id, ContactPointType contact_point, double element_s, ElementDir element_dir)
-    : type_(type), element_id_(element_id), element_type_(element_type), contact_point_type_(contact_point), element_s_(element_s), element_dir_(element_dir)
-{
-}
-
 bool RoadLink::operator==(const RoadLink& rhs) const
 {
     return (rhs.type_ == type_ && rhs.element_type_ == element_type_ && rhs.element_id_ == element_id_ &&
-            rhs.contact_point_type_ == contact_point_type_ && rhs.element_s_ == element_s_ &&
-            rhs.element_dir_ == element_dir_);  // [GT_ODR:vj-parse-link] mid-road contact identity
+            rhs.contact_point_type_ == contact_point_type_);
 }
 
 void RoadLink::Print() const
@@ -3224,23 +3190,6 @@ bool Road::IsDirectlyConnected(const Road* road, LinkType link_type, ContactPoin
     {
         return false;
     }
-    // [GT_ODR:vj-connect-begin] virtual junction: the unsplit main road carries no end link to its branches --
-    // registry anchors count as direct connections ('+'/unknown elementDir = successor side, '-' = predecessor side)
-    for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(GetId()))
-    {
-        Connection* connection = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_);
-        if (connection->GetIncomingRoad() == this && connection->GetConnectingRoad() == road &&
-            (link_type == LinkType::SUCCESSOR) == (anchor.dir_ != RoadLink::DIR_MINUS) &&
-            (fromLaneId == 0 || connection->GetConnectingLaneId(fromLaneId) != 0))
-        {
-            if (contact_point != nullptr)
-            {
-                *contact_point = connection->GetContactPoint();
-            }
-            return true;
-        }
-    }
-    // [GT_ODR:vj-connect-end]
 
     RoadLink* link = GetLink(link_type);
     if (link == nullptr)
@@ -3312,23 +3261,6 @@ bool Road::IsDirectlyConnected(const Road* road, double* curvature, int fromLane
     // Unspecified link, check both ends
     if (IsSuccessor(road, &contact_point, fromLaneId) || IsPredecessor(road, &contact_point, fromLaneId))
     {
-        // [GT_ODR:vj-connect-begin] contact UNDEFINED = elementS link (no contact point): curvature at the anchor s
-        RoadLink* vj_link = GetLink(LinkType::PREDECESSOR);
-        vj_link = vj_link != nullptr && vj_link->GetElementId() == road->GetId() && vj_link->GetElementS() >= 0.0 ? vj_link : GetLink(LinkType::SUCCESSOR);
-        if (contact_point == ContactPointType::CONTACT_POINT_UNDEFINED && vj_link != nullptr && vj_link->GetElementId() == road->GetId() &&
-            vj_link->GetElementS() >= 0.0)
-        {
-            for (size_t i = 0; i < road->geometry_.size(); i++)
-            {
-                Geometry* geom = road->geometry_[i];
-                if (curvature != nullptr && vj_link->GetElementS() >= geom->GetS() && vj_link->GetElementS() <= geom->GetS() + geom->GetLength())
-                {
-                    *curvature = geom->EvaluateCurvatureDS(vj_link->GetElementS() - geom->GetS());
-                }
-            }
-            return true;
-        }
-        // [GT_ODR:vj-connect-end]
         // Find out curvature
         if (contact_point == ContactPointType::CONTACT_POINT_START && road->geometry_.size() > 0)
         {
@@ -3744,16 +3676,6 @@ void OpenDrive::Clear()
         delete junction_[i];
     }
     junction_.clear();
-
-    // [GT_ODR:vj-synth] registry-owned synthesized RoadLinks (counter Connections died with the junctions above)
-    for (auto& vj_road_anchors : virtual_junction_anchors_)
-    {
-        for (VirtualJunctionAnchor& vj_anchor : vj_road_anchors.second)
-        {
-            delete vj_anchor.link_;
-        }
-    }
-    virtual_junction_anchors_.clear();
 
     SetSpeedUnit(SpeedUnit::UNDEFINED);
 
@@ -5475,47 +5397,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
         }
         else if (junction_type_str == "virtual")
         {
-            junction_type = Junction::JunctionType::VIRTUAL;  // [GT_ODR:vj-parse-junction] native virtual junction (ASAM 10.4)
+            LOG_WARN("Virtual junction type found. Not supported yet. Continue treating it as default type");
+            junction_type = Junction::JunctionType::DEFAULT;
         }
 
         Junction* j = new Junction(junction_ids_[junction_.size()].first, jid_str, name, junction_type);
-        // [GT_ODR:vj-parse-junction-begin] virtual junction span on the main road: @mainRoad/@sStart/@sEnd are
-        // mandatory per spec, @orientation is missing in official assets (Ex_Pedestrian_Crossing) -> NONE + WARN.
-        // An unusable span resets the attributes to "absent" but the junction stays VIRTUAL.
-        if (junction_type == Junction::JunctionType::VIRTUAL)
-        {
-            Junction::VirtualJunctionAttributes attributes;
-            attributes.main_road_id_    = LookupRoadIdFromStr(junction_node.attribute("mainRoad").value());
-            attributes.s_start_         = junction_node.attribute("sStart").as_double(-1.0);
-            attributes.s_end_           = junction_node.attribute("sEnd").as_double(-1.0);
-            std::string orientation_str = junction_node.attribute("orientation").value();
-            if (orientation_str == "+")
-            {
-                attributes.orientation_ = Junction::ORIENTATION_PLUS;
-            }
-            else if (orientation_str == "-")
-            {
-                attributes.orientation_ = Junction::ORIENTATION_MINUS;
-            }
-            else if (orientation_str != "none")
-            {
-                LOG_WARN("Virtual junction {} orientation '{}' missing or unsupported, treating as valid in both directions",
-                         jid_str,
-                         orientation_str);
-            }
-            if (!std::isfinite(attributes.s_start_) || !std::isfinite(attributes.s_end_) || attributes.s_start_ < 0.0 ||
-                attributes.s_end_ < attributes.s_start_)
-            {
-                LOG_WARN("Virtual junction {} has an invalid span sStart={} sEnd={}, ignoring the span attributes",
-                         jid_str,
-                         attributes.s_start_,
-                         attributes.s_end_);
-                attributes.s_start_ = -1.0;
-                attributes.s_end_   = -1.0;
-            }
-            j->SetVirtualAttributes(attributes);
-        }
-        // [GT_ODR:vj-parse-junction-end]
 
         for (pugi::xml_node connection_node = junction_node.child("connection"); connection_node;
              connection_node                = connection_node.next_sibling("connection"))
@@ -5527,41 +5413,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 std::string incoming_road_id_str = connection_node.attribute("incomingRoad").value();
                 Road*       incoming_road        = GetRoadByIdStr(incoming_road_id_str);
 
-                // [GT_ODR:vj-parse-junction-begin] virtual junction connection (ASAM 10.4): <predecessor>/<successor>
-                // carry the anchor s on the linked road; @incomingRoad may be absent or "-1" (derived from the
-                // predecessor); @type="virtual" without @connectingRoad = kind-2 topological connection, represented
-                // as a Connection with a null connecting road + is_virtual_ (store-only in v1; virtual junctions are
-                // never road-link targets, so the load-time consumers of connection_ do not dereference it)
-                double         vj_incoming_contact_s = -1.0;
-                double         vj_outgoing_contact_s = -1.0;
-                pugi::xml_node vj_pred_node          = connection_node.child("predecessor");
-                pugi::xml_node vj_succ_node          = connection_node.child("successor");
-                if (!vj_pred_node.empty())
-                {
-                    vj_incoming_contact_s = vj_pred_node.attribute("elementS").as_double(-1.0);
-                    if (incoming_road == nullptr)
-                    {
-                        incoming_road = GetRoadByIdStr(vj_pred_node.attribute("elementId").value());
-                    }
-                }
-                if (!vj_succ_node.empty())
-                {
-                    vj_outgoing_contact_s = vj_succ_node.attribute("elementS").as_double(-1.0);
-                }
-                if (std::string(connection_node.attribute("type").value()) == "virtual" && connection_node.attribute("connectingRoad").empty())
-                {
-                    if (vj_pred_node.empty() && vj_succ_node.empty())
-                    {
-                        LOG_WARN("Virtual connection {} in junction {} lacks <predecessor>/<successor>, skipping", idc, jid_str);
-                        continue;
-                    }
-                    Connection* vj_connection =
-                        new Connection(incoming_road, nullptr, ContactPointType::CONTACT_POINT_UNDEFINED, vj_incoming_contact_s, vj_outgoing_contact_s);
-                    vj_connection->SetVirtual(true);
-                    j->AddConnection(vj_connection);
-                    continue;
-                }
-                // [GT_ODR:vj-parse-junction-end]
                 std::string connecting_road_id_str;
                 if (junction_type == Junction::JunctionType::DIRECT)
                 {
@@ -5580,8 +5431,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 }
 
                 // Check that the connecting road is referring back to this junction
-                if (j->GetType() != Junction::JunctionType::DIRECT && j->GetType() != Junction::JunctionType::VIRTUAL &&
-                    connecting_road->GetJunction() != j->GetId())  // [GT_ODR:vj-parse-junction] VJ connecting roads are regular roads
+                if (j->GetType() != Junction::JunctionType::DIRECT && connecting_road->GetJunction() != j->GetId())
                 {
                     LOG_WARN(
                         "Warning: Connecting road (id {}) junction attribute ({}) is not referring back to junction {} which is making use of it",
@@ -5605,8 +5455,7 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                     LOG_ERROR("Unsupported contact point: {}", contact_point_str);
                 }
 
-                // [GT_ODR:vj-parse-junction] pass the parsed anchors through (both -1.0 on regular connections)
-                Connection* connection = new Connection(incoming_road, connecting_road, contact_point, vj_incoming_contact_s, vj_outgoing_contact_s);
+                Connection* connection = new Connection(incoming_road, connecting_road, contact_point);
 
                 for (pugi::xml_node lane_link_node = connection_node.child("laneLink"); lane_link_node;
                      lane_link_node                = lane_link_node.next_sibling("laneLink"))
@@ -5633,8 +5482,6 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
     }
 
     CheckConnections();
-
-    EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] virtual junction anchors (after CheckConnections)
 
     if (!SetRoadOSI())
     {
@@ -5880,14 +5727,6 @@ Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointT
     contact_point_   = contact_point;
 }
 
-// [GT_ODR:vj-parse-junction] virtual junction connection: anchor s per road end from <predecessor>/<successor> @elementS
-Connection::Connection(Road* incoming_road, Road* connecting_road, ContactPointType contact_point, double incoming_s, double outgoing_s)
-    : Connection(incoming_road, connecting_road, contact_point)
-{
-    incoming_contact_s_ = incoming_s;
-    outgoing_contact_s_ = outgoing_s;
-}
-
 Connection::~Connection()
 {
     for (size_t i = 0; i < lane_link_.size(); i++)
@@ -5974,20 +5813,9 @@ LaneRoadLaneConnection Junction::GetRoadConnectionByIdx(id_t roadId, int laneId,
                         lane_road_lane_connection.contact_point_ = connection->GetContactPoint();
                         lane_road_lane_connection.SetConnectingRoad(connection->GetConnectingRoad()->GetId());
                         lane_road_lane_connection.SetConnectingLane(lane_link->to_);
-                        // [GT_ODR:vj-lanes-begin] merged lane-section rule: a virtual-junction counter-connection
-                        // (branch->main) lands ON the connecting road at outgoing_contact_s_ (the anchor s on the
-                        // main road), so the target lane lives in the lane section AT that s -- pass it through on
-                        // contact_s_ so MoveToConnectingRoad places the re-entry there. Only when the connection
-                        // carries no anchor s (the ordinary case, outgoing_contact_s_ < 0) fall back to the
-                        // upstream sign-of-to_ end-section pick. Inert for every non-virtual connection.
-                        const double vj_contact_s            = connection->GetOutgoingContactS();
-                        lane_road_lane_connection.contact_s_ = vj_contact_s;
-                        unsigned int laneSectionIdx          = 0;
-                        if (vj_contact_s >= 0.0)
-                        {
-                            laneSectionIdx = connection->GetConnectingRoad()->GetLaneSectionIdxByS(vj_contact_s);
-                        }
-                        else if (lane_link->to_ < 0)
+                        // find out driving direction
+                        unsigned int laneSectionIdx = 0;
+                        if (lane_link->to_ < 0)
                         {
                             laneSectionIdx = 0;
                         }
@@ -5995,7 +5823,6 @@ LaneRoadLaneConnection Junction::GetRoadConnectionByIdx(id_t roadId, int laneId,
                         {
                             laneSectionIdx = connection->GetConnectingRoad()->GetNumberOfLaneSections() - 1;
                         }
-                        // [GT_ODR:vj-lanes-end]
                         Lane* lane = connection->GetConnectingRoad()->GetLaneSectionByIdx(laneSectionIdx)->GetLaneById(lane_link->to_);
 
                         if (lane == nullptr)
@@ -6033,12 +5860,6 @@ void Junction::SetGlobalId()
 
 bool Junction::IsOsiIntersection() const
 {
-    // [GT_ODR:vj-osi-class] a virtual junction has no junction area of its own (the unsplit main road keeps
-    // its regular lanes across the span) -> never an OSI intersection, same rationale as DIRECT below
-    if (type_ == JunctionType::VIRTUAL)
-    {
-        return false;
-    }
     if (type_ == JunctionType::DIRECT)
     {
         return false;  // direct junction has no area -> no free lane boundaries
@@ -6166,14 +5987,7 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
     if (srcNode->link->GetElementType() == RoadLink::RoadLink::ELEMENT_TYPE_ROAD)
     {
         // node link is a road, find link in the other end of it
-        // [GT_ODR:vj-path] mid-road entry at elementS: traversal end follows elementDir, no opposite-end flip
-        if (srcNode->link->GetElementS() >= 0.0)
-        {
-            nextLink      = checkRoad->GetLink(srcNode->link->GetElementDir() == RoadLink::DIR_MINUS ? LinkType::PREDECESSOR : LinkType::SUCCESSOR);
-            contact_point = srcNode->link->GetElementDir() == RoadLink::DIR_MINUS ? ContactPointType::CONTACT_POINT_START
-                                                                                  : ContactPointType::CONTACT_POINT_END;
-        }
-        else if (srcNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_END)
+        if (srcNode->link->GetContactPointType() == ContactPointType::CONTACT_POINT_END)
         {
             nextLink      = checkRoad->GetLink(LinkType::PREDECESSOR);
             contact_point = ContactPointType::CONTACT_POINT_START;
@@ -6222,29 +6036,6 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
             }
         }
     }
-    // [GT_ODR:vj-path-begin] branch off mid-road: enqueue one node per virtual-junction registry anchor inside
-    // the traversal window (entry s -> exit end); node identity/dedup = the registry-owned anchor link pointer
-    const double entry_s = srcNode->link->GetElementS() >= 0.0
-                               ? srcNode->link->GetElementS()
-                               : (contact_point == ContactPointType::CONTACT_POINT_END ? 0.0 : checkRoad->GetLength());
-    for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(checkRoad->GetId()))
-    {
-        const auto is_anchor_link = [&anchor](const PathNode* node) { return node->link == anchor.link_; };
-        if ((contact_point == ContactPointType::CONTACT_POINT_END ? anchor.anchor_s_ >= entry_s : anchor.anchor_s_ <= entry_s) &&
-            std::none_of(visited_.begin(), visited_.end(), is_anchor_link) &&
-            std::none_of(unvisited_.begin(), unvisited_.end(), is_anchor_link))
-        {
-            PathNode* aNode     = new PathNode;
-            aNode->dist         = srcNode->dist + fabs(anchor.anchor_s_ - entry_s);
-            aNode->link         = anchor.link_;
-            aNode->fromRoad     = checkRoad;
-            aNode->fromLaneId   = checkRoad->GetConnectedLaneIdAtS(nextLaneId, entry_s, anchor.anchor_s_);
-            aNode->previous     = srcNode;
-            aNode->contactPoint = anchor.link_->GetContactPointType();
-            unvisited_.push_back(aNode);
-        }
-    }
-    // [GT_ODR:vj-path-end]
 
     if (nextLink == nullptr)
     {
@@ -6254,15 +6045,12 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
 
     if (contact_point == ContactPointType::CONTACT_POINT_START)
     {
-        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, srcNode->link->GetElementS() >= 0.0 ? entry_s : -1.0, 0.0);  // [GT_ODR:vj-path]
+        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, -1.0, 0.0);
     }
     else
     {
-        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, srcNode->link->GetElementS() >= 0.0 ? entry_s : 0.0, -1.0);  // [GT_ODR:vj-path]
+        nextLaneId = checkRoad->GetConnectedLaneIdAtS(nextLaneId, 0.0, -1.0);
     }
-
-    // [GT_ODR:vj-path] edge weight: partial traversal when entered mid-road at elementS (entry_s is the road end otherwise)
-    const double edge_dist = contact_point == ContactPointType::CONTACT_POINT_END ? checkRoad->GetLength() - entry_s : entry_s;
 
     // Check if next node is already visited
     for (size_t i = 0; i < visited_.size(); i++)
@@ -6281,9 +6069,9 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
         if (unvisited_[i]->link == nextLink)
         {
             // Consider it, i.e. calc distance and potentially store it (if less than old)
-            if (srcNode->dist + edge_dist < unvisited_[i]->dist)  // [GT_ODR:vj-path]
+            if (srcNode->dist + checkRoad->GetLength() < unvisited_[i]->dist)
             {
-                unvisited_[i]->dist = srcNode->dist + edge_dist;  // [GT_ODR:vj-path]
+                unvisited_[i]->dist = srcNode->dist + checkRoad->GetLength();
             }
         }
     }
@@ -6292,8 +6080,7 @@ bool RoadPath::CheckRoad(Road* checkRoad, RoadPath::PathNode* srcNode, Road* fro
     {
         // link not visited before, add it
         PathNode* pNode     = new PathNode;
-        pNode->dist         = srcNode->dist + edge_dist;         // [GT_ODR:vj-path]
-        pNode->contact_s    = nextLink->GetElementS();           // [GT_ODR:vj-path] mid-road anchor s on the linked element
+        pNode->dist         = srcNode->dist + checkRoad->GetLength();
         pNode->link         = nextLink;
         pNode->fromRoad     = checkRoad;
         pNode->fromLaneId   = nextLaneId;
@@ -6400,26 +6187,6 @@ int RoadPath::Calculate(double& dist, bool bothDirections, double maxDist)
 
             unvisited_.push_back(pNode);
         }
-        // [GT_ODR:vj-path-begin] seed one extra node per virtual-junction registry anchor on the start road,
-        // gated to anchors reachable in this search direction -- a link-less main road seeds nothing above,
-        // yet paths may leave it mid-road through an anchor
-        for (const OpenDrive::VirtualJunctionAnchor& anchor : odr->GetVirtualJunctionAnchors(startRoad->GetId()))
-        {
-            if ((contact_point == ContactPointType::CONTACT_POINT_END && anchor.anchor_s_ >= startPos_->GetS()) ||
-                (contact_point == ContactPointType::CONTACT_POINT_START && anchor.anchor_s_ < startPos_->GetS()))
-            {
-                PathNode* aNode     = new PathNode;
-                aNode->dist         = fabs(anchor.anchor_s_ - startPos_->GetS());
-                aNode->link         = anchor.link_;
-                aNode->fromRoad     = startRoad;
-                aNode->fromLaneId   = startRoad->GetConnectedLaneIdAtS(startPos_->GetLaneId(), startPos_->GetS(), anchor.anchor_s_);
-                aNode->previous     = 0;
-                aNode->contactPoint = anchor.link_->GetContactPointType();
-                aNode->direction    = contact_point == ContactPointType::CONTACT_POINT_END ? 1 : -1;
-                unvisited_.push_back(aNode);
-            }
-        }
-        // [GT_ODR:vj-path-end]
     }
 
     if (startRoad == targetRoad)
@@ -6490,13 +6257,7 @@ int RoadPath::Calculate(double& dist, bool bothDirections, double maxDist)
             if (nextRoad == targetRoad)
             {
                 // Special case: On same road, distance is equal to delta s, direction considered
-                if (link->GetElementS() >= 0.0)
-                {
-                    // [GT_ODR:vj-path] arrived at the target mid-road via a virtual-junction anchor: the remaining
-                    // distance is measured from the anchor s (link end contact would over/under-count on the main road)
-                    tmpDist += fabs(link->GetElementS() - targetPos_->GetS());
-                }
-                else if (link->GetContactPointType() == ContactPointType::CONTACT_POINT_START)
+                if (link->GetContactPointType() == ContactPointType::CONTACT_POINT_START)
                 {
                     tmpDist += targetPos_->GetS();
                 }
@@ -6532,16 +6293,7 @@ int RoadPath::Calculate(double& dist, bool bothDirections, double maxDist)
                 {
                     ContactPointType contact_point = ContactPointType::CONTACT_POINT_UNDEFINED;
                     // if (nextRoad->IsSuccessor(pivotRoad, &contact_point) || nextRoad->IsPredecessor(pivotRoad, &contact_point))
-                    // [GT_ODR:vj-path] a virtual-junction connection lands mid-road with UNDEFINED contact -- the
-                    // anchor s (incoming/outgoing_contact_s_) gives the remaining distance instead of an end contact
-                    const double vj_anchor_s = junction->GetType() == Junction::JunctionType::VIRTUAL && junction->GetConnectionByIdx(j) != nullptr
-                                                   ? junction->GetConnectionByIdx(j)->GetOutgoingContactS()
-                                                   : -1.0;
-                    if (contact_point == ContactPointType::CONTACT_POINT_UNDEFINED && vj_anchor_s >= 0.0)  // [GT_ODR:vj-path]
-                    {
-                        tmpDist += fabs(vj_anchor_s - targetPos_->GetS());  // [GT_ODR:vj-path]
-                    }
-                    else if (pivotRoad->IsSuccessor(nextRoad, &contact_point) || pivotRoad->IsPredecessor(nextRoad, &contact_point))
+                    if (pivotRoad->IsSuccessor(nextRoad, &contact_point) || pivotRoad->IsPredecessor(nextRoad, &contact_point))
                     {
                         if (contact_point == ContactPointType::CONTACT_POINT_START)
                         {
@@ -6681,32 +6433,6 @@ bool OpenDrive::IsIndirectlyConnected(id_t road1_id, id_t road2_id, id_t*& conne
 {
     Road* road1 = GetRoadById(road1_id);
     Road* road2 = GetRoadById(road2_id);
-    // [GT_ODR:vj-connect-begin] indirect via a virtual junction: the main road reaches road2 through a mid-road
-    // branch (the anchor connecting road), then onward via that branch's far-end link -- the main road itself
-    // carries no junction link, so the ELEMENT_TYPE_JUNCTION scan below never sees it. Inert without VJ anchors.
-    for (const VirtualJunctionAnchor& anchor : GetVirtualJunctionAnchors(road1_id))
-    {
-        Connection* connection = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_);
-        Road*       branch     = connection != nullptr ? connection->GetConnectingRoad() : nullptr;
-        if (branch == nullptr)
-        {
-            continue;
-        }
-        RoadLink* far = branch->GetLink(anchor.dir_ == RoadLink::DIR_MINUS ? PREDECESSOR : SUCCESSOR);
-        if (branch->GetId() == road2_id || (far != nullptr && far->GetElementType() == RoadLink::ELEMENT_TYPE_ROAD && far->GetElementId() == road2_id))
-        {
-            if (connecting_road_id != nullptr)
-            {
-                *connecting_road_id = branch->GetId();
-            }
-            if (connecting_lane_id != nullptr && lane1_id != 0)
-            {
-                *connecting_lane_id = connection->GetConnectingLaneId(lane1_id);
-            }
-            return true;
-        }
-    }
-    // [GT_ODR:vj-connect-end]
 
     LinkType link_type[2] = {SUCCESSOR, PREDECESSOR};
 
@@ -7084,13 +6810,6 @@ int OpenDrive::CheckLink(Road* road, RoadLink* link, ContactPointType expected_c
     // does this connection exist in the other direction?
     if (link->GetElementType() == RoadLink::ElementType::ELEMENT_TYPE_ROAD)
     {
-        // [GT_ODR:vj-synth] a road link with elementS is a mid-road virtual junction anchor: no reciprocal link
-        // exists on the (unsplit) main road by design, so skip the reverse-link scan and its WARN. Existence and
-        // span validation happens in EstablishVirtualJunctionConnections() (runs after CheckConnections()).
-        if (link->GetElementS() >= 0.0)
-        {
-            return 0;
-        }
         Road* connecting_road = GetRoadById(link->GetElementId());
         if (connecting_road != nullptr)
         {
@@ -7157,125 +6876,6 @@ int OpenDrive::CheckConnections()
 
     return counter;
 }
-
-// [GT_ODR:vj-synth-begin] virtual junction link resolution (S3). CheckConnections() cannot resolve virtual
-// junctions: the unsplit main road never references the junction and branch roads reference the MAIN ROAD via
-// elementS. Per VIRTUAL junction: validate the span, synthesize the missing branch->main counter-connections
-// (CheckJunctionConnection auto-add template) and fill the per-main-road anchor registry. Ownership: counter
-// Connections belong to the junction (~Junction); registry RoadLinks belong to the registry (OpenDrive::Clear()).
-// Kind-2 topological connections (is_virtual_, null connecting road) are store-only in v1 and skipped here.
-// LaneRoadLaneConnection::contact_s_ is constructed on the fly by Junction::GetRoadConnectionByIdx at runtime,
-// so it is stamped there (S5, vj-lanes stage), not at load time.
-void OpenDrive::EstablishVirtualJunctionConnections()
-{
-    for (Junction* junction : junction_)
-    {
-        if (junction->GetType() != Junction::JunctionType::VIRTUAL)
-        {
-            continue;
-        }
-        const Junction::VirtualJunctionAttributes& vj_attr   = junction->GetVirtualAttributes();
-        Road*                                      main_road = GetRoadById(vj_attr.main_road_id_);
-        if (main_road == nullptr || vj_attr.s_start_ < 0.0 || vj_attr.s_end_ < vj_attr.s_start_ ||
-            vj_attr.s_end_ > main_road->GetLength() + 1e-3)
-        {
-            LOG_WARN("Virtual junction {} has an unusable span on main road {}, skipping it", junction->GetIdStr(), vj_attr.main_road_id_);
-            continue;
-        }
-        const unsigned int n_connections = junction->GetNumberOfConnections();  // counter-connections are appended below
-        for (unsigned int i = 0; i < n_connections; i++)
-        {
-            Connection* connection = junction->GetConnectionByIdx(i);
-            Road*       branch     = connection->GetConnectingRoad();
-            if (branch == nullptr || branch == main_road)
-            {
-                continue;  // kind-2 (store-only) or an authored counter-connection
-            }
-            // the anchor is the branch road's elementS link pointing at the main road
-            RoadLink* anchor_link = nullptr;
-            LinkType  anchor_end  = LinkType::PREDECESSOR;
-            for (LinkType link_type : {LinkType::PREDECESSOR, LinkType::SUCCESSOR})
-            {
-                RoadLink* branch_link = branch->GetLink(link_type);
-                if (branch_link != nullptr && branch_link->GetElementType() == RoadLink::ElementType::ELEMENT_TYPE_ROAD &&
-                    branch_link->GetElementId() == main_road->GetId() && branch_link->GetElementS() >= 0.0)
-                {
-                    anchor_link = branch_link;
-                    anchor_end  = link_type;
-                    break;
-                }
-            }
-            if (anchor_link == nullptr)
-            {
-                LOG_WARN("Virtual junction {} connecting road {} has no elementS link to the main road, skipping", junction->GetIdStr(), branch->GetIdStr());
-                continue;
-            }
-            // the connection's own <predecessor> elementS (incoming contact) takes precedence for the anchor s
-            const double               anchor_s     = connection->GetIncomingContactS() >= 0.0 ? connection->GetIncomingContactS() : anchor_link->GetElementS();
-            const RoadLink::ElementDir anchor_dir   = anchor_link->GetElementDir();
-            bool                       have_counter = false;
-            for (unsigned int k = 0; k < junction->GetNumberOfConnections() && !have_counter; k++)
-            {
-                have_counter = junction->GetConnectionByIdx(k)->GetIncomingRoad() == branch &&
-                               junction->GetConnectionByIdx(k)->GetConnectingRoad() == main_road;
-            }
-            if (!have_counter)
-            {
-                // elementDir reverse-merge rule (INTERPRETIVE, see manifest): '+' = the main road is traversed in
-                // increasing s across the anchor -> branch->main lands at anchor_s heading s-increasing = START
-                ContactPointType counter_contact = anchor_dir == RoadLink::DIR_PLUS    ? ContactPointType::CONTACT_POINT_START
-                                                   : anchor_dir == RoadLink::DIR_MINUS ? ContactPointType::CONTACT_POINT_END
-                                                                                       : ContactPointType::CONTACT_POINT_UNDEFINED;
-                const double     branch_contact_s = anchor_end == LinkType::PREDECESSOR ? 0.0 : branch->GetLength();
-                Connection*      counter          = new Connection(branch, main_road, counter_contact, branch_contact_s, anchor_s);
-                for (unsigned int l = 0; l < connection->GetNumberOfLaneLinks(); l++)
-                {
-                    counter->AddJunctionLaneLink(connection->GetLaneLink(l)->to_, connection->GetLaneLink(l)->from_);
-                }
-                junction->AddConnection(counter);
-            }
-            // registry-owned RoadLink = stable per-anchor identity for the main->branch hop (RoadPath dedup keys
-            // on link pointers, S4); it describes the branch ENTRY end (element_s_ < 0 = legacy end contact ON
-            // THE BRANCH) -- the anchor s on the main road lives on the anchor entry itself
-            RoadLink* registry_link = new RoadLink(anchor_dir == RoadLink::DIR_MINUS ? LinkType::PREDECESSOR : LinkType::SUCCESSOR,
-                                                   RoadLink::ElementType::ELEMENT_TYPE_ROAD,
-                                                   branch->GetId(),
-                                                   anchor_end == LinkType::PREDECESSOR ? ContactPointType::CONTACT_POINT_START
-                                                                                       : ContactPointType::CONTACT_POINT_END,
-                                                   -1.0,
-                                                   anchor_dir);
-            virtual_junction_anchors_[main_road->GetId()].push_back({junction, i, anchor_s, anchor_dir, registry_link});
-        }
-    }
-    for (auto& vj_road_anchors : virtual_junction_anchors_)
-    {
-        std::sort(vj_road_anchors.second.begin(),
-                  vj_road_anchors.second.end(),
-                  [](const VirtualJunctionAnchor& a, const VirtualJunctionAnchor& b) { return a.anchor_s_ < b.anchor_s_; });
-    }
-}
-
-Junction* OpenDrive::GetVirtualJunctionAtRoadS(id_t road_id, double s) const
-{
-    for (const VirtualJunctionAnchor& anchor : GetVirtualJunctionAnchors(road_id))
-    {
-        // [GT_ODR:vj-synth] inclusive span containment: s in [sStart, sEnd] on this main road
-        const Junction::VirtualJunctionAttributes& vj_attr = anchor.junction_->GetVirtualAttributes();
-        if (s >= vj_attr.s_start_ && s <= vj_attr.s_end_)
-        {
-            return anchor.junction_;
-        }
-    }
-    return nullptr;
-}
-
-const std::vector<OpenDrive::VirtualJunctionAnchor>& OpenDrive::GetVirtualJunctionAnchors(id_t road_id) const
-{
-    static const std::vector<VirtualJunctionAnchor> no_anchors;
-    const auto                                      anchors = virtual_junction_anchors_.find(road_id);
-    return anchors != virtual_junction_anchors_.end() ? anchors->second : no_anchors;
-}
-// [GT_ODR:vj-synth-end]
 
 void OpenDrive::Print() const
 {
@@ -9895,27 +9495,6 @@ Position::XYZ2TrackPos(double x3, double y3, double z3, int mode, bool connected
                 {
                     change_direction = true;
                 }
-                // [GT_ODR:vj-connect-begin] elementDir merge rule for a virtual-junction anchor link (contactPoint
-                // UNDEFINED, so the END/START test above cannot fire): a '-' anchor is traversed s-decreasing across
-                // the join -> flip; '+'/UNKNOWN keep the heading. Covers BOTH an own elementS link (branch->main
-                // merge-back) and a registry anchor on the unsplit main road (main->branch), which carries no link.
-                for (LinkType lt : {LinkType::SUCCESSOR, LinkType::PREDECESSOR})
-                {
-                    RoadLink* vjl = current_road->GetLink(lt);
-                    if (vjl != nullptr && vjl->GetElementId() == roadMin->GetId() && vjl->GetElementS() >= 0.0 &&
-                        GetOpenDrive()->GetVirtualJunctionAtRoadS(roadMin->GetId(), vjl->GetElementS()) != nullptr)
-                    {
-                        change_direction = vjl->GetElementDir() == RoadLink::DIR_MINUS;
-                    }
-                }
-                for (const OpenDrive::VirtualJunctionAnchor& anchor : GetOpenDrive()->GetVirtualJunctionAnchors(current_road->GetId()))
-                {
-                    if (anchor.link_->GetElementId() == roadMin->GetId())
-                    {
-                        change_direction = anchor.dir_ == RoadLink::DIR_MINUS;
-                    }
-                }
-                // [GT_ODR:vj-connect-end]
             }
 
             // Now find closest lane at that lateral position, at updated s value
@@ -10648,38 +10227,6 @@ Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, Contact
     }
 
     double new_offset = offset_;
-    // [GT_ODR:vj-enter-begin] virtual-junction re-entry: a mid-road elementS link lands ON the main road at
-    // road_link->GetElementS() (NOT at s=0/length), in the lane section AT that s. The elementDir merge rule fixes
-    // BOTH the landing heading and the direction the remaining ds continues in: '+' -> the main road is traversed
-    // s-increasing across the join (heading 0, continue +s = START-like), '-' -> s-decreasing (heading PI = END-like),
-    // UNKNOWN -> keep the geometric heading with a WARN. contact_point_type is set so MoveAlongS's post-call ds-sign
-    // logic continues in the correct direction. Gated on the elementS landing s lying inside a virtual-junction span
-    // on the target road (GetVirtualJunctionAtRoadS != null) so an ORDINARY road link that merely carries an
-    // elementS attribute (spec-legal on 1.7+ links, e.g. official UC_ParamPoly3) keeps the upstream placement.
-    if (road_link->GetElementType() == RoadLink::ELEMENT_TYPE_ROAD && road_link->GetElementS() >= 0.0 &&
-        GetOpenDrive()->GetVirtualJunctionAtRoadS(next_road->GetId(), road_link->GetElementS()) != nullptr)
-    {
-        if (road_link->GetElementDir() == RoadLink::DIR_MINUS)
-        {
-            SetHeadingRelative(M_PI);
-            new_offset         = -offset_;
-            contact_point_type = ContactPointType::CONTACT_POINT_END;
-        }
-        else
-        {
-            if (road_link->GetElementDir() == RoadLink::DIR_UNKNOWN)
-            {
-                LOG_WARN("Virtual-junction re-entry on road {} at s={:.2f} lacks elementDir; assuming s-increasing heading",
-                         next_road->GetId(),
-                         road_link->GetElementS());
-            }
-            SetHeadingRelative(0.0);
-            contact_point_type = ContactPointType::CONTACT_POINT_START;
-        }
-        SetLanePos(next_road->GetId(), new_lane_id, road_link->GetElementS(), new_offset, next_road->GetLaneSectionIdxByS(road_link->GetElementS()));
-        return ret_val;
-    }
-    // [GT_ODR:vj-enter-end]
     if ((road_link->GetType() == LinkType::PREDECESSOR && contact_point_type == ContactPointType::CONTACT_POINT_START) ||
         (road_link->GetType() == LinkType::SUCCESSOR && contact_point_type == ContactPointType::CONTACT_POINT_END))
     {
@@ -10827,55 +10374,6 @@ Position::ReturnCode Position::MoveAlongS(double            ds,
     // move from road to road until ds-value is within road length or maximum of connections has been crossed
     for (int i = 0; done == false && i < max_links; i++)
     {
-        // [GT_ODR:vj-move-begin] mid-road virtual-junction branch: if the current road has registry anchors and
-        // one lies inside this step's traversal window (s_, s_+ds_road] (direction-aware) AND the active route
-        // demands that branch (its connecting road is a route waypoint), split the move at anchor_s, hand off to
-        // MoveToConnectingRoad from the anchor, then apply the remaining ds on the branch. The registry is EMPTY
-        // for every road in every non-virtual asset -> this is an O(1) empty-vector check on the hot path. No
-        // route, no windowed anchor, or no route demand -> fall straight through untouched (T2 invariant). The
-        // junctionSelectorAngle random tie-break (v1 out of scope for VJ) is never reached from here.
-        const std::vector<OpenDrive::VirtualJunctionAnchor>& vj_anchors = GetOpenDrive()->GetVirtualJunctionAnchors(track_id_);
-        if (!vj_anchors.empty() && route_ != nullptr && route_->IsValid())
-        {
-            for (const OpenDrive::VirtualJunctionAnchor& anchor : vj_anchors)
-            {
-                const bool forward   = ds_road >= 0.0;
-                const bool in_window = forward ? (anchor.anchor_s_ > s_ - SMALL_NUMBER && anchor.anchor_s_ <= s_ + ds_road + SMALL_NUMBER)
-                                               : (anchor.anchor_s_ < s_ + SMALL_NUMBER && anchor.anchor_s_ >= s_ + ds_road - SMALL_NUMBER);
-                if (!in_window)
-                {
-                    continue;
-                }
-                Road* branch = anchor.junction_->GetConnectionByIdx(anchor.connection_idx_)->GetConnectingRoad();
-                bool  demand = false;
-                for (const Position& wp : route_->minimal_waypoints_)
-                {
-                    if (branch != nullptr && wp.GetTrackId() == branch->GetId())
-                    {
-                        demand = true;  // the branch continuation is a route waypoint -> the route turns here
-                        break;
-                    }
-                }
-                if (!demand)
-                {
-                    continue;
-                }
-                const double ds_remaining = ds_road - (anchor.anchor_s_ - s_);  // ds left once we reach the anchor
-                lane_section_idx_         = road->GetLaneSectionIdxByS(anchor.anchor_s_);
-                SetLanePos(track_id_, lane_id_, anchor.anchor_s_, offset_);  // land exactly on the anchor first
-                ContactPointType vj_contact = ContactPointType::CONTACT_POINT_UNDEFINED;
-                if (static_cast<int>(MoveToConnectingRoad(anchor.link_, vj_contact, junctionSelectorAngle)) < 0)
-                {
-                    break;  // could not enter the branch -> fall back to the normal end-of-road handling
-                }
-                // remaining ds runs along the branch in its s-direction (START contact '+' -> +s)
-                ds_road            = (vj_contact == ContactPointType::CONTACT_POINT_END) ? -fabs(ds_remaining) : fabs(ds_remaining);
-                signed_dLaneOffset = (vj_contact == ContactPointType::CONTACT_POINT_END) ? -dLaneOffset : dLaneOffset;
-                road               = GetOpenDrive()->GetRoadById(track_id_);
-                break;  // re-evaluate the (branch) road from the top of this same iteration's checks below
-            }
-        }
-        // [GT_ODR:vj-move-end]
         if (s_ + ds_road > GetOpenDrive()->GetRoadByIdx(track_idx_)->GetLength())
         {
             // beyond end of road, ensure last lane section
@@ -12051,9 +11549,6 @@ int Position::GetInLaneType() const
 
 bool Position::IsInJunction() const
 {
-    // [GT_ODR:vj-membership:interp] v1 (deliberate): a position on a virtual-junction main-road SPAN keeps
-    // reporting false here and ID_UNDEFINED in GetJunctionId() -- the unsplit main road carries junction == -1.
-    // Flipping this would re-randomize ScenarioEngine junction selectors mid-road; surfaced upstream in #592.
     Road* road = GetOpenDrive()->GetRoadByIdx(track_idx_);
     if (road)
     {
@@ -12692,7 +12187,6 @@ id_t Position::GetTrackId() const
 
 id_t Position::GetJunctionId() const
 {
-    // [GT_ODR:vj-membership:interp] v1: virtual-junction main-road spans report ID_UNDEFINED (see IsInJunction)
     Road* road = GetOpenDrive()->GetRoadByIdx(track_idx_);
     if (road)
     {
@@ -15414,22 +14908,6 @@ Position::ReturnCode Route::SetTrackS(id_t trackId, double s, bool update_state)
             // passed first or last wp?
             info_for_closest_wp.retval = Position::ReturnCode::OK;
             bool out_of_bounds         = false;
-            // [GT_ODR:vj-route-begin] anchor-span guard: a leg that branches off a virtual-junction main road only
-            // covers [wp.s, anchor_s]; a query beyond the anchor is on the (unsplit) main road but OFF the route --
-            // the whole-road dist_along_route above would over-extrapolate. Inert when the road has no VJ anchor.
-            if (i + 1 < minimal_waypoints_.size())
-            {
-                for (const OpenDrive::VirtualJunctionAnchor& anchor : Position::GetOpenDrive()->GetVirtualJunctionAnchors(trackId))
-                {
-                    if ((wp_dir > 0 && s > anchor.anchor_s_ + SMALL_NUMBER) || (wp_dir < 0 && s < anchor.anchor_s_ - SMALL_NUMBER))
-                    {
-                        info_for_closest_wp.dist_along_route = wp.GetRouteWaypointS() + fabs(anchor.anchor_s_ - wp.GetS());
-                        info_for_closest_wp.retval           = Position::ReturnCode::ERROR_NOT_ON_ROUTE;
-                        info_for_closest_wp.s                = anchor.anchor_s_;
-                    }
-                }
-            }
-            // [GT_ODR:vj-route-end]
             if (info_for_closest_wp.wp_index == 0)
             {
                 if ((wp_dir > 0 && s < wp.GetS()) || (wp_dir < 0 && s > wp.GetS()))

@@ -28,7 +28,7 @@
 | 4 | `[GT_ODR:junc-abort]` | `OpenDrive::ParseOpenDriveXML`(junction connection ループ) | ~:5433-5438 | 3 | connectingRoad 欠落時の全パース中断(return false)→ WARN+当該 connection スキップに劣化 | **PR-3**(中) |
 | 5 | `[GT_ODR:hook]` (呼出) | `OpenDrive::ParseOpenDriveXML` 末尾、`CheckConnections()` 直前 | ~:5491-5495 | 5 | `gt_esmini::odr::BuildSideModel(doc, this)` — 側モデル構築+網羅監査。false(=`<include>` 検出)でパース中断 | しない(GT専用) |
 | 6 | `[GT_ODR:obj-roadsurface]` | `RMObject::Str2Type` | ~:3002-3006 | 5 | `roadSurface`(1.8+)を既知型として静かに NONE へ(`ObjectType` enum は hpp 凍結のため追加不可 — 計画からの設計変更) | 候補(upstream 側 enum 追加が前提、PR-2 隣接) |
-| 7 | `[GT_ODR:lane-types]` | `OpenDrive::ParseOpenDriveXML`(lane type switch 末尾) | ~:4224-4228 | 5 | ODR 1.6/1.8 レーン型を既存 enum へ接続(P2)。**マッピング根拠**: `walking`→SIDEWALK(1.8 の歩行者専用レーン。既存 OSI NONDRIVING/SIDEWALK マッピングに乗る)/ `curb`→CURB(hpp:903 の死に enum + 既存 OSI NONDRIVING/BORDER マッピングの接続。enum は 1.5 時代から存在するのにパース文字列が無かった)/ `shared`→BIDIRECTIONAL(1.8 spec の shared=複数交通参加者・双方向共用レーン。「走行可能+両方向」の意味論が最近傍。OSI は DRIVING/NORMAL)/ `slipLane`→CONNECTING_RAMP(1.8 spec の slip lane=交差点を迂回する短絡接続路。接続ランプが機能的最近傍。OSI は DRIVING/CONNECTINGRAMP)。元の正確な文字列は `OdrLaneExtras.type_str` に保存(OSI subtype 忠実性・将来ネイティブ対応用)。観測点=「unknown lane type」LOG_ERROR の消滅+OSI ゴールデン TYPE_UNKNOWN ゼロ(fixture 13 の `osi_expect_no_unknown` で機械検証) | **PR-2**(中-高) |
+| 7 | `[GT_ODR:lane-types]` | `OpenDrive::ParseOpenDriveXML`(lane type switch 末尾) | ~:4224-4228 | 4 | ODR 1.6/1.8 レーン型を既存 enum へ接続(P2)。**v3.4.1 resync: `curb` は upstream がネイティブ対応(v3.4.1)したため GT 行を撤去(5→4 行、handled-by-upstream 実績第1号)**。**マッピング根拠**: `walking`→SIDEWALK(1.8 の歩行者専用レーン。既存 OSI NONDRIVING/SIDEWALK マッピングに乗る)/ `curb`→CURB(hpp:903 の死に enum + 既存 OSI NONDRIVING/BORDER マッピングの接続。enum は 1.5 時代から存在するのにパース文字列が無かった)/ `shared`→BIDIRECTIONAL(1.8 spec の shared=複数交通参加者・双方向共用レーン。「走行可能+両方向」の意味論が最近傍。OSI は DRIVING/NORMAL)/ `slipLane`→CONNECTING_RAMP(1.8 spec の slip lane=交差点を迂回する短絡接続路。接続ランプが機能的最近傍。OSI は DRIVING/CONNECTINGRAMP)。元の正確な文字列は `OdrLaneExtras.type_str` に保存(OSI subtype 忠実性・将来ネイティブ対応用)。観測点=「unknown lane type」LOG_ERROR の消滅+OSI ゴールデン TYPE_UNKNOWN ゼロ(fixture 13 の `osi_expect_no_unknown` で機械検証) | **PR-2**(中-高) |
 | 8 | `[GT_ODR:tl-gate]` | `OpenDrive::ParseOpenDriveXML`(signal ループ)+ `TrafficLight::SetTrafficLightInfo` | ~:4893-4897 / ~:473-478 | 9 | TrafficLight 生成ゲート緩和(ブロック1、4行): `country=="opendrive" && countryRevision<2013 && dynamic` → `dynamic` のみ(P3 クラスタ 11)。全資産分類監査とatomic: [odr_p3_tl_gate_audit.md](archive/odr_1619_program/odr_p3_tl_gate_audit.md)(コミット済みユニバースのフリップはP0フィクスチャ3件のみ・本番資産0件、ASAM公式46件は実測破損#1の修正)。countryRevision 読取(パッチ3)は診断/PR-1用に維持。ブロック2(5行): 未対応type組合せで `nr_lamps_` が未初期化のまま残る**upstream潜在バグ**の修正(`nr_lamps_=0`) — ゲート緩和で任意typeの動的信号がTrafficLight化されるため顕在化(0xe06d7363 FFIクラッシュ)。 | **PR-1b**(中)+ nr_lamps 初期化は独立PR候補(高) |
 | 9 | `[GT_ODR:sig-pos]`(×3: ブロック+ctor引数2箇所) | `OpenDrive::ParseOpenDriveXML`(signal ループ) | ~:4896-4903 + ctor h 引数 2 行 | 9 | <positionRoad>(参照先roadへ物理姿勢接続、zOffset/hOffset/pitch/roll上書き)+ <positionInertial>(センターライン評価による逆写像 — XYZ2TrackPosはSetRoadOSI後のOSIポイント依存でパース時使用不可。場外=|t|>30m or 再構成誤差>0.5m → WARN+skip)+ 1.9 s/t省略(同一road上の解決姿勢からbackfill、position子無しはWARN診断)。実装は odr_side/OdrSignalExtras.cpp ResolveSignalPose。制約: 参照先roadは文書内で先行宣言が必要(パース時解決) | 候補(要メンテナ見解) |
 | 10 | `[GT_ODR:sig-ref]`(×2: else-if+フック側) | signal ループ else-if + `[GT_ODR:hook]` 直後 | ~:5006 / ~:5525-5532 | 9 | <signalReference> を参照先Signalのクローンとして実体化(参照側のs/t/orientation/validity、dynamic対象はTrafficLightクローン=tl-gate整合、新規GlobalId+SetAllValidLanes+AddSignal)。全road解析後のフック時点で実体化(文書内前方参照対応)、dangling id は WARN+skip。dynamicクローンは dynamic_signals_ 登録(privateのためフック側)。旧 LOG_ERROR_ONCE(cluster 12 backlog)を置換。実装は odr_side/OdrSignalExtras.cpp MaterializeSignalReferences | **PR-4**(低-中) |
@@ -41,7 +41,7 @@
 | 16 | `[GT_ODR:lane-layers]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、lanes 選択点) | ~:4093-4094 | 2 | **P8 1.9 レーンレイヤ対応**: `road_node.child("lanes")`(第 1 ノードのみ読取=第 2 `<lanes layer>` の黙殺、最後のサイレント欠落クラス)を `gt_esmini::odr::SelectLanesLayer(road_node, this)` の薄いデリゲートに置換。permanent モード(デフォルト)= permanent ノードを**無コピー・同一ノードで**返す(AddLane/SetGlobalId の DOM 反復順が完全不変 → レーングローバル ID 安定が構造的に自明)。temporary opt-in(env `GT_ODR_LANE_LAYERS=temporary`)= GT 側 `odr_side/OdrLaneLayers.cpp` が laneSection/laneOffset を s 範囲マージした合成 `<lanes>` DOM を返す(合成 document の寿命はインスタンス別サイドモデルが所有 — pending レジストリ→`OdrSideModel::merged_lanes_docs`)。設計判断 D1-D6 は §9 | しない(GT専用、上流 1.9 レイヤ未対応) |
 
 - **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 21**(hook×2 / country-rev×1 / junc-abort×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×2 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**P6 リコンサイル後の全 `[GT_ODR:` リテラル総数 = 75**(古典 21 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 75`(ctest `MarkerCount` が本値をパース)。
-- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 88 / 150**(include 1 + country-rev 2 + junc-abort 3 + hook 5 + obj-roadsurface 5 + lane-types 5 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 100`(古典 88 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 94`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
+- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 87 / 150**(include 1 + country-rev 2 + junc-abort 3 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 99`(古典 87 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 93`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
 - 事前承認済みコンティンジェンシー残(未使用): **lane-border フォールバック ~8 は P2 で不使用のまま温存** — border→width 正規化は公開 `Lane::AddLaneWidth` 経由で GT 側(`odr_side/OdrLaneExtras.cpp` の `ApplyBorderWidths`)に実装。既存フック呼び出し `BuildSideModel(doc, this)` が P2 新設の型付きオーバーロード(`roadmanager::OpenDrive*`)へ **exact match で自動束縛**されるため、フォーク改変ゼロで実現。/ P6 分割ヘルパー ~25 / lane @direction ~25
 
 ## 2. 挙動影響(P1 検証で証明)
@@ -114,7 +114,7 @@
 <!-- GT-2ND-CLASS-MANIFEST-BEGIN -->
 ```yaml
 version: 1
-baseline_upstream_tag: v3.4.0            # recorded at Stage 0b (merge d7821fd3); re-record: check_core_census.py record-baselines
+baseline_upstream_tag: v3.4.1            # re-recorded at the v3.4.1 resync (2026-07-08, merge d7d7e20d); snapshots written byte-exact from `git cat-file blob v3.4.1:<path>` (RoadManager.cpp + OSIReporter.cpp changed; other 4 blobs identical to v3.4.0)
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
 fork_odr_marker_total: 75           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
                                     # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
@@ -122,7 +122,8 @@ fork_odr_marker_total: 75           # literal "[GT_ODR:" count in the fork. S2: 
                                     # merged from dev_v0.12 (measured literal count = 75).
 fork_lht_marker_min: 1
 cmake_marker_total: 2
-fork_odr_expect_lines: 100          # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 88) + residuals (12).
+fork_odr_expect_lines: 99           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 87) + residuals (12).
+                                    # v3.4.1 resync: 100 -> 99 (lane-types curb line retired, handled-by-upstream). MEASURED.
                                     # S2 note: 75 -> 74 because the vj overlap re-aligned the junc-crossing dispatch diff
                                     # (13 -> 9; 3 lines re-attributed to vj-parse-junction as the recorded residual, 1 line
                                     # -- the virtual-branch closing brace -- now matches an equal snapshot line).
@@ -131,7 +132,8 @@ fork_odr_expect_lines: 100          # fork-vs-pristine-snapshot 1st-class lines 
                                     # P6-reconcile note: 83 -> 100 = fork-only marker_census 71 -> 88 (+curvelocal 12
                                     # +repeat-cubics 3 +lane-layers 2, P7/P8 merged from dev_v0.12) + residuals 12.
                                     # MEASURED via check_core_census.py (not arithmetic): fork-only census sum 88 + 12 = 100 <= 150.
-fork_odr_drift_expect_lines: 94     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
+fork_odr_drift_expect_lines: 93     # v3.4.1 resync: 94 -> 93 (curb retired). MEASURED via check_fork_drift.py.
+                                    # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
                                     # lines. Differs from fork_odr_expect_lines because mirrored vj hunks (vj-move/vj-enter/
                                     # vj-connect/vj-parse-*/vj-synth/vj-path/vj-route + the SHARED 15 pristine vj-lanes lines)
                                     # are byte-identical in both files -> invisible to the file diff. Only fork-ONLY [GT_ODR:]
@@ -155,7 +157,7 @@ second_class_files:
     pr_slice: "PR-A..D"
     status: active-S5              # hpp FROZEN at 74/75 through S5 (no data-model change; S5 is cpp-only)
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-    upstream_blob_sha: 932165b98754d49edccdba0c879ef8b31a9c74df
+    upstream_blob_sha: 0f46c9438473ce0393577e76633b8f71c526b3a0   # v3.4.1 (curb lane type joined upstream)
     budget_nonblank: 550
     additive_only: false
     marker_census: {vj-parse-link: 26, vj-parse-junction: 84, vj-synth: 133, vj-membership: 4, vj-osi-class: 6, vj-path: 84, vj-connect: 81, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
@@ -205,7 +207,7 @@ second_class_files:
     pr_slice: "PR-C"
     status: active-S6
   - path: EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
-    upstream_blob_sha: 9c4ea053e24c70330e24da357e3558e80b8617b0
+    upstream_blob_sha: 752dcaa0f3dbea1f203e09d1c56f045185bd0915   # v3.4.1 (indicator/warning aggregation rework)
     budget_nonblank: 30
     additive_only: false
     marker_census: {}
@@ -226,12 +228,12 @@ second_class_files:
 fork_file:
   path: GT_esmini/src/road/GT_RoadManager.cpp
   pristine_counterpart: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-  marker_census:        # measured per-id fork-ONLY NONBLANK added lines vs the upstream snapshot; sum 88 + residuals 12 = fork_odr_expect_lines (100)
+  marker_census:        # measured per-id fork-ONLY NONBLANK added lines vs the upstream snapshot; sum 87 + residuals 12 = fork_odr_expect_lines (99)
     hook: 6             # include 1 + BuildSideModel call-site 5
     country-rev: 2      # init line 1 + condition-flip line 1 (flip line via legacy_sites)
     junc-abort: 3
     obj-roadsurface: 5
-    lane-types: 5
+    lane-types: 4       # v3.4.1 resync: was 5; the curb line retired (handled-by-upstream since v3.4.1). MEASURED.
     tl-gate: 9          # SetTrafficLightInfo nr_lamps_ block 5 + gate relaxation 4
     sig-pos: 9          # pose-resolution block 7 + 2 SetSignal-ctor-arg lines
     sig-ref: 9          # else-if 1 + post-parse materialization hunk 8
@@ -257,13 +259,13 @@ fork_file:
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4931-4931"    # P6-reconcile shift: 4930 -> 4931 (P7 hunks above shifted the flip line by +1)
+      fork_lines: "4934-4934"    # v3.4.1 resync shift: 4931 -> 4934 (upstream curb block +4 above, GT curb line -1)
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
     - marker: curvelocal
-      fork_lines: "5290-5291"    # P6-reconcile (P7 merged): the singular-<outline> sibling-by-name for-loop
+      fork_lines: "5293-5294"    # v3.4.1 resync shift: 5290-5291 -> 5293-5294 (net +3, see country-rev note).
       count: 2                   # (`for (... outline_node = outline_container.child("outline"); ...)`), one diff
-                                 # block below the [GT_ODR:curvelocal] marker comment (5285-5286). The marker'd
+                                 # block below the [GT_ODR:curvelocal] marker comment (5288-5289). The marker'd
       note: "singular-outline for-loop; the [GT_ODR:curvelocal] marker comment sits one diff block above (attributes the other 10 lines). Attributed here so curvelocal totals 12 (matches the §1 fork table)."
     # S5: the 3 GT_LHT legacy_sites (fork 6052/6054/6058) were REMOVED -- the [GT_LHT] Patch 1-A code in
     # GetRoadConnectionByIdx is now inside the [GT_ODR:vj-lanes] block (block-form attribution) and counted
@@ -392,3 +394,15 @@ exclusions: []
 - **マージ証明点(RM プローブ実測、esminiRMLib 経由=フォーク実効)**: MultiLaneLayer road 1 lane -3 幅 @s=50: permanent **3.75** / temporary **3.625**、s=10/370 は両モード一致(範囲外)。roadworks road 8 レーン数: permanent 全点 13 / temporary **s=100→13(範囲外=permanent 値)、s=2500→5、s=3500→6、s=4500→4、s=5500→13(範囲外=permanent 値)**。s=100/5500 の permanent 一致がマージの s 範囲境界の機械証明。
 - **クラスタ 22 の残余**: junction laneLink @fromLayer/@toLayer は P5 実装済みスロットで捕捉済み。P8 追加 = lane `<link><predecessor/successor @layer>`(OdrLaneExtras.link_layers、sparse)+ `<validity @layer>`(signal/object extras、sparse)+ laneSection @length(OdrRoadLaneLayers シャドウ、L1 情報のみ=esmini は自前計算)。
 - **rev9 の type 無し center lane**: :4147-4149 の LOG_ERROR は P1/P2 で抑止されて**いない**(申し送りの前提誤り)が、全対象フィクスチャの center lane は type="none" を明示するためスパム新規発生なし(フォーク無改変で据置)。
+
+## 10. upstream sync 記録
+
+### 10.1 v3.4.0 → v3.4.1(2026-07-08、初回本番 resync)
+
+- **マージ**: `git merge v3.4.1`(merge d7d7e20d、chore/upstream-341)— 第2種ファイルは git 3-way で**コンフリクトゼロ**再適用。upstream 差分は 27 ファイル +515/−69(パッチリリース)。
+- **第2種影響**: RoadManager.cpp(+4: curb lane type パース)/ OSIReporter.cpp(indicator/warning 集約の書き換え — GT マーカー 0 行の予約ファイルにつき take-theirs のみ)。MoveToConnectingRoad / MoveAlongS / RoadPath::Calculate / Route::SetTrackS への upstream 変更**なし**(3-way レビュー最優先域は不発)。LaneIndependentRouter / ControllerLooming / RoadManager.hpp は blob 不変。
+- **フォーク再同期**: upstream curb ハンク(+4)を同位置(onRamp→connectingRamp 間)へ移植。
+- **handled-by-upstream 移行(実績第1号)**: `curb` lane type — upstream v3.4.1 がネイティブ対応したため `[GT_ODR:lane-types]` の curb 行を撤去(5→4 行)。parser_coverage.yaml の notes/subtleties 更新。lane@type は「値」であり whitelist 要素対象外のため `handled_by_upstream:` フラグ行の追加は不要(gen_odr_whitelist 再生成差分ゼロ、resync-guards 緑)。
+- **census 再基準化**: baseline_upstream_tag v3.4.0→v3.4.1。スナップショット 2 本追記(RoadManager.cpp@0f46c9438473 / OSIReporter.cpp@752dcaa0f3db、`git cat-file blob` バイト厳密 — record-baselines は HEAD blob 方式のため GT パッチ混入回避で不使用)。legacy_sites 行スパン +3 シフト(country-rev 4931→4934 / curvelocal 5290-5291→5293-5294)。実測: fork_odr_expect_lines 100→**99** / fork_odr_drift_expect_lines 94→**93** / マーカーリテラル 75 不変。
+- **R1 CMake 例外**: [GT_ODR:cmake]×2 / [GT_ODR:osi-path] とも upstream 未接触で生存。
+- **ゴールデン**: 再基準化**ゼロ**(`--update-golden` 不使用)。conformance full --check-matrix = PASS 350 / FAIL 0 / XFAIL 13 / XPASS 0(既存ゴールデン全一致 — curb は GT が先行対応済みだったため RM レーン型出力も不変)。unit ctest + upstream RoadManager_test(フォークビルド)緑、wasm 再ビルド+ブラウザスモーク PASS。
