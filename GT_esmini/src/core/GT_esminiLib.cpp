@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <chrono>
+#include <mutex>
 #include <osi_groundtruth.pb.h>
 
 #include "gt_esmini/control/ControllerRealDriver.hpp"
@@ -62,6 +63,105 @@
 
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
+
+// ====================== Log relay (audit CORE-4 / GT-5) ======================
+// Bridges the core txtLogger callback (level-less "[time] [level] text\n" strings)
+// to the leveled GT_SetLogCallback C API and keeps the last error-level message
+// for GT_GetLastError.
+namespace
+{
+    std::mutex       s_logMutex;
+    GT_LogCallbackFn s_userLogCallback = nullptr;
+    void*            s_userLogUserData = nullptr;
+    std::string      s_lastError;
+
+    // Parse the leading "[time] [level] " tags. Returns 0=unknown, 1=debug,
+    // 2=info, 3=warn, 4=error; text_pos is set to the start of the message body.
+    int GT_ParseLogLevel(const std::string& msg, size_t& text_pos)
+    {
+        text_pos = 0;
+        if (msg.empty() || msg[0] != '[')
+        {
+            return 0;
+        }
+        size_t p1 = msg.find(']');
+        if (p1 == std::string::npos || p1 + 2 >= msg.size() || msg[p1 + 1] != ' ' || msg[p1 + 2] != '[')
+        {
+            return 0;
+        }
+        size_t p2 = msg.find(']', p1 + 3);
+        if (p2 == std::string::npos)
+        {
+            return 0;
+        }
+        text_pos = (p2 + 2 <= msg.size()) ? p2 + 2 : msg.size();
+        const std::string lvl = msg.substr(p1 + 3, p2 - (p1 + 3));
+        if (lvl == "debug") return 1;
+        if (lvl == "info")  return 2;
+        if (lvl == "warn")  return 3;
+        if (lvl == "error") return 4;
+        return 0;  // "[]" (pre-init line) or unrecognized tag
+    }
+
+    // txtLogger callback. Runs synchronously inside the core logger on the logging
+    // thread — MUST NOT call LOG_* from here (would re-enter the logger).
+    void GT_CoreLogRelay(const std::string& msg)
+    {
+        std::string line = msg;
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
+        {
+            line.pop_back();
+        }
+
+        size_t text_pos = 0;
+        int    level    = GT_ParseLogLevel(line, text_pos);
+        // pugixml XML syntax errors surface as info/warn (audit CORE-2/12) — promote.
+        if (level != 4 && line.find("Error parsing") != std::string::npos)
+        {
+            level = 4;
+        }
+
+        GT_LogCallbackFn cb;
+        void*            ud;
+        {
+            std::lock_guard<std::mutex> lock(s_logMutex);
+            if (level == 4)
+            {
+                // Duplicate absorption (audit CORE-3): the core re-logs the same
+                // failure with an "Exception: " prefix — keep the first occurrence.
+                const std::string text = line.substr(text_pos);
+                size_t            lastPos;
+                GT_ParseLogLevel(s_lastError, lastPos);
+                const std::string lastText = s_lastError.substr(lastPos);
+                const bool        dup      = !s_lastError.empty() &&
+                                 (text == lastText || text == "Exception: " + lastText);
+                if (!dup)
+                {
+                    s_lastError = line;
+                }
+            }
+            cb = s_userLogCallback;
+            ud = s_userLogUserData;
+        }
+        // Invoke outside the lock so a callback calling GT_GetLastError can't deadlock.
+        if (cb != nullptr)
+        {
+            cb(level, line.c_str(), ud);
+        }
+    }
+
+    // Core RegisterCallback has no single-unregister API (only ClearCallbacks) and
+    // caps at 100 entries, so register exactly once for the process lifetime.
+    void GT_RegisterCoreLogRelayOnce()
+    {
+        static bool registered = false;
+        if (!registered)
+        {
+            txtLogger.RegisterCallback(&GT_CoreLogRelay);
+            registered = true;
+        }
+    }
+}  // namespace
 
 // AutoLightManager Implementation
 class AutoLightManager
@@ -92,7 +192,7 @@ public:
                 // Skip AutoLight for Ego vehicle if egoless mode is enabled
                 if (egoless_ && obj->GetId() == egoId_)
                 {
-                    std::cout << "AutoLight: Skipping Ego vehicle (ID: " << egoId_ << ")" << std::endl;
+                    LOG_INFO("AutoLight: Skipping Ego vehicle (ID: {})", egoId_);
                     continue;
                 }
 
@@ -323,14 +423,14 @@ namespace
         }
 
         std::string cmd = "\"" + gen.string() + "\" \"" + xodrAbs.string() + "\" \"" + cachePath.string() + "\" --threads 0";
-        std::cerr << "[GT_esmini] generating road model: " << cmd << std::endl;
+        LOG_INFO("GT_esmini: generating road model: {}", cmd);
         int rc = GT_RunProcess(cmd);
         if (rc == 0 && fs::exists(cachePath, ec))
         {
             return cachePath.string();
         }
 
-        std::cerr << "[GT_esmini] road model generation failed (rc=" << rc << "); using runtime generation" << std::endl;
+        LOG_WARN("GT_esmini: road model generation failed (rc={}); using runtime generation", rc);
         return "";
     }
 
@@ -373,7 +473,7 @@ namespace
         {
             pugi::xml_node sg = rn.append_child("SceneGraphFile");
             sg.append_attribute("filepath").set_value(model.c_str());
-            std::cerr << "[GT_esmini] injected cached road model: " << model << std::endl;
+            LOG_INFO("GT_esmini: injected cached road model: {}", model);
         }
     }
 }  // namespace
@@ -555,13 +655,19 @@ static bool CreateSanitizedScenario(const char* inFile, const std::string& outFi
 
 GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 {
+    GT_RegisterCoreLogRelayOnce();
+    {
+        std::lock_guard<std::mutex> lock(s_logMutex);
+        s_lastError.clear();
+    }
+
     // 1. Create a sanitized version of the scenario
     // esmini throws error on AppearanceAction/LightStateAction.
     // We strip them for the main initialization.
     std::string sanitizedFile = GT_MakeSanitizedScenarioPath(oscFilename).string();
     if (!CreateSanitizedScenario(oscFilename, sanitizedFile))
     {
-         std::cerr << "GT_Init: Failed to create sanitized scenario file." << std::endl;
+         LOG_ERROR("GT_Init: Failed to create sanitized scenario file.");
          return -1;
     }
 
@@ -622,7 +728,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         }
         else
         {
-            std::cerr << "GT_Init: Failed to reload XOSC for extensions: " << result.description() << std::endl;
+            LOG_ERROR("GT_Init: Failed to reload XOSC for extensions: {}", result.description());
         }
 
         // 3b. Initialize TrafficSignalControllers
@@ -678,9 +784,15 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
 
 GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 {
-    std::cerr << "[GT_esmini] GT_InitWithArgs called with argc=" << argc << std::endl;
+    GT_RegisterCoreLogRelayOnce();
+    {
+        std::lock_guard<std::mutex> lock(s_logMutex);
+        s_lastError.clear();
+    }
+
+    LOG_DEBUG("GT_InitWithArgs called with argc={}", argc);
     if (argc > 0 && argv) {
-        std::cerr << "[GT_esmini] argv[0]=" << (argv[0] ? argv[0] : "NULL") << std::endl;
+        LOG_DEBUG("argv[0]={}", argv[0] ? argv[0] : "NULL");
     }
     const char* filename = nullptr;
     
@@ -722,7 +834,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
     if (filename)
     {
-        std::cerr << "[GT_esmini] Sanitizing filename: " << filename << std::endl;
+        LOG_DEBUG("Sanitizing filename: {}", filename);
         // A viewer runs unless --headless is requested; only then is a road 3D model needed.
         bool headless = false;
         for (int hi = 0; hi < argc; hi++)
@@ -736,7 +848,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         sanitizedFile = GT_MakeSanitizedScenarioPath(filename).string();
         if (!CreateSanitizedScenario(filename, sanitizedFile, !headless))
         {
-             std::cerr << "GT_InitWithArgs: Failed to create sanitized scenario file." << std::endl;
+             LOG_WARN("GT_InitWithArgs: Failed to create sanitized scenario file.");
              // Try proceeding with original filename (might crash if unsupported actions present)
              sanitizedFile = filename;
         }
@@ -851,9 +963,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
 
     // 2. Initialize esmini using SE_Init with sanitized args
-    std::cerr << "[GT_esmini] Calling SE_InitWithArgs with " << newArgv.size() << " args." << std::endl;
+    LOG_DEBUG("Calling SE_InitWithArgs with {} args.", newArgv.size());
     int ret = SE_InitWithArgs(static_cast<int>(newArgv.size()), newArgv.data());
-    std::cerr << "[GT_esmini] SE_InitWithArgs returned: " << ret << std::endl;
+    LOG_DEBUG("SE_InitWithArgs returned: {}", ret);
     
     GT_RemoveSanitizedScenario(sanitizedFile);
 
@@ -865,13 +977,13 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // [GT_MOD] DIAGNOSTIC & FIX: Check and Reset QuitFlag
     int postSeInitQuit = SE_GetQuitFlag();
     if (postSeInitQuit) {
-        std::cout << "GT_InitWithArgs: WARNING: SE_InitWithArgs returned 0 but QuitFlag is " << postSeInitQuit << ". Forcing reset." << std::endl;
+        LOG_WARN("GT_InitWithArgs: SE_InitWithArgs returned 0 but QuitFlag is {}. Forcing reset.", postSeInitQuit);
         if (player) {
             player->SetQuitRequest(false);
-            std::cout << "GT_InitWithArgs: QuitFlag forced to 0." << std::endl;
+            LOG_INFO("GT_InitWithArgs: QuitFlag forced to 0.");
         }
     } else {
-        std::cout << "GT_InitWithArgs: SE_InitWithArgs OK. QuitFlag=0." << std::endl;
+        LOG_DEBUG("GT_InitWithArgs: SE_InitWithArgs OK. QuitFlag=0.");
     }
     // [GT_MOD] END
 
@@ -914,7 +1026,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         }
         else
         {
-            std::cerr << "GT_InitWithArgs: Failed to reload XOSC for extensions: " << result.description() << std::endl;
+            LOG_ERROR("GT_InitWithArgs: Failed to reload XOSC for extensions: {}", result.description());
         }
 
         // 3b. Initialize TrafficSignalControllers
@@ -933,7 +1045,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         }
         if (autoLightEnabled) {
              AutoLightManager::Instance().Enable(true);
-             std::cout << "GT_Init: AutoLight enabled via argument." << std::endl;
+             LOG_INFO("GT_Init: AutoLight enabled via argument.");
         }
 
         // 4b. Initialize VehiclePhysicsManager (observed pitch/roll for non-GT vehicles)
@@ -955,7 +1067,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 if (argv[i] && strcmp(argv[i], "--vehicle-physics") == 0)
                 {
                     vpm.Enable(true);
-                    std::cout << "GT_Init: VehiclePhysics enabled via argument." << std::endl;
+                    LOG_INFO("GT_Init: VehiclePhysics enabled via argument.");
                     break;
                 }
             }
@@ -976,7 +1088,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 if (argv[i] && strcmp(argv[i], "--heading-correction") == 0)
                 {
                     hcm.Enable(true);
-                    std::cout << "GT_Init: HeadingCorrection enabled via argument." << std::endl;
+                    LOG_INFO("GT_Init: HeadingCorrection enabled via argument.");
                     break;
                 }
             }
@@ -1037,7 +1149,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                     double alpha = (routeDriveTiming == "late") ? 0.0 : (routeDriveTiming == "early") ? 1.0 : 0.5;
                     double beta  = (routeDriveGap == "wide") ? 0.0 : (routeDriveGap == "tight") ? 1.0 : 0.5;
                     rdCtrl->SetTimingGap(alpha, beta);
-                    std::cout << "GT_Init: RouteDrive timing=" << routeDriveTiming << " gap=" << routeDriveGap << std::endl;
+                    LOG_INFO("GT_Init: RouteDrive timing={} gap={}", routeDriveTiming, routeDriveGap);
                 }
                 rdCtrl->LinkObject(ego);
                 ego->AssignController(rdCtrl);
@@ -1051,16 +1163,15 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 rdCtrl->Activate(rdModes);
 
                 player->scenarioEngine->scenarioReader->AddController(rdCtrl);
-                std::cout << "GT_Init: RouteDriveController assigned to ego '" << ego->GetName() << "'." << std::endl;
+                LOG_INFO("GT_Init: RouteDriveController assigned to ego '{}'.", ego->GetName());
             }
             else if (ego != nullptr)
             {
-                std::cout << "GT_Init: RouteDriveController skipped - ego '" << ego->GetName()
-                          << "' already has an explicit controller." << std::endl;
+                LOG_INFO("GT_Init: RouteDriveController skipped - ego '{}' already has an explicit controller.", ego->GetName());
             }
             else
             {
-                std::cout << "GT_Init: RouteDriveController - no ego vehicle found." << std::endl;
+                LOG_WARN("GT_Init: RouteDriveController - no ego vehicle found.");
             }
         }
 
@@ -1132,7 +1243,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
 
                 assignCount++;
             }
-            std::cout << "GT_Init: KinematicController assigned to " << assignCount << " vehicle(s)." << std::endl;
+            LOG_INFO("GT_Init: KinematicController assigned to {} vehicle(s).", assignCount);
         }
 
         // 5. Register Hook for OSIReporter
@@ -1173,7 +1284,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     // [GT_MOD] DIAGNOSTIC
     int finalQuit = SE_GetQuitFlag();
     if (finalQuit) {
-        std::cerr << "GT_InitWithArgs: CRITICAL! QuitFlag=" << finalQuit << " at end of GT_InitWithArgs." << std::endl;
+        LOG_ERROR("GT_InitWithArgs: CRITICAL! QuitFlag={} at end of GT_InitWithArgs.", finalQuit);
     }
     // [GT_MOD] END
 
@@ -1712,5 +1823,37 @@ GT_ESMINI_API int GT_OpenOSISocket(const char* ipaddr)
     (void)ipaddr;
     return -1;
 #endif  // _USE_OSI
+}
+
+GT_ESMINI_API void GT_SetLogCallback(GT_LogCallbackFn callback, void* user_data)
+{
+    // Register the core relay here too, so a callback attached before
+    // GT_Init/GT_InitWithArgs receives the earliest (pre-init) log lines.
+    GT_RegisterCoreLogRelayOnce();
+    std::lock_guard<std::mutex> lock(s_logMutex);
+    s_userLogCallback = callback;
+    s_userLogUserData = user_data;
+}
+
+GT_ESMINI_API int GT_GetLastError(char* buffer, int buffer_size)
+{
+    if (buffer == nullptr || buffer_size <= 0)
+    {
+        return -1;
+    }
+    std::lock_guard<std::mutex> lock(s_logMutex);
+    if (s_lastError.empty())
+    {
+        buffer[0] = '\0';
+        return 0;
+    }
+    int n = static_cast<int>(s_lastError.size());
+    if (n >= buffer_size)
+    {
+        n = buffer_size - 1;
+    }
+    std::memcpy(buffer, s_lastError.c_str(), static_cast<size_t>(n));
+    buffer[n] = '\0';
+    return n;
 }
 
