@@ -1310,6 +1310,12 @@ def main(argv: list[str] | None = None) -> int:
     pc = sub.add_parser("compare", help="compare run vs Default baseline (ego RMSE)")
     pc.add_argument("run_dir", type=Path)
     pc.add_argument("baseline", type=Path, help=".osi file or baselines/<name>/ dir")
+    pc.add_argument("--max-xy-rmse", type=float, default=None,
+                    help="fail (exit 1) when xy_rmse_m exceeds this [m]")
+    pc.add_argument("--max-xy-dev", type=float, default=None,
+                    help="fail (exit 1) when xy_max_dev_m exceeds this [m]")
+    pc.add_argument("--max-speed-rmse", type=float, default=None,
+                    help="fail (exit 1) when speed_rmse_mps exceeds this [m/s]")
 
     pa = sub.add_parser("assert", help="match run telemetry against expectations.yaml")
     pa.add_argument("run_dir", type=Path)
@@ -1342,7 +1348,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if meta["frames"] > 0 else 1
 
     if args.cmd == "compare":
-        compare(args.run_dir.resolve(), args.baseline.resolve())
+        try:
+            result = compare(args.run_dir.resolve(), args.baseline.resolve())
+        except (FileNotFoundError, RuntimeError) as e:
+            print(f"[compare] ERROR: {e}", file=sys.stderr)
+            return 1
+        violations = []
+        for opt, key, unit in (("max_xy_rmse", "xy_rmse_m", "m"),
+                               ("max_xy_dev", "xy_max_dev_m", "m"),
+                               ("max_speed_rmse", "speed_rmse_mps", "m/s")):
+            limit = getattr(args, opt)
+            if limit is not None and result[key] > limit:
+                violations.append(f"{key}={result[key]}{unit} > {limit}{unit}")
+        if violations:
+            print(f"[compare] FAIL: {'; '.join(violations)}", file=sys.stderr)
+            return 1
         return 0
 
     if args.cmd == "assert":
