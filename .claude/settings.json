@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake:*)",
+      "PowerShell(cmake:*)",
+      "Bash(ctest:*)",
+      "PowerShell(ctest:*)",
+      "Bash(pwsh scripts/run_gt_tests.ps1:*)",
+      "Bash(pwsh scripts/run_regression_gate.ps1:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/run_gt_tests.ps1:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/run_regression_gate.ps1:*)",
+      "PowerShell(pwsh scripts/run_gt_tests.ps1:*)",
+      "PowerShell(pwsh scripts/run_regression_gate.ps1:*)",
+      "PowerShell(scripts/run_gt_tests.ps1:*)",
+      "PowerShell(scripts/run_regression_gate.ps1:*)",
+      "Bash(DriverScript/.venv/Scripts/python.exe:*)",
+      "Bash(\"DriverScript/.venv/Scripts/python.exe\":*)",
+      "PowerShell(DriverScript/.venv/Scripts/python.exe:*)",
+      "Bash(GT_esmini/web/.venv/Scripts/python.exe:*)",
+      "PowerShell(GT_esmini/web/.venv/Scripts/python.exe:*)",
+      "Bash(build/GT_esmini/Release/GT_Sim.exe:*)",
+      "PowerShell(build/GT_esmini/Release/GT_Sim.exe:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git worktree list:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/gt_guard.ps1\"",
+            "timeout": 15,
+            "statusMessage": "GT guard: checking R1 / venv / gh rules"
+          }
+        ]
+      }
+    ]
+  }
+}

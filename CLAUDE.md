@@ -8,6 +8,7 @@ This document defines the structural context, dependencies, and operational rule
 - **Repository Root**: `e:\Repository\GT_esmini\esmini`
 - **Core Engine**: `EnvironmentSimulator` (Vanilla esmini)
 - **Extension Module**: `GT_esmini` (Custom Logic)
+- **Naming**: "GT" = **GroundTruth** (OSI GroundTruth), not Grand Touring. GT_Sim = GroundTruth_Sim.
 
 ### **Directory Responsibilities**
 
@@ -112,8 +113,18 @@ Use `/package --version <VERSION>` skill for automated build. See `.claude/skill
 - **Branches**: `master` (stable) → `dev_v0.<N>` (development integration) → `feature/*` (feature work)
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`)
 - **PR flow**: `feature/*` → `dev_v0.<N>` → `master`
+- **GitHub CLI**: `gh` can resolve the upstream parent (`esmini/esmini`). `gh repo set-default GT-karny/esmini` is set in this clone (re-run it in fresh clones); write operations must still pass `-R GT-karny/esmini` (enforced by the guard hook).
 
-## 8. Contextual Links
+## 8. Claude Code Harness
+
+- **Settings**: `.claude/settings.json` (committed) — permission allowlist for build/test commands + PreToolUse guard-hook registration.
+- **Guard hook** (`.claude/hooks/gt_guard.ps1`) enforces deterministically:
+  1. **R1 Clean Core** — edits under `EnvironmentSimulator/` or `OSMP_FMU/` require explicit user approval (fork-budget discipline).
+  2. **venv policy** — bare `python`/`pip`/`py` commands are denied with a pointer to the project venvs (§4).
+  3. **gh repo safety** — `gh pr/release/issue` write operations without `-R`/`--repo` are denied.
+- **Project skills**: `/build` (Protocol A build + DLL staging + detached long-build pattern), `/gates` (test-gate ladder of §5 + result interpretation), `/package` (distribution ZIP), `/release` (release procedure with approval checkpoints). When asked to verify changes, run `/gates`.
+
+## 9. Contextual Links
 
 - **`GT_esmini` Internals**: See [`GT_esmini/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/GT_esmini/CLAUDE.md)
 - **`scripts/` Guide**: See [`scripts/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/scripts/CLAUDE.md)

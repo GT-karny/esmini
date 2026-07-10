@@ -117,3 +117,6 @@ GT_esmini/test/odr_fixtures/official/
 GT_esmini/test/odr_fixtures/schema19/
 GT_esmini/test/odr_fixtures/reports/
 GT_esmini/test/odr_fixtures/work/
+# Claude Code build skill: rescue from the generic build/ pattern above
+!.claude/skills/build/
+!.claude/skills/build/**
