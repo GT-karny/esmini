@@ -43,6 +43,7 @@ namespace gt_esmini
 
 #ifdef _WIN32
         SOCKET sock_;
+        bool   wsa_started_ = false;
 #else
         int sock_;
 #endif
