@@ -34,7 +34,13 @@ from GT_esmini.web.backend.api import (
 )
 from GT_esmini.web.backend.config import GRPC_PORT
 from GT_esmini.web.backend.db.database import init_db
+from GT_esmini.web.backend.logging_config import setup_logging
 from GT_esmini.web.backend.services.grpc_server import start_grpc_server
+
+# Configure logging at import time so every startup path (main.__main__,
+# start_server.py, pyinstaller/gt_sim_web_entry.py — all uvicorn.run this module)
+# installs the stderr + rotating-file sinks, including frozen distributions.
+LOGGING_CONFIG = setup_logging()
 
 _logger = logging.getLogger(__name__)
 
@@ -233,4 +239,6 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8000,
         reload=True,
+        log_config=LOGGING_CONFIG,
+        log_level="info",
     )

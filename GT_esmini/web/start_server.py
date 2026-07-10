@@ -62,11 +62,16 @@ def main():
 
     atexit.register(_atexit_cleanup)
 
+    from GT_esmini.web.backend.logging_config import setup_logging
+    log_config = setup_logging()
+
     uvicorn.run(
         "GT_esmini.web.backend.main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
+        log_config=log_config,
+        log_level="info",
     )
 
 

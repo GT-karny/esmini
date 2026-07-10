@@ -106,11 +106,18 @@ def main() -> None:
 
     atexit.register(_atexit_cleanup)
 
+    # setup_environment() has set GT_SIM_WEB_PACKAGE_ROOT, so config.py resolves
+    # the packaged data dir before we build the file-handler path.
+    from GT_esmini.web.backend.logging_config import setup_logging
+    log_config = setup_logging()
+
     uvicorn.run(
         "GT_esmini.web.backend.main:app",
         host=args.host,
         port=args.port,
         reload=False,  # Never reload in frozen mode
+        log_config=log_config,
+        log_level="info",
     )
 
 
