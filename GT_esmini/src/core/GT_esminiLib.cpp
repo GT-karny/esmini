@@ -214,6 +214,10 @@ public:
                 // Create AutoLightController with both arguments
                 auto ctrl = std::make_unique<gt_esmini::AutoLightController>(vehicle, ext);
                 ctrl->ConfigureHeadlights(cfg, environment, entities);
+                // Inherit the current master state: Enable() only propagates to controllers
+                // that already exist, so an Enable(true) issued before Init (e.g. the
+                // --autolight-headlights argument filter) would otherwise be lost here.
+                ctrl->Enable(enabled_);
                 controllers_.push_back(std::move(ctrl));
             }
         }
@@ -941,7 +945,11 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 if (strcmp(argv[i], "--autolight-headlights") == 0)
                 {
                     // F6: force-enable environment-driven headlights (overrides config).
+                    // Asking for headlights implies the AutoLight master switch: without
+                    // Enable(true), AutoLightManager::Update() early-returns and the rule
+                    // never runs (GT_Loader masked this by enabling the master by default).
                     AutoLightManager::Instance().SetHeadlightForceEnabled(true);
+                    AutoLightManager::Instance().Enable(true);
                 }
 
                 if (strcmp(argv[i], "--osi") == 0)

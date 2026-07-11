@@ -217,6 +217,15 @@ gt_integration_test(f6_night_lowbeam f6_night_lowbeam.xosc
     --autolight-headlights --duration 6 --expect-object Ego --expect-min-sim-time 5.5
     --expect-light-on 1 --expect-move 20)
 
+# (a') Regression pin: --autolight-headlights must imply the AutoLight master switch.
+# GT_Loader enables the master by default (GT_EnableAutoLight), which masked the bug where
+# GT_Sim / in-process runs with only --autolight-headlights never ran the F6 rule at all
+# (AutoLightManager::Update early-returns when the master is off). --no-autolight suppresses
+# the loader's default so the flag has to stand on its own.
+gt_integration_test(f6_headlights_flag_implies_master f6_night_lowbeam.xosc
+    --no-autolight --autolight-headlights --duration 4 --expect-object Ego --expect-min-sim-time 3.5
+    --expect-light-on 1)
+
 # (b) Daytime Environment (bright illuminance) => low and high beam stay OFF.
 gt_integration_test(f6_day_no_lowbeam f6_day_no_lowbeam.xosc
     --autolight-headlights --duration 6 --expect-object Ego --expect-min-sim-time 5.5
