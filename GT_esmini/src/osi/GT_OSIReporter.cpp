@@ -364,9 +364,10 @@ int OSIReporter::UpdateOSIGroundTruth(const std::vector<scenarioengine::Object*>
 
             if (sendResult != packSize)
             {
-                LOG_ERROR("Failed send osi package over UDP");
 #ifdef _WIN32
-                wprintf(L"send failed with error: %d\n", WSAGetLastError());
+                LOG_ERROR("Failed send osi package over UDP (error {})", WSAGetLastError());
+#else
+                LOG_ERROR("Failed send osi package over UDP");
 #endif
                 // Give up
                 sentDataBytes = osiGroundTruth.size;

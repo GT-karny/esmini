@@ -15,9 +15,9 @@
 #include "gt_esmini/control/ControllerRealDriver.hpp"
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
+#include "logger.hpp"
 
 #include <fstream>
-#include <iostream>
 #include <algorithm>
 #include <cmath>
 
@@ -73,8 +73,7 @@ void VehiclePhysicsManager::Init(scenarioengine::Entities* entities)
 
     if (!entries_.empty())
     {
-        std::cout << "VehiclePhysicsManager: Tracking " << entries_.size()
-                  << " vehicle(s) for observed physics" << std::endl;
+        LOG_INFO("VehiclePhysicsManager: Tracking {} vehicle(s) for observed physics", entries_.size());
     }
 }
 
@@ -237,8 +236,7 @@ void VehiclePhysicsManager::LoadProfiles(const std::string& configPath)
     }
 
     profilesLoaded_ = true;
-    std::cout << "VehiclePhysicsManager: Loaded profiles ("
-              << categoryProfiles_.size() << " category overrides)" << std::endl;
+    LOG_INFO("VehiclePhysicsManager: Loaded profiles ({} category overrides)", categoryProfiles_.size());
 }
 
 ObservedVehiclePhysics::Params VehiclePhysicsManager::ResolveParams(int category) const
