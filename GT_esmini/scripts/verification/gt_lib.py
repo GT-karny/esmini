@@ -235,7 +235,7 @@ class GtLib:
         if self._has_log_api:
             # Detach before this wrapper (and its CFUNCTYPE) can be GC'd - the
             # DLL must never call a dead Python callback.
-            self.lib.GT_SetLogCallback(None, None)
+            self.lib.GT_SetLogCallback(ctypes.cast(None, _GT_LOG_CALLBACK_TYPE), None)
             self._has_log_api = False
             self._log_cb = None
 

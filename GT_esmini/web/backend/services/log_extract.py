@@ -41,7 +41,7 @@ _GENERIC_MARKERS = (
 # Windows STATUS_DLL_NOT_FOUND (0xC0000135) shows up as these signed/unsigned
 # ints depending on the shell (audit §5): the process never started, so log.txt
 # is empty. Translate the code into an actionable cause.
-_DLL_MISSING_CODES = (0xC0000135, -1073741511, 3221225781)
+_DLL_MISSING_CODES = (0xC0000135, -1073741515, 3221225781)
 _DLL_MISSING_MSG = "DLL ステージング不足の可能性 (exit 0xC0000135 / STATUS_DLL_NOT_FOUND)"
 
 _NO_CAUSE_MSG = "原因不明 (log.txt に [error]/Exception 行なし)"
