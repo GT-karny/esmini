@@ -39,9 +39,11 @@ DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/validate_cata
 
 ## 結果の解釈（重要）
 
-- **挙動バッチ（Step 2）の既知ベースラインFAIL = `red_stop_green_go` と `green_no_stop` の2件のみ**。
-  これはpre-P6からの既存（VD信号ポリシー未成熟、テレメトリゴールデンで機械証明済み）。
-  **この2件を超える新規FAILが1つでも出たら停止して原因調査**（自分の変更が原因）。
+- **挙動バッチ（Step 2）は per-scenario ベースライン照合**（`scripts/check_phase3_regression.py` +
+  `GT_esmini/test/regression_baseline/phase3_expected.yaml`）。既知ベースラインFAIL = `red_stop_green_go` の1件のみ
+  （VD信号ポリシー未成熟=ラッチ解除欠如）。`green_no_stop` は F5 の module-dir 修正で in-process 実行が
+  実 config（real_vehicle_params 等）を読むようになり意図挙動側に倒れて PASS 化（2026-07-11 baseline更新済み）。
+  **照合で deviation が1件でも出たら停止して原因調査**（自分の変更が原因。両方向=新規fail/fail→pass とも検知される）。
 - ODR適合は「FAIL/XPASSゼロ」が緑（XFAILは期待どおりの失敗=OK）。ASAM公式フィクスチャは
   thirdpartyのzipが無い環境では自動SKIP（正常）。
 - `needs-review` verdict = expectations未定義のバッチエントリ。エラーではない。
