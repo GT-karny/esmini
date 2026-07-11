@@ -12,15 +12,19 @@
     macro -> add_test(NAME <target>), so the ctest name is the bare target name
     (support/cmake/common/unittest.cmake:55-57).
 
-    Opt-in scopes (known-red as of 2026-06-13, kept out of the default gate):
-      - -IncludeIntegration: GT_esmini_Integration_* (GT_Loader, one per
-        scenario xosc; GT_esmini/test/CMakeLists.txt:93-100). These scenarios
-        have NEVER run successfully: the autolight set (test_*) references a
-        road file fabriksvag.xodr that does not exist anywhere in the repo,
-        and the frozen pythondriver_/realdriver_ sets fail VehicleCatalog
-        resolution. Re-authoring is tracked in the tech-debt roadmap (R3/TST).
+    Opt-in scopes (kept out of the default gate for runtime, not health):
+      - -IncludeIntegration: GT_esmini_Integration_* (GT_Loader, explicit
+        per-scenario registration with assertions in
+        GT_esmini/test/CMakeLists.txt). Re-authored 2026-07 (audit R3/TST):
+        21 tests (6 AutoLight/LightStateAction + 15 ControllerRealDriver) are
+        expected GREEN; each asserts init rc==0, entity presence, run
+        completion and, where applicable, light-state changes/movement
+        (audit TST-3). The 17 frozen pythondriver_* scenarios are only
+        registered when the build has GT_ENABLE_EMBEDDED_PYTHON=ON
+        (audit MSC-5) and are not part of any green gate.
       - -IncludeFrozen: test_PythonDriverBridge (embedded-Python bridge tests
-        for the v0.8-frozen PythonDriver feature; GT_esmini/test/CMakeLists.txt:39).
+        for the v0.8-frozen PythonDriver feature; only registered with
+        GT_ENABLE_EMBEDDED_PYTHON=ON).
 
 .PARAMETER Config
     Build configuration to test (Release/Debug). Default: Release.
