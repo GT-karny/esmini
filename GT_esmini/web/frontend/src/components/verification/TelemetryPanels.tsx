@@ -5,7 +5,7 @@ import type { VdTelemetryFrame } from '../../api/client';
  * (VerificationReplayPage) and the live view (LiveVdPanel) so the two stay
  * visually identical. */
 
-export function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-2">
       <span className="text-text-tertiary">{label}</span>
