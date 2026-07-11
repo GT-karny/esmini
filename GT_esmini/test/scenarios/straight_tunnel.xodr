@@ -1,0 +1,46 @@
+<?xml version="1.0" standalone="yes"?>
+<!-- GT_esmini F6 test road: straight 400 m with an OpenDRIVE <tunnel> over s=[200,300].
+     Used by f6_tunnel_lowbeam.xosc to verify AutoLight raises low beam inside a tunnel
+     and drops it again on exit. Upstream RoadManager parses <tunnel> natively
+     (Road::GetNumberOfTunnels / GetTunnel; Tunnel::s_ + length_). -->
+<OpenDRIVE>
+    <header revMajor="1" revMinor="4" name="straight_tunnel" version="1.00" date="2026-07-11" north="0.0" south="0.0" east="0.0" west="0.0"/>
+    <road name="tunnelroad" length="400.0" id="1" junction="-1">
+        <link>
+        </link>
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="400.0">
+                <line/>
+            </geometry>
+        </planView>
+        <elevationProfile>
+            <elevation s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
+        </elevationProfile>
+        <lanes>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <link>
+                        </link>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false">
+                        <roadMark sOffset="0.0" type="broken" weight="standard" color="white" width="0.15"/>
+                    </lane>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <link>
+                        </link>
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <objects>
+            <tunnel s="200.0" length="100.0" name="TestTunnel" id="1" type="standard" lighting="0.5" daylight="0.5"/>
+        </objects>
+    </road>
+</OpenDRIVE>

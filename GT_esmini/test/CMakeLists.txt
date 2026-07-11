@@ -8,6 +8,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_SimpleJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_CommonControlHelpers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_HeadlightLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ControllerRealDriverUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_LonProfilePlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_LonProfilePlannerModule.cpp
@@ -154,7 +155,9 @@ endif()
 set(GT_INTEGRATION_PATH_ARGS
     --path ${CMAKE_SOURCE_DIR}/resources/xodr
     --path ${CMAKE_SOURCE_DIR}/resources/xosc
-    --path ${CMAKE_SOURCE_DIR}/resources)
+    --path ${CMAKE_SOURCE_DIR}/resources
+    # F6: the test scenarios dir carries straight_tunnel.xodr (tunnel test asset).
+    --path ${CMAKE_CURRENT_SOURCE_DIR}/scenarios)
 
 function(gt_integration_test TEST_NAME SCENARIO)
     add_test(
@@ -203,6 +206,36 @@ gt_integration_test(test_error_invalid_value test_error_invalid_value.xosc
 gt_integration_test(test_error_missing_attribute test_error_missing_attribute.xosc
     --duration 4 --no-autolight --expect-object Ego --expect-min-sim-time 3.5
     --expect-light-never-on 6)
+
+# --- F6 AutoLight environment-driven headlights (active feature) ---
+# Enabled per-run via --autolight-headlights (config/auto_light.json defaults OFF).
+# Light indices: 1=lowBeam, 2=highBeam.
+#
+# (a) Night Environment (Sun illuminance below threshold) => low beam ON.
+gt_integration_test(f6_night_lowbeam f6_night_lowbeam.xosc
+    --autolight-headlights --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-on 1 --expect-move 20)
+
+# (b) Daytime Environment (bright illuminance) => low and high beam stay OFF.
+gt_integration_test(f6_day_no_lowbeam f6_day_no_lowbeam.xosc
+    --autolight-headlights --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-never-on 1 --expect-light-never-on 2 --expect-move 20)
+
+# (c) OpenDRIVE <tunnel> over s=[200,300]: low beam ON inside, OFF again after exit.
+gt_integration_test(f6_tunnel_lowbeam f6_tunnel_lowbeam.xosc
+    --autolight-headlights --duration 25 --expect-object Ego --expect-min-sim-time 24
+    --expect-light-on 1 --expect-light-off-at-end 1 --expect-light-off-at-end 2
+    --expect-move 100)
+
+# (d) High beam: night + clear road ahead => low beam AND high beam ON (reuses night road).
+gt_integration_test(f6_highbeam_clear f6_night_lowbeam.xosc
+    --autolight-headlights --duration 8 --expect-object Ego --expect-min-sim-time 7.5
+    --expect-light-on 1 --expect-light-on 2)
+
+# (d') High beam dims: night + lead vehicle ahead within range => low beam ON, high beam never ON.
+gt_integration_test(f6_highbeam_lead_dim f6_highbeam_lead_dim.xosc
+    --autolight-headlights --duration 8 --expect-object Ego --expect-min-sim-time 7.5
+    --expect-light-on 1 --expect-light-never-on 2)
 
 # --- ControllerRealDriver set (active feature, UDP-driven; runs with default/no input) ---
 # Assert scenario load, Ego presence and full completion of the 10 s StopTrigger window.
