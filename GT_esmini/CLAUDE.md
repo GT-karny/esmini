@@ -7,7 +7,7 @@ This document defines the architectural boundaries for `GT_esmini` after the fea
 - `core`: Public C API facade (`GT_Init`, `GT_Step`, `GT_Close`, `GT_ReportObjectVel`), config path resolution, shared abstractions.
 - `scenario`: OpenSCENARIO extension parsing and runtime entities (`GT_ScenarioReader`, `ExtraAction`, `ExtraEntities`, `GT_TrafficSignalController`).
 - `io`: UDP transport and packet-level I/O (`GT_UDP`).
-- `control`: Real-time control pipeline (`ControllerManualDrive`, `RealVehicle`, `AutoLightController`) and split responsibilities (`ManualDriveCoordinator`, `IndicatorFSM`, `IInputSource`, `IPhysicsBackend`).
+- `control`: Real-time control pipeline — the controller family (`ControllerVirtualDriver`, `ControllerManualDrive`, `ControllerRouteDrive`, `ControllerKinematic`, plus frozen `ControllerRealDriver` / `ControllerPythonDriver`), `RealVehicle`, `AutoLightController`, and split responsibilities (`ManualDriveCoordinator`, `IndicatorFSM`, `IInputSource`, `IPhysicsBackend`). VirtualDriver's pluggable planner/policy layers live under `src/control/virtualdriver/` (`policies/` = LeadVehicleAware, TrafficLightAware, StopYieldSignAware, ConflictPointResolver, CrosswalkPedestrianAware).
 - `osi`: OSI/HostVehicleData reporting (`GT_OSIReporter*`, `GT_HostVehicleReporter`) and provider interfaces.
 
 ## 2. Dependency Rules
@@ -30,6 +30,10 @@ This document defines the architectural boundaries for `GT_esmini` after the fea
   - `config/real_vehicle_params.json` — Vehicle physics parameters
   - `config/host_vehicle_config.json` — HVD reporting config
   - `config/manual_drive.json` — ManualDrive controller settings (input type, button mapping, FFB, domain control)
+  - `config/virtual_driver.json` — VirtualDriver planner/policy/driver-model settings
+  - `config/route_drive_controller.json` — RouteDrive controller settings
+  - `config/kinematic_controller.json` — Kinematic controller settings
+  - `config/auto_light.json` — F6 environment-driven headlights (night/tunnel/auto high beam; `headlight_enabled` defaults OFF)
 
 ## 5. Directory Anchors
 

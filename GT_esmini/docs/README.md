@@ -47,6 +47,7 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 | [Phase 2 テレメトリ依頼(midlong)](virtualdriver/A2_midlong_telemetry_request.md) | 中長期判定テレメトリ JSON 出力 + constraints の実装依頼記録 |
 | [Phase 2 フォローアップ課題](virtualdriver/P2_followup_issues.md) | Phase 2 完了時点の積み残し課題台帳 |
 | [Phase 3b/3c firm-stop 欠陥報告](virtualdriver/P3_firmstop_issue.md) | 検証環境が検出した firm-stop 欠陥の報告 |
+| [F4 注釈類似度 自動判定 設計メモ](virtualdriver/F4_annotation_similarity_design.md) | 検証工場の F4 ストレッチ: per-scenario 回帰ゲート（実装済み）と、注釈データセット類似度による自動判定（構想・未実装）の設計 |
 
 ## PythonDriverController (開発凍結中)
 
