@@ -150,7 +150,7 @@ export function SimulationRunForm({
   useEffect(() => {
     if (!rerunFrom) return;
     const opts = rerunFrom as {
-      controller?: { controller_type?: string };
+      controller?: { controller_type?: string; manual_drive?: Partial<ManualDriveConfig> };
       execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
@@ -159,8 +159,8 @@ export function SimulationRunForm({
       setControllerType(
         (ct === 'manual' || ct === 'virtual_driver' ? ct : 'default') as ControllerType,
       );
-      if (ct === 'manual' && (opts.controller as any).manual_drive) {
-        setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...(opts.controller as any).manual_drive });
+      if (ct === 'manual' && opts.controller.manual_drive) {
+        setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...opts.controller.manual_drive });
       }
     }
     const exec = opts.execution;

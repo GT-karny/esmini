@@ -11,7 +11,8 @@ import { VerificationReplayPage } from './pages/VerificationReplayPage';
 import { VerificationAnnotatePage } from './pages/VerificationAnnotatePage';
 import { VdLivePage } from './pages/VdLivePage';
 import { SettingsPanel } from './components/SettingsPanel';
-import { WindowControls, isElectron } from './components/WindowControls';
+import { WindowControls } from './components/WindowControls';
+import { isElectron } from './lib/electron';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5000 } },

@@ -16,9 +16,8 @@ import {
 import { buildSimulationRequest } from '../api/simulationRequest';
 import { LiveSceneView } from '../components/LiveSceneView';
 import { TelemetryInfoRows } from '../components/verification/TelemetryPanels';
-import {
-  useReplay, useSceneReplay, ReplayControls, Timeline,
-} from '../components/verification/ReplayTransport';
+import { ReplayControls, Timeline } from '../components/verification/ReplayTransport';
+import { useReplay, useSceneReplay } from '../components/verification/replayHooks';
 import { RunListPanel, type RunFilter } from '../components/verification/RunListPanel';
 import { AnnotationLabelBar } from '../components/verification/AnnotationLabelBar';
 import { OdrMetadataPanel } from '../components/OdrMetadataPanel';
@@ -64,8 +63,14 @@ export function VerificationAnnotatePage() {
     () => allRuns.find((r) => r.run_id === effectiveId) ?? null,
     [allRuns, effectiveId]);
 
-  // Reset comment editor when the active run changes.
-  useEffect(() => { setComment(selected?.comment ?? ''); setSaved(false); }, [effectiveId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reset comment editor when the active run changes (render-time adjustment —
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  const [prevRunId, setPrevRunId] = useState(effectiveId);
+  if (prevRunId !== effectiveId) {
+    setPrevRunId(effectiveId);
+    setComment(selected?.comment ?? '');
+    setSaved(false);
+  }
 
   // --- telemetry + replay (shared transport) ---
   const { data: telemetry } = useQuery({
