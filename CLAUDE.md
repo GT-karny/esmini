@@ -94,7 +94,7 @@ graph TD
 
 - **Build pass** (Protocol A) remains the primary gate; **smoke run** (`GT_Sim.exe` on representative xosc/xodr) for viewer/OSI sanity.
 - **CI** (`.github/workflows/ci.yml` test job) runs the GT unit ctest step after upstream `run_tests.sh` (audit TST-1 closed).
-- **Known-broken (opt-in)**: `GT_esmini_Integration_*` GT_Loader tests never ran successfully — the autolight set references a nonexistent `fabriksvag.xodr`, the frozen pythondriver/realdriver sets fail VehicleCatalog resolution. Re-author under roadmap R3/TST (`run_gt_tests.ps1 -IncludeIntegration` to run them).
+- **Integration (opt-in, green)**: `GT_esmini_Integration_*` GT_Loader tests were re-authored 2026-07 (audit R3/TST closed): 21 tests — 6 AutoLight/LightStateAction (incl. 2 graceful-degradation negatives) + 15 ControllerRealDriver — registered explicitly with per-test assertions (init rc==0, entity presence, run completion, light-state changes / movement; audit TST-3 closed). Run via `run_gt_tests.ps1 -IncludeIntegration`; kept out of the default gate for runtime only. The 17 frozen `pythondriver_*` scenarios register only with `GT_ENABLE_EMBEDDED_PYTHON=ON` (audit MSC-5 closed) and are not part of any green gate.
 - **Focus areas**: ManualDrive / KinematicController / LHT junction behavior (recent hotspots).
 
 ### Legacy (frozen)
