@@ -1,0 +1,93 @@
+manifest: resources/xosc/verification/phase3_batch.yaml
+note: Committed regression baseline for the VirtualDriver phase-3 behavioral batch. Compared per-scenario/per-matcher
+  by scripts/check_phase3_regression.py. Any deviation (new fail OR a known fail turning pass) fails the
+  check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
+  committing.
+expected_summary:
+  pass: 10
+  fail: 2
+  needs-review: 0
+  error: 0
+scenarios:
+  red_stop_green_go:
+    status: fail
+    matchers:
+    - event: stopped_at_signal
+      status: pass
+    - event: speed_above
+      status: fail
+  red_hold:
+    status: pass
+    matchers:
+    - event: stopped_at_signal
+      status: pass
+    - event: speed_below
+      status: pass
+  green_no_stop:
+    status: fail
+    matchers:
+    - event: min_speed_above
+      status: fail
+    - event: speed_above
+      status: pass
+  yellow_decision_stop:
+    status: pass
+    matchers:
+    - event: stopped_at_signal
+      status: pass
+  stop_sign_full_stop:
+    status: pass
+    matchers:
+    - event: stopped_at_stop_sign
+      status: pass
+    - event: speed_above
+      status: pass
+  yield_proceed_clear:
+    status: pass
+    matchers:
+    - event: min_speed_above
+      status: pass
+    - event: speed_above
+      status: pass
+  yield_slow_then_proceed:
+    status: pass
+    matchers:
+    - event: speed_below
+      status: pass
+    - event: min_speed_above
+      status: pass
+  semantic_stop_sign_full_stop:
+    status: pass
+    matchers:
+    - event: stopped_at_stop_sign
+      status: pass
+    - event: speed_above
+      status: pass
+  invalidated_stop_sign_ignored:
+    status: pass
+    matchers:
+    - event: min_speed_above
+      status: pass
+    - event: speed_above
+      status: pass
+  follow_steady:
+    status: pass
+    matchers:
+    - event: maintained_following_distance
+      status: pass
+  follow_hard_brake:
+    status: pass
+    matchers:
+    - event: maintained_following_distance
+      status: pass
+    - event: speed_below
+      status: pass
+  follow_stop_and_go:
+    status: pass
+    matchers:
+    - event: maintained_following_distance
+      status: pass
+    - event: speed_below
+      status: pass
+    - event: speed_above
+      status: pass
