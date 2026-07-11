@@ -5,6 +5,7 @@ import { SelectInput, NumberInput } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useGamepadButtonCapture } from '../../hooks/useGamepadButtonCapture';
 import { api, type ManualDriveConfig, type ManualDrivePreset } from '../../api/client';
+import { MANUAL_DRIVE_DEFAULT_PORTS } from '../../lib/manualDrive';
 
 interface ManualDrivePanelProps {
   open: boolean;
@@ -30,8 +31,8 @@ const DEFAULT_CONFIG: ManualDriveConfig = {
     headlight: 'L', high_beam: 'K', fog_light: 'F', hazard: 'H',
     steer_rate: 2.0, centering_rate: 3.0, pedal_press_rate: 4.0, pedal_release_rate: 6.0,
   },
-  input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
-  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
+  input_network: { transport_type: 'udp', port: MANUAL_DRIVE_DEFAULT_PORTS.input, level: 'pedal_steer' },
+  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: MANUAL_DRIVE_DEFAULT_PORTS.physicsCmd, state_port: MANUAL_DRIVE_DEFAULT_PORTS.physicsState },
   ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },
 };
 

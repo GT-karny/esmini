@@ -10,9 +10,20 @@
 
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { startServer, stopServer } from './server.js';
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Resolve the window/taskbar icon. Ships as assets/icon.png next to the app
+ * root (bundled via electron-builder `files`). Returns undefined when absent so
+ * a missing asset never blocks window creation (Electron falls back to default).
+ */
+function resolveIcon(): string | undefined {
+  const iconPath = path.join(app.getAppPath(), 'assets', 'icon.png');
+  return existsSync(iconPath) ? iconPath : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Window
@@ -23,6 +34,7 @@ function createWindow(serverUrl: string): void {
     width: 1400,
     height: 900,
     title: 'GT_Sim',
+    icon: resolveIcon(),
     backgroundColor: '#0a0a0f',
     frame: false,
     titleBarStyle: 'hidden',

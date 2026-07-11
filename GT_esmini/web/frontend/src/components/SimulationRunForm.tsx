@@ -9,6 +9,7 @@ import type {
   ManualDriveConfig,
 } from '../api/client';
 import { buildSimulationRequest } from '../api/simulationRequest';
+import { MANUAL_DRIVE_DEFAULT_PORTS } from '../lib/manualDrive';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
@@ -30,8 +31,8 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
     headlight: 'L', high_beam: 'K', fog_light: 'F', hazard: 'H',
     steer_rate: 2.0, centering_rate: 3.0, pedal_press_rate: 4.0, pedal_release_rate: 6.0,
   },
-  input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
-  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
+  input_network: { transport_type: 'udp', port: MANUAL_DRIVE_DEFAULT_PORTS.input, level: 'pedal_steer' },
+  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: MANUAL_DRIVE_DEFAULT_PORTS.physicsCmd, state_port: MANUAL_DRIVE_DEFAULT_PORTS.physicsState },
   ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },
 };
 
