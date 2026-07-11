@@ -42,8 +42,9 @@ namespace gt_esmini
         std::string        ipAddress_;
 
 #ifdef _WIN32
+        // Winsock is initialized process-wide (once) by a function-local static in
+        // GT_UDP.cpp and never de-initialized here; no per-instance WSA state is kept.
         SOCKET sock_;
-        bool   wsa_started_ = false;
 #else
         int sock_;
 #endif

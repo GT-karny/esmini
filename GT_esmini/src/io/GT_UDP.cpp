@@ -18,18 +18,52 @@
 namespace gt_esmini
 {
 
+#ifdef _WIN32
+    namespace
+    {
+        // Process-wide Winsock initializer (replaces the previous per-instance
+        // WSAStartup/WSACleanup pairing).
+        //
+        // WSAStartup/WSACleanup are refcounted by the OS; we take exactly ONE reference
+        // for the whole process via a function-local static (thread-safe init since C++11)
+        // and deliberately never call WSACleanup. Winsock therefore stays initialized for
+        // the lifetime of the process and is reclaimed by the OS at exit — the same
+        // "leave teardown to the OS" policy adopted for sockets in GT-6 (fb749dfc /
+        // cf5673df). This structurally prevents a GT_UDP_Sender's closesocket() from ever
+        // failing with WSANOTINITIALISED (10093) during static destruction, since Winsock
+        // is never de-initialized while GT still owns sockets.
+        struct WinsockContext
+        {
+            bool ok = false;
+            WinsockContext()
+            {
+                WSADATA wsa_data;
+                int     iResult = WSAStartup(MAKEWORD(2, 2), &wsa_data);
+                ok              = (iResult == NO_ERROR);
+                if (!ok)
+                {
+                    LOG_ERROR("GT_UDP_Sender: WSAStartup failed with error {}", iResult);
+                }
+            }
+            // Intentionally NO destructor / WSACleanup — see note above.
+        };
+
+        bool EnsureWinsockInitialized()
+        {
+            static WinsockContext ctx;
+            return ctx.ok;
+        }
+    }  // namespace
+#endif
+
     GT_UDP_Sender::GT_UDP_Sender(unsigned short int port, std::string ipAddress)
         : port_(port), ipAddress_(ipAddress), sock_(SE_INVALID_SOCKET)
     {
 #ifdef _WIN32
-        WSADATA wsa_data;
-        int     iResult = WSAStartup(MAKEWORD(2, 2), &wsa_data);
-        if (iResult != NO_ERROR)
+        if (!EnsureWinsockInitialized())
         {
-            LOG_ERROR("GT_UDP_Sender: WSAStartup failed with error {}", iResult);
-            return;
+            return;  // WSAStartup failed process-wide; sock_ stays invalid.
         }
-        wsa_started_ = true;
 #endif
 
         if ((sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == SE_INVALID_SOCKET)
@@ -77,15 +111,10 @@ namespace gt_esmini
             sock_ = SE_INVALID_SOCKET;
         }
 
-#ifdef _WIN32
-        // Only undo our own successful WSAStartup; an unconditional WSACleanup would
-        // over-decrement the process-wide refcount and break sockets still owned by others.
-        if (wsa_started_)
-        {
-            WSACleanup();
-            wsa_started_ = false;
-        }
-#endif
+        // No WSACleanup here: Winsock is initialized once per process by WinsockContext
+        // and left to the OS to reclaim at exit (see the note above the singleton). This
+        // avoids over-decrementing the process-wide Winsock refcount and the GT-6
+        // WSANOTINITIALISED-during-teardown hazard.
     }
 
     int GT_UDP_Sender::Send(const char* buf, unsigned int size)
