@@ -67,7 +67,22 @@ namespace gt_esmini
          * @brief Control reversing lights based on speed
          */
         void UpdateReversingLights();
-        
+
+        /**
+         * @brief Arbitrated, edge-triggered AutoLight write.
+         *
+         * Honours the light-ownership hierarchy (SCENARIO > MANUAL > AUTO): a slot that a
+         * native scenario LightStateAction controls is never overwritten. Otherwise the
+         * bridge is only touched when the desired mode differs from the last AUTO-written
+         * mode (edge trigger) so a GT-written FLASHING slot is written once and left for
+         * the blink ticker instead of being re-stamped (and un-blinked) every frame.
+         *
+         * @param type    Light slot to drive.
+         * @param desired Mode AutoLight wants for this frame.
+         * @param last    Shadow of the last AUTO-written mode for this slot (updated in place).
+         */
+        void ApplyAutoLight(VehicleLightType type, LightState::Mode desired, LightState::Mode& last);
+
         // State variables for logic
         double prevSpeed_;
         int prevLaneId_;
@@ -75,6 +90,12 @@ namespace gt_esmini
         double smoothedAcc_;
         LightState::Mode lastBrakeState_;
         double brakeLatchTimer_;
+
+        // Edge-trigger shadows for the every-frame slots (reversing + indicators) so
+        // AutoLight only writes on a real mode change and never fights the blink ticker.
+        LightState::Mode lastReversingState_     = LightState::Mode::OFF;
+        LightState::Mode lastLeftIndicatorState_  = LightState::Mode::OFF;
+        LightState::Mode lastRightIndicatorState_ = LightState::Mode::OFF;
         
         // Speed History for Brake Event Detection (Time, Speed)
         std::deque<std::pair<double, double>> speedHistory_;

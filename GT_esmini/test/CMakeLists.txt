@@ -174,22 +174,23 @@ gt_integration_test(autolight_test autolight_test.xosc
     --expect-light-on 3 --expect-light-on 6 --expect-light-on 10
     --expect-move 20)
 
-# Scenario-driven LightStateAction tests run with --no-autolight: they verify the
-# NATIVE action path, and AutoLightController currently overwrites scenario-driven
-# indicators/reversing every frame (known conflict, see audit R3/TST notes).
+# Scenario-driven LightStateAction tests run with AutoLight ENABLED: they verify that a
+# native LightStateAction retains ownership (ScenarioLightRegistry latch) and AutoLight no
+# longer overwrites scenario-driven indicators/reversing every frame (audit R3/TST fix in
+# AutoLightController::ApplyAutoLight — SCENARIO > MANUAL > AUTO + edge trigger).
 # Brake ON at t>1 while driving at 10 m/s.
 gt_integration_test(test_brake_lights test_brake_lights.xosc
-    --duration 6 --no-autolight --expect-object Ego --expect-min-sim-time 5.5
+    --duration 6 --expect-object Ego --expect-min-sim-time 5.5
     --expect-light-on 6 --expect-move 20)
 
 # Flashing indicators: left at t>1, right at t>4.
 gt_integration_test(test_indicators test_indicators.xosc
-    --duration 6 --no-autolight --expect-object Ego --expect-min-sim-time 5.5
+    --duration 6 --expect-object Ego --expect-min-sim-time 5.5
     --expect-light-on 8 --expect-light-on 9)
 
 # Two lights in one parallel event: lowBeam + fog at t>2.
 gt_integration_test(test_multiple_lights test_multiple_lights.xosc
-    --duration 6 --no-autolight --expect-object Ego --expect-min-sim-time 5.5
+    --duration 6 --expect-object Ego --expect-min-sim-time 5.5
     --expect-light-on 1 --expect-light-on 3)
 
 # Graceful degradation: invalid vehicleLightType / missing mandatory 'mode' must be

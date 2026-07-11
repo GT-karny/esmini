@@ -101,6 +101,34 @@ namespace gt_esmini
     }
 
 
+    void AutoLightController::ApplyAutoLight(VehicleLightType type, LightState::Mode desired, LightState::Mode& last)
+    {
+        // SCENARIO > MANUAL > AUTO. A slot owned by a native LightStateAction (latched in
+        // ScenarioLightRegistry) is never overwritten by AutoLight — otherwise the every-
+        // frame indicator/reversing writes would stamp OFF over a scenario FLASHING/ON and
+        // kill it. Keep the shadow in sync so a later release (never happens today — the
+        // latch is permanent — but harmless) re-asserts correctly.
+        if (lightExt_->IsScenarioControlled(type))
+        {
+            last = desired;
+            return;
+        }
+
+        // Edge trigger: only touch the bridge on a real mode change. For FLASHING slots
+        // this hands ongoing animation to the blink ticker instead of re-stamping the
+        // mode (and resetting the emission the ticker just toggled) every frame.
+        if (desired == last)
+        {
+            return;
+        }
+
+        LightState state;
+        state.mode = desired;
+        lightExt_->SetLightState(type, state);
+        lightExt_->SetLightSource(type, LightSource::AUTO);
+        last = desired;
+    }
+
     void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)
     {
         if (lightExt_->IsManualOverride(VehicleLightType::BRAKE_LIGHTS))
@@ -203,14 +231,8 @@ namespace gt_esmini
             desiredState = LightState::Mode::OFF;
         }
 
-        // 7. Edge Triggered Update
-        if (desiredState != lastBrakeState_)
-        {
-            LightState state;
-            state.mode = desiredState;
-            lightExt_->SetLightState(VehicleLightType::BRAKE_LIGHTS, state);
-            lastBrakeState_ = desiredState;
-        }
+        // 7. Edge Triggered Update (scenario-owned brake slot is left untouched).
+        ApplyAutoLight(VehicleLightType::BRAKE_LIGHTS, desiredState, lastBrakeState_);
     }
 
     void AutoLightController::UpdateReversingLights()
@@ -238,22 +260,14 @@ namespace gt_esmini
         // vehicle_->state_old.vel_x vs heading?
         
         bool isReversing = (speed < -0.01); // Simple check if speed can be negative
-        
+
         // If speed is always positive, we might need to check which way it is moving vs heading.
         // But simpler for now: if user sets speed < 0 in scenario.
-        
-        if (isReversing)
-        {
-             LightState state;
-             state.mode = LightState::Mode::ON;
-             lightExt_->SetLightState(VehicleLightType::REVERSING_LIGHTS, state);
-        }
-        else
-        {
-             LightState state;
-             state.mode = LightState::Mode::OFF;
-             lightExt_->SetLightState(VehicleLightType::REVERSING_LIGHTS, state);
-        }
+
+        // Edge-triggered + scenario-aware (was an unconditional every-frame write that
+        // overwrote scenario-driven reversing lights).
+        const LightState::Mode desired = isReversing ? LightState::Mode::ON : LightState::Mode::OFF;
+        ApplyAutoLight(VehicleLightType::REVERSING_LIGHTS, desired, lastReversingState_);
     }
 
     void AutoLightController::UpdateIndicators(double dt)
@@ -686,22 +700,24 @@ namespace gt_esmini
         }
         
         // --- Output Application ---
-        LightState leftState;
-        LightState rightState;
-        leftState.mode = LightState::Mode::OFF;
-        rightState.mode = LightState::Mode::OFF;
-        
+        // Edge-triggered + scenario-aware. A native LightStateAction that owns an indicator
+        // (e.g. warningLights / indicatorLeft) keeps ownership; AutoLight no longer stamps
+        // OFF over its FLASHING every frame. GT-owned FLASHING is written once here and then
+        // animated by the blink ticker rather than re-stamped.
+        LightState::Mode desiredLeft  = LightState::Mode::OFF;
+        LightState::Mode desiredRight = LightState::Mode::OFF;
+
         if (indicatorState_ == IndicatorState::ACTIVE_LEFT || indicatorState_ == IndicatorState::PREPARE_LEFT)
         {
-             leftState.mode = LightState::Mode::FLASHING;
+             desiredLeft = LightState::Mode::FLASHING;
         }
         else if (indicatorState_ == IndicatorState::ACTIVE_RIGHT || indicatorState_ == IndicatorState::PREPARE_RIGHT)
         {
-             rightState.mode = LightState::Mode::FLASHING;
+             desiredRight = LightState::Mode::FLASHING;
         }
-        
-        lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, leftState);
-        lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, rightState);
+
+        ApplyAutoLight(VehicleLightType::INDICATOR_LEFT, desiredLeft, lastLeftIndicatorState_);
+        ApplyAutoLight(VehicleLightType::INDICATOR_RIGHT, desiredRight, lastRightIndicatorState_);
 
         // Update Junction History
         lastJunctionId_ = junctionId;
