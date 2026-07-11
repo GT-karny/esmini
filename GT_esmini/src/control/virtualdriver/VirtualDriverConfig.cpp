@@ -111,6 +111,7 @@ const BoolField kBoolFields[] = {
     {"policy_stop_yield_enabled", &VirtualDriverConfig::policy_stop_yield_enabled},
     {"policy_conflict_enabled", &VirtualDriverConfig::policy_conflict_enabled},
     {"policy_crosswalk_enabled", &VirtualDriverConfig::policy_crosswalk_enabled},
+    {"policy_junction_priority_enabled", &VirtualDriverConfig::policy_junction_priority_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
@@ -274,6 +275,7 @@ ConflictPointResolverConfig VirtualDriverConfig::ConflictConfig() const
     c.min_cross_angle_deg = conflict_min_cross_angle_deg;
     c.other_min_speed     = conflict_other_min_speed;
     c.area_eps            = conflict_area_eps;
+    c.junction_priority_enabled = policy_junction_priority_enabled;  // F3
     return c;
 }
 
