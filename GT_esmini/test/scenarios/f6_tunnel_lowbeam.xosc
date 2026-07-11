@@ -8,7 +8,7 @@
     </RoadNetwork>
     <Entities>
         <ScenarioObject name="Ego">
-            <Vehicle name="car_white" vehicleCategory="car">
+            <Vehicle name="car_white" vehicleCategory="car" model3d="car_white.osgb">
                 <ParameterDeclarations/>
                 <Performance maxSpeed="69" maxAcceleration="200" maxDeceleration="10"/>
                 <BoundingBox>
