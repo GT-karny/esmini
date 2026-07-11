@@ -7,9 +7,11 @@ Python utility scripts. Always execute via `DriverScript/.venv/Scripts/python.ex
 ### Data Conversion
 | Script | Role |
 | :--- | :--- |
-| `dat.py` | `DATFile` class — read/write esmini binary `.dat` recording files |
-| `dat2csv.py` | CLI wrapper: `.dat` → `.csv` conversion |
 | `osi2csv.py` | OSI binary trace → CSV conversion |
+
+> `dat.py` / `dat2csv.py` were removed upstream (commit 9ea6992e; `.dat`→CSV is now the C++
+> `dat2csv` tool in `EnvironmentSimulator/Applications/replayer/`). The GT-vendored `DATFile`
+> reader lives at `GT_esmini/scripts/dat.py`.
 
 ### Visualization
 | Script | Role |
@@ -23,6 +25,24 @@ Python utility scripts. Always execute via `DriverScript/.venv/Scripts/python.ex
 
 > Frozen toolchain moved to `archive/frozen_python_verification/scripts/`.
 > See `archive/frozen_python_verification/README.md` for context (audit SCR-2).
+
+### Test Gates (PowerShell)
+| Script | Role |
+| :--- | :--- |
+| `run_gt_tests.ps1` | GT unit gate (ctest `test_ScenarioReaderParsing`; `-IncludeIntegration` for known-broken sets) |
+| `run_regression_gate.ps1` | Pre-merge ladder: unit gate → ODR quick → VirtualDriver behavioral batch (see root CLAUDE.md §5) |
+| `build_package.ps1` | Distribution package pipeline (single source of truth for `/package`) |
+
+### Fork Governance (Clean Core / upstream sync)
+| Script | Role |
+| :--- | :--- |
+| `check_core_census.py` | AUTHORITATIVE outbound check: every fork/2nd-class deviation attributed per marker id against the census manifest (`gt_roadmanager_patches.md`) |
+| `check_fork_drift.py` | Legacy coarse outbound drift check (GT_RoadManager.cpp vs pristine, proximity attribution) |
+| `check_fork_sync.py` | INBOUND sync gate (audit R4): upstream commits on the forked lineages (RoadManager/OSIReporter/roadgen) not yet ported — manifest `GT_esmini/docs/fork_sync_manifest.yaml`; WARN by default, `--strict` gates; runs in CI as a warning step |
+| `gt_patch_manifest.py` | Loader/validator for the census manifest YAML block (shared by the checkers and ctest) |
+| `check_resync_guards.py` | Resync guard checks (double-processing guards) |
+| `odr_resync_rehearsal.py` | Upstream resync rehearsal automation |
+| `strip_gt_markers.py` | Strip `[GT_ODR:]`/`[GT_LHT]` markers (upstream PR preparation) |
 
 ### OpenDRIVE Conformance (plan P0)
 
@@ -64,4 +84,4 @@ Baseline harness for the OpenDRIVE 1.6-1.9 support plan. See `GT_esmini/test/odr
 
 ## Origin
 
-Scripts from `dat.py` through `xodr_lines2curves.py` originate from upstream esmini. The remaining scripts (Analysis, Migration, and OpenDRIVE Conformance categories) are GT_esmini-specific additions.
+The Data Conversion, Visualization, and Tools categories originate from upstream esmini. The remaining scripts (Test Gates, Fork Governance, Analysis, Migration, and OpenDRIVE Conformance categories) are GT_esmini-specific additions.
