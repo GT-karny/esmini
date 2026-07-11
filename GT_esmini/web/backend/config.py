@@ -135,9 +135,9 @@ VD_LISTEN_PORT = int(os.environ.get("GT_SIM_VD_PORT", "48202"))
 
 # ManualDrive / NetworkInputBridge default input port (WEB-8). Must match the
 # GT_Sim-side NetworkInputBridge default and the value simulation_runner injects
-# into scenario variants (input_port). Deliberately NOT env-overridable while
-# simulation_runner.py still hardcodes 9100 - make both reference this constant
-# once that file is unfrozen.
+# into scenario variants (input_port). Referenced by simulation_runner (F5),
+# models/simulation.py and api/vd_input.py so the default lives in one place.
+# Deliberately NOT env-overridable (it is baked into per-run scenario variants).
 DEFAULT_VD_INPUT_PORT = 9100
 
 # Default execution parameters

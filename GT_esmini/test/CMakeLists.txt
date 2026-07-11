@@ -7,6 +7,7 @@ set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-
 set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_SimpleJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ConfigLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_CommonControlHelpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_HeadlightLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ControllerRealDriverUtils.cpp
