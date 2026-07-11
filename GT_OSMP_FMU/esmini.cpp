@@ -556,7 +556,9 @@ fmi2Status EsminiOsiSource::doCalc(fmi2Real currentCommunicationPoint, fmi2Real 
             }
 
             // Report full 6DOF position/rotation (Overwrites esmini state)
-            SE_ReportObjectPos(obj_id, 0, vehicleState.x, vehicleState.y, vehicleState.z, vehicleState.h, vehicleState.p, vehicleState.r);
+            // [GT_MOD] upstream v3.4.1 dropped the timestamp arg from SE_ReportObjectPos
+            // (now object_id,x,y,z,h,p,r). Removed the stale leading 0 timestamp.
+            SE_ReportObjectPos(obj_id, vehicleState.x, vehicleState.y, vehicleState.z, vehicleState.h, vehicleState.p, vehicleState.r);
 
             if (obj.base().has_velocity())
             {

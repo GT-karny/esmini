@@ -1,7 +1,11 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 set(TARGET esmini_fmu)
-project(${TARGET})
+# [GT_MOD] BLD-1: no project() call here. This directory is consumed exclusively via
+# add_subdirectory() from the repository root (the standalone GT_OSMP_FMU/build flow is
+# superseded). A nested project() spawns a separate sub-solution under the VS generator,
+# which breaks `cmake --build build --target esmini_fmu` path resolution (MSB1009: CMake
+# invokes MSBuild from the build root with a bare esmini_fmu.vcxproj filename).
 
 execute_process(
     # fetch latest esmini tag (release)
@@ -142,74 +146,25 @@ link_directories(
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../externals/fmi2/headers)
 
-add_library(${TARGET} SHARED esmini.cpp
-    ../GT_esmini/src/core/GT_esminiLib.cpp
-    ../GT_esmini/src/core/GT_esminiRMLib.cpp
-    ../GT_esmini/src/core/ConfigLoader.cpp
-    ../GT_esmini/src/scenario/ExtraEntities.cpp
-    ../GT_esmini/src/scenario/ExtraAction.cpp
-    ../GT_esmini/src/scenario/GT_ScenarioReader.cpp
-    ../GT_esmini/src/control/AutoLightController.cpp
-    ../GT_esmini/src/control/RealVehicle.cpp
-    ../GT_esmini/src/control/ControllerRealDriver.cpp
-    ../GT_esmini/src/control/common/ModuleDirectory.cpp
-    ../GT_esmini/src/io/GT_UDP.cpp
-    ../GT_esmini/src/osi/GT_HostVehicleReporter.cpp
-)
+# [GT_MOD] BLD-1/SUB-3 repair: the FMU no longer re-compiles a hand-copied GT source
+# list (which had drifted from GT_esmini/CMakeLists.txt and left GT_* symbols
+# unresolved). It links the in-tree GT_esminiLib_static instead. That static lib is the
+# god-TU build of GT_esmini (GT_esminiLib.cpp #includes esminiLib.cpp), so it provides
+# BOTH the GT_* extension symbols AND the SE_* core API, and it transitively carries the
+# PlayerBase/ScenarioEngine/Controllers/RoadManager/CommonMini/ViewerBase/RoadGeom +
+# OSG/SUMO/OSI/fmt/pugixml usage requirements (link + include). No separate core
+# source/lib list is needed here — single source of truth is GT_esmini/CMakeLists.txt.
+add_library(${TARGET} SHARED esmini.cpp)
 set_target_properties(${TARGET} PROPERTIES PREFIX "")
 target_compile_definitions(${TARGET} PRIVATE "FMU_SHARED_OBJECT")
 set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "esmini")
 target_compile_definitions(${TARGET} PRIVATE GT_ESMINI_STATIC)
 target_compile_definitions(${TARGET} PRIVATE _USE_OSI)
+# Objects of the static lib are linked into this shared lib; keep them PIC (Linux).
+set_target_properties(${TARGET} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(STATIC_LINKING)
-    message("Link esmini statically")
-    set(EXTERNALS_OSI_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osi/${EXT_INCL_DIR}/lib)
-    set(EXTERNALS_OSG_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osg/${EXT_INCL_DIR}/lib)
-    set(EXTERNALS_OSG_PLUGINS_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/osg/${EXT_INCL_DIR}/lib/osgPlugins-3.6.5)
-    set(EXTERNALS_SUMO_LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../externals/sumo/${EXT_INCL_DIR}/lib)
-
-    include(${CMAKE_CURRENT_SOURCE_DIR}/../support/cmake/external/osi.cmake)
-    set_osi_libs()
-
-    include(${CMAKE_CURRENT_SOURCE_DIR}/../support/cmake/external/sumo.cmake)
-    set_sumo_libs()
-
-    include(${CMAKE_CURRENT_SOURCE_DIR}/../support/cmake/external/osg.cmake)
-    set_osg_libs()
-
-
-    set(FMT_SHARED OFF)
-    set(CMAKE_POSITION_INDEPENDENT_CODE
-        ON)
-    if(NOT TARGET fmt)
-        add_subdirectory(../externals/fmt fmt)
-    endif()
-
-    if(LINUX)
-        # add link lib for missing filesystem functions in case gcc 7.5 is usedAdd commentMore actions
-        set(FMT_LIBRARIES ${FMT_LIBRARIES} "-lstdc++fs")
-    endif()
-    target_link_libraries(
-        ${TARGET}
-        PRIVATE PlayerBase${LIB_POSTFIX}
-                ScenarioEngine${LIB_POSTFIX}
-                Controllers${LIB_POSTFIX}
-                ViewerBase${LIB_POSTFIX}
-                RoadGeom${LIB_POSTFIX}
-                RoadManager${LIB_POSTFIX}
-                CommonMini${LIB_POSTFIX}
-                ${OSI_LIBRARIES}
-                ${SUMO_LIBRARIES}
-                ${OSG_LIBRARIES}
-                fmt
-                pugixml_lib
-
-                ${ADDITIONAL_LIBS})
-else()
-    message("Link esmini dynamically")
-    target_link_libraries(${TARGET} esminiLib ${LIB_PREFIX}protobuf open_simulation_interface_pic)
-endif()
+message("Link esmini via GT_esminiLib_static (in-tree static GT library)")
+target_link_libraries(${TARGET} PRIVATE GT_esminiLib_static ${ADDITIONAL_LIBS})
 
 add_custom_command(
     TARGET ${TARGET}

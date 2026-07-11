@@ -307,8 +307,9 @@ set(EXTERNALS_FMT_PATH
 
 add_subdirectory(EnvironmentSimulator)
 add_subdirectory(GT_esmini)
-# EXCLUDE_FROM_ALL: esmini_fmu's hand-copied GT source list has drifted and the target
-# cannot link (audit BLD-1); keeping it in ALL_BUILD broke the documented full build.
-# Build explicitly with `cmake --build build --target esmini_fmu` once repaired.
-add_subdirectory(GT_OSMP_FMU EXCLUDE_FROM_ALL)
+# esmini_fmu links GT_esminiLib_static (audit BLD-1 repaired — no hand-copied GT source
+# list anymore) and is part of ALL_BUILD again. Note: EXCLUDE_FROM_ALL must NOT come back
+# lightly — under the VS generator it also drops the target from esmini.sln, breaking
+# `cmake --build build --target esmini_fmu` (MSB1009).
+add_subdirectory(GT_OSMP_FMU)
 
