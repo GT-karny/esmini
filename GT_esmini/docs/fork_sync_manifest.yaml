@@ -1,0 +1,129 @@
+# fork_sync_manifest.yaml -- upstream sync bases for the GT fork lineages (audit R4).
+#
+# Machine-readable single source of truth consumed by scripts/check_fork_sync.py.
+# DIRECTION: this manifest answers "which upstream commits have we NOT yet reviewed/
+# ported into the fork?" (inbound). It is the complement of
+# GT_esmini/docs/gt_roadmanager_patches.md + check_fork_drift.py / check_core_census.py,
+# which answer "is every fork-side deviation sanctioned?" (outbound).
+#
+# Per lineage:
+#   fork_paths      -- GT-side files that carry the forked code (informational; the
+#                      checker does not diff them, it walks upstream history only).
+#   upstream_paths  -- upstream counterpart files; `git log <base>..<upstream_ref> -- <paths>`
+#                      is the pending-commit query.
+#   base.commit     -- last upstream commit whose state of upstream_paths is fully
+#                      reflected in the fork (reviewed or ported). Move it forward
+#                      after each resync/port review.
+#   base.method     -- how the commit was determined:
+#                        git-history   : pinned from an explicit resync/sync commit in GT history
+#                        blob-evidence : pinned by matching the fork-creation-time pristine
+#                                        blob hash to the upstream commit that produced it
+#   ported          -- upstream commits AFTER base that are already handled (ported verbatim,
+#                      re-implemented GT-side, or reviewed & rejected). Excluded from the
+#                      pending list; each entry needs a reason.
+#
+# After porting/reviewing upstream commits: either advance base.commit (when everything
+# up to a point is handled) or append to `ported` (for cherry-picked/out-of-order review).
+
+version: 1
+upstream_url: https://github.com/esmini/esmini.git
+upstream_branch: master
+upstream_ref: upstream/master          # local ref tried first; falls back to fetching upstream_url
+
+lineages:
+  - id: gt_roadmanager
+    description: >
+      Full-file fork of RoadManager.cpp (swap-built via the RoadManager CMake swap zone).
+      Outbound governance: gt_roadmanager_patches.md + check_core_census.py (authoritative)
+      / check_fork_drift.py (legacy).
+    fork_paths:
+      - GT_esmini/src/road/GT_RoadManager.cpp
+    upstream_paths:
+      - EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
+      - EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp
+    base:
+      commit: d7be85d6a3060db907b23592260fa738c488745c   # upstream tag v3.4.1 ("Prepare release 3.4.1")
+      method: git-history
+      evidence: >
+        First production resync commit 40322a67 "chore(odr): resync fork + baselines to
+        upstream v3.4.1" (merged via c063e04b, upstream merge d7d7e20d "Merge tag 'v3.4.1'").
+        Cross-check: the gt_roadmanager_patches.md census manifest pins RoadManager.cpp
+        upstream_blob_sha 0f46c943..., which equals `git rev-parse v3.4.1:<path>`.
+    ported: []
+    notes: >
+      The in-place 2nd-class edits (RoadManager.hpp, LaneIndependentRouter.*,
+      ControllerLooming.cpp) share this base via the census manifest's
+      baseline_upstream_tag: v3.4.1.
+
+  - id: gt_osireporter
+    description: >
+      Split-file fork family of OSIReporter.cpp (GT_OSIReporter_* split by concern).
+      GT_HostVehicleReporter.cpp / HVDEstimator.cpp in the same directory are GT-original
+      (no upstream counterpart) and are not part of this lineage.
+    fork_paths:
+      - GT_esmini/src/osi/GT_OSIReporter.cpp
+      - GT_esmini/src/osi/GT_OSIReporter_Api.cpp
+      - GT_esmini/src/osi/GT_OSIReporter_Environment.cpp
+      - GT_esmini/src/osi/GT_OSIReporter_Geometry.cpp
+      - GT_esmini/src/osi/GT_OSIReporter_Internals.hpp
+      - GT_esmini/src/osi/GT_OSIReporter_Moving.cpp
+      - GT_esmini/src/osi/GT_OSIReporter_Sensor.cpp
+      - GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp
+    upstream_paths:
+      - EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
+      - EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.hpp
+    base:
+      commit: ab7c404d83c8ceb9962c455a5b93e97c09f37631   # upstream tag v3.3.0 ("Prepare release 3.3.0")
+      method: git-history
+      evidence: >
+        Last full-family upstream sync: fed8e3cc "fix(osi): sync GT_OSIReporter to v3.3.0
+        UpdateOSIStationaryObjectODR signature (R5-U2)". Later upstream OSIReporter changes
+        (v3.4.x) were NOT ported into the fork family: R5-U4 "OSI light port" is a known-open
+        roadmap item, and the fork has no zlib/gzip OSI-compression code.
+    ported: []
+    notes: >
+      Expected pending backlog as of 2026-07-11: 8d2ebfb7 (VehicleLightState in OSI = the
+      open U4 item), ca2153cb + f15ca58d (OSI zlib compression -- decide port-or-reject at
+      review; GT streams OSI 3.7.0 uncompressed). The in-tree pristine OSIReporter.cpp is
+      tracked separately as a 2nd-class file (census manifest, PR-D row) at v3.4.1.
+
+  - id: roadgen
+    description: >
+      Fork of the viewer road-mesh generator (GT_RoadGen parallel generator + .osgb cache)
+      and the traffic-light 3D model builder.
+      GT_RoadGen_main.cpp is the GT-original application entry point (no upstream counterpart).
+    fork_paths:
+      - GT_esmini/src/roadgen/GT_RoadGeom.cpp
+      - GT_esmini/src/roadgen/GT_RoadGeom.hpp
+      - GT_esmini/src/roadgen/GT_trafficlightmodel.cpp
+      - GT_esmini/src/roadgen/GT_trafficlightmodel.hpp
+    upstream_paths:
+      - EnvironmentSimulator/Modules/ViewerBase/roadgeom.cpp
+      - EnvironmentSimulator/Modules/ViewerBase/roadgeom.hpp
+      - EnvironmentSimulator/Modules/ViewerBase/trafficlightmodel.cpp
+      - EnvironmentSimulator/Modules/ViewerBase/trafficlightmodel.hpp
+    base:
+      commit: abc20d07242c41dc269ac19327ca5c0fd522f7f8   # "Fix sometimes friction visualized in wrong lane" (pre-v3.3.0)
+      method: blob-evidence
+      evidence: >
+        No resync commit exists for this lineage. Fork creation commit 2208e5c0 (2026-06-13,
+        "feat(roadgen): parallel road-mesh generator GT_RoadGen") copied the then in-tree
+        pristine roadgeom.cpp blob 5054dacc6384..., which is exactly the blob produced by
+        upstream commit abc20d07 (verified via git log --find-object; the fork predates the
+        GT v3.3.0 merge f2674640, whose roadgeom.cpp blob e379962c differs).
+    ported:
+      - commit: 49f183df7451be0b45db5e0b6fda0fb743300023   # "Add support for property color"
+        reason: >
+          Its only hunk on our paths (roadgeom.hpp NODE_MASK_ENTITY_BB_FILLED) is already
+          contained in the fork-creation-time blob 8940ccd6 and in GT_RoadGeom.hpp:61 --
+          the commit reached the GT base via a merge before the fork was created, but is
+          not an ancestor of the base commit (nonlinear upstream history).
+      - commit: 518f71221f865013e657fb17bcc77b519f449c85   # "Visualize curb as sidewalk" (v3.4.1)
+        reason: >
+          Handled by GT-equivalent code: GT_RoadGeom.cpp already maps LANE_TYPE_CURB into the
+          concrete material family (ODR P2 lane-type consumer work, commit 041c7c0b), which is
+          the same rendering outcome as the upstream one-liner.
+    notes: >
+      This lineage has never been resynced since fork creation; the pending list is the
+      real backlog (mesh/marking fixes between abc20d07 and v3.4.1). Review at the next
+      roadgen maintenance window; visual-only changes are low-risk to defer.
