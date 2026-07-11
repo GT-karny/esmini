@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useWebSocketStream, type WebSocketConnectionStatus } from './useWebSocketStream';
 
 export interface OsiObject {
   id: number;
@@ -39,7 +40,7 @@ export interface TrafficLight {
   icon: number;
 }
 
-export type OsiConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type OsiConnectionStatus = WebSocketConnectionStatus;
 
 interface OsiStreamResult {
   status: OsiConnectionStatus;
@@ -52,14 +53,16 @@ interface OsiStreamResult {
 
 const HVD_THROTTLE_MS = 100; // 10Hz max for HVD updates
 
+/**
+ * Subscribes to the OSI GroundTruth stream (/ws/osi/{jobId}) via the shared
+ * useWebSocketStream transport. Mirrors useSvStream / useVdStream.
+ */
 export function useOsiStream(jobId: string | null): OsiStreamResult {
-  const [status, setStatus] = useState<OsiConnectionStatus>('connecting');
   const [objects, setObjects] = useState<OsiObject[]>([]);
   const [simTime, setSimTime] = useState(0);
   const [hvdData, setHvdData] = useState<HvdData | null>(null);
   const [trafficLights, setTrafficLights] = useState<TrafficLight[]>([]);
   const [frameCount, setFrameCount] = useState(0);
-  const wsRef = useRef<WebSocket | null>(null);
   const lastHvdUpdateRef = useRef(0);
 
   // rAF coalescing: GroundTruth can arrive at up to ~100Hz, but the DOM can
@@ -88,78 +91,50 @@ export function useOsiStream(jobId: string | null): OsiStreamResult {
     if (p.trafficLights !== null) setTrafficLights(p.trafficLights);
   }, []);
 
-  const connect = useCallback(() => {
-    if (!jobId) return;
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/osi/${jobId}`;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => setStatus('connected');
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'end') {
-          setStatus('disconnected');
-          return;
-        }
-        if (msg.error) {
-          setStatus('error');
-          return;
-        }
-        if (msg.type === 'ground_truth') {
-          recvCountRef.current += 1;
-          pendingGtRef.current = {
-            objects: msg.objects ?? [],
-            simTime: msg.sim_time ?? 0,
-            frames: recvCountRef.current,
-            trafficLights: msg.traffic_lights ?? null,
-          };
-          if (rafRef.current == null) {
-            rafRef.current = requestAnimationFrame(flushGt);
-          }
-        } else if (msg.type === 'host_vehicle_data') {
-          const now = performance.now();
-          if (now - lastHvdUpdateRef.current >= HVD_THROTTLE_MS) {
-            setHvdData(msg as HvdData);
-            lastHvdUpdateRef.current = now;
-          }
-        }
-      } catch {
-        // ignore parse errors
+  const status = useWebSocketStream({
+    path: jobId ? `/ws/osi/${jobId}` : null,
+    onReset: () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
       }
-    };
-
-    ws.onerror = () => setStatus('error');
-    ws.onclose = () => setStatus('disconnected');
-  }, [jobId, flushGt]);
-
-  useEffect(() => {
-    if (!jobId) {
-      setStatus('disconnected');
+      recvCountRef.current = 0;
+      pendingGtRef.current = null;
+      lastHvdUpdateRef.current = 0;
       setObjects([]);
       setSimTime(0);
       setHvdData(null);
       setTrafficLights([]);
       setFrameCount(0);
-      return;
-    }
-
-    recvCountRef.current = 0;
-    pendingGtRef.current = null;
-    setStatus('connecting');
-    connect();
-    return () => {
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+    },
+    onMessage: (msg) => {
+      if (msg.type === 'ground_truth') {
+        recvCountRef.current += 1;
+        pendingGtRef.current = {
+          objects: (msg.objects as OsiObject[] | undefined) ?? [],
+          simTime: (msg.sim_time as number | undefined) ?? 0,
+          frames: recvCountRef.current,
+          trafficLights: (msg.traffic_lights as TrafficLight[] | undefined) ?? null,
+        };
+        if (rafRef.current == null) {
+          rafRef.current = requestAnimationFrame(flushGt);
+        }
+      } else if (msg.type === 'host_vehicle_data') {
+        const now = performance.now();
+        if (now - lastHvdUpdateRef.current >= HVD_THROTTLE_MS) {
+          setHvdData(msg as unknown as HvdData);
+          lastHvdUpdateRef.current = now;
+        }
       }
-      wsRef.current?.close();
+    },
+  });
+
+  // Cancel a pending flush on unmount.
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [connect, jobId]);
+  }, []);
 
   return { status, objects, simTime, hvdData, trafficLights, frameCount };
 }
