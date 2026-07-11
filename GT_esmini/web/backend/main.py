@@ -32,7 +32,7 @@ from GT_esmini.web.backend.api import (
     verification,
     annotation,
 )
-from GT_esmini.web.backend.config import GRPC_PORT
+from GT_esmini.web.backend.config import GRPC_PORT, HTTP_PORT
 from GT_esmini.web.backend.db.database import init_db
 from GT_esmini.web.backend.logging_config import setup_logging
 from GT_esmini.web.backend.services.grpc_server import start_grpc_server
@@ -237,7 +237,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "GT_esmini.web.backend.main:app",
         host="127.0.0.1",
-        port=8000,
+        port=HTTP_PORT,
         reload=True,
         log_config=LOGGING_CONFIG,
         log_level="info",

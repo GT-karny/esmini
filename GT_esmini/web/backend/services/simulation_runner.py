@@ -17,7 +17,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import CONFIG_DIR, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
+from GT_esmini.web.backend.config import CONFIG_DIR, DEFAULT_VD_INPUT_PORT, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
     ControllerConfig,
@@ -267,7 +267,7 @@ def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = 
             base = {}
 
     base["input_type"] = "network"
-    base.setdefault("input_port", 9100)
+    base.setdefault("input_port", DEFAULT_VD_INPUT_PORT)
     base.setdefault("input_transport", "udp")
 
     for p in (policies or []):
