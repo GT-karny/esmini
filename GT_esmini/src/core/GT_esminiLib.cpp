@@ -1542,6 +1542,7 @@ GT_ESMINI_API void GT_Close()
     gt_esmini::VehiclePhysicsManager::Instance().Close();
     gt_esmini::HeadingCorrectionManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
+    gt_esmini::GT_HostVehicleReporter::Instance().Close();
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Close();
     gt_esmini::GT_VirtualDriverReporter::Instance().Close();
     AutoLightManager::Instance().Close();
