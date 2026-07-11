@@ -110,6 +110,23 @@ struct IndicatorSnapshot
     bool right_on = false;
 };
 
+// Front-bumper road-frame localization (F5). The telemetry ego block localizes
+// the vehicle origin (≈ rear axle); this localizes the leading edge of the
+// bounding box, so a viewer/verifier can reason about where the car's nose sits
+// on the road (e.g. "front already entered the junction / crossed the stop line")
+// independently of the origin. World XY is included alongside the road frame.
+struct FrontBumperSnapshot
+{
+    double x       = 0.0;   // world position [m]
+    double y       = 0.0;   // world position [m]
+    int    road_id = 0;     // OpenDRIVE road id the bumper localizes to
+    int    lane_id = 0;     // lane id at the bumper
+    double s       = 0.0;   // road s [m]
+    double t       = 0.0;   // road t [m] (signed lateral from road reference line)
+    double offset  = 0.0;   // lateral offset from lane center [m]
+    bool   valid   = false; // false if localization failed (off-road / no road loaded)
+};
+
 // Aggregate telemetry, exposed via GT_GetVirtualDriverTelemetry().
 struct VirtualDriverTelemetry
 {
@@ -139,6 +156,7 @@ struct VirtualDriverTelemetry
     MidLongPlannerSnapshot midlong;   // Phase 2+
     TrafficPolicySnapshot  policy;    // Phase 3+
     IndicatorSnapshot      indicator;
+    FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
 };
 
 }  // namespace gt_esmini

@@ -387,6 +387,28 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.driver                = dsnap;
     telemetry_.indicator             = ind;
 
+    // 11b. Front-bumper (leading-edge) road localization (F5). Project the vehicle
+    // origin forward by (length/2 + bbox center-x) along the heading — the same
+    // front-offset LeadVehicleAware uses — then localize that world point on the
+    // road. Uses a throwaway Position so the ego's own pos_ is untouched.
+    {
+        const double front_off = object_->boundingbox_.dimensions_.length_ / 2.0 +
+                                 object_->boundingbox_.center_.x_;
+        const double h  = object_->pos_.GetH();
+        const double fx = object_->pos_.GetX() + front_off * std::cos(h);
+        const double fy = object_->pos_.GetY() + front_off * std::sin(h);
+        roadmanager::Position fb;
+        const bool ok = (fb.SetInertiaPos(fx, fy, h) == 0);
+        telemetry_.front_bumper.x       = fx;
+        telemetry_.front_bumper.y       = fy;
+        telemetry_.front_bumper.road_id = static_cast<int>(fb.GetTrackId());
+        telemetry_.front_bumper.lane_id = fb.GetLaneId();
+        telemetry_.front_bumper.s       = fb.GetS();
+        telemetry_.front_bumper.t       = fb.GetT();
+        telemetry_.front_bumper.offset  = fb.GetOffset();
+        telemetry_.front_bumper.valid   = ok;
+    }
+
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);
 }
