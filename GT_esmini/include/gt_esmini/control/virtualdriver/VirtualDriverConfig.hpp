@@ -75,6 +75,12 @@ struct VirtualDriverConfig
     bool   policy_stop_yield_enabled    = false;
     bool   policy_conflict_enabled      = false;
     bool   policy_crosswalk_enabled     = false;
+    // F3 — unsignalised-junction right-of-way. Layers onto the conflict resolver:
+    // when ON, the ego does NOT yield to a crossing vehicle it OUT-RANKS via the
+    // OpenDRIVE <priority high low> list (P5 side model); un-ranked / no-priority
+    // junctions keep the base yield. Requires policy_conflict_enabled (the gate
+    // lives inside ConflictPointResolver). Default OFF -> no behaviour change.
+    bool   policy_junction_priority_enabled = false;
     // 3a — lead-vehicle IDM follow.
     double idm_time_headway   = 1.5;   // [s]
     double idm_min_gap        = 2.0;   // [m]

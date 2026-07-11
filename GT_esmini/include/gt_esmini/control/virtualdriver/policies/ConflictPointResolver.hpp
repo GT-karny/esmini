@@ -1,12 +1,45 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
 
 namespace gt_esmini
 {
+
+// ─────────────────────────── junction priority (F3) ───────────────────────────
+// Pure right-of-way resolution from OpenDRIVE <junction><priority high low>. NO
+// engine headers — unit-tested in isolation (test_TrafficPolicies.cpp). The
+// engine-coupled part (finding each vehicle's upcoming connecting road id + the
+// shared junction) lives in the .cpp; this is the decision core it feeds.
+namespace junction_priority
+{
+// Right-of-way of the EGO relative to ONE other vehicle at a shared junction.
+enum class Relation
+{
+    UNKNOWN,        // no <priority> entry relates the two connecting roads (fall back to yield)
+    EGO_PRIORITY,   // ego's connecting road is HIGH over the other's LOW -> ego proceeds
+    OTHER_PRIORITY  // the other's connecting road is HIGH over the ego's LOW -> ego yields
+};
+
+// Resolve the ego↔other right-of-way from the junction's authored <priority> list.
+// `ego_conn` / `other_conn` are the AUTHORED connecting-road id strings the two
+// vehicles traverse through the junction; `high_low` is the (high, low) connecting
+// road id pairs from every <priority high low> element on that junction.
+//   * an entry (high==ego_conn, low==other_conn)   -> EGO_PRIORITY
+//   * an entry (high==other_conn, low==ego_conn)   -> OTHER_PRIORITY
+//   * neither (or empty ids / empty list)          -> UNKNOWN
+// EGO_PRIORITY wins if any entry grants it (deterministic scan; conflicting
+// authoring where both directions appear is degenerate and resolves to whichever
+// the scan meets first — EGO_PRIORITY is checked per entry). Same-id or empty
+// inputs never match.
+Relation Resolve(const std::string&                                    ego_conn,
+                 const std::string&                                    other_conn,
+                 const std::vector<std::pair<std::string, std::string>>& high_low);
+}  // namespace junction_priority
 
 // Pure geometry helpers for the conflict-corridor resolver. NO engine headers —
 // these are unit-tested in isolation (test_TrafficPolicies.cpp). All inputs are
@@ -72,6 +105,14 @@ struct ConflictPointResolverConfig
     double min_cross_angle_deg = 20.0;   // [deg] same-direction filter (reject near-parallel)
     double other_min_speed     = 0.5;    // [m/s] ignore (near-)stationary others not yet at their region
     double area_eps            = 0.10;   // [m^2] min clipped quad-pair area to call it a conflict
+
+    // F3 junction priority (default OFF). When ON, a governing conflict against an
+    // other the ego OUT-RANKS (ego's upcoming connecting road is HIGH over the
+    // other's LOW in the shared junction's <priority> list) is NOT yielded to —
+    // the ego proceeds. Others the ego does NOT out-rank (OTHER_PRIORITY /
+    // UNKNOWN / no priority data / different junction) keep the base yield
+    // behaviour. Requires the OpenDRIVE side model (P5) to carry <priority>.
+    bool   junction_priority_enabled = false;
 };
 
 // Phase 3d (F2): yield at an unsignalised crossing conflict, modelled as a
@@ -98,10 +139,13 @@ struct ConflictPointResolverConfig
 // bottom out ~1-2 m/s); the standoff is sized so the ego footprint never enters
 // the region while the oncoming body is in it.
 //
-// Right-of-way *priority* (which turn must yield given the drive-side rule) is
-// Phase 3 / F3; here the ego, as the turning/crossing vehicle, always yields to
-// oncoming through-traffic. The road RoadRule is read and kept available for F3
-// gating only (it does NOT change behaviour in this increment).
+// Right-of-way *priority* (F3): when cfg_.junction_priority_enabled the resolver
+// consults the shared junction's OpenDRIVE <priority high low> list (via the P5
+// side model) and does NOT yield to a governing other the ego out-ranks (ego's
+// upcoming connecting road HIGH over the other's LOW) — the ego proceeds. Others
+// the ego does not out-rank keep the base yield. With the flag OFF (default) the
+// ego, as the turning/crossing vehicle, always yields to oncoming/crossing traffic
+// exactly as before. Junctions without <priority> data fall back to the base yield.
 class ConflictPointResolver : public ITrafficPolicy
 {
 public:

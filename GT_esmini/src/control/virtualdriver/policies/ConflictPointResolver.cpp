@@ -2,17 +2,44 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/road/OdrSideModel.hpp"  // F3: GetJunctionPriorities (P5 side model)
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <string>
+#include <utility>
 #include <vector>
 
 using namespace scenarioengine;
 
 namespace gt_esmini
 {
+
+// ─────────────────────────── junction priority (F3) ───────────────────────────
+namespace junction_priority
+{
+Relation Resolve(const std::string&                                      ego_conn,
+                 const std::string&                                      other_conn,
+                 const std::vector<std::pair<std::string, std::string>>& high_low)
+{
+    // Empty / identical connecting-road ids can never form a HIGH↔LOW relation.
+    if (ego_conn.empty() || other_conn.empty() || ego_conn == other_conn)
+        return Relation::UNKNOWN;
+
+    for (const auto& hl : high_low)
+    {
+        const std::string& high = hl.first;
+        const std::string& low  = hl.second;
+        if (high == ego_conn && low == other_conn)
+            return Relation::EGO_PRIORITY;
+        if (high == other_conn && low == ego_conn)
+            return Relation::OTHER_PRIORITY;
+    }
+    return Relation::UNKNOWN;
+}
+}  // namespace junction_priority
 
 // ─────────────────────────── pure geometry helpers ────────────────────────────
 namespace conflict_geom
@@ -253,6 +280,64 @@ std::vector<PathPoint> PredictPath(Object* obj, double lookahead, double step)
     return out;
 }
 
+// ── F3 junction-priority engine glue ──────────────────────────────────────────
+// Walk `obj`'s route forward to the FIRST connecting road (a road whose
+// Road::GetJunction() is set) and report its authored id string plus the owning
+// junction's authored id string. Uses the same isolated Position + CopyRoute idiom
+// as PredictPath; junctionSelectorAngle=0 makes an UN-routed MoveAlongS go straight
+// (deterministic — avoids the random junction-branch trap noted in the F3 brief).
+// Routed vehicles (the 08 scenes assign routes) follow their route regardless.
+// Returns false when no connecting road is reached within `lookahead`, or the
+// junction has no resolvable string id.
+bool FindUpcomingConnectingRoad(Object* obj, double lookahead, double step,
+                                std::string& conn_id, std::string& junction_id)
+{
+    if (!obj) return false;
+    roadmanager::OpenDrive* od = roadmanager::Position::GetOpenDrive();
+    if (!od) return false;
+
+    step = std::max(0.25, step);
+
+    roadmanager::Position pos;
+    pos.Duplicate(obj->pos_);
+    pos.CopyRoute(obj->pos_);
+
+    double traveled = 0.0;
+    for (;;)
+    {
+        roadmanager::Road* road = od->GetRoadById(pos.GetTrackId());
+        if (road && road->GetJunction() != ID_UNDEFINED)
+        {
+            roadmanager::Junction* jn = od->GetJunctionById(road->GetJunction());
+            if (!jn) return false;
+            conn_id     = road->GetIdStr();
+            junction_id = jn->GetIdStr();
+            return !conn_id.empty() && !junction_id.empty();
+        }
+        if (traveled >= lookahead) break;
+        const int ret = static_cast<int>(pos.MoveAlongS(
+            step, 0.0, 0.0, true, roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
+        if (ret < 0) break;  // end of route / off-route
+        traveled += step;
+    }
+    return false;
+}
+
+// Fetch the <priority high low> pairs for `junction_id` from the P5 side model,
+// flattened into the (high, low) form junction_priority::Resolve consumes. Empty
+// when there is no side model / no priority data for that junction.
+std::vector<std::pair<std::string, std::string>> LoadJunctionPriorities(const std::string& junction_id)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    const void* key = roadmanager::Position::GetOpenDrive();
+    if (!key || junction_id.empty()) return out;
+    std::vector<gt_esmini::odr::OdrJunctionPriority> pr;
+    if (!gt_esmini::odr::GetJunctionPriorities(key, junction_id, pr)) return out;
+    out.reserve(pr.size());
+    for (const auto& p : pr) out.emplace_back(p.high, p.low);
+    return out;
+}
+
 // Build a corridor (strip of convex quads) from a path polyline, offsetting each
 // segment by ±half_extent perpendicular to it.
 std::vector<CorridorQuad> BuildCorridor(const std::vector<PathPoint>& path, double half_extent)
@@ -429,15 +514,31 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         return snap;
     }
 
-    // Drive-side rule of the ego's current road. Kept available for F3 priority
-    // gating (which turns must yield given RHT/LHT). In this increment the ego —
-    // as the turning/crossing vehicle — always yields to oncoming through-traffic,
-    // so the rule is READ but does NOT gate behaviour here.
+    // Drive-side rule of the ego's current road. Retained as a diagnostic; F3
+    // right-of-way is taken from the OpenDRIVE <priority> list directly (which
+    // encodes the HIGH/LOW connecting roads independent of RHT/LHT), so it does not
+    // gate behaviour here.
     roadmanager::Road::RoadRule ego_rule = roadmanager::Road::RoadRule::RIGHT_HAND_TRAFFIC;
     if (roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive())
         if (roadmanager::Road* road = odr->GetRoadById(ego->pos_.GetTrackId()))
             ego_rule = road->GetRule();
-    (void)ego_rule;  // F3 will consume this; detection-only here.
+    (void)ego_rule;
+
+    // ── F3 junction-priority pre-pass (resolved ONCE per frame). Find the ego's
+    // upcoming connecting road + its junction's <priority> list. When the flag is
+    // off, no connecting road is ahead, or the junction carries no <priority> data,
+    // `have_ego_priority` stays false and the gate below is inert — the base yield
+    // behaviour is preserved byte-for-byte.
+    bool                                             have_ego_priority = false;
+    std::string                                      ego_conn;
+    std::string                                      ego_junction;
+    std::vector<std::pair<std::string, std::string>> ego_priorities;
+    if (cfg_.junction_priority_enabled &&
+        FindUpcomingConnectingRoad(ego, cfg_.lookahead, cfg_.step, ego_conn, ego_junction))
+    {
+        ego_priorities    = LoadJunctionPriorities(ego_junction);
+        have_ego_priority = !ego_priorities.empty();
+    }
 
     // ── Per-frame scan: find the nearest governing space-time conflict. ────────
     bool   gov_found    = false;
@@ -474,6 +575,25 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         const RegionSpan rgn = FindConflictRegion(ego_corridor, oth_corridor, area_eps,
                                                   std::max(2.0, 2.0 * cfg_.step));
         if (!rgn.found) continue;
+
+        // (F3) Junction priority: if the ego OUT-RANKS this other at their shared
+        // junction (ego's upcoming connecting road is HIGH over the other's LOW in
+        // the <priority> list), the ego has right of way and does NOT yield to it —
+        // drop the conflict entirely (it never becomes governing, never latches).
+        // Others the ego does not out-rank (OTHER_PRIORITY / UNKNOWN / a different
+        // junction / no priority data) fall through to the base yield below.
+        if (have_ego_priority)
+        {
+            std::string oth_conn;
+            std::string oth_junction;
+            if (FindUpcomingConnectingRoad(other, cfg_.lookahead, cfg_.step, oth_conn, oth_junction) &&
+                oth_junction == ego_junction &&
+                junction_priority::Resolve(ego_conn, oth_conn, ego_priorities) ==
+                    junction_priority::Relation::EGO_PRIORITY)
+            {
+                continue;
+            }
+        }
 
         // Cache for the latch block: this is the same PredictPath+region the latch
         // would otherwise recompute for the currently-latched governing entity.

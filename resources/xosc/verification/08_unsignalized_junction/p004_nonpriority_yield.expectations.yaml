@@ -1,0 +1,30 @@
+scenario: 08_unsignalized_junction__p004
+category: 08_unsignalized_junction
+# Phase 3e (F3) — junction priority YIELD case (the mirror of p001). Ego is on the
+# E-W MINOR road (road 0 -> connecting road 101 -> road 2); connecting road 101 is
+# authored LOW under 100 in the 4-way junction's <priority high low> list. A
+# crossing car (Cross) runs the N-S PRIORITY through road (road 1 -> connecting
+# road 100 -> road 3). With policy_junction_priority ON the resolver sees the ego
+# does NOT out-rank the crosser (100 HIGH over 101 => OTHER_PRIORITY), so the base
+# conflict yield stands: the ego decelerates to a deep crawl (~1.75 m/s), lets the
+# priority car pass, then completes the crossing and resumes ~11 m/s.
+#
+# Because the ego is non-priority the F3 gate is inert here — behaviour is identical
+# with the flag ON or OFF (both yield). The pair's discriminating signal is the
+# opposite outcome vs p001 (proceed) under identical cross-first timing: the sole
+# difference is which vehicle sits on the priority road.
+must:
+  - event: speed_below
+    threshold: 3.0
+    after: { sim_time: 9.8 }
+    before: { sim_time: 11.2 }
+    reason: "非優先側は優先交通に譲る深いクロール(実測 窓内最大2.26/最小1.75m/s)。3.0はp001の巡航(>10.9)を弁別。crawl-allowed設計で完全停止には至らない"
+  - event: min_obb_separation_above
+    threshold: 1.0
+    after: { sim_time: 6.0 }
+    before: { sim_time: 14.0 }
+    reason: "譲って衝突回避(OBB最小分離 実測4.17m@t11.05)。1.0は衝突(0.0)を弁別"
+  - event: speed_above
+    threshold: 10.0
+    after: { sim_time: 15.0 }
+    reason: "優先車通過後に横断完了し巡航復帰(実測 t15以降で~11m/s、待ちっぱなし/デッドロックでない)"

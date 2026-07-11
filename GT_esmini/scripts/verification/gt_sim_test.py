@@ -1116,6 +1116,10 @@ _POLICY_FLAG = {
     "stop_yield": "policy_stop_yield_enabled",
     "conflict": "policy_conflict_enabled",
     "crosswalk": "policy_crosswalk_enabled",
+    # F3 (Phase 3e): unsignalised-junction right-of-way. Gates INSIDE the conflict
+    # resolver, so enable it together with "conflict" (e.g. policies:[conflict,
+    # junction_priority]).
+    "junction_priority": "policy_junction_priority_enabled",
 }
 
 

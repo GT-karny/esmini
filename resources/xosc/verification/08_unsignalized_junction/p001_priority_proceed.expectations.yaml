@@ -1,0 +1,28 @@
+scenario: 08_unsignalized_junction__p001
+category: 08_unsignalized_junction
+# Phase 3e (F3) — junction priority PROCEED case. Ego is on the N-S PRIORITY
+# through road (road 1 -> connecting road 100 -> road 3); connecting road 100 is
+# authored HIGH over 101..105 in the 4-way junction's <priority high low> list.
+# A crossing car (Cross) runs the E-W MINOR road (road 0 -> connecting road 101 ->
+# road 2), arriving ~2 s ahead (cross-first). With policy_junction_priority ON the
+# ConflictPointResolver looks up the shared junction's <priority>, sees the ego
+# out-ranks the crosser (100 HIGH over 101), and does NOT yield — the ego holds its
+# ~11 m/s cruise straight through.
+#
+# Discriminator vs p004 (the mirror YIELD case, ego on the minor leg): identical
+# cross-first timing and speed, opposite priority side -> opposite behaviour
+# (proceed here, deep-crawl yield in p004). And the feature is load-bearing, not
+# timing: the SAME scenario with policy_junction_priority OFF (conflict only) makes
+# this priority ego YIELD to a 1.35 m/s crawl — turning the flag on lifts the trough
+# to 10.91 m/s. See phase3e_batch.yaml.
+must:
+  - event: min_speed_above
+    threshold: 8.0
+    after: { sim_time: 6.0 }
+    before: { sim_time: 12.0 }
+    reason: "優先側(接続路100=HIGH)は譲らず巡航維持(実測 窓内最小10.97m/s)。8.0は非優先側p004の譲りクロール(1.75)やpriority OFF時の同シーン譲り(1.35)を明確に弁別"
+  - event: min_obb_separation_above
+    threshold: 3.0
+    after: { sim_time: 6.0 }
+    before: { sim_time: 12.0 }
+    reason: "進行しても衝突しない(OBB最小分離 実測7.23m@t9.7、cross-firstで先行車は先に退出)。3.0は衝突(0.0)を弁別"

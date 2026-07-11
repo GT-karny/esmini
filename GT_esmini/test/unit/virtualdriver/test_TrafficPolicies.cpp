@@ -790,3 +790,57 @@ TEST(CrosswalkClassify, WaitingHysteresisWidensBandWhileCommitted)
     f.params.committed = true;
     EXPECT_TRUE(f.Blocked({hovering}));
 }
+
+// ─────────────── Phase 3e (F3): junction priority resolution ────────────────
+// Pure right-of-way from OpenDRIVE <priority high low> connecting-road ids.
+using junction_priority::Relation;
+using junction_priority::Resolve;
+
+namespace
+{
+// The 4way_priority__main_ns fixture: conn 100 (N-S through) HIGH over 101..105.
+const std::vector<std::pair<std::string, std::string>> k4wayPriorities = {
+    {"100", "101"}, {"100", "102"}, {"100", "103"}, {"100", "104"}, {"100", "105"}};
+}  // namespace
+
+TEST(JunctionPriority, EgoOnHighRoadOutranksLowCrosser)
+{
+    // Ego on conn 100 (high) vs crosser on conn 101 (low) -> ego proceeds.
+    EXPECT_EQ(Resolve("100", "101", k4wayPriorities), Relation::EGO_PRIORITY);
+    EXPECT_EQ(Resolve("100", "104", k4wayPriorities), Relation::EGO_PRIORITY);
+}
+
+TEST(JunctionPriority, EgoOnLowRoadYieldsToHighCrosser)
+{
+    // Ego on conn 101 (low) vs crosser on conn 100 (high) -> ego yields.
+    EXPECT_EQ(Resolve("101", "100", k4wayPriorities), Relation::OTHER_PRIORITY);
+    EXPECT_EQ(Resolve("105", "100", k4wayPriorities), Relation::OTHER_PRIORITY);
+}
+
+TEST(JunctionPriority, NoRelationBetweenTwoLowRoadsIsUnknown)
+{
+    // Two low connecting roads (turn-vs-turn) share no <priority> entry -> UNKNOWN
+    // (falls back to the base conflict yield).
+    EXPECT_EQ(Resolve("102", "103", k4wayPriorities), Relation::UNKNOWN);
+    EXPECT_EQ(Resolve("104", "105", k4wayPriorities), Relation::UNKNOWN);
+}
+
+TEST(JunctionPriority, EmptyOrIdenticalIdsNeverMatch)
+{
+    EXPECT_EQ(Resolve("", "101", k4wayPriorities), Relation::UNKNOWN);
+    EXPECT_EQ(Resolve("100", "", k4wayPriorities), Relation::UNKNOWN);
+    EXPECT_EQ(Resolve("100", "100", k4wayPriorities), Relation::UNKNOWN);
+}
+
+TEST(JunctionPriority, EmptyPriorityListFallsBackToUnknown)
+{
+    // Junction with no <priority> data -> everyone yields (base behaviour).
+    EXPECT_EQ(Resolve("100", "101", {}), Relation::UNKNOWN);
+}
+
+TEST(JunctionPriority, UnrelatedConnectingRoadIsUnknown)
+{
+    // A connecting road id that appears in no entry -> UNKNOWN either way.
+    EXPECT_EQ(Resolve("100", "999", k4wayPriorities), Relation::UNKNOWN);
+    EXPECT_EQ(Resolve("999", "100", k4wayPriorities), Relation::UNKNOWN);
+}
