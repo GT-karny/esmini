@@ -5,6 +5,7 @@ productName: GT_Sim
 files:
   - dist/**/*
   - package.json
+  - assets/**/*
 
 # Resources copied alongside the asar
 extraResources:
@@ -17,7 +18,7 @@ win:
   target:
     - target: dir
       arch: x64
-  icon: null  # TODO: add icon
+  icon: assets/icon.ico
   signDlls: false
 forceCodeSigning: false
 
