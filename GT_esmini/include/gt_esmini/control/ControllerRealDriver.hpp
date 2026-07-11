@@ -154,6 +154,10 @@ namespace gt_esmini
         bool         waypointsExtracted_;
         const roadmanager::Route* lastObservedRoute_ = nullptr;
 
+        // Per-instance steering-rate debug shadow (was a function-local static in
+        // UpdateVehiclePhysics, which shared state across all RealDriver instances).
+        double       lastSteeringDebug_ = 0.0;
+
         // LaneChangeAction cooperative control
         bool         wasLaneChanging_ = false;  // Track previous frame state for re-sync
         bool         wasLaneOffsetting_ = false;

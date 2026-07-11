@@ -49,7 +49,11 @@ namespace gt_esmini
         double latAcc_  = 0.0;   // lateral acceleration [m/s^2] (vehicle frame)
         double longAcc_ = 0.0;   // longitudinal acceleration [m/s^2] (vehicle frame)
 
-        // Terrain attitude integration (NEW)
+        // Terrain attitude integration.
+        // FROZEN STUB (audit CTL-4): terrain following is NOT implemented. This is only the
+        // attitude-blend scaffold; every caller currently feeds pitch=roll=0, so the terrain
+        // component is always zero. No road-normal sampling / enable path exists and none is
+        // planned. Kept (not deleted) pending a product decision. See GT_esmini/README.md.
         void SetTerrainAttitude(double pitch, double roll);
         void GetCombinedAttitude(double& pitch, double& roll) const;
 

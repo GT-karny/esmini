@@ -10,7 +10,7 @@ GT_esminiは、標準の `esmini` 環境シミュレータに対して、車両�
 - **ManualDrive制御**: SDL2経由でハンドルコントローラー（Logitech G29等）やゲームパッドによるリアルタイム車両操作に対応。フォースフィードバック・ボタンマッピング・ドメイン制御をサポート。
 - **車両挙動 (Physics)**: 簡易モデルではなく、ピッチ・ロール姿勢変化やエンジン特性を含む詳細な車両ダイナミクス (`RealVehicle`) を実装。
 - **ライト制御 (Lighting)**: OpenSCENARIO v1.2 `LightStateAction` に対応し、さらに自動点灯ロジック（ブレーキ、ウインカー等）を追加。ManualDriveではボタン操作+自動キャンセルにも対応。
-- **地形追従 (Terrain)**: 路面の起伏に車両姿勢（ピッチ・ロール）を追従させる機能を追加。
+- **地形追従 (Terrain)**: 路面の起伏に車両姿勢（ピッチ・ロール）を追従させる機能の**足場（凍結スタブ）**を用意。※現時点では**未実装**（下記「地形・路面追従」参照）。
 - **信号制御 (Traffic Signal)**: OpenDRIVE連携のTrafficSignalControllerによるフェーズベース信号自動制御。
 - **OSI出力 (Reporting)**: **自車入力値** (HostVehicleData) や、補正済みの速度情報をOSI (Open Simulation Interface) ストリームに追加。
 - **Web UI / Electron**: ブラウザまたはElectronデスクトップアプリからシミュレーションを管理・実行。REST API・gRPC・WebSocket対応。
@@ -48,9 +48,15 @@ OpenSCENARIOの信号制御機能を拡張します。
 - **OpenDRIVE連携**: コントローラーリファレンスによる信号ID自動解決
 - **キーファイル**: `src/scenario/GT_TrafficSignalController.*`
 
-### 地形・路面追従 (Terrain Tracking)
-OpenDRIVEの道路ジオメトリをサンプリングし、車両の接地点に応じた姿勢制御を行います。
-- 簡略化されたレイキャストモデルで路面の勾配（法線ベクトル）を取得し、車両のピッチ・ロール姿勢に合成します。
+### 地形・路面追従 (Terrain Tracking) ※未実装（凍結スタブ）
+> **状態: 未実装。** 姿勢合成の足場のみ存在します（`RealVehicle::SetTerrainAttitude(pitch, roll)` と
+> `terrain_pitch_ / terrain_roll_` 成分）。現状すべての呼び出し側（`ControllerRealDriver` /
+> `ControllerPythonDriver`）が `terrain_pitch = terrain_roll = 0` を渡すため、地形成分は常にゼロで**動作しません**。
+> 有効化する手段（道路法線サンプリング → 姿勢供給）は未実装で、着手予定はありません（監査 CTL-4）。
+
+将来の設計意図（未実装）:
+- OpenDRIVEの道路ジオメトリをサンプリングし、車両の接地点に応じた姿勢を合成する。
+- 簡略化されたレイキャストモデルで路面の勾配（法線ベクトル）を取得し、車両のピッチ・ロール姿勢に合成する。
 
 ### OSIレポート拡張 (Enhanced OSI Reporting)
 ADAS/AD開発向けに、OSI出力を強化しています。
