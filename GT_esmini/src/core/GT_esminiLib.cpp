@@ -127,17 +127,17 @@ namespace
             std::lock_guard<std::mutex> lock(s_logMutex);
             if (level == 4)
             {
-                // Duplicate absorption (audit CORE-3): the core re-logs the same
-                // failure with an "Exception: " prefix — keep the first occurrence.
+                // Keep the root cause (audit CORE-3): the core re-logs the same
+                // failure with an "Exception: " prefix and then a generic wrap-up
+                // message — neither may overwrite an already recorded error.
                 const std::string text = line.substr(text_pos);
-                size_t            lastPos;
-                GT_ParseLogLevel(s_lastError, lastPos);
-                const std::string lastText = s_lastError.substr(lastPos);
-                const bool        dup      = !s_lastError.empty() &&
-                                 (text == lastText || text == "Exception: " + lastText);
-                if (!dup)
+                const bool        dup  = !s_lastError.empty() &&
+                                 (text == s_lastError || text == "Exception: " + s_lastError);
+                const bool generic = !s_lastError.empty() &&
+                                     text == "Failed to initialize scenario player";
+                if (!dup && !generic)
                 {
-                    s_lastError = line;
+                    s_lastError = text;
                 }
             }
             cb = s_userLogCallback;
