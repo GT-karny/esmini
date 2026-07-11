@@ -213,6 +213,23 @@ jobs:
         shell: bash
         run: ctest --test-dir build -C ${{ matrix.configuration }} -R "test_ScenarioReaderParsing" --output-on-failure
 
+      # GT fork-sync gate (audit R4): inbound counterpart of check_fork_drift /
+      # check_core_census. Lists upstream commits on the forked-file lineages
+      # (RoadManager / OSIReporter / roadgeom) not yet ported into GT_esmini
+      # (manifest: GT_esmini/docs/fork_sync_manifest.yaml). WARNING-ONLY:
+      # exit 0 on pending commits (no --strict), continue-on-error shields
+      # infra/fetch failures — pending upstream commits must never block CI.
+      # Runs once (Linux/Release); this job checks out with fetch-depth 0,
+      # which the base..upstream git-log walk requires. --fetch pulls
+      # upstream master from esmini/esmini (CI checkout has no upstream remote).
+      - name: Check fork sync vs upstream (warning only)
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 -m pip install --user pyyaml
+          python3 scripts/check_fork_sync.py --fetch
+
       - uses: ./.github/actions/upload_esmini_artifacts
         if: matrix.configuration == 'Release'
 
