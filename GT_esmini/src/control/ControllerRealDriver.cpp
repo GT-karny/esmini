@@ -525,14 +525,13 @@ void ControllerRealDriver::UpdateVehiclePhysics(double timeStep)
     double terrain_roll = 0.0;
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
-    static double last_steering_debug = 0.0;
-    const double steering_rate = (input_.steering - last_steering_debug) / (timeStep > 0 ? timeStep : 0.01);
+    const double steering_rate = (input_.steering - lastSteeringDebug_) / (timeStep > 0 ? timeStep : 0.01);
     if (std::abs(steering_rate) > 8.0 && wasLaneChanging_)
     {
         LOG_WARN("RealDriver: [DEBUG] High Steering Rate detected: {:.2f}/s (Last={:.3f}, Curr={:.3f})",
-                 steering_rate, last_steering_debug, input_.steering);
+                 steering_rate, lastSteeringDebug_, input_.steering);
     }
-    last_steering_debug = input_.steering;
+    lastSteeringDebug_ = input_.steering;
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
     currentSpeed_ = real_vehicle_.speed_;
