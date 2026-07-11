@@ -45,7 +45,8 @@ export function ParameterPanel({
   onParamOverridesChange,
 }: ParameterPanelProps) {
   const scenarioFile = scenario?.file ?? '';
-  const scenarioParams = scenario?.params ?? [];
+  // Memoized so the useMemo/useEffect below don't retrigger on unrelated renders.
+  const scenarioParams = useMemo(() => scenario?.params ?? [], [scenario]);
 
   const { data: presets, error: presetsError } = useQuery({
     queryKey: ['presets', projectId, scenarioFile],

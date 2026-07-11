@@ -27,8 +27,8 @@ export function useSvStream(jobId: string | null): SvStreamResult {
       if (msg.type === 'scenario_variables') {
         const now = performance.now();
         if (now - lastUpdateRef.current >= THROTTLE_MS) {
-          setVariables(msg.variables ?? {});
-          setSimTime(msg.sim_time ?? 0);
+          setVariables((msg.variables as Record<string, unknown> | undefined) ?? {});
+          setSimTime((msg.sim_time as number | undefined) ?? 0);
           lastUpdateRef.current = now;
         }
       }

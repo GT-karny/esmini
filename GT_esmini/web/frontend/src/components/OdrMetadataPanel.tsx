@@ -6,7 +6,8 @@
  * renders it as a collapsible, sectioned panel next to the road preview in the
  * annotation flow. Loading/error states are shown inline (not silently hidden).
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api, type OdrMetadata } from '../api/client';
 
 interface OdrMetadataPanelProps {
@@ -22,21 +23,15 @@ export function OdrMetadataPanel({
   defaultOpen = false,
 }: OdrMetadataPanelProps) {
   const [open, setOpen] = useState(defaultOpen);
-  const [data, setData] = useState<OdrMetadata | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setData(null);
-    api.getOdrMetadata(projectId, scenarioFile).then(
-      (d) => { if (!cancelled) { setData(d); setLoading(false); } },
-      (e) => { if (!cancelled) { setError(String(e?.message ?? e)); setLoading(false); } },
-    );
-    return () => { cancelled = true; };
-  }, [projectId, scenarioFile]);
+  const { data, error: queryError, isLoading: loading } = useQuery({
+    queryKey: ['odr-metadata', projectId, scenarioFile],
+    queryFn: () => api.getOdrMetadata(projectId, scenarioFile),
+    retry: false,
+  });
+  const error = queryError
+    ? String((queryError as Error)?.message ?? queryError)
+    : null;
 
   const w = data?.warnings;
   const warnCount = w

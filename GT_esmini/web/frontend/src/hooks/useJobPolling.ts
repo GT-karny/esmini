@@ -22,14 +22,14 @@ export function useJobPolling() {
     refetchInterval: 2000,
   });
 
-  // Adopt an externally-started running job
-  useEffect(() => {
-    if (!runningJobId && activeJobs && activeJobs.jobs.length > 0) {
-      const job = activeJobs.jobs[0];
-      setRunningJobId(job.job_id);
-      setLatestJobId(job.job_id);
-    }
-  }, [runningJobId, activeJobs]);
+  // Adopt an externally-started running job (render-time adjustment: guarded by
+  // !runningJobId, which becomes truthy once set, so this latches exactly once —
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  if (!runningJobId && activeJobs && activeJobs.jobs.length > 0) {
+    const job = activeJobs.jobs[0];
+    setRunningJobId(job.job_id);
+    setLatestJobId(job.job_id);
+  }
 
   // --- Poll the tracked job's status ---
   const { data: runningJobStatus } = useQuery({

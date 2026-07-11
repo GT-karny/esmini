@@ -1,25 +1,5 @@
 import { useEffect, useState } from 'react';
-
-/** Type for the electronAPI exposed via preload */
-interface ElectronAPI {
-  isElectron: boolean;
-  platform: string;
-  minimize: () => void;
-  maximize: () => void;
-  close: () => void;
-  isMaximized: () => Promise<boolean>;
-  onMaximizeChange: (cb: (maximized: boolean) => void) => () => void;
-  openPath: (dirPath: string) => Promise<string>;
-  selectDirectory: () => Promise<string | null>;
-}
-
-declare global {
-  interface Window {
-    electronAPI?: ElectronAPI;
-  }
-}
-
-const isElectron = !!window.electronAPI?.isElectron;
+import { isElectron } from '../lib/electron';
 
 /**
  * Custom window control buttons (minimize, maximize/restore, close).
@@ -84,6 +64,3 @@ export function WindowControls() {
     </div>
   );
 }
-
-/** Returns true when running inside Electron */
-export { isElectron };

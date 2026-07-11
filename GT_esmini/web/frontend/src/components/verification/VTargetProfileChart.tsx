@@ -134,25 +134,3 @@ export function VTargetProfileChart({
     </div>
   );
 }
-
-/** Dev-only mock: a descending v_target(s) profile + one curve constraint, in
- *  forward-distance-from-ego coordinates (matching the real telemetry: profile
- *  s and constraint s are distances ahead of the ego). Lets the chart and the
- *  LiveSceneView layers be exercised before A2 emits real `midlong` telemetry. */
-export function makeMockMidLong(egoSpeed: number): MidLongProfile {
-  const constraintFd = 120; // forward distance to the mock constraint [m]
-  const cruise = Math.max(8, egoSpeed || 13.889);
-  const slow = 6;
-  const pts: [number, number][] = [];
-  for (let i = 0; i <= 20; i++) {
-    const fd = (i / 20) * 200; // forward distance 0..200 m
-    const d = Math.abs(fd - constraintFd); // dip to `slow` around the constraint
-    const v = d < 40 ? slow + (cruise - slow) * (d / 40) : cruise;
-    pts.push([fd, Math.min(cruise, v)]);
-  }
-  return {
-    v_target_profile: pts,
-    constraints: [{ s: constraintFd, x: 0, y: 0, v: slow, kind: 'curve' }],
-    valid: true,
-  };
-}

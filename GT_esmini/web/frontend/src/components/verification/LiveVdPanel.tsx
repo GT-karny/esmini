@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
 import { ErrorChart, TelemetryInfoRows } from './TelemetryPanels';
@@ -50,19 +50,13 @@ export function LiveVdPanel({
 
   // Road geometry (road network + signs + stop lines). Optional — needs the
   // scenario filename, which the launcher passes through as a query param.
-  const [roadGeometry, setRoadGeometry] = useState<RoadGeometry | null>(null);
-  useEffect(() => {
-    if (!effectiveProjectId || !scenarioFile) {
-      setRoadGeometry(null);
-      return;
-    }
-    let cancelled = false;
-    api.getRoadGeometry(effectiveProjectId, scenarioFile).then(
-      (data) => { if (!cancelled) setRoadGeometry(data as RoadGeometry); },
-      () => { /* road overlay is optional */ },
-    );
-    return () => { cancelled = true; };
-  }, [effectiveProjectId, scenarioFile]);
+  const { data: roadGeometryData } = useQuery({
+    queryKey: ['road-geometry', effectiveProjectId, scenarioFile],
+    queryFn: () => api.getRoadGeometry(effectiveProjectId!, scenarioFile!),
+    enabled: !!effectiveProjectId && !!scenarioFile,
+    retry: false, // road overlay is optional
+  });
+  const roadGeometry = (roadGeometryData as RoadGeometry | undefined) ?? null;
 
   // Prefer the OSI objects (all traffic incl. ego). Until OSI streams (or if it
   // is disabled for the run), fall back to a single ego marker from VD telemetry

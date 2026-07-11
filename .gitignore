@@ -80,7 +80,6 @@ GT_esmini/web/pyinstaller/build_temp/
 GT_esmini/web/electron/dist/
 GT_esmini/web/electron/release/
 GT_esmini/web/gt_sim.db
-GT_esmini/web/frontend/README.md
 
 # Claude Code
 .claude/plans/
