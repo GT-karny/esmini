@@ -235,19 +235,61 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     ts->set_nanos(static_cast<int32_t>((sim_time - static_cast<int64_t>(sim_time)) * 1e9));
 
     // 2. Location (position, velocity, orientation) - Always OVERWRITE base data simulation state
+    //
+    // OSI 3.7.0 deprecates HostVehicleData.location (BaseMoving): position/orientation
+    // moved to vehicle_localization, motion (velocity/acceleration) to vehicle_motion.
+    // We emit the current recommended fields AND keep the deprecated `location` for
+    // backward compatibility — `location` stays valid until the next OSI major, and
+    // in-tree consumers (RealDriver HVD passthrough, DriverScript osi3 readers) still
+    // read it. Once all consumers migrate, drop the `location` block below (audit F5).
+    const double pos_x = egoState->pos_.GetX();
+    const double pos_y = egoState->pos_.GetY();
+    const double pos_z = egoState->pos_.GetZ();
+    const double vel_x = egoState->pos_.GetVelX();
+    const double vel_y = egoState->pos_.GetVelY();
+    const double vel_z = egoState->pos_.GetVelZ();
+    const double acc_x = egoState->pos_.GetAccX();
+    const double acc_y = egoState->pos_.GetAccY();
+    const double acc_z = egoState->pos_.GetAccZ();
+    const double yaw   = egoState->pos_.GetH();
+    const double pitch = egoState->pos_.GetP();
+    const double roll  = egoState->pos_.GetR();
+
+    // Deprecated (backward compatibility): HostVehicleData.location
     auto* location = hv_data.mutable_location();
+    location->mutable_position()->set_x(pos_x);
+    location->mutable_position()->set_y(pos_y);
+    location->mutable_position()->set_z(pos_z);
+    location->mutable_velocity()->set_x(vel_x);
+    location->mutable_velocity()->set_y(vel_y);
+    location->mutable_velocity()->set_z(vel_z);
+    location->mutable_orientation()->set_yaw(yaw);
+    location->mutable_orientation()->set_pitch(pitch);
+    location->mutable_orientation()->set_roll(roll);
 
-    location->mutable_position()->set_x(egoState->pos_.GetX());
-    location->mutable_position()->set_y(egoState->pos_.GetY());
-    location->mutable_position()->set_z(egoState->pos_.GetZ());
+    // Current: vehicle_localization (position + orientation).
+    auto* vloc = hv_data.mutable_vehicle_localization();
+    vloc->mutable_position()->set_x(pos_x);
+    vloc->mutable_position()->set_y(pos_y);
+    vloc->mutable_position()->set_z(pos_z);
+    vloc->mutable_orientation()->set_yaw(yaw);
+    vloc->mutable_orientation()->set_pitch(pitch);
+    vloc->mutable_orientation()->set_roll(roll);
 
-    location->mutable_velocity()->set_x(egoState->pos_.GetVelX());
-    location->mutable_velocity()->set_y(egoState->pos_.GetVelY());
-    location->mutable_velocity()->set_z(egoState->pos_.GetVelZ());
-
-    location->mutable_orientation()->set_yaw(egoState->pos_.GetH());
-    location->mutable_orientation()->set_pitch(egoState->pos_.GetP());
-    location->mutable_orientation()->set_roll(egoState->pos_.GetR());
+    // Current: vehicle_motion (position + orientation + velocity + acceleration).
+    auto* vmot = hv_data.mutable_vehicle_motion();
+    vmot->mutable_position()->set_x(pos_x);
+    vmot->mutable_position()->set_y(pos_y);
+    vmot->mutable_position()->set_z(pos_z);
+    vmot->mutable_orientation()->set_yaw(yaw);
+    vmot->mutable_orientation()->set_pitch(pitch);
+    vmot->mutable_orientation()->set_roll(roll);
+    vmot->mutable_velocity()->set_x(vel_x);
+    vmot->mutable_velocity()->set_y(vel_y);
+    vmot->mutable_velocity()->set_z(vel_z);
+    vmot->mutable_acceleration()->set_x(acc_x);
+    vmot->mutable_acceleration()->set_y(acc_y);
+    vmot->mutable_acceleration()->set_z(acc_z);
 
     // 2. Vehicle Basics (operating state)
     // If not set by base, set default
