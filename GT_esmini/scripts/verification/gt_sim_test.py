@@ -269,7 +269,9 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
         with lib, open(jsonl_path, "w", encoding="utf-8") as f:
             rc = lib.init_with_args(args)
             if rc != 0:
-                raise RuntimeError(f"GT_InitWithArgs failed (rc={rc}) for {scenario}")
+                cause = lib.get_last_error()
+                raise RuntimeError(f"GT_InitWithArgs failed (rc={rc}) for {scenario}"
+                                   + (f": {cause}" if cause else ""))
             if osi_cap is not None:
                 # GT_InitWithArgs doesn't open the OSI socket (only GT_Sim.exe does);
                 # open it now so GT_Step emits groundtruth to 127.0.0.1:48198.
@@ -317,7 +319,8 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
     if frames:
         _render_snapshots(frames, out_dir / "snapshots", max(1, snapshots))
 
-    print(f"[run] {scenario.name}: {len(frames)} frames, {duration:.1f}s -> {jsonl_path}")
+    print(f"[run] {scenario.name}: {len(frames)} frames, {duration:.1f}s -> {jsonl_path}",
+          file=sys.stderr)
     if not frames:
         print("[run] WARNING: no VirtualDriver telemetry captured - does the scenario "
               "assign a VirtualDriverController to the ego?", file=sys.stderr)
@@ -491,7 +494,8 @@ def compare(run_dir: Path, baseline: Path, grid_dt: float = 0.1) -> dict:
         json.dumps(baseline_track, separators=(",", ":")), encoding="utf-8")
 
     print(f"[compare] xy_rmse={result['xy_rmse_m']}m  speed_rmse={result['speed_rmse_mps']}m/s  "
-          f"max_dev={result['xy_max_dev_m']}m -> {run_dir / 'compare.json'} (+baseline_track.json)")
+          f"max_dev={result['xy_max_dev_m']}m -> {run_dir / 'compare.json'} (+baseline_track.json)",
+          file=sys.stderr)
     return result
 
 
@@ -996,9 +1000,9 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
     }
     (run_dir / "verdict.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
     print(f"[assert] overall={overall}  pass={n_pass} fail={n_fail} skip={n_skip} "
-          f"-> {run_dir / 'verdict.json'}")
+          f"-> {run_dir / 'verdict.json'}", file=sys.stderr)
     for r in results:
-        print(f"   [{r['status']:4}] {r['event']}: {r['detail']}")
+        print(f"   [{r['status']:4}] {r['event']}: {r['detail']}", file=sys.stderr)
     return verdict
 
 
@@ -1082,7 +1086,7 @@ def _render_decel_report(frames: list[dict], out_path: Path, expectation: dict |
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=90)
     plt.close(fig)
-    print(f"[report] -> {out_path}")
+    print(f"[report] -> {out_path}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -1276,7 +1280,7 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     (out_root / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
     print(f"[batch] {name}: overall={overall}  {counts} "
-          f"-> {out_root / 'batch_verdict.json'} (+batch_summary.md)")
+          f"-> {out_root / 'batch_verdict.json'} (+batch_summary.md)", file=sys.stderr)
     return agg
 
 
@@ -1306,6 +1310,12 @@ def main(argv: list[str] | None = None) -> int:
     pc = sub.add_parser("compare", help="compare run vs Default baseline (ego RMSE)")
     pc.add_argument("run_dir", type=Path)
     pc.add_argument("baseline", type=Path, help=".osi file or baselines/<name>/ dir")
+    pc.add_argument("--max-xy-rmse", type=float, default=None,
+                    help="fail (exit 1) when xy_rmse_m exceeds this [m]")
+    pc.add_argument("--max-xy-dev", type=float, default=None,
+                    help="fail (exit 1) when xy_max_dev_m exceeds this [m]")
+    pc.add_argument("--max-speed-rmse", type=float, default=None,
+                    help="fail (exit 1) when speed_rmse_mps exceeds this [m/s]")
 
     pa = sub.add_parser("assert", help="match run telemetry against expectations.yaml")
     pa.add_argument("run_dir", type=Path)
@@ -1338,7 +1348,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if meta["frames"] > 0 else 1
 
     if args.cmd == "compare":
-        compare(args.run_dir.resolve(), args.baseline.resolve())
+        try:
+            result = compare(args.run_dir.resolve(), args.baseline.resolve())
+        except (FileNotFoundError, RuntimeError) as e:
+            print(f"[compare] ERROR: {e}", file=sys.stderr)
+            return 1
+        violations = []
+        for opt, key, unit in (("max_xy_rmse", "xy_rmse_m", "m"),
+                               ("max_xy_dev", "xy_max_dev_m", "m"),
+                               ("max_speed_rmse", "speed_rmse_mps", "m/s")):
+            limit = getattr(args, opt)
+            if limit is not None and result[key] > limit:
+                violations.append(f"{key}={result[key]}{unit} > {limit}{unit}")
+        if violations:
+            print(f"[compare] FAIL: {'; '.join(violations)}", file=sys.stderr)
+            return 1
         return 0
 
     if args.cmd == "assert":

@@ -35,7 +35,11 @@ GT_HostVehicleReporter::GT_HostVehicleReporter()
 
 GT_HostVehicleReporter::~GT_HostVehicleReporter()
 {
-    Close();
+    // The singleton is destroyed during process exit (static destruction), where
+    // Winsock may already be de-initialized: deleting the UDP client there makes
+    // core UDPBase::CloseGracefully() fail with WSANOTINITIALISED (10093).
+    // Leave the socket to the OS; runtime cleanup goes through Close()/Init().
+    udp_client_ = nullptr;
 }
 
 void GT_HostVehicleReporter::Close()

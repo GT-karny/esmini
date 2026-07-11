@@ -13,10 +13,10 @@
 #include "Entities.hpp"
 #include "RoadManager.hpp"
 #include "CommonMini.hpp"
+#include "logger.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 
 #include <cmath>
-#include <cstdio>
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -127,7 +127,7 @@ bool HVDEstimator::SetActiveMode(const std::string& mode)
 {
     if (mode_shift_params_.find(mode) == mode_shift_params_.end())
     {
-        printf("HVDEstimator: unknown drive mode '%s', ignored\n", mode.c_str());
+        LOG_WARN("HVDEstimator: unknown drive mode '{}', ignored", mode);
         return false;
     }
     if (active_mode_ == mode) return true;
@@ -140,7 +140,7 @@ bool HVDEstimator::SetActiveMode(const std::string& mode)
         kv.second.shift_event_timer = 0.0;
         kv.second.shift_direction = 0;
     }
-    printf("HVDEstimator: drive mode set to '%s'\n", mode.c_str());
+    LOG_INFO("HVDEstimator: drive mode set to '{}'", mode);
     return true;
 }
 

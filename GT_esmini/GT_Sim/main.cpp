@@ -19,6 +19,15 @@
 #include <windows.h>
 #endif
 
+// Exit code discipline (see GT_esmini/docs/gt_sim_exit_codes.md):
+// 0 = success, 1 = scenario initialization/execution failure, 2 = argument error
+enum : int
+{
+    GT_SIM_EXIT_OK      = 0,
+    GT_SIM_EXIT_FAILURE = 1,
+    GT_SIM_EXIT_USAGE   = 2,
+};
+
 // Helper to check for existence of command line option (used for pre-parse checks)
 static bool HasOption(int argc, const char* argv[], const std::string& option)
 {
@@ -185,7 +194,7 @@ struct ControlPipe
 
         running.store(true);
         reader_thread = std::thread([this]() { ReaderLoop(); });
-        printf("GT_Sim: Control pipe created: %s\n", pipe_name.c_str());
+        fprintf(stderr, "GT_Sim: Control pipe created: %s\n", pipe_name.c_str());
         return true;
     }
 
@@ -233,7 +242,7 @@ struct ControlPipe
 
             if (line == "QUIT")
             {
-                printf("GT_Sim: QUIT received via control pipe\n");
+                fprintf(stderr, "GT_Sim: QUIT received via control pipe\n");
                 quit_requested.store(true);
             }
             else if (line.rfind("SPEED:", 0) == 0)
@@ -244,7 +253,7 @@ struct ControlPipe
                     if (factor > 0.0 && factor <= 100.0)
                     {
                         speed_factor.store(factor);
-                        printf("GT_Sim: Speed factor set to %.2f\n", factor);
+                        fprintf(stderr, "GT_Sim: Speed factor set to %.2f\n", factor);
                     }
                 }
                 catch (...) {}
@@ -253,7 +262,7 @@ struct ControlPipe
             {
                 std::string mode = line.substr(11);
                 int rc = GT_SetDriveMode(mode.c_str());
-                printf("GT_Sim: DRIVE_MODE='%s' rc=%d\n", mode.c_str(), rc);
+                fprintf(stderr, "GT_Sim: DRIVE_MODE='%s' rc=%d\n", mode.c_str(), rc);
             }
         }
     }
@@ -286,13 +295,13 @@ int main(int argc, const char* argv[])
     if (helpRequested && !hasOsc)
     {
         PrintUsage();
-        return 0;
+        return GT_SIM_EXIT_OK;
     }
 
     if (argc < 2)
     {
         PrintUsage();
-        return -1;
+        return GT_SIM_EXIT_USAGE;
     }
 
     // Parse GT_Sim-only options and build args forwarded to GT_InitWithArgs.
@@ -442,8 +451,17 @@ int main(int argc, const char* argv[])
     // 1. Initialize GT_esmini (GT_Sim-only options are removed from forwarded args)
     if (GT_InitWithArgs(static_cast<int>(initArgv.size()), initArgv.data()) != 0)
     {
-        printf("Failed to initialize GT_esmini\n");
-        return -1;
+        fprintf(stderr, "Failed to initialize GT_esmini\n");
+        char errbuf[1024];
+        if (GT_GetLastError(errbuf, static_cast<int>(sizeof(errbuf))) > 0)
+        {
+            fprintf(stderr, "ERROR: %s\n", errbuf);
+        }
+        else
+        {
+            fprintf(stderr, "ERROR: Failed to initialize GT_esmini (no detail available)\n");
+        }
+        return GT_SIM_EXIT_FAILURE;
     }
 
     // 1.0 Apply initial HVDEstimator drive mode if requested
@@ -452,8 +470,8 @@ int main(int argc, const char* argv[])
         int rc = GT_SetDriveMode(opts.drive_mode.c_str());
         if (rc != 0)
         {
-            printf("GT_Sim: warning - failed to set initial drive mode '%s' (rc=%d)\n",
-                   opts.drive_mode.c_str(), rc);
+            fprintf(stderr, "GT_Sim Warning: failed to set initial drive mode '%s' (rc=%d)\n",
+                    opts.drive_mode.c_str(), rc);
         }
     }
 
@@ -516,7 +534,7 @@ int main(int argc, const char* argv[])
 
             if (ret == 0)
             {
-                printf("GT_Sim: Parameter override: %s = %s\n", ov.name.c_str(), ov.value.c_str());
+                fprintf(stderr, "GT_Sim: Parameter override: %s = %s\n", ov.name.c_str(), ov.value.c_str());
             }
             else
             {
@@ -537,41 +555,41 @@ int main(int argc, const char* argv[])
     // 2. Enable AutoLight if requested
     if (opts.autolight)
     {
-        printf("GT_Sim: Enabling AutoLight\n");
+        fprintf(stderr, "GT_Sim: Enabling AutoLight\n");
         GT_EnableAutoLight();
     }
 
     // 2b. Enable Vehicle Physics if requested
     if (opts.vehicle_physics)
     {
-        printf("GT_Sim: Enabling Vehicle Physics\n");
+        fprintf(stderr, "GT_Sim: Enabling Vehicle Physics\n");
         GT_EnableVehiclePhysics();
     }
 
     // 2c. Enable Heading Correction if requested
     if (opts.heading_correction)
     {
-        printf("GT_Sim: Enabling Heading Correction\n");
+        fprintf(stderr, "GT_Sim: Enabling Heading Correction\n");
         GT_EnableHeadingCorrection();
     }
 
     // 3. Open OSI Socket if requested
     if (!opts.osi_ip.empty())
     {
-        printf("GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
+        fprintf(stderr, "GT_Sim: Enabling OSI output to %s\n", opts.osi_ip.c_str());
         GT_OpenOSISocket(opts.osi_ip.c_str());
     }
 
     // 3b. Override SV reporter port if specified (handled inside GT_InitWithArgs via --sv-port)
 
     // 4. Frequency Control
-    printf("GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", opts.frequency, opts.no_realtime ? "OFF" : "ON");
+    fprintf(stderr, "GT_Sim: Running at %.1f Hz (realtime pacing: %s)\n", opts.frequency, opts.no_realtime ? "OFF" : "ON");
 
     bool captureRequested = opts.video_enabled;
     bool captureStarted = false;
     if (opts.video_enabled)
     {
-        std::cout << "GT_Sim: Video capture requested (" << opts.video_width << "x" << opts.video_height
+        std::cerr << "GT_Sim: Video capture requested (" << opts.video_width << "x" << opts.video_height
                   << ", frames=" << opts.video_frames << ")" << std::endl;
     }
 
@@ -601,7 +619,7 @@ int main(int argc, const char* argv[])
             else
             {
                 captureStarted = true;
-                std::cout << "GT_Sim: Video capture started." << std::endl;
+                std::cerr << "GT_Sim: Video capture started." << std::endl;
             }
             captureRequested = false;
         }
@@ -632,7 +650,7 @@ int main(int argc, const char* argv[])
                 // If the delay is huge, we might want to reset.
                 if (delay > 1000)
                 {
-                    printf("GT_Sim Warning: Huge delay (>1s), resyncing clock.\n");
+                    fprintf(stderr, "GT_Sim Warning: Huge delay (>1s), resyncing clock.\n");
                     next_target_time = now;
                 }
             }
@@ -651,7 +669,7 @@ int main(int argc, const char* argv[])
         std::cout << "GT_Sim: Captured frames = " << CountFramesWithPrefix(opts.video_prefix) << std::endl;
     }
 
-    printf("Total delayed frames: %lld\n", delayed_frames);
+    fprintf(stderr, "GT_Sim: Total delayed frames: %lld\n", delayed_frames);
 
 #ifdef _WIN32
     if (!opts.control_pipe_name.empty())
@@ -661,5 +679,5 @@ int main(int argc, const char* argv[])
 #endif
 
     GT_Close();
-    return 0;
+    return GT_SIM_EXIT_OK;
 }

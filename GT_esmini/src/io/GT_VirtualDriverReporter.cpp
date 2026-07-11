@@ -26,7 +26,10 @@ GT_VirtualDriverReporter::GT_VirtualDriverReporter() = default;
 
 GT_VirtualDriverReporter::~GT_VirtualDriverReporter()
 {
-    Close();
+    // Static destruction runs during process exit, where Winsock may already be
+    // de-initialized (closesocket would fail with WSANOTINITIALISED, 10093).
+    // Leave the socket to the OS; runtime cleanup goes through Close()/Init().
+    udp_client_ = nullptr;
 }
 
 void GT_VirtualDriverReporter::Init(int udp_port, const std::string& target_ip)

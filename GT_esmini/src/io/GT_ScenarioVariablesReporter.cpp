@@ -30,7 +30,10 @@ GT_ScenarioVariablesReporter::GT_ScenarioVariablesReporter() = default;
 
 GT_ScenarioVariablesReporter::~GT_ScenarioVariablesReporter()
 {
-    Close();
+    // Static destruction runs during process exit, where Winsock may already be
+    // de-initialized (closesocket would fail with WSANOTINITIALISED, 10093).
+    // Leave the socket to the OS; runtime cleanup goes through Close()/Init().
+    udp_client_ = nullptr;
 }
 
 void GT_ScenarioVariablesReporter::Init(int udp_port, const std::string& target_ip)
