@@ -103,27 +103,28 @@ lineages:
       - EnvironmentSimulator/Modules/ViewerBase/trafficlightmodel.cpp
       - EnvironmentSimulator/Modules/ViewerBase/trafficlightmodel.hpp
     base:
-      commit: abc20d07242c41dc269ac19327ca5c0fd522f7f8   # "Fix sometimes friction visualized in wrong lane" (pre-v3.3.0)
-      method: blob-evidence
+      commit: d7be85d6a3060db907b23592260fa738c488745c   # upstream/master @ "Prepare release 3.4.1" line
+      method: git-history
       evidence: >
-        No resync commit exists for this lineage. Fork creation commit 2208e5c0 (2026-06-13,
-        "feat(roadgen): parallel road-mesh generator GT_RoadGen") copied the then in-tree
-        pristine roadgeom.cpp blob 5054dacc6384..., which is exactly the blob produced by
-        upstream commit abc20d07 (verified via git log --find-object; the fork predates the
-        GT v3.3.0 merge f2674640, whose roadgeom.cpp blob e379962c differs).
-    ported:
-      - commit: 49f183df7451be0b45db5e0b6fda0fb743300023   # "Add support for property color"
-        reason: >
-          Its only hunk on our paths (roadgeom.hpp NODE_MASK_ENTITY_BB_FILLED) is already
-          contained in the fork-creation-time blob 8940ccd6 and in GT_RoadGeom.hpp:61 --
-          the commit reached the GT base via a merge before the fork was created, but is
-          not an ancestor of the base commit (nonlinear upstream history).
-      - commit: 518f71221f865013e657fb17bcc77b519f449c85   # "Visualize curb as sidewalk" (v3.4.1)
-        reason: >
-          Handled by GT-equivalent code: GT_RoadGeom.cpp already maps LANE_TYPE_CURB into the
-          concrete material family (ODR P2 lane-type consumer work, commit 041c7c0b), which is
-          the same rendering outcome as the upstream one-liner.
+        First production resync of this lineage (2026-07-11, branch
+        feature/tech-debt-roadgen-resync). Method: full-file re-copy of upstream
+        ViewerBase/roadgeom.cpp + roadgeom.hpp at d7be85d6, then re-apply of the GT patch
+        set (GT-PARALLEL per-road thread pool + GT-FIX non-advancement/degenerate-section
+        guards) by function anchor -- same "re-copy + reapply" discipline as the
+        gt_roadmanager lineage (odr_resync_checklist.md). trafficlightmodel.cpp/.hpp had NO
+        upstream commits in the abc20d07..d7be85d6 window (all 9 pending commits touched
+        roadgeom only), so GT_trafficlightmodel.* were left untouched and remain at parity
+        with upstream (GT deltas = namespace isolation + logger). All 9 previously-pending
+        commits (88788c29/d8f81434/ecbc991b/ed95d1c6/4ab787ac/a564c5e6/cbf22f5a/7700087f/
+        e3edefba) are now ancestors of the base and thus incorporated verbatim by the
+        re-copy; the roadgeom.cpp hunk of 4ab787ac ("Refine and extend demo scenario") is a
+        demo/scenario asset change outside this fork's concern but is included for free.
+    ported: []
     notes: >
-      This lineage has never been resynced since fork creation; the pending list is the
-      real backlog (mesh/marking fixes between abc20d07 and v3.4.1). Review at the next
-      roadgen maintenance window; visual-only changes are low-risk to defer.
+      Superseded prior state (base abc20d07, blob-evidence): the two former `ported`
+      entries are now ancestors of the base -- 49f183df (NODE_MASK_ENTITY_BB_FILLED) and
+      518f7122 (LANE_TYPE_CURB -> sidewalk/concrete) are both native in upstream d7be85d6,
+      so the earlier GT-equivalent one-liners were dropped in favour of the upstream code.
+      Visual output (textures, marking stitching, tesselation, road-object markings) is
+      upstream-native now and requires USER EYEBALL verification -- there is no automated
+      viewer visual-regression gate for this lineage.
