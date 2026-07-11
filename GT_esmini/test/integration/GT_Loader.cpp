@@ -28,6 +28,9 @@
  *   --expect-light-never-on <type>
  *                               Light <type> must stay OFF for the whole run
  *                               (graceful-degradation checks for invalid actions).
+ *   --expect-light-off-at-end <type>
+ *                               Light <type> must be OFF at the final step
+ *                               (e.g. low beam off again after leaving a tunnel).
  *   --expect-move <meters>      Vehicle --light-vehicle-id must travel at least
  *                               this XY distance from its initial position.
  */
@@ -60,6 +63,7 @@ namespace
         double                   expectMinSimTime = 0.0;
         std::vector<int>         expectLightOn;
         std::vector<int>         expectLightNeverOn;
+        std::vector<int>         expectLightOffAtEnd;
         double                   expectMove = -1.0;  // < 0 = not checked
     };
 
@@ -151,6 +155,10 @@ int main(int argc, char** argv)
         else if (arg == "--expect-light-never-on")
         {
             opt.expectLightNeverOn.push_back(std::stoi(nextArg("--expect-light-never-on")));
+        }
+        else if (arg == "--expect-light-off-at-end")
+        {
+            opt.expectLightOffAtEnd.push_back(std::stoi(nextArg("--expect-light-off-at-end")));
         }
         else if (arg == "--expect-move")
         {
@@ -301,6 +309,14 @@ int main(int argc, char** argv)
         Check(it == lightViolation.end(),
               std::string("light '") + LightName(t) + "' stayed OFF for the whole run" +
                   (it != lightViolation.end() ? " (observed mode " + std::to_string(it->second) + ")" : ""));
+    }
+
+    // Assertion 4b: lights OFF at end of run (e.g. low beam off after tunnel exit).
+    for (int t : opt.expectLightOffAtEnd)
+    {
+        const int mode = GT_GetLightState(opt.lightVehicleId, t);
+        Check(mode == 0, std::string("light '") + LightName(t) + "' is OFF at end of run (final mode " +
+                             std::to_string(mode) + ")");
     }
 
     // Assertion 5: movement.

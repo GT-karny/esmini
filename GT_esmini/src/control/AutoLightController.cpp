@@ -14,8 +14,11 @@
 #endif
 #include "gt_esmini/control/AutoLightController.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"  // CONTROLLER_TYPE_ROUTE_DRIVE
+#include "OSCEnvironment.hpp"                           // F6 night detection
+#include "RoadManager.hpp"                              // F6 tunnel + forward scan
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace gt_esmini
 {
@@ -86,6 +89,9 @@ namespace gt_esmini
         // 3. Indicators
         UpdateIndicators(stepDt);
 
+        // 4. Environment-driven headlights (F6). No-op unless enabled via config/CLI.
+        UpdateHeadlights(stepDt);
+
         // Update state
         prevSpeed_ = speed;
         prevLaneId_ = vehicle_->pos_.GetLaneId();
@@ -127,6 +133,138 @@ namespace gt_esmini
         lightExt_->SetLightState(type, state);
         lightExt_->SetLightSource(type, LightSource::AUTO);
         last = desired;
+    }
+
+    // ============================ F6: environment-driven headlights ============================
+
+    void AutoLightController::ConfigureHeadlights(const headlight::HeadlightConfig&     cfg,
+                                                  const scenarioengine::OSCEnvironment* env,
+                                                  const scenarioengine::Entities*       entities)
+    {
+        headlightCfg_ = cfg;
+        environment_  = env;
+        entities_     = entities;
+        highBeamHyst_.Reset();
+    }
+
+    headlight::EnvSnapshot AutoLightController::BuildEnvSnapshot() const
+    {
+        headlight::EnvSnapshot snap;
+        if (!environment_)
+        {
+            return snap;  // all flags false -> DecideNight returns UNKNOWN
+        }
+
+        // Sun: illuminance (lux) is the strongest signal; elevation is the fallback.
+        if (environment_->IsSunSet())
+        {
+            snap.has_sun_elevation = true;
+            snap.sun_elevation_rad = environment_->GetSun().elevation;
+        }
+        if (environment_->IsSunIntensitySet())
+        {
+            snap.has_illuminance = true;
+            snap.illuminance_lux = environment_->GetSunIntensity();
+        }
+        if (environment_->IsTimeOfDaySet())
+        {
+            snap.has_time_of_day = true;
+            snap.date_time       = environment_->GetTimeOfDay().datetime;
+        }
+        return snap;
+    }
+
+    bool AutoLightController::IsInTunnel() const
+    {
+        if (!vehicle_)
+        {
+            return false;
+        }
+        roadmanager::Road* road = vehicle_->pos_.GetRoadById(vehicle_->pos_.GetTrackId());
+        if (!road)
+        {
+            return false;
+        }
+        const double s = vehicle_->pos_.GetS();
+        for (unsigned int i = 0; i < road->GetNumberOfTunnels(); ++i)
+        {
+            roadmanager::Tunnel* tunnel = road->GetTunnel(i);
+            if (tunnel && headlight::PointInTunnel(s, tunnel->s_, tunnel->length_))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    double AutoLightController::NearestVehicleAhead() const
+    {
+        if (!vehicle_ || !entities_)
+        {
+            return -1.0;
+        }
+        const double egoX  = vehicle_->pos_.GetX();
+        const double egoY  = vehicle_->pos_.GetY();
+        const double egoH  = vehicle_->pos_.GetH();
+        const double cosH  = std::cos(egoH);
+        const double sinH  = std::sin(egoH);
+        const double half  = headlightCfg_.highbeam_corridor_half_m;
+
+        double nearest = std::numeric_limits<double>::infinity();
+        for (auto* obj : entities_->object_)
+        {
+            if (!obj || obj == static_cast<scenarioengine::Object*>(vehicle_))
+            {
+                continue;  // skip self
+            }
+            const double dx  = obj->pos_.GetX() - egoX;
+            const double dy  = obj->pos_.GetY() - egoY;
+            const double fwd = headlight::ForwardDistanceInCorridor(dx, dy, cosH, sinH, half);
+            if (fwd >= 0.0 && fwd < nearest)
+            {
+                nearest = fwd;
+            }
+        }
+        return std::isinf(nearest) ? -1.0 : nearest;
+    }
+
+    void AutoLightController::UpdateHeadlights(double dt)
+    {
+        if (!headlightCfg_.enabled)
+        {
+            return;  // feature off -> brake/reversing/indicator behaviour untouched
+        }
+
+        // Low beam: night (Environment) OR inside an OpenDRIVE tunnel.
+        const headlight::NightState night   = headlight::DecideNight(BuildEnvSnapshot(), headlightCfg_);
+        const bool                  inTunnel = headlightCfg_.tunnel_enabled && IsInTunnel();
+        const bool lowBeamOn = (night == headlight::NightState::NIGHT) || inTunnel;
+
+        if (!lightExt_->IsManualOverride(VehicleLightType::LOW_BEAM))
+        {
+            ApplyAutoLight(VehicleLightType::LOW_BEAM,
+                           lowBeamOn ? LightState::Mode::ON : LightState::Mode::OFF,
+                           lastLowBeamState_);
+        }
+
+        // Auto high beam: only meaningful while low beam is on. Dim when a vehicle
+        // is ahead within range; raise when the road ahead is clear (hysteresis).
+        bool highBeamOn = false;
+        if (headlightCfg_.highbeam_enabled && lowBeamOn)
+        {
+            highBeamOn = highBeamHyst_.Update(NearestVehicleAhead(), dt, headlightCfg_);
+        }
+        else
+        {
+            highBeamHyst_.Reset();
+        }
+
+        if (!lightExt_->IsManualOverride(VehicleLightType::HIGH_BEAM))
+        {
+            ApplyAutoLight(VehicleLightType::HIGH_BEAM,
+                           highBeamOn ? LightState::Mode::ON : LightState::Mode::OFF,
+                           lastHighBeamState_);
+        }
     }
 
     void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)

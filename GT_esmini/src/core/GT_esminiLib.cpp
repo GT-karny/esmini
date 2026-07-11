@@ -24,6 +24,8 @@
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/scenario/GT_ScenarioReader.hpp"
 #include "gt_esmini/control/AutoLightController.hpp"
+#include "gt_esmini/control/HeadlightLogic.hpp" // F6 headlight config
+#include "gt_esmini/common/SimpleJson.hpp"      // F6 auto_light.json parsing
 #include "gt_esmini/scenario/ExtraEntities.hpp" // For VehicleExtensionManager
 
 #include <vector>
@@ -173,10 +175,13 @@ public:
         return instance;
     }
 
-    void Init(scenarioengine::Entities* entities)
+    void Init(scenarioengine::Entities* entities, scenarioengine::OSCEnvironment* environment = nullptr)
     {
         controllers_.clear();
         if (!entities) return;
+
+        // Load the F6 headlight config (config/auto_light.json) once per Init.
+        const gt_esmini::headlight::HeadlightConfig cfg = LoadHeadlightConfig();
 
         // Auto-detect Ego vehicle (Host Vehicle) as the first object in the list
         // This corresponds to OSI Host Vehicle ID logic
@@ -197,7 +202,7 @@ public:
                 }
 
                 scenarioengine::Vehicle* vehicle = static_cast<scenarioengine::Vehicle*>(obj);
-                
+
                 // Ensure VehicleLightExtension exists
                 auto* ext = gt_esmini::VehicleExtensionManager::Instance().GetExtension(vehicle);
                 if (!ext)
@@ -207,14 +212,27 @@ public:
                 }
 
                 // Create AutoLightController with both arguments
-                controllers_.push_back(std::make_unique<gt_esmini::AutoLightController>(vehicle, ext));
+                auto ctrl = std::make_unique<gt_esmini::AutoLightController>(vehicle, ext);
+                ctrl->ConfigureHeadlights(cfg, environment, entities);
+                controllers_.push_back(std::move(ctrl));
             }
+        }
+
+        if (cfg.enabled)
+        {
+            LOG_INFO("AutoLight: environment-driven headlights ENABLED (F6)");
         }
     }
 
     void SetEgoless(bool egoless)
     {
         egoless_ = egoless;
+    }
+
+    // Force-enable the F6 headlight rule regardless of config (CLI --autolight-headlights).
+    void SetHeadlightForceEnabled(bool enabled)
+    {
+        headlightForceEnabled_ = enabled;
     }
 
     void Enable(bool enable)
@@ -245,12 +263,55 @@ public:
     }
 
 private:
-    AutoLightManager() : enabled_(false), egoless_(false), egoId_(-1) {}
-    
+    AutoLightManager() : enabled_(false), egoless_(false), egoId_(-1), headlightForceEnabled_(false) {}
+
+    // Load config/auto_light.json (F6). Missing file / keys keep the safe defaults
+    // (headlight feature OFF). --autolight-headlights force-enables regardless.
+    gt_esmini::headlight::HeadlightConfig LoadHeadlightConfig() const
+    {
+        gt_esmini::headlight::HeadlightConfig cfg;  // defaults: enabled=false
+
+        std::string       exeDir = gt_esmini::GetCurrentModuleDirectory();
+        gt_esmini::ConfigLoader loader;
+        std::string       path = loader.ResolveConfigPath(exeDir, "auto_light.json");
+
+        gt_esmini::simplejson::Value root;
+        std::string                  err;
+        if (gt_esmini::simplejson::LoadFile(path, root, &err) && root.IsObject())
+        {
+            bool   b = false;
+            double d = 0.0;
+            if (root.GetBool("headlight_enabled", b)) cfg.enabled = b;
+            if (root.GetDouble("headlight_illuminance_lux_threshold", d)) cfg.illuminance_lux_threshold = d;
+            if (root.GetDouble("headlight_sun_elevation_deg", d)) cfg.sun_elevation_threshold_rad = d * 0.017453292519943295;  // deg->rad
+            if (root.GetBool("headlight_use_time_of_day", b)) cfg.use_time_of_day = b;
+            if (root.GetDouble("headlight_dusk_hour", d)) cfg.dusk_hour = d;
+            if (root.GetDouble("headlight_dawn_hour", d)) cfg.dawn_hour = d;
+            if (root.GetBool("headlight_tunnel_enabled", b)) cfg.tunnel_enabled = b;
+            if (root.GetBool("highbeam_enabled", b)) cfg.highbeam_enabled = b;
+            if (root.GetDouble("highbeam_range_m", d)) cfg.highbeam_range_m = d;
+            if (root.GetDouble("highbeam_range_hysteresis_m", d)) cfg.highbeam_range_hysteresis_m = d;
+            if (root.GetDouble("highbeam_corridor_half_width_m", d)) cfg.highbeam_corridor_half_m = d;
+            if (root.GetDouble("highbeam_on_delay_s", d)) cfg.highbeam_on_delay_s = d;
+            if (root.GetDouble("highbeam_off_delay_s", d)) cfg.highbeam_off_delay_s = d;
+        }
+        else
+        {
+            LOG_INFO("AutoLight: no config/auto_light.json ({}), headlights default OFF", err);
+        }
+
+        if (headlightForceEnabled_)
+        {
+            cfg.enabled = true;  // CLI override
+        }
+        return cfg;
+    }
+
     std::vector<std::unique_ptr<gt_esmini::AutoLightController>> controllers_;
     bool enabled_;
     bool egoless_;
     int egoId_;
+    bool headlightForceEnabled_;
 };
 
 // Hook registration function (externally defined in GT_OSIReporter.cpp part of ScenarioEngine)
@@ -735,7 +796,7 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
         gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
 
         // 4. Initialize AutoLightManager
-        AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
+        AutoLightManager::Instance().Init(&player->scenarioEngine->entities_, &player->scenarioEngine->environment);
 
         // 4b. Initialize VehiclePhysicsManager
         {
@@ -865,6 +926,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             else if (argv[i] &&
                      (strcmp(argv[i], "--autolight") == 0 ||
                       strcmp(argv[i], "--autolight-egoless") == 0 ||
+                      strcmp(argv[i], "--autolight-headlights") == 0 ||
                       strcmp(argv[i], "--vehicle-physics") == 0 ||
                       strcmp(argv[i], "--heading-correction") == 0 ||
                       strcmp(argv[i], "--osi") == 0 ||
@@ -885,6 +947,12 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
                 if (strcmp(argv[i], "--autolight-egoless") == 0)
                 {
                     AutoLightManager::Instance().SetEgoless(true);
+                }
+
+                if (strcmp(argv[i], "--autolight-headlights") == 0)
+                {
+                    // F6: force-enable environment-driven headlights (overrides config).
+                    AutoLightManager::Instance().SetHeadlightForceEnabled(true);
                 }
 
                 if (strcmp(argv[i], "--osi") == 0)
@@ -1033,7 +1101,7 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
         gt_esmini::TrafficSignalControllerManager::Instance().InitAll();
 
         // 4. Initialize AutoLightManager
-        AutoLightManager::Instance().Init(&player->scenarioEngine->entities_);
+        AutoLightManager::Instance().Init(&player->scenarioEngine->entities_, &player->scenarioEngine->environment);
 
         // Check for --autolight argument in original argv
         bool autoLightEnabled = false;
