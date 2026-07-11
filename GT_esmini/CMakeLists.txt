@@ -263,6 +263,9 @@ foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 
     target_link_libraries(${TARGET} PRIVATE project_options)
 
+    # dladdr (module-directory resolution on POSIX). Empty/no-op on Windows.
+    target_link_libraries(${TARGET} PRIVATE ${CMAKE_DL_LIBS})
+
     target_include_directories(
         ${TARGET}
         PRIVATE ${SCENARIO_ENGINE_PATH}/SourceFiles

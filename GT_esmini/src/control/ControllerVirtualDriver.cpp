@@ -48,11 +48,9 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     if (args && args->properties && args->properties->ValueExists("ConfigFile"))
         config_filename = args->properties->GetValueStr("ConfigFile");
 
-    std::string config_path;
-    if (!config_filename.empty() && (config_filename[0] == '/' || (config_filename.size() > 1 && config_filename[1] == ':')))
-        config_path = config_filename;
-    else
-        config_path = loader.ResolveConfigPath(exe_dir, config_filename);
+    // Absolute ConfigFile (web backend per-run config) passes through; a bare
+    // filename resolves relative to this module's config/ dir (audit F5).
+    std::string config_path = loader.ResolveConfigPathOrPassthrough(exe_dir, config_filename);
 
     if (!vd_config_.LoadFromFile(config_path))
         LOG_INFO("VirtualDriverController: Config not found at {}, using defaults", config_path);
