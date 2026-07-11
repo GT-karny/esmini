@@ -253,9 +253,6 @@ private:
     int egoId_;
 };
 
-// Hook registration function (externally defined in GT_OSIReporter.cpp part of ScenarioEngine)
-void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
-
 // --- GT_esminiLib C-API Implementation ---
 
 // ============================ GT road-model cache ============================
@@ -750,18 +747,10 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
             s_hvdEstimator.LoadParams(paramsFile);
         }
 
-        // 5. Register Hook for OSIReporter
-        // Forward declaration of GT_SetLightStateProvider (defined in GT_OSIReporter.cpp)
-        extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
-
-        GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
-            // R5-U3: read straight from the native vehLghtStsList[] via the bridge. Works
-            // for ANY vehicle, with or without a VehicleLightExtension.
-            auto* obj = static_cast<scenarioengine::Object*>(static_cast<scenarioengine::Vehicle*>(v));
-            return gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(t));
-        });
-
-        // 6. Register OSIReporter for global access (for Light state)
+        // 5. Register OSIReporter for global access (for Light state)
+        // R5-U4: the OSI light state is now emitted by GT_OSIReporter reading the native
+        // vehLghtStsList[] storage directly (the R5-U3 single source of truth); the former
+        // GT_SetLightStateProvider hook indirection has been removed.
 #ifdef _USE_OSI
         extern void GT_SetCurrentOSIReporter(OSIReporter* reporter);
         if (player->osiReporter)
@@ -1246,17 +1235,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
             LOG_INFO("GT_Init: KinematicController assigned to {} vehicle(s).", assignCount);
         }
 
-        // 5. Register Hook for OSIReporter
-        extern void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider);
-
-        GT_SetLightStateProvider([](void* v, int t) -> gt_esmini::LightState {
-            // R5-U3: read straight from the native vehLghtStsList[] via the bridge. Works
-            // for ANY vehicle, with or without a VehicleLightExtension.
-            auto* obj = static_cast<scenarioengine::Object*>(static_cast<scenarioengine::Vehicle*>(v));
-            return gt_esmini::ReadLight(obj, static_cast<gt_esmini::VehicleLightType>(t));
-        });
-
-        // 6. Register OSIReporter for global access (for Light state)
+        // 5. Register OSIReporter for global access (for Light state)
+        // R5-U4: OSI light state is emitted by GT_OSIReporter reading vehLghtStsList[]
+        // directly (R5-U3 single source of truth); the GT_SetLightStateProvider hook is gone.
 #ifdef _USE_OSI
         extern void GT_SetCurrentOSIReporter(OSIReporter* reporter);
         if (player->osiReporter)

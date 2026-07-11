@@ -59,14 +59,6 @@ OsiRoadLaneBoundaryBuffer osiRoadLaneBoundary = {};
 
 using namespace scenarioengine;
 
-// GT_esmini: Hook for external light state provider
-std::function<::gt_esmini::LightState(void*, int)> g_LightStateProvider;
-
-void GT_SetLightStateProvider(std::function<::gt_esmini::LightState(void*, int)> provider)
-{
-    g_LightStateProvider = provider;
-}
-
 // Global OSIReporter pointer for access from Controllers
 static OSIReporter* g_current_osi_reporter_ = nullptr;
 

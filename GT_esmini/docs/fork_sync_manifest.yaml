@@ -73,19 +73,38 @@ lineages:
       - EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
       - EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.hpp
     base:
-      commit: ab7c404d83c8ceb9962c455a5b93e97c09f37631   # upstream tag v3.3.0 ("Prepare release 3.3.0")
+      commit: 8d2ebfb752e9d4535487dfedd04bdd9c03a85ee1   # "Add basic VehicleLightState info in API"
       method: git-history
       evidence: >
-        Last full-family upstream sync: fed8e3cc "fix(osi): sync GT_OSIReporter to v3.3.0
-        UpdateOSIStationaryObjectODR signature (R5-U2)". Later upstream OSIReporter changes
-        (v3.4.x) were NOT ported into the fork family: R5-U4 "OSI light port" is a known-open
-        roadmap item, and the fork has no zlib/gzip OSI-compression code.
+        R5-U4 (feature/upstream-u4-osi-lights). Advanced from v3.3.0 (ab7c404d) after
+        reviewing every upstream OSIReporter.cpp/.hpp commit up to 8d2ebfb7:
+          * 8d2ebfb7 "Add basic VehicleLightState info in API" -- PORTED. The OSI light-state
+            block + the five Get*LightMode mappers are re-implemented GT-side in
+            GT_OSIReporter_Moving.cpp, reading the native Object::vehLghtStsList[] storage
+            (the R5-U3 single source of truth) gated on DirtyBit::LIGHT_STATE via the
+            has_lightstate_action_ latch. This replaced the former g_LightStateProvider hook
+            (which after R5-U3 was only a thin indirection over the same storage), removing
+            the last light dual-system. The commit's non-OSI parts (Entities.hpp `emitting`
+            flag, esminiLib/OSCPrivateAction VehicleLightState API, C# wrapper) are out of
+            scope for the OSI fork lineage and untouched (R1 keeps EnvironmentSimulator
+            pristine; GT exposes its own light API via GT_esminiLib).
+          * ca2153cb "Support OSI compression via zlib" + f15ca58d "Prototype zip osi"
+            (ancestors of 8d2ebfb7) -- REVIEWED & REJECTED, deliberately NOT ported. See notes.
     ported: []
     notes: >
-      Expected pending backlog as of 2026-07-11: 8d2ebfb7 (VehicleLightState in OSI = the
-      open U4 item), ca2153cb + f15ca58d (OSI zlib compression -- decide port-or-reject at
-      review; GT streams OSI 3.7.0 uncompressed). The in-tree pristine OSIReporter.cpp is
-      tracked separately as a 2nd-class file (census manifest, PR-D row) at v3.4.1.
+      zlib OSI compression (ca2153cb / superseded prototype f15ca58d): NOT ported by design.
+      It is a file-write-only feature, opt-in behind the CONFIG_ENUM::OSI_COMPRESS flag
+      (default OFF -> byte-identical uncompressed output). None of GT's OSI receivers touch
+      the compressed path: the UDP stream (GT_OpenOSISocket), the in-process API
+      (SE_GetOSIGroundTruth / GetOSIGroundTruthRaw -> gt_lib, web osi_bridge) and the .osi
+      trace all read the uncompressed in-memory osiGroundTruth buffer, which the commit does
+      not change. Porting it would add gzip stream lifecycle to the fork's OpenOSIFile/
+      WriteOSIFile for zero GT benefit and would risk feeding gzip'd .osi files to GT tooling
+      (scripts/osi3, log_extract) that expects uncompressed 3.7.0 -- so GT deliberately keeps
+      streaming OSI 3.7.0 uncompressed. (EnumConfig OSI_COMPRESS and the header
+      gzip_write_stream_/options_ members are already present in-tree via the 2nd-class
+      pristine resync; the fork's file writers simply do not use them.) The in-tree pristine
+      OSIReporter.cpp is tracked separately as a 2nd-class file (census manifest, PR-D row).
 
   - id: roadgen
     description: >
