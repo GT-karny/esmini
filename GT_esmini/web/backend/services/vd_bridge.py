@@ -42,21 +42,8 @@ async def start_global_vd_bridge(listen_port: int = VD_LISTEN_PORT) -> VdBridge:
     return await _registry.start_global(listen_port)
 
 
-async def stop_global_vd_bridge() -> None:
-    """Stop the global VD bridge at server shutdown."""
-    await _registry.stop_global()
-
-
 def get_vd_bridge(job_id: str) -> VdBridge | None:
     return _registry.get_for_job(job_id)
-
-
-async def start_vd_bridge(job_id: str, listen_port: int = VD_LISTEN_PORT) -> VdBridge:
-    return await _registry.start_for_job(job_id, listen_port)
-
-
-async def stop_vd_bridge(job_id: str) -> None:
-    await _registry.stop_for_job(job_id)
 
 
 async def stop_all_vd_bridges() -> int:
@@ -68,8 +55,5 @@ __all__ = [
     "get_global_vd_bridge",
     "get_vd_bridge",
     "start_global_vd_bridge",
-    "start_vd_bridge",
     "stop_all_vd_bridges",
-    "stop_global_vd_bridge",
-    "stop_vd_bridge",
 ]

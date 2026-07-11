@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from GT_esmini.web.backend.config import DEFAULT_VD_INPUT_PORT
+
 
 class PythonControllerConfig(BaseModel):
     script: str = "DriverScript/pythondriver/scenario_drive_embedded.py"
@@ -63,7 +65,7 @@ class ManualDriveDomainConfig(BaseModel):
 
 class ManualDriveNetworkInput(BaseModel):
     transport_type: str = "udp"
-    port: int = 9100
+    port: int = DEFAULT_VD_INPUT_PORT
     level: str = "pedal_steer"
 
 
