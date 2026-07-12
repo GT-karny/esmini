@@ -52,6 +52,8 @@ CONFIG_FILES = [
     ("GT_esmini/config/virtual_driver.json", "config/virtual_driver.json"),
     # route_drive_controller.json: resolved beside the exe by GT_esminiLib.cpp
     ("GT_esmini/config/route_drive_controller.json", "config/route_drive_controller.json"),
+    # auto_light.json: F6 environment-driven headlights, resolved beside the exe (v0.13)
+    ("GT_esmini/config/auto_light.json", "config/auto_light.json"),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
