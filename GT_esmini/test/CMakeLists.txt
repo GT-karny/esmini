@@ -247,6 +247,24 @@ gt_integration_test(f6_highbeam_lead_dim f6_highbeam_lead_dim.xosc
     --autolight-headlights --duration 8 --expect-object Ego --expect-min-sim-time 7.5
     --expect-light-on 1 --expect-light-never-on 2)
 
+# --- Built-in sample scenarios (resources/xosc, shipped in the Web UI sample project) ---
+# Rot guard for the F6 demo samples: sample assets that never run break silently
+# (the original 38-broken-integration-tests lesson).
+add_test(
+    NAME GT_esmini_Integration_sample_night_drive
+    COMMAND ${LOADER_TARGET}
+            ${CMAKE_SOURCE_DIR}/resources/xosc/night_drive.xosc
+            ${GT_INTEGRATION_PATH_ARGS}
+            --autolight-headlights --duration 12 --expect-object Ego --expect-min-sim-time 11.5
+            --expect-light-on 1 --expect-light-on 2 --expect-light-off-at-end 2 --expect-move 20)
+add_test(
+    NAME GT_esmini_Integration_sample_day_tunnel_drive
+    COMMAND ${LOADER_TARGET}
+            ${CMAKE_SOURCE_DIR}/resources/xosc/day_tunnel_drive.xosc
+            ${GT_INTEGRATION_PATH_ARGS}
+            --autolight-headlights --duration 26 --expect-object Ego --expect-min-sim-time 25.5
+            --expect-light-on 1 --expect-light-off-at-end 1 --expect-light-off-at-end 2 --expect-move 100)
+
 # --- ControllerRealDriver set (active feature, UDP-driven; runs with default/no input) ---
 # Assert scenario load, Ego presence and full completion of the 10 s StopTrigger window.
 set(GT_REALDRIVER_SCENARIOS
