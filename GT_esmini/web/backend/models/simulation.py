@@ -129,6 +129,11 @@ class ExecutionConfig(BaseModel):
     timeout: int = 60
     osi: OsiConfig = OsiConfig()
     autolight: bool = False
+    # F6: force-enable environment-driven headlights (night/tunnel low beam + auto
+    # high beam) via GT_Sim's --autolight-headlights, regardless of the
+    # auto_light.json headlight_enabled master switch. Self-sufficient in the C++
+    # (implies the AutoLight master switch — commit 942c07c0).
+    autolight_headlights: bool = False
     vehicle_physics: bool = True
     kinematic_mode: bool = False
     route_drive_mode: bool = False

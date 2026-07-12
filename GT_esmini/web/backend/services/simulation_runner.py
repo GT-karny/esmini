@@ -424,6 +424,11 @@ def _build_cmd(
         cmd.extend(["--osi", execution.osi.ip])
     if execution.autolight:
         cmd.append("--autolight")
+    # F6: environment-driven headlights. --autolight-headlights is self-sufficient
+    # in GT_Sim (implies the AutoLight master switch — commit 942c07c0), so it is
+    # emitted independently of --autolight.
+    if execution.autolight_headlights:
+        cmd.append("--autolight-headlights")
     if execution.vehicle_physics:
         cmd.append("--vehicle-physics")
     if execution.kinematic_mode:

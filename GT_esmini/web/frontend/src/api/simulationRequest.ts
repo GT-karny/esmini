@@ -27,6 +27,7 @@ const DEFAULT_EXECUTION: SimulationExecution = {
   timeout: 120,
   osi: { enabled: false, ip: '127.0.0.1' },
   autolight: false,
+  autolight_headlights: false,
   vehicle_physics: false,
   kinematic_mode: false,
   route_drive_mode: false,
