@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from GT_esmini.web.backend.api import (
+    auto_light_api,
     config_api,
     controller_config,
     manual_drive_api,
@@ -191,6 +192,7 @@ app.include_router(scenarios.router)
 app.include_router(scripts.router)
 app.include_router(controller_config.router)
 app.include_router(manual_drive_api.router)
+app.include_router(auto_light_api.router)
 app.include_router(simulations.router)
 app.include_router(results.router)
 app.include_router(config_api.router)
