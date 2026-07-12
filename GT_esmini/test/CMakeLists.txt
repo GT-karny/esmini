@@ -7,7 +7,9 @@ set(GT_EMBEDDED_PYTHON_HOME "${CMAKE_SOURCE_DIR}/thirdparty/python-embed/python-
 set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ScenarioReaderParsing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_SimpleJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ConfigLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_CommonControlHelpers.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_HeadlightLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_ControllerRealDriverUtils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_LonProfilePlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_LonProfilePlannerModule.cpp
@@ -145,21 +147,177 @@ if(WIN32 AND GT_ENABLE_SDL2 AND EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/lib/
     )
 endif()
 
-# Register Integration Tests
-file(GLOB SCENARIO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/scenarios/*.xosc")
-set(SCENARIO_INDEX 0)
-foreach(SCENARIO ${SCENARIO_FILES})
-    get_filename_component(TEST_NAME ${SCENARIO} NAME_WE)
+# Register Integration Tests (audit R3/TST re-authoring)
+#
+# Registration is explicit (no GLOB): every test states the expectations GT_Loader
+# must verify (audit TST-3 — "did not crash" is no longer a pass). Light type
+# indices follow GT_GetLightState: 1=lowBeam, 3=fog, 6=brake, 8=indicatorLeft,
+# 9=indicatorRight, 10=reversing.
+set(GT_INTEGRATION_PATH_ARGS
+    --path ${CMAKE_SOURCE_DIR}/resources/xodr
+    --path ${CMAKE_SOURCE_DIR}/resources/xosc
+    --path ${CMAKE_SOURCE_DIR}/resources
+    # F6: the test scenarios dir carries straight_tunnel.xodr (tunnel test asset).
+    --path ${CMAKE_CURRENT_SOURCE_DIR}/scenarios)
+
+function(gt_integration_test TEST_NAME SCENARIO)
     add_test(
-        NAME GT_esmini_Integration_${TEST_NAME}_${SCENARIO_INDEX}
+        NAME GT_esmini_Integration_${TEST_NAME}
         COMMAND ${LOADER_TARGET}
-                ${SCENARIO}
-                --path ${CMAKE_SOURCE_DIR}/resources/xodr
-                --path ${CMAKE_SOURCE_DIR}/resources/xosc
-                --path ${CMAKE_SOURCE_DIR}/resources
+                ${CMAKE_CURRENT_SOURCE_DIR}/scenarios/${SCENARIO}
+                ${GT_INTEGRATION_PATH_ARGS}
+                ${ARGN}
     )
-    math(EXPR SCENARIO_INDEX "${SCENARIO_INDEX} + 1")
+endfunction()
+
+# --- AutoLight / LightStateAction set (active feature) ---
+# autolight_test: scenario sets fog ON at init; AutoLight must raise brake lights
+# during the deceleration event (t>2) and reversing lights during reverse (t>6).
+gt_integration_test(autolight_test autolight_test.xosc
+    --duration 15 --expect-object Ego --expect-min-sim-time 9.5
+    --expect-light-on 3 --expect-light-on 6 --expect-light-on 10
+    --expect-move 20)
+
+# Scenario-driven LightStateAction tests run with AutoLight ENABLED: they verify that a
+# native LightStateAction retains ownership (ScenarioLightRegistry latch) and AutoLight no
+# longer overwrites scenario-driven indicators/reversing every frame (audit R3/TST fix in
+# AutoLightController::ApplyAutoLight — SCENARIO > MANUAL > AUTO + edge trigger).
+# Brake ON at t>1 while driving at 10 m/s.
+gt_integration_test(test_brake_lights test_brake_lights.xosc
+    --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-on 6 --expect-move 20)
+
+# Flashing indicators: left at t>1, right at t>4.
+gt_integration_test(test_indicators test_indicators.xosc
+    --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-on 8 --expect-light-on 9)
+
+# Two lights in one parallel event: lowBeam + fog at t>2.
+gt_integration_test(test_multiple_lights test_multiple_lights.xosc
+    --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-on 1 --expect-light-on 3)
+
+# Graceful degradation: invalid vehicleLightType / missing mandatory 'mode' must be
+# skipped with a warning (upstream parseOSCPrivateAction returns null for the action),
+# the scenario still loads and runs, and no light is ever switched on.
+# AutoLight disabled so only scenario actions could touch the lights.
+gt_integration_test(test_error_invalid_value test_error_invalid_value.xosc
+    --duration 4 --no-autolight --expect-object Ego --expect-min-sim-time 3.5
+    --expect-light-never-on 6)
+gt_integration_test(test_error_missing_attribute test_error_missing_attribute.xosc
+    --duration 4 --no-autolight --expect-object Ego --expect-min-sim-time 3.5
+    --expect-light-never-on 6)
+
+# --- F6 AutoLight environment-driven headlights (active feature) ---
+# Enabled per-run via --autolight-headlights (config/auto_light.json defaults OFF).
+# Light indices: 1=lowBeam, 2=highBeam.
+#
+# (a) Night Environment (Sun illuminance below threshold) => low beam ON.
+gt_integration_test(f6_night_lowbeam f6_night_lowbeam.xosc
+    --autolight-headlights --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-on 1 --expect-move 20)
+
+# (a') Regression pin: --autolight-headlights must imply the AutoLight master switch.
+# GT_Loader enables the master by default (GT_EnableAutoLight), which masked the bug where
+# GT_Sim / in-process runs with only --autolight-headlights never ran the F6 rule at all
+# (AutoLightManager::Update early-returns when the master is off). --no-autolight suppresses
+# the loader's default so the flag has to stand on its own.
+gt_integration_test(f6_headlights_flag_implies_master f6_night_lowbeam.xosc
+    --no-autolight --autolight-headlights --duration 4 --expect-object Ego --expect-min-sim-time 3.5
+    --expect-light-on 1)
+
+# (b) Daytime Environment (bright illuminance) => low and high beam stay OFF.
+gt_integration_test(f6_day_no_lowbeam f6_day_no_lowbeam.xosc
+    --autolight-headlights --duration 6 --expect-object Ego --expect-min-sim-time 5.5
+    --expect-light-never-on 1 --expect-light-never-on 2 --expect-move 20)
+
+# (c) OpenDRIVE <tunnel> over s=[200,300]: low beam ON inside, OFF again after exit.
+gt_integration_test(f6_tunnel_lowbeam f6_tunnel_lowbeam.xosc
+    --autolight-headlights --duration 25 --expect-object Ego --expect-min-sim-time 24
+    --expect-light-on 1 --expect-light-off-at-end 1 --expect-light-off-at-end 2
+    --expect-move 100)
+
+# (d) High beam: night + clear road ahead => low beam AND high beam ON (reuses night road).
+gt_integration_test(f6_highbeam_clear f6_night_lowbeam.xosc
+    --autolight-headlights --duration 8 --expect-object Ego --expect-min-sim-time 7.5
+    --expect-light-on 1 --expect-light-on 2)
+
+# (d') High beam dims: night + lead vehicle ahead within range => low beam ON, high beam never ON.
+gt_integration_test(f6_highbeam_lead_dim f6_highbeam_lead_dim.xosc
+    --autolight-headlights --duration 8 --expect-object Ego --expect-min-sim-time 7.5
+    --expect-light-on 1 --expect-light-never-on 2)
+
+# --- Built-in sample scenarios (resources/xosc, shipped in the Web UI sample project) ---
+# Rot guard for the F6 demo samples: sample assets that never run break silently
+# (the original 38-broken-integration-tests lesson).
+add_test(
+    NAME GT_esmini_Integration_sample_night_drive
+    COMMAND ${LOADER_TARGET}
+            ${CMAKE_SOURCE_DIR}/resources/xosc/night_drive.xosc
+            ${GT_INTEGRATION_PATH_ARGS}
+            --autolight-headlights --duration 12 --expect-object Ego --expect-min-sim-time 11.5
+            --expect-light-on 1 --expect-light-on 2 --expect-light-off-at-end 2 --expect-move 20)
+add_test(
+    NAME GT_esmini_Integration_sample_day_tunnel_drive
+    COMMAND ${LOADER_TARGET}
+            ${CMAKE_SOURCE_DIR}/resources/xosc/day_tunnel_drive.xosc
+            ${GT_INTEGRATION_PATH_ARGS}
+            --autolight-headlights --duration 26 --expect-object Ego --expect-min-sim-time 25.5
+            --expect-light-on 1 --expect-light-off-at-end 1 --expect-light-off-at-end 2 --expect-move 100)
+
+# --- ControllerRealDriver set (active feature, UDP-driven; runs with default/no input) ---
+# Assert scenario load, Ego presence and full completion of the 10 s StopTrigger window.
+set(GT_REALDRIVER_SCENARIOS
+    realdriver_f01_udp_input_decode
+    realdriver_f02_lightmask_mapping
+    realdriver_f03_brake_reverse_auto_light
+    realdriver_f04_lon_profile_output
+    realdriver_f05_waypoint_output
+    realdriver_f06_assign_route
+    realdriver_f07_lane_change
+    realdriver_f08_lane_offset
+    realdriver_f09_follow_trajectory
+    realdriver_f10_longitudinal_distance_action
+    realdriver_f11_speed_profile_action
+    realdriver_f12_synchronize_action
+    realdriver_f13_hvd_adas_passthrough
+    realdriver_f14_driverscript_acc
+    realdriver_f15_driverscript_lateral_lkas)
+foreach(SCENARIO ${GT_REALDRIVER_SCENARIOS})
+    gt_integration_test(${SCENARIO} ${SCENARIO}.xosc
+        --duration 15 --expect-object Ego --expect-min-sim-time 9.5)
 endforeach()
+
+# --- PythonDriverController set (FROZEN, v0.8) ---
+# PythonDriverController is only compiled with GT_ENABLE_EMBEDDED_PYTHON=ON, so these
+# tests are only registered for embedded-Python builds (audit MSC-5: frozen-feature
+# tests are no longer default-registered). They are NOT part of any green gate.
+if(TARGET Python3::Python)
+    set(GT_PYTHONDRIVER_SCENARIOS
+        pythondriver_f01_udp_input_decode
+        pythondriver_f02_lightmask_mapping
+        pythondriver_f03_brake_reverse_auto_light
+        pythondriver_f03a_autolight_brake_reverse
+        pythondriver_f03b_autolight_indicator_route
+        pythondriver_f04_lon_profile_output
+        pythondriver_f05_waypoint_output
+        pythondriver_f06_assign_route
+        pythondriver_f07_lane_change
+        pythondriver_f08_lane_offset
+        pythondriver_f09_follow_trajectory
+        pythondriver_f10_longitudinal_distance_action
+        pythondriver_f11_speed_profile_action
+        pythondriver_f12_synchronize_action
+        pythondriver_f13_hvd_adas_passthrough
+        pythondriver_f14_driverscript_acc
+        pythondriver_f15_driverscript_lateral_lkas)
+    foreach(SCENARIO ${GT_PYTHONDRIVER_SCENARIOS})
+        gt_integration_test(${SCENARIO} ${SCENARIO}.xosc
+            --duration 15 --expect-object Ego --expect-min-sim-time 9.5)
+    endforeach()
+    list(LENGTH GT_PYTHONDRIVER_SCENARIOS GT_PYTHONDRIVER_COUNT)
+    message(STATUS "GT_esmini: Registered ${GT_PYTHONDRIVER_COUNT} frozen PythonDriver integration tests (embedded Python build)")
+endif()
 
 message(STATUS "GT_esmini: Added ${UNIT_TEST_TARGET} and ${LOADER_TARGET}")
 

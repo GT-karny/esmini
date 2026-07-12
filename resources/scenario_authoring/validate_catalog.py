@@ -69,6 +69,14 @@ _SCENE_GEN = _HERE / "scenario_templates" / "generated"
 _REPORT = _HERE / "validate_report.md"
 
 _REPO = repo_root()
+
+# Shared failure-cause extractor (canonical copy lives in the web backend; this
+# script only ever runs from the repo checkout, so import it via the repo root
+# rather than duplicating the logic — audit PY-3).
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+from GT_esmini.web.backend.services.log_extract import extract_failure  # noqa: E402
+
 _DEFAULT_DLL = _REPO / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 _DEFAULT_ESMINI = (
     _REPO / "build" / "EnvironmentSimulator" / "Applications" / "esmini" / "Release" / "esmini.exe"
@@ -178,8 +186,12 @@ def _run_road(xodr_path: Path, esmini: Path) -> tuple[bool, str]:
             probe = _write_road_probe(xodr_path, tmp)
         except Exception as exc:  # probe build failure is a real road problem
             return False, f"probe build failed: {exc}"
+        # Per-run --logfile_path: with --disable_stdout the cause only ever
+        # lands in the file log (audit CORE-5 / PY-3).
+        log_txt = tmp / "log.txt"
         cmd = [str(esmini), "--osc", str(probe), "--headless",
-               "--fixed_timestep", "0.05", "--disable_stdout"]
+               "--fixed_timestep", "0.05", "--disable_stdout",
+               "--logfile_path", str(log_txt)]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_ROAD_RUN_TIMEOUT)
         except subprocess.TimeoutExpired:
@@ -189,8 +201,10 @@ def _run_road(xodr_path: Path, esmini: Path) -> tuple[bool, str]:
             p.unlink()
         if proc.returncode == 0:
             return True, "esmini headless EXIT=0"
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
-        return False, f"esmini EXIT={proc.returncode}: {' | '.join(tail)}"
+        stdout_txt = tmp / "stdout.txt"
+        stdout_txt.write_text(proc.stdout or "", encoding="utf-8")
+        cause = extract_failure(log_txt, stdout_txt, exit_code=proc.returncode)
+        return False, f"esmini EXIT={proc.returncode}: {cause.summary}"
 
 
 def _run_scenario(xosc_path: Path, dll: Path) -> tuple[bool, str]:
@@ -211,8 +225,17 @@ def _run_scenario(xosc_path: Path, dll: Path) -> tuple[bool, str]:
             return False, f"gt_sim_test timed out (> {_SCEN_RUN_TIMEOUT}s)"
         if proc.returncode == 0:
             return True, "gt_sim_test run exit=0 (VD telemetry frames > 0)"
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
-        return False, f"gt_sim_test exit={proc.returncode}: {' | '.join(tail)}"
+        # The harness's own failure (RuntimeError etc.) is the stderr tail; the
+        # DLL's cause lands on stdout (audit CORE-1) — mine it with the shared
+        # extractor and report both.
+        stdout_txt = Path(td) / "stdout.txt"
+        stdout_txt.write_text(proc.stdout or "", encoding="utf-8")
+        cause = extract_failure(None, stdout_txt, exit_code=proc.returncode)
+        stderr_lines = (proc.stderr or "").strip().splitlines()
+        parts = [p for p in (stderr_lines[-1] if stderr_lines else "",
+                             cause.summary if cause.error_lines else "") if p]
+        detail = " | ".join(parts) or cause.summary
+        return False, f"gt_sim_test exit={proc.returncode}: {detail}"
 
 
 # ---------------------------------------------------------------------------

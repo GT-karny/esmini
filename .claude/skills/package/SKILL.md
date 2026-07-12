@@ -29,6 +29,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build_package.ps1 -Version <VER
 
 `<VERSION>` をユーザーが指定したバージョン文字列に置換する（例: `0.9.0`）。
 
+> **長時間実行の起動作法**: このパイプラインは10分級。Claude Codeの`run_in_background`タスクは
+> ホストプロセス再起動（ウィンドウリロード/拡張再起動）で子プロセスごと死ぬため、
+> `Start-Process powershell -ArgumentList '-ExecutionPolicy','Bypass','-File','scripts/build_package.ps1','-Version','<VERSION>' -RedirectStandardOutput <scratchpad>/package.log -WindowStyle Hidden -PassThru`
+> で**detached起動**し、ログのtailとプロセスID生存で完了検知する（v0.12リリース作業で2回中断された実績への対策）。
+
 ## 前提条件
 
 以下が揃っていることを確認してから実行する。不足している場合はユーザーに伝える。

@@ -79,14 +79,14 @@ int main(int argc, char* argv[])
 
     if (!roadmanager::Position::LoadOpenDrive(xodr_file.c_str()))
     {
-        printf("GT_RoadGen: failed to load OpenDRIVE file %s\n", xodr_file.c_str());
+        fprintf(stderr, "GT_RoadGen: failed to load OpenDRIVE file %s\n", xodr_file.c_str());
         return -1;
     }
 
     roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
     if (odr == nullptr || odr->GetNumOfRoads() == 0)
     {
-        printf("GT_RoadGen: no roads in %s\n", xodr_file.c_str());
+        fprintf(stderr, "GT_RoadGen: no roads in %s\n", xodr_file.c_str());
         return -1;
     }
 
@@ -119,7 +119,7 @@ int main(int argc, char* argv[])
 
     if (road_geom.root_ == nullptr)
     {
-        printf("GT_RoadGen: road geometry generation produced no model\n");
+        fprintf(stderr, "GT_RoadGen: road geometry generation produced no model\n");
         return -1;
     }
 
@@ -132,7 +132,7 @@ int main(int argc, char* argv[])
 
     if (!osgDB::writeNodeFile(*origin_tx, out_file))
     {
-        printf("GT_RoadGen: failed to write %s\n", out_file.c_str());
+        fprintf(stderr, "GT_RoadGen: failed to write %s\n", out_file.c_str());
         return -1;
     }
 

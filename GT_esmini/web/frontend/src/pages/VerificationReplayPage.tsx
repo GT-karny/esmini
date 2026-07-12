@@ -7,7 +7,8 @@ import { VTargetProfileChart } from '../components/verification/VTargetProfileCh
 import { PolicyTimelinePanel } from '../components/verification/PolicyTimelinePanel';
 import { LiveVdPanel } from '../components/verification/LiveVdPanel';
 import { VdRunLauncher } from '../components/verification/VdRunLauncher';
-import { useReplay, useSceneReplay, ReplayControls, Timeline } from '../components/verification/ReplayTransport';
+import { ReplayControls, Timeline } from '../components/verification/ReplayTransport';
+import { useReplay, useSceneReplay } from '../components/verification/replayHooks';
 import type { OsiObject } from '../hooks/useOsiStream';
 
 /**
@@ -79,6 +80,11 @@ export function VerificationReplayPage() {
     },
   });
 
+  /* eslint-disable react-hooks/set-state-in-effect -- deliberate: this syncs UI
+     state to an external event (job completion observed via polling). The query
+     cache invalidation is a side effect that must not run during render, and
+     react-query v5 useQuery has no completion callback, so an effect is the
+     supported place for this transition. */
   useEffect(() => {
     if (!runningJobId || !runningSim) return;
     if (['completed', 'failed', 'timeout', 'cancelled'].includes(runningSim.status)) {
@@ -89,6 +95,7 @@ export function VerificationReplayPage() {
       selectRun(finished); // load the just-finished run as a replay
     }
   }, [runningJobId, runningSim]);  // eslint-disable-line react-hooks/exhaustive-deps
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const frame = r.frame;
 

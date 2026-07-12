@@ -33,8 +33,9 @@ export function ProjectDetailPage() {
     handleRunning: rawHandleRunning,
   } = useJobPolling();
 
-  // Track which scenario file the running job belongs to
-  const [runningScenarioFile, setRunningScenarioFile] = useState<string | null>(null);
+  // Scenario file captured when a job is started from this page. Tagged with
+  // the job id so a later externally-started job never inherits a stale file.
+  const [startedJob, setStartedJob] = useState<{ jobId: string; file: string | null } | null>(null);
 
   // Selected scenario from URL (browsing target)
   const selectedScenarioFile = searchParams.get('scenario');
@@ -67,26 +68,21 @@ export function ProjectDetailPage() {
   // Wrap handleRunning to also capture the scenario file
   const handleRunning = (jobId: string) => {
     rawHandleRunning(jobId);
-    setRunningScenarioFile(selectedScenarioFile);
+    setStartedJob({ jobId, file: selectedScenarioFile });
   };
 
-  // Clear runningScenarioFile when job finishes
-  useEffect(() => {
-    if (!isJobActive && !runningJobId) {
-      setRunningScenarioFile(null);
-    }
-  }, [isJobActive, runningJobId]);
-
-  // Recover runningScenarioFile from externally-started jobs (e.g. via API)
-  useEffect(() => {
-    if (
-      runningJobId && !runningScenarioFile && runningJobStatus &&
-      runningJobStatus.project_id === projectId &&
-      (runningJobStatus.status === 'running' || runningJobStatus.status === 'queued')
-    ) {
-      setRunningScenarioFile(runningJobStatus.scenario_id);
-    }
-  }, [runningJobId, runningScenarioFile, runningJobStatus, projectId]);
+  // Which scenario file the tracked job belongs to — fully derived (no state-sync
+  // effects): a locally-started job uses the file captured at launch; an
+  // externally-started job (e.g. via API) uses scenario_id from its polled status.
+  const externalScenarioFile =
+    runningJobId && runningJobStatus &&
+    runningJobStatus.project_id === projectId &&
+    (runningJobStatus.status === 'running' || runningJobStatus.status === 'queued')
+      ? runningJobStatus.scenario_id
+      : null;
+  const runningScenarioFile = runningJobId
+    ? (startedJob?.jobId === runningJobId ? startedJob.file : externalScenarioFile)
+    : null;
 
   const handleSelectScenario = (file: string) => {
     setSearchParams((prev) => {
@@ -186,37 +182,31 @@ function ScenarioDashboard({
   const [splitY, setSplitY] = useState(0.5);
   const dragAxis = useRef<'x' | 'y' | null>(null);
 
-  // Bottom-left tab state
+  // Bottom-left tab state. The two auto-switches below use the render-time
+  // "adjust state when a prop changes" pattern instead of state-sync effects
+  // (https://react.dev/learn/you-might-not-need-an-effect).
   const [bottomLeftTab, setBottomLeftTab] = useState<BottomLeftTab>('details');
 
-  // Track previous selectedFile to detect user clicking another scenario
-  const prevSelectedFile = useRef(selectedFile);
-
   // Auto-switch to viewer when a job starts running
-  const prevRunningJobId = useRef(runningJobId);
-  useEffect(() => {
-    if (runningJobId && !prevRunningJobId.current) {
-      setBottomLeftTab('viewer');
-    }
-    prevRunningJobId.current = runningJobId;
-  }, [runningJobId]);
+  const [prevRunningJobId, setPrevRunningJobId] = useState(runningJobId);
+  if (runningJobId !== prevRunningJobId) {
+    setPrevRunningJobId(runningJobId);
+    if (runningJobId) setBottomLeftTab('viewer');
+  }
 
   // Auto-switch to details when user selects a different scenario during execution
-  useEffect(() => {
-    if (selectedFile !== prevSelectedFile.current) {
-      if (runningJobId && selectedFile !== runningScenarioFile) {
-        setBottomLeftTab('details');
-      }
-      prevSelectedFile.current = selectedFile;
-    }
-  }, [selectedFile, runningJobId, runningScenarioFile]);
-
-  // When job finishes, stay on viewer briefly then switch back to details
-  useEffect(() => {
-    if (!runningJobId && !runningScenarioFile) {
+  const [prevSelectedFile, setPrevSelectedFile] = useState(selectedFile);
+  if (selectedFile !== prevSelectedFile) {
+    setPrevSelectedFile(selectedFile);
+    if (runningJobId && selectedFile !== runningScenarioFile) {
       setBottomLeftTab('details');
     }
-  }, [runningJobId, runningScenarioFile]);
+  }
+
+  // When no job is tracked there is nothing to view — show details (derived,
+  // so the stored tab choice is simply overridden while idle).
+  const effectiveTab: BottomLeftTab =
+    runningJobId || runningScenarioFile ? bottomLeftTab : 'details';
 
   // Resolve the locked scenario for ExecutionPanel during active execution
   const lockedScenario = activeJobId && runningScenarioFile
@@ -314,7 +304,7 @@ function ScenarioDashboard({
             <button
               onClick={() => setBottomLeftTab('details')}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                bottomLeftTab === 'details'
+                effectiveTab === 'details'
                   ? 'text-foreground border-b-2 border-primary'
                   : 'text-text-tertiary hover:text-text-secondary'
               }`}
@@ -325,7 +315,7 @@ function ScenarioDashboard({
               onClick={() => setBottomLeftTab('viewer')}
               disabled={!runningJobId}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                bottomLeftTab === 'viewer'
+                effectiveTab === 'viewer'
                   ? 'text-foreground border-b-2 border-primary'
                   : 'text-text-tertiary hover:text-text-secondary'
               } ${!runningJobId ? 'opacity-30 cursor-not-allowed' : ''}`}
@@ -336,7 +326,7 @@ function ScenarioDashboard({
               onClick={() => setBottomLeftTab('variables')}
               disabled={!runningJobId}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                bottomLeftTab === 'variables'
+                effectiveTab === 'variables'
                   ? 'text-foreground border-b-2 border-primary'
                   : 'text-text-tertiary hover:text-text-secondary'
               } ${!runningJobId ? 'opacity-30 cursor-not-allowed' : ''}`}
@@ -348,9 +338,9 @@ function ScenarioDashboard({
 
         {/* Tab content */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          {bottomLeftTab === 'viewer' && runningJobId ? (
+          {effectiveTab === 'viewer' && runningJobId ? (
             <LiveMonitorPanel jobId={runningJobId} projectId={projectId} scenarioFile={runningScenarioFile ?? undefined} />
-          ) : bottomLeftTab === 'variables' && runningJobId ? (
+          ) : effectiveTab === 'variables' && runningJobId ? (
             <SvLivePanel jobId={runningJobId} />
           ) : selectedScenario ? (
             <ScenarioDetailPanel

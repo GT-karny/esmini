@@ -12,7 +12,7 @@
 
 // =====================================================================================
 // GT_esmini fork of EnvironmentSimulator/Modules/ViewerBase/roadgeom.hpp
-// Fork source: esmini commit 8773c463.
+// Fork source: esmini commit d7be85d6 (upstream/master, "Prepare release 3.4.1" line).
 //
 // Purpose: a per-road MULTITHREADED road-surface generator. The geometry produced is
 // byte-identical to the upstream (sequential) RoadGeom; only the surface tessellation is
@@ -20,12 +20,14 @@
 // the core RoadGeom/ViewerBase libraries (so namespace `roadgeom` does not clash).
 //
 // Re-sync policy: when upstream ViewerBase/roadgeom.* changes, re-copy and re-apply the
-// parallelization markers tagged "GT-PARALLEL".
+// parallelization markers tagged "GT-PARALLEL" and the robustness fixes tagged "GT-FIX".
+// See GT_esmini/docs/fork_sync_manifest.yaml (lineage: roadgen).
 // =====================================================================================
 #ifndef GT_ROADGEOM_HPP_
 #define GT_ROADGEOM_HPP_
 
 #include <vector>
+#include <functional>
 #include <mutex>
 #include <osg/PositionAttitudeTransform>
 #include <osg/Texture2D>
@@ -59,6 +61,7 @@ namespace roadgeom
         NODE_MASK_OBJ_OUTLINE      = (1 << 16),
         NODE_MASK_AXIS_INDICATOR   = (1 << 17),
         NODE_MASK_ENTITY_BB_FILLED = (1 << 18),
+        NODE_MASK_LIGHT_STATE      = (1 << 19),
     } NodeMask;
 
     uint64_t  GenerateMaterialKey(double r, double g, double b, double a, uint8_t t, uint8_t f);
@@ -115,17 +118,62 @@ namespace roadgeom
                                                                                osg::ref_ptr<osg::Group> parent,
                                                                                std::string              exe_path);
         osg::ref_ptr<osg::PositionAttitudeTransform> LoadRoadFeature(roadmanager::Road* road, std::string file_path);
-        osg::ref_ptr<osg::Group>                     CreateOutlineObject(roadmanager::Outline* outline, osg::Vec4 color, const osg::Vec3d& origin);
-        int                                          AddGroundSurface();
-        void                                         SetNodeName(osg::Node& node, const std::string& prefix, id_t id, const std::string& label);
-        int                                          SaveToFile(const std::string& filename);
-        TrafficLightModel*                           GetTrafficLightModel(int id);
+        osg::ref_ptr<osg::Group>                     CreateOutlineObject(
+                                roadmanager::Outline*                                                              outline,
+                                osg::Vec4                                                                          color,
+                                const osg::Vec3d&                                                                  origin,
+                                const std::function<void(roadmanager::OutlineCorner*, double&, double&, double&)>& corner_pos_fn = {},
+                                double                                                                             height_scale  = 1.0,
+                                osg::Texture2D*                                                                    texture       = nullptr,
+                                double                                                                             texture_scale = 1.0);
+        // Create curvature-aware outline geometry for each instance of a repeated object (separate copies).
+        // cornerRoad corners are re-evaluated on the road per instance; cornerLocal corners keep a fixed shape.
+        void CreateRepeatedOutlineObjects(roadmanager::RMObject* object,
+                                          roadmanager::Road*     road,
+                                          osg::Vec4              color,
+                                          const osg::Vec3d&      origin,
+                                          osg::Group*            objGroup,
+                                          const std::string&     obj_type,
+                                          osg::Texture2D*        texture       = nullptr,
+                                          double                 texture_scale = 1.0);
+        // Create wireframe (NODE_MASK_ENTITY_BB) and solid (NODE_MASK_ENTITY_BB_FILLED) bounding box
+        // representations for a road object, one box per repeated instance, sized from the object's
+        // length/width/height. These toggle together with entities via the ',' key / --view_mode option.
+        void                     CreateObjectBoundingBoxes(roadmanager::RMObject* object,
+                                                           roadmanager::Road*     road,
+                                                           osg::Vec4              color,
+                                                           const osg::Vec3d&      origin,
+                                                           osg::Group*            objGroup,
+                                                           osg::Texture2D*        texture       = nullptr,
+                                                           double                 texture_scale = 1.0);
+        osg::ref_ptr<osg::Group> CreateObjectMarkings(roadmanager::RMObject* object, roadmanager::Road* road, const osg::Vec3d& origin);
+        // Emit a ribbon for a connected chain of marking edges. Consecutive edges whose shared vertex is
+        // flagged in 'miter' are joined with a mitered corner (outer lines extrapolated, inner lines
+        // trimmed to the intersection); otherwise the vertex is a plain butt joint. The two open ends of
+        // the chain are trimmed by start_offset / stop_offset. When 'closed' is true the chain forms a
+        // loop (first vertex coincides with last) and the start/end joint is mitered too, so there is no
+        // gap where the ribbon closes. Per-edge arrays have size verts.size()-1.
+        void               CreateObjectMarkingChainGeom(const std::vector<osg::Vec3d>& verts,
+                                                        const std::vector<double>&     half_w,
+                                                        const std::vector<double>&     line_length,
+                                                        const std::vector<double>&     space_length,
+                                                        const std::vector<bool>&       miter,
+                                                        double                         start_offset,
+                                                        double                         stop_offset,
+                                                        roadmanager::RoadMarkColor     color,
+                                                        const osg::Vec3d&              origin,
+                                                        osg::Group*                    group,
+                                                        bool                           closed = false);
+        int                AddGroundSurface();
+        void               SetNodeName(osg::Node& node, const std::string& prefix, id_t id, const std::string& label);
+        int                SaveToFile(const std::string& filename);
+        TrafficLightModel* GetTrafficLightModel(int id);
 
         // GT-PARALLEL: worker-thread count for road-surface generation.
         // 0 = auto (hardware_concurrency); 1 = single-threaded (identical to upstream path).
         // Static so callers can set the count before constructing a RoadGeom.
-        static void                                  SetNumThreads(unsigned int n);
-        static unsigned int                          GetNumThreads();
+        static void         SetNumThreads(unsigned int n);
+        static unsigned int GetNumThreads();
 
         std::unordered_map<int, TrafficLightModel> traffic_light_;
 

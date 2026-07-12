@@ -99,6 +99,7 @@ set(GT_SCENARIO_HEADERS
 
 set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/AutoLightController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/HeadlightLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/RealVehicle.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerRealDriver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/realdriver/DriverOutputPort.cpp
@@ -141,6 +142,7 @@ set(GT_CONTROL_SOURCES
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/HeadlightLogic.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/RealVehicle.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRealDriver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerRealDriverUtils.hpp
@@ -260,6 +262,9 @@ target_compile_definitions(${TARGET_SHARED} PRIVATE _CRT_SECURE_NO_WARNINGS WIN3
 foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
 
     target_link_libraries(${TARGET} PRIVATE project_options)
+
+    # dladdr (module-directory resolution on POSIX). Empty/no-op on Windows.
+    target_link_libraries(${TARGET} PRIVATE ${CMAKE_DL_LIBS})
 
     target_include_directories(
         ${TARGET}

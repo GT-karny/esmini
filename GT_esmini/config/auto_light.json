@@ -1,0 +1,25 @@
+{
+    "// F6": "Environment-driven headlights (night / tunnel low beam + auto high beam).",
+    "// safety": "headlight_enabled defaults false so existing AutoLight behaviour is unchanged.",
+    "// enable": "Set headlight_enabled true here, or pass --autolight-headlights on the CLI.",
+
+    "headlight_enabled": false,
+
+    "// night": "Low beam ON when it is night. Priority: illuminance > sun elevation > time-of-day.",
+    "headlight_illuminance_lux_threshold": 3000.0,
+    "headlight_sun_elevation_deg": 0.0,
+    "headlight_use_time_of_day": true,
+    "headlight_dusk_hour": 19.0,
+    "headlight_dawn_hour": 6.0,
+
+    "// tunnel": "Low beam ON while the vehicle s-position is inside an OpenDRIVE <tunnel>.",
+    "headlight_tunnel_enabled": true,
+
+    "// highbeam": "High beam while low beam is on and no vehicle is ahead within range (hysteresis).",
+    "highbeam_enabled": true,
+    "highbeam_range_m": 120.0,
+    "highbeam_range_hysteresis_m": 20.0,
+    "highbeam_corridor_half_width_m": 6.0,
+    "highbeam_on_delay_s": 1.5,
+    "highbeam_off_delay_s": 0.3
+}

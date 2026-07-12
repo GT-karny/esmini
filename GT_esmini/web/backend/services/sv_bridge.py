@@ -73,19 +73,9 @@ _registry: BridgeRegistry[SvBridge] = BridgeRegistry(
 )
 
 
-def get_global_sv_bridge() -> SvBridge | None:
-    """Return the always-on SV bridge started at server startup."""
-    return _registry.get_global()
-
-
 async def start_global_sv_bridge(listen_port: int = SV_LISTEN_PORT) -> SvBridge:
     """Start the global SV bridge at server startup."""
     return await _registry.start_global(listen_port)
-
-
-async def stop_global_sv_bridge() -> None:
-    """Stop the global SV bridge at server shutdown."""
-    await _registry.stop_global()
 
 
 def get_sv_bridge(job_id: str) -> SvBridge | None:
@@ -109,11 +99,9 @@ async def stop_all_sv_bridges() -> int:
 
 __all__ = [
     "SvBridge",
-    "get_global_sv_bridge",
     "get_sv_bridge",
     "start_global_sv_bridge",
     "start_sv_bridge",
     "stop_all_sv_bridges",
-    "stop_global_sv_bridge",
     "stop_sv_bridge",
 ]

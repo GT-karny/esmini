@@ -3,11 +3,11 @@
   <FileHeader revMajor="1" revMinor="1" date="2026-02-15T00:00:00" description="F13 hvd adas" author="GT_esmini"/>
   <ParameterDeclarations/>
   <CatalogLocations>
-    <VehicleCatalog><Directory path="../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
+    <VehicleCatalog><Directory path="../../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
   </CatalogLocations>
   <RoadNetwork>
-    <LogicFile filepath="../../resources/xodr/fabriksgatan.xodr"/>
-    <SceneGraphFile filepath="../../resources/models/fabriksgatan.osgb"/>
+    <LogicFile filepath="../../../resources/xodr/fabriksgatan.xodr"/>
+    <SceneGraphFile filepath="../../../resources/models/fabriksgatan.osgb"/>
   </RoadNetwork>
   <Entities>
     <ScenarioObject name="Ego">

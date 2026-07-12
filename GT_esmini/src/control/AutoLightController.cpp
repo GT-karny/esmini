@@ -14,8 +14,11 @@
 #endif
 #include "gt_esmini/control/AutoLightController.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"  // CONTROLLER_TYPE_ROUTE_DRIVE
+#include "OSCEnvironment.hpp"                           // F6 night detection
+#include "RoadManager.hpp"                              // F6 tunnel + forward scan
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace gt_esmini
 {
@@ -86,6 +89,9 @@ namespace gt_esmini
         // 3. Indicators
         UpdateIndicators(stepDt);
 
+        // 4. Environment-driven headlights (F6). No-op unless enabled via config/CLI.
+        UpdateHeadlights(stepDt);
+
         // Update state
         prevSpeed_ = speed;
         prevLaneId_ = vehicle_->pos_.GetLaneId();
@@ -100,6 +106,166 @@ namespace gt_esmini
         timeSinceLastUpdate_ = 0.0;
     }
 
+
+    void AutoLightController::ApplyAutoLight(VehicleLightType type, LightState::Mode desired, LightState::Mode& last)
+    {
+        // SCENARIO > MANUAL > AUTO. A slot owned by a native LightStateAction (latched in
+        // ScenarioLightRegistry) is never overwritten by AutoLight — otherwise the every-
+        // frame indicator/reversing writes would stamp OFF over a scenario FLASHING/ON and
+        // kill it. Keep the shadow in sync so a later release (never happens today — the
+        // latch is permanent — but harmless) re-asserts correctly.
+        if (lightExt_->IsScenarioControlled(type))
+        {
+            last = desired;
+            return;
+        }
+
+        // Edge trigger: only touch the bridge on a real mode change. For FLASHING slots
+        // this hands ongoing animation to the blink ticker instead of re-stamping the
+        // mode (and resetting the emission the ticker just toggled) every frame.
+        if (desired == last)
+        {
+            return;
+        }
+
+        LightState state;
+        state.mode = desired;
+        lightExt_->SetLightState(type, state);
+        lightExt_->SetLightSource(type, LightSource::AUTO);
+        last = desired;
+    }
+
+    // ============================ F6: environment-driven headlights ============================
+
+    void AutoLightController::ConfigureHeadlights(const headlight::HeadlightConfig&     cfg,
+                                                  const scenarioengine::OSCEnvironment* env,
+                                                  const scenarioengine::Entities*       entities)
+    {
+        headlightCfg_ = cfg;
+        environment_  = env;
+        entities_     = entities;
+        highBeamHyst_.Reset();
+    }
+
+    headlight::EnvSnapshot AutoLightController::BuildEnvSnapshot() const
+    {
+        headlight::EnvSnapshot snap;
+        if (!environment_)
+        {
+            return snap;  // all flags false -> DecideNight returns UNKNOWN
+        }
+
+        // Sun: illuminance (lux) is the strongest signal; elevation is the fallback.
+        if (environment_->IsSunSet())
+        {
+            snap.has_sun_elevation = true;
+            snap.sun_elevation_rad = environment_->GetSun().elevation;
+        }
+        if (environment_->IsSunIntensitySet())
+        {
+            snap.has_illuminance = true;
+            snap.illuminance_lux = environment_->GetSunIntensity();
+        }
+        if (environment_->IsTimeOfDaySet())
+        {
+            snap.has_time_of_day = true;
+            snap.date_time       = environment_->GetTimeOfDay().datetime;
+        }
+        return snap;
+    }
+
+    bool AutoLightController::IsInTunnel() const
+    {
+        if (!vehicle_)
+        {
+            return false;
+        }
+        roadmanager::Road* road = vehicle_->pos_.GetRoadById(vehicle_->pos_.GetTrackId());
+        if (!road)
+        {
+            return false;
+        }
+        const double s = vehicle_->pos_.GetS();
+        for (unsigned int i = 0; i < road->GetNumberOfTunnels(); ++i)
+        {
+            roadmanager::Tunnel* tunnel = road->GetTunnel(i);
+            if (tunnel && headlight::PointInTunnel(s, tunnel->s_, tunnel->length_))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    double AutoLightController::NearestVehicleAhead() const
+    {
+        if (!vehicle_ || !entities_)
+        {
+            return -1.0;
+        }
+        const double egoX  = vehicle_->pos_.GetX();
+        const double egoY  = vehicle_->pos_.GetY();
+        const double egoH  = vehicle_->pos_.GetH();
+        const double cosH  = std::cos(egoH);
+        const double sinH  = std::sin(egoH);
+        const double half  = headlightCfg_.highbeam_corridor_half_m;
+
+        double nearest = std::numeric_limits<double>::infinity();
+        for (auto* obj : entities_->object_)
+        {
+            if (!obj || obj == static_cast<scenarioengine::Object*>(vehicle_))
+            {
+                continue;  // skip self
+            }
+            const double dx  = obj->pos_.GetX() - egoX;
+            const double dy  = obj->pos_.GetY() - egoY;
+            const double fwd = headlight::ForwardDistanceInCorridor(dx, dy, cosH, sinH, half);
+            if (fwd >= 0.0 && fwd < nearest)
+            {
+                nearest = fwd;
+            }
+        }
+        return std::isinf(nearest) ? -1.0 : nearest;
+    }
+
+    void AutoLightController::UpdateHeadlights(double dt)
+    {
+        if (!headlightCfg_.enabled)
+        {
+            return;  // feature off -> brake/reversing/indicator behaviour untouched
+        }
+
+        // Low beam: night (Environment) OR inside an OpenDRIVE tunnel.
+        const headlight::NightState night   = headlight::DecideNight(BuildEnvSnapshot(), headlightCfg_);
+        const bool                  inTunnel = headlightCfg_.tunnel_enabled && IsInTunnel();
+        const bool lowBeamOn = (night == headlight::NightState::NIGHT) || inTunnel;
+
+        if (!lightExt_->IsManualOverride(VehicleLightType::LOW_BEAM))
+        {
+            ApplyAutoLight(VehicleLightType::LOW_BEAM,
+                           lowBeamOn ? LightState::Mode::ON : LightState::Mode::OFF,
+                           lastLowBeamState_);
+        }
+
+        // Auto high beam: only meaningful while low beam is on. Dim when a vehicle
+        // is ahead within range; raise when the road ahead is clear (hysteresis).
+        bool highBeamOn = false;
+        if (headlightCfg_.highbeam_enabled && lowBeamOn)
+        {
+            highBeamOn = highBeamHyst_.Update(NearestVehicleAhead(), dt, headlightCfg_);
+        }
+        else
+        {
+            highBeamHyst_.Reset();
+        }
+
+        if (!lightExt_->IsManualOverride(VehicleLightType::HIGH_BEAM))
+        {
+            ApplyAutoLight(VehicleLightType::HIGH_BEAM,
+                           highBeamOn ? LightState::Mode::ON : LightState::Mode::OFF,
+                           lastHighBeamState_);
+        }
+    }
 
     void AutoLightController::UpdateBrakeLights(double dt, double currentSpeed)
     {
@@ -203,14 +369,8 @@ namespace gt_esmini
             desiredState = LightState::Mode::OFF;
         }
 
-        // 7. Edge Triggered Update
-        if (desiredState != lastBrakeState_)
-        {
-            LightState state;
-            state.mode = desiredState;
-            lightExt_->SetLightState(VehicleLightType::BRAKE_LIGHTS, state);
-            lastBrakeState_ = desiredState;
-        }
+        // 7. Edge Triggered Update (scenario-owned brake slot is left untouched).
+        ApplyAutoLight(VehicleLightType::BRAKE_LIGHTS, desiredState, lastBrakeState_);
     }
 
     void AutoLightController::UpdateReversingLights()
@@ -238,22 +398,14 @@ namespace gt_esmini
         // vehicle_->state_old.vel_x vs heading?
         
         bool isReversing = (speed < -0.01); // Simple check if speed can be negative
-        
+
         // If speed is always positive, we might need to check which way it is moving vs heading.
         // But simpler for now: if user sets speed < 0 in scenario.
-        
-        if (isReversing)
-        {
-             LightState state;
-             state.mode = LightState::Mode::ON;
-             lightExt_->SetLightState(VehicleLightType::REVERSING_LIGHTS, state);
-        }
-        else
-        {
-             LightState state;
-             state.mode = LightState::Mode::OFF;
-             lightExt_->SetLightState(VehicleLightType::REVERSING_LIGHTS, state);
-        }
+
+        // Edge-triggered + scenario-aware (was an unconditional every-frame write that
+        // overwrote scenario-driven reversing lights).
+        const LightState::Mode desired = isReversing ? LightState::Mode::ON : LightState::Mode::OFF;
+        ApplyAutoLight(VehicleLightType::REVERSING_LIGHTS, desired, lastReversingState_);
     }
 
     void AutoLightController::UpdateIndicators(double dt)
@@ -686,22 +838,24 @@ namespace gt_esmini
         }
         
         // --- Output Application ---
-        LightState leftState;
-        LightState rightState;
-        leftState.mode = LightState::Mode::OFF;
-        rightState.mode = LightState::Mode::OFF;
-        
+        // Edge-triggered + scenario-aware. A native LightStateAction that owns an indicator
+        // (e.g. warningLights / indicatorLeft) keeps ownership; AutoLight no longer stamps
+        // OFF over its FLASHING every frame. GT-owned FLASHING is written once here and then
+        // animated by the blink ticker rather than re-stamped.
+        LightState::Mode desiredLeft  = LightState::Mode::OFF;
+        LightState::Mode desiredRight = LightState::Mode::OFF;
+
         if (indicatorState_ == IndicatorState::ACTIVE_LEFT || indicatorState_ == IndicatorState::PREPARE_LEFT)
         {
-             leftState.mode = LightState::Mode::FLASHING;
+             desiredLeft = LightState::Mode::FLASHING;
         }
         else if (indicatorState_ == IndicatorState::ACTIVE_RIGHT || indicatorState_ == IndicatorState::PREPARE_RIGHT)
         {
-             rightState.mode = LightState::Mode::FLASHING;
+             desiredRight = LightState::Mode::FLASHING;
         }
-        
-        lightExt_->SetLightState(VehicleLightType::INDICATOR_LEFT, leftState);
-        lightExt_->SetLightState(VehicleLightType::INDICATOR_RIGHT, rightState);
+
+        ApplyAutoLight(VehicleLightType::INDICATOR_LEFT, desiredLeft, lastLeftIndicatorState_);
+        ApplyAutoLight(VehicleLightType::INDICATOR_RIGHT, desiredRight, lastRightIndicatorState_);
 
         // Update Junction History
         lastJunctionId_ = junctionId;

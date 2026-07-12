@@ -190,14 +190,11 @@ int ControllerRealDriver::Activate(const ControlActivationMode (&mode)[static_ca
         {
              if (udpServer_) delete udpServer_;
              udpServer_ = new UDPServer(static_cast<unsigned short>(final_port), 1); // Asynchronous non-blocking
-             
-             // [DEBUG] Explicitly print port to console
-             std::cout << "RealDriverController: LISTENING ON PORT " << final_port << " (FIXED PORT)" << std::endl;
+
              LOG_INFO("RealDriverController listening on port {}", final_port);
         }
         else
         {
-             std::cout << "RealDriverController: ALREADY LISTENING ON PORT " << final_port << std::endl;
              LOG_INFO("RealDriverController already listening on port {}", final_port);
         }
 
@@ -445,8 +442,7 @@ bool ControllerRealDriver::ParseDriverInputPacket(int packetSize)
 {
     if (packetSize < 4)
     {
-        LOG_WARN("RealDriverController: Packet too small ({})", packetSize);
-        std::cerr << "RealDriverController: Packet too small (" << packetSize << " bytes)" << std::endl;
+        LOG_WARN("RealDriverController: Packet too small ({} bytes)", packetSize);
         return false;
     }
 
@@ -454,16 +450,14 @@ bool ControllerRealDriver::ParseDriverInputPacket(int packetSize)
     input_.lightMask = *maskPtr;
     if (!cached_hvd_.ParseFromArray(udp_buffer_.data() + 4, packetSize - 4))
     {
-        LOG_ERROR("RealDriverController: Failed to parse HostVehicleData");
-        std::cerr << "RealDriverController: Failed to parse HostVehicleData (" << (packetSize - 4) << " bytes)" << std::endl;
+        LOG_ERROR("RealDriverController: Failed to parse HostVehicleData ({} bytes)", packetSize - 4);
         return false;
     }
 
     static int log_counter = 0;
     if (log_counter++ % 50 == 0)
     {
-        std::cout << "RealDriverController: Packet Received (" << packetSize
-                  << " bytes). LightMask=" << input_.lightMask << std::endl;
+        LOG_DEBUG("RealDriverController: Packet Received ({} bytes). LightMask={}", packetSize, input_.lightMask);
     }
 
     if (cached_hvd_.has_vehicle_powertrain())
@@ -531,14 +525,13 @@ void ControllerRealDriver::UpdateVehiclePhysics(double timeStep)
     double terrain_roll = 0.0;
     real_vehicle_.SetTerrainAttitude(terrain_pitch, terrain_roll);
 
-    static double last_steering_debug = 0.0;
-    const double steering_rate = (input_.steering - last_steering_debug) / (timeStep > 0 ? timeStep : 0.01);
+    const double steering_rate = (input_.steering - lastSteeringDebug_) / (timeStep > 0 ? timeStep : 0.01);
     if (std::abs(steering_rate) > 8.0 && wasLaneChanging_)
     {
         LOG_WARN("RealDriver: [DEBUG] High Steering Rate detected: {:.2f}/s (Last={:.3f}, Curr={:.3f})",
-                 steering_rate, last_steering_debug, input_.steering);
+                 steering_rate, lastSteeringDebug_, input_.steering);
     }
-    last_steering_debug = input_.steering;
+    lastSteeringDebug_ = input_.steering;
 
     real_vehicle_.UpdatePhysics(timeStep, input_.throttle, input_.brake, input_.steering, input_.gear);
     currentSpeed_ = real_vehicle_.speed_;
@@ -1104,8 +1097,8 @@ void ControllerRealDriver::RegenerateWaypointsForLaneChange(int targetLaneId, do
         wp.laneOffset = lateralDist * sign * (1.0 - factor);
 
         if (d == 0) {
-            printf("[RealDriver] LaneChange Start: CurLane=%d TgtLane=%d LatDist=%.3f Sign=%.1f Offset=%.3f\n",
-                   currentLaneId, targetLaneId, lateralDist, sign, wp.laneOffset);
+            LOG_DEBUG("RealDriver: LaneChange Start: CurLane={} TgtLane={} LatDist={:.3f} Sign={:.1f} Offset={:.3f}",
+                      currentLaneId, targetLaneId, lateralDist, sign, wp.laneOffset);
         }
         waypoints_.push_back(wp);
 

@@ -217,6 +217,41 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API int GT_OpenOSISocket(const char* ipaddr);
 
+    // =====================================
+    // Log relay API (audit CORE-4 / GT-5)
+    // =====================================
+
+    /**
+     * Log callback signature for GT_SetLogCallback.
+     * @param level     0=unknown, 1=debug, 2=info, 3=warn, 4=error
+     * @param message   Full formatted log line (trailing newline stripped)
+     * @param user_data Opaque pointer passed through from GT_SetLogCallback
+     */
+    typedef void (*GT_LogCallbackFn)(int level, const char* message, void* user_data);
+
+    /**
+     * Register a callback that receives every esmini/GT log message with a level.
+     * Bridges the core txtLogger (level-less, console-only) so callers can route
+     * diagnostics to their own logging without scraping stdout. Pass callback=nullptr
+     * to detach. Thread-safe.
+     *
+     * @param callback  Callback function, or nullptr to detach
+     * @param user_data Opaque pointer forwarded to each callback invocation
+     */
+    GT_ESMINI_API void GT_SetLogCallback(GT_LogCallbackFn callback, void* user_data);
+
+    /**
+     * Copy the last error-level log message (NUL-terminated, truncated to fit) into
+     * buffer. Populated during GT_Init / GT_InitWithArgs, so the cause is available
+     * even when init returns a bare rc < 0.
+     *
+     * @param buffer      Destination buffer
+     * @param buffer_size Size of buffer in bytes
+     * @return Number of characters copied (excluding NUL), 0 if no error recorded,
+     *         -1 if arguments are invalid.
+     */
+    GT_ESMINI_API int GT_GetLastError(char* buffer, int buffer_size);
+
 #ifdef __cplusplus
 }
 #endif

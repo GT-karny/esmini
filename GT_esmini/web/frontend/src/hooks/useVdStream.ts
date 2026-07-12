@@ -39,7 +39,7 @@ export function useVdStream(jobId: string | null): VdStreamResult {
     },
     onMessage: (msg) => {
       if (msg.type === 'virtual_driver_telemetry') {
-        const tel = msg as VdTelemetryFrame;
+        const tel = msg as unknown as VdTelemetryFrame;
         historyRef.current.push(tel);
         if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
         setFrameCount((c) => c + 1);

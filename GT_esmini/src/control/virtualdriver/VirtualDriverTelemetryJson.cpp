@@ -17,6 +17,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"h\":" << t.h << ",\"speed\":" << t.speed
        << ",\"track\":" << t.track_id << ",\"lane\":" << t.lane_id
        << ",\"offset\":" << t.lane_offset << ",\"s\":" << t.s << "}"
+       // F5: front-bumper (leading-edge) road localization, additive sibling of "ego".
+       << ",\"front_bumper\":{\"x\":" << t.front_bumper.x << ",\"y\":" << t.front_bumper.y
+       << ",\"road_id\":" << t.front_bumper.road_id << ",\"lane\":" << t.front_bumper.lane_id
+       << ",\"s\":" << t.front_bumper.s << ",\"t\":" << t.front_bumper.t
+       << ",\"offset\":" << t.front_bumper.offset << ",\"valid\":" << b(t.front_bumper.valid) << "}"
        << ",\"override\":{\"lateral\":" << b(t.override_lateral)
        << ",\"longitudinal\":" << b(t.override_longitudinal) << "}"
        << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake

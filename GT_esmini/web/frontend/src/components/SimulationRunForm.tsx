@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type {
@@ -9,6 +9,7 @@ import type {
   ManualDriveConfig,
 } from '../api/client';
 import { buildSimulationRequest } from '../api/simulationRequest';
+import { MANUAL_DRIVE_DEFAULT_PORTS } from '../lib/manualDrive';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
@@ -30,10 +31,100 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
     headlight: 'L', high_beam: 'K', fog_light: 'F', hazard: 'H',
     steer_rate: 2.0, centering_rate: 3.0, pedal_press_rate: 4.0, pedal_release_rate: 6.0,
   },
-  input_network: { transport_type: 'udp', port: 9100, level: 'pedal_steer' },
-  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: 9200, state_port: 9201 },
+  input_network: { transport_type: 'udp', port: MANUAL_DRIVE_DEFAULT_PORTS.input, level: 'pedal_steer' },
+  physics_network: { transport_type: 'udp', host: '127.0.0.1', cmd_port: MANUAL_DRIVE_DEFAULT_PORTS.physicsCmd, state_port: MANUAL_DRIVE_DEFAULT_PORTS.physicsState },
   ffb: { spring_coefficient: 0.5, damper_coefficient: 0.3, constant_gain: 1.0, max_force: 1.0 },
 };
+
+/* ---------- Form value state ---------- */
+
+type DriveMode = 'comfort' | 'sport';
+type LaneChangeTiming = 'late' | 'normal' | 'early';
+type LaneChangeGap = 'wide' | 'normal' | 'tight';
+
+/** All values that feed buildSimulationRequest (controller + execution). */
+interface FormValues {
+  // Controller
+  controllerType: ControllerType;
+  manualDriveConfig: ManualDriveConfig;
+  driveMode: DriveMode;
+  laneChangeTiming: LaneChangeTiming;
+  laneChangeGap: LaneChangeGap;
+  // Execution
+  hz: number;
+  headless: boolean;
+  record: boolean;
+  noRealtime: boolean;
+  timeout: number;
+  osiEnabled: boolean;
+  osiIp: string;
+  autolight: boolean;
+  autolightHeadlights: boolean;
+  vehiclePhysics: boolean;
+  kinematicMode: boolean;
+  routeDriveMode: boolean;
+  threads: boolean;
+  winX: number;
+  winY: number;
+  winW: number;
+  winH: number;
+}
+
+const INITIAL_VALUES: FormValues = {
+  controllerType: 'default',
+  manualDriveConfig: DEFAULT_MANUAL_CONFIG,
+  driveMode: 'comfort',
+  laneChangeTiming: 'normal',
+  laneChangeGap: 'normal',
+  hz: 120,
+  headless: false,
+  record: false,
+  noRealtime: false,
+  timeout: 60,
+  osiEnabled: true,
+  osiIp: '127.0.0.1',
+  autolight: true,
+  autolightHeadlights: false,
+  vehiclePhysics: true,
+  kinematicMode: false,
+  routeDriveMode: false,
+  threads: true,
+  winX: 60,
+  winY: 60,
+  winW: 1280,
+  winH: 720,
+};
+
+type ValuesAction = { type: 'patch'; patch: Partial<FormValues> };
+
+function valuesReducer(state: FormValues, action: ValuesAction): FormValues {
+  switch (action.type) {
+    case 'patch':
+      return { ...state, ...action.patch };
+    default:
+      return state;
+  }
+}
+
+/* ---------- UI-helper state ---------- */
+
+interface UiState {
+  showManualPanel: boolean;
+  showAdvanced: boolean;
+  showPresetSave: boolean;
+  presetName: string;
+}
+
+type UiAction = { type: 'patch'; patch: Partial<UiState> };
+
+function uiReducer(state: UiState, action: UiAction): UiState {
+  switch (action.type) {
+    case 'patch':
+      return { ...state, ...action.patch };
+    default:
+      return state;
+  }
+}
 
 export interface SimulationRunFormProps {
   projectId: string;
@@ -74,13 +165,50 @@ export function SimulationRunForm({
 }: SimulationRunFormProps) {
   const queryClient = useQueryClient();
 
-  // Controller state
-  const [controllerType, setControllerType] = useState<ControllerType>('default');
-  const [manualDriveConfig, setManualDriveConfig] = useState<ManualDriveConfig>(DEFAULT_MANUAL_CONFIG);
-  const [showManualPanel, setShowManualPanel] = useState(false);
-  const [driveMode, setDriveMode] = useState<'comfort' | 'sport'>('comfort');
-  const [laneChangeTiming, setLaneChangeTiming] = useState<'late' | 'normal' | 'early'>('normal');
-  const [laneChangeGap, setLaneChangeGap] = useState<'wide' | 'normal' | 'tight'>('normal');
+  // Form values (controller + execution) — one grouped reducer.
+  const [values, dispatchValues] = useReducer(valuesReducer, INITIAL_VALUES);
+  const {
+    controllerType,
+    manualDriveConfig,
+    driveMode,
+    laneChangeTiming,
+    laneChangeGap,
+    hz,
+    headless,
+    record,
+    noRealtime,
+    timeout,
+    osiEnabled,
+    osiIp,
+    autolight,
+    autolightHeadlights,
+    vehiclePhysics,
+    kinematicMode,
+    routeDriveMode,
+    threads,
+    winX,
+    winY,
+    winW,
+    winH,
+  } = values;
+  const patchValues = (patch: Partial<FormValues>) => dispatchValues({ type: 'patch', patch });
+
+  // UI helpers (panels / advanced toggle / preset-save input) — grouped reducer.
+  const [ui, dispatchUi] = useReducer(uiReducer, undefined, () => ({
+    showManualPanel: false,
+    showAdvanced: !compact,
+    showPresetSave: false,
+    presetName: '',
+  }));
+  const { showManualPanel, showAdvanced, showPresetSave, presetName } = ui;
+  const patchUi = (patch: Partial<UiState>) => dispatchUi({ type: 'patch', patch });
+
+  // Parameter overrides — kept as useState (uses functional updates + the
+  // Dispatch<SetStateAction> contract expected by ParameterOverrides).
+  const [paramOverrides, setParamOverrides] = useState<Record<string, string>>({});
+
+  // Validation — set as a whole object by validate().
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Load saved manual drive config from server
   const { data: savedManualDriveConfig } = useQuery({
@@ -90,54 +218,27 @@ export function SimulationRunForm({
   useEffect(() => {
     if (savedManualDriveConfig) {
       // Deep-merge with defaults so missing nested fields (e.g. sdl2.button_mapping) don't crash the UI
-      setManualDriveConfig({
-        ...DEFAULT_MANUAL_CONFIG,
-        ...savedManualDriveConfig,
-        domain: { ...DEFAULT_MANUAL_CONFIG.domain, ...savedManualDriveConfig.domain },
-        sdl2: {
-          ...DEFAULT_MANUAL_CONFIG.sdl2,
-          ...savedManualDriveConfig.sdl2,
-          button_mapping: {
-            ...DEFAULT_MANUAL_CONFIG.sdl2.button_mapping,
-            ...savedManualDriveConfig.sdl2?.button_mapping,
+      patchValues({
+        manualDriveConfig: {
+          ...DEFAULT_MANUAL_CONFIG,
+          ...savedManualDriveConfig,
+          domain: { ...DEFAULT_MANUAL_CONFIG.domain, ...savedManualDriveConfig.domain },
+          sdl2: {
+            ...DEFAULT_MANUAL_CONFIG.sdl2,
+            ...savedManualDriveConfig.sdl2,
+            button_mapping: {
+              ...DEFAULT_MANUAL_CONFIG.sdl2.button_mapping,
+              ...savedManualDriveConfig.sdl2?.button_mapping,
+            },
           },
+          keyboard: { ...DEFAULT_MANUAL_CONFIG.keyboard, ...savedManualDriveConfig.keyboard },
+          input_network: { ...DEFAULT_MANUAL_CONFIG.input_network, ...savedManualDriveConfig.input_network },
+          physics_network: { ...DEFAULT_MANUAL_CONFIG.physics_network, ...savedManualDriveConfig.physics_network },
+          ffb: { ...DEFAULT_MANUAL_CONFIG.ffb, ...savedManualDriveConfig.ffb },
         },
-        keyboard: { ...DEFAULT_MANUAL_CONFIG.keyboard, ...savedManualDriveConfig.keyboard },
-        input_network: { ...DEFAULT_MANUAL_CONFIG.input_network, ...savedManualDriveConfig.input_network },
-        physics_network: { ...DEFAULT_MANUAL_CONFIG.physics_network, ...savedManualDriveConfig.physics_network },
-        ffb: { ...DEFAULT_MANUAL_CONFIG.ffb, ...savedManualDriveConfig.ffb },
       });
     }
   }, [savedManualDriveConfig]);
-
-  // Execution state
-  const [hz, setHz] = useState(120);
-  const [headless, setHeadless] = useState(false);
-  const [record, setRecord] = useState(false);
-  const [noRealtime, setNoRealtime] = useState(false);
-  const [timeout, setTimeout_] = useState(60);
-  const [osiEnabled, setOsiEnabled] = useState(true);
-  const [osiIp, setOsiIp] = useState('127.0.0.1');
-  const [autolight, setAutolight] = useState(true);
-  const [vehiclePhysics, setVehiclePhysics] = useState(true);
-  const [kinematicMode, setKinematicMode] = useState(false);
-  const [routeDriveMode, setRouteDriveMode] = useState(false);
-  const [threads, setThreads] = useState(true);
-  const [winX, setWinX] = useState(60);
-  const [winY, setWinY] = useState(60);
-  const [winW, setWinW] = useState(1280);
-  const [winH, setWinH] = useState(720);
-
-  // Parameter overrides
-  const [paramOverrides, setParamOverrides] = useState<Record<string, string>>({});
-  const [presetName, setPresetName] = useState('');
-  const [showPresetSave, setShowPresetSave] = useState(false);
-
-  // Advanced section toggle
-  const [showAdvanced, setShowAdvanced] = useState(!compact);
-
-  // Validation
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Queries
 
@@ -150,64 +251,68 @@ export function SimulationRunForm({
   useEffect(() => {
     if (!rerunFrom) return;
     const opts = rerunFrom as {
-      controller?: { controller_type?: string };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
+      controller?: { controller_type?: string; manual_drive?: Partial<ManualDriveConfig> };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; autolight_headlights?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
+    const patch: Partial<FormValues> = {};
     if (opts.controller) {
       const ct = opts.controller.controller_type ?? 'default';
-      setControllerType(
-        (ct === 'manual' || ct === 'virtual_driver' ? ct : 'default') as ControllerType,
-      );
-      if (ct === 'manual' && (opts.controller as any).manual_drive) {
-        setManualDriveConfig({ ...DEFAULT_MANUAL_CONFIG, ...(opts.controller as any).manual_drive });
+      patch.controllerType = (ct === 'manual' || ct === 'virtual_driver' ? ct : 'default') as ControllerType;
+      if (ct === 'manual' && opts.controller.manual_drive) {
+        patch.manualDriveConfig = { ...DEFAULT_MANUAL_CONFIG, ...opts.controller.manual_drive };
       }
     }
     const exec = opts.execution;
     if (exec) {
-      if (exec.hz !== undefined) setHz(exec.hz);
-      if (exec.headless !== undefined) setHeadless(exec.headless);
-      if (exec.record !== undefined) setRecord(exec.record);
-      if (exec.no_realtime !== undefined) setNoRealtime(exec.no_realtime);
-      if (exec.timeout !== undefined) setTimeout_(exec.timeout);
-      if (exec.osi) { setOsiEnabled(exec.osi.enabled); setOsiIp(exec.osi.ip); }
-      if (exec.autolight !== undefined) setAutolight(exec.autolight);
-      if (exec.vehicle_physics !== undefined) setVehiclePhysics(exec.vehicle_physics);
-      if (exec.kinematic_mode !== undefined) setKinematicMode(exec.kinematic_mode);
-      if (exec.route_drive_mode !== undefined) setRouteDriveMode(exec.route_drive_mode);
-      if (exec.route_drive_timing) setLaneChangeTiming(exec.route_drive_timing);
-      if (exec.route_drive_gap) setLaneChangeGap(exec.route_drive_gap);
-      if (exec.threads !== undefined) setThreads(exec.threads);
-      if (exec.window) { setWinX(exec.window.x); setWinY(exec.window.y); setWinW(exec.window.w); setWinH(exec.window.h); }
-      if (exec.drive_mode) setDriveMode(exec.drive_mode);
+      if (exec.hz !== undefined) patch.hz = exec.hz;
+      if (exec.headless !== undefined) patch.headless = exec.headless;
+      if (exec.record !== undefined) patch.record = exec.record;
+      if (exec.no_realtime !== undefined) patch.noRealtime = exec.no_realtime;
+      if (exec.timeout !== undefined) patch.timeout = exec.timeout;
+      if (exec.osi) { patch.osiEnabled = exec.osi.enabled; patch.osiIp = exec.osi.ip; }
+      if (exec.autolight !== undefined) patch.autolight = exec.autolight;
+      if (exec.autolight_headlights !== undefined) patch.autolightHeadlights = exec.autolight_headlights;
+      if (exec.vehicle_physics !== undefined) patch.vehiclePhysics = exec.vehicle_physics;
+      if (exec.kinematic_mode !== undefined) patch.kinematicMode = exec.kinematic_mode;
+      if (exec.route_drive_mode !== undefined) patch.routeDriveMode = exec.route_drive_mode;
+      if (exec.route_drive_timing) patch.laneChangeTiming = exec.route_drive_timing;
+      if (exec.route_drive_gap) patch.laneChangeGap = exec.route_drive_gap;
+      if (exec.threads !== undefined) patch.threads = exec.threads;
+      if (exec.window) { patch.winX = exec.window.x; patch.winY = exec.window.y; patch.winW = exec.window.w; patch.winH = exec.window.h; }
+      if (exec.drive_mode) patch.driveMode = exec.drive_mode;
     }
-    setShowAdvanced(true);
+    patchValues(patch);
+    patchUi({ showAdvanced: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Apply execution defaults (skip if restoring from re-run)
   useEffect(() => {
     if (execDefaults && !rerunFrom) {
-      setHz(execDefaults.hz);
-      setHeadless(execDefaults.headless);
-      setRecord(execDefaults.record);
-      setNoRealtime(execDefaults.no_realtime);
-      setTimeout_(execDefaults.timeout);
-      setOsiEnabled(execDefaults.osi.enabled);
-      setOsiIp(execDefaults.osi.ip);
-      setAutolight(execDefaults.autolight);
-      if (execDefaults.vehicle_physics !== undefined) setVehiclePhysics(execDefaults.vehicle_physics);
-      if (execDefaults.kinematic_mode !== undefined) setKinematicMode(execDefaults.kinematic_mode);
-      if (execDefaults.route_drive_mode !== undefined) setRouteDriveMode(execDefaults.route_drive_mode);
-      if (execDefaults.route_drive_timing) setLaneChangeTiming(execDefaults.route_drive_timing);
-      if (execDefaults.route_drive_gap) setLaneChangeGap(execDefaults.route_drive_gap);
-      if (execDefaults.threads !== undefined) setThreads(execDefaults.threads);
+      const patch: Partial<FormValues> = {
+        hz: execDefaults.hz,
+        headless: execDefaults.headless,
+        record: execDefaults.record,
+        noRealtime: execDefaults.no_realtime,
+        timeout: execDefaults.timeout,
+        osiEnabled: execDefaults.osi.enabled,
+        osiIp: execDefaults.osi.ip,
+        autolight: execDefaults.autolight,
+      };
+      if (execDefaults.vehicle_physics !== undefined) patch.vehiclePhysics = execDefaults.vehicle_physics;
+      if (execDefaults.kinematic_mode !== undefined) patch.kinematicMode = execDefaults.kinematic_mode;
+      if (execDefaults.route_drive_mode !== undefined) patch.routeDriveMode = execDefaults.route_drive_mode;
+      if (execDefaults.route_drive_timing) patch.laneChangeTiming = execDefaults.route_drive_timing;
+      if (execDefaults.route_drive_gap) patch.laneChangeGap = execDefaults.route_drive_gap;
+      if (execDefaults.threads !== undefined) patch.threads = execDefaults.threads;
       if (execDefaults.window) {
-        setWinX(execDefaults.window.x);
-        setWinY(execDefaults.window.y);
-        setWinW(execDefaults.window.w);
-        setWinH(execDefaults.window.h);
+        patch.winX = execDefaults.window.x;
+        patch.winY = execDefaults.window.y;
+        patch.winW = execDefaults.window.w;
+        patch.winH = execDefaults.window.h;
       }
+      patchValues(patch);
     }
   }, [execDefaults, rerunFrom]);
 
@@ -266,6 +371,8 @@ export function SimulationRunForm({
       timeout,
       osi: { enabled: osiEnabled, ip: osiIp },
       autolight,
+      // F6: only meaningful with AutoLight on; the sub-toggle is hidden otherwise.
+      autolight_headlights: autolight && autolightHeadlights,
       vehicle_physics: vehiclePhysics,
       kinematic_mode: kinematicMode,
       route_drive_mode: routeDriveMode,
@@ -298,8 +405,7 @@ export function SimulationRunForm({
     mutationFn: () =>
       api.createPreset(projectId, scenarioFile, presetName.trim(), paramOverrides),
     onSuccess: () => {
-      setShowPresetSave(false);
-      setPresetName('');
+      patchUi({ showPresetSave: false, presetName: '' });
       queryClient.invalidateQueries({ queryKey: ['presets', projectId, scenarioFile] });
     },
   });
@@ -318,41 +424,43 @@ export function SimulationRunForm({
     <Card className={cardCls}>
       <ControllerSection
         controllerType={controllerType}
-        setControllerType={setControllerType}
-        onOpenManualSettings={() => setShowManualPanel(true)}
+        setControllerType={(v) => patchValues({ controllerType: v })}
+        onOpenManualSettings={() => patchUi({ showManualPanel: true })}
         driveMode={driveMode}
-        setDriveMode={setDriveMode}
+        setDriveMode={(v) => patchValues({ driveMode: v })}
         routeDriveMode={routeDriveMode}
         laneChangeTiming={laneChangeTiming}
-        setLaneChangeTiming={setLaneChangeTiming}
+        setLaneChangeTiming={(v) => patchValues({ laneChangeTiming: v })}
         laneChangeGap={laneChangeGap}
-        setLaneChangeGap={setLaneChangeGap}
+        setLaneChangeGap={(v) => patchValues({ laneChangeGap: v })}
       />
 
       <ManualDrivePanel
         open={showManualPanel}
-        onClose={() => setShowManualPanel(false)}
+        onClose={() => patchUi({ showManualPanel: false })}
         config={manualDriveConfig}
-        onChange={setManualDriveConfig}
+        onChange={(v) => patchValues({ manualDriveConfig: v })}
       />
 
       <div className="border-b border-glass-edge my-3" />
 
       <QuickOptionsBar
         headless={headless}
-        setHeadless={setHeadless}
+        setHeadless={(v) => patchValues({ headless: v })}
         record={record}
-        setRecord={setRecord}
+        setRecord={(v) => patchValues({ record: v })}
         noRealtime={noRealtime}
-        setNoRealtime={setNoRealtime}
+        setNoRealtime={(v) => patchValues({ noRealtime: v })}
         autolight={autolight}
-        setAutolight={setAutolight}
+        setAutolight={(v) => patchValues(v ? { autolight: v } : { autolight: v, autolightHeadlights: false })}
+        autolightHeadlights={autolightHeadlights}
+        setAutolightHeadlights={(v) => patchValues({ autolightHeadlights: v })}
         vehiclePhysics={vehiclePhysics}
-        setVehiclePhysics={setVehiclePhysics}
+        setVehiclePhysics={(v) => patchValues({ vehiclePhysics: v })}
         kinematicMode={kinematicMode}
-        setKinematicMode={setKinematicMode}
+        setKinematicMode={(v) => patchValues({ kinematicMode: v })}
         routeDriveMode={routeDriveMode}
-        setRouteDriveMode={setRouteDriveMode}
+        setRouteDriveMode={(v) => patchValues({ routeDriveMode: v })}
       />
 
       {/* Parameter Overrides (project context only, hidden when managed externally) */}
@@ -366,9 +474,9 @@ export function SimulationRunForm({
             presets={presets}
             loadPreset={loadPreset}
             presetName={presetName}
-            setPresetName={setPresetName}
+            setPresetName={(v) => patchUi({ presetName: v })}
             showPresetSave={showPresetSave}
-            setShowPresetSave={setShowPresetSave}
+            setShowPresetSave={(v) => patchUi({ showPresetSave: v })}
             presetMutation={presetMutation}
             compact={compact}
           />
@@ -379,25 +487,25 @@ export function SimulationRunForm({
 
       <AdvancedSettings
         showAdvanced={showAdvanced}
-        setShowAdvanced={setShowAdvanced}
+        setShowAdvanced={(v) => patchUi({ showAdvanced: v })}
         hz={hz}
-        setHz={setHz}
+        setHz={(v) => patchValues({ hz: v })}
         timeout={timeout}
-        setTimeout_={setTimeout_}
+        setTimeout_={(v) => patchValues({ timeout: v })}
         osiEnabled={osiEnabled}
         osiIp={osiIp}
-        setOsiIp={setOsiIp}
+        setOsiIp={(v) => patchValues({ osiIp: v })}
         headless={headless}
         threads={threads}
-        setThreads={setThreads}
+        setThreads={(v) => patchValues({ threads: v })}
         winX={winX}
-        setWinX={setWinX}
+        setWinX={(v) => patchValues({ winX: v })}
         winY={winY}
-        setWinY={setWinY}
+        setWinY={(v) => patchValues({ winY: v })}
         winW={winW}
-        setWinW={setWinW}
+        setWinW={(v) => patchValues({ winW: v })}
         winH={winH}
-        setWinH={setWinH}
+        setWinH={(v) => patchValues({ winH: v })}
         validationErrors={validationErrors}
         compact={compact}
       />

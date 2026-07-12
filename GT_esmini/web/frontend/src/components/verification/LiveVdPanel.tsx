@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LiveSceneView, type RoadGeometry } from '../LiveSceneView';
 import { ErrorChart, TelemetryInfoRows } from './TelemetryPanels';
 import { VTargetProfileChart } from './VTargetProfileChart';
 import { PolicyTimelinePanel } from './PolicyTimelinePanel';
+import { ActivePolicyPanel } from './ActivePolicyPanel';
 import { VdManualOverridePanel } from './VdManualOverridePanel';
 import { useVdStream } from '../../hooks/useVdStream';
 import { useOsiStream, type OsiObject } from '../../hooks/useOsiStream';
@@ -50,19 +51,13 @@ export function LiveVdPanel({
 
   // Road geometry (road network + signs + stop lines). Optional — needs the
   // scenario filename, which the launcher passes through as a query param.
-  const [roadGeometry, setRoadGeometry] = useState<RoadGeometry | null>(null);
-  useEffect(() => {
-    if (!effectiveProjectId || !scenarioFile) {
-      setRoadGeometry(null);
-      return;
-    }
-    let cancelled = false;
-    api.getRoadGeometry(effectiveProjectId, scenarioFile).then(
-      (data) => { if (!cancelled) setRoadGeometry(data as RoadGeometry); },
-      () => { /* road overlay is optional */ },
-    );
-    return () => { cancelled = true; };
-  }, [effectiveProjectId, scenarioFile]);
+  const { data: roadGeometryData } = useQuery({
+    queryKey: ['road-geometry', effectiveProjectId, scenarioFile],
+    queryFn: () => api.getRoadGeometry(effectiveProjectId!, scenarioFile!),
+    enabled: !!effectiveProjectId && !!scenarioFile,
+    retry: false, // road overlay is optional
+  });
+  const roadGeometry = (roadGeometryData as RoadGeometry | undefined) ?? null;
 
   // Prefer the OSI objects (all traffic incl. ego). Until OSI streams (or if it
   // is disabled for the run), fall back to a single ego marker from VD telemetry
@@ -116,6 +111,7 @@ export function LiveVdPanel({
               <TelemetryInfoRows frame={frame} />
               <ErrorChart frames={history} idx={history.length - 1} />
               <VTargetProfileChart frames={history} idx={history.length - 1} midlong={frame.midlong} />
+              <ActivePolicyPanel frames={history} />
               <PolicyTimelinePanel frames={history} idx={history.length - 1} />
             </>
           ) : (

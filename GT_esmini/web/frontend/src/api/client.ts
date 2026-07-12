@@ -226,6 +226,27 @@ export interface ManualDrivePreset {
   config: ManualDriveConfig;
 }
 
+/**
+ * AutoLight (F6) environment-driven headlight config — the editable keys of
+ * GT_esmini/config/auto_light.json. The GET payload also carries "// ..." comment
+ * keys (spec docs); those are not modeled here and are preserved server-side.
+ */
+export interface AutoLightConfig {
+  headlight_enabled: boolean;
+  headlight_illuminance_lux_threshold: number;
+  headlight_sun_elevation_deg: number;
+  headlight_use_time_of_day: boolean;
+  headlight_dusk_hour: number;
+  headlight_dawn_hour: number;
+  headlight_tunnel_enabled: boolean;
+  highbeam_enabled: boolean;
+  highbeam_range_m: number;
+  highbeam_range_hysteresis_m: number;
+  highbeam_corridor_half_width_m: number;
+  highbeam_on_delay_s: number;
+  highbeam_off_delay_s: number;
+}
+
 export interface ControllerConfig {
   controller_type: string;
   python?: {
@@ -274,6 +295,8 @@ export interface SimulationRequest {
     timeout: number;
     osi: { enabled: boolean; ip: string };
     autolight: boolean;
+    /** F6: pass --autolight-headlights (env-driven headlights, overrides config master switch). */
+    autolight_headlights: boolean;
     vehicle_physics: boolean;
     kinematic_mode: boolean;
     route_drive_mode: boolean;
@@ -791,6 +814,19 @@ export const api = {
     request<{ status: string }>(`/api/manual-drive/presets/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
+
+  // AutoLight (F6) config — GET returns "// ..." comment keys too (ignored by UI).
+  getAutoLightConfig: () =>
+    request<AutoLightConfig>('/api/auto-light/config'),
+
+  updateAutoLightConfig: (config: Partial<AutoLightConfig>) =>
+    request<AutoLightConfig>('/api/auto-light/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  getAutoLightDefaults: () =>
+    request<AutoLightConfig>('/api/auto-light/defaults'),
 
   // Projects root
   getProjectsRoot: () =>

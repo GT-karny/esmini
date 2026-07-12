@@ -9,6 +9,8 @@ export interface QuickOptionsBarProps {
   setNoRealtime: (v: boolean) => void;
   autolight: boolean;
   setAutolight: (v: boolean) => void;
+  autolightHeadlights: boolean;
+  setAutolightHeadlights: (v: boolean) => void;
   vehiclePhysics: boolean;
   setVehiclePhysics: (v: boolean) => void;
   kinematicMode: boolean;
@@ -47,6 +49,15 @@ const IconAutoLight = () => (
   </svg>
 );
 
+// Headlight beam — distinct from the AutoLight "bulb" glyph so the two toggles
+// read as related-but-different (bulb = master AutoLight, beam = F6 env headlights).
+const IconHeadlight = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+    <path d="M2 5.5C2 4.7 2.7 4 3.5 4H7c1.9 0 3.5 1.6 3.5 4S8.9 12 7 12H3.5C2.7 12 2 11.3 2 10.5v-5z" />
+    <path d="M12 6.2l2.3-1M12 8h2.5M12 9.8l2.3 1" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinecap="round" />
+  </svg>
+);
+
 const IconVehiclePhysics = () => (
   <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
     <path d="M3 9.5C3 8.1 4.1 7 5.5 7h5C11.9 7 13 8.1 13 9.5V11h-1v1h-2v-1H6v1H4v-1H3V9.5zM5 10a1 1 0 100-2 1 1 0 000 2zm6 0a1 1 0 100-2 1 1 0 000 2z" />
@@ -77,6 +88,8 @@ export function QuickOptionsBar({
   setNoRealtime,
   autolight,
   setAutolight,
+  autolightHeadlights,
+  setAutolightHeadlights,
   vehiclePhysics,
   setVehiclePhysics,
   kinematicMode,
@@ -90,6 +103,16 @@ export function QuickOptionsBar({
       <IconToggle icon={<IconRecord />} label="Record" active={record} onChange={setRecord} />
       <IconToggle icon={<IconFastForward />} label="No Realtime" active={noRealtime} onChange={setNoRealtime} />
       <IconToggle icon={<IconAutoLight />} label="AutoLight" active={autolight} onChange={setAutolight} />
+      {/* F6 env-driven headlights — sub-option of AutoLight, only shown when AutoLight is on.
+          Adds --autolight-headlights (night/tunnel low beam + auto high beam). */}
+      {autolight && (
+        <IconToggle
+          icon={<IconHeadlight />}
+          label="Env Headlights"
+          active={autolightHeadlights}
+          onChange={setAutolightHeadlights}
+        />
+      )}
       <IconToggle icon={<IconVehiclePhysics />} label="Physics" active={vehiclePhysics} onChange={setVehiclePhysics} />
       <IconToggle icon={<IconKinematicMode />} label="Kinematic" active={kinematicMode} onChange={setKinematicMode} />
       <IconToggle icon={<IconRouteDrive />} label="Route Drive" active={routeDriveMode} onChange={setRouteDriveMode} />

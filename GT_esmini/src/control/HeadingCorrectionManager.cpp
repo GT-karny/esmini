@@ -17,9 +17,9 @@
 #include "gt_esmini/control/ControllerPythonDriver.hpp"
 #include "gt_esmini/control/ControllerManualDrive.hpp"
 #include "gt_esmini/control/ControllerKinematic.hpp"
+#include "logger.hpp"
 
 #include <fstream>
-#include <iostream>
 #include <algorithm>
 #include <cmath>
 
@@ -102,8 +102,7 @@ void HeadingCorrectionManager::Init(scenarioengine::Entities* entities)
 
     if (!entries_.empty())
     {
-        std::cout << "HeadingCorrectionManager: Tracking " << entries_.size()
-                  << " vehicle(s) for heading correction" << std::endl;
+        LOG_INFO("HeadingCorrectionManager: Tracking {} vehicle(s) for heading correction", entries_.size());
     }
 }
 
@@ -281,11 +280,10 @@ void HeadingCorrectionManager::LoadProfiles(const std::string& configPath)
     }
 
     profilesLoaded_ = true;
-    std::cout << "HeadingCorrectionManager: Loaded profiles ("
-              << categoryProfiles_.size() << " category overrides)"
-              << " | default blend_factor=" << defaultParams_.blend_factor
-              << " max_correction_deg=" << defaultParams_.max_correction_deg
-              << std::endl;
+    LOG_INFO("HeadingCorrectionManager: Loaded profiles ({} category overrides) | default blend_factor={} max_correction_deg={}",
+             categoryProfiles_.size(),
+             defaultParams_.blend_factor,
+             defaultParams_.max_correction_deg);
 }
 
 HeadingCorrectionManager::Params HeadingCorrectionManager::ResolveParams(int category) const

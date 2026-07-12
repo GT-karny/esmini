@@ -41,6 +41,7 @@
 #include <osg/Vec4>
 #include <osgUtil/SmoothingVisitor>
 #include "GT_trafficlightmodel.hpp"
+#include "logger.hpp"
 
 osg::ref_ptr<osg::Geode> TrafficLightModel::CreateOpenBox()
 {
@@ -171,7 +172,7 @@ TrafficLightModel::TrafficLightModel(unsigned int n_lights, std::string texture_
     osg::ref_ptr<osg::Image> image = osgDB::readImageFile(texture_filename);  // Replace with your image
     if (image == nullptr)
     {
-        std::cout << "Error: Could not load texture image!" << std::endl;
+        LOG_ERROR("TrafficLightModel: Could not load texture image {}", texture_filename);
     }
 
     osg::ref_ptr<osg::Geode> geode_box = CreateOpenBox();

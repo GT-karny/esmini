@@ -213,6 +213,23 @@ jobs:
         shell: bash
         run: ctest --test-dir build -C ${{ matrix.configuration }} -R "test_ScenarioReaderParsing" --output-on-failure
 
+      # GT fork-sync gate (audit R4): inbound counterpart of check_fork_drift /
+      # check_core_census. Lists upstream commits on the forked-file lineages
+      # (RoadManager / OSIReporter / roadgeom) not yet ported into GT_esmini
+      # (manifest: GT_esmini/docs/fork_sync_manifest.yaml). WARNING-ONLY:
+      # exit 0 on pending commits (no --strict), continue-on-error shields
+      # infra/fetch failures — pending upstream commits must never block CI.
+      # Runs once (Linux/Release); this job checks out with fetch-depth 0,
+      # which the base..upstream git-log walk requires. --fetch pulls
+      # upstream master from esmini/esmini (CI checkout has no upstream remote).
+      - name: Check fork sync vs upstream (warning only)
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 -m pip install --user pyyaml
+          python3 scripts/check_fork_sync.py --fetch
+
       - uses: ./.github/actions/upload_esmini_artifacts
         if: matrix.configuration == 'Release'
 
@@ -360,6 +377,102 @@ jobs:
           sudo apt-get update && sudo apt-get install -y python3-dev
           cmake "--preset=ci-ubuntu-test-no-external-modules" -DCMAKE_BUILD_TYPE:STRING=Release -DGT_ENABLE_EMBEDDED_PYTHON=ON
           cmake --build build --config Release --target GT_esminiLib -j 2
+
+  # F4 / V4 (audit tech_debt_audit_2026-06 sec 5): VirtualDriver behavioral batch
+  # regression gate. Runs gt_sim_test.py batch (phase3_batch.yaml) in-process via
+  # the GT C-API, then compares the per-scenario / per-matcher verdict against the
+  # COMMITTED baseline (GT_esmini/test/regression_baseline/phase3_expected.yaml)
+  # with scripts/check_phase3_regression.py, and uploads a Markdown report.
+  #
+  # WHY WINDOWS (not the existing ubuntu test job): the in-process harness is
+  # Windows-only as written. gt_lib.py hardcodes the DLL as
+  # build/GT_esmini/Release/GT_esminiLib.dll (MSVC multi-config 'Release' subdir +
+  # '.dll' suffix; on Linux/Ninja the artifact is build/GT_esmini/libGT_esminiLib.so
+  # with no 'Release' segment) and calls os.add_dll_directory (a Windows-only API
+  # that raises on Linux). Porting it would need non-trivial gt_lib.py changes plus
+  # a full USE_OSI=ON Linux build (the test-no-external-modules job builds USE_OSI=OFF,
+  # so the OSI scene capture the matchers depend on would be absent) and cross-OS
+  # revalidation of the whole capture path. A dedicated Windows job matches the local
+  # dev/regression-gate environment exactly, so the committed baseline is authoritative.
+  #
+  # NON-BLOCKING for now (continue-on-error on the batch/compare steps + always-upload
+  # the report). Promote to blocking once the baseline is proven stable across a few
+  # runs: drop continue-on-error from the compare step and add this job to the
+  # release job's `needs:`. Scoped to PRs / dev / master / manual dispatch so the
+  # heavy build does not run on every feature/** push.
+  vd-behavioral-regression:
+    needs: [lint]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.ref == 'refs/heads/master' ||
+      github.ref == 'refs/heads/dev'
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/setup_tools_shared
+
+      - uses: ./.github/actions/generate_offset_run_number
+
+      - name: Cache external resources
+        uses: actions/cache@v5
+        with:
+          path: |
+            externals/googletest
+            externals/osg
+            externals/osi
+            externals/sumo
+            externals/implot
+            resources/models
+          key: ${{ runner.os }}-external-resources
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install verification deps
+        shell: bash
+        # osi3 bindings are vendored under scripts/ (gt_sim_test adds it to sys.path);
+        # only their runtime (protobuf), the manifest/baseline parser (pyyaml) and the
+        # keyframe renderer (matplotlib) are needed here.
+        run: python -m pip install --upgrade "protobuf>=5.26" "pyyaml>=6.0" matplotlib
+
+      # Protocol A configure/build (no IWYU / warnings-as-errors -- those gate the
+      # upstream test job, not GT). Only GT_esminiLib is needed: the harness loads it
+      # via ctypes; embedded Python is OFF by default so no python312.dll is required.
+      - name: CMake Configure (Protocol A)
+        shell: pwsh
+        run: cmake . -B build -G "Visual Studio 17 2022" -T v142 -A x64 -DCMAKE_BUILD_TYPE:STRING=Release -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }}
+
+      - name: CMake Build GT_esminiLib
+        run: cmake --build build --config Release --target GT_esminiLib -j 2
+
+      - name: Run VirtualDriver behavioral batch
+        continue-on-error: true
+        shell: bash
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/phase3_batch.yaml --out test_results/ci/phase3
+
+      - name: Compare vs committed baseline (per-scenario)
+        id: regression
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check_phase3_regression.py --batch-out test_results/ci/phase3 --baseline GT_esmini/test/regression_baseline/phase3_expected.yaml
+
+      - name: Upload regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vd-behavioral-regression-report
+          path: |
+            test_results/ci/phase3/regression_report.md
+            test_results/ci/phase3/batch_verdict.json
+            test_results/ci/phase3/batch_summary.md
+          if-no-files-found: warn
 
   release:
     needs: [test, test-no-external-modules, embedded-python-option]

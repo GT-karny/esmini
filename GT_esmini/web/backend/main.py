@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from GT_esmini.web.backend.api import (
+    auto_light_api,
     config_api,
     controller_config,
     manual_drive_api,
@@ -32,9 +33,15 @@ from GT_esmini.web.backend.api import (
     verification,
     annotation,
 )
-from GT_esmini.web.backend.config import GRPC_PORT
+from GT_esmini.web.backend.config import GRPC_PORT, HTTP_PORT
 from GT_esmini.web.backend.db.database import init_db
+from GT_esmini.web.backend.logging_config import setup_logging
 from GT_esmini.web.backend.services.grpc_server import start_grpc_server
+
+# Configure logging at import time so every startup path (main.__main__,
+# start_server.py, pyinstaller/gt_sim_web_entry.py — all uvicorn.run this module)
+# installs the stderr + rotating-file sinks, including frozen distributions.
+LOGGING_CONFIG = setup_logging()
 
 _logger = logging.getLogger(__name__)
 
@@ -185,6 +192,7 @@ app.include_router(scenarios.router)
 app.include_router(scripts.router)
 app.include_router(controller_config.router)
 app.include_router(manual_drive_api.router)
+app.include_router(auto_light_api.router)
 app.include_router(simulations.router)
 app.include_router(results.router)
 app.include_router(config_api.router)
@@ -231,6 +239,8 @@ if __name__ == "__main__":
     uvicorn.run(
         "GT_esmini.web.backend.main:app",
         host="127.0.0.1",
-        port=8000,
+        port=HTTP_PORT,
         reload=True,
+        log_config=LOGGING_CONFIG,
+        log_level="info",
     )

@@ -54,11 +54,18 @@ def setup_environment() -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="GT_Sim Web Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
+    # Default port resolves to config.HTTP_PORT (8000 unless GT_SIM_HTTP_PORT is set).
+    # Left as None here because config.py must be imported AFTER setup_environment()
+    # sets GT_SIM_WEB_PACKAGE_ROOT (see below).
+    parser.add_argument("--port", type=int, default=None, help="Port to bind (default: config HTTP_PORT, 8000)")
     parser.add_argument("--no-browser", action="store_true", help="Do not open browser on start")
     args = parser.parse_args()
 
     pkg_root = setup_environment()
+
+    if args.port is None:
+        from GT_esmini.web.backend.config import HTTP_PORT
+        args.port = HTTP_PORT
 
     import uvicorn
 
@@ -106,11 +113,18 @@ def main() -> None:
 
     atexit.register(_atexit_cleanup)
 
+    # setup_environment() has set GT_SIM_WEB_PACKAGE_ROOT, so config.py resolves
+    # the packaged data dir before we build the file-handler path.
+    from GT_esmini.web.backend.logging_config import setup_logging
+    log_config = setup_logging()
+
     uvicorn.run(
         "GT_esmini.web.backend.main:app",
         host=args.host,
         port=args.port,
         reload=False,  # Never reload in frozen mode
+        log_config=log_config,
+        log_level="info",
     )
 
 

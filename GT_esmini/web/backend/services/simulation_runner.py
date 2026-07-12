@@ -9,6 +9,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import CONFIG_DIR, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
+from GT_esmini.web.backend.config import CONFIG_DIR, DEFAULT_VD_INPUT_PORT, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
     ControllerConfig,
@@ -24,6 +25,7 @@ from GT_esmini.web.backend.models.simulation import (
     SimulationRequest,
     SimulationStatus,
 )
+from GT_esmini.web.backend.services.log_extract import extract_failure
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
 from GT_esmini.web.backend.services import vd_recorder
@@ -265,7 +267,7 @@ def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = 
             base = {}
 
     base["input_type"] = "network"
-    base.setdefault("input_port", 9100)
+    base.setdefault("input_port", DEFAULT_VD_INPUT_PORT)
     base.setdefault("input_transport", "udp")
 
     for p in (policies or []):
@@ -404,6 +406,12 @@ def _build_cmd(
     """Build GT_Sim command line arguments."""
     cmd = [str(GT_SIM_EXE), "--osc", str(xosc_path)]
 
+    # Pin esmini's file log to this job's results dir (same dir as stdout/stderr
+    # capture below) so the real failure cause is preserved per-job instead of
+    # overwriting a single cwd/log.txt (audit WEB-2). GT_Sim passes core options
+    # through, so --logfile_path is honored.
+    cmd.extend(["--logfile_path", str(output_dir / "log.txt")])
+
     if execution.headless:
         cmd.append("--headless")
     if execution.record:
@@ -416,6 +424,11 @@ def _build_cmd(
         cmd.extend(["--osi", execution.osi.ip])
     if execution.autolight:
         cmd.append("--autolight")
+    # F6: environment-driven headlights. --autolight-headlights is self-sufficient
+    # in GT_Sim (implies the AutoLight master switch — commit 942c07c0), so it is
+    # emitted independently of --autolight.
+    if execution.autolight_headlights:
+        cmd.append("--autolight-headlights")
     if execution.vehicle_physics:
         cmd.append("--vehicle-physics")
     if execution.kinematic_mode:
@@ -540,6 +553,13 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
 _logger = logging.getLogger(__name__)
 
 
+def _compose_error(cause: str, warnings: list[str]) -> str:
+    """Combine the extracted failure cause with collected job warnings (WEB-4)."""
+    if not warnings:
+        return cause
+    return cause + "\n\nWarnings:\n" + "\n".join(f"  {w}" for w in warnings)
+
+
 def _start_subprocess(cmd: list[str], cwd: str, job_id: str) -> subprocess.Popen:
     """Start subprocess and register in _running_procs atomically (called in thread)."""
     proc = subprocess.Popen(
@@ -581,6 +601,13 @@ async def _run_simulation(
     """Execute GT_Sim.exe and update job status on completion."""
     stdout_path = output_dir / "stdout.txt"
     stderr_path = output_dir / "stderr.txt"
+    log_path = output_dir / "log.txt"
+
+    # Bridge/recorder failures (audit WEB-4) only reach the server log today; we
+    # collect them so a failed job can surface them alongside its cause.
+    # TODO(WEB-4): surface these on *successful* jobs too — needs a `warnings`
+    # column on the simulations table (no schema change in Phase 1).
+    job_warnings: list[str] = []
 
     # Start OSI bridge before GT_Sim so UDP listener is ready
     if osi_enabled:
@@ -588,6 +615,7 @@ async def _run_simulation(
             await start_bridge(job_id)
         except Exception as e:
             _logger.warning("Failed to start OSI bridge for %s: %s", job_id, e)
+            job_warnings.append(f"OSI bridge start failed: {e}")
 
     # Start SV bridge (scenario variables, always enabled when OSI is)
     if osi_enabled:
@@ -595,6 +623,7 @@ async def _run_simulation(
             await start_sv_bridge(job_id)
         except Exception as e:
             _logger.warning("Failed to start SV bridge for %s: %s", job_id, e)
+            job_warnings.append(f"SV bridge start failed: {e}")
 
     _logger.info("Launching simulation %s: %s", job_id, " ".join(cmd))
     try:
@@ -608,6 +637,7 @@ async def _run_simulation(
                 vd_recorder.start(job_id, output_dir, record_scene=record_scene)
             except Exception as e:
                 _logger.warning("VD recorder failed to start for %s: %s", job_id, e)
+                job_warnings.append(f"VD recorder start failed: {e}")
 
         # Write PID to DB immediately (while process is still running)
         db = await get_db()
@@ -637,7 +667,10 @@ async def _run_simulation(
             error_msg = None
         else:
             status = "failed"
-            error_msg = stderr_data.decode("utf-8", errors="replace")[:2000]
+            # The real cause is in this job's log.txt, not stderr (audit CORE-1);
+            # mine it (dedup + noise-ranking) and translate DLL-missing exits.
+            extracted = extract_failure(log_path, stdout_path, exit_code=exit_code)
+            error_msg = _compose_error(extracted.as_message(), job_warnings)
 
     except Exception as e:
         status = "failed"
@@ -652,6 +685,8 @@ async def _run_simulation(
                 await vd_recorder.stop(job_id, record_meta)
             except Exception as e:
                 _logger.warning("VD recorder failed to stop for %s: %s", job_id, e)
+                if status == "failed" and error_msg:
+                    error_msg = _compose_error(error_msg, [f"VD recorder stop failed: {e}"])
 
     # Stop OSI bridge
     if osi_enabled:

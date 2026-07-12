@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="OpenSCENARIO.xsd">
+    <FileHeader revMajor="1" revMinor="2" date="2026-07-11T12:00:00" description="F6 AutoLight: OpenDRIVE tunnel raises low beam inside, drops it on exit" author="GT_esmini"/>
+    <ParameterDeclarations/>
+    <CatalogLocations/>
+    <RoadNetwork>
+        <LogicFile filepath="straight_tunnel.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <Vehicle name="car_white" vehicleCategory="car" model3d="car_white.osgb">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="200" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.5" y="0" z="0.9"/>
+                    <Dimension width="2.1" length="4.5" height="1.8"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="3.1" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition roadId="1" laneId="-1" offset="0" s="10"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="15"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <StopTrigger/>
+    </Storyboard>
+</OpenSCENARIO>

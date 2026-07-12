@@ -1,29 +1,17 @@
 import { useMemo } from 'react';
-import type { VdTelemetryFrame, PolicyConstraint } from '../../api/client';
+import type { VdTelemetryFrame } from '../../api/client';
+import { constraintLabel, policySourceColor, policySourceLabel } from '../../lib/policyDisplay';
 
 /* [A3 / Phase 3] Traffic-policy timeline. One row per constraint source
- * (traffic_light / stop_sign / yield_sign / lead_vehicle), shaded where that
- * policy is emitting a constraint, with a playhead cursor at `idx` and a
- * current-frame readout. Reads VdTelemetryFrame.policy; degrades to an empty
- * note when no policy is active (Phase 1/2 runs, or policies disabled). Mirrors
- * the hand-SVG style of ErrorChart so the panels stay visually consistent. */
+ * (traffic_light / stop_sign / yield_sign / lead_vehicle / conflict_point /
+ * crosswalk), shaded where that policy is emitting a constraint, with a playhead
+ * cursor at `idx` and a current-frame readout. Reads VdTelemetryFrame.policy;
+ * degrades to an empty note when no policy is active (Phase 1/2 runs, or policies
+ * disabled). Mirrors the hand-SVG style of ErrorChart so the panels stay visually
+ * consistent. Colours/labels come from lib/policyDisplay (shared with the live
+ * ActivePolicyPanel). */
 
-const SOURCE_COLOR: Record<string, string> = {
-  traffic_light: '#E8A24F',
-  stop_sign: '#E03131',
-  yield_sign: '#E0568A',
-  lead_vehicle: '#4F9DE8',
-};
-const sourceColor = (s: string) => SOURCE_COLOR[s] ?? '#9AA7FF';
-
-function constraintLabel(c: PolicyConstraint): string {
-  if (c.kind === 'stop_at_s') return `stop @${c.s.toFixed(0)} m`;
-  if (c.kind === 'max_speed') return `max ${c.value.toFixed(1)} m/s`;
-  if (c.kind === 'max_speed_to_s') return `max ${c.value.toFixed(1)} m/s →${c.s.toFixed(0)} m`;
-  if (c.kind === 'yield') return `yield @${c.s.toFixed(0)} m`;
-  if (c.kind === 'wait_until') return `wait ${c.value.toFixed(1)} s`;
-  return c.kind;
-}
+const sourceColor = policySourceColor;
 
 export function PolicyTimelinePanel({ frames, idx }: { frames: VdTelemetryFrame[]; idx: number }) {
   const W = 264, padL = 4, padR = 4;
@@ -78,7 +66,7 @@ export function PolicyTimelinePanel({ frames, idx }: { frames: VdTelemetryFrame[
                   <rect key={si} x={s.x0} y={y} width={Math.max(1, s.x1 - s.x0)} height={rowH}
                         fill={sourceColor(r.src)} opacity={0.7} rx={2} />
                 ))}
-                <text x={padL + 3} y={y + rowH - 3} fontSize={8} fill="#fff" opacity={0.85}>{r.src}</text>
+                <text x={padL + 3} y={y + rowH - 3} fontSize={8} fill="#fff" opacity={0.85}>{policySourceLabel(r.src)}</text>
               </g>
             );
           })}
@@ -89,7 +77,7 @@ export function PolicyTimelinePanel({ frames, idx }: { frames: VdTelemetryFrame[
         <div className="mt-1 text-[10px] font-mono space-y-0.5">
           {now.map((c, i) => (
             <div key={i} className="flex justify-between gap-2">
-              <span style={{ color: sourceColor(c.source) }}>{c.source}</span>
+              <span style={{ color: sourceColor(c.source) }}>{policySourceLabel(c.source)}</span>
               <span className="text-foreground">{constraintLabel(c)}</span>
             </div>
           ))}

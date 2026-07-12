@@ -17,6 +17,8 @@ import struct
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from GT_esmini.web.backend.config import DEFAULT_VD_INPUT_PORT
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -25,7 +27,7 @@ router = APIRouter()
 # and the wire layout in NetworkInputBridge::Poll().
 _MAGIC = 0x50535443
 _WIRE = struct.Struct("<I4diI")  # magic, steering, throttle, brake, clutch, gear, buttons
-_DEFAULT_INPUT_PORT = 9100
+_DEFAULT_INPUT_PORT = DEFAULT_VD_INPUT_PORT
 
 
 def _pack(steering: float, throttle: float, brake: float, buttons: int,

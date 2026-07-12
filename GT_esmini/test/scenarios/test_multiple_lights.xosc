@@ -4,7 +4,7 @@
     <ParameterDeclarations/>
     <CatalogLocations/>
     <RoadNetwork>
-        <LogicFile filepath="fabriksvag.xodr"/>
+        <LogicFile filepath="straight_500m.xodr"/>
     </RoadNetwork>
     <Entities>
         <ScenarioObject name="Ego">
@@ -38,9 +38,9 @@
                         <LongitudinalAction>
                             <SpeedAction>
                                 <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
-                                <Target>
+                                <SpeedActionTarget>
                                     <AbsoluteTargetSpeed value="10"/>
-                                </Target>
+                                </SpeedActionTarget>
                             </SpeedAction>
                         </LongitudinalAction>
                     </PrivateAction>

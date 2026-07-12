@@ -35,6 +35,20 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 |:---|:---|
 | (本体コード参照) | OpenDRIVE連携の信号制御、フェーズベース自動サイクリング |
 
+## VirtualDriver (ControllerVirtualDriver)
+
+フル車両物理を人間並みのドライバーロジックで自動運転させる制御プログラム（現行開発の主軸）。
+
+| ドキュメント | 内容 |
+|:---|:---|
+| [全体ロードマップ](virtualdriver/roadmap.md) | ビジョン・フェーズ計画（プリ実装設計合意、2026-06） |
+| [検証環境設計](virtualdriver/verification_environment.md) | 挙動検証環境のプリ実装設計（roadmap 付随） |
+| [シナリオ・道路オーサリング基盤](virtualdriver/scenario_authoring_foundation.md) | F1 量産基盤（道路/シナリオカタログ生成）の設計 |
+| [Phase 2 テレメトリ依頼(midlong)](virtualdriver/A2_midlong_telemetry_request.md) | 中長期判定テレメトリ JSON 出力 + constraints の実装依頼記録 |
+| [Phase 2 フォローアップ課題](virtualdriver/P2_followup_issues.md) | Phase 2 完了時点の積み残し課題台帳 |
+| [Phase 3b/3c firm-stop 欠陥報告](virtualdriver/P3_firmstop_issue.md) | 検証環境が検出した firm-stop 欠陥の報告 |
+| [F4 注釈類似度 自動判定 設計メモ](virtualdriver/F4_annotation_similarity_design.md) | 検証工場の F4 ストレッチ: per-scenario 回帰ゲート（実装済み）と、注釈データセット類似度による自動判定（構想・未実装）の設計 |
+
 ## PythonDriverController (開発凍結中)
 
 > **Note**: Python系機能（PythonDriverController・Embedded Python含む）は v0.8 で開発凍結しています。既存機能は引き続き利用可能です。
@@ -89,6 +103,7 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 | [OpenSCENARIO アクション](reference/openscenario_actions.md) | v1.2 走行関連アクション詳細 |
 | [RoadManager API](reference/rm_lib_reference.md) | Python RM ライブラリ |
 | [配布ガイド](reference/distribution_guide.md) | リリースパッケージ構成 |
+| [OpenDRIVE LHT/RHT とレーン接続](opendrive-lht-rht.md) | LHT/RHT・レーン接続・ルート計算の基礎資料（ODR 1.6 仕様・公式サンプルベース） |
 
 ## 開発計画 (Planning)
 
@@ -96,8 +111,12 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 |:---|:---|
 | [技術的負債監査 & ロードマップ](tech_debt_audit_2026-06.md) | 2026-06 監査99件・リファクタ(R0〜R5)・機能開発(F1〜F6)ロードマップと進捗 |
 | [新機能提案(多視点分析)](feature_proposals_2026-06.md) | ADAS/SiL・HMI/DiL・V&V・実データ・credibility 等9視点による45提案と優先度 |
+| [新機能提案 詳細付録](feature_proposals_2026-06_details.md) | 全45提案(P1〜P45)の詳細ダイジェスト（ID順・スコア付き） |
+| [OpenSCENARIO 1.4 ギャップ監査](openscenario_14_gap_audit_2026-07-05.md) | 1.4スキーマ全291型+48enum×実装の対応ギャップ監査(2026-07-05) |
+| [ログ出力監査](logging_audit_2026-07-11.md) | stdout/stderr 規律と失敗原因可視性の監査・是正計画(2026-07-11) |
 | [OpenDRIVE 1.6–1.9 対応ステータス表](opendrive_16_19_support.md) | **✅ プログラム完了(2026-07-05)**。クラスタ×レベル対応表+**課題(保留台帳=再開情報付き)**+既知債。課題を探すならここ |
 | [GT_RoadManager パッチ台帳](gt_roadmanager_patches.md) | フォーク/第2種パッチの機械真実源(census/予算 — スクリプト・ctest が参照) |
+| [フォーク同期マニフェスト](fork_sync_manifest.yaml) | フォーク家系(RoadManager/OSIReporter/roadgen)の upstream 同期ベース SHA 台帳 — `scripts/check_fork_sync.py` が未移植 upstream コミットを検出(監査 R4、CI 警告ゲート) |
 | [upstream resync チェックリスト](odr_resync_checklist.md) | 本家esmini更新時のパッチ再適用手順(運用文書) |
 | [ODR 1.6-1.9 プログラム経緯アーカイブ](archive/odr_1619_program/README.md) | 完了済み計画書・P6設計書・監査等の凍結文書 |
 

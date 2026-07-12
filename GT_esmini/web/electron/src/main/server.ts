@@ -8,10 +8,17 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import path from 'node:path';
 
 const DEFAULT_HOST = '127.0.0.1';
-const DEFAULT_PORT = 8000;
+// Preferred HTTP port. 8000 is a common port, so it may be taken by another app
+// (or a previous GT_Sim instance). We scan upward from here for a free port
+// rather than failing to launch. Overridable via GT_SIM_HTTP_PORT for parity
+// with the backend config.
+const PREFERRED_PORT = Number(process.env.GT_SIM_HTTP_PORT) || 8000;
+const PORT_SCAN_RANGE = 20; // probe PREFERRED_PORT .. PREFERRED_PORT + 19
+const MAX_START_ATTEMPTS = 3; // retry on the rare probe→bind race (TOCTOU)
 const HEALTH_ENDPOINT = '/api/health';
 const HEALTH_POLL_INTERVAL_MS = 300;
 const HEALTH_TIMEOUT_MS = 30_000;
@@ -24,8 +31,35 @@ interface ServerInfo {
   url: string;
 }
 
+/** Probe whether a TCP port is free to bind on `host`. */
+function probePort(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(false));
+    srv.once('listening', () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
+  });
+}
+
+/**
+ * Find a free port, scanning upward from PREFERRED_PORT.
+ * `skip` holds ports already attempted this run (so retries pick a new one).
+ */
+async function findFreePort(host: string, skip: Set<number>): Promise<number> {
+  for (let p = PREFERRED_PORT; p < PREFERRED_PORT + PORT_SCAN_RANGE; p++) {
+    if (skip.has(p)) continue;
+    if (await probePort(host, p)) return p;
+  }
+  throw new Error(
+    `No free port in ${PREFERRED_PORT}..${PREFERRED_PORT + PORT_SCAN_RANGE - 1}`,
+  );
+}
+
 /** Resolve how to launch the FastAPI server depending on environment. */
-function resolveCommand(): { command: string; args: string[]; cwd: string } {
+function resolveCommand(
+  host: string,
+  port: number,
+): { command: string; args: string[]; cwd: string } {
   // Auto-detect packaged mode: if server/gt_sim_web.exe exists next to the
   // Electron executable, we're running from a distribution package.
   const exeDir = path.dirname(process.execPath);
@@ -65,7 +99,7 @@ function resolveCommand(): { command: string; args: string[]; cwd: string } {
 
     return {
       command: venvPython,
-      args: [startScript, '--host', DEFAULT_HOST, '--port', String(DEFAULT_PORT)],
+      args: [startScript, '--host', host, '--port', String(port)],
       cwd: repoRoot,
     };
   }
@@ -73,7 +107,7 @@ function resolveCommand(): { command: string; args: string[]; cwd: string } {
   // Packaged mode: exe is at <package_root>/server/gt_sim_web.exe
   return {
     command: serverExe,
-    args: ['--host', DEFAULT_HOST, '--port', String(DEFAULT_PORT), '--no-browser'],
+    args: ['--host', host, '--port', String(port), '--no-browser'],
     cwd: packageRoot,
   };
 }
@@ -115,9 +149,9 @@ function waitForHealth(host: string, port: number, timeoutMs: number): Promise<v
   });
 }
 
-/** Start the FastAPI server and wait until it is ready. */
-export async function startServer(): Promise<ServerInfo> {
-  const { command, args, cwd } = resolveCommand();
+/** Spawn the server on a specific port and wait until its health check passes. */
+async function launch(host: string, port: number): Promise<void> {
+  const { command, args, cwd } = resolveCommand(host, port);
 
   console.log(`[server] Starting: ${command} ${args.join(' ')}`);
   console.log(`[server] CWD: ${cwd}`);
@@ -147,14 +181,39 @@ export async function startServer(): Promise<ServerInfo> {
 
   // Wait for server to respond
   console.log('[server] Waiting for health check...');
-  await waitForHealth(DEFAULT_HOST, DEFAULT_PORT, HEALTH_TIMEOUT_MS);
+  await waitForHealth(host, port, HEALTH_TIMEOUT_MS);
   console.log('[server] Ready.');
+}
 
-  return {
-    host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
-    url: `http://${DEFAULT_HOST}:${DEFAULT_PORT}`,
-  };
+/**
+ * Start the FastAPI server on a free port and wait until it is ready.
+ *
+ * Scans upward from PREFERRED_PORT (8000) so a busy port no longer blocks
+ * launch. Retries on the rare race where another process grabs the port
+ * between our free-port probe and the server's bind.
+ */
+export async function startServer(): Promise<ServerInfo> {
+  const host = DEFAULT_HOST;
+  const tried = new Set<number>();
+  let lastErr: unknown;
+
+  for (let attempt = 1; attempt <= MAX_START_ATTEMPTS; attempt++) {
+    const port = await findFreePort(host, tried);
+    tried.add(port);
+    try {
+      await launch(host, port);
+      return { host, port, url: `http://${host}:${port}` };
+    } catch (err) {
+      lastErr = err;
+      console.error(
+        `[server] Start attempt ${attempt}/${MAX_START_ATTEMPTS} on port ${port} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      stopServer(); // tear down the failed process before retrying
+    }
+  }
+
+  throw lastErr ?? new Error('Server failed to start');
 }
 
 /** Kill the server process tree. */

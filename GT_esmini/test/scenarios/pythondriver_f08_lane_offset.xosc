@@ -3,11 +3,11 @@
   <FileHeader revMajor="1" revMinor="1" date="2026-02-18T00:00:00" description="F08 lane offset on curves" author="GT_esmini"/>
   <ParameterDeclarations/>
   <CatalogLocations>
-    <VehicleCatalog><Directory path="../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
+    <VehicleCatalog><Directory path="../../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
   </CatalogLocations>
   <RoadNetwork>
-    <LogicFile filepath="../../resources/xodr/curves.xodr"/>
-    <SceneGraphFile filepath="../../resources/models/curves.osgb"/>
+    <LogicFile filepath="../../../resources/xodr/curves.xodr"/>
+    <SceneGraphFile filepath="../../../resources/models/curves.osgb"/>
   </RoadNetwork>
   <Entities>
     <ScenarioObject name="Ego">

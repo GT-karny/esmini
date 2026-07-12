@@ -13,8 +13,14 @@
 
 #include "Entities.hpp"  // esmini
 #include "gt_esmini/scenario/ExtraEntities.hpp"  // GT_esmini extension
+#include "gt_esmini/control/HeadlightLogic.hpp"  // F6 environment-driven headlights (pure logic)
 #include <deque>
 #include <utility> // for std::pair
+
+namespace scenarioengine
+{
+    class OSCEnvironment;
+}
 
 namespace gt_esmini
 {
@@ -47,7 +53,24 @@ namespace gt_esmini
          * @return true if enabled
          */
         bool IsEnabled() const { return enabled_; }
-        
+
+        /**
+         * @brief Configure the F6 environment-driven headlight rule (rule 4).
+         *
+         * Injected by AutoLightManager after Init: the shared config (loaded from
+         * config/auto_light.json), a pointer to the live ScenarioEngine environment
+         * (night detection) and the entity list (auto-high-beam forward scan). When
+         * cfg.enabled is false the headlight rule is a no-op — brake/reversing/indicator
+         * behaviour is untouched.
+         *
+         * @param cfg      Headlight configuration.
+         * @param env      Live OSCEnvironment (may be null -> night undecided).
+         * @param entities Entity list for the forward scan (may be null -> no high beam).
+         */
+        void ConfigureHeadlights(const headlight::HeadlightConfig& cfg,
+                                 const scenarioengine::OSCEnvironment* env,
+                                 const scenarioengine::Entities*      entities);
+
     private:
         scenarioengine::Vehicle* vehicle_;
         VehicleLightExtension* lightExt_;
@@ -67,7 +90,46 @@ namespace gt_esmini
          * @brief Control reversing lights based on speed
          */
         void UpdateReversingLights();
-        
+
+        /**
+         * @brief F6 rule 4 — environment-driven headlights.
+         *
+         * Low beam ON at night (OpenSCENARIO Environment) or inside an OpenDRIVE
+         * <tunnel>; auto high beam while low beam is on and the road ahead is clear
+         * (hysteresis). No-op unless ConfigureHeadlights() enabled the feature.
+         */
+        void UpdateHeadlights(double dt);
+
+        /**
+         * @brief Build a night-detection snapshot from the live environment. Pure glue.
+         */
+        headlight::EnvSnapshot BuildEnvSnapshot() const;
+
+        /**
+         * @brief True if the vehicle's current (road, s) lies inside an OpenDRIVE tunnel.
+         */
+        bool IsInTunnel() const;
+
+        /**
+         * @brief Nearest vehicle ahead within the high-beam scan corridor, or -1 if none.
+         */
+        double NearestVehicleAhead() const;
+
+        /**
+         * @brief Arbitrated, edge-triggered AutoLight write.
+         *
+         * Honours the light-ownership hierarchy (SCENARIO > MANUAL > AUTO): a slot that a
+         * native scenario LightStateAction controls is never overwritten. Otherwise the
+         * bridge is only touched when the desired mode differs from the last AUTO-written
+         * mode (edge trigger) so a GT-written FLASHING slot is written once and left for
+         * the blink ticker instead of being re-stamped (and un-blinked) every frame.
+         *
+         * @param type    Light slot to drive.
+         * @param desired Mode AutoLight wants for this frame.
+         * @param last    Shadow of the last AUTO-written mode for this slot (updated in place).
+         */
+        void ApplyAutoLight(VehicleLightType type, LightState::Mode desired, LightState::Mode& last);
+
         // State variables for logic
         double prevSpeed_;
         int prevLaneId_;
@@ -75,6 +137,12 @@ namespace gt_esmini
         double smoothedAcc_;
         LightState::Mode lastBrakeState_;
         double brakeLatchTimer_;
+
+        // Edge-trigger shadows for the every-frame slots (reversing + indicators) so
+        // AutoLight only writes on a real mode change and never fights the blink ticker.
+        LightState::Mode lastReversingState_     = LightState::Mode::OFF;
+        LightState::Mode lastLeftIndicatorState_  = LightState::Mode::OFF;
+        LightState::Mode lastRightIndicatorState_ = LightState::Mode::OFF;
         
         // Speed History for Brake Event Detection (Time, Speed)
         std::deque<std::pair<double, double>> speedHistory_;
@@ -95,6 +163,14 @@ namespace gt_esmini
         // Robustness
         double timeSinceLastUpdate_;   // For frequency limiting
         double simClock_ = 0.0;        // Accumulated sim time for the blink ticker
+
+        // F6 environment-driven headlights (rule 4). Injected via ConfigureHeadlights.
+        headlight::HeadlightConfig             headlightCfg_{};   // enabled=false by default
+        const scenarioengine::OSCEnvironment*  environment_ = nullptr;
+        const scenarioengine::Entities*        entities_    = nullptr;
+        headlight::HighBeamHysteresis          highBeamHyst_{};
+        LightState::Mode                       lastLowBeamState_  = LightState::Mode::OFF;
+        LightState::Mode                       lastHighBeamState_ = LightState::Mode::OFF;
 
         // Thresholds
         static constexpr double BRAKE_ON_THRESHOLD = -1.2;     // m/s^2 (Hard Decel Trigger)

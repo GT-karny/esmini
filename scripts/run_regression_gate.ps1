@@ -33,12 +33,19 @@
                the documented verification venv (verification_environment.md
                2.4.1); GT_esmini/web/.venv works too but lacks matplotlib.
 
-               The batch verdict is SURFACED but, by default, treated as a
-               WARNING rather than a hard failure: phase3_batch.yaml is the
-               evolving behavioral check and its header documents that some
-               discriminating cases are expected to fail at certain stages.
-               Use -FailOnBehavioral to make a behavioral 'fail' fail the gate
-               (recommended once Phase 3a-c is considered locked).
+               The batch runs, then scripts/check_phase3_regression.py compares
+               the per-scenario/per-matcher verdict against the COMMITTED baseline
+               (GT_esmini/test/regression_baseline/phase3_expected.yaml). This is
+               PRECISE: the two discriminating cases that fail by design at the
+               current stage are recorded in the baseline and do NOT trip the
+               gate -- only a real DEVIATION (a new fail, or a known fail turning
+               pass) does. The batch's own exit code is intentionally NOT the gate
+               (it is 1 whenever overall=fail, which the phase3 batch does by
+               design). A per-scenario deviation is SURFACED but, by default,
+               treated as a WARNING; use -FailOnBehavioral to make it fail the
+               gate (recommended once Phase 3a-c is considered locked). After an
+               INTENTIONAL behavior change, refresh the baseline with:
+                 check_phase3_regression.py --batch-out <OutDir> --update
 
 .PARAMETER Config
     Build configuration for Step 1 ctest. Default: Release.
@@ -53,8 +60,15 @@
     Skip Step 2 entirely (e.g. when no Release build / venv is available).
 
 .PARAMETER FailOnBehavioral
-    Make a Step 2 behavioral 'fail' verdict fail the whole gate. Without this,
-    Step 2 failures are reported as warnings and do not change the exit code.
+    Make a Step 2 per-scenario baseline DEVIATION fail the whole gate. Without
+    this, a deviation is reported as a warning and does not change the exit code.
+    (The meaning sharpened in F4: it now gates on a precise per-scenario deviation
+    vs the committed baseline, not on the batch's coarse overall=fail.)
+
+.PARAMETER Baseline
+    Committed per-scenario expectation baseline compared by
+    scripts/check_phase3_regression.py. Default:
+    GT_esmini/test/regression_baseline/phase3_expected.yaml.
 
 .PARAMETER TelemetryGolden
     OPTIONAL (P6 S0 oracle; default OFF keeps the gate byte-compatible). After
@@ -96,6 +110,7 @@ param(
     [string]$Python = "",
     [string]$Batch = "resources/xosc/verification/phase3_batch.yaml",
     [string]$OutDir = "test_results/regression/phase3",
+    [string]$Baseline = "GT_esmini/test/regression_baseline/phase3_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -209,10 +224,11 @@ if ($SkipBehavioral) {
         if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $dllPath) }
         Write-Host "Step 2: $pyExe $($argList -join ' ')" -ForegroundColor Cyan
         & $pyExe @argList
-        $step2 = $LASTEXITCODE
+        # NOTE: gt_sim_test batch exits 1 whenever overall=fail, which the phase3
+        # batch does BY DESIGN (a couple of discriminating cases fail at the
+        # current stage). So the batch exit code is deliberately NOT the gate --
+        # the per-scenario baseline comparison below is.
 
-        # gt_sim_test batch returns 0 for overall in {pass, needs-review}, 1 for
-        # overall=fail. Read batch_verdict.json for the precise summary if present.
         $verdictFile = Join-Path $outPath "batch_verdict.json"
         $verdictText = "(no batch_verdict.json)"
         if (Test-Path $verdictFile) {
@@ -223,15 +239,37 @@ if ($SkipBehavioral) {
             } catch { $verdictText = "(could not parse batch_verdict.json)" }
         }
 
-        if ($step2 -eq 0) {
-            Write-Host "Step 2: PASS  $verdictText" -ForegroundColor Green
-        } else {
+        # Per-scenario / per-matcher regression comparison vs the committed
+        # baseline. Exit 0 = no deviation, 1 = deviation(s), 2 = setup error
+        # (baseline or batch output missing). Writes <OutDir>/regression_report.md.
+        $checker = Resolve-RepoPath "scripts/check_phase3_regression.py"
+        $baselinePath = Resolve-RepoPath $Baseline
+        $regArgs = @($checker, "--batch-out", $outPath, "--baseline", $baselinePath)
+        Write-Host "Step 2: $pyExe $($regArgs -join ' ')" -ForegroundColor Cyan
+        & $pyExe @regArgs
+        $reg = $LASTEXITCODE
+
+        if ($reg -eq 0) {
+            Write-Host "Step 2: PASS (no per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Green
+        } elseif ($reg -eq 2) {
+            # baseline / batch output missing -> setup problem: report, gate only
+            # under -FailOnBehavioral (never silently pass).
             if ($FailOnBehavioral) {
-                Write-Host "Step 2: FAIL  $verdictText" -ForegroundColor Red
+                Write-Host "Step 2: FAIL (regression-check setup error)  $verdictText" -ForegroundColor Red
                 $overallOk = $false
             } else {
-                Write-Host "Step 2: WARN (behavioral fail, not gating)  $verdictText" -ForegroundColor Yellow
+                Write-Host "Step 2: WARN (regression-check setup error, not gating)  $verdictText" -ForegroundColor Yellow
+            }
+        } else {
+            if ($FailOnBehavioral) {
+                Write-Host "Step 2: FAIL (per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Red
+                $overallOk = $false
+            } else {
+                Write-Host "Step 2: WARN (per-scenario deviation vs baseline, not gating)  $verdictText" -ForegroundColor Yellow
+                Write-Host "    Report: $(Join-Path $outPath 'regression_report.md')" -ForegroundColor Yellow
                 Write-Host "    Pass -FailOnBehavioral to make this fail the gate." -ForegroundColor Yellow
+                Write-Host "    If the change is intentional, refresh the baseline:" -ForegroundColor Yellow
+                Write-Host "      $pyExe $checker --batch-out $outPath --update" -ForegroundColor Yellow
             }
         }
     }

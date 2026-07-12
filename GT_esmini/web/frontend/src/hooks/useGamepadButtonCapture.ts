@@ -17,7 +17,10 @@ export function useGamepadButtonCapture(
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const baselineRef = useRef<boolean[]>([]);
   const onCaptureRef = useRef(onCapture);
-  onCaptureRef.current = onCapture;
+  // Track the latest callback without making startCapture depend on it.
+  useEffect(() => {
+    onCaptureRef.current = onCapture;
+  });
 
   const cancel = useCallback(() => {
     setCapturing(false);

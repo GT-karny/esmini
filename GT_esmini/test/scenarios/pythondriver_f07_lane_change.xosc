@@ -3,10 +3,10 @@
   <FileHeader revMajor="1" revMinor="1" date="2026-02-18T00:00:00" description="F07 lane change on two-plus-one" author="GT_esmini"/>
   <ParameterDeclarations/>
   <CatalogLocations>
-    <VehicleCatalog><Directory path="../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
+    <VehicleCatalog><Directory path="../../../resources/xosc/Catalogs/Vehicles"/></VehicleCatalog>
   </CatalogLocations>
   <RoadNetwork>
-    <LogicFile filepath="../../resources/xodr/two_plus_one.xodr"/>
+    <LogicFile filepath="../../../resources/xodr/two_plus_one.xodr"/>
   </RoadNetwork>
   <Entities>
     <ScenarioObject name="Ego">

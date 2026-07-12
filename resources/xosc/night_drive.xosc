@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="OpenSCENARIO.xsd">
+    <FileHeader revMajor="1" revMinor="2" date="2026-07-12T00:00:00"
+                description="Night drive with a slower lead vehicle. Demo for GT AutoLight environment-driven headlights (F6): enable AutoLight + Env Headlights in the run form (or pass --autolight-headlights) and watch low beam come on at night, high beam raise on the clear road, then dim as the ego closes on the lead."
+                author="GT_esmini"/>
+    <ParameterDeclarations/>
+    <CatalogLocations>
+        <VehicleCatalog>
+            <Directory path="../xosc/Catalogs/Vehicles"/>
+        </VehicleCatalog>
+    </CatalogLocations>
+    <RoadNetwork>
+        <LogicFile filepath="../xodr/straight_500m.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+        </ScenarioObject>
+        <ScenarioObject name="Lead">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_red"/>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <GlobalAction>
+                    <EnvironmentAction>
+                        <Environment name="night">
+                            <Weather>
+                                <Sun azimuth="3.14" illuminance="50" elevation="-0.2"/>
+                            </Weather>
+                        </Environment>
+                    </EnvironmentAction>
+                </GlobalAction>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition roadId="1" laneId="-1" offset="0" s="10"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="16.7"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+                <Private entityRef="Lead">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition roadId="1" laneId="-1" offset="0" s="200"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="8.3"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <Story name="NightDriveStory">
+            <Act name="EgoSlowAct">
+                <ManeuverGroup maximumExecutionCount="1" name="EgoSlowGroup">
+                    <Actors selectTriggeringEntities="false">
+                        <EntityRef entityRef="Ego"/>
+                    </Actors>
+                    <Maneuver name="EgoSlowManeuver">
+                        <Event name="EgoSlowEvent" priority="overwrite">
+                            <Action name="EgoSlowAction">
+                                <PrivateAction>
+                                    <LongitudinalAction>
+                                        <SpeedAction>
+                                            <SpeedActionDynamics dynamicsShape="linear" value="3" dynamicsDimension="time"/>
+                                            <SpeedActionTarget>
+                                                <AbsoluteTargetSpeed value="8.3"/>
+                                            </SpeedActionTarget>
+                                        </SpeedAction>
+                                    </LongitudinalAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="EgoSlowCondition" delay="0" conditionEdge="none">
+                                        <ByValueCondition>
+                                            <SimulationTimeCondition value="10" rule="greaterThan"/>
+                                        </ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                    </Maneuver>
+                </ManeuverGroup>
+                <StartTrigger>
+                    <ConditionGroup>
+                        <Condition name="ActStart" delay="0" conditionEdge="none">
+                            <ByValueCondition>
+                                <SimulationTimeCondition value="0" rule="greaterThan"/>
+                            </ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StartTrigger>
+            </Act>
+        </Story>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition name="EndOfRun" delay="0" conditionEdge="none">
+                    <ByValueCondition>
+                        <SimulationTimeCondition value="33" rule="greaterThan"/>
+                    </ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>
