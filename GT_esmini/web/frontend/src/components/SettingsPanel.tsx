@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type ExecutionDefaults } from '../api/client';
+import { api, type ExecutionDefaults, type AutoLightConfig } from '../api/client';
 import { SlidePanel } from './ui/SlidePanel';
 import { Button } from './ui/Button';
-import { Checkbox, NumberInput, TextInput } from './ui/Input';
+import { Checkbox, NumberInput, TextInput, ToggleSwitch } from './ui/Input';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -34,11 +34,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   return (
     <SlidePanel open={open} onClose={onClose} title="Settings">
-      {defaults ? (
-        <SettingsForm defaults={defaults} onClose={onClose} />
-      ) : (
-        <div className="text-sm text-text-secondary">Loading...</div>
-      )}
+      <div className="space-y-8">
+        {defaults ? (
+          <SettingsForm defaults={defaults} onClose={onClose} />
+        ) : (
+          <div className="text-sm text-text-secondary">Loading...</div>
+        )}
+        <div className="border-t border-glass-edge pt-6">
+          <AutoLightSection open={open} />
+        </div>
+      </div>
     </SlidePanel>
   );
 }
@@ -206,6 +211,173 @@ function SettingsForm({ defaults, onClose }: { defaults: ExecutionDefaults; onCl
         </Button>
       </div>
 
+      {saveMutation.error && (
+        <p className="text-destructive text-sm">{String(saveMutation.error)}</p>
+      )}
+    </div>
+  );
+}
+
+/* ============================ AutoLight (F6) settings ============================ */
+
+// Extract only the editable keys (the GET payload also carries "// ..." comment
+// keys, which are preserved server-side and must not enter the form state).
+function pickAutoLight(src: AutoLightConfig): AutoLightConfig {
+  return {
+    headlight_enabled: src.headlight_enabled,
+    headlight_illuminance_lux_threshold: src.headlight_illuminance_lux_threshold,
+    headlight_sun_elevation_deg: src.headlight_sun_elevation_deg,
+    headlight_use_time_of_day: src.headlight_use_time_of_day,
+    headlight_dusk_hour: src.headlight_dusk_hour,
+    headlight_dawn_hour: src.headlight_dawn_hour,
+    headlight_tunnel_enabled: src.headlight_tunnel_enabled,
+    highbeam_enabled: src.highbeam_enabled,
+    highbeam_range_m: src.highbeam_range_m,
+    highbeam_range_hysteresis_m: src.highbeam_range_hysteresis_m,
+    highbeam_corridor_half_width_m: src.highbeam_corridor_half_width_m,
+    highbeam_on_delay_s: src.highbeam_on_delay_s,
+    highbeam_off_delay_s: src.highbeam_off_delay_s,
+  };
+}
+
+function AutoLightSection({ open }: { open: boolean }) {
+  const { data: config } = useQuery({
+    queryKey: ['auto-light-config'],
+    queryFn: api.getAutoLightConfig,
+    enabled: open,
+  });
+  const { data: defaults } = useQuery({
+    queryKey: ['auto-light-defaults'],
+    queryFn: api.getAutoLightDefaults,
+    enabled: open,
+  });
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-text-secondary mb-1">Auto Headlights (F6)</h3>
+      <p className="text-xs text-text-tertiary mb-4">
+        Environment-driven headlights: night / tunnel low beam and automatic high beam.
+      </p>
+      {config && defaults ? (
+        <AutoLightForm initial={config} defaults={defaults} />
+      ) : (
+        <div className="text-sm text-text-secondary">Loading...</div>
+      )}
+    </div>
+  );
+}
+
+function AutoLightForm({ initial, defaults }: { initial: AutoLightConfig; defaults: AutoLightConfig }) {
+  const queryClient = useQueryClient();
+  const [cfg, setCfg] = useState<AutoLightConfig>(() => pickAutoLight(initial));
+  const [saved, setSaved] = useState(false);
+
+  const set = <K extends keyof AutoLightConfig>(key: K, val: AutoLightConfig[K]) => {
+    setCfg((c) => ({ ...c, [key]: val }));
+    setSaved(false);
+  };
+  const setNum = (key: keyof AutoLightConfig) => (e: ChangeEvent<HTMLInputElement>) =>
+    set(key, Number(e.target.value) as AutoLightConfig[typeof key]);
+
+  const saveMutation = useMutation({
+    mutationFn: (c: AutoLightConfig) => api.updateAutoLightConfig(c),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auto-light-config'] });
+      setSaved(true);
+    },
+  });
+
+  const handleReset = () => {
+    setCfg(pickAutoLight(defaults));
+    setSaved(false);
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Master switch */}
+      <div>
+        <ToggleSwitch
+          label="Headlights enabled"
+          checked={cfg.headlight_enabled}
+          onChange={(v) => set('headlight_enabled', v)}
+        />
+        <p className="text-xs text-text-tertiary mt-1.5">
+          Running with <span className="font-mono">--autolight-headlights</span> force-enables this
+          even when Headlights enabled is off.
+        </p>
+      </div>
+
+      {/* Night detection */}
+      <div>
+        <h4 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">Night Detection</h4>
+        <p className="text-[10px] text-text-tertiary mb-2">Priority: illuminance &gt; sun elevation &gt; time of day.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="Illuminance threshold (lux)" value={cfg.headlight_illuminance_lux_threshold} onChange={setNum('headlight_illuminance_lux_threshold')} />
+          <NumberInput label="Sun elevation (deg)" step={0.1} value={cfg.headlight_sun_elevation_deg} onChange={setNum('headlight_sun_elevation_deg')} />
+        </div>
+        <div className="mt-3">
+          <ToggleSwitch
+            label="Use time-of-day fallback"
+            checked={cfg.headlight_use_time_of_day}
+            onChange={(v) => set('headlight_use_time_of_day', v)}
+          />
+        </div>
+        {cfg.headlight_use_time_of_day && (
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <NumberInput label="Dusk hour (h)" step={0.5} value={cfg.headlight_dusk_hour} onChange={setNum('headlight_dusk_hour')} />
+            <NumberInput label="Dawn hour (h)" step={0.5} value={cfg.headlight_dawn_hour} onChange={setNum('headlight_dawn_hour')} />
+          </div>
+        )}
+      </div>
+
+      {/* Tunnel */}
+      <div>
+        <h4 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">Tunnel</h4>
+        <ToggleSwitch
+          label="Low beam inside tunnels"
+          checked={cfg.headlight_tunnel_enabled}
+          onChange={(v) => set('headlight_tunnel_enabled', v)}
+        />
+      </div>
+
+      {/* High beam */}
+      <div>
+        <h4 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">High Beam</h4>
+        <ToggleSwitch
+          label="Auto high beam"
+          description="(when no vehicle ahead)"
+          checked={cfg.highbeam_enabled}
+          onChange={(v) => set('highbeam_enabled', v)}
+        />
+        {cfg.highbeam_enabled && (
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <NumberInput label="Detection range (m)" step={0.5} value={cfg.highbeam_range_m} onChange={setNum('highbeam_range_m')} />
+            <NumberInput label="Range hysteresis (m)" step={0.5} value={cfg.highbeam_range_hysteresis_m} onChange={setNum('highbeam_range_hysteresis_m')} />
+            <NumberInput label="Corridor half-width (m)" step={0.5} value={cfg.highbeam_corridor_half_width_m} onChange={setNum('highbeam_corridor_half_width_m')} />
+            <NumberInput label="On delay (s)" step={0.1} value={cfg.highbeam_on_delay_s} onChange={setNum('highbeam_on_delay_s')} />
+            <NumberInput label="Off delay (s)" step={0.1} value={cfg.highbeam_off_delay_s} onChange={setNum('highbeam_off_delay_s')} />
+          </div>
+        )}
+      </div>
+
+      {/* Footer actions */}
+      <div className="flex items-center gap-3 pt-2">
+        <Button variant="ghost" size="sm" onClick={handleReset}>
+          Reset to defaults
+        </Button>
+        <Button
+          size="sm"
+          className="flex-1"
+          onClick={() => saveMutation.mutate(cfg)}
+          disabled={saveMutation.isPending}
+        >
+          {saveMutation.isPending ? 'Saving...' : 'Save'}
+        </Button>
+      </div>
+
+      {saved && !saveMutation.isPending && (
+        <p className="text-xs text-primary">Saved to config/auto_light.json.</p>
+      )}
       {saveMutation.error && (
         <p className="text-destructive text-sm">{String(saveMutation.error)}</p>
       )}

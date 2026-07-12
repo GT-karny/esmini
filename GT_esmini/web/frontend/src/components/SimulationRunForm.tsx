@@ -59,6 +59,7 @@ interface FormValues {
   osiEnabled: boolean;
   osiIp: string;
   autolight: boolean;
+  autolightHeadlights: boolean;
   vehiclePhysics: boolean;
   kinematicMode: boolean;
   routeDriveMode: boolean;
@@ -83,6 +84,7 @@ const INITIAL_VALUES: FormValues = {
   osiEnabled: true,
   osiIp: '127.0.0.1',
   autolight: true,
+  autolightHeadlights: false,
   vehiclePhysics: true,
   kinematicMode: false,
   routeDriveMode: false,
@@ -179,6 +181,7 @@ export function SimulationRunForm({
     osiEnabled,
     osiIp,
     autolight,
+    autolightHeadlights,
     vehiclePhysics,
     kinematicMode,
     routeDriveMode,
@@ -249,7 +252,7 @@ export function SimulationRunForm({
     if (!rerunFrom) return;
     const opts = rerunFrom as {
       controller?: { controller_type?: string; manual_drive?: Partial<ManualDriveConfig> };
-      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
+      execution?: { hz?: number; headless?: boolean; record?: boolean; no_realtime?: boolean; timeout?: number; osi?: { enabled: boolean; ip: string }; autolight?: boolean; autolight_headlights?: boolean; vehicle_physics?: boolean; kinematic_mode?: boolean; route_drive_mode?: boolean; route_drive_timing?: 'late' | 'normal' | 'early'; route_drive_gap?: 'wide' | 'normal' | 'tight'; threads?: boolean; window?: { x: number; y: number; w: number; h: number }; drive_mode?: 'comfort' | 'sport' };
     };
 
     const patch: Partial<FormValues> = {};
@@ -269,6 +272,7 @@ export function SimulationRunForm({
       if (exec.timeout !== undefined) patch.timeout = exec.timeout;
       if (exec.osi) { patch.osiEnabled = exec.osi.enabled; patch.osiIp = exec.osi.ip; }
       if (exec.autolight !== undefined) patch.autolight = exec.autolight;
+      if (exec.autolight_headlights !== undefined) patch.autolightHeadlights = exec.autolight_headlights;
       if (exec.vehicle_physics !== undefined) patch.vehiclePhysics = exec.vehicle_physics;
       if (exec.kinematic_mode !== undefined) patch.kinematicMode = exec.kinematic_mode;
       if (exec.route_drive_mode !== undefined) patch.routeDriveMode = exec.route_drive_mode;
@@ -367,6 +371,8 @@ export function SimulationRunForm({
       timeout,
       osi: { enabled: osiEnabled, ip: osiIp },
       autolight,
+      // F6: only meaningful with AutoLight on; the sub-toggle is hidden otherwise.
+      autolight_headlights: autolight && autolightHeadlights,
       vehicle_physics: vehiclePhysics,
       kinematic_mode: kinematicMode,
       route_drive_mode: routeDriveMode,
@@ -446,7 +452,9 @@ export function SimulationRunForm({
         noRealtime={noRealtime}
         setNoRealtime={(v) => patchValues({ noRealtime: v })}
         autolight={autolight}
-        setAutolight={(v) => patchValues({ autolight: v })}
+        setAutolight={(v) => patchValues(v ? { autolight: v } : { autolight: v, autolightHeadlights: false })}
+        autolightHeadlights={autolightHeadlights}
+        setAutolightHeadlights={(v) => patchValues({ autolightHeadlights: v })}
         vehiclePhysics={vehiclePhysics}
         setVehiclePhysics={(v) => patchValues({ vehiclePhysics: v })}
         kinematicMode={kinematicMode}
