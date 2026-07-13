@@ -482,5 +482,20 @@ bool GetJunctionPriorities(const void* opendrive_key, const std::string& junctio
     return true;
 }
 
+bool IsConnectingRoad(const pugi::xml_node& odr_node, const std::string& road_id)
+{
+    for (pugi::xml_node jn = odr_node.child("junction"); jn; jn = jn.next_sibling("junction"))
+    {
+        for (pugi::xml_node cn = jn.child("connection"); cn; cn = cn.next_sibling("connection"))
+        {
+            if (road_id == cn.attribute("connectingRoad").value())
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 }  // namespace odr
 }  // namespace gt_esmini

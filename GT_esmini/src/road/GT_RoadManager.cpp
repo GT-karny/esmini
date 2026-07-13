@@ -4016,7 +4016,11 @@ bool OpenDrive::ParseOpenDriveXML(const pugi::xml_document& doc)
                 r->AddLink(new RoadLink(PREDECESSOR, predecessor));
             }
 
-            if (r->GetJunction() != ID_UNDEFINED)
+            // [GT_ODR:junc-connroad] ODR 1.8 widened road/@junction beyond connecting roads: cross paths and
+            // junction boundary roads carry it too, and a cross path road is attached via <crossPath>
+            // <startLaneLink>/<endLaneLink> instead of <link>, so it legally has no successor/predecessor.
+            // Scope the warning to roads actually named by a <junction><connection @connectingRoad>.
+            if (r->GetJunction() != ID_UNDEFINED && gt_esmini::odr::IsConnectingRoad(node, rid_str))
             {
                 // As connecting road it is expected to have connections in both ends
                 if (successor == NULL)
