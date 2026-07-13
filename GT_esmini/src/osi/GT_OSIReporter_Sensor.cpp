@@ -54,8 +54,17 @@ void OSIReporter::CreateMovingObjectFromSensorData(const osi3::SensorData &sd, i
 
 void OSIReporter::CreateLaneBoundaryFromSensordata(const osi3::SensorData &sd, int lane_boundary_nr)
 {
-    osi3::DetectedLaneBoundary lane_boundary     = sd.lane_boundary(lane_boundary_nr);
-    osi3::LaneBoundary        *new_lane_boundary = obj_osi_external.sv->mutable_global_ground_truth()->add_lane_boundary();
+    osi3::DetectedLaneBoundary lane_boundary = sd.lane_boundary(lane_boundary_nr);
+
+    if (lane_boundary.header().ground_truth_id_size() == 0)
+    {
+        // Without a ground-truth id the boundary cannot be linked back to the map; header().ground_truth_id().at(0)
+        // below would throw std::out_of_range on the empty repeated field, so skip this boundary.
+        LOG_WARN("CreateLaneBoundaryFromSensordata: lane boundary {} has no ground truth id, skipping", lane_boundary_nr);
+        return;
+    }
+
+    osi3::LaneBoundary *new_lane_boundary = obj_osi_external.sv->mutable_global_ground_truth()->add_lane_boundary();
 
     for (int i = 0; i < sd.lane_boundary(lane_boundary_nr).boundary_line_size(); i++)
     {

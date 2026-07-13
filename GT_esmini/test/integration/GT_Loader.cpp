@@ -17,6 +17,10 @@
  *   --no-autolight              Do not enable the GT AutoLight controller
  *                               (default: enabled, mirroring GT_Sim usage).
  *   --light-vehicle-id <id>     Object id whose lights/position are sampled (default 0).
+ *   --osi                       Request the OSI ground truth every step. This is what pulls in
+ *                               the static GT (lanes, lane pairings, junction intersections);
+ *                               scenarios whose OSI path is broken cannot be caught without it.
+ *                               Each step asserts a non-empty serialized GroundTruth.
  *
  * Expectations (each adds a hard assertion):
  *   --expect-object <name>      Entity with this name must exist after init.
@@ -56,6 +60,7 @@ namespace
         double                   duration        = 15.0;
         bool                     enableAutoLight = true;
         int                      lightVehicleId  = 0;
+        bool                     requestOsi      = false;
 
         // Expectations
         std::vector<std::string> expectObjects;
@@ -135,6 +140,10 @@ int main(int argc, char** argv)
         else if (arg == "--light-vehicle-id")
         {
             opt.lightVehicleId = std::stoi(nextArg("--light-vehicle-id"));
+        }
+        else if (arg == "--osi")
+        {
+            opt.requestOsi = true;
         }
         else if (arg == "--expect-object")
         {
@@ -259,10 +268,23 @@ int main(int argc, char** argv)
         lightSeenOn[t] = false;
     }
 
-    int steps = 0;
+    int  steps        = 0;
+    bool osiEverEmpty = false;
     for (; steps < maxSteps; ++steps)
     {
         GT_Step(stepTime);
+
+        if (opt.requestOsi)
+        {
+            // Builds the static ground truth on the first call (lanes, lane pairings, junction
+            // intersections) and refreshes the dynamic part afterwards.
+            int         osiSize = 0;
+            const char* osiBuf  = SE_GetOSIGroundTruth(&osiSize);
+            if (osiBuf == nullptr || osiSize <= 0)
+            {
+                osiEverEmpty = true;
+            }
+        }
 
         for (auto& kv : lightSeenOn)
         {
@@ -296,6 +318,12 @@ int main(int argc, char** argv)
     {
         Check(simTime >= opt.expectMinSimTime,
               "sim time >= " + std::to_string(opt.expectMinSimTime) + "s (got " + std::to_string(simTime) + "s)");
+    }
+
+    // Assertion 3b: every OSI ground truth served was a non-empty serialized message.
+    if (opt.requestOsi)
+    {
+        Check(!osiEverEmpty, "OSI ground truth non-empty on every step");
     }
 
     // Assertion 4: light expectations.
