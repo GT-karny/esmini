@@ -1,3 +1,26 @@
+/**
+ * ============================================================================
+ * FROZEN CONTRACT — unified UI migration (2026-07-13)
+ * ============================================================================
+ * This file is the SINGLE SOURCE OF TRUTH for the REST type contract that the
+ * GT-OpenSCENARIOEditor port consumes. The editor's `packages/esmini` public
+ * types are being derived from the request/response types and endpoint paths
+ * declared here.
+ *
+ * While the frontend feature freeze is in effect:
+ *   - Do NOT change types, function signatures, or endpoint paths here except
+ *     to fix an outright bug.
+ *   - If a contract change is genuinely required, it MUST be synchronized with
+ *     the editor-side contract types in `packages/esmini` (the port depends on
+ *     these staying in lockstep); coordinate the change on both sides in the
+ *     same review — never diverge them silently.
+ *
+ * See GT-monorepo/unified-ui-migration-plan-2026-07-13.md for the migration
+ * plan and the contract-freeze rationale (fork frontend = frozen, editor
+ * `packages/esmini` = the ongoing home of this contract).
+ * ============================================================================
+ */
+
 const BASE = '';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
