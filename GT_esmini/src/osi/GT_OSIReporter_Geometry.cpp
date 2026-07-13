@@ -74,10 +74,26 @@ int OSIReporter::UpdateOSIIntersection()
             // resolve direct junction connections
             for (auto &c : junction->GetConnections())
             {
-                roadmanager::Road        *road_in          = c->GetIncomingRoad();
-                roadmanager::Road        *road_out         = c->GetConnectingRoad();
+                roadmanager::Road *road_in  = c->GetIncomingRoad();
+                roadmanager::Road *road_out = c->GetConnectingRoad();
+                // Same defensive shape as the VIRTUAL branch below: a dangling @incomingRoad survives
+                // parsing (only the connecting road is validated there), and a road with zero lane
+                // sections yields a null section.
+                if (road_in == nullptr || road_out == nullptr)
+                {
+                    LOG_WARN("Direct junction {} connection has unresolved incoming/connecting road, skipping", junction->GetId());
+                    continue;
+                }
                 roadmanager::LaneSection *lane_section_in  = road_in->GetLaneSectionByIdx(road_in->GetNumberOfLaneSections() - 1);
                 roadmanager::LaneSection *lane_section_out = road_out->GetLaneSectionByIdx(0);
+                if (lane_section_in == nullptr || lane_section_out == nullptr)
+                {
+                    LOG_WARN("Direct junction {} connection road {} or {} has no lane section, skipping",
+                             junction->GetId(),
+                             road_in->GetId(),
+                             road_out->GetId());
+                    continue;
+                }
                 for (unsigned int l = 0; l < c->GetNumberOfLaneLinks(); l++)
                 {
                     roadmanager::JunctionLaneLink *ll             = c->GetLaneLink(l);
@@ -309,6 +325,15 @@ int OSIReporter::UpdateOSIIntersection()
                     continue;
                 }
                 outgoing_road = opendrive->GetRoadById(roadlink->GetElementId());
+                if (outgoing_road == nullptr)
+                {
+                    // A dangling road link survives parsing with a warning, so it must not crash here.
+                    // The whole connection is skipped: the lane pairing below dereferences this road too.
+                    LOG_WARN("Failed to resolve outgoing road id {} of connecting road {}, skipping connection",
+                             roadlink->GetElementId(),
+                             connecting_road->GetId());
+                    continue;
+                }
                 connected_roads.insert(incomming_road->GetId());
                 connected_roads.insert(outgoing_road->GetId());
                 // Get neccesary info about the outgoing road
@@ -335,86 +360,84 @@ int OSIReporter::UpdateOSIIntersection()
                     right_lane_struct.road_id = connecting_road->GetId();
                     right_lane_struct.length  = LARGE_NUMBER;
 
-                    for (int l_id = 1; static_cast<unsigned int>(l_id) <= connecting_road->GetLaneSectionByS(0, 0)->GetNUmberOfLanesRight(); l_id++)
+                    roadmanager::LaneSection *connecting_section = connecting_road->GetLaneSectionByS(0, 0);
+                    if (connecting_section == nullptr)
                     {
-                        if (connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(-l_id)->IsDriving())
+                        // A road with zero lane sections is deeply malformed but loads; the lane pairing
+                        // below would dereference the same null section inside GetDrivingLaneById.
+                        LOG_WARN("Connecting road {} has no lane section, skipping connection", connecting_road->GetId());
+                        continue;
+                    }
+
+                    // Resolve the free-boundary source of one connecting-road lane: its lane boundary when
+                    // it has one, otherwise the first line of its first road mark. False (plus a warning)
+                    // when neither exists -- a road mark whose <type> carries no <line> child, or an
+                    // unsupported road mark type parsed without a type record. Dereferencing that chain
+                    // unguarded used to crash here at t=0.
+                    // NOTE: assumes only simple lines in an intersection.
+                    auto resolve_free_boundary =
+                        [&connecting_road](roadmanager::Lane *ln, roadmanager::OSIPoints *&pts, double &len, idx_t &gid)
+                    {
+                        if (ln->GetLaneBoundaryGlobalId() != ID_UNDEFINED)
                         {
-                            // check if an roadmark exist or use a laneboundary
-                            // NOTE: assumes only simple lines in an intersection
-                            if (connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(-l_id)->GetLaneBoundaryGlobalId() != ID_UNDEFINED)
-                            {
-                                osipoints = connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(-l_id)->GetLaneBoundary()->GetOSIPoints();
-                                length    = osipoints->GetLength();
-                                g_id      = connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(-l_id)->GetLaneBoundary()->GetGlobalId();
-                            }
-                            else
-                            {
-                                osipoints = connecting_road->GetLaneSectionByS(0, 0)
-                                                ->GetLaneById(-l_id)
-                                                ->GetLaneRoadMarkByIdx(0)
-                                                ->GetLaneRoadMarkTypeByIdx(0)
-                                                ->GetLaneRoadMarkTypeLineByIdx(0)
-                                                ->GetOSIPoints();
-                                length = connecting_road->GetLaneSectionByS(0, 0)
-                                             ->GetLaneById(-l_id)
-                                             ->GetLaneRoadMarkByIdx(0)
-                                             ->GetLaneRoadMarkTypeByIdx(0)
-                                             ->GetLaneRoadMarkTypeLineByIdx(0)
-                                             ->GetOSIPoints()
-                                             ->GetLength();
-                                g_id = connecting_road->GetLaneSectionByS(0, 0)
-                                           ->GetLaneById(-l_id)
-                                           ->GetLaneRoadMarkByIdx(0)
-                                           ->GetLaneRoadMarkTypeByIdx(0)
-                                           ->GetLaneRoadMarkTypeLineByIdx(0)
-                                           ->GetGlobalId();
-                            }
-                            if ((right_lane_struct.length > length) || (fabs(right_lane_struct.length - length) < tolerance))
-                            {
-                                right_lane_struct.length    = length;
-                                right_lane_struct.g_id      = g_id;
-                                right_lane_struct.osipoints = osipoints;
-                            }
+                            roadmanager::LaneBoundaryOSI *lane_boundary = ln->GetLaneBoundary();  // non-null: the global id above is its
+                            pts                                         = lane_boundary->GetOSIPoints();
+                            len                                         = pts->GetLength();
+                            gid                                         = lane_boundary->GetGlobalId();
+                            return true;
+                        }
+                        roadmanager::LaneRoadMark         *mark      = ln->GetLaneRoadMarkByIdx(0);
+                        roadmanager::LaneRoadMarkType     *mark_type = mark != nullptr ? mark->GetLaneRoadMarkTypeByIdx(0) : nullptr;
+                        roadmanager::LaneRoadMarkTypeLine *mark_line = mark_type != nullptr ? mark_type->GetLaneRoadMarkTypeLineByIdx(0) : nullptr;
+                        if (mark_line == nullptr)
+                        {
+                            LOG_WARN("Lane {} on connecting road {} has neither a lane boundary nor a road mark line, skipping",
+                                     ln->GetId(),
+                                     connecting_road->GetId());
+                            return false;
+                        }
+                        pts = mark_line->GetOSIPoints();
+                        len = pts->GetLength();
+                        gid = mark_line->GetGlobalId();
+                        return true;
+                    };
+
+                    for (int l_id = 1; static_cast<unsigned int>(l_id) <= connecting_section->GetNUmberOfLanesRight(); l_id++)
+                    {
+                        // GetLaneById is by id, not index: a gap in the lane numbering returns null
+                        roadmanager::Lane *ln = connecting_section->GetLaneById(-l_id);
+                        if (ln == nullptr || !ln->IsDriving())
+                        {
+                            continue;
+                        }
+                        if (!resolve_free_boundary(ln, osipoints, length, g_id))
+                        {
+                            continue;
+                        }
+                        if ((right_lane_struct.length > length) || (fabs(right_lane_struct.length - length) < tolerance))
+                        {
+                            right_lane_struct.length    = length;
+                            right_lane_struct.g_id      = g_id;
+                            right_lane_struct.osipoints = osipoints;
                         }
                     }
-                    for (int l_id = 1; static_cast<unsigned int>(l_id) <= connecting_road->GetLaneSectionByS(0, 0)->GetNUmberOfLanesLeft(); l_id++)
+                    for (int l_id = 1; static_cast<unsigned int>(l_id) <= connecting_section->GetNUmberOfLanesLeft(); l_id++)
                     {
-                        if (connecting_road->GetLaneSectionByS(0)->GetLaneById(l_id)->IsDriving())
+                        roadmanager::Lane *ln = connecting_section->GetLaneById(l_id);
+                        if (ln == nullptr || !ln->IsDriving())
                         {
-                            if (connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(l_id)->GetLaneBoundaryGlobalId() != ID_UNDEFINED)
-                            {
-                                osipoints = connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(l_id)->GetLaneBoundary()->GetOSIPoints();
-                                length = connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(l_id)->GetLaneBoundary()->GetOSIPoints()->GetLength();
-                                g_id   = connecting_road->GetLaneSectionByS(0, 0)->GetLaneById(l_id)->GetLaneBoundary()->GetGlobalId();
-                            }
-                            else
-                            {
-                                osipoints = connecting_road->GetLaneSectionByS(0, 0)
-                                                ->GetLaneById(l_id)
-                                                ->GetLaneRoadMarkByIdx(0)
-                                                ->GetLaneRoadMarkTypeByIdx(0)
-                                                ->GetLaneRoadMarkTypeLineByIdx(0)
-                                                ->GetOSIPoints();
-                                length = connecting_road->GetLaneSectionByS(0, 0)
-                                             ->GetLaneById(l_id)
-                                             ->GetLaneRoadMarkByIdx(0)
-                                             ->GetLaneRoadMarkTypeByIdx(0)
-                                             ->GetLaneRoadMarkTypeLineByIdx(0)
-                                             ->GetOSIPoints()
-                                             ->GetLength();
-                                g_id = connecting_road->GetLaneSectionByS(0, 0)
-                                           ->GetLaneById(l_id)
-                                           ->GetLaneRoadMarkByIdx(0)
-                                           ->GetLaneRoadMarkTypeByIdx(0)
-                                           ->GetLaneRoadMarkTypeLineByIdx(0)
-                                           ->GetGlobalId();
-                            }
-                            if ((left_lane_struct.length > length) || (fabs(right_lane_struct.length - length) < tolerance))
-                            {
-                                left_lane_struct.length    = length;
-                                left_lane_struct.g_id      = g_id;
-                                left_lane_struct.osipoints = osipoints;
-                            }
+                            continue;
+                        }
+                        if (!resolve_free_boundary(ln, osipoints, length, g_id))
+                        {
+                            continue;
+                        }
+                        // (right_lane_struct in this comparison is inherited upstream behavior, kept as-is)
+                        if ((left_lane_struct.length > length) || (fabs(right_lane_struct.length - length) < tolerance))
+                        {
+                            left_lane_struct.length    = length;
+                            left_lane_struct.g_id      = g_id;
+                            left_lane_struct.osipoints = osipoints;
                         }
                     }
                     if (fabs(left_lane_struct.length - right_lane_struct.length) < SMALL_NUMBER)
@@ -434,59 +457,78 @@ int OSIReporter::UpdateOSIIntersection()
                         }
                     }
                 }
-                bool right_hand_traffic = (incomming_road->GetRule() == roadmanager::Road::RoadRule::RIGHT_HAND_TRAFFIC ||
-                                           connecting_road->GetRule() == roadmanager::Road::RoadRule::RIGHT_HAND_TRAFFIC);
+                // The traffic rule selects which lanes lead INTO the junction; it does not change how lane
+                // ids are signed. Read it from the incoming road, which owns the lane the vehicle enters
+                // on: a connecting road that omits @rule defaults to RHT (OpenDRIVE default), and the old
+                // "either road is RHT" test let that default flip a genuine LHT junction back to RHT.
+                const bool right_hand_traffic = incomming_road->GetRule() != roadmanager::Road::RoadRule::LEFT_HAND_TRAFFIC;
+
                 // create all lane parings for the junction
                 for (unsigned int l = 0; l < connection->GetNumberOfLaneLinks(); l++)
                 {
                     junctionlanelink = connection->GetLaneLink(l);
-                    // check if the connecting road has been checked before, otherwise get the shortest laneboundary
 
-                    // TODO: will only work for right hand traffic right now
-                    if ((((incomming_road_link_type == roadmanager::LinkType::SUCCESSOR && junctionlanelink->from_ < 0) ||
-                          (incomming_road_link_type == roadmanager::LinkType::PREDECESSOR && junctionlanelink->from_ > 0)) &&
-                         incomming_road->GetDrivingLaneById(incomming_s_value, junctionlanelink->from_) != 0 && right_hand_traffic) ||
-                        (((incomming_road_link_type == roadmanager::LinkType::SUCCESSOR && junctionlanelink->from_ > 0) ||
-                          (incomming_road_link_type == roadmanager::LinkType::PREDECESSOR && junctionlanelink->from_ < 0)) &&
-                         incomming_road->GetDrivingLaneById(incomming_s_value, junctionlanelink->to_) != 0 && !right_hand_traffic))
+                    // Negative lane ids run along +s and positive ones against it; LHT reverses which of the
+                    // two carries traffic towards the junction.
+                    const bool entering =
+                        (incomming_road_link_type == roadmanager::LinkType::SUCCESSOR &&
+                         (right_hand_traffic ? junctionlanelink->from_ < 0 : junctionlanelink->from_ > 0)) ||
+                        (incomming_road_link_type == roadmanager::LinkType::PREDECESSOR &&
+                         (right_hand_traffic ? junctionlanelink->from_ > 0 : junctionlanelink->from_ < 0));
+                    if (!entering)
                     {
-                        osi3::Lane_Classification_LanePairing *laneparing = osi_lane->mutable_classification()->add_lane_pairing();
-                        laneparing->mutable_antecessor_lane_id()->set_value(
-                            incomming_road->GetDrivingLaneById(incomming_s_value, junctionlanelink->from_)->GetGlobalId());
-
-                        roadmanager::Lane *lane = connecting_road->GetDrivingLaneById(connecting_outgoing_s_value, junctionlanelink->to_);
-                        if (!lane)
-                        {
-                            LOG_ERROR("Connecting road {} incoming road {} failed get lane by id {}",
-                                      connecting_road->GetId(),
-                                      connection->GetIncomingRoad()->GetId(),
-                                      junctionlanelink->to_);
-                            continue;
-                        }
-
-                        // GT-FORK sync: upstream 7a0844b1 (null lane_link check, esmini #780/#781)
-                        roadmanager::LaneLink *lane_link = lane->GetLink(connecting_road_link_type);
-                        if (!lane_link)
-                        {
-                            LOG_ERROR("Connecting road {} incoming road {} failed get lane by id {}, missing link: maybe vanishing lane?",
-                                      connecting_road->GetId(),
-                                      connection->GetIncomingRoad()->GetId(),
-                                      junctionlanelink->to_);
-                            continue;
-                        }
-
-                        roadmanager::Lane *successor_lane = outgoing_road->GetDrivingLaneById(outgoing_s_value, lane_link->GetId());
-                        if (!successor_lane)
-                        {
-                            LOG_ERROR("Outgoing road {} incoming road {} failed get lane by id {}",
-                                      outgoing_road->GetId(),
-                                      connection->GetIncomingRoad()->GetId(),
-                                      lane_link->GetId());
-                            continue;
-                        }
-
-                        laneparing->mutable_successor_lane_id()->set_value(successor_lane->GetGlobalId());
+                        continue;
                     }
+
+                    // from_ is an incoming-road lane id, to_ a connecting-road one. The lookup below is by
+                    // from_ regardless of the traffic rule -- the LHT arm of the old guard tested to_ against
+                    // the incoming road instead, so this pointer went unchecked and null-dereferenced whenever
+                    // from_ was not a driving lane of the incoming road (crash at t=0 on LHT junctions).
+                    roadmanager::Lane *incoming_lane = incomming_road->GetDrivingLaneById(incomming_s_value, junctionlanelink->from_);
+                    if (!incoming_lane)
+                    {
+                        LOG_ERROR("Incoming road {} connecting road {} failed get lane by id {}",
+                                  incomming_road->GetId(),
+                                  connecting_road->GetId(),
+                                  junctionlanelink->from_);
+                        continue;
+                    }
+
+                    osi3::Lane_Classification_LanePairing *laneparing = osi_lane->mutable_classification()->add_lane_pairing();
+                    laneparing->mutable_antecessor_lane_id()->set_value(incoming_lane->GetGlobalId());
+
+                    roadmanager::Lane *lane = connecting_road->GetDrivingLaneById(connecting_outgoing_s_value, junctionlanelink->to_);
+                    if (!lane)
+                    {
+                        LOG_ERROR("Connecting road {} incoming road {} failed get lane by id {}",
+                                  connecting_road->GetId(),
+                                  connection->GetIncomingRoad()->GetId(),
+                                  junctionlanelink->to_);
+                        continue;
+                    }
+
+                    // GT-FORK sync: upstream 7a0844b1 (null lane_link check, esmini #780/#781)
+                    roadmanager::LaneLink *lane_link = lane->GetLink(connecting_road_link_type);
+                    if (!lane_link)
+                    {
+                        LOG_ERROR("Connecting road {} incoming road {} failed get lane by id {}, missing link: maybe vanishing lane?",
+                                  connecting_road->GetId(),
+                                  connection->GetIncomingRoad()->GetId(),
+                                  junctionlanelink->to_);
+                        continue;
+                    }
+
+                    roadmanager::Lane *successor_lane = outgoing_road->GetDrivingLaneById(outgoing_s_value, lane_link->GetId());
+                    if (!successor_lane)
+                    {
+                        LOG_ERROR("Outgoing road {} incoming road {} failed get lane by id {}",
+                                  outgoing_road->GetId(),
+                                  connection->GetIncomingRoad()->GetId(),
+                                  lane_link->GetId());
+                        continue;
+                    }
+
+                    laneparing->mutable_successor_lane_id()->set_value(successor_lane->GetGlobalId());
                 }
             }
             // sort the correct free-boundaries
@@ -880,6 +922,15 @@ int OSIReporter::UpdateOSILaneBoundary()
                 else  // if there are no road marks I take the lane boundary
                 {
                     roadmanager::LaneBoundaryOSI *laneboundary = lane->GetLaneBoundary();
+                    if (laneboundary == nullptr)
+                    {
+                        // lane_boundary_ is left unset when the boundary-position computation fails; upstream guards this
+                        // in GetLaneBoundaryGlobalId(). Skip this lane rather than dereferencing a null boundary.
+                        LOG_ERROR("Lane {} on road {} has no lane boundary, skipping OSI lane boundary export",
+                                  lane->GetId(),
+                                  road->GetId());
+                        continue;
+                    }
                     // Check if this line is already pushed to OSI
                     idx_t               boundary_id      = laneboundary->GetGlobalId();
                     osi3::LaneBoundary *osi_laneboundary = 0;
@@ -1512,7 +1563,7 @@ int OSIReporter::UpdateOSIRoadLane()
                         roadmanager::Lane *driving_lane_predecessor = 0;
                         roadmanager::Lane *driving_lane_successor   = 0;
 
-                        if (link_predecessor && predecessor_lane_section)
+                        if (predecessorRoad && link_predecessor && predecessor_lane_section)
                         {
                             driving_lane_predecessor =
                                 predecessorRoad->GetDrivingLaneById(predecessor_lane_section->GetS(), link_predecessor->GetId());
@@ -1525,7 +1576,7 @@ int OSIReporter::UpdateOSIRoadLane()
                             }
                         }
 
-                        if (link_successor && successor_lane_section)
+                        if (successorRoad && link_successor && successor_lane_section)
                         {
                             driving_lane_successor = successorRoad->GetDrivingLaneById(successor_lane_section->GetS(), link_successor->GetId());
                             if (!driving_lane_successor)

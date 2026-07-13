@@ -218,6 +218,20 @@ const OdrJunctionExtras* GetJunctionExtras(const void* opendrive_key, const std:
 // canonical junction-priority source for feature F3.
 bool GetJunctionPriorities(const void* opendrive_key, const std::string& junction_id, std::vector<OdrJunctionPriority>& out);
 
+// True if road_id appears as a <junction><connection @connectingRoad> anywhere in the document.
+//
+// ODR 1.8 widened road/@junction. Up to 1.6 the schema documented it as "ID of the junction to which
+// the road belongs AS A CONNECTING ROAD"; 1.8/1.9 documents it as "ID of the junction to which the
+// road belongs, FOR EXAMPLE connecting roads, CROSS PATHS, and roads of a junction boundary"
+// (1.9 OpenDRIVE_Road.xsd, @junction). So @junction != -1 no longer implies "connecting road".
+// Only connecting roads are expected to link at both ends -- a cross path road is attached through
+// <crossPath><startLaneLink>/<endLaneLink> (1.9 OpenDRIVE_Junction.xsd, t_junction_crossPath: "the
+// cross path itself is a separate road") and legally carries no <link> successor/predecessor.
+// Called from the thin fork hook [GT_ODR:junc-connroad] in GT_RoadManager.cpp to scope the
+// "connecting road ... lacks successor/predecessor" warning to roads it actually applies to.
+// Parse-time only; walks the junction/connection DOM (small) rather than the not-yet-built model.
+bool IsConnectingRoad(const pugi::xml_node& odr_node, const std::string& road_id);
+
 // ---------------------------------------------------------------------------
 // P9a cluster 20 accessors (railroad/station). Implemented in odr_side/OdrRailroad.cpp, keyed on the
 // OpenDrive* registry key like the P5 junction accessors (upstream RoadManager stays pristine).

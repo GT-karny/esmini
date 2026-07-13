@@ -247,6 +247,31 @@ gt_integration_test(f6_highbeam_lead_dim f6_highbeam_lead_dim.xosc
     --autolight-headlights --duration 8 --expect-object Ego --expect-min-sim-time 7.5
     --expect-light-on 1 --expect-light-never-on 2)
 
+# --- OSI ground truth over a junction (active feature) ---
+# The static ground truth (lanes, lane pairings, junction intersections) is built on the first OSI
+# request, so an OSI-path defect surfaces at t=0 as an unplayable scenario. Neither is caught unless
+# a test actually asks for the ground truth -- hence --osi.
+#
+# LHT: the junction lane-pairing builder used to guard the LHT arm on the connecting-road lane id
+# (to_) while dereferencing the incoming-road lookup (from_), so on a left-hand-traffic junction the
+# dereferenced lane went unchecked. The road pins the trigger: road 1's lane -1 is a sidewalk, so
+# that lookup returns null and the pre-fix code crashed here.
+gt_integration_test(osi_junction_lht lht_junction_osi_intersection.xosc
+    --osi --duration 6 --expect-object Ego --expect-min-sim-time 4.0 --expect-move 20)
+
+# RHT counterpart over the same junction topology: pins that the rewritten guard did not change the
+# right-hand-traffic path (the arm that was always correct).
+gt_integration_test(osi_junction_rht rht_junction_osi_intersection.xosc
+    --osi --duration 6 --expect-object Ego --expect-min-sim-time 4.0 --expect-move 20)
+
+# Edge case: a connecting-road driving lane whose <roadMark> carries a <type> child but no <line>
+# child (standard conformant OpenDRIVE). The lane then routes through the free-boundary branch and
+# the roadMark 4-step chain laneroadmark->GetLaneRoadMarkTypeByIdx(0)->GetLaneRoadMarkTypeLineByIdx(0)
+# resolves to null (the stand-in-line synthesis is skipped because a <type> already exists). The
+# pre-fix builder dereferenced that null at t=0; this pins the guarded free-boundary path.
+gt_integration_test(osi_junction_roadmark_edge osi_junction_roadmark_edge.xosc
+    --osi --duration 6 --expect-object Ego --expect-min-sim-time 4.0 --expect-move 20)
+
 # --- Built-in sample scenarios (resources/xosc, shipped in the Web UI sample project) ---
 # Rot guard for the F6 demo samples: sample assets that never run break silently
 # (the original 38-broken-integration-tests lesson).

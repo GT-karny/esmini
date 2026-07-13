@@ -40,8 +40,10 @@
 
 | 16 | `[GT_ODR:lane-layers]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、lanes 選択点) | ~:4093-4094 | 2 | **P8 1.9 レーンレイヤ対応**: `road_node.child("lanes")`(第 1 ノードのみ読取=第 2 `<lanes layer>` の黙殺、最後のサイレント欠落クラス)を `gt_esmini::odr::SelectLanesLayer(road_node, this)` の薄いデリゲートに置換。permanent モード(デフォルト)= permanent ノードを**無コピー・同一ノードで**返す(AddLane/SetGlobalId の DOM 反復順が完全不変 → レーングローバル ID 安定が構造的に自明)。temporary opt-in(env `GT_ODR_LANE_LAYERS=temporary`)= GT 側 `odr_side/OdrLaneLayers.cpp` が laneSection/laneOffset を s 範囲マージした合成 `<lanes>` DOM を返す(合成 document の寿命はインスタンス別サイドモデルが所有 — pending レジストリ→`OdrSideModel::merged_lanes_docs`)。設計判断 D1-D6 は §9 | しない(GT専用、上流 1.9 レイヤ未対応) |
 
-- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 21**(hook×2 / country-rev×1 / junc-abort×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×2 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**P6 リコンサイル後の全 `[GT_ODR:` リテラル総数 = 75**(古典 21 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 75`(ctest `MarkerCount` が本値をパース)。
-- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 87 / 150**(include 1 + country-rev 2 + junc-abort 3 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 99`(古典 87 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 93`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
+| 17 | `[GT_ODR:junc-connroad]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、link 節) | ~:4019-4023 | 5 | **誤警告修正(1.8 意味論追従漏れ、upstream バグ)**: 「connecting road {} in junction {} lacks successor/predesessor」WARN が `road/@junction != -1` だけを条件にしていた。ODR 1.6 では @junction は「**connecting road として**所属する junction の ID」だったが、**1.8 で「例えば connecting road、cross path、junction boundary road が所属する junction の ID」に緩められた**(1.9 `OpenDRIVE_Road.xsd` @junction の documentation)。crossPath road は `<crossPath><startLaneLink>/<endLaneLink>` で接続され(1.9 `OpenDRIVE_Junction.xsd` `t_junction_crossPath`: "the cross path itself is a separate road")、`<link>` successor/predecessor を**規格上持たなくてよい**ため、正当な 1.8 資産に誤警告が出ていた。条件を `gt_esmini::odr::IsConnectingRoad(node, rid_str)`(`<junction><connection @connectingRoad>` の DOM プリスキャン、実装は予算外の `odr_side/OdrJunctionExtras.cpp`)で肯定判定に置換。1.6 形式資産では「@junction != -1 の road は必ずどこかの @connectingRoad」のため**既存挙動はビット同一**。junction boundary road / direct junction にも同時に効く。再現資産: `test/odr_fixtures/handauthored/01_crossing_junction_18.xodr` | **PR-5**(高、明白な upstream バグ) |
+
+- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 22**(hook×2 / country-rev×1 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×2 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 76**(古典 22 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 76`(ctest `MarkerCount` が本値をパース)。
+- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 92 / 150**(include 1 + country-rev 2 + junc-abort 3 + junc-connroad 5 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2 + 2026-07-13 bugfix 5、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 99`(古典 87 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 93`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
 - 事前承認済みコンティンジェンシー残(未使用): **lane-border フォールバック ~8 は P2 で不使用のまま温存** — border→width 正規化は公開 `Lane::AddLaneWidth` 経由で GT 側(`odr_side/OdrLaneExtras.cpp` の `ApplyBorderWidths`)に実装。既存フック呼び出し `BuildSideModel(doc, this)` が P2 新設の型付きオーバーロード(`roadmanager::OpenDrive*`)へ **exact match で自動束縛**されるため、フォーク改変ゼロで実現。/ P6 分割ヘルパー ~25 / lane @direction ~25
 
 ## 2. 挙動影響(P1 検証で証明)
@@ -116,13 +118,14 @@
 version: 1
 baseline_upstream_tag: v3.4.1            # re-recorded at the v3.4.1 resync (2026-07-08, merge d7d7e20d); snapshots written byte-exact from `git cat-file blob v3.4.1:<path>` (RoadManager.cpp + OSIReporter.cpp changed; other 4 blobs identical to v3.4.0)
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 75           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
+fork_odr_marker_total: 76           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
                                     # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
                                     # P6-reconcile: +4 = P7 curvelocal(×2)+repeat-cubics(×1) + P8 lane-layers(×1)
                                     # merged from dev_v0.12 (measured literal count = 75).
+                                    # 2026-07-13 bugfix: +1 = junc-connroad(×1). MEASURED literal count = 76.
 fork_lht_marker_min: 1
 cmake_marker_total: 2
-fork_odr_expect_lines: 99           # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 87) + residuals (12).
+fork_odr_expect_lines: 104          # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 92) + residuals (12).
                                     # v3.4.1 resync: 100 -> 99 (lane-types curb line retired, handled-by-upstream). MEASURED.
                                     # S2 note: 75 -> 74 because the vj overlap re-aligned the junc-crossing dispatch diff
                                     # (13 -> 9; 3 lines re-attributed to vj-parse-junction as the recorded residual, 1 line
@@ -132,7 +135,9 @@ fork_odr_expect_lines: 99           # fork-vs-pristine-snapshot 1st-class lines 
                                     # P6-reconcile note: 83 -> 100 = fork-only marker_census 71 -> 88 (+curvelocal 12
                                     # +repeat-cubics 3 +lane-layers 2, P7/P8 merged from dev_v0.12) + residuals 12.
                                     # MEASURED via check_core_census.py (not arithmetic): fork-only census sum 88 + 12 = 100 <= 150.
-fork_odr_drift_expect_lines: 93     # v3.4.1 resync: 94 -> 93 (curb retired). MEASURED via check_fork_drift.py.
+                                    # 2026-07-13 bugfix note: 99 -> 104 = +5 junc-connroad (crossPath false-warning fix). MEASURED.
+fork_odr_drift_expect_lines: 98     # v3.4.1 resync: 94 -> 93 (curb retired). 2026-07-13 bugfix: 93 -> 98 (+5
+                                    # junc-connroad, fork-only -> fully visible to the file diff). MEASURED via check_fork_drift.py.
                                     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
                                     # lines. Differs from fork_odr_expect_lines because mirrored vj hunks (vj-move/vj-enter/
                                     # vj-connect/vj-parse-*/vj-synth/vj-path/vj-route + the SHARED 15 pristine vj-lanes lines)
@@ -232,6 +237,13 @@ fork_file:
     hook: 6             # include 1 + BuildSideModel call-site 5
     country-rev: 2      # init line 1 + condition-flip line 1 (flip line via legacy_sites)
     junc-abort: 3
+    junc-connroad: 5    # 2026-07-13 bugfix: scope the "connecting road lacks successor/predecessor" WARN to roads
+                        # actually named by a <junction><connection @connectingRoad>. ODR 1.8 widened road/@junction
+                        # ("... for example connecting roads, cross paths, and roads of a junction boundary", 1.9
+                        # OpenDRIVE_Road.xsd) so @junction != -1 no longer implies "connecting road"; a crossPath road
+                        # links via <crossPath><startLaneLink>/<endLaneLink> and legally has no <link>. 4 comment + the
+                        # rewritten `if` condition; the DOM prescan lives in odr_side/OdrJunctionExtras.cpp
+                        # (IsConnectingRoad, off-budget). MEASURED.
     obj-roadsurface: 5
     lane-types: 4       # v3.4.1 resync: was 5; the curb line retired (handled-by-upstream since v3.4.1). MEASURED.
     tl-gate: 9          # SetTrafficLightInfo nr_lamps_ block 5 + gate relaxation 4
@@ -259,11 +271,13 @@ fork_file:
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4934-4934"    # v3.4.1 resync shift: 4931 -> 4934 (upstream curb block +4 above, GT curb line -1)
+      fork_lines: "4938-4938"    # v3.4.1 resync shift: 4931 -> 4934 (upstream curb block +4 above, GT curb line -1).
+                                 # 2026-07-13 bugfix shift: 4934 -> 4938 (junc-connroad hook is +4 net, one hunk above).
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
     - marker: curvelocal
-      fork_lines: "5293-5294"    # v3.4.1 resync shift: 5290-5291 -> 5293-5294 (net +3, see country-rev note).
+      fork_lines: "5297-5298"    # v3.4.1 resync shift: 5290-5291 -> 5293-5294 (net +3, see country-rev note).
+                                 # 2026-07-13 bugfix shift: 5293-5294 -> 5297-5298 (junc-connroad hook, +4 net above).
       count: 2                   # (`for (... outline_node = outline_container.child("outline"); ...)`), one diff
                                  # block below the [GT_ODR:curvelocal] marker comment (5288-5289). The marker'd
       note: "singular-outline for-loop; the [GT_ODR:curvelocal] marker comment sits one diff block above (attributes the other 10 lines). Attributed here so curvelocal totals 12 (matches the §1 fork table)."

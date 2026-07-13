@@ -160,17 +160,35 @@ void OSIReporter::GetOSILaneBoundaryIds(const std::vector<scenarioengine::Object
         return;
     }
 
-    roadmanager::Position pos;
+    roadmanager::Position *pos = nullptr;
     for (size_t i = 0; i < objectState.size(); i++)
     {
         if (object_id == objectState[i]->id_)
         {
-            pos = objectState[i]->pos_;
+            pos = &objectState[i]->pos_;
+            break;
         }
     }
 
-    id_t lane_id_of_vehicle = pos.GetLaneGlobalId();
+    if (pos == nullptr)
+    {
+        // No entity matched object_id: bail out rather than reading an uninitialized position.
+        LOG_WARN("GetOSILaneBoundaryIds: Object {} not found", object_id);
+        ids = {ID_UNDEFINED, ID_UNDEFINED, ID_UNDEFINED, ID_UNDEFINED};
+        return;
+    }
+
+    id_t lane_id_of_vehicle = pos->GetLaneGlobalId();
     idx_central             = GetLaneIdxfromIdOSI(lane_id_of_vehicle);
+
+    if (idx_central == IDX_UNDEFINED)
+    {
+        // The vehicle's central lane was not exported to OSI: indexing obj_osi_internal.ln with IDX_UNDEFINED would be
+        // out of bounds, so return undefined boundary ids instead.
+        LOG_WARN("GetOSILaneBoundaryIds: Central lane for object {} not found in OSI ground truth", object_id);
+        ids = {ID_UNDEFINED, ID_UNDEFINED, ID_UNDEFINED, ID_UNDEFINED};
+        return;
+    }
 
     if (obj_osi_internal.ln[idx_central]->mutable_classification()->left_lane_boundary_id_size() == 0)
     {
@@ -202,7 +220,12 @@ void OSIReporter::GetOSILaneBoundaryIds(const std::vector<scenarioengine::Object
         id_t             left_lane_id = static_cast<unsigned int>(Left_lane_id.value());
         idx_left                      = GetLaneIdxfromIdOSI(left_lane_id);
 
-        if (obj_osi_internal.ln[idx_left]->mutable_classification()->left_lane_boundary_id_size() == 0)
+        if (idx_left == IDX_UNDEFINED)
+        {
+            // Left adjacent lane is not present in OSI ground truth: leave its far boundary undefined and continue.
+            far_left_lb_id = ID_UNDEFINED;
+        }
+        else if (obj_osi_internal.ln[idx_left]->mutable_classification()->left_lane_boundary_id_size() == 0)
         {
             far_left_lb_id = ID_UNDEFINED;
         }
@@ -223,7 +246,12 @@ void OSIReporter::GetOSILaneBoundaryIds(const std::vector<scenarioengine::Object
         id_t             right_lane_id = static_cast<unsigned int>(Right_lane_id.value());
         idx_right                      = GetLaneIdxfromIdOSI(right_lane_id);
 
-        if (obj_osi_internal.ln[idx_right]->mutable_classification()->right_lane_boundary_id_size() == 0)
+        if (idx_right == IDX_UNDEFINED)
+        {
+            // Right adjacent lane is not present in OSI ground truth: leave its far boundary undefined and continue.
+            far_right_lb_id = ID_UNDEFINED;
+        }
+        else if (obj_osi_internal.ln[idx_right]->mutable_classification()->right_lane_boundary_id_size() == 0)
         {
             far_right_lb_id = ID_UNDEFINED;
         }
