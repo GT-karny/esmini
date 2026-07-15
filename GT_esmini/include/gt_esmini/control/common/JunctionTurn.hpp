@@ -37,6 +37,27 @@ inline int TurnDirectionFromHeadingDelta(double heading_delta,
     return 0;
 }
 
+// Driver-frame direction of a lane change: +1 = left, -1 = right, 0 = none.
+//
+// OpenDRIVE lane ids are signed relative to the road's s-direction: a HIGHER id is always further
+// to the LEFT when looking along +s. That convention is purely geometric, so it is independent of
+// the road's LHT/RHT rule -- only the direction of travel matters. A vehicle running against s sees
+// road-left as its own right, hence the flip.
+//
+// This must NOT be derived from the lateral offset of a preview point in the vehicle body frame:
+// during a lane change the ego's own yaw contributes more apparent lateral offset at a multi-second
+// preview distance than the lane displacement itself (60 m x 0.07 rad ~ 4 m vs. a 3.5 m lane), so
+// the sign inverts mid-manoeuvre and the wrong indicator lights up.
+inline int LaneChangeIndicatorDir(int current_lane_id, int target_lane_id, bool travelling_along_s)
+{
+    if (target_lane_id == current_lane_id)
+    {
+        return 0;
+    }
+    const int road_frame_dir = (target_lane_id > current_lane_id) ? 1 : -1;
+    return travelling_along_s ? road_frame_dir : -road_frame_dir;
+}
+
 inline int RouteLookaheadJunctionTurnDirection(const roadmanager::Position& start,
                                                roadmanager::OpenDrive* odr,
                                                double lookahead,

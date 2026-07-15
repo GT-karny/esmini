@@ -357,7 +357,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     // intersection). Manual button input overrides the auto logic.
     IndicatorContext ictx;
     ictx.object       = object_;
-    int maneuver_dir  = DetectManeuverDir(plan);
+    int maneuver_dir  = DetectManeuverDir();
     if (maneuver_dir == 0)
         maneuver_dir = DetectJunctionTurn(dstate.speed);
     ictx.maneuver_dir = maneuver_dir;
@@ -476,32 +476,60 @@ double ControllerVirtualDriver::ResolveTargetSpeed()
     return last_target_speed_;
 }
 
-int ControllerVirtualDriver::DetectManeuverDir(const ShortPlannerSnapshot& plan) const
+int ControllerVirtualDriver::ResolveLaneChangeDir(const scenarioengine::LatLaneChangeAction* lc) const
 {
-    // Only signal when a lane change is actually in progress (avoid curve
-    // false-positives). Direction from the far preview point's lateral offset
-    // in the vehicle frame: +y (local) = left.
-    bool lane_change_active = false;
+    if (lc == nullptr || lc->target_ == nullptr) return 0;
+
+    const int  current_lane = object_->pos_.GetLaneId();
+    const bool along_s      = IsAngleForward(object_->pos_.GetHRelative());
+
+    int target_lane = current_lane;
+    if (lc->target_->type_ == scenarioengine::LatLaneChangeAction::Target::Type::ABSOLUTE_LANE)
+    {
+        target_lane = lc->target_->value_;
+    }
+    else  // RELATIVE_LANE -- mirrors LatLaneChangeAction::Start's own resolution
+    {
+        const scenarioengine::Object* ref =
+            static_cast<const scenarioengine::LatLaneChangeAction::TargetRelative*>(lc->target_)->object_;
+        if (ref == nullptr) return 0;
+        target_lane = ref->pos_.GetLaneId() + lc->target_->value_ * (IsAngleForward(ref->pos_.GetHRelative()) ? 1 : -1);
+    }
+
+    return LaneChangeIndicatorDir(current_lane, target_lane, along_s);
+}
+
+int ControllerVirtualDriver::DetectManeuverDir()
+{
+    // Only signal when a lane change is actually in progress (avoid curve false-positives).
+    const scenarioengine::LatLaneChangeAction* lc = nullptr;
     for (auto* action : object_->getPrivateActions())
     {
         if (action->action_type_ == OSCAction::ActionType::LAT_LANE_CHANGE &&
             action->GetCurrentState() == StoryBoardElement::State::RUNNING)
         {
-            lane_change_active = true;
+            lc = static_cast<const scenarioengine::LatLaneChangeAction*>(action);
             break;
         }
     }
-    if (!lane_change_active || plan.preview.size() < 2) return 0;
 
-    const TrajectoryPoint& far_pt = plan.preview.back();
-    const double h  = object_->pos_.GetH();
-    const double dx = far_pt.x - object_->pos_.GetX();
-    const double dy = far_pt.y - object_->pos_.GetY();
-    const double local_y = -dx * std::sin(h) + dy * std::cos(h);
+    if (lc == nullptr)
+    {
+        lane_change_action_id_ = nullptr;
+        lane_change_dir_       = 0;
+        return 0;
+    }
 
-    if (local_y > 0.5)  return +1;  // left
-    if (local_y < -0.5) return -1;  // right
-    return 0;
+    // Latch the direction at action start. Two reasons: (1) once the ego crosses the lane boundary its
+    // current lane id becomes the target and the delta would collapse to 0, dropping the indicator
+    // before the manoeuvre completes; (2) the direction is a property of the ACTION, not of the
+    // instantaneous geometry. Same pointer-identity latch the SpeedAction handling uses above.
+    if (lc != lane_change_action_id_)
+    {
+        lane_change_action_id_ = lc;
+        lane_change_dir_       = ResolveLaneChangeDir(lc);
+    }
+    return lane_change_dir_;
 }
 
 int ControllerVirtualDriver::DetectJunctionTurn(double speed) const

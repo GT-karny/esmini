@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GT regression fixture: END-to-END road connection with IMPLICIT (missing) lane links, LHT.
+
+  Road 1 runs +x from (0,0) to (100,0).  Road 2 runs -x from (200,0) to (100,0).
+  The two roads therefore meet END-to-END at x=100, and BOTH declare the other as
+  <successor ... contactPoint="end">.
+
+  Crucially: no <link> element inside any <lane>.  That drives Position::MoveToConnectingRoad
+  into its "new_lane_id == 0" closest-lane fallback, which (before the [GT_LHT] fix) early-returned
+  without applying the END-contact heading flip / t inversion -> the entity warped to the oncoming
+  side, its heading flipped 180 deg, and it stalled at x=100 forever.
+
+  Expected correct behaviour: an entity on road 1 / lane 1 (LHT: +s traffic drives on the positive,
+  i.e. left, lanes) heading +x crosses x=100 and continues to x=200 with y staying positive.
+-->
+<OpenDRIVE>
+    <header revMajor="1" revMinor="6" name="lht_end_to_end_implicit" version="1.00" date="2026-07-15T00:00:00" north="0" south="0" east="0" west="0">
+    </header>
+    <road name="road1" length="100.0" id="1" junction="-1" rule="LHT">
+        <link>
+            <successor elementType="road" elementId="2" contactPoint="end"/>
+        </link>
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false"/>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+    </road>
+    <road name="road2" length="100.0" id="2" junction="-1" rule="LHT">
+        <link>
+            <successor elementType="road" elementId="1" contactPoint="end"/>
+        </link>
+        <planView>
+            <geometry s="0.0" x="200.0" y="0.0" hdg="3.14159265358979" length="100.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false"/>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+    </road>
+</OpenDRIVE>
