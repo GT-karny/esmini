@@ -13,6 +13,11 @@
 
 #define CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME "VirtualDriverController"
 
+namespace scenarioengine
+{
+class LatLaneChangeAction;
+}
+
 namespace gt_esmini
 {
 
@@ -65,7 +70,11 @@ public:
 
 private:
     int    BuildLightMaskFromExtension() const;
-    int    DetectManeuverDir(const ShortPlannerSnapshot& plan) const;
+    // Turn-indicator direction of an in-progress lane change; +1 left, -1 right, 0 none.
+    // Derived from the LatLaneChangeAction's target lane (NOT from preview-point geometry, whose
+    // body-frame sign inverts once the ego's own yaw builds up) and latched for the action's life.
+    int    DetectManeuverDir();
+    int    ResolveLaneChangeDir(const scenarioengine::LatLaneChangeAction* lc) const;
     // Look ahead along the route for a junction turn; +1 left, -1 right, 0 none.
     // Used to pre-arm turn signals before intersections (no lane change involved).
     int    DetectJunctionTurn(double speed) const;
@@ -123,6 +132,11 @@ private:
     const void* speed_action_id_   = nullptr;
     double      speed_start_t_      = 0.0;
     double      last_action_target_ = 0.0;  // target of the most recent SpeedAction; held when idle
+
+    // Lane-change indicator latch: direction is resolved once, when the action starts, and held for
+    // that action's lifetime (see DetectManeuverDir).
+    const void* lane_change_action_id_ = nullptr;
+    int         lane_change_dir_       = 0;
 };
 
 scenarioengine::Controller* InstantiateControllerVirtualDriver(void* args);

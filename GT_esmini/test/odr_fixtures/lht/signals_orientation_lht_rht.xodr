@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GT regression fixture: signal <orientation> vs. the road traffic-hand rule.
+
+  Two independent straight roads carrying the SAME two signals:
+    road 1: rule="LHT"      road 2: rule="RHT"
+    signal 100: orientation="+"   -> valid for traffic travelling in +s direction
+    signal 101: orientation="-"   -> valid for traffic travelling in -s direction
+
+  Per OpenDRIVE, traffic travelling +s drives on the NEGATIVE lanes under RHT but on the
+  POSITIVE lanes under LHT.  Before the [GT_LHT] fix, Signal::SetAllValidLanes hard-coded the
+  RHT mapping (orientation "+" -> lanes with id < 0) regardless of the road rule, so on an LHT
+  road every oriented sign/signal was bound to the ONCOMING lanes.
+
+  Expected: road 1 (LHT) signal 100 -> lane +1;  signal 101 -> lane -1.
+            road 2 (RHT) signal 100 -> lane -1;  signal 101 -> lane +1.
+-->
+<OpenDRIVE>
+    <header revMajor="1" revMinor="6" name="signals_orientation_lht_rht" version="1.00" date="2026-07-15T00:00:00" north="0" south="0" east="0" west="0">
+    </header>
+    <road name="road_lht" length="100.0" id="1" junction="-1" rule="LHT">
+        <planView>
+            <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="100.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false"/>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <signals>
+            <signal s="50.0" t="-6.0" id="100" name="speed_plus" dynamic="no" orientation="+" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
+            <signal s="50.0" t="6.0" id="101" name="speed_minus" dynamic="no" orientation="-" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
+        </signals>
+    </road>
+    <road name="road_rht" length="100.0" id="2" junction="-1" rule="RHT">
+        <planView>
+            <geometry s="0.0" x="0.0" y="100.0" hdg="0.0" length="100.0">
+                <line/>
+            </geometry>
+        </planView>
+        <lanes>
+            <laneSection s="0.0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false"/>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+        <signals>
+            <signal s="50.0" t="-6.0" id="100" name="speed_plus" dynamic="no" orientation="+" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
+            <signal s="50.0" t="6.0" id="101" name="speed_minus" dynamic="no" orientation="-" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
+        </signals>
+    </road>
+</OpenDRIVE>

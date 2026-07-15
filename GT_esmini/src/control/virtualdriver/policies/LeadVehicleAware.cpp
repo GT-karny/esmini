@@ -44,9 +44,22 @@ TrafficPolicySnapshot LeadVehicleAware::Evaluate(const TrafficPolicyContext& ctx
     // --- Find the nearest same-lane lead vehicle ahead (NaturalDriver pattern) ---
     Object*      lead    = nullptr;
     double       lead_ds = cfg_.lookahead;  // smallest forward gap so far
+    // Cheap Euclidean pre-filter before the (expensive) road-network Delta() search, which otherwise
+    // runs for EVERY entity on the map every frame and dominates the policy cost (~0.1 ms/vehicle).
+    // Provably non-behavioural: a road-following path is never shorter than the straight line between
+    // its endpoints (arc >= chord), so euclid <= |ds| + |dt|. Acceptance below already requires
+    // |dt| <= lateral_tol and ds < lookahead, hence any entity with euclid > lookahead + lateral_tol
+    // would be rejected anyway. Squared compare -- no sqrt on the hot path.
+    const double reject_radius    = cfg_.lookahead + cfg_.lateral_tol;
+    const double reject_radius_sq = reject_radius * reject_radius;
+
     for (auto* other : ctx.entities->object_)
     {
         if (!other || other == ego) continue;
+
+        const double dx = other->pos_.GetX() - ego->pos_.GetX();
+        const double dy = other->pos_.GetY() - ego->pos_.GetY();
+        if (dx * dx + dy * dy > reject_radius_sq) continue;
 
         roadmanager::PositionDiff diff = {};
         if (!ego->pos_.Delta(&other->pos_, diff, false, cfg_.lookahead)) continue;

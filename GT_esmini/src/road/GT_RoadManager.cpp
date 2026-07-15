@@ -17,14 +17,15 @@
  *   RoadManager.cpp is excluded from the RoadManager static library via
  *   RoadManager/CMakeLists.txt and replaced by this file.
  *
- *   Patch applied ([GT_LHT] marker below, see GT_esmini/docs/opendrive-lht-rht.md):
- *     1-A) Junction::GetRoadConnectionByIdx — use contactPoint instead of lane_link->to_
- *          sign to pick the correct lane section of connectingRoad (RHT-hardcoded before).
- *
- *   Only patch 1-A is applied here. (Patches 1-B / 1-C are NOT applied — corrects audit
- *   CORE-3, which noted the previous header falsely claimed them.)
- *
- *   When updating against upstream, re-apply this patch (search for "GT_LHT").
+ *   Patches applied ([GT_LHT] markers below; ledger: GT_esmini/docs/gt_roadmanager_patches.md,
+ *   rationale: GT_esmini/docs/opendrive-lht-rht.md). 1-B / 1-C are NOT applied (audit CORE-3).
+ *     1-A) Junction::GetRoadConnectionByIdx — pick connectingRoad's lane section by contactPoint,
+ *          not by the sign of lane_link->to_ (RHT-hardcoded before).
+ *     1-D) Position::MoveToConnectingRoad — the "no lane link -> closest lane" fallback returned
+ *          early, skipping the end-contact heading flip + t inversion. On an END-to-END link with
+ *          implicit lane links the entity warped to the oncoming side. LHT and RHT alike.
+ *     1-E) Signal::SetAllValidLanes — resolve orientation "+"/"-" against the road rule: +s traffic
+ *          is on the negative lanes under RHT but the POSITIVE lanes under LHT.
  */
 
 /*
@@ -566,6 +567,13 @@ void Signal::SetAllValidLanes(Signal* sig, Road* r)
         }
     }
 
+    // [GT_LHT] orientation="+" means "valid for traffic travelling in +s direction" (ODR 10.2). The
+    // lanes carrying that traffic depend on the road's traffic-hand rule: negative (right) lanes under
+    // RHT, POSITIVE (left) lanes under LHT. Upstream hard-codes the RHT mapping, so on an LHT road every
+    // oriented sign/signal binds to the ONCOMING lanes -- which propagates straight into OSI
+    // traffic_light.classification.assigned_lane_id and into the VirtualDriver signal scan.
+    const int lane_sign_for_positive_s = (r->GetRule() == Road::RoadRule::LEFT_HAND_TRAFFIC) ? 1 : -1;
+
     if (sig->validity_.empty())
     {
         // Use orientation to find all lanes
@@ -583,7 +591,7 @@ void Signal::SetAllValidLanes(Signal* sig, Road* r)
             {
                 for (const auto& [id, lane] : drivable_lanes)
                 {
-                    if (id < 0)
+                    if (id != 0 && SIGN(id) == lane_sign_for_positive_s)  // [GT_LHT]
                     {
                         all_valid_global_lanes_.push_back(lane->GetGlobalId());
                     }
@@ -594,7 +602,7 @@ void Signal::SetAllValidLanes(Signal* sig, Road* r)
             {
                 for (const auto& [id, lane] : drivable_lanes)
                 {
-                    if (id > 0)
+                    if (id != 0 && SIGN(id) == -lane_sign_for_positive_s)  // [GT_LHT]
                     {
                         all_valid_global_lanes_.push_back(lane->GetGlobalId());
                     }
@@ -10520,6 +10528,24 @@ int Position::TeleportTo(Position* position)
     return 0;
 }
 
+// [GT_LHT] Opt-in road-transition diagnostics. Default OFF; enable with GT_DIAG_ROAD_TRANSITIONS=1
+// (env var rather than a CLI flag: the option parser lives in EnvironmentSimulator/, which the fork
+// must not touch, and an env var also survives the Web GUI's subprocess launch of GT_Sim.exe).
+// Emits a WARN at each event that can turn into a reversal / transition loop on a real map:
+//   [GT_DIAG] flip    -- a road transition flipped h_relative_ by PI (which road link / contact point)
+//   [GT_DIAG] rollback-- MoveAlongS undid a transition (*this = pre-transition snapshot)
+//   [GT_DIAG] ds-flip -- the sign of ds reversed across a transition
+// Run the map once with it on and the offending road / connection names itself.
+bool GtDiagRoadTransitions()  // [GT_LHT]
+{
+    static const bool enabled = []
+    {
+        const char* v = getenv("GT_DIAG_ROAD_TRANSITIONS");
+        return v != nullptr && v[0] != '\0' && v[0] != '0';
+    }();
+    return enabled;  // [GT_LHT]
+}
+
 Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, ContactPointType& contact_point_type, double junctionSelectorAngle)
 {
     Road*        road      = GetOpenDrive()->GetRoadByIdx(track_idx_);
@@ -10613,13 +10639,24 @@ Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, Contact
         else
         {
             // find valid connecting road, if multiple choices choose either most straight one OR by random
-            if (GetRoute() && GetRoute()->IsValid())
+            // [GT_LHT] The route may only steer this choice while it is still ACTIVE and actually names a
+            // road beyond this junction. Route::IsValid() reports CONSTRUCTION validity only (!invalid_route_)
+            // and stays true after the entity has driven past the last waypoint, so upstream keeps entering
+            // this branch forever once the route is exhausted. There GetRoadAtOtherEndOfIncomingRoad() returns
+            // nullptr, nothing matches, and the untouched connection_idx (0 -- the FIRST <connection> in the
+            // XODR) is adopted unconditionally: neither the heading-based nor the random selection below is
+            // ever reached again. Gate on OnRoute() (false exactly once END_OF_ROUTE / off-route is detected)
+            // and on a non-null target, so an exhausted route falls through to the normal selection.
+            Route* active_route = (GetRoute() && GetRoute()->IsValid() && GetRoute()->OnRoute()) ? GetRoute() : nullptr;
+            Road*  route_target = active_route ? active_route->GetRoadAtOtherEndOfIncomingRoad(junction, road) : nullptr;
+
+            if (active_route != nullptr && route_target != nullptr)
             {
                 // Choose direction of the route
-                Route* r = GetRoute();
+                Route* r = active_route;  // [GT_LHT]
 
                 // Find next road in route
-                Road* outgoing_road_target = r->GetRoadAtOtherEndOfIncomingRoad(junction, road);
+                Road* outgoing_road_target = route_target;  // [GT_LHT]
 
                 idx_t optimal_connection_idx = IDX_UNDEFINED;
                 for (unsigned int i = 0; i < n_connections; i++)
@@ -10718,14 +10755,38 @@ Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, Contact
                  road_link->GetElementId(),
                  road_link->GetElementType());
 
+        // [GT_LHT] Apply the SAME end-contact correction the linked-lane path below applies (see the
+        // h_relative_/new_offset flip further down). This fallback used to return early, so on an
+        // END-to-END connection with no explicit <lane><link> the entity kept its old heading and an
+        // un-inverted t: it warped to the oncoming side, flipped 180 deg and stalled at the joint.
+        // Crossing an end-contact reverses the target road's s- and t-axes relative to ours.
+        double t_target = GetT();
+        if ((road_link->GetType() == LinkType::PREDECESSOR && contact_point_type == ContactPointType::CONTACT_POINT_START) ||
+            (road_link->GetType() == LinkType::SUCCESSOR && contact_point_type == ContactPointType::CONTACT_POINT_END))
+        {
+            if (GtDiagRoadTransitions())  // [GT_LHT]
+            {
+                LOG_WARN("[GT_DIAG] flip (no-lane-link fallback) rid {} lid {} s={:.2f} h_rel={:.3f} -> rid {} linktype {} contact {}",
+                         road->GetId(),
+                         lane->GetId(),
+                         GetS(),
+                         h_relative_,
+                         next_road->GetId(),
+                         static_cast<int>(road_link->GetType()),
+                         static_cast<int>(contact_point_type));
+            }
+            h_relative_ = GetAngleSum(h_relative_, M_PI);
+            t_target    = -GetT();
+        }
+
         // Find closest lane on new road - by convert to track pos and then set lane offset = 0
         if (contact_point_type == CONTACT_POINT_START)
         {
-            ret_val = SetTrackPos(next_road->GetId(), 0, GetT(), false);
+            ret_val = SetTrackPos(next_road->GetId(), 0, t_target, false);  // [GT_LHT] t_target, was GetT()
         }
         else if (contact_point_type == CONTACT_POINT_END)
         {
-            ret_val = SetTrackPos(next_road->GetId(), next_road->GetLength(), GetT(), false);
+            ret_val = SetTrackPos(next_road->GetId(), next_road->GetLength(), t_target, false);  // [GT_LHT] t_target, was GetT()
         }
         else
         {
@@ -10786,6 +10847,19 @@ Position::ReturnCode Position::MoveToConnectingRoad(RoadLink* road_link, Contact
     if ((road_link->GetType() == LinkType::PREDECESSOR && contact_point_type == ContactPointType::CONTACT_POINT_START) ||
         (road_link->GetType() == LinkType::SUCCESSOR && contact_point_type == ContactPointType::CONTACT_POINT_END))
     {
+        // [GT_LHT] end-contact heading flip -- the diagnostic below names the road link that caused it.
+        if (GtDiagRoadTransitions())
+        {
+            LOG_WARN("[GT_DIAG] flip rid {} lid {} s={:.2f} h_rel={:.3f} -> rid {} lid {} linktype {} contact {}",
+                     road->GetId(),
+                     lane->GetId(),
+                     GetS(),
+                     h_relative_,
+                     next_road->GetId(),
+                     new_lane_id,
+                     static_cast<int>(road_link->GetType()),
+                     static_cast<int>(contact_point_type));  // [GT_LHT]
+        }
         h_relative_ = GetAngleSum(h_relative_, M_PI);
         new_offset  = -offset_;
     }
@@ -11008,6 +11082,13 @@ Position::ReturnCode Position::MoveAlongS(double            ds,
             done = true;
         }
 
+        // [GT_LHT] Snapshot taken BEFORE the road transition, used only to roll back on error below.
+        // The pre-existing pos_save is captured AFTER MoveToConnectingRoad, so restoring from it cannot
+        // undo the heading flip (h_relative_ += PI) or the road/lane change that MoveToConnectingRoad
+        // already performed -- the entity stays half-transitioned, facing backwards. Keep pos_save for
+        // the lane-sign guard (it must compare against the post-transition lane id), restore from this.
+        Position pos_save_pre_transition = *this;
+
         if (!done)
         {
             // If link is OK then move to the start- or endpoint of the connected road, depending on contact point
@@ -11019,6 +11100,25 @@ Position::ReturnCode Position::MoveAlongS(double            ds,
 
                 status_ |= static_cast<int>(PositionStatusMode::POS_STATUS_END_OF_ROAD);
                 return ReturnCode::ERROR_END_OF_ROAD;
+            }
+
+            // [GT_LHT] diagnostics: report a ds sign reversal across the transition (the signature of a
+            // wrong connection choice -- the entity starts running backwards along the new road).
+            if (GtDiagRoadTransitions())
+            {
+                const double ds_after = (contact_point_type == ContactPointType::CONTACT_POINT_END) ? -fabs(ds_road) : fabs(ds_road);
+                if (ds_road * ds_after < 0.0)
+                {
+                    LOG_WARN("[GT_DIAG] ds-flip rid {} -> rid {} lid {} s={:.2f} h_rel={:.3f} contact {}: ds {:.3f} -> {:.3f}",
+                             pos_save_pre_transition.GetTrackId(),
+                             track_id_,
+                             lane_id_,
+                             GetS(),
+                             GetHRelative(),
+                             static_cast<int>(contact_point_type),
+                             ds_road,
+                             ds_after);  // [GT_LHT]
+                }
             }
 
             // Adjust sign of ds based on connection point
@@ -11100,8 +11200,23 @@ Position::ReturnCode Position::MoveAlongS(double            ds,
 
         if (ret_val == ReturnCode::ERROR_GENERIC)
         {
-            done  = true;
-            *this = pos_save;  // restore last valid position
+            done = true;
+            if (GtDiagRoadTransitions())  // [GT_LHT]
+            {
+                LOG_WARN("[GT_DIAG] rollback rid {} lid {} s={:.2f} h_rel={:.3f}  <- restoring pre-transition rid {} lid {} s={:.2f} h_rel={:.3f}",
+                         track_id_,
+                         lane_id_,
+                         GetS(),
+                         GetHRelative(),
+                         pos_save_pre_transition.GetTrackId(),
+                         pos_save_pre_transition.GetLaneId(),
+                         pos_save_pre_transition.GetS(),
+                         pos_save_pre_transition.GetHRelative());
+            }
+            // [GT_LHT] restore the last valid position -- the one from BEFORE the road transition, so a
+            // failed transition also undoes MoveToConnectingRoad's heading flip instead of leaving the
+            // entity on the old road facing backwards (which made the next step's ds run in reverse).
+            *this = pos_save_pre_transition;
         }
     }
 
