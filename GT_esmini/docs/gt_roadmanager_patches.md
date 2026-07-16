@@ -260,24 +260,44 @@ fork_file:
                         # <outline> sibling-by-name for-loop, one diff block below the marker comment). MEASURED.
     repeat-cubics: 3    # P7 (merged): AdjustRepeatInstancePose insertion + comment, single marker. MEASURED.
     lane-layers: 2      # P8 (merged): road_node.child("lanes") -> SelectLanesLayer delegate + marker. MEASURED.
-  lht_census: 0         # S5: was 8. The [GT_LHT] Patch 1-A comment (5) + swapped-branch lines (3) in
-                        # GetRoadConnectionByIdx are now WRAPPED by the shared [GT_ODR:vj-lanes-begin/end]
-                        # block -> the census attributes them to vj-lanes (block form takes precedence over
-                        # the [GT_LHT] bucket), and they are recorded as the vj-lanes overlap residual (9 =
-                        # fork 24 - pristine 15). The remaining literal [GT_LHT] markers live in the file-header
-                        # comment block (__header__ bucket). fork_lht_marker_min: 1 still satisfied (4 literals).
-  header_census: 16     # the "GT_esmini modification" file-header comment block
+  lht_census: 117       # MEASURED. The [GT_LHT] bucket is the fork-ONLY patch bucket (not all of it is
+                        # literally about left-hand traffic). Current members:
+                        #   1-A MoveToConnectingRoad/GetRoadConnectionByIdx lane-section pick (see S5 note below)
+                        #   1-D MoveToConnectingRoad closest-lane fallback: end-contact heading flip + t inversion
+                        #   1-E Signal::SetAllValidLanes: orientation "+"/"-" resolved against the road rule
+                        #   1-F MoveToConnectingRoad junction choice gated on Route::OnRoute() + a non-null route
+                        #       target (IsValid() alone stays true after the route is exhausted, pinning
+                        #       connection_idx at 0 forever)
+                        #   1-G MoveAlongS rolls back to a PRE-transition snapshot on error (the old pos_save is
+                        #       captured after MoveToConnectingRoad, so it could not undo the heading flip)
+                        #   1-H opt-in road-transition diagnostics (env GT_DIAG_ROAD_TRANSITIONS=1, default OFF)
+                        # Regression: GT_esmini/test/unit/road/test_OdrLhtRoadTransitions.cpp with fixtures under
+                        # GT_esmini/test/odr_fixtures/lht/. NOTE for future hunks: check_fork_drift.py classifies a
+                        # block as [GT_ODR:] whenever ALL its lines fall inside an ODR marker's +15-line window
+                        # (odr takes precedence over lht), so a [GT_LHT] hunk placed just under one must extend
+                        # past that window or it is miscounted against fork_odr_drift_expect_lines.
+                        # S5 note (still true): the [GT_LHT] Patch 1-A comment (5) + swapped-branch lines (3) in
+                        # GetRoadConnectionByIdx are WRAPPED by the shared [GT_ODR:vj-lanes-begin/end] block ->
+                        # the census attributes them to vj-lanes (block form takes precedence over the [GT_LHT]
+                        # bucket), and they are recorded as the vj-lanes overlap residual (9 = fork 24 - pristine
+                        # 15), so they do NOT appear in this count.
+  header_census: 17     # the "GT_esmini modification" file-header comment block (was 16; +1 for the
+                        # Patch 1-D / 1-E ledger entries). NOTE: check_fork_drift.py sanctions only
+                        # _MARKER_FORWARD=15 lines past the "GT_esmini modification" sentinel, so this
+                        # block must stay within ~17 lines -- keep patch rationale in this doc, not there.
   legacy_sites:         # pre-S0 hunks whose ADDED lines carry no in-hunk marker (attribution by exact
                         # fork line-span + nonblank count; frozen -- do NOT grow this list for new work,
                         # new hunks must carry in-hunk markers)
     - marker: country-rev
-      fork_lines: "4938-4938"    # v3.4.1 resync shift: 4931 -> 4934 (upstream curb block +4 above, GT curb line -1).
+      fork_lines: "4946-4946"    # v3.4.1 resync shift: 4931 -> 4934 (upstream curb block +4 above, GT curb line -1).
                                  # 2026-07-13 bugfix shift: 4934 -> 4938 (junc-connroad hook is +4 net, one hunk above).
+                                 # 2026-07-15 Patch 1-E shift: 4938 -> 4945 (SetAllValidLanes rule hunk, +7 above).
       count: 1
       note: "condition-flip line (empty() negation); the [GT_ODR:country-rev] marker sits on the init line one hunk above"
     - marker: curvelocal
-      fork_lines: "5297-5298"    # v3.4.1 resync shift: 5290-5291 -> 5293-5294 (net +3, see country-rev note).
+      fork_lines: "5305-5306"    # v3.4.1 resync shift: 5290-5291 -> 5293-5294 (net +3, see country-rev note).
                                  # 2026-07-13 bugfix shift: 5293-5294 -> 5297-5298 (junc-connroad hook, +4 net above).
+                                 # 2026-07-15 Patch 1-E shift: 5297-5298 -> 5304-5305 (SetAllValidLanes hunk, +7 above).
       count: 2                   # (`for (... outline_node = outline_container.child("outline"); ...)`), one diff
                                  # block below the [GT_ODR:curvelocal] marker comment (5288-5289). The marker'd
       note: "singular-outline for-loop; the [GT_ODR:curvelocal] marker comment sits one diff block above (attributes the other 10 lines). Attributed here so curvelocal totals 12 (matches the §1 fork table)."

@@ -562,11 +562,23 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         if (!other || other == ego) continue;
         if (other->GetType() != Object::Type::VEHICLE) continue;  // crossings = vehicles
 
-        std::vector<PathPoint> oth_path = PredictPath(other, cfg_.lookahead, cfg_.step);
-        if (oth_path.size() < 2) continue;
-
         const double oth_len      = other->boundingbox_.dimensions_.length_;
         const double oth_half_ext = 0.5 * other->boundingbox_.dimensions_.width_ + cfg_.lane_margin;
+
+        // Cheap Euclidean pre-filter before PredictPath()/BuildCorridor(), which walk the road network
+        // for EVERY vehicle on the map every frame and dominate the policy cost (~0.1 ms/vehicle).
+        // Provably non-behavioural: each corridor extends at most `lookahead` metres ALONG the road from
+        // its origin, inflated by half_ext, and a road path is never shorter than the straight line
+        // (arc >= chord) -- so every point of a corridor lies within (lookahead + half_ext) Euclidean of
+        // its own vehicle. Two corridors can therefore only share a point when the vehicles are within
+        // the sum of those radii. Anything farther cannot produce a conflict region.
+        const double reach    = 2.0 * cfg_.lookahead + ego_half_ext + oth_half_ext;
+        const double dx       = other->pos_.GetX() - ego->pos_.GetX();
+        const double dy       = other->pos_.GetY() - ego->pos_.GetY();
+        if (dx * dx + dy * dy > reach * reach) continue;
+
+        std::vector<PathPoint> oth_path = PredictPath(other, cfg_.lookahead, cfg_.step);
+        if (oth_path.size() < 2) continue;
 
         std::vector<CorridorQuad> oth_corridor = BuildCorridor(oth_path, oth_half_ext);
         if (oth_corridor.empty()) continue;
