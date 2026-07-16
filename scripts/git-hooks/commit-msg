@@ -1,0 +1,32 @@
+#!/bin/sh
+# Knowledge-graph workflow (CLAUDE.md R4) — commit-msg advisory hook.
+#
+# WARNS (never blocks) when a commit message cites no knowledge-graph ID,
+# so manual commits get the same nudge as Claude-driven ones (which are
+# checked by .claude/hooks/gt_guard.ps1 Rule 4 before execution).
+#
+# Install (per clone; .git/hooks also carries Git LFS hooks, so we install
+# this file individually instead of switching core.hooksPath):
+#   cp scripts/git-hooks/commit-msg .git/hooks/commit-msg
+#
+# ID grammar: GT_esmini/docs/knowledge/namespaces.yaml. Extraction:
+#   scripts/check_knowledge_graph.py --extract-commits
+
+msg_file="$1"
+[ -r "$msg_file" ] || exit 0
+
+first_line=$(head -n 1 "$msg_file")
+case "$first_line" in
+    wip*|WIP*|Merge*|merge*|fixup!*|squash!*) exit 0 ;;
+esac
+
+if grep -qE '(\bF[1-6]\b|\bR[0-5](-U[1-4])?\b|\bPhase ?[0-4][a-e]?\b|\b(CTL|SUB|VD|CORE|WEB|FE|SCR|BLD|TST|BND|MSC|Critic|GT|PY|XSD|ES)-[0-9]+\b|\b(proposal|plan) P[0-9]+\b|#[0-9]+|\bGT_ODR\b|\bGT_LHT\b)' "$msg_file"; then
+    exit 0
+fi
+
+echo "" >&2
+echo "commit-msg [R4]: no knowledge-graph ID cited in this commit message." >&2
+echo "  Consider citing related IDs so the commit->ID edge is extractable:" >&2
+echo "    (F6) (SUB-1) (proposal P13) fixes #30 ..." >&2
+echo "  Grammar: GT_esmini/docs/knowledge/namespaces.yaml (advisory only, commit proceeds)" >&2
+exit 0

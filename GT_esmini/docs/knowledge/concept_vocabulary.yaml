@@ -1,0 +1,273 @@
+# ASAM OpenX Ontology — committed concept snapshot (subset).
+#
+# Source: ASAM_OpenXONTOLOGY_BS_V1-0-0-PR1-43-g0248cfe (thirdparty/, not in git)
+#   ontology/OpenXOntology.ttl — 346 owl:Class, namespaces Core# / Domain#.
+# License: ASAM grants an unrestricted, non-exclusive license to everyone
+#   (explicit deviation from the standard ASAM license, stated in the TTL's
+#   owl:versionInfo) — committing this derived snapshot is permitted.
+#
+# Purpose: graph.yaml references domain concepts as "openx:Domain#<Name>".
+# The checker requires every referenced concept to exist HERE (the TTL itself
+# is not in the repo). Grow this file on demand — add a concept when an edge
+# or an ODD axis first needs it; do not bulk-import all 346.
+#
+# Caveats (from the 2026-07-16 analysis):
+#   - v1.0 is a pre-release harmonized with OpenDRIVE 1.6 / OpenSCENARIO 1.0 /
+#     OpenLABEL / BSI PAS 1883 / ISO 34503. OSI is NOT yet harmonized.
+#   - There is no TrafficLight class; DynamicTrafficSign is the nearest match.
+#
+# branch: the Domain umbrella the class sits under —
+#   env  = EnvironmentalCondition
+#   road = RoadTopologyAndTrafficInfrastructure
+#   tpb  = TrafficParticipantAndBehavior
+
+meta:
+  ontology_version: 1.0.0-PR1-43-g0248cfe
+  namespace_domain: "http://ontology.asam.net/ontologies/Domain#"
+  namespace_core: "http://ontology.asam.net/ontologies/Core#"
+
+concepts:
+  # ---- 環境条件 (env) ----
+  - id: Domain#EnvironmentalCondition
+    branch: env
+    ja: 環境条件（天候・照明・時刻・粒子状物質等の親クラス）
+  - id: Domain#WeatherCondition
+    branch: env
+    ja: 気象条件
+  - id: Domain#RainfallCondition
+    branch: env
+    ja: 降雨条件（Light/Moderate/Heavy/Violent/Cloudburst のサブクラスあり）
+  - id: Domain#SnowfallCondition
+    branch: env
+    ja: 降雪条件
+  - id: Domain#FoggyCondition
+    branch: env
+    ja: 霧（非降水性の水滴/氷晶によるParticulatesCondition）
+  - id: Domain#IlluminationCondition
+    branch: env
+    ja: 照明条件（昼光・夜間・人工照明の親クラス）
+  - id: Domain#DayLightingCondition
+    branch: env
+    ja: 昼間照明条件
+  - id: Domain#NightLightingCondition
+    branch: env
+    ja: 夜間照明条件
+  - id: Domain#ArtificialLightingCondition
+    branch: env
+    ja: 人工照明条件
+  - id: Domain#VehicleLighting
+    branch: env
+    ja: 車両搭載照明（ヘッドライト等）による照明条件
+  - id: Domain#StreetLighting
+    branch: env
+    ja: 街路照明
+  - id: Domain#TimeCondition
+    branch: env
+    ja: 時刻条件
+
+  # ---- 道路トポロジー・交通インフラ (road) ----
+  - id: Domain#RoadTopologyAndTrafficInfrastructure
+    branch: road
+    ja: 道路トポロジー・交通インフラの親クラス
+  - id: Domain#Road
+    branch: road
+    ja: 道路
+  - id: Domain#Motorway
+    branch: road
+    ja: 高速道路
+  - id: Domain#MinorRoad
+    branch: road
+    ja: 生活道路・非優先道路
+  - id: Domain#Lane
+    branch: road
+    ja: 車線（区画線で区切られ交通参加者の使用を意図する道路部分）
+  - id: Domain#LaneSection
+    branch: road
+    ja: 車線セクション（車線数が変わる毎に新設、参照線に沿って定義）
+  - id: Domain#Junction
+    branch: road
+    ja: 交差点（2つ以上の道路が交わる）
+  - id: Domain#IntersectionAtGrade
+    branch: road
+    ja: 平面交差点
+  - id: Domain#GradeSeparatedIntersection
+    branch: road
+    ja: 立体交差点
+  - id: Domain#CrossRoad
+    branch: road
+    ja: 十字路
+  - id: Domain#TIntersection
+    branch: road
+    ja: T字路
+  - id: Domain#YIntersection
+    branch: road
+    ja: Y字路
+  - id: Domain#StaggeredIntersection
+    branch: road
+    ja: 食い違い交差点
+  - id: Domain#Roundabout
+    branch: road
+    ja: ラウンドアバウト（中央島を一方向に周回する交差点）
+  - id: Domain#Tunnel
+    branch: road
+    ja: トンネル
+  - id: Domain#PedestrianCrossing
+    branch: road
+    ja: 横断歩道（歩行者が道路/車線を横断できる特殊構造）
+  - id: Domain#TrafficSign
+    branch: road
+    ja: 交通標識
+  - id: Domain#StaticTrafficSign
+    branch: road
+    ja: 静的交通標識
+  - id: Domain#DynamicTrafficSign
+    branch: road
+    ja: 動的交通標識（可変標識。信号機の最近縁クラス — TrafficLightクラスはv1.0に無い）
+  - id: Domain#RegulatorySign
+    branch: road
+    ja: 規制標識（停止・譲れ等）
+  - id: Domain#WarningSign
+    branch: road
+    ja: 警戒標識
+  - id: Domain#InformationSign
+    branch: road
+    ja: 案内標識
+  - id: Domain#TrafficZone
+    branch: road
+    ja: 特殊な道路構成/交通規則/環境条件を持つ地理的エリア
+  - id: Domain#SchoolZone
+    branch: road
+    ja: スクールゾーン（若年歩行者存在確率が高いTrafficZone）
+  - id: Domain#PedestrianZone
+    branch: road
+    ja: 歩行者専用ゾーン
+
+  # ---- 交通参加者と行動 (tpb) ----
+  - id: Domain#TrafficParticipantAndBehavior
+    branch: tpb
+    ja: 交通参加者と行動の親クラス
+  - id: Domain#Vehicle
+    branch: tpb
+    ja: 車両
+  - id: Domain#Pedestrian
+    branch: tpb
+    ja: 歩行者
+  - id: Domain#VRU
+    branch: tpb
+    ja: 脆弱道路利用者（歩行者・自転車等、移動デバイス含む）
+  - id: Domain#NonVRU
+    branch: tpb
+    ja: 非脆弱道路利用者
+  - id: Domain#TrafficActivity
+    branch: tpb
+    ja: 交通活動（行動）の親クラス
+  - id: Domain#CutIn
+    branch: tpb
+    ja: カットイン（対象直前への割込み。対象挙動に影響しうる）
+  - id: Domain#CutOut
+    branch: tpb
+    ja: カットアウト（対象前方からの離脱）
+  - id: Domain#Overtake
+    branch: tpb
+    ja: 追越し（対象後方に始まり前方で終わる、2回の車線変更を伴う）
+  - id: Domain#ChangeLane
+    branch: tpb
+    ja: 車線変更（開始時と終了時で異なる車線）
+  - id: Domain#KeepLane
+    branch: tpb
+    ja: 車線維持
+  - id: Domain#MakeATurn
+    branch: tpb
+    ja: 右左折（交差点通過）
+  - id: Domain#MakeALeftTurn
+    branch: tpb
+    ja: 左折
+  - id: Domain#MakeARightTurn
+    branch: tpb
+    ja: 右折
+  - id: Domain#FollowRoadUser
+    branch: tpb
+    ja: 先行者追従
+  - id: Domain#FollowTrajectory
+    branch: tpb
+    ja: 軌跡追従
+  - id: Domain#Stop
+    branch: tpb
+    ja: 停止
+  - id: Domain#Accelerate
+    branch: tpb
+    ja: 加速
+  - id: Domain#Decelerate
+    branch: tpb
+    ja: 減速
+  - id: Domain#UseTurnIndicator
+    branch: tpb
+    ja: 方向指示器の使用
+
+  # ---- シーンカタログ第1段で追加 (2026-07-17, scene:SCN-001..018 / modifiers) ----
+  - id: Domain#FollowTargetSpeed
+    branch: tpb
+    ja: 目標速度追従（ManeuverLevelActivity）
+  - id: Domain#Bicycle
+    branch: tpb
+    ja: 自転車（PrivateVehicle配下・VRU）
+  - id: Domain#Motorcycle
+    branch: tpb
+    ja: 二輪車（PrivateVehicle配下）
+  - id: Domain#CycleLane
+    branch: road
+    ja: 自転車レーン（LaneForSpecificParticipants）
+  - id: Domain#Bridge
+    branch: road
+    ja: 橋梁（SpecialStructure）
+  - id: Domain#RailCrossing
+    branch: road
+    ja: 踏切（SpecialStructure）
+  - id: Domain#TollPlaza
+    branch: road
+    ja: 料金所（SpecialStructure）
+  - id: Domain#TemporaryRoadStructure
+    branch: road
+    ja: 一時的道路構造（工事帯・コーン・落下物・道路封鎖等の親クラス）
+  - id: Domain#RoadWork
+    branch: road
+    ja: 道路工事（TemporaryRoadStructure）
+  - id: Domain#Debris
+    branch: road
+    ja: 落下物・瓦礫（TemporaryRoadStructure）
+  - id: Domain#EmergencyVehicle
+    branch: tpb
+    ja: 緊急車両（NonVRU）
+  - id: Domain#SoundSiren
+    branch: tpb
+    ja: サイレン吹鳴（VehicleCommunicationActivity）
+  - id: Domain#PublicTransportationVehicle
+    branch: tpb
+    ja: 公共交通車両（バス等）
+  - id: Domain#Parking
+    branch: road
+    ja: 駐車場・駐車スペース（Road配下）
+  - id: Domain#MoveBackward
+    branch: tpb
+    ja: 後退（LongitudinalActivity）
+  - id: Domain#SharedSpace
+    branch: road
+    ja: 歩車共存道路（Road配下）
+  - id: Domain#drivingDirection
+    branch: road
+    ja: 通行方向属性（LHT/RHT。roadTopologyAndTrafficInfrastructureProperty）
+  - id: Domain#VehicleCommunicationActivity
+    branch: tpb
+    ja: 車両の意思表示行動（指示器・ハザード・ホーン・パッシング・サイレンの親クラス）
+  - id: Domain#UseHazardLight
+    branch: tpb
+    ja: ハザードランプ使用
+  - id: Domain#Animal
+    branch: tpb
+    ja: 動物（TrafficParticipantByParticipantType）
+  - id: Domain#WindCondition
+    branch: env
+    ja: 風条件（ボーフォート風力階級12クラスの親）
+  - id: Domain#inducedRoadSurfaceCondition
+    branch: road
+    ja: 誘発路面状態（wet/icy/snowy/flooded/standingWater等の親属性）

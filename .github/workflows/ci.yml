@@ -230,6 +230,18 @@ jobs:
           python3 -m pip install --user pyyaml
           python3 scripts/check_fork_sync.py --fetch
 
+      # Knowledge-graph structural lint (GT_esmini/docs/knowledge): namespace
+      # registry + curated-edge validation + openx vocabulary dangling check.
+      # Deterministic lint of committed files (no network, no build outputs),
+      # so unlike the fork-sync step above it is a HARD gate. Runs once
+      # (Linux/Release). See GT_esmini/docs/knowledge/README.md.
+      - name: Check knowledge graph (GT)
+        if: runner.os == 'Linux' && matrix.configuration == 'Release'
+        shell: bash
+        run: |
+          python3 -m pip install --user pyyaml
+          python3 scripts/check_knowledge_graph.py
+
       - uses: ./.github/actions/upload_esmini_artifacts
         if: matrix.configuration == 'Release'
 

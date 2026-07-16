@@ -35,6 +35,10 @@ This document defines the structural context, dependencies, and operational rule
 - **Constraint**: `resources` assets are trusted.
 - **Action**: On simulation error (crash, unexpected behavior), prioritize debugging `GT_esmini` C++ code over modifying `xosc`/`xodr` files.
 
+### **R4: Knowledge-Graph Workflow**
+- **Constraint**: All development activity passes through the project knowledge graph (`GT_esmini/docs/knowledge/`, see `/kg`).
+- **Action**: (a) query context before starting ID-linked work (`check_knowledge_graph.py --query <ns:id> --commits`); (b) cite related IDs in every commit — `(F6)`, `(SUB-1)`, `(proposal P13)`, `fixes #30` — enforced as an 'ask' by guard-hook Rule 4 and advised by the git commit-msg hook; (c) record judgment relations in `graph.yaml` and regenerate the view (`--render`; staleness is lint/CI-checked).
+
 ## 3. Build System & Dependency Graph
 
 ### **Build Context**
@@ -122,11 +126,13 @@ Use `/package --version <VERSION>` skill for automated build. See `.claude/skill
 - **Guard hook** (`.claude/hooks/gt_guard.ps1`) enforces deterministically:
   1. **R1 Clean Core** — edits under `EnvironmentSimulator/` or `OSMP_FMU/` require explicit user approval (fork-budget discipline).
   2. **venv policy** — bare `python`/`pip`/`py` commands are denied with a pointer to the project venvs (§4).
-  3. **gh repo safety** — `gh pr/release/issue` write operations without `-R`/`--repo` are denied.
-- **Project skills**: `/build` (Protocol A build + DLL staging + detached long-build pattern), `/gates` (test-gate ladder of §5 + result interpretation), `/package` (distribution ZIP), `/release` (release procedure with approval checkpoints). When asked to verify changes, run `/gates`.
+  3. **gh repo safety** — `gh pr/release/issue` write operations without `-R`/`--repo` are denied; with a repo value other than `GT-karny/esmini` they require explicit approval (upstream issues/PRs can be closed but never deleted). Mutating `gh api` calls referencing `esmini/esmini` also require approval. Read operations against upstream stay free.
+  4. **R4 knowledge-graph workflow** — `git commit -m` without any knowledge-graph ID citation triggers an 'ask' (wip/merge/fixup/--amend exempt). Manual commits get the same nudge from the advisory git hook: `cp scripts/git-hooks/commit-msg .git/hooks/` (re-run in fresh clones; never switch `core.hooksPath` — Git LFS hooks live in `.git/hooks`). `gh issue create` whose body (incl. `--body-file` contents) cites no namespaced KG ID (`feature:F2` etc.) also triggers an 'ask' — issues are born connected to the graph.
+- **Project skills**: `/build` (Protocol A build + DLL staging + detached long-build pattern), `/gates` (test-gate ladder of §5 + result interpretation), `/package` (distribution ZIP), `/release` (release procedure with approval checkpoints), `/kg` (knowledge-graph operations: query-before-work, edge/vocabulary editing rules, issue linkage). When asked to verify changes, run `/gates`.
 
 ## 9. Contextual Links
 
+- **Project Knowledge Graph**: See [`GT_esmini/docs/knowledge/README.md`](file:///e:/Repository/GT_esmini/esmini/GT_esmini/docs/knowledge/README.md) — typed ID namespaces (22 systems; bare IDs like `P<n>`/`CORE-1`/`R3` are ambiguous, always qualify), curated edges, OpenX Ontology vocabulary. Lint: `scripts/check_knowledge_graph.py` (CI hard gate, Linux/Release).
 - **`GT_esmini` Internals**: See [`GT_esmini/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/GT_esmini/CLAUDE.md)
 - **`scripts/` Guide**: See [`scripts/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/scripts/CLAUDE.md)
 - **`DriverScript/` Guide**: See [`DriverScript/CLAUDE.md`](file:///e:/Repository/GT_esmini/esmini/DriverScript/CLAUDE.md)

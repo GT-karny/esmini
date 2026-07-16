@@ -59,13 +59,63 @@ if ($tool -match '^(Bash|PowerShell)$') {
         Emit-Decision 'deny' ('System Python is forbidden in this repo (CLAUDE.md section 4). Use DriverScript/.venv/Scripts/python.exe (verification/scripts) or GT_esmini/web/.venv/Scripts/python.exe (web/packaging) instead.')
     }
 
-    # Rule 3: gh write operations must pin the repo. gh resolves the upstream
-    # parent (esmini/esmini) in fresh clones; -R GT-karny/esmini is the safety
-    # belt even though `gh repo set-default` was run in this clone.
+    # Rule 3: gh write operations must pin the repo AND the pinned repo must be
+    # the fork. gh resolves the upstream parent (esmini/esmini) in fresh clones,
+    # and issues/PRs created on the public upstream cannot be deleted afterwards
+    # (only closed) — so both the missing flag and a non-fork value are guarded.
     $ghWrite = $cmd -match '(?i)\bgh\s+(pr|release|issue)\s+(create|merge|edit|delete|close|reopen|comment|upload|upload-asset)\b'
-    $hasRepoFlag = $cmd -match '(?i)(\s-R\s|--repo[\s=])'
-    if ($ghWrite -and -not $hasRepoFlag) {
-        Emit-Decision 'deny' ('gh write operations must specify the fork explicitly: add -R GT-karny/esmini (gh may resolve the upstream esmini/esmini parent repo in fresh clones).')
+    if ($ghWrite) {
+        $hasRepoFlag = $cmd -match '(?i)(\s-R[\s=]|--repo[\s=])'
+        if (-not $hasRepoFlag) {
+            Emit-Decision 'deny' ('gh write operations must specify the fork explicitly: add -R GT-karny/esmini (gh may resolve the upstream esmini/esmini parent repo in fresh clones).')
+        }
+        if ($cmd -notmatch '(?i)(\s-R[\s=]+|--repo[\s=]+)[\x22\x27]?GT-karny/esmini\b') {
+            Emit-Decision 'ask' ('gh write operation targets a repo other than the fork GT-karny/esmini. Issues/PRs on the public upstream (esmini/esmini) cannot be deleted once created, only closed. Approve only if this cross-repo write is deliberate (e.g. an intentional upstream bug report).')
+        }
+    }
+
+    # Rule 3b: gh api can mutate any repo and bypasses the verb matcher above.
+    # A mutating gh api call that mentions the upstream repo requires approval.
+    $ghApi = $cmd -match '(?i)\bgh\s+api\b'
+    $apiMutates = $cmd -match '(?i)((-X|--method)[\s=]+(POST|PATCH|PUT|DELETE)|\s-[fF]\s|--(raw-)?field[\s=]|--input[\s=])'
+    if ($ghApi -and $apiMutates -and $cmd -match '(?i)esmini/esmini') {
+        Emit-Decision 'ask' ('Mutating gh api call referencing upstream esmini/esmini. Approve only if writing to the upstream repo is deliberate.')
+    }
+
+    # Rule 5: issue filing carries knowledge-graph context (CLAUDE.md R4).
+    # gh issue create must cite at least one namespaced ID (slug:local-id) in
+    # its body so the issue is connected to the graph from birth. Inline
+    # --body text is part of the command string; --body-file contents are read
+    # from disk. Registered slugs come from namespaces.yaml (single source of
+    # truth). 'ask', not 'deny'.
+    if ($cmd -match '(?i)\bgh\s+issue\s+create\b') {
+        $searchText = $cmd
+        if ($cmd -match '(?i)--body-file[\s=]+[\x22\x27]?([^\x22\x27\s]+)') {
+            $bf = $Matches[1]
+            if (Test-Path $bf) { $searchText += "`n" + (Get-Content -Raw $bf) }
+        }
+        $nsFile = Join-Path $PSScriptRoot '..\..\GT_esmini\docs\knowledge\namespaces.yaml'
+        $slugs = @(Select-String -Path $nsFile -Pattern '^\s*- slug:\s*(\S+)' |
+                   ForEach-Object { $_.Matches[0].Groups[1].Value })
+        if ($slugs.Count -gt 0) {
+            $slugAlt = ($slugs | ForEach-Object { [regex]::Escape($_) }) -join '|'
+            if ($searchText -notmatch "\b($slugAlt):[A-Za-z0-9_#]") {
+                Emit-Decision 'ask' ('Knowledge-graph workflow (R4): the issue body cites no namespaced knowledge-graph ID (e.g. feature:F2, policy:conflict, audit-debt:CTL-3, commit:<sha>). Add related IDs so the issue is connected to the graph (see /kg), or approve to file it unconnected.')
+            }
+        }
+    }
+
+    # Rule 4: knowledge-graph workflow (CLAUDE.md R4). Commits should cite at
+    # least one knowledge-graph ID so the commit->ID edge is extractable
+    # (scripts/check_knowledge_graph.py --extract-commits). Only enforceable
+    # when the message is inline (-m / here-string); wip / merge / fixup /
+    # --amend are exempt. 'ask' not 'deny': ID-less commits are legitimate
+    # for work with genuinely no related ID -- the user decides.
+    $isCommitMsg = ($cmd -match '(?i)\bgit\b[^|;&]*\bcommit\b') -and ($cmd -match '(?i)(\s-m\b|--message\b)')
+    $isExempt = $cmd -match '(?i)(\bwip\b|fixup!|squash!|\bmerge\b|--amend)'
+    $hasKgId = $cmd -match '(\bF[1-6]\b|\bR[0-5](-U[1-4])?\b|\bPhase ?[0-4][a-e]?\b|\b(CTL|SUB|VD|CORE|WEB|FE|SCR|BLD|TST|BND|MSC|Critic|GT|PY|XSD|ES)-[0-9]+\b|\b(proposal|plan)\s+P[0-9]+\b|#[0-9]+|\bGT_ODR\b|\bGT_LHT\b)'
+    if ($isCommitMsg -and -not $isExempt -and -not $hasKgId) {
+        Emit-Decision 'ask' ('Knowledge-graph workflow (R4): the commit message cites no related ID -- e.g. (F6), (SUB-1), (proposal P13), fixes #30. Cite one so the commit->ID edge is machine-extractable (see /kg), or approve to commit without a reference.')
     }
 
     exit 0

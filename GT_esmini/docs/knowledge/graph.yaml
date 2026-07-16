@@ -1,0 +1,429 @@
+# Curated knowledge-graph edges (hand-authored judgment relations ONLY).
+#
+# Rules (enforced by scripts/check_knowledge_graph.py):
+#   - from/to are "<namespace-slug>:<local-id>"; slug must be registered in
+#     namespaces.yaml and the local id must fullmatch its id_pattern.
+#   - type must be a *curated* edge type (namespaces.yaml edge_types.curated).
+#     Generated types (implements/closes/refs) are extracted from git history
+#     by "check_knowledge_graph.py --extract-commits" and never written here.
+#   - source = where the relation is stated (repo-relative path); note = why.
+#
+# Staleness policy: keep this file small. If a relation can be derived from a
+# machine-readable source (commit messages, manifests, expectations), derive
+# it — do not copy it here.
+
+edges:
+  # ---- 提案間の統合・重複（feature_proposals §3 の明文化済み関係） ----
+  - from: proposal:P24
+    to: proposal:P15
+    type: merged-into
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: 同一提案としてP15に一本化
+
+  - from: proposal:P39
+    to: proposal:P13
+    type: merged-into
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件）
+
+  - from: proposal:P8
+    to: proposal:P2
+    type: merged-into
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: 配信部が同一のためP2に吸収
+
+  - from: proposal:P5
+    to: proposal:P40
+    type: shares-design-with
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: ReplayInputSource機構の一本化必須
+
+  - from: proposal:P41
+    to: proposal:P5
+    type: depends-on
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: 入力再生機構の統一が前提（UDP独自再生案は却下）
+
+  - from: proposal:P1
+    to: proposal:P23
+    type: shares-design-with
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: 外部制御注入の二重資産回避のため設計共有必須
+
+  # ---- 提案 → 既存ロードマップ（前提・並走） ----
+  - from: proposal:P7
+    to: feature:F2
+    type: depends-on
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: F2/F3完了後に着手
+
+  - from: proposal:P7
+    to: feature:F3
+    type: depends-on
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+
+  - from: proposal:P11
+    to: feature:F2
+    type: complements
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: 安全マージン評価に直結・F2と並走前提
+
+  - from: proposal:P26
+    to: debt-phase:R5-U4
+    type: depends-on
+    source: GT_esmini/docs/feature_proposals_2026-06.md
+    note: OSIポート設計のすり合わせが前提（R5-U4は完了済み）
+
+  - from: feature:F6
+    to: debt-phase:R5-U3
+    type: depends-on
+    source: GT_esmini/docs/tech_debt_audit_2026-06.md
+    note: ライトストレージ統合（vehLghtStsList一本化）完了後に着手（両方完了済み）
+
+  - from: feature:F3
+    to: odr-plan:P5
+    type: depends-on
+    source: GT_esmini/docs/opendrive_16_19_support.md
+    note: junction priorityデータはODRプランP5で着地、消費はF3（Phase3e）
+
+  # ---- フォークパッチ → upstream還元候補 ----
+  - from: fork-patch:3
+    to: odr-upstream-pr:PR-1
+    type: upstream-candidate
+    source: GT_esmini/docs/gt_roadmanager_patches.md
+
+  - from: fork-patch:7
+    to: odr-upstream-pr:PR-2
+    type: upstream-candidate
+    source: GT_esmini/docs/gt_roadmanager_patches.md
+
+  - from: fork-patch:8
+    to: odr-upstream-pr:PR-1b
+    type: upstream-candidate
+    source: GT_esmini/docs/gt_roadmanager_patches.md
+
+  - from: fork-patch:13
+    to: odr-upstream-pr:PR-3
+    type: upstream-candidate
+    source: GT_esmini/docs/gt_roadmanager_patches.md
+
+  - from: fork-patch:10
+    to: odr-upstream-pr:PR-4
+    type: upstream-candidate
+    source: GT_esmini/docs/gt_roadmanager_patches.md
+
+  - from: fork-patch:17
+    to: odr-upstream-pr:PR-5
+    type: upstream-candidate
+    source: GT_esmini/docs/gt_roadmanager_patches.md
+
+  # ---- OpenX Ontology への橋渡し（concerns: 意味的分類） ----
+  - from: feature:F6
+    to: openx:Domain#VehicleLighting
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: feature:F6
+    to: openx:Domain#IlluminationCondition
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: feature:F6
+    to: openx:Domain#Tunnel
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: feature:F6
+    to: openx:Domain#NightLightingCondition
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: policy:crosswalk
+    to: openx:Domain#PedestrianCrossing
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: policy:traffic_light
+    to: openx:Domain#DynamicTrafficSign
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+    note: OpenX v1.0にTrafficLightクラスは存在しない。DynamicTrafficSignが最近縁（暫定）
+
+  - from: policy:junction_priority
+    to: openx:Domain#Junction
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: policy:stop_yield
+    to: openx:Domain#RegulatorySign
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: policy:lead
+    to: openx:Domain#FollowRoadUser
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+
+  - from: policy:conflict
+    to: openx:Domain#IntersectionAtGrade
+    type: concerns
+    source: GT_esmini/docs/knowledge/concept_vocabulary.yaml
+    note: 交差点内交錯（コンフリクトポイント）の暫定対応クラス
+
+  # ---- シーンカタログ → OpenX（第1段: シーンの意味的分類, 2026-07-17） ----
+  - from: scene:SCN-001
+    to: openx:Domain#Road
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-001
+    to: openx:Domain#KeepLane
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-001
+    to: openx:Domain#FollowTargetSpeed
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-002
+    to: openx:Domain#ChangeLane
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-002
+    to: openx:Domain#Overtake
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-002
+    to: openx:Domain#CutIn
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-002
+    to: openx:Domain#CutOut
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-003
+    to: openx:Domain#FollowRoadUser
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-003
+    to: openx:Domain#Decelerate
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-003
+    to: openx:Domain#Stop
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-004
+    to: openx:Domain#DynamicTrafficSign
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+    note: 信号交差点。TrafficLightクラスはv1.0に無くDynamicTrafficSignで暫定
+
+  - from: scene:SCN-004
+    to: openx:Domain#CrossRoad
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-004
+    to: openx:Domain#MakeATurn
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-005
+    to: openx:Domain#IntersectionAtGrade
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-005
+    to: openx:Domain#RegulatorySign
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-005
+    to: openx:Domain#MakeATurn
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-006
+    to: openx:Domain#Junction
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+    note: 対向車ギャップ受容（右折/RHT左折の対向待ち）。MakeATurn単独と区別
+
+  - from: scene:SCN-006
+    to: openx:Domain#MakeATurn
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-007
+    to: openx:Domain#Roundabout
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-008
+    to: openx:Domain#Motorway
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-008
+    to: openx:Domain#ChangeLane
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-009
+    to: openx:Domain#PedestrianCrossing
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-009
+    to: openx:Domain#Pedestrian
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-009
+    to: openx:Domain#VRU
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-010
+    to: openx:Domain#Bicycle
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-010
+    to: openx:Domain#Motorcycle
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-010
+    to: openx:Domain#CycleLane
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-011
+    to: openx:Domain#Tunnel
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-011
+    to: openx:Domain#Bridge
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-011
+    to: openx:Domain#RailCrossing
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-011
+    to: openx:Domain#TollPlaza
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-012
+    to: openx:Domain#RoadWork
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-012
+    to: openx:Domain#TemporaryRoadStructure
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-012
+    to: openx:Domain#Debris
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-013
+    to: openx:Domain#EmergencyVehicle
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-013
+    to: openx:Domain#SoundSiren
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-013
+    to: openx:Domain#PublicTransportationVehicle
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-014
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-014
+    to: openx:Domain#MoveBackward
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-015
+    to: openx:Domain#SharedSpace
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-015
+    to: openx:Domain#PedestrianZone
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-015
+    to: openx:Domain#SchoolZone
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-016
+    to: openx:Domain#drivingDirection
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+    note: LHT/RHT両建て。全シーンファミリの横断バリアント軸
+
+  - from: scene:SCN-017
+    to: openx:Domain#VehicleCommunicationActivity
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-017
+    to: openx:Domain#UseTurnIndicator
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-017
+    to: openx:Domain#UseHazardLight
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  - from: scene:SCN-018
+    to: openx:Domain#Animal
+    type: concerns
+    source: GT_esmini/docs/knowledge/scene_catalog_vd_ad.yaml
+
+  # ---- 機能要求（提案）→ OpenX（ODD軸の土台） ----
+  - from: proposal:P13
+    to: openx:Domain#EnvironmentalCondition
+    type: concerns
+    source: GT_esmini/docs/feature_proposals_2026-06_details.md
+    note: ODDカバレッジ台帳の環境軸はOpenX傘構造（ISO 34503整合）を土台にする方針
+
+  - from: proposal:P13
+    to: openx:Domain#RoadTopologyAndTrafficInfrastructure
+    type: concerns
+    source: GT_esmini/docs/feature_proposals_2026-06_details.md
+    note: 同・道路トポロジー軸
+
+  - from: proposal:P13
+    to: openx:Domain#TrafficParticipantAndBehavior
+    type: concerns
+    source: GT_esmini/docs/feature_proposals_2026-06_details.md
+    note: 同・交通参加者/行動軸

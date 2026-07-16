@@ -74,3 +74,6 @@ GT_esmini/test/upstream_baselines/** -text
 *.tga filter=lfs diff=lfs merge=lfs -text
 *.tif filter=lfs diff=lfs merge=lfs -text
 *.tiff filter=lfs diff=lfs merge=lfs -text
+
+# Git hooks are POSIX sh - CRLF in the shebang breaks Git for Windows sh
+scripts/git-hooks/* text eol=lf
