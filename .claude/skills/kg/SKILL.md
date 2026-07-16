@@ -57,9 +57,13 @@ slug / id_pattern（fullmatch正規表現）/ source_of_truth / status を定義
 - 修正コミットは `fixes #<n>` — GitHub自動クローズ + `--extract-commits` の両方で辺になる。
 - `--extract-issues` でIssue本文の参照を辺として抽出＋妥当性検査（存在しない名前空間・pattern不一致・語彙未収載openxを `problem:` 付きで報告、invalid有りはexit 1）。`--query <ref> --issues` で照会にIssue言及を含められる（要gh・ネットワーク）。
 
-### コミット慣行（前向きの辺の自動化）
-- 監査ID/F機能/R-Uフェーズ: 従来どおり `(SUB-1)` `(F6)` `(R5-U3)` を記載。
-- 提案に紐づく作業: `(proposal P<n>)` と書く（裸のP<n>は衝突のため抽出対象外）。
+### コミット＝統一窓口（KG判断を人間に依頼しない）
+コミット前に必ず `--suggest` を実行し、3値判定に従う:
+- **mapped** → 提示された候補IDのうち妥当なものをメッセージに引用（`(F6)` `(SUB-1)` `(R5-U3)` `(proposal P<n>)` `fixes #<n>` 形式。裸のP<n>は衝突のため抽出対象外）。候補が実態に合わなければunknownとして判断
+- **exempt** → ID無しでそのままコミット（ガードRule 4も黙る）
+- **unknown** → 自分で判定: 「半年後に背景を探す変更か？」— YESなら関連IDを探して引用（無ければIssue起票を検討）、NO（GUI微修正・typo級）ならID無しで通しaskを自己承認
+**この判定をユーザーに質問しないこと**。迷ったらIDを付けない側に倒す（誤った辺 > 欠けた辺）。候補IDの自動挿入はしない（精度の防波堤）。
+パスと概念の対応が安定して新出したら `path_map.yaml` に追記する（lintがID妥当性を検証）。
 
 ### VD自動運転シーン要求の着地（予約済み・未着手）
 分析完了時: ① `requirements_vd_ad.yaml` に `req-vd-ad:REQ-AD-<nnn>` ノードを起こす → ② namespaces.yaml の `req-vd-ad` を `status: active` へ → ③ 要求→`concerns`→OpenX概念、機能/ポリシー→`realizes`→要求、matcher→`verifies`→要求 で接続。手順詳細は knowledge/README.md §将来拡張。

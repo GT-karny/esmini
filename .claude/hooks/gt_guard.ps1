@@ -115,7 +115,22 @@ if ($tool -match '^(Bash|PowerShell)$') {
     $isExempt = $cmd -match '(?i)(\bwip\b|fixup!|squash!|\bmerge\b|--amend)'
     $hasKgId = $cmd -match '(\bF[1-6]\b|\bR[0-5](-U[1-4])?\b|\bPhase ?[0-4][a-e]?\b|\b(CTL|SUB|VD|CORE|WEB|FE|SCR|BLD|TST|BND|MSC|Critic|GT|PY|XSD|ES)-[0-9]+\b|\b(proposal|plan)\s+P[0-9]+\b|#[0-9]+|\bGT_ODR\b|\bGT_LHT\b)'
     if ($isCommitMsg -and -not $isExempt -and -not $hasKgId) {
-        Emit-Decision 'ask' ('Knowledge-graph workflow (R4): the commit message cites no related ID -- e.g. (F6), (SUB-1), (proposal P13), fixes #30. Cite one so the commit->ID edge is machine-extractable (see /kg), or approve to commit without a reference.')
+        # Unified workflow (R4): consult path_map via --suggest before asking.
+        # verdict exempt -> silent pass; mapped -> ask WITH candidate IDs;
+        # unknown / suggest unavailable -> generic ask (fail open to ask).
+        $reason = 'Knowledge-graph workflow (R4): the commit message cites no related ID -- e.g. (F6), (SUB-1), (proposal P13), fixes #30. Cite one so the commit->ID edge is machine-extractable (see /kg), or approve to commit without a reference.'
+        $py = Join-Path $PSScriptRoot '..\..\DriverScript\.venv\Scripts\python.exe'
+        $kg = Join-Path $PSScriptRoot '..\..\scripts\check_knowledge_graph.py'
+        if ((Test-Path $py) -and (Test-Path $kg)) {
+            $sug = & $py $kg --suggest 2>$null
+            if ($sug -match '(?m)^verdict:\s*exempt') { exit 0 }
+            $idsLine = ($sug | Select-String '^ids:' | Select-Object -First 1)
+            if ($idsLine) {
+                $cand = ($idsLine.Line -replace '^ids:\s*', '')
+                $reason = "Knowledge-graph workflow (R4): no ID cited, but the changed paths map to candidates: $cand (from knowledge/path_map.yaml). Cite the applicable one, or approve to commit without a reference."
+            }
+        }
+        Emit-Decision 'ask' $reason
     }
 
     exit 0

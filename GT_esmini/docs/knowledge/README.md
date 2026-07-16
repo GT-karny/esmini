@@ -17,6 +17,7 @@
 | `namespaces.yaml` | ID体系レジストリ（22系統+予約枠）と辺型定義。**単一真実源** | 新ID体系の追加時のみ手編集 |
 | `graph.yaml` | 手書きの判断系の辺のみ（merged-into / depends-on / concerns 等） | 小さく保つ。導出可能な関係は書かない |
 | `concept_vocabulary.yaml` | ASAM OpenX Ontology 概念のコミット済みスナップショット（部分集合） | `openx:*` を参照する辺/ODD軸が必要になったとき随時追加 |
+| `path_map.yaml` | パス→ID対応表（統一コミットワークフローの判定材料。mapped/exempt/unknownの3値分類） | 対応が安定して新出したら追記。lintがID妥当性を検証 |
 | `graph_view.md` | **人間用ビュー**（Mermaid図＋type別辺一覧）。YAMLを直接読まないこと | **生成物・手編集禁止**。`--render` で再生成 |
 | `requirements_vd_ad.yaml` | （予約・未作成）VD自動運転対応シーン要求の着地点 | 要求分析完了後に作成 |
 

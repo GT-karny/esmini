@@ -54,6 +54,7 @@ KNOWLEDGE_DIR = REPO_ROOT / "GT_esmini" / "docs" / "knowledge"
 NAMESPACES_YAML = KNOWLEDGE_DIR / "namespaces.yaml"
 GRAPH_YAML = KNOWLEDGE_DIR / "graph.yaml"
 VOCAB_YAML = KNOWLEDGE_DIR / "concept_vocabulary.yaml"
+PATH_MAP_YAML = KNOWLEDGE_DIR / "path_map.yaml"
 
 
 def view_hash() -> str:
@@ -173,6 +174,22 @@ def check() -> int:
         if key in seen:
             err(f"{where}: duplicate edge {key}")
         seen.add(key)
+
+    # -- 5b. path_map: globs valid, ids registered ------------------------------
+    if PATH_MAP_YAML.is_file():
+        pm = load_yaml(PATH_MAP_YAML)
+        for i, m in enumerate(pm.get("mappings", [])):
+            where = f"path_map.yaml mapping[{i}]"
+            if not m.get("glob"):
+                err(f"{where}: missing glob")
+            ids = m.get("ids") or []
+            if not ids:
+                err(f"{where}: empty ids")
+            for ref in ids:
+                check_ref(ref, where)
+        for i, e in enumerate(pm.get("exempt", [])):
+            if not e.get("glob"):
+                err(f"path_map.yaml exempt[{i}]: missing glob")
 
     # -- 6. generated view must match its inputs -------------------------------
     if not GRAPH_VIEW_MD.is_file():
@@ -552,6 +569,63 @@ def query(ref: str, depth: int, include_commits: bool,
     return 0
 
 
+def suggest() -> int:
+    """Classify the current changeset against path_map.yaml (unified commit
+    workflow, R4): mapped -> candidate IDs to cite; exempt -> no ID needed;
+    unknown -> committing agent judges. Advisory only, always exits 0."""
+    import fnmatch
+
+    pm = load_yaml(PATH_MAP_YAML) if PATH_MAP_YAML.is_file() else {}
+    files, source = [], "none"
+    for args, label in ((["git", "diff", "--cached", "--name-only"], "staged"),
+                        (["git", "diff", "HEAD", "--name-only"], "worktree")):
+        try:
+            out = subprocess.run(args, capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace",
+                                 cwd=REPO_ROOT, check=True).stdout
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+        files = [line.strip() for line in out.splitlines() if line.strip()]
+        if files:
+            source = label
+            break
+    if not files:
+        print("verdict: none (no changed files detected)")
+        return 0
+
+    ids, unknown, exempt_n = [], [], 0
+    for f in files:
+        f = f.replace("\\", "/")
+        hits = [m for m in pm.get("mappings", [])
+                if m.get("glob") and fnmatch.fnmatch(f, m["glob"])]
+        if hits:
+            for m in hits:
+                ids.extend(m.get("ids", []))
+            continue
+        is_exempt = any(
+            e.get("glob") and fnmatch.fnmatch(f, e["glob"])
+            and not (e.get("unless") and fnmatch.fnmatch(f, e["unless"]))
+            for e in pm.get("exempt", []))
+        if is_exempt:
+            exempt_n += 1
+        else:
+            unknown.append(f)
+
+    ids = sorted(set(ids))
+    verdict = "mapped" if ids else ("exempt" if not unknown else "unknown")
+    print(f"verdict: {verdict}")
+    if ids:
+        print("ids: " + " ".join(ids))
+    print(f"files: {len(files)} ({source}; mapped-covered "
+          f"{len(files) - exempt_n - len(unknown)}, exempt {exempt_n}, "
+          f"unknown {len(unknown)})")
+    for f in unknown[:5]:
+        print(f"unknown: {f}")
+    if len(unknown) > 5:
+        print(f"unknown: ... ({len(unknown) - 5} more)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true",
@@ -563,6 +637,9 @@ def main() -> int:
                          "(validates each; exit 1 on invalid refs)")
     ap.add_argument("--render", action="store_true",
                     help="generate graph_view.md (Mermaid + adjacency tables)")
+    ap.add_argument("--suggest", action="store_true",
+                    help="classify the current changeset via path_map.yaml "
+                         "(mapped / exempt / unknown; advisory)")
     ap.add_argument("--query", metavar="REF",
                     help="show everything related to a node "
                          "(e.g. proposal:P13; bare ids resolved when unambiguous)")
@@ -581,6 +658,8 @@ def main() -> int:
         return extract_issues(args.out)
     if args.render:
         return render(args.out)
+    if args.suggest:
+        return suggest()
     if args.query:
         return query(args.query, args.depth, args.commits, args.issues)
     return check()
