@@ -247,6 +247,7 @@ _VD_POLICY_FLAG = {
     "stop_yield": "policy_stop_yield_enabled",
     "conflict": "policy_conflict_enabled",
     "crosswalk": "policy_crosswalk_enabled",
+    "junction_priority": "policy_junction_priority_enabled",
 }
 
 

@@ -270,6 +270,97 @@ export interface AutoLightConfig {
   highbeam_off_delay_s: number;
 }
 
+// VirtualDriver (Phase 1-3) runtime config — mirrors config/virtual_driver.json's
+// editable keys (issue #33). All fields optional to tolerate partial payloads,
+// matching how the shared file is read (GET returns the on-disk file verbatim,
+// including "_..." comment keys and runner-owned input_* fields not listed here).
+export interface VirtualDriverConfig {
+  // Phase 3 traffic policies
+  policy_lead_enabled?: boolean;
+  policy_traffic_light_enabled?: boolean;
+  policy_stop_yield_enabled?: boolean;
+  policy_conflict_enabled?: boolean;
+  policy_crosswalk_enabled?: boolean;
+  policy_junction_priority_enabled?: boolean;
+  // Planner
+  horizon_s?: number;
+  short_dt?: number;
+  max_lateral_accel?: number;
+  comfort_decel?: number;
+  comfort_jerk?: number;
+  scan_distance?: number;
+  scan_step?: number;
+  turn_speed?: number;
+  min_turn_speed?: number;
+  stop_band?: number;
+  respect_speed_limit?: boolean;
+  // Driver model (PID + Pure Pursuit)
+  lookahead_gain?: number;
+  min_lookahead?: number;
+  max_lookahead?: number;
+  max_steer_angle?: number;
+  steering_sign?: number;
+  speed_kp?: number;
+  speed_ki?: number;
+  speed_kd?: number;
+  control_point_offset?: number;
+  control_point_min_speed?: number;
+  // Indicator
+  indicator_lead_time?: number;
+  indicator_min_on_time?: number;
+  // 3a lead-vehicle IDM follow
+  idm_time_headway?: number;
+  idm_min_gap?: number;
+  idm_max_accel?: number;
+  idm_comfort_decel?: number;
+  idm_desired_speed?: number;
+  idm_lookahead?: number;
+  idm_lateral_tol?: number;
+  idm_target_horizon?: number;
+  // 3b traffic light
+  tl_lookahead?: number;
+  tl_yellow_decel?: number;
+  tl_stop_margin?: number;
+  // 3c stop / yield sign
+  sign_lookahead?: number;
+  stop_hold_time?: number;
+  stop_detect_speed?: number;
+  stop_line_tol?: number;
+  creep_speed?: number;
+  creep_advance?: number;
+  yield_creep_speed?: number;
+  sign_stop_margin?: number;
+  // 3d conflict-corridor resolver
+  conflict_lookahead?: number;
+  conflict_step?: number;
+  conflict_lane_margin?: number;
+  conflict_standoff?: number;
+  conflict_release_buffer?: number;
+  conflict_pet?: number;
+  conflict_nominal_speed?: number;
+  conflict_min_cross_angle_deg?: number;
+  conflict_other_min_speed?: number;
+  conflict_area_eps?: number;
+  // 3d ext crosswalk pedestrian yield
+  crosswalk_lookahead?: number;
+  crosswalk_step?: number;
+  crosswalk_standoff?: number;
+  crosswalk_wait_margin?: number;
+  crosswalk_yield_to_waiting?: boolean;
+  crosswalk_ped_signal_aware?: boolean;
+  crosswalk_signal_link_radius?: number;
+  crosswalk_release_lateral_margin?: number;
+  // Manual override (reuses ManualDrive OverrideManager)
+  override_enabled?: boolean;
+  override_button?: boolean;
+  steering_threshold?: number;
+  throttle_threshold?: number;
+  brake_threshold?: number;
+  auto_return_timeout?: number;
+  override_lateral?: 'manual' | 'scenario';
+  override_longitudinal?: 'manual' | 'scenario';
+}
+
 export interface ControllerConfig {
   controller_type: string;
   python?: {
@@ -850,6 +941,19 @@ export const api = {
 
   getAutoLightDefaults: () =>
     request<AutoLightConfig>('/api/auto-light/defaults'),
+
+  // Virtual Driver config
+  getVirtualDriverConfig: () =>
+    request<VirtualDriverConfig>('/api/virtual-driver/config'),
+
+  updateVirtualDriverConfig: (config: Partial<VirtualDriverConfig>) =>
+    request<VirtualDriverConfig>('/api/virtual-driver/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  getVirtualDriverDefaults: () =>
+    request<VirtualDriverConfig>('/api/virtual-driver/defaults'),
 
   // Projects root
   getProjectsRoot: () =>

@@ -30,7 +30,7 @@ This document defines the architectural boundaries for `GT_esmini` after the fea
   - `config/real_vehicle_params.json` — Vehicle physics parameters
   - `config/host_vehicle_config.json` — HVD reporting config
   - `config/manual_drive.json` — ManualDrive controller settings (input type, button mapping, FFB, domain control)
-  - `config/virtual_driver.json` — VirtualDriver planner/policy/driver-model settings
+  - `config/virtual_driver.json` — VirtualDriver planner/policy/driver-model settings; GUI-editable via `/api/virtual-driver/config` (mirrors manual_drive / auto_light)
   - `config/route_drive_controller.json` — RouteDrive controller settings
   - `config/kinematic_controller.json` — Kinematic controller settings
   - `config/auto_light.json` — F6 environment-driven headlights (night/tunnel/auto high beam; `headlight_enabled` defaults OFF)

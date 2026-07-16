@@ -14,6 +14,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
 import { ManualDrivePanel } from './simulation/ManualDrivePanel';
+import { VirtualDriverPanel } from './simulation/VirtualDriverPanel';
 import { QuickOptionsBar } from './simulation/QuickOptionsBar';
 import { ParameterOverrides } from './simulation/ParameterOverrides';
 import { AdvancedSettings } from './simulation/AdvancedSettings';
@@ -110,6 +111,7 @@ function valuesReducer(state: FormValues, action: ValuesAction): FormValues {
 
 interface UiState {
   showManualPanel: boolean;
+  showVdPanel: boolean;
   showAdvanced: boolean;
   showPresetSave: boolean;
   presetName: string;
@@ -196,11 +198,12 @@ export function SimulationRunForm({
   // UI helpers (panels / advanced toggle / preset-save input) — grouped reducer.
   const [ui, dispatchUi] = useReducer(uiReducer, undefined, () => ({
     showManualPanel: false,
+    showVdPanel: false,
     showAdvanced: !compact,
     showPresetSave: false,
     presetName: '',
   }));
-  const { showManualPanel, showAdvanced, showPresetSave, presetName } = ui;
+  const { showManualPanel, showVdPanel, showAdvanced, showPresetSave, presetName } = ui;
   const patchUi = (patch: Partial<UiState>) => dispatchUi({ type: 'patch', patch });
 
   // Parameter overrides — kept as useState (uses functional updates + the
@@ -426,6 +429,7 @@ export function SimulationRunForm({
         controllerType={controllerType}
         setControllerType={(v) => patchValues({ controllerType: v })}
         onOpenManualSettings={() => patchUi({ showManualPanel: true })}
+        onOpenVirtualDriverSettings={() => patchUi({ showVdPanel: true })}
         driveMode={driveMode}
         setDriveMode={(v) => patchValues({ driveMode: v })}
         routeDriveMode={routeDriveMode}
@@ -440,6 +444,11 @@ export function SimulationRunForm({
         onClose={() => patchUi({ showManualPanel: false })}
         config={manualDriveConfig}
         onChange={(v) => patchValues({ manualDriveConfig: v })}
+      />
+
+      <VirtualDriverPanel
+        open={showVdPanel}
+        onClose={() => patchUi({ showVdPanel: false })}
       />
 
       <div className="border-b border-glass-edge my-3" />

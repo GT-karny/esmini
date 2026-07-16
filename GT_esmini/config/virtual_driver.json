@@ -42,6 +42,7 @@
     "policy_stop_yield_enabled": false,
     "policy_conflict_enabled": false,
     "policy_crosswalk_enabled": false,
+    "policy_junction_priority_enabled": false,
 
     "_policy_lead": "3a lead-vehicle IDM follow",
     "idm_time_headway": 1.5,
@@ -89,6 +90,8 @@
     "crosswalk_ped_signal_aware": true,
     "crosswalk_signal_link_radius": 10.0,
     "crosswalk_release_lateral_margin": 0.5,
+
+    "_policy_junction_priority": "F3 unsignalized-junction priority. Reads OpenDRIVE <priority> (fallback heuristic when absent) to decide right-of-way at uncontrolled junctions; shares the conflict-corridor machinery above. Default OFF.",
 
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": true,

@@ -9,6 +9,22 @@
 
 ---
 
+## 0. 受け入れ基準 (VD-GUI-PARITY)
+
+今後 VD に追加する「設定で On/Off できる項目・調整可能なパラメータ」は、対応する GUI フォーム項目
+（`GT_esmini/web/frontend/src/components/simulation/VirtualDriverPanel.tsx`）と API スキーマ
+（`virtual_driver_api.py` の known-keys — `_BOOL_KEYS` / `_NUMBER_KEYS` / `_STRING_ENUM_KEYS`）更新を
+セットで行うことを実装完了要件とする（issue #33）。C++ 側は `config/virtual_driver.json` をフラット
+行パースするだけなので、GUI/API のキー追加のみで反映される（C++ 変更は不要）。
+
+**GUI vs シナリオ `<Property name="policies">` の優先順位**: 共有 config
+（`config/virtual_driver.json`、GUI 編集対象）＝ベースライン。シナリオの
+`<Property name="policies">` は、そのシナリオ実行時のみ追加でポリシーを有効化する（union）。
+シナリオ側で無効化（OFFへの上書き）はできない — `_write_virtual_driver_config()`
+(`services/simulation_runner.py`) が共有ファイルを基点に **加算的に** ON にするだけの実装のため。
+
+---
+
 ## 1. ビジョン
 
 **「フル車両物理を、人間並みのドライバーロジックで自動運転させる」**。

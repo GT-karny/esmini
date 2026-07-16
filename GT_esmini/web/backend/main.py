@@ -32,6 +32,7 @@ from GT_esmini.web.backend.api import (
     simulations,
     verification,
     annotation,
+    virtual_driver_api,
 )
 from GT_esmini.web.backend.config import GRPC_PORT, HTTP_PORT
 from GT_esmini.web.backend.db.database import init_db
@@ -193,6 +194,7 @@ app.include_router(scripts.router)
 app.include_router(controller_config.router)
 app.include_router(manual_drive_api.router)
 app.include_router(auto_light_api.router)
+app.include_router(virtual_driver_api.router)
 app.include_router(simulations.router)
 app.include_router(results.router)
 app.include_router(config_api.router)
