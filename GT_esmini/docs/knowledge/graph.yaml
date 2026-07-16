@@ -427,3 +427,83 @@ edges:
     type: concerns
     source: GT_esmini/docs/feature_proposals_2026-06_details.md
     note: 同・交通参加者/行動軸
+
+  # ---- VD 機能軸フェーズ0: ADAS/AD 要求トレーサビリティ (req-vd-ad) ----
+  # policy -> realizes -> 要求 / matcher -> verifies -> 要求。
+  # 設計軸: GT_esmini/docs/virtualdriver/adas_axis.md（動機層 × 主体 AD/ADAS）。
+  - from: policy:lead
+    to: req-vd-ad:REQ-AD-002
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 快適機能。LeadVehicleAware(IDM)=ACC相当の定常追従
+  - from: matcher:maintained_following_distance
+    to: req-vd-ad:REQ-AD-002
+    type: verifies
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: THW車間の維持を検証
+  - from: req-vd-ad:REQ-AD-002
+    to: openx:Domain#FollowRoadUser
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 先行車追従のODD軸
+
+  - from: policy:traffic_light
+    to: req-vd-ad:REQ-AD-003
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 法規遵守機能。信号停止
+  - from: matcher:stopped_at_signal
+    to: req-vd-ad:REQ-AD-003
+    type: verifies
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 停止線手前停止を検証
+
+  - from: policy:stop_yield
+    to: req-vd-ad:REQ-AD-004
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 法規遵守機能。一時停止標識
+  - from: matcher:stopped_at_stop_sign
+    to: req-vd-ad:REQ-AD-004
+    type: verifies
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: STOP標識停止を検証
+
+  - from: policy:crosswalk
+    to: req-vd-ad:REQ-AD-005
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 法規遵守機能。歩行者優先
+  - from: matcher:min_obb_separation_above
+    to: req-vd-ad:REQ-AD-005
+    type: verifies
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 歩行者とのOBB分離（衝突ゼロ）を検証
+
+  - from: policy:conflict
+    to: req-vd-ad:REQ-AD-006
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 譲り合い機能。コリドー衝突判定で優先権評価
+  - from: policy:junction_priority
+    to: req-vd-ad:REQ-AD-006
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 譲り合い機能。交差点優先権
+
+  # 安全機能(AEB, #34)= 安全層の初号機。実装(realizes)は未着手、検証は衝突ゼロ不変条件。
+  - from: matcher:min_obb_separation_above
+    to: req-vd-ad:REQ-AD-001
+    type: verifies
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ）
+  - from: req-vd-ad:REQ-AD-001
+    to: proposal:P12
+    type: depends-on
+    source: GT_esmini/docs/virtualdriver/adas_axis.md
+    note: collision-free 不変条件（衝突検出）が回帰固化の前提
+  - from: req-vd-ad:REQ-AD-001
+    to: proposal:P11
+    type: depends-on
+    source: GT_esmini/docs/virtualdriver/adas_axis.md
+    note: 必要減速度/TTC メトリクスが緊急介入判定・検証の前提

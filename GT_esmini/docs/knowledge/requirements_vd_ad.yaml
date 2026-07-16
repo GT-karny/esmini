@@ -1,0 +1,83 @@
+# VirtualDriver 自動運転 / ADAS 対応シーン要求（namespace: req-vd-ad）
+#
+# status: DRAFT (phase 0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md を参照。
+# 各要求は「動機層(tier) × 主体(agent)」の交点に置く。
+#   tier  : safety(安全機能) | compliance(法規遵守機能) | courtesy(譲り合い機能) | comfort(快適機能)
+#   agent : AD(連続計画・交渉) | ADAS(離散ガーディアン/アシスト)
+#
+# ID書式: REQ-AD-NNN (namespaces.yaml の id_pattern REQ-AD-[0-9]{3})。
+# 知識グラフの辺は graph.yaml 側に持つ（policy -> realizes -> 要求 / matcher -> verifies -> 要求）。
+# realized_by / verified_by / related は可読性のための冗長コピー（真実源は graph.yaml）。
+
+tiers:
+  safety:     { ja: 安全機能,     arbitration: override,         note: 快適・法規の上限を破ってよい唯一の層（emergency_decel） }
+  compliance: { ja: 法規遵守機能, arbitration: hard-constraint,  note: 破れない下限。安全にのみ譲る }
+  courtesy:   { ja: 譲り合い機能, arbitration: soft,             note: 法規を超えた協調・譲歩。快適とトレードオフ }
+  comfort:    { ja: 快適機能,     arbitration: soft,             note: 走行品質（車間・滑らかさ） }
+
+agents:
+  AD:   連続的な計画・交渉レイヤ（経路追従＋ルール遵守＋協調）
+  ADAS: 離散的なガーディアン/アシスト機能（特定トリガで介入する保険。AD計画の上に override 層として乗る）
+
+requirements:
+  - id: REQ-AD-001
+    title: 先行車がカットイン後に急制動しても追突しない
+    tier: safety
+    agent: ADAS
+    rationale: >-
+      acc-test.xosc（Ego 120km/h、Targetが t=7 でカットイン→t=11 で -4m/s²急制動）で
+      現状は追突する。快適減速上限を超える緊急ブレーキ（emergency_decel）が必要。
+    realized_by: []                       # AEB未実装（フェーズ1で policy/機能を追加）
+    verified_by: [matcher:min_obb_separation_above]
+    related: [issue:34, proposal:P11, proposal:P12]
+    status: draft
+
+  - id: REQ-AD-002
+    title: 先行車定常追従で車間(THW)が規定範囲かつ加減速が滑らか
+    tier: comfort
+    agent: AD
+    rationale: LeadVehicleAware(IDM)による快適な車間維持。ACC相当。
+    realized_by: [policy:lead]
+    verified_by: [matcher:maintained_following_distance]
+    related: []
+    status: draft
+
+  - id: REQ-AD-003
+    title: 赤信号で停止線手前に停止する
+    tier: compliance
+    agent: AD
+    rationale: 信号法規の遵守（黄色は制動距離マージンで判断）。
+    realized_by: [policy:traffic_light]
+    verified_by: [matcher:stopped_at_signal]
+    related: []
+    status: draft
+
+  - id: REQ-AD-004
+    title: 一時停止標識で停止線手前に停止する
+    tier: compliance
+    agent: AD
+    rationale: STOP標識の遵守（dwell+creep FSM）。
+    realized_by: [policy:stop_yield]
+    verified_by: [matcher:stopped_at_stop_sign]
+    related: []
+    status: draft
+
+  - id: REQ-AD-005
+    title: 横断中の歩行者を優先し衝突しない
+    tier: compliance
+    agent: AD
+    rationale: 歩行者優先（横断中は無条件回避、待ち歩行者は譲り合い層）。
+    realized_by: [policy:crosswalk]
+    verified_by: [matcher:min_obb_separation_above]
+    related: []
+    status: draft
+
+  - id: REQ-AD-006
+    title: 非優先の交差点で対向直進車に譲る
+    tier: courtesy
+    agent: AD
+    rationale: コリドー衝突判定で優先権を評価し、非優先側は STOP_AT_S で待つ。
+    realized_by: [policy:conflict, policy:junction_priority]
+    verified_by: []                       # 交差点譲りの専用matcherは未整備（TODO）
+    related: []
+    status: draft

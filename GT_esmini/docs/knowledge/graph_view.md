@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:7e6c29a6b5547252 -->
+<!-- generated-from: sha256:0a0ef2a47c36abed -->
 
-ノード 106・辺 78（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 117・辺 92（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -24,6 +24,7 @@ flowchart LR
     n_proposal_P7["P7"]
     n_proposal_P11["P11"]
     n_proposal_P26["P26"]
+    n_proposal_P12["P12"]
   end
   subgraph sg_feature["feature｜機能ロードマップ F1-F6"]
     n_feature_F2["F2"]
@@ -133,6 +134,20 @@ flowchart LR
     n_scene_SCN_017["SCN-017"]
     n_scene_SCN_018["SCN-018"]
   end
+  subgraph sg_req_vd_ad["req-vd-ad｜VirtualDriver 自動運転/ADAS 対応シーン要求（機能軸 安全/快適/法規遵守/譲り合い）"]
+    n_req_vd_ad_REQ_AD_002["REQ-AD-002"]
+    n_req_vd_ad_REQ_AD_003["REQ-AD-003"]
+    n_req_vd_ad_REQ_AD_004["REQ-AD-004"]
+    n_req_vd_ad_REQ_AD_005["REQ-AD-005"]
+    n_req_vd_ad_REQ_AD_006["REQ-AD-006"]
+    n_req_vd_ad_REQ_AD_001["REQ-AD-001"]
+  end
+  subgraph sg_matcher["matcher｜検証matcher（vd_metrics event語彙）"]
+    n_matcher_maintained_following_distance["maintained_following_distance"]
+    n_matcher_stopped_at_signal["stopped_at_signal"]
+    n_matcher_stopped_at_stop_sign["stopped_at_stop_sign"]
+    n_matcher_min_obb_separation_above["min_obb_separation_above"]
+  end
   n_proposal_P24 -->|merged-into| n_proposal_P15
   n_proposal_P39 -->|merged-into| n_proposal_P13
   n_proposal_P8 -->|merged-into| n_proposal_P2
@@ -211,6 +226,20 @@ flowchart LR
   n_proposal_P13 -. concerns .-> n_openx_Domain_EnvironmentalCondition
   n_proposal_P13 -. concerns .-> n_openx_Domain_RoadTopologyAndTrafficInfrastructure
   n_proposal_P13 -. concerns .-> n_openx_Domain_TrafficParticipantAndBehavior
+  n_policy_lead -->|realizes| n_req_vd_ad_REQ_AD_002
+  n_matcher_maintained_following_distance -->|verifies| n_req_vd_ad_REQ_AD_002
+  n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
+  n_policy_traffic_light -->|realizes| n_req_vd_ad_REQ_AD_003
+  n_matcher_stopped_at_signal -->|verifies| n_req_vd_ad_REQ_AD_003
+  n_policy_stop_yield -->|realizes| n_req_vd_ad_REQ_AD_004
+  n_matcher_stopped_at_stop_sign -->|verifies| n_req_vd_ad_REQ_AD_004
+  n_policy_crosswalk -->|realizes| n_req_vd_ad_REQ_AD_005
+  n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_005
+  n_policy_conflict -->|realizes| n_req_vd_ad_REQ_AD_006
+  n_policy_junction_priority -->|realizes| n_req_vd_ad_REQ_AD_006
+  n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_001
+  n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
+  n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
 ```
 
 ## 辺の一覧（type別）
@@ -221,7 +250,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `proposal:P11` | `feature:F2` | 安全マージン評価に直結・F2と並走前提 |
 
-### concerns (60)
+### concerns (61)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -285,8 +314,9 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#EnvironmentalCondition` | ODDカバレッジ台帳の環境軸はOpenX傘構造（ISO 34503整合）を土台にする方針 |
 | `proposal:P13` | `openx:Domain#RoadTopologyAndTrafficInfrastructure` | 同・道路トポロジー軸 |
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
+| `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (6)
+### depends-on (8)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -296,6 +326,8 @@ flowchart LR
 | `proposal:P26` | `debt-phase:R5-U4` | OSIポート設計のすり合わせが前提（R5-U4は完了済み） |
 | `feature:F6` | `debt-phase:R5-U3` | ライトストレージ統合（vehLghtStsList一本化）完了後に着手（両方完了済み） |
 | `feature:F3` | `odr-plan:P5` | junction priorityデータはODRプランP5で着地、消費はF3（Phase3e） |
+| `req-vd-ad:REQ-AD-001` | `proposal:P12` | collision-free 不変条件（衝突検出）が回帰固化の前提 |
+| `req-vd-ad:REQ-AD-001` | `proposal:P11` | 必要減速度/TTC メトリクスが緊急介入判定・検証の前提 |
 
 ### merged-into (3)
 
@@ -304,6 +336,17 @@ flowchart LR
 | `proposal:P24` | `proposal:P15` | 同一提案としてP15に一本化 |
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
+
+### realizes (6)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `policy:lead` | `req-vd-ad:REQ-AD-002` | 快適機能。LeadVehicleAware(IDM)=ACC相当の定常追従 |
+| `policy:traffic_light` | `req-vd-ad:REQ-AD-003` | 法規遵守機能。信号停止 |
+| `policy:stop_yield` | `req-vd-ad:REQ-AD-004` | 法規遵守機能。一時停止標識 |
+| `policy:crosswalk` | `req-vd-ad:REQ-AD-005` | 法規遵守機能。歩行者優先 |
+| `policy:conflict` | `req-vd-ad:REQ-AD-006` | 譲り合い機能。コリドー衝突判定で優先権評価 |
+| `policy:junction_priority` | `req-vd-ad:REQ-AD-006` | 譲り合い機能。交差点優先権 |
 
 ### shares-design-with (2)
 
@@ -322,6 +365,16 @@ flowchart LR
 | `fork-patch:13` | `odr-upstream-pr:PR-3` |  |
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
+
+### verifies (5)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `matcher:maintained_following_distance` | `req-vd-ad:REQ-AD-002` | THW車間の維持を検証 |
+| `matcher:stopped_at_signal` | `req-vd-ad:REQ-AD-003` | 停止線手前停止を検証 |
+| `matcher:stopped_at_stop_sign` | `req-vd-ad:REQ-AD-004` | STOP標識停止を検証 |
+| `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-005` | 歩行者とのOBB分離（衝突ゼロ）を検証 |
+| `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-001` | カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ） |
 
 ## OpenX概念 逆引き
 
@@ -342,7 +395,7 @@ curated辺のみ。Issue/コミット言及まで含めた逆引きは `--query 
 | `Domain#DynamicTrafficSign` | 動的交通標識（可変標識。信号機の最近縁クラス — TrafficLightクラスはv1.0に無い） | `policy:traffic_light`, `scene:SCN-004` |
 | `Domain#EmergencyVehicle` | 緊急車両（NonVRU） | `scene:SCN-013` |
 | `Domain#EnvironmentalCondition` | 環境条件（天候・照明・時刻・粒子状物質等の親クラス） | `proposal:P13` |
-| `Domain#FollowRoadUser` | 先行者追従 | `policy:lead`, `scene:SCN-003` |
+| `Domain#FollowRoadUser` | 先行者追従 | `policy:lead`, `req-vd-ad:REQ-AD-002`, `scene:SCN-003` |
 | `Domain#FollowTargetSpeed` | 目標速度追従（ManeuverLevelActivity） | `scene:SCN-001` |
 | `Domain#IlluminationCondition` | 照明条件（昼光・夜間・人工照明の親クラス） | `feature:F6` |
 | `Domain#IntersectionAtGrade` | 平面交差点 | `policy:conflict`, `scene:SCN-005` |

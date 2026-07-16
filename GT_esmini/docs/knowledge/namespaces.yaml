@@ -284,12 +284,16 @@ namespaces:
   # ---- 予約枠（将来の分析結果の着地点） ----
 
   - slug: req-vd-ad
-    title: VirtualDriver 自動運転対応シーン要求（分析予定）
+    title: "VirtualDriver 自動運転/ADAS 対応シーン要求（機能軸 安全/快適/法規遵守/譲り合い）"
     entity_type: requirement
     id_pattern: "REQ-AD-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    status: reserved
-    count: 0
+    status: active
+    count: 6
+    notes: >-
+      機能軸フェーズ0で activate（seed要求 REQ-AD-001..006）。設計軸は
+      GT_esmini/docs/virtualdriver/adas_axis.md（動機層 safety/comfort/compliance/courtesy ×
+      主体 AD/ADAS）。policy -> realizes -> 要求 / matcher -> verifies -> 要求 で graph.yaml に接続。
     notes: >-
       scene カタログ確定後、各シーンから要求を導出して requirements_vd_ad.yaml
       に起こし、status を active に変更。要求→シーンは derived-from 系の辺
