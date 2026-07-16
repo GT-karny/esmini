@@ -1,0 +1,83 @@
+# VirtualDriver ADAS/AD 機能カタログ（namespace: vd-func）
+#
+# status: DRAFT (機能軸フェーズ0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md。
+# 「動機層(tier) × 主体(agent)」の2軸で VD にありうる機能を網羅列挙したスーパーセット
+# （剪定前）。GT_esmini(OSI GroundTruth・人間ドライバ無し)で意味を持つかは status/scope で示す。
+#
+# フィールド:
+#   id        : FUNC-NNN (namespaces.yaml id_pattern FUNC-[0-9]{3})
+#   tier      : safety(安全機能) | comfort(快適機能) | compliance(法規遵守機能) | courtesy(譲り合い機能)
+#   agent     : AD(連続計画・交渉) | ADAS(離散ガーディアン/アシスト)
+#   dim       : lon(縦) | lat(横) | both(複合) | none
+#   status    : built(既存) | partial(部分・プランナ/ドライバ層) | none(未) | oos(スコープ外)
+#   by        : 実装元（policy:slug / planner / driver）。graph.yaml の realizes 辺が真実源、ここは冗長コピー
+#   note      : 補足・GT_esmini適性・道路データ依存等
+#
+# 知識グラフ辺（真実源=graph.yaml）:
+#   policy -> realizes -> vd-func（実装が機能を実現）
+#   vd-func -> realizes -> req-vd-ad（機能が要求を充足）
+#   matcher -> verifies -> req-vd-ad（検証）
+#
+# 横断的スコープ注意（剪定の観点）:
+#   - 人間ドライバ不在: 警報(FCW/BSW)はVDでは"挙動(介入)"に翻訳。純警報は優先度低。
+#   - 知覚は現状完全(GroundTruth): 死角/センサ制限前提の機能は知覚劣化モデル導入まで意味薄。
+#   - 車両ダイナミクス系(ESC/横転/ABS)は VehiclePhysicsManager の領分=VD行動層スコープ外。
+#   - 道路依存: 踏切/一方通行/専用レーン/スクールゾーン等は OpenDRIVE に情報がある事が前提。
+#   - 1機能が複数層にまたがる場合は主たる層で分類し note にクロスを記す。
+
+functions:
+  # ===== 安全機能 safety（override層・ADAS寄り＝最後の砦） =====
+  - { id: FUNC-001, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "前方AEB。先行車・カットインへの緊急制動。安全層の初号機（issue #34 / REQ-AD-001）" }
+  - { id: FUNC-002, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "VRU向けAEB。歩行者・自転車への緊急制動" }
+  - { id: FUNC-003, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "交差点AEB。出会い頭/右左折時の横断車への緊急制動" }
+  - { id: FUNC-004, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "後方衝突警報/被追突緩和。後方接近車への予防（前進/点滅など限定的）" }
+  - { id: FUNC-005, tier: safety, agent: ADAS, dim: none, status: none, by: '', note: "FCW前方衝突警報。AEB前段。人間不在のためVDでは介入(AEB)に統合、純警報は優先度低" }
+  - { id: FUNC-006, tier: safety, agent: ADAS, dim: lat,  status: none, by: '', note: "緊急回避操舵(ESA)。制動で間に合わない時の回避ステア" }
+  - { id: FUNC-007, tier: safety, agent: ADAS, dim: lat,  status: none, by: '', note: "緊急レーンキープ(ELK)。対向/路外への逸脱を強制阻止" }
+  - { id: FUNC-008, tier: safety, agent: ADAS, dim: lat,  status: none, by: '', note: "ブラインドスポット介入。死角車がいる時のLC阻止。知覚劣化モデル導入で本格化" }
+  - { id: FUNC-009, tier: safety, agent: ADAS, dim: lat,  status: none, by: '', note: "対向はみ出し衝突回避。追い越し/センターはみ出しの横回避" }
+  - { id: FUNC-010, tier: safety, agent: ADAS, dim: both, status: none, by: '', note: "MRM(最小リスク停止)。故障・ODD逸脱時の安全側停止" }
+  - { id: FUNC-011, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "車間安全下限。快適追従でも割り込めない絶対最小車間/TTC" }
+  - { id: FUNC-012, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "速度安全上限。物理/視界に対する緊急速度制限" }
+
+  # ===== 快適機能 comfort（soft最適化・AD寄り） =====
+  - { id: FUNC-013, tier: comfort, agent: AD, dim: lon,  status: built,   by: 'policy:lead', note: "ACC定常追従。IDM車間維持（REQ-AD-002）" }
+  - { id: FUNC-014, tier: comfort, agent: AD, dim: lon,  status: none,    by: '', note: "Stop&Go/渋滞追従。低速で停止→再発進" }
+  - { id: FUNC-015, tier: comfort, agent: AD, dim: lon,  status: partial, by: 'planner', note: "予見的カーブ減速。ManeuverAwareSpeedPlanner の曲率速度" }
+  - { id: FUNC-016, tier: comfort, agent: AD, dim: lon,  status: partial, by: 'planner', note: "ISA的快適巡航。respect_speed_limit で制限速度に追従" }
+  - { id: FUNC-017, tier: comfort, agent: AD, dim: lon,  status: partial, by: 'planner', note: "滑らかな加減速/ジャーク制限。comfort_jerk" }
+  - { id: FUNC-018, tier: comfort, agent: AD, dim: lon,  status: none,    by: '', note: "予見的勾配速度。坂道での速度調整。道路縦断勾配データ依存" }
+  - { id: FUNC-019, tier: comfort, agent: AD, dim: lat,  status: partial, by: 'driver', note: "レーンセンタリング(LCC)。PIDPurePursuitDriver の経路追従" }
+  - { id: FUNC-020, tier: comfort, agent: AD, dim: lat,  status: partial, by: 'driver', note: "滑らかなレーンチェンジ。storyboard由来のLC実行を快適化" }
+  - { id: FUNC-021, tier: comfort, agent: AD, dim: both, status: none,    by: '', note: "Traffic Jam Assist。低速でACC+センタリング統合" }
+  - { id: FUNC-022, tier: comfort, agent: AD, dim: both, status: none,    by: '', note: "ハイウェイパイロット快適挙動。追い越し判断込みの巡航" }
+
+  # ===== 法規遵守機能 compliance（hard制約・AD） =====
+  - { id: FUNC-023, tier: compliance, agent: AD, dim: lon,  status: built,   by: 'policy:traffic_light',    note: "信号遵守。赤/黄で停止（REQ-AD-003）" }
+  - { id: FUNC-024, tier: compliance, agent: AD, dim: lon,  status: built,   by: 'policy:stop_yield',       note: "一時停止標識遵守。STOPで停止線手前停止（REQ-AD-004）" }
+  - { id: FUNC-025, tier: compliance, agent: AD, dim: lon,  status: partial, by: 'policy:stop_yield',       note: "譲れ標識遵守。YIELDで減速・譲る（法規+譲り合いのクロス）" }
+  - { id: FUNC-026, tier: compliance, agent: AD, dim: lon,  status: partial, by: 'planner',                 note: "ISA(速度制限遵守)。法定速度厳守。快適巡航FUNC-016と同機構、法規側の硬い下限扱い" }
+  - { id: FUNC-027, tier: compliance, agent: AD, dim: lon,  status: built,   by: 'policy:crosswalk',        note: "横断歩道の歩行者優先。横断中は無条件停止（REQ-AD-005）" }
+  - { id: FUNC-028, tier: compliance, agent: AD, dim: lat,  status: partial, by: 'road',                    note: "通行区分(LHT/RHT)遵守。道路遷移/indicatorで一部実現" }
+  - { id: FUNC-029, tier: compliance, agent: AD, dim: both, status: partial, by: 'policy:junction_priority', note: "交差点優先権規則。非制御交差点の法的優先" }
+  - { id: FUNC-030, tier: compliance, agent: AD, dim: lat,  status: none,    by: '', note: "追い越し禁止/実線遵守。no-overtakingゾーン。道路標示データ依存" }
+  - { id: FUNC-031, tier: compliance, agent: AD, dim: lon,  status: none,    by: '', note: "踏切一時停止。鉄道横断の停止義務。OdrRailroad(道路)有・VD挙動未" }
+  - { id: FUNC-032, tier: compliance, agent: AD, dim: lon,  status: none,    by: '', note: "スクールゾーン/速度ゾーン遵守。区域データ依存" }
+  - { id: FUNC-033, tier: compliance, agent: AD, dim: both, status: none,    by: '', note: "進入禁止/一方通行遵守。道路属性依存" }
+  - { id: FUNC-034, tier: compliance, agent: AD, dim: lat,  status: none,    by: '', note: "右左折禁止(turn restriction)遵守" }
+  - { id: FUNC-035, tier: compliance, agent: AD, dim: lat,  status: none,    by: '', note: "バス/専用レーン遵守。走行可否レーン" }
+  - { id: FUNC-036, tier: compliance, agent: AD, dim: both, status: none,    by: '', note: "緊急車両への道譲り(法的義務)。サイレン車に進路譲り（譲り合いFUNC-046のクロス）" }
+  - { id: FUNC-037, tier: compliance, agent: AD, dim: lon,  status: partial, by: 'policy:crosswalk',        note: "歩行者信号遵守。walk/don't-walk連動(crosswalk signal-aware)" }
+
+  # ===== 譲り合い機能 courtesy（soft・AD＝法規を超えた協調） =====
+  - { id: FUNC-038, tier: courtesy, agent: AD, dim: both, status: built,   by: 'policy:conflict',   note: "非制御交差点の譲り。誰が先に行くかの交渉（REQ-AD-006）" }
+  - { id: FUNC-039, tier: courtesy, agent: AD, dim: both, status: none,    by: '', note: "協調合流(ファスナー)。合流の車間生成・受容" }
+  - { id: FUNC-040, tier: courtesy, agent: AD, dim: lon,  status: none,    by: '', note: "オンランプ流入車への譲り。本線側の譲歩" }
+  - { id: FUNC-041, tier: courtesy, agent: AD, dim: lon,  status: built,   by: 'policy:crosswalk',   note: "待ち歩行者への譲り。法的義務を超えた停止(crosswalk waiting rule)" }
+  - { id: FUNC-042, tier: courtesy, agent: AD, dim: lon,  status: none,    by: '', note: "割り込み車の受容。カットインを安全に通す車間提供。AEB(FUNC-001)と協調" }
+  - { id: FUNC-043, tier: courtesy, agent: AD, dim: both, status: none,    by: '', note: "ラウンドアバウト交渉。環状交差点の進入/譲り" }
+  - { id: FUNC-044, tier: courtesy, agent: AD, dim: lat,  status: none,    by: '', note: "追い越し車への進路譲り。move-over/遅い車の左寄せ" }
+  - { id: FUNC-045, tier: courtesy, agent: AD, dim: both, status: none,    by: '', note: "狭路すれ違い交渉。どちらが待避/バックか" }
+  - { id: FUNC-046, tier: courtesy, agent: AD, dim: both, status: none,    by: '', note: "緊急車両への協調(義務超え)。積極的な進路確保（法規FUNC-036のクロス）" }
+  - { id: FUNC-047, tier: courtesy, agent: AD, dim: lon,  status: none,    by: '', note: "協調減速(渋滞緩和)。string stability維持" }
+  - { id: FUNC-048, tier: courtesy, agent: AD, dim: none, status: none,    by: '', note: "意図伝達(合図)。パッシング等の意思表示。sim制約大" }

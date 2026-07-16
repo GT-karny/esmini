@@ -54,7 +54,11 @@ AD層が何を計画していようが、TTCが臨界なら安全機能（ADAS�
 
 動機層（軸1）と主体（軸2）は**直交**する。1つの要求／機能は「層 × 主体」の交点に置かれる。
 
-## 3. 既存VD挙動のマッピング
+## 3. 機能カタログと既存VD挙動のマッピング
+
+> **網羅版カタログ**: `GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml`（namespace `vd-func`、
+> FUNC-001..048）に4系統×AD/ADASの全候補機能を列挙。以下は既存実装のダイジェスト。
+> トレーサビリティ: `policy -> realizes -> vd-func(機能) -> realizes -> req-vd-ad(要求)`。
 
 | 既存挙動（source） | 動機層 | 主体 | 備考 |
 | :--- | :--- | :--- | :--- |

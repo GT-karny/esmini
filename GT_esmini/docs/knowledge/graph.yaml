@@ -428,75 +428,127 @@ edges:
     source: GT_esmini/docs/feature_proposals_2026-06_details.md
     note: 同・交通参加者/行動軸
 
-  # ---- VD 機能軸フェーズ0: ADAS/AD 要求トレーサビリティ (req-vd-ad) ----
-  # policy -> realizes -> 要求 / matcher -> verifies -> 要求。
-  # 設計軸: GT_esmini/docs/virtualdriver/adas_axis.md（動機層 × 主体 AD/ADAS）。
+  # ---- VD 機能軸フェーズ0: ADAS/AD トレーサビリティ (vd-func / req-vd-ad) ----
+  # 3段チェーン: policy -> realizes -> vd-func(機能) -> realizes -> req-vd-ad(要求)。
+  # matcher -> verifies -> 要求。設計軸: GT_esmini/docs/virtualdriver/adas_axis.md。
+
+  # --- policy -> realizes -> vd-func（実装済み/部分機能の実装元マッピング） ---
   - from: policy:lead
+    to: vd-func:FUNC-013
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: ACC定常追従(快適)=LeadVehicleAware(IDM)
+  - from: policy:traffic_light
+    to: vd-func:FUNC-023
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 信号遵守(法規)
+  - from: policy:stop_yield
+    to: vd-func:FUNC-024
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 一時停止標識遵守(法規)
+  - from: policy:stop_yield
+    to: vd-func:FUNC-025
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 譲れ標識遵守(法規+譲り合い・部分)
+  - from: policy:crosswalk
+    to: vd-func:FUNC-027
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 横断歩道の歩行者優先(法規)
+  - from: policy:crosswalk
+    to: vd-func:FUNC-037
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 歩行者信号遵守(法規・部分, signal-aware)
+  - from: policy:crosswalk
+    to: vd-func:FUNC-041
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 待ち歩行者への譲り(譲り合い)
+  - from: policy:conflict
+    to: vd-func:FUNC-038
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 非制御交差点の譲り(譲り合い)
+  - from: policy:junction_priority
+    to: vd-func:FUNC-029
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 交差点優先権規則(法規・部分)
+
+  # --- vd-func -> realizes -> req-vd-ad（機能が要求を充足） ---
+  - from: vd-func:FUNC-001
+    to: req-vd-ad:REQ-AD-001
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 前方AEB(安全・未実装)がカットイン衝突回避要求を充足
+  - from: vd-func:FUNC-013
     to: req-vd-ad:REQ-AD-002
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 快適機能。LeadVehicleAware(IDM)=ACC相当の定常追従
+    note: ACC定常追従(快適)が車間維持要求を充足
+  - from: vd-func:FUNC-023
+    to: req-vd-ad:REQ-AD-003
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 信号遵守が赤信号停止要求を充足
+  - from: vd-func:FUNC-024
+    to: req-vd-ad:REQ-AD-004
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 一時停止標識遵守が停止要求を充足
+  - from: vd-func:FUNC-027
+    to: req-vd-ad:REQ-AD-005
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 横断歩道の歩行者優先が歩行者衝突回避要求を充足
+  - from: vd-func:FUNC-038
+    to: req-vd-ad:REQ-AD-006
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 非制御交差点の譲りが交差点譲り要求を充足
+  - from: vd-func:FUNC-029
+    to: req-vd-ad:REQ-AD-006
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 交差点優先権規則が交差点譲り要求を充足
+
+  # --- matcher -> verifies -> req-vd-ad（検証） ---
   - from: matcher:maintained_following_distance
     to: req-vd-ad:REQ-AD-002
     type: verifies
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: THW車間の維持を検証
-  - from: req-vd-ad:REQ-AD-002
-    to: openx:Domain#FollowRoadUser
-    type: concerns
-    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 先行車追従のODD軸
-
-  - from: policy:traffic_light
-    to: req-vd-ad:REQ-AD-003
-    type: realizes
-    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 法規遵守機能。信号停止
   - from: matcher:stopped_at_signal
     to: req-vd-ad:REQ-AD-003
     type: verifies
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 停止線手前停止を検証
-
-  - from: policy:stop_yield
-    to: req-vd-ad:REQ-AD-004
-    type: realizes
-    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 法規遵守機能。一時停止標識
   - from: matcher:stopped_at_stop_sign
     to: req-vd-ad:REQ-AD-004
     type: verifies
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: STOP標識停止を検証
-
-  - from: policy:crosswalk
-    to: req-vd-ad:REQ-AD-005
-    type: realizes
-    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 法規遵守機能。歩行者優先
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-005
     type: verifies
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 歩行者とのOBB分離（衝突ゼロ）を検証
-
-  - from: policy:conflict
-    to: req-vd-ad:REQ-AD-006
-    type: realizes
-    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 譲り合い機能。コリドー衝突判定で優先権評価
-  - from: policy:junction_priority
-    to: req-vd-ad:REQ-AD-006
-    type: realizes
-    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 譲り合い機能。交差点優先権
-
-  # 安全機能(AEB, #34)= 安全層の初号機。実装(realizes)は未着手、検証は衝突ゼロ不変条件。
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-001
     type: verifies
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ）
+
+  # --- 要求 -> concerns/depends-on ---
+  - from: req-vd-ad:REQ-AD-002
+    to: openx:Domain#FollowRoadUser
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 先行車追従のODD軸
   - from: req-vd-ad:REQ-AD-001
     to: proposal:P12
     type: depends-on

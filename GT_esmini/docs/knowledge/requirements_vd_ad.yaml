@@ -27,7 +27,7 @@ requirements:
     rationale: >-
       acc-test.xosc（Ego 120km/h、Targetが t=7 でカットイン→t=11 で -4m/s²急制動）で
       現状は追突する。快適減速上限を超える緊急ブレーキ（emergency_decel）が必要。
-    realized_by: []                       # AEB未実装（フェーズ1で policy/機能を追加）
+    realized_by: [vd-func:FUNC-001]       # 前方AEB（未実装。フェーズ1で policy を追加）
     verified_by: [matcher:min_obb_separation_above]
     related: [issue:34, proposal:P11, proposal:P12]
     status: draft
@@ -37,7 +37,7 @@ requirements:
     tier: comfort
     agent: AD
     rationale: LeadVehicleAware(IDM)による快適な車間維持。ACC相当。
-    realized_by: [policy:lead]
+    realized_by: [vd-func:FUNC-013]        # ACC (policy:lead)
     verified_by: [matcher:maintained_following_distance]
     related: []
     status: draft
@@ -47,7 +47,7 @@ requirements:
     tier: compliance
     agent: AD
     rationale: 信号法規の遵守（黄色は制動距離マージンで判断）。
-    realized_by: [policy:traffic_light]
+    realized_by: [vd-func:FUNC-023]        # 信号遵守 (policy:traffic_light)
     verified_by: [matcher:stopped_at_signal]
     related: []
     status: draft
@@ -57,7 +57,7 @@ requirements:
     tier: compliance
     agent: AD
     rationale: STOP標識の遵守（dwell+creep FSM）。
-    realized_by: [policy:stop_yield]
+    realized_by: [vd-func:FUNC-024]        # 一時停止 (policy:stop_yield)
     verified_by: [matcher:stopped_at_stop_sign]
     related: []
     status: draft
@@ -67,7 +67,7 @@ requirements:
     tier: compliance
     agent: AD
     rationale: 歩行者優先（横断中は無条件回避、待ち歩行者は譲り合い層）。
-    realized_by: [policy:crosswalk]
+    realized_by: [vd-func:FUNC-027]        # 横断歩道歩行者優先 (policy:crosswalk)
     verified_by: [matcher:min_obb_separation_above]
     related: []
     status: draft
@@ -77,7 +77,7 @@ requirements:
     tier: courtesy
     agent: AD
     rationale: コリドー衝突判定で優先権を評価し、非優先側は STOP_AT_S で待つ。
-    realized_by: [policy:conflict, policy:junction_priority]
+    realized_by: [vd-func:FUNC-038, vd-func:FUNC-029]  # 非制御交差点譲り+交差点優先権
     verified_by: []                       # 交差点譲りの専用matcherは未整備（TODO）
     related: []
     status: draft

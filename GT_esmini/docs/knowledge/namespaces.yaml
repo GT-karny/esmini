@@ -293,9 +293,19 @@ namespaces:
     notes: >-
       機能軸フェーズ0で activate（seed要求 REQ-AD-001..006）。設計軸は
       GT_esmini/docs/virtualdriver/adas_axis.md（動機層 safety/comfort/compliance/courtesy ×
-      主体 AD/ADAS）。policy -> realizes -> 要求 / matcher -> verifies -> 要求 で graph.yaml に接続。
+      主体 AD/ADAS）。トレーサビリティは policy -> realizes -> vd-func(機能) ->
+      realizes -> req-vd-ad(要求) の3段チェーン、matcher -> verifies -> 要求。
+      機能カタログは vd-func 名前空間（function_catalog_vd_ad.yaml）。
+
+  - slug: vd-func
+    title: "VirtualDriver ADAS/AD 機能カタログ（安全/快適/法規遵守/譲り合い × AD/ADAS）"
+    entity_type: function
+    id_pattern: "FUNC-[0-9]{3}"
+    source_of_truth: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    status: active
+    count: 48
     notes: >-
-      scene カタログ確定後、各シーンから要求を導出して requirements_vd_ad.yaml
-      に起こし、status を active に変更。要求→シーンは derived-from 系の辺
-      （型はシーン整理後に確定）、要求→機能/ポリシー/matcher は
-      realizes / verifies / concerns 辺で接続する（README §将来拡張を参照）。
+      機能軸フェーズ0の網羅列挙スーパーセット（FUNC-001..048、剪定前）。tier/agent/status
+      は catalog 側のフィールド（ID書式には含めない＝再分類でID不変）。実装済み機能は
+      policy -> realizes -> vd-func 辺、要求充足は vd-func -> realizes -> req-vd-ad 辺。
+      設計軸は GT_esmini/docs/virtualdriver/adas_axis.md。
