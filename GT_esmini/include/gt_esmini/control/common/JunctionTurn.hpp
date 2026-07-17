@@ -76,7 +76,11 @@ inline int RouteLookaheadJunctionTurnDirection(const roadmanager::Position& star
 
     while (traveled < lookahead)
     {
-        const int ret = static_cast<int>(pos.MoveAlongS(step));
+        // [Issue #31] straight-most (0.0), not the randomizing -1.0 convenience overload:
+        // an off-route prediction must not re-roll the connecting road (which would flip the
+        // detected junction turn direction frame-to-frame). A valid on-route route still steers.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC)) break;
         traveled += step;
 

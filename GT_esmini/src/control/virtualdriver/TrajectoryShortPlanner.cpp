@@ -119,7 +119,9 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     double cp_applied = 0.0;
     if (lat_actions.empty() && ctx.control_point_offset > 1e-6)
     {
-        if (pos.MoveAlongS(ctx.control_point_offset) !=
+        // [Issue #31] straight-most deterministic overload (same rationale as the preview walk below).
+        if (pos.MoveAlongS(ctx.control_point_offset, 0.0, 0.0, true,
+                           roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true) !=
             roadmanager::Position::ReturnCode::ERROR_GENERIC)
             cp_applied = ctx.control_point_offset;
     }
@@ -147,7 +149,13 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
         double v_here = SampleTargetSpeed(ctx, acc_dist);
         double ds     = std::max(cfg_.min_step, std::fabs(v_here) * dt);
 
-        int ret = static_cast<int>(pos.MoveAlongS(ds));
+        // [Issue #31] straight-most (0.0), not the -1.0 convenience overload. When the
+        // isolated prediction is off-route the -1.0 path RANDOMIZES the connecting road, so the
+        // driver-preview trajectory (snap.preview) flickers between the straight and turning
+        // connectors frame-to-frame -- the reported "straight Traj / left Traj" alternation. A
+        // valid on-route route still steers inside MoveToConnectingRoad.
+        int ret = static_cast<int>(pos.MoveAlongS(ds, 0.0, 0.0, true,
+                                                  roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC))
             break;
         acc_dist += ds;

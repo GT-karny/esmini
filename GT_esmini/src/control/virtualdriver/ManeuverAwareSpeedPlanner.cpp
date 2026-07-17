@@ -98,7 +98,12 @@ std::vector<ScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig&
                            BindingKind(on_junction, v_curve, v_limit, previous_limit)});
         previous_limit = v_limit;
 
-        const int ret = static_cast<int>(pos.MoveAlongS(step));
+        // [Issue #31] straight-most (0.0), not the -1.0 convenience overload that randomizes
+        // the connecting road when the prediction is off-route -> the junction speed scan would
+        // flicker between the straight connector and a turn connector (spurious turn/curve decel).
+        // A valid on-route route still wins in MoveToConnectingRoad. See RouteCrosswalkScan.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret < 0) break;
         s_ahead += step;
     }

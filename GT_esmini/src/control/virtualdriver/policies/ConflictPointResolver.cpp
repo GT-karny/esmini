@@ -272,7 +272,14 @@ std::vector<PathPoint> PredictPath(Object* obj, double lookahead, double step)
     double traveled = 0.0;
     while (traveled < lookahead)
     {
-        const int ret = static_cast<int>(pos.MoveAlongS(step));
+        // [Issue #31] junctionSelectorAngle = 0.0 (straight-most, deterministic), NOT the
+        // convenience overload's -1.0 which RANDOMIZES the connecting road whenever the
+        // isolated prediction is off-route (on_route_ == false). Random selection makes the
+        // ego corridor flicker between the straight and turning connectors frame-to-frame
+        // (Issue #31 "straight/left Traj alternation"). A valid on-route route still wins
+        // inside MoveToConnectingRoad. Mirrors RouteCrosswalkScan / FindUpcomingConnectingRoad.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret < 0) break;  // end of route / off-route
         traveled += step;
         out.push_back({pos.GetX(), pos.GetY(), traveled});
