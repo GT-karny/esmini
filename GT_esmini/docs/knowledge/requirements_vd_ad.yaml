@@ -62,6 +62,10 @@ requirements:
       閉じ速度が作動域下限（〜60km/h相当）以下は ego-target OBB 分離>0（完全回避）。
       それ以上は衝突速度を Δv 以上低減（NCAP カラーバンド相当）。
     source: "Euro NCAP Assisted Driving Cut-in + AEB C2C CCRb v4.3.1 / UN R152（複合・単一コード無し）"
+    red_asset: >-
+      resources/xosc/verification/07_aeb/cutin_hard_brake.xosc（parametric, road straight_500m_2lane）。
+      07_aeb_batch.yaml policies:[lead]。現状=RED実証済み（OBB分離0.00m/overlap、gt_sim_test）。
+      本質はカットインの遅い検知（LeadVehicleAwareは同一レーンのみ）。avoid/mitigate最終校正はAEB実装と同時。
     realized_by: [vd-func:FUNC-001]       # 前方AEB（未実装。フェーズ1で policy を追加）
     verified_by: [matcher:min_obb_separation_above]  # ＋衝突速度低減matcher（要新規, P11依存）
     related: [issue:34, proposal:P11, proposal:P12]

@@ -1,0 +1,25 @@
+name: aeb_safety
+# AEB (safety-tier) verification batch — the RED tests for issue #34 / REQ-AD-001.
+# These scenarios embed the VirtualDriverController and enable ONLY the existing
+# LeadVehicleAware policy (policies:[lead]) — there is no AEB policy yet. So the
+# ego reacts with comfort-limited following and CANNOT avoid the cut-in + hard
+# brake at closing speed -> min_obb_separation_above FAILS (correct RED). When a
+# safety-tier emergency-braking (AEB) layer lands, these must flip to PASS.
+#
+# osi:true -> gt_sim_test captures the OSI groundtruth scene for the OBB-separation
+# (collision) matcher. No baseline: judgment is from the captured scene, not
+# position-equivalence vs Default.
+#
+# Run:
+#   py GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/07_aeb_batch.yaml --out test_results/web/aeb
+defaults:
+  dt: 0.05
+  max_time: 22.0
+  snapshots: 3
+  osi: true
+scenarios:
+  # REQ-AD-001 — cut-in + hard brake (composite: Cut-in geometry + CCRb decel)
+  - scenario: resources/xosc/verification/07_aeb/cutin_hard_brake.xosc
+    expectations: resources/xosc/verification/07_aeb/cutin_hard_brake.expectations.yaml
+    policies: [lead]

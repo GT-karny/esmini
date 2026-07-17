@@ -1,0 +1,25 @@
+scenario: cutin_hard_brake
+category: 07_aeb
+# REQ-AD-001 (safety, positive): カットインして急制動する先行車に追突しない。
+# Primary acceptance = collision-free: min OBB (SAT) separation between the ego
+# footprint and every other body must stay above a bumper-to-bumper safety floor
+# through the cut-in + braking transient. 0 (or negative) = overlap = collision.
+#
+# RED until AEB lands: with only LeadVehicleAware (comfort-limited MAX_SPEED), the
+# ego cannot avoid the braking lead at this closing speed -> OBB separation
+# collapses to ~0 -> min_obb_separation_above FAILS. A safety-tier emergency-
+# braking layer (issue #34) must make this PASS.
+#
+# Requires OSI capture (batch osi:true). Windowed from just after the cut-in
+# begins through the end so the adjacent-lane approach (bodies never overlap) is
+# not scored, only the in-lane closing.
+must:
+  - event: min_obb_separation_above
+    threshold: 0.5              # bumper-to-bumper safety gap [m]; overlap=0 -> FAIL
+    after: { sim_time: 2.0 }    # from cut-in onset
+    reason: "カットイン+急制動する先行車に追突しない(OBB分離を安全床上に保つ)"
+  - event: speed_below
+    threshold: 6.0
+    after: { sim_time: 12.0 }   # by here the ego must have shed speed to track the stopped-ish lead
+    before: { sim_time: 19.0 }
+    reason: "先行車の急減速に追従して十分減速する"
