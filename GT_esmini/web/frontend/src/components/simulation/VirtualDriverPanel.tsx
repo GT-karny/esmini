@@ -17,7 +17,8 @@ interface VirtualDriverPanelProps {
 const EDITABLE_KEYS = [
   'policy_lead_enabled', 'policy_traffic_light_enabled', 'policy_stop_yield_enabled',
   'policy_conflict_enabled', 'policy_crosswalk_enabled', 'policy_junction_priority_enabled',
-  'horizon_s', 'short_dt', 'max_lateral_accel', 'comfort_decel', 'comfort_jerk',
+  'policy_aeb_enabled',
+  'horizon_s', 'short_dt', 'max_lateral_accel', 'comfort_decel', 'emergency_decel', 'comfort_jerk',
   'scan_distance', 'scan_step', 'turn_speed', 'min_turn_speed', 'stop_band', 'respect_speed_limit',
   'lookahead_gain', 'min_lookahead', 'max_lookahead', 'max_steer_angle', 'steering_sign',
   'speed_kp', 'speed_ki', 'speed_kd', 'control_point_offset', 'control_point_min_speed',
@@ -33,6 +34,7 @@ const EDITABLE_KEYS = [
   'crosswalk_lookahead', 'crosswalk_step', 'crosswalk_standoff', 'crosswalk_wait_margin',
   'crosswalk_yield_to_waiting', 'crosswalk_ped_signal_aware', 'crosswalk_signal_link_radius',
   'crosswalk_release_lateral_margin',
+  'aeb_ttc_threshold', 'aeb_lateral_tol', 'aeb_min_a_req', 'aeb_stop_margin',
   'override_enabled', 'override_button', 'steering_threshold', 'throttle_threshold',
   'brake_threshold', 'auto_return_timeout', 'override_lateral', 'override_longitudinal',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
@@ -52,6 +54,7 @@ const POLICY_ROWS: { key: keyof VirtualDriverConfig; label: string }[] = [
   { key: 'policy_conflict_enabled', label: 'Conflict corridor' },
   { key: 'policy_crosswalk_enabled', label: 'Crosswalk pedestrian' },
   { key: 'policy_junction_priority_enabled', label: 'Junction priority' },
+  { key: 'policy_aeb_enabled', label: 'AEB (emergency braking)' },
 ];
 
 export function VirtualDriverPanel({ open, onClose }: VirtualDriverPanelProps) {
@@ -210,6 +213,17 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
         </div>
       </section>
 
+      {/* AEB */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">AEB (Emergency Braking)</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="TTC threshold (s)" step={0.1} value={cfg.aeb_ttc_threshold} onChange={setNum('aeb_ttc_threshold')} />
+          <NumberInput label="Lateral tolerance (m)" step={0.1} value={cfg.aeb_lateral_tol} onChange={setNum('aeb_lateral_tol')} />
+          <NumberInput label="Min required decel (m/s²)" step={0.1} value={cfg.aeb_min_a_req} onChange={setNum('aeb_min_a_req')} />
+          <NumberInput label="Stop margin (m)" step={0.1} value={cfg.aeb_stop_margin} onChange={setNum('aeb_stop_margin')} />
+        </div>
+      </section>
+
       {/* Advanced (collapsible, collapsed by default) */}
       <section>
         <button
@@ -236,6 +250,7 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
                 <NumberInput label="Short dt (s)" step={0.01} value={cfg.short_dt} onChange={setNum('short_dt')} />
                 <NumberInput label="Max lateral accel (m/s²)" step={0.1} value={cfg.max_lateral_accel} onChange={setNum('max_lateral_accel')} />
                 <NumberInput label="Comfort decel (m/s²)" step={0.1} value={cfg.comfort_decel} onChange={setNum('comfort_decel')} />
+                <NumberInput label="Emergency decel (m/s²)" step={0.1} value={cfg.emergency_decel} onChange={setNum('emergency_decel')} />
                 <NumberInput label="Comfort jerk (m/s³)" step={0.1} value={cfg.comfort_jerk} onChange={setNum('comfort_jerk')} />
                 <NumberInput label="Scan distance (m)" step={1} value={cfg.scan_distance} onChange={setNum('scan_distance')} />
                 <NumberInput label="Scan step (m)" step={0.1} value={cfg.scan_step} onChange={setNum('scan_step')} />

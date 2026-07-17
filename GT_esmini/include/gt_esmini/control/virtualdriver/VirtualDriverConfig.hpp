@@ -11,6 +11,7 @@
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/AebSafety.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
 
 namespace gt_esmini
@@ -33,6 +34,10 @@ struct VirtualDriverConfig
     // --- Mid/long planner (Phase 2: ManeuverAwareSpeedPlanner) ---
     double max_lateral_accel = 2.0;   // [m/s^2] curve speed = sqrt(a_lat/|kappa|)
     double comfort_decel     = 2.0;   // [m/s^2] backward-pass deceleration
+    // AEB phase 1: deceleration used instead of comfort_decel to shape the
+    // approach to a SAFETY-tier constraint (see PolicyConstraint::Tier). Only
+    // takes effect when policy_aeb_enabled fires AebSafety.
+    double emergency_decel   = 8.0;   // [m/s^2]
     double comfort_jerk      = 1.5;   // [m/s^3] jerk-limited profile smoothing
     double scan_distance     = 300.0; // [m] route look-ahead for v_target(s)
     double scan_step         = 2.0;   // [m] forward scan resolution
@@ -81,6 +86,12 @@ struct VirtualDriverConfig
     // junctions keep the base yield. Requires policy_conflict_enabled (the gate
     // lives inside ConflictPointResolver). Default OFF -> no behaviour change.
     bool   policy_junction_priority_enabled = false;
+    // AEB (phase 1) — forward-collision emergency braking guardian. Longitudinal
+    // only (no steering); fires a SAFETY-tier STOP_AT_S on a collision-course
+    // gate (TTC + required-decel), independent of policy_lead_enabled so it
+    // composes with (and can catch what) the comfort-tier lead follow misses.
+    // Default OFF -> no behaviour change.
+    bool   policy_aeb_enabled           = false;
     // 3a — lead-vehicle IDM follow.
     double idm_time_headway   = 1.5;   // [s]
     double idm_min_gap        = 2.0;   // [m]
@@ -126,6 +137,15 @@ struct VirtualDriverConfig
     double crosswalk_signal_link_radius     = 10.0;  // [m]   |signal_s - crosswalk_s| on the same road
     double crosswalk_release_lateral_margin = 0.5;   // [m]   passage band = ego half-width + this
 
+    // AEB (phase 1) — forward-collision safety gate (see AebSafety). Longitudinal
+    // guardian only. Fires a SAFETY-tier STOP_AT_S (approached at
+    // emergency_decel, above) when v_close>0 && gap>0 && TTC<aeb_ttc_threshold
+    // && a_req>aeb_min_a_req against the nearest admitted candidate ahead.
+    double aeb_ttc_threshold  = 2.5;  // [s]     fire when predicted time-to-collision drops below this
+    double aeb_lateral_tol    = 3.5;  // [m]     widened admission window (sees an in-progress cut-in, not just dLaneId==0)
+    double aeb_min_a_req      = 3.0;  // [m/s^2] fire only when the required deceleration exceeds this
+    double aeb_stop_margin    = 2.0;  // [m]     extra standoff behind the bumper-to-bumper gap for the emitted stop point
+
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
     bool        override_button        = true;
@@ -154,6 +174,7 @@ struct VirtualDriverConfig
     StopYieldSignAwareConfig       StopYieldConfig() const;
     ConflictPointResolverConfig    ConflictConfig() const;
     CrosswalkPedestrianAwareConfig CrosswalkConfig() const;
+    AebSafetyConfig                AebConfig() const;
 };
 
 }  // namespace gt_esmini

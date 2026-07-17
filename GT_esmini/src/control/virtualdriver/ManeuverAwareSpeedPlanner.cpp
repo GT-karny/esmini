@@ -146,7 +146,14 @@ std::vector<MidLongConstraint> ApplyPolicyConstraints(std::vector<ScanSample>& s
                 }
                 else
                 {
-                    const double ramp = std::sqrt(2.0 * cfg.comfort_decel * (zero_from - samples[i].s_ahead));
+                    // AEB phase 1: a SAFETY-tier constraint (AebSafety) shapes its
+                    // approach at emergency_decel instead of comfort_decel — the
+                    // whole point of the tier is to brake harder than comfort
+                    // policies when a collision-course gate has fired. Every
+                    // pre-existing emitter defaults to COMFORT (bit-identical).
+                    const double decel = (constraint.tier == PolicyConstraint::Tier::SAFETY) ? cfg.emergency_decel
+                                                                                              : cfg.comfort_decel;
+                    const double ramp = std::sqrt(2.0 * decel * (zero_from - samples[i].s_ahead));
                     samples[i].v = std::min(samples[i].v, ramp);
                 }
             }

@@ -126,6 +126,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/StopYieldSignAware.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/ConflictPointResolver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/CrosswalkPedestrianAware.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/AebSafety.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ModuleDirectory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp
@@ -194,6 +195,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/AebSafety.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp

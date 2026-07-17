@@ -478,6 +478,11 @@ edges:
     type: realizes
     source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
     note: 交差点優先権規則(法規・部分)
+  - from: policy:aeb
+    to: vd-func:FUNC-001
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: 前方AEB(安全・ADAS)=AebSafety。早期横侵入検知+TTC/a_reqゲート+SAFETY-tier STOP_AT_S(emergency_decel)。フェーズ1実装辺(issue #34)
 
   # --- vd-func -> realizes -> req-vd-ad（機能が要求を充足） ---
   - from: vd-func:FUNC-001
@@ -542,6 +547,16 @@ edges:
     type: verifies
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ）
+  - from: matcher:impact_speed_below
+    to: req-vd-ad:REQ-AD-001
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    note: 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想）
+  - from: matcher:no_emergency_without_conflict
+    to: req-vd-ad:REQ-AD-013
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    note: 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本）
 
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002

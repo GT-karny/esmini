@@ -27,7 +27,7 @@
 
 functions:
   # ===== 安全機能 safety（override層・ADAS寄り＝最後の砦） =====
-  - { id: FUNC-001, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "前方AEB。先行車・カットインへの緊急制動。安全層の初号機（issue #34 / REQ-AD-001）" }
+  - { id: FUNC-001, tier: safety, agent: ADAS, dim: lon,  status: built, by: 'policy:aeb', note: "前方AEB。先行車カットイン+急制動の回避/緩和。安全層の初号機（policy:aeb=AebSafety, 早期横侵入検知+TTC/a_reqゲート+SAFETY-tier STOP_AT_S→emergency_decel。issue #34 / REQ-AD-001, 07_aeb緑: 直進=緩和/カーブ=回避, 負REQ-AD-013緑）" }
   - { id: FUNC-002, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "VRU向けAEB。歩行者・自転車への緊急制動" }
   - { id: FUNC-003, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "交差点AEB。出会い頭/右左折時の横断車への緊急制動" }
   - { id: FUNC-004, tier: safety, agent: ADAS, dim: lon,  status: none, by: '', note: "後方衝突警報/被追突緩和。後方接近車への予防（前進/点滅など限定的）" }

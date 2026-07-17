@@ -282,11 +282,13 @@ export interface VirtualDriverConfig {
   policy_conflict_enabled?: boolean;
   policy_crosswalk_enabled?: boolean;
   policy_junction_priority_enabled?: boolean;
+  policy_aeb_enabled?: boolean;
   // Planner
   horizon_s?: number;
   short_dt?: number;
   max_lateral_accel?: number;
   comfort_decel?: number;
+  emergency_decel?: number;
   comfort_jerk?: number;
   scan_distance?: number;
   scan_step?: number;
@@ -350,6 +352,11 @@ export interface VirtualDriverConfig {
   crosswalk_ped_signal_aware?: boolean;
   crosswalk_signal_link_radius?: number;
   crosswalk_release_lateral_margin?: number;
+  // AEB (autonomous emergency braking) — forward-collision guardian
+  aeb_ttc_threshold?: number;
+  aeb_lateral_tol?: number;
+  aeb_min_a_req?: number;
+  aeb_stop_margin?: number;
   // Manual override (reuses ManualDrive OverrideManager)
   override_enabled?: boolean;
   override_button?: boolean;

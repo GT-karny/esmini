@@ -88,6 +88,20 @@ AD層が何を計画していようが、TTCが臨界なら安全機能（ADAS�
 > **設定は #33 の VD-GUI-PARITY に従う**: 追加する `emergency_decel` / TTC閾値等は
 > `config/virtual_driver.json` + `VirtualDriverPanel`（GUI）にセットで露出する。
 
+> **フェーズ1実装知見（2026-07-17・実装で判明、上記フレーミングを補正）**:
+> ① §0の根本原因「快適減速を超える緊急減速という概念自体を表現できない」は **不正確** だった。
+> `MAX_SPEED` 制約は既に `comfort_decel` 天井を迂回しており（`LeadVehicleAware` の IDM 経路が
+> 実測 ~10.5 m/s² ＝車両物理天井まで到達）、真の欠落は **カットインの遅い検知**（同一レーン
+> `dLaneId==0` のみ）だった。② よって `emergency_decel`/tier の役割は「到達不能な減速の解放」
+> ではなく **(a) STOP_AT_S/減速プロファイル経路で緊急制動を正直に表現、(b) SAFETY-tier タグに
+> よる調停（安全が法規を上書き）**。実装は別policy `AebSafety`（早期横侵入検知＋TTC/a_req ゲート
+> ＋SAFETY-tier `STOP_AT_S` → `ManeuverAwareSpeedPlanner` が `emergency_decel` で解く）。数値ノイズ
+> 誤検知を避けるため侵入キューは3フレームのデバウンス付き（REQ-AD-013 SOTIF）。③ 高速カットイン
+> （Ego 108km/h・48m前で先行車が 8 m/s² 制動）は **完全回避が物理的に不能**（必要 ~13.5 m/s²≈1.38g
+> ＞ Civicクラス天井 ~10 m/s²≈1.02g、乾燥路ABS実測 0.87–1.08g・13.5g級はGT2 RS/ZR1級スーパー
+> カー限定、Web実測裏取り済）→ 受入は mitigation（`impact_speed_below`、07_aeb直進で閉じ速度
+> 18→~9 m/s に低減）。完全回避側はカーブ変種（曲率速度制限で回避可能域）が担う。
+
 ## 5. 検証へのマッピング（トレーサビリティ）
 
 動機層はそのまま検証手段に対応する:

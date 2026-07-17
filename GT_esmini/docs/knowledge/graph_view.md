@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:437179ac80c6c82c -->
+<!-- generated-from: sha256:da49dc9192966e27 -->
 
-ノード 135・辺 117（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 138・辺 120（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -113,6 +113,7 @@ flowchart LR
     n_policy_stop_yield["stop_yield"]
     n_policy_lead["lead"]
     n_policy_conflict["conflict"]
+    n_policy_aeb["aeb"]
   end
   subgraph sg_scene["scene｜VD自動運転 対応シーンカタログ（SCN-001..018 = ファミリA-R）"]
     n_scene_SCN_001["SCN-001"]
@@ -154,10 +155,10 @@ flowchart LR
     n_req_vd_ad_REQ_AD_004["REQ-AD-004"]
     n_req_vd_ad_REQ_AD_005["REQ-AD-005"]
     n_req_vd_ad_REQ_AD_006["REQ-AD-006"]
+    n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
     n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
     n_req_vd_ad_REQ_AD_012["REQ-AD-012"]
-    n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
     n_req_vd_ad_REQ_AD_014["REQ-AD-014"]
     n_req_vd_ad_REQ_AD_015["REQ-AD-015"]
   end
@@ -166,6 +167,8 @@ flowchart LR
     n_matcher_stopped_at_signal["stopped_at_signal"]
     n_matcher_stopped_at_stop_sign["stopped_at_stop_sign"]
     n_matcher_min_obb_separation_above["min_obb_separation_above"]
+    n_matcher_impact_speed_below["impact_speed_below"]
+    n_matcher_no_emergency_without_conflict["no_emergency_without_conflict"]
     n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
   end
   n_proposal_P24 -->|merged-into| n_proposal_P15
@@ -255,6 +258,7 @@ flowchart LR
   n_policy_crosswalk -->|realizes| n_vd_func_FUNC_041
   n_policy_conflict -->|realizes| n_vd_func_FUNC_038
   n_policy_junction_priority -->|realizes| n_vd_func_FUNC_029
+  n_policy_aeb -->|realizes| n_vd_func_FUNC_001
   n_vd_func_FUNC_001 -->|realizes| n_req_vd_ad_REQ_AD_001
   n_vd_func_FUNC_013 -->|realizes| n_req_vd_ad_REQ_AD_002
   n_vd_func_FUNC_023 -->|realizes| n_req_vd_ad_REQ_AD_003
@@ -267,6 +271,8 @@ flowchart LR
   n_matcher_stopped_at_stop_sign -->|verifies| n_req_vd_ad_REQ_AD_004
   n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_005
   n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_001
+  n_matcher_impact_speed_below -->|verifies| n_req_vd_ad_REQ_AD_001
+  n_matcher_no_emergency_without_conflict -->|verifies| n_req_vd_ad_REQ_AD_013
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
@@ -387,7 +393,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### realizes (22)
+### realizes (23)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -400,6 +406,7 @@ flowchart LR
 | `policy:crosswalk` | `vd-func:FUNC-041` | 待ち歩行者への譲り(譲り合い) |
 | `policy:conflict` | `vd-func:FUNC-038` | 非制御交差点の譲り(譲り合い) |
 | `policy:junction_priority` | `vd-func:FUNC-029` | 交差点優先権規則(法規・部分) |
+| `policy:aeb` | `vd-func:FUNC-001` | 前方AEB(安全・ADAS)=AebSafety。早期横侵入検知+TTC/a_reqゲート+SAFETY-tier STOP_AT_S(emergency_decel)。フェーズ1実装辺(issue |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-001` | 前方AEB(安全・未実装)がカットイン衝突回避要求を充足 |
 | `vd-func:FUNC-013` | `req-vd-ad:REQ-AD-002` | ACC定常追従(快適)が車間維持要求を充足 |
 | `vd-func:FUNC-023` | `req-vd-ad:REQ-AD-003` | 信号遵守が赤信号停止要求を充足 |
@@ -432,7 +439,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (9)
+### verifies (11)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -441,6 +448,8 @@ flowchart LR
 | `matcher:stopped_at_stop_sign` | `req-vd-ad:REQ-AD-004` | STOP標識停止を検証 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-005` | 歩行者とのOBB分離（衝突ゼロ）を検証 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-001` | カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ） |
+| `matcher:impact_speed_below` | `req-vd-ad:REQ-AD-001` | 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想） |
+| `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-010` | 停止先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-011` | 先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-012` | 歩行者/自転車との衝突ゼロ |

@@ -452,6 +452,9 @@ _POLICY_FLAG = {
     # resolver, so enable it together with "conflict" (e.g. policies:[conflict,
     # junction_priority]).
     "junction_priority": "policy_junction_priority_enabled",
+    # AEB phase 1: forward-collision emergency braking guardian (see AebSafety).
+    # Independent of "lead" -- composes alongside it.
+    "aeb": "policy_aeb_enabled",
 }
 
 

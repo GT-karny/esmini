@@ -12,6 +12,10 @@ struct ManeuverAwareSpeedPlannerConfig
     // Comfort longitudinal deceleration used by the backward pass to shape the
     // approach to a constraint (start braking early instead of late & hard).
     double comfort_decel     = 2.0;   // [m/s^2]
+    // Deceleration used instead of comfort_decel to shape the approach to a
+    // SAFETY-tier constraint (AEB phase 1; see PolicyConstraint::Tier). Only
+    // AebSafety emits SAFETY, so this has no effect unless that policy is on.
+    double emergency_decel   = 8.0;   // [m/s^2]
     // Comfort jerk limit for the spatial profile smoothing. 0 disables.
     double comfort_jerk      = 1.5;   // [m/s^3]
     // Forward scan resolution.

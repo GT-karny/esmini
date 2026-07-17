@@ -45,6 +45,7 @@ const DoubleField kDoubleFields[] = {
     {"short_dt", &VirtualDriverConfig::short_dt},
     {"max_lateral_accel", &VirtualDriverConfig::max_lateral_accel},
     {"comfort_decel", &VirtualDriverConfig::comfort_decel},
+    {"emergency_decel", &VirtualDriverConfig::emergency_decel},
     {"comfort_jerk", &VirtualDriverConfig::comfort_jerk},
     {"scan_distance", &VirtualDriverConfig::scan_distance},
     {"scan_step", &VirtualDriverConfig::scan_step},
@@ -98,6 +99,10 @@ const DoubleField kDoubleFields[] = {
     {"crosswalk_wait_margin", &VirtualDriverConfig::crosswalk_wait_margin},
     {"crosswalk_signal_link_radius", &VirtualDriverConfig::crosswalk_signal_link_radius},
     {"crosswalk_release_lateral_margin", &VirtualDriverConfig::crosswalk_release_lateral_margin},
+    {"aeb_ttc_threshold", &VirtualDriverConfig::aeb_ttc_threshold},
+    {"aeb_lateral_tol", &VirtualDriverConfig::aeb_lateral_tol},
+    {"aeb_min_a_req", &VirtualDriverConfig::aeb_min_a_req},
+    {"aeb_stop_margin", &VirtualDriverConfig::aeb_stop_margin},
     {"steering_threshold", &VirtualDriverConfig::steering_threshold},
     {"throttle_threshold", &VirtualDriverConfig::throttle_threshold},
     {"brake_threshold", &VirtualDriverConfig::brake_threshold},
@@ -112,6 +117,7 @@ const BoolField kBoolFields[] = {
     {"policy_conflict_enabled", &VirtualDriverConfig::policy_conflict_enabled},
     {"policy_crosswalk_enabled", &VirtualDriverConfig::policy_crosswalk_enabled},
     {"policy_junction_priority_enabled", &VirtualDriverConfig::policy_junction_priority_enabled},
+    {"policy_aeb_enabled", &VirtualDriverConfig::policy_aeb_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
@@ -194,6 +200,7 @@ ManeuverAwareSpeedPlannerConfig VirtualDriverConfig::MidLongConfig() const
     ManeuverAwareSpeedPlannerConfig c;
     c.max_lateral_accel   = max_lateral_accel;
     c.comfort_decel       = comfort_decel;
+    c.emergency_decel     = emergency_decel;
     c.comfort_jerk        = comfort_jerk;
     c.scan_step           = scan_step;
     c.min_speed           = min_turn_speed;
@@ -290,6 +297,16 @@ CrosswalkPedestrianAwareConfig VirtualDriverConfig::CrosswalkConfig() const
     c.ped_signal_aware       = crosswalk_ped_signal_aware;
     c.signal_link_radius     = crosswalk_signal_link_radius;
     c.release_lateral_margin = crosswalk_release_lateral_margin;
+    return c;
+}
+
+AebSafetyConfig VirtualDriverConfig::AebConfig() const
+{
+    AebSafetyConfig c;
+    c.ttc_threshold = aeb_ttc_threshold;
+    c.lateral_tol   = aeb_lateral_tol;
+    c.min_a_req     = aeb_min_a_req;
+    c.stop_margin   = aeb_stop_margin;
     return c;
 }
 

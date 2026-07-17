@@ -67,7 +67,7 @@ requirements:
       07_aeb_batch.yaml policies:[lead]。現状=RED実証済み（OBB分離0.00m/overlap、gt_sim_test）。
       本質はカットインの遅い検知（LeadVehicleAwareは同一レーンのみ）。avoid/mitigate最終校正はAEB実装と同時。
     realized_by: [vd-func:FUNC-001]       # 前方AEB（未実装。フェーズ1で policy を追加）
-    verified_by: [matcher:min_obb_separation_above]  # ＋衝突速度低減matcher（要新規, P11依存）
+    verified_by: [matcher:min_obb_separation_above, matcher:impact_speed_below]  # impact_speed_below=衝突速度低減(緩和域, 07_aeb直進)
     related: [issue:34, proposal:P11, proposal:P12]
     status: draft
 
@@ -132,7 +132,7 @@ requirements:
     acceptance: 非衝突シナリオ群で誤発火ゼロ
     source: "UN R152 誤作動最小化（Annex3 App2 のうち ground-truth 再現可な範囲）"
     realized_by: [vd-func:FUNC-001]
-    verified_by: []                       # no_emergency_without_conflict matcher（要新規）
+    verified_by: [matcher:no_emergency_without_conflict]  # 衝突コース不在で緊急制動不発火（07_aeb負3本）
     related: [proposal:P11]
     status: draft
 

@@ -338,6 +338,34 @@ def _sustained_stop(frames: list[dict], must: dict, stop_speed: float):
     return (best[0], best[1], best[2], gated[0])
 
 
+def _closing_speed(ego: dict, obj: dict) -> float:
+    """Closing (impact) speed between two scene bodies at a contact frame: the
+    rate at which the ego<->object center-to-center separation is shrinking,
+    clamped to >= 0 (a non-approaching pair has no "impact speed").
+
+    Prefers the relative velocity projected onto the line connecting the two
+    body centers, reconstructing each body's velocity vector from its scalar
+    `speed` and heading `h` (the captured scene carries no raw vx/vy - see
+    _gt_to_scene() in gt_sim_test.py, which reduces the OSI velocity to a
+    magnitude). Falls back to the plain scalar speed difference
+    (ego.speed - obj.speed) when a heading is missing or the two centers
+    coincide (direction undefined). For a same-heading inline approach (e.g. a
+    straight-lane rear-end) the two formulas agree exactly, since the unit
+    vector between the centers is then parallel to both headings."""
+    dx, dy = obj["x"] - ego["x"], obj["y"] - ego["y"]
+    dist = math.hypot(dx, dy)
+    ego_h, obj_h = ego.get("h"), obj.get("h")
+    if dist > 1e-6 and ego_h is not None and obj_h is not None:
+        ux, uy = dx / dist, dy / dist  # unit vector ego -> object
+        ego_speed, obj_speed = ego.get("speed", 0.0), obj.get("speed", 0.0)
+        evx, evy = ego_speed * math.cos(ego_h), ego_speed * math.sin(ego_h)
+        ovx, ovy = obj_speed * math.cos(obj_h), obj_speed * math.sin(obj_h)
+        closing = (evx - ovx) * ux + (evy - ovy) * uy
+    else:
+        closing = ego.get("speed", 0.0) - obj.get("speed", 0.0)
+    return max(0.0, closing)
+
+
 def eval_must(must: dict, frames: list[dict]) -> dict:
     """Evaluate one must[] entry. Fail results carry the first offending frame's
     `t` and `idx` so the UI can jump straight to the failure."""
@@ -709,6 +737,113 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                   f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?); "
                   f"overlap occurred: {any_overlap}")
         return res("pass" if ok else "fail", detail, None if ok else worst_i)
+
+    if kind == "impact_speed_below":
+        # AEB mitigation gate (Euro-NCAP colour-band philosophy): when full
+        # collision avoidance is physically impossible (closing speed exceeds
+        # what the vehicle's braking limit can shed before the gap runs out),
+        # acceptance shifts from "never touch" to "IF contact occurs, the
+        # closing speed at first contact must be below a floor". AEB is judged
+        # by how much it cut the impact speed, not only by zero-contact.
+        #
+        # Reuses obb_separation() (the same SAT routine as
+        # min_obb_separation_above, above) to find the FIRST frame where the
+        # ego and some other body's OBBs are within contact_sep of each other,
+        # identifies which body that is (the one at minimum separation on that
+        # frame), then reports the closing speed at that one frame - later
+        # frames are not scored (esmini has no collision response, so bodies
+        # can keep interpenetrating; only the moment of first contact is a
+        # physically meaningful "impact speed"). Requires capture_osi
+        # (telemetry.scene), same as its sibling anti-collision gates.
+        thr = float(must["threshold"])
+        contact_sep = float(must.get("contact_sep", 0.0))
+        gated = [i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)]
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        any_scene = False
+        best_sep = None   # closest approach ever seen (for the no-contact detail)
+        contact = None    # (idx, sep, ego, obj) at the first contact frame
+        for i in gated:
+            scene = frames[i].get("scene")
+            if not scene:
+                continue
+            ego = next((o for o in scene["objects"] if o.get("is_host")), None)
+            if ego is None:
+                continue
+            any_scene = True
+            frame_worst = None  # (sep, obj) = the closest other body this frame
+            for o in scene["objects"]:
+                if o.get("is_host"):
+                    continue
+                sep = obb_separation(ego, o)
+                if frame_worst is None or sep < frame_worst[0]:
+                    frame_worst = (sep, o)
+            if frame_worst is None:
+                continue  # single-object scene this frame (no partner) -> can't contact
+            sep, o = frame_worst
+            if best_sep is None or sep < best_sep:
+                best_sep = sep
+            if sep <= contact_sep:
+                contact = (i, sep, ego, o)
+                break  # first contact only; impact speed is judged here
+
+        if not any_scene:
+            return res("skip", "no scene frames in time window (needs --osi capture)")
+
+        if contact is None:
+            # Best case: full avoidance, including the degenerate case where no
+            # other body was ever present in the captured scene.
+            detail = (f"no contact (min separation {best_sep:.2f} m) -> pass"
+                      if best_sep is not None else
+                      "no contact (no other bodies observed in scene) -> pass")
+            return res("pass", detail)
+
+        idx, sep, c_ego, c_obj = contact
+        closing = _closing_speed(c_ego, c_obj)
+        ok = closing <= thr
+        who = c_obj.get("name") or f"#{c_obj.get('id')}"
+        t_contact = frames[idx]["sim_time"]
+        detail = (f"impact speed = {closing:.2f} m/s at t={t_contact:.2f} "
+                  f"(<= {thr}?) [contact with {who}, sep={sep:.2f} m]")
+        return res("pass" if ok else "fail", detail, None if ok else idx)
+
+    if kind == "no_emergency_without_conflict":
+        # REQ-AD-013 (SOTIF negative, the misfire-avoidance mirror of the AEB
+        # positive tests): AEB must never emit its SAFETY-tier emergency
+        # STOP_AT_S constraint (PolicyConstraint::source == "aeb", see
+        # AebSafety::Evaluate) unless a genuine collision course exists. This
+        # matcher does not re-derive TTC/a_req itself - it just watches for the
+        # observable effect of a misfire: an "aeb"-sourced entry in
+        # policy.constraints on any telemetry frame.
+        #
+        # Reads frame["policy"]["constraints"], a list of {kind,s,value,source}
+        # dicts - the union of all enabled traffic-policy constraints for that
+        # frame, written by VirtualDriverTelemetryJson.cpp (ToJson(), the
+        # ",\"policy\":{...}" tail) and passed through verbatim by
+        # gt_sim_test.py's run loop (tel = lib.get_vd_telemetry(-1); no
+        # reshaping). A frame missing "policy" or "constraints" (e.g. a
+        # synthetic/older frame) is treated as carrying no aeb constraint,
+        # not as skip - absence of the key is not evidence of a misfire.
+        #
+        # PASS: no frame in the (optionally after/before-windowed) range
+        # carries a source=="aeb" constraint - AEB stayed dormant, whether or
+        # not it was ever even admitted as a candidate.
+        # FAIL: the earliest frame that does - a misfire - identified via the
+        # standard res(fail_idx) contract so the UI can jump straight to it.
+        gated = [i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)]
+        if not gated:
+            return res("skip", "no frames in time window")
+        offenders = [i for i in gated
+                     if any(c.get("source") == "aeb"
+                            for c in frames[i].get("policy", {}).get("constraints", []))]
+        if offenders:
+            i0 = offenders[0]
+            detail = (f"AEB emergency fired at t={frames[i0]['sim_time']:.2f} "
+                      f"(no collision course) -> misfire")
+            return res("fail", detail, i0)
+        detail = f"no AEB emergency constraint over {len(gated)} frames -> pass"
+        return res("pass", detail)
 
     return {"event": kind, "status": "skip", "detail": "unknown event type", "reason": reason}
 

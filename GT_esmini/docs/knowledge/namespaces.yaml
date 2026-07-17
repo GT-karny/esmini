@@ -225,18 +225,18 @@ namespaces:
   - slug: policy
     title: VirtualDriver 交通ポリシー
     entity_type: policy
-    id_pattern: "(conflict|junction_priority|crosswalk|lead|stop_yield|traffic_light)"
+    id_pattern: "(aeb|conflict|junction_priority|crosswalk|lead|stop_yield|traffic_light)"
     source_of_truth: resources/xosc/verification
     status: active
-    count: 6
+    count: 7
 
   - slug: matcher
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_separation_above|min_obb_separation_above)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_separation_above|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 14
+    count: 16
 
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）

@@ -248,6 +248,7 @@ _VD_POLICY_FLAG = {
     "conflict": "policy_conflict_enabled",
     "crosswalk": "policy_crosswalk_enabled",
     "junction_priority": "policy_junction_priority_enabled",
+    "aeb": "policy_aeb_enabled",
 }
 
 

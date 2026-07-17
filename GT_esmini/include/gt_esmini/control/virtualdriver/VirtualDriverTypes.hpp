@@ -90,10 +90,25 @@ struct PolicyConstraint
         YIELD,           // yield zone
         WAIT_UNTIL       // hold until sim time = value
     };
+    // Arbitration tier (AEB phase 1). Governs which deceleration profile the
+    // mid/long planner uses to shape the approach to a STOP_AT_S constraint —
+    // see ManeuverAwareSpeedPlanner's ApplyPolicyConstraints(). Every existing
+    // emitter (LeadVehicleAware/TrafficLightAware/StopYieldSignAware/
+    // ConflictPointResolver/CrosswalkPedestrianAware) leaves this at its default
+    // (COMFORT), so pre-AEB behavior is bit-identical. Only AebSafety emits
+    // SAFETY.
+    enum class Tier
+    {
+        COMFORT,
+        COURTESY,
+        COMPLIANCE,
+        SAFETY
+    };
     Kind        kind  = Kind::NONE;
     double      s     = 0.0;   // route s the constraint applies at/until [m]
     double      value = 0.0;   // speed [m/s] or time [s] depending on kind
     std::string source;        // "lead_vehicle" | "traffic_light" | "stop_sign" | ...
+    Tier        tier  = Tier::COMFORT;
 };
 
 // ITrafficPolicy output (Phase 3).
