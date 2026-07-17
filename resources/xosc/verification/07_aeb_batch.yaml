@@ -20,6 +20,10 @@ defaults:
   osi: true
 scenarios:
   # REQ-AD-001 — cut-in + hard brake (composite: Cut-in geometry + CCRb decel)
+  # Geometry coverage axis: straight / curve (/ junction — TODO, overlaps conflict).
   - scenario: resources/xosc/verification/07_aeb/cutin_hard_brake.xosc
     expectations: resources/xosc/verification/07_aeb/cutin_hard_brake.expectations.yaml
+    policies: [lead]
+  - scenario: resources/xosc/verification/07_aeb/cutin_hard_brake_curve.xosc
+    expectations: resources/xosc/verification/07_aeb/cutin_hard_brake_curve.expectations.yaml
     policies: [lead]
