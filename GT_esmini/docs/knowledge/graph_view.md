@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:2a7fba1eeddbe640 -->
+<!-- generated-from: sha256:437179ac80c6c82c -->
 
-ノード 127・辺 102（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 135・辺 117（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -145,6 +145,7 @@ flowchart LR
     n_vd_func_FUNC_038["FUNC-038"]
     n_vd_func_FUNC_029["FUNC-029"]
     n_vd_func_FUNC_001["FUNC-001"]
+    n_vd_func_FUNC_002["FUNC-002"]
   end
   subgraph sg_req_vd_ad["req-vd-ad｜VirtualDriver 自動運転/ADAS 対応シーン要求（機能軸 安全/快適/法規遵守/譲り合い）"]
     n_req_vd_ad_REQ_AD_001["REQ-AD-001"]
@@ -153,12 +154,19 @@ flowchart LR
     n_req_vd_ad_REQ_AD_004["REQ-AD-004"]
     n_req_vd_ad_REQ_AD_005["REQ-AD-005"]
     n_req_vd_ad_REQ_AD_006["REQ-AD-006"]
+    n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
+    n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
+    n_req_vd_ad_REQ_AD_012["REQ-AD-012"]
+    n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
+    n_req_vd_ad_REQ_AD_014["REQ-AD-014"]
+    n_req_vd_ad_REQ_AD_015["REQ-AD-015"]
   end
   subgraph sg_matcher["matcher｜検証matcher（vd_metrics event語彙）"]
     n_matcher_maintained_following_distance["maintained_following_distance"]
     n_matcher_stopped_at_signal["stopped_at_signal"]
     n_matcher_stopped_at_stop_sign["stopped_at_stop_sign"]
     n_matcher_min_obb_separation_above["min_obb_separation_above"]
+    n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
   end
   n_proposal_P24 -->|merged-into| n_proposal_P15
   n_proposal_P39 -->|merged-into| n_proposal_P13
@@ -262,6 +270,21 @@ flowchart LR
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
+  n_vd_func_FUNC_001 -->|realizes| n_req_vd_ad_REQ_AD_010
+  n_vd_func_FUNC_001 -->|realizes| n_req_vd_ad_REQ_AD_011
+  n_vd_func_FUNC_002 -->|realizes| n_req_vd_ad_REQ_AD_012
+  n_vd_func_FUNC_001 -->|realizes| n_req_vd_ad_REQ_AD_013
+  n_vd_func_FUNC_001 -->|realizes| n_req_vd_ad_REQ_AD_014
+  n_vd_func_FUNC_001 -->|realizes| n_req_vd_ad_REQ_AD_015
+  n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_010
+  n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_011
+  n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_012
+  n_matcher_deceleration_profile_smooth -->|verifies| n_req_vd_ad_REQ_AD_014
+  n_req_vd_ad_REQ_AD_010 -->|depends-on| n_proposal_P12
+  n_req_vd_ad_REQ_AD_011 -->|depends-on| n_proposal_P11
+  n_req_vd_ad_REQ_AD_011 -->|depends-on| n_proposal_P12
+  n_req_vd_ad_REQ_AD_012 -->|depends-on| n_proposal_P12
+  n_req_vd_ad_REQ_AD_013 -->|depends-on| n_proposal_P11
 ```
 
 ## 辺の一覧（type別）
@@ -338,7 +361,7 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (8)
+### depends-on (13)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -350,6 +373,11 @@ flowchart LR
 | `feature:F3` | `odr-plan:P5` | junction priorityデータはODRプランP5で着地、消費はF3（Phase3e） |
 | `req-vd-ad:REQ-AD-001` | `proposal:P12` | collision-free 不変条件（衝突検出）が回帰固化の前提 |
 | `req-vd-ad:REQ-AD-001` | `proposal:P11` | 必要減速度/TTC メトリクスが緊急介入判定・検証の前提 |
+| `req-vd-ad:REQ-AD-010` | `proposal:P12` | 衝突検出(collision-free)が検証前提 |
+| `req-vd-ad:REQ-AD-011` | `proposal:P11` | 必要減速度/衝突速度低減メトリクスが検証前提 |
+| `req-vd-ad:REQ-AD-011` | `proposal:P12` | 衝突検出が検証前提 |
+| `req-vd-ad:REQ-AD-012` | `proposal:P12` | 衝突検出が検証前提 |
+| `req-vd-ad:REQ-AD-013` | `proposal:P11` | 誤作動ゼロ判定に緊急制動発火メトリクスが必要 |
 
 ### merged-into (3)
 
@@ -359,7 +387,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### realizes (16)
+### realizes (22)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -379,6 +407,12 @@ flowchart LR
 | `vd-func:FUNC-027` | `req-vd-ad:REQ-AD-005` | 横断歩道の歩行者優先が歩行者衝突回避要求を充足 |
 | `vd-func:FUNC-038` | `req-vd-ad:REQ-AD-006` | 非制御交差点の譲りが交差点譲り要求を充足 |
 | `vd-func:FUNC-029` | `req-vd-ad:REQ-AD-006` | 交差点優先権規則が交差点譲り要求を充足 |
+| `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
+| `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
+| `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |
+| `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-013` | 前方AEB→誤作動抑止(negative, R152) |
+| `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-014` | 前方AEB→快適優先の層調停(arbitration) |
+| `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-015` | 前方AEB→作動包絡線/応答フロア(regulatory, R152) |
 
 ### shares-design-with (2)
 
@@ -398,7 +432,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (5)
+### verifies (9)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -407,6 +441,10 @@ flowchart LR
 | `matcher:stopped_at_stop_sign` | `req-vd-ad:REQ-AD-004` | STOP標識停止を検証 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-005` | 歩行者とのOBB分離（衝突ゼロ）を検証 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-001` | カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ） |
+| `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-010` | 停止先行車との衝突ゼロ |
+| `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-011` | 先行車との衝突ゼロ |
+| `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-012` | 歩行者/自転車との衝突ゼロ |
+| `matcher:deceleration_profile_smooth` | `req-vd-ad:REQ-AD-014` | 快適域で滑らかな減速（緊急制動不発火） |
 
 ## OpenX概念 逆引き
 

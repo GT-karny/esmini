@@ -289,9 +289,10 @@ namespaces:
     id_pattern: "REQ-AD-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     status: active
-    count: 6
+    count: 12
     notes: >-
-      機能軸フェーズ0で activate（seed要求 REQ-AD-001..006）。設計軸は
+      機能軸フェーズ0で activate（seed REQ-AD-001..006 ＋ AEB家族 001/010-015、
+      NCAP/R152逆算スキーマ=aeb_requirements.md）。設計軸は
       GT_esmini/docs/virtualdriver/adas_axis.md（動機層 safety/comfort/compliance/courtesy ×
       主体 AD/ADAS）。トレーサビリティは policy -> realizes -> vd-func(機能) ->
       realizes -> req-vd-ad(要求) の3段チェーン、matcher -> verifies -> 要求。
