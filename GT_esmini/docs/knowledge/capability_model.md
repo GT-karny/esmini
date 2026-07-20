@@ -187,8 +187,8 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 | 主張ドメイン | ①主張 | ②刺激 | ③実装 | ④観測 | ⑤判定 | ⑥常設 |
 | :-- | :-: | :-: | :-: | :-: | :-: | :-: |
 | **VD 自動運転挙動** | ◐ | ◐ | ● | ◐(b優勢) | ◐ | ◐ |
-| ManualDrive（FFB / 合図） | ○† | ◐ | ● | **○(b′)** ←◐から降格 | ○ | ✕ ←◐から訂正 |
-| Kinematic / RouteDrive | ○† | ◐ | ● | ○(b′/a) | ○ | ✕ ←◐から訂正 |
+| ManualDrive（FFB / 合図） | ○† | ◐ | ● | **◐(b′は加速度のみ)** ←○から復帰 | ○ | ✕ ←◐から訂正 |
+| Kinematic / RouteDrive | ○† | ◐ | ● | ○(b/a) ←(b′)撤回 | ○ | ✕ ←◐から訂正 |
 | **RealVehicle 物理（pitch/roll）** | ✕ | ○ | ● | ◐(b) ＋交通車(a) | ✕ | ✕ |
 | AutoLight（F6 環境ヘッドライト） | ● | ◐ | ● | ◐(b) | ◐ | ◐※opt-in |
 | TrafficSignalController | ○† | ◐ | ● | ● | ◐ | ○ |
@@ -203,11 +203,14 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 >   *正しい*ことを言うための観測量（タイムスタンプ単調性・フレーム欠落率・動的オブジェクト数
 >   の整合）は emit 側にも消費側にも**存在しない**（`count_osi_messages.py` はメッセージ**数**を
 >   数えるのみで内容非検査）。中核主張なのに自己観測が(a)未emit。
-> - **ManualDrive ④ ◐ → ○(b′)**: HVD に届く `steering_angle` が
->   `GT_HostVehicleReporter.cpp:141` の `steering_input_to_wheel_ratio`(既定12.9) を無条件適用され、
->   既に実舵角(rad)を渡す ManualDrive（`ControllerManualDrive.cpp:194-196`）では**約12.9倍に破壊**される。
->   加速度も `GT_HostVehicleReporter.cpp:237-292` が `egoState->pos_.GetAcc*()` で**毎フレーム上書き**し、
->   RealVehicle の値は外に出ない。**誤配線(b′)＝emit されているのに信頼できない**。
+> - **ManualDrive ④ ◐ → ○(b′)** … **~~steering 部分は撤回（2026-07-20）~~**:
+>   ~~HVD の `steering_angle` が12.9倍に破壊される~~ は**誤診だった**。OSI
+>   `VehicleSteeringWheel.angle` は**ハンドル角**であり、12.9 はステアリングギア比＝変換は正当
+>   （実測でも RealDriver 修正後にピーク 450.9°＝予測 0.61×12.9=451° と一致）。ManualDrive/VD/
+>   Kinematic は健全で、壊れていたのは RealDriver 経路のみ（`abd55140` で修正済み）。詳細は §2.3 D2。
+>   **降格の根拠として残るのは acceleration のみ**: `GT_HostVehicleReporter.cpp:237-292` が
+>   `egoState->pos_.GetAcc*()` で**毎フレーム上書き**し RealVehicle の値が外に出ない（射程外・未検証）。
+>   ＝ ④ は ○ ではなく **◐(b′限定)** が妥当。
 > - **ManualDrive / Kinematic ⑥ ◐ → ✕**: `test/CMakeLists.txt` と integration 26本を全照合した結果、
 >   **ManualDrive・Kinematic・RouteDrive・pitch/roll に言及する自動テストは unit/integration いずれにも
 >   1件も無い**。従来の「単体ゲート一部」は誤り（AutoIndicator/PIDPurePursuit は VD 側の部品）。

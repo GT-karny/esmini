@@ -249,9 +249,12 @@ signals:
       （RealVehicle.hpp:71 も "Corolla steering ratio"）で、タイヤ角→ハンドル角の変換は
       **OSI規定どおり正当**。ManualDrive / VirtualDriver / Kinematic は正しく出ている
       （0.61rad → 451°＝ロック2.5回転で実車的。HvdGaugePanel.tsx:55 の ±540° clamp とも整合）。
-      **実際に壊れているのは ControllerRealDriver 経路のみ**（正規化 -1.0〜1.0 をそのまま渡すため
-      739°。真値451°、1.64倍=1/steer_gain のずれ）。修正は GetInputsForOSI の境界で
-      steering *= steer_gain する1行。→ 本 signal の欠は誤配線ではなく
+      **実際に壊れていたのは ControllerRealDriver 経路のみ**（正規化 -1.0〜1.0 をそのまま渡すため
+      739°。真値451°、1.64倍=1/steer_gain のずれ）→ **abd55140 で修正済み**（他3経路と同じ
+      `real_vehicle_.wheelAngle_` を渡す1行。外部UDP契約[-1,1]は不変）。
+      **実測で決着**: RealDriver に正規化 steering=1.0 を送り HVD UDP 1500フレーム復号 →
+      ハンドル角ピーク **450.9°**（予測 0.61×12.9=451°と一致。旧実装なら739°）。
+      → 本 signal の欠は誤配線ではなく
       **読む matcher が無いこと(b)**（⑤の穴）。消費は Web HvdGaugePanel のみ。
       教訓は memory `verification_semantics_lesson`（意味論の取り違え型は経路追跡では検証できない）。
 
