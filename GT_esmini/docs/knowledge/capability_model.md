@@ -177,19 +177,46 @@ XSDは通る）。②刺激の資産は3段の妥当性を持ち、各資産ノ�
 **OSI-GT 正当性のみ**を先行させる（面1の中核主張＝ここが崩れると他の全 verdict が void になるため）。
 ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前提が揃ってから）。
 
+**④列の凡例（2026-07-20 追加, §2.3 の emit 基準再採点）**: ④は「観測できるか」を
+**emit を canonical** に採点する。記号に欠の種別を添える —
+`(a)` ＝ *未emit*（OSI/HVD のどこにも出ていない＝真の観測不能）、
+`(b)` ＝ *emit済みだが未配線*（frame/matcher/gate に届いていない）、
+`(b′)` ＝ *誤配線*（届くが値が壊れている＝**(b) より悪い**。観測できているつもりで verdict を汚す）、
+`(–)` ＝ *非該当（別面）*（OSI 以外の正当な観測面を持つ。例: RM ctypes プローブ）。
+
 | 主張ドメイン | ①主張 | ②刺激 | ③実装 | ④観測 | ⑤判定 | ⑥常設 |
 | :-- | :-: | :-: | :-: | :-: | :-: | :-: |
-| **VD 自動運転挙動** | ◐ | ◐ | ● | ◐ | ◐ | ◐ |
-| ManualDrive（FFB / 合図） | ○† | ◐ | ● | ◐ | ○ | ◐ |
-| Kinematic / RouteDrive | ○† | ◐ | ● | ○ | ○ | ◐ |
-| **RealVehicle 物理（pitch/roll）** | ✕ | ○ | ● | ◐ | ✕ | ✕ |
-| AutoLight（F6 環境ヘッドライト） | ● | ◐ | ● | ◐ | ◐ | ◐※opt-in |
+| **VD 自動運転挙動** | ◐ | ◐ | ● | ◐(b優勢) | ◐ | ◐ |
+| ManualDrive（FFB / 合図） | ○† | ◐ | ● | **○(b′)** ←◐から降格 | ○ | ✕ ←◐から訂正 |
+| Kinematic / RouteDrive | ○† | ◐ | ● | ○(b′/a) | ○ | ✕ ←◐から訂正 |
+| **RealVehicle 物理（pitch/roll）** | ✕ | ○ | ● | ◐(b) ＋交通車(a) | ✕ | ✕ |
+| AutoLight（F6 環境ヘッドライト） | ● | ◐ | ● | ◐(b) | ◐ | ◐※opt-in |
 | TrafficSignalController | ○† | ◐ | ● | ● | ◐ | ○ |
-| **OSI-GT 出力**（中核主張） | ○→**要求化する** | – | ● | ●※観測層そのもの | ◐ | ○ |
-| OpenSCENARIO 拡張パース | ◐ | ◐ | ● | – | ◐ | ● |
-| **RoadManager LHT / ODR 1.6-1.9** | ● | ● | ● | ◐ | ● | ● |
+| **OSI-GT 出力**（中核主張） | ○→**要求化する** | – | ● | **◐(a)** ←●から降格 | ◐ | ○ |
+| OpenSCENARIO 拡張パース | ◐ | ◐ | ● | **◐** ←「–」から訂正 | **○** ←◐から降格 | **○** ←●から降格 |
+| **RoadManager LHT / ODR 1.6-1.9** | ● | ● | ● | ◐(–/b) | ● | ● |
 
 ### 行ごとの根拠（cell の出典と "?" の残し）
+
+> **2026-07-20 の再採点で変えたセルと理由**（詳細な signal 単位の台帳は §2.3）:
+> - **OSI-GT出力 ④ ● → ◐(a)**: 「観測層そのものだから●」は**循環論法だった**。GT が
+>   *正しい*ことを言うための観測量（タイムスタンプ単調性・フレーム欠落率・動的オブジェクト数
+>   の整合）は emit 側にも消費側にも**存在しない**（`count_osi_messages.py` はメッセージ**数**を
+>   数えるのみで内容非検査）。中核主張なのに自己観測が(a)未emit。
+> - **ManualDrive ④ ◐ → ○(b′)**: HVD に届く `steering_angle` が
+>   `GT_HostVehicleReporter.cpp:141` の `steering_input_to_wheel_ratio`(既定12.9) を無条件適用され、
+>   既に実舵角(rad)を渡す ManualDrive（`ControllerManualDrive.cpp:194-196`）では**約12.9倍に破壊**される。
+>   加速度も `GT_HostVehicleReporter.cpp:237-292` が `egoState->pos_.GetAcc*()` で**毎フレーム上書き**し、
+>   RealVehicle の値は外に出ない。**誤配線(b′)＝emit されているのに信頼できない**。
+> - **ManualDrive / Kinematic ⑥ ◐ → ✕**: `test/CMakeLists.txt` と integration 26本を全照合した結果、
+>   **ManualDrive・Kinematic・RouteDrive・pitch/roll に言及する自動テストは unit/integration いずれにも
+>   1件も無い**。従来の「単体ゲート一部」は誤り（AutoIndicator/PIDPurePursuit は VD 側の部品）。
+> - **OpenSCENARIO拡張パース ④ – → ◐ / ⑤⑥ ● → ○**: R5-U3 以降 `GT_ScenarioReader.cpp:37-181` の
+>   パース対象は **TrafficSignalController 系のみ**（LightStateAction は upstream ネイティブへ移管済）。
+>   その結果は `roadmanager::TrafficLight` → OSI `traffic_light`（`GT_OSIReporter_Traffic.cpp:254-264`）に
+>   出るので④は非該当ではない。一方 ctest `test_ScenarioReaderParsing` は名前に反し
+>   **現行パース対象を一切カバーせず** `VehicleLightBridge`/`ScenarioLightRegistry` の残置テストのみ
+>   ＝「CI常設で厚い」は**空振り**。唯一の検出手段は E2E(phase3_batch)。
 
 - **VD自動運転挙動**: ① `req-vd-ad`(12, ただし7機能分のみ) ② `scene`(18)＋`scenario-variant`(56)＋
   `policy`(xosc/verification) だが coverage=partial/none 多数 ③ `vd-func`(48)/`policy`(6)。
@@ -199,8 +226,16 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 - **ManualDrive**: ③ SDL2/FFB/IndicatorFSM 実装済 ④ HVD 出力(inputs/powertrain/ADAS) ⑤ 単体テスト
   AutoIndicator/PIDPurePursuit はあるが「FFB忠実度」等の主張matcherは無 ⑥ 単体ゲート一部。①主張が
   そもそも希薄（人間入力デバイスの"忠実度"を要求化していない）。
-- **Kinematic / RouteDrive**: ③ 実装済＋integration(GT_Loader) ④ 横アクション可視性ギャップ
-  （storyboard由来のみ拾う, `kinematic_action_visibility`）→ 観測が構造的に欠ける ⑤⑥ 希薄。
+- **Kinematic / RouteDrive**: ③ 実装済＋integration(GT_Loader) ④ lane_id/indicator は OSI に汎用経路で
+  出る（`GT_OSIReporter_Moving.cpp:777`, `:512`）が、**telemetry frame を作るのは VD だけ**なので
+  frame/matcher には一切届かない。舵角は ManualDrive と**同じ 12.9倍破損経路**（`GT_HostVehicleReporter.cpp:141`
+  × `ControllerKinematic.cpp:445-447`）＝(b′)。動的 pitch/roll は `VehiclePhysicsManager` が担うが
+  **既定 `enabled_=false`**（`VehiclePhysicsManager.hpp:71`, opt-in `--vehicle-physics`）＝(a)。⑤⑥ 空。
+  **訂正**: 従来根拠にした「横アクション可視性ギャップ（storyboard由来のみ拾う）」は
+  **RouteDrive×Kinematic に関しては既にパッチ済み**（`ControllerKinematic.cpp:215-235` が
+  `GetActiveLaneChangeAction()` を明示取得）。memory `kinematic_action_visibility` は
+  「非storyboard所属アクションを持つ第三のコントローラが将来来たら再発する設計上の脆弱性」として
+  読み替えるべきで、現行の④欠落の理由ではない。
 - **RealVehicle 物理(pitch/roll)** ← **"検証未配線"の典型（当初✕→◐に訂正）**: ③ 制御車=コントローラ内部＋
   交通車=VehiclePhysicsManager の2系統で実装済（`pitch_roll_architecture`）。**④ orientation(roll/pitch/yaw)は
   OSI/HVD に emit 済み**（`GT_HostVehicleReporter.cpp` vehicle_motion / `GT_OSIReporter.cpp` obj orientation）。
@@ -214,8 +249,20 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
   ⑤ `collect_osi_light_metrics.py` ⑥ 常設ゲート化は? 要確認。
 - **OSI-GT出力**: シミュレータの中核主張＝GroundTruthの正しさ。③実装＝観測層そのもの。
   ⑤ `count_osi_messages`/`osi2csv`/`osiviewer` は道具だが「GT出力が正しい」を判定する
-  matcher/goldenは? 要確認。① GT正当性の要求化は希薄。
-- **OpenSCENARIO拡張パース**: ⑤⑥ `test_ScenarioReaderParsing`（CI常設）で厚い。④は非該当。
+  matcher/goldenは無い（`count_osi_messages.py` は件数のみ）。① GT正当性の要求化は希薄。
+  **④ の実体（再採点）**: オブジェクト内容の emit は厚い（moving/stationary/traffic_light/HVD 充足）が、
+  **GT 自身の健全性 signal が(a)未emit**（時刻単調性・欠落率・entity数整合。`osi_bridge.py:45-78` に
+  再構成失敗時の `_reset()` はあるが失敗率を外に出さない）。加えて **traffic_sign は(b)**:
+  OSI には出ている（`GT_OSIReporter_Traffic.cpp:56-235`, 静的GT初回のみ）のに、Web は
+  `road_geometry_service.py:84-93` が「遅延購読者が初回フレームを見逃す」ためと**明示コメント付きで
+  OSI を迂回し xodr を再パース**＝正規IFを捨てている実例。`light_state` の
+  「未設定 vs OFF」（`has_lightstate_action_` ラッチ, `GT_OSIReporter_Moving.cpp:402-412`）を突く
+  テストも無い。
+- **OpenSCENARIO拡張パース**: ④ 現行パース対象＝TrafficSignalController系のみで、結果は OSI
+  `traffic_light` に出る（上記訂正参照）＝非該当ではなく ◐。⑤⑥ `test_ScenarioReaderParsing` は
+  **現行パース対象を検証していない**（`VehicleLightBridge`/`ScenarioLightRegistry` の残置テストのみ）
+  ＝「CI常設で厚い」は空振り。検出は E2E(`phase3_batch.yaml` → matcher `stopped_at_signal`)のみ。
+  → **ctest 名と実内容の乖離は単独で actionable**（名前が主張を偽装している）。
 - **RoadManager LHT / ODR** ← **最強スパイン＝手本**: ① `odr-cluster`(#0-22)/`odr-pending`
   ② `odr_fixtures`＋roadgen ③ フォークパッチ ⑤ conformance harness(schema/RM/OSI 3層)
   ⑥ ODR conformance gate＋census(`check_core_census.py`)＋drift＋fork-sync。namespaces.yaml 自身が
@@ -302,6 +349,130 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 W1-W3 は **enabler の議論と独立に効く**（対象は built 済みの behavior）。§7 フェーズ4 の
 パイロット候補として pitch/roll と並ぶ。特に **W2 は1行**。
 
+### 2.3 ④観測の棚卸し（emit 基準・2026-07-20）
+
+§2 の9主張ドメインについて、「その主張を裏付けるのに**必要な観測量**」を実装から導出し、
+**OSI/HVD に emit されているか**（file:line 確認）→ **frame/matcher/gate に届いているか** の順で
+採点した結果。W1-W4（§2.2a）と同一のものは参照に留め再記述しない。
+
+判定記号: **(a)** 未emit ／ **(b)** emit済み未配線 ／ **(b′)** 誤配線（値が壊れて届く）／
+**●** 充足 ／ **(–)** 非該当（別面に正当な観測経路あり）。
+
+#### D1 VD 自動運転挙動
+
+| signal | emit（file:line） | 消費到達 | 判定 | exposure |
+| :-- | :-- | :-- | :-: | :-- |
+| ego pose/speed | OSI Moving base ／ HVD `GT_HostVehicleReporter.cpp:260-289` | frame `ego.*` → matcher 多数 | ● | osi,hvd,frame |
+| ego 縦加速度 | OSI `GT_OSIReporter_Moving.cpp:772-774` | frame に無し。`vd_metrics.py:253-259` が**コメントで「Telemetry carries no acceleration」と明言**し speed の中心差分で自前推定 | **(b)** | osi |
+| ego jerk | OSI に jerk 概念なし | speed の**二階微分**で近似（`vd_metrics.py:274-285`） | (a) | derived |
+| ego pitch/roll | HVD `:255-256,267-268,276-277,285-286` | frame に無し | (b) | hvd |
+| front_bumper 局所化(F5) | frame まで到達（`VirtualDriverTelemetryJson.cpp:20-24`） | **`vd_metrics.py` に参照 0件** | (b) | frame |
+| lead vehicle gap | STOP_AT_S 枝のみ `c.s` に載る（`LeadVehicleAware.cpp:97-99`）。追従継続枝は `c.s=0` 固定(`:113`)で距離を捨てる | 停止時のみ frame 到達 | (b)部分 | frame |
+| traffic light phase | OSI `GT_OSIReporter_Traffic.cpp:282` | `_gt_to_scene`(`gt_sim_test.py:190`)→`stopped_at_signal` の require_red | ●（`capture_osi` 有効時のみ） | osi,frame |
+| traffic light `assigned_lane_id` | OSI `:286-288` | `_gt_to_scene` の辞書に**含まれない**（`gt_sim_test.py:185-192`） | (b) | osi |
+| stop/yield sign id・classification | OSI `:96-97`(P4 意味論 fallback `:187-220`) | `_gt_to_scene` は `traffic_sign` を**一切パースしない** | (b) | osi |
+| 横断歩道 footprint | OSI `StationaryObject.base_polygon`(`GT_OSIReporter.cpp:829-850`) ただし type は `TYPE_OTHER` 固定(`:791-796`) | `_gt_to_scene` は `stationary_object` を**一切パースしない** | (b) | osi |
+| 歩行者 velocity ベクトル | OSI `GT_OSIReporter_Moving.cpp:767-769` | `_gt_to_scene` が `sqrt(vx²+vy²+vz²)` のスカラーに潰す(`gt_sim_test.py:171`)＝**「離れつつあるか」の符号情報が消える** | (b) | osi |
+| 歩行者用信号 phase | OSI lamp `:281-284`（内部で `FoldPedPhase`） | frame/matcher とも非消費 | (b) | osi |
+| 交差点 `<priority>` | **OSI に無い**。`OdrSideModel` で xodr 直読み(`ConflictPointResolver.cpp:336-346`) | 非到達 | (a) | derived |
+| 交差点 governing other_id / region span / PET | 内部のみ(`ConflictPointResolver.cpp:551-672, 647-656`) | 非到達 | (a) | debug |
+| stop FSM phase(APPROACH/HOLD/CREEP) | 内部のみ(`StopYieldSignAware.cpp:38-82`) | 非到達 | (a) | debug |
+| AEB 作動フラグ / constraint source | `PolicyConstraint.source`(`AebSafety.cpp:120-128`) | frame → `no_emergency_without_conflict`(`vd_metrics.py:811-846`) | ● | frame |
+| AEB ttc/a_req ／ tier ／ ADAS states | — | — | W3 / W2 / W1 と同一 | — |
+
+**新規ギャップ 17件**（(a) 9 / (b) 8、W1-W4 重複を除く）。**単一の構造的原因が支配的**:
+`gt_sim_test.py:133-194` の `_gt_to_scene` が **moving_object と traffic_light しか変換しない**
+（`traffic_sign` / `stationary_object` は丸ごと非対応、velocity はスカラーに潰す）。
+OSI 側は出しているのに **scene 変換層でせき止められている**のが (b) の大半。
+もう一つのパターンは、各 policy の「なぜ止まったか」（信号id・標識種別・歩行者信号・conflict相手）が
+**`policy.constraints[].source` という文字列タグ1本に圧縮**され識別子と状態値が落ちること
+＝ **W2(tier欠落)と同型の情報損失が policy 横断で反復**している。
+
+#### D2 ManualDrive ／ D3 Kinematic・RouteDrive ／ D4 RealVehicle 物理
+
+| signal | emit（file:line） | 消費到達 | 判定 | exposure |
+| :-- | :-- | :-- | :-: | :-- |
+| **HVD `steering_angle`** | `ControllerManualDrive.cpp:194-196` が既に**実舵角(rad)**を渡すのに `GT_HostVehicleReporter.cpp:141` が `steering_input_to_wheel_ratio`(既定12.9, ControllerRealDriver の正規化入力向け) を**無条件適用** | Web `HvdGaugePanel.tsx` まで届くが**約12.9倍に破壊** | **(b′)** | hvd |
+| HVD acceleration | `RealVehicleBackend::BuildHVD` の値を `GT_HostVehicleReporter.cpp:237-292` が `egoState->pos_.GetAcc*()` で**毎フレーム上書き**（コメントに "Always OVERWRITE" と明記） | RealVehicle の正確な加速度は外に出ない | **(b′)** | hvd |
+| Kinematic wheel_angle | `ControllerKinematic.cpp:445-447` → `GT_esminiLib.cpp:1516-1531` | 同じ 12.9倍経路 | **(b′)** | hvd |
+| FFB 内部量(steering_pos/vel, lat_accel) | `RealVehicleBackend.cpp:121-134`、`SDLFFBSink.cpp:158-176` が同じ hvd を直読み | **自己完結ループ**（外部配信不要） | ●（FFB 用途） | debug |
+| throttle/brake/gear/rpm/torque/灯火 | `ControllerManualDrive.cpp:188-247` → HVD ／ OSI `GT_OSIReporter_Moving.cpp:414-512` | `HvdGaugePanel.tsx` | ● | hvd,osi |
+| ManualDrive ADAS states | `ControllerManualDrive.hpp:36` で恒久的に空 | `GT_esminiLib.cpp:1486` の `size()>=24` ガードで無害にスキップ | (a)**設計上の非該当**（W1 と異なりバグではない） | hvd |
+| override domain state (lat/lon manual vs scenario) | OSI/HVD に相当欄なし | 非到達 | (a) | debug |
+| Kinematic 曲率 κ | 内部のみ(`ControllerKinematic.cpp:380-394`) | debug_log のみ | (a)（意図的な中間量） | debug |
+| lane_id / indicator (Kinematic/RouteDrive) | OSI `:777` / `:512` | **VD 以外は telemetry frame を生成しない**ため matcher 非到達 | (b) | osi |
+| 制御車 dynamic pitch/roll | `RealVehicle.cpp:410-430` → `SetInertiaPos` → OSI `GT_OSIReporter_Moving.cpp:756-757` | frame/matcher なし | (b)（既知） | osi,hvd |
+| **交通車 dynamic pitch/roll** | `VehiclePhysicsManager.cpp:107-108` だが **既定 `enabled_=false`**(`VehiclePhysicsManager.hpp:71`, opt-in `--vehicle-physics`) | 通常運用では**そもそも計算されない** | **(a)** | osi,hvd |
+
+**⑥の実測**: `test/CMakeLists.txt` と integration 26本の全照合で、**この3ドメインに言及する自動テストは
+unit/integration いずれにも 0件**。回帰検知は目視スモークのみ ＝ ⑥ を ◐ から ✕ に訂正した根拠。
+
+**未確認（要検証・推測）**: `VehiclePhysicsManager.cpp:50-59` のスキップ判定リストに
+`CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME` が**含まれていない**（RealDriver/PythonDriver/ManualDrive のみ除外）。
+VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtualDriver.cpp:344-350`）ため、
+`--vehicle-physics` 有効時に `SetPitchRelative`/`SetRollRelative` が**二重に走る**懸念。
+リスト欠落は file:line で確定した事実、干渉の実害は `EvaluateHPR` の評価順に依存し**未検証**。
+
+#### D5 AutoLight ／ D6 TrafficSignalController ／ D7 OSI-GT 出力
+
+| signal | emit（file:line） | 消費到達 | 判定 | exposure |
+| :-- | :-- | :-- | :-: | :-- |
+| brake / indicator / low_beam | `AutoLightController.cpp:231-374,411-862` → OSI `GT_OSIReporter_Moving.cpp:433-512` | WS `osi_stream.py:75-77` | ● | osi,frame |
+| **reversing_light / high_beam** | OSI `:443-445, 485-487` に正しく populate | WS の `_extract_lights()`(`osi_stream.py:65-83`) が**抽出していない**（`collect_osi_light_metrics.py` 経由でのみ観測可） | **(b)** | osi |
+| environmental_conditions | OSI `GT_OSIReporter_Environment.cpp:38-86` 毎フレーム | WS `_gt_to_json` が**抽出せず**、gRPC のみ到達 | (b) | osi |
+| AutoLight 灯火所有権(AUTO/MANUAL/SCENARIO) | `ExtraEntities.hpp:100-126` の `LightSource`。**OSI に概念が無い** | 非到達 | (a) | debug |
+| トンネル内判定 | `AutoLightController.cpp:177-198`（RoadManager 直読み） | 非到達 | (a) | debug |
+| 信号 lamp mode/color/icon | OSI `GT_OSIReporter_Traffic.cpp:281-283`、毎フレーム(`GT_OSIReporter.cpp:723`) | WS `osi_stream.py:139-152` | ● | osi,frame |
+| 信号 phase 解決失敗(signalId未解決 / controller参照不明) | `TrafficSignalController.cpp:39-83, 102-192` は **LOG_WARN 止まり**、失敗件数を機械可読に出さない | 非到達 | (a) | debug |
+| **GT タイムスタンプ単調性** | emit 側に保証・検査コード**なし** | `count_osi_messages.py` は件数のみで内容非検査 | **(a)** | debug |
+| **フレーム欠落率(UDP再構成失敗)** | `osi_bridge.py:45-78` に `_reset()` はあるが**カウンタ化して外に出さない** | 非到達 | **(a)** | debug |
+| **動的オブジェクト数の整合**(entity数 vs GT moving_object数) | 突合コードなし。WS `osi_stream.py:157` の `object_count` は表示用で期待値比較せず | 非到達 | **(a)** | debug |
+| traffic_sign | OSI `GT_OSIReporter_Traffic.cpp:56-235`（静的GT 初回のみ） | **Web は `road_geometry_service.py:84-93` が明示コメント付きで OSI を迂回し xodr 再パース**。WS も抽出せず。検証は `run_odr_conformance.py` OSI層の件数比較のみ | **(b)** | osi |
+| `light_state` の「未設定 vs OFF」 | `has_lightstate_action_` ラッチ(`GT_OSIReporter_Moving.cpp:402-412`)で一度も変更が無いと**フィールドごと出ない** | 消費側は `HasField` で整合。**この区別を突くテストは無し** | ●(emit)／⑤欠 | osi |
+
+**D7 が本セッション最大の再採点**: 「観測層そのものだから ④=●」は循環論法で、
+**GT の健全性を観測する signal は3つとも(a)未emit**。面1の中核主張がここで裏付けを失う。
+
+#### D8 OpenSCENARIO 拡張パース ／ D9 RoadManager LHT・ODR
+
+| signal | 観測面 | 判定 |
+| :-- | :-- | :-: |
+| TrafficSignalController パース結果 | `roadmanager::TrafficLight` → OSI `traffic_light`(`GT_OSIReporter_Traffic.cpp:254-264`) | ◐（emit は成立。ctest は非カバー＝⑤の穴） |
+| ODR schema 層 | XSD（`run_odr_conformance.py:652-683`）＝OSI 非経由 | **(–)** ● |
+| ODR rm / motion 層 | `esminiRMLib` ctypes 直接プローブ（`run_odr_conformance.py:230-470`, `rm_lib.py:181-208`）＝OSI 非経由 | **(–)** ●（ただし §1.1 の通り *回帰* であって真偽ではない） |
+| ODR osi 層 | `GT_esminiLib` `SE_GetOSIGroundTruth` を実デコード（`run_odr_conformance.py:472-561`） | **(b)** — 実装済みだが `--profile full` の**手動実行のみ**でゲート未配線 |
+
+→ ODR 列の④が ◐ なのは「観測が弱い」からではなく、**別面(–)で足りている部分**と
+**OSI層がゲートに繋がっていない(b)部分**の混成。(–) を導入したことで、この行を
+不当に減点せずに済むようになった。
+
+### 2.3a coupling-audit 第一弾 — verdict の面2依存の実数
+
+§0.3 で「面3が面2のテレメトリを主観測源にしている」と定性的に述べた負債の**実数**。
+`vd_metrics.py::eval_must` の全分岐（実数 **14 matcher**）を観測フィールドで分類した。
+
+| 判定源 | 件数 | matcher |
+| :-- | :-: | :-- |
+| **(i) 面2 VD テレメトリ直結**（結合負債） | **10 / 14** | speed_above·below / min_speed_above / no_constraint_kind / lane_keep / lane_change_count / deceleration_profile_smooth / speed_reduction_before_landmark / steer_not_saturated / stopped_at_stop_sign·signal(主判定) / no_emergency_without_conflict |
+| (ii) 面1 OSI GroundTruth 直結（正規IF） | 4 / 14 | maintained_following_distance / min_separation_above / min_obb_separation_above / impact_speed_below |
+
+- 純テレメトリのみなら **9/14**。`stopped_at_signal` は主判定がテレメトリで
+  `require_red` サブチェックのみ OSI（`vd_metrics.py:565-595`）＝**混在型**。
+- OSI 側4件はいずれも `frame["scene"]`（`_gt_to_scene` が埋める）依存で、
+  **`--osi` / batch `osi: true` が無いと None → matcher は skip**（`vd_metrics.py:611-613,660-662`）
+  ＝ **正規IF側は「条件付きでしか効かない」**。
+- `check_phase3_regression.py` 自体は観測量を持たず `verdict.json` の
+  `event/status/detail` を読むだけ（`:75-119`）＝ **判定根拠は完全に上流に従属**。
+  `phase3_expected.yaml` も matcher 名＋status を凍結するのみで、面2依存の実態を追認する構造。
+- トランスポートは2系統だがどちらも起点は面2: batch 経路は ctypes
+  `GT_GetVirtualDriverTelemetry`（`gt_lib.py:220-228`）、Web ライブ表示は UDP 48202
+  （`config.py:134` `VD_LISTEN_PORT`）。OSI は別途 UDP 48198。
+
+**結合負債の実数 ＝ 14 matcher 中 10（71%）が面3→面2 直結**。
+§0.4 が言う「面3を SUT 非依存にする」目標に対し、置換対象の母数がこの10件。
+うち **加速度系（deceleration_profile_smooth）は OSI に emit 済み**
+（`GT_OSIReporter_Moving.cpp:772-774`）＝ **配線を差し替えるだけで面1経由に移せる最有力候補**。
+
 ## 3. メタ所見
 
 1. **検証成熟度が主張ごとに極端に不均一**。道路/ODR層は①〜⑥ほぼ全通し（census＋conformance＋
@@ -324,7 +495,38 @@ W1-W3 は **enabler の議論と独立に効く**（対象は built 済みの be
 
 | slug | entity_type | 意味 | source_of_truth（実在） | seed 例 |
 | :-- | :-- | :-- | :-- | :-- |
-| `signal` | observable | 観測可能量（生の量）。**canonical=OSI GroundTruth / HostVehicleData 面**、frame はその派生投影 | **OSI `.proto`（GroundTruth / HostVehicleData）を正の面**とし、`GT_OSIReporter*` / `GT_HostVehicleReporter` が populate。`vd_metrics.py` frame は派生投影の一つ | ego_pose / ego_speed / ego_orientation(roll/pitch/yaw) / ego_s / ego_accel / ego_jerk / obb_separation / object_poses / traffic_light_state / stationary_signs / hvd_inputs / hvd_powertrain / adas_states / vehicle_lights |
+| `signal` | observable | 観測可能量（生の量）。**canonical=OSI GroundTruth / HostVehicleData 面**、frame はその派生投影 | **OSI `.proto`（GroundTruth / HostVehicleData）を正の面**とし、`GT_OSIReporter*` / `GT_HostVehicleReporter` が populate。`vd_metrics.py` frame は派生投影の一つ §2.3 で実測した seed（下表） |
+
+**seed（2026-07-20, §2.3 の棚卸しで実在確認したものだけ起こす）**。on-demand 原則は維持
+（OSI .proto の bulk import はしない）。`state` 列は §2.3 の判定をそのまま持ち込む:
+
+| signal 候補 | exposure | state |
+| :-- | :-- | :-- |
+| `ego_pose` / `ego_speed` | osi,hvd,frame | ● |
+| `ego_orientation`(roll/pitch/yaw) | osi,hvd | (b) |
+| `ego_accel_long` | osi | **(b)** ← 差し替え最有力（§2.3a） |
+| `ego_jerk` | derived | (a) |
+| `front_bumper_localization` | frame | (b) |
+| `obb_separation` / `object_poses` | osi,frame | ● |
+| `pedestrian_velocity_vector` | osi | (b)（scene 変換でスカラー化） |
+| `traffic_light_state` | osi,frame | ● |
+| `traffic_light_assigned_lane` | osi | (b) |
+| `traffic_sign_classification` | osi | (b)（Web は xodr 再パースで迂回） |
+| `crosswalk_footprint` | osi | (b) |
+| `hvd_inputs`(throttle/brake/gear) / `hvd_powertrain` | hvd | ● |
+| `hvd_steering_angle` | hvd | **(b′)** 誤配線 |
+| `hvd_acceleration` | hvd | **(b′)** 上書きで欠損 |
+| `vehicle_lights`(brake/indicator/low_beam) | osi,frame | ● |
+| `vehicle_lights_reversing` / `vehicle_lights_high_beam` | osi | (b)（WS 未抽出） |
+| `environmental_conditions` | osi | (b) |
+| `adas_states` | hvd | (a) ＝W1 |
+| `policy_constraint_tier` | frame | (b) ＝W2 |
+| `aeb_ttc` / `aeb_a_req` | debug→(a') `custom_detail` | (a) ＝W3 |
+| `gt_timestamp_monotonicity` | debug | **(a)** 未emit（中核主張の自己観測） |
+| `gt_frame_loss_rate` | debug | **(a)** |
+| `gt_entity_count_consistency` | debug | **(a)** |
+| `junction_priority` | derived | (a)（OSI に受け皿なし・xodr 直読み） |
+| `conflict_prediction_span`/`pet` | **debug** | (a)（§2.2 の(b)方針＝verdict 不使用） |
 
 **seedは on-demand**（OSI .proto を bulk import しない＝openx 346概念と同じ轍を踏まない。主張/ matcher が
 参照した signal だけ起こす）。各 `signal` に **exposure** を付す: `osi` / `hvd` / `frame` / `derived` /
