@@ -30,4 +30,203 @@ meta:
   derived_from: CLAUDE.md  # §5 テスト戦略 ＋ scripts/ ＋ .github/workflows/ci.yml
   seeded: 2026-07-20
 
-gates: []
+gates:
+  # ---- ユニット ----
+  - id: unit-ctest
+    title: GTユニットゲート（ctest 傘バイナリ）
+    command: scripts/run_gt_tests.ps1  # → ctest -R "test_ScenarioReaderParsing" -C Release
+    context: both  # local ＋ ci.yml `test` job（ubuntu/macos/windows × Debug/Release）
+    blocking: true
+    requires: [release-build]
+    covers: >-
+      ctest標的 `test_ScenarioReaderParsing` は**28本のユニットソースを束ねた傘バイナリ**
+      （GT_esmini/test/CMakeLists.txt:8-35、TEST/TEST_F 計278件、2026-07-20実測）。
+      内訳の柱: ODR道路層13ファイル（fork patches / virtual junction / signal semantics /
+      LHT road transitions 等）／VirtualDriver 6ファイル（traffic policies 61件・
+      PID pure-pursuit・auto indicator・telemetry JSON・PolicyDetail・AdasFunctionReport）／
+      RealDriver utils・LonProfilePlanner／ConfigLoader・SimpleJson・HeadlightLogic。
+    not_covers: >-
+      **`GT_ScenarioReader` の現行パース対象（TrafficSignalController系）は非カバー**。
+      GT_esmini/test 配下を `TrafficSignalController|GT_ScenarioReader` で grep して0件
+      （2026-07-20実測）。標的名の由来は `unit/test_ScenarioReaderParsing.cpp` が28本中
+      唯一 `int main()` を持つこと。当の.cpp の中身は R5-U3 以降 VehicleLightBridge /
+      ScenarioLightRegistry の残置テスト13件で、名前の示すパース検証ではない。
+      ManualDrive / Kinematic / RouteDrive / pitch-roll に言及するテストも0件
+      （capability_model.md §2.3 ⑥実測）。
+    note: >-
+      **名前が主張を偽装しているゲート**。covers を標的名から推測すると
+      「OSC拡張パースはCI常設で厚い」という誤結論になる（実際の検出手段は
+      E2E の gate:phase3-baseline のみ）。root CLAUDE.md §5 の「25 unit sources」も
+      実測28で陳腐化している（本カタログの数字が実測）。
+
+  - id: integration-ctest
+    title: GT_Loader 統合テスト26本（opt-in・既定ゲート外）
+    command: scripts/run_gt_tests.ps1 -IncludeIntegration
+    context: local
+    blocking: false  # opt-in。regression-gate Step 1 は -IncludeIntegration 無しで呼ぶ
+    requires: [release-build]
+    covers: >-
+      `GT_esmini_Integration_*` 26本 = AutoLight/LightStateAction 6（うち縮退負2）＋
+      F6環境ヘッドライト5（夜間/トンネル/自動ハイビーム）＋ControllerRealDriver 15。
+      per-test アサーション（init rc==0・エンティティ存在・完走・灯火状態変化/移動）。
+    not_covers: 実行時間の都合で既定ゲート外＝**回帰で自動的には守られていない**。
+    note: 凍結 pythondriver_* 17本は GT_ENABLE_EMBEDDED_PYTHON=ON でのみ登録され、どの緑ゲートにも属さない。
+
+  # ---- 統合ラダー ----
+  - id: regression-gate
+    title: マージ前回帰ラダー（Step 1 → 1.5 → 2）
+    command: scripts/run_regression_gate.ps1
+    context: local  # CI は同じ中身を個別 job に分解して実行（この ps1 自体は CI 非経由）
+    blocking: true  # Step 1 / Step 1.5 がハード。Step 2 は既定 WARN
+    requires: [release-build, venv]
+    covers: >-
+      Step 1 = gate:unit-ctest（ハード）／Step 1.5 = gate:odr-conformance-quick（ハード、
+      -SkipOdr で除外可）／Step 2 = gate:phase3-baseline（既定 WARN、-FailOnBehavioral で
+      ハード化）／Step 2.5 = gate:telemetry-golden（-TelemetryGolden 指定時のみ）。
+    note: 傘ゲート。実質の検証内容は各サブゲートのノードを見ること。
+
+  - id: phase3-baseline
+    title: VirtualDriver 挙動回帰（phase3 バッチ vs committed baseline）
+    command: >-
+      gt_sim_test.py batch resources/xosc/verification/phase3_batch.yaml →
+      scripts/check_phase3_regression.py --baseline GT_esmini/test/regression_baseline/phase3_expected.yaml
+    context: both  # local（regression-gate Step 2）＋ ci.yml Windows job（非ブロッキング）
+    blocking: false
+    requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード（ctypes）
+    covers: >-
+      12シナリオ × matcher の **per-scenario / per-matcher 判定を committed baseline と照合**
+      （バッチ自身の粗い overall=fail は意図的にゲートではない）。OSC拡張パース
+      （TrafficSignalController系）の**唯一の検出手段**でもある — matcher:stopped_at_signal 経由。
+    not_covers: >-
+      `check_phase3_regression.py` 自体は観測量を持たず `verdict.json` の event/status/detail を
+      読むだけ（:75-119）＝**判定根拠は完全に上流に従属**。baseline も matcher名＋status を
+      凍結するのみで、面3→面2 直結（14 matcher中10）の実態を追認する構造（§2.3a）。
+    note: 既定 WARN。逸脱でマージが止まるのは -FailOnBehavioral 指定時のみ。
+
+  # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
+  - id: odr-conformance-quick
+    title: ODR適合 quick プロファイル（schema + rm + motion）
+    command: scripts/run_odr_conformance.py --profile quick
+    context: local  # regression-gate Step 1.5
+    blocking: true
+    requires: [release-build, venv]  # esminiRMLib.dll。ASAM公式fixtureは zip 非同梱時 auto-SKIP
+    covers: >-
+      schema層＝XSD検証／rm層＝esminiRMLib RM_Init プローブ vs golden／
+      motion層＝RM_PositionMoveForward walk vs golden。
+    not_covers: >-
+      **golden は回帰(change-detection)であって真偽ではない**（§1.1）。資産とエンジンが
+      揃って誤っている場合を検出できない。LHT正しさ・lane-id符号・road間 reciprocity の
+      意味論オラクルは不在（Annex F 275ルール中 gap 259）。
+    note: OSI層は含まない（gate:odr-conformance-full 参照）。
+
+  - id: odr-conformance-schema-ci
+    title: ODR適合 schema層のみ（CI）
+    command: scripts/run_odr_conformance.py --layers schema --check-matrix
+    context: "ci:test-no-external-modules"  # ubuntu-22.04 / Release のみ
+    blocking: true
+    requires: [venv]  # DLL不要（意図的に CI-friendly）
+    covers: XSDスキーマ層＋マトリクス被覆チェック。
+    not_covers: RM/OSI golden 層はクロスOSの浮動小数リスクのため CI 非実行＝**ローカル限定**。
+    note: >-
+      この起動でも下記 fork-census / fork-drift / resync-guards は走る
+      （run_odr_conformance.py:1556-1558 はプロファイル分岐より前で無条件）。
+
+  - id: odr-conformance-full
+    title: ODR適合 full プロファイル（+ OSI層）
+    command: scripts/run_odr_conformance.py --profile full --smoke
+    context: local
+    blocking: false  # 手動実行のみ
+    requires: [release-build, venv]
+    covers: quick の3層＋OSI層（GT_esminiLib SE_GetOSIGroundTruth 実デコード vs golden）。
+    not_covers: >-
+      **どの常設ゲートにも配線されていない**。capability_model.md §2.3 D9 が
+      OSI層を (b)（実装済みだが未配線）と採点している当の対象。
+    note: パーサ変更後に手動で回す運用。⑥常設の穴として graph に残す価値がある。
+
+  - id: fork-census
+    title: フォーク会計（AUTHORITATIVE outbound census）
+    command: scripts/check_core_census.py  # run_odr_conformance.py が全プロファイルで内包
+    context: both
+    blocking: true  # census["ok"] が false なら exit_bad++（run_odr_conformance.py:1622-1626）
+    requires: [venv]
+    covers: >-
+      マニフェスト（gt_roadmanager_patches.md）に対する fork/2nd-class 逸脱の
+      **マーカーid単位の帰属**。selftest 同梱。
+    not_covers: >-
+      **フォーク予算の会計であって正しさ検査ではない**（§1.1）。repo唯一のLHTツールだが
+      LHT挙動の正誤は一切見ない。
+    note: 独立スクリプトだが実運用の起動点は run_odr_conformance.py の内包経路（CI schema-only 起動でも走る）。
+
+  - id: fork-drift
+    title: フォーク粗ドリフト検査（legacy outbound）
+    command: scripts/check_fork_drift.py  # 同上、run_odr_conformance.py が内包
+    context: both
+    blocking: true
+    requires: [venv]
+    covers: GT_RoadManager.cpp vs pristine の純テキスト差分行数（近傍帰属）。
+    not_covers: ミラーされた vj ハンクはファイル差分に現れない（P6 S2）＝census が権威。
+    note: 15行射程の帰属罠あり（memory lht_road_transition_fixes）。
+
+  - id: resync-guards
+    title: resync 二重処理ガード検査
+    command: scripts/check_resync_guards.py  # 同上、run_odr_conformance.py が内包
+    context: both
+    blocking: true
+    requires: [venv]
+    covers: upstream resync 時の二重処理ガード（静的検査）。
+    note: 挙動側（重複RMObject id 等）は ctest 側 test_OdrResyncGuards が担当。
+
+  - id: fork-sync
+    title: フォーク同期（INBOUND・上流未取込コミットの列挙）
+    command: scripts/check_fork_sync.py --fetch
+    context: "ci:test"  # Linux / Release のみ
+    blocking: false
+    requires: [venv, git-full-history]  # fetch-depth: 0。--fetch で upstream を FETCH_HEAD へ
+    covers: >-
+      3系譜（gt_roadmanager / gt_osireporter / roadgen）の upstream コミットのうち
+      GT_esmini に未 port のものを列挙。
+    not_covers: 取り込みの要否・正しさは判断しない（列挙のみ）。
+    note: >-
+      **WARNING-ONLY を二重に担保**: `--strict` 非指定でスクリプト自身が exit 0
+      （check_fork_sync.py:250-253）＋ ci.yml:227 の continue-on-error。
+      未取込コミットが CI を止めてはならない、という設計判断。
+
+  # ---- グラフ自身 ----
+  - id: kg-lint
+    title: 知識グラフ構造lint（本グラフの自己検証）
+    command: scripts/check_knowledge_graph.py
+    context: both  # ci.yml `test` job（Linux/Release）＋ run_gt_tests.ps1 Step 0
+    blocking: true
+    requires: [venv]
+    covers: >-
+      namespace slug一意/ id_pattern コンパイル/ active な source_of_truth の実在／
+      辺端点の `<slug>:<local>` 形式・登録済み curated型・pattern fullmatch／
+      openx参照の語彙収載／重複辺／**graph_view.md の陳腐化（ハッシュ照合）**。
+    not_covers: >-
+      **ノードファイルの中身は一切検証しない**（signal_catalog.yaml / gate_catalog.yaml /
+      scene_catalog 等は開かれない）。exposure/state/covers の値域も未検査＝
+      **本カタログの正しさは人間の規律に依存**。face: タグも現状は inert
+      （coupling-audit はフェーズ3で実装）。
+    note: ローカルは venv 不在時 WARN スキップ。CI はハードゲート。
+
+  # ---- 資産カタログ ----
+  - id: catalog-validate
+    title: 生成シナリオ/道路カタログ検証（F1）
+    command: resources/scenario_authoring/validate_catalog.py
+    context: local
+    blocking: false  # CI 非配線（workflows に出現せず・2026-07-20 grep 実測）
+    requires: [release-build, venv]
+    covers: esmini headless EXIT==0 の道路プローブ＋gt_sim_test in-process 実行（VDテレメトリ frames>0）。
+    not_covers: >-
+      frames>0 は §1.1 の言う「意図適合の**弱い代理**」＝走ったことしか言わない。
+    note: 常設ではなく手動。
+
+  - id: telemetry-golden
+    title: テレメトリ golden 差分（opt-in）
+    command: scripts/run_regression_gate.ps1 -TelemetryGolden  # → telemetry_golden.py diff
+    context: local
+    blocking: false  # 既定オフ。指定時のみ Step 2.5 としてハード
+    requires: [release-build, venv]
+    covers: テレメトリ列の golden 差分。
+    not_covers: 既定で走らない＝常設ではない。
+    note: 回帰オラクルであり真偽オラクルではない（§1.1 と同じ限界）。

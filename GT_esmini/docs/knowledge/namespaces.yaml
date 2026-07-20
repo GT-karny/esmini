@@ -328,7 +328,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(_[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/signal_catalog.yaml
     status: active
-    count: 25
+    count: 47
     notes: >-
       検証スパイン④観測の一級市民（capability_model.md §4）。canonical は
       **OSI .proto 面（GroundTruth / HostVehicleData）**で、`vd_metrics.py` の
@@ -350,7 +350,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/gate_catalog.yaml
     status: active
-    count: 11
+    count: 14
     notes: >-
       検証スパイン⑥常設（capability_model.md §4）。カタログの真実源は実行系
       （root CLAUDE.md §5 ＋ scripts/ ＋ .github/workflows/ci.yml）で、本ノードは

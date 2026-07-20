@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:b4bd2d8a7fcde1d8 -->
+<!-- generated-from: sha256:340b866ab89148f8 -->
 
-ノード 138・辺 120（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 159・辺 151（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -170,6 +170,31 @@ flowchart LR
     n_matcher_impact_speed_below["impact_speed_below"]
     n_matcher_no_emergency_without_conflict["no_emergency_without_conflict"]
     n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
+    n_matcher_speed_above["speed_above"]
+    n_matcher_speed_below["speed_below"]
+    n_matcher_min_speed_above["min_speed_above"]
+    n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
+    n_matcher_min_separation_above["min_separation_above"]
+  end
+  subgraph sg_signal["signal｜観測可能量（OSI GroundTruth / HostVehicleData が canonical）"]
+    n_signal_ego_speed["ego_speed"]
+    n_signal_ego_pose["ego_pose"]
+    n_signal_traffic_light_state["traffic_light_state"]
+    n_signal_object_poses["object_poses"]
+    n_signal_obb_separation["obb_separation"]
+    n_signal_aeb_trigger_flag["aeb_trigger_flag"]
+  end
+  subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
+    n_gate_phase3_baseline["phase3-baseline"]
+    n_gate_regression_gate["regression-gate"]
+    n_gate_unit_ctest["unit-ctest"]
+    n_gate_odr_conformance_quick["odr-conformance-quick"]
+    n_gate_fork_census["fork-census"]
+    n_gate_fork_drift["fork-drift"]
+    n_gate_resync_guards["resync-guards"]
+    n_gate_odr_conformance_schema_ci["odr-conformance-schema-ci"]
+    n_gate_fork_sync["fork-sync"]
+    n_gate_odr_conformance_full["odr-conformance-full"]
   end
   n_proposal_P24 -->|merged-into| n_proposal_P15
   n_proposal_P39 -->|merged-into| n_proposal_P13
@@ -291,15 +316,47 @@ flowchart LR
   n_req_vd_ad_REQ_AD_011 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_012 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_013 -->|depends-on| n_proposal_P11
+  n_matcher_speed_above -->|observes| n_signal_ego_speed
+  n_matcher_speed_below -->|observes| n_signal_ego_speed
+  n_matcher_min_speed_above -->|observes| n_signal_ego_speed
+  n_matcher_speed_reduction_before_landmark -->|observes| n_signal_ego_speed
+  n_matcher_speed_reduction_before_landmark -->|observes| n_signal_ego_pose
+  n_matcher_deceleration_profile_smooth -->|observes| n_signal_ego_speed
+  n_matcher_stopped_at_stop_sign -->|observes| n_signal_ego_speed
+  n_matcher_stopped_at_signal -->|observes| n_signal_ego_speed
+  n_matcher_stopped_at_signal -->|observes| n_signal_traffic_light_state
+  n_matcher_maintained_following_distance -->|observes| n_signal_object_poses
+  n_matcher_maintained_following_distance -->|observes| n_signal_ego_speed
+  n_matcher_min_separation_above -->|observes| n_signal_object_poses
+  n_matcher_min_obb_separation_above -->|observes| n_signal_obb_separation
+  n_matcher_impact_speed_below -->|observes| n_signal_obb_separation
+  n_matcher_impact_speed_below -->|observes| n_signal_object_poses
+  n_matcher_no_emergency_without_conflict -->|observes| n_signal_aeb_trigger_flag
+  n_matcher_speed_above -->|sustained-by| n_gate_phase3_baseline
+  n_matcher_speed_below -->|sustained-by| n_gate_phase3_baseline
+  n_matcher_min_speed_above -->|sustained-by| n_gate_phase3_baseline
+  n_matcher_maintained_following_distance -->|sustained-by| n_gate_phase3_baseline
+  n_matcher_stopped_at_signal -->|sustained-by| n_gate_phase3_baseline
+  n_matcher_stopped_at_stop_sign -->|sustained-by| n_gate_phase3_baseline
+  n_gate_regression_gate -->|depends-on| n_gate_unit_ctest
+  n_gate_regression_gate -->|depends-on| n_gate_odr_conformance_quick
+  n_gate_regression_gate -->|depends-on| n_gate_phase3_baseline
+  n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_census
+  n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_drift
+  n_gate_odr_conformance_quick -->|depends-on| n_gate_resync_guards
+  n_gate_odr_conformance_schema_ci -->|depends-on| n_gate_fork_census
+  n_gate_fork_sync -->|complements| n_gate_fork_census
+  n_gate_odr_conformance_full -->|supersedes| n_gate_odr_conformance_quick
 ```
 
 ## 辺の一覧（type別）
 
-### complements (1)
+### complements (2)
 
 | from | to | note |
 | :--- | :--- | :--- |
 | `proposal:P11` | `feature:F2` | 安全マージン評価に直結・F2と並走前提 |
+| `gate:fork-sync` | `gate:fork-census` | INBOUND（上流未取込）と OUTBOUND（フォーク会計）の対。どちらもLHTの*正しさ*は見ない |
 
 ### concerns (61)
 
@@ -367,7 +424,7 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (13)
+### depends-on (20)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -384,6 +441,13 @@ flowchart LR
 | `req-vd-ad:REQ-AD-011` | `proposal:P12` | 衝突検出が検証前提 |
 | `req-vd-ad:REQ-AD-012` | `proposal:P12` | 衝突検出が検証前提 |
 | `req-vd-ad:REQ-AD-013` | `proposal:P11` | 誤作動ゼロ判定に緊急制動発火メトリクスが必要 |
+| `gate:regression-gate` | `gate:unit-ctest` | Step 1（ハード） |
+| `gate:regression-gate` | `gate:odr-conformance-quick` | Step 1.5（ハード、-SkipOdr で除外可） |
+| `gate:regression-gate` | `gate:phase3-baseline` | Step 2（既定 WARN、-FailOnBehavioral でハード化） |
+| `gate:odr-conformance-quick` | `gate:fork-census` | :1556-1558 はプロファイル分岐より前で無条件＝CI の schema-only 起動でも走る。 census/drift/resync-guards が「独立スクリプト」ではなく適合ハーネスに内包された 常設ゲートであることは、名前からは読めない事実。 |
+| `gate:odr-conformance-quick` | `gate:fork-drift` |  |
+| `gate:odr-conformance-quick` | `gate:resync-guards` |  |
+| `gate:odr-conformance-schema-ci` | `gate:fork-census` | schema層のみの CI 起動でも census は走る（同上） |
 
 ### merged-into (3)
 
@@ -392,6 +456,27 @@ flowchart LR
 | `proposal:P24` | `proposal:P15` | 同一提案としてP15に一本化 |
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
+
+### observes (16)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `matcher:speed_above` | `signal:ego_speed` | frames[i]["ego"]["speed"]（面2テレメトリ投影経由） |
+| `matcher:speed_below` | `signal:ego_speed` | 同上（speed_above と同一分岐） |
+| `matcher:min_speed_above` | `signal:ego_speed` | 同上 |
+| `matcher:speed_reduction_before_landmark` | `signal:ego_speed` | ego.speed ＋ ego.s（ランドマーク手前の減速率） |
+| `matcher:speed_reduction_before_landmark` | `signal:ego_pose` | ego.s（走行距離）で窓を切る |
+| `matcher:deceleration_profile_smooth` | `signal:ego_speed` | **本来は signal:ego_accel_long を観測すべき matcher**。OSI に加速度が emit 済み (GT_OSIReporter_Moving.cpp:772-774) なのに speed の中心差分で自前推定している (vd_metrics.py:253-259)。この辺を ego_accel_long に付け替えるのが §2.3a の 「配線差し替えだけで面1経由に移せる最有力候補」。 |
+| `matcher:stopped_at_stop_sign` | `signal:ego_speed` | _sustained_stop（速度が閾値未満の継続時間） |
+| `matcher:stopped_at_signal` | `signal:ego_speed` | 主判定は面2テレメトリの速度（vd_metrics.py:565-595） |
+| `matcher:stopped_at_signal` | `signal:traffic_light_state` | require_red サブチェックのみ OSI GroundTruth 経由（scene.traffic_lights[].color） ＝14 matcher 唯一の混在型。`--osi`/batch `osi: true` が無いと scene=None で skip。 |
+| `matcher:maintained_following_distance` | `signal:object_poses` | scene.objects[]（正規IF＝面1 OSI 直結の4件のうち1件） |
+| `matcher:maintained_following_distance` | `signal:ego_speed` | THW = gap / speed の分母 |
+| `matcher:min_separation_above` | `signal:object_poses` | 中心間ユークリッド距離。min_obb_separation_above に置換され現用資産では未使用（下記参照） |
+| `matcher:min_obb_separation_above` | `signal:obb_separation` | SAT による OBB 分離（隣接レーン通過での誤検出を避けるため中心間距離から移行） |
+| `matcher:impact_speed_below` | `signal:obb_separation` | OBB 接触判定と接近速度の組み合わせ |
+| `matcher:impact_speed_below` | `signal:object_poses` | 相手の位置・方位・速度 |
+| `matcher:no_emergency_without_conflict` | `signal:aeb_trigger_flag` | policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ） |
 
 ### realizes (23)
 
@@ -427,6 +512,23 @@ flowchart LR
 | :--- | :--- | :--- |
 | `proposal:P5` | `proposal:P40` | ReplayInputSource機構の一本化必須 |
 | `proposal:P1` | `proposal:P23` | 外部制御注入の二重資産回避のため設計共有必須 |
+
+### supersedes (1)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
+
+### sustained-by (6)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `matcher:speed_above` | `gate:phase3-baseline` |  |
+| `matcher:speed_below` | `gate:phase3-baseline` |  |
+| `matcher:min_speed_above` | `gate:phase3-baseline` |  |
+| `matcher:maintained_following_distance` | `gate:phase3-baseline` |  |
+| `matcher:stopped_at_signal` | `gate:phase3-baseline` | OSC拡張パース（TrafficSignalController系）の唯一の常設検出経路でもある |
+| `matcher:stopped_at_stop_sign` | `gate:phase3-baseline` |  |
 
 ### upstream-candidate (6)
 

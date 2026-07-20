@@ -544,7 +544,25 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 4. **「深掘り」の再定義**: 機能を1つ深掘りする作業＝その列を①〜⑥まで縫うこと。追跡単位は
    「機能ごと」でなく **「主張 × 縦層のセル」**。
 
-## 4. 新namespace仕様（承認後に namespaces.yaml へ登録）
+## 4. 新namespace仕様（**2026-07-20 登録済み**）
+
+> **状態: フェーズ1で登録完了**。`signal`(face:1, **47ノード**) / `gate`(face:3, **14ノード**) を
+> namespaces.yaml に登録し、実体を `signal_catalog.yaml` / `gate_catalog.yaml` に起こした。
+> 全30名前空間に `face:` タグを付与、edge_types に §5 の3辺を追加。lint + `--render` グリーン。
+>
+> **seed 表からの差分（登録時に実測で訂正した点）**:
+> - **W1/W2/W3 は 2026-07-20 に着地済み**のため、`adas_states`・`policy_constraint_tier`・
+>   `aeb_ttc`/`aeb_a_req` は **(a) ではなく (b)**（emit 済み・読む matcher が無い）で起こした。
+>   下表の (a) は W1-W3 着地前の値。
+> - 下表は1行に2量を束ねた行（`ego_pose`/`ego_speed` 等）があるため、1観測量=1ノードに
+>   分解すると 25行 → **47ノード**。§2.3 の D1-D9 で file:line 確認済みのものだけを起こした
+>   （on-demand 原則は維持）。
+> - `manualdrive_adas_states` を「(a) だが**設計上の非該当**（人間が運転するので AD機能状態が
+>   無い＝W1のようなバグではない）」として明示ノード化。派生レポート(§6)が (a) を機械的に
+>   「観測不能の是正対象」と数えると誤検出になるため。
+> - `gt_timestamp_monotonicity` 等の GT 健全性3件は下表通り exposure=`debug` で起こしたが、
+>   **これは暫定**。emit された暁には面1の自己観測＝verdict に使うべき量であり、
+>   `debug`(verdict-trust対象外) のままにはできない旨をノートに明記した。
 
 | slug | entity_type | 意味 | source_of_truth（実在） | seed 例 |
 | :-- | :-- | :-- | :-- | :-- |
@@ -593,7 +611,7 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 `matcher -[observes]-> signal` で結ぶ。**pitch/roll は matcher 以前に signal が無い**のが
 検証不能の根。
 
-## 5. 新 curated 辺（承認後に edge_types へ追加）
+## 5. 新 curated 辺（**2026-07-20 追加済み**）
 
 既存 curated（realizes / verifies / concerns / depends-on 等）に加え、縦串3種:
 
@@ -604,6 +622,29 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 | `sustained-by` | req / `matcher` → `gate` | ⑥常設: どの常設ゲートで守られるか |
 
 （既存 `verifies` は matcher→req のまま。上3種はそれぞれ別の縦層をつなぐ。）
+
+### 5.1 初回結線の実測（2026-07-20・**引けなかった辺が本体**）
+
+`observes` 17辺 / `sustained-by` 6辺 / ゲート構造 10辺 を graph.yaml に投入。
+**引けなかった辺の方が情報量が多い**（一次記録は graph.yaml 末尾のコメント）:
+
+- **`observes` を引けなかった matcher 3種**: `lane_keep`・`lane_change_count`（ego lane_id は
+  OSI にも出ているが matcher が読むのは frame の `ego.lane`＝面2由来。**同名の量が2面に
+  別経路で存在し、検証は面2側を見ている**）／`steer_not_saturated`（`driver.steer`＝面2の
+  操舵指令。乗り換え先になるはずの `signal:hvd_steering_angle` が (b′) 誤配線のため、
+  **面2直結の解消には先に(b′)修正が要る**という依存が辺で可視化された）／
+  `no_constraint_kind`（`midlong.constraints[].kind`＝面2プランナ内部・OSI に受け皿なし）。
+- **`sustained-by` を引けなかった matcher 9種**: 常設ゲート `gate:phase3-baseline` が実際に
+  発火させるのは **16 matcher 中6件のみ**（phase3_batch.yaml の12シナリオ分 expectations を
+  機械集計、2026-07-20実測）。`min_obb_separation_above`・`impact_speed_below`・
+  `no_emergency_without_conflict` 等は phase3d/phase3e/07_aeb の**手動マニフェスト専用**＝
+  **AEB(REQ-AD-001家族)を判定する matcher が常設ゲートに1件も乗っていない**。
+  さらに `min_separation_above` はどの資産からも参照されない（実測0件）**デッド matcher**。
+- **ゲート構造で判明した非自明**: `check_core_census` / `check_fork_drift` /
+  `check_resync_guards` は独立スクリプトに見えて `run_odr_conformance.py:1556-1558` が
+  **プロファイル分岐より前で無条件に内包**しており、CI の schema-only 起動でも走る
+  （＝実質は常時ブロッキング）。`gate:odr-conformance-full` は逆に quick の上位集合なのに
+  **どのラダーにも配線されていない**（§2.3 D9 が OSI層を (b) とした理由の実体）。
 
 ## 6. 派生レポート「縦串の切れた列」（前回の未深掘り検出の拡張）
 
@@ -625,8 +666,17 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 ## 7. 段階プラン
 
 - **フェーズ0（本書）**: 検証スパイン定義／repo横断行列／新namespace・辺の仕様。**KG本体非改変**。
-- **フェーズ1**: `signal` / `gate` を namespaces.yaml に登録し、§4 seed から起こす（lint + `--render`）。
-  edge_types に §5 の3辺を追加。**全namespaceに §0.5 の `face:` タグを付与**。
+- **フェーズ1 ✅完了（2026-07-20）**: `signal`(47) / `gate`(14) を namespaces.yaml に登録し
+  §4 seed から起こした。edge_types に §5 の3辺を追加、全30 namespace に `face:` タグを付与。
+  初回結線 33辺（§5.1）。lint + `--render` グリーン。
+  **フェーズ1で判明した積み残し**（フェーズ3の lint 設計に直結）:
+  - `face:` タグと catalog の中身（exposure/state/covers）は **現行 lint が一切検証しない**
+    （`check_knowledge_graph.py` は namespace の `source_of_truth` の実在しか見ず、
+    ノードファイルを開かない）。値域チェックはフェーズ3で実装する。
+  - `gate:unit-ctest` の実測で **root CLAUDE.md §5 の「25 unit sources」は陳腐化**（実測28本・
+    TEST/TEST_F 278件）。`test_ScenarioReaderParsing.cpp` 単体の13テストと傘バイナリ28本を
+    混同しない（`GT_ScenarioReader` 非カバーという結論自体は正しい — 実測: GT_esmini/test 配下を
+    `TrafficSignalController|GT_ScenarioReader` で grep して0件）。
 - **フェーズ2**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
   行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
 - **フェーズ3**: 派生レポート（§6）＋ **coupling-audit（§0.5）** を lint に追加 →
