@@ -22,7 +22,7 @@
 #                     "3"     面3 自動運転検証環境（刺激・観測・判定・常設）
 #                     "cross" 面を跨ぐ運用軸（提案・監査・ディレクティブ・git実体）
 #                   面をまたぐ辺が正規IF（signal）を経由しているかを検査する
-#                   coupling-audit（capability_model.md §0.5, spine-phase:Phase3）の入力。
+#                   coupling-audit（capability_model.md §0.5, spine-work:derived-report-lint）の入力。
 #
 
 # Validated by scripts/check_knowledge_graph.py (CI: test job, Linux/Release).
@@ -41,7 +41,7 @@ edge_types:
     - upstream-candidate # fork patch -> upstream PR candidate
     - realizes           # implementation artifact realizes a plan item
     - verifies           # test asset verifies a requirement/feature (matcher -> req)
-    # 検証スパインの縦串（capability_model.md §5, spine-phase:Phase1 で追加）
+    # 検証スパインの縦串（capability_model.md §5, spine-work:signal-gate-registration で追加）
     - stimulated-by      # ②刺激: req / scene -> scenario-variant / policy（主張を発火させる資産）
     - observes           # ④観測: matcher -> signal（matcher が読む生の観測量）
     - sustained-by       # ⑥常設: req / matcher -> gate（どの常設ゲートで守られるか）
@@ -319,26 +319,27 @@ namespaces:
       シーン→concerns→openx概念の curated辺（graph.yaml）。第2段=各シーン
       から req-vd-ad:REQ-AD-<nnn> を導出。
 
-  # ---- 検証スパイン整備プログラムの工程（spine-phase:Phase1 で新設） ----
+  # ---- 検証スパイン整備の作業単位（spine-work:signal-gate-registration で新設） ----
 
-  - slug: spine-phase
-    title: 検証スパイン整備 Phase 0-4（能力モデルの段階プラン）
-    entity_type: phase
+  - slug: spine-work
+    title: 検証スパイン整備の作業単位（能力モデルの作業計画）
+    entity_type: work-item
     face: "3"
-    id_pattern: "Phase[0-4]"
+    id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/capability_model.md
     status: active
     count: 5
     notes: >-
-      capability_model.md §7 の段階プラン（Phase0 スパイン定義 / Phase1 signal・gate 登録 /
-      Phase2 縦串結線 / Phase3 派生レポート＋coupling-audit の lint 実装 / Phase4 空スパインの縫合）。
-      **2026-07-20 に登録**。それまで所属を持たない裸の序数「フェーズ0-4」として書かれており、
-      `vd-phase:Phase0-4`（VDロードマップ）および odr プログラムの P3 と**同一 repo 内で衝突**
-      していた。序数そのものは正当な ID だが、**所属を書かなければ一意にならない**
-      （本ファイル冒頭の原則、および CLAUDE.md §9 "bare IDs are ambiguous, always qualify"）。
-      無修飾の「フェーズ<n>」は commit-msg フック（scripts/check_commit_kg_ids.py）が hint を出す。
+      capability_model.md §7（spine-definition / signal-gate-registration / vertical-wiring /
+      derived-report-lint / empty-spine-stitching）。**順序は ID でなく §7 の並びと
+      depends-on 辺で表す**。
+      **2026-07-20 に2度直した**: 当初は所属の無い裸の序数「フェーズ0-4」で
+      `vd-phase:Phase0-4` / `odr-plan:P0-P10` と衝突 → 一次対応で `spine-phase:Phase<n>` に
+      修飾したが、**それは序数を延命しただけ**という指摘を受け内容 slug へ作り直した。
+      **新しい ID 体系に不透明な採番を使わない**（capability_model.md §7.1 規約4）。
+      序数は共有資源を消費し、中身を語らず、**挿入・並べ替えで壊れる**。
 
-  # ---- 検証スパイン④観測・⑥常設（capability_model.md §1 / §4, spine-phase:Phase1 で新設） ----
+  # ---- 検証スパイン④観測・⑥常設（capability_model.md §1 / §4, spine-work:signal-gate-registration で新設） ----
 
   - slug: signal
     title: 観測可能量（OSI GroundTruth / HostVehicleData が canonical）

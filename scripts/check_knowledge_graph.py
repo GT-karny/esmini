@@ -56,6 +56,29 @@ GRAPH_YAML = KNOWLEDGE_DIR / "graph.yaml"
 VOCAB_YAML = KNOWLEDGE_DIR / "concept_vocabulary.yaml"
 PATH_MAP_YAML = KNOWLEDGE_DIR / "path_map.yaml"
 
+# --- 規約4（capability_model.md §7.1）: 不透明な採番の新設を禁じる ---
+# id_pattern 全体が「序数・連番・単文字＋数字」だけで構成されるものを不透明とみなす。
+# 例: "Phase[0-4]" / "F[1-6]" / "P(10|[0-9][ab]?)" / "M-[A-E]" / "SCN-[0-9]{3}"
+ORDINAL_ID_PATTERN = re.compile(
+    r"[A-Za-z_#-]{0,6}"                      # 短い接頭辞（Phase / SCN- / PR- / # など）
+    r"[\[(][^\])]*[\])]"                     # 数字・英字1文字のクラス/選択
+    r"(?:[\[({][^\])}]*[\])}]|[-_A-Za-z0-9?*+]){0,12}"
+)
+
+# 既存の不透明体系（凍結扱い）。参照面が大きく一斉移行しないため新設だけを弾く。
+# 新しい ID をこれらに足さないこと（規約1 経過措置）。移行したら本リストから外す。
+OPAQUE_LEGACY_NAMESPACES = {
+    "proposal", "feature", "audit-debt", "audit-log", "audit-osc14",
+    "debt-phase", "directive", "vd-phase", "vd-verif", "f1-milestone",
+    "odr-plan", "odr-upstream-pr", "odr-pr-slice", "odr-stage",
+    "fork-patch", "fork-marker", "odr-cluster", "odr-pending",
+    "scene", "req-vd-ad", "vd-func", "scenario-variant",
+    # 外部採番（本質的に不透明・対象外）
+    "commit", "issue",
+    # 列挙型（実体は内容 slug の列挙であって採番ではない）
+    "policy", "matcher", "lineage", "openx",
+}
+
 
 def view_hash() -> str:
     """Fingerprint of the render inputs, embedded in graph_view.md.
@@ -102,6 +125,20 @@ def check() -> int:
         except (re.error, KeyError) as e:
             err(f"namespace '{slug}': bad id_pattern ({e})")
             ns["_re"] = None
+        # 規約4（capability_model.md §7.1）: 新しい ID 体系に不透明な採番を使わない。
+        # 既存19体系は参照面が大きく一斉移行しないため OPAQUE_LEGACY で凍結扱いにし、
+        # **新設のみ**を弾く。序数は共有資源を消費し、中身を語らず、挿入・並べ替えで壊れる。
+        # 散文だけの規約は守られない（2026-07-20 の実例: フックが規約と反転していた）ため
+        # ここで機械化する。
+        if slug not in OPAQUE_LEGACY_NAMESPACES:
+            pat = ns.get("id_pattern", "")
+            if ORDINAL_ID_PATTERN.fullmatch(pat.strip()):
+                err(
+                    f"namespace '{slug}': id_pattern '{pat}' は不透明な採番です。"
+                    "新しい ID 体系は内容由来の slug にしてください"
+                    "（capability_model.md §7.1 規約4）。既存体系の凍結扱いが必要なら "
+                    "OPAQUE_LEGACY_NAMESPACES に追加してください。"
+                )
         status = ns.get("status", "active")
         if status not in ("active", "reserved", "implicit"):
             err(f"namespace '{slug}': unknown status '{status}'")

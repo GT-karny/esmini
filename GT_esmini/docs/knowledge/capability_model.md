@@ -697,44 +697,60 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 
 出力は「主張 × 欠けた縦層」のリスト。これが恒久の「未検証台帳」になる。
 
-## 7. 段階プラン（namespace: `spine-phase`）
+## 7. 作業計画（namespace: `spine-work`）
 
-> **本節の Phase は `spine-phase:Phase<n>` として引用すること**（2026-07-20 登録）。
-> それまで所属を持たない裸の「フェーズ<n>」として書かれており、**同一 repo 内で
-> `vd-phase:Phase0-4`（VDロードマップ）・`odr-plan:P0-P10`・`docs/virtualdriver/P3_firmstop_issue.md`
-> と衝突していた**。序数そのものは正当な ID だが、所属を書かなければ一意にならない
-> （namespaces.yaml 冒頭の原則 / CLAUDE.md §9 "bare IDs are ambiguous, always qualify"）。
-> 無修飾の「フェーズ<n>」は commit-msg フックが hint を出す。
+> **本節の作業単位は `spine-work:<内容slug>` として引用すること**（2026-07-20）。
+> **順序は ID ではなく本節の並びと `depends-on` 辺で表す**。
+>
+> 経緯（同日中に2回直した）: 当初は所属を持たない裸の「フェーズ<n>」で、`vd-phase:Phase0-4` /
+> `odr-plan:P0-P10` / `P3_firmstop_issue.md` と**同一 repo 内で衝突**していた。
+> 一次対応として `spine-phase:Phase<n>` に修飾したが、**それは序数を延命しただけ**という
+> 指摘を受け、内容 slug へ作り直した（§7.1 規約4）。序数は (1)共有資源を消費する
+> (2)中身を語らない (3)**挿入・並べ替えで壊れる**（Phase2 と Phase3 の間に作業が要ると破綻）。
+> slug なら ID は不変で、順序は辺で表現できる。
 
-- **`spine-phase:Phase0`（本書）**: 検証スパイン定義／repo横断行列／新namespace・辺の仕様。**KG本体非改変**。
-- **`spine-phase:Phase1` ✅完了（2026-07-20）**: `signal`(47) / `gate`(14) を namespaces.yaml に登録し
+- **`spine-work:spine-definition`（本書）**: 検証スパイン定義／repo横断行列／新namespace・辺の仕様。**KG本体非改変**。
+- **`spine-work:signal-gate-registration` ✅完了（2026-07-20）**: `signal`(47) / `gate`(14) を namespaces.yaml に登録し
   §4 seed から起こした。edge_types に §5 の3辺を追加、全30 namespace に `face:` タグを付与。
   初回結線 33辺（§5.1）。lint + `--render` グリーン。
-  **Phase1 で判明した積み残し**（`spine-phase:Phase3` の lint 設計に直結）:
+  **この作業で判明した積み残し**（`spine-work:derived-report-lint` の lint 設計に直結）:
   - `face:` タグと catalog の中身（exposure/state/covers）は **現行 lint が一切検証しない**
     （`check_knowledge_graph.py` は namespace の `source_of_truth` の実在しか見ず、
-    ノードファイルを開かない）。値域チェックは `spine-phase:Phase3` で実装する。
+    ノードファイルを開かない）。値域チェックは `spine-work:derived-report-lint` で実装する。
   - `gate:unit-ctest` の実測で **root CLAUDE.md §5 の「25 unit sources」は陳腐化**（実測28本・
     TEST/TEST_F 278件）。`test_ScenarioReaderParsing.cpp` 単体の13テストと傘バイナリ28本を
     混同しない（`GT_ScenarioReader` 非カバーという結論自体は正しい — 実測: GT_esmini/test 配下を
     `TrafficSignalController|GT_ScenarioReader` で grep して0件）。
-- **`spine-phase:Phase2`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
+- **`spine-work:vertical-wiring`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
   行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
-- **`spine-phase:Phase3`**: 派生レポート（§6）＋ **coupling-audit（§0.5）** を lint に追加 →
+- **`spine-work:derived-report-lint`**: 派生レポート（§6）＋ **coupling-audit（§0.5）** を lint に追加 →
   「縦串の切れた列」と「面3→面2直結の結合負債」を CI で可視化。
   **命名規約の検査もここに含める**（下記 §7.1）。
-- **`spine-phase:Phase4`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
+- **`spine-work:empty-spine-stitching`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
 
-### 7.1 命名規約（2026-07-20 制定・`spine-phase:Phase3` で機械化）
+### 7.1 命名規約（2026-07-20 制定・`spine-work:derived-report-lint` で機械化）
 
 今日 `test_ScenarioReaderParsing`（名前が中身を偽装）と `phase3_*`（所属不明の序数）の
 2件で実害が出たため、規約として明文化する。
 
-**規約1 — 序数には所属を書く。**
-`Phase<n>` / `P<n>` / `フェーズ<n>` を単独で使わない。必ず `<namespace>:<id>` で修飾する
-（`vd-phase:Phase3` / `spine-phase:Phase3` / `odr-plan:P3`）。
-序数は**共有された再生可能な資源**であり、所属無しに固有名詞化すると、以後どのプログラムも
-その番号を使えなくなる。
+**規約4 — 新しい ID 体系に不透明な採番を使わない（最上位）。**
+`Phase3` / `V2` / `P13` / `M-A` / `S0` のような序数・連番・単文字を新設しない。
+**内容由来の slug** にする（`derived-report-lint` / `signal-gate-registration` /
+`vd-behavior-regression` / `ego_accel_long`）。理由は3つ:
+1. **共有資源を消費する** — 「Phase3」を固有名詞にすると、以後どのプログラムもその番号を使えない。
+2. **中身を語らない** — 開いて調べるまで何か分からない（規約3 と同根）。
+3. **挿入・並べ替えで壊れる** — Phase2 と Phase3 の間に作業が要ると破綻する。
+   slug なら ID は不変で、**順序は `depends-on` 辺で表現できる**（順序を ID に埋めない）。
+
+現況（2026-07-20 実測）: 登録済み31名前空間のうち **19 が不透明な採番、8 が内容 slug**、
+2 は本質的に不透明（`commit` の SHA / `issue` の GitHub 採番＝外部採番なので対象外）。
+**本プログラムで設計した `signal` / `gate` / `spine-work` は内容 slug**＝新規はこの流儀に揃える。
+
+**規約1（経過措置）— 既存の序数体系は所属を書く。**
+既存19体系は参照面が大きく（`odr-plan:P<n>` だけでコミット言及269件、履歴は書き換え不能）
+一斉移行しない。代わりに **(a) 既存体系に新しい ID を足さない（凍結）**、
+**(b) 参照時は必ず `<namespace>:<id>` で修飾**、**(c) 触る機会に slug へ移行**する。
+無修飾の序数は commit-msg フック（`scripts/check_commit_kg_ids.py`）が hint を出す。
 
 **規約2 — 恒久資産に工程名を付けない。**
 工程（一時的）と成果物（恒久的）は寿命が違う。`car_following_traffic_control_batch.yaml` が回すシナリオは Phase3 が
@@ -746,9 +762,15 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 root CLAUDE.md に「パースは常設で守られている」という誤りを載せた（2026-07-20 に訂正）。
 **名前が古い主張を保存し続ける**のが最大の害。中身が変わったら名前も変える。
 
-**機械化（`spine-phase:Phase3`）**: 規約1 は commit-msg フックが hint 済み
+**機械化**: **規約4 は `check_knowledge_graph.py` が実装済み**（2026-07-20）。
+`id_pattern` が序数・連番だけで構成される名前空間の**新設を弾く**（既存19体系は
+`OPAQUE_LEGACY_NAMESPACES` で凍結扱い＝新設のみ検出）。動作確認済み。
+**散文だけの規約は守られない**（同日、フックが規約と反転していた実例）ため、
+規約を作ったら必ず検知器を用意し、その向きを確かめること。
+
+**機械化（残り・`spine-work:derived-report-lint`）**: 規約1 は commit-msg フックが hint 済み
 （`scripts/check_commit_kg_ids.py`）。恒久資産のファイル名に工程序数が入っていないかの
-lint は未実装＝`spine-phase:Phase3` のスコープ。
+lint は未実装＝`spine-work:derived-report-lint` のスコープ。
 
 ## 8. 未決事項（レビューで詰める）
 

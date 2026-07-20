@@ -103,7 +103,9 @@ def main() -> int:
     for m in BARE_ORDINAL.finditer(text):
         print(
             f"commit-msg [R4] hint: 所属の無い序数 '{m.group(0)}' があります。"
-            "どのプログラムの段階かを明記してください（例 vd-phase:Phase3 / spine-phase:Phase3）。",
+            "既存体系なら所属を明記（例 vd-phase:Phase3 / odr-plan:P3）。"
+            "**新しい ID を作るなら序数を使わず内容 slug にしてください**"
+            "（例 spine-work:derived-report-lint）— capability_model.md §7.1 規約4。",
             file=out,
         )
         break
