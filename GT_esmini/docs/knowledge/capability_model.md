@@ -828,11 +828,40 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 - **`spine-work:derived-report-lint` ✅完了（2026-07-21）**: 派生レポート（§6）＋ **coupling-audit（§0.5）**
   を lint に追加 → 「縦串の切れた列」と「面3→面2直結の結合負債」を CI で可視化。
   値域チェックと規約2 は hard、派生レポートは報告のみ。実装詳細・初回実測・検知器の向きの実証は **§6**。
-  **積み残し**: (a) 値域チェックが catalog を開くようになったので `signal_catalog.yaml` の
-  `traffic_vehicle_pitch_roll` が `state=(a)` なのに `emit` 欄に実装を持つ自己矛盾が露出した
-  （実体は「emit コードは在るが既定 `enabled_=false`」＝ (a)/(b) のどちらでもない第3の状態）。
-  データ側の決着が要る。(b) `manualdrive_adas_states` は §4 が予告したとおり (a) として計上される
-  が実体は**設計上の非該当**で、`(-)` に寄せるか別の印が要る（本 lint はデータを直していない）。
+  **積み残し（2026-07-21 決着・語彙変更は不要だった）**: 露出した2件はいずれも
+  **`STATE_VALUES` の拡張ではなくデータ側の誤りだった**。決着は下記のとおりで、
+  `check_knowledge_graph.py` の語彙定数も派生レポートのロジックも無改変。
+  - (a) `traffic_vehicle_pitch_roll` の自己矛盾（`state=(a)` なのに `emit` 欄あり）
+    → **(b) が正解**。当初「(a)/(b) のどちらでもない第3の状態」と見立てたが、
+    物理積分も emit 経路も完成しており（`VehiclePhysicsManager.cpp:107-108` → `pos_` →
+    `GT_OSIReporter_Moving.cpp:756-758`）、打ち手は**配線**＝(b) の定義そのもの。
+    「既定オフ」も一枚岩ではなく **Web UI は既定 ON**（`models/simulation.py:137` /
+    `config.py:152` が両方 `True`、導入コミット `d6c5f10c` が意図的にそう設定）。
+    オフなのはライブラリ既定・生 CLI・**検証ハーネス**（`gt_sim_test.py` は
+    `vehicle_physics` を一度も参照しない＝grep 0件）。
+    ゆえに note の「opt-in 無しではそもそも計算されない＝**通常運用では未emit**」は事実誤認。
+    **教訓（§2.3 の steering 誤診と同型）**: 「(a)/(b) に収まらない第3の状態だ」と感じたら、
+    まず**打ち手を書き下す**こと。打ち手が既存のどれかと一致するなら、それは新しい状態ではなく
+    分類の誤りである。語彙を増やす前に打ち手を確かめる。
+  - (b) `manualdrive_adas_states` → **(a) 据え置きが正解。派生レポートの検出は誤検出ではない。**
+    「人間が運転するので AD機能状態が無い＝設計上の非該当」という従来の note は**誤り**。
+    実車では手動運転中も AEB は稼働し、ペダル手動のまま LKA、ACC のままステア操作もあり得る
+    （ユーザー指摘 2026-07-21）。実装を当たると「非該当」ではなく**未実装が4点重なった結果**だった:
+    ① `ControllerManualDrive.hpp:36` の `GetADASStates` は `{}` の恒久スタブ＝**W1 と完全に同型**
+    （`GT_esminiLib.cpp:1512` は空のまま返り `size()>=24` ガードで素通り、`AddADASFunctionEx` 不到達。
+    VD 側は W1 で専用経路を得たが ManualDrive 型にその救済は適用されていない）
+    ② `AebSafety` は `control/virtualdriver/policies/` の `ITrafficPolicy` 実装で
+    `ControllerVirtualDriver.cpp:103` でのみ生成＝**ManualDrive 経路からの到達連鎖が存在しない**
+    ③ 「横だけ自動」の混成は可能だがその実体は `ManualDriveCoordinator.cpp:21-26` が基底
+    `Controller::Step` へ丸投げする**素の OSC private action 追従**で、VD も Kinematic も AEB も非介在
+    ④ OSI `DriverOverride`（規格が「人間が運転しているが ADAS は作動中/待機中」のために用意した欄・
+    §2.2a W4）は repo 内に populate 箇所ゼロ。
+    ドメイン別マルチコントローラ基盤自体は既存で RouteDrive+Kinematic が実運用しているが、
+    `GT_esminiLib.cpp:1312-1315` のコメントどおり **ManualDrive 搭載車は自動スタックから明示的に除外**。
+    → 打ち手は「emit の新設」＝(a) の定義どおりで、`(-)` に寄せるのは**真の穴を台帳から消す**誤り。
+    **「非該当だから対象外」を受け入れる前に、非該当の理由が *原理* か *未実装* かを確かめること。**
+    ManualDrive 中の ADAS 稼働は未記録の機能ギャップとして残す（規模はドメイン別スタックの拡張＋
+    `AebSafety` の VD からの切り出しで、別プログラム規模）。
 - **`spine-work:empty-spine-stitching`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
 
 ### 7.1 命名規約（2026-07-20 制定・`spine-work:derived-report-lint` で機械化）
