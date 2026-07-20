@@ -541,7 +541,16 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 | 判定源 | 件数 | matcher |
 | :-- | :-: | :-- |
 | **(i) 面2 VD テレメトリ直結**（結合負債） | **10 / 14** | speed_above·below / min_speed_above / no_constraint_kind / lane_keep / lane_change_count / deceleration_profile_smooth / speed_reduction_before_landmark / steer_not_saturated / stopped_at_stop_sign·signal(主判定) / no_emergency_without_conflict |
-| (ii) 面1 OSI GroundTruth 直結（正規IF） | 4 / 14 | maintained_following_distance / min_separation_above / min_obb_separation_above / impact_speed_below |
+| (ii) 面1 OSI GroundTruth 直結（正規IF） | ~~4 / 14~~ → **0**（下記訂正） | maintained_following_distance / min_separation_above / min_obb_separation_above / impact_speed_below |
+
+> **⚠ 2026-07-21 訂正（lint 実装時の機械集計で判明）**: (ii) の4件は**純粋な面1経由ではない**。
+> OSI の `scene["objects"]`（面1）と**同時に `frame["ego"]`（面2テレメトリ）を自車アンカーに使う**
+> （`vd_metrics.py:597-647` が THW を両方から組む: 自車の位置・速度・方位が面2由来）。
+> 手作業分類は「主たる観測量がどちらか」で見た簡略化だった。
+> → **面3を SUT 非依存にする置換対象の母数は 10 ではなく 16/16（全件）**。
+> ただし悲観するだけの話ではない: **全件が「自車アンカーが面2」という同一パターン**なので、
+> D は16個の個別移行ではなく **「ego を scene の host オブジェクト（`is_host`）から読む」
+> 単一の置換**に帰着する。OSI GroundTruth は自車も moving_object として持つ。
 
 - 純テレメトリのみなら **9/14**。`stopped_at_signal` は主判定がテレメトリで
   `require_red` サブチェックのみ OSI（`vd_metrics.py:565-595`）＝**混在型**。
@@ -555,7 +564,8 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
   `GT_GetVirtualDriverTelemetry`（`gt_lib.py:220-228`）、Web ライブ表示は UDP 48202
   （`config.py:134` `VD_LISTEN_PORT`）。OSI は別途 UDP 48198。
 
-**結合負債の実数 ＝ 14 matcher 中 10（71%）が面3→面2 直結**。
+**結合負債の実数 ＝ ~~14 matcher 中 10（71%）~~ → 全 16 件が面2に依存**（上記訂正）。
+「71%」は主判定だけを見た数字で、自車アンカーを数えると 100%。
 §0.4 が言う「面3を SUT 非依存にする」目標に対し、置換対象の母数がこの10件。
 うち **加速度系（deceleration_profile_smooth）は OSI に emit 済み**
 （`GT_OSIReporter_Moving.cpp:772-774`）＝ **配線を差し替えるだけで面1経由に移せる最有力候補**。
@@ -668,12 +678,19 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
   操舵指令。乗り換え先になるはずの `signal:hvd_steering_angle` が (b′) 誤配線のため、
   **面2直結の解消には先に(b′)修正が要る**という依存が辺で可視化された）／
   `no_constraint_kind`（`midlong.constraints[].kind`＝面2プランナ内部・OSI に受け皿なし）。
-- **`sustained-by` を引けなかった matcher 9種**: 常設ゲート `gate:vd-behavior-regression` が実際に
-  発火させるのは **16 matcher 中6件のみ**（car_following_traffic_control_batch.yaml の12シナリオ分 expectations を
-  機械集計、2026-07-20実測）。`min_obb_separation_above`・`impact_speed_below`・
-  `no_emergency_without_conflict` 等は junction_conflict / junction_priority / 07_aeb の**手動マニフェスト専用**＝
+- **`sustained-by` を引けなかった matcher 9種（2026-07-20 時点の一次記録。下記のとおり一部解消済み）**:
+  常設ゲート `gate:vd-behavior-regression` が実際に発火させるのは **16 matcher 中6件のみ**
+  （car_following_traffic_control_batch.yaml の12シナリオ分 expectations を機械集計）。
+  `min_obb_separation_above`・`impact_speed_below`・`no_emergency_without_conflict` 等は
+  junction_conflict / junction_priority / 07_aeb の**手動マニフェスト専用**＝
   **AEB(REQ-AD-001家族)を判定する matcher が常設ゲートに1件も乗っていない**。
   さらに `min_separation_above` はどの資産からも参照されない（実測0件）**デッド matcher**。
+  > **⚠ 2026-07-21 更新**: この検出を受けて AEB を常設化した（`gate:aeb-safety-regression`、
+  > 回帰ゲート Step 2.6）。**発火する matcher は 6件 → 9件**、⑥常設欠は REQ-AD-014 の1件を残すのみ。
+  > 残る `sustained-by` 欠6件は全て 05_anticipation 系（lane_keep / lane_change_count /
+  > deceleration_profile_smooth / speed_reduction_before_landmark / steer_not_saturated /
+  > no_constraint_kind）。`min_separation_above` は **DEPRECATED 確定**（下記 §7 参照）。
+  > 上の数字は「モデルが予測した穴が実在した」ことの一次記録として残す。
 - **ゲート構造で判明した非自明**: `check_core_census` / `check_fork_drift` /
   `check_resync_guards` は独立スクリプトに見えて `run_odr_conformance.py:1556-1558` が
   **プロファイル分岐より前で無条件に内包**しており、CI の schema-only 起動でも走る

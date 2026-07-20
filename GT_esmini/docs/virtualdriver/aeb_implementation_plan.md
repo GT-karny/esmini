@@ -9,7 +9,7 @@
 - **機能軸**を確立: 「動機層(安全/快適/法規遵守/譲り合い) × 主体(AD/ADAS)」。安全=override が快適・法規の上を行く調停。
 - **機能カタログ** `vd-func` FUNC-001..048（前方AEB=FUNC-001, VRU-AEB=FUNC-002）。
 - **AEBを要求に落とした**: NCAP/R152 逆算スキーマ + `REQ-AD-001`(複合カットイン+制動) / 010(CCRs) / 011(CCRm/CCRb) / 012(VRU) / 013(誤作動抑止・negative) / 014(層調停) / 015(R152フロア)。
-- **RED実装済**（test-first）: `07_aeb/cutin_hard_brake.xosc`（直進）＋ `cutin_hard_brake_curve.xosc`（R=300カーブ）。`07_aeb_batch.yaml`（osi:true, policies:[lead]）。gt_sim_test で **overlap 実証**（OBB分離 0.00m, fail）。パラメトリック（EgoSpeed/LeadSpeed/LeadStartS/CutInTime/CutInDur/BrakeTime/BrakeRate）。
+- **RED実装済**（test-first）: `07_aeb/cutin_hard_brake.xosc`（直進）＋ `cutin_hard_brake_curve.xosc`（R=300カーブ）。`aeb_safety_batch.yaml`（osi:true, policies:[lead]）。gt_sim_test で **overlap 実証**（OBB分離 0.00m, fail）。パラメトリック（EgoSpeed/LeadSpeed/LeadStartS/CutInTime/CutInDur/BrakeTime/BrakeRate）。
 
 ## 1. 核心的再フレーミング（設計の土台・重要）
 
@@ -45,7 +45,7 @@ RED実装中の実証で判明した2点が設計を決める:
 2. **調停プリミティブ**: `PolicyConstraint.tier` 追加 + プランナが tier別 decel 上限で解く。既存挙動（全 comfort）は不変に保つ。
 3. **AebSafety policy**: 早期検知 + TTC/a_req トリガ + safety制約 emit。
 4. **config/flag**: `virtual_driver.json` に `policy_aeb_enabled`(default false) + `emergency_decel` / `aeb_ttc_threshold` 等。C++ `VirtualDriverConfig` の bool/double テーブルに追加。`gt_sim_test._POLICY_FLAG` と runner `_VD_POLICY_FLAG` に `aeb` を追加。`ControllerVirtualDriver` で `policy_aeb_enabled` ガード登録。
-5. **RED緑化**: `07_aeb_batch.yaml` を `policies:[lead, aeb]` にして **直進+カーブが PASS**（min_obb_separation_above > 0.5）。※避けられない域なら acceptance を mitigation（衝突速度低減）へ切替（REQ-AD-001 は両対応）。
+5. **RED緑化**: `aeb_safety_batch.yaml` を `policies:[lead, aeb]` にして **直進+カーブが PASS**（min_obb_separation_above > 0.5）。※避けられない域なら acceptance を mitigation（衝突速度低減）へ切替（REQ-AD-001 は両対応）。
 6. **negative/回帰**: REQ-AD-013 の誤作動シナリオ（通常追従・LC・併走で emergency 不発火）を追加し PASS。既存 `06_lead_vehicle/*`・`car_following_traffic_control_batch`・回帰baseline が **非回帰**。
 7. **GUI**: `VirtualDriverPanel` に AEB トグル + パラメータ（VD-GUI-PARITY, #33）。`virtual_driver_api` の known-keys に追加。
 8. **docs/KG**: [adas_axis.md](adas_axis.md) §7 修正、`vd-func:FUNC-001` を `status: built`、graph.yaml で policy(Aeb)→realizes→FUNC-001 の実装辺追加、`--render`。#34 を close。
@@ -57,7 +57,7 @@ RED実装中の実証で判明した2点が設計を決める:
   - `no_emergency_without_conflict` — 誤作動ゼロ（REQ-AD-013）。**必須**。
   - `impact_speed_reduction` — 避けられない域の mitigation 評価（REQ-AD-001/011 の高速側、NCAP カラーバンド相当）。
   - (任意) `ttc_min_above` / `a_req` 露出。
-- **回帰ゲート**: `07_aeb_batch` を pre-merge 回帰に組込み。collision-free 不変条件（P12）と接続。
+- **回帰ゲート**: ✅完了（2026-07-21, gate:aeb-safety-regression）。`aeb_safety_batch.yaml` を pre-merge 回帰の Step 2.6 に組込み済み。collision-free 不変条件（P12）との接続は未。
 
 ## 6. 校正の未決（実装時に確定）
 
