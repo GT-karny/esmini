@@ -240,15 +240,20 @@ signals:
   - id: hvd_steering_angle
     title: HVD の操舵角
     exposure: [hvd]
-    state: "(b')"
-    emit: GT_HostVehicleReporter.cpp:141（steering_input_to_wheel_ratio 既定12.9 を無条件適用）
+    state: "(b)"
+    emit: GT_HostVehicleReporter.cpp:141（タイヤ舵角 rad × steering_input_to_wheel_ratio=12.9 → ハンドル角 rad）
     note: >-
-      **誤配線＝(b)より悪い**。ManualDrive（ControllerManualDrive.cpp:192-197）／
-      VirtualDriver（ControllerVirtualDriver.cpp:587-588）／Kinematic
-      （ControllerKinematic.cpp:445-447）はいずれも**実舵角(rad)**を渡すのに ratio が
-      分岐もフラグも無く乗るため約12.9倍に破壊される。正規化 -1.0〜1.0 を渡す
-      ControllerRealDriver では**同じ行が正当な変換**であり、正当ケースが同居しているせいで
-      バグとして目立たなかった。3ドメインが単一行に起因＝§2.3 で最も費用対効果の高い修正点。
+      **★2026-07-20 訂正: 当初の「12.9倍破壊＝(b′)」は誤診だった**。OSI
+      `osi_common.proto` の `VehicleSteeringWheel.angle` は「**ハンドル角(rad)**」であって
+      タイヤ舵角ではない。ゆえに ratio=12.9 は**ステアリングギア比**
+      （RealVehicle.hpp:71 も "Corolla steering ratio"）で、タイヤ角→ハンドル角の変換は
+      **OSI規定どおり正当**。ManualDrive / VirtualDriver / Kinematic は正しく出ている
+      （0.61rad → 451°＝ロック2.5回転で実車的。HvdGaugePanel.tsx:55 の ±540° clamp とも整合）。
+      **実際に壊れているのは ControllerRealDriver 経路のみ**（正規化 -1.0〜1.0 をそのまま渡すため
+      739°。真値451°、1.64倍=1/steer_gain のずれ）。修正は GetInputsForOSI の境界で
+      steering *= steer_gain する1行。→ 本 signal の欠は誤配線ではなく
+      **読む matcher が無いこと(b)**（⑤の穴）。消費は Web HvdGaugePanel のみ。
+      教訓は memory `verification_semantics_lesson`（意味論の取り違え型は経路追跡では検証できない）。
 
   - id: hvd_acceleration
     title: HVD の加速度

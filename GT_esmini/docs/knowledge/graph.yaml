@@ -828,9 +828,13 @@ edges:
   #   - lane_keep / lane_change_count -> ego の lane_id。OSI は lane_id を emit する
   #     （GT_OSIReporter_Moving.cpp:777）が、matcher が読むのは frame の `ego.lane`
   #     ＝面2コントローラ由来。同名の量が2面に別経路で存在し、検証は面2側を見ている。
-  #   - steer_not_saturated -> `driver.steer`（面2の操舵指令）。HVD の操舵角
-  #     (signal:hvd_steering_angle) は同じ量に見えて (b′) 誤配線であり、乗り換え先に
-  #     ならない。**面2直結を解消するには先に (b′) を直す必要がある**という依存関係。
+  #   - steer_not_saturated -> `driver.steer`（面2の操舵指令）。
+  #     ★2026-07-20 訂正: 当初「乗り換え先の signal:hvd_steering_angle は (b′) 誤配線なので
+  #     先に直す必要がある」と書いたが、**その (b′) 判定自体が誤診だった**
+  #     （OSI VehicleSteeringWheel.angle はハンドル角で、12.9 はギア比＝変換は正当）。
+  #     hvd_steering_angle は健全に emit されており **面1側の乗り換え先になり得る**。
+  #     ただし単位が異なる（面2=操舵指令 / 面1=ハンドル角 rad）ため、
+  #     「飽和」の閾値定義を面1の量で立て直す必要がある＝依存ではなく再定義の作業。
   #   - no_constraint_kind -> `midlong.constraints[].kind`（面2プランナ内部）。
   #     OSI に受け皿となる概念が無い。
   # sustained-by を引けなかった matcher（常設ゲートで守られていない）:
