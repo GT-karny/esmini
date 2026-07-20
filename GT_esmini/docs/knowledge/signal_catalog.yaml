@@ -268,7 +268,8 @@ signals:
       **W1 で 2026-07-20 に emit 済み**（§4 seed表の (a) は W1 着地前）。実測で
       name=AUTOMATIC_EMERGENCY_BRAKING が ACTIVE 20フレーム（cutin_hard_brake.xosc）。
       OSI規格の正規欄を使うため他ADスタックと比較可能。**ただし matcher/gate は未着手**＝(b)。
-      ManualDrive 側の空 ADAS states は別物（設計上の非該当・下記 manualdrive_adas_states）。
+      ManualDrive 側の空 ADAS states は別途 (a)＝W1 同型の未実装（下記 manualdrive_adas_states、
+      2026-07-21 に「設計上の非該当」説を撤回済み）。
 
   # ---- D2/D3/D4 ManualDrive・Kinematic・RealVehicle 物理 ----
   - id: hvd_steering_angle
@@ -331,9 +332,16 @@ signals:
     state: "(a)"
     emit: null  # ControllerManualDrive.hpp:36 で恒久的に空
     note: >-
-      **設計上の非該当であって W1 のようなバグではない**（人間が運転するので AD機能状態が無い）。
-      GT_esminiLib.cpp:1486 の `size()>=24` ガードで無害にスキップされる。
-      「(a) だが actionable でない」例として、派生レポートが誤検出しないよう明記する。
+      **★2026-07-21 訂正: 当初の「設計上の非該当＝人間が運転するので AD機能状態が無い」は誤り**。
+      実車では手動運転中も AEB は稼働し、ペダル手動のまま LKA・ACC のままステア操作もあり得る。
+      実装を当たると非該当ではなく**未実装4点の重なり**: ① `GetADASStates` が {} の恒久スタブ
+      （ControllerManualDrive.hpp:36）＝**W1 と完全に同型**（GT_esminiLib.cpp:1512 が空のまま返り
+      `size()>=24` ガードで素通り、AddADASFunctionEx 不到達）② AebSafety は ITrafficPolicy 実装で
+      ControllerVirtualDriver.cpp:103 でのみ生成＝ManualDrive からの到達連鎖が無い ③「横だけ自動」の
+      実体は ManualDriveCoordinator.cpp:21-26 の素の OSC private action 追従（VD/Kinematic/AEB 非介在）
+      ④ OSI DriverOverride（W4）は populate 箇所ゼロ。GT_esminiLib.cpp:1312-1315 で ManualDrive
+      搭載車は自動スタックから明示除外。→ **派生レポートが (a) に挙げるのは誤検出ではなく真の検出**。
+      (-) に寄せると穴が消える。機能ギャップ（ManualDrive 中の ADAS 全停止）は別プログラム規模。
 
   - id: override_domain_state
     title: 操作権限ドメイン（lat/lon が manual か scenario か）
@@ -362,11 +370,17 @@ signals:
   - id: traffic_vehicle_pitch_roll
     title: 交通車の動的 pitch/roll
     exposure: [osi, hvd]
-    state: "(a)"
-    emit: VehiclePhysicsManager.cpp:107-108 だが既定 `enabled_=false`（VehiclePhysicsManager.hpp:71）
+    state: "(b)"
+    emit: VehiclePhysicsManager.cpp:107-108（ライブラリ既定 `enabled_=false` だが Web UI は既定ON）
     note: >-
-      opt-in `--vehicle-physics` 無しでは**そもそも計算されない**＝通常運用では未emit。
-      制御車側（ego_orientation）が (b) なのと対照的に、こちらは真の (a)。
+      **★2026-07-21 訂正: 当初の (a)「opt-in 無しではそもそも計算されない＝通常運用では未emit」は
+      事実誤認**。Web UI は既定ON（models/simulation.py:137 と config.py:152 が両方 True、
+      導入コミット d6c5f10c が意図的にそう設定）＝**主要な運用面では emit されている**。
+      OFF なのはライブラリ既定・生CLI・**検証ハーネス**（gt_sim_test.py は vehicle_physics を
+      一度も参照しない＝grep 0件）。→ 欠は emit でなく**検証パスへの配線**: 打ち手は
+      「検証ハーネスにフラグを通して matcher を作る」＝(b)。
+      語彙の教訓: (a)/(b) に収まらない第3の状態に見えたら、まず**打ち手を書き下す**。
+      打ち手が既存分類のどれかと一致するなら、それは新語彙ではなく分類の誤り。
 
   # ---- D5/D6 AutoLight・TrafficSignalController ----
   - id: vehicle_lights
