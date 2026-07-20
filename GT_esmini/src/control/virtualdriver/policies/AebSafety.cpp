@@ -110,12 +110,21 @@ TrafficPolicySnapshot AebSafety::Evaluate(const TrafficPolicyContext& ctx)
     const double v_other = best->GetSpeed();
     const double v_close = v_ego - v_other;
 
-    if (v_close <= 0.0 || gap <= 0.0) return snap;  // not closing (or already overlapping) -> no gate math
+    const aeb::GateResult gate = aeb::EvaluateGate(cfg_, gap, v_close);
 
-    const double ttc   = gap / v_close;
-    const double a_req = (v_close * v_close) / (2.0 * gap);
+    // W3: report the gate's internals whether or not it fired. The NEGATIVE
+    // case is the one that used to be undiagnosable ("a candidate was in front
+    // of us and AEB stayed silent — was the TTC fine, or was a_req just under
+    // the threshold?"). gt.aeb.gap_m / v_close_mps carry the inputs so the
+    // decision can be recomputed offline from the telemetry alone.
+    if (gate.valid)
+    {
+        AddDetail(snap.detail, "gt.aeb.gap_m", gap);
+        AddDetail(snap.detail, "gt.aeb.v_close_mps", v_close);
+        aeb::AppendGateDetail(snap.detail, gate);
+    }
 
-    if (ttc < cfg_.ttc_threshold && a_req > cfg_.min_a_req)
+    if (gate.triggered)
     {
         PolicyConstraint c;
         c.kind   = PolicyConstraint::Kind::STOP_AT_S;

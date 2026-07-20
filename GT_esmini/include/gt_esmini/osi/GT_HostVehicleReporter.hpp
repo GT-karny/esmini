@@ -93,6 +93,28 @@ public:
     void AddADASFunction(int vehicle_id, const std::string& function_name, int state);
 
     /**
+     * Add or update one ADAS function using the OSI Name enum (W1).
+     *
+     * AddADASFunction() above always lands as NAME_OTHER + custom_name, because
+     * its callers only have a label. This overload carries the real OSI
+     * `Name` enum value plus the custom_detail KVs, which is what makes the
+     * function machine-identifiable to any OSI consumer instead of merely
+     * human-readable. Both paths coexist: ControllerRealDriver / PythonDriver
+     * keep the fixed-24-slot label path unchanged.
+     *
+     * @param vehicle_id  Vehicle ID
+     * @param osi_name    osi3 ...VehicleAutomatedDrivingFunction_Name value
+     * @param custom_name Label (always set; the only identity for NAME_OTHER)
+     * @param state       osi3 ...VehicleAutomatedDrivingFunction_State value
+     * @param detail      custom_detail key/value pairs (see PolicyDetail.hpp)
+     */
+    void AddADASFunctionEx(int                                                     vehicle_id,
+                           int                                                     osi_name,
+                           const std::string&                                      custom_name,
+                           int                                                     state,
+                           const std::vector<std::pair<std::string, std::string>>& detail);
+
+    /**
      * Clear all ADAS functions for a vehicle (call before updating each frame)
      * @param vehicle_id Vehicle ID
      */
@@ -172,6 +194,10 @@ private:
         {
             std::string name;
             int state;
+            // W1: -1 means "no OSI Name known" -> emitted as NAME_OTHER, which is
+            // exactly what the legacy AddADASFunction() label path always did.
+            int osi_name = -1;
+            std::vector<std::pair<std::string, std::string>> detail;  // -> custom_detail
         };
         std::vector<ADASFunction> adas_functions;
 

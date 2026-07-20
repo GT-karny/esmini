@@ -7,6 +7,7 @@
 #include "gt_esmini/control/manualdrive/HVDStateApplier.hpp"
 #include "gt_esmini/control/virtualdriver/VirtualDriverConfig.hpp"
 #include "gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp"
+#include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <vector>
@@ -63,7 +64,17 @@ public:
     // OSI getters (called by GT_Step for HVD reporting) — same contract as ManualDrive.
     void GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const;
     void GetPowertrainForOSI(double& rpm, double& torque) const;
+    // Legacy fixed-24-slot label path (ControllerRealDriver / PythonDriver use
+    // it). VirtualDriver deliberately reports nothing here — its functions do
+    // not line up with that fixed array — and uses GetADASFunctions() instead.
     void GetADASStates(std::vector<int>& /*states*/) const {}
+
+    // W1: the VD stack's automated-driving functions for this frame, as OSI
+    // HostVehicleData.vehicle_automated_driving_function[] rows (name/state/
+    // custom_name/custom_detail). This is the ONLY path by which face3 can see
+    // that e.g. AEB engaged, per the §0.2 contract that face2 is observed
+    // through face1's OSI rather than through a direct telemetry tap.
+    void GetADASFunctions(std::vector<AdasFunctionState>& functions) const;
 
     // Aggregate telemetry for GT_GetVirtualDriverTelemetry().
     const VirtualDriverTelemetry& GetTelemetry() const { return telemetry_; }

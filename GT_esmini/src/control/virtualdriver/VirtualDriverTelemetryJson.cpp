@@ -73,15 +73,40 @@ std::string ToJson(const VirtualDriverTelemetry& t)
             default:                                     return "none";
         }
     };
+    // W2 (capability_model §2.2a): the arbitration tier must survive serialization —
+    // without it the outcome of tier arbitration ("did AEB win as the SAFETY layer?")
+    // is not observable outside the process. Additive field; consumers that predate it
+    // (frontend PolicyConstraint interface, vd_metrics dict readers) ignore it.
+    auto tier_str = [](PolicyConstraint::Tier t2) -> const char* {
+        switch (t2)
+        {
+            case PolicyConstraint::Tier::SAFETY:     return "safety";
+            case PolicyConstraint::Tier::COMPLIANCE: return "compliance";
+            case PolicyConstraint::Tier::COURTESY:   return "courtesy";
+            default:                                 return "comfort";
+        }
+    };
     os << ",\"policy\":{\"valid\":" << b(t.policy.valid) << ",\"constraints\":[";
     for (size_t i = 0; i < t.policy.constraints.size(); ++i)
     {
         const auto& c = t.policy.constraints[i];
         if (i) os << ",";
         os << "{\"kind\":\"" << kind_str(c.kind) << "\",\"s\":" << c.s
-           << ",\"value\":" << c.value << ",\"source\":\"" << c.source << "\"}";
+           << ",\"value\":" << c.value << ",\"source\":\"" << c.source
+           << "\",\"tier\":\"" << tier_str(c.tier) << "\"}";
     }
-    os << "]}}";
+    os << "]";
+    // W3: policy diagnostics (gt.<policy>.<quantity>_<unit> -> string value; see
+    // PolicyDetail.hpp). Emitted as a JSON object because the keys are unique by
+    // construction. Values stay strings so this block is byte-identical to what
+    // gets forwarded into OSI HostVehicleData custom_detail.
+    os << ",\"detail\":{";
+    for (size_t i = 0; i < t.policy.detail.size(); ++i)
+    {
+        if (i) os << ",";
+        os << "\"" << t.policy.detail[i].first << "\":\"" << t.policy.detail[i].second << "\"";
+    }
+    os << "}}}";
 
     return os.str();
 }

@@ -111,11 +111,24 @@ struct PolicyConstraint
     Tier        tier  = Tier::COMFORT;
 };
 
+// Policy diagnostics: string key/value pairs carrying the numeric internals a
+// policy used to discard (AEB's TTC / required decel, ...). String-typed on
+// purpose — this is the exact shape of OSI 3.7.0's only generic slot for such
+// quantities (HostVehicleData custom_detail, repeated KeyValuePair), so the
+// same values reach the telemetry JSON and OSI without a translation step.
+// Key naming convention and the AddDetail() helpers live in PolicyDetail.hpp.
+using PolicyDetail = std::vector<std::pair<std::string, std::string>>;
+
 // ITrafficPolicy output (Phase 3).
 struct TrafficPolicySnapshot
 {
     std::vector<PolicyConstraint> constraints;
     bool                          valid = false;
+    // Why the policy did (or did not) emit a constraint this frame. Populated
+    // whether or not `constraints` is empty — that is the point: it makes the
+    // NEGATIVE decision observable too. Keys are namespaced per policy
+    // (gt.aeb.*), so concatenating snapshots from several policies is safe.
+    PolicyDetail                  detail;
 };
 
 // IIndicatorPolicy output.

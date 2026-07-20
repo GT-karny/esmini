@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 
 namespace gt_esmini
 {
@@ -32,6 +33,41 @@ struct AebSafetyConfig
     // (STOP_AT_S is solved by the mid/long planner at emergency_decel).
     double stop_margin   = 2.0;    // [m]
 };
+
+// The collision-course gate, extracted from AebSafety::Evaluate() as a pure
+// function of (gap, closing speed) so both the decision AND the quantities it
+// was made from are testable and reportable (W3). Candidate SELECTION stays in
+// Evaluate() — it needs the road network; the safety DECISION does not.
+namespace aeb
+{
+struct GateResult
+{
+    double ttc   = 0.0;    // time to collision [s]
+    double a_req = 0.0;    // deceleration required to avoid it [m/s^2]
+    bool   valid = false;  // false when not closing / already overlapping (no gate math)
+    bool   triggered = false;
+};
+
+inline GateResult EvaluateGate(const AebSafetyConfig& cfg, double gap, double v_close)
+{
+    GateResult r;
+    if (v_close <= 0.0 || gap <= 0.0) return r;  // not closing (or overlapping)
+
+    r.valid     = true;
+    r.ttc       = gap / v_close;
+    r.a_req     = (v_close * v_close) / (2.0 * gap);
+    r.triggered = (r.ttc < cfg.ttc_threshold && r.a_req > cfg.min_a_req);
+    return r;
+}
+
+// Emits the gate's internals under the gt.aeb.* key convention (PolicyDetail.hpp).
+inline void AppendGateDetail(PolicyDetail& detail, const GateResult& r)
+{
+    AddDetail(detail, "gt.aeb.ttc_s", r.ttc);
+    AddDetail(detail, "gt.aeb.a_req_mps2", r.a_req);
+    AddDetail(detail, "gt.aeb.triggered", r.triggered);
+}
+}  // namespace aeb
 
 // Short per-candidate ring buffer of recent |dt| (lateral-offset magnitude)
 // samples — debounces the lateral-encroachment cue (AebSafety::dt_history_)

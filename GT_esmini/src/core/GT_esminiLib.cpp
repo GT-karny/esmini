@@ -1509,6 +1509,55 @@ GT_ESMINI_API void GT_Step(double dt)
                     else if (auto* virtualDriver = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
                     {
                         pushControllerState(virtualDriver);
+
+                        // W1: VirtualDriver reports its AD functions through the
+                        // Name-enum path instead of the fixed 24-slot label array
+                        // above (which its GetADASStates() intentionally leaves
+                        // empty). Without this, AEB — implemented and green —
+                        // produced no observable OSI evidence at all.
+                        //
+                        // The mirrored enum values in AdasFunctionReport.hpp
+                        // (which must stay OSI-free: control must not depend on
+                        // osi) are pinned to the real .proto here, at the one
+                        // place that sees both.
+                        using OsiName  = osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name;
+                        using OsiState = osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State;
+                        static_assert(gt_esmini::osi_adas::NAME_OTHER ==
+                                          static_cast<int>(OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER),
+                                      "OSI Name enum drift: NAME_OTHER");
+                        static_assert(
+                            gt_esmini::osi_adas::NAME_AUTOMATIC_EMERGENCY_BRAKING ==
+                                static_cast<int>(
+                                    OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_EMERGENCY_BRAKING),
+                            "OSI Name enum drift: NAME_AUTOMATIC_EMERGENCY_BRAKING");
+                        static_assert(
+                            gt_esmini::osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL ==
+                                static_cast<int>(
+                                    OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ADAPTIVE_CRUISE_CONTROL),
+                            "OSI Name enum drift: NAME_ADAPTIVE_CRUISE_CONTROL");
+                        static_assert(gt_esmini::osi_adas::NAME_URBAN_DRIVING ==
+                                          static_cast<int>(
+                                              OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_URBAN_DRIVING),
+                                      "OSI Name enum drift: NAME_URBAN_DRIVING");
+                        static_assert(gt_esmini::osi_adas::STATE_ACTIVE ==
+                                          static_cast<int>(
+                                              OsiState::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_ACTIVE),
+                                      "OSI State enum drift: STATE_ACTIVE");
+                        static_assert(gt_esmini::osi_adas::STATE_STANDBY ==
+                                          static_cast<int>(
+                                              OsiState::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_STANDBY),
+                                      "OSI State enum drift: STATE_STANDBY");
+                        static_assert(gt_esmini::osi_adas::STATE_UNAVAILABLE ==
+                                          static_cast<int>(
+                                              OsiState::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_UNAVAILABLE),
+                                      "OSI State enum drift: STATE_UNAVAILABLE");
+
+                        std::vector<gt_esmini::AdasFunctionState> adasFunctions;
+                        virtualDriver->GetADASFunctions(adasFunctions);
+                        for (const auto& f : adasFunctions)
+                        {
+                            hvReporter.AddADASFunctionEx(vehicleId, f.name, f.custom_name, f.state, f.detail);
+                        }
                     }
                 }
                 else

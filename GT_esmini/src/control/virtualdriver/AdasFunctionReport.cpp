@@ -1,0 +1,107 @@
+#include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
+
+namespace gt_esmini
+{
+
+namespace
+{
+// One VD policy -> one OSI AD-function row.
+//
+// `sources` are the PolicyConstraint::source strings the policy emits (see each
+// policy .cpp). StopYieldSignAware emits two ("stop_sign" / "yield_sign") from a
+// single policy, which is why this is a list rather than a single string.
+//
+// `key_prefix` routes W3 diagnostics (gt.<policy>.*) onto the owning row, so a
+// consumer reading the AEB function also gets the TTC / a_req that produced its
+// state without having to correlate anything.
+struct PolicyRow
+{
+    const char* custom_name;
+    int         osi_name;
+    const char* key_prefix;
+    const char* sources[2];
+};
+
+// Only AEB and lead-vehicle following have a standard OSI name. The junction /
+// crossing / signal policies are genuinely absent from the 24-value enum, so
+// they take NAME_OTHER + custom_name rather than being force-fitted onto a
+// nearby-sounding standard value (which would misreport GT_esmini's behavior to
+// any consumer that trusts the enum).
+constexpr PolicyRow kRows[] = {
+    {"gt.aeb",            osi_adas::NAME_AUTOMATIC_EMERGENCY_BRAKING, "gt.aeb.",            {"aeb", nullptr}},
+    {"gt.lead_vehicle",   osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL,     "gt.lead_vehicle.",   {"lead_vehicle", nullptr}},
+    {"gt.traffic_light",  osi_adas::NAME_OTHER,                       "gt.traffic_light.",  {"traffic_light", nullptr}},
+    {"gt.stop_yield",     osi_adas::NAME_OTHER,                       "gt.stop_yield.",     {"stop_sign", "yield_sign"}},
+    {"gt.conflict_point", osi_adas::NAME_OTHER,                       "gt.conflict_point.", {"conflict_point", nullptr}},
+    {"gt.crosswalk",      osi_adas::NAME_OTHER,                       "gt.crosswalk.",      {"crosswalk", nullptr}},
+};
+
+bool EnabledFor(const VdPolicyEnableFlags& f, const char* custom_name)
+{
+    const std::string n = custom_name;
+    if (n == "gt.aeb") return f.aeb;
+    if (n == "gt.lead_vehicle") return f.lead;
+    if (n == "gt.traffic_light") return f.traffic_light;
+    if (n == "gt.stop_yield") return f.stop_yield;
+    if (n == "gt.conflict_point") return f.conflict;
+    if (n == "gt.crosswalk") return f.crosswalk;
+    return false;
+}
+
+bool EmittedThisFrame(const TrafficPolicySnapshot& snapshot, const PolicyRow& row)
+{
+    for (const auto& c : snapshot.constraints)
+        for (const char* src : row.sources)
+            if (src && c.source == src) return true;
+    return false;
+}
+
+bool StartsWith(const std::string& s, const char* prefix)
+{
+    const std::string p = prefix;
+    return s.size() >= p.size() && s.compare(0, p.size(), p) == 0;
+}
+}  // namespace
+
+std::vector<AdasFunctionState> BuildAdasFunctionReport(const VdPolicyEnableFlags&   flags,
+                                                       const TrafficPolicySnapshot& snapshot)
+{
+    std::vector<AdasFunctionState> report;
+    report.reserve(sizeof(kRows) / sizeof(kRows[0]) + 1);
+
+    for (const auto& row : kRows)
+    {
+        AdasFunctionState f;
+        f.name        = row.osi_name;
+        f.custom_name = row.custom_name;
+
+        // UNAVAILABLE (not configured) / STANDBY (armed, quiet) / ACTIVE
+        // (constrained the plan this frame). The STANDBY-vs-UNAVAILABLE split is
+        // the whole point: "AEB was watching and chose not to fire" and "AEB was
+        // never switched on" are different verdicts about the same silence.
+        if (!EnabledFor(flags, row.custom_name))
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (EmittedThisFrame(snapshot, row))
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        for (const auto& kv : snapshot.detail)
+            if (StartsWith(kv.first, row.key_prefix)) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    // Aggregate row: the VD stack itself is driving the vehicle. Reported
+    // independently of any single policy, so a consumer can tell "an automated
+    // driving function has control" from "this particular assist fired".
+    AdasFunctionState vd;
+    vd.name        = osi_adas::NAME_URBAN_DRIVING;
+    vd.custom_name = "gt.virtual_driver";
+    vd.state       = osi_adas::STATE_ACTIVE;
+    report.push_back(std::move(vd));
+
+    return report;
+}
+
+}  // namespace gt_esmini

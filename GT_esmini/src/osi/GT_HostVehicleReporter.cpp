@@ -187,6 +187,33 @@ void GT_HostVehicleReporter::AddADASFunction(int vehicle_id, const std::string& 
     }
 }
 
+void GT_HostVehicleReporter::AddADASFunctionEx(int                                                     vehicle_id,
+                                               int                                                     osi_name,
+                                               const std::string&                                      custom_name,
+                                               int                                                     state,
+                                               const std::vector<std::pair<std::string, std::string>>& detail)
+{
+    auto& cache = input_cache_[vehicle_id];
+
+    for (auto& func : cache.adas_functions)
+    {
+        if (func.name == custom_name)
+        {
+            func.state    = state;
+            func.osi_name = osi_name;
+            func.detail   = detail;
+            return;
+        }
+    }
+
+    InputCache::ADASFunction func;
+    func.name     = custom_name;
+    func.state    = state;
+    func.osi_name = osi_name;
+    func.detail   = detail;
+    cache.adas_functions.push_back(func);
+}
+
 void GT_HostVehicleReporter::ClearADASFunctions(int vehicle_id)
 {
     if (input_cache_.count(vehicle_id) > 0)
@@ -344,9 +371,23 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
             for (const auto& func : input.adas_functions)
             {
                 auto* adas_func = hv_data.add_vehicle_automated_driving_function();
-                adas_func->set_name(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER);
+                // W1: use the real OSI Name when the caller knows one
+                // (AddADASFunctionEx); fall back to NAME_OTHER for the legacy
+                // label-only path, which is what every caller used before.
+                adas_func->set_name(
+                    func.osi_name >= 0
+                        ? static_cast<osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name>(func.osi_name)
+                        : osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER);
                 adas_func->set_custom_name(func.name);
                 adas_func->set_state(static_cast<osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State>(func.state));
+                // Numeric internals behind the state (§2.2 (a'), W3): TTC, required
+                // decel, ... under the gt.* key convention (PolicyDetail.hpp).
+                for (const auto& kv : func.detail)
+                {
+                    auto* pair = adas_func->add_custom_detail();
+                    pair->set_key(kv.first);
+                    pair->set_value(kv.second);
+                }
             }
         }
     }

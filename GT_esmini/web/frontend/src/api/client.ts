@@ -549,11 +549,17 @@ export interface MidLongProfile {
 export type PolicyConstraintKind =
   | 'none' | 'stop_at_s' | 'max_speed' | 'max_speed_to_s' | 'yield' | 'wait_until';
 
+/** Arbitration tier (AEB phase 1). Only AebSafety emits 'safety'; every other
+ * policy leaves it at 'comfort'. Optional because telemetry recorded before the
+ * field was serialized (W2) has no `tier`. */
+export type PolicyConstraintTier = 'comfort' | 'courtesy' | 'compliance' | 'safety';
+
 export interface PolicyConstraint {
   kind: PolicyConstraintKind;
   s: number;        // route s ahead of the ego the constraint applies at/until [m]
   value: number;    // speed [m/s] or time [s] depending on kind
   source: string;   // "lead_vehicle" | "traffic_light" | "stop_sign" | "yield_sign" | ...
+  tier?: PolicyConstraintTier;
 }
 
 export interface TrafficPolicySnapshot {

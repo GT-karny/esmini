@@ -595,6 +595,23 @@ void ControllerVirtualDriver::GetInputsForOSI(double& throttle, double& brake, d
     lightMask = BuildLightMaskFromExtension();
 }
 
+void ControllerVirtualDriver::GetADASFunctions(std::vector<AdasFunctionState>& functions) const
+{
+    // The enable flags come from config (which policies were instantiated at
+    // all) and the per-frame states from the last evaluated policy snapshot, so
+    // "disabled" stays distinguishable from "armed but quiet" — see
+    // BuildAdasFunctionReport().
+    VdPolicyEnableFlags flags;
+    flags.lead          = vd_config_.policy_lead_enabled;
+    flags.traffic_light = vd_config_.policy_traffic_light_enabled;
+    flags.stop_yield    = vd_config_.policy_stop_yield_enabled;
+    flags.conflict      = vd_config_.policy_conflict_enabled;
+    flags.crosswalk     = vd_config_.policy_crosswalk_enabled;
+    flags.aeb           = vd_config_.policy_aeb_enabled;
+
+    functions = BuildAdasFunctionReport(flags, telemetry_.policy);
+}
+
 void ControllerVirtualDriver::GetPowertrainForOSI(double& rpm, double& torque) const
 {
     if (current_hvd_.has_vehicle_powertrain() && current_hvd_.vehicle_powertrain().motor_size() > 0)
