@@ -386,10 +386,25 @@ UNAVAILABLE（config で無効）** の3値＝「AEBは見張っていて撃た�
 
 ##### 残る債務（本作業で意図的に触っていない）
 
-- `GT_esminiLib.cpp` の `adasNames[]` の並びが **OSI `Name` 列挙順とずれている**（`NIGHT_VISION`/`HEAD_UP_DISPLAY` 付近）。
-  現状は常に `NAME_OTHER` で送るため実害は custom_name のラベルずれのみだが、**RealDriver 経路が実 `Name` 列挙を
-  使い始めた時点で実害化する**。
+- ~~`GT_esminiLib.cpp` の `adasNames[]` の並びが **OSI `Name` 列挙順とずれている**~~ → **2026-07-20 解消**（下記）。
 - 他5 policy の `custom_detail` は未実装（W3 は AEB のみ）。規約と口は共通なので追加は各 policy の1-2行。
+
+##### 実装（2026-07-20, 固定24枠の `Name` 整合）
+
+`GT_esminiLib.cpp` の `adasNames[]` は `ControllerRealDriverUtils.hpp` の `kAdasNames`（受信側の
+`custom_name`→index 逆写像）の**重複コピー**であり、しかも OSI `Name` 列挙とずれていた。ずれ方は単純ではなく、
+**index 0-12 は `osi = index+2` で成立するが 13/14 (`NIGHT_VISION`/`HEAD_UP_DISPLAY`) で入れ替わり、
+15-19 で再びずれる**（＝「オフセット2」に見えるのが罠）。
+
+- 2つの配列を `kAdasSlots`（`{label, osi_name}` の単一表, `ControllerRealDriverUtils.hpp`）に統合。
+  **index 順は RealDriver の往復ワイヤ契約**（`test_ControllerRealDriverUtils.cpp:21-23` が `ACC==8` を固定）
+  なので**並べ替えず**、各スロットに OSI `Name` 値を持たせる形にした。
+- 送出を `AddADASFunction`(→ `NAME_OTHER` 固定) から `AddADASFunctionEx` に変更し、**実 `Name` 列挙を出す**。
+  `custom_name` も従来どおり併記するため受信側の逆写像は不変＝**外部クライアント無影響**。
+- W1 と同じく `control` は `osi` に依存できないので `osi_name` は int ミラー、
+  **`GT_esminiLib.cpp` の `constexpr` 全24スロット照合 + `static_assert`** で実 .proto にピン留め
+  （OSI が動いたらビルドで落ちる）。ユニットテスト `test_AdasSlotTable.cpp`（5本）でラベル↔列挙の対応と
+  ワイヤ契約 index を固定。
 
 W1-W3 は **enabler の議論と独立に効いた**（対象は built 済みの behavior）。§7 フェーズ4 の
 パイロットとして pitch/roll に先行して完了した実例＝「④の欠は(b)配線であって(a)観測不能ではない」の実証。
@@ -437,10 +452,11 @@ OSI 側は出しているのに **scene 変換層でせき止められている*
 
 | signal | emit（file:line） | 消費到達 | 判定 | exposure |
 | :-- | :-- | :-- | :-: | :-- |
-| **HVD `steering_angle`** | `ControllerManualDrive.cpp:192-197` が既に**実舵角(rad)**を渡すのに `GT_HostVehicleReporter.cpp:141` が `steering_input_to_wheel_ratio`(既定12.9, ControllerRealDriver の正規化入力向け) を**無条件適用**（分岐・フラグ無し） | Web `HvdGaugePanel.tsx` まで届くが**約12.9倍に破壊** | **(b′)** | hvd |
+| **HVD `steering_angle`** | `ControllerManualDrive.cpp:192-197` が**タイヤ舵角(rad)**を渡し、`GT_HostVehicleReporter.cpp:141` が `steering_input_to_wheel_ratio`(既定12.9) を適用して **OSI ハンドル角**へ変換 | Web `HvdGaugePanel.tsx:55`（`clamp(±540°)`＝ハンドル角として描画）。0.61rad×12.9=451° で整合 | **●** | hvd |
 | HVD acceleration | `RealVehicleBackend::BuildHVD` の値を `GT_HostVehicleReporter.cpp:237-292` が `egoState->pos_.GetAcc*()` で**毎フレーム上書き**（コメントに "Always OVERWRITE" と明記） | RealVehicle の正確な加速度は外に出ない | **(b′)** | hvd |
-| Kinematic wheel_angle | `ControllerKinematic.cpp:445-447` → `GT_esminiLib.cpp:1516-1531`（`GetWheelAngle()`＝実舵角 rad, 既定上限1.047rad） | 同じ 12.9倍経路 | **(b′)** | hvd |
-| **VD wheel_angle**（★2026-07-20 追記・当初漏れ） | `ControllerVirtualDriver.cpp:587-588` が ManualDrive と**同一パターン**（`current_hvd_.vehicle_steering_wheel().angle()`＝RealVehicleBackend の実舵角）を渡す | 同じ 12.9倍経路 | **(b′)** | hvd |
+| Kinematic wheel_angle | `ControllerKinematic.cpp:445-447` → `GT_esminiLib.cpp:1516-1531`（`GetWheelAngle()`＝タイヤ舵角 rad, 既定上限1.047rad） | 同じ ratio 経路＝**正しい**。ただし上限1.047rad(60°)はハンドル角換算774°で540°ロック超過＝**タイヤ角上限そのものが非現実的**（別件） | ● | hvd |
+| **VD wheel_angle** | `ControllerVirtualDriver.cpp:587-588` が ManualDrive と**同一パターン**（`current_hvd_.vehicle_steering_wheel().angle()`＝RealVehicleBackend のタイヤ舵角）を渡す | 同じ ratio 経路＝**正しい** | ● | hvd |
+| **RealDriver wheel_angle**（★2026-07-20 是正） | 旧: `ControllerRealDriver.cpp:745` が**正規化指令値 [-1,1]** を渡し ratio 適用で 12.9rad(739°)＝真値451°の**1.64倍(=1/steer_gain)**。現: `real_vehicle_.wheelAngle_`（他3経路と同一の物理タイヤ舵角）を渡す | `HvdGaugePanel.tsx` | ●（修正済） | hvd |
 | FFB 内部量(steering_pos/vel, lat_accel) | `RealVehicleBackend.cpp:121-134`、`SDLFFBSink.cpp:158-176` が同じ hvd を直読み | **自己完結ループ**（外部配信不要） | ●（FFB 用途） | debug |
 | throttle/brake/gear/rpm/torque/灯火 | `ControllerManualDrive.cpp:188-247` → HVD ／ OSI `GT_OSIReporter_Moving.cpp:414-512` | `HvdGaugePanel.tsx` | ● | hvd,osi |
 | ManualDrive ADAS states | `ControllerManualDrive.hpp:36` で恒久的に空 | `GT_esminiLib.cpp:1486` の `size()>=24` ガードで無害にスキップ | (a)**設計上の非該当**（W1 と異なりバグではない） | hvd |
@@ -450,12 +466,27 @@ OSI 側は出しているのに **scene 変換層でせき止められている*
 | 制御車 dynamic pitch/roll | `RealVehicle.cpp:410-430` → `SetInertiaPos` → OSI `GT_OSIReporter_Moving.cpp:756-757` | frame/matcher なし | (b)（既知） | osi,hvd |
 | **交通車 dynamic pitch/roll** | `VehiclePhysicsManager.cpp:107-108` だが **既定 `enabled_=false`**(`VehiclePhysicsManager.hpp:71`, opt-in `--vehicle-physics`) | 通常運用では**そもそも計算されない** | **(a)** | osi,hvd |
 
-**(b′) の共通根（2026-07-20 検証で確定）**: `GT_HostVehicleReporter.cpp:141` の ratio 乗算は
-**分岐もフラグも無く無条件**。渡す側は2種に分かれる —
-**正規化 -1.0〜1.0 を渡す ControllerRealDriver**（外部UDP APIの契約, `docs/realdriver/api_reference.md:41`）では
-ratio 適用は**正当な変換**。一方 **ManualDrive / VirtualDriver / Kinematic は実舵角(rad)を渡す**ので二重変換になる。
-**正当なケースが1つ同居しているせいでバグとして目立たなかった**。3ドメイン(ManualDrive/VD/Kinematic)が
-同一の1行に起因する ＝ §2.3 で最も費用対効果の高い単一修正点。
+**steering_angle の (b′) 判定は撤回（2026-07-20 再検証で反転）**: 当初「`GT_HostVehicleReporter.cpp:141` の
+ratio 無条件乗算により ManualDrive / VD / Kinematic の3ドメインが12.9倍に破壊される＝最も費用対効果の高い
+単一修正点」と採点したが、**誤診だった**。
+
+決め手は OSI の欄の定義。`osi_common.proto:1026-1035` の `VehicleSteeringWheel.angle` は
+**「ハンドル角 [rad]」であってタイヤ舵角ではない**。したがって `steering_input_to_wheel_ratio`(12.9) は
+**ステアリングギア比**そのもの（`RealVehicle.hpp:71` のコメントも "Corolla steering ratio"）で、
+`タイヤ角 rad × 12.9 → ハンドル角 rad` は **OSI 規定どおりの正当な変換**である。
+検算: `steer_gain=0.61rad` → 451°（ロック2.5回転＝実車的）。消費側 `HvdGaugePanel.tsx:55` も
+`clamp(±540°)` でハンドル角として描画しており、**表示側は元から正しかった**。
+
+実際に壊れていたのは、当初「正当」と整理した **ControllerRealDriver 経路のみ**。ここだけが正規化指令値
+[-1,1] を渡していたため 12.9rad(739°)＝真値の1.64倍になっていた。是正は
+`ControllerRealDriver::GetInputsForOSI` が `real_vehicle_.wheelAngle_` を渡す形に変更（他3経路と同一の
+真実源＝物理のタイヤ舵角）。**外部UDP APIの契約 [-1,1]（`docs/realdriver/api_reference.md:41`）は入口で不変**。
+
+**教訓（採点手順への反映）**: 「値が N 倍おかしい」と見えたとき、**先に OSI 側の欄の定義（単位と何の量か）を
+確定させる**こと。今回は入力側の単位だけを4経路突き合わせて多数決的に判断したため、少数派＝正解の経路を
+バグと誤認し、正しい3経路に (b′) を付けた。**多数決は単位の正しさの根拠にならない。**
+なお §2 の再採点コメント（`ManualDrive ④ ◐ → ○(b′)`）の steering 部分も本節により**無効**
+（acceleration の上書き (b′) は射程外・未検証のまま有効）。
 
 **⑥の実測**: `test/CMakeLists.txt` と integration 26本の全照合で、**この3ドメインに言及する自動テストは
 unit/integration いずれにも 0件**。回帰検知は目視スモークのみ ＝ ⑥ を ◐ から ✕ に訂正した根拠。

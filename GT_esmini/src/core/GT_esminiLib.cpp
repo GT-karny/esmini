@@ -62,6 +62,61 @@
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
 
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
+#include "gt_esmini/control/ControllerRealDriverUtils.hpp"
+
+// ============ Pin the fixed 24-slot ADAS table to the real OSI enum ============
+// `control` must not depend on `osi` (GT_esmini/CLAUDE.md §2), so
+// ControllerRealDriverUtils.hpp mirrors the OSI Name values as plain ints. This
+// translation unit is the one place that sees both, so the mirror is verified
+// here: if OSI renumbers the enum, the build breaks instead of the stream being
+// silently mislabeled. Same technique as the VD-side osi_adas pin below.
+namespace
+{
+using GtOsiAdasName = osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name;
+
+constexpr bool AdasSlotTableMatchesOsi()
+{
+    constexpr GtOsiAdasName kOsiOrder[] = {
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_BLIND_SPOT_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_FORWARD_COLLISION_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_LANE_DEPARTURE_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_PARKING_COLLISION_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_REAR_CROSS_TRAFFIC_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_EMERGENCY_BRAKING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_EMERGENCY_STEERING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_REVERSE_AUTOMATIC_EMERGENCY_BRAKING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ADAPTIVE_CRUISE_CONTROL,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_LANE_KEEPING_ASSIST,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ACTIVE_DRIVING_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_BACKUP_CAMERA,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_SURROUND_VIEW_CAMERA,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_NIGHT_VISION,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_HEAD_UP_DISPLAY,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ACTIVE_PARKING_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_REMOTE_PARKING_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_TRAILER_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_HIGH_BEAMS,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_DRIVER_MONITORING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_URBAN_DRIVING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_HIGHWAY_AUTOPILOT,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_CRUISE_CONTROL,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_SPEED_LIMIT_CONTROL,
+    };
+    static_assert(sizeof(kOsiOrder) / sizeof(kOsiOrder[0]) == gt_esmini::realdetail::kAdasFunctionCount,
+                  "ADAS slot table size drifted from the OSI name list");
+
+    for (std::size_t i = 0; i < gt_esmini::realdetail::kAdasFunctionCount; ++i)
+    {
+        if (gt_esmini::realdetail::kAdasSlots[i].osi_name != static_cast<int>(kOsiOrder[i]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(AdasSlotTableMatchesOsi(),
+              "OSI Name enum drift: kAdasSlots no longer matches osi_hostvehicledata.proto");
+}  // namespace
 
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
@@ -1456,38 +1511,22 @@ GT_ESMINI_API void GT_Step(double dt)
                         std::vector<int> adasStates;
                         concreteCtrl->GetADASStates(adasStates);
 
-                        static const char* adasNames[] = {
-                            "BLIND_SPOT_WARNING",                  // 0
-                            "FORWARD_COLLISION_WARNING",           // 1
-                            "LANE_DEPARTURE_WARNING",              // 2
-                            "PARKING_COLLISION_WARNING",           // 3
-                            "REAR_CROSS_TRAFFIC_WARNING",          // 4
-                            "AUTOMATIC_EMERGENCY_BRAKING",         // 5
-                            "AUTOMATIC_EMERGENCY_STEERING",        // 6
-                            "REVERSE_AUTOMATIC_EMERGENCY_BRAKING", // 7
-                            "ADAPTIVE_CRUISE_CONTROL",             // 8
-                            "LANE_KEEPING_ASSIST",                 // 9
-                            "ACTIVE_DRIVING_ASSISTANCE",           // 10
-                            "BACKUP_CAMERA",                       // 11
-                            "SURROUND_VIEW_CAMERA",                // 12
-                            "NIGHT_VISION",                        // 13
-                            "HEAD_UP_DISPLAY",                     // 14
-                            "ACTIVE_PARKING_ASSISTANCE",           // 15
-                            "REMOTE_PARKING_ASSISTANCE",           // 16
-                            "TRAILER_ASSISTANCE",                  // 17
-                            "AUTOMATIC_HIGH_BEAMS",                // 18
-                            "DRIVER_MONITORING",                   // 19
-                            "URBAN_DRIVING",                       // 20
-                            "HIGHWAY_AUTOPILOT",                   // 21
-                            "CRUISE_CONTROL",                      // 22
-                            "SPEED_LIMIT_CONTROL",                 // 23
-                        };
-
-                        if (adasStates.size() >= 24)
+                        // Labels and their OSI Name values come from the single slot
+                        // table in ControllerRealDriverUtils.hpp, which is also what the
+                        // inbound custom_name -> index mapping uses. Keeping one table
+                        // is the point: the outbound copy that used to live here had
+                        // drifted from the OSI enum around NIGHT_VISION / HEAD_UP_DISPLAY
+                        // (capability_model §2.2a residual debt).
+                        if (adasStates.size() >= gt_esmini::realdetail::kAdasFunctionCount)
                         {
-                            for (int i = 0; i < 24; i++)
+                            for (std::size_t i = 0; i < gt_esmini::realdetail::kAdasFunctionCount; i++)
                             {
-                                hvReporter.AddADASFunction(vehicleId, adasNames[i], adasStates[i]);
+                                const auto& slot = gt_esmini::realdetail::kAdasSlots[i];
+                                hvReporter.AddADASFunctionEx(vehicleId,
+                                                             slot.osi_name,
+                                                             std::string(slot.label),
+                                                             adasStates[i],
+                                                             {});
                             }
                         }
                     };

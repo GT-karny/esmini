@@ -742,7 +742,12 @@ void ControllerRealDriver::GetInputsForOSI(double& throttle, double& brake, doub
 {
     throttle = input_.throttle;
     brake = input_.brake;
-    steering = input_.steering;
+    // Report the actual road wheel angle [rad] from the physics state, not the
+    // normalized [-1,1] command. GT_HostVehicleReporter multiplies this by the
+    // steering ratio to produce the OSI steering *wheel* angle (osi_common.proto
+    // VehicleSteeringWheel.angle), so it must be fed a road wheel angle -- which is
+    // what ManualDrive / VirtualDriver / Kinematic already pass.
+    steering = real_vehicle_.wheelAngle_;
     gear = input_.gear;
     lightMask = input_.lightMask;
 }
