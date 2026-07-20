@@ -108,8 +108,8 @@ gates:
     command: >-
       gt_sim_test.py batch resources/xosc/verification/aeb_safety_batch.yaml →
       scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/aeb_safety_expected.yaml
-    context: local  # regression-gate Step 2.6。CI 未配線（下記 note）
-    blocking: false  # 既定 WARN。-FailOnBehavioral でハード化
+    context: both  # local（regression-gate Step 2.6）＋ ci.yml vd-behavioral-regression job（非ブロッキング）
+    blocking: false  # 既定 WARN。ローカルは -FailOnBehavioral でハード化／CI は continue-on-error
     requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード。osi:true 必須
     covers: >-
       AEB(vd-func:FUNC-001)の主張を**両方向**で判定。正例 REQ-AD-001 2件＝
@@ -121,8 +121,6 @@ gates:
       **別々の段**で弾かれる設計（ゲート非発火／検知は正当だがゲートが弾く／候補採用の入口で弾く）。
       2026-07-21 時点 5/5 緑＝**known-red を持たないベースライン**。
     not_covers: >-
-      **CI には未配線**（ci.yml の Windows job は car_following バッチのみ）＝守られるのは
-      ローカルの regression-gate を回した時だけ。CI 配線は次の一手。
       幾何軸は直進/カーブのみで**交差点内 AEB は未カバー**（conflict 系と重複するため保留）。
       `impact_speed_below`/`min_obb_separation_above` は OSI scene 依存で、
       `osi:true` が無いと matcher が **skip＝黙って緑になる**（マニフェストで担保している）。
@@ -135,6 +133,16 @@ gates:
       正負を同一 baseline に置いたのは、片方だけを守ると「閾値を下げて正例を通し負例を壊す」
       取引がゲートを素通りするため。既定 WARN で開始し、数回グリーンを確認してから hard へ昇格する方針
       （ユーザー判断 2026-07-21）。
+      **CI 配線（2026-07-21・ユーザー判断）**: 独立 job ではなく既存の `vd-behavioral-regression`
+      job に相乗りさせた。同 job は GT_esminiLib の Release ビルドを丸ごと行っており（externals は
+      キャッシュされるがビルド成果物は非キャッシュ）、独立 job にすると**その重いビルドが二重化**する。
+      赤の切り分けはステップ名と artifact を分けること（`aeb-safety-regression-report`）で担保＝
+      ローカルで Step 2 に合流させず独立ゲートにしたのと同じ目的を、CI では job 分割なしで満たす。
+      CI も non-blocking（`continue-on-error`）で開始したのはローカル方針との一貫性に加え、
+      GT_esminiLib.dll の in-process ロードと `osi:true` 依存が CI 環境で想定通り動くかが未確認で、
+      初回から hard にすると赤が「AEB 退行」か「CI 環境差」か弁別できなくなるため。
+      **昇格手順**: compare ステップの `continue-on-error` を外す（ローカル側は既定を
+      -FailOnBehavioral 相当へ）。
 
   # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
   - id: odr-conformance-quick

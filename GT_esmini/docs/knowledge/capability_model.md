@@ -803,14 +803,24 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     (2) 正例(REQ-AD-001)と負例(REQ-AD-013)を**同一ゲート・同一ベースライン**＝片方だけ守ると
     「閾値を下げて正例を通し負例を壊す」取引が素通りする。
     (3) 既定 WARN で開始（数回グリーンを確認して hard へ昇格。ユーザー判断）。
+  - **CI 配線（2026-07-21 追補・ユーザー判断）**: ci.yml の既存 `vd-behavioral-regression` job に
+    **相乗り**（バッチ→`check_regression_baseline.py`→artifact の3ステップ追加）。独立 job にしなかったのは、
+    同 job が GT_esminiLib の Release ビルドを丸ごと行っており（`actions/cache` は externals のみで
+    ビルド成果物は非キャッシュ）**独立 job ＝重いビルドの二重化**になるため。上記(1)の「赤の切り分け」は
+    **ステップ名と artifact の分離**（`aeb-safety-regression-report`）で満たせるので、job 分割の対価に見合わない
+    ＝ローカルで独立ゲートにした判断と矛盾しない（分離すべき単位は *レポート* であって *job* ではない）。
+    CI も `continue-on-error` で開始＝ローカル方針との一貫性に加え、`GT_esminiLib.dll` の in-process ロードと
+    `osi:true` 依存が CI 環境で想定通り動くかが未確認のため。初回から hard にすると赤が
+    **「AEB 退行」か「CI 環境差」か弁別できない**。
+    job 名は改名不要（AEB は VD の policy 層の安全機能＝`vd-behavioral-regression` は中身を正しく語る・規約3）。
   - **`min_separation_above` は DEPRECATED 確定**（保留ではない）。中心間距離は隣接レーン通過を
     誤読するのに対し `min_obb_separation_above` は正しく安全と読む＝厳密な劣位版で復活価値が無い。
     根拠は graph.yaml の当該 `observes` 辺の note に恒久記録。実装削除は vd_metrics.py 変更＝別コミット。
   - **本作業で判明した積み残し**: (a) §5.1 の「常設ゲートが発火させるのは6件のみ／AEB を判定する
     matcher が常設ゲートに1件も乗っていない」という記述は**本作業で陳腐化**した（一次記録として残すなら
     「2026-07-20 時点」と明記が要る。graph.yaml 末尾の一次記録には追随済み）。
-    (b) 新ゲートは **CI 未配線＝ローカル限定**で、`gate:vd-behavior-regression`（CI Windows job あり）より
-    ⑥の強度が一段弱い。(c) `cutin_hard_brake` の実測 impact speed は **9.14 m/s（閾値 10.0、余裕 8.6%）**で、
+    (b) ~~新ゲートは **CI 未配線＝ローカル限定**~~ → **2026-07-21 解消**（上記「CI 配線」）。
+    (c) `cutin_hard_brake` の実測 impact speed は **9.14 m/s（閾値 10.0、余裕 8.6%）**で、
     expectations のコメントが言う「達成 ~8.75」より薄い（2回の実行で 9.14 再現＝フレークではなく記述の陳腐化）。
     (d) 派生レポートの **②刺激欠に REQ-AD-001/013 が残る**（`stimulated-by` 辺は未結線・25件の一部）。
 - **`spine-work:vertical-wiring`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、

@@ -391,10 +391,16 @@ jobs:
           cmake --build build --config Release --target GT_esminiLib -j 2
 
   # F4 / V4 (audit tech_debt_audit_2026-06 sec 5): VirtualDriver behavioral batch
-  # regression gate. Runs gt_sim_test.py batch (car_following_traffic_control_batch.yaml) in-process via
-  # the GT C-API, then compares the per-scenario / per-matcher verdict against the
-  # COMMITTED baseline (GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml)
-  # with scripts/check_regression_baseline.py, and uploads a Markdown report.
+  # regression gates. Runs gt_sim_test.py batch in-process via the GT C-API, then
+  # compares the per-scenario / per-matcher verdict against a COMMITTED baseline with
+  # scripts/check_regression_baseline.py, and uploads a Markdown report.
+  #
+  # Two gates ride in this job, each with its own batch, baseline and artifact:
+  #   gate:vd-behavior-regression  car_following_traffic_control_batch.yaml (Step 2 locally)
+  #   gate:aeb-safety-regression   aeb_safety_batch.yaml                    (Step 2.6 locally)
+  # Both exercise VirtualDriver behaviour (AEB is a VD policy-layer safety function), so
+  # the job name still describes its contents. See the AEB steps below for why they share
+  # this job rather than getting a dedicated one.
   #
   # WHY WINDOWS (not the existing ubuntu test job): the in-process harness is
   # Windows-only as written. gt_lib.py hardcodes the DLL as
@@ -484,6 +490,42 @@ jobs:
             test_results/ci/car_following_traffic_control/regression_report.md
             test_results/ci/car_following_traffic_control/batch_verdict.json
             test_results/ci/car_following_traffic_control/batch_summary.md
+          if-no-files-found: warn
+
+      # gate:aeb-safety-regression -- the local regression gate's Step 2.6, wired to CI
+      # (2026-07-21). Rides in this job rather than a dedicated one: the Release
+      # GT_esminiLib build above dominates the runtime, so a separate job would pay it
+      # twice. Failure attribution is preserved by the separate step names and a
+      # separate artifact -- an AEB regression never hides inside the car_following
+      # report, which is the same reason Step 2.6 is a standalone gate locally.
+      #
+      # The baseline is 5/5 green with no known-red, and it holds both directions of the
+      # AEB claim (REQ-AD-001 positives, REQ-AD-013 negatives) so that "lower the
+      # threshold to pass the positives" breaks the negatives instead of sneaking through.
+      # NON-BLOCKING like the batch above: promote by dropping continue-on-error from the
+      # compare step once CI has shown the baseline stable across a few runs.
+      - name: Run AEB safety batch
+        continue-on-error: true
+        shell: bash
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/aeb_safety_batch.yaml --out test_results/ci/aeb_safety
+
+      # --baseline is mandatory here: check_regression_baseline.py defaults to the
+      # car_following baseline, so omitting it would silently compare against the wrong one.
+      - name: Compare AEB vs committed baseline (per-scenario)
+        id: aeb-regression
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/aeb_safety --baseline GT_esmini/test/regression_baseline/aeb_safety_expected.yaml
+
+      - name: Upload AEB regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeb-safety-regression-report
+          path: |
+            test_results/ci/aeb_safety/regression_report.md
+            test_results/ci/aeb_safety/batch_verdict.json
+            test_results/ci/aeb_safety/batch_summary.md
           if-no-files-found: warn
 
   release:
