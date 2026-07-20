@@ -16,6 +16,23 @@ Checks:
   4. every "openx:*" reference exists in concept_vocabulary.yaml (the TTL is
      not in the repo; the vocabulary snapshot is the source of truth).
   5. no duplicate (from, to, type) edges.
+  6. graph_view.md is not stale.
+  7. catalog value ranges (signal_catalog.yaml / gate_catalog.yaml / face tags):
+     exposure in osi|hvd|frame|derived|debug, state in (a)|(b)|(b')|●|(-),
+     face in 1|2|3|cross, gate.covers non-empty, gate.blocking boolean.
+     Until 2026-07-21 the lint only checked that each namespace's
+     source_of_truth *existed* and never opened the node files, so every
+     face:/exposure/state value had been inert, unverified data since it was
+     registered (capability_model.md §7 spine-work:signal-gate-registration).
+  8. 規約2 (§7.1): no process ordinal (phase3_/stage2_/...) in the filename of
+     a permanent asset. Repo-wide hits at introduction: 0 — new violations only.
+
+Report mode (--spine-report), NOT a gate: the "縦串の切れた列" derived report
+(§6) plus the coupling-audit (§0.5) — ④観測欠 split into (a)未emit / (b)未配線,
+⑥常設欠, ②刺激欠, and 面3→面2 の結合負債. Computed as ledger-minus-edges set
+differences; never from hand-maintained flags (flags rot). A summary prints at
+the end of --check but never changes its exit code: this ledger is *designed*
+to be non-empty, so gating on it would be permanently red.
 
 Extraction mode (--extract-commits): scans git history for ID tokens of the
 namespaces flagged "extract: commit-mentions" and prints candidate
@@ -55,6 +72,61 @@ NAMESPACES_YAML = KNOWLEDGE_DIR / "namespaces.yaml"
 GRAPH_YAML = KNOWLEDGE_DIR / "graph.yaml"
 VOCAB_YAML = KNOWLEDGE_DIR / "concept_vocabulary.yaml"
 PATH_MAP_YAML = KNOWLEDGE_DIR / "path_map.yaml"
+SIGNAL_CATALOG_YAML = KNOWLEDGE_DIR / "signal_catalog.yaml"
+GATE_CATALOG_YAML = KNOWLEDGE_DIR / "gate_catalog.yaml"
+REQ_CATALOG_YAML = KNOWLEDGE_DIR / "requirements_vd_ad.yaml"
+SCENE_CATALOG_YAML = KNOWLEDGE_DIR / "scene_catalog_vd_ad.yaml"
+
+# --- 値域（capability_model.md §2.2 / §2.3 / §4）---------------------------
+# 語彙を1か所に置き、カタログとグラフの両方をこれで照合する。
+EXPOSURE_VALUES = {"osi", "hvd", "frame", "derived", "debug"}
+# ④観測の判定記号。"(-)" は非該当（別面に正当な観測経路あり）。
+# 本文 §2.3 は活字上 "(–)"(EN DASH) で書かれている箇所があるが、カタログの実体と
+# signal_catalog.yaml 自身のヘッダ定義は ASCII "(-)"。**両方を受理**する
+# （表記ゆれで倒すのは検査の目的ではない。正準は ASCII 側）。
+STATE_VALUES = {"(a)", "(b)", "(b')", "●", "(-)", "(–)"}
+FACE_VALUES = {"1", "2", "3", "cross"}
+# 面1が面3に対して負う唯一の観測IF（§0.2）。exposure がこの集合と交わらない
+# signal を verdict に使う経路は結合負債。
+CANONICAL_EXPOSURE = {"osi", "hvd"}
+
+# matcher には catalog ファイルが無い（source_of_truth はコード）。台帳を
+# graph.yaml の出現で近似すると **辺を1本も持たない matcher が母数から落ち**、
+# 未観測 matcher を「0件＝clean」と誤報する（＝検知器の反転。2026-07-21 に実測で
+# 踏んだ）。ゆえに namespace の source_of_truth である vd_metrics.py の
+# eval_must ディスパッチから直接数える。
+# **文の先頭の** `if kind ==` / `if kind in` だけをディスパッチ点とみなす。
+# 分岐 *本体* にも `ident = ... if kind == "stopped_at_stop_sign"` のような
+# kind 比較があり、これを分岐境界と誤認すると混在型（主判定=テレメトリ／一部 OSI）を
+# 取り逃す（2026-07-21 実測: stopped_at_signal を OSI と誤分類していた）。
+MATCHER_KIND_RE = re.compile(
+    r"""^[ \t]*if\s+kind\s*(?:==|in)\s*\(?((?:\s*["'][a-z_]+["']\s*,?)+)""", re.M)
+VD_METRICS_PY = REPO_ROOT / "GT_esmini" / "web" / "backend" / "services" / "vd_metrics.py"
+# 面1(OSI GroundTruth)由来の観測は frame["scene"] にだけ入る（`_gt_to_scene` が埋める）。
+# 分岐本体が "scene" を参照しなければ、その判定は面2 VD テレメトリ直結。
+# ＝ capability_model.md §2.3a を手作業でなく機械が数えるための識別子。
+SCENE_REF_RE = re.compile(r"""\[\s*["']scene["']\s*\]|\.get\(\s*["']scene["']""")
+# 面2 VD テレメトリの読み出し（scene 以外の frame フィールド）。
+TELEMETRY_REF_RE = re.compile(
+    r"""frames?\s*\[[^\]]*\]\s*\[\s*["'](?!scene)[a-z_]+["']|"""
+    r"""\[\s*["'](?:ego|driver|midlong|policy)["']\s*\]""")
+# 判定本体がヘルパ関数に隠れている場合がある（`_sustained_stop` が主判定の
+# テレメトリ読みを持つ）。文字列検査だけだと「OSI だけで判定している」と誤読するので
+# 呼んでいるモジュール内ヘルパを1段だけ展開して評価する。
+HELPER_CALL_RE = re.compile(r"\b(_[a-z_]+)\s*\(")
+
+# --- 規約2（capability_model.md §7.1）: 恒久資産に工程名を付けない -------------
+# 恒久資産のファイル名に工程の序数（phase3 / stage2 / step1 / wave4）を焼き込まない。
+# 2026-07-20 の改名（55bb2bcc / 9ec1ae98）でレポ全体の実測ヒットは **0件**。
+# ゆえに本検査は規約4と同型の「新設のみ弾く」形になり、hard にしても既存を巻き込まない。
+PROCESS_ORDINAL_IN_FILENAME = re.compile(r"(?:phase|stage|step|wave)[-_]?\d", re.I)
+# 恒久資産＝寿命が工程より長いもの。工程ドキュメント（docs/archive 等）は対象外。
+PERMANENT_ASSET_GLOBS = (
+    "GT_esmini/docs/knowledge/**/*.yaml",
+    "GT_esmini/test/regression_baseline/**/*.yaml",
+    "resources/xosc/verification/**/*",
+    "resources/scenario_authoring/scenario_templates/**/*",
+)
 
 # --- 規約4（capability_model.md §7.1）: 不透明な採番の新設を禁じる ---
 # id_pattern 全体が「序数・連番・単文字＋数字」だけで構成されるものを不透明とみなす。
@@ -93,6 +165,324 @@ def view_hash() -> str:
 def load_yaml(path: Path):
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def load_catalogs() -> dict:
+    """ノード台帳（catalog ファイル）を開く。
+
+    現行 lint は namespace の source_of_truth の *実在* しか見ず、中身を開かなかった。
+    ゆえに face:/exposure/state/covers は登録以来ずっと未検証の inert なデータだった
+    （capability_model.md §7 `spine-work:signal-gate-registration` の積み残し）。
+    """
+    def rows(path: Path, key: str) -> list:
+        if not path.is_file():
+            return []
+        doc = load_yaml(path) or {}
+        return doc.get(key) or []
+
+    return {
+        "signal": rows(SIGNAL_CATALOG_YAML, "signals"),
+        "gate": rows(GATE_CATALOG_YAML, "gates"),
+        "req-vd-ad": rows(REQ_CATALOG_YAML, "requirements"),
+        "scene": rows(SCENE_CATALOG_YAML, "scenes"),
+    }
+
+
+def check_catalog_values(catalogs: dict, namespaces: dict, err) -> None:
+    """値域チェック（hard）。exposure / state / face が統制語彙内かを検証する。
+
+    hard にした理由: これは「台帳が壊れていないか」という真の不変条件で、
+    導入時点の実測違反は 0件（47 signal / 14 gate / 31 namespace）。既存を
+    巻き込まずに固定できるものは最初から hard にするのが安全側。
+    """
+    for i, s in enumerate(catalogs["signal"]):
+        where = f"signal_catalog.yaml signals[{i}] ({s.get('id', '?')})"
+        if not s.get("id"):
+            err(f"{where}: missing id")
+        exposure = s.get("exposure")
+        if not isinstance(exposure, list) or not exposure:
+            err(f"{where}: exposure はリストで1つ以上必要です")
+        else:
+            for v in exposure:
+                if v not in EXPOSURE_VALUES:
+                    err(f"{where}: 未知の exposure '{v}' "
+                        f"(許容: {'/'.join(sorted(EXPOSURE_VALUES))})")
+        state = s.get("state")
+        if state not in STATE_VALUES:
+            err(f"{where}: 未知の state '{state}' "
+                f"(許容: {'/'.join(sorted(STATE_VALUES))})")
+
+    for i, g in enumerate(catalogs["gate"]):
+        where = f"gate_catalog.yaml gates[{i}] ({g.get('id', '?')})"
+        if not g.get("id"):
+            err(f"{where}: missing id")
+        # covers は自由文（統制語彙ではない）。存在と非空だけを強制する
+        # ＝「名前から推測して書かない」規律（gate_catalog.yaml 冒頭）の最低限の足場。
+        if not str(g.get("covers") or "").strip():
+            err(f"{where}: covers が空です（実際に何を検証しているかを書く）")
+        if not isinstance(g.get("blocking"), bool):
+            err(f"{where}: blocking は true/false が必須です")
+
+    for slug, ns in namespaces.items():
+        face = ns.get("face")
+        if face is None:
+            err(f"namespace '{slug}': face タグがありません "
+                f"(許容: {'/'.join(sorted(FACE_VALUES))}, capability_model.md §0.5)")
+        elif str(face) not in FACE_VALUES:
+            err(f"namespace '{slug}': 未知の face '{face}' "
+                f"(許容: {'/'.join(sorted(FACE_VALUES))})")
+
+
+def check_asset_naming(err) -> None:
+    """規約2（§7.1）: 恒久資産のファイル名に工程序数を焼き込まない（hard）。
+
+    工程（一時的）と成果物（恒久的）は寿命が違う。`phase3_*` は工程が終わっても
+    走り続ける資産に工程名を残し、名前が古い主張を保存し続けた（規約3 と同根）。
+    導入時点の実測ヒットは repo 全体で 0件＝新設のみを弾く検査。
+    """
+    for pattern in PERMANENT_ASSET_GLOBS:
+        for path in REPO_ROOT.glob(pattern):
+            if not path.is_file():
+                continue
+            if PROCESS_ORDINAL_IN_FILENAME.search(path.name):
+                rel = path.relative_to(REPO_ROOT).as_posix()
+                err(f"{rel}: 恒久資産のファイル名に工程序数が入っています"
+                    "（capability_model.md §7.1 規約2）。内容・役割で命名し、"
+                    "由来はファイル内メタデータ（origin: ...）として持ってください。")
+
+
+def _inlined_helpers(module_src: str, branch_src: str) -> str:
+    """分岐が呼ぶモジュール内ヘルパの本体を1段だけ連結して返す。
+
+    主判定が `_sustained_stop()` のようなヘルパに入っている分岐を
+    「OSI だけで判定している」と誤読しないための間接参照の解決
+    （2026-07-21 実測: stopped_at_signal を OSI 単独と誤分類していた）。
+    """
+    out = []
+    for name in set(HELPER_CALL_RE.findall(branch_src)):
+        m = re.search(rf"^def {re.escape(name)}\(.*?(?=^def |\Z)",
+                      module_src, re.M | re.S)
+        if m:
+            out.append(m.group(0))
+    return "\n".join(out)
+
+
+def spine_report(catalogs: dict, namespaces: dict, edges: list) -> dict:
+    """派生レポート（§6）＋ coupling-audit（§0.5）＝ 恒久の「未検証台帳」。
+
+    **手動フラグは持たない。**「台帳 − 辺」の集合差として毎回計算する
+    （手で立てたフラグは必ず腐る、が本プログラムの一貫した方針）。
+    出力は「主張 × 欠けた縦層」のリスト。
+
+    向きの注意（2026-07-21）: coupling-audit を graph.yaml の辺だけで実装すると
+    **常に 0件＝clean と報告する**。面3→面2 の直結は「引かなかった辺」として
+    graph.yaml 末尾のコメントに逃がされており、辺として存在しないからである
+    （§5.1）。実体は「matcher が signal 台帳の外を観測していること」なので、
+    ここでは *辺の不在* と *exposure が正規IFと交わらないこと* から数える。
+    """
+    def face_of(ref: str) -> str | None:
+        slug = ref.split(":", 1)[0] if isinstance(ref, str) and ":" in ref else None
+        ns = namespaces.get(slug) if slug else None
+        return str(ns.get("face")) if ns and ns.get("face") is not None else None
+
+    def locals_of(slug: str) -> set:
+        out = set()
+        for e in edges:
+            for ref in (e.get("from"), e.get("to")):
+                if isinstance(ref, str) and ref.startswith(f"{slug}:"):
+                    out.add(ref.split(":", 1)[1])
+        return out
+
+    signals = {s["id"]: s for s in catalogs["signal"] if s.get("id")}
+    gates = {g["id"] for g in catalogs["gate"] if g.get("id")}
+    reqs = [r["id"] for r in catalogs["req-vd-ad"] if r.get("id")]
+    scenes = {s["id"]: s for s in catalogs["scene"] if s.get("id")}
+    # matcher 台帳は真実源（vd_metrics.py の eval_must）から取る。グラフ出現で
+    # 代用すると未結線 matcher が母数から落ちて 0件=clean と誤報する（上記コメント）。
+    matchers = set()
+    transport = {}   # matcher -> "osi" | "telemetry" | "mixed"
+    if VD_METRICS_PY.is_file():
+        body = VD_METRICS_PY.read_text(encoding="utf-8", errors="replace")
+        hits = list(MATCHER_KIND_RE.finditer(body))
+        for n, mo in enumerate(hits):
+            kinds = re.findall(r"""["']([a-z_]+)["']""", mo.group(1))
+            matchers.update(kinds)
+            # 分岐本体＝次のディスパッチまで。そこに scene 参照があるか。
+            end = hits[n + 1].start() if n + 1 < len(hits) else len(body)
+            branch = body[mo.end():end] + _inlined_helpers(body, body[mo.end():end])
+            reads_osi = SCENE_REF_RE.search(branch) is not None
+            reads_face2 = TELEMETRY_REF_RE.search(branch) is not None
+            for k in kinds:
+                if reads_osi and reads_face2:
+                    transport[k] = "mixed"
+                elif reads_osi:
+                    transport[k] = "osi"
+                else:
+                    transport[k] = "telemetry"
+    # グラフにしか現れない matcher（実装が消えた等）も台帳に含めて可視化する。
+    matchers |= locals_of("matcher")
+
+    observes = {}       # matcher -> {signal local id}
+    sustained = set()   # sustained-by の from（matcher / req）
+    verified_reqs = {}  # req -> {matcher}
+    stimulated = set()  # stimulated-by の from（req / scene）
+    for e in edges:
+        f, t, ty = e.get("from"), e.get("to"), e.get("type")
+        if not isinstance(f, str) or not isinstance(t, str):
+            continue
+        if ty == "observes" and f.startswith("matcher:"):
+            observes.setdefault(f.split(":", 1)[1], set()).add(
+                t.split(":", 1)[1] if t.startswith("signal:") else t)
+        elif ty == "sustained-by":
+            sustained.add(f)
+        elif ty == "verifies":
+            verified_reqs.setdefault(t, set()).add(f)
+        elif ty == "stimulated-by":
+            stimulated.add(f)
+
+    F = {k: [] for k in (
+        "obs_unemitted", "obs_unwired", "obs_verdict_on_unemitted",
+        "emit_state_mismatch", "sustain_missing", "stimulus_missing",
+        "coupling_unobserved", "coupling_non_canonical", "coupling_face2_transport",
+        "coupling_mixed_anchor", "coupling_direct_edge",
+    )}
+
+    observed_signals = {s for v in observes.values() for s in v}
+
+    # -- ④観測欠: (a)未emit と (b)未配線 は打ち手が全く違う（混同しないこと）------
+    for sid, s in signals.items():
+        state, exposure = s.get("state"), set(s.get("exposure") or [])
+        wired = sid in observed_signals
+        if state == "(a)":
+            F["obs_unemitted"].append(
+                f"signal:{sid} — 未emit（真の観測不能）。打ち手＝emit の新設"
+                f" [exposure: {','.join(sorted(exposure)) or '-'}]")
+            if wired:
+                F["obs_verdict_on_unemitted"].append(
+                    f"signal:{sid} — state=(a) なのに observes する matcher がある"
+                    f"（{', '.join(sorted(m for m, v in observes.items() if sid in v))}）"
+                    "＝台帳と辺の矛盾。どちらかが古い。")
+        elif state in ("(b)", "(b')") and not wired:
+            kind = "誤配線" if state == "(b')" else "emit済み未配線"
+            F["obs_unwired"].append(
+                f"signal:{sid} — {kind}。打ち手＝配線（emit ではない）"
+                f" [exposure: {','.join(sorted(exposure)) or '-'}]")
+        # 台帳内の自己整合: (a)＝未emit なら emit 欄は空のはず
+        emit = s.get("emit")
+        if state == "(a)" and emit:
+            F["emit_state_mismatch"].append(
+                f"signal:{sid} — state=(a)（未emit）なのに emit 欄に実装がある: {emit}")
+        elif state in ("(b)", "(b')", "●") and not emit:
+            F["emit_state_mismatch"].append(
+                f"signal:{sid} — state={state}（emit済み前提）なのに emit 欄が空")
+
+    # -- ⑥常設欠: matcher があるのに sustained-by 先の gate が無い ---------------
+    for req, ms in sorted(verified_reqs.items()):
+        if req in sustained:
+            continue
+        covering = sorted(m for m in ms if m in sustained)
+        if not covering:
+            F["sustain_missing"].append(
+                f"{req} — 判定 matcher {sorted(ms)} はあるが常設ゲートに乗っていない"
+                "（一度検証したきり）")
+
+    # -- ②刺激欠: stimulated-by 資産が無い主張 -----------------------------------
+    for req in reqs:
+        if f"req-vd-ad:{req}" not in stimulated:
+            F["stimulus_missing"].append(f"req-vd-ad:{req} — 発火させる資産が未結線")
+    for sid, sc in sorted(scenes.items()):
+        if sc.get("coverage") != "covered" and f"scene:{sid}" not in stimulated:
+            F["stimulus_missing"].append(
+                f"scene:{sid} — coverage={sc.get('coverage')} かつ刺激資産が未結線")
+
+    # -- coupling-audit（§0.5）: 面3の verdict が正規IF(signal)を経由しているか ----
+    for m in sorted(matchers):
+        obs = observes.get(m)
+        if not obs:
+            F["coupling_unobserved"].append(
+                f"matcher:{m} — observes 辺が無い＝判定源が signal 台帳の外"
+                "（面3→面2 直結の疑い。§5.1 の「引けなかった辺」）")
+            continue
+        for sid in sorted(obs):
+            s = signals.get(sid)
+            if s is None:
+                continue
+            exposure = set(s.get("exposure") or [])
+            if exposure & CANONICAL_EXPOSURE:
+                continue
+            # exposure=debug は「観測できるが verdict-trust 対象外」(§2.2)。
+            # verdict 経路に現れること自体が debt（実装側の規約は gt.dbg.* 接頭辞）。
+            why = ("verdict-trust 対象外の debug 量"
+                   if "debug" in exposure else "面2投影/内部量")
+            F["coupling_non_canonical"].append(
+                f"matcher:{m} -> signal:{sid} — {why} を判定に使用 "
+                f"[exposure: {','.join(sorted(exposure))}]。正規IF(osi/hvd)非経由。")
+
+    # 実装が実際にどの面から読んでいるか（§2.3a の実数を機械が数える）。
+    # KG の observes 辺は「どの signal か」しか持たず「どの経路で読むか」を持たない
+    # ため、辺だけでは面2依存を数えられない（ego_speed は osi にも frame にも在る）。
+    # 純テレメトリ（OSI を一切読まない）と混在（OSI 幾何＋面2 ego アンカー）は
+    # 置き換えコストが違うので分けて出す。潰すと「16/16 が負債」になり指標が死ぬ。
+    for m in sorted(matchers):
+        mode = transport.get(m)
+        if mode == "telemetry":
+            F["coupling_face2_transport"].append(
+                f"matcher:{m} — frame['scene'](面1 OSI)を一切読まない"
+                f"＝面3→面2 直結（§0.3 の結合負債の実体） [/{len(matchers)} matcher]")
+        elif mode == "mixed":
+            F["coupling_mixed_anchor"].append(
+                f"matcher:{m} — OSI(scene)を読むが面2テレメトリ(ego/driver 等)も"
+                "アンカーに使う＝SUT非依存ではない [/"
+                f"{len(matchers)} matcher]")
+
+    for i, e in enumerate(edges):
+        f, t = e.get("from"), e.get("to")
+        if face_of(f) == "3" and face_of(t) == "2":
+            F["coupling_direct_edge"].append(
+                f"graph.yaml edge[{i}] {f} -[{e.get('type')}]-> {t} — "
+                "面3→面2 直結（正規IF signal を経由していない）")
+
+    return F
+
+
+SPINE_SECTIONS = [
+    ("obs_unemitted", "④観測欠 (a) 未emit＝真の観測不能（打ち手: emit 新設）"),
+    ("obs_unwired", "④観測欠 (b) emit済み未配線（打ち手: 配線）"),
+    ("obs_verdict_on_unemitted", "④整合破れ: 未emit signal を観測する辺がある"),
+    ("emit_state_mismatch", "④台帳の自己矛盾: state と emit 欄が食い違う"),
+    ("sustain_missing", "⑥常設欠: matcher はあるが常設ゲートに乗っていない"),
+    ("stimulus_missing", "②刺激欠: 発火させる資産が未結線"),
+    ("coupling_unobserved", "coupling: 判定源が signal 台帳の外"),
+    ("coupling_non_canonical", "coupling: 正規IF(osi/hvd)非経由の量で判定"),
+    ("coupling_face2_transport", "coupling: 判定が面1 OSI を一切読まない（§2.3a の実数）"),
+    ("coupling_mixed_anchor", "coupling: OSI を読むが面2アンカー併用（SUT非依存でない）"),
+    ("coupling_direct_edge", "coupling: 面3→面2 の直結辺"),
+]
+
+
+def spine_report_cmd(out_path: str | None) -> int:
+    """--spine-report: 「主張 × 欠けた縦層」の恒久台帳を出力する（報告のみ）。"""
+    registry = load_yaml(NAMESPACES_YAML)
+    graph = load_yaml(GRAPH_YAML)
+    namespaces = {ns["slug"]: ns for ns in registry.get("namespaces", []) if ns.get("slug")}
+    findings = spine_report(load_catalogs(), namespaces, graph.get("edges", []))
+
+    lines = ["# 未検証台帳（縦串の切れた列 ＋ 結合負債）", "",
+             "> 生成物。`check_knowledge_graph.py --spine-report` で再生成する。",
+             "> 手動フラグは持たない＝「台帳 − 辺」の集合差として毎回計算している。", ""]
+    for key, title in SPINE_SECTIONS:
+        items = findings[key]
+        lines.append(f"## {title} — {len(items)} 件")
+        lines.extend(f"- {x}" for x in items) if items else lines.append("- （なし）")
+        lines.append("")
+    text = "\n".join(lines)
+    if out_path:
+        Path(out_path).write_text(text, encoding="utf-8")
+        print(f"spine report -> {out_path} "
+              f"({sum(len(v) for v in findings.values())} findings)")
+    else:
+        print(text)
+    return 0
 
 
 def check() -> int:
@@ -240,6 +630,11 @@ def check() -> int:
             err("graph_view.md is STALE (graph.yaml/namespaces.yaml changed) — "
                 "regenerate with --render")
 
+    # -- 7. カタログ値域 ＋ 規約2（いずれも hard・導入時点の実測違反 0件）---------
+    catalogs = load_catalogs()
+    check_catalog_values(catalogs, namespaces, err)
+    check_asset_naming(err)
+
     if errors:
         print(f"knowledge graph check: {len(errors)} violation(s)")
         for msg in errors:
@@ -247,7 +642,21 @@ def check() -> int:
         return 1
     print(f"knowledge graph check: OK "
           f"({len(namespaces)} namespaces, {len(edges)} curated edges, "
-          f"{len(concept_ids)} openx concepts, view fresh)")
+          f"{len(concept_ids)} openx concepts, "
+          f"{len(catalogs['signal'])} signals, {len(catalogs['gate'])} gates, "
+          f"view fresh)")
+
+    # -- 8. 派生レポート ＋ coupling-audit（**報告のみ・ゲートにしない**）----------
+    # ここを hard にしない理由: この台帳は *設計上ずっと非空* である（未検証の主張を
+    # 数え上げるのが目的で、0件になるのは全スパインを縫い終えた時だけ）。ゲートに
+    # すると恒久的に赤＝警報疲れを育て、規約4 と同じ轍を踏む。CI では件数の推移を
+    # 見る指標として出し、個票は --spine-report で読む。
+    findings = spine_report(catalogs, namespaces, edges)
+    total = sum(len(v) for v in findings.values())
+    print(f"spine report: {total} 件（未検証台帳・報告のみ / 詳細は --spine-report）")
+    for key, title in SPINE_SECTIONS:
+        if findings[key]:
+            print(f"  - {title}: {len(findings[key])}")
     return 0
 
 
@@ -677,6 +1086,8 @@ def main() -> int:
     ap.add_argument("--suggest", action="store_true",
                     help="classify the current changeset via path_map.yaml "
                          "(mapped / exempt / unknown; advisory)")
+    ap.add_argument("--spine-report", action="store_true",
+                    help="「主張 × 欠けた縦層」の未検証台帳と結合負債を出力（報告のみ）")
     ap.add_argument("--query", metavar="REF",
                     help="show everything related to a node "
                          "(e.g. proposal:P13; bare ids resolved when unambiguous)")
@@ -695,6 +1106,8 @@ def main() -> int:
         return extract_issues(args.out)
     if args.render:
         return render(args.out)
+    if args.spine_report:
+        return spine_report_cmd(args.out)
     if args.suggest:
         return suggest()
     if args.query:
