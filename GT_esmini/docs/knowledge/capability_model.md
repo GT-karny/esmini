@@ -432,11 +432,11 @@ W1-W3 は **enabler の議論と独立に効いた**（対象は built 済みの
 | front_bumper 局所化(F5) | frame まで到達（`VirtualDriverTelemetryJson.cpp:20-24`） | **`vd_metrics.py` に参照 0件** | (b) | frame |
 | lead vehicle gap | STOP_AT_S 枝のみ `c.s` に載る（`LeadVehicleAware.cpp:97-99`）。追従継続枝は `c.s=0` 固定(`:113`)で距離を捨てる | 停止時のみ frame 到達 | (b)部分 | frame |
 | traffic light phase | OSI `GT_OSIReporter_Traffic.cpp:282` | `_gt_to_scene`(`gt_sim_test.py:190`)→`stopped_at_signal` の require_red | ●（`capture_osi` 有効時のみ） | osi,frame |
-| traffic light `assigned_lane_id` | OSI `:286-288` | `_gt_to_scene` の辞書に**含まれない**（`gt_sim_test.py:185-192`） | (b) | osi |
-| stop/yield sign id・classification | OSI `:96-97`(P4 意味論 fallback `:187-220`) | `_gt_to_scene` は `traffic_sign` を**一切パースしない** | (b) | osi |
-| 横断歩道 footprint | OSI `StationaryObject.base_polygon`(`GT_OSIReporter.cpp:829-850`) ただし type は `TYPE_OTHER` 固定(`:791-796`) | `_gt_to_scene` は `stationary_object` を**一切パースしない** | (b) | osi |
-| 歩行者 velocity ベクトル | OSI `GT_OSIReporter_Moving.cpp:767-769` | `_gt_to_scene` が `sqrt(vx²+vy²+vz²)` のスカラーに潰す(`gt_sim_test.py:171`)＝**「離れつつあるか」の符号情報が消える** | (b) | osi |
-| 歩行者用信号 phase | OSI lamp `:281-284`（内部で `FoldPedPhase`） | frame/matcher とも非消費 | (b) | osi |
+| traffic light `assigned_lane_id` | OSI `:286-288` | ~~`_gt_to_scene` の辞書に含まれない~~ → **配線済(2026-07-21)**: `scene.traffic_lights[].assigned_lane_ids`、`stopped_at_signal` が must の `lane_id` 指定時に絞り込む | **●** | osi |
+| stop/yield sign id・classification | OSI `:96-97`(P4 意味論 fallback `:187-220`) | ~~`_gt_to_scene` は `traffic_sign` を一切パースしない~~ → **配線済(2026-07-21)**: `scene.traffic_signs[]`、`stopped_at_stop_sign` の require_sign が読む | **●** | osi |
+| 横断歩道 footprint | OSI `StationaryObject.base_polygon`(`GT_OSIReporter.cpp:829-850`) ただし type は `TYPE_OTHER` 固定(`:791-796`) | **scene までは配線済(2026-07-21)** `scene.stationary_objects[]`。ただし**読む matcher が無く**、かつ横断歩道と断定する手段が合成 crossPath の予約id範囲しか無い＝**残る欠は emit 側** | (b) | osi |
+| 歩行者 velocity ベクトル | OSI `GT_OSIReporter_Moving.cpp:767-769` | ~~`_gt_to_scene` がスカラーに潰す~~ → **配線済(2026-07-21)**: `vx,vy,vz` を追加（`speed` は不変）、`impact_speed_below` の `_closing_speed` が読む＝**符号情報が復旧** | **●** | osi |
+| 歩行者用信号 phase | OSI lamp `:281-284`（内部で `FoldPedPhase`） | scene に `traffic_lights[].icon`(walk/dont_walk/pedestrian) を追加済だが matcher は非消費 | (b) | osi |
 | 交差点 `<priority>` | **OSI に無い**。`OdrSideModel` で xodr 直読み(`ConflictPointResolver.cpp:336-346`) | 非到達 | (a) | derived |
 | 交差点 governing other_id / region span / PET | 内部のみ(`ConflictPointResolver.cpp:551-672, 647-656`) | 非到達 | (a) | debug |
 | stop FSM phase(APPROACH/HOLD/CREEP) | 内部のみ(`StopYieldSignAware.cpp:38-82`) | 非到達 | (a) | debug |
@@ -447,6 +447,19 @@ W1-W3 は **enabler の議論と独立に効いた**（対象は built 済みの
 `gt_sim_test.py:133-194` の `_gt_to_scene` が **moving_object と traffic_light しか変換しない**
 （`traffic_sign` / `stationary_object` は丸ごと非対応、velocity はスカラーに潰す）。
 OSI 側は出しているのに **scene 変換層でせき止められている**のが (b) の大半。
+
+> **チョークポイント解消（2026-07-21）**: 上の「単一の構造的原因」を `_gt_to_scene` の拡張で解消した。
+> spine-report **82 → 79**（④(b) 19 → 16）。既存キーの意味は変えず追加のみ（`speed` 残置＋`vx,vy,vz`）。
+> 配線した3件は `traffic_sign_classification` / `traffic_light_assigned_lane` /
+> `pedestrian_velocity_vector`、`crosswalk_footprint` は scene まで到達したが残る欠が emit 側
+> （TYPE_OTHER 固定で横断歩道を断定できない）と判明したため (b) 据え置き。
+> **静的GTの罠**: signs / stationary は既定モードでは初回フレームにしか乗らない。
+> そのため `_OsiCapture.drain` を「最新1フレーム返却」から**全完了フレーム返却**へ変更し
+> （2フレーム同時到着で唯一の静的コピーを捨てるのを防ぐ）、静的ブロックは1回だけ書いて
+> `vd_metrics.load_telemetry` で前方補完する（毎フレーム複製は telemetry.jsonl をフレーム数倍にする）。
+> **ベースライン移動なし**: 回帰ゲート Step 2 / 2.6 とも deviation 0（既知赤 `red_stop_green_go` のみ）。
+> 新配線が空振りしていない証拠として `stop_sign_full_stop` と `semantic_stop_sign_full_stop`
+> （P4 意味論 fallback 経路）の双方が "stop sign confirmed in scene" を出している。
 もう一つのパターンは、各 policy の「なぜ止まったか」（信号id・標識種別・歩行者信号・conflict相手）が
 **`policy.constraints[].source` という文字列タグ1本に圧縮**され識別子と状態値が落ちること
 ＝ **W2(tier欠落)と同型の情報損失が policy 横断で反復**している。

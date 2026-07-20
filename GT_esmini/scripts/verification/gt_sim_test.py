@@ -63,6 +63,42 @@ _TL_COLOR_MAP = {0: "unknown", 1: "other", 2: "red", 3: "yellow", 4: "green", 5:
 _TL_MODE_MAP = {0: "unknown", 1: "other", 2: "off", 3: "constant", 4: "flashing", 5: "counting"}
 _MOVING_TYPE_MAP = {0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: "animal"}
 
+# Enum names for the fields added by the ④観測 wiring (traffic-sign classification,
+# stationary-object type, traffic-light icon) are read off the protobuf descriptor
+# instead of a hand-kept table: those enums are large (StVO sign catalogue) and a
+# frozen copy would silently rot against the osi3 bindings actually installed.
+_ENUM_NAME_CACHE: dict[tuple[str, str], dict[int, str]] = {}
+
+
+def _enum_name(msg_cls, field: str, value: int, prefix: str) -> str:
+    key = (msg_cls.DESCRIPTOR.full_name, field)
+    table = _ENUM_NAME_CACHE.get(key)
+    if table is None:
+        try:
+            enum_type = msg_cls.DESCRIPTOR.fields_by_name[field].enum_type
+            table = {v.number: v.name.removeprefix(prefix).lower() for v in enum_type.values}
+        except Exception:
+            table = {}
+        _ENUM_NAME_CACHE[key] = table
+    # Unmapped is not always "unknown": esmini writes an INT_MAX sentinel for
+    # "catalogue did not classify this sign", which must stay distinguishable
+    # from OSI's TYPE_UNKNOWN(0) so a matcher can tell "no sign" from "sign we
+    # could not name" (GT_OSIReporter_Traffic.cpp P4 fallback).
+    return table.get(value, f"unmapped:{value}")
+
+
+# OpenDRIVE object ids at/above this value are synthesised by GT's 1.8 junction
+# <crossPath> expansion (OdrJunctionExtras.cpp kCrosswalkSynthIdBase) rather than
+# authored in the xodr. OSI folds every "other" road object into TYPE_OTHER
+# (GT_OSIReporter.cpp:789-797), so this reserved range is the only in-band way to
+# recognise a crosswalk footprint; authored <object type="crosswalk"> stays
+# indistinguishable from railings/patches/islands on the OSI side alone.
+_CROSSWALK_SYNTH_ID_BASE = 900000000
+
+# scene keys that hold static GroundTruth: emitted on the frame they were first
+# captured and forward-filled by vd_metrics.load_telemetry (they never change).
+_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects")
+
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +117,15 @@ def _git_commit() -> str:
 class _OsiCapture:
     """In-process OSI GroundTruth receiver. Binds the UDP port before init, then
     `drain()` is called once per step to reassemble all buffered packets and
-    return the *latest* complete GroundTruth bytes (or None if none completed).
+    return *every* complete GroundTruth frame, oldest first (empty list if none
+    completed).
+
+    Returning every frame rather than only the newest matters for the static
+    GroundTruth: in the default static-report mode only the very first emitted
+    frame carries traffic_sign / stationary_object / lane content
+    (GT_OSIReporter.cpp:277-330), so if two frames ever land in the socket buffer
+    between drains, keeping only the latest would silently discard the one and
+    only copy of every static object.
 
     The DLL sends OSI synchronously inside GT_Step on the same thread (loopback),
     so by the time GT_Step returns, that frame's packets are already in the OS
@@ -96,8 +140,8 @@ class _OsiCapture:
         self._complete = b""
         self._next_index = 1
 
-    def drain(self) -> bytes | None:
-        last_raw: bytes | None = None
+    def drain(self) -> list[bytes]:
+        complete: list[bytes] = []
         while True:
             try:
                 msg, _ = self.sock.recvfrom(OSI_BUFFER_SIZE)
@@ -116,12 +160,12 @@ class _OsiCapture:
                 self._complete += frame
                 self._next_index += 1
                 if counter < 0:  # negative counter = final packet
-                    last_raw = self._complete
+                    complete.append(self._complete)
                     self._complete = b""
                     self._next_index = 1
             else:
                 self._next_index = 1  # out of sync, reset
-        return last_raw
+        return complete
 
     def close(self) -> None:
         try:
@@ -132,9 +176,29 @@ class _OsiCapture:
 
 def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     """Parse a raw GroundTruth frame into a lightweight scene dict:
-    {objects:[{id,name,x,y,h,speed,length,width}], traffic_lights:[{id,x,y,h,color,mode}]}.
+
+      objects:            [{id,name,x,y,h,speed,vx,vy,vz,length,width,is_host,type}]
+      traffic_lights:     [{id,x,y,h,color,mode,icon,assigned_lane_ids}]
+      traffic_signs:      [{id,type,value,value_unit,x,y,h}]        (static, see below)
+      stationary_objects: [{id,type,x,y,h,length,width,height,
+                            odr_object_id,is_crosswalk,polygon}]    (static, see below)
+
+    Keys are only ever added, never repurposed: `speed` stays the scalar
+    magnitude it always was and `vx,vy,vz` are additive, because the scalar
+    destroys the sign of the approach ("is the pedestrian moving away?") that
+    OSI does carry (GT_OSIReporter_Moving.cpp:767-769).
+
+    `traffic_signs` / `stationary_objects` are *static* GroundTruth and in the
+    default static-report mode are present on the first emitted frame only, so
+    these two keys are omitted from frames that carry no static content. The
+    caller is responsible for carrying them forward (run() below stores them,
+    vd_metrics.load_telemetry forward-fills them for the matchers).
+
     Reuses one GroundTruth message object across calls (parse churn)."""
     from osi3.osi_groundtruth_pb2 import GroundTruth
+    from osi3.osi_object_pb2 import StationaryObject
+    from osi3.osi_trafficlight_pb2 import TrafficLight
+    from osi3.osi_trafficsign_pb2 import TrafficSign
 
     if not _gt_cache:
         _gt_cache.append(GroundTruth())
@@ -169,6 +233,9 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "y": round(pos.y, 3),
             "h": round(o.base.orientation.yaw, 4),
             "speed": round(math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2), 3),
+            "vx": round(vel.x, 3),
+            "vy": round(vel.y, 3),
+            "vz": round(vel.z, 3),
             "length": round(dim.length, 2) if dim.length > 0 else 4.0,
             "width": round(dim.width, 2) if dim.width > 0 else 2.0,
             "is_host": (host_id is not None and o.id.value == host_id),
@@ -189,9 +256,67 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "h": round(tl.base.orientation.yaw, 4),
             "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
             "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
+            # icon is what distinguishes a pedestrian head (walk/dont_walk/
+            # pedestrian) from a vehicle head; without it every lamp looks alike.
+            "icon": _enum_name(TrafficLight.Classification, "icon", cls.icon, "ICON_"),
+            # repeated in OSI: one head may govern several lanes.
+            "assigned_lane_ids": [i.value for i in cls.assigned_lane_id],
         })
 
-    return {"objects": objects, "traffic_lights": traffic_lights}
+    scene = {"objects": objects, "traffic_lights": traffic_lights}
+
+    # --- static GroundTruth (first emitted frame only) ----------------------
+    traffic_signs = []
+    for ts in gt.traffic_sign:
+        main = ts.main_sign
+        cls = main.classification
+        traffic_signs.append({
+            "id": ts.id.value,
+            "type": _enum_name(TrafficSign.MainSign.Classification, "type", cls.type, "TYPE_"),
+            "value": round(cls.value.value, 3),
+            "value_unit": _enum_name(type(cls.value), "value_unit", cls.value.value_unit, "UNIT_"),
+            "x": round(main.base.position.x, 3),
+            "y": round(main.base.position.y, 3),
+            "h": round(main.base.orientation.yaw, 4),
+        })
+    if traffic_signs:
+        scene["traffic_signs"] = traffic_signs
+
+    stationary = []
+    for so in gt.stationary_object:
+        dim = so.base.dimension
+        odr_id = None
+        for ref in so.source_reference:
+            for ident in ref.identifier:
+                if ident.startswith("object_id:"):
+                    try:
+                        odr_id = int(ident[len("object_id:"):])
+                    except ValueError:
+                        pass
+        stationary.append({
+            "id": so.id.value,
+            "type": _enum_name(StationaryObject.Classification, "type",
+                               so.classification.type, "TYPE_"),
+            "x": round(so.base.position.x, 3),
+            "y": round(so.base.position.y, 3),
+            "h": round(so.base.orientation.yaw, 4),
+            "length": round(dim.length, 2),
+            "width": round(dim.width, 2),
+            "height": round(dim.height, 2),
+            "odr_object_id": odr_id,
+            # Only synthesised crossPath crosswalks are recognisable in-band;
+            # see _CROSSWALK_SYNTH_ID_BASE. False here means "not provably a
+            # crosswalk", NOT "provably not a crosswalk".
+            "is_crosswalk": odr_id is not None and odr_id >= _CROSSWALK_SYNTH_ID_BASE,
+            # Object-LOCAL corners, not world: esmini fills base_polygon from
+            # Outline::GetPosLocal (GT_OSIReporter.cpp:840-843). A consumer
+            # wanting world coordinates must rotate by `h` and offset by x,y.
+            "polygon": [[round(p.x, 3), round(p.y, 3)] for p in so.base.base_polygon],
+        })
+    if stationary:
+        scene["stationary_objects"] = stationary
+
+    return scene
 
 
 def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
@@ -212,6 +337,11 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
     GRACE_MAX = int(round(1.0 / dt))  # ~1s of consecutive "no telemetry" = ended
     seen_valid = False
     last_scene: dict | None = None
+    # Written to the telemetry once (see _STATIC_SCENE_KEYS): repeating a whole
+    # sign/stationary catalogue on every frame would multiply telemetry.jsonl by
+    # the frame count for data that never changes.
+    static_scene: dict = {}
+    static_emitted = False
 
     try:
         with lib, open(jsonl_path, "w", encoding="utf-8") as f:
@@ -229,11 +359,22 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
             for _ in range(n_steps):
                 lib.step(dt)
                 if osi_cap is not None:
-                    raw = osi_cap.drain()
-                    if raw is not None:
+                    raws = osi_cap.drain()
+                    # Static content (signs, stationary objects) rides on the
+                    # first emitted frame only. Scan the older frames of this
+                    # drain for it until we have it, then keep the newest frame
+                    # for the dynamic state and re-attach the static block once.
+                    for raw in raws:
                         scene = _gt_to_scene(raw)
-                        if scene is not None:
-                            last_scene = scene
+                        if scene is None:
+                            continue
+                        found = {k: scene[k] for k in _STATIC_SCENE_KEYS if k in scene}
+                        if found and not static_scene:
+                            static_scene = found
+                        last_scene = scene
+                    if last_scene is not None and static_scene and not static_emitted:
+                        last_scene.update(static_scene)
+                        static_emitted = True
                 tel = lib.get_vd_telemetry(-1)
                 if tel is None:
                     if seen_valid:

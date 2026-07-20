@@ -708,6 +708,34 @@ edges:
     note: >-
       require_red サブチェックのみ OSI GroundTruth 経由（scene.traffic_lights[].color）
       ＝14 matcher 唯一の混在型。`--osi`/batch `osi: true` が無いと scene=None で skip。
+  - from: matcher:stopped_at_stop_sign
+    to: signal:traffic_sign_classification
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      require_sign サブチェック（2026-07-21 新設）。`_gt_to_scene` が静的GTの traffic_sign を
+      scene に載せるようになったため引けた辺（従来は「OSI が出しているのに scene 変換層で
+      せき止められる」(b)の代表例）。分類 stop/give_way を positive にのみ使い、esmini が
+      カタログ未分類を "unmapped:" 番兵で返すため否定側では判定しない。ゲート実測で
+      stop_sign_full_stop / semantic_stop_sign_full_stop（P4 意味論 fallback 経路）の
+      両方が "stop sign confirmed in scene" を出すことを確認済み。
+  - from: matcher:stopped_at_signal
+    to: signal:traffic_light_assigned_lane
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      require_red サブチェックの多灯交差点向け絞り込み（2026-07-21 新設）。must の `lane_id`
+      指定時のみ classification.assigned_lane_id で信号頭を選ぶ。既存 expectations は
+      lane_id を持たないため現行ゲートの判定は不変（deviation 0 で実証済み）。
+  - from: matcher:impact_speed_below
+    to: signal:pedestrian_velocity_vector
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      _closing_speed が scene.objects[].vx,vy（OSI 速度ベクトル）を第一候補として読む
+      （2026-07-21）。従来は速度スカラー＋heading から再構成しており、**自機の heading と
+      逆向きに動く物体（後退車・車道から後ずさる歩行者）の符号を落としていた**。
+      heading 再構成は旧テレメトリ向けの後方互換 fallback として残置。
   - from: matcher:maintained_following_distance
     to: signal:object_poses
     type: observes

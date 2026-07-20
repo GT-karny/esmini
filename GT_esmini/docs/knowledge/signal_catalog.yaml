@@ -119,11 +119,15 @@ signals:
   - id: pedestrian_velocity_vector
     title: 歩行者の速度ベクトル
     exposure: [osi]
-    state: "(b)"
+    state: "●"
     emit: GT_OSIReporter_Moving.cpp:767-769
     note: >-
-      `_gt_to_scene` が sqrt(vx²+vy²+vz²) のスカラーに潰す（gt_sim_test.py:171）＝
-      **「離れつつあるか」の符号情報が消える**。emit は正しく、損失は scene 変換層で起きている。
+      2026-07-21 配線。旧: `_gt_to_scene` が sqrt(vx²+vy²+vz²) のスカラーに潰し
+      **「離れつつあるか」の符号情報が消えていた**（損失は emit ではなく scene 変換層）。
+      現: scene.objects[] に vx,vy,vz を**追加**（`speed` は意味を変えず残置＝後方互換）し、
+      matcher:impact_speed_below の `_closing_speed` が第一候補として読む。
+      これにより自機 heading と逆向きに動く物体（後退車・後ずさる歩行者）の接近速度の符号が
+      正しくなる。旧テレメトリは heading 再構成 fallback で従来どおり評価される。
 
   - id: traffic_light_state
     title: 信号の現示（色・phase）
@@ -135,28 +139,58 @@ signals:
   - id: traffic_light_assigned_lane
     title: 信号の assigned_lane_id
     exposure: [osi]
-    state: "(b)"
+    state: "●"
     emit: GT_OSIReporter_Traffic.cpp:286-288
     note: >-
-      `_gt_to_scene` の辞書に含まれない（gt_sim_test.py:185-192）。「どのレーンの信号か」が
-      落ちるため多灯交差点で正しい信号を選べない。
+      2026-07-21 配線。旧: `_gt_to_scene` の辞書に含まれず（gt_sim_test.py:185-192）
+      「どのレーンの信号か」が落ちて多灯交差点で正しい信号を選べなかった。
+      現: scene.traffic_lights[].assigned_lane_ids（OSI 側が repeated＝1灯が複数レーンを
+      支配しうるのでリストのまま保持）＋ icon（歩行者頭の識別子）を追加し、
+      matcher:stopped_at_signal の require_red が must の `lane_id` 指定時に絞り込む。
+      既存 expectations は lane_id 未使用のため現行判定は不変（回帰ゲート deviation 0 で実証）。
 
   - id: traffic_sign_classification
     title: 標識の id と分類（stop / yield 等）
     exposure: [osi]
-    state: "(b)"
+    state: "●"
     emit: GT_OSIReporter_Traffic.cpp:56-235（静的GT 初回フレームのみ）／P4 意味論 fallback :187-220
     note: >-
-      **正規IFを捨てている実例**。`_gt_to_scene` は traffic_sign を一切パースせず、Web も
-      road_geometry_service.py:84-93 が「遅延購読者が初回フレームを見逃す」ためと明示コメント
-      付きで OSI を迂回して xodr を再パースしている。検証は odr conformance OSI層の件数比較のみ。
+      2026-07-21 配線（検証面のみ）。旧: **正規IFを捨てている実例**で `_gt_to_scene` は
+      traffic_sign を一切パースしなかった。現: scene.traffic_signs[] に id/type/value/
+      value_unit/位置を載せ、matcher:stopped_at_stop_sign の require_sign が読む。
+      **配信経路の罠**: 静的GTは既定モードでは初回フレームにしか乗らない
+      （GT_OSIReporter.cpp:277-330）。そのため (1) `_OsiCapture.drain` を最新1フレームだけ
+      返す実装から**全完了フレーム返却**に変更（2フレーム同時到着で唯一の静的コピーを
+      捨てるのを防ぐ）、(2) 静的ブロックは捕捉フレームに1回だけ書き
+      `vd_metrics.load_telemetry` が前方補完する（毎フレーム複製すると telemetry.jsonl が
+      フレーム数倍に膨らむため）。type 名は protobuf descriptor から引く（StVO 分類は巨大で
+      手写しは陳腐化する）。カタログ未分類は "unmapped:<n>" 番兵にし OSI の TYPE_UNKNOWN(0)
+      と区別する。実測: stop_sign_full_stop と semantic_stop_sign_full_stop（P4 意味論
+      fallback 経路）の両方が type="stop" で確認できた。
+      **未解消**: Web の road_geometry_service.py:84-93 は依然 OSI を迂回して xodr を
+      再パースしている（「遅延購読者が初回フレームを見逃す」ため）。これは面1配信設計の
+      課題であり本配線の射程外。
 
   - id: crosswalk_footprint
     title: 横断歩道のフットプリント
     exposure: [osi]
     state: "(b)"
     emit: GT_OSIReporter.cpp:829-850（StationaryObject.base_polygon）
-    note: type は TYPE_OTHER 固定（:791-796）。`_gt_to_scene` は stationary_object を一切パースしない。
+    note: >-
+      **半分だけ前進（2026-07-21）。state は (b) のまま**＝これを読む matcher がまだ無いため。
+      scene.stationary_objects[] に id/type/寸法/odr_object_id/polygon を載せる配線は完了し
+      （traffic_sign と同じ静的GT経路・前方補完に相乗り）、実測で横断歩道の footprint を
+      取得できることを確認済み（polygon は **object-local 座標**＝Outline::GetPosLocal 由来、
+      world にするには h 回転＋x,y 平行移動が要る）。
+      **残る欠は配線ではなく emit 側**: classification.type が TYPE_OTHER 固定（:791-796）で
+      obstacle/railing/patch/trafficisland/streetlamp/gantry/soundbarrier/wind/roadmark と
+      区別できず、`source_reference` も object_type:"object" 固定のため in-band で横断歩道と
+      断定できない。唯一使えるのは GT の 1.8 <crossPath> 合成が使う予約 id 範囲
+      （>= 900000000, OdrJunctionExtras.cpp kCrosswalkSynthIdBase）で、scene の
+      `is_crosswalk` はこれのみを根拠にする＝**false は「横断歩道でない」ではなく
+      「横断歩道と証明できない」**。xodr に人が書いた <object type="crosswalk"> は
+      この範囲に入らず判別不能。**次の打ち手は matcher 追加ではなく emit 側で
+      種別を source_reference に載せること**（別作業）。
 
   - id: junction_priority
     title: 交差点の `<priority>` 関係

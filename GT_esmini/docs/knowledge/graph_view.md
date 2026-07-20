@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:43d1f61125136cd7 -->
+<!-- generated-from: sha256:906f8db99c3bc79d -->
 
-ノード 160・辺 157（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 163・辺 160（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -180,6 +180,9 @@ flowchart LR
     n_signal_ego_speed["ego_speed"]
     n_signal_ego_pose["ego_pose"]
     n_signal_traffic_light_state["traffic_light_state"]
+    n_signal_traffic_sign_classification["traffic_sign_classification"]
+    n_signal_traffic_light_assigned_lane["traffic_light_assigned_lane"]
+    n_signal_pedestrian_velocity_vector["pedestrian_velocity_vector"]
     n_signal_object_poses["object_poses"]
     n_signal_obb_separation["obb_separation"]
     n_signal_aeb_trigger_flag["aeb_trigger_flag"]
@@ -326,6 +329,9 @@ flowchart LR
   n_matcher_stopped_at_stop_sign -->|observes| n_signal_ego_speed
   n_matcher_stopped_at_signal -->|observes| n_signal_ego_speed
   n_matcher_stopped_at_signal -->|observes| n_signal_traffic_light_state
+  n_matcher_stopped_at_stop_sign -->|observes| n_signal_traffic_sign_classification
+  n_matcher_stopped_at_signal -->|observes| n_signal_traffic_light_assigned_lane
+  n_matcher_impact_speed_below -->|observes| n_signal_pedestrian_velocity_vector
   n_matcher_maintained_following_distance -->|observes| n_signal_object_poses
   n_matcher_maintained_following_distance -->|observes| n_signal_ego_speed
   n_matcher_min_separation_above -->|observes| n_signal_object_poses
@@ -465,7 +471,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (16)
+### observes (19)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -478,6 +484,9 @@ flowchart LR
 | `matcher:stopped_at_stop_sign` | `signal:ego_speed` | _sustained_stop（速度が閾値未満の継続時間） |
 | `matcher:stopped_at_signal` | `signal:ego_speed` | 主判定は面2テレメトリの速度（vd_metrics.py:565-595） |
 | `matcher:stopped_at_signal` | `signal:traffic_light_state` | require_red サブチェックのみ OSI GroundTruth 経由（scene.traffic_lights[].color） ＝14 matcher 唯一の混在型。`--osi`/batch `osi: true` が無いと scene=None で skip。 |
+| `matcher:stopped_at_stop_sign` | `signal:traffic_sign_classification` | require_sign サブチェック（2026-07-21 新設）。`_gt_to_scene` が静的GTの traffic_sign を scene に載せるようになったため引けた辺（従来は「OSI が出しているのに scene 変換層で せき止められる」(b)の代表例）。分類 stop/give_way を positive にのみ使い、esmini が カタログ未分類を "unmapped:" 番兵で返すため否定側では判定しない。ゲート実測で stop_sign_full_stop / semantic_stop_sign_full_stop（P4 意味論 fallback 経路）の 両方が "stop sign confirmed in scene" を出すことを確認済み。 |
+| `matcher:stopped_at_signal` | `signal:traffic_light_assigned_lane` | require_red サブチェックの多灯交差点向け絞り込み（2026-07-21 新設）。must の `lane_id` 指定時のみ classification.assigned_lane_id で信号頭を選ぶ。既存 expectations は lane_id を持たないため現行ゲートの判定は不変（deviation 0 で実証済み）。 |
+| `matcher:impact_speed_below` | `signal:pedestrian_velocity_vector` | _closing_speed が scene.objects[].vx,vy（OSI 速度ベクトル）を第一候補として読む （2026-07-21）。従来は速度スカラー＋heading から再構成しており、**自機の heading と 逆向きに動く物体（後退車・車道から後ずさる歩行者）の符号を落としていた**。 heading 再構成は旧テレメトリ向けの後方互換 fallback として残置。 |
 | `matcher:maintained_following_distance` | `signal:object_poses` | scene.objects[]（正規IF＝面1 OSI 直結の4件のうち1件） |
 | `matcher:maintained_following_distance` | `signal:ego_speed` | THW = gap / speed の分母 |
 | `matcher:min_separation_above` | `signal:object_poses` | 中心間ユークリッド距離。**DEPRECATED（2026-07-21 判断）**: min_obb_separation_above の 厳密な劣位版であり、復活させる価値が無い。中心間距離は隣接レーン通過（中心間 ~2.8m）を 「接近」と誤読するのに対し OBB 版は車体が重ならないことを正しく安全と読む （vd_metrics.py:685-687 のコメント自身がこの移行理由を述べている）。参照資産0件（実測）。 **扱い＝新規資産で使わない・実装は当面残置**。実装削除は vd_metrics.py の変更＝ 本作業のスコープ外のため別コミットで行う（削除時は namespaces.yaml の matcher id_pattern と count:16 も同時に更新すること）。「保留」ではなく廃止確定であり、 デッド matcher を派生レポートが毎回「未配線」として再検出するのを止めるためこの note を根拠に置く。 |

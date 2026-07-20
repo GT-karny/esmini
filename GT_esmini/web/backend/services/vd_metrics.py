@@ -112,7 +112,28 @@ def load_telemetry(run_dir: Path) -> list[dict]:
     for line in jsonl.read_text(encoding="utf-8").splitlines():
         if line.strip():
             out.append(json.loads(line))
+    _forward_fill_static_scene(out)
     return out
+
+
+# Static OSI GroundTruth (traffic signs, stationary objects) is emitted on the
+# first frame only, so the recorder writes it once instead of on every frame
+# (gt_sim_test._STATIC_SCENE_KEYS). Matchers must not have to know which frame
+# that was: fill it forward here, sharing the list object rather than copying.
+_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects")
+
+
+def _forward_fill_static_scene(frames: list[dict]) -> None:
+    carried: dict = {}
+    for fr in frames:
+        scene = fr.get("scene")
+        if not isinstance(scene, dict):
+            continue
+        for key in _STATIC_SCENE_KEYS:
+            if scene.get(key):
+                carried[key] = scene[key]
+            elif key in carried:
+                scene[key] = carried[key]
 
 
 def ego_track_from_telemetry(frames: list[dict]) -> list[tuple[float, float, float, float]]:
@@ -343,24 +364,33 @@ def _closing_speed(ego: dict, obj: dict) -> float:
     rate at which the ego<->object center-to-center separation is shrinking,
     clamped to >= 0 (a non-approaching pair has no "impact speed").
 
-    Prefers the relative velocity projected onto the line connecting the two
-    body centers, reconstructing each body's velocity vector from its scalar
-    `speed` and heading `h` (the captured scene carries no raw vx/vy - see
-    _gt_to_scene() in gt_sim_test.py, which reduces the OSI velocity to a
-    magnitude). Falls back to the plain scalar speed difference
+    Projects the relative velocity onto the line connecting the two body
+    centers. Each body's velocity vector comes from the scene's raw `vx,vy`
+    (the OSI velocity, GT_OSIReporter_Moving.cpp:767-769) when present; that is
+    the only form that keeps the sign of a body moving against its own heading,
+    which is exactly the case a pedestrian stepping backwards off the road, or a
+    reversing vehicle, produces. Older telemetry captured before the scene
+    carried vx/vy falls back to reconstructing the vector from the scalar
+    `speed` and heading `h`, and finally to the plain scalar difference
     (ego.speed - obj.speed) when a heading is missing or the two centers
-    coincide (direction undefined). For a same-heading inline approach (e.g. a
-    straight-lane rear-end) the two formulas agree exactly, since the unit
-    vector between the centers is then parallel to both headings."""
+    coincide (direction undefined). For a body travelling along its own heading
+    the vector and the reconstruction agree exactly."""
     dx, dy = obj["x"] - ego["x"], obj["y"] - ego["y"]
     dist = math.hypot(dx, dy)
-    ego_h, obj_h = ego.get("h"), obj.get("h")
-    if dist > 1e-6 and ego_h is not None and obj_h is not None:
+
+    def _vec(body: dict):
+        if body.get("vx") is not None and body.get("vy") is not None:
+            return body["vx"], body["vy"]
+        h = body.get("h")
+        if h is None:
+            return None
+        speed = body.get("speed", 0.0)
+        return speed * math.cos(h), speed * math.sin(h)
+
+    ev, ov = _vec(ego), _vec(obj)
+    if dist > 1e-6 and ev is not None and ov is not None:
         ux, uy = dx / dist, dy / dist  # unit vector ego -> object
-        ego_speed, obj_speed = ego.get("speed", 0.0), obj.get("speed", 0.0)
-        evx, evy = ego_speed * math.cos(ego_h), ego_speed * math.sin(ego_h)
-        ovx, ovy = obj_speed * math.cos(obj_h), obj_speed * math.sin(obj_h)
-        closing = (evx - ovx) * ux + (evy - ovy) * uy
+        closing = (ev[0] - ov[0]) * ux + (ev[1] - ov[1]) * uy
     else:
         closing = ego.get("speed", 0.0) - obj.get("speed", 0.0)
     return max(0.0, closing)
@@ -575,6 +605,26 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         detail = (f"longest full stop (<= {stop_speed} m/s) at {ident} = {dur:.2f}s "
                   f"(>= {min_duration}?)")
 
+        # stopped_at_stop_sign: optionally confirm a stop/give-way sign actually
+        # exists in the captured OSI scene, i.e. that the geometric s_range
+        # anchor really is a signed stop line and not just a spot where the ego
+        # happened to halt. Same best-effort contract as require_red below: the
+        # sub-check only ever fires when the scene positively contradicts the
+        # expectation, because esmini leaves signs its country catalogue does
+        # not know as an "unmapped:" sentinel rather than as stop/give_way.
+        if ok and kind == "stopped_at_stop_sign" and must.get("require_sign", True):
+            scene = frames[start_i].get("scene")
+            signs = (scene or {}).get("traffic_signs") or []
+            if signs:
+                sid = must.get("sign_id")
+                stopish = [s["id"] for s in signs if s.get("type") in ("stop", "give_way")]
+                ids = [s["id"] for s in signs]
+                sign_ok = (sid in stopish) or (sid not in ids and len(stopish) > 0)
+                if not sign_ok:
+                    return res("fail", detail + f"; but no stop/give-way sign in the OSI "
+                                                f"scene (stop-ish ids={stopish})", start_i)
+                detail += "; stop sign confirmed in scene"
+
         # stopped_at_signal: optionally confirm the signal was red at stop onset
         # using the captured OSI scene. OSI traffic-light id<->signal id mapping
         # can vary, so this is best-effort: fail only when reds exist but none
@@ -583,6 +633,14 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             scene = frames[start_i].get("scene")
             if scene is not None:
                 tls = scene.get("traffic_lights", [])
+                # With several heads in one junction, `lane_id` picks the ones
+                # OSI says govern that lane instead of colour-voting over every
+                # head in sight (traffic_light.classification.assigned_lane_id).
+                want_lane = must.get("lane_id")
+                if want_lane is not None:
+                    on_lane = [t for t in tls if want_lane in (t.get("assigned_lane_ids") or [])]
+                    if on_lane:
+                        tls = on_lane
                 if tls:
                     sig = must.get("signal_id")
                     reds = [t["id"] for t in tls if t.get("color") == "red"]
