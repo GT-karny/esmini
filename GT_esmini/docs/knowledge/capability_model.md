@@ -339,15 +339,60 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 
 #### 2.2a 調査で判明した既存の配線抜け（enabler以前の問題・actionable）
 
-| # | 事実（file:line 確認済み） | 影響 |
-| :-- | :-- | :-- |
-| **W1** | `ControllerVirtualDriver::GetADASStates` は **空のスタブ**（`ControllerVirtualDriver.hpp:66`）。`GT_esminiLib.cpp:1458-1490` は `size()>=24` のときだけ転送するため、**VD は AD機能状態を OSI に1つも出していない** | **AEB(FUNC-001, 実装済・テスト緑)ですら外から作動を観測できない**。規格に正欄があるのに空＝④観測の(b)未配線の最大例 |
-| **W2** | `PolicyConstraint` は `tier`(SAFETY/COMPLIANCE/COURTESY/COMFORT) を持つが `VirtualDriverTelemetryJson.cpp:81-82` が **JSON化時に tier を落としている** | tier調停の結果が外から見えない。**1行の欠落**で AEB の「安全層として効いたのか」が検証不能 |
-| **W3** | `AebSafety.cpp:114-127` の `ttc` / `a_req` は **ローカル const のまま破棄**。生き残るのは bool 結果のみ | 「なぜ作動した/しなかった」の切り分け不能 |
-| **W4** | `custom_detail` / `custom_state` / `DriverOverride` / 実 `Name` 列挙（常に `NAME_OTHER` 固定）/ `route` / `vehicle_motion.current_curvature` が **populate されていない**（`GT_HostVehicleReporter.cpp:343-350`） | HVD 側の未使用余地。(a)/(a') の受け皿はここ |
+**W1-W3 は 2026-07-20 に実装・解消済み**（下表の「状態」列）。W4 は一部のみ解消。
 
-W1-W3 は **enabler の議論と独立に効く**（対象は built 済みの behavior）。§7 フェーズ4 の
-パイロット候補として pitch/roll と並ぶ。特に **W2 は1行**。
+| # | 事実（file:line 確認済み） | 影響 | 状態 |
+| :-- | :-- | :-- | :-- |
+| **W1** | `ControllerVirtualDriver::GetADASStates` は **空のスタブ**（`ControllerVirtualDriver.hpp:66`）。`GT_esminiLib.cpp:1458-1490` は `size()>=24` のときだけ転送するため、**VD は AD機能状態を OSI に1つも出していない** | **AEB(FUNC-001, 実装済・テスト緑)ですら外から作動を観測できない**。規格に正欄があるのに空＝④観測の(b)未配線の最大例 | **実装済** |
+| **W2** | `PolicyConstraint` は `tier`(SAFETY/COMPLIANCE/COURTESY/COMFORT) を持つが `VirtualDriverTelemetryJson.cpp:81-82` が **JSON化時に tier を落としている** | tier調停の結果が外から見えない。**1行の欠落**で AEB の「安全層として効いたのか」が検証不能 | **実装済** |
+| **W3** | `AebSafety.cpp:114-127` の `ttc` / `a_req` は **ローカル const のまま破棄**。生き残るのは bool 結果のみ | 「なぜ作動した/しなかった」の切り分け不能 | **実装済** |
+| **W4** | `custom_detail` / `custom_state` / `DriverOverride` / 実 `Name` 列挙（常に `NAME_OTHER` 固定）/ `route` / `vehicle_motion.current_curvature` が **populate されていない**（`GT_HostVehicleReporter.cpp:343-350`） | HVD 側の未使用余地。(a)/(a') の受け皿はここ | **一部**（`custom_detail` と実 `Name` 列挙は W1/W3 で解消。`custom_state`/`DriverOverride`/`route`/`current_curvature` は未着手） |
+
+##### 実装（2026-07-20, VD側 W1-W3）
+
+- **W2** — `VirtualDriverTelemetryJson.cpp` に `tier_str` を追加し `policy.constraints[].tier` を出力。
+  フロントエンド型（`client.ts` `PolicyConstraintTier`）も追随。追加のみ＝後方互換。
+- **W3** — 衝突コースゲートを **純関数 `aeb::EvaluateGate(cfg, gap, v_close)`** として `AebSafety.hpp` に抽出
+  （候補選択は道路網が要るので `Evaluate()` に残置。安全判断だけを切り出した）。診断KVチャネル
+  `PolicyDetail`（`TrafficPolicySnapshot::detail`）を新設し、**作動しなかったフレームでも**
+  `gt.aeb.{gap_m,v_close_mps,ttc_s,a_req_mps2,triggered}` を出す（負の判断こそ従来診断不能だった）。
+- **W1** — 純関数 `BuildAdasFunctionReport(flags, snapshot)`（`AdasFunctionReport.hpp/.cpp`）で
+  policy → OSI 行へ写像 → `ControllerVirtualDriver::GetADASFunctions()` → 新API
+  `GT_HostVehicleReporter::AddADASFunctionEx()` → `vehicle_automated_driving_function[]`。
+
+**キー命名規約（`custom_detail`, §2.2 (a') の決着）**: `gt.<機能>.<量>_<SI単位>`（例 `gt.aeb.ttc_s`）、
+値は固定小数3桁の10進文字列（真偽は `"true"/"false"`）。**単位は値でなくキーに埋める**（消費側が素の数値を
+パースできる）。**`gt.dbg.*` は verdict-trust 対象外**＝§2.2 の exposure=`debug` に対応し、接頭辞1つで
+lint が verdict 経路から機械的に除外できる。規約本体は `PolicyDetail.hpp` に常駐。
+
+**policy → `Name` 写像**: `aeb`→`NAME_AUTOMATIC_EMERGENCY_BRAKING` / `lead_vehicle`→`NAME_ADAPTIVE_CRUISE_CONTROL`、
+標準名の無い4種（`traffic_light`/`stop_yield`/`conflict_point`/`crosswalk`）は `NAME_OTHER` + `custom_name`
+（近い響きの標準値へ**押し込まない**＝列挙を信じる消費者に誤報しないため）。加えて VDスタック自体を
+`NAME_URBAN_DRIVING` の集約1行で出す。`State` は **ACTIVE（今フレーム constraint を出した）/ STANDBY（有効だが静穏）/
+UNAVAILABLE（config で無効）** の3値＝「AEBは見張っていて撃たなかった」と「そもそも切ってあった」を別物として残す。
+
+**転送条件**: `size()>=24` の固定24枠ラベル経路は RealDriver/PythonDriver 用に**そのまま保存**し、VD は
+`AddADASFunctionEx` の新経路を使う（回帰ゼロ＋`custom_detail` を同経路で運べる）。
+`control` 層は `osi` に依存できない（GT_esmini/CLAUDE.md §2）ため OSI列挙値は `AdasFunctionReport.hpp` に
+**ミラー**し、両方を見る唯一の場所 `GT_esminiLib.cpp` で `static_assert` により実 .proto へピン留めした
+（OSI が動いたら実行時でなく**ビルドで落ちる**）。
+
+**実測（`cutin_hard_brake.xosc`, policy=lead,aeb, HVD UDP 1200フレーム復号）**:
+`gt.aeb` が `name=AUTOMATIC_EMERGENCY_BRAKING` で ACTIVE 20フレーム、`custom_detail` に
+`ttc_s=0.661 / a_req_mps2=13.611 / gap_m=11.884 / triggered=true`。無効な4 policy は UNAVAILABLE、
+`gt.virtual_driver` は全1200フレーム ACTIVE。**＝AEB の作動が初めて OSI 越しに観測可能になった。**
+ゲート: ユニット PASS（新規17テスト）／ODR quick PASS=306 FAIL=0 XPASS=0／phase3 ベースライン照合
+**deviations=0（12シナリオ）**＝ telemetry JSON へのフィールド追加は後方互換と実測確認。
+
+##### 残る債務（本作業で意図的に触っていない）
+
+- `GT_esminiLib.cpp` の `adasNames[]` の並びが **OSI `Name` 列挙順とずれている**（`NIGHT_VISION`/`HEAD_UP_DISPLAY` 付近）。
+  現状は常に `NAME_OTHER` で送るため実害は custom_name のラベルずれのみだが、**RealDriver 経路が実 `Name` 列挙を
+  使い始めた時点で実害化する**。
+- 他5 policy の `custom_detail` は未実装（W3 は AEB のみ）。規約と口は共通なので追加は各 policy の1-2行。
+
+W1-W3 は **enabler の議論と独立に効いた**（対象は built 済みの behavior）。§7 フェーズ4 の
+パイロットとして pitch/roll に先行して完了した実例＝「④の欠は(b)配線であって(a)観測不能ではない」の実証。
 
 ### 2.3 ④観測の棚卸し（emit 基準・2026-07-20）
 
@@ -392,9 +437,10 @@ OSI 側は出しているのに **scene 変換層でせき止められている*
 
 | signal | emit（file:line） | 消費到達 | 判定 | exposure |
 | :-- | :-- | :-- | :-: | :-- |
-| **HVD `steering_angle`** | `ControllerManualDrive.cpp:194-196` が既に**実舵角(rad)**を渡すのに `GT_HostVehicleReporter.cpp:141` が `steering_input_to_wheel_ratio`(既定12.9, ControllerRealDriver の正規化入力向け) を**無条件適用** | Web `HvdGaugePanel.tsx` まで届くが**約12.9倍に破壊** | **(b′)** | hvd |
+| **HVD `steering_angle`** | `ControllerManualDrive.cpp:192-197` が既に**実舵角(rad)**を渡すのに `GT_HostVehicleReporter.cpp:141` が `steering_input_to_wheel_ratio`(既定12.9, ControllerRealDriver の正規化入力向け) を**無条件適用**（分岐・フラグ無し） | Web `HvdGaugePanel.tsx` まで届くが**約12.9倍に破壊** | **(b′)** | hvd |
 | HVD acceleration | `RealVehicleBackend::BuildHVD` の値を `GT_HostVehicleReporter.cpp:237-292` が `egoState->pos_.GetAcc*()` で**毎フレーム上書き**（コメントに "Always OVERWRITE" と明記） | RealVehicle の正確な加速度は外に出ない | **(b′)** | hvd |
-| Kinematic wheel_angle | `ControllerKinematic.cpp:445-447` → `GT_esminiLib.cpp:1516-1531` | 同じ 12.9倍経路 | **(b′)** | hvd |
+| Kinematic wheel_angle | `ControllerKinematic.cpp:445-447` → `GT_esminiLib.cpp:1516-1531`（`GetWheelAngle()`＝実舵角 rad, 既定上限1.047rad） | 同じ 12.9倍経路 | **(b′)** | hvd |
+| **VD wheel_angle**（★2026-07-20 追記・当初漏れ） | `ControllerVirtualDriver.cpp:587-588` が ManualDrive と**同一パターン**（`current_hvd_.vehicle_steering_wheel().angle()`＝RealVehicleBackend の実舵角）を渡す | 同じ 12.9倍経路 | **(b′)** | hvd |
 | FFB 内部量(steering_pos/vel, lat_accel) | `RealVehicleBackend.cpp:121-134`、`SDLFFBSink.cpp:158-176` が同じ hvd を直読み | **自己完結ループ**（外部配信不要） | ●（FFB 用途） | debug |
 | throttle/brake/gear/rpm/torque/灯火 | `ControllerManualDrive.cpp:188-247` → HVD ／ OSI `GT_OSIReporter_Moving.cpp:414-512` | `HvdGaugePanel.tsx` | ● | hvd,osi |
 | ManualDrive ADAS states | `ControllerManualDrive.hpp:36` で恒久的に空 | `GT_esminiLib.cpp:1486` の `size()>=24` ガードで無害にスキップ | (a)**設計上の非該当**（W1 と異なりバグではない） | hvd |
@@ -403,6 +449,13 @@ OSI 側は出しているのに **scene 変換層でせき止められている*
 | lane_id / indicator (Kinematic/RouteDrive) | OSI `:777` / `:512` | **VD 以外は telemetry frame を生成しない**ため matcher 非到達 | (b) | osi |
 | 制御車 dynamic pitch/roll | `RealVehicle.cpp:410-430` → `SetInertiaPos` → OSI `GT_OSIReporter_Moving.cpp:756-757` | frame/matcher なし | (b)（既知） | osi,hvd |
 | **交通車 dynamic pitch/roll** | `VehiclePhysicsManager.cpp:107-108` だが **既定 `enabled_=false`**(`VehiclePhysicsManager.hpp:71`, opt-in `--vehicle-physics`) | 通常運用では**そもそも計算されない** | **(a)** | osi,hvd |
+
+**(b′) の共通根（2026-07-20 検証で確定）**: `GT_HostVehicleReporter.cpp:141` の ratio 乗算は
+**分岐もフラグも無く無条件**。渡す側は2種に分かれる —
+**正規化 -1.0〜1.0 を渡す ControllerRealDriver**（外部UDP APIの契約, `docs/realdriver/api_reference.md:41`）では
+ratio 適用は**正当な変換**。一方 **ManualDrive / VirtualDriver / Kinematic は実舵角(rad)を渡す**ので二重変換になる。
+**正当なケースが1つ同居しているせいでバグとして目立たなかった**。3ドメイン(ManualDrive/VD/Kinematic)が
+同一の1行に起因する ＝ §2.3 で最も費用対効果の高い単一修正点。
 
 **⑥の実測**: `test/CMakeLists.txt` と integration 26本の全照合で、**この3ドメインに言及する自動テストは
 unit/integration いずれにも 0件**。回帰検知は目視スモークのみ ＝ ⑥ を ◐ から ✕ に訂正した根拠。
