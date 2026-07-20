@@ -1,0 +1,33 @@
+# 常設検証ゲートカタログ（gate:<name> の単一真実源）
+#
+# 検証スパイン⑥常設（capability_model.md §1 / §4）。「一度検証したきり」と
+# 「回帰で恒久的に守られている」を区別するためのノード。
+#
+# 実行系（root CLAUDE.md §5 ／ scripts/ ／ .github/workflows/ci.yml）が実体で、
+# 本ファイルはその索引。実行系を変えたらここも直す。
+#
+# フィールド:
+#   id        gate:<id> のローカルID（kebab-case、ハイフンを1つ以上含む）
+#   title     日本語の短い説明
+#   command   実際の起動コマンド（実行系の正準形）
+#   context   local / ci:<job名> / both
+#   blocking  true=落ちたら止まる / false=warning（報告のみ・止めない）
+#   requires  前提（Release build / venv / thirdparty zip 等）
+#   covers    **実際に**何を検証しているか
+#   not_covers  名前から期待されるが検証していないもの（あれば必須）
+#   note      運用上の注意
+#
+# **covers を名前から推測して書かないこと**。`gate:unit-ctest` の ctest 標的
+# `test_ScenarioReaderParsing` は名前に反し GT_ScenarioReader の現行パース対象を
+# 検証していない（2026-07-20 訂正）。グラフは lint と派生レポートの根拠になるため、
+# 誤った covers は自動化され増幅される。名前が主張を偽装している場合は
+# `not_covers` に明記する。
+#
+# 要求 / matcher との接続（req|matcher -> sustained-by -> gate）は graph.yaml に
+# curated辺として置く（関係の単一置き場。本ファイルには重複記載しない）。
+
+meta:
+  derived_from: CLAUDE.md  # §5 テスト戦略 ＋ scripts/ ＋ .github/workflows/ci.yml
+  seeded: 2026-07-20
+
+gates: []

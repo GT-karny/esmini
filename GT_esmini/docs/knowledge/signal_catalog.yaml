@@ -1,0 +1,44 @@
+# 観測可能量カタログ（signal:<name> の単一真実源）
+#
+# 検証スパイン④観測（capability_model.md §1 / §4）の一級市民。
+#
+# canonical は **OSI .proto 面（GroundTruth / HostVehicleData）**。`vd_metrics.py` の
+# telemetry frame はその派生投影の一つに過ぎない。frame契約を canonical に置くと
+# 「OSIにemit済みだが frame未投影」（pitch/roll 型）を「真の観測不能」と同じ ✕ に
+# 潰してしまう — 両者は打ち手が全く違う（配線 vs センサ/物理拡張）ため区別する。
+#
+# **on-demand 原則**: OSI .proto の bulk import はしない（openx 346概念の轍を踏まない）。
+# 主張 / matcher が実際に参照した signal だけを起こす。
+#
+# フィールド:
+#   id        signal:<id> のローカルID（snake_case、下線を1つ以上含む）
+#   title     日本語の短い説明
+#   exposure  どの面に届いているか（複数可）
+#               osi     OSI GroundTruth に emit
+#               hvd     OSI HostVehicleData に emit
+#               frame   vd_metrics.py の telemetry frame に投影済み
+#               derived 生emitは無く消費側で導出（近似含む）
+#               debug   観測はできるが **verdict-trust の対象外**
+#                       ＝面2内部を覗くデバッグ経路。判定に使うと面3→面2直結の
+#                         結合負債になる（capability_model.md §2.2）。実装側の規約は
+#                         `gt.dbg.*` 接頭辞（GT_esmini の PolicyDetail.hpp に常駐）。
+#                         将来 lint が verdict 経路から機械的に除外する目印。
+#   state     capability_model.md §2.3 の判定記号をそのまま持ち込む
+#               "●"   充足（emit され消費面まで届いている）
+#               "(a)"  未emit（真の観測不能）
+#               "(b)"  emit済みだが未配線（frame/matcher/gate に届いていない）
+#               "(b')" 誤配線（届くが値が壊れている＝(b)より悪い。verdict を汚す）
+#               "(-)"  非該当（OSI以外の正当な観測面を持つ。例: RM ctypes プローブ）
+#   emit      emit 箇所（file:line。§2.3 で実確認したもの）
+#   note      判定の根拠 / 既知の欠陥
+#
+# 消費側との接続（matcher -> observes -> signal）は graph.yaml に curated辺として置く
+# （関係の単一置き場。本ファイルには重複記載しない）。
+
+meta:
+  derived_from: GT_esmini/docs/knowledge/capability_model.md  # §2.3 棚卸し / §4 seed表
+  canonical_surface: OSI GroundTruth / HostVehicleData (.proto)
+  seeded: 2026-07-20
+  principle: on-demand（OSI .proto の bulk import はしない）
+
+signals: []
