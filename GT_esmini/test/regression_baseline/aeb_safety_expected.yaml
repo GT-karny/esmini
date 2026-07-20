@@ -1,0 +1,44 @@
+manifest: resources/xosc/verification/aeb_safety_batch.yaml
+note: 'Committed baseline for the AEB safety tier (gate:aeb-safety-regression, run_regression_gate.ps1
+  Step 2.6). Covers BOTH directions of the claim: REQ-AD-001 positive -- cutin_hard_brake (mitigation:
+  impact speed <= 10 m/s, where full avoidance would need ~1.38 g, beyond the model car''s 10 m/s^2 ceiling)
+  and cutin_hard_brake_curve (full avoidance, OBB separation > 0.5 m); REQ-AD-013 negative/SOTIF -- normal_following,
+  benign_cutin, parallel_overtake must never emit an emergency STOP_AT_S with source "aeb". ALL FIVE ARE
+  GREEN as recorded (2026-07-21); this baseline carries no known-red, unlike car_following_traffic_control_expected.yaml.
+  So ANY deviation here is a real regression -- including an unexpected PASS, which for the negative three
+  would mean the misfire check stopped discriminating. Do not "fix" a red by refreshing: a red in the
+  positive pair means AEB weakened, a red in the negative three means it misfires. Refresh with --update
+  ONLY after an intentional behavior change, and review the diff.'
+expected_summary:
+  pass: 5
+  fail: 0
+  needs-review: 0
+  error: 0
+scenarios:
+  cutin_hard_brake:
+    status: pass
+    matchers:
+    - event: impact_speed_below
+      status: pass
+  cutin_hard_brake_curve:
+    status: pass
+    matchers:
+    - event: min_obb_separation_above
+      status: pass
+  normal_following:
+    status: pass
+    matchers:
+    - event: no_emergency_without_conflict
+      status: pass
+  benign_cutin:
+    status: pass
+    matchers:
+    - event: no_emergency_without_conflict
+      status: pass
+    - event: min_obb_separation_above
+      status: pass
+  parallel_overtake:
+    status: pass
+    matchers:
+    - event: no_emergency_without_conflict
+      status: pass

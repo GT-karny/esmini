@@ -722,7 +722,15 @@ edges:
     to: signal:object_poses
     type: observes
     source: GT_esmini/web/backend/services/vd_metrics.py
-    note: 中心間ユークリッド距離。min_obb_separation_above に置換され現用資産では未使用（下記参照）
+    note: >-
+      中心間ユークリッド距離。**DEPRECATED（2026-07-21 判断）**: min_obb_separation_above の
+      厳密な劣位版であり、復活させる価値が無い。中心間距離は隣接レーン通過（中心間 ~2.8m）を
+      「接近」と誤読するのに対し OBB 版は車体が重ならないことを正しく安全と読む
+      （vd_metrics.py:685-687 のコメント自身がこの移行理由を述べている）。参照資産0件（実測）。
+      **扱い＝新規資産で使わない・実装は当面残置**。実装削除は vd_metrics.py の変更＝
+      本作業のスコープ外のため別コミットで行う（削除時は namespaces.yaml の matcher
+      id_pattern と count:16 も同時に更新すること）。「保留」ではなく廃止確定であり、
+      デッド matcher を派生レポートが毎回「未配線」として再検出するのを止めるためこの note を根拠に置く。
   - from: matcher:min_obb_separation_above
     to: signal:obb_separation
     type: observes
@@ -773,6 +781,41 @@ edges:
     type: sustained-by
     source: resources/xosc/verification/car_following_traffic_control_batch.yaml
 
+  # ---- ⑥常設: AEB安全層を常設ゲートへ（2026-07-21・§5.1 の穴を塞ぐ） ----
+  # 2026-07-20 の初回結線で「AEB(REQ-AD-001家族)を判定する matcher が常設ゲートに1件も
+  # 乗っていない」ことが引けなかった辺として可視化された。gate:aeb-safety-regression を
+  # 新設し（run_regression_gate.ps1 Step 2.6）、その3 matcher と要求2件を結線する。
+  - from: matcher:impact_speed_below
+    to: gate:aeb-safety-regression
+    type: sustained-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: cutin_hard_brake（直進）。完全回避不能域での緩和＝閉じ速度 <= 10 m/s
+  - from: matcher:min_obb_separation_above
+    to: gate:aeb-safety-regression
+    type: sustained-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: >-
+      cutin_hard_brake_curve の完全回避判定（0.5m）＋ benign_cutin のサニティ（20m）。
+      本 matcher は junction/crosswalk 系の手動マニフェストでも使われるが、
+      **常設で守られるのは AEB 経由のこの2用法のみ**。
+  - from: matcher:no_emergency_without_conflict
+    to: gate:aeb-safety-regression
+    type: sustained-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: 負例3件（normal_following / benign_cutin / parallel_overtake）の主判定
+  - from: req-vd-ad:REQ-AD-001
+    to: gate:aeb-safety-regression
+    type: sustained-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: 正例2シナリオ（直進=緩和 / カーブ=完全回避）
+  - from: req-vd-ad:REQ-AD-013
+    to: gate:aeb-safety-regression
+    type: sustained-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: >-
+      負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、
+      片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。
+
   # ---- ゲート同士の構造（傘ラダーの構成） ----
   - from: gate:regression-gate
     to: gate:unit-ctest
@@ -789,6 +832,13 @@ edges:
     type: depends-on
     source: scripts/run_regression_gate.ps1
     note: Step 2（既定 WARN、-FailOnBehavioral でハード化）
+  - from: gate:regression-gate
+    to: gate:aeb-safety-regression
+    type: depends-on
+    source: scripts/run_regression_gate.ps1
+    note: >-
+      Step 2.6（既定 WARN、-FailOnBehavioral でハード化、-SkipAeb で単独スキップ）。
+      Step 2 と同じ recipe（共有関数 Invoke-BehavioralBatch）を別マニフェスト・別ベースラインで回す。
   - from: gate:odr-conformance-quick
     to: gate:fork-census
     type: depends-on
@@ -843,4 +893,18 @@ edges:
   #   speed_reduction_before_landmark / steer_not_saturated / no_constraint_kind
   #   = 9件。使用先は junction_conflict / junction_priority / 07_aeb 等の**手動実行マニフェストのみ**。
   #   AEB(REQ-AD-001家族)を判定する matcher が常設ゲートに1件も乗っていない。
+  #
+  # ★2026-07-21 更新（この穴のうち AEB 分を実際に塞いだ）:
+  #   gate:aeb-safety-regression を新設し（run_regression_gate.ps1 Step 2.6 +
+  #   resources/xosc/verification/aeb_safety_batch.yaml + committed baseline）、
+  #   min_obb_separation_above / impact_speed_below / no_emergency_without_conflict の3件が
+  #   常設で発火するようになった。**残る sustained-by 欠は6件**:
+  #     lane_keep / lane_change_count / deceleration_profile_smooth /
+  #     speed_reduction_before_landmark / steer_not_saturated / no_constraint_kind
+  #   （いずれも 05_anticipation 系の手動マニフェスト専用）。
+  #   常設ゲートが発火させる matcher は 6件 → **9件**（16 中）。
+  #   ただし新ゲートは **CI 未配線＝ローカル限定**なので、「常設」の強度は
+  #   gate:vd-behavior-regression（CI にも Windows job がある）より一段弱い。次の一手。
+  #   min_separation_above は依然0件だが、これは穴ではなく **DEPRECATED 確定**
+  #   （min_obb_separation_above の厳密な劣位版。上の observes 辺の note に根拠）。
   #   min_separation_above はどの資産からも参照されず（実測0件）＝実装のみのデッド matcher。

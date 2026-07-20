@@ -103,6 +103,39 @@ gates:
       凍結するのみで、面3→面2 直結（14 matcher中10）の実態を追認する構造（§2.3a）。
     note: 既定 WARN。逸脱でマージが止まるのは -FailOnBehavioral 指定時のみ。
 
+  - id: aeb-safety-regression
+    title: AEB安全層 挙動回帰（aeb_safety バッチ vs committed baseline）
+    command: >-
+      gt_sim_test.py batch resources/xosc/verification/aeb_safety_batch.yaml →
+      scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/aeb_safety_expected.yaml
+    context: local  # regression-gate Step 2.6。CI 未配線（下記 note）
+    blocking: false  # 既定 WARN。-FailOnBehavioral でハード化
+    requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード。osi:true 必須
+    covers: >-
+      AEB(vd-func:FUNC-001)の主張を**両方向**で判定。正例 REQ-AD-001 2件＝
+      cutin_hard_brake（`impact_speed_below` 10 m/s＝緩和。完全回避は ~1.38g を要し
+      モデル車の 10 m/s² 天井を超えるため不可）／cutin_hard_brake_curve
+      （`min_obb_separation_above` 0.5 m＝完全回避）。負例 REQ-AD-013 3件＝
+      normal_following・benign_cutin・parallel_overtake で `no_emergency_without_conflict`
+      （policy.constraints に source:"aeb" が一度も現れない）。負例3件は AebSafety の
+      **別々の段**で弾かれる設計（ゲート非発火／検知は正当だがゲートが弾く／候補採用の入口で弾く）。
+      2026-07-21 時点 5/5 緑＝**known-red を持たないベースライン**。
+    not_covers: >-
+      **CI には未配線**（ci.yml の Windows job は car_following バッチのみ）＝守られるのは
+      ローカルの regression-gate を回した時だけ。CI 配線は次の一手。
+      幾何軸は直進/カーブのみで**交差点内 AEB は未カバー**（conflict 系と重複するため保留）。
+      `impact_speed_below`/`min_obb_separation_above` は OSI scene 依存で、
+      `osi:true` が無いと matcher が **skip＝黙って緑になる**（マニフェストで担保している）。
+    note: >-
+      **本ゲート新設(2026-07-21)以前、AEB を判定する matcher は常設ゲートに1件も無かった**
+      （実装済み・ユニット緑・OSI配線済みなのに壊しても CI が気づかない＝capability_model.md §5.1 の
+      「縦串の切れた列」の最重要例）。Step 2 に合流させず独立ゲートにしたのは
+      (1)赤が出た時「どの主張が壊れたか」がレポートを開かずに分かる
+      (2)Step 2 の baseline が抱える known-red（red_stop_green_go）が AEB の退行を覆い隠さない、の2点。
+      正負を同一 baseline に置いたのは、片方だけを守ると「閾値を下げて正例を通し負例を壊す」
+      取引がゲートを素通りするため。既定 WARN で開始し、数回グリーンを確認してから hard へ昇格する方針
+      （ユーザー判断 2026-07-21）。
+
   # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
   - id: odr-conformance-quick
     title: ODR適合 quick プロファイル（schema + rm + motion）

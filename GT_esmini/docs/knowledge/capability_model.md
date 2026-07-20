@@ -697,6 +697,43 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 
 出力は「主張 × 欠けた縦層」のリスト。これが恒久の「未検証台帳」になる。
 
+#### 実装（2026-07-21, `spine-work:derived-report-lint`）
+
+`scripts/check_knowledge_graph.py` に実装。**hard** ＝ 値域チェック（exposure/state/face・
+`gate.covers` 非空・`gate.blocking` bool）と規約2（恒久資産名の工程序数）。いずれも導入時点の
+実測違反 0件＝**新設のみを弾く**形なので既存を巻き込まない（規約4 と同型）。
+**報告のみ（exit code に影響させない）** ＝ 派生レポートと coupling-audit。この台帳は
+*設計上ずっと非空*（未検証の主張を数え上げるのが目的で、0件になるのは全スパインを縫い終えた時
+だけ）であり、ゲートにすると恒久的に赤＝警報疲れを育てるため。詳細は `--spine-report`。
+
+**初回実測（88件）**: ④(a)未emit 15 ／ ④(b)未配線 19 ／ 台帳の自己矛盾 1 ／ ⑥常設欠 7 ／
+②刺激欠 25 ／ coupling 21。
+
+**設計上の要点3つ（いずれも実装中に検知器の反転を実測して直したもの）**:
+1. **matcher 台帳をグラフ出現で代用してはいけない**。辺を1本も持たない matcher＝最も負債である
+   可能性が高いものが母数から落ち、未観測 matcher を「0件＝clean」と誤報する。台帳は真実源
+   （`vd_metrics.py` の `eval_must` ディスパッチ）から数える。
+2. **coupling-audit を graph.yaml の辺だけで実装すると常に 0件を報告する**。面3→面2 の直結は
+   「引けなかった辺」として §5.1 のコメントに逃がされており、辺として存在しないため。実体は
+   「判定が面1 OSI(`frame["scene"]`)を読んでいるか」なので、*辺の不在* と *実装の読み出し先* から数える。
+   → **純テレメトリ 10 matcher** ＝ §2.3a の手作業実測（14分岐中10）と一致。
+3. **間接参照を1段展開しないと混在型を取り逃す**。主判定が `_sustained_stop()` の中にある
+   `stopped_at_signal` を「OSI 単独で判定している」と誤分類していた。
+
+**本 lint で新たに判明した事実**: §2.3a が「面1 OSI 直結（正規IF）」と分類した4 matcher
+（`maintained_following_distance` / `min_separation_above` / `min_obb_separation_above` /
+`impact_speed_below`）＋ `stopped_at_*` の計6件は、**OSI の scene 幾何と同時に面2テレメトリの
+`ego` をアンカーに使っている**（例: `vd_metrics.py:597-647` が THW を `scene["objects"]` と
+`fr["ego"]` の両方から組む）。＝ **正規IF側4件も SUT 非依存ではない**。手作業の第一弾は
+「主たる観測量がどちらか」で分類していたための簡略化で、置換対象の母数は 10 ではなく 16/16。
+`coupling: OSI を読むが面2アンカー併用` として別枠で列挙している。
+
+**検知器の向きの実証**: `scripts/test_check_knowledge_graph.py`。意図的な違反データ
+（語彙外 exposure/state、全角表記ゆれ、face 欠落、`phase3_batch.yaml`、面3→面2 直結辺、
+未emit signal を観測する辺）を注入して**発火することを確認**し、無改変では発火しないことも
+併せて確認する。KG の実データは触らず fixture のコピーに対して実行する。
+2026-07-20 の「規約と反転した検知器が警報疲れを育てた」実例を踏まえ、検査を足したら必ず通す。
+
 ## 7. 作業計画（namespace: `spine-work`）
 
 > **本節の作業単位は `spine-work:<内容slug>` として引用すること**（2026-07-20）。
@@ -721,11 +758,41 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     TEST/TEST_F 278件）。`test_ScenarioReaderParsing.cpp` 単体の13テストと傘バイナリ28本を
     混同しない（`GT_ScenarioReader` 非カバーという結論自体は正しい — 実測: GT_esmini/test 配下を
     `TrafficSignalController|GT_ScenarioReader` で grep して0件）。
+- **`spine-work:aeb-gate-wiring` ✅完了（2026-07-21）**: §5.1 が検出した縦串の切れた列の**最重要例**
+  ——「AEB(vd-func:FUNC-001) は③実装● ⑤判定● だが ⑥常設✕」——を実際に塞いだ。
+  `gate:aeb-safety-regression` を新設（`run_regression_gate.ps1` **Step 2.6**）し、
+  `resources/xosc/verification/aeb_safety_batch.yaml`（旧 `07_aeb_batch` 2件＋`07_aeb_negative_batch` 3件を統合・
+  規約2/4 に沿って内容 slug へ改名、由来は `origin:` メタへ）と committed baseline
+  `GT_esmini/test/regression_baseline/aeb_safety_expected.yaml`（**5/5 緑・known-red 無し**）を配線。
+  `sustained-by` 5辺（matcher 3 + req 2）＋ ラダー構造1辺を graph.yaml に追加、lint + `--render` グリーン。
+  - **常設で発火する matcher は 6件 → 9件（16 中）**。残る sustained-by 欠は6件
+    （lane_keep / lane_change_count / deceleration_profile_smooth /
+    speed_reduction_before_landmark / steer_not_saturated / no_constraint_kind、すべて 05_anticipation 系）。
+  - **設計判断**: (1) Step 2 に合流させず独立ゲート＝赤が出た時どの主張が壊れたかがレポートを開かずに分かり、
+    Step 2 の known-red（`red_stop_green_go`）が AEB の退行を覆い隠さない。
+    (2) 正例(REQ-AD-001)と負例(REQ-AD-013)を**同一ゲート・同一ベースライン**＝片方だけ守ると
+    「閾値を下げて正例を通し負例を壊す」取引が素通りする。
+    (3) 既定 WARN で開始（数回グリーンを確認して hard へ昇格。ユーザー判断）。
+  - **`min_separation_above` は DEPRECATED 確定**（保留ではない）。中心間距離は隣接レーン通過を
+    誤読するのに対し `min_obb_separation_above` は正しく安全と読む＝厳密な劣位版で復活価値が無い。
+    根拠は graph.yaml の当該 `observes` 辺の note に恒久記録。実装削除は vd_metrics.py 変更＝別コミット。
+  - **本作業で判明した積み残し**: (a) §5.1 の「常設ゲートが発火させるのは6件のみ／AEB を判定する
+    matcher が常設ゲートに1件も乗っていない」という記述は**本作業で陳腐化**した（一次記録として残すなら
+    「2026-07-20 時点」と明記が要る。graph.yaml 末尾の一次記録には追随済み）。
+    (b) 新ゲートは **CI 未配線＝ローカル限定**で、`gate:vd-behavior-regression`（CI Windows job あり）より
+    ⑥の強度が一段弱い。(c) `cutin_hard_brake` の実測 impact speed は **9.14 m/s（閾値 10.0、余裕 8.6%）**で、
+    expectations のコメントが言う「達成 ~8.75」より薄い（2回の実行で 9.14 再現＝フレークではなく記述の陳腐化）。
+    (d) 派生レポートの **②刺激欠に REQ-AD-001/013 が残る**（`stimulated-by` 辺は未結線・25件の一部）。
 - **`spine-work:vertical-wiring`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
   行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
-- **`spine-work:derived-report-lint`**: 派生レポート（§6）＋ **coupling-audit（§0.5）** を lint に追加 →
-  「縦串の切れた列」と「面3→面2直結の結合負債」を CI で可視化。
-  **命名規約の検査もここに含める**（下記 §7.1）。
+- **`spine-work:derived-report-lint` ✅完了（2026-07-21）**: 派生レポート（§6）＋ **coupling-audit（§0.5）**
+  を lint に追加 → 「縦串の切れた列」と「面3→面2直結の結合負債」を CI で可視化。
+  値域チェックと規約2 は hard、派生レポートは報告のみ。実装詳細・初回実測・検知器の向きの実証は **§6**。
+  **積み残し**: (a) 値域チェックが catalog を開くようになったので `signal_catalog.yaml` の
+  `traffic_vehicle_pitch_roll` が `state=(a)` なのに `emit` 欄に実装を持つ自己矛盾が露出した
+  （実体は「emit コードは在るが既定 `enabled_=false`」＝ (a)/(b) のどちらでもない第3の状態）。
+  データ側の決着が要る。(b) `manualdrive_adas_states` は §4 が予告したとおり (a) として計上される
+  が実体は**設計上の非該当**で、`(-)` に寄せるか別の印が要る（本 lint はデータを直していない）。
 - **`spine-work:empty-spine-stitching`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
 
 ### 7.1 命名規約（2026-07-20 制定・`spine-work:derived-report-lint` で機械化）
@@ -768,9 +835,11 @@ root CLAUDE.md に「パースは常設で守られている」という誤り�
 **散文だけの規約は守られない**（同日、フックが規約と反転していた実例）ため、
 規約を作ったら必ず検知器を用意し、その向きを確かめること。
 
-**機械化（残り・`spine-work:derived-report-lint`）**: 規約1 は commit-msg フックが hint 済み
-（`scripts/check_commit_kg_ids.py`）。恒久資産のファイル名に工程序数が入っていないかの
-lint は未実装＝`spine-work:derived-report-lint` のスコープ。
+**機械化（完了・2026-07-21）**: 規約1 は commit-msg フックが hint 済み
+（`scripts/check_commit_kg_ids.py`）。**規約2 は `check_knowledge_graph.py` が実装済み**
+（恒久資産のファイル名に `phase3_` 等の工程序数が無いか。導入時点の repo 全体ヒットは
+2026-07-20 の改名 `55bb2bcc`/`9ec1ae98` により **0件**＝新設のみを弾く形なので hard にした）。
+向きは意図的な違反ファイルで実証済み（§6 末尾）。
 
 ## 8. 未決事項（レビューで詰める）
 

@@ -132,8 +132,15 @@ def _norm_manifest(manifest: str) -> str:
         return manifest
 
 
-def build_baseline_doc(batch: dict, manifest_hint: str | None = None) -> dict:
-    """Turn a batch output dict into the committed-baseline document shape."""
+def build_baseline_doc(batch: dict, manifest_hint: str | None = None,
+                       keep_note: str | None = None) -> dict:
+    """Turn a batch output dict into the committed-baseline document shape.
+
+    `keep_note` carries over a hand-written `note:` from an existing baseline.
+    The note is the only field a human curates (it says WHY a recorded fail is
+    expected, and what the batch is for); regenerating the generic boilerplate
+    over it on every --update would quietly delete that reasoning.
+    """
     scen_doc = {}
     for stem in batch["order"]:
         s = batch["scenarios"][stem]
@@ -143,7 +150,7 @@ def build_baseline_doc(batch: dict, manifest_hint: str | None = None) -> dict:
         }
     return {
         "manifest": manifest_hint or _norm_manifest(batch["manifest"]),
-        "note": ("Committed regression baseline for the VirtualDriver behavioral "
+        "note": keep_note or ("Committed regression baseline for the VirtualDriver behavioral "
                  "batch. Compared per-scenario/per-matcher by "
                  "scripts/check_regression_baseline.py. Any deviation (new fail OR a known "
                  "fail turning pass) fails the check. Refresh ONLY after an intentional "
@@ -355,7 +362,12 @@ def main(argv: list[str] | None = None) -> int:
     report_path = args.report or (batch_out / "regression_report.md")
 
     if args.update:
-        doc = build_baseline_doc(batch, args.manifest)
+        # Preserve a curated `note:` from the baseline being refreshed.
+        prev_note = None
+        if args.baseline.is_file():
+            prev = yaml.safe_load(args.baseline.read_text(encoding="utf-8")) or {}
+            prev_note = prev.get("note")
+        doc = build_baseline_doc(batch, args.manifest, keep_note=prev_note)
         write_baseline(args.baseline, doc)
         print(f"[check_regression_baseline] baseline written: {_rel(args.baseline)} "
               f"({len(batch['order'])} scenarios, summary={batch['summary']})",

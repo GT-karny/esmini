@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:c83acf321d1de7a9 -->
+<!-- generated-from: sha256:43d1f61125136cd7 -->
 
-ノード 159・辺 151（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 160・辺 157（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -186,6 +186,7 @@ flowchart LR
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
+    n_gate_aeb_safety_regression["aeb-safety-regression"]
     n_gate_regression_gate["regression-gate"]
     n_gate_unit_ctest["unit-ctest"]
     n_gate_odr_conformance_quick["odr-conformance-quick"]
@@ -338,9 +339,15 @@ flowchart LR
   n_matcher_maintained_following_distance -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_stopped_at_signal -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_stopped_at_stop_sign -->|sustained-by| n_gate_vd_behavior_regression
+  n_matcher_impact_speed_below -->|sustained-by| n_gate_aeb_safety_regression
+  n_matcher_min_obb_separation_above -->|sustained-by| n_gate_aeb_safety_regression
+  n_matcher_no_emergency_without_conflict -->|sustained-by| n_gate_aeb_safety_regression
+  n_req_vd_ad_REQ_AD_001 -->|sustained-by| n_gate_aeb_safety_regression
+  n_req_vd_ad_REQ_AD_013 -->|sustained-by| n_gate_aeb_safety_regression
   n_gate_regression_gate -->|depends-on| n_gate_unit_ctest
   n_gate_regression_gate -->|depends-on| n_gate_odr_conformance_quick
   n_gate_regression_gate -->|depends-on| n_gate_vd_behavior_regression
+  n_gate_regression_gate -->|depends-on| n_gate_aeb_safety_regression
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_census
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_drift
   n_gate_odr_conformance_quick -->|depends-on| n_gate_resync_guards
@@ -424,7 +431,7 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (20)
+### depends-on (21)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -444,6 +451,7 @@ flowchart LR
 | `gate:regression-gate` | `gate:unit-ctest` | Step 1（ハード） |
 | `gate:regression-gate` | `gate:odr-conformance-quick` | Step 1.5（ハード、-SkipOdr で除外可） |
 | `gate:regression-gate` | `gate:vd-behavior-regression` | Step 2（既定 WARN、-FailOnBehavioral でハード化） |
+| `gate:regression-gate` | `gate:aeb-safety-regression` | Step 2.6（既定 WARN、-FailOnBehavioral でハード化、-SkipAeb で単独スキップ）。 Step 2 と同じ recipe（共有関数 Invoke-BehavioralBatch）を別マニフェスト・別ベースラインで回す。 |
 | `gate:odr-conformance-quick` | `gate:fork-census` | :1556-1558 はプロファイル分岐より前で無条件＝CI の schema-only 起動でも走る。 census/drift/resync-guards が「独立スクリプト」ではなく適合ハーネスに内包された 常設ゲートであることは、名前からは読めない事実。 |
 | `gate:odr-conformance-quick` | `gate:fork-drift` |  |
 | `gate:odr-conformance-quick` | `gate:resync-guards` |  |
@@ -472,7 +480,7 @@ flowchart LR
 | `matcher:stopped_at_signal` | `signal:traffic_light_state` | require_red サブチェックのみ OSI GroundTruth 経由（scene.traffic_lights[].color） ＝14 matcher 唯一の混在型。`--osi`/batch `osi: true` が無いと scene=None で skip。 |
 | `matcher:maintained_following_distance` | `signal:object_poses` | scene.objects[]（正規IF＝面1 OSI 直結の4件のうち1件） |
 | `matcher:maintained_following_distance` | `signal:ego_speed` | THW = gap / speed の分母 |
-| `matcher:min_separation_above` | `signal:object_poses` | 中心間ユークリッド距離。min_obb_separation_above に置換され現用資産では未使用（下記参照） |
+| `matcher:min_separation_above` | `signal:object_poses` | 中心間ユークリッド距離。**DEPRECATED（2026-07-21 判断）**: min_obb_separation_above の 厳密な劣位版であり、復活させる価値が無い。中心間距離は隣接レーン通過（中心間 ~2.8m）を 「接近」と誤読するのに対し OBB 版は車体が重ならないことを正しく安全と読む （vd_metrics.py:685-687 のコメント自身がこの移行理由を述べている）。参照資産0件（実測）。 **扱い＝新規資産で使わない・実装は当面残置**。実装削除は vd_metrics.py の変更＝ 本作業のスコープ外のため別コミットで行う（削除時は namespaces.yaml の matcher id_pattern と count:16 も同時に更新すること）。「保留」ではなく廃止確定であり、 デッド matcher を派生レポートが毎回「未配線」として再検出するのを止めるためこの note を根拠に置く。 |
 | `matcher:min_obb_separation_above` | `signal:obb_separation` | SAT による OBB 分離（隣接レーン通過での誤検出を避けるため中心間距離から移行） |
 | `matcher:impact_speed_below` | `signal:obb_separation` | OBB 接触判定と接近速度の組み合わせ |
 | `matcher:impact_speed_below` | `signal:object_poses` | 相手の位置・方位・速度 |
@@ -519,7 +527,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (6)
+### sustained-by (11)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -529,6 +537,11 @@ flowchart LR
 | `matcher:maintained_following_distance` | `gate:vd-behavior-regression` |  |
 | `matcher:stopped_at_signal` | `gate:vd-behavior-regression` | OSC拡張パース（TrafficSignalController系）の唯一の常設検出経路でもある |
 | `matcher:stopped_at_stop_sign` | `gate:vd-behavior-regression` |  |
+| `matcher:impact_speed_below` | `gate:aeb-safety-regression` | cutin_hard_brake（直進）。完全回避不能域での緩和＝閉じ速度 <= 10 m/s |
+| `matcher:min_obb_separation_above` | `gate:aeb-safety-regression` | cutin_hard_brake_curve の完全回避判定（0.5m）＋ benign_cutin のサニティ（20m）。 本 matcher は junction/crosswalk 系の手動マニフェストでも使われるが、 **常設で守られるのは AEB 経由のこの2用法のみ**。 |
+| `matcher:no_emergency_without_conflict` | `gate:aeb-safety-regression` | 負例3件（normal_following / benign_cutin / parallel_overtake）の主判定 |
+| `req-vd-ad:REQ-AD-001` | `gate:aeb-safety-regression` | 正例2シナリオ（直進=緩和 / カーブ=完全回避） |
+| `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
 
 ### upstream-candidate (6)
 

@@ -47,6 +47,28 @@
                INTENTIONAL behavior change, refresh the baseline with:
                  check_regression_baseline.py --batch-out <OutDir> --update
 
+      Step 2.6 - AEB safety batch (reported gate, skippable)
+               Same recipe as Step 2 (shared Invoke-BehavioralBatch) on a
+               SEPARATE manifest and baseline:
+
+                 python GT_esmini/scripts/verification/gt_sim_test.py batch \
+                     resources/xosc/verification/aeb_safety_batch.yaml \
+                     --out <AebOutDir>
+                 python scripts/check_regression_baseline.py \
+                     --batch-out <AebOutDir> --baseline <AebBaseline>
+
+               Covers the AEB safety tier in BOTH directions: REQ-AD-001
+               (mitigation on an unavoidable cut-in + hard brake) and REQ-AD-013
+               (no emergency braking when nothing is on a collision course).
+               Both directions matter -- gating on only one of them lets a
+               regression trade one for the other.
+
+               Kept apart from Step 2 so a red says WHICH claim broke, and so
+               Step 2's recorded known-red cannot mask an AEB regression.
+               Currently WARN by default like Step 2 (-FailOnBehavioral makes
+               both hard); the intent is to promote AEB to hard once it has a
+               few green runs on record.
+
 .PARAMETER Config
     Build configuration for Step 1 ctest. Default: Release.
 
@@ -69,6 +91,21 @@
     Committed per-scenario expectation baseline compared by
     scripts/check_regression_baseline.py. Default:
     GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml.
+
+.PARAMETER SkipAeb
+    Skip Step 2.6 (AEB safety batch) only, leaving Step 2 in place.
+
+.PARAMETER AebBatch
+    Path to the AEB safety batch manifest for Step 2.6. Default:
+    resources/xosc/verification/aeb_safety_batch.yaml.
+
+.PARAMETER AebOutDir
+    Output directory for Step 2.6 batch artifacts. Default:
+    test_results/regression/aeb_safety.
+
+.PARAMETER AebBaseline
+    Committed baseline for Step 2.6. Default:
+    GT_esmini/test/regression_baseline/aeb_safety_expected.yaml.
 
 .PARAMETER TelemetryGolden
     OPTIONAL (P6 S0 oracle; default OFF keeps the gate byte-compatible). After
@@ -111,6 +148,10 @@ param(
     [string]$Batch = "resources/xosc/verification/car_following_traffic_control_batch.yaml",
     [string]$OutDir = "test_results/regression/car_following_traffic_control",
     [string]$Baseline = "GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml",
+    [switch]$SkipAeb,
+    [string]$AebBatch = "resources/xosc/verification/aeb_safety_batch.yaml",
+    [string]$AebOutDir = "test_results/regression/aeb_safety",
+    [string]$AebBaseline = "GT_esmini/test/regression_baseline/aeb_safety_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -123,6 +164,73 @@ function Resolve-RepoPath([string]$p) {
 }
 
 $overallOk = $true
+
+# ----------------------------------------------------------------------------
+# Shared behavioral-batch runner (Steps 2 and 2.6)
+#
+# Runs a gt_sim_test batch manifest, then compares the per-scenario /
+# per-matcher verdict against a COMMITTED baseline. Returns $true when the step
+# should be treated as passing, $false when it must fail the gate.
+#
+# The batch's own exit code is deliberately NOT the verdict: gt_sim_test exits 1
+# whenever overall=fail, which some batches do BY DESIGN (a discriminating case
+# recorded as a known red in the baseline). The DEVIATION vs baseline is the gate.
+# ----------------------------------------------------------------------------
+function Invoke-BehavioralBatch {
+    param(
+        [string]$Label,
+        [string]$BatchPath,
+        [string]$OutPath,
+        [string]$BaselinePath,
+        [string]$PyExe,
+        [string]$Harness,
+        [string]$DllPath
+    )
+
+    $argList = @($Harness, "batch", $BatchPath, "--out", $OutPath)
+    if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $DllPath) }
+    Write-Host "${Label}: $PyExe $($argList -join ' ')" -ForegroundColor Cyan
+    & $PyExe @argList
+
+    $verdictFile = Join-Path $OutPath "batch_verdict.json"
+    $verdictText = "(no batch_verdict.json)"
+    if (Test-Path $verdictFile) {
+        try {
+            $v = Get-Content $verdictFile -Raw | ConvertFrom-Json
+            $s = $v.summary
+            $verdictText = "overall=$($v.overall) (pass=$($s.pass) fail=$($s.fail) needs-review=$($s.'needs-review') error=$($s.error))"
+        } catch { $verdictText = "(could not parse batch_verdict.json)" }
+    }
+
+    # Exit 0 = no deviation, 1 = deviation(s), 2 = setup error (baseline or
+    # batch output missing). Writes <OutPath>/regression_report.md.
+    $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
+    $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath)
+    Write-Host "${Label}: $PyExe $($regArgs -join ' ')" -ForegroundColor Cyan
+    & $PyExe @regArgs
+    $reg = $LASTEXITCODE
+
+    if ($reg -eq 0) {
+        Write-Host "${Label}: PASS (no per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Green
+        return $true
+    }
+
+    # Both the deviation case and the setup-error case are reported; they only
+    # fail the gate under -FailOnBehavioral (never silently pass).
+    $what = if ($reg -eq 2) { "regression-check setup error" } else { "per-scenario deviation vs baseline" }
+    if ($FailOnBehavioral) {
+        Write-Host "${Label}: FAIL ($what)  $verdictText" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "${Label}: WARN ($what, not gating)  $verdictText" -ForegroundColor Yellow
+    if ($reg -ne 2) {
+        Write-Host "    Report: $(Join-Path $OutPath 'regression_report.md')" -ForegroundColor Yellow
+        Write-Host "    Pass -FailOnBehavioral to make this fail the gate." -ForegroundColor Yellow
+        Write-Host "    If the change is intentional, refresh the baseline:" -ForegroundColor Yellow
+        Write-Host "      $PyExe $checker --batch-out $OutPath --baseline $BaselinePath --update" -ForegroundColor Yellow
+    }
+    return $true
+}
 
 # ----------------------------------------------------------------------------
 # Step 1 - Unit + integration tests (HARD gate)
@@ -183,28 +291,32 @@ if ($SkipOdr) {
 # ----------------------------------------------------------------------------
 # Step 2 - VirtualDriver behavioral batch (reported gate, skippable)
 # ----------------------------------------------------------------------------
+# Shared prerequisites for Steps 2 / 2.6. Resolved once, OUTSIDE the step
+# bodies, so Step 2.6 does not depend on Step 2 having run (a -SkipBehavioral
+# run would otherwise leave $pyExe/$dllPath undefined and Test-Path would throw
+# under $ErrorActionPreference = "Stop").
+#
+# Verification venv python: prefer the documented DriverScript venv (has
+# pyyaml+osi3+matplotlib), fall back to the web venv.
+$pyExe = $Python
+if ([string]::IsNullOrWhiteSpace($pyExe)) {
+    foreach ($cand in @("DriverScript/.venv/Scripts/python.exe",
+                        "GT_esmini/web/.venv/Scripts/python.exe")) {
+        $full = Resolve-RepoPath $cand
+        if (Test-Path $full) { $pyExe = $full; break }
+    }
+}
+$dllPath = Resolve-RepoPath "build/GT_esmini/$Config/GT_esminiLib.dll"
+if (-not [string]::IsNullOrWhiteSpace($Dll)) { $dllPath = Resolve-RepoPath $Dll }
+$harness = Resolve-RepoPath "GT_esmini/scripts/verification/gt_sim_test.py"
+
 if ($SkipBehavioral) {
     Write-Host "==== Step 2/2: VirtualDriver behavioral batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
 } else {
     Write-Host "==== Step 2/2: VirtualDriver behavioral batch (gt_sim_test) ====" -ForegroundColor Cyan
 
-    # Resolve the verification venv python: prefer the documented DriverScript
-    # venv (has pyyaml+osi3+matplotlib), fall back to the web venv.
-    $pyExe = $Python
-    if ([string]::IsNullOrWhiteSpace($pyExe)) {
-        foreach ($cand in @("DriverScript/.venv/Scripts/python.exe",
-                            "GT_esmini/web/.venv/Scripts/python.exe")) {
-            $full = Resolve-RepoPath $cand
-            if (Test-Path $full) { $pyExe = $full; break }
-        }
-    }
-
-    $dllPath = Resolve-RepoPath "build/GT_esmini/$Config/GT_esminiLib.dll"
-    if (-not [string]::IsNullOrWhiteSpace($Dll)) { $dllPath = Resolve-RepoPath $Dll }
-
     $batchPath = Resolve-RepoPath $Batch
     $outPath = Resolve-RepoPath $OutDir
-    $harness = Resolve-RepoPath "GT_esmini/scripts/verification/gt_sim_test.py"
 
     $missing = @()
     if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
@@ -220,57 +332,56 @@ if ($SkipBehavioral) {
         foreach ($m in $missing) { Write-Host "    - $m" -ForegroundColor Yellow }
         Write-Host "    (build Release, or pass -SkipBehavioral / -Python / -Dll)" -ForegroundColor Yellow
     } else {
-        $argList = @($harness, "batch", $batchPath, "--out", $outPath)
-        if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $dllPath) }
-        Write-Host "Step 2: $pyExe $($argList -join ' ')" -ForegroundColor Cyan
-        & $pyExe @argList
-        # NOTE: gt_sim_test batch exits 1 whenever overall=fail, which the phase3
-        # batch does BY DESIGN (a couple of discriminating cases fail at the
-        # current stage). So the batch exit code is deliberately NOT the gate --
-        # the per-scenario baseline comparison below is.
-
-        $verdictFile = Join-Path $outPath "batch_verdict.json"
-        $verdictText = "(no batch_verdict.json)"
-        if (Test-Path $verdictFile) {
-            try {
-                $v = Get-Content $verdictFile -Raw | ConvertFrom-Json
-                $s = $v.summary
-                $verdictText = "overall=$($v.overall) (pass=$($s.pass) fail=$($s.fail) needs-review=$($s.'needs-review') error=$($s.error))"
-            } catch { $verdictText = "(could not parse batch_verdict.json)" }
+        # Steps 2 and 2.6 run the identical batch -> baseline-compare recipe on
+        # different manifests, so it lives in one function (Invoke-BehavioralBatch,
+        # defined above) instead of being duplicated per step.
+        if (-not (Invoke-BehavioralBatch -Label "Step 2" -BatchPath $batchPath -OutPath $outPath -BaselinePath (Resolve-RepoPath $Baseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
         }
+    }
+}
 
-        # Per-scenario / per-matcher regression comparison vs the committed
-        # baseline. Exit 0 = no deviation, 1 = deviation(s), 2 = setup error
-        # (baseline or batch output missing). Writes <OutDir>/regression_report.md.
-        $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
-        $baselinePath = Resolve-RepoPath $Baseline
-        $regArgs = @($checker, "--batch-out", $outPath, "--baseline", $baselinePath)
-        Write-Host "Step 2: $pyExe $($regArgs -join ' ')" -ForegroundColor Cyan
-        & $pyExe @regArgs
-        $reg = $LASTEXITCODE
+# ----------------------------------------------------------------------------
+# Step 2.6 - AEB safety batch (reported gate, skippable)
+#
+# WHY A SEPARATE STEP AND NOT MORE SCENARIOS IN STEP 2:
+# the two batches answer different questions and are read by different people
+# when they go red. Step 2 = traffic-policy behaviour (signals / signs / lead
+# car); Step 2.6 = the AEB safety tier (REQ-AD-001 mitigation + REQ-AD-013
+# misfire suppression). Separate manifests + separate baselines mean a red tells
+# you WHICH claim broke without opening the report. It also keeps the existing
+# baseline (which carries a known, recorded red) from masking an AEB regression.
+#
+# Before this step existed, NO matcher judging AEB ran in any always-on gate:
+# AEB was implemented, unit-green and OSI-wired, yet a regression in it would
+# have reached master unnoticed (capability_model.md §5.1).
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.6: AEB safety batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipAeb) {
+    Write-Host "==== Step 2.6: AEB safety batch - SKIPPED (-SkipAeb) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.6: AEB safety batch (gt_sim_test) ====" -ForegroundColor Cyan
 
-        if ($reg -eq 0) {
-            Write-Host "Step 2: PASS (no per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Green
-        } elseif ($reg -eq 2) {
-            # baseline / batch output missing -> setup problem: report, gate only
-            # under -FailOnBehavioral (never silently pass).
-            if ($FailOnBehavioral) {
-                Write-Host "Step 2: FAIL (regression-check setup error)  $verdictText" -ForegroundColor Red
-                $overallOk = $false
-            } else {
-                Write-Host "Step 2: WARN (regression-check setup error, not gating)  $verdictText" -ForegroundColor Yellow
-            }
-        } else {
-            if ($FailOnBehavioral) {
-                Write-Host "Step 2: FAIL (per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Red
-                $overallOk = $false
-            } else {
-                Write-Host "Step 2: WARN (per-scenario deviation vs baseline, not gating)  $verdictText" -ForegroundColor Yellow
-                Write-Host "    Report: $(Join-Path $outPath 'regression_report.md')" -ForegroundColor Yellow
-                Write-Host "    Pass -FailOnBehavioral to make this fail the gate." -ForegroundColor Yellow
-                Write-Host "    If the change is intentional, refresh the baseline:" -ForegroundColor Yellow
-                Write-Host "      $pyExe $checker --batch-out $outPath --update" -ForegroundColor Yellow
-            }
+    # Same prerequisites as Step 2 (venv + Release DLL); reuse its resolution.
+    $aebBatchPath = Resolve-RepoPath $AebBatch
+    $aebOutPath = Resolve-RepoPath $AebOutDir
+
+    $aebMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $aebMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $aebMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $aebBatchPath)) { $aebMissing += "batch manifest $aebBatchPath" }
+
+    if ($aebMissing.Count -gt 0) {
+        Write-Host "Step 2.6: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $aebMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.6" -BatchPath $aebBatchPath -OutPath $aebOutPath -BaselinePath (Resolve-RepoPath $AebBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
         }
     }
 }

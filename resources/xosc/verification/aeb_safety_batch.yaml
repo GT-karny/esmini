@@ -1,0 +1,64 @@
+name: aeb_safety
+origin: vd-func:FUNC-001 / req-vd-ad:REQ-AD-001,REQ-AD-013   # 由来はメタデータ。名前には工程・採番を焼き込まない — capability_model.md §7.1 規約2/4
+# AEB（safety tier）の常設回帰バッチ — 正例（REQ-AD-001）と SOTIF 負例（REQ-AD-013）を1本に統合。
+#
+# 【なぜ1本なのか】
+# AEB は「衝突を緩和する」と「衝突コースが無いのに発火しない」が対で初めて主張になる。
+# 片方だけを回帰に載せると、他方を犠牲にする退行（例: 閾値を下げて正例を通し負例を壊す）が
+# ゲートを素通りする。正負を同一マニフェスト・同一ベースラインに置くことで、その取引を
+# per-matcher 照合が必ず捕まえる。
+#
+# 【前身】
+# 07_aeb_batch.yaml（正例2）と 07_aeb_negative_batch.yaml（負例3）を統合し置き換えたもの
+# （2026-07-21）。旧名は数字接頭辞＝命名規約4（不透明な採番）違反でもあった。
+# シナリオ・expectations・policies は一切変更しておらず、束ね方だけを変えている。
+#
+# 【常設ゲートとしての位置づけ】
+# gate:aeb-safety-regression（gate_catalog.yaml）。scripts/run_regression_gate.ps1 の Step 2.6 が
+# これを回し、GT_esmini/test/regression_baseline/aeb_safety_expected.yaml と per-scenario /
+# per-matcher で照合する（バッチ自身の overall はゲートではない — Step 2 と同じ規約）。
+# 本バッチ以前、AEB を判定する matcher は常設ゲートに1件も乗っておらず、
+# 「実装済み・ユニット緑・OSI配線済みだが誰かが壊しても CI が気づかない」状態だった
+# （capability_model.md §5.1 の縦串の切れた列の最重要例）。
+#
+# osi:true -> gt_sim_test が OSI groundtruth scene を取り込む。min_obb_separation_above /
+# impact_speed_below は scene 依存（無いと skip される＝黙って緑になる）ため必須。
+# no_emergency_without_conflict は telemetry.jsonl の policy.constraints のみで判定可能だが、
+# バッチ内の一貫性とスナップショット取得のため osi は全シナリオで有効。
+#
+# baseline なし（`baseline:` キー）: 判定は captured scene + telemetry であって
+# Default コントローラとの位置等価ではない。
+#
+# Run:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/aeb_safety_batch.yaml --out test_results/web/aeb_safety
+defaults:
+  dt: 0.05
+  max_time: 22.0   # >= 最長 StopTrigger（cutin_hard_brake* = 20s）+ ~2s グレース。負例側は 13-14s で余裕内
+  snapshots: 3
+  osi: true
+scenarios:
+  # ---- 正例 / REQ-AD-001: カットイン+急制動する先行車への追突を抑止 ----
+  # 幾何軸: 直進 / カーブ（交差点は conflict 系と重複するため未着手）
+  # 直進は物理的に完全回避不能な域（要 ~1.38g）→ 受入は MITIGATION（衝突速度低減）。
+  # カーブは curvature 制限で回避可能域 → 受入は分離維持。この使い分けは意図的。
+  - scenario: resources/xosc/verification/07_aeb/cutin_hard_brake.xosc
+    expectations: resources/xosc/verification/07_aeb/cutin_hard_brake.expectations.yaml
+    policies: [lead, aeb]
+  - scenario: resources/xosc/verification/07_aeb/cutin_hard_brake_curve.xosc
+    expectations: resources/xosc/verification/07_aeb/cutin_hard_brake_curve.expectations.yaml
+    policies: [lead, aeb]
+  # ---- 負例（SOTIF ミラー）/ REQ-AD-013: 衝突コースが無ければ緊急制動を出さない ----
+  # 3件は AebSafety のパイプラインの別々の段で弾かれる設計:
+  #   normal_following  -> 候補には採用されるがゲート（TTC/a_req）が非発火
+  #   benign_cutin      -> 同一カットイン幾何で検知は正当に発火、ゲートだけが弾く（最強）
+  #   parallel_overtake -> 候補採用の入口（in_path / 侵入キュー）で弾かれゲートに到達しない
+  - scenario: resources/xosc/verification/07_aeb/normal_following.xosc
+    expectations: resources/xosc/verification/07_aeb/normal_following.expectations.yaml
+    policies: [lead, aeb]
+  - scenario: resources/xosc/verification/07_aeb/benign_cutin.xosc
+    expectations: resources/xosc/verification/07_aeb/benign_cutin.expectations.yaml
+    policies: [lead, aeb]
+  - scenario: resources/xosc/verification/07_aeb/parallel_overtake.xosc
+    expectations: resources/xosc/verification/07_aeb/parallel_overtake.expectations.yaml
+    policies: [lead, aeb]
