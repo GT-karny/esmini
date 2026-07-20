@@ -391,10 +391,10 @@ jobs:
           cmake --build build --config Release --target GT_esminiLib -j 2
 
   # F4 / V4 (audit tech_debt_audit_2026-06 sec 5): VirtualDriver behavioral batch
-  # regression gate. Runs gt_sim_test.py batch (phase3_batch.yaml) in-process via
+  # regression gate. Runs gt_sim_test.py batch (car_following_traffic_control_batch.yaml) in-process via
   # the GT C-API, then compares the per-scenario / per-matcher verdict against the
-  # COMMITTED baseline (GT_esmini/test/regression_baseline/phase3_expected.yaml)
-  # with scripts/check_phase3_regression.py, and uploads a Markdown report.
+  # COMMITTED baseline (GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml)
+  # with scripts/check_regression_baseline.py, and uploads a Markdown report.
   #
   # WHY WINDOWS (not the existing ubuntu test job): the in-process harness is
   # Windows-only as written. gt_lib.py hardcodes the DLL as
@@ -467,13 +467,13 @@ jobs:
       - name: Run VirtualDriver behavioral batch
         continue-on-error: true
         shell: bash
-        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/phase3_batch.yaml --out test_results/ci/phase3
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/car_following_traffic_control_batch.yaml --out test_results/ci/car_following_traffic_control
 
       - name: Compare vs committed baseline (per-scenario)
         id: regression
         continue-on-error: true
         shell: bash
-        run: python scripts/check_phase3_regression.py --batch-out test_results/ci/phase3 --baseline GT_esmini/test/regression_baseline/phase3_expected.yaml
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/car_following_traffic_control --baseline GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml
 
       - name: Upload regression report
         if: always()
@@ -481,9 +481,9 @@ jobs:
         with:
           name: vd-behavioral-regression-report
           path: |
-            test_results/ci/phase3/regression_report.md
-            test_results/ci/phase3/batch_verdict.json
-            test_results/ci/phase3/batch_summary.md
+            test_results/ci/car_following_traffic_control/regression_report.md
+            test_results/ci/car_following_traffic_control/batch_verdict.json
+            test_results/ci/car_following_traffic_control/batch_summary.md
           if-no-files-found: warn
 
   release:

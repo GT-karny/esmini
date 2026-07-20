@@ -1,4 +1,5 @@
-name: phase3e_junction_priority
+name: junction_priority
+origin: vd-phase:Phase3e
 # Phase 3e (F3) unsignalised-junction right-of-way verification batch.
 # The JunctionPriority layer inside ConflictPointResolver consumes the OpenDRIVE
 # <junction><priority high low> list (P5 side model, GetJunctionPriorities) to
@@ -24,7 +25,7 @@ name: phase3e_junction_priority
 #
 # Run:
 #   py GT_esmini/scripts/verification/gt_sim_test.py batch \
-#       resources/xosc/verification/phase3e_batch.yaml --out test_results/web/phase3e
+#       resources/xosc/verification/junction_priority_batch.yaml --out test_results/web/phase3e
 defaults:
   dt: 0.05
   max_time: 35.0

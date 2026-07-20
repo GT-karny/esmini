@@ -1,5 +1,5 @@
 {
- "batch": "resources/xosc/verification/phase3_batch.yaml",
+ "batch": "resources/xosc/verification/car_following_traffic_control_batch.yaml",
  "channels": {
   "h": [
    0.1457,

@@ -1,6 +1,6 @@
-manifest: resources/xosc/verification/phase3_batch.yaml
+manifest: resources/xosc/verification/car_following_traffic_control_batch.yaml
 note: Committed regression baseline for the VirtualDriver phase-3 behavioral batch. Compared per-scenario/per-matcher
-  by scripts/check_phase3_regression.py. Any deviation (new fail OR a known fail turning pass) fails the
+  by scripts/check_regression_baseline.py. Any deviation (new fail OR a known fail turning pass) fails the
   check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
   committing.
 expected_summary:

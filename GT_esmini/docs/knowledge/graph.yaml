@@ -745,33 +745,33 @@ edges:
     note: policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ）
 
   # ---- ⑥常設: matcher -> sustained-by -> gate（capability_model.md §5, フェーズ1） ----
-  # 常設ゲート gate:phase3-baseline（12シナリオ）が実際に発火させる matcher だけを引く。
-  # phase3_batch.yaml が参照する expectations を機械集計した結果＝6件（2026-07-20実測）。
+  # 常設ゲート gate:vd-behavior-regression（12シナリオ）が実際に発火させる matcher だけを引く。
+  # car_following_traffic_control_batch.yaml が参照する expectations を機械集計した結果＝6件（2026-07-20実測）。
   - from: matcher:speed_above
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: sustained-by
-    source: resources/xosc/verification/phase3_batch.yaml
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
   - from: matcher:speed_below
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: sustained-by
-    source: resources/xosc/verification/phase3_batch.yaml
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
   - from: matcher:min_speed_above
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: sustained-by
-    source: resources/xosc/verification/phase3_batch.yaml
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
   - from: matcher:maintained_following_distance
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: sustained-by
-    source: resources/xosc/verification/phase3_batch.yaml
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
   - from: matcher:stopped_at_signal
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: sustained-by
-    source: resources/xosc/verification/phase3_batch.yaml
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
     note: OSC拡張パース（TrafficSignalController系）の唯一の常設検出経路でもある
   - from: matcher:stopped_at_stop_sign
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: sustained-by
-    source: resources/xosc/verification/phase3_batch.yaml
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
 
   # ---- ゲート同士の構造（傘ラダーの構成） ----
   - from: gate:regression-gate
@@ -785,7 +785,7 @@ edges:
     source: scripts/run_regression_gate.ps1
     note: Step 1.5（ハード、-SkipOdr で除外可）
   - from: gate:regression-gate
-    to: gate:phase3-baseline
+    to: gate:vd-behavior-regression
     type: depends-on
     source: scripts/run_regression_gate.ps1
     note: Step 2（既定 WARN、-FailOnBehavioral でハード化）
@@ -841,6 +841,6 @@ edges:
   #   min_obb_separation_above / impact_speed_below / no_emergency_without_conflict /
   #   lane_keep / lane_change_count / deceleration_profile_smooth /
   #   speed_reduction_before_landmark / steer_not_saturated / no_constraint_kind
-  #   = 9件。使用先は phase3d/phase3e/07_aeb 等の**手動実行マニフェストのみ**。
+  #   = 9件。使用先は junction_conflict / junction_priority / 07_aeb 等の**手動実行マニフェストのみ**。
   #   AEB(REQ-AD-001家族)を判定する matcher が常設ゲートに1件も乗っていない。
   #   min_separation_above はどの資産からも参照されず（実測0件）＝実装のみのデッド matcher。

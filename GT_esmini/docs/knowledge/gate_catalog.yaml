@@ -56,7 +56,7 @@ gates:
     note: >-
       **名前が主張を偽装しているゲート**。covers を標的名から推測すると
       「OSC拡張パースはCI常設で厚い」という誤結論になる（実際の検出手段は
-      E2E の gate:phase3-baseline のみ）。root CLAUDE.md §5 の「25 unit sources」も
+      E2E の gate:vd-behavior-regression のみ）。root CLAUDE.md §5 の「25 unit sources」も
       実測28で陳腐化している（本カタログの数字が実測）。
 
   - id: integration-ctest
@@ -81,15 +81,15 @@ gates:
     requires: [release-build, venv]
     covers: >-
       Step 1 = gate:unit-ctest（ハード）／Step 1.5 = gate:odr-conformance-quick（ハード、
-      -SkipOdr で除外可）／Step 2 = gate:phase3-baseline（既定 WARN、-FailOnBehavioral で
+      -SkipOdr で除外可）／Step 2 = gate:vd-behavior-regression（既定 WARN、-FailOnBehavioral で
       ハード化）／Step 2.5 = gate:telemetry-golden（-TelemetryGolden 指定時のみ）。
     note: 傘ゲート。実質の検証内容は各サブゲートのノードを見ること。
 
-  - id: phase3-baseline
-    title: VirtualDriver 挙動回帰（phase3 バッチ vs committed baseline）
+  - id: vd-behavior-regression
+    title: VirtualDriver 挙動回帰（car_following_traffic_control バッチ vs committed baseline）
     command: >-
-      gt_sim_test.py batch resources/xosc/verification/phase3_batch.yaml →
-      scripts/check_phase3_regression.py --baseline GT_esmini/test/regression_baseline/phase3_expected.yaml
+      gt_sim_test.py batch resources/xosc/verification/car_following_traffic_control_batch.yaml →
+      scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml
     context: both  # local（regression-gate Step 2）＋ ci.yml Windows job（非ブロッキング）
     blocking: false
     requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード（ctypes）
@@ -98,7 +98,7 @@ gates:
       （バッチ自身の粗い overall=fail は意図的にゲートではない）。OSC拡張パース
       （TrafficSignalController系）の**唯一の検出手段**でもある — matcher:stopped_at_signal 経由。
     not_covers: >-
-      `check_phase3_regression.py` 自体は観測量を持たず `verdict.json` の event/status/detail を
+      `check_regression_baseline.py` 自体は観測量を持たず `verdict.json` の event/status/detail を
       読むだけ（:75-119）＝**判定根拠は完全に上流に従属**。baseline も matcher名＋status を
       凍結するのみで、面3→面2 直結（14 matcher中10）の実態を追認する構造（§2.3a）。
     note: 既定 WARN。逸脱でマージが止まるのは -FailOnBehavioral 指定時のみ。

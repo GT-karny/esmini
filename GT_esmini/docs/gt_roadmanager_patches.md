@@ -101,8 +101,8 @@
 
 ### 6.4 検証
 
-- 挙動フィクスチャ(受入 ii): `resources/xodr/straight_semantic_stop_sign.xodr`(`@type=9001`=de カタログ非在 + `<priority type="stopLine"/>`)+ `semantic_stop_sign_full_stop.xosc/.expectations.yaml`。**red→green**: T1 実装前は VD が停止せず `stopped_at_stop_sign` = 0.00s で FAIL、実装後は 4.35s(カタログ版 `stop_sign_full_stop` と同値)で PASS。`phase3_batch.yaml` に 1 エントリ追加。
-- 不変性: `phase3_batch`(既存 10 件すべて verdict 一致 + 新規 1 件 PASS)/ `phase3d_crosswalk_batch`(scene 09 歩行者信号ゲート = 7 件すべて一致)。L3 正例: 新フィクスチャの OSI `traffic_sign` が `type=17`(STOP)を出力(GT_esminiLib SE_GetOSIGroundTruth 直接プローブで確認)。semantics 無しのカタログ未分類標識は `type=0` のまま(pre-P4 と一致)。
+- 挙動フィクスチャ(受入 ii): `resources/xodr/straight_semantic_stop_sign.xodr`(`@type=9001`=de カタログ非在 + `<priority type="stopLine"/>`)+ `semantic_stop_sign_full_stop.xosc/.expectations.yaml`。**red→green**: T1 実装前は VD が停止せず `stopped_at_stop_sign` = 0.00s で FAIL、実装後は 4.35s(カタログ版 `stop_sign_full_stop` と同値)で PASS。`car_following_traffic_control_batch.yaml` に 1 エントリ追加。
+- 不変性: `car_following_traffic_control_batch`(既存 10 件すべて verdict 一致 + 新規 1 件 PASS)/ `crosswalk_pedestrian_batch`(scene 09 歩行者信号ゲート = 7 件すべて一致)。L3 正例: 新フィクスチャの OSI `traffic_sign` が `type=17`(STOP)を出力(GT_esminiLib SE_GetOSIGroundTruth 直接プローブで確認)。semantics 無しのカタログ未分類標識は `type=0` のまま(pre-P4 と一致)。
 - ゲート: `test_ScenarioReaderParsing` 緑 / `check_fork_drift.py --expect-odr-lines 62` 緑 / conformance `--profile full` = 214P/13XF/0F/0XPASS(OSI ゴールデン変化 0)。
 
 ## 7. 第2種(in-place core edits)マニフェスト — P6 virtual junction

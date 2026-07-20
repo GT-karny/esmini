@@ -31,7 +31,7 @@ USAGE
            defaults are tight. Exit nonzero on any FAIL or missing golden.
 
   Default --label is derived from the batch file stem with a trailing '_batch' stripped
-  (phase3_batch.yaml -> phase3, catalog_batch.yaml -> catalog).
+  (car_following_traffic_control_batch.yaml -> phase3, catalog_batch.yaml -> catalog).
 
 SAME-BUILD NOISE FLOOR (measured 2026-07-04, post-P5 Release build)
 -------------------------------------------------------------------

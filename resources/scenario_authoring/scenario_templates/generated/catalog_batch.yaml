@@ -4,7 +4,7 @@
 #   DriverScript/.venv/Scripts/python.exe \
 #       resources/scenario_authoring/scenario_templates/build_manifest.py
 #
-# Format = the phase3_batch.yaml schema consumed by gt_sim_test.batch().
+# Format = the car_following_traffic_control_batch.yaml schema consumed by gt_sim_test.batch().
 # evaluation is annotation (human), so NO expectations/baseline are emitted:
 # the batch yields telemetry + snapshots; verdict is null/absent by design.
 name: scenario_authoring_catalog

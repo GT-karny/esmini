@@ -219,12 +219,12 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 >   その結果は `roadmanager::TrafficLight` → OSI `traffic_light`（`GT_OSIReporter_Traffic.cpp:254-264`）に
 >   出るので④は非該当ではない。一方 ctest `test_ScenarioReaderParsing` は名前に反し
 >   **現行パース対象を一切カバーせず** `VehicleLightBridge`/`ScenarioLightRegistry` の残置テストのみ
->   ＝「CI常設で厚い」は**空振り**。唯一の検出手段は E2E(phase3_batch)。
+>   ＝「CI常設で厚い」は**空振り**。唯一の検出手段は E2E(car_following_traffic_control_batch)。
 
 - **VD自動運転挙動**: ① `req-vd-ad`(12, ただし7機能分のみ) ② `scene`(18)＋`scenario-variant`(56)＋
   `policy`(xosc/verification) だが coverage=partial/none 多数 ③ `vd-func`(48)/`policy`(6)。
   横に **B1-B6（ミッション/マニューバ発起/意図伝達/縮退/予測/SOTIF）が空白** ④ `vd_metrics` frame
-  (speed/accel/jerk/s) ＋ OSI GT(OBB) ⑤ `matcher`(14) ⑥ regression baseline(`phase3_expected.yaml`,
+  (speed/accel/jerk/s) ＋ OSI GT(OBB) ⑤ `matcher`(14) ⑥ regression baseline(`car_following_traffic_control_expected.yaml`,
   非ブロッキング)。→ 列は最も厚いが横の穴と④⑥の薄さ。
 - **ManualDrive**: ③ SDL2/FFB/IndicatorFSM 実装済 ④ HVD 出力(inputs/powertrain/ADAS) ⑤ 単体テスト
   AutoIndicator/PIDPurePursuit はあるが「FFB忠実度」等の主張matcherは無 ⑥ 単体ゲート一部。①主張が
@@ -264,7 +264,7 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 - **OpenSCENARIO拡張パース**: ④ 現行パース対象＝TrafficSignalController系のみで、結果は OSI
   `traffic_light` に出る（上記訂正参照）＝非該当ではなく ◐。⑤⑥ `test_ScenarioReaderParsing` は
   **現行パース対象を検証していない**（`VehicleLightBridge`/`ScenarioLightRegistry` の残置テストのみ）
-  ＝「CI常設で厚い」は空振り。検出は E2E(`phase3_batch.yaml` → matcher `stopped_at_signal`)のみ。
+  ＝「CI常設で厚い」は空振り。検出は E2E(`car_following_traffic_control_batch.yaml` → matcher `stopped_at_signal`)のみ。
   → **ctest 名と実内容の乖離は単独で actionable**（名前が主張を偽装している）。
 - **RoadManager LHT / ODR** ← **最強スパイン＝手本**: ① `odr-cluster`(#0-22)/`odr-pending`
   ② `odr_fixtures`＋roadgen ③ フォークパッチ ⑤ conformance harness(schema/RM/OSI 3層)
@@ -384,7 +384,7 @@ UNAVAILABLE（config で無効）** の3値＝「AEBは見張っていて撃た�
 `gt.aeb` が `name=AUTOMATIC_EMERGENCY_BRAKING` で ACTIVE 20フレーム、`custom_detail` に
 `ttc_s=0.661 / a_req_mps2=13.611 / gap_m=11.884 / triggered=true`。無効な4 policy は UNAVAILABLE、
 `gt.virtual_driver` は全1200フレーム ACTIVE。**＝AEB の作動が初めて OSI 越しに観測可能になった。**
-ゲート: ユニット PASS（新規17テスト）／ODR quick PASS=306 FAIL=0 XPASS=0／phase3 ベースライン照合
+ゲート: ユニット PASS（新規17テスト）／ODR quick PASS=306 FAIL=0 XPASS=0／car_following_traffic_control ベースライン照合
 **deviations=0（12シナリオ）**＝ telemetry JSON へのフィールド追加は後方互換と実測確認。
 
 ##### 残る債務（本作業で意図的に触っていない）
@@ -548,9 +548,9 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 - OSI 側4件はいずれも `frame["scene"]`（`_gt_to_scene` が埋める）依存で、
   **`--osi` / batch `osi: true` が無いと None → matcher は skip**（`vd_metrics.py:611-613,660-662`）
   ＝ **正規IF側は「条件付きでしか効かない」**。
-- `check_phase3_regression.py` 自体は観測量を持たず `verdict.json` の
+- `check_regression_baseline.py` 自体は観測量を持たず `verdict.json` の
   `event/status/detail` を読むだけ（`:75-119`）＝ **判定根拠は完全に上流に従属**。
-  `phase3_expected.yaml` も matcher 名＋status を凍結するのみで、面2依存の実態を追認する構造。
+  `car_following_traffic_control_expected.yaml` も matcher 名＋status を凍結するのみで、面2依存の実態を追認する構造。
 - トランスポートは2系統だがどちらも起点は面2: batch 経路は ctypes
   `GT_GetVirtualDriverTelemetry`（`gt_lib.py:220-228`）、Web ライブ表示は UDP 48202
   （`config.py:134` `VD_LISTEN_PORT`）。OSI は別途 UDP 48198。
@@ -638,7 +638,7 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 **`debug`**（どの面に届いているか）。これで「OSIにemit済みだが frame未投影」（pitch/roll型）が一目で分かる。
 **`debug` は §2.2 で追加**＝「観測できるが **verdict-trust の対象外**」（面2の内部を覗くデバッグ経路。
 他車予測の生データ等。判定に使うと面3→面2直結の結合負債になるため、lint で verdict 経路から除外する）。
-| `gate` | test-gate | 常設検証ゲート（回帰で恒久的に走る単位） | root `CLAUDE.md` §5 ＋ `scripts/` | unit / regression / phase3-baseline / odr-conformance / catalog / integration / fork-census / fork-drift / fork-sync / ci |
+| `gate` | test-gate | 常設検証ゲート（回帰で恒久的に走る単位） | root `CLAUDE.md` §5 ＋ `scripts/` | unit / regression / vd-behavior-regression / odr-conformance / catalog / integration / fork-census / fork-drift / fork-sync / ci |
 
 **`signal` と `matcher` の区別**: `signal`＝生の観測量（speed, pitch, OBB分離…）、
 `matcher`＝その量に閾値/窓を当てた判定（speed_above, min_obb_separation_above…）。
@@ -668,10 +668,10 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
   操舵指令。乗り換え先になるはずの `signal:hvd_steering_angle` が (b′) 誤配線のため、
   **面2直結の解消には先に(b′)修正が要る**という依存が辺で可視化された）／
   `no_constraint_kind`（`midlong.constraints[].kind`＝面2プランナ内部・OSI に受け皿なし）。
-- **`sustained-by` を引けなかった matcher 9種**: 常設ゲート `gate:phase3-baseline` が実際に
-  発火させるのは **16 matcher 中6件のみ**（phase3_batch.yaml の12シナリオ分 expectations を
+- **`sustained-by` を引けなかった matcher 9種**: 常設ゲート `gate:vd-behavior-regression` が実際に
+  発火させるのは **16 matcher 中6件のみ**（car_following_traffic_control_batch.yaml の12シナリオ分 expectations を
   機械集計、2026-07-20実測）。`min_obb_separation_above`・`impact_speed_below`・
-  `no_emergency_without_conflict` 等は phase3d/phase3e/07_aeb の**手動マニフェスト専用**＝
+  `no_emergency_without_conflict` 等は junction_conflict / junction_priority / 07_aeb の**手動マニフェスト専用**＝
   **AEB(REQ-AD-001家族)を判定する matcher が常設ゲートに1件も乗っていない**。
   さらに `min_separation_above` はどの資産からも参照されない（実測0件）**デッド matcher**。
 - **ゲート構造で判明した非自明**: `check_core_census` / `check_fork_drift` /
@@ -737,7 +737,7 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 その番号を使えなくなる。
 
 **規約2 — 恒久資産に工程名を付けない。**
-工程（一時的）と成果物（恒久的）は寿命が違う。`phase3_batch.yaml` が回すシナリオは Phase3 が
+工程（一時的）と成果物（恒久的）は寿命が違う。`car_following_traffic_control_batch.yaml` が回すシナリオは Phase3 が
 終わっても走り続ける。**成果物は内容・役割で命名し、由来はファイル内のメタデータ**
 （`origin: vd-phase:Phase3`）として持つ。名前に工程を焼き込まない。
 
@@ -748,7 +748,7 @@ root CLAUDE.md に「パースは常設で守られている」という誤り�
 
 **機械化（`spine-phase:Phase3`）**: 規約1 は commit-msg フックが hint 済み
 （`scripts/check_commit_kg_ids.py`）。恒久資産のファイル名に工程序数が入っていないかの
-lint は未実装＝Phase3 のスコープ。
+lint は未実装＝`spine-phase:Phase3` のスコープ。
 
 ## 8. 未決事項（レビューで詰める）
 

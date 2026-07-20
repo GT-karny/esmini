@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:363c721a644365cf -->
+<!-- generated-from: sha256:79e018329a3cd240 -->
 
 ノード 159・辺 151（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -185,7 +185,7 @@ flowchart LR
     n_signal_aeb_trigger_flag["aeb_trigger_flag"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
-    n_gate_phase3_baseline["phase3-baseline"]
+    n_gate_vd_behavior_regression["vd-behavior-regression"]
     n_gate_regression_gate["regression-gate"]
     n_gate_unit_ctest["unit-ctest"]
     n_gate_odr_conformance_quick["odr-conformance-quick"]
@@ -332,15 +332,15 @@ flowchart LR
   n_matcher_impact_speed_below -->|observes| n_signal_obb_separation
   n_matcher_impact_speed_below -->|observes| n_signal_object_poses
   n_matcher_no_emergency_without_conflict -->|observes| n_signal_aeb_trigger_flag
-  n_matcher_speed_above -->|sustained-by| n_gate_phase3_baseline
-  n_matcher_speed_below -->|sustained-by| n_gate_phase3_baseline
-  n_matcher_min_speed_above -->|sustained-by| n_gate_phase3_baseline
-  n_matcher_maintained_following_distance -->|sustained-by| n_gate_phase3_baseline
-  n_matcher_stopped_at_signal -->|sustained-by| n_gate_phase3_baseline
-  n_matcher_stopped_at_stop_sign -->|sustained-by| n_gate_phase3_baseline
+  n_matcher_speed_above -->|sustained-by| n_gate_vd_behavior_regression
+  n_matcher_speed_below -->|sustained-by| n_gate_vd_behavior_regression
+  n_matcher_min_speed_above -->|sustained-by| n_gate_vd_behavior_regression
+  n_matcher_maintained_following_distance -->|sustained-by| n_gate_vd_behavior_regression
+  n_matcher_stopped_at_signal -->|sustained-by| n_gate_vd_behavior_regression
+  n_matcher_stopped_at_stop_sign -->|sustained-by| n_gate_vd_behavior_regression
   n_gate_regression_gate -->|depends-on| n_gate_unit_ctest
   n_gate_regression_gate -->|depends-on| n_gate_odr_conformance_quick
-  n_gate_regression_gate -->|depends-on| n_gate_phase3_baseline
+  n_gate_regression_gate -->|depends-on| n_gate_vd_behavior_regression
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_census
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_drift
   n_gate_odr_conformance_quick -->|depends-on| n_gate_resync_guards
@@ -443,7 +443,7 @@ flowchart LR
 | `req-vd-ad:REQ-AD-013` | `proposal:P11` | 誤作動ゼロ判定に緊急制動発火メトリクスが必要 |
 | `gate:regression-gate` | `gate:unit-ctest` | Step 1（ハード） |
 | `gate:regression-gate` | `gate:odr-conformance-quick` | Step 1.5（ハード、-SkipOdr で除外可） |
-| `gate:regression-gate` | `gate:phase3-baseline` | Step 2（既定 WARN、-FailOnBehavioral でハード化） |
+| `gate:regression-gate` | `gate:vd-behavior-regression` | Step 2（既定 WARN、-FailOnBehavioral でハード化） |
 | `gate:odr-conformance-quick` | `gate:fork-census` | :1556-1558 はプロファイル分岐より前で無条件＝CI の schema-only 起動でも走る。 census/drift/resync-guards が「独立スクリプト」ではなく適合ハーネスに内包された 常設ゲートであることは、名前からは読めない事実。 |
 | `gate:odr-conformance-quick` | `gate:fork-drift` |  |
 | `gate:odr-conformance-quick` | `gate:resync-guards` |  |
@@ -523,12 +523,12 @@ flowchart LR
 
 | from | to | note |
 | :--- | :--- | :--- |
-| `matcher:speed_above` | `gate:phase3-baseline` |  |
-| `matcher:speed_below` | `gate:phase3-baseline` |  |
-| `matcher:min_speed_above` | `gate:phase3-baseline` |  |
-| `matcher:maintained_following_distance` | `gate:phase3-baseline` |  |
-| `matcher:stopped_at_signal` | `gate:phase3-baseline` | OSC拡張パース（TrafficSignalController系）の唯一の常設検出経路でもある |
-| `matcher:stopped_at_stop_sign` | `gate:phase3-baseline` |  |
+| `matcher:speed_above` | `gate:vd-behavior-regression` |  |
+| `matcher:speed_below` | `gate:vd-behavior-regression` |  |
+| `matcher:min_speed_above` | `gate:vd-behavior-regression` |  |
+| `matcher:maintained_following_distance` | `gate:vd-behavior-regression` |  |
+| `matcher:stopped_at_signal` | `gate:vd-behavior-regression` | OSC拡張パース（TrafficSignalController系）の唯一の常設検出経路でもある |
+| `matcher:stopped_at_stop_sign` | `gate:vd-behavior-regression` |  |
 
 ### upstream-candidate (6)
 

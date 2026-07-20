@@ -62,7 +62,7 @@ scenes:
     title: 対向車ギャップ判断
     summary: 右折（RHTでは左折）時の対向車待ち・ギャップ受容
     coverage: covered
-    coverage_note: 検証07（Phase3d本丸）、conflict policy（コリドー+OBB）
+    coverage_note: 検証07（vd-phase:Phase3d 本丸）、conflict policy（コリドー+OBB）
     layer: 1
 
   - id: SCN-007
@@ -86,7 +86,7 @@ scenes:
     title: 横断歩道・歩行者
     summary: 歩行者の横断/待機/飛び出し、信号付き横断歩道、スクールゾーン
     coverage: covered
-    coverage_note: 検証09・crosswalk policy（Phase3d crosswalk系バッチ）。飛び出しはS7層3
+    coverage_note: 検証09・crosswalk policy（crosswalk_pedestrian / crosswalk_crosspath バッチ）。飛び出しはS7層3
     layer: 1
 
   - id: SCN-010

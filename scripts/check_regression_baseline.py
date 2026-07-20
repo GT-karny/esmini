@@ -1,17 +1,17 @@
 #!/usr/bin/env python
-"""check_phase3_regression.py -- per-scenario/per-matcher regression gate for the
+"""check_regression_baseline.py -- per-scenario/per-matcher regression gate for the
 VirtualDriver behavioral batch (tech-debt roadmap F4 / V4).
 
 WHY (vs the raw batch exit code)
 --------------------------------
 `gt_sim_test.py batch` returns 0 for overall in {pass, needs-review} and 1 for
-overall=fail. But the phase-3 batch is *expected* to carry a couple of
+overall=fail. But the VD behavioral batch is *expected* to carry a couple of
 discriminating failures at the current development stage (e.g. red_stop_green_go
 and green_no_stop). Gating on the aggregate "any fail -> fail" would either
 always WARN (imprecise) or, if flipped to hard, block on a KNOWN state.
 
 This script compares the batch output to a COMMITTED baseline
-(GT_esmini/test/regression_baseline/phase3_expected.yaml) **per scenario and per
+(GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml) **per scenario and per
 matcher**. It flags a deviation in EITHER direction:
 
   * a scenario/matcher that was pass and is now fail  (a regression), AND
@@ -30,16 +30,16 @@ A gt_sim_test batch --out directory containing:
 USAGE
 -----
   # gate: compare an existing batch output against the committed baseline
-  check_phase3_regression.py --batch-out test_results/regression/phase3
+  check_regression_baseline.py --batch-out test_results/regression/car_following_traffic_control
 
   # refresh the baseline after an INTENTIONAL behavior change (review the diff!)
-  check_phase3_regression.py --batch-out test_results/regression/phase3 --update
+  check_regression_baseline.py --batch-out test_results/regression/car_following_traffic_control --update
 
   # override baseline / report location
-  check_phase3_regression.py --batch-out <dir> --baseline <yaml> --report <md>
+  check_regression_baseline.py --batch-out <dir> --baseline <yaml> --report <md>
 
 The last stdout line is machine-parseable:
-  PHASE3_REGRESSION result=PASS|FAIL deviations=N scenarios=N baseline=<path>
+  REGRESSION_BASELINE result=PASS|FAIL deviations=N scenarios=N baseline=<path>
 
 Runs on stdlib + pyyaml only (no osi3 / no DLL): it reads the JSON the batch
 already wrote. Run under DriverScript/.venv (pyyaml). The batch itself must have
@@ -55,8 +55,8 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BASELINE = REPO_ROOT / "GT_esmini" / "test" / "regression_baseline" / "phase3_expected.yaml"
-DEFAULT_MANIFEST = "resources/xosc/verification/phase3_batch.yaml"
+DEFAULT_BASELINE = REPO_ROOT / "GT_esmini" / "test" / "regression_baseline" / "car_following_traffic_control_expected.yaml"
+DEFAULT_MANIFEST = "resources/xosc/verification/car_following_traffic_control_batch.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +143,9 @@ def build_baseline_doc(batch: dict, manifest_hint: str | None = None) -> dict:
         }
     return {
         "manifest": manifest_hint or _norm_manifest(batch["manifest"]),
-        "note": ("Committed regression baseline for the VirtualDriver phase-3 behavioral "
+        "note": ("Committed regression baseline for the VirtualDriver behavioral "
                  "batch. Compared per-scenario/per-matcher by "
-                 "scripts/check_phase3_regression.py. Any deviation (new fail OR a known "
+                 "scripts/check_regression_baseline.py. Any deviation (new fail OR a known "
                  "fail turning pass) fails the check. Refresh ONLY after an intentional "
                  "behavior change, with --update, and review the diff before committing."),
         "expected_summary": dict(batch["summary"]),
@@ -349,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         batch = read_batch_output(batch_out)
     except FileNotFoundError as e:
-        print(f"[check_phase3] ERROR: {e}", file=sys.stderr)
+        print(f"[check_regression_baseline] ERROR: {e}", file=sys.stderr)
         return 2
 
     report_path = args.report or (batch_out / "regression_report.md")
@@ -357,20 +357,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.update:
         doc = build_baseline_doc(batch, args.manifest)
         write_baseline(args.baseline, doc)
-        print(f"[check_phase3] baseline written: {_rel(args.baseline)} "
+        print(f"[check_regression_baseline] baseline written: {_rel(args.baseline)} "
               f"({len(batch['order'])} scenarios, summary={batch['summary']})",
               file=sys.stderr)
         # still emit a report so the update is auditable
         rendered = render_report(doc, batch, [], args.baseline)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(rendered, encoding="utf-8")
-        print(f"PHASE3_REGRESSION result=UPDATED deviations=0 "
+        print(f"REGRESSION_BASELINE result=UPDATED deviations=0 "
               f"scenarios={len(batch['order'])} baseline={_rel(args.baseline)}")
         return 0
 
     if not args.baseline.is_file():
-        print(f"[check_phase3] ERROR: baseline not found: {args.baseline}\n"
-              f"    create it once with: check_phase3_regression.py --batch-out "
+        print(f"[check_regression_baseline] ERROR: baseline not found: {args.baseline}\n"
+              f"    create it once with: check_regression_baseline.py --batch-out "
               f"{_rel(batch_out)} --update", file=sys.stderr)
         return 2
     baseline = yaml.safe_load(args.baseline.read_text(encoding="utf-8")) or {}
@@ -381,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     report_path.write_text(rendered, encoding="utf-8")
 
     if devs:
-        print(f"[check_phase3] {len(devs)} DEVIATION(S) vs baseline "
+        print(f"[check_regression_baseline] {len(devs)} DEVIATION(S) vs baseline "
               f"{_rel(args.baseline)}:", file=sys.stderr)
         for d in devs:
             ev = f" {d['event']}" if d.get("event") else ""
@@ -389,11 +389,11 @@ def main(argv: list[str] | None = None) -> int:
                   f"(expected={d.get('expected')} actual={d.get('actual')})", file=sys.stderr)
         print(f"   report -> {report_path}", file=sys.stderr)
     else:
-        print(f"[check_phase3] no deviations vs baseline {_rel(args.baseline)} "
+        print(f"[check_regression_baseline] no deviations vs baseline {_rel(args.baseline)} "
               f"({len(batch['order'])} scenarios) -> {report_path}", file=sys.stderr)
 
     result = "PASS" if not devs else "FAIL"
-    print(f"PHASE3_REGRESSION result={result} deviations={len(devs)} "
+    print(f"REGRESSION_BASELINE result={result} deviations={len(devs)} "
           f"scenarios={len(batch['order'])} baseline={_rel(args.baseline)}")
     return 0 if not devs else 1
 

@@ -1,4 +1,5 @@
-name: phase3d_conflict
+name: junction_conflict
+origin: vd-phase:Phase3d
 # Phase 3d (F2) oncoming-yield / left-turn-across-traffic verification batch.
 # ConflictPointResolver (CORRIDOR space-time model) on the representative pair:
 #   p017 (14 m/s oncoming) -> YIELD  (ego crawls ~1.35 m/s, lets it pass, then turns)
@@ -20,7 +21,7 @@ name: phase3d_conflict
 #
 # Run:
 #   py GT_esmini/scripts/verification/gt_sim_test.py batch \
-#       resources/xosc/verification/phase3d_batch.yaml --out test_results/web/phase3d
+#       resources/xosc/verification/junction_conflict_batch.yaml --out test_results/web/phase3d
 defaults:
   dt: 0.05
   max_time: 35.0

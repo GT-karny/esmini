@@ -46,7 +46,7 @@ RED実装中の実証で判明した2点が設計を決める:
 3. **AebSafety policy**: 早期検知 + TTC/a_req トリガ + safety制約 emit。
 4. **config/flag**: `virtual_driver.json` に `policy_aeb_enabled`(default false) + `emergency_decel` / `aeb_ttc_threshold` 等。C++ `VirtualDriverConfig` の bool/double テーブルに追加。`gt_sim_test._POLICY_FLAG` と runner `_VD_POLICY_FLAG` に `aeb` を追加。`ControllerVirtualDriver` で `policy_aeb_enabled` ガード登録。
 5. **RED緑化**: `07_aeb_batch.yaml` を `policies:[lead, aeb]` にして **直進+カーブが PASS**（min_obb_separation_above > 0.5）。※避けられない域なら acceptance を mitigation（衝突速度低減）へ切替（REQ-AD-001 は両対応）。
-6. **negative/回帰**: REQ-AD-013 の誤作動シナリオ（通常追従・LC・併走で emergency 不発火）を追加し PASS。既存 `06_lead_vehicle/*`・`phase3_batch`・回帰baseline が **非回帰**。
+6. **negative/回帰**: REQ-AD-013 の誤作動シナリオ（通常追従・LC・併走で emergency 不発火）を追加し PASS。既存 `06_lead_vehicle/*`・`car_following_traffic_control_batch`・回帰baseline が **非回帰**。
 7. **GUI**: `VirtualDriverPanel` に AEB トグル + パラメータ（VD-GUI-PARITY, #33）。`virtual_driver_api` の known-keys に追加。
 8. **docs/KG**: [adas_axis.md](adas_axis.md) §7 修正、`vd-func:FUNC-001` を `status: built`、graph.yaml で policy(Aeb)→realizes→FUNC-001 の実装辺追加、`--render`。#34 を close。
 

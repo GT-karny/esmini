@@ -1,4 +1,5 @@
-name: phase3d_crosswalk_crosspath
+name: crosswalk_crosspath
+origin: vd-phase:Phase3d
 # P5 acceptance (ii): crossPath-synthesized-crosswalk variant of the phase3d crossing-stop case.
 # This is the ZERO-POLICY-DIFF proof that CrosswalkPedestrianAware picks up a crosswalk that was
 # SYNTHESIZED from a <crossPath> (OdrJunctionExtras.cpp) exactly like an authored <object
@@ -10,7 +11,7 @@ name: phase3d_crosswalk_crosspath
 # The VD MUST stop for the pedestrian at the synthesized crosswalk (speed_below/min_obb_separation
 # green). If it does not, debug the SYNTHESIS (footprint/pose), never the policy.
 #
-# This is a SEPARATE batch from phase3d_crosswalk_batch.yaml (the object-encoded invariance control);
+# This is a SEPARATE batch from crosswalk_pedestrian_batch.yaml (the object-encoded invariance control);
 # do NOT fold this scenario into that batch.
 #
 # osi: true + policies:[crosswalk] mirror the control batch (anti-collision gate needs the captured
@@ -18,7 +19,7 @@ name: phase3d_crosswalk_crosspath
 #
 # Run:
 #   py GT_esmini/scripts/verification/gt_sim_test.py batch \
-#       resources/xosc/verification/phase3d_crosswalk_crosspath_batch.yaml --out test_results/web/p5_crosspath
+#       resources/xosc/verification/crosswalk_crosspath_batch.yaml --out test_results/web/p5_crosspath
 defaults:
   dt: 0.05
   max_time: 40.0

@@ -14,7 +14,7 @@ category: 08_unsignalized_junction
 # (proceed here, deep-crawl yield in p004). And the feature is load-bearing, not
 # timing: the SAME scenario with policy_junction_priority OFF (conflict only) makes
 # this priority ego YIELD to a 1.35 m/s crawl — turning the flag on lifts the trough
-# to 10.91 m/s. See phase3e_batch.yaml.
+# to 10.91 m/s. See junction_priority_batch.yaml.
 must:
   - event: min_speed_above
     threshold: 8.0

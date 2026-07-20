@@ -74,7 +74,7 @@ DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render
 
 **第1段: シーンカタログ**（次セッションで着手）
 1. 対応すべき走行シチュエーションを列挙し `scene_catalog_vd_ad.yaml` にシーンノード（`scene:SCN-<nnn>`）として起こす。列挙の軸はOpenX傘構造3本 = 道路トポロジー × 環境条件 × 交通参加者/行動（P13のODD軸と同一基盤 → 後のカバレッジ計測に直結）
-2. シーン→`concerns`→OpenX概念で分類。既存資産との突合: 検証シナリオカテゴリ（01-09）、Phase3系バッチ、道路カタログのgeometry_type
+2. シーン→`concerns`→OpenX概念で分類。既存資産との突合: 検証シナリオカテゴリ（01-09）、検証バッチ（car_following_traffic_control / junction_conflict 等）、道路カタログのgeometry_type
 3. `namespaces.yaml` の `scene` を `status: active` へ
 
 **第2段: 要求導出**

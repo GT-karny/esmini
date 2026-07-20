@@ -23,7 +23,7 @@
                the GT C-API (GT_esminiLib.dll) and reports the verdict:
 
                  python GT_esmini/scripts/verification/gt_sim_test.py batch \
-                     resources/xosc/verification/phase3_batch.yaml \
+                     resources/xosc/verification/car_following_traffic_control_batch.yaml \
                      --out <OutDir>
 
                Step 2 REQUIRES a completed Release build: the harness loads
@@ -33,9 +33,9 @@
                the documented verification venv (verification_environment.md
                2.4.1); GT_esmini/web/.venv works too but lacks matplotlib.
 
-               The batch runs, then scripts/check_phase3_regression.py compares
+               The batch runs, then scripts/check_regression_baseline.py compares
                the per-scenario/per-matcher verdict against the COMMITTED baseline
-               (GT_esmini/test/regression_baseline/phase3_expected.yaml). This is
+               (GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml). This is
                PRECISE: the two discriminating cases that fail by design at the
                current stage are recorded in the baseline and do NOT trip the
                gate -- only a real DEVIATION (a new fail, or a known fail turning
@@ -45,7 +45,7 @@
                treated as a WARNING; use -FailOnBehavioral to make it fail the
                gate (recommended once Phase 3a-c is considered locked). After an
                INTENTIONAL behavior change, refresh the baseline with:
-                 check_phase3_regression.py --batch-out <OutDir> --update
+                 check_regression_baseline.py --batch-out <OutDir> --update
 
 .PARAMETER Config
     Build configuration for Step 1 ctest. Default: Release.
@@ -67,8 +67,8 @@
 
 .PARAMETER Baseline
     Committed per-scenario expectation baseline compared by
-    scripts/check_phase3_regression.py. Default:
-    GT_esmini/test/regression_baseline/phase3_expected.yaml.
+    scripts/check_regression_baseline.py. Default:
+    GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml.
 
 .PARAMETER TelemetryGolden
     OPTIONAL (P6 S0 oracle; default OFF keeps the gate byte-compatible). After
@@ -84,10 +84,10 @@
 
 .PARAMETER Batch
     Path to the gt_sim_test batch manifest. Default:
-    resources/xosc/verification/phase3_batch.yaml.
+    resources/xosc/verification/car_following_traffic_control_batch.yaml.
 
 .PARAMETER OutDir
-    Output directory for batch artifacts. Default: test_results/regression/phase3.
+    Output directory for batch artifacts. Default: test_results/regression/car_following_traffic_control.
 
 .PARAMETER Dll
     Optional GT_esminiLib.dll override passed to gt_sim_test (use when your build
@@ -108,9 +108,9 @@ param(
     [switch]$FailOnBehavioral,
     [switch]$TelemetryGolden,
     [string]$Python = "",
-    [string]$Batch = "resources/xosc/verification/phase3_batch.yaml",
-    [string]$OutDir = "test_results/regression/phase3",
-    [string]$Baseline = "GT_esmini/test/regression_baseline/phase3_expected.yaml",
+    [string]$Batch = "resources/xosc/verification/car_following_traffic_control_batch.yaml",
+    [string]$OutDir = "test_results/regression/car_following_traffic_control",
+    [string]$Baseline = "GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -242,7 +242,7 @@ if ($SkipBehavioral) {
         # Per-scenario / per-matcher regression comparison vs the committed
         # baseline. Exit 0 = no deviation, 1 = deviation(s), 2 = setup error
         # (baseline or batch output missing). Writes <OutDir>/regression_report.md.
-        $checker = Resolve-RepoPath "scripts/check_phase3_regression.py"
+        $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
         $baselinePath = Resolve-RepoPath $Baseline
         $regArgs = @($checker, "--batch-out", $outPath, "--baseline", $baselinePath)
         Write-Host "Step 2: $pyExe $($regArgs -join ' ')" -ForegroundColor Cyan

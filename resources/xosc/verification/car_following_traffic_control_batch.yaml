@@ -1,4 +1,5 @@
-name: phase3_policies
+name: car_following_traffic_control
+origin: vd-phase:Phase3   # 由来（工程）はメタデータ。名前には焼き込まない — capability_model.md §7.1 規約2
 # Phase 3 traffic-policy verification batch (03 signals / 04 signs / 06 lead car).
 # osi:true -> gt_sim_test captures the OSI groundtruth (objects + signal phase)
 # into telemetry.scene, which the stopped_at_signal (require_red) and
@@ -11,7 +12,7 @@ name: phase3_policies
 #
 # Run:
 #   py GT_esmini/scripts/verification/gt_sim_test.py batch \
-#       resources/xosc/verification/phase3_batch.yaml --out test_results/web/phase3
+#       resources/xosc/verification/car_following_traffic_control_batch.yaml --out test_results/web/phase3
 defaults:
   dt: 0.05
   max_time: 40.0

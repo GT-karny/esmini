@@ -131,7 +131,7 @@
 - **設計**: config/global_invariants.yaml(must[]と同語彙+新規collision_free/road_departure_free)を定義しbatchが全エントリへ自動マージ、verdict.jsonにinvariantsセクション分離出力。collision_freeはscene.jsonlのego対他車OBB交差判定(分離軸テスト)。run_regression_gate.ps1に-FailOnInvariant追加(behavioral WARN運用のままinvariant違反だけ硬いfailに格上げ)。
 - **Clean Core**: C++改変ゼロ。既存YAML評価系の拡張のみ。
 - **依存**: P11とa_req/加速度算出コードを共有(同時開発が効率的だがcollision_free単体なら独立着手可)。
-- **リスク**: phase3_batchは『ポリシー未実装段階で意図的にFAILする』設計のため、invariant既定セットを厳しくしすぎると開発中バッチが常時赤に。invariantは物理的絶対条件(衝突等)に限定し快適性系閾値は通常mustへ — 線引きを文書化。
+- **リスク**: car_following_traffic_control_batchは『ポリシー未実装段階で意図的にFAILする』設計のため、invariant既定セットを厳しくしすぎると開発中バッチが常時赤に。invariantは物理的絶対条件(衝突等)に限定し快適性系閾値は通常mustへ — 線引きを文書化。
 - **審査**: 「衝突検出が検証経路に存在しない」という欠落指摘は正確でF4運用開始前に入れる価値大 / 検証工場として恥ずかしい部類の欠落、P11と並ぶ評価基盤の二本柱 / OBB SATも後処理で完結しM妥当(S寄り)、P11と独立に出せる。
 
 ## P13 [6.3] ODDカバレッジ台帳(パラメータ空間×実行結果のカバレッジ計測と未検証ギャップ可視化) — M / high

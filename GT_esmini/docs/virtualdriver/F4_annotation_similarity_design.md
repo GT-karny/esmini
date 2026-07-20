@@ -12,7 +12,7 @@
 ## 1. 位置づけ
 
 F4 の本体（実装済み）は **決定論的な per-scenario/per-matcher 回帰ゲート**である
-（`scripts/check_phase3_regression.py` + `GT_esmini/test/regression_baseline/phase3_expected.yaml`）。
+（`scripts/check_regression_baseline.py` + `GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml`）。
 これは verification_environment.md §1 の「**単純系**（信号停止・標識・道路構造など決定論的領域）→ 数値比較 + YAML 宣言で自動判定」に対応する。
 
 本メモが扱うのはその対、すなわち「**複雑系**（交通流・対向車待ち・混合状況など判断が要る領域）→ シチュエーション生成 → 実行 → 人間アノテーション → ラベル付きデータセットで評価」の**自動化の構想**である。matcher（閾値宣言）では表現しきれない「人間が見て自然か」を、既存の**注釈済みデータセットとの類似度**で近似的に自動判定する。

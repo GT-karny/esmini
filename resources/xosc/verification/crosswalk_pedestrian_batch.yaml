@@ -1,4 +1,5 @@
-name: phase3d_crosswalk
+name: crosswalk_pedestrian
+origin: vd-phase:Phase3d
 # Phase 3d extension (F2) CrosswalkPedestrianAware verification batch.
 # VirtualDriver yields to pedestrians at OpenDRIVE crosswalk objects
 # (straight_crosswalk__mid, footprint s 248..252) — discriminator subset of the
@@ -25,7 +26,7 @@ name: phase3d_crosswalk
 #
 # Run:
 #   py GT_esmini/scripts/verification/gt_sim_test.py batch \
-#       resources/xosc/verification/phase3d_crosswalk_batch.yaml --out test_results/web/phase3d_crosswalk
+#       resources/xosc/verification/crosswalk_pedestrian_batch.yaml --out test_results/web/phase3d_crosswalk
 defaults:
   dt: 0.05
   max_time: 40.0

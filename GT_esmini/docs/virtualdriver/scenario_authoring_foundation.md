@@ -324,7 +324,7 @@ validate_catalog.py:
 
 | 接続先 | 方針 |
 | --- | --- |
-| **`gt_sim_test batch`** | 生成物 xosc を batch manifest（[既存 `phase3_batch.yaml` 形式]）に列挙。`generated/` 配下を glob して manifest を自動生成する薄いスクリプトを追加（`scenario_authoring/build_manifest.py`）。policies/osi フラグは meta.yaml の phase から導出可能。 |
+| **`gt_sim_test batch`** | 生成物 xosc を batch manifest（[既存 `car_following_traffic_control_batch.yaml` 形式]）に列挙。`generated/` 配下を glob して manifest を自動生成する薄いスクリプトを追加（`scenario_authoring/build_manifest.py`）。policies/osi フラグは meta.yaml の phase から導出可能。 |
 | **アノテーション UI** | 生成物の `catalog_id` を登録キーに。既存の新規 `api/annotation.py` / `services/annotation_store.py` / `VerificationAnnotatePage.tsx`（作業ツリーに未コミットで存在）と meta.yaml を接続。1 実行結果 = 1 catalog_id で紐付け。 |
 | **`expectations.yaml`** | **単純系（auto 評価）は生成器が expectations も同時生成**できる（landmark s, target_speed 等は生成パラメータから自明）。3d/3e は `annotation_required.yaml` を生成（何にラベルが要るかを宣言）。**自動生成を視野に入れる**が、層1の 3d/3e は評価=annotation なので expectations 自動生成の主戦場は層2の単純系。 |
 | **esmini 本家 既存 xodr/xosc** | **取り込む（流用）**: G1/G2/G5/G9/G10/G11/G12/G14 は既存資産で足りる（[§2.1](#21-道路類型geometry--signage--lanes)）→ road catalog から `road_ref` で参照するだけ。**生成対象は穴のみ**（T/Y/priority交差点）。既存の手書き検証 xosc（01〜06）は**正典として残す**、捨てない。 |
