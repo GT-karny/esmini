@@ -1,0 +1,8 @@
+{
+  "junctions.priority.no_signals": {
+    "status": "implemented_gt",
+    "reason": "Implements the advisory structural sub-case (PARTIAL_DETERMINISTIC): for a junction (@type \"default\" or \"virtual\", both schema-legal parents of <priority>) with >=1 <priority> child, flag if any participating road (connection/@incomingRoad, connection/@connectingRoad, and for virtual junctions also @mainRoad) carries a <signal @dynamic=\"yes\"> -- a fixed/static priority ordering co-existing with a dynamically time-varying right-of-way device (e.g. a traffic light) is a direct logical-consistency conflict. Residual left uncovered: whether the rule's unqualified \"signals\" also covers static signs is a genuine interpretive judgment the spec text does not resolve, and applying that broader reading as a hard test would directly contradict established, trusted GT authoring practice (static priority/yield signs routinely paired with an explicit <priority>). Validated: 0 exceptions over the full 208-file corpus, 0 flags in the official ASAM set, 0 flags anywhere in the wider corpus (genuinely traced -- no current GT fixture pairs a junction <priority> with a dynamic signal on a participating road, a legitimately rare co-occurrence). Positive/negative throwaway-fixture detection confirmed: fires when a junction has <priority> plus a participating-road signal with @dynamic=\"yes\", correctly suppressed when that signal is @dynamic=\"no\" (static) or when the junction has no <priority> element at all.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks"
+  }
+}

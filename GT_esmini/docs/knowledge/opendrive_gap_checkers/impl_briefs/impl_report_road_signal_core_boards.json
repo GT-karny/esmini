@@ -1,0 +1,14 @@
+{
+  "road.signal.dependency.multiple_dependency": {
+    "status": "implemented_gt",
+    "reason": "Re-examined per CHECK_LOGIC: <dependency> is maxOccurs='unbounded' minOccurs='0' at both XSD occurrence sites (t_road_signals_signal covering <signal>/<sign>, and t_road_signals_board covering <staticBoard>/<vmsBoard> -- OpenDRIVE_Signal.xsd lines 289 and 360). The rule text is a permissive 'may' cardinality statement already fully granted by the schema, so no schema-valid instance can violate it. Checker iterates every <signal>/<staticBoard>/<vmsBoard> for completeness/documentation but unconditionally passes -- verified 0 flags across the full 208-file corpus (0 official-set, 0 GT-authored) and confirmed via a throwaway fixture with 5+ <dependency> children on a <signal> plus a <staticBoard>/<vmsBoard> pair, which correctly produced 0 flags for this rule. Residual note: by design no positive-detection fixture can be constructed for this rule (that IS the finding) -- classification changed from the prior pass's gap_ambiguous because the pass/fail algorithm, though trivial, is complete and fully derived from XML/XSD structure alone.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks"
+  },
+  "road.signal.gantry.all_variable_boards_same_gantry": {
+    "status": "implemented_gt",
+    "reason": "Implements the deterministic structural sub-case only: for every top-level <vmsGroup>/<vmsBoardReference@signalId>, flags a dangling reference (signalId not found among top-level <signal id> elements) or a reference that resolves to a <signal> lacking a <vmsBoard> child (i.e. not actually a variable message board, so it cannot be a same-gantry VMS member). Validated clean on the full 208-file corpus (0 flags anywhere, 0 official-set -- no exceptions, all real vmsGroup/vmsBoardReference usage in this repo is well-formed) and confirmed firing correctly (2/2 expected flags: one dangling signalId, one non-vmsBoard signalId) plus silent on a valid-reference case via a throwaway in-memory fixture. Residual note (intentionally left uncovered, per brief): the 'actually co-located on one physical gantry' half of the rule -- same (road id, s) within some tolerance, or trusting the optional/free-text <reference elementType='object'> link -- requires an interpretive numeric-tolerance or optional-link-trust judgment call the spec text does not resolve, so it is NOT checked here.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks"
+  }
+}

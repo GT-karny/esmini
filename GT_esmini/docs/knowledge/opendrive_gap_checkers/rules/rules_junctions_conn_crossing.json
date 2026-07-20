@@ -1,0 +1,92 @@
+[
+  {
+    "rule_name": "junctions.connection.lane_change_one_con_road",
+    "category": "junctions.connection",
+    "version": "1.7.0",
+    "description": "By one connecting road with multiple &lt;laneLink&gt; elements for the connections between the lanes."
+  },
+  {
+    "rule_name": "junctions.connection.no_connecting_road_direct",
+    "category": "junctions.connection",
+    "version": "1.9.0",
+    "description": "The @connectingRoad attribute shall not be used for junctions with @type=\"direct\"."
+  },
+  {
+    "rule_name": "junctions.connection.no_lane_change_for_mult_con_roads",
+    "category": "junctions.connection",
+    "version": "1.7.0",
+    "description": "By multiple connecting roads, each with one &lt;laneLink&gt; element for the connection between two specific lanes. Lane changes within this junction are not possible."
+  },
+  {
+    "rule_name": "junctions.connection.smooth_fit",
+    "category": "junctions.connection",
+    "version": "1.9.0",
+    "description": "The linked lanes shall fit smoothly as described for roads (see Section 10.3, \"Road linkage\" )."
+  },
+  {
+    "rule_name": "junctions.crossing.only_one_high_prio",
+    "category": "junctions.crossing",
+    "version": "1.8.0",
+    "description": "Only one road defined by the @roadId attributes of the &lt;roadSection&gt; elements shall have high priority."
+  },
+  {
+    "rule_name": "junctions.crossing.only_road_sections",
+    "category": "junctions.crossing",
+    "version": "1.8.0",
+    "description": "Junctions with @type=\"crossing\" shall only have &lt;roadSection&gt; elements."
+  },
+  {
+    "rule_name": "junctions.crossing.s_start_end_coverage",
+    "category": "junctions.crossing",
+    "version": "1.8.0",
+    "description": "The values for the @sStart and @sEnd attributes of the &lt;roadSection&gt; elements shall at least cover the area where the roads overlap."
+  },
+  {
+    "rule_name": "junctions.priority.high_and_low_attr",
+    "category": "junctions.priority",
+    "version": "1.8.0",
+    "description": "&lt;priority&gt; elements shall be defined with a pair of one @high and one @low attribute."
+  },
+  {
+    "rule_name": "junctions.priority.no_signals",
+    "category": "junctions.priority",
+    "version": "1.7.0",
+    "description": "&lt;priority&gt; elements should only be used if there are no signals defined."
+  },
+  {
+    "rule_name": "junctions.cross_path.correct_junction_id",
+    "category": "junctions.cross_path",
+    "version": "1.8.0",
+    "description": "The @junction attribute shall contain the id of the junction to which a road belongs."
+  },
+  {
+    "rule_name": "junctions.cross_path.disregard_cross_road_evelation",
+    "category": "junctions.cross_path",
+    "version": "1.8.0",
+    "description": "The elevations of the crossing road defined by the @crossingRoad attribute of the &lt;crossPath&gt; element are disregarded."
+  },
+  {
+    "rule_name": "junctions.cross_path.lane_linkage",
+    "category": "junctions.cross_path",
+    "version": "1.8.0",
+    "description": "Start and end of the crossing road shall reach the linked lanes specified by the &lt;startLaneLink&gt; and &lt;endLaneLink&gt; elements."
+  },
+  {
+    "rule_name": "junctions.cross_path.only_connect_correct_type",
+    "category": "junctions.cross_path",
+    "version": "1.8.0",
+    "description": "Cross paths shall only connect lanes with @type=\"walking\" or @type=\"biking\"."
+  },
+  {
+    "rule_name": "junctions.cross_path.start_end_contained",
+    "category": "junctions.cross_path",
+    "version": "1.8.0",
+    "description": "The start and end points of the crossing road and its lanes shall be fully contained within the linked lanes specified by the &lt;startLaneLink&gt; and &lt;endLaneLink&gt; elements."
+  },
+  {
+    "rule_name": "junctions.cross_path.within_junction_area",
+    "category": "junctions.cross_path",
+    "version": "1.8.0",
+    "description": "Cross paths shall be within the area of a common junction or a virtual junction."
+  }
+]

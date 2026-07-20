@@ -1,0 +1,380 @@
+[
+  {
+    "group": "junctions_elev_virtual",
+    "rule": "junctions.virtual.connecting_roads_start_end",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "low",
+    "fix": "In _attach_s, collect ALL predecessor/successor s-values referencing mainRoad and pass if ANY is within TOL of sStart/sEnd (rule is 'either start OR end'), instead of returning only the first-matched link.",
+    "repro": "fp_connroads_both_ends.xodr: connecting road 2 is a lay-by that leaves mainRoad 1 at s=60 (predecessor, mid-span) and REJOINS at s=70 (successor = sEnd). Rule says 'either START or END at sStart or sE"
+  },
+  {
+    "group": "junctions_elev_virtual",
+    "rule": "junctions.virtual.main_road_only",
+    "observed": "gap_ambiguous",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add XML-only proxy: for type='virtual' junctions assert @mainRoad in road_ids (referential integrity, currently uncovered), and optionally that at least one <connection>'s connectingRoad/incomingRoad references @mainRoad; leave the priority-default semantics as non-checkable.",
+    "repro": "SILENTLY dropped: neither implemented nor classified in the module (docstring's structural list = @type/controller/cardinality/attach-point; geometry list = heading/lane-smooth/crossPath - main_road_o"
+  },
+  {
+    "group": "junctions_elev_virtual",
+    "rule": "junctions.virtual.only_one_start_end",
+    "observed": "implemented_gt",
+    "verdict": "MISENCODED",
+    "severity": "low",
+    "fix": "The literal rule is unfalsifiable in ElementTree; either classify as gap_ambiguous, or replace the whitespace-list proxy with a genuinely useful presence check (a type='virtual' junction must have exactly one parseable numeric @sStart and one @sEnd).",
+    "repro": "pos_start_end_list.xodr (@sStart='50 70') -> flags as a suspected list value. But the STATED rule ('there shall only be one @sStart and one @sEnd attribute') is about attribute cardinality, which XML "
+  },
+  {
+    "group": "junctions_elev_virtual",
+    "rule": "junctions.virtual.crossPath.cross_road_check_s_t",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add XML-only proxy: assert crossPath @crossingRoad/@roadAtStart/@roadAtEnd resolve to defined road_ids and that startLaneLink/endLaneLink @s lie within [0, road.length] of the referenced road; keep full s/t containment as geometry deferral.",
+    "repro": "Not implemented (docstring: 's/t containment of a crossing road ... gap_geometry_math'). The core 'shall not exceed s and t values' genuinely needs geometry, BUT the common real-world violation is XML"
+  },
+  {
+    "group": "junctions_core",
+    "rule": "junctions.boundary.segments_for_each_conn_road",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Implement a guarded partial check: when a junction has a <boundary>, require every connection @incomingRoad (and @linkedRoad for direct junctions) to appear as some <boundary><segment roadId=...>; do NOT include @connectingRoad. This catches 'forgot a segment for a connected approach road' with zero false positives on the official set (full 'reach start/end' still needs geometry, so keep it partial/advisory).",
+    "repro": "adv/junctions_core/probe2_result.txt + probe3_result.txt vs official UC_5Road_Junction.xodr (junction 1): the module's classification comment claims 'incomingRoad \"670\" never appears in a boundary seg"
+  },
+  {
+    "group": "junctions_conn_crossing",
+    "rule": "junctions.crossing.only_road_sections",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "Extend the crossing-junction blocklist from {connection,crossPath} to also include {boundary,elevationGrid} -- the remaining structural children that are legal only in t_junction_common and thus disallowed in t_junction_crossing.",
+    "repro": "ors_pos_conn.xodr / ors_pos_crosspath.xodr (crossing jct carrying <connection>/<crossPath>) -> flagged. ors_neg_priority.xodr (roadSection+priority+controller) -> correctly clean (those ARE XSD-legal "
+  },
+  {
+    "group": "junctions_conn_crossing",
+    "rule": "junctions.crossing.s_start_end_coverage",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a structural proxy: for each crossing-junction <roadSection>, flag when sStart>=sEnd (empty/inverted range), or sStart<0, or sEnd > @length of the road named by @roadId (roads[roadSection.@roadId].@length). Catches typo'd/out-of-bounds coverage without geometry math.",
+    "repro": "Full 'sStart/sEnd shall cover the area where roads overlap' needs geometry to locate the overlap region, so the pure rule is geometry. BUT a structural proxy catches the common degenerate/typo case wi"
+  },
+  {
+    "group": "junctions_conn_crossing",
+    "rule": "junctions.priority.no_signals",
+    "observed": "gap_ambiguous",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add advisory check: flag a junction that has >=1 <priority> element AND has >=1 <signal> defined on its participating roads (roads referenced by its connection/@incomingRoad and connection/@connectingRoad). Resolves the 'no signals defined' scope to the junction's own roads to avoid over-firing on unrelated file-wide signals.",
+    "repro": "Rule is a soft 'should' recommendation and its scope ('if there are no signals defined') is loosely worded, but it IS encodable as an advisory check given all flags are review-severity. A reasonable d"
+  },
+  {
+    "group": "road_geometry_linkage",
+    "rule": "road.linkage.both_sides_consistency",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "low",
+    "fix": "When matching the reciprocal link, mirror _link_target_kind's inference and treat missing @elementType as 'road': ok = be is not None and be.get('elementId')==rid and be.get('elementType') in (None,'road') (apply to both the 'expect' and mirror branches).",
+    "repro": "adv_both_sides.xodr road 70: road 70.successor->road 80(cp=end); road 80.successor DOES point back to 70 (elementId=70) but omits @elementType. Expected: reciprocity is satisfied -> no both_sides flag"
+  },
+  {
+    "group": "road_geometry_linkage",
+    "rule": "road.geometry.contact_point",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a partial XML-only proxy: for road A predecessor/successor->road B with contactPoint=start, compare A's boundary <geometry> (x,y) against B's first <geometry> (x,y) and flag divergence beyond tol. (End-contact still requires evaluating B's terminal geometry, so scope the proxy to contactPoint=start.)",
+    "repro": "adv_contact_point.xodr: road 1.predecessor->road 2 contactPoint=start; road 1 first-geometry begins at (0,0) but road 2 first-geometry begins at (999,999) — road 1's reference line does NOT begin at r"
+  },
+  {
+    "group": "road_geometry_linkage",
+    "rule": "road.geometry.refline_no_kinks",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a partial XML-only proxy: for each consecutive geometry pair where geom[i] is a <line>, compare geom[i].@hdg with geom[i+1].@hdg (normalized modulo 2*pi) and flag a mismatch > tol as a kink.",
+    "repro": "adv_kinks.xodr: two contiguous <line> geometries, geom0 @hdg=0.0, geom1 @hdg=1.2 — a 1.2 rad heading discontinuity (kink) with NO positional gap (refline_no_gaps stays silent). A <line>'s end-heading "
+  },
+  {
+    "group": "junctions_direct_geometry",
+    "rule": "junctions.direct.road_connectivity",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "med",
+    "fix": "Also flag a direct junction whose varying (non-hub) side resolves to <2 distinct road ids -- including junctions with a single (incomingRoad,linkedRoad) connection -- to cover the currently-unimplemented 'multiple roads on the other side' clause.",
+    "repro": "f07_single_conn_1to1.xodr (junction id=302 type=direct with ONE connection incomingRoad=1 linkedRoad=2) -> expected: violates 'shall connect one road on one side with MULTIPLE roads on the other side'"
+  },
+  {
+    "group": "junctions_direct_geometry",
+    "rule": "junctions.direct.split_or_merge",
+    "observed": "implemented_gt",
+    "verdict": "MISENCODED",
+    "severity": "med",
+    "fix": "Reclassify as gap_geometry_math (true crossing-traffic detection needs lane geometry), OR stop asserting 'crossing traffic'/'Figure 92' on non-crossing multi-root topologies -- as implemented it only mirrors road_connectivity and cannot establish crossing.",
+    "repro": "f08_two_independent_splits.xodr (junction id=303 type=direct: road1->{2,3} AND road4->{5,6}, two independent splits, NO crossing traffic) -> module flags split_or_merge with detail asserting 'many-to-"
+  },
+  {
+    "group": "junctions_direct_geometry",
+    "rule": "junctions.geometry.correct_junction_boundry",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a structural sub-check flagging any junction that has a <boundary> but no <planView> reference line (the rule presupposes a ref line to cross the boundary); leave the actual crossing/tangency curve-polygon test as gap_geometry_math.",
+    "repro": "f16_boundary_no_refline.xodr (junction with <boundary> but no <planView> reference line) -- module does not implement this rule. The full crossing/tangency test IS geometry (gap correct), BUT a struct"
+  },
+  {
+    "group": "misc_header_ids",
+    "rule": "defaultRegulations.only_speed_priority",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "low",
+    "fix": "Add \"dataQuality\" to _META_TAGS so the whole g_additionalData group (dataQuality/include/userData) is skipped inside <semantics>.",
+    "repro": "r1_fp_dataquality.xodr: a <semantics> child <dataQuality> (a legal member of g_additionalData = dataQuality|include|userData, XSD OpenDRIVE_Core.xsd:523) is flagged as 'not speed/priority'. Expected: "
+  },
+  {
+    "group": "misc_header_ids",
+    "rule": "header.proj.max_one_proj",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "If the CDATA contains '+proj=pipeline', treat the subsequent '+proj=' as pipeline +step stages (single definition) and do not flag; only count multiple '+proj=' as multiple definitions when no pipeline is present.",
+    "repro": "r3_fp_pipeline.xodr: a single <geoReference> holding a valid PROJ pipeline CRS '+proj=pipeline +step +proj=unitconvert ... +step +proj=utm ...' contains three '+proj=' tokens but is ONE legal projecti"
+  },
+  {
+    "group": "misc_header_ids",
+    "rule": "ids.id_unique_in_class",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "Restrict file-global uniqueness to road/junction/junctionGroup/controller (drop object & signal), OR exempt id=\"0\" placeholders, OR scope object/signal uniqueness per-road.",
+    "repro": "The object (and signal) file-global-uniqueness sub-check fires on the OFFICIAL ASAM calibration set: GT_esmini/test/odr_fixtures/official/use_cases/UC_Junction/UC_5Road_Junction.xodr reuses object id="
+  },
+  {
+    "group": "misc_header_ids",
+    "rule": "ids.only_ref_defined_ids",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "med",
+    "fix": "Also validate connection @linkedRoad and junction @mainRoad (and @crossingRoad/@roadAtStart/@roadAtEnd) against road_ids.",
+    "repro": "r6_fn_linkedroad.xodr: a direct-junction <connection linkedRoad=\"99\"> (OpenDRIVE 1.7+, XSD t_junction_connection@linkedRoad, Junction.xsd:317) references an undefined road but is NOT flagged (module o"
+  },
+  {
+    "group": "road_elev_shape_type",
+    "rule": "road.type.create_new_type_in_parent",
+    "observed": "gap_ambiguous",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Optional lint: flag consecutive <type> elements within a road that are fully identical in @type+@country AND their <speed> child (@max/@unit) as a redundant type element; comparing the <speed> sub-element is required to avoid false positives on legitimate speed-limit-only changes at constant road type.",
+    "repro": "The literal forward rule (a road-type change MUST produce a new <type> element) is not violable in XML - an unrepresented change leaves no trace, so a violation cannot be constructed. HOWEVER a reason"
+  },
+  {
+    "group": "road_elev_shape_type",
+    "rule": "road.use_cases.shape_elements_start_right",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "Only flag an s-group that has >=2 shape entries whose minimum t >= 0 (a genuinely one-sided piecewise shape); exempt a single shape entry at t~=0 whose polynomial covers the full width, and soften the detail wording away from asserting the right edge is undefined.",
+    "repro": "POSITIVE adv/.../shape_start_right_pos.xodr (two s-groups, multi-anchor shapes entirely at t>=0): 2 flags -> correct, right side genuinely uncovered. FALSE POSITIVE on the legitimate single-anchor t=0"
+  },
+  {
+    "group": "road_lane_layer_link_section",
+    "rule": "road.lane.layer.lane_group_width_temporary",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "high",
+    "fix": "Use extent = sum(width) - laneOffset for the right group and sum(width) + laneOffset for the left group; skip a side that has no lanes; add tolerance; or reclassify gap_geometry_math (width polynomials vary along s, sampled only at section start).",
+    "repro": "adv/road_lane_layer_link_section/T2_width_FP_offset_sign.xodr: perm laneOffset a=-1, temp laneOffset a=+1, equal 3.0-wide right lane. Geometric right-edge extent = width-offset -> perm 4.0, temp 2.0 ("
+  },
+  {
+    "group": "road_lane_layer_link_section",
+    "rule": "road.lane.link.multiple_connections",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "Restrict to drivable lane types (reuse module's _DRIVING_LANE_TYPES) AND treat a lane that tapers to/from 0 at a section boundary as a legitimate lane begin/end -- e.g. only flag when the lane is 0-width across the WHOLE section yet declares a link; or classify gap_ambiguous (abrupt-vs-smooth split needs geometry/topology).",
+    "repro": "adv/road_lane_layer_link_section/T4_multiconn_FP_border_zero.xodr: a <border> lane (id=-2) with width identically 0 and predecessor+successor links -> 2 flags. Border/shoulder lanes routinely have 0 w"
+  },
+  {
+    "group": "road_lane_layer_link_section",
+    "rule": "road.lane.link.temporary_layer_section_link_permanent",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "Use the module's _DRIVING_LANE_TYPES for the drivable test; in _perm_reciprocal match the permanent lane's link entry by (layer=='temporary' AND id==lid) without also requiring the enclosing permanent lane's id to equal lid, so cross-layer renumbering is accepted.",
+    "repro": "adv/road_lane_layer_link_section/T3_templink_FN_exit_type.xodr: temporary drivable lane type='exit' (non-zero width, NO link to permanent) -> 0 flags. Rule says 'all drivable lanes' but code matches o"
+  },
+  {
+    "group": "road_lane_layer_link_section",
+    "rule": "road.lane_section.new_lanesec_link_temp_to_perm",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "In _cross_declared_on / _perm_cross_declared require the link entry's @layer to be the opposite layer (temp lane link with layer=='permanent', or perm lane link with layer=='temporary'); and check each boundary independently against whether a cross-layer link is actually declared AT that boundary, rather than checking both whenever any cross-link exists.",
+    "repro": "adv/road_lane_layer_link_section/T1_newls_FP_temp_to_temp_only.xodr: temp lane -1 carries predecessor+successor BOTH layer='temporary' (NO temp<->permanent cross-link at all); perm has one section cov"
+  },
+  {
+    "group": "road_lane_core",
+    "rule": "road.lane.lane_order_no_gaps",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "Make the gap check cross-section aware: union lane ids across the road's lane sections and suppress a per-section gap when the missing intermediate id exists as a lane in another section of the same road (the sanctioned stable-id-across-sections pattern).",
+    "repro": "I2_stable_id_across_sections_FP.xodr: section s=0 right=[-1,-2,-6], section s=40 right=[-1..-6] (sidewalk kept -6 across sections). Expected: no flag (legitimate stable-id pattern). Observed: flags 'r"
+  },
+  {
+    "group": "road_lane_core",
+    "rule": "road.lane.lane_reverse_left_right",
+    "observed": "gap_ambiguous",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Encode the clear-cut case structurally: flag a laneSection where EVERY driving lane carries @direction='reversed' (whole-section direction inversion = the signature of flipping RHT<->LHT); a mix of standard/reversed driving lanes (legitimate contraflow) stays clean.",
+    "repro": "No code (module classifies gap_ambiguous). @direction is real (corpus values reversed/both/standard, 2 files). handauthored/09_lane_attributes_18.xodr has one reversed driving lane (id=2) among a mix "
+  },
+  {
+    "group": "road_lane_core",
+    "rule": "road.lane.lane_section_drivable",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "Remove singleSide from the drivability guard: a singleSide section still needs at least one <left> or <right>; keep only the center type='none' island exemption.",
+    "repro": "M3_singleSide_center_only_FN.xodr: laneSection singleSide='true' with only a driving center lane, no <left>/<right>. Expected: flag (non-drivable). Observed: NOT flagged because the `not single_side` "
+  },
+  {
+    "group": "road_object_skeleton",
+    "rule": "road.object.skeleton.points_boundary_inside_box",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "For vertexLocal only, add a structural proxy: flag when |u|-max(radius,width/2) > length/2+tol OR |v|-... > width/2+tol OR z outside [0,height]+tol; leave vertexRoad (needs arc-length->frame mapping) as gap_geometry_math.",
+    "repro": "No fixture (classification challenge). Rule: the @radius/@width boundary of each skeleton point must be at least partially inside the object bounding volume. For vertexLocal (local u/v/z coords), the "
+  },
+  {
+    "group": "road_object_skeleton",
+    "rule": "road.object.skeleton.points_inside_box",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "For vertexLocal, flag when |u| > length/2+tol OR |v| > width/2+tol OR z<-tol OR z>height+tol; keep vertexRoad as gap_geometry_math.",
+    "repro": "No fixture (classification challenge). Rule: all polyline points must lie inside the bounding volume. For vertexLocal the point (@u,@v,@z) vs object bbox (@length,@width,@height) is a direct half-exte"
+  },
+  {
+    "group": "road_crg_cross_section",
+    "rule": "road.crg.junction",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "In _check_crg_junction, build the member-road set as the union of {conn.connectingRoad} + {conn.linkedRoad} + {rid for rid,r in roads if r.get('junction')==jid}, then flag any member that has a road-level <surface><CRG>.",
+    "repro": "POS crg_junction_POS.xodr (default junction CRG + connectingRoad 2 CRG) -> flagged correctly; NEG crg_junction_NEG.xodr clean. But FN1 crg_junction_direct_FN.xodr (type=direct junction with <surface><"
+  },
+  {
+    "group": "road_corner_curve",
+    "rule": "road.corner_local.first_id_zero",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "low",
+    "fix": "Evaluate 'first ... of an object' on the object's first corner in document order (first outline only), or document that corner ids are treated per-outline by design; current per-outline id==0 check over-fires on multi-outline objects using object-global corner ids.",
+    "repro": "F1_multioutline_global_ids.xodr: object with two outlines, object-global cornerLocal ids [0,1] then [2,3]. Object's first cornerLocal id=0 SATISFIES the literal rule ('first cornerLocal of an OBJECT s"
+  },
+  {
+    "group": "road_corner_curve",
+    "rule": "road.corner_road.first_id_zero",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "low",
+    "fix": "Same as corner_local.first_id_zero: interpret 'first cornerRoad of an object' per-object (object's first corner in doc order), not per-outline.",
+    "repro": "F2_cornerRoad_multioutline_global_ids.xodr: two outlines, object-global cornerRoad ids [0,1] then [2,3]. Object's first cornerRoad id=0 satisfies the literal 'first ... of an OBJECT should be 0', but "
+  },
+  {
+    "group": "road_corner_curve",
+    "rule": "road.curve_local.paramPoly3.arcLength_range",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a structural sub-check: flag <paramPoly3 pRange='arcLength'> whose parent <curveLocal> lacks the @length attribute (undefined p range).",
+    "repro": "D2_arclength_no_length.xodr: <paramPoly3 pRange='arcLength'> on a <curveLocal> with NO @length -> module produced no flag (confirmed not implemented). A partial XML-only proxy is possible: pRange='arc"
+  },
+  {
+    "group": "road_object_core",
+    "rule": "road.object.validty.check_parent_orientation",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "Compute neg_present/pos_present over the union (min fromLane, max toLane across ALL <validity> children) and flag check_parent_orientation on the aggregate when orientation is '+'/'-' and the union spans both signs, rather than per-element.",
+    "repro": "f_validity_union.xodr (RHT road, object orientation='+', TWO validity elements <fromLane=-3 toLane=-1> and <fromLane=1 toLane=3>): the UNION of ranges spans both signs so per Annex F ('the range given"
+  },
+  {
+    "group": "road_signal_core_boards",
+    "rule": "road.signal.signal_type",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "Also flag when @type alone is non-specific (type is the primary identifier); keep the subtype-alone exemption that avoids the ubiquitous legit subtype='-1' idiom.",
+    "repro": "adv/road_signal_core_boards/sigtype_blindspot_type-1_specific_subtype.xodr : signal type='-1' subtype='60'. Rule requires a specific TYPE; module fires only when BOTH type and subtype are non-specific"
+  },
+  {
+    "group": "road_signal_core_boards",
+    "rule": "road.signal.use_country_code",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "Exempt board-sentinel @type values ('staticBoard','vmsBoard','multiBoard') from the country requirement - @country belongs on the child <sign> elements, not the board parent signal (per spec 14_07 examples).",
+    "repro": "adv/road_signal_core_boards/country_fp_spec_staticboard.xodr : parent signal type='staticBoard' with NO @country and two <sign> children each carrying country='DE' (exactly the spec 14_07 static-board"
+  },
+  {
+    "group": "road_signal_core_boards",
+    "rule": "road.signal.gantry.all_variable_boards_same_gantry",
+    "observed": "gap_ambiguous",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "med",
+    "fix": "Resolve each vmsBoardReference@signalId to its <signal>; flag (a) any reference not resolving to a signal bearing a <vmsBoard>, and (b) referenced signals that do not all share the same (road id, s) within a small tolerance (a gantry = one road cross-section).",
+    "repro": "Classified gap_ambiguous ('needs a gantry<->vmsGroup identity link the schema does not provide'). Challenge: an XML-only structural proxy IS available and would catch the common real-world error. In r"
+  },
+  {
+    "group": "road_railroad",
+    "rule": "road.railroad.rail_lane_width_validity",
+    "observed": "gap_ambiguous",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a degenerate/sanity proxy: flag rail/tram lanes whose first <width>@a<=0 (or absent), optionally below standard gauge ~1.435 m; keep the exact vehicle-width threshold documented as ambiguous.",
+    "repro": "Not implemented (docstring: 'no threshold in spec'). The exact bar ('at least the width [of] rail-bound vehicles') is genuinely unspecified, so the FULL rule is fairly gap_ambiguous. BUT a minimal XML"
+  },
+  {
+    "group": "road_railroad",
+    "rule": "road.railroad.rail_refline_centered",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "med",
+    "fix": "Evaluate laneOffset and <width> as full polynomials at the laneSection s (not just @a) to kill the non-constant-offset false positive; and scope the centering check to dedicated rail roads (skip roads that also carry driving/other traffic lanes) so street-running trams aren't over-fired.",
+    "repro": "r3_fp_nonconstant_laneoffset.xodr: laneOffset a=0,b=0.35 at laneSection s=5 -> actual offset = 0.35*5 = 1.75, rail width 3.5 spans t=[-1.75,+1.75], center=0.000 (GENUINELY centered, satisfies rule) bu"
+  },
+  {
+    "group": "road_object_marking",
+    "rule": "road.object.marking.outline_corner_reference_count",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_POSITIVE",
+    "severity": "low",
+    "fix": "Make the 1.7.0 arm curveLocal-aware like the 1.9 arm (skip when the owning outline uses <curveLocal>, or gate it on header revMinor<9); and stop exempting @side markings that sit inside an <outline> so the count check still applies there.",
+    "repro": "FALSE_POSITIVE 12_curvelocal_1ref.xodr: a VALID OpenDRIVE 1.9 outline using <curveLocal> with a single <cornerReference> is conformant (>=1 curveLocal ref suffices), yet this 1.7.0-worded rule fires ("
+  },
+  {
+    "group": "road_object_outline_surface",
+    "rule": "road.object.surface.no_bounding_box_overlap",
+    "observed": "gap_geometry_math",
+    "verdict": "CLASSIFICATION_DISPUTED",
+    "severity": "low",
+    "fix": "Add a same-road AABB-overlap check over <surface> objects using (s,t,length,width); document it as approximate (ignores hdg rotation, cross-road overlap, and elevation).",
+    "repro": "Not implemented; classified gap_geometry_math (bounding-box overlap = a contract-named legit geometry case). However a partial XML-only proxy is sketchable: <surface> objects are guaranteed angular bo"
+  },
+  {
+    "group": "road_signal_ref_validity",
+    "rule": "road.signal.semantics.no_semantics_without_category",
+    "observed": "implemented_gt",
+    "verdict": "FALSE_NEGATIVE",
+    "severity": "low",
+    "fix": "Broaden the guard from `if has_supplementary and not has_category` to `if not has_category` (flag any present <semantics> that lacks a category element) so empty/userData-only/unknown-only blocks are caught; sem_nocat_out.txt proves 0 corpus FPs.",
+    "repro": "f4_semantics.xodr: <signal id=1> semantics = {supplementaryTime, supplementaryEnvironment} (no category) -> correctly FLAGGED; board <sign id=5> under <staticBoard> with supplementaryExplanatory-only "
+  }
+]

@@ -1,0 +1,104 @@
+[
+  {
+    "rule_name": "road.object.outline.exactly_one_outer",
+    "category": "road.object.outline",
+    "version": "1.9.0",
+    "description": "&lt;outlines&gt; elements shall have exactly one &lt;outline&gt; element with @outer=true."
+  },
+  {
+    "rule_name": "road.object.outline.inner_outline_touches_outer",
+    "category": "road.object.outline",
+    "version": "1.9.0",
+    "description": "If an inner outline touches the outer outline, the reference point shall be identical in both outlines."
+  },
+  {
+    "rule_name": "road.object.outline.outline_followed_by_corner",
+    "category": "road.object.outline",
+    "version": "1.9.0",
+    "description": "An &lt;outline&gt; element shall be followed by two or more &lt;cornerRoad&gt; elements, by two or more &lt;cornerLocal&gt; elements, or by one or more &lt;curveLocal&gt; elements."
+  },
+  {
+    "rule_name": "road.object.outline.points_inside_box",
+    "category": "road.object.outline",
+    "version": "1.7.0",
+    "description": "All points of the &lt;outline&gt; element must be located inside the bounding volume."
+  },
+  {
+    "rule_name": "road.object.repeating.attributes_with_outline_skeleton",
+    "category": "road.object.repeating",
+    "version": "1.9.0",
+    "description": "@lengthStart, @lengthEnd, @widthStart, @widthEnd, @heightStart, and @heightEnd shall not be applicable for objects with an &lt;outlines&gt; , an &lt;outline&gt; , or a &lt;skeleton&gt; element."
+  },
+  {
+    "rule_name": "road.object.repeating.no_widthstart_end_with_radius",
+    "category": "road.object.repeating",
+    "version": "1.9.0",
+    "description": "@widthStart and @widthEnd shall not be applicable for objects where @radius is set."
+  },
+  {
+    "rule_name": "road.object.repeating.outline_use_cornerlocal",
+    "category": "road.object.repeating",
+    "version": "1.9.0",
+    "description": "Repeated objects with an outline shall use &lt;cornerLocal&gt;"
+  },
+  {
+    "rule_name": "road.object.repeating.valid_s_length",
+    "category": "road.object.repeating",
+    "version": "1.9.0",
+    "description": "Repeated objects shall have valid s-coordinates and lengths."
+  },
+  {
+    "rule_name": "road.object.surface.avoid_skewed_crg_surfacees",
+    "category": "road.object.surface",
+    "version": "1.9.0",
+    "description": "To avoid skewed CRG surfaces, the @perpToRoad attribute should only be used for objects that are smaller than the local radius of the curvature of the road elevation."
+  },
+  {
+    "rule_name": "road.object.surface.calculate_road_height",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "If crgEvaluv2z returns NaN, then the road height at that position shall be the ASAM OpenDRIVE height in addition to the road surface CRG, if it is present. The value of @hideRoadSurfaceCRG attribute shall have no influence.The value of @hideRoadSurfaceCRG attribute shall have no influence."
+  },
+  {
+    "rule_name": "road.object.surface.crg_hidden_on_object_overlap",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "If a road surface CRG is present, that is, the CRG area overlaps the bounding volume of the object and has any mode other than attached, then @hideRoadSurfaceCRG shall be false."
+  },
+  {
+    "rule_name": "road.object.surface.identical_local_coordinates",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "The local coordinate system of the CRG shall be identical to the local coordinate system of the object to which it belongs. The reference line, inertial position, curvature, and heading of the CRG file shall be ignored."
+  },
+  {
+    "rule_name": "road.object.surface.no_bounding_box_overlap",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "The bounding volumes of objects with &lt;surface&gt; elements shall not overlap."
+  },
+  {
+    "rule_name": "road.object.surface.object_reference_on_overlap",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "An object with a &lt;surface&gt; element shall be referenced on all roads it overlaps, using &lt;object&gt; and &lt;objectReference&gt; elements."
+  },
+  {
+    "rule_name": "road.object.surface.only_for_angular_boxes",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "Only objects with angular bounding volumes may contain &lt;surface&gt; elements. Circular objects or objects with &lt;outlines&gt; elements shall not contain &lt;surface&gt; elements."
+  },
+  {
+    "rule_name": "road.object.surface.only_one_crg_file",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "An object shall not reference more than one CRG file."
+  },
+  {
+    "rule_name": "road.object.surface.repeat_discretely_not_continously",
+    "category": "road.object.surface",
+    "version": "1.7.0",
+    "description": "Objects with &lt;surface&gt; elements may repeat discretely, but not continuously. See Section 13.4, \"Repeating objects\" ."
+  }
+]

@@ -1,0 +1,26 @@
+{
+  "skill_name": "opendrive-authoring",
+  "evals": [
+    {
+      "id": 0,
+      "name": "junction-vs-direct-link-judgment",
+      "prompt": "esmini用のOpenDRIVE(.xodr)を書いています。直線道路 road 1 のsuccessorとして road 2 を1本だけつなげたい（分岐なし・接続先は一意）。これをjunctionで囲むべきか、road同士を直接リンクすべきか、理由付きで教えて。そのうえで該当する<link>部分のxodr断片を両road分（相互リンク）書いてください。",
+      "expected_output": "junctionは使わず直接リンクを推奨（junctionは接続が曖昧なときだけ）。road1.successor->road2 と road2.predecessor->road1 の相互リンクをcontactPoint付きで正しく書く。",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "lht-signal-orientation-validity",
+      "prompt": "左側通行(LHT)の片側2車線道路に、road基準線の+s方向へ進む車を対象にした標識を1つ置きたい。<road>の書き出し（@rule含む）から<lanes>と<signals>まで、signalの@orientationと<validity>のfromLane/toLaneを正しく設定したxodr断片を作ってください。なぜその符号（正/負のlane id）になるのかも説明してください。",
+      "expected_output": "road @rule=LHT。signal @orientation=+。LHT規約により+方向はlane idが正（左）側 → validityは正のlane idを指す。lane idは中心0/左+/右-で連番。説明が符号の根拠を含む。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "new-minimal-T-junction-network",
+      "prompt": "RHTで、片側1車線の道路2本がT字に交わる最小のOpenDRIVE(.xodr)を新規作成してください（GT_esmini/resources相当に置く想定）。lane idの振り方・幾何(planView)の連続・交差点(junction)の要否を踏まえた、パースできる完全なxodrにしてください。",
+      "expected_output": "3本の道路がjunctionで結合（T字=接続曖昧なのでjunction妥当）。lane center=0/左+/右-/連番。planView s=0開始・Σlength=road length。connecting roadは@junction設定・linkはjunction経由。id一意・参照解決。",
+      "files": []
+    }
+  ]
+}

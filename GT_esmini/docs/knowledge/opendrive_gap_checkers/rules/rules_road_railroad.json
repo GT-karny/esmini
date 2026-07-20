@@ -1,0 +1,56 @@
+[
+  {
+    "rule_name": "road.railroad.one_rail_per_road",
+    "category": "road.railroad",
+    "version": "1.7.0",
+    "description": "There shall only be one tram or one rail lane per road."
+  },
+  {
+    "rule_name": "road.railroad.rail_lane_width_validity",
+    "category": "road.railroad",
+    "version": "1.7.0",
+    "description": "The width of the lane shall be at least the width rail-bound vehicles."
+  },
+  {
+    "rule_name": "road.railroad.rail_refline_centered",
+    "category": "road.railroad",
+    "version": "1.7.0",
+    "description": "The road reference line shall be in the center of the pair of railroad tracks."
+  },
+  {
+    "rule_name": "road.railroad.platforms.min_amount",
+    "category": "road.railroad.platforms",
+    "version": "1.7.0",
+    "description": "There shall be at least one platform per station."
+  },
+  {
+    "rule_name": "road.railroad.platforms.min_segments",
+    "category": "road.railroad.platforms",
+    "version": "1.7.0",
+    "description": "A platform shall contain at least one segment."
+  },
+  {
+    "rule_name": "road.railroad.segment.segments_per_platform_min_amount",
+    "category": "road.railroad.segment",
+    "version": "1.7.0",
+    "description": "There shall be at least one segment per platform."
+  },
+  {
+    "rule_name": "road.railroad.stations.one_platform_per_station",
+    "category": "road.railroad.stations",
+    "version": "1.7.0",
+    "description": "A &lt;station&gt; element shall be followed by at least one &lt;platform&gt; element."
+  },
+  {
+    "rule_name": "road.railroad.switch.check_switch_conn",
+    "category": "road.railroad.switch",
+    "version": "1.7.0",
+    "description": "Main tracks shall not be used to connect two switches."
+  },
+  {
+    "rule_name": "road.railroad.switch.single_switch_no_partner",
+    "category": "road.railroad.switch",
+    "version": "1.7.0",
+    "description": "Single switches do not have partner switches."
+  }
+]

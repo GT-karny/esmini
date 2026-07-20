@@ -1,0 +1,122 @@
+[
+  {
+    "rule_name": "road.lane.access.center_lane_no_acc_rule",
+    "category": "road.lane.access",
+    "version": "1.4.0",
+    "description": "The center lane shall have no access rules."
+  },
+  {
+    "rule_name": "road.lane.access.elem_asc_order",
+    "category": "road.lane.access",
+    "version": "1.4.0",
+    "description": "&lt;access&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.border.elem_asc_order",
+    "category": "road.lane.border",
+    "version": "1.4.0",
+    "description": "&lt;border&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.border.exclusive_offset_border",
+    "category": "road.lane.border",
+    "version": "1.4.0",
+    "description": "&lt;border&gt; elements shall not be used together with &lt;laneOffset&gt; ."
+  },
+  {
+    "rule_name": "road.lane.border.exclusive_width_border",
+    "category": "road.lane.border",
+    "version": "1.4.0",
+    "description": "&lt;border&gt; elements shall not be used together with &lt;width&gt; elements in the same lane group."
+  },
+  {
+    "rule_name": "road.lane.height.center_lane_no_height",
+    "category": "road.lane.height",
+    "version": "1.4.0",
+    "description": "The center lane shall not be elevated by lane height."
+  },
+  {
+    "rule_name": "road.lane.height.elem_asc_order",
+    "category": "road.lane.height",
+    "version": "1.4.0",
+    "description": "&lt;height&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.lane_properties.elem_asc_order",
+    "category": "road.lane.lane_properties",
+    "version": "1.4.0",
+    "description": "Lane geometries of identical types shall be defined in ascending order."
+  },
+  {
+    "rule_name": "road.lane.material.center_lane_no_material",
+    "category": "road.lane.material",
+    "version": "1.4.0",
+    "description": "The center lane shall have no material elements."
+  },
+  {
+    "rule_name": "road.lane.material.elem_asc_order",
+    "category": "road.lane.material",
+    "version": "1.4.0",
+    "description": "&lt;material&gt; elements shall be defined in ascending order according to the s-coordinate"
+  },
+  {
+    "rule_name": "road.lane.road_mark.elem_asc_order",
+    "category": "road.lane.road_mark",
+    "version": "1.4.0",
+    "description": "&lt;roadMark&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.road_mark.only_outer",
+    "category": "road.lane.road_mark",
+    "version": "1.9.0",
+    "description": "&lt;roadMark&gt; elements shall only be used to describe the outer lane marking."
+  },
+  {
+    "rule_name": "road.lane.road_mark.position_outer_half",
+    "category": "road.lane.road_mark",
+    "version": "1.9.0",
+    "description": "The center line of the lane marking shall be positioned on the lane’s outer border line in such a way that the outer half of the lane marking is physically placed on the next lane."
+  },
+  {
+    "rule_name": "road.lane.rule.elem_asc_order",
+    "category": "road.lane.rule",
+    "version": "1.4.0",
+    "description": "&lt;rule&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.speed.center_lane_no_spd_lmt",
+    "category": "road.lane.speed",
+    "version": "1.4.0",
+    "description": "The center lane shall have no speed limit."
+  },
+  {
+    "rule_name": "road.lane.speed.elem_asc_order",
+    "category": "road.lane.speed",
+    "version": "1.4.0",
+    "description": "&lt;speed&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.width.elem_asc_order",
+    "category": "road.lane.width",
+    "version": "1.4.0",
+    "description": "&lt;width&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.width.lane_width_validity",
+    "category": "road.lane.width",
+    "version": "1.4.0",
+    "description": "Width (ds) shall be greater than or equal to zero."
+  },
+  {
+    "rule_name": "road.lane.width.no_width_with_border",
+    "category": "road.lane.width",
+    "version": "1.9.0",
+    "description": "&lt;width&gt; elements shall not be used together with &lt;border&gt; elements in the same lane group."
+  },
+  {
+    "rule_name": "road.lane.width.width_defined_whole_section",
+    "category": "road.lane.width",
+    "version": "1.7.0",
+    "description": "The width of the lane shall be defined for the full length of the lane section. This means that there must be a &lt;width&gt; element for @s=\"0\"."
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "rule_name": "defaultRegulations.only_speed_priority",
+    "category": "defaultRegulations",
+    "version": "1.8.0",
+    "description": "Only &lt;speed&gt; and &lt;priority&gt; elements shall be used within the &lt;defaultRegulations&gt; element."
+  },
+  {
+    "rule_name": "header.offset.centered_coords",
+    "category": "header.offset",
+    "version": "1.7.0",
+    "description": "The &lt;offset&gt; element should be such that the x and y coordinates of ASAM OpenDRIVE are approximately centered around (0;0). If the x and y coordinates are too large, applications using float coordinates internally might not be able to process them accurately enough due to the limited precision of IEEE 754 double precision floating point numbers."
+  },
+  {
+    "rule_name": "header.proj.max_one_proj",
+    "category": "header.proj",
+    "version": "1.9.0",
+    "description": "There shall be no more than one definition of the projection. If the definition is missing, a local Cartesian coordinate system is assumed."
+  },
+  {
+    "rule_name": "ids.id_unique_in_class",
+    "category": "ids",
+    "version": "1.4.0",
+    "description": "IDs shall be unique within a class."
+  },
+  {
+    "rule_name": "ids.id_unique_in_lane_section",
+    "category": "ids",
+    "version": "1.4.0",
+    "description": "Lane IDs shall be unique within a lane section."
+  },
+  {
+    "rule_name": "ids.only_ref_defined_ids",
+    "category": "ids",
+    "version": "1.4.0",
+    "description": "Only defined IDs may be referenced."
+  }
+]

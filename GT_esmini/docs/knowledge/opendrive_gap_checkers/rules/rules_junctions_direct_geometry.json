@@ -1,0 +1,74 @@
+[
+  {
+    "rule_name": "junctions.direct.connecting_road_attribute_usage",
+    "category": "junctions.direct",
+    "version": "1.7.0",
+    "description": "The @connectingRoad attribute shall not be used for junctions with @type=\"direct\"."
+  },
+  {
+    "rule_name": "junctions.direct.correct_type_linked_road_usage",
+    "category": "junctions.direct",
+    "version": "1.7.0",
+    "description": "The @linkedRoad attribute shall only be used for junctions with @type=\"direct\"."
+  },
+  {
+    "rule_name": "junctions.direct.flat_exits_entries",
+    "category": "junctions.direct",
+    "version": "1.8.0",
+    "description": "Currently only flat entries and exits can be modeled by overlapping direct junctions."
+  },
+  {
+    "rule_name": "junctions.direct.linked_lane_smoothness",
+    "category": "junctions.direct",
+    "version": "1.7.0",
+    "description": "The linked lanes shall fit smoothly as described for roads (see Section 10.3, \"Road linkage\" )."
+  },
+  {
+    "rule_name": "junctions.direct.overlap_zone_coverage",
+    "category": "junctions.direct",
+    "version": "1.8.0",
+    "description": "The value of the @overlapZone attribute shall cover at least the overlapping area, but may be larger."
+  },
+  {
+    "rule_name": "junctions.direct.overlap_zone_exclusivity",
+    "category": "junctions.direct",
+    "version": "1.8.0",
+    "description": "Only one pair of &lt;laneLink&gt; elements shall have @overlapZone attributes to define the overlapping lanes."
+  },
+  {
+    "rule_name": "junctions.direct.road_connectivity",
+    "category": "junctions.direct",
+    "version": "1.8.0",
+    "description": "Direct junctions shall connect one road on one side with multiple roads on the other side."
+  },
+  {
+    "rule_name": "junctions.direct.road_ramp_heading",
+    "category": "junctions.direct",
+    "version": "1.7.0",
+    "description": "The junction shall be placed where the headings of road, ramp, or slip lane are identical."
+  },
+  {
+    "rule_name": "junctions.direct.split_or_merge",
+    "category": "junctions.direct",
+    "version": "1.8.0",
+    "description": "Direct junctions shall only be used for splitting or merging roads without crossing traffic."
+  },
+  {
+    "rule_name": "junctions.geometry.correct_junction_boundry",
+    "category": "junctions.geometry",
+    "version": "1.8.0",
+    "description": "If a junction boundary is specified, a junction reference line shall cross the junction boundary or be at least tangent to the junction boundary at one point."
+  },
+  {
+    "rule_name": "junctions.geometry.only_one_line_element",
+    "category": "junctions.geometry",
+    "version": "1.8.0",
+    "description": "Junction reference lines shall be defined by one &lt;geometry&gt; element. This &lt;geometry&gt; element shall have only one &lt;line&gt; element."
+  },
+  {
+    "rule_name": "junctions.geometry.ref_line_definition",
+    "category": "junctions.geometry",
+    "version": "1.8.0",
+    "description": "The &lt;geometry&gt; element of a junction reference line shall be defined in a way that every point of the junction can be reached with a perpendicular straight line."
+  }
+]

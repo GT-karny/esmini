@@ -1,0 +1,8 @@
+{
+  "road.railroad.rail_lane_width_validity": {
+    "status": "implemented_gt",
+    "reason": "Sub-case checked: every <lane> with @type in {rail,tram}, for each <width> child, flags float(@a) <= 0 or @a absent (missing attribute reads as 0.0, correctly treated as non-positive) -- a real rail-bound vehicle necessarily has strictly positive width, so a degenerate/absent width can never satisfy the spec's 'at least the width of rail-bound vehicles' regardless of the actual unstated threshold; this floor is provable without it. Residual note: no numeric vehicle-width/gauge threshold exists anywhere in OpenDRIVE 1.9 (fixture evidence: tram a=2.5m in Ex_Railway-Station.xodr, vehicle widths vary ~2.5-3.5m across rail/tram types), so any specific positive cutoff -- including gauge-based proxies like 1.435m standard gauge, which also conflates rail gauge with vehicle width -- is left deliberately uncovered as an unresolvable external-knowledge judgment call.",
+    "group": "road_railroad",
+    "function": "run_checks"
+  }
+}

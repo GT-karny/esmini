@@ -1,0 +1,92 @@
+[
+  {
+    "rule_name": "road.corner_local.element_min_amount",
+    "category": "road.corner_local",
+    "version": "1.7.0",
+    "description": "There shall be at least two &lt;cornerLocal&gt; elements inside an &lt;outline&gt; element."
+  },
+  {
+    "rule_name": "road.corner_local.first_id_zero",
+    "category": "road.corner_local",
+    "version": "1.9.0",
+    "description": "The @id attribute of the first &lt;cornerLocal&gt; element of an object should be 0."
+  },
+  {
+    "rule_name": "road.corner_local.mandatory_id_with_markings",
+    "category": "road.corner_local",
+    "version": "1.9.0",
+    "description": "The @id attribute of a &lt;cornerLocal&gt; element shall be mandatory when the parent also has a &lt;markings&gt; element."
+  },
+  {
+    "rule_name": "road.corner_local.no_mixing_road_local",
+    "category": "road.corner_local",
+    "version": "1.x.0",
+    "description": "\"There shall be no mixture of `&lt;cornerRoad&gt;` and `&lt;cornerLocal&gt;` elements inside the same `&lt;outline&gt;` element.\""
+  },
+  {
+    "rule_name": "road.corner_local.sequential_id_values",
+    "category": "road.corner_local",
+    "version": "1.9.0",
+    "description": "The @id attribute should increase by 1 for each &lt;cornerLocal&gt; element in the order they are listed from top to bottom."
+  },
+  {
+    "rule_name": "road.corner_road.corner_road_local_exclusivity",
+    "category": "road.corner_road",
+    "version": "1.9.0",
+    "description": "There shall be no mixture of &lt;cornerRoad&gt; , &lt;cornerLocal&gt; , and &lt;curveLocal&gt; elements inside the same &lt;outline&gt; element."
+  },
+  {
+    "rule_name": "road.corner_road.element_min_amount",
+    "category": "road.corner_road",
+    "version": "1.7.0",
+    "description": "There shall be at least two &lt;cornerRoad&gt; elements inside an &lt;outline&gt; element."
+  },
+  {
+    "rule_name": "road.corner_road.first_id_zero",
+    "category": "road.corner_road",
+    "version": "1.9.0",
+    "description": "The @id attribute of the first &lt;cornerRoad&gt; element of an object should be 0."
+  },
+  {
+    "rule_name": "road.corner_road.mandatory_id_with_markings",
+    "category": "road.corner_road",
+    "version": "1.9.0",
+    "description": "The @id attribute of a &lt;cornerRoad&gt; element shall be mandatory when the parent also has a &lt;markings&gt; element."
+  },
+  {
+    "rule_name": "road.corner_road.sequential_id_values",
+    "category": "road.corner_road",
+    "version": "1.9.0",
+    "description": "The @id attribute should increase by 1 for each &lt;cornerRoad&gt; element in the order they are listed from top to bottom."
+  },
+  {
+    "rule_name": "road.curve_local.continuous_curve_local",
+    "category": "road.curve_local",
+    "version": "1.9.0",
+    "description": "Outlines defined by &lt;curveLocal&gt; elements shall be continuous."
+  },
+  {
+    "rule_name": "road.curve_local.element_min_amount",
+    "category": "road.curve_local",
+    "version": "1.9.0",
+    "description": "There shall be at least one &lt;curveLocal&gt; element inside an &lt;outline&gt; element."
+  },
+  {
+    "rule_name": "road.curve_local.length_match",
+    "category": "road.curve_local",
+    "version": "1.9.0",
+    "description": "The actual curve length, as determined by numerical integration over the parameter range, should match @length."
+  },
+  {
+    "rule_name": "road.curve_local.paramPoly3.arcLength_range",
+    "category": "road.curve_local.paramPoly3",
+    "version": "1.9.0",
+    "description": "For &lt;paramPoly3&gt; elements with @pRange=\"arcLength\", p shall be chosen in [0, @length from &lt;curveLocal&gt; ]."
+  },
+  {
+    "rule_name": "road.curve_local.paramPoly3.normalized_range",
+    "category": "road.curve_local.paramPoly3",
+    "version": "1.9.0",
+    "description": "For &lt;paramPoly3&gt; elements with @pRange=\"normalized\", p shall be chosen in [0, 1]."
+  }
+]

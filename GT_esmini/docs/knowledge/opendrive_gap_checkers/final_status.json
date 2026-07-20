@@ -1,0 +1,1815 @@
+{
+  "junctions.connection.lane_change_one_con_road": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): This is a non-imperative descriptive enumeration of one of two valid, non-exclusive junction-modeling patterns (a file may use this pattern, the sibling pattern, or a mix across different lane groups within the same incoming/outgoing pair). There is ",
+    "group": "junctions_conn_crossing",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.connection.no_connecting_road_direct": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD: @connectingRoad is defined only on t_junction_connection_common, not t_junction_connection_direct (which has @linkedRoad instead) -- check logic is correct. 0 flags on corpus, 16/16 synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.connection.no_lane_change_for_mult_con_roads": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Same reasoning as the sibling rule: this is a descriptive statement of a consequence of a modeling pattern (multiple single-laneLink connecting roads inherently preclude in-junction lane changes -- a logical/mathematical fact about that pattern, not ",
+    "group": "junctions_conn_crossing",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.connection.smooth_fit": {
+    "status": "gap_geometry_math",
+    "reason": "Verified verbatim spec text explicitly defers to Section 10.3 Road linkage smoothness -- requires road/lane geometry evaluation along s, correctly out of scope for attribute-only checking.",
+    "group": "junctions_conn_crossing",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.crossing.only_one_high_prio": {
+    "status": "implemented_gt",
+    "reason": "Verified t_junction_priority XSD: @high/@low are road-ID attributes (\"ID of the prioritized road\"/\"lower priority\"), so checking distinct @high values across a junction's priority children directly encodes \"only one road ... shall have high priority.\" 0 flags on corpus, synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.crossing.only_road_sections": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD t_junction_crossing content model: legally allows roadSection/priority/controller/surface/planView/objects but forbids connection/crossPath (a real XSD-1.1 @type-conditional-typing gap vs XSD-1.0-only validators, confirmed via xs:alternative on the <junction> element and abstract empty base t_junction type). Checker's narrower scope (flag only connection/crossPath, not all non-roadSection children) correctly matches the real permitted content model. 0 flags on corpus incl. GT's 01_crossing_junction_18.xodr, synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.crossing.s_start_end_coverage": {
+    "status": "gap_geometry_math",
+    "reason": "Verified verbatim spec text: \"shall at least cover the area where the roads overlap\" requires actual inertial-space geometry overlap computation, not derivable from @sStart/@sEnd attributes alone.",
+    "group": "junctions_conn_crossing",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.priority.high_and_low_attr": {
+    "status": "implemented_gt",
+    "reason": "Defensive presence check for @high/@low on <priority>; XSD marks both required but corpus isn't guaranteed XSD-valid, so the structural check has genuine value. 0 flags on corpus, synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.priority.no_signals": {
+    "status": "implemented_gt",
+    "reason": "Implements the advisory structural sub-case (PARTIAL_DETERMINISTIC): for a junction (@type \"default\" or \"virtual\", both schema-legal parents of <priority>) with >=1 <priority> child, flag if any participating road (connection/@incomingRoad, connection/@connectingRoad, and for virtual junct",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.cross_path.correct_junction_id": {
+    "status": "implemented_gt",
+    "reason": "Independently reproduced against the spec's own worked example (12_05_cross_paths.html): road id=75 @junction=\"10\" is referenced via crossPath/@crossingRoad=\"75\" inside junction 10; roads 45/46 via connection/@connectingRoad -- exactly matches the checker's membership-set definition. Crossing-junction roadSection member roads correctly keep @junction=\"-1\" in the spec's crossing example, naturally excluded. 0 flags on corpus, synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.cross_path.disregard_cross_road_evelation": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): This sentence describes consumer/processing semantics -- how a simulation engine or geometry-computation tool should treat the crossing road's elevation profile when rendering/consuming a <crossPath> (i.e., disregard it, presumably deriving elevation",
+    "group": "junctions_conn_crossing",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.cross_path.lane_linkage": {
+    "status": "implemented_gt",
+    "reason": "Verified via Table 65 (12_05_cross_paths.html) that @to = \"Lane ID of @crossingRoad\" (matches checker's mapping exactly). Scope-narrowing away from @from was independently re-validated against official UC_5Road_Junction.xodr: road 670 (junction-connecting) genuinely lacks lane id \"-3\" despite endLaneLink @from=\"-3\" referencing it -- confirms lane-id remapping through connecting-road linkage is real, not a rationalization. 0 flags on corpus, synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.cross_path.only_connect_correct_type": {
+    "status": "implemented_gt",
+    "reason": "Scope-narrowing to @to/crossingRoad-side independently re-validated: in official UC_5Road_Junction.xodr, crossPath @from legitimately resolves to non-pedestrian lane types (e.g. road 235 lane -3 = type \"curb\"), confirming checking @from would produce genuine false positives. 0 flags on corpus, synthetic pass (incl. deprecated \"sidewalk\" synonym) reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.cross_path.start_end_contained": {
+    "status": "gap_geometry_math",
+    "reason": "Verified verbatim spec text: \"fully contained within the linked lanes\" requires inertial-position + lane-width/boundary evaluation at the relevant s, beyond attribute reading.",
+    "group": "junctions_conn_crossing",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.cross_path.within_junction_area": {
+    "status": "implemented_gt",
+    "reason": "Verified via XSD: <crossPath> is a legal child only of t_junction_common and t_junction_virtual, confirmed absent from t_junction_crossing's and t_junction_direct's content models -- checker's flag condition (crossPath under type=crossing/direct) is a correct structural proxy for the schema-legality gap. 0 flags on corpus, synthetic pass reproduced.",
+    "group": "junctions_conn_crossing",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.no_overlap": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: 2D spatial overlap of junction footprints requires inertial-frame geometry evaluation (reference-line + connecting-road widths), not derivable from XML attributes. Correct classification, no bright-line structural proxy exists.",
+    "group": "junctions_core",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.type_default_no_linked_road": {
+    "status": "implemented_gt",
+    "reason": "Verified against OpenDRIVE_Junction.xsd: @linkedRoad only exists on t_junction_connection_direct; the check correctly uses junction-level @type (not connection-level) with default-if-absent handling. 208-file corpus run: 0 exceptions, 0 official-set flags, synthetic positive/negative controls pass.",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.type_direct_no_conn_road": {
+    "status": "implemented_gt",
+    "reason": "Verified against schema: @connectingRoad only exists on t_junction_connection_common/virtual variants, correctly flagged when absent-allowed under type=direct. 0 flags on corpus, synthetic positive/negative controls pass.",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.boundary.close_gap_with_new_roads": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: determining whether existing roads geometrically close the boundary requires actual road-geometry evaluation, same underlying computation as segments_close_boundry. Correct classification.",
+    "group": "junctions_core",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.boundary.only_for_common_junctions": {
+    "status": "implemented_gt",
+    "reason": "Verified against schema: t_junction_common is the only complex type whose sequence includes <boundary>; check correctly treats absent/@type=default as common. 0 flags on corpus's 3 real boundary occurrences (all legitimately common), fires on synthetic positive.",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.boundary.segments_close_boundry": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: requires resolving each <segment> to real (x,y) endpoints along its referenced road (joint=perpendicular at road end, lane=along outer edge over s-range) and testing loop closure -- full geometry evaluation. Correct classification, matches contract's own named example.",
+    "group": "junctions_core",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.boundary.segments_counter_clockwise_order": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: requires inertial-coordinate resolution of segments plus polygon winding-order test. Correct classification, explicitly named by the contract as legitimate geometry-gap territory.",
+    "group": "junctions_core",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.boundary.segments_for_each_conn_road": {
+    "status": "gap_geometry_math",
+    "reason": "Independently re-verified by inspecting official/use_cases/UC_Junction/UC_5Road_Junction.xodr directly: connectingRoad 670 (linked via a real <connection>) is genuinely absent from any boundary segment, while roads 323/384 (not referenced by any shown connection) legitimately appear as segments -- confirms the naive road-id-membership proxy misfires on trusted official data and would violate the official-set-clean bar; the geometric 'which road is exposed on the outer perimeter' fact cannot be derived from attributes. Classification upheld.",
+    "group": "junctions_core",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.common.direct_junction_attributes": {
+    "status": "implemented_gt",
+    "reason": "Verified against schema: @overlapZone (on t_junction_connection_laneLink) is documented 'Intended for direct junctions only'. 0 flags on official set; genuine, verified-real flag on handauthored/21_common_junction_crosspath_19.xodr (junction 900, default-type, overlapZone=0.5 on laneLink) -- inspected the fixture directly to confirm this is a true positive, not a false alarm.",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.common.junctions_no_pred_succ": {
+    "status": "implemented_gt",
+    "reason": "Verified no junction complex type (common/direct/virtual/crossing) declares direct <link>/<predecessor>/<successor> children in the schema. Empirically confirmed ElementTree.find(bare_tag) matches only direct children (own test), and inspected real virtual-junction (23_virtual_junction_17.xodr) and crossing-junction (01_crossing_junction_18.xodr) fixtures to confirm no misfire on legitimately nested <connection><predecessor/successor>. 0 hits on corpus, fires on synthetic positive, synthetic negative control (nested predecessor/successor) correctly does not fire.",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.common.not_only_two": {
+    "status": "implemented_gt",
+    "reason": "Implements the clear-cut structural sub-case (PARTIAL_DETERMINISTIC): for @type absent/\"default\" junctions with exactly 2 participating roads (union of connection/@incomingRoad + @connectingRoad), not exempted via <junctionGroup> membership or >=1 <crossPath> child, flag as an advisory rev",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.common.virtual_junction_attributes": {
+    "status": "implemented_gt",
+    "reason": "Verified against schema: @mainRoad/@sStart/@sEnd/@orientation are attributes of t_junction_virtual (the junction element itself, not per-connection) and documented mandatory-for/exclusive-to virtual junctions. Check correctly reads junction-level attrs. 0 flags on corpus's real occurrences (all correctly on type=virtual), synthetic positive/negative/implicit-default-type controls all pass.",
+    "group": "junctions_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.common.when_to_use": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): The operative test (\"roads cannot be linked directly\") is a whole-network counterfactual: it requires checking whether some other direct road-to-road <link><predecessor>/<successor> could have replaced the junction, i.e. reconstructing alternative ro",
+    "group": "junctions_core",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.elevation_grid.entry_exit_smoothness": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct classification: 'smooth transition' at junction elevation-grid entries/exits requires 12.11.2 interpolation math (four-sided polygon + cubic gradient matching in inertial coords), not attribute reading.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.elevation_grid.only_one_elev_grid": {
+    "status": "implemented_gt",
+    "reason": "Reproduced independently: element-cardinality check (>1 <elevationGrid> child of <junction>). 0 flags on official set, 0 on full 208-file corpus (no fixture has 2), fires on synthetic 2-grid junction. XSD caps this at maxOccurs=1 in t_junction_common, so the checker's value is specifically for the non-XSD-validated hand-authored corpus this pipeline runs over — correctly scoped.",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.elevation_grid.perpendicular_vectors": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct: requires reference-line tangent/heading computation plus grid-point inertial x/y position, real geometry math beyond attributes.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.elevation_grid.polynome_coefficient_values": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct: rule is literally about bicubic-interpolation polynomial coefficients (c,d) per 12.11.1, requires implementing the interpolation math itself.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.elevation_grid.valid_for_entire_boundry": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct: requires junction boundary polygon construction (from boundary/segment elements resolved against road geometry) plus polygon-containment test against the elevation grid's covered area.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.virtual.connecting_roads_start_end": {
+    "status": "implemented_gt",
+    "reason": "Independently re-run: 208 files, 0 exceptions, 0 flags on official ASAM set, 3 flags on GT:test (23/23b/23c_virtual_junction fixtures), reproducing prior report exactly. Deep-checked against OpenDRIVE_Road.xsd's t_road_link_predecessorSuccessor doc, which literally defines @elementS as 'Alternative to contactPoint for virtual junctions' -- the checker's core logic (resolve connectingRoad's own <link> elementS, fallback to contactPoint start/end via mainRoad @length) is exactly the spec-intended resolution mechanism, not an approximation. The 3 flagged fixtures' own inline comments confirm intentional mid-window (non-boundary) attachment, a genuine literal-rule violation.",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.virtual.heading_equal_mainroad": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct: @sStart/@sEnd generally fall mid-geometry-segment, so heading there requires true arc/spiral/paramPoly3 curve evaluation along s on both roads.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.virtual.linked_lanes_smooth_fit": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct: 'smooth fit' (Section 10.3) means inertial-frame lane-border x/y/z matching at the contact point, requiring plan-view/lane-offset geometry evaluation.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "junctions.virtual.main_road_only": {
+    "status": "implemented_gt",
+    "reason": "Implements the referential-integrity sub-case (PARTIAL_DETERMINISTIC): for every @type=\"virtual\" junction, @mainRoad (mandatory on t_junction_virtual) must resolve to an actually-defined <road id=...> in the document; flag if it does not. Residual left uncovered, per assignment scope: the ",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.virtual.no_controllers": {
+    "status": "implemented_gt",
+    "reason": "Confirmed correct and reproduced: flags any type=\"virtual\" junction with <controller> children. XSD confirms <controller> is schema-legal under t_junction_virtual (semantically forbidden, not structurally forbidden) -- exactly the schema-permitted-but-semantically-wrong gap this rule targets. 0 flags on official/full corpus, fires on synthetic fixture.",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.virtual.only_one_start_end": {
+    "status": "implemented_gt",
+    "reason": "Reproduced correct behavior (fires on synthetic multi-token @sStart, 0 false positives on real corpus). Re-examined for correctness: sStart/sEnd are t_grEqZero (xs:double restriction, inherently scalar), so this XML-attribute-uniqueness rule is nearly tautological under strict XSD -- the checker's multi-token-value fallback is a narrow but genuine, non-arbitrary reading given this pipeline doesn't XSD-validate hand-authored fixtures. Kept implemented_gt; no stronger checkable reading exists in the XML alone.",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.virtual.connections.only_virtual_junctions": {
+    "status": "implemented_gt",
+    "reason": "Confirmed correct and reproduced: flags <connection type=\"virtual\"> under any non-virtual junction. XSD confirms type=\"virtual\" connections are structurally permitted (via t_junction_connection alternative typing) in both common and virtual junctions, so this is a real semantic gap the checker correctly closes. 0 flags on official/full corpus, fires on synthetic default-junction fixture.",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.virtual.crossPath.cross_road_check_s_t": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed correct: checking the crossing road's footprint against @roadAtStart/@roadAtEnd s/t bounds requires mapping the crossing road's own geometry (length, lane widths) into the main road's local s/t frame via inertial-coordinate transforms.",
+    "group": "junctions_elev_virtual",
+    "function": null,
+    "source": "verify"
+  },
+  "defaultRegulations.only_speed_priority": {
+    "status": "implemented_gt",
+    "reason": "Verified against OpenDRIVE_Core.xsd: <speed>/<priority> are only reachable within defaultRegulations via roadRegulations|signalRegulations/<semantics>, whose shared type (t_signals_semantics) also allows lane/prohibited/warning/etc; the check correctly flags non-speed/priority semantics children in that context. 0 hits on 208-file corpus (0 official, 0 GT); confirmed alive via synthetic injected <lane> child.",
+    "group": "misc_header_ids",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "header.offset.centered_coords": {
+    "status": "implemented_gt",
+    "reason": "Reads exactly the planView geometry x/y and signal positionInertial x/y values the rule text is concerned about (float-precision risk), flags >1e5m magnitude. 0 hits on real corpus (max observed well below threshold); confirmed alive via synthetic ~5.6e6m case.",
+    "group": "misc_header_ids",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "header.proj.max_one_proj": {
+    "status": "implemented_gt",
+    "reason": "Two-pronged check (geoReference element count + counting concatenated '+proj=' tokens inside the single geoReference's CDATA) correctly encodes 'no more than one projection definition' beyond what XSD's maxOccurs=1 can see. 0 hits on corpus; confirmed alive via synthetic concatenated-proj case plus a negative-control single-proj case.",
+    "group": "misc_header_ids",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "ids.id_unique_in_class": {
+    "status": "implemented_gt",
+    "reason": "Per-class uniqueness (road/junction/junctionGroup/top-level-only controller/global signal/global object). Manually traced the 1 official-set finding (object id=0 shared between a <road> and its enclosing <junction>'s own <objects>) and confirmed via OpenDRIVE_Object.xsd ('Unique ID within database') that object id scope is correctly global -- genuine finding, not over-broad logic. Controller correctly scoped to top-level findall (not iter) to avoid conflating junction <controller> references with definitions.",
+    "group": "misc_header_ids",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "ids.id_unique_in_lane_section": {
+    "status": "implemented_gt",
+    "reason": "Collects lane ids across left+center+right within each laneSection element and flags duplicates -- correctly matches the verbatim rule text. 0 hits on real corpus (including the multi-layer Ex_Lane_MultiLaneLayer.xodr fixture, correctly not false-positiving since permanent/temporary <lanes> layers are distinct laneSection elements); confirmed alive via synthetic duplicated left-lane-id laneSection.",
+    "group": "misc_header_ids",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "ids.only_ref_defined_ids": {
+    "status": "implemented_gt",
+    "reason": "Comprehensive referential-integrity sweep (road link, junction connection/priority/controller, junctionGroup, controller->signal, signal/reference->signal|object, signalReference). Found and fixed a real scoping gap during audit: object_ids universe omitted <junction><objects> (same globally-unique t_road_objects type per XSD), which could false-positive a signal reference to a junction-owned object -- fixed by also collecting junction-owned object ids; re-verified via full corpus re-run (identical, no regression) plus a new targeted synthetic test. All 4 official-set findings manually traced to genuine dangling references in ASAM example/doc-excerpt files (single-road spec excerpt with dangling successor; traffic-lights use case with 2 dangling controller refs + 1 dangling signal reference), not checker over-broadness.",
+    "group": "misc_header_ids",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_local.element_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Verified: fires correctly on synthetic 1-cornerLocal case, 0 false positives on real corpus (204/205 parsed files clean).",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_local.first_id_zero": {
+    "status": "implemented_gt",
+    "reason": "Verified: the single official-set hit (Ex_Objects.xodr) manually confirmed genuine by reading the raw XML; per-outline id scoping matches XSD's 'unique within one outline' semantics.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_local.mandatory_id_with_markings": {
+    "status": "implemented_gt",
+    "reason": "Verified: markings is a direct sibling of the corner elements inside <outline> per XSD, matching the check's outline.find('markings') scope; synthetic case confirms it fires on a missing id.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_local.no_mixing_road_local": {
+    "status": "implemented_gt",
+    "reason": "Verified: 2-way cornerRoad+cornerLocal mixing check fires correctly in synthetic test, 0 hits on real corpus (consistent with XSD choice already preventing this in valid files).",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_local.sequential_id_values": {
+    "status": "implemented_gt",
+    "reason": "Verified: synthetic id-gap case [0,1,3] correctly detected; correctly distinguishes from first_id_zero (doesn't require starting at 0, only +1 steps).",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_road.corner_road_local_exclusivity": {
+    "status": "implemented_gt",
+    "reason": "Verified: 3-way exclusivity fires correctly on synthetic 2-way and 3-way mixes; 0 hits on real corpus.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_road.element_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Mirrors corner_local variant, same verification standard applied.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_road.first_id_zero": {
+    "status": "implemented_gt",
+    "reason": "Verified via synthetic first-id=1 case; fires correctly.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_road.mandatory_id_with_markings": {
+    "status": "implemented_gt",
+    "reason": "Same scoping verification as corner_local variant; 0 flags on corpus, corpus fixtures pairing markings+cornerRoad all well-formed.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.corner_road.sequential_id_values": {
+    "status": "implemented_gt",
+    "reason": "Mirrors corner_local variant, same verification standard applied.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.curve_local.continuous_curve_local": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed by re-reading Annex F text: requires evaluating each curveLocal segment's arc/line/paramPoly3 endpoint in u/v and checking chain continuity, not an attribute-level check.",
+    "group": "road_corner_curve",
+    "function": null,
+    "source": "verify"
+  },
+  "road.curve_local.element_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Proxy design (fires when an outline has zero of all three corner/curve kinds, attributed to curve_local since it has the loosest >=1 threshold) verified sound via synthetic empty-outline and single-curveLocal cases; correctly avoids triple-flagging the same violation under corner_local/corner_road names too.",
+    "group": "road_corner_curve",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.curve_local.length_match": {
+    "status": "gap_geometry_math",
+    "reason": "Rule text explicitly requires numerical integration of the curve's parametric derivative over its range -- confirmed genuine geometry math, not attribute reading.",
+    "group": "road_corner_curve",
+    "function": null,
+    "source": "verify"
+  },
+  "road.curve_local.paramPoly3.arcLength_range": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed via XSD (t_road_objects_object_outlines_outline_curveLocal_paramPoly3): only @pRange is a stored attribute selecting the domain; the parameter p itself is never persisted in XML, so validating its range requires curve-consumption semantics not present as data to check.",
+    "group": "road_corner_curve",
+    "function": null,
+    "source": "verify"
+  },
+  "road.curve_local.paramPoly3.normalized_range": {
+    "status": "gap_geometry_math",
+    "reason": "Same XSD-confirmed reasoning as arcLength_range -- p in [0,1] constrains a consumer's implicit sweep variable, not a checkable stored value.",
+    "group": "road_corner_curve",
+    "function": null,
+    "source": "verify"
+  },
+  "road.crg.attach_vs_friction": {
+    "status": "implemented_gt",
+    "reason": "Verified against verbatim spec text; structural attribute check (mode==attached and purpose==friction), synthetic positive/negative pairs pass, clean on official set.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.friction_no_z_offset_scale": {
+    "status": "implemented_gt",
+    "reason": "Verified purpose default (\"elevation\" when absent) matches spec's attribute table exactly; presence check on zOffset/zScale when purpose==friction is correct, synthetic pairs pass.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.h_offset_only_genuine_global": {
+    "status": "implemented_gt",
+    "reason": "Presence check on hOffset with mode not in {genuine, global}; matches spec verbatim, synthetic pairs pass, official/corpus clean.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.junction": {
+    "status": "implemented_gt",
+    "reason": "Independently re-derived expected result on real fixture g8_junction_grid_18.xodr by manually walking junction/connection/connectingRoad elements -- confirmed the checker's clean result is correct (none of the 6 connecting roads has its own surface/CRG). Uses precise connectingRoad cross-referencing, not the naive @junction-attribute pattern that causes false-positive storms.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.no_opposite": {
+    "status": "implemented_gt",
+    "reason": "Attribute value check verified verbatim against spec HTML; orientation is a required attribute per schema so no default-handling gap; synthetic pairs pass.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.only_on_per_s": {
+    "status": "implemented_gt",
+    "reason": "Numeric interval-overlap check on same-@purpose CRG entries; adjacent-pair-after-sort-by-start logic is sufficient to detect any overlap in the set (transitivity argument verified by hand); synthetic overlap/non-overlap pair confirms correct firing.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.s_t_offset_no_global": {
+    "status": "implemented_gt",
+    "reason": "Re-confirmed true-positive fire on the real fixture GT_esmini/test/odr_fixtures/handauthored/14_crg_offsets_19.xodr by re-running the self-test; 0 false positives on official set.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.crg.use_last_entry": {
+    "status": "implemented_gt",
+    "reason": "Shares overlap detection with only_on_per_s and additionally names the file-document-order-last entry (matches spec's \"last entry in the sequence of occurrence in the file\" wording, using list.index() on the surface's direct CRG-child order); synthetic case confirms co-firing.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.cross_section_surface.height": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed via spec text (\"value of @height at <lane> elements is added to the cross section surface in z-direction\") that this is a value-combination formula requiring evaluation of CSS strip polynomials plus lane height together in 3D, not structural/attribute inspection -- classification upheld.",
+    "group": "road_crg_cross_section",
+    "function": null,
+    "source": "verify"
+  },
+  "road.cross_section_surface.lane_def_valid": {
+    "status": "gap_geometry_math",
+    "reason": "Requires integrating lane width polynomials across s per side to compute physical t-extent and comparing against CSS strip coverage -- genuine geometry evaluation, classification upheld.",
+    "group": "road_crg_cross_section",
+    "function": null,
+    "source": "verify"
+  },
+  "road.cross_section_surface.no_shape_superelevation": {
+    "status": "implemented_gt",
+    "reason": "Element co-presence check (crossSectionSurface with superelevation/shape as lateralProfile siblings) verified correct; synthetic pairs pass, official CSS examples clean.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.cross_section_surface.start_end_match_with_refline": {
+    "status": "implemented_gt",
+    "reason": "Cross-checked against the <coefficients> element's own normative text (10_roads/10_05_elevation.html): \"The first <coefficients> element shall start at the beginning of the road reference line with @s=0\" -- exact match to the s0==0 check; the road-length upper bound is a reasonable structural proxy for the \"end\" half given CSS coefficients have no explicit end marker (a CSS is defined as valid for the full road length by spec). Real CSS fixtures (1 GT + 4 official) all clean.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.cross_section_surface.use_strip": {
+    "status": "implemented_gt",
+    "reason": "Structural id/child-presence check per side verified against the <strip> element's attribute table (id semantics 1/-1/2/-2); validated against official Ex_Roof_Profile_1Strip.xodr and Ex_CrossFall_LeftTurn_1.xodr (both clean), synthetic positive cases confirm both violation shapes fire.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.cross_section_surface.use_width": {
+    "status": "implemented_gt",
+    "reason": "Structural check (inner strip must have <width> child when both inner+outer present on a side) verified against spec wording; validated against official Ex_CrossFall_LeftTurn_1.xodr plus synthetic positive/negative pairs.",
+    "group": "road_crg_cross_section",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.elevation.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Verified: pairwise s-ordering on <elevationProfile>/<elevation>; corpus re-run confirms 0 exceptions and the single official-set hit (Ex_Slip_Lane.xodr road 66) is a genuine defect, manually confirmed by reading the raw XML.",
+    "group": "road_elev_shape_type",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.elevation.elev_along_ref_line": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): No XSD-valid OpenDRIVE document can violate this sentence: <elevation> can ONLY be authored as a poly3(s) height profile keyed to the road-reference-line s-coordinate -- there is no other attribute, element, or coordinate system through which an auth",
+    "group": "road_elev_shape_type",
+    "function": null,
+    "source": "verify"
+  },
+  "road.superelevation.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Same verified pairwise s-ordering idiom on <lateralProfile>/<superelevation>; synthetic fixture confirms detection, clean fixture confirms no false positive, 0 natural corpus hits is plausible given near-zero base rate.",
+    "group": "road_elev_shape_type",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.shape.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Verified against Annex F text (primary sort by s, secondary by t): code correctly flags s-regression unconditionally and only checks t-regression when s is unchanged between consecutive elements; matches the 'firstly s, secondly t' requirement exactly.",
+    "group": "road_elev_shape_type",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.shape.t_definition_coverage": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: determining 'maximum road width of the entire road' requires evaluating every lane's width poly3 across all laneSections and s, real geometry computation beyond attribute reading.",
+    "group": "road_elev_shape_type",
+    "function": null,
+    "source": "verify"
+  },
+  "road.type.create_new_type_in_parent": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Because <type> is the ONLY mechanism through which a road's type value is expressed, a 'change' in road type is, by definition, always and exclusively representable by authoring a new <type> element -- there is no alternate way to change the effectiv",
+    "group": "road_elev_shape_type",
+    "function": null,
+    "source": "verify"
+  },
+  "road.type.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Verified: same pairwise s-ordering idiom on <road>/<type>, correctly scoped per-road (prev_s reset), 0 natural hits plus synthetic positive/negative confirmation.",
+    "group": "road_elev_shape_type",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.type.lane_type_may_differ_from_parent": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Purely permissive design-freedom statement that explicitly declares any lane-type/road-type combination valid ('both valid if specified') -- there is no forbidden state described, so no violation condition exists to encode.",
+    "group": "road_elev_shape_type",
+    "function": null,
+    "source": "verify"
+  },
+  "road.type.only_alpha_2_country_codes": {
+    "status": "implemented_gt",
+    "reason": "Verified against the actual e_countryCode XSD union (alpha-2/deprecated-alpha-3/deprecated-enum incl. OpenDRIVE keyword): the check's exemption-of-OpenDRIVE plus length!=2 flag logic exactly covers the schema-legal deprecated space; corpus values are clean (DE/JP/OpenDRIVE only) and state-identifier suffixes are confirmed by spec prose to never appear in the file's @country attribute, so no false-positive risk.",
+    "group": "road_elev_shape_type",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.use_cases.shape_elements_start_right": {
+    "status": "implemented_gt",
+    "reason": "Verified against Annex F text (shapes must start at negative t / right side): min-t-per-s-group check independently confirmed correct via non-vacuous positive control (official UC_RoadShape.xodr, t=-4..4, min=-4 passes) and negative control (handauthored 23_lateral_shape_15.xodr, all t=0, correctly flagged).",
+    "group": "road_elev_shape_type",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.length_sum_geometries": {
+    "status": "implemented_gt",
+    "reason": "Structural sum check, verified genuine on official UC_T_Junction.xodr (road 6, 80 vs 111.617) via direct XML inspection; 0 other official flags.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.no_overlap_outside_junction": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed against spec text: requires 2D reference-line position evaluation (line/arc/spiral/paramPoly3) and pavement-width overlap testing across road pairs, not attribute inspection.",
+    "group": "road_geometry_linkage",
+    "function": null,
+    "source": "verify"
+  },
+  "road.no_overlap_self": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed against spec text: requires self-intersection testing of the computed 2D reference-line polyline, genuine curve geometry computation.",
+    "group": "road_geometry_linkage",
+    "function": null,
+    "source": "verify"
+  },
+  "road.overlap_inside_junction": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed against spec text: same 2D position/overlap computation class as no_overlap_outside_junction plus level/junction-id exceptions.",
+    "group": "road_geometry_linkage",
+    "function": null,
+    "source": "verify"
+  },
+  "road.linkage.both_sides_consistency": {
+    "status": "implemented_gt",
+    "reason": "Structural reciprocity check, junction-linked and elementS virtual-junction links correctly excluded from scope; verified logic against contactPoint semantics and precedent script; genuine finding on soderleden.xodr confirmed.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.linkage.junc_link_attribute_usage": {
+    "status": "implemented_gt",
+    "reason": "Structural attribute-presence check for elementType='junction' targets whose junction @type!='virtual'; independently verified positive-detection with a fresh synthetic case (missing elementType correctly fires); 0 false positives on 208-file corpus.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.linkage.road_link_attribute_usage": {
+    "status": "implemented_gt",
+    "reason": "Fixed during audit: previously used an OR-carve-out that let elementS-marked (virtual-junction) links satisfy this rule and silently mask virtjunc-specific violations; now scoped strictly to non-elementS road links requiring elementType=road+elementId+contactPoint, verified against Road.xsd doc and 0 regressions on corpus/synthetic tests.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.linkage.virtjunc_link_attribute_usage": {
+    "status": "implemented_gt",
+    "reason": "Fixed a genuine bug during audit: original scope (elementType='junction' pointing at a @type='virtual' junction) never matches real data (0/208 corpus, 0 spec examples); real-world virtual-junction entries are elementType='road'+elementS+elementDir (7/208 corpus, confirmed via XSD doc + spec worked examples). Re-scoped to trigger on elementS presence, requiring elementType=road+elementId+elementDir; verified with synthetic before/after test (previously-dead violation path now fires correctly), no corpus regressions.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.contact_point": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed against spec text: requires evaluating x/y/hdg at each road's start/end from curve geometry to verify physical coincidence, not declared-attribute comparison.",
+    "group": "road_geometry_linkage",
+    "function": null,
+    "source": "verify"
+  },
+  "road.geometry.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Structural s-ordering check, verified via independent synthetic decreasing-s case (fires correctly); 0 findings in real corpus.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.one_geom_elem_per_spec": {
+    "status": "implemented_gt",
+    "reason": "Structural child-count check, verified via independent synthetic 2-children case (fires correctly); 0 findings in real corpus.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.only_one_refline": {
+    "status": "implemented_gt",
+    "reason": "Structural planView-count check, verified via independent synthetic duplicate-planView case (fires correctly); 0 findings in real corpus.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.refline_exists": {
+    "status": "implemented_gt",
+    "reason": "Structural presence check, verified via independent synthetic missing-planView and empty-planView cases (both fire correctly); 0 findings in real corpus.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.refline_no_gaps": {
+    "status": "implemented_gt",
+    "reason": "Structural s/length continuity check, verified via independent synthetic gap case (fires correctly); 0 findings in real corpus.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.refline_no_kinks": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed against spec text: requires heading-continuity computation across segment boundaries (curvature integration for arc/spiral, derivative evaluation for poly3/paramPoly3), genuine curve math.",
+    "group": "road_geometry_linkage",
+    "function": null,
+    "source": "verify"
+  },
+  "road.geometry.s-value_sum": {
+    "status": "implemented_gt",
+    "reason": "Structural cumulative-sum check (global, distinct from refline_no_gaps's local check), verified via independent synthetic case (fires correctly); 0 findings in real corpus, consistent with refline_no_gaps also being 0.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.arc.no_zero_curvature": {
+    "status": "implemented_gt",
+    "reason": "Structural attribute-value check, matches spec text exactly; 2 genuine flags confirmed (upstream fixtures, out of scope), 0 on official/GT set.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.paramPoly3.valid_parameters": {
+    "status": "implemented_gt",
+    "reason": "Structural attribute-value check (aU=aV=bV=0, bU>0), verified against spec text verbatim including cross-check against the pRange-specific sibling rules (confirmed valid_parameters has no pRange dependency); clean against all 198 real paramPoly3 elements plus a synthetic violating case.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.geometry.spiral.curvature_change": {
+    "status": "implemented_gt",
+    "reason": "Structural attribute-equality check, matches spec text exactly; 52 genuine flags confirmed as a real recurring anti-pattern (constant-curvature spirals from generation tooling), 0 on official set.",
+    "group": "road_geometry_linkage",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.access.center_lane_no_acc_rule": {
+    "status": "implemented_gt",
+    "reason": "verified against spec 11.8.4: center lane forbidden <access> children; structural check, clean on official set, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.access.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "verified against spec 11.8.4: per-lane <access> sOffset ascending; clean on official set, fires on synthetic out-of-order fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.border.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "per-lane <border> sOffset ascending; 0 real occurrences on corpus, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.border.exclusive_offset_border": {
+    "status": "implemented_gt",
+    "reason": "road-level <lanes>/<laneOffset> presence vs any lane <border>, scoped to avoid unrelated object/borders/border; clean on official set, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.border.exclusive_width_border": {
+    "status": "implemented_gt",
+    "reason": "per-laneSection border/width mutual exclusivity across the lane group; matches spec 11.7.1/11.7.2 'mutually exclusive within the same lane group'; clean on official set, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.height.center_lane_no_height": {
+    "status": "implemented_gt",
+    "reason": "structural center-lane forbidden-child check; validated on synthetic fixture, 0 on official set",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.height.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "per-lane <height> sOffset ascending; clean on official set, fires on synthetic out-of-order fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_properties.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "FIXED during verification: original implementation only unioned border+width elem_asc_order; spec section 11.7 'Lane geometry' intro explicitly names width/border/height as the three 'lane geometry' types this generic F.6.12.20 rule covers, so height was missing. Added height to the union; re-verified 0 regression on full corpus (0 official flags) and confirmed positive-fire on a height-only violation via a new standalone check against the existing synthetic fixture (road 106)",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.material.center_lane_no_material": {
+    "status": "implemented_gt",
+    "reason": "structural center-lane forbidden-child check; validated on synthetic fixture, 0 on official set",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.material.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "verified against spec 11.8.2; true-positive fires on upstream EnvironmentSimulator/Unittest/xodr/straight_highway_500m.xodr (non-monotonic sOffsets 200,190,0), confirmed by independent re-run; 0 on official set",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.road_mark.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "verified against spec 11.9: UML class is t_road_lanes_laneSection_lcr_lane_roadMark (left/center/right), confirming include_center=True is correct, not an over-broad guess; clean on official set, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.road_mark.only_outer": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): <roadMark> has no attribute distinguishing 'inner' vs 'outer' intent -- by the element's own normative definition, every <roadMark> child of a <lane> unconditionally describes that lane's outer border. No XSD-legal document can represent a 'non-outer",
+    "group": "road_lane_attrs",
+    "function": null,
+    "source": "verify"
+  },
+  "road.lane.road_mark.position_outer_half": {
+    "status": "gap_geometry_math",
+    "reason": "requires cumulative lane-width cross-section computation (t-offset placement of the mark's center vs the physical lane/next-lane boundary), genuine road-geometry math beyond attribute reading; classification upheld",
+    "group": "road_lane_attrs",
+    "function": null,
+    "source": "verify"
+  },
+  "road.lane.rule.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "per-lane <rule> sOffset ascending; 0 on real corpus, fires on synthetic out-of-order fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.speed.center_lane_no_spd_lmt": {
+    "status": "implemented_gt",
+    "reason": "structural center-lane forbidden-child check; validated on synthetic fixture, 0 on official set",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.speed.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "per-lane <speed> sOffset ascending; clean on official set, fires on synthetic out-of-order fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.width.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "per-lane <width> sOffset ascending; clean on real corpus, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.width.lane_width_validity": {
+    "status": "implemented_gt",
+    "reason": "verified against spec 11.7.1 calculation/validity semantics (ds restarts at 0 per element, valid until next element or section end); cubic-min-over-interval correctly matches this; 0 on official set after the prior fix to use laneSection-relative length, fires on synthetic negative-dip fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.width.no_width_with_border": {
+    "status": "implemented_gt",
+    "reason": "same underlying lane-group border/width mutual-exclusivity check as border.exclusive_width_border, reported under its own 1.9.0 rule_name per spec 11.7.1; validated on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.width.width_defined_whole_section": {
+    "status": "implemented_gt",
+    "reason": "verified against spec 11.7.1 rules list ('must be a <width> element for @s=0'); minimum sOffset among a lane's width elements must be 0; clean on official set, fires on synthetic fixture",
+    "group": "road_lane_attrs",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.center_elem_definition": {
+    "status": "implemented_gt",
+    "reason": "Verified: checks len(<center>)!=1 per laneSection, matching 'One <center> element shall be defined for each s-coordinate' literally; 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.center_lane": {
+    "status": "implemented_gt",
+    "reason": "Verified: road-wide scan across all <lanes> layers/laneSections for any actual center lane; 0 hits on real corpus, synthetic no-center case fires (confirmed via independent synthtest run).",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.center_lane_id": {
+    "status": "implemented_gt",
+    "reason": "Verified: direct attribute check id=='0' matches 'the center lane shall have the lane id 0' literally; 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.center_lane_no_width": {
+    "status": "implemented_gt",
+    "reason": "Verified: checks for stray <width> child of center lane; 4 genuine hits confirmed confined to upstream out-of-scope fixtures (EnvironmentSimulator/Unittest), 0 on official/GT.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.center_lane_singular": {
+    "status": "implemented_gt",
+    "reason": "Verified: checks exactly one <lane> inside <center>; 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_id_unique": {
+    "status": "implemented_gt",
+    "reason": "Verified: uniqueness scoped per laneSection and per <lanes> @layer; confirmed against XSD (t_road allows maxOccurs=2 <lanes> children, i.e. permanent+temporary do not share a uniqueness scope). 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_listing": {
+    "status": "implemented_gt",
+    "reason": "Verified against 30+ official ASAM examples: compliant files consistently list <left> lanes in descending doc-order id, confirming the checker's descending-order reading is correct. The 1 official-set hit and 9 GT:resources/xodr hits (all from one file, a copy of upstream's highway_example_with_merge_and_split.xodr) are genuine style deviations, not false positives; official set overall is clean at 1/208.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_order": {
+    "status": "implemented_gt",
+    "reason": "Verified: checks id nearest center is 1 (left)/-1 (right), skipping cases where sign is already wrong (delegated to lanes_numbered_correctly); combined with lane_id_unique + lane_order_no_gaps this fully captures the 'start at 1/-1, ascending/descending away from center' rule text since numbering has no independent physical-position data beyond the id itself. 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_order_no_gaps": {
+    "status": "implemented_gt",
+    "reason": "Verified: abs(id) run continuity check per side. Independently confirmed the 1 official-set hit (road 82, UC_5Road_Junction.xodr, @junction=\"-1\" i.e. not a connecting road) is a genuine gap: right ids jump [-1,-2,-3,-6] at s=0, missing -4/-5.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_reverse_left_right": {
+    "status": "implemented_gt",
+    "reason": "Sub-case checked: two-sided laneSection (>=1 @type='driving' lane on BOTH <left> and <right>) where EVERY driving lane on both sides carries literal @direction='reversed' -- the airtight whole-section RHT<->LHT-flip signature per 11.3.1 / Annex F.6.12.11, independent of the road's own @rul",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_sect_first": {
+    "status": "implemented_gt",
+    "reason": "Verified: skips layer=\"temporary\", justified by XSD assert tying layer=\"permanent\" to laneSection having no @length (temporary layers are schema-defined bounded overlays, legitimately starting mid-road). 0 hits on real corpus after this exclusion.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_sect_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Verified: checks >=1 <laneSection> per <lanes> element, matches text literally; 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lane_section_drivable": {
+    "status": "implemented_gt",
+    "reason": "Verified: checks for <left>/<right> presence, excluding center @type=\"none\". Independently confirmed via direct inspection of Ex_SmoothObjectOutline_traffic_island.xodr (roads 7-10) that all 4 center-only laneSections in the official corpus use exactly this pattern. 0 hits after the exclusion.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.lanes_numbered_correctly": {
+    "status": "implemented_gt",
+    "reason": "Verified: sign check, left ids>0, right ids<0, matches text literally; 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.s_attr_value": {
+    "status": "implemented_gt",
+    "reason": "Verified: presence check for @s on every <laneSection>, matches text literally; 0 hits on real corpus.",
+    "group": "road_lane_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.lane.layer.center_lane_permanent": {
+    "status": "implemented_gt",
+    "reason": "Directly encodes spec 11.3 (<center><lane id=0> mandatory) scoped to the permanent layer per this rule's text; synthetic positive fixture (missing center lane) fires correctly, 0 flags on full corpus (208 files, 0 exceptions).",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.layer.lane_group_width_temporary": {
+    "status": "implemented_gt",
+    "reason": "Sums left/right lane-group widths + laneOffset per side (verified 11.3 'lane group' = <left>/<right>, not left+right combined) at each temporary laneSection start vs the covering permanent section; independently re-derived the arithmetic by hand for the one official finding (Ex_Lane_MultiLaneLayer.xodr road 1: temp 16.300 > perm 15.500, confirmed correct, not a bug) -- 2 genuine locations in 1/36 official files, near-zero per contract bar.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.layer.lane_phys_attr_temporary": {
+    "status": "implemented_gt",
+    "reason": "Direct presence check for <height>/<material> under temporary-layer <lane>; synthetic positive fixture fires correctly, 0 flags on corpus (structural attribute check, no ambiguity).",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.layer.layer_limits": {
+    "status": "implemented_gt",
+    "reason": "Counts <lanes>@layer per road (missing/invalid @layer defaults to permanent per spec) and flags count!=1 permanent or >1 temporary; synthetic positive fixture (2 permanent layers) fires correctly, 0 flags on corpus.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.layer.layer_mandatory_permanent": {
+    "status": "implemented_gt",
+    "reason": "Flags a missing permanent <lanes> layer, an empty one, or one whose first laneSection doesn't start at s=0; synthetic positive fixture (temp-only road) fires correctly. Does not detect a mid-road coverage gap in the permanent layer, but @length is separately forbidden on the permanent layer by length_only_temporary so such a gap cannot arise silently through that path -- 0 flags on corpus.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.layer.length_only_temporary": {
+    "status": "implemented_gt",
+    "reason": "Flags any @length attribute on a permanent-layer laneSection (XSD allows it on the element type but the prose forbids it for this layer specifically -- a genuine XSD-can't-express gap); synthetic positive fixture fires correctly, 1 genuine finding on GT-authored g1_lanesection_length_19.xodr (the fixture's own filename confirms it's the intended positive case), 0 on official set.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.link.multiple_connections": {
+    "status": "implemented_gt",
+    "reason": "Implements the rule's 2nd sentence only (non-zero width required at a declared connection point) -- the 1st sentence (multi-link required for abrupt splits/merges) needs cross-section lane-topology-change detection, out of attribute-only scope, left unimplemented and documented in-code. Verified this rule needs no junction-connecting-road guard: lane-level <link> semantics on connecting roads are unchanged from normal roads (confirmed by scanning all 1023 connecting-road lane links in the corpus -- none produce a false positive, computed width at the declared connection point is never near-zero). Synthetic positive fixture fires correctly; 1 genuine finding on the official Ex_Motorway_roadworks_temporary_layer_lane_offset.xodr (an intra-road cross-layer lane-renumbering chain where a temp lane's own width is 0 with a declared predecessor -- investigated, matches the literal rule text, not a clear false positive) plus a handful on GT-authored fixtures.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.link.no_link": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Distinguishing 'physically-connected, unambiguous lane linkage legitimately expressed at lane level despite the road formally touching a junction' (the slip-lane connector road 77 pattern, sanctioned by ASAM's own official example) from 'a lane link ",
+    "group": "road_lane_layer_link_section",
+    "function": null,
+    "source": "reverify"
+  },
+  "road.lane.link.temporary_layer_section_link_permanent": {
+    "status": "implemented_gt",
+    "reason": "Checks both authoring directions (own predecessor/successor targeting layer=permanent, or the reciprocal permanent lane declaring layer=temporary back) at the aggregate start/end of the temporary-layer run, restricted to drivable (@type=driving) non-zero-width lanes per the rule text; synthetic positive fixture fires correctly, 2 genuine findings on GT-authored g2_lanes_layer_19.xodr (filename-confirmed intended positive case), 0 on official set.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane.link.use_junctions": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): 'Clear' vs 'ambiguous' relationship to a predecessor/successor is a real-world-topology/authorial-intent judgment (would a driver's or router's continuation onto that specific lane be unambiguous) with no corresponding XML attribute. A structural pro",
+    "group": "road_lane_layer_link_section",
+    "function": null,
+    "source": "reverify"
+  },
+  "road.lane_section.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Straightforward document-order s-monotonicity check per <lanes> layer (permanent and temporary checked independently, matching that each layer owns its own laneSection sequence); synthetic positive fixture fires correctly, 0 flags on corpus.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane_section.lane_long_zero_width": {
+    "status": "implemented_gt",
+    "reason": "FIXED during verification: original code checked ALL lane types, causing a false-positive storm on official fixtures (4/5 flags were type=\"border\" lanes legitimately at 0 width for a long stretch, e.g. UC_Motorway-Exit-Entry). Added a driving-relevant @type allowlist matching esmini RoadManager's own LANE_TYPE_ANY_DRIVING set (driving/entry/exit/offRamp/onRamp/connectingRamp/bidirectional) so structural/decorative lane types (border, shoulder, curb, sidewalk, median, etc.) are correctly excluded. Re-verified: official-set flags for this rule dropped from 4 to 0; the one remaining corpus flag (GT-authored resources/xodr/tunnels.xodr, an entire-road 0-width type=driving lane) is a genuine finding. Synthetic positive (driving) and negative (border) fixtures both behave as expected post-fix.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane_section.lane_sect_req": {
+    "status": "implemented_gt",
+    "reason": "Direct presence check (root.iter for at least one laneSection anywhere under the road); synthetic positive fixture fires correctly, 0 flags on corpus (all corpus roads that parse have at least one laneSection).",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane_section.lanesec_length_limit_road": {
+    "status": "implemented_gt",
+    "reason": "Direct arithmetic check (s + @length > road @length) restricted to sections that actually declare @length (i.e. temporary-layer sections, since length_only_temporary already forbids @length on permanent); synthetic positive fixture fires correctly, 0 flags on corpus.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane_section.lanesec_usage_lane_num": {
+    "status": "gap_geometry_math",
+    "reason": "Detecting a within-section lane-count change (as opposed to a change that already coincides with a laneSection boundary, which is definitionally never a violation) requires evaluating each lane's cubic width polynomial for a genuine zero-crossing strictly inside the section's s-span -- real numeric root-finding beyond attribute/count inspection, not decidable from laneSection/lane presence or counts alone.",
+    "group": "road_lane_layer_link_section",
+    "function": null,
+    "source": "reverify"
+  },
+  "road.lane_section.new_lanesec_link_temp_to_perm": {
+    "status": "implemented_gt",
+    "reason": "Checks that wherever a cross-layer (temporary<->permanent) lane link is actually declared at the temporary run's start/end, the permanent layer has a matching laneSection boundary at that s (exempting the road's own start/end, which the permanent layer's outermost sections inherently reach without a new split); synthetic positive fixture (cross-layer link with no matching permanent boundary) fires correctly, 0 flags on corpus.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lane_section.valid_length": {
+    "status": "implemented_gt",
+    "reason": "Effective-length computation (explicit @length, else distance to next section, else remainder of road length) checked for <= 0, tightening XSD's >= 0 to the prose's strict > 0; synthetic positive fixture (duplicate s) fires correctly, 2 genuine findings on GT-authored LHT/RHT skew-junction fixtures (floating-point-noise-scale ~7e-15 length, i.e. an effectively-zero-length generated section).",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lanes.lane_offset.elem_asc_order": {
+    "status": "implemented_gt",
+    "reason": "Document-order s-monotonicity check over <laneOffset> per <lanes> layer, mirroring the laneSection version; synthetic positive fixture fires correctly, 0 flags on corpus.",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.lanes.lane_offset.no_offset_if_border_defined": {
+    "status": "implemented_gt",
+    "reason": "Flags co-occurrence of any <laneOffset> with any <border> width-definition anywhere in the same <lanes> layer, matching the rule's file-scope (not per-section) wording; explicit child-count check used instead of a truthiness/any() shortcut to avoid ElementTree's Element.__bool__ pitfall on self-closed <border/> (documented in-code). Synthetic positive fixture fires correctly, 0 flags on corpus (no file mixes the two).",
+    "group": "road_lane_layer_link_section",
+    "function": "run_checks",
+    "source": "reverify"
+  },
+  "road.object.circular_vs_angular": {
+    "status": "implemented_gt",
+    "reason": "Verified against the actual XSD assert (not(@radius or @width or @length) or (@radius and not(@width or @length)) or (@width and @length and not(@radius))); 0 on official set, correctly fires on 11 genuine radius+width/length objects in EnvironmentSimulator/Unittest/xodr/some_signs.xodr and straight_500m_signs_lht.xodr, confirmed by direct file inspection.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.orientation": {
+    "status": "implemented_gt",
+    "reason": "Verified @orientation is XSD use=\"optional\" on <object> (schema line 321) while Annex F text requires it; 0 false positives on official set, 13 genuine finds (parking_demo.xodr, crest-curve.xodr, stationary_objects.xodr, one generated fixture).",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.s_t_coords": {
+    "status": "implemented_gt",
+    "reason": "Defensive re-check confirmed against XSD (s/t are use=\"required\" on <object>, schema line 370); correctly scoped, 0 findings on well-formed corpus as expected.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.type_attr": {
+    "status": "implemented_gt",
+    "reason": "Verified @type is XSD use=\"optional\" on <object> (schema line 311) while Annex F text requires it; 0 on official set, 1 genuine find on an incomplete generated fixture.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.borders.different_outlineids": {
+    "status": "implemented_gt",
+    "reason": "Verified the code correctly reads the outline's actual XSD attribute name @id (per the xs:key selector road/objects/object/outlines/outline -> @id) rather than being misled by the Annex F prose's informal '@outlineId' phrasing; confirmed firing via synthetic duplicate-id case, 0 real-corpus hits (plausible given low prevalence).",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.borders.useCompleteOutline_true": {
+    "status": "implemented_gt",
+    "reason": "Verified the explicit-true-only firing decision against the real XSD assert 'if (@useCompleteOutline) then not(cornerReference) else count(cornerReference) gt 1' -- an omitted attribute evaluates false under XPath effective-boolean-value semantics (not true, despite misleading schema-doc prose), so treating omission as non-firing is provably correct and matches the official calibration fixture's usage; confirmed firing via synthetic explicit-true case.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.bridges.define_type": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Purely informative/permissive sentence documenting an available modeling option (attach a <validity> element under <bridge> to restrict lane applicability); it forbids nothing and there is no alternate mechanism to restrict a bridge to lanes that thi",
+    "group": "road_object_core",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.bridges.from_lower_equal_to": {
+    "status": "implemented_gt",
+    "reason": "Verified <bridge><validity> structure and fromLane/toLane (xs:integer, required) against XSD (t_road_objects_object_laneValidity); confirmed firing via synthetic fromLane>toLane case, 0 findings on the single well-formed real bridge.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.bridges.type_definition": {
+    "status": "implemented_gt",
+    "reason": "Verified @type is XSD use=\"required\" on <bridge> (schema line 271) -- legitimate defensive re-check for non-schema-validated fixtures; confirmed firing via synthetic missing-type case.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.material.materials_may_differ": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Permissive 'may differ' grant with no counterpart 'surrounding road material' value even present in a schema-comparable form (surface/friction/roughness are opaque app-defined strings/numbers with no cross-reference to a road-level material record) -",
+    "group": "road_object_core",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.reference.from_lower_equal_to": {
+    "status": "implemented_gt",
+    "reason": "Verified <objectReference><validity> structure against XSD (same t_road_objects_object_laneValidity type); confirmed firing via synthetic fromLane>toLane case, 0 findings on the single well-formed real objectReference.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.tunnels.from_lower_equal_to": {
+    "status": "implemented_gt",
+    "reason": "Verified <tunnel><validity> structure against XSD; confirmed firing via synthetic fromLane>toLane case, 0 findings across the 6 real tunnels (all well-formed).",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.tunnels.type_definition": {
+    "status": "implemented_gt",
+    "reason": "Verified @type is XSD use=\"required\" on <tunnel> (schema line 1209) -- legitimate defensive re-check; confirmed firing via synthetic missing-type case, 0 on the 6 real tunnels (all specify type).",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.validty.check_parent_orientation": {
+    "status": "implemented_gt",
+    "reason": "Re-read the full (un-truncated) Annex F HTML section F.6.16.16; the hand-agnostic sign-span check correctly implements the 'subset of parent orientation' constraint for orientation in {+,-}; traced real hits in some_signs.xodr and straight_500m_signs.xodr (object id=0, orientation='+', validity [-3,3]) to the actual XML and confirmed they are genuine violations.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.validty.from_lower_equal_to": {
+    "status": "implemented_gt",
+    "reason": "Verified <object><validity> fromLane/toLane against XSD; correctly scoped to <object> only (not bridge/tunnel/reference, which have their own separate assigned rules); 0 real-corpus findings (well-formed), confirmed via existing synthetic driver's LHT cases which exercise the same code path.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.validty.left_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "Verified the expect_neg=(orientation=='-') mapping for LHT against the full spec text ('LHT: orientation=\"-\" implies validity shall only span negative lane ids, orientation=\"+\" implies positive-only'); re-ran the module's synthetic self-test confirming both directions fire correctly; 0 real LHT objects with validity exist in the corpus so 0 real findings is expected, not a gap.",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.validty.right_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "Verified the expect_neg=(orientation=='+') mapping for RHT against the full spec text ('RHT: orientation=\"+\" implies validity shall only span negative lane ids, orientation=\"-\" implies positive-only'); 0 on official set, 2 genuine real-corpus hits traced to actual XML content and confirmed correct (some_signs.xodr, straight_500m_signs.xodr).",
+    "group": "road_object_core",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.colour": {
+    "status": "implemented_gt",
+    "reason": "Straightforward @color presence/non-empty check on every <marking>; correct and matches XSD-required-but-hand-breakable semantics. 0 hits on real corpus (expected, XSD-required).",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.complete_or_partial_on_outline": {
+    "status": "implemented_gt",
+    "reason": "Referential-integrity check (cornerReference @id must resolve within the owning outline's own point-id set) is a defensible literal encoding of the terse Annex F text; verified against spec prose and synthetic test. Minor over-scoping to bare <outline> form (not just <outlines> wrapper) noted but cannot cause false positives.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.markings_with_outline": {
+    "status": "implemented_gt",
+    "reason": "Verified by hand: both real-corpus hit files (UC_2Lane-RoundAbout-3Arms.xodr, parking_demo.xodr) manually XML-dumped and confirmed genuine <markings> directly under <object> despite <outlines> being present; known-good official fixtures correctly produce zero flags.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.markings_without_outline": {
+    "status": "implemented_gt",
+    "reason": "Mirror-image placement check, verified via synthetic positive case (object id=3, markings misplaced under <material>); 0 real-corpus hits, logic sound.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.no_cornerreference_if_no_outline": {
+    "status": "implemented_gt",
+    "reason": "Correctly scoped to object-level (parent=<object>, no outline) markings only; verified via synthetic positive case, unconditional per rule text.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.no_outline_side_attr": {
+    "status": "implemented_gt",
+    "reason": "Correctly scoped, verified via synthetic case and against compliant official fixture Ex_Parkingspace_Rectangular.xodr (which sets @side and stays clean).",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.marking.outline_corner_reference_count": {
+    "status": "implemented_gt",
+    "reason": "1.7.0 flat >=2 <cornerReference>-elements count, verified to count child elements (not distinct point ids) which is the correct reading consistent with the enclosed_outline_marking same-id idiom; synthetic positive/negative confirmed.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.object_marking.colour": {
+    "status": "implemented_gt",
+    "reason": "Same underlying @color check emitted as a twin finding alongside road.object.marking.colour, consistent with the ASAM category rename between spec versions describing the identical attribute.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.object_marking.enclosed_outline_marking": {
+    "status": "implemented_gt",
+    "reason": "Correctly detects the 2-same-id-cornerReference full-enclosure idiom and requires the owning outline to be closed=true; verified via synthetic closed/non-closed pair (9a fires, 9b silent).",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.object_marking.include_points_between_cornerReferences": {
+    "status": "implemented_gt",
+    "reason": "Contiguous-run check over the outline's own document-order point positions, with cyclic wrap allowed for closed outlines; verified via synthetic skip-a-point (10a fires) and closed-wrap (10b silent) cases.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.object_marking.keep_id_ordered": {
+    "status": "implemented_gt",
+    "reason": "Order-consistency check against the outline's own point order; deliberately treats reverse/descending order as compliant (documented interpretive call given genuine ambiguity in 'same order' phrasing, not contradicted by any other spec passage found), verified via synthetic disordered (fires) vs reverse-ordered (silent, by design) cases.",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.object_marking.outline_corner_reference_count": {
+    "status": "implemented_gt",
+    "reason": "1.9.0 curveLocal-aware refinement (>=1 for curveLocal-typed outlines, >=2 otherwise) verified correct via synthetic case proving divergence from the 1.7.0 flat rule on the same curveLocal-outline object (object id=7: flat rule fires, curveLocal-aware rule does not).",
+    "group": "road_object_marking",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.outline.exactly_one_outer": {
+    "status": "implemented_gt",
+    "reason": "Verified: wrapper-scoped exactly-one-outer=true check matches rule text and XSD @outer default; the sole official-set flag (Ex_Objects.xodr obj 10, outer=\"false\" explicit) independently confirmed as a genuine violation, not an over-fire.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.outline.inner_outline_touches_outer": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: requires polygon-adjacency/touching test between two outline boundaries in u/v or s/t space, beyond attribute reading.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.outline.outline_followed_by_corner": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD: cornerRoad/cornerLocal/curveLocal are an xs:choice (mutually exclusive, minOccurs 2/2/1) — the check's XOR structural test correctly encodes the rule as a defensive backstop for otherwise schema-enforced structure; 0 violations across corpus as expected.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.outline.points_inside_box": {
+    "status": "gap_geometry_math",
+    "reason": "Requires bounding-volume construction and point-containment math beyond attribute reading; correctly classified.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.repeating.attributes_with_outline_skeleton": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD: heightStart/heightEnd are use=\"required\" (always present) vs lengthStart/lengthEnd/widthStart/widthEnd use=\"optional\" — the code's asymmetric presence-vs-nonzero-value treatment is a correct, deliberate heuristic, not a bug. Real violations confirmed by reading parking_demo.xodr objects 4/6/8/101 raw XML.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.repeating.no_widthstart_end_with_radius": {
+    "status": "implemented_gt",
+    "reason": "widthStart/widthEnd confirmed use=\"optional\" in XSD so presence-based check is sound; 0 findings in current corpus is plausible (only radius+repeat object present doesn't set these attrs), correctly wired.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.repeating.outline_use_cornerlocal": {
+    "status": "implemented_gt",
+    "reason": "Structural check (repeat present + outline uses cornerRoad) correctly matches rule text; genuine violations independently confirmed in parking_demo.xodr objects 6 and 8 (repeat + cornerRoad-based outline).",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.repeating.valid_s_length": {
+    "status": "implemented_gt",
+    "reason": "Reasonable, defensible structural reading of the terse rule text (s/length non-negative, s and s+length within parent road's [0,length] s-domain); 10 genuine overflow findings independently reproduced, 0 on official set.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.surface.avoid_skewed_crg_surfacees": {
+    "status": "gap_geometry_math",
+    "reason": "Requires computing local radius of curvature of the road elevation profile at the object's s-position; correctly classified geometry math.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.surface.calculate_road_height": {
+    "status": "gap_geometry_math",
+    "reason": "Describes runtime CRG-grid height-computation/NaN-fallback behavior, not a static file-structure property; correctly classified.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.surface.crg_hidden_on_object_overlap": {
+    "status": "gap_geometry_math",
+    "reason": "Requires a geometric overlap test between a road-level CRG's spatial extent and an object's bounding volume, beyond attribute reading.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.surface.identical_local_coordinates": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed via XSD: the object-level <CRG> element carries only file/hideRoadSurfaceCRG/zScale attributes, no position/orientation data to check structurally — this is a runtime-CRG-interpretation rule about an external file's own header, correctly classified as out of structural-checker scope.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.surface.no_bounding_box_overlap": {
+    "status": "gap_geometry_math",
+    "reason": "Requires inertial bounding-volume construction and pairwise overlap tests across objects; correctly classified.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.surface.object_reference_on_overlap": {
+    "status": "gap_geometry_math",
+    "reason": "Requires inertial-coordinate geometric overlap testing across roads to determine which roads a surface object's footprint touches; correctly classified.",
+    "group": "road_object_outline_surface",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.surface.only_for_angular_boxes": {
+    "status": "implemented_gt",
+    "reason": "Structural check (surface + radius-or-outline) matches rule text; positive fixture confirmed by reading handauthored/26_object_details_19.xodr object 100 (legacy <outline> + <surface> co-occurrence), 0 on official set.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.surface.only_one_crg_file": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD: <surface> already caps CRG to maxOccurs=1, so this check is a correct defensive backstop against non-schema-conformant data, consistent with the checker suite's stated purpose; 0 findings in current corpus is expected.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.surface.repeat_discretely_not_continously": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD repeat/@distance documentation (\"If this value is zero, then the object is treated like a continuous feature\") — the distance==0 check is a verbatim-correct encoding; 0 findings is plausible since no current fixture combines <surface> with a zero-distance <repeat>.",
+    "group": "road_object_outline_surface",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.points_boundary_inside_box": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: requires transforming each skeleton point's boundary (radius or width/height) into inertial/road coordinates and testing partial overlap against the object's 3D bounding volume; genuine geometry beyond attribute inspection.",
+    "group": "road_object_skeleton",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.skeleton.points_inside_box": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: point-in-bounding-volume containment needs coordinate transform (vertexRoad s/t/dz or vertexLocal u/v/z relative to object placement) plus box geometry.",
+    "group": "road_object_skeleton",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.skeleton.points_requirements": {
+    "status": "gap_geometry_math",
+    "reason": "Confirmed: verifying connecting-line direction and perpendicularity of radius/width application requires vector/line geometry over 3D vertex coordinates; no author-settable angle attribute to check directly.",
+    "group": "road_object_skeleton",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.skeleton.polyline_followed_by_vertex": {
+    "status": "implemented_gt",
+    "reason": "Verified against XSD: t_road_objects_object_skeleton_polyline uses an xs:choice(minOccurs=2) between vertexRoad/vertexLocal, confirming the exclusive->=2-of-one-kind check is the correct semantics, not a guess. Re-ran full corpus (0/208 flags, 0 exceptions) and independent synthetic test (fires correctly on 1-vertex and mixed cases, silent on valid controls).",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.use_radius_or_width_length": {
+    "status": "implemented_gt",
+    "reason": "Verified: correctly checks radius-vs-width/length mode consistency across ALL vertices (both vertexRoad+vertexLocal) of a polyline including partial-omission cases, matching 'for all of its vertex elements' wording. Re-validated via independent synthetic test (inconsistent-mode case fires, valid controls silent).",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_local.element_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Re-confirmed structural count check (0<nL<2 fires) via independent synthetic single-vertexLocal case; clean on official set (0/208 corpus flags).",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_local.linear_interpolation": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Descriptive statement of consumer/renderer-side processing behavior (how a reader interpolates between two authored vertex points), not an author-facing prohibition -- there is no attribute through which an author could specify a non-linear interpola",
+    "group": "road_object_skeleton",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_local.no_mixing_road_local": {
+    "status": "implemented_gt",
+    "reason": "Verified mirror-pair logic against Annex F text and XSD choice-group semantics; independent synthetic mixed-vertex case fires this rule and its mirror simultaneously as expected, zero corpus flags.",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_local.vertex_local_elements": {
+    "status": "implemented_gt",
+    "reason": "Verified per-vertex radius+width/length exclusivity check is the correct reading (distinct from the polyline-wide use_radius_or_width_length rule); independent synthetic case (single vertexLocal with radius+length) fires correctly.",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_road.element_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Re-confirmed structural count check (0<nR<2 fires) via independent synthetic single-vertexRoad case; clean on official set.",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_road.linear_interpolation": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): Same consumer-side rendering semantics as the vertexLocal counterpart. The wording upgrades 'will' (1.8, vertexLocal) to 'shall' (1.9, vertexRoad) but the content is identical processing guidance -- verified directly against both XSD attribute sets, ",
+    "group": "road_object_skeleton",
+    "function": null,
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_road.no_radius_with_width_length": {
+    "status": "implemented_gt",
+    "reason": "Verified per-vertex attribute-presence check; independent synthetic case (vertexRoad with radius+width) fires correctly, and note that the XSD in this repo doesn't even define width/length on vertexRoad, meaning this check exists precisely to catch non-schema-validated authoring errors, consistent with gap-checker intent.",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.object.skeleton.vertex_road.polyline_elements": {
+    "status": "implemented_gt",
+    "reason": "Confirmed literal mirror of vertex_local.no_mixing_road_local per Annex F text; correctly co-fires under both rule names on the same mixed-type detection, verified via independent synthetic test.",
+    "group": "road_object_skeleton",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.one_rail_per_road": {
+    "status": "implemented_gt",
+    "reason": "Per-laneSection scoping is the correct unit (a continuing track across laneSections is a new linked lane element, not the same one re-summed); verified 0 flags on official corpus and correct firing on a synthetic 2-rail-lane laneSection plus correct non-firing on a same-lane-continuing-across-2-laneSections case.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.rail_lane_width_validity": {
+    "status": "implemented_gt",
+    "reason": "Sub-case checked: every <lane> with @type in {rail,tram}, for each <width> child, flags float(@a) <= 0 or @a absent (missing attribute reads as 0.0, correctly treated as non-positive) -- a real rail-bound vehicle necessarily has strictly positive width, so a degenerate/absent width can nev",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.rail_refline_centered": {
+    "status": "implemented_gt",
+    "reason": "Independently recomputed by hand: t-span midpoint == 0 for all 4 railroad-carrying roads across both official fixtures; fires correctly on a synthetic off-center rail lane and stays clean on a synthetic centered one.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.platforms.min_amount": {
+    "status": "implemented_gt",
+    "reason": "Direct structural check (station.findall('platform')==0), matches UML multiplicity 1..* in spec 15.4.1; fires on synthetic empty-station fixture.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.platforms.min_segments": {
+    "status": "implemented_gt",
+    "reason": "Direct structural check (platform.findall('segment')==0), matches UML multiplicity 1..* in spec 15.4.2; fires on synthetic segment-less platform fixture.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.segment.segments_per_platform_min_amount": {
+    "status": "implemented_gt",
+    "reason": "Confirmed as a genuine duplicate Annex F entry for the same underlying structural constraint as platforms.min_segments (both anchor the same t_station_platform_segment 1..* multiplicity from different UML sections), correctly emitted under its own rule_name.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.stations.one_platform_per_station": {
+    "status": "implemented_gt",
+    "reason": "Confirmed as a genuine duplicate Annex F entry for the same condition as platforms.min_amount (both derive from the same t_station_platform 1..* multiplicity, cross-referenced from spec 15.4 and 15.4.1 respectively), correctly emitted under its own rule_name.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.switch.check_switch_conn": {
+    "status": "implemented_gt",
+    "reason": "Cross-checked against spec 15.3.1's statement that mainTrack.id must equal the switch's own home road id -- this confirms main_ids∩side_ids correctly detects a switch's main/home track being referenced elsewhere as a connecting sideTrack; verified clean on official Ex_Railway-Switch topology and fires on a synthetic violation, clean on a synthetic official-pattern-mirroring fixture.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.railroad.switch.single_switch_no_partner": {
+    "status": "implemented_gt",
+    "reason": "Cross-checked against spec 15.3.3's 'these two switches need to be set consistently' -- confirms the reciprocal/asymmetric-partner-reference check is the correct reading; verified clean on official mutual-partner fixture and fires on a synthetic one-sided partner reference.",
+    "group": "road_railroad",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.priority": {
+    "status": "gap_ambiguous",
+    "reason": "RE-CONFIRMED truly ambiguous (high conf): The text prescribes runtime/consumer behavior -- a driving simulator or traffic-rule engine must give a physically-present <signal>'s regulation precedence over an inferred default traffic rule (e.g. default right-of-way) when both would otherwise ap",
+    "group": "road_signal_core_boards",
+    "function": null,
+    "source": "verify"
+  },
+  "road.signal.signal_type": {
+    "status": "implemented_gt",
+    "reason": "Confirmed correct: flags only when BOTH type and subtype are non-specific. Empirically verified the subtype='-1'-alone exemption against the official corpus (255/351 official <signal> elements use type=specific+subtype='-1', 0 both-nonspecific cases), so the exemption is not a false-positive-avoidance hack but matches real usage. Synthetic positive (type=subtype='-1') and negative (type=205,subtype='-1') cases both behave as expected.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.use_country_code": {
+    "status": "implemented_gt",
+    "reason": "Confirmed correct: flags a specific @type with missing @country. Cross-checked against the full official corpus (351 signals, 0 cases of specific-type-without-country) and a synthetic positive case; matches the rule text directly.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.boards.multi_board_have_sub_boards": {
+    "status": "implemented_gt",
+    "reason": "Verified against the actual XSD 1.1 assert in OpenDRIVE_Signal.xsd line 638 (`not(@type='multiBoard') or (@dynamic=true() and staticBoard>=1 and vmsBoard>=1)`) -- logic is a faithful translation. Synthetic missing-vmsBoard case fires as expected; well-formed multiBoard fixture (21_boards_vmsgroup_19.xodr) stays silent.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.boards.multi_board_use_correct_type": {
+    "status": "implemented_gt",
+    "reason": "Correct converse-direction check (both board kinds present but @type != 'multiBoard'); synthetic positive case fires, corpus has 0 hits (no mismatched fixture exists).",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.boards.multi_board_use_dynamic_true": {
+    "status": "implemented_gt",
+    "reason": "Verified the @dynamic='yes' mapping against the XSD: @dynamic is type t_yesNo (domain strictly {'yes','no'}, OpenDRIVE_Signal.xsd line 379), so the assert's `@dynamic=true()` correctly maps to 'yes' in-domain -- confirmed against the repo's own canonical multiBoard fixture (dynamic='yes', silent) and a synthetic dynamic='no' case (fires).",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.boards.static_board_use_correct_type": {
+    "status": "implemented_gt",
+    "reason": "Correct: staticBoard-only signal must declare @type='staticBoard'. Synthetic positive case fires; 0 corpus hits (no mismatched fixture).",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.boards.static_boards_no_single_signal": {
+    "status": "implemented_gt",
+    "reason": "Direct structural translation of the rule text ('a stop sign on a single sheet of metal'); correctly fires on this repo's own 21_boards_vmsgroup_19.xodr fixture and on a synthetic single-sign case, 0 hits on official set.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.controller.valid_for_signals": {
+    "status": "implemented_gt",
+    "reason": "Correctly scoped to the top-level <controller> (t_controller, direct child of OpenDRIVE per OpenDRIVE_Core.xsd line 25), distinct from junction/controller (line 26/54-55) -- confirmed via schema. Dangling-signalId and empty-controller synthetic cases fire correctly; valid-reference case stays silent; 0 corpus hits (all real top-level-controller files, found 8 not the self-report's claimed '5' but the discrepancy is cosmetic -- the rule correctly produced 0 flags either way since all are well-formed). Minor non-blocking observation: the module's valid-referent set includes both <signal> and board <sign> ids, slightly broader than the XSD 1.1 keyref r_controller_control (which formally keys only on road/signals/signal, excluding nested board signs) -- this can only make the checker MORE lenient (false-negative risk on an edge case never observed in the corpus), never cause a false positive, and is a defensible reading since <sign> extends t_road_signals_signal. Not changed.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.dependency.multiple_dependency": {
+    "status": "implemented_gt",
+    "reason": "Re-examined per CHECK_LOGIC: <dependency> is maxOccurs='unbounded' minOccurs='0' at both XSD occurrence sites (t_road_signals_signal covering <signal>/<sign>, and t_road_signals_board covering <staticBoard>/<vmsBoard> -- OpenDRIVE_Signal.xsd lines 289 and 360). The rule text is a permissiv",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.gantry.all_variable_boards_same_gantry": {
+    "status": "implemented_gt",
+    "reason": "Implements the deterministic structural sub-case only: for every top-level <vmsGroup>/<vmsBoardReference@signalId>, flags a dangling reference (signalId not found among top-level <signal id> elements) or a reference that resolves to a <signal> lacking a <vmsBoard> child (i.e. not actually ",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.gantry.vmsgroup_at_least_one_reference": {
+    "status": "implemented_gt",
+    "reason": "Correct: flags a top-level <vmsGroup> (confirmed direct child of OpenDRIVE, OpenDRIVE_Core.xsd line 35) with zero <vmsBoardReference> children. Synthetic empty/populated cases both behave as expected; 0 corpus hits. Note: XSD 1.1 already declares vmsBoardReference minOccurs='1' inside vmsGroup, so this specific direction is arguably also schema-enforced -- doesn't affect correctness of the implementation, just means it will rarely fire outside malformed/hand-crafted input, consistent with observed results.",
+    "group": "road_signal_core_boards",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.reference.from_lower_equal_to": {
+    "status": "implemented_gt",
+    "reason": "Correctly checks every <signalReference>'s direct <validity> children (fromLane<=toLane); scope verified against XSD (t_road_signals_signalReference has <validity> as direct 0..* child). 0 exceptions/0 flags on full re-run including official bucket; synthetic negative fixture (fromLane=2>toLane=-2) confirmed firing.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.reference.left_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "det. wrong-sign-only sub-case, guarded to driving lanes + expected-sign-side-exists (official FP storm 40->10; residual 10 = genuine literal violations on ASAM motorway examples). spans-both left as documented ambiguous residual.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.reference.right_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "det. wrong-sign-only sub-case, guarded to driving lanes + expected-sign-side-exists (official FP storm 40->10; residual 10 = genuine literal violations on ASAM motorway examples). spans-both left as documented ambiguous residual.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.reference.specify_direction": {
+    "status": "implemented_gt",
+    "reason": "Faithful structural check: flags <signalReference> with missing/empty @orientation, matching spec 14.5's required-attribute description verbatim. Confirmed against XSD (orientation use=\"required\" in 1.9, so this is defense-in-depth against pre-1.9 or hand-broken files). 0 flags on full corpus re-run; synthetic fixture confirmed true-positive.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.reference.used_for_signals_only": {
+    "status": "implemented_gt",
+    "reason": "Verified against spec 14.5 text: <signalReference>/@id is documented as 'Unique ID of the referenced signal within the database' (global namespace) -- the implementation's cross-road global signal-id set is the correct scope, confirmed by checking the XSD (<signal> only ever appears under <road>/<signals>, never elsewhere, so roads.values() iteration is complete). Manually verified all 3 additional official signalReference-bearing fixtures found during re-audit (UC_5Road_Junction, UC_Motorway-Exit-Entry, UC_Motorway-Exit-Entry-DirectJunction) resolve cleanly. 0 exceptions/0 flags on full corpus; synthetic id=999 fixture confirmed firing.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.semantics.no_semantics_without_category": {
+    "status": "implemented_gt",
+    "reason": "Category/supplementary tag sets verified 1:1 against spec Table 135 and the t_signals_semantics XSD complexType (9 category + 6 supplementary elements, exact match). BUG FOUND AND FIXED during this audit: original code only scanned <signal> elements via r.iter(\"signal\"), missing that <semantics> is declared on the shared abstract base type also extended by <sign> (board sub-signs under <staticBoard>/<vmsBoard>) -- spec Table 135 explicitly frames the rule as '<signal> or <sign>'. Fixed by also iterating r.iter(\"sign\"); verified no XSD tag collision, re-ran full corpus (still 0 exceptions/0 flags, no committed fixture exercises this path) and confirmed the fix fires on a new scratchpad-only synthetic <sign>+supplementary-only fixture, while the original <signal>-scoped synthetic fixture still fires unchanged.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.validity.left_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "det. wrong-sign-only sub-case, guarded to driving lanes + expected-sign-side-exists (official FP storm 40->10; residual 10 = genuine literal violations on ASAM motorway examples). spans-both left as documented ambiguous residual.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "road.signal.validity.right_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "det. wrong-sign-only sub-case, guarded to driving lanes + expected-sign-side-exists (official FP storm 40->10; residual 10 = genuine literal violations on ASAM motorway examples). spans-both left as documented ambiguous residual.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks",
+    "source": "verify"
+  },
+  "junctions.direct.connecting_road_attribute_usage": {
+    "status": "implemented_gt",
+    "reason": "Pure attribute check: flags @connectingRoad present on a <connection> whose parent <junction type=\"direct\">; validated clean (0 flags) on the full 208-file corpus and fires on a synthetic positive fixture.",
+    "group": "junctions_direct_geometry",
+    "function": "run_checks",
+    "source": "agent-fill"
+  },
+  "junctions.direct.correct_type_linked_road_usage": {
+    "status": "implemented_gt",
+    "reason": "Pure attribute check: flags @linkedRoad present on a <connection> whose parent junction's effective @type is not \"direct\"; validated clean on the corpus and fires on a synthetic positive fixture.",
+    "group": "junctions_direct_geometry",
+    "function": "run_checks",
+    "source": "agent-fill"
+  },
+  "junctions.direct.flat_exits_entries": {
+    "status": "gap_geometry_math",
+    "reason": "Requires evaluating each road's elevationProfile across the overlap s-range to prove it is flat -- real 3D elevation computation, not attribute inspection.",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  },
+  "junctions.direct.linked_lane_smoothness": {
+    "status": "gap_geometry_math",
+    "reason": "\"Fit smoothly as described for roads\" (Section 10.3) means evaluating lane width/position/heading continuity at the linked contact point -- requires geometry/width-polynomial evaluation, not just XML structure.",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  },
+  "junctions.direct.overlap_zone_coverage": {
+    "status": "gap_geometry_math",
+    "reason": "Verifying the numeric @overlapZone length actually covers the true physical overlap requires computing road/lane geometry (positions, s-offsets) to derive the real overlap extent, not just reading the attribute value.",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  },
+  "junctions.direct.overlap_zone_exclusivity": {
+    "status": "implemented_gt",
+    "reason": "Structural check: groups sibling <laneLink> elements by (incomingRoad,@from) and (linkedRoad,@to) per Annex 12.6.2's own overlap-detection method, and flags a group where more than 2 (\"a pair\") carry @overlapZone; validated against real official Ex_Entry_Exit/Ex_Slip_Lane overlap patterns (0 false positives) and a synthetic 3-way-overlap positive fixture.",
+    "group": "junctions_direct_geometry",
+    "function": "run_checks",
+    "source": "agent-fill"
+  },
+  "junctions.direct.road_connectivity": {
+    "status": "implemented_gt",
+    "reason": "Structural check: a direct junction's connections must share one common hub road (as @incomingRoad or @linkedRoad, either side, to accommodate bidirectional hubs) with the other side varying; flags junctions with no such hub (many-to-many, Annex 12.6.3 Figure 92's unsolvable case). Validated on real official direct-junction topologies (Ex_Entry_Exit, Ex_Slip_Lane, UC_Motorway-Exit-Entry -- 0 false positives) and a synthetic many-to-many fixture.",
+    "group": "junctions_direct_geometry",
+    "function": "run_checks",
+    "source": "agent-fill"
+  },
+  "junctions.direct.road_ramp_heading": {
+    "status": "gap_geometry_math",
+    "reason": "Requires computing the inertial heading of road/ramp/slip-lane reference lines at the junction point and comparing them -- geometry evaluation, not attribute inspection.",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  },
+  "junctions.direct.split_or_merge": {
+    "status": "gap_geometry_math",
+    "reason": "Same no-common-hub (many-to-many) topology signature as road_connectivity, reframed as the crossing-traffic prohibition; Annex 12.6.3 explicitly documents Figure 92 as violating both rules simultaneously, so the shared structural detector is a spec-grounded, non-forced implementation. Validated iden",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  },
+  "junctions.geometry.correct_junction_boundry": {
+    "status": "gap_geometry_math",
+    "reason": "Requires evaluating whether the junction reference-line curve crosses or is tangent to the junction boundary polygon -- 2D curve/polygon intersection geometry, not structural inspection.",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  },
+  "junctions.geometry.only_one_line_element": {
+    "status": "implemented_gt",
+    "reason": "Pure element-count check on <junction>/<planView>: exactly one <geometry> child, which itself has exactly one <line> child and no other geometry-type child; validated clean against the one real official junction planView (UC_5Road_Junction) and fires on synthetic multi-geometry / non-line fixtures.",
+    "group": "junctions_direct_geometry",
+    "function": "run_checks",
+    "source": "agent-fill"
+  },
+  "junctions.geometry.ref_line_definition": {
+    "status": "gap_geometry_math",
+    "reason": "\"Every point of the junction can be reached with a perpendicular straight line\" requires sampling the junction reference-line curve and testing perpendicular-projection reachability against the junction's spatial extent -- computational geometry, not attribute/structure inspection.",
+    "group": "junctions_direct_geometry",
+    "function": null,
+    "source": "agent-fill"
+  }
+}

@@ -1,0 +1,92 @@
+[
+  {
+    "rule_name": "road.lane.center_elem_definition",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "One &lt;center&gt; element shall be defined for each s-coordinate."
+  },
+  {
+    "rule_name": "road.lane.center_lane",
+    "category": "road.lane",
+    "version": "1.9.0",
+    "description": "Each road shall have at least one lane layer with a center lane."
+  },
+  {
+    "rule_name": "road.lane.center_lane_id",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "The center lane shall have the lane id 0."
+  },
+  {
+    "rule_name": "road.lane.center_lane_no_width",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "The center lane shall have no width, meaning that the &lt;width&gt; element shall not be used for the center lane."
+  },
+  {
+    "rule_name": "road.lane.center_lane_singular",
+    "category": "road.lane",
+    "version": "1.9.0",
+    "description": "There shall always be exactly one center lane at each s-position."
+  },
+  {
+    "rule_name": "road.lane.lane_id_unique",
+    "category": "road.lane",
+    "version": "1.9.0",
+    "description": "Lane numbering shall be unique per lane section and layer."
+  },
+  {
+    "rule_name": "road.lane.lane_listing",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "For better orientation, lanes should be listed from left to right, that is with descending ID."
+  },
+  {
+    "rule_name": "road.lane.lane_order",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "Lane numbering shall start with 1 next to the center lane in positive t-direction in ascending order and -1 next to the center lane in negative t-direction in descending order."
+  },
+  {
+    "rule_name": "road.lane.lane_order_no_gaps",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "Lane numbering shall be consecutive without any gaps."
+  },
+  {
+    "rule_name": "road.lane.lane_reverse_left_right",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "@direction=\"reverse\" shall not be used to change from right-hand traffic to left-hand traffic and vice versa."
+  },
+  {
+    "rule_name": "road.lane.lane_sect_first",
+    "category": "road.lane",
+    "version": "1.9.0",
+    "description": "The first lane section shall be defined with a value of 0.0 for the @s attribute."
+  },
+  {
+    "rule_name": "road.lane.lane_sect_min_amount",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "Each &lt;lanes&gt; element shall contain at least one &lt;laneSection&gt; element."
+  },
+  {
+    "rule_name": "road.lane.lane_section_drivable",
+    "category": "road.lane",
+    "version": "1.9.0",
+    "description": "In order to be drivable, each lane section should contain at least one &lt;right&gt; or &lt;left&gt; element that is valid for the whole length of that section."
+  },
+  {
+    "rule_name": "road.lane.lanes_numbered_correctly",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "Lanes with positive ID run on the left side of the center lane, while lanes with negative ID run on the right side of the center lane."
+  },
+  {
+    "rule_name": "road.lane.s_attr_value",
+    "category": "road.lane",
+    "version": "1.4.0",
+    "description": "All &lt;laneSection&gt; elements shall contain the @s attribute."
+  }
+]

@@ -1,0 +1,80 @@
+[
+  {
+    "rule_name": "junctions.elevation_grid.entry_exit_smoothness",
+    "category": "junctions.elevation_grid",
+    "version": "1.8.0",
+    "description": "For junction entries and exits, a smooth transition should be assured."
+  },
+  {
+    "rule_name": "junctions.elevation_grid.only_one_elev_grid",
+    "category": "junctions.elevation_grid",
+    "version": "1.8.0",
+    "description": "A junction shall have only one elevation grid."
+  },
+  {
+    "rule_name": "junctions.elevation_grid.perpendicular_vectors",
+    "category": "junctions.elevation_grid",
+    "version": "1.8.0",
+    "description": "The elevation grid shall be defined with vectors perpendicular to the junction reference line."
+  },
+  {
+    "rule_name": "junctions.elevation_grid.polynome_coefficient_values",
+    "category": "junctions.elevation_grid",
+    "version": "1.8.0",
+    "description": "The coefficients \\(c\\) and \\(d\\) of the polynoms shall be 0 if there are not enough support points in the elevation grid to calculate them."
+  },
+  {
+    "rule_name": "junctions.elevation_grid.valid_for_entire_boundry",
+    "category": "junctions.elevation_grid",
+    "version": "1.8.0",
+    "description": "If a junction boundary is defined, the elevation grid shall be valid for the area enclosed by the junction boundary."
+  },
+  {
+    "rule_name": "junctions.virtual.connecting_roads_start_end",
+    "category": "junctions.virtual",
+    "version": "1.9.0",
+    "description": "All connecting roads within the virtual junction shall either start or end at @sStart or at @sEnd."
+  },
+  {
+    "rule_name": "junctions.virtual.heading_equal_mainroad",
+    "category": "junctions.virtual",
+    "version": "1.9.0",
+    "description": "The heading of the connecting roads and the @mainRoad shall be equal at @sStart and at @sEnd."
+  },
+  {
+    "rule_name": "junctions.virtual.linked_lanes_smooth_fit",
+    "category": "junctions.virtual",
+    "version": "1.9.0",
+    "description": "The linked lanes shall fit smoothly (see Section 10.3, \"Road linkage\" )."
+  },
+  {
+    "rule_name": "junctions.virtual.main_road_only",
+    "category": "junctions.virtual",
+    "version": "1.9.0",
+    "description": "Virtual junctions shall be used for branches off the main road only. The main road has priority if not specified otherwise."
+  },
+  {
+    "rule_name": "junctions.virtual.no_controllers",
+    "category": "junctions.virtual",
+    "version": "1.9.0",
+    "description": "Virtual junctions shall not have controllers and therefore no traffic lights."
+  },
+  {
+    "rule_name": "junctions.virtual.only_one_start_end",
+    "category": "junctions.virtual",
+    "version": "1.9.0",
+    "description": "There shall only be one @sStart and one @sEnd attribute for the virtual junction."
+  },
+  {
+    "rule_name": "junctions.virtual.connections.only_virtual_junctions",
+    "category": "junctions.virtual.connections",
+    "version": "1.9.0",
+    "description": "Virtual connections shall only be defined in virtual junctions."
+  },
+  {
+    "rule_name": "junctions.virtual.crossPath.cross_road_check_s_t",
+    "category": "junctions.virtual.crossPath",
+    "version": "1.8.0",
+    "description": "The crossing road shall not exceed the values for s and t of the main road defined by the @roadAtStart and @roadAtEnd attributes."
+  }
+]

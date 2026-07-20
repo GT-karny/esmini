@@ -1,0 +1,8 @@
+{
+  "road.lane.lane_reverse_left_right": {
+    "status": "implemented_gt",
+    "reason": "Sub-case checked: two-sided laneSection (>=1 @type='driving' lane on BOTH <left> and <right>) where EVERY driving lane on both sides carries literal @direction='reversed' -- the airtight whole-section RHT<->LHT-flip signature per 11.3.1 / Annex F.6.12.11, independent of the road's own @rule. Residual note: any partial/mixed/single-side reversal is deliberately left uncovered -- it is the sanctioned contraflow-lane use of @direction=reversed (confirmed against 09_lane_attributes_18.xodr) and is structurally indistinguishable from a sloppy partial hand-of-traffic change without an interpretive judgment call the spec text does not resolve.",
+    "group": "road_lane_core",
+    "function": "run_checks"
+  }
+}

@@ -1,0 +1,116 @@
+[
+  {
+    "rule_name": "road.length_sum_geometries",
+    "category": "road",
+    "version": "1.9.0",
+    "description": "The road length should be the sum of the lengths of all &lt;geometry&gt; elements"
+  },
+  {
+    "rule_name": "road.no_overlap_outside_junction",
+    "category": "road",
+    "version": "1.4.0",
+    "description": "Roads outside a junction shall not overlap."
+  },
+  {
+    "rule_name": "road.no_overlap_self",
+    "category": "road",
+    "version": "1.4.0",
+    "description": "A road shall not overlap with itself."
+  },
+  {
+    "rule_name": "road.overlap_inside_junction",
+    "category": "road",
+    "version": "1.4.0",
+    "description": "Only roads with the same junction id may overlap on the same level. This does not include roads on different driving levels, for example, bridges."
+  },
+  {
+    "rule_name": "road.linkage.both_sides_consistency",
+    "category": "road.linkage",
+    "version": "1.9.0",
+    "description": "&lt;predecessor&gt; and/or &lt;successor&gt; shall be defined at both sides of the road linkage and shall be consistent."
+  },
+  {
+    "rule_name": "road.linkage.junc_link_attribute_usage",
+    "category": "road.linkage",
+    "version": "1.7.0",
+    "description": "For a common junction and a direct junction as successor or predecessor the @elementType and @elementId attributes shall be used."
+  },
+  {
+    "rule_name": "road.linkage.road_link_attribute_usage",
+    "category": "road.linkage",
+    "version": "1.4.0",
+    "description": "For a road as successor or predecessor the @elementType, @elementId and @contactPoint attributes shall be used."
+  },
+  {
+    "rule_name": "road.linkage.virtjunc_link_attribute_usage",
+    "category": "road.linkage",
+    "version": "1.7.0",
+    "description": "For a virtual junction as successor or predecessor the @elementType, @elementId, @elementS and @elementDir attributes shall be used."
+  },
+  {
+    "rule_name": "road.geometry.contact_point",
+    "category": "road.geometry",
+    "version": "1.7.0",
+    "description": "If two roads are connected without a junction, the road reference line of a new road shall always begin at the &lt;contactPoint&gt; element of its successor or predecessor road. The road reference lines may be directed in opposite directions."
+  },
+  {
+    "rule_name": "road.geometry.elem_asc_order",
+    "category": "road.geometry",
+    "version": "1.4.0",
+    "description": "&lt;geometry&gt; elements shall be defined in ascending order along the road reference line according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.geometry.one_geom_elem_per_spec",
+    "category": "road.geometry",
+    "version": "1.4.0",
+    "description": "One &lt;geometry&gt; element shall contain only one element that further specifies the geometry of the road."
+  },
+  {
+    "rule_name": "road.geometry.only_one_refline",
+    "category": "road.geometry",
+    "version": "1.4.0",
+    "description": "There shall be only one road reference line per road."
+  },
+  {
+    "rule_name": "road.geometry.refline_exists",
+    "category": "road.geometry",
+    "version": "1.4.0",
+    "description": "Each road shall have a road reference line."
+  },
+  {
+    "rule_name": "road.geometry.refline_no_gaps",
+    "category": "road.geometry",
+    "version": "1.4.0",
+    "description": "A road reference line shall have no gaps."
+  },
+  {
+    "rule_name": "road.geometry.refline_no_kinks",
+    "category": "road.geometry",
+    "version": "1.4.0",
+    "description": "A road reference line should have no kinks."
+  },
+  {
+    "rule_name": "road.geometry.s-value_sum",
+    "category": "road.geometry",
+    "version": "1.9.0",
+    "description": "The s-value of each &lt;geometry&gt; shall be the sum of all &lt;geometry&gt; lengths prior"
+  },
+  {
+    "rule_name": "road.geometry.arc.no_zero_curvature",
+    "category": "road.geometry.arc",
+    "version": "1.9.0",
+    "description": "@curvature should not be zero."
+  },
+  {
+    "rule_name": "road.geometry.paramPoly3.valid_parameters",
+    "category": "road.geometry.paramPoly3",
+    "version": "1.7.0",
+    "description": "The local u/v coordinate system should be aligned with the s/t coordinate system of the start point (meaning that the curve starts in the direction given by @hdg, and at the position given by @x and @y). To achieve this, the polynomial parameter coefficients have to be @aU=@aV=@bV=0, @bU&gt;0."
+  },
+  {
+    "rule_name": "road.geometry.spiral.curvature_change",
+    "category": "road.geometry.spiral",
+    "version": "1.9.0",
+    "description": "@curvStart and @curvEnd should not be the same."
+  }
+]
