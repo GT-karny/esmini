@@ -694,25 +694,58 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 
 出力は「主張 × 欠けた縦層」のリスト。これが恒久の「未検証台帳」になる。
 
-## 7. 段階プラン
+## 7. 段階プラン（namespace: `spine-phase`）
 
-- **フェーズ0（本書）**: 検証スパイン定義／repo横断行列／新namespace・辺の仕様。**KG本体非改変**。
-- **フェーズ1 ✅完了（2026-07-20）**: `signal`(47) / `gate`(14) を namespaces.yaml に登録し
+> **本節の Phase は `spine-phase:Phase<n>` として引用すること**（2026-07-20 登録）。
+> それまで所属を持たない裸の「フェーズ<n>」として書かれており、**同一 repo 内で
+> `vd-phase:Phase0-4`（VDロードマップ）・`odr-plan:P0-P10`・`docs/virtualdriver/P3_firmstop_issue.md`
+> と衝突していた**。序数そのものは正当な ID だが、所属を書かなければ一意にならない
+> （namespaces.yaml 冒頭の原則 / CLAUDE.md §9 "bare IDs are ambiguous, always qualify"）。
+> 無修飾の「フェーズ<n>」は commit-msg フックが hint を出す。
+
+- **`spine-phase:Phase0`（本書）**: 検証スパイン定義／repo横断行列／新namespace・辺の仕様。**KG本体非改変**。
+- **`spine-phase:Phase1` ✅完了（2026-07-20）**: `signal`(47) / `gate`(14) を namespaces.yaml に登録し
   §4 seed から起こした。edge_types に §5 の3辺を追加、全30 namespace に `face:` タグを付与。
   初回結線 33辺（§5.1）。lint + `--render` グリーン。
-  **フェーズ1で判明した積み残し**（フェーズ3の lint 設計に直結）:
+  **Phase1 で判明した積み残し**（`spine-phase:Phase3` の lint 設計に直結）:
   - `face:` タグと catalog の中身（exposure/state/covers）は **現行 lint が一切検証しない**
     （`check_knowledge_graph.py` は namespace の `source_of_truth` の実在しか見ず、
-    ノードファイルを開かない）。値域チェックはフェーズ3で実装する。
+    ノードファイルを開かない）。値域チェックは `spine-phase:Phase3` で実装する。
   - `gate:unit-ctest` の実測で **root CLAUDE.md §5 の「25 unit sources」は陳腐化**（実測28本・
     TEST/TEST_F 278件）。`test_ScenarioReaderParsing.cpp` 単体の13テストと傘バイナリ28本を
     混同しない（`GT_ScenarioReader` 非カバーという結論自体は正しい — 実測: GT_esmini/test 配下を
     `TrafficSignalController|GT_ScenarioReader` で grep して0件）。
-- **フェーズ2**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
+- **`spine-phase:Phase2`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
   行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
-- **フェーズ3**: 派生レポート（§6）＋ **coupling-audit（§0.5）** を lint に追加 →
+- **`spine-phase:Phase3`**: 派生レポート（§6）＋ **coupling-audit（§0.5）** を lint に追加 →
   「縦串の切れた列」と「面3→面2直結の結合負債」を CI で可視化。
-- **フェーズ4**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
+  **命名規約の検査もここに含める**（下記 §7.1）。
+- **`spine-phase:Phase4`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
+
+### 7.1 命名規約（2026-07-20 制定・`spine-phase:Phase3` で機械化）
+
+今日 `test_ScenarioReaderParsing`（名前が中身を偽装）と `phase3_*`（所属不明の序数）の
+2件で実害が出たため、規約として明文化する。
+
+**規約1 — 序数には所属を書く。**
+`Phase<n>` / `P<n>` / `フェーズ<n>` を単独で使わない。必ず `<namespace>:<id>` で修飾する
+（`vd-phase:Phase3` / `spine-phase:Phase3` / `odr-plan:P3`）。
+序数は**共有された再生可能な資源**であり、所属無しに固有名詞化すると、以後どのプログラムも
+その番号を使えなくなる。
+
+**規約2 — 恒久資産に工程名を付けない。**
+工程（一時的）と成果物（恒久的）は寿命が違う。`phase3_batch.yaml` が回すシナリオは Phase3 が
+終わっても走り続ける。**成果物は内容・役割で命名し、由来はファイル内のメタデータ**
+（`origin: vd-phase:Phase3`）として持つ。名前に工程を焼き込まない。
+
+**規約3 — 名前は現在の中身を語る。**
+`test_ScenarioReaderParsing` は「当時の意図」を名前にしたまま中身が upstream へ移管され、
+root CLAUDE.md に「パースは常設で守られている」という誤りを載せた（2026-07-20 に訂正）。
+**名前が古い主張を保存し続ける**のが最大の害。中身が変わったら名前も変える。
+
+**機械化（`spine-phase:Phase3`）**: 規約1 は commit-msg フックが hint 済み
+（`scripts/check_commit_kg_ids.py`）。恒久資産のファイル名に工程序数が入っていないかの
+lint は未実装＝Phase3 のスコープ。
 
 ## 8. 未決事項（レビューで詰める）
 

@@ -9,24 +9,28 @@
 # this file individually instead of switching core.hooksPath):
 #   cp scripts/git-hooks/commit-msg .git/hooks/commit-msg
 #
-# ID grammar: GT_esmini/docs/knowledge/namespaces.yaml. Extraction:
-#   scripts/check_knowledge_graph.py --extract-commits
+# The ID grammar is NOT hardcoded here. It is generated from
+# GT_esmini/docs/knowledge/namespaces.yaml by scripts/check_commit_kg_ids.py,
+# which gt_guard.ps1 Rule 4 shares so the two sides can never drift.
+# (Until 2026-07-20 both duplicated a hardcoded allow-list that failed to
+#  recognise the mandated `<slug>:<id>` form and blessed bare ordinals such
+#  as `Phase3` — i.e. it warned exactly when the convention was followed.)
+#
+# Extraction of commit->ID edges: check_knowledge_graph.py --extract-commits
 
 msg_file="$1"
 [ -r "$msg_file" ] || exit 0
 
-first_line=$(head -n 1 "$msg_file")
-case "$first_line" in
-    wip*|WIP*|Merge*|merge*|fixup!*|squash!*) exit 0 ;;
-esac
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+checker="$repo_root/scripts/check_commit_kg_ids.py"
+[ -r "$checker" ] || exit 0
 
-if grep -qE '(\bF[1-6]\b|\bR[0-5](-U[1-4])?\b|\bPhase ?[0-4][a-e]?\b|\b(CTL|SUB|VD|CORE|WEB|FE|SCR|BLD|TST|BND|MSC|Critic|GT|PY|XSD|ES)-[0-9]+\b|\b(proposal|plan) P[0-9]+\b|#[0-9]+|\bGT_ODR\b|\bGT_LHT\b)' "$msg_file"; then
-    exit 0
-fi
+# Project venv only (root CLAUDE.md §4: never the system interpreter).
+py="$repo_root/DriverScript/.venv/Scripts/python.exe"
+[ -x "$py" ] || py="$repo_root/DriverScript/.venv/bin/python"
+[ -x "$py" ] || exit 0   # venv unavailable -> stay silent; this hook is advisory
 
-echo "" >&2
-echo "commit-msg [R4]: no knowledge-graph ID cited in this commit message." >&2
-echo "  Consider citing related IDs so the commit->ID edge is extractable:" >&2
-echo "    (F6) (SUB-1) (proposal P13) fixes #30 ..." >&2
-echo "  Grammar: GT_esmini/docs/knowledge/namespaces.yaml (advisory only, commit proceeds)" >&2
+"$py" "$checker" "$msg_file"
+
+# Advisory only: warnings are printed, the commit always proceeds.
 exit 0

@@ -111,9 +111,20 @@ if ($tool -match '^(Bash|PowerShell)$') {
     # when the message is inline (-m / here-string); wip / merge / fixup /
     # --amend are exempt. 'ask' not 'deny': ID-less commits are legitimate
     # for work with genuinely no related ID -- the user decides.
-    $isCommitMsg = ($cmd -match '(?i)\bgit\b[^|;&]*\bcommit\b') -and ($cmd -match '(?i)(\s-m\b|--message\b)')
+    $isCommitMsg = ($cmd -match '(?i)\bgit\b[^|;&]*\bcommit\b') -and ($cmd -match '(?i)(\s-m\b|--message\b|-F\b|--file\b)')
     $isExempt = $cmd -match '(?i)(\bwip\b|fixup!|squash!|\bmerge\b|--amend)'
-    $hasKgId = $cmd -match '(\bF[1-6]\b|\bR[0-5](-U[1-4])?\b|\bPhase ?[0-4][a-e]?\b|\b(CTL|SUB|VD|CORE|WEB|FE|SCR|BLD|TST|BND|MSC|Critic|GT|PY|XSD|ES)-[0-9]+\b|\b(proposal|plan)\s+P[0-9]+\b|#[0-9]+|\bGT_ODR\b|\bGT_LHT\b)'
+    # ID 文法は namespaces.yaml から生成する（2026-07-20）。commit-msg フックと
+    # 共有の scripts/check_commit_kg_ids.py に委譲し、二重ハードコードを解消した。
+    # 旧実装は修飾形 `<slug>:<id>` を認識せず、逆に裸の序数 `Phase3` を許可しており、
+    # 規約を守るほど警告が出る＝警報疲れを育てる反転状態だった。
+    # 検査器が使えない場合は「ID あり」に倒す（fail open。ブロックしない）。
+    $hasKgId = $true
+    $pyChk = Join-Path $PSScriptRoot '..\..\DriverScript\.venv\Scripts\python.exe'
+    $idChk = Join-Path $PSScriptRoot '..\..\scripts\check_commit_kg_ids.py'
+    if ((Test-Path $pyChk) -and (Test-Path $idChk)) {
+        $cmd | & $pyChk $idChk - 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 2) { $hasKgId = $false }
+    }
     if ($isCommitMsg -and -not $isExempt -and -not $hasKgId) {
         # Unified workflow (R4): consult path_map via --suggest before asking.
         # verdict exempt -> silent pass; mapped -> ask WITH candidate IDs;
