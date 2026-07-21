@@ -23,14 +23,38 @@ file(
 # GT_esmini Modification: Swap OSIReporter
 if(USE_OSI)
     message(STATUS "GT_esmini: Swapping OSIReporter.cpp with GT_OSIReporter.cpp")
-    list(REMOVE_ITEM SRC_SOURCEFILES "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/OSIReporter.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Api.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Environment.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Geometry.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Moving.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Sensor.cpp")
-    list(APPEND SRC_SOURCEFILES "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp")
+    list(
+        REMOVE_ITEM
+        SRC_SOURCEFILES
+        "${CMAKE_CURRENT_LIST_DIR}/SourceFiles/OSIReporter.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Api.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Environment.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Geometry.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Moving.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Sensor.cpp")
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp")
 endif()
 
 if(NOT
