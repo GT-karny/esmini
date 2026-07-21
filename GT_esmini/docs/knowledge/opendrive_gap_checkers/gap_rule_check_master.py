@@ -8,6 +8,7 @@ upstream) and emits a coverage + GT-violations report.
 
 Run: e:/Repository/GT_esmini/esmini/DriverScript/.venv/Scripts/python.exe gap_rule_check_master.py
 """
+
 import sys
 import glob
 import importlib.util
@@ -35,7 +36,10 @@ for f in sorted(SP.glob("check_*.py")):
 files = []
 for f in glob.glob(str(ROOT / "**/*.xodr"), recursive=True):
     rp = str(Path(f).relative_to(ROOT)).replace("\\", "/")
-    if rp.startswith(("thirdparty/", "dist/", "build/", "scratchpad/")) or "/build/" in rp:
+    if (
+        rp.startswith(("thirdparty/", "dist/", "build/", "scratchpad/"))
+        or "/build/" in rp
+    ):
         continue
     if "/scratchpad/" in rp or "/adv/" in rp or "/checks_gap/" in rp:
         continue  # exclude our own adversarial audit fixtures (deliberately-broken xodr)
@@ -64,9 +68,9 @@ def bucket(f):
     return "other"
 
 
-flags = []          # (file, group, rule, detail, location)
+flags = []  # (file, group, rule, detail, location)
 parse_err = 0
-run_errs = []       # (file, group, exc)
+run_errs = []  # (file, group, exc)
 for f in files:
     try:
         root = ET.parse(f).getroot()
@@ -83,7 +87,7 @@ for f in files:
         except Exception as e:
             run_errs.append((rel(f), gname, f"{type(e).__name__}: {e}"))
             continue
-        for item in (res or []):
+        for item in res or []:
             rule, detail, loc = (list(item) + ["", "", ""])[:3]
             flags.append((f, gname, rule, detail, loc))
 
@@ -94,9 +98,18 @@ byrule = Counter(fl[2] for fl in flags)
 bygroup = Counter(fl[1] for fl in flags)
 GT = [fl for fl in flags if bucket(fl[0]).startswith("GT:")]
 OFFICIAL = [fl for fl in flags if bucket(fl[0]) == "official(ASAM)"]
-ORDER = ["GT:resources/xodr", "GT:test", "GT:handauthored", "GT:generated",
-         "official(ASAM)", "upstream(対象外)", "other"]
-buckets = [b for b in ORDER if b in bkt_files] + [b for b in bkt_files if b not in ORDER]
+ORDER = [
+    "GT:resources/xodr",
+    "GT:test",
+    "GT:handauthored",
+    "GT:generated",
+    "official(ASAM)",
+    "upstream(対象外)",
+    "other",
+]
+buckets = [b for b in ORDER if b in bkt_files] + [
+    b for b in bkt_files if b not in ORDER
+]
 
 # official-set rules that fired (calibration alarm — should be near-zero / genuine)
 off_by_rule = Counter(fl[2] for fl in OFFICIAL)
@@ -120,7 +133,13 @@ lines = [
 for b in buckets:
     lines.append(f"| {b} | {bkt_files[b]} | {bkt_flag[b]} |")
 
-lines += ["", "## カテゴリモジュール別 違反数", "", "| module | 件数 |", "| :-- | --: |"]
+lines += [
+    "",
+    "## カテゴリモジュール別 違反数",
+    "",
+    "| module | 件数 |",
+    "| :-- | --: |",
+]
 for g, n in bygroup.most_common():
     lines.append(f"| {g} | {n} |")
 
@@ -133,7 +152,11 @@ if run_errs:
     for fr, g, e in run_errs[:50]:
         lines.append(f"- **{g}** {e} — {fr}")
 
-lines += ["", f"## ⚠ 公式ASAM校正セットで発火したルール（{len(OFFICIAL)}件）＝要精査", ""]
+lines += [
+    "",
+    f"## ⚠ 公式ASAM校正セットで発火したルール（{len(OFFICIAL)}件）＝要精査",
+    "",
+]
 if off_by_rule:
     lines += ["| rule | 件数 |", "| :-- | --: |"]
     for rk, n in off_by_rule.most_common():
@@ -148,7 +171,9 @@ for f, g, rk, d, loc in GT[:150]:
 OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 # ---- console summary ----
-print(f"modules: {len(MODULES)}  files: {len(files)}  parse_err: {parse_err}  run_errs: {len(run_errs)}")
+print(
+    f"modules: {len(MODULES)}  files: {len(files)}  parse_err: {parse_err}  run_errs: {len(run_errs)}"
+)
 print(f"violations: {len(flags)}  GT-authored: {len(GT)}  official: {len(OFFICIAL)}")
 print("by origin (files / violations):")
 for b in buckets:

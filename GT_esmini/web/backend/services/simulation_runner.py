@@ -17,7 +17,13 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import CONFIG_DIR, DEFAULT_VD_INPUT_PORT, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
+from GT_esmini.web.backend.config import (
+    CONFIG_DIR,
+    DEFAULT_VD_INPUT_PORT,
+    GT_SIM_EXE,
+    REPO_ROOT,
+    RESULTS_DIR,
+)
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
     ControllerConfig,
@@ -53,6 +59,7 @@ def _build_output_dir(job_id: str) -> Path:
 def _absolutize_xosc(variant_path: Path, source_dir: str) -> None:
     """Absolutize relative paths in XOSC so it works from any CWD."""
     import xml.etree.ElementTree as ET
+
     tree = ET.parse(variant_path)
     root = tree.getroot()
     absolutize_scenario_paths(root, source_dir)
@@ -190,7 +197,9 @@ def _generate_virtual_driver_variant(
     if existing_oc is not None:
         for prop in existing_oc.findall("./Controller/Properties/Property"):
             if prop.get("name") == "policies":
-                requested_policies = [p.strip() for p in (prop.get("value") or "").split(",") if p.strip()]
+                requested_policies = [
+                    p.strip() for p in (prop.get("value") or "").split(",") if p.strip()
+                ]
         entity.remove(existing_oc)
 
     ctrl = ET.Element("Controller")
@@ -201,7 +210,9 @@ def _generate_virtual_driver_variant(
     p1.set("value", "VirtualDriverController")
 
     if enable_override:
-        run_config = _write_virtual_driver_config(output_path.parent, requested_policies)
+        run_config = _write_virtual_driver_config(
+            output_path.parent, requested_policies
+        )
         p2 = ET.SubElement(props, "Property")
         p2.set("name", "ConfigFile")
         p2.set("value", str(run_config))
@@ -252,7 +263,9 @@ _VD_POLICY_FLAG = {
 }
 
 
-def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = None) -> Path:
+def _write_virtual_driver_config(
+    output_dir: Path, policies: list[str] | None = None
+) -> Path:
     """Write a per-run virtual_driver.json that enables network manual input.
 
     Starts from the shipped config/virtual_driver.json (preserving tuned gains)
@@ -272,7 +285,7 @@ def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = 
     base.setdefault("input_port", DEFAULT_VD_INPUT_PORT)
     base.setdefault("input_transport", "udp")
 
-    for p in (policies or []):
+    for p in policies or []:
         flag = _VD_POLICY_FLAG.get(p)
         if flag:
             base[flag] = True
@@ -490,12 +503,17 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     output_dir = _build_output_dir(job_id)
 
     # Prepare XOSC variant
-    xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir, req.param_overrides)
+    xosc_path = _prepare_xosc(
+        scenario_path, req.controller, output_dir, req.param_overrides
+    )
 
     # Build command
     cmd = _build_cmd(
-        xosc_path, req.execution, output_dir,
-        job_id=job_id, param_overrides=req.param_overrides,
+        xosc_path,
+        req.execution,
+        output_dir,
+        job_id=job_id,
+        param_overrides=req.param_overrides,
     )
 
     # Store job in DB
@@ -520,7 +538,11 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
                 json.dumps(options, ensure_ascii=False),
                 str(output_dir),
                 _now_iso(),
-                json.dumps(req.param_overrides, ensure_ascii=False) if req.param_overrides else None,
+                (
+                    json.dumps(req.param_overrides, ensure_ascii=False)
+                    if req.param_overrides
+                    else None
+                ),
             ),
         )
         await db.commit()
@@ -532,20 +554,29 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     # results/<job_id>/telemetry.jsonl so the run shows up as a replayable
     # "past run" with the same shape as an offline gt_sim_test recording.
     record_vd = req.controller.controller_type == "virtual_driver"
-    record_meta = {
-        "scenario": req.scenario_id,
-        "scenario_path": str(scenario_path),
-        "project_id": req.project_id,
-        "scenario_file": req.scenario_id,
-    } if record_vd else None
+    record_meta = (
+        {
+            "scenario": req.scenario_id,
+            "scenario_path": str(scenario_path),
+            "project_id": req.project_id,
+            "scenario_file": req.scenario_id,
+        }
+        if record_vd
+        else None
+    )
     # Record the OSI scene (other traffic + signal phases) only when OSI streams.
     record_scene = record_vd and req.execution.osi.enabled
 
     asyncio.create_task(
         _run_simulation(
-            job_id, cmd, output_dir, req.execution.timeout,
+            job_id,
+            cmd,
+            output_dir,
+            req.execution.timeout,
             osi_enabled=req.execution.osi.enabled,
-            record_vd=record_vd, record_meta=record_meta, record_scene=record_scene,
+            record_vd=record_vd,
+            record_meta=record_meta,
+            record_scene=record_scene,
         )
     )
 
@@ -654,7 +685,9 @@ async def _run_simulation(
 
         # Phase 2: Wait for completion (blocking, runs in thread)
         pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
-            _wait_subprocess, proc, timeout,
+            _wait_subprocess,
+            proc,
+            timeout,
         )
 
         # Save output
@@ -677,7 +710,9 @@ async def _run_simulation(
     except Exception as e:
         status = "failed"
         exit_code = -1
-        error_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
+        error_msg = (
+            f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
+        )
         _logger.error("Simulation %s failed: %s", job_id, error_msg, exc_info=True)
     finally:
         with _running_procs_lock:
@@ -688,7 +723,9 @@ async def _run_simulation(
             except Exception as e:
                 _logger.warning("VD recorder failed to stop for %s: %s", job_id, e)
                 if status == "failed" and error_msg:
-                    error_msg = _compose_error(error_msg, [f"VD recorder stop failed: {e}"])
+                    error_msg = _compose_error(
+                        error_msg, [f"VD recorder stop failed: {e}"]
+                    )
 
     # Stop OSI bridge
     if osi_enabled:
@@ -709,7 +746,11 @@ async def _run_simulation(
             (status, exit_code, _now_iso(), error_msg, job_id),
         )
         if cursor.rowcount == 0:
-            _logger.info("Simulation %s: skipped update to '%s' (already cancelled)", job_id, status)
+            _logger.info(
+                "Simulation %s: skipped update to '%s' (already cancelled)",
+                job_id,
+                status,
+            )
         else:
             _logger.info("Simulation %s finished with status '%s'", job_id, status)
         await db.commit()
@@ -771,9 +812,7 @@ async def list_simulations(
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        cursor = await db.execute(
-            f"SELECT COUNT(*) FROM simulations {where}", params
-        )
+        cursor = await db.execute(f"SELECT COUNT(*) FROM simulations {where}", params)
         total_row = await cursor.fetchone()
         total = total_row[0] if total_row else 0
 
@@ -831,7 +870,9 @@ async def cancel_simulation(job_id: str) -> bool:
                 with open(pipe_path, "wb") as pf:
                     pf.write(b"QUIT\n")
                     pf.flush()
-                _logger.info("Sent QUIT to simulation %s via pipe %s", job_id, pipe_name)
+                _logger.info(
+                    "Sent QUIT to simulation %s via pipe %s", job_id, pipe_name
+                )
                 # Give GT_Sim time to run GT_Close() and release FFB
                 await asyncio.sleep(1.0)
             except OSError as exc:
@@ -849,12 +890,15 @@ async def cancel_simulation(job_id: str) -> bool:
             result = await asyncio.to_thread(
                 subprocess.run,
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 _logger.debug(
                     "taskkill tree cleanup for %s (PID %d): %s",
-                    job_id, pid, result.stderr.strip(),
+                    job_id,
+                    pid,
+                    result.stderr.strip(),
                 )
     elif sim.pid:
         # Fallback: kill via PID from DB
@@ -865,20 +909,29 @@ async def cancel_simulation(job_id: str) -> bool:
                 result = await asyncio.to_thread(
                     subprocess.run,
                     ["taskkill", "/F", "/T", "/PID", str(pid)],
-                    capture_output=True, text=True,
+                    capture_output=True,
+                    text=True,
                 )
                 if result.returncode != 0:
                     _logger.warning(
                         "taskkill fallback failed for %s (PID %d): %s",
-                        job_id, pid, result.stderr.strip(),
+                        job_id,
+                        pid,
+                        result.stderr.strip(),
                     )
                 else:
-                    _logger.info("Killed simulation %s (PID %d) via taskkill fallback", job_id, pid)
+                    _logger.info(
+                        "Killed simulation %s (PID %d) via taskkill fallback",
+                        job_id,
+                        pid,
+                    )
             else:
                 os.kill(pid, signal.SIGTERM)
                 _logger.info("Sent SIGTERM to simulation %s (PID %d)", job_id, pid)
         except (OSError, ProcessLookupError) as exc:
-            _logger.warning("Failed to kill simulation %s (PID %d): %s", job_id, pid, exc)
+            _logger.warning(
+                "Failed to kill simulation %s (PID %d): %s", job_id, pid, exc
+            )
     else:
         _logger.error("No PID available to kill simulation %s", job_id)
 
@@ -911,7 +964,9 @@ def kill_all_running() -> int:
         pid = proc.pid
         try:
             proc.kill()
-            _logger.info("Killed GT_Sim subprocess %s (PID %d) via proc.kill()", job_id, pid)
+            _logger.info(
+                "Killed GT_Sim subprocess %s (PID %d) via proc.kill()", job_id, pid
+            )
             killed += 1
         except OSError as exc:
             _logger.warning("proc.kill() failed for %s (PID %d): %s", job_id, pid, exc)

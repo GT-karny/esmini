@@ -27,6 +27,7 @@ def test_abstract_methods_enforced():
     class IncompleteController(EmbeddedControllerBase):
         def init(self, config):
             pass
+
         # Missing step()
 
     with pytest.raises(TypeError):
@@ -111,10 +112,7 @@ def test_close_can_be_overridden():
             pass
 
         def step(self, frame_data):
-            return {
-                "throttle": 0, "brake": 0, "steering": 0,
-                "gear": 1, "lights": {}
-            }
+            return {"throttle": 0, "brake": 0, "steering": 0, "gear": 1, "lights": {}}
 
         def close(self):
             self.closed = True

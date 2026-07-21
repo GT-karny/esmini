@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Set
 
-
 _LIGHT_KEYS = (
     "low_beam",
     "high_beam",

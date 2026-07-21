@@ -31,6 +31,7 @@ Usage:
 
 Exit 0 iff (no parse errors) and (golden cross-check, if requested, matches).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -55,7 +56,12 @@ GOLDEN_UNIVERSE_DIRS = [
 OFFICIAL_DIR = "GT_esmini/test/odr_fixtures/official"
 
 GOLDEN_JSON = os.path.join(
-    _REPO_ROOT, "GT_esmini", "test", "odr_fixtures", "golden", "trafficlight_classification.json"
+    _REPO_ROOT,
+    "GT_esmini",
+    "test",
+    "odr_fixtures",
+    "golden",
+    "trafficlight_classification.json",
 )
 DEFAULT_OUT = os.path.join(
     _REPO_ROOT, "GT_esmini", "test", "odr_fixtures", "reports", "tl_gate_audit"
@@ -78,7 +84,9 @@ def atoi(s: str) -> int:
     return sign * n if got else 0
 
 
-def classify_before(country: str, country_revision_attr: str | None, dynamic: bool) -> str:
+def classify_before(
+    country: str, country_revision_attr: str | None, dynamic: bool
+) -> str:
     rev = 0
     if country_revision_attr is not None and country_revision_attr != "":
         # pugixml as_uint: non-numeric -> 0; numeric prefix parsed.
@@ -101,13 +109,21 @@ def collect_files():
         for name in os.listdir(d):
             if name.endswith(".xodr"):
                 p = os.path.join(d, name)
-                files.append((os.path.relpath(p, _REPO_ROOT).replace("\\", "/"), p, "golden_universe"))
+                files.append(
+                    (
+                        os.path.relpath(p, _REPO_ROOT).replace("\\", "/"),
+                        p,
+                        "golden_universe",
+                    )
+                )
     od = os.path.join(_REPO_ROOT, OFFICIAL_DIR)
     for root, _dirs, names in os.walk(od):
         for name in names:
             if name.endswith(".xodr"):
                 p = os.path.join(root, name)
-                files.append((os.path.relpath(p, _REPO_ROOT).replace("\\", "/"), p, "official"))
+                files.append(
+                    (os.path.relpath(p, _REPO_ROOT).replace("\\", "/"), p, "official")
+                )
     files.sort(key=lambda x: x[0])
     return files
 
@@ -133,18 +149,20 @@ def audit_file(abspath: str):
             dynamic = sig.get("dynamic", "") == "yes"
             before = classify_before(country, rev_attr, dynamic)
             after = classify_after(dynamic)
-            rows.append({
-                "road": road_id,
-                "id": atoi(sig.get("id", "")),
-                "name": sig.get("name", ""),
-                "type": sig.get("type", ""),
-                "dynamic": sig.get("dynamic", ""),
-                "country": country,
-                "countryRevision": rev_attr if rev_attr is not None else "(absent)",
-                "before": before,
-                "after": after,
-                "flip": before != after,
-            })
+            rows.append(
+                {
+                    "road": road_id,
+                    "id": atoi(sig.get("id", "")),
+                    "name": sig.get("name", ""),
+                    "type": sig.get("type", ""),
+                    "dynamic": sig.get("dynamic", ""),
+                    "country": country,
+                    "countryRevision": rev_attr if rev_attr is not None else "(absent)",
+                    "before": before,
+                    "after": after,
+                    "flip": before != after,
+                }
+            )
     return rows, None
 
 
@@ -171,10 +189,18 @@ def flip_rationale(r) -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="P3 TrafficLight gate classification audit (analytic).")
-    ap.add_argument("--check-golden", choices=["before", "after"], default=None,
-                    help="cross-validate the analytic model against the committed C++ probe golden")
-    ap.add_argument("--out", default=DEFAULT_OUT, help="output prefix (.json/.md appended)")
+    ap = argparse.ArgumentParser(
+        description="P3 TrafficLight gate classification audit (analytic)."
+    )
+    ap.add_argument(
+        "--check-golden",
+        choices=["before", "after"],
+        default=None,
+        help="cross-validate the analytic model against the committed C++ probe golden",
+    )
+    ap.add_argument(
+        "--out", default=DEFAULT_OUT, help="output prefix (.json/.md appended)"
+    )
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
 
@@ -202,7 +228,9 @@ def main(argv=None) -> int:
                 continue  # load-failed files carry no classification
             ours = table.get(rel)
             if ours is None:
-                golden_mismatches.append(f"{rel}: in golden but not in analytic universe")
+                golden_mismatches.append(
+                    f"{rel}: in golden but not in analytic universe"
+                )
                 continue
             want = grec.get("signals", {})
             got = probe_map(ours["signals"], args.check_golden)
@@ -211,43 +239,72 @@ def main(argv=None) -> int:
                 only_g = {k: v for k, v in got.items() if want.get(k) != v}
                 golden_mismatches.append(f"{rel}: golden={only_w} analytic={only_g}")
         for rel, rec in table.items():
-            if rec["origin"] == "golden_universe" and rel not in golden and rec["signals"]:
-                golden_mismatches.append(f"{rel}: in analytic universe but not in golden")
+            if (
+                rec["origin"] == "golden_universe"
+                and rel not in golden
+                and rec["signals"]
+            ):
+                golden_mismatches.append(
+                    f"{rel}: in analytic universe but not in golden"
+                )
 
     # ---- outputs ----
-    flips = [(rel, r) for rel, rec in sorted(table.items()) for r in rec["signals"] if r["flip"]]
+    flips = [
+        (rel, r)
+        for rel, rec in sorted(table.items())
+        for r in rec["signals"]
+        if r["flip"]
+    ]
     n_signals = sum(len(rec["signals"]) for rec in table.values())
     n_files = len(table)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out + ".json", "w", encoding="utf-8", newline="\n") as fh:
-        json.dump({"files": table,
-                   "summary": {"files": n_files, "signals": n_signals, "flips": len(flips)},
-                   "parse_errors": [f"{r}: {e}" for r, e in parse_errors]},
-                  fh, sort_keys=True, indent=1)
+        json.dump(
+            {
+                "files": table,
+                "summary": {
+                    "files": n_files,
+                    "signals": n_signals,
+                    "flips": len(flips),
+                },
+                "parse_errors": [f"{r}: {e}" for r, e in parse_errors],
+            },
+            fh,
+            sort_keys=True,
+            indent=1,
+        )
         fh.write("\n")
 
-    md = ["# P3 TrafficLight gate relaxation -- classification diff (machine-generated)",
-          "",
-          "Gate BEFORE: `lower(country)=='opendrive' && countryRevision<2013 && dynamic` "
-          "(countryRevision absent => 0, P1 legacy-preserving read).",
-          "Gate AFTER (`[GT_ODR:tl-gate]`): `dynamic`.",
-          "",
-          f"Universe: {n_files} xodr files / {n_signals} signals "
-          f"(committed probe universe + local ASAM official tree).",
-          f"**Flips: {len(flips)}** (every other signal keeps its classification).",
-          ""]
+    md = [
+        "# P3 TrafficLight gate relaxation -- classification diff (machine-generated)",
+        "",
+        "Gate BEFORE: `lower(country)=='opendrive' && countryRevision<2013 && dynamic` "
+        "(countryRevision absent => 0, P1 legacy-preserving read).",
+        "Gate AFTER (`[GT_ODR:tl-gate]`): `dynamic`.",
+        "",
+        f"Universe: {n_files} xodr files / {n_signals} signals "
+        f"(committed probe universe + local ASAM official tree).",
+        f"**Flips: {len(flips)}** (every other signal keeps its classification).",
+        "",
+    ]
     if flips:
-        md += ["| file | road | signal id | name | type | dynamic | country | countryRevision | before -> after |",
-               "|---|---|---|---|---|---|---|---|---|"]
+        md += [
+            "| file | road | signal id | name | type | dynamic | country | countryRevision | before -> after |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
         for rel, r in flips:
-            md.append(f"| {rel} | {r['road']} | {r['id']} | {r['name']} | {r['type']} | {r['dynamic']} "
-                      f"| {r['country']} | {r['countryRevision']} | {r['before']} -> {r['after']} |")
+            md.append(
+                f"| {rel} | {r['road']} | {r['id']} | {r['name']} | {r['type']} | {r['dynamic']} "
+                f"| {r['country']} | {r['countryRevision']} | {r['before']} -> {r['after']} |"
+            )
         md.append("")
         md.append("## Per-flip rationale")
         md.append("")
         for rel, r in flips:
-            md.append(f"- **{rel}** road {r['road']} signal {r['id']} `{r['name']}`: {flip_rationale(r)}")
+            md.append(
+                f"- **{rel}** road {r['road']} signal {r['id']} `{r['name']}`: {flip_rationale(r)}"
+            )
         md.append("")
     if parse_errors:
         md += ["## Parse errors (excluded from audit)", ""]
@@ -258,13 +315,21 @@ def main(argv=None) -> int:
     if not args.quiet:
         print(f"universe: {n_files} files, {n_signals} signals; flips: {len(flips)}")
         for rel, r in flips:
-            print(f"  FLIP {rel} road={r['road']} id={r['id']} name={r['name']} "
-                  f"country={r['country']} rev={r['countryRevision']} {r['before']}->{r['after']}")
+            print(
+                f"  FLIP {rel} road={r['road']} id={r['id']} name={r['name']} "
+                f"country={r['country']} rev={r['countryRevision']} {r['before']}->{r['after']}"
+            )
         for rel, e in parse_errors:
             print(f"  PARSE-ERROR {rel}: {e}", file=sys.stderr)
         if args.check_golden:
-            print(f"golden cross-check ({args.check_golden}): "
-                  + ("OK" if not golden_mismatches else f"{len(golden_mismatches)} MISMATCHES"))
+            print(
+                f"golden cross-check ({args.check_golden}): "
+                + (
+                    "OK"
+                    if not golden_mismatches
+                    else f"{len(golden_mismatches)} MISMATCHES"
+                )
+            )
             for m in golden_mismatches[:20]:
                 print("  MISMATCH " + m, file=sys.stderr)
         print(f"wrote {os.path.relpath(args.out + '.json', _REPO_ROOT)} / .md")

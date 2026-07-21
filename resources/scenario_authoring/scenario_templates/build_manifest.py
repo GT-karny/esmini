@@ -21,6 +21,7 @@ Regenerate with:
     DriverScript/.venv/Scripts/python.exe \
         resources/scenario_authoring/scenario_templates/build_manifest.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -83,7 +84,9 @@ def build() -> dict:
 
 def main() -> int:
     manifest = build()
-    body = yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    body = yaml.safe_dump(
+        manifest, sort_keys=False, allow_unicode=True, default_flow_style=False
+    )
     _MANIFEST.write_text(_HEADER + body, encoding="utf-8")
     print(f"[manifest] {len(manifest['scenarios'])} scenarios -> {_MANIFEST}")
     return 0

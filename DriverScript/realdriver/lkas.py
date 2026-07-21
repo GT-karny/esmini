@@ -17,9 +17,16 @@ class LKASController:
     and accepts OSI GroundTruth messages directly.
     """
 
-    def __init__(self, lib_path: str, xodr_path: str, ego_id: int = 0,
-                 model_type: str = 'ReferenceDriver',
-                 kp: float = 0.5, ki: float = 0.01, kd: float = 0.1):
+    def __init__(
+        self,
+        lib_path: str,
+        xodr_path: str,
+        ego_id: int = 0,
+        model_type: str = "ReferenceDriver",
+        kp: float = 0.5,
+        ki: float = 0.01,
+        kd: float = 0.1,
+    ):
         """
         Initialize LKAS Controller.
 
@@ -49,14 +56,18 @@ class LKASController:
 
         # Initialize RoadManager with the map
         if self.rm_lib.Init(xodr_path) < 0:
-            raise RuntimeError(f"Failed to initialize RoadManager with map: {xodr_path}")
+            raise RuntimeError(
+                f"Failed to initialize RoadManager with map: {xodr_path}"
+            )
 
         # PID Controller for steering
         # Convention:
         # Lane Offset > 0 (Left of center) -> Should steer RIGHT (Negative angle)
         # Lane Offset < 0 (Right of center) -> Should steer LEFT (Positive angle)
         # Steering > 0 -> Left turn
-        self.pid = PIDController(kp=kp, ki=ki, kd=kd, output_limits=(-1.0, 1.0), integral_limits=(-0.5, 0.5))
+        self.pid = PIDController(
+            kp=kp, ki=ki, kd=kd, output_limits=(-1.0, 1.0), integral_limits=(-0.5, 0.5)
+        )
 
         # Create a position handle for ego vehicle in RoadManager
         self.pos_handle = self.rm_lib.CreatePosition()
@@ -82,7 +93,7 @@ class LKASController:
                 break
 
         # 2. Fallback to host_vehicle_id
-        if ego_obj is None and ground_truth.HasField('host_vehicle_id'):
+        if ego_obj is None and ground_truth.HasField("host_vehicle_id"):
             host_id = ground_truth.host_vehicle_id.value
             for obj in ground_truth.moving_object:
                 if obj.id.value == host_id:
@@ -135,7 +146,9 @@ class LKASController:
         # Extract ego vehicle state from GroundTruth
         ego_state = self._extract_ego_from_ground_truth(ground_truth)
         if ego_state is None:
-            raise ValueError(f"Ego vehicle with ID {self.ego_id} not found in GroundTruth")
+            raise ValueError(
+                f"Ego vehicle with ID {self.ego_id} not found in GroundTruth"
+            )
 
         x, y, z, h, speed = ego_state
         self._last_ego_speed = speed
@@ -169,7 +182,7 @@ class LKASController:
 
     def __del__(self):
         """Cleanup RoadManager resources."""
-        if hasattr(self, 'rm_lib') and self.rm_lib is not None:
+        if hasattr(self, "rm_lib") and self.rm_lib is not None:
             try:
                 self.rm_lib.Close()
             except Exception:

@@ -41,7 +41,10 @@ OSI_BUFFER_SIZE = 8208
 # OBB (oriented bounding box) separation — SAT
 # ---------------------------------------------------------------------------
 
-def _obb_corners(cx: float, cy: float, h: float, length: float, width: float) -> list[tuple[float, float]]:
+
+def _obb_corners(
+    cx: float, cy: float, h: float, length: float, width: float
+) -> list[tuple[float, float]]:
     """Four world corners of an oriented rectangle centered at (cx,cy), heading h,
     extents length (along heading) x width (across). NOTE: the OSI scene reports the
     body CENTER, so we center the box on (cx,cy) — adjacent-lane passing then reads
@@ -104,6 +107,7 @@ def obb_separation(a: dict, b: dict) -> float:
 # telemetry / baseline trajectory extraction
 # ---------------------------------------------------------------------------
 
+
 def load_telemetry(run_dir: Path) -> list[dict]:
     jsonl = run_dir / "telemetry.jsonl"
     if not jsonl.is_file():
@@ -136,9 +140,14 @@ def _forward_fill_static_scene(frames: list[dict]) -> None:
                 scene[key] = carried[key]
 
 
-def ego_track_from_telemetry(frames: list[dict]) -> list[tuple[float, float, float, float]]:
+def ego_track_from_telemetry(
+    frames: list[dict],
+) -> list[tuple[float, float, float, float]]:
     """-> [(t, x, y, speed)]"""
-    return [(fr["sim_time"], fr["ego"]["x"], fr["ego"]["y"], fr["ego"]["speed"]) for fr in frames]
+    return [
+        (fr["sim_time"], fr["ego"]["x"], fr["ego"]["y"], fr["ego"]["speed"])
+        for fr in frames
+    ]
 
 
 def ego_track_from_osi(osi_path: Path) -> list[tuple[float, float, float, float]]:
@@ -156,7 +165,7 @@ def ego_track_from_osi(osi_path: Path) -> list[tuple[float, float, float, float]
         if off + size > n:
             break
         gt.Clear()
-        gt.ParseFromString(data[off:off + size])
+        gt.ParseFromString(data[off : off + size])
         off += size
         if not gt.moving_object:
             continue
@@ -171,8 +180,14 @@ def ego_track_from_osi(osi_path: Path) -> list[tuple[float, float, float, float]
             ego = gt.moving_object[0]
         t = gt.timestamp.seconds + gt.timestamp.nanos * 1e-9
         v = ego.base.velocity
-        track.append((t, ego.base.position.x, ego.base.position.y,
-                      math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)))
+        track.append(
+            (
+                t,
+                ego.base.position.x,
+                ego.base.position.y,
+                math.sqrt(v.x**2 + v.y**2 + v.z**2),
+            )
+        )
     return track
 
 
@@ -189,7 +204,10 @@ def resolve_baseline_osi(baseline: Path) -> Path:
 # compare
 # ---------------------------------------------------------------------------
 
-def interp(track: list[tuple[float, float, float, float]], t: float) -> tuple[float, float, float]:
+
+def interp(
+    track: list[tuple[float, float, float, float]], t: float
+) -> tuple[float, float, float]:
     """Linear interp of (x,y,speed) at time t (clamped to track ends)."""
     if t <= track[0][0]:
         return track[0][1], track[0][2], track[0][3]
@@ -241,24 +259,37 @@ def compare(run_dir: Path, baseline: Path, grid_dt: float = 0.1) -> dict:
         "xy_rmse_m": round(math.sqrt(sq_xy / n), 4),
         "xy_max_dev_m": round(max_xy, 4),
         "speed_rmse_mps": round(math.sqrt(sq_sp / n), 4),
-        "endpoint_dist_m": round(math.dist((vd[-1][1], vd[-1][2]), (base[-1][1], base[-1][2])), 4),
+        "endpoint_dist_m": round(
+            math.dist((vd[-1][1], vd[-1][2]), (base[-1][1], base[-1][2])), 4
+        ),
     }
-    (run_dir / "compare.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    (run_dir / "compare.json").write_text(
+        json.dumps(result, indent=2), encoding="utf-8"
+    )
 
     # Baseline ego track resampled onto the VD frame times, so the replay UI can
     # overlay the Default "ghost" by simple index (baseline_track[i] <-> frames[i]).
     baseline_track = []
-    for (t, _x, _y, _s) in vd:
+    for t, _x, _y, _s in vd:
         bx, by, bs = interp(base, t)
-        baseline_track.append({"t": round(t, 3), "x": round(bx, 3), "y": round(by, 3), "speed": round(bs, 3)})
+        baseline_track.append(
+            {
+                "t": round(t, 3),
+                "x": round(bx, 3),
+                "y": round(by, 3),
+                "speed": round(bs, 3),
+            }
+        )
     (run_dir / "baseline_track.json").write_text(
-        json.dumps(baseline_track, separators=(",", ":")), encoding="utf-8")
+        json.dumps(baseline_track, separators=(",", ":")), encoding="utf-8"
+    )
     return result
 
 
 # ---------------------------------------------------------------------------
 # assert (expectations.yaml)
 # ---------------------------------------------------------------------------
+
 
 def time_window_ok(t: float, spec: dict) -> bool:
     """Honour optional after/before sim_time gates on a must entry."""
@@ -299,7 +330,7 @@ def _speed_accel_jerk(frames: list[dict], smooth_window: int = 5) -> dict:
     def _smooth(y: list[float]) -> list[float]:
         out = []
         for i in range(n):
-            seg = y[max(0, i - half):min(n, i + half + 1)]
+            seg = y[max(0, i - half) : min(n, i + half + 1)]
             out.append(sum(seg) / len(seg))
         return out
 
@@ -314,10 +345,10 @@ def _speed_accel_jerk(frames: list[dict], smooth_window: int = 5) -> dict:
 
     v = _smooth(v_raw)
     if n >= 3 and all(a is not None for a in a_osi):
-        a = _smooth(a_osi)          # face-1 OSI acceleration, same smoothing as v
+        a = _smooth(a_osi)  # face-1 OSI acceleration, same smoothing as v
         a_source = "osi"
     else:
-        a = _central(v)             # face-2 fallback: central-difference of speed
+        a = _central(v)  # face-2 fallback: central-difference of speed
         a_source = "telemetry"
     j = _central(a)
     return {"t": t, "v": v, "s": s, "a": a, "j": j, "a_source": a_source}
@@ -345,9 +376,13 @@ def _sustained_stop(frames: list[dict], must: dict, stop_speed: float):
         if not time_window_ok(fr["sim_time"], must):
             continue
         ego = fr["ego"]
-        if road_id is not None and int(ego.get("track", -10 ** 9)) != road_id:
+        if road_id is not None and int(ego.get("track", -(10**9))) != road_id:
             continue
-        if s_range is not None and "s" in ego and not (s_range[0] <= ego["s"] <= s_range[1]):
+        if (
+            s_range is not None
+            and "s" in ego
+            and not (s_range[0] <= ego["s"] <= s_range[1])
+        ):
             continue
         gated.append(i)
     if not gated:
@@ -463,14 +498,27 @@ def _ego_state(fr: dict) -> dict:
             x, y, speed = host["x"], host["y"], host["speed"]
             h = host.get("h", h)
             gid = host.get("lane_global_id")
-            entry = (scene.get("lane_map") or {}).get(str(gid)) if gid is not None else None
+            entry = (
+                (scene.get("lane_map") or {}).get(str(gid)) if gid is not None else None
+            )
             if entry is not None and entry.get("road_id") is not None:
-                track = entry["road_id"]   # road_id only; lane stays telemetry (see docstring)
+                track = entry[
+                    "road_id"
+                ]  # road_id only; lane stays telemetry (see docstring)
             ax, ay = host.get("ax"), host.get("ay")
             if ax is not None and ay is not None:
                 accel_long = ax * math.cos(h) + ay * math.sin(h)
-    return {"x": x, "y": y, "speed": speed, "h": h, "s": ego.get("s"),
-            "track": track, "lane": lane, "accel_long": accel_long, "_source": src}
+    return {
+        "x": x,
+        "y": y,
+        "speed": speed,
+        "h": h,
+        "s": ego.get("s"),
+        "track": track,
+        "lane": lane,
+        "accel_long": accel_long,
+        "_source": src,
+    }
 
 
 def eval_must(must: dict, frames: list[dict]) -> dict:
@@ -494,8 +542,11 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
     if kind in ("speed_above", "speed_below"):
         thr = float(must["threshold"])
-        gated = [(i, _ego_state(frames[i])) for i in range(len(frames))
-                 if time_window_ok(frames[i]["sim_time"], must)]
+        gated = [
+            (i, _ego_state(frames[i]))
+            for i in range(len(frames))
+            if time_window_ok(frames[i]["sim_time"], must)
+        ]
         if not gated:
             return res("skip", "no frames in time window")
         src = gated[0][1]["_source"]
@@ -508,13 +559,23 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             ok = any(s >= thr for s in speeds.values())
             worst_i = max(speeds, key=speeds.get)  # closest attempt
             detail = f"max speed in window = {speeds[worst_i]:.2f} (>= {thr}?)"
-            return res("pass" if ok else "fail", detail, None if ok else worst_i, ego_source=src)
+            return res(
+                "pass" if ok else "fail",
+                detail,
+                None if ok else worst_i,
+                ego_source=src,
+            )
         else:
             offenders = [i for i, s in speeds.items() if s > thr]
             ok = not offenders
             worst = max(speeds.values())
             detail = f"max speed in window = {worst:.2f} (<= {thr}?)"
-            return res("pass" if ok else "fail", detail, None if ok else offenders[0], ego_source=src)
+            return res(
+                "pass" if ok else "fail",
+                detail,
+                None if ok else offenders[0],
+                ego_source=src,
+            )
 
     if kind == "min_speed_above":
         # Lowest speed in the window must stay above threshold: a "do not slow
@@ -522,11 +583,17 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # through). Optional road_id confines the window to one road/connector.
         thr = float(must["threshold"])
         road_id = must.get("road_id")
-        states = {i: _ego_state(frames[i]) for i in range(len(frames))
-                  if time_window_ok(frames[i]["sim_time"], must)}
-        gated = [i for i, eg in states.items()
-                 if road_id is None or int(eg["track"] if eg["track"] is not None
-                                           else -10 ** 9) == road_id]
+        states = {
+            i: _ego_state(frames[i])
+            for i in range(len(frames))
+            if time_window_ok(frames[i]["sim_time"], must)
+        }
+        gated = [
+            i
+            for i, eg in states.items()
+            if road_id is None
+            or int(eg["track"] if eg["track"] is not None else -(10**9)) == road_id
+        ]
         if not gated:
             where = f" on road {road_id}" if road_id is not None else ""
             return res("skip", f"no frames in time window{where}")
@@ -535,7 +602,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         v_min = states[worst_i]["speed"]
         ok = v_min >= thr
         detail = f"min speed in window = {v_min:.2f} (>= {thr}?)"
-        return res("pass" if ok else "fail", detail, None if ok else worst_i, ego_source=src)
+        return res(
+            "pass" if ok else "fail", detail, None if ok else worst_i, ego_source=src
+        )
 
     if kind == "no_constraint_kind":
         # Assert the mid/long planner never raises a constraint of the given kind
@@ -544,15 +613,24 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         target = must.get("kind")
         if target is None:
             return res("skip", "kind is required")
-        gated = [i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)]
+        gated = [
+            i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)
+        ]
         if not gated:
             return res("skip", "no frames in time window")
-        offenders = [i for i in gated
-                     if any(c.get("kind") == target
-                            for c in frames[i].get("midlong", {}).get("constraints", []))]
+        offenders = [
+            i
+            for i in gated
+            if any(
+                c.get("kind") == target
+                for c in frames[i].get("midlong", {}).get("constraints", [])
+            )
+        ]
         ok = not offenders
-        detail = (f"{len(gated)} frames checked; {len(offenders)} raised a "
-                  f"'{target}' constraint")
+        detail = (
+            f"{len(gated)} frames checked; {len(offenders)} raised a "
+            f"'{target}' constraint"
+        )
         return res("pass" if ok else "fail", detail, None if ok else offenders[0])
 
     # Lane events use the ego's road-coordinate anchor (road_id / lane). It is
@@ -576,13 +654,26 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             src = eg["_source"]
             ls.append((i, int(eg["track"]), int(eg["lane"])))
         if not ls:
-            return res("skip", "no lane data in window (lane/track absent or empty window)")
-        bad = [i for (i, trk, ln) in ls
-               if (road_id is not None and trk != road_id) or (lane_id is not None and ln != lane_id)]
-        detail = (f"{len(ls)} frames in window on lane(s) "
-                  f"{sorted(set(ln for _, _, ln in ls))} road(s) {sorted(set(trk for _, trk, _ in ls))}; "
-                  f"expected road={road_id} lane={lane_id}")
-        return res("pass" if not bad else "fail", detail, None if not bad else bad[0], ego_source=src)
+            return res(
+                "skip", "no lane data in window (lane/track absent or empty window)"
+            )
+        bad = [
+            i
+            for (i, trk, ln) in ls
+            if (road_id is not None and trk != road_id)
+            or (lane_id is not None and ln != lane_id)
+        ]
+        detail = (
+            f"{len(ls)} frames in window on lane(s) "
+            f"{sorted(set(ln for _, _, ln in ls))} road(s) {sorted(set(trk for _, trk, _ in ls))}; "
+            f"expected road={road_id} lane={lane_id}"
+        )
+        return res(
+            "pass" if not bad else "fail",
+            detail,
+            None if not bad else bad[0],
+            ego_source=src,
+        )
 
     if kind == "lane_change_count":
         expected = must.get("count")
@@ -598,15 +689,21 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         changes = [ls[i][0] for i in range(1, len(ls)) if ls[i][2] != ls[i - 1][2]]
         ok = (expected is None) or (len(changes) == expected)
         detail = f"observed {len(changes)} lane change(s); expected {expected}"
-        return res("pass" if ok else "fail", detail,
-                   None if ok else (changes[0] if changes else None), ego_source=src)
+        return res(
+            "pass" if ok else "fail",
+            detail,
+            None if ok else (changes[0] if changes else None),
+            ego_source=src,
+        )
 
     # --- mid/long anticipation matchers (V2) ---------------------------------
     # "Physically plausible deceleration" judged from VirtualDriver telemetry
     # alone (position equivalence vs Default is meaningless for the mid/long case).
 
     if kind == "deceleration_profile_smooth":
-        gated = [i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)]
+        gated = [
+            i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)
+        ]
         if len(gated) < 3:
             return res("skip", "fewer than 3 frames in time window")
         prof = _speed_accel_jerk(frames, int(must.get("smooth_window", 5)))
@@ -627,38 +724,64 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         landmark_s = must.get("landmark_s")
         eval_idx, win = gated, f" [a={a_src}]"
         if landmark_s is not None:
-            lm = next((i for i in gated
-                       if (road_id is None
-                           or int(egos[i]["track"] if egos[i]["track"] is not None else -10 ** 9) == road_id)
-                       and prof["s"][i] >= float(landmark_s)), None)
+            lm = next(
+                (
+                    i
+                    for i in gated
+                    if (
+                        road_id is None
+                        or int(
+                            egos[i]["track"]
+                            if egos[i]["track"] is not None
+                            else -(10**9)
+                        )
+                        == road_id
+                    )
+                    and prof["s"][i] >= float(landmark_s)
+                ),
+                None,
+            )
             if lm is not None:
-                onset = next((i for i in gated if i <= lm and prof["a"][i] < -0.3), None)
+                onset = next(
+                    (i for i in gated if i <= lm and prof["a"][i] < -0.3), None
+                )
                 if onset is not None and lm - onset >= 2:
                     eval_idx = [i for i in gated if onset <= i <= lm]
-                    win = (f" [decel phase t{frames[onset]['sim_time']:.1f}-"
-                           f"{frames[lm]['sim_time']:.1f}s, a={a_src}]")
+                    win = (
+                        f" [decel phase t{frames[onset]['sim_time']:.1f}-"
+                        f"{frames[lm]['sim_time']:.1f}s, a={a_src}]"
+                    )
 
         max_jerk = must.get("max_jerk")
         if max_jerk is not None:
             worst = max(eval_idx, key=lambda i: abs(prof["j"][i]))
             if abs(prof["j"][worst]) > float(max_jerk):
-                return res("fail",
-                           f"max |jerk| = {abs(prof['j'][worst]):.2f} m/s^3 (<= {max_jerk}?){win}",
-                           worst, ego_source=src)
+                return res(
+                    "fail",
+                    f"max |jerk| = {abs(prof['j'][worst]):.2f} m/s^3 (<= {max_jerk}?){win}",
+                    worst,
+                    ego_source=src,
+                )
 
         max_decel = must.get("max_decel")
         if max_decel is not None:
             worst = min(eval_idx, key=lambda i: prof["a"][i])  # most negative accel
             if -prof["a"][worst] > float(max_decel):
-                return res("fail",
-                           f"max deceleration = {-prof['a'][worst]:.2f} m/s^2 (<= {max_decel}?){win}",
-                           worst, ego_source=src)
+                return res(
+                    "fail",
+                    f"max deceleration = {-prof['a'][worst]:.2f} m/s^2 (<= {max_decel}?){win}",
+                    worst,
+                    ego_source=src,
+                )
 
         wj = max(eval_idx, key=lambda i: abs(prof["j"][i]))
         wa = min(eval_idx, key=lambda i: prof["a"][i])
-        return res("pass", f"max |jerk|={abs(prof['j'][wj]):.2f} m/s^3, "
-                           f"max decel={-prof['a'][wa]:.2f} m/s^2 within bounds{win}",
-                   ego_source=src)
+        return res(
+            "pass",
+            f"max |jerk|={abs(prof['j'][wj]):.2f} m/s^3, "
+            f"max decel={-prof['a'][wa]:.2f} m/s^2 within bounds{win}",
+            ego_source=src,
+        )
 
     if kind == "speed_reduction_before_landmark":
         landmark_s = must.get("landmark_s")
@@ -674,7 +797,10 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             eg = _ego_state(frames[i])
             if eg["s"] is None:  # along-lane s is telemetry-only (not in OSI)
                 continue
-            if road_id is not None and int(eg["track"] if eg["track"] is not None else -10 ** 9) != road_id:
+            if (
+                road_id is not None
+                and int(eg["track"] if eg["track"] is not None else -(10**9)) != road_id
+            ):
                 continue
             if eg["s"] >= float(landmark_s):
                 hit, hit_eg = i, eg
@@ -685,19 +811,31 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         v_hit = hit_eg["speed"]
         ok = v_hit <= float(target_speed) + tol
         detail = f"speed at landmark s={landmark_s} = {v_hit:.2f} m/s (<= {target_speed}+{tol}?)"
-        return res("pass" if ok else "fail", detail, None if ok else hit, ego_source=hit_eg["_source"])
+        return res(
+            "pass" if ok else "fail",
+            detail,
+            None if ok else hit,
+            ego_source=hit_eg["_source"],
+        )
 
     if kind == "steer_not_saturated":
         thr = float(must.get("threshold", 0.98))
-        gated = [i for i in range(len(frames))
-                 if time_window_ok(frames[i]["sim_time"], must)
-                 and frames[i].get("driver", {}).get("steer") is not None]
+        gated = [
+            i
+            for i in range(len(frames))
+            if time_window_ok(frames[i]["sim_time"], must)
+            and frames[i].get("driver", {}).get("steer") is not None
+        ]
         if not gated:
             return res("skip", "no driver.steer data in window")
         offenders = [i for i in gated if abs(frames[i]["driver"]["steer"]) > thr]
         worst = max(gated, key=lambda i: abs(frames[i]["driver"]["steer"]))
         detail = f"max |steer| in window = {abs(frames[worst]['driver']['steer']):.3f} (<= {thr}?)"
-        return res("pass" if not offenders else "fail", detail, None if not offenders else offenders[0])
+        return res(
+            "pass" if not offenders else "fail",
+            detail,
+            None if not offenders else offenders[0],
+        )
 
     # --- Phase 3 traffic-policy matchers (Step 1) ---------------------------
     # stopped_at_stop_sign / stopped_at_signal: a full stop sustained for
@@ -712,10 +850,15 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             return res("skip", "stop window never entered (road_id/s_range/time gate)")
         start_i, _end_i, dur, first_i = run
         ok = dur >= min_duration
-        ident = (f"sign {must.get('sign_id')}" if kind == "stopped_at_stop_sign"
-                 else f"signal {must.get('signal_id')}")
-        detail = (f"longest full stop (<= {stop_speed} m/s) at {ident} = {dur:.2f}s "
-                  f"(>= {min_duration}?)")
+        ident = (
+            f"sign {must.get('sign_id')}"
+            if kind == "stopped_at_stop_sign"
+            else f"signal {must.get('signal_id')}"
+        )
+        detail = (
+            f"longest full stop (<= {stop_speed} m/s) at {ident} = {dur:.2f}s "
+            f"(>= {min_duration}?)"
+        )
 
         # stopped_at_stop_sign: optionally confirm a stop/give-way sign actually
         # exists in the captured OSI scene, i.e. that the geometric s_range
@@ -729,12 +872,18 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             signs = (scene or {}).get("traffic_signs") or []
             if signs:
                 sid = must.get("sign_id")
-                stopish = [s["id"] for s in signs if s.get("type") in ("stop", "give_way")]
+                stopish = [
+                    s["id"] for s in signs if s.get("type") in ("stop", "give_way")
+                ]
                 ids = [s["id"] for s in signs]
                 sign_ok = (sid in stopish) or (sid not in ids and len(stopish) > 0)
                 if not sign_ok:
-                    return res("fail", detail + f"; but no stop/give-way sign in the OSI "
-                                                f"scene (stop-ish ids={stopish})", start_i)
+                    return res(
+                        "fail",
+                        detail + f"; but no stop/give-way sign in the OSI "
+                        f"scene (stop-ish ids={stopish})",
+                        start_i,
+                    )
                 detail += "; stop sign confirmed in scene"
 
         # stopped_at_signal: optionally confirm the signal was red at stop onset
@@ -750,7 +899,11 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                 # head in sight (traffic_light.classification.assigned_lane_id).
                 want_lane = must.get("lane_id")
                 if want_lane is not None:
-                    on_lane = [t for t in tls if want_lane in (t.get("assigned_lane_ids") or [])]
+                    on_lane = [
+                        t
+                        for t in tls
+                        if want_lane in (t.get("assigned_lane_ids") or [])
+                    ]
                     if on_lane:
                         tls = on_lane
                 if tls:
@@ -759,8 +912,12 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                     ids = [t["id"] for t in tls]
                     red_ok = (sig in reds) or (sig not in ids and len(reds) > 0)
                     if not red_ok:
-                        return res("fail", detail + f"; but signal was not red at stop onset "
-                                                    f"(reds={reds})", start_i)
+                        return res(
+                            "fail",
+                            detail + f"; but signal was not red at stop onset "
+                            f"(reds={reds})",
+                            start_i,
+                        )
                     detail += "; red confirmed at onset"
         return res("pass" if ok else "fail", detail, None if ok else first_i)
 
@@ -791,7 +948,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             if v < stop_speed:
                 continue  # standstill -> THW undefined
             ch, sh = math.cos(eg["h"]), math.sin(eg["h"])
-            ego_len = next((o["length"] for o in scene["objects"] if o.get("is_host")), 5.0)
+            ego_len = next(
+                (o["length"] for o in scene["objects"] if o.get("is_host")), 5.0
+            )
             best = None  # (forward, lead_len)
             for o in scene["objects"]:
                 if o.get("is_host"):
@@ -812,13 +971,18 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                 gap = 0.0
             thws.append(gap / max(v, eps))
         if not thws:
-            return res("skip", "no lead-vehicle frames with a captured scene "
-                               "(needs --osi / batch osi:true and a lead in lane)")
+            return res(
+                "skip",
+                "no lead-vehicle frames with a captured scene "
+                "(needs --osi / batch osi:true and a lead in lane)",
+            )
         val = _percentile(thws, pct)
         lo_ok = (min_thw is None) or (val >= float(min_thw))
         hi_ok = (max_thw is None) or (val <= float(max_thw))
-        detail = (f"p{pct:g} THW = {val:.2f}s over {len(thws)} frames "
-                  f"(want {min_thw}..{max_thw}s)")
+        detail = (
+            f"p{pct:g} THW = {val:.2f}s over {len(thws)} frames "
+            f"(want {min_thw}..{max_thw}s)"
+        )
         return res("pass" if (lo_ok and hi_ok) else "fail", detail, ego_source=src)
 
     if kind == "min_separation_above":
@@ -848,8 +1012,10 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             return res("skip", "no scene frames in time window")
         sep, worst_i = worst_sep
         ok = sep >= thr
-        detail = (f"min center-to-center separation = {sep:.2f} m at "
-                  f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?)")
+        detail = (
+            f"min center-to-center separation = {sep:.2f} m at "
+            f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?)"
+        )
         return res("pass" if ok else "fail", detail, None if ok else worst_i)
 
     if kind == "min_obb_separation_above":
@@ -904,13 +1070,18 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # overlap on it implies overlap on the (larger-or-equal) real body too.
         if ok and fallback_names:
             names = ", ".join(sorted(fallback_names))
-            return res("skip", f"OBB separation inconclusive: object(s) lacked real "
-                               f"OSI dimensions ({names}); measured min "
-                               f"{sep:.2f} m uses a 4.0x2.0 m fallback footprint, so a "
-                               f"clean pass is not trustworthy")
-        detail = (f"min OBB separation = {sep:.2f} m at "
-                  f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?); "
-                  f"overlap occurred: {any_overlap}")
+            return res(
+                "skip",
+                f"OBB separation inconclusive: object(s) lacked real "
+                f"OSI dimensions ({names}); measured min "
+                f"{sep:.2f} m uses a 4.0x2.0 m fallback footprint, so a "
+                f"clean pass is not trustworthy",
+            )
+        detail = (
+            f"min OBB separation = {sep:.2f} m at "
+            f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?); "
+            f"overlap occurred: {any_overlap}"
+        )
         return res("pass" if ok else "fail", detail, None if ok else worst_i)
 
     if kind == "impact_speed_below":
@@ -932,13 +1103,15 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # (telemetry.scene), same as its sibling anti-collision gates.
         thr = float(must["threshold"])
         contact_sep = float(must.get("contact_sep", 0.0))
-        gated = [i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)]
+        gated = [
+            i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)
+        ]
         if not gated:
             return res("skip", "no frames in time window")
 
         any_scene = False
-        best_sep = None   # closest approach ever seen (for the no-contact detail)
-        contact = None    # (idx, sep, ego, obj) at the first contact frame
+        best_sep = None  # closest approach ever seen (for the no-contact detail)
+        contact = None  # (idx, sep, ego, obj) at the first contact frame
         for i in gated:
             scene = frames[i].get("scene")
             if not scene:
@@ -969,9 +1142,11 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         if contact is None:
             # Best case: full avoidance, including the degenerate case where no
             # other body was ever present in the captured scene.
-            detail = (f"no contact (min separation {best_sep:.2f} m) -> pass"
-                      if best_sep is not None else
-                      "no contact (no other bodies observed in scene) -> pass")
+            detail = (
+                f"no contact (min separation {best_sep:.2f} m) -> pass"
+                if best_sep is not None
+                else "no contact (no other bodies observed in scene) -> pass"
+            )
             return res("pass", detail)
 
         idx, sep, c_ego, c_obj = contact
@@ -979,8 +1154,10 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         ok = closing <= thr
         who = c_obj.get("name") or f"#{c_obj.get('id')}"
         t_contact = frames[idx]["sim_time"]
-        detail = (f"impact speed = {closing:.2f} m/s at t={t_contact:.2f} "
-                  f"(<= {thr}?) [contact with {who}, sep={sep:.2f} m]")
+        detail = (
+            f"impact speed = {closing:.2f} m/s at t={t_contact:.2f} "
+            f"(<= {thr}?) [contact with {who}, sep={sep:.2f} m]"
+        )
         return res("pass" if ok else "fail", detail, None if ok else idx)
 
     if kind == "no_emergency_without_conflict":
@@ -1006,21 +1183,35 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # not it was ever even admitted as a candidate.
         # FAIL: the earliest frame that does - a misfire - identified via the
         # standard res(fail_idx) contract so the UI can jump straight to it.
-        gated = [i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)]
+        gated = [
+            i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)
+        ]
         if not gated:
             return res("skip", "no frames in time window")
-        offenders = [i for i in gated
-                     if any(c.get("source") == "aeb"
-                            for c in frames[i].get("policy", {}).get("constraints", []))]
+        offenders = [
+            i
+            for i in gated
+            if any(
+                c.get("source") == "aeb"
+                for c in frames[i].get("policy", {}).get("constraints", [])
+            )
+        ]
         if offenders:
             i0 = offenders[0]
-            detail = (f"AEB emergency fired at t={frames[i0]['sim_time']:.2f} "
-                      f"(no collision course) -> misfire")
+            detail = (
+                f"AEB emergency fired at t={frames[i0]['sim_time']:.2f} "
+                f"(no collision course) -> misfire"
+            )
             return res("fail", detail, i0)
         detail = f"no AEB emergency constraint over {len(gated)} frames -> pass"
         return res("pass", detail)
 
-    return {"event": kind, "status": "skip", "detail": "unknown event type", "reason": reason}
+    return {
+        "event": kind,
+        "status": "skip",
+        "detail": "unknown event type",
+        "reason": reason,
+    }
 
 
 def assert_expectations(run_dir: Path, expectations: Path) -> dict:
@@ -1036,8 +1227,11 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
     n_pass = sum(1 for r in results if r["status"] == "pass")
     n_fail = sum(1 for r in results if r["status"] == "fail")
     n_skip = sum(1 for r in results if r["status"] == "skip")
-    overall = "fail" if n_fail else ("pass" if n_pass and not n_skip else
-                                     "needs-review" if n_skip else "pass")
+    overall = (
+        "fail"
+        if n_fail
+        else ("pass" if n_pass and not n_skip else "needs-review" if n_skip else "pass")
+    )
 
     verdict = {
         "run": str(run_dir),
@@ -1047,7 +1241,9 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
         "summary": {"pass": n_pass, "fail": n_fail, "skip": n_skip},
         "results": results,
     }
-    (run_dir / "verdict.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+    (run_dir / "verdict.json").write_text(
+        json.dumps(verdict, indent=2), encoding="utf-8"
+    )
     return verdict
 
 
@@ -1055,7 +1251,10 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
 # OSI UDP capture (multi-packet GroundTruth reassembly -> .osi file)
 # ---------------------------------------------------------------------------
 
-def capture_osi(out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout: float) -> int:
+
+def capture_osi(
+    out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout: float
+) -> int:
     """Reassemble multi-packet GroundTruth frames from UDP into a length-delimited
     .osi file. Stops once the process has exited and the stream is idle.
     Returns the number of complete frames written."""
@@ -1074,7 +1273,10 @@ def capture_osi(out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout: 
                 try:
                     msg, _ = sock.recvfrom(OSI_BUFFER_SIZE)
                 except socket.timeout:
-                    if proc.poll() is not None and (time.time() - last_data) > idle_timeout:
+                    if (
+                        proc.poll() is not None
+                        and (time.time() - last_data) > idle_timeout
+                    ):
                         break
                     continue
                 last_data = time.time()

@@ -34,6 +34,7 @@ Implemented, PARTIAL_DETERMINISTIC (1), see impl_briefs/junctions_core.md:
 
 Classified away (6): see run_checks docstring / structured report.
 """
+
 import xml.etree.ElementTree as ET
 
 
@@ -68,16 +69,20 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     v = conn.get(attr)
                     if v is not None:
                         participant_roads.add(v)
-            if (len(participant_roads) == 2
-                    and jid not in junction_group_members
-                    and not j.findall("crossPath")):
-                flags.append((
-                    "junctions.common.not_only_two",
-                    f"junction {jid}(type=default) が丁度2本の道路（{sorted(participant_roads)}）"
-                    "のみで構成（junctionGroup非所属・crossPathなし。2道路のみの接続には"
-                    "junctionを使うべきでない、要確認）",
-                    f"junction {jid}",
-                ))
+            if (
+                len(participant_roads) == 2
+                and jid not in junction_group_members
+                and not j.findall("crossPath")
+            ):
+                flags.append(
+                    (
+                        "junctions.common.not_only_two",
+                        f"junction {jid}(type=default) が丁度2本の道路（{sorted(participant_roads)}）"
+                        "のみで構成（junctionGroup非所属・crossPathなし。2道路のみの接続には"
+                        "junctionを使うべきでない、要確認）",
+                        f"junction {jid}",
+                    )
+                )
 
     for jid, j in junctions.items():
         jtype = j.get("type") or "default"  # schema: absent == "default" (common)
@@ -90,31 +95,37 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         # connections, which are nested one level deeper).
         for tag in ("link", "predecessor", "successor"):
             if j.find(tag) is not None:
-                flags.append((
-                    "junctions.common.junctions_no_pred_succ",
-                    f"junction {jid} が直下に <{tag}> を持つ（junctionはpredecessor/successorを持たない）",
-                    f"junction {jid}",
-                ))
+                flags.append(
+                    (
+                        "junctions.common.junctions_no_pred_succ",
+                        f"junction {jid} が直下に <{tag}> を持つ（junctionはpredecessor/successorを持たない）",
+                        f"junction {jid}",
+                    )
+                )
 
         # --- junctions.common.virtual_junction_attributes -----------------
         if jtype != "virtual":
             for attr in ("mainRoad", "orientation", "sStart", "sEnd"):
                 v = j.get(attr)
                 if v is not None:
-                    flags.append((
-                        "junctions.common.virtual_junction_attributes",
-                        f"junction {jid}(type={jtype}) に @{attr}={v}（virtualジャンクションのみ許可）",
-                        f"junction {jid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.common.virtual_junction_attributes",
+                            f"junction {jid}(type={jtype}) に @{attr}={v}（virtualジャンクションのみ許可）",
+                            f"junction {jid}",
+                        )
+                    )
 
         # --- junctions.boundary.only_for_common_junctions ------------------
         boundary = j.find("boundary")
         if boundary is not None and jtype != "default":
-            flags.append((
-                "junctions.boundary.only_for_common_junctions",
-                f"junction {jid}(type={jtype}) に <boundary> が定義されている（boundaryはcommon(default)junctionのみ有効）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.boundary.only_for_common_junctions",
+                    f"junction {jid}(type={jtype}) に <boundary> が定義されている（boundaryはcommon(default)junctionのみ有効）",
+                    f"junction {jid}",
+                )
+            )
 
         # --- per-connection checks -----------------------------------------
         for conn in j.findall("connection"):
@@ -124,36 +135,42 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             if jtype in ("default", "virtual"):
                 lr = conn.get("linkedRoad")
                 if lr is not None:
-                    flags.append((
-                        "junctions.type_default_no_linked_road",
-                        f"junction {jid}(type={jtype}) connection id={cid} に @linkedRoad={lr}"
-                        "（default/virtualジャンクションのconnectionには不可、direct専用属性）",
-                        f"junction {jid} connection {cid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.type_default_no_linked_road",
+                            f"junction {jid}(type={jtype}) connection id={cid} に @linkedRoad={lr}"
+                            "（default/virtualジャンクションのconnectionには不可、direct専用属性）",
+                            f"junction {jid} connection {cid}",
+                        )
+                    )
 
             # junctions.type_direct_no_conn_road
             if jtype == "direct":
                 cr = conn.get("connectingRoad")
                 if cr is not None:
-                    flags.append((
-                        "junctions.type_direct_no_conn_road",
-                        f"junction {jid}(type=direct) connection id={cid} に @connectingRoad={cr}"
-                        "（directジャンクションのconnectionには不可、connectingRoadを持たない設計）",
-                        f"junction {jid} connection {cid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.type_direct_no_conn_road",
+                            f"junction {jid}(type=direct) connection id={cid} に @connectingRoad={cr}"
+                            "（directジャンクションのconnectionには不可、connectingRoadを持たない設計）",
+                            f"junction {jid} connection {cid}",
+                        )
+                    )
 
             # junctions.common.direct_junction_attributes (@overlapZone on <laneLink>)
             if jtype != "direct":
                 for ll in conn.findall("laneLink"):
                     oz = ll.get("overlapZone")
                     if oz is not None:
-                        flags.append((
-                            "junctions.common.direct_junction_attributes",
-                            f"junction {jid}(type={jtype}) connection id={cid} laneLink "
-                            f"from={ll.get('from')} to={ll.get('to')} に @overlapZone={oz}"
-                            "（overlapZoneはdirectジャンクションのみ許可）",
-                            f"junction {jid} connection {cid}",
-                        ))
+                        flags.append(
+                            (
+                                "junctions.common.direct_junction_attributes",
+                                f"junction {jid}(type={jtype}) connection id={cid} laneLink "
+                                f"from={ll.get('from')} to={ll.get('to')} に @overlapZone={oz}"
+                                "（overlapZoneはdirectジャンクションのみ許可）",
+                                f"junction {jid} connection {cid}",
+                            )
+                        )
 
     return flags
 

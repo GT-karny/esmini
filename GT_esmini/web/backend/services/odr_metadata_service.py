@@ -173,9 +173,7 @@ def extract_odr_metadata(xodr_path: str | Path) -> dict:
             raise
         except Exception as exc:
             logger.exception("Failed to extract ODR metadata from %s", xodr_path)
-            raise MetadataUnavailable(
-                f"ODR metadata extraction failed: {exc}"
-            ) from exc
+            raise MetadataUnavailable(f"ODR metadata extraction failed: {exc}") from exc
         finally:
             if lib is not None:
                 try:

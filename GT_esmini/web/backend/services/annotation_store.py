@@ -14,6 +14,7 @@ Design notes (see GT_esmini/docs/virtualdriver/verification_environment.md §6.3
 - DB is the source of truth; the JSON sidecar under ANNOTATIONS_DIR is a portable
   export and a DB-rebuild source (import_sidecars()).
 """
+
 from __future__ import annotations
 
 import json
@@ -34,8 +35,12 @@ VALID_LABELS = {"pass", "fail", "needs-discussion"}
 # Top-level dirs under RESULTS_DIR that are not runs (and 'batch' is reserved as the
 # composite-id namespace so a real top-level dir can never shadow a batch id).
 _RESERVED_TOPLEVEL = {
-    "baselines", "projects", "annotations", "batch",
-    "_temp_scenarios", "_temp_roads",
+    "baselines",
+    "projects",
+    "annotations",
+    "batch",
+    "_temp_scenarios",
+    "_temp_roads",
 }
 
 # Fingerprint of the last scan, to short-circuit unchanged rescans.
@@ -45,6 +50,7 @@ _scan_fingerprint: tuple[float, int] | None = None
 # ---------------------------------------------------------------------------
 # Path helpers (containment-guarded)
 # ---------------------------------------------------------------------------
+
 
 def _validate_run_id(run_id: str) -> None:
     if not run_id or ".." in run_id.split("/"):
@@ -82,6 +88,7 @@ def _annotation_path(scenario_stem: str | None, run_id: str) -> Path:
 # Disk readers
 # ---------------------------------------------------------------------------
 
+
 def _read_json(path: Path) -> Any:
     if path.is_file():
         try:
@@ -100,8 +107,9 @@ def _scenario_fields(meta: dict) -> tuple[str | None, str | None]:
     return str(scenario), stem
 
 
-def _row_from_dir(run_id: str, source: str, batch_id: str | None,
-                  run_dir: Path) -> dict | None:
+def _row_from_dir(
+    run_id: str, source: str, batch_id: str | None, run_dir: Path
+) -> dict | None:
     """Build a verification_runs row dict from a run dir, or None if not a run."""
     if not (run_dir / "telemetry.jsonl").is_file():
         return None
@@ -130,8 +138,11 @@ def _row_from_dir(run_id: str, source: str, batch_id: str | None,
         "sim_duration_s": meta.get("sim_duration_s"),
         "commit_hash": meta.get("commit") or meta.get("commit_hash"),
         "verdict_overall": (verdict or {}).get("overall"),
-        "verdict_summary": json.dumps((verdict or {}).get("summary"))
-        if verdict and verdict.get("summary") is not None else None,
+        "verdict_summary": (
+            json.dumps((verdict or {}).get("summary"))
+            if verdict and verdict.get("summary") is not None
+            else None
+        ),
         "has_compare": 1 if (run_dir / "compare.json").is_file() else 0,
         "has_verdict": 1 if (run_dir / "verdict.json").is_file() else 0,
     }
@@ -196,8 +207,11 @@ def _fingerprint() -> tuple[float, int]:
             max_mtime = max(max_mtime, bv.stat().st_mtime)
         except OSError:
             pass
-    count = sum(1 for d in RESULTS_ROOT.iterdir()
-                if d.is_dir() and d.name not in _RESERVED_TOPLEVEL)
+    count = sum(
+        1
+        for d in RESULTS_ROOT.iterdir()
+        if d.is_dir() and d.name not in _RESERVED_TOPLEVEL
+    )
     return (max_mtime, count)
 
 
@@ -260,6 +274,7 @@ async def scan_registry(force: bool = False) -> dict:
 # Run list / detail
 # ---------------------------------------------------------------------------
 
+
 def _row_to_item(row) -> dict:
     d = dict(row)
     summary = None
@@ -289,8 +304,12 @@ def _row_to_item(row) -> dict:
     }
 
 
-async def list_runs(status: str | None = None, batch_id: str | None = None,
-                    labeled: bool | None = None, source: str | None = None) -> list[dict]:
+async def list_runs(
+    status: str | None = None,
+    batch_id: str | None = None,
+    labeled: bool | None = None,
+    source: str | None = None,
+) -> list[dict]:
     await scan_registry(force=False)
     sql = """
         SELECT r.*, a.label AS label, a.comment AS comment
@@ -330,7 +349,9 @@ async def get_run(run_id: str) -> dict | None:
             """SELECT r.*, a.label AS label, a.comment AS comment
                FROM verification_runs r
                LEFT JOIN verification_annotations a ON a.run_id = r.run_id
-               WHERE r.run_id = ?""", (run_id,))
+               WHERE r.run_id = ?""",
+            (run_id,),
+        )
         row = await cur.fetchone()
     finally:
         await db.close()
@@ -341,27 +362,33 @@ async def get_run(run_id: str) -> dict | None:
 # Annotation read / write (DB + JSON sidecar)
 # ---------------------------------------------------------------------------
 
+
 async def get_annotation(run_id: str) -> dict | None:
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT * FROM verification_annotations WHERE run_id = ?", (run_id,))
+            "SELECT * FROM verification_annotations WHERE run_id = ?", (run_id,)
+        )
         row = await cur.fetchone()
     finally:
         await db.close()
     return dict(row) if row else None
 
 
-async def set_annotation(run_id: str, label: str, comment: str = "",
-                         labeler: str = "") -> dict:
+async def set_annotation(
+    run_id: str, label: str, comment: str = "", labeler: str = ""
+) -> dict:
     if label not in VALID_LABELS:
-        raise ValueError(f"invalid label {label!r}; expected one of {sorted(VALID_LABELS)}")
+        raise ValueError(
+            f"invalid label {label!r}; expected one of {sorted(VALID_LABELS)}"
+        )
 
     db = await get_db()
     try:
         cur = await db.execute(
             "SELECT scenario, scenario_stem FROM verification_runs WHERE run_id = ?",
-            (run_id,))
+            (run_id,),
+        )
         run_row = await cur.fetchone()
         if run_row is None:
             raise KeyError(run_id)
@@ -377,7 +404,8 @@ async def set_annotation(run_id: str, label: str, comment: str = "",
                 scenario, scenario_stem = scenario2, stem2
                 await db.execute(
                     "UPDATE verification_runs SET scenario=?, scenario_stem=? WHERE run_id=?",
-                    (scenario, scenario_stem, run_id))
+                    (scenario, scenario_stem, run_id),
+                )
 
         await db.execute(
             """INSERT INTO verification_annotations
@@ -387,11 +415,13 @@ async def set_annotation(run_id: str, label: str, comment: str = "",
                    label=excluded.label, comment=excluded.comment,
                    labeler=excluded.labeler, scenario_stem=excluded.scenario_stem,
                    updated_at=datetime('now')""",
-            (run_id, label, comment, labeler, scenario_stem))
+            (run_id, label, comment, labeler, scenario_stem),
+        )
         await db.commit()
 
         cur = await db.execute(
-            "SELECT * FROM verification_annotations WHERE run_id = ?", (run_id,))
+            "SELECT * FROM verification_annotations WHERE run_id = ?", (run_id,)
+        )
         rec = dict(await cur.fetchone())
     finally:
         await db.close()
@@ -401,8 +431,9 @@ async def set_annotation(run_id: str, label: str, comment: str = "",
     return rec
 
 
-def _write_sidecar(run_id: str, scenario: str | None, scenario_stem: str | None,
-                   rec: dict) -> None:
+def _write_sidecar(
+    run_id: str, scenario: str | None, scenario_stem: str | None, rec: dict
+) -> None:
     path = _annotation_path(scenario_stem, run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -439,17 +470,28 @@ async def import_sidecars() -> int:
             if not data:
                 continue
             run_id = data.get("run_id")
-            if (not run_id or run_id in have or run_id not in known_runs
-                    or data.get("label") not in VALID_LABELS):
+            if (
+                not run_id
+                or run_id in have
+                or run_id not in known_runs
+                or data.get("label") not in VALID_LABELS
+            ):
                 continue
             await db.execute(
                 """INSERT OR IGNORE INTO verification_annotations
                        (run_id, label, comment, labeler, scenario_stem,
                         created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (run_id, data["label"], data.get("comment", ""),
-                 data.get("labeler", ""), data.get("scenario_stem"),
-                 data.get("created_at"), data.get("updated_at")))
+                (
+                    run_id,
+                    data["label"],
+                    data.get("comment", ""),
+                    data.get("labeler", ""),
+                    data.get("scenario_stem"),
+                    data.get("created_at"),
+                    data.get("updated_at"),
+                ),
+            )
             imported += 1
             have.add(run_id)
         if imported:
@@ -469,8 +511,7 @@ async def _repair_unknown_annotations() -> int:
     db = await get_db()
     fixed = 0
     try:
-        cur = await db.execute(
-            """SELECT a.run_id, r.scenario, r.scenario_stem
+        cur = await db.execute("""SELECT a.run_id, r.scenario, r.scenario_stem
                FROM verification_annotations a
                JOIN verification_runs r ON r.run_id = a.run_id
                WHERE (a.scenario_stem IS NULL OR a.scenario_stem = '')
@@ -480,9 +521,11 @@ async def _repair_unknown_annotations() -> int:
             run_id, scenario, stem = t["run_id"], t["scenario"], t["scenario_stem"]
             await db.execute(
                 "UPDATE verification_annotations SET scenario_stem=? WHERE run_id=?",
-                (stem, run_id))
+                (stem, run_id),
+            )
             cur2 = await db.execute(
-                "SELECT * FROM verification_annotations WHERE run_id=?", (run_id,))
+                "SELECT * FROM verification_annotations WHERE run_id=?", (run_id,)
+            )
             rec = dict(await cur2.fetchone())
             # Rewrite the sidecar into the correct folder, drop the _unknown one.
             old = _annotation_path(None, run_id)
@@ -507,6 +550,7 @@ async def _repair_unknown_annotations() -> int:
 # Similarity match against past labels (rule-based)
 # ---------------------------------------------------------------------------
 
+
 def _load_annotation_match():
     """Import the annotation_match module from GT_esmini/scripts/verification.
 
@@ -525,7 +569,9 @@ def _load_annotation_match():
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 return mod
-    raise ModuleNotFoundError("annotation_match.py not found under scripts/verification")
+    raise ModuleNotFoundError(
+        "annotation_match.py not found under scripts/verification"
+    )
 
 
 async def match_run(run_id: str, k: int = 5) -> dict:
@@ -549,7 +595,8 @@ async def match_run(run_id: str, k: int = 5) -> dict:
                FROM verification_annotations a
                JOIN verification_runs r ON r.run_id = a.run_id
                WHERE a.scenario_stem IS ? AND a.run_id != ?""",
-            (target["scenario_stem"], run_id))
+            (target["scenario_stem"], run_id),
+        )
         rows = await cur.fetchall()
     finally:
         await db.close()
@@ -565,5 +612,7 @@ async def match_run(run_id: str, k: int = 5) -> dict:
         candidates.append((r["run_id"], r["label"], r["comment"] or "", feat))
 
     matches = annotation_match.rank(target_feat, candidates, k)
-    return {"target": {"run_id": run_id, "scenario_stem": target["scenario_stem"]},
-            "matches": matches}
+    return {
+        "target": {"run_id": run_id, "scenario_stem": target["scenario_stem"]},
+        "matches": matches,
+    }

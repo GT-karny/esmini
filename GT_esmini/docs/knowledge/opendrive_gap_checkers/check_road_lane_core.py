@@ -79,16 +79,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         # calibration file UC_5Road_Junction.xodr road 82 s=0.
         road_side_absids = {"left": set(), "right": set()}
         for ls_all in r.iter("laneSection"):
-            road_side_absids["left"].update(abs(i) for i in lane_ids(ls_all.find("left")))
-            road_side_absids["right"].update(abs(i) for i in lane_ids(ls_all.find("right")))
+            road_side_absids["left"].update(
+                abs(i) for i in lane_ids(ls_all.find("left"))
+            )
+            road_side_absids["right"].update(
+                abs(i) for i in lane_ids(ls_all.find("right"))
+            )
 
         # --- road.lane.lane_sect_min_amount: each <lanes> element needs >=1 <laneSection> ---
         for lanes_el in lanes_elems:
             layer = lanes_el.get("layer") or "default"
             if len(lanes_el.findall("laneSection")) == 0:
-                flags.append(("road.lane.lane_sect_min_amount",
-                              f"<lanes layer={layer}> に <laneSection> が0個",
-                              f"road {rid}"))
+                flags.append(
+                    (
+                        "road.lane.lane_sect_min_amount",
+                        f"<lanes layer={layer}> に <laneSection> が0個",
+                        f"road {rid}",
+                    )
+                )
 
         # --- road.lane.lane_sect_first: first laneSection (doc order, per layer) @s == 0.0 ---
         # Only meaningful for the permanent/default layer: a "temporary" <lanes> layer is by
@@ -104,9 +112,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 continue
             first_s = fnum(secs[0].get("s"))
             if first_s is None or abs(first_s) > 1e-6:
-                flags.append(("road.lane.lane_sect_first",
-                              f"<lanes layer={layer}> の最初のlaneSection s={secs[0].get('s')!r} (0.0であるべき)",
-                              f"road {rid}"))
+                flags.append(
+                    (
+                        "road.lane.lane_sect_first",
+                        f"<lanes layer={layer}> の最初のlaneSection s={secs[0].get('s')!r} (0.0であるべき)",
+                        f"road {rid}",
+                    )
+                )
 
         # --- road.lane.center_lane: road-wide, >=1 lane layer with an actual center lane ---
         has_center_anywhere = False
@@ -119,9 +131,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             if has_center_anywhere:
                 break
         if not has_center_anywhere:
-            flags.append(("road.lane.center_lane",
-                          "road全体でcenter laneを持つlane layer(laneSection)が1つも無い",
-                          f"road {rid}"))
+            flags.append(
+                (
+                    "road.lane.center_lane",
+                    "road全体でcenter laneを持つlane layer(laneSection)が1つも無い",
+                    f"road {rid}",
+                )
+            )
 
         # --- road.lane.lane_id_unique: unique per laneSection AND per <lanes> layer ---
         for lanes_el in lanes_elems:
@@ -137,11 +153,17 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                         lid = lane.get("id")
                         if lid is not None:
                             ids.append(lid)
-                dup = sorted({i for i in ids if ids.count(i) > 1}, key=lambda v: (len(v), v))
+                dup = sorted(
+                    {i for i in ids if ids.count(i) > 1}, key=lambda v: (len(v), v)
+                )
                 if dup:
-                    flags.append(("road.lane.lane_id_unique",
-                                  f"lane id {dup} が laneSection 内(layer={layer})で重複",
-                                  f"road {rid} s={s}"))
+                    flags.append(
+                        (
+                            "road.lane.lane_id_unique",
+                            f"lane id {dup} が laneSection 内(layer={layer})で重複",
+                            f"road {rid} s={s}",
+                        )
+                    )
 
         # --- per-laneSection checks (layer-agnostic; r.iter covers both permanent/temporary) ---
         for ls in r.iter("laneSection"):
@@ -150,33 +172,59 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
 
             # road.lane.s_attr_value
             if ls.get("s") is None:
-                flags.append(("road.lane.s_attr_value", "laneSection に @s 属性が無い", f"road {rid}"))
+                flags.append(
+                    (
+                        "road.lane.s_attr_value",
+                        "laneSection に @s 属性が無い",
+                        f"road {rid}",
+                    )
+                )
 
             centers = ls.findall("center")
 
             # road.lane.center_elem_definition
             if len(centers) != 1:
-                flags.append(("road.lane.center_elem_definition",
-                              f"<center> 要素数={len(centers)}（各s座標につき1であるべき）", loc))
+                flags.append(
+                    (
+                        "road.lane.center_elem_definition",
+                        f"<center> 要素数={len(centers)}（各s座標につき1であるべき）",
+                        loc,
+                    )
+                )
 
             for center in centers:
                 clanes = center.findall("lane")
 
                 # road.lane.center_lane_singular
                 if len(clanes) != 1:
-                    flags.append(("road.lane.center_lane_singular",
-                                  f"<center> 内 <lane> 要素数={len(clanes)}（常に1であるべき）", loc))
+                    flags.append(
+                        (
+                            "road.lane.center_lane_singular",
+                            f"<center> 内 <lane> 要素数={len(clanes)}（常に1であるべき）",
+                            loc,
+                        )
+                    )
 
                 for cl in clanes:
                     cid = cl.get("id")
                     # road.lane.center_lane_id
                     if cid != "0":
-                        flags.append(("road.lane.center_lane_id",
-                                      f"center laneの id={cid!r} (0であるべき)", loc))
+                        flags.append(
+                            (
+                                "road.lane.center_lane_id",
+                                f"center laneの id={cid!r} (0であるべき)",
+                                loc,
+                            )
+                        )
                     # road.lane.center_lane_no_width
                     if cl.find("width") is not None:
-                        flags.append(("road.lane.center_lane_no_width",
-                                      "center laneに<width>要素が使われている(禁止)", loc))
+                        flags.append(
+                            (
+                                "road.lane.center_lane_no_width",
+                                "center laneに<width>要素が使われている(禁止)",
+                                loc,
+                            )
+                        )
 
             left = ls.find("left")
             right = ls.find("right")
@@ -189,13 +237,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             # is still flagged as a genuine drivability gap.
             center_type_none = any(
                 (cl.get("type") == "none")
-                for c in ls.findall("center") for cl in c.findall("lane")
+                for c in ls.findall("center")
+                for cl in c.findall("lane")
             )
 
             # road.lane.lane_section_drivable
-            if left is None and right is None and not single_side and not center_type_none:
-                flags.append(("road.lane.lane_section_drivable",
-                              "laneSectionに<left>も<right>も無く、走行可能レーンが定義されていない", loc))
+            if (
+                left is None
+                and right is None
+                and not single_side
+                and not center_type_none
+            ):
+                flags.append(
+                    (
+                        "road.lane.lane_section_drivable",
+                        "laneSectionに<left>も<right>も無く、走行可能レーンが定義されていない",
+                        loc,
+                    )
+                )
 
             left_ids = lane_ids(left)
             right_ids = lane_ids(right)
@@ -214,32 +273,57 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 all_driving = left_driving + right_driving
                 if all((lane.get("direction") == "reversed") for lane in all_driving):
                     rev_ids = [lane.get("id") for lane in all_driving]
-                    flags.append(("road.lane.lane_reverse_left_right",
-                                  f"laneSection内の走行レーン全て(id={rev_ids})が"
-                                  f"@direction='reversed'（左右対称の一括反転はRHT/LHT切替に"
-                                  f"該当する可能性、11.3.1/F.6.12.11で禁止）", loc))
+                    flags.append(
+                        (
+                            "road.lane.lane_reverse_left_right",
+                            f"laneSection内の走行レーン全て(id={rev_ids})が"
+                            f"@direction='reversed'（左右対称の一括反転はRHT/LHT切替に"
+                            f"該当する可能性、11.3.1/F.6.12.11で禁止）",
+                            loc,
+                        )
+                    )
 
             # road.lane.lanes_numbered_correctly
             for lid in left_ids:
                 if lid <= 0:
-                    flags.append(("road.lane.lanes_numbered_correctly",
-                                  f"<left>内 lane id={lid} は正の値であるべき", loc))
+                    flags.append(
+                        (
+                            "road.lane.lanes_numbered_correctly",
+                            f"<left>内 lane id={lid} は正の値であるべき",
+                            loc,
+                        )
+                    )
             for lid in right_ids:
                 if lid >= 0:
-                    flags.append(("road.lane.lanes_numbered_correctly",
-                                  f"<right>内 lane id={lid} は負の値であるべき", loc))
+                    flags.append(
+                        (
+                            "road.lane.lanes_numbered_correctly",
+                            f"<right>内 lane id={lid} は負の値であるべき",
+                            loc,
+                        )
+                    )
 
             # road.lane.lane_order: id nearest the center must be 1 (left) / -1 (right).
             # Skipped when the sign itself is already wrong (lanes_numbered_correctly covers
             # that case; "nearest to center" is ill-defined once sign is broken).
             if left_ids and all(i > 0 for i in left_ids):
                 if min(left_ids) != 1:
-                    flags.append(("road.lane.lane_order",
-                                  f"<left> 中心に最も近いlane id={min(left_ids)} (1から始まるべき)", loc))
+                    flags.append(
+                        (
+                            "road.lane.lane_order",
+                            f"<left> 中心に最も近いlane id={min(left_ids)} (1から始まるべき)",
+                            loc,
+                        )
+                    )
             if right_ids and all(i < 0 for i in right_ids):
                 if max(right_ids) != -1:
-                    flags.append(("road.lane.lane_order",
-                                  f"<right> 中心に最も近いlane id={max(right_ids)} (-1から始まるべき)", loc))
+                    flags.append(
+                        (
+                            "road.lane.lane_order",
+                            f"<right> 中心に最も近いlane id={max(right_ids)} (-1から始まるべき)",
+                            loc,
+                        )
+                    )
 
             # road.lane.lane_order_no_gaps: abs(id) run per side, no internal gap --
             # cross-section aware: a "missing" id that exists as a lane in ANOTHER
@@ -249,11 +333,18 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 absids = sorted(set(abs(i) for i in ids))
                 if absids and (absids[-1] - absids[0] + 1) != len(absids):
                     full_range = set(range(absids[0], absids[-1] + 1))
-                    genuine_missing = sorted(full_range - set(absids) - road_side_absids[label])
+                    genuine_missing = sorted(
+                        full_range - set(absids) - road_side_absids[label]
+                    )
                     if genuine_missing:
-                        flags.append(("road.lane.lane_order_no_gaps",
-                                      f"{label} group ids(abs)={absids} に欠番がある"
-                                      f"(欠番id={genuine_missing}、road内の他区間にも存在しない)", loc))
+                        flags.append(
+                            (
+                                "road.lane.lane_order_no_gaps",
+                                f"{label} group ids(abs)={absids} に欠番がある"
+                                f"(欠番id={genuine_missing}、road内の他区間にも存在しない)",
+                                loc,
+                            )
+                        )
 
             # road.lane.lane_listing: doc order left->center->right should be strictly
             # descending by id ("should" recommendation, still flagged as a review item)
@@ -266,8 +357,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 seq.extend(right_ids)
             for i in range(1, len(seq)):
                 if seq[i] >= seq[i - 1]:
-                    flags.append(("road.lane.lane_listing",
-                                  f"lane掲載順がID降順になっていない: {seq}", loc))
+                    flags.append(
+                        (
+                            "road.lane.lane_listing",
+                            f"lane掲載順がID降順になっていない: {seq}",
+                            loc,
+                        )
+                    )
                     break
 
     return flags

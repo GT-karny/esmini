@@ -38,7 +38,6 @@ Classified away from implemented_gt (see reason field in the reporting layer):
 
 import xml.etree.ElementTree as ET  # noqa: F401  (kept for parity with sibling modules / type hints)
 
-
 EPS = 1e-6
 
 
@@ -65,7 +64,8 @@ def _iter_lr_lanes(laneSection):
 
 def _asc_order_flags(rule_name, road, rid, tag, include_center=False):
     """Generic '<tag> elements shall be defined in ascending order according to the
-    s-coordinate' check, scoped per-lane (each lane's own <tag> series is independent)."""
+    s-coordinate' check, scoped per-lane (each lane's own <tag> series is independent).
+    """
     flags = []
     lanes_el = road.find("lanes")
     if lanes_el is None:
@@ -82,11 +82,13 @@ def _asc_order_flags(rule_name, road, rid, tag, include_center=False):
             for el in lane.findall(tag):
                 v = _fnum(el.get("sOffset"))
                 if prev is not None and v < prev - EPS:
-                    flags.append((
-                        rule_name,
-                        f"{side} lane id={_lane_id(lane)} <{tag}> sOffset={v:g} が直前の{prev:g}より小さい（降順）",
-                        f"road {rid} s={s_ls}",
-                    ))
+                    flags.append(
+                        (
+                            rule_name,
+                            f"{side} lane id={_lane_id(lane)} <{tag}> sOffset={v:g} が直前の{prev:g}より小さい（降順）",
+                            f"road {rid} s={s_ls}",
+                        )
+                    )
                 prev = v
     return flags
 
@@ -103,11 +105,13 @@ def _center_no_child_flags(rule_name, road, rid, tag):
         for lane in center.findall("lane"):
             elems = lane.findall(tag)
             if elems:
-                flags.append((
-                    rule_name,
-                    f"center lane(id={_lane_id(lane)}) に <{tag}> が {len(elems)}件定義されている",
-                    f"road {rid} s={ls.get('s')}",
-                ))
+                flags.append(
+                    (
+                        rule_name,
+                        f"center lane(id={_lane_id(lane)}) に <{tag}> が {len(elems)}件定義されている",
+                        f"road {rid} s={ls.get('s')}",
+                    )
+                )
     return flags
 
 
@@ -127,12 +131,14 @@ def _exclusive_offset_border_flags(road, rid):
         for side, lane in _iter_lr_lanes(ls):
             borders = lane.findall("border")
             if borders:
-                flags.append((
-                    "road.lane.border.exclusive_offset_border",
-                    f"road に laneOffset {len(laneoffsets)}件あり、かつ {side} lane id={_lane_id(lane)} に "
-                    f"<border> {len(borders)}件（併用不可）",
-                    f"road {rid} s={s_ls}",
-                ))
+                flags.append(
+                    (
+                        "road.lane.border.exclusive_offset_border",
+                        f"road に laneOffset {len(laneoffsets)}件あり、かつ {side} lane id={_lane_id(lane)} に "
+                        f"<border> {len(borders)}件（併用不可）",
+                        f"road {rid} s={s_ls}",
+                    )
+                )
     return flags
 
 
@@ -155,7 +161,7 @@ def _border_width_exclusive_flags(road, rid):
             if lane.find("width") is not None:
                 width_lanes.append(f"{side}:{lid}")
         if border_lanes and width_lanes:
-            detail = (f"border使用lane {border_lanes} と width使用lane {width_lanes} が同一laneSection内に混在")
+            detail = f"border使用lane {border_lanes} と width使用lane {width_lanes} が同一laneSection内に混在"
             loc = f"road {rid} s={s_ls}"
             flags.append(("road.lane.border.exclusive_width_border", detail, loc))
             flags.append(("road.lane.width.no_width_with_border", detail, loc))
@@ -175,7 +181,9 @@ def _lane_properties_asc_order_flags(road, rid):
     have their own independent elem_asc_order rules; they are not "lane geometry"."""
     flags = []
     for tag in ("border", "width", "height"):
-        flags += _asc_order_flags("road.lane.lane_properties.elem_asc_order", road, rid, tag)
+        flags += _asc_order_flags(
+            "road.lane.lane_properties.elem_asc_order", road, rid, tag
+        )
     return flags
 
 
@@ -193,7 +201,7 @@ def _cubic_min_on_interval(a, b, c, d, length):
         A, B, C = 3.0 * d, 2.0 * c, b
         disc = B * B - 4.0 * A * C
         if disc >= 0:
-            sq = disc ** 0.5
+            sq = disc**0.5
             for xc in ((-B + sq) / (2.0 * A), (-B - sq) / (2.0 * A)):
                 if 0.0 <= xc <= length:
                     candidates.append(xc)
@@ -256,12 +264,14 @@ def _lane_width_validity_flags(road, rid):
                 interval = max(interval, 0.0)
                 min_val, min_x = _cubic_min_on_interval(a, b, c, d, interval)
                 if min_val < -1e-6:
-                    flags.append((
-                        "road.lane.width.lane_width_validity",
-                        f"{side} lane id={lid} width(sOffset={s_off:g}) が区間内 ds={min_x:g} で "
-                        f"負値 {min_val:.4g}（a={a:g} b={b:g} c={c:g} d={d:g}, 区間長={interval:g}）",
-                        f"road {rid} s={s_ls}",
-                    ))
+                    flags.append(
+                        (
+                            "road.lane.width.lane_width_validity",
+                            f"{side} lane id={lid} width(sOffset={s_off:g}) が区間内 ds={min_x:g} で "
+                            f"負値 {min_val:.4g}（a={a:g} b={b:g} c={c:g} d={d:g}, 区間長={interval:g}）",
+                            f"road {rid} s={s_ls}",
+                        )
+                    )
     return flags
 
 
@@ -278,12 +288,14 @@ def _width_defined_whole_section_flags(road, rid):
                 continue  # lane doesn't use <width> at all (border, or neither) -- out of scope
             min_s = min(_fnum(w.get("sOffset")) for w in widths)
             if min_s > EPS:
-                flags.append((
-                    "road.lane.width.width_defined_whole_section",
-                    f"{side} lane id={_lane_id(lane)} の最初の<width>が sOffset={min_s:g} "
-                    f"(!=0)、lane section先頭を幅未定義のまま開始",
-                    f"road {rid} s={s_ls}",
-                ))
+                flags.append(
+                    (
+                        "road.lane.width.width_defined_whole_section",
+                        f"{side} lane id={_lane_id(lane)} の最初の<width>が sOffset={min_s:g} "
+                        f"(!=0)、lane section先頭を幅未定義のまま開始",
+                        f"road {rid} s={s_ls}",
+                    )
+                )
     return flags
 
 
@@ -292,21 +304,43 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
 
     for rid, road in roads.items():
         # --- ascending-order families (per-lane <tag> series) ---
-        flags += _asc_order_flags("road.lane.access.elem_asc_order", road, rid, "access")
-        flags += _asc_order_flags("road.lane.border.elem_asc_order", road, rid, "border")
-        flags += _asc_order_flags("road.lane.height.elem_asc_order", road, rid, "height")
-        flags += _asc_order_flags("road.lane.material.elem_asc_order", road, rid, "material")
-        flags += _asc_order_flags("road.lane.road_mark.elem_asc_order", road, rid, "roadMark", include_center=True)
+        flags += _asc_order_flags(
+            "road.lane.access.elem_asc_order", road, rid, "access"
+        )
+        flags += _asc_order_flags(
+            "road.lane.border.elem_asc_order", road, rid, "border"
+        )
+        flags += _asc_order_flags(
+            "road.lane.height.elem_asc_order", road, rid, "height"
+        )
+        flags += _asc_order_flags(
+            "road.lane.material.elem_asc_order", road, rid, "material"
+        )
+        flags += _asc_order_flags(
+            "road.lane.road_mark.elem_asc_order",
+            road,
+            rid,
+            "roadMark",
+            include_center=True,
+        )
         flags += _asc_order_flags("road.lane.rule.elem_asc_order", road, rid, "rule")
         flags += _asc_order_flags("road.lane.speed.elem_asc_order", road, rid, "speed")
         flags += _asc_order_flags("road.lane.width.elem_asc_order", road, rid, "width")
         flags += _lane_properties_asc_order_flags(road, rid)
 
         # --- center-lane-forbidden-children family ---
-        flags += _center_no_child_flags("road.lane.access.center_lane_no_acc_rule", road, rid, "access")
-        flags += _center_no_child_flags("road.lane.height.center_lane_no_height", road, rid, "height")
-        flags += _center_no_child_flags("road.lane.material.center_lane_no_material", road, rid, "material")
-        flags += _center_no_child_flags("road.lane.speed.center_lane_no_spd_lmt", road, rid, "speed")
+        flags += _center_no_child_flags(
+            "road.lane.access.center_lane_no_acc_rule", road, rid, "access"
+        )
+        flags += _center_no_child_flags(
+            "road.lane.height.center_lane_no_height", road, rid, "height"
+        )
+        flags += _center_no_child_flags(
+            "road.lane.material.center_lane_no_material", road, rid, "material"
+        )
+        flags += _center_no_child_flags(
+            "road.lane.speed.center_lane_no_spd_lmt", road, rid, "speed"
+        )
 
         # --- border/width/laneOffset exclusivity ---
         flags += _exclusive_offset_border_flags(road, rid)

@@ -86,9 +86,7 @@ async def get_presets() -> list[dict[str, Any]]:
     """Get built-in + user-saved presets."""
     settings = load_settings()
     user_presets = settings.get("manual_drive_presets", [])
-    return BUILTIN_PRESETS + [
-        {**p, "builtin": False} for p in user_presets
-    ]
+    return BUILTIN_PRESETS + [{**p, "builtin": False} for p in user_presets]
 
 
 @router.post("/presets")

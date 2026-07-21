@@ -15,6 +15,7 @@ from pathlib import Path
 @dataclasses.dataclass
 class XoscEntityInfo:
     """A single ScenarioObject extracted from XOSC."""
+
     name: str
     vehicle_or_model: str | None = None
     controller: str | None = None
@@ -23,6 +24,7 @@ class XoscEntityInfo:
 @dataclasses.dataclass
 class XoscParamInfo:
     """A single ParameterDeclaration extracted from XOSC."""
+
     name: str
     type: str
     value: str
@@ -31,6 +33,7 @@ class XoscParamInfo:
 @dataclasses.dataclass
 class XoscParseResult:
     """All metadata extracted from an XOSC file."""
+
     road_file: str | None = None
     entities: list[XoscEntityInfo] = dataclasses.field(default_factory=list)
     params: list[XoscParamInfo] = dataclasses.field(default_factory=list)
@@ -80,22 +83,26 @@ def parse_xosc_from_element(root: ET.Element) -> XoscParseResult:
                 controller = ctrl.get("name")
                 has_controller = True
 
-        entities.append(XoscEntityInfo(
-            name=name,
-            vehicle_or_model=vehicle_or_model,
-            controller=controller,
-        ))
+        entities.append(
+            XoscEntityInfo(
+                name=name,
+                vehicle_or_model=vehicle_or_model,
+                controller=controller,
+            )
+        )
 
     # ParameterDeclarations (top-level only)
     params: list[XoscParamInfo] = []
     top_pd = root.find("ParameterDeclarations")
     if top_pd is not None:
         for param in top_pd.findall("ParameterDeclaration"):
-            params.append(XoscParamInfo(
-                name=param.get("name", ""),
-                type=param.get("parameterType", "string"),
-                value=param.get("value", ""),
-            ))
+            params.append(
+                XoscParamInfo(
+                    name=param.get("name", ""),
+                    type=param.get("parameterType", "string"),
+                    value=param.get("value", ""),
+                )
+            )
 
     return XoscParseResult(
         road_file=road_file,

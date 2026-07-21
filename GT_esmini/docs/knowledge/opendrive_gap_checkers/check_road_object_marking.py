@@ -68,7 +68,8 @@ def _outlines_of(obj):
 
 def _collect_markings(obj):
     """[(markings_elem, immediate_parent_elem), ...] for every <markings> anywhere under
-    obj (obj itself is the base for parent-tracking; ElementTree has no .getparent())."""
+    obj (obj itself is the base for parent-tracking; ElementTree has no .getparent()).
+    """
     out = []
 
     def rec(e, parent):
@@ -93,7 +94,8 @@ def _count_ascents(seq):
 def _ordered_ok(indices, closed):
     """Does `indices` (positions within the outline's own point list, in the order the
     marking's <cornerReference> elements were written) follow the outline's point order,
-    forward or reverse? A closed outline may wrap once (one descent/ascent tolerated)."""
+    forward or reverse? A closed outline may wrap once (one descent/ascent tolerated).
+    """
     if len(indices) < 2:
         return True
     desc = _count_descents(indices)
@@ -141,20 +143,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             for m_elem, parent in markings_pairs:
                 if has_outline:
                     if parent.tag != "outline":
-                        flags.append((
-                            "road.object.marking.markings_with_outline",
-                            f"object id={oid} は outline を使用するが <markings> が "
-                            f"<{parent.tag}> 直下にある（<outline>内に配置すべき）",
-                            loc_obj,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.marking.markings_with_outline",
+                                f"object id={oid} は outline を使用するが <markings> が "
+                                f"<{parent.tag}> 直下にある（<outline>内に配置すべき）",
+                                loc_obj,
+                            )
+                        )
                 else:
                     if parent.tag != "object":
-                        flags.append((
-                            "road.object.marking.markings_without_outline",
-                            f"object id={oid} は outline 未使用だが <markings> が "
-                            f"<object> 直下ではなく <{parent.tag}> 直下にある",
-                            loc_obj,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.marking.markings_without_outline",
+                                f"object id={oid} は outline 未使用だが <markings> が "
+                                f"<object> 直下ではなく <{parent.tag}> 直下にある",
+                                loc_obj,
+                            )
+                        )
 
             # --- per-<marking> checks ---
             for m_elem, parent in markings_pairs:
@@ -163,7 +169,9 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 ol_idattr = None
                 closed = False
                 if parent_tag == "outline":
-                    ol_ptype, ol_ids, ol_idset = outline_info.get(id(parent), (None, [], set()))
+                    ol_ptype, ol_ids, ol_idset = outline_info.get(
+                        id(parent), (None, [], set())
+                    )
                     ol_idattr = parent.get("id")
                     closed = parent.get("closed") == "true"
 
@@ -180,23 +188,29 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     if not mk.get("color"):
                         detail = f"marking (parent=<{parent_tag}>) に @color が未定義"
                         flags.append(("road.object.marking.colour", detail, loc_m))
-                        flags.append(("road.object.object_marking.colour", detail, loc_m))
+                        flags.append(
+                            ("road.object.object_marking.colour", detail, loc_m)
+                        )
 
                     if parent_tag == "object" and not has_outline:
                         # --- no_cornerreference_if_no_outline ---
                         if ncref > 0:
-                            flags.append((
-                                "road.object.marking.no_cornerreference_if_no_outline",
-                                f"outline未使用objectのmarkingにcornerReferenceが{ncref}件ある",
-                                loc_m,
-                            ))
+                            flags.append(
+                                (
+                                    "road.object.marking.no_cornerreference_if_no_outline",
+                                    f"outline未使用objectのmarkingにcornerReferenceが{ncref}件ある",
+                                    loc_m,
+                                )
+                            )
                         # --- no_outline_side_attr ---
                         if not has_side:
-                            flags.append((
-                                "road.object.marking.no_outline_side_attr",
-                                "outline未使用objectのmarkingに@sideが未定義",
-                                loc_m,
-                            ))
+                            flags.append(
+                                (
+                                    "road.object.marking.no_outline_side_attr",
+                                    "outline未使用objectのmarkingに@sideが未定義",
+                                    loc_m,
+                                )
+                            )
                         continue
 
                     if parent_tag != "outline":
@@ -207,50 +221,65 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
 
                     # --- outline_corner_reference_count: 1.7.0 flat >=2 ---
                     if not has_side and ncref < 2:
-                        flags.append((
-                            "road.object.marking.outline_corner_reference_count",
-                            f"outline内markingのcornerReferenceが{ncref}件（2件以上必要）",
-                            loc_m,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.marking.outline_corner_reference_count",
+                                f"outline内markingのcornerReferenceが{ncref}件（2件以上必要）",
+                                loc_m,
+                            )
+                        )
 
                     # --- outline_corner_reference_count: 1.9.0 curveLocal-aware ---
                     min_needed = 1 if ol_ptype == "curveLocal" else 2
                     if not has_side and ncref < min_needed:
-                        flags.append((
-                            "road.object.object_marking.outline_corner_reference_count",
-                            f"outline(id={ol_idattr}, type={ol_ptype})内markingのcornerReferenceが"
-                            f"{ncref}件（{min_needed}件以上必要）",
-                            loc_m,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.object_marking.outline_corner_reference_count",
+                                f"outline(id={ol_idattr}, type={ol_ptype})内markingのcornerReferenceが"
+                                f"{ncref}件（{min_needed}件以上必要）",
+                                loc_m,
+                            )
+                        )
 
                     if ncref == 0:
                         continue
 
                     # --- complete_or_partial_on_outline: referential integrity ---
                     ref_ids_doc_order = [cr.get("id") for cr in crefs]
-                    bad_ids = [rid_ for rid_ in ref_ids_doc_order if rid_ not in ol_idset]
+                    bad_ids = [
+                        rid_ for rid_ in ref_ids_doc_order if rid_ not in ol_idset
+                    ]
                     if bad_ids:
-                        flags.append((
-                            "road.object.marking.complete_or_partial_on_outline",
-                            f"cornerReference id={bad_ids} が所属outline(id={ol_idattr})の"
-                            f"corner点集合{sorted(ol_idset)}に存在しない",
-                            loc_m,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.marking.complete_or_partial_on_outline",
+                                f"cornerReference id={bad_ids} が所属outline(id={ol_idattr})の"
+                                f"corner点集合{sorted(ol_idset)}に存在しない",
+                                loc_m,
+                            )
+                        )
 
                     id_to_index = {pid: i for i, pid in enumerate(ol_ids)}
-                    resolved_indices = [id_to_index[i] for i in ref_ids_doc_order if i in id_to_index]
+                    resolved_indices = [
+                        id_to_index[i] for i in ref_ids_doc_order if i in id_to_index
+                    ]
 
                     # --- enclosed_outline_marking: 2 same-id refs => full enclosure idiom,
                     #     only meaningful on a closed outline ---
-                    if (ncref == 2 and ref_ids_doc_order[0] == ref_ids_doc_order[1]
-                            and ref_ids_doc_order[0] in ol_idset):
+                    if (
+                        ncref == 2
+                        and ref_ids_doc_order[0] == ref_ids_doc_order[1]
+                        and ref_ids_doc_order[0] in ol_idset
+                    ):
                         if not closed:
-                            flags.append((
-                                "road.object.object_marking.enclosed_outline_marking",
-                                f"cornerReference id={ref_ids_doc_order[0]} を2回参照する完全外周"
-                                f"markingだが所属outline(id={ol_idattr})が closed=true でない",
-                                loc_m,
-                            ))
+                            flags.append(
+                                (
+                                    "road.object.object_marking.enclosed_outline_marking",
+                                    f"cornerReference id={ref_ids_doc_order[0]} を2回参照する完全外周"
+                                    f"markingだが所属outline(id={ol_idattr})が closed=true でない",
+                                    loc_m,
+                                )
+                            )
                         continue  # this idiom is exempt from the ordering/contiguity checks below
 
                     if len(resolved_indices) < 2 or ol_ptype is None:
@@ -261,22 +290,30 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     # --- include_points_between_cornerReferences: contiguous-run check ---
                     if not _contiguous_ok(idx_set, n_pts, closed):
                         s = sorted(idx_set)
-                        missing_ids = [ol_ids[i] for i in range(s[0], s[-1] + 1) if i not in idx_set]
-                        flags.append((
-                            "road.object.object_marking.include_points_between_cornerReferences",
-                            f"cornerReference {ref_ids_doc_order} が outline(id={ol_idattr}) 上で"
-                            f"連続していない（未参照の中間点 id={missing_ids}）",
-                            loc_m,
-                        ))
+                        missing_ids = [
+                            ol_ids[i]
+                            for i in range(s[0], s[-1] + 1)
+                            if i not in idx_set
+                        ]
+                        flags.append(
+                            (
+                                "road.object.object_marking.include_points_between_cornerReferences",
+                                f"cornerReference {ref_ids_doc_order} が outline(id={ol_idattr}) 上で"
+                                f"連続していない（未参照の中間点 id={missing_ids}）",
+                                loc_m,
+                            )
+                        )
 
                     # --- keep_id_ordered ---
                     if not _ordered_ok(resolved_indices, closed):
-                        flags.append((
-                            "road.object.object_marking.keep_id_ordered",
-                            f"cornerReference の並び {ref_ids_doc_order} が outline(id={ol_idattr}) "
-                            "の点順序と一致しない",
-                            loc_m,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.object_marking.keep_id_ordered",
+                                f"cornerReference の並び {ref_ids_doc_order} が outline(id={ol_idattr}) "
+                                "の点順序と一致しない",
+                                loc_m,
+                            )
+                        )
 
     return flags
 
@@ -336,11 +373,15 @@ if __name__ == "__main__":
             all_flags.append((f, rule, detail, loc))
 
     byrule = Counter(r for _, r, _, _ in all_flags)
-    byrule_official = Counter(r for f, r, _, _ in all_flags if bucket(f) == "official(ASAM)")
+    byrule_official = Counter(
+        r for f, r, _, _ in all_flags if bucket(f) == "official(ASAM)"
+    )
     byrule_gt = Counter(r for f, r, _, _ in all_flags if bucket(f).startswith("GT:"))
     bkt_files = Counter(bucket(f) for f in files)
 
-    print(f"files scanned: {len(files)}  parse_err(skipped): {parse_err}  exceptions: {len(exceptions)}")
+    print(
+        f"files scanned: {len(files)}  parse_err(skipped): {parse_err}  exceptions: {len(exceptions)}"
+    )
     for f, e in exceptions:
         print(f"  EXC {rel(f)}: {e}")
     print(f"total flags: {len(all_flags)}")
@@ -348,7 +389,9 @@ if __name__ == "__main__":
     print("\nby rule (total / official / GT-authored):")
     all_rule_names = sorted(set(byrule) | set(byrule_official) | set(byrule_gt))
     for rk in all_rule_names:
-        print(f"  {rk:60s} {byrule.get(rk,0):4d} / {byrule_official.get(rk,0):4d} / {byrule_gt.get(rk,0):4d}")
+        print(
+            f"  {rk:60s} {byrule.get(rk,0):4d} / {byrule_official.get(rk,0):4d} / {byrule_gt.get(rk,0):4d}"
+        )
 
     print("\nsample flags (up to 60):")
     for f, r, d, loc in all_flags[:60]:

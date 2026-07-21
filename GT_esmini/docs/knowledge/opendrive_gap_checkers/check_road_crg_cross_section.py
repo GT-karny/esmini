@@ -66,37 +66,57 @@ def _check_crg_entry(flags, crg, loc):
 
     # road.crg.attach_vs_friction
     if mode == "attached" and purpose == "friction":
-        flags.append(("road.crg.attach_vs_friction",
-                       f"CRG file={file_} mode=attached と purpose=friction が併用されている",
-                       loc))
+        flags.append(
+            (
+                "road.crg.attach_vs_friction",
+                f"CRG file={file_} mode=attached と purpose=friction が併用されている",
+                loc,
+            )
+        )
 
     # road.crg.friction_no_z_offset_scale
     if purpose == "friction":
         got = [a for a in ("zOffset", "zScale") if crg.get(a) is not None]
         if got:
-            flags.append(("road.crg.friction_no_z_offset_scale",
-                           f"CRG file={file_} purpose=friction で {'/'.join(got)} が指定されている（friction には不可）",
-                           loc))
+            flags.append(
+                (
+                    "road.crg.friction_no_z_offset_scale",
+                    f"CRG file={file_} purpose=friction で {'/'.join(got)} が指定されている（friction には不可）",
+                    loc,
+                )
+            )
 
     # road.crg.h_offset_only_genuine_global
     if crg.get("hOffset") is not None and mode not in CRG_MODES_ALLOWING_HOFFSET:
-        flags.append(("road.crg.h_offset_only_genuine_global",
-                       f"CRG file={file_} mode={mode} で hOffset が指定されている（genuine/global 以外では不可）",
-                       loc))
+        flags.append(
+            (
+                "road.crg.h_offset_only_genuine_global",
+                f"CRG file={file_} mode={mode} で hOffset が指定されている（genuine/global 以外では不可）",
+                loc,
+            )
+        )
 
     # road.crg.no_opposite
     if orientation == "opposite" and mode not in CRG_MODES_ALLOWING_OPPOSITE:
-        flags.append(("road.crg.no_opposite",
-                       f"CRG file={file_} mode={mode} で orientation=opposite が指定されている（attached/attached0 以外では不可）",
-                       loc))
+        flags.append(
+            (
+                "road.crg.no_opposite",
+                f"CRG file={file_} mode={mode} で orientation=opposite が指定されている（attached/attached0 以外では不可）",
+                loc,
+            )
+        )
 
     # road.crg.s_t_offset_no_global
     if mode == "global":
         got = [a for a in ("sOffset", "tOffset") if crg.get(a) is not None]
         if got:
-            flags.append(("road.crg.s_t_offset_no_global",
-                           f"CRG file={file_} mode=global で {'/'.join(got)} が指定されている（global では不可）",
-                           loc))
+            flags.append(
+                (
+                    "road.crg.s_t_offset_no_global",
+                    f"CRG file={file_} mode=global で {'/'.join(got)} が指定されている（global では不可）",
+                    loc,
+                )
+            )
 
 
 def _check_crg_overlap(flags, crgs, owner_loc):
@@ -122,16 +142,24 @@ def _check_crg_overlap(flags, crgs, owner_loc):
             s0a, s1a, crga = enriched[i]
             s0b, s1b, crgb = enriched[i + 1]
             if s0b < s1a - 1e-6:
-                flags.append(("road.crg.only_on_per_s",
-                               f"purpose={purpose} の CRG が s範囲で重複: "
-                               f"[{s0a:g},{s1a:g}] file={crga.get('file')} と "
-                               f"[{s0b:g},{s1b:g}] file={crgb.get('file')}",
-                               owner_loc))
+                flags.append(
+                    (
+                        "road.crg.only_on_per_s",
+                        f"purpose={purpose} の CRG が s範囲で重複: "
+                        f"[{s0a:g},{s1a:g}] file={crga.get('file')} と "
+                        f"[{s0b:g},{s1b:g}] file={crgb.get('file')}",
+                        owner_loc,
+                    )
+                )
                 last = crga if crgs.index(crga) > crgs.index(crgb) else crgb
-                flags.append(("road.crg.use_last_entry",
-                               f"purpose={purpose} で位置が重複する CRG エントリが複数あり；"
-                               f"ファイル中の出現順で最後（file={last.get('file')}）のみ有効、他は無視される",
-                               owner_loc))
+                flags.append(
+                    (
+                        "road.crg.use_last_entry",
+                        f"purpose={purpose} で位置が重複する CRG エントリが複数あり；"
+                        f"ファイル中の出現順で最後（file={last.get('file')}）のみ有効、他は無視される",
+                        owner_loc,
+                    )
+                )
 
 
 def _check_crg_junction(flags, junctions, road_crg, junction_crg):
@@ -145,10 +173,14 @@ def _check_crg_junction(flags, junctions, road_crg, junction_crg):
                 conn_roads.add(cr)
         for cr in sorted(conn_roads):
             if cr in road_crg:
-                flags.append(("road.crg.junction",
-                               f"junction {jid} に <surface><CRG> があるが、"
-                               f"所属する connectingRoad {cr} にも <surface><CRG> がある",
-                               f"junction {jid} road {cr}"))
+                flags.append(
+                    (
+                        "road.crg.junction",
+                        f"junction {jid} に <surface><CRG> があるが、"
+                        f"所属する connectingRoad {cr} にも <surface><CRG> がある",
+                        f"junction {jid} road {cr}",
+                    )
+                )
 
 
 def _check_css_no_shape_superelevation(flags, roads):
@@ -165,9 +197,13 @@ def _check_css_no_shape_superelevation(flags, roads):
         if lp.findall("shape"):
             conflicts.append("shape")
         if conflicts:
-            flags.append(("road.cross_section_surface.no_shape_superelevation",
-                           f"crossSectionSurface と {'/'.join(conflicts)} が同一road内に併存",
-                           f"road {rid}"))
+            flags.append(
+                (
+                    "road.cross_section_surface.no_shape_superelevation",
+                    f"crossSectionSurface と {'/'.join(conflicts)} が同一road内に併存",
+                    f"road {rid}",
+                )
+            )
 
 
 def _first_coeff_s(container):
@@ -209,16 +245,24 @@ def _check_css_start_end(flags, roads):
         for label, container in polys:
             s0 = _first_coeff_s(container)
             if s0 is not None and abs(s0) > 1e-6:
-                flags.append(("road.cross_section_surface.start_end_match_with_refline",
-                               f"{label} の最初の <coefficients> が s={s0:g}（reference line 開始 s=0 と不一致）",
-                               f"road {rid}"))
+                flags.append(
+                    (
+                        "road.cross_section_surface.start_end_match_with_refline",
+                        f"{label} の最初の <coefficients> が s={s0:g}（reference line 開始 s=0 と不一致）",
+                        f"road {rid}",
+                    )
+                )
             if road_len is not None:
                 for s in _all_coeff_s(container):
                     if s is not None and s > road_len + 1e-6:
-                        flags.append(("road.cross_section_surface.start_end_match_with_refline",
-                                       f"{label} の <coefficients s={s:g}> が road length={road_len:g} を超過"
-                                       f"（reference line 終端を越える）",
-                                       f"road {rid}"))
+                        flags.append(
+                            (
+                                "road.cross_section_surface.start_end_match_with_refline",
+                                f"{label} の <coefficients s={s:g}> が road length={road_len:g} を超過"
+                                f"（reference line 終端を越える）",
+                                f"road {rid}",
+                            )
+                        )
 
 
 def _check_css_strips(flags, roads):
@@ -244,20 +288,32 @@ def _check_css_strips(flags, roads):
                 sid = present[0]
                 strip = by_id[sid]
                 if sid != inner:
-                    flags.append(("road.cross_section_surface.use_strip",
-                                   f"{side}側で strip が1枚のみだが id={sid}（inner の id={inner} であるべき）",
-                                   f"road {rid}"))
+                    flags.append(
+                        (
+                            "road.cross_section_surface.use_strip",
+                            f"{side}側で strip が1枚のみだが id={sid}（inner の id={inner} であるべき）",
+                            f"road {rid}",
+                        )
+                    )
                 if strip.find("width") is not None:
-                    flags.append(("road.cross_section_surface.use_strip",
-                                   f"{side}側 単一strip（id={sid}）に width が指定されている（単一strip時は指定禁止）",
-                                   f"road {rid}"))
+                    flags.append(
+                        (
+                            "road.cross_section_surface.use_strip",
+                            f"{side}側 単一strip（id={sid}）に width が指定されている（単一strip時は指定禁止）",
+                            f"road {rid}",
+                        )
+                    )
             elif len(present) == 2:
                 inner_strip = by_id[inner]
                 if inner_strip.find("width") is None:
-                    flags.append(("road.cross_section_surface.use_width",
-                                   f"{side}側で2 strip使用（id={inner},{outer}）だが "
-                                   f"inner strip（id={inner}）に width が未指定",
-                                   f"road {rid}"))
+                    flags.append(
+                        (
+                            "road.cross_section_surface.use_width",
+                            f"{side}側で2 strip使用（id={inner},{outer}）だが "
+                            f"inner strip（id={inner}）に width が未指定",
+                            f"road {rid}",
+                        )
+                    )
 
 
 def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):

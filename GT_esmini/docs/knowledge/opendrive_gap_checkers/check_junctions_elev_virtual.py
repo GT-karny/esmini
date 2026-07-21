@@ -60,12 +60,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             continue
         main_id = j.get("mainRoad")
         if main_id is not None and main_id not in road_ids:
-            flags.append((
-                "junctions.virtual.main_road_only",
-                f"virtual junction {jid} の @mainRoad={main_id} が未定義のroad id"
-                "（@mainRoadは実在するroadを参照する必要がある）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.virtual.main_road_only",
+                    f"virtual junction {jid} の @mainRoad={main_id} が未定義のroad id"
+                    "（@mainRoadは実在するroadを参照する必要がある）",
+                    f"junction {jid}",
+                )
+            )
 
     # -----------------------------------------------------------------
     # junctions.elevation_grid.only_one_elev_grid
@@ -79,11 +81,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
     for jid, j in junctions.items():
         grids = j.findall("elevationGrid")
         if len(grids) > 1:
-            flags.append((
-                "junctions.elevation_grid.only_one_elev_grid",
-                f"junction {jid} に <elevationGrid> が {len(grids)} 個定義されている（1個のみ許容）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.elevation_grid.only_one_elev_grid",
+                    f"junction {jid} に <elevationGrid> が {len(grids)} 個定義されている（1個のみ許容）",
+                    f"junction {jid}",
+                )
+            )
 
     # -----------------------------------------------------------------
     # junctions.virtual.no_controllers
@@ -95,12 +99,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         ctrls = j.findall("controller")
         if ctrls:
             cids = [c.get("id") for c in ctrls]
-            flags.append((
-                "junctions.virtual.no_controllers",
-                f"virtual junction {jid} に controller {cids} が定義されている"
-                "（virtual junctionはcontroller/信号機を持てない）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.virtual.no_controllers",
+                    f"virtual junction {jid} に controller {cids} が定義されている"
+                    "（virtual junctionはcontroller/信号機を持てない）",
+                    f"junction {jid}",
+                )
+            )
 
     # -----------------------------------------------------------------
     # junctions.virtual.connections.only_virtual_junctions
@@ -114,12 +120,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             continue
         for conn in j.findall("connection"):
             if conn.get("type") == "virtual":
-                flags.append((
-                    "junctions.virtual.connections.only_virtual_junctions",
-                    f"junction {jid}（type={jtype}）の connection id={conn.get('id')} が "
-                    'type="virtual"（virtual junction以外での virtual connection定義は禁止）',
-                    f"junction {jid} connection id={conn.get('id')}",
-                ))
+                flags.append(
+                    (
+                        "junctions.virtual.connections.only_virtual_junctions",
+                        f"junction {jid}（type={jtype}）の connection id={conn.get('id')} が "
+                        'type="virtual"（virtual junction以外での virtual connection定義は禁止）',
+                        f"junction {jid} connection id={conn.get('id')}",
+                    )
+                )
 
     # -----------------------------------------------------------------
     # junctions.virtual.only_one_start_end
@@ -143,12 +151,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 continue
             tokens = raw.split()
             if len(tokens) > 1:
-                flags.append((
-                    "junctions.virtual.only_one_start_end",
-                    f'virtual junction {jid} の @{attr}="{raw}" が単一値でない'
-                    f"（{len(tokens)}個のトークン、リスト値の疑い）",
-                    f"junction {jid}",
-                ))
+                flags.append(
+                    (
+                        "junctions.virtual.only_one_start_end",
+                        f'virtual junction {jid} の @{attr}="{raw}" が単一値でない'
+                        f"（{len(tokens)}個のトークン、リスト値の疑い）",
+                        f"junction {jid}",
+                    )
+                )
 
     # -----------------------------------------------------------------
     # junctions.virtual.connecting_roads_start_end
@@ -178,7 +188,11 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 return None
             for tag in ("predecessor", "successor"):
                 e = link_el.find(tag)
-                if e is None or e.get("elementType") != "road" or e.get("elementId") != main_id:
+                if (
+                    e is None
+                    or e.get("elementType") != "road"
+                    or e.get("elementId") != main_id
+                ):
                     continue
                 if e.get("elementS") is not None:
                     s = _fnum(e.get("elementS"))
@@ -211,12 +225,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             seen.add(key)
             if abs(s - s_start) <= TOL or abs(s - s_end) <= TOL:
                 continue
-            flags.append((
-                "junctions.virtual.connecting_roads_start_end",
-                f"virtual junction {jid}: connecting road {cr}（connection id={cid}）が "
-                f"mainRoad {main_id} に s={s:g} で接続（sStart={s_start:g} にも "
-                f"sEnd={s_end:g} にも一致しない）",
-                f"junction {jid} road {cr}",
-            ))
+            flags.append(
+                (
+                    "junctions.virtual.connecting_roads_start_end",
+                    f"virtual junction {jid}: connecting road {cr}（connection id={cid}）が "
+                    f"mainRoad {main_id} に s={s:g} で接続（sStart={s_start:g} にも "
+                    f"sEnd={s_end:g} にも一致しない）",
+                    f"junction {jid} road {cr}",
+                )
+            )
 
     return flags

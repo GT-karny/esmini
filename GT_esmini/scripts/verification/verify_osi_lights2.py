@@ -19,8 +19,8 @@ def resolve_esmini_paths():
       E:\Repository\GT_esmini\esmini\GT_esmini\script\verify_osi_lights2.py
     """
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    gt_esmini_dir = os.path.dirname(this_dir)      # ...\GT_esmini
-    esmini_root = os.path.dirname(gt_esmini_dir)   # ...\esmini
+    gt_esmini_dir = os.path.dirname(this_dir)  # ...\GT_esmini
+    esmini_root = os.path.dirname(gt_esmini_dir)  # ...\esmini
 
     udp_driver_path = os.path.join(esmini_root, "scripts", "udp_driver")
     scripts_path = os.path.join(esmini_root, "scripts")
@@ -57,8 +57,16 @@ def print_vehicle_light_state(obj) -> bool:
     except Exception:
         brake_enum = indicator_enum = generic_enum = None
 
-    brake_name = _enum_name(brake_enum, ls.brake_light_state) if brake_enum else str(ls.brake_light_state)
-    ind_name = _enum_name(indicator_enum, ls.indicator_state) if indicator_enum else str(ls.indicator_state)
+    brake_name = (
+        _enum_name(brake_enum, ls.brake_light_state)
+        if brake_enum
+        else str(ls.brake_light_state)
+    )
+    ind_name = (
+        _enum_name(indicator_enum, ls.indicator_state)
+        if indicator_enum
+        else str(ls.indicator_state)
+    )
 
     def gen_name(v: int) -> str:
         return _enum_name(generic_enum, v) if generic_enum else str(v)
@@ -67,10 +75,10 @@ def print_vehicle_light_state(obj) -> bool:
     print(f"    Brake Light:     {ls.brake_light_state} ({brake_name})")
     print(f"    Indicator:       {ls.indicator_state} ({ind_name})")
     print(f"    Reversing Light: {ls.reversing_light} ({gen_name(ls.reversing_light)})")
-    #print(f"    Head Light:      {ls.head_light} ({gen_name(ls.head_light)})")
-    #print(f"    High Beam:       {ls.high_beam} ({gen_name(ls.high_beam)})")
-    #print(f"    Front Fog:       {ls.front_fog_light} ({gen_name(ls.front_fog_light)})")
-    #print(f"    Rear Fog:        {ls.rear_fog_light} ({gen_name(ls.rear_fog_light)})")
+    # print(f"    Head Light:      {ls.head_light} ({gen_name(ls.head_light)})")
+    # print(f"    High Beam:       {ls.high_beam} ({gen_name(ls.high_beam)})")
+    # print(f"    Front Fog:       {ls.front_fog_light} ({gen_name(ls.front_fog_light)})")
+    # print(f"    Rear Fog:        {ls.rear_fog_light} ({gen_name(ls.rear_fog_light)})")
 
     return True
 
@@ -103,7 +111,6 @@ def run(host: str, port: int, timeout_s: float) -> int:
 
     receiver = OSIReceiver()
 
-
     message_count = 0
     light_state_found = False
 
@@ -112,7 +119,10 @@ def run(host: str, port: int, timeout_s: float) -> int:
             try:
                 msg = receiver.receive()
             except timeout:
-                print(f"Timeout after {timeout_s}s (no data yet). Continue waiting...", flush=True)
+                print(
+                    f"Timeout after {timeout_s}s (no data yet). Continue waiting...",
+                    flush=True,
+                )
                 continue
 
             message_count += 1
@@ -125,9 +135,9 @@ def run(host: str, port: int, timeout_s: float) -> int:
 
             for obj in getattr(msg, "moving_object", []):
                 try:
-                    is_vehicle = (obj.type == obj.TYPE_VEHICLE)
+                    is_vehicle = obj.type == obj.TYPE_VEHICLE
                 except Exception:
-                    is_vehicle = (obj.type == 2)  # fallback
+                    is_vehicle = obj.type == 2  # fallback
 
                 if not is_vehicle:
                     continue
@@ -136,7 +146,9 @@ def run(host: str, port: int, timeout_s: float) -> int:
                     light_state_found = True
 
             if not light_state_found and message_count == 1:
-                print("  Warning: No light state data found in first message", flush=True)
+                print(
+                    "  Warning: No light state data found in first message", flush=True
+                )
 
     except KeyboardInterrupt:
         print("\nInterrupted by user", flush=True)
@@ -148,7 +160,9 @@ def run(host: str, port: int, timeout_s: float) -> int:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Verify OSI vehicle light_state output via UDP (esmini OSIReceiver)")
+    parser = argparse.ArgumentParser(
+        description="Verify OSI vehicle light_state output via UDP (esmini OSIReceiver)"
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=48198)
     parser.add_argument("--timeout", type=float, default=30.0)

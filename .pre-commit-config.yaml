@@ -33,6 +33,10 @@ repos:
             | test/
             | \.venv/
             | globals\.py
+            | thirdparty/
+            | archive/
+            | DriverScript/osi3/
+            | GT_esmini/web/backend/grpc_gen/
           )
 
       - id: cppcheck

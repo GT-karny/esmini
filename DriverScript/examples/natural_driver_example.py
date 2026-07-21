@@ -94,25 +94,139 @@ def _build_arg_parser() -> Tuple[argparse.ArgumentParser, List[Dict]]:
             spec["path_kind"] = "file"
         specs.append(spec)
 
-    add("--ip", type=str, default="127.0.0.1", help="esmini host IP", description="RealDriver UDPの接続先IPアドレスです。")
-    add("--port", type=int, default=53995, help="RealDriver base port", description="RealDriver通信用のベースポート番号です。")
-    add("--osi_port", type=int, default=48198, help="OSI UDP port", description="OSI GroundTruthを受信するUDPポートです。")
-    add("--id", type=int, default=0, help="Ego object ID", description="制御対象車両（Ego）のオブジェクトIDです。")
-    add("--target_speed", type=float, default=15.0, help="Desired speed [m/s]", description="目標巡航速度[m/s]。大きいほど速く走行します。")
-    add("--desired_distance", type=float, default=20.0, help="IDM desired distance s0 [m]", description="先行車との最低距離[m]（IDM s0）です。")
-    add("--desired_thw", type=float, default=2.0, help="IDM desired time headway T [s]", description="目標時間車間[s]（IDM T）です。")
-    add("--xodr_path", type=str, default=None, help="OpenDRIVE map path (.xodr)", description="道路形状を使うためのOpenDRIVEファイルパスです。")
-    add("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll", description="RoadManager DLL（esminiRMLib.dll）のパスです。")
-    add("--lc_ttc_threshold", type=float, default=1.5, help="Lane-change TTC safety threshold [s]", description="車線変更を許可するTTCしきい値[s]です。")
-    add("--lc_min_gap_front", type=float, default=8.0, help="Lane-change minimum front gap [m]", description="車線変更先の前方最小ギャップ[m]です。")
-    add("--lc_min_gap_rear", type=float, default=6.0, help="Lane-change minimum rear gap [m]", description="車線変更先の後方最小ギャップ[m]です。")
-    add("--lc_steering_gain", type=float, default=0.18, help="Lane-change steering gain", description="車線変更時の操舵ゲインです。")
-    add("--lc_base_blend", type=float, default=0.15, help="Blend ratio of base lane-centering during lane change [0-1]", description="車線変更中に通常レーン追従を混ぜる比率[0-1]です。")
-    add("--lc_wp_dt", type=float, default=0.1, help="Lane-change waypoint time step [s]", description="車線変更ウェイポイントの時間刻み[s]です。")
-    add("--lc_wp_horizon", type=float, default=5.0, help="Lane-change waypoint horizon [s]", description="車線変更ウェイポイントの予測時間[s]です。")
-    add("--lc_wp_lookahead", type=float, default=10.0, help="Lane-change waypoint lookahead distance [m]", description="車線変更追従の先読み距離[m]です。")
-    add("--base_wp_lookahead", type=float, default=12.0, help="Base lane-keeping waypoint lookahead distance [m]", description="通常レーン追従の先読み距離[m]です。")
-    add("--base_wp_gain", type=float, default=0.30, help="Base lane-keeping waypoint steering gain", description="通常レーン追従の操舵ゲインです。")
+    add(
+        "--ip",
+        type=str,
+        default="127.0.0.1",
+        help="esmini host IP",
+        description="RealDriver UDPの接続先IPアドレスです。",
+    )
+    add(
+        "--port",
+        type=int,
+        default=53995,
+        help="RealDriver base port",
+        description="RealDriver通信用のベースポート番号です。",
+    )
+    add(
+        "--osi_port",
+        type=int,
+        default=48198,
+        help="OSI UDP port",
+        description="OSI GroundTruthを受信するUDPポートです。",
+    )
+    add(
+        "--id",
+        type=int,
+        default=0,
+        help="Ego object ID",
+        description="制御対象車両（Ego）のオブジェクトIDです。",
+    )
+    add(
+        "--target_speed",
+        type=float,
+        default=15.0,
+        help="Desired speed [m/s]",
+        description="目標巡航速度[m/s]。大きいほど速く走行します。",
+    )
+    add(
+        "--desired_distance",
+        type=float,
+        default=20.0,
+        help="IDM desired distance s0 [m]",
+        description="先行車との最低距離[m]（IDM s0）です。",
+    )
+    add(
+        "--desired_thw",
+        type=float,
+        default=2.0,
+        help="IDM desired time headway T [s]",
+        description="目標時間車間[s]（IDM T）です。",
+    )
+    add(
+        "--xodr_path",
+        type=str,
+        default=None,
+        help="OpenDRIVE map path (.xodr)",
+        description="道路形状を使うためのOpenDRIVEファイルパスです。",
+    )
+    add(
+        "--lib_path",
+        type=str,
+        default=None,
+        help="Path to esminiRMLib.dll",
+        description="RoadManager DLL（esminiRMLib.dll）のパスです。",
+    )
+    add(
+        "--lc_ttc_threshold",
+        type=float,
+        default=1.5,
+        help="Lane-change TTC safety threshold [s]",
+        description="車線変更を許可するTTCしきい値[s]です。",
+    )
+    add(
+        "--lc_min_gap_front",
+        type=float,
+        default=8.0,
+        help="Lane-change minimum front gap [m]",
+        description="車線変更先の前方最小ギャップ[m]です。",
+    )
+    add(
+        "--lc_min_gap_rear",
+        type=float,
+        default=6.0,
+        help="Lane-change minimum rear gap [m]",
+        description="車線変更先の後方最小ギャップ[m]です。",
+    )
+    add(
+        "--lc_steering_gain",
+        type=float,
+        default=0.18,
+        help="Lane-change steering gain",
+        description="車線変更時の操舵ゲインです。",
+    )
+    add(
+        "--lc_base_blend",
+        type=float,
+        default=0.15,
+        help="Blend ratio of base lane-centering during lane change [0-1]",
+        description="車線変更中に通常レーン追従を混ぜる比率[0-1]です。",
+    )
+    add(
+        "--lc_wp_dt",
+        type=float,
+        default=0.1,
+        help="Lane-change waypoint time step [s]",
+        description="車線変更ウェイポイントの時間刻み[s]です。",
+    )
+    add(
+        "--lc_wp_horizon",
+        type=float,
+        default=5.0,
+        help="Lane-change waypoint horizon [s]",
+        description="車線変更ウェイポイントの予測時間[s]です。",
+    )
+    add(
+        "--lc_wp_lookahead",
+        type=float,
+        default=10.0,
+        help="Lane-change waypoint lookahead distance [m]",
+        description="車線変更追従の先読み距離[m]です。",
+    )
+    add(
+        "--base_wp_lookahead",
+        type=float,
+        default=12.0,
+        help="Base lane-keeping waypoint lookahead distance [m]",
+        description="通常レーン追従の先読み距離[m]です。",
+    )
+    add(
+        "--base_wp_gain",
+        type=float,
+        default=0.30,
+        help="Base lane-keeping waypoint steering gain",
+        description="通常レーン追従の操舵ゲインです。",
+    )
     parser.add_argument("--dump-argspec", action="store_true", help=argparse.SUPPRESS)
     return parser, specs
 
@@ -184,7 +298,9 @@ def main() -> int:
             wp_horizon_sec=max(1.0, args.lc_wp_horizon),
             wp_lookahead=max(1.0, args.lc_wp_lookahead),
         )
-        lc_controller = LaneChangeController(rm_lib=rm_lib, ego_id=args.id, config=lc_config)
+        lc_controller = LaneChangeController(
+            rm_lib=rm_lib, ego_id=args.id, config=lc_config
+        )
         lc_controller.set_base_speed(args.target_speed)
 
     last_steering_cmd = 0.0
@@ -227,7 +343,11 @@ def main() -> int:
             out = natural.update(ground_truth, dt)
 
             # Trigger lane change execution from NaturalDriver request.
-            if out.lane_change_request is not None and lc_controller is not None and not lc_controller.is_active:
+            if (
+                out.lane_change_request is not None
+                and lc_controller is not None
+                and not lc_controller.is_active
+            ):
                 req = out.lane_change_request
                 safety = lc_controller.check_safety(ground_truth, req.direction)
                 if safety.is_safe and lc_controller.trigger_lane_change(req.direction):
@@ -238,7 +358,9 @@ def main() -> int:
                 else:
                     # Avoid flooding logs while keeping rejection reason visible.
                     if now - lc_reject_log_t > 1.0:
-                        print(f"[LC_SKIP] direction={req.direction}, reason={safety.reason}")
+                        print(
+                            f"[LC_SKIP] direction={req.direction}, reason={safety.reason}"
+                        )
                         lc_reject_log_t = now
 
             # Base steering: waypoint tracking on current lane center from RM (if available).
@@ -269,9 +391,15 @@ def main() -> int:
                         if wp_res >= 0:
                             wp_res, wp_pos = rm_lib.GetPositionData(lat_pos_handle)
                             if wp_res >= 0:
-                                target_heading = math.atan2(wp_pos.y - ego_state.y, wp_pos.x - ego_state.x)
-                                heading_error = _normalize_angle(target_heading - ego_state.h)
-                                steer = max(0.01, args.base_wp_gain) * (heading_error / (math.pi / 4.0))
+                                target_heading = math.atan2(
+                                    wp_pos.y - ego_state.y, wp_pos.x - ego_state.x
+                                )
+                                heading_error = _normalize_angle(
+                                    target_heading - ego_state.h
+                                )
+                                steer = max(0.01, args.base_wp_gain) * (
+                                    heading_error / (math.pi / 4.0)
+                                )
                                 base_steering = max(-1.0, min(1.0, steer))
 
             throttle = out.throttle
@@ -309,7 +437,11 @@ def main() -> int:
                 # No RM / LaneChangeController: keep indicator behavior from request timing only.
                 if out.lane_change_request is not None:
                     indicator_time_left = out.lane_change_request.duration
-                    active_indicator = IndicatorMode.LEFT if out.lane_change_request.indicator == 1 else IndicatorMode.RIGHT
+                    active_indicator = (
+                        IndicatorMode.LEFT
+                        if out.lane_change_request.indicator == 1
+                        else IndicatorMode.RIGHT
+                    )
                 if indicator_time_left > 0.0:
                     indicator_time_left -= dt
                     client.set_indicators(active_indicator)
@@ -334,7 +466,11 @@ def main() -> int:
             client.send_update()
 
             if frame % 20 == 0:
-                lead_str = f"lead_id={out.lead_vehicle_id}" if out.lead_vehicle_id is not None else "lead_id=none"
+                lead_str = (
+                    f"lead_id={out.lead_vehicle_id}"
+                    if out.lead_vehicle_id is not None
+                    else "lead_id=none"
+                )
                 lc_lane_str = ""
                 if lc_controller is not None and lc_controller.is_active:
                     lc_lane_str = (

@@ -26,8 +26,24 @@ def test_from_dict_with_waypoints():
     data = {
         "frame_id": 42,
         "waypoints": [
-            {"x": 1.0, "y": 2.0, "h": 0.5, "road_id": 1, "s": 10.0, "lane_id": -1, "lane_offset": 0.1},
-            {"x": 3.0, "y": 4.0, "h": 0.6, "road_id": 1, "s": 15.0, "lane_id": -1, "lane_offset": 0.0},
+            {
+                "x": 1.0,
+                "y": 2.0,
+                "h": 0.5,
+                "road_id": 1,
+                "s": 10.0,
+                "lane_id": -1,
+                "lane_offset": 0.1,
+            },
+            {
+                "x": 3.0,
+                "y": 4.0,
+                "h": 0.6,
+                "road_id": 1,
+                "s": 15.0,
+                "lane_id": -1,
+                "lane_offset": 0.0,
+            },
         ],
         "waypoint_index": 1,
         "set_speed": 15.0,

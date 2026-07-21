@@ -4,8 +4,10 @@ import realdriver.scenario_drive as scenario_drive
 class DummyRM:
     def Init(self, _):
         return 0
+
     def CreatePosition(self):
         return 1
+
     def Close(self):
         return 0
 

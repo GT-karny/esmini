@@ -9,6 +9,7 @@ For a generator at resources/scenario_authoring/<subdir>/gen_*.py, parents[1]
 resolves to resources/scenario_authoring/ (this module's directory), making
 `authoring_common` importable from any generator subdirectory.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -20,10 +21,10 @@ from typing import Any
 import yaml
 from scenariogeneration import xosc
 
-
 # ---------------------------------------------------------------------------
 # Repository utilities
 # ---------------------------------------------------------------------------
+
 
 def repo_root() -> Path:
     """Return the repository root as an absolute Path.
@@ -85,7 +86,9 @@ def normalize_header_date(path: Path, date_str: str) -> None:
     document (so default-path output stays byte-identical to the committed file).
     """
     data = path.read_bytes()
-    new = _HEADER_DATE_RE.sub(rb"\g<1>" + date_str.encode("utf-8") + rb"\g<2>", data, count=1)
+    new = _HEADER_DATE_RE.sub(
+        rb"\g<1>" + date_str.encode("utf-8") + rb"\g<2>", data, count=1
+    )
     if new != data:
         path.write_bytes(new)
 
@@ -93,6 +96,7 @@ def normalize_header_date(path: Path, date_str: str) -> None:
 # ---------------------------------------------------------------------------
 # Metadata I/O
 # ---------------------------------------------------------------------------
+
 
 def write_meta_yaml(path: Path, data: dict[str, Any]) -> None:
     """Write *data* to *path* as YAML (utf-8, insertion-order preserved).
@@ -109,6 +113,7 @@ def write_meta_yaml(path: Path, data: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Vehicle catalog helpers
 # ---------------------------------------------------------------------------
+
 
 def make_ego_vehicle() -> xosc.Vehicle:
     """Return the standard GT_esmini Ego vehicle (car_white, model_id=0).
@@ -127,9 +132,9 @@ def make_ego_vehicle() -> xosc.Vehicle:
         bb,
         front_axle,
         rear_axle,
-        69,   # max_speed
-        10,   # max_acceleration
-        30,   # max_deceleration
+        69,  # max_speed
+        10,  # max_acceleration
+        30,  # max_deceleration
     )
     veh.add_property("model_id", "0")
     return veh
@@ -150,9 +155,9 @@ def make_npc_vehicle(model_id: str = "1", name: str = "car_red") -> xosc.Vehicle
         bb,
         front_axle,
         rear_axle,
-        69,   # max_speed
-        10,   # max_acceleration
-        30,   # max_deceleration
+        69,  # max_speed
+        10,  # max_acceleration
+        30,  # max_deceleration
     )
     veh.add_property("model_id", model_id)
     return veh
@@ -179,6 +184,7 @@ def make_virtual_driver_controller() -> xosc.Controller:
 # Scenario assembly helpers (shared by the scene generators 07/08)
 # ---------------------------------------------------------------------------
 
+
 def step_dynamics() -> xosc.TransitionDynamics:
     """A zero-time step transition (instantaneous speed change).
 
@@ -190,7 +196,9 @@ def step_dynamics() -> xosc.TransitionDynamics:
     )
 
 
-def lane_pos(road_id: int, lane_id: int, s: float, offset: float = 0.0) -> xosc.LanePosition:
+def lane_pos(
+    road_id: int, lane_id: int, s: float, offset: float = 0.0
+) -> xosc.LanePosition:
     """Convenience wrapper for xosc.LanePosition with int road/lane ids.
 
     scenariogeneration takes lane_id / road_id as strings; this keeps the
@@ -232,12 +240,16 @@ def add_routed_actor_init(
 
 
 def sim_time_trigger(
-    name: str, t: float, edge: xosc.ConditionEdge = xosc.ConditionEdge.none,
+    name: str,
+    t: float,
+    edge: xosc.ConditionEdge = xosc.ConditionEdge.none,
     triggeringpoint: str = "start",
 ) -> xosc.ValueTrigger:
     """A SimulationTime > t trigger (the only trigger kind these scenes need)."""
     return xosc.ValueTrigger(
-        name, 0.0, edge,
+        name,
+        0.0,
+        edge,
         xosc.SimulationTimeCondition(t, xosc.Rule.greaterThan),
         triggeringpoint=triggeringpoint,
     )
@@ -334,6 +346,7 @@ def write_scenario(scenario: xosc.Scenario, xosc_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Pedestrian helpers (scenario set 09 — crosswalk; F2 Phase 3d extension)
 # ---------------------------------------------------------------------------
+
 
 def make_pedestrian(name: str = "pedestrian_adult") -> xosc.Pedestrian:
     """Return an INLINE Pedestrian entity matching the upstream

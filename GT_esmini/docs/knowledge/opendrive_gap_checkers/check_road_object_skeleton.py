@@ -51,52 +51,64 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
 
                 # --- no_mixing_road_local / polyline_elements (mirror pair) ---
                 if nR > 0 and nL > 0:
-                    flags.append((
-                        "road.object.skeleton.vertex_local.no_mixing_road_local",
-                        f"polyline id={pid_disp} に vertexRoad({nR}件) と vertexLocal({nL}件) が混在",
-                        loc,
-                    ))
-                    flags.append((
-                        "road.object.skeleton.vertex_road.polyline_elements",
-                        f"polyline id={pid_disp} に vertexLocal({nL}件) と vertexRoad({nR}件) が混在",
-                        loc,
-                    ))
+                    flags.append(
+                        (
+                            "road.object.skeleton.vertex_local.no_mixing_road_local",
+                            f"polyline id={pid_disp} に vertexRoad({nR}件) と vertexLocal({nL}件) が混在",
+                            loc,
+                        )
+                    )
+                    flags.append(
+                        (
+                            "road.object.skeleton.vertex_road.polyline_elements",
+                            f"polyline id={pid_disp} に vertexLocal({nL}件) と vertexRoad({nR}件) が混在",
+                            loc,
+                        )
+                    )
 
                 # --- polyline_followed_by_vertex: exactly one kind, >=2 of it ---
                 valid_pure = (nR >= 2 and nL == 0) or (nL >= 2 and nR == 0)
                 if not valid_pure:
-                    flags.append((
-                        "road.object.skeleton.polyline_followed_by_vertex",
-                        f"polyline id={pid_disp}: vertexRoad={nR}件, vertexLocal={nL}件"
-                        "（いずれか一方を2個以上で構成する必要）",
-                        loc,
-                    ))
+                    flags.append(
+                        (
+                            "road.object.skeleton.polyline_followed_by_vertex",
+                            f"polyline id={pid_disp}: vertexRoad={nR}件, vertexLocal={nL}件"
+                            "（いずれか一方を2個以上で構成する必要）",
+                            loc,
+                        )
+                    )
 
                 # --- element_min_amount, scoped to whichever kind is actually used ---
                 if 0 < nL < 2:
-                    flags.append((
-                        "road.object.skeleton.vertex_local.element_min_amount",
-                        f"polyline id={pid_disp}: vertexLocal が{nL}件のみ（2件以上必要）",
-                        loc,
-                    ))
+                    flags.append(
+                        (
+                            "road.object.skeleton.vertex_local.element_min_amount",
+                            f"polyline id={pid_disp}: vertexLocal が{nL}件のみ（2件以上必要）",
+                            loc,
+                        )
+                    )
                 if 0 < nR < 2:
-                    flags.append((
-                        "road.object.skeleton.vertex_road.element_min_amount",
-                        f"polyline id={pid_disp}: vertexRoad が{nR}件のみ（2件以上必要）",
-                        loc,
-                    ))
+                    flags.append(
+                        (
+                            "road.object.skeleton.vertex_road.element_min_amount",
+                            f"polyline id={pid_disp}: vertexRoad が{nR}件のみ（2件以上必要）",
+                            loc,
+                        )
+                    )
 
                 # --- per-vertex radius-vs-width/length exclusivity + polyline-wide mode ---
                 modes = set()
                 for v in vlocal:
                     has_r, has_w, has_l = vmode(v)
                     if has_r and (has_w or has_l):
-                        flags.append((
-                            "road.object.skeleton.vertex_local.vertex_local_elements",
-                            f"polyline id={pid_disp} vertexLocal id={v.get('id')}: "
-                            "@radius と @width/@length を同時指定",
-                            loc,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.skeleton.vertex_local.vertex_local_elements",
+                                f"polyline id={pid_disp} vertexLocal id={v.get('id')}: "
+                                "@radius と @width/@length を同時指定",
+                                loc,
+                            )
+                        )
                     if has_r:
                         modes.add("radius")
                     if has_w or has_l:
@@ -106,12 +118,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 for v in vroad:
                     has_r, has_w, has_l = vmode(v)
                     if has_r and (has_w or has_l):
-                        flags.append((
-                            "road.object.skeleton.vertex_road.no_radius_with_width_length",
-                            f"polyline id={pid_disp} vertexRoad id={v.get('id')}: "
-                            "@radius と @width/@length を同時指定",
-                            loc,
-                        ))
+                        flags.append(
+                            (
+                                "road.object.skeleton.vertex_road.no_radius_with_width_length",
+                                f"polyline id={pid_disp} vertexRoad id={v.get('id')}: "
+                                "@radius と @width/@length を同時指定",
+                                loc,
+                            )
+                        )
                     if has_r:
                         modes.add("radius")
                     if has_w or has_l:
@@ -124,12 +138,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 # chosen mode on some vertices ("for all of its vertex elements").
                 determinate = modes - {"none"}
                 if len(determinate) > 1 or (determinate and "none" in modes):
-                    flags.append((
-                        "road.object.skeleton.use_radius_or_width_length",
-                        f"polyline id={pid_disp}: 頂点間で @radius / @width+@length の使用が不統一"
-                        f"（modes={sorted(modes)}）",
-                        loc,
-                    ))
+                    flags.append(
+                        (
+                            "road.object.skeleton.use_radius_or_width_length",
+                            f"polyline id={pid_disp}: 頂点間で @radius / @width+@length の使用が不統一"
+                            f"（modes={sorted(modes)}）",
+                            loc,
+                        )
+                    )
 
     return flags
 
@@ -189,11 +205,15 @@ if __name__ == "__main__":
             all_flags.append((f, rule, detail, loc))
 
     byrule = Counter(r for _, r, _, _ in all_flags)
-    byrule_official = Counter(r for f, r, _, _ in all_flags if bucket(f) == "official(ASAM)")
+    byrule_official = Counter(
+        r for f, r, _, _ in all_flags if bucket(f) == "official(ASAM)"
+    )
     byrule_gt = Counter(r for f, r, _, _ in all_flags if bucket(f).startswith("GT:"))
     bkt_files = Counter(bucket(f) for f in files)
 
-    print(f"files scanned: {len(files)}  parse_err(skipped): {parse_err}  exceptions: {len(exceptions)}")
+    print(
+        f"files scanned: {len(files)}  parse_err(skipped): {parse_err}  exceptions: {len(exceptions)}"
+    )
     for f, e in exceptions:
         print(f"  EXC {rel(f)}: {e}")
     print(f"total flags: {len(all_flags)}")
@@ -201,7 +221,9 @@ if __name__ == "__main__":
     print("\nby rule (total / official / GT-authored):")
     all_rule_names = sorted(set(byrule) | set(byrule_official) | set(byrule_gt))
     for rk in all_rule_names:
-        print(f"  {rk:60s} {byrule.get(rk,0):4d} / {byrule_official.get(rk,0):4d} / {byrule_gt.get(rk,0):4d}")
+        print(
+            f"  {rk:60s} {byrule.get(rk,0):4d} / {byrule_official.get(rk,0):4d} / {byrule_gt.get(rk,0):4d}"
+        )
 
     print("\nsample flags (up to 40):")
     for f, r, d, loc in all_flags[:40]:

@@ -4,11 +4,15 @@ PID Controller Module
 This module provides a generic PID controller implementation.
 """
 
+
 class PIDController:
     """
     Generic PID Controller implementation.
     """
-    def __init__(self, kp, ki, kd, output_limits=(None, None), integral_limits=(None, None)):
+
+    def __init__(
+        self, kp, ki, kd, output_limits=(None, None), integral_limits=(None, None)
+    ):
         """
         Initialize the PID controller.
 
@@ -33,7 +37,7 @@ class PIDController:
         self._integral = 0.0
         self._last_error = 0.0
         self._last_time = None
-        
+
         # Debug values
         self.last_p = 0.0
         self.last_i = 0.0
@@ -70,7 +74,7 @@ class PIDController:
         # Derivative term
         d_term = 0.0
         if self._last_time is not None:
-             d_term = self.kd * (error - self._last_error) / dt
+            d_term = self.kd * (error - self._last_error) / dt
 
         # Store debug values
         self.last_p = p_term
@@ -79,7 +83,7 @@ class PIDController:
 
         # Store state for next update
         self._last_error = error
-        self._last_time = True # Just a flag to indicate we have a history
+        self._last_time = True  # Just a flag to indicate we have a history
 
         # Calculate total output
         output = p_term + i_term + d_term

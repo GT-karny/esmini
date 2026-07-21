@@ -38,6 +38,7 @@ genuine road-geometry math: elevation/heading/overlap-length/lane-crossing
 evaluation along s) and junctions.geometry.correct_junction_boundry /
 ref_line_definition (boundary polygon / perpendicular-reachability geometry math).
 """
+
 from collections import defaultdict
 
 _GEOM_CHILD_TAGS = ("line", "spiral", "arc", "poly3", "paramPoly3")
@@ -89,20 +90,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             cid = conn.get("id")
             if eff_type == "direct":
                 if conn.get("connectingRoad") is not None:
-                    flags.append((
-                        "junctions.direct.connecting_road_attribute_usage",
-                        f"direct junction の connection id={cid} が @connectingRoad="
-                        f"{conn.get('connectingRoad')} を持つ（direct junctionは@linkedRoadを使うべき）",
-                        f"junction {jid} connection {cid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.direct.connecting_road_attribute_usage",
+                            f"direct junction の connection id={cid} が @connectingRoad="
+                            f"{conn.get('connectingRoad')} を持つ（direct junctionは@linkedRoadを使うべき）",
+                            f"junction {jid} connection {cid}",
+                        )
+                    )
             else:
                 if conn.get("linkedRoad") is not None:
-                    flags.append((
-                        "junctions.direct.correct_type_linked_road_usage",
-                        f"junction type={eff_type!r} の connection id={cid} が @linkedRoad="
-                        f"{conn.get('linkedRoad')} を持つ（@linkedRoadはtype=\"direct\"専用）",
-                        f"junction {jid} connection {cid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.direct.correct_type_linked_road_usage",
+                            f"junction type={eff_type!r} の connection id={cid} が @linkedRoad="
+                            f"{conn.get('linkedRoad')} を持つ（@linkedRoadはtype=\"direct\"専用）",
+                            f"junction {jid} connection {cid}",
+                        )
+                    )
 
         if eff_type != "direct":
             continue
@@ -111,20 +116,26 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         # (junctions.direct.split_or_merge was reclassified to gap_geometry_math --
         #  see module docstring and fixbriefs/fix_report_junctions_direct_geometry.json --
         #  and no longer has flagging logic here.)
-        conns_both = [c for c in conns if c.get("incomingRoad") is not None and c.get("linkedRoad") is not None]
+        conns_both = [
+            c
+            for c in conns
+            if c.get("incomingRoad") is not None and c.get("linkedRoad") is not None
+        ]
         if conns_both:
             pairs = [(c.get("incomingRoad"), c.get("linkedRoad")) for c in conns_both]
             hub = _hub_road(conns_both)
             if hub is None:
                 incoming_set = sorted({c.get("incomingRoad") for c in conns_both})
                 linked_set = sorted({c.get("linkedRoad") for c in conns_both})
-                flags.append((
-                    "junctions.direct.road_connectivity",
-                    f"direct junction の connection群 {pairs} に全connection共通のhub roadが無い"
-                    f"（incomingRoad={incoming_set} / linkedRoad={linked_set} が共に複数）"
-                    f"— 片側は単一roadであるべき",
-                    f"junction {jid}",
-                ))
+                flags.append(
+                    (
+                        "junctions.direct.road_connectivity",
+                        f"direct junction の connection群 {pairs} に全connection共通のhub roadが無い"
+                        f"（incomingRoad={incoming_set} / linkedRoad={linked_set} が共に複数）"
+                        f"— 片側は単一roadであるべき",
+                        f"junction {jid}",
+                    )
+                )
             else:
                 # Hub found on (at least) one side of every connection -- now check
                 # the *other* (varying) side actually resolves to >=2 distinct road
@@ -141,16 +152,20 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     elif link == hub:
                         other_roads.add(inc)
                 if len(other_roads) < 2:
-                    flags.append((
-                        "junctions.direct.road_connectivity",
-                        f"direct junction の connection群 {pairs} はhub road={hub} に対し"
-                        f"反対側の road が {sorted(other_roads)} の{len(other_roads)}個しかない"
-                        f"（\"1つのroadを反対側の複数roadに接続する\" 規定を満たさない）",
-                        f"junction {jid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.direct.road_connectivity",
+                            f"direct junction の connection群 {pairs} はhub road={hub} に対し"
+                            f"反対側の road が {sorted(other_roads)} の{len(other_roads)}個しかない"
+                            f'（"1つのroadを反対側の複数roadに接続する" 規定を満たさない）',
+                            f"junction {jid}",
+                        )
+                    )
 
         # --- junctions.direct.overlap_zone_exclusivity ---
-        exit_groups = defaultdict(list)   # (incomingRoad, from) -> [(conn, laneLink), ...]
+        exit_groups = defaultdict(
+            list
+        )  # (incomingRoad, from) -> [(conn, laneLink), ...]
         entry_groups = defaultdict(list)  # (linkedRoad, to) -> [(conn, laneLink), ...]
         for conn in conns:
             inc = conn.get("incomingRoad")
@@ -163,17 +178,22 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 if link is not None and to is not None:
                     entry_groups[(link, to)].append((conn, ll))
 
-        for label, groups in (("exit(from共有)", exit_groups), ("entry(to共有)", entry_groups)):
+        for label, groups in (
+            ("exit(from共有)", exit_groups),
+            ("entry(to共有)", entry_groups),
+        ):
             for key, members in groups.items():
                 annotated = [m for m in members if m[1].get("overlapZone") is not None]
                 if len(annotated) > 2:
                     conn_ids = [c.get("id") for c, _ll in annotated]
-                    flags.append((
-                        "junctions.direct.overlap_zone_exclusivity",
-                        f"{label} キー{key} の重複lane組で @overlapZone を持つ laneLink が"
-                        f"{len(annotated)}個（connection {conn_ids}）— 1ペア(2要素)までのはず",
-                        f"junction {jid}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.direct.overlap_zone_exclusivity",
+                            f"{label} キー{key} の重複lane組で @overlapZone を持つ laneLink が"
+                            f"{len(annotated)}個（connection {conn_ids}）— 1ペア(2要素)までのはず",
+                            f"junction {jid}",
+                        )
+                    )
 
     # --- junctions.geometry.only_one_line_element (applies to any junction type
     #     with a <planView> "junction reference line", not just direct) ---
@@ -183,23 +203,29 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             continue
         geoms = pv.findall("geometry")
         if len(geoms) != 1:
-            flags.append((
-                "junctions.geometry.only_one_line_element",
-                f"junction planView が <geometry> を{len(geoms)}個持つ（ちょうど1個であるべき）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.geometry.only_one_line_element",
+                    f"junction planView が <geometry> を{len(geoms)}個持つ（ちょうど1個であるべき）",
+                    f"junction {jid}",
+                )
+            )
             continue
         g = geoms[0]
         children = list(g)
         line_children = [c for c in children if c.tag == "line"]
-        other_geom_children = [c for c in children if c.tag in _GEOM_CHILD_TAGS and c.tag != "line"]
+        other_geom_children = [
+            c for c in children if c.tag in _GEOM_CHILD_TAGS and c.tag != "line"
+        ]
         if len(line_children) != 1 or other_geom_children:
             tags = [c.tag for c in children] or ["(空)"]
-            flags.append((
-                "junctions.geometry.only_one_line_element",
-                f"junction planView の <geometry> の子要素が {tags}"
-                f"（<line>をちょうど1個だけ持つべき）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.geometry.only_one_line_element",
+                    f"junction planView の <geometry> の子要素が {tags}"
+                    f"（<line>をちょうど1個だけ持つべき）",
+                    f"junction {jid}",
+                )
+            )
 
     return flags

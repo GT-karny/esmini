@@ -305,7 +305,9 @@ class LauncherWindow(QMainWindow):
         title_col.setSpacing(1)
         title = QLabel("GT_Sim Control Center")
         title.setObjectName("appTitle")
-        subtitle = QLabel("Launch and monitor Python controller + GT_Sim from one console")
+        subtitle = QLabel(
+            "Launch and monitor Python controller + GT_Sim from one console"
+        )
         subtitle.setObjectName("appSubtitle")
         title_col.addWidget(title)
         title_col.addWidget(subtitle)
@@ -500,8 +502,7 @@ class LauncherWindow(QMainWindow):
         app = QApplication.instance()
         if app is None:
             return
-        app.setStyleSheet(
-            """
+        app.setStyleSheet("""
             QWidget {
                 color: #e7ebf3;
                 font-size: 13px;
@@ -711,8 +712,7 @@ class LauncherWindow(QMainWindow):
                 background: #377ce9;
                 border: 1px solid #377ce9;
             }
-            """
-        )
+            """)
 
     def _refresh_dynamic_style(self, widget: QWidget) -> None:
         widget.style().unpolish(widget)
@@ -746,7 +746,10 @@ class LauncherWindow(QMainWindow):
     def _browse_gt_sim(self) -> None:
         parent = self._settings_dialog if self._settings_dialog.isVisible() else self
         path, _ = QFileDialog.getOpenFileName(
-            parent, "Select GT_Sim.exe", self.gt_sim_path_edit.text(), "Executables (*.exe);;All Files (*)"
+            parent,
+            "Select GT_Sim.exe",
+            self.gt_sim_path_edit.text(),
+            "Executables (*.exe);;All Files (*)",
         )
         if path:
             self.gt_sim_path_edit.setText(path)
@@ -754,13 +757,19 @@ class LauncherWindow(QMainWindow):
     def _browse_python(self) -> None:
         parent = self._settings_dialog if self._settings_dialog.isVisible() else self
         path, _ = QFileDialog.getOpenFileName(
-            parent, "Select Python", self.python_path_edit.text(), "Executables (*.exe);;All Files (*)"
+            parent,
+            "Select Python",
+            self.python_path_edit.text(),
+            "Executables (*.exe);;All Files (*)",
         )
         if path:
             self.python_path_edit.setText(path)
 
     def _browse_scenario(self) -> None:
-        start_dir = self.scenario_folder_edit.text().strip() or self.scenario_edit.text().strip()
+        start_dir = (
+            self.scenario_folder_edit.text().strip()
+            or self.scenario_edit.text().strip()
+        )
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Scenario", start_dir, "OpenSCENARIO (*.xosc);;All Files (*)"
         )
@@ -774,7 +783,9 @@ class LauncherWindow(QMainWindow):
                 self._select_current_in_list(self.scenario_list, path)
 
     def _browse_script(self) -> None:
-        start_dir = self.script_folder_edit.text().strip() or self.script_edit.text().strip()
+        start_dir = (
+            self.script_folder_edit.text().strip() or self.script_edit.text().strip()
+        )
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Python Script", start_dir, "Python (*.py);;All Files (*)"
         )
@@ -818,7 +829,9 @@ class LauncherWindow(QMainWindow):
                 item = QListWidgetItem(name)
                 item.setData(Qt.ItemDataRole.UserRole, full_path)
                 self.scenario_list.addItem(item)
-        self._select_current_in_list(self.scenario_list, self.scenario_edit.text().strip())
+        self._select_current_in_list(
+            self.scenario_list, self.scenario_edit.text().strip()
+        )
 
     def _refresh_script_list(self) -> None:
         self.script_list.clear()
@@ -837,7 +850,9 @@ class LauncherWindow(QMainWindow):
                 self.script_list.addItem(item)
         self._select_current_in_list(self.script_list, self.script_edit.text().strip())
 
-    def _select_current_in_list(self, list_widget: QListWidget, current_path: str) -> None:
+    def _select_current_in_list(
+        self, list_widget: QListWidget, current_path: str
+    ) -> None:
         if not current_path:
             return
         current_norm = os.path.normpath(current_path)
@@ -848,11 +863,15 @@ class LauncherWindow(QMainWindow):
                 list_widget.setCurrentItem(item)
                 return
 
-    def _on_scenario_selected(self, current: QListWidgetItem, _previous: QListWidgetItem) -> None:
+    def _on_scenario_selected(
+        self, current: QListWidgetItem, _previous: QListWidgetItem
+    ) -> None:
         if current is not None:
             self.scenario_edit.setText(current.data(Qt.ItemDataRole.UserRole))
 
-    def _on_script_selected(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
+    def _on_script_selected(
+        self, current: QListWidgetItem, previous: QListWidgetItem
+    ) -> None:
         if previous is not None:
             prev_path = previous.data(Qt.ItemDataRole.UserRole)
             if isinstance(prev_path, str) and prev_path:
@@ -916,7 +935,14 @@ class LauncherWindow(QMainWindow):
                 scenario_path = self.scenario_edit.text().strip()
                 auto_xodr = self._resolve_logicfile_xodr(scenario_path)
                 if auto_xodr:
-                    retry_cmd = [py, "-u", script_path, "--dump-argspec", "--xodr_path", auto_xodr]
+                    retry_cmd = [
+                        py,
+                        "-u",
+                        script_path,
+                        "--dump-argspec",
+                        "--xodr_path",
+                        auto_xodr,
+                    ]
                     try:
                         result = subprocess.run(
                             retry_cmd,
@@ -930,7 +956,9 @@ class LauncherWindow(QMainWindow):
                         pass
 
         if result.returncode != 0:
-            self.python_argspec_hint.setText("Script does not provide GUI arg metadata.")
+            self.python_argspec_hint.setText(
+                "Script does not provide GUI arg metadata."
+            )
             stderr = result.stderr.strip()
             if stderr:
                 self._append_python_log(f"[argspec] {stderr}")
@@ -944,7 +972,9 @@ class LauncherWindow(QMainWindow):
         try:
             specs = json.loads(raw)
         except Exception as exc:
-            self.python_argspec_hint.setText("Invalid args metadata format from script.")
+            self.python_argspec_hint.setText(
+                "Invalid args metadata format from script."
+            )
             self._append_python_log(f"Failed to parse argspec JSON: {exc}")
             return
         if not isinstance(specs, list):
@@ -1060,7 +1090,9 @@ class LauncherWindow(QMainWindow):
             "--osi_port": str(self.py_arg_osi_port_spin.value()),
             "--id": str(self.py_arg_id_spin.value()),
             "--target_speed_port": str(self.py_arg_target_speed_port_spin.value()),
-            "--xodr_path": auto_xodr_path if self.auto_xodr_checkbox.isChecked() else "",
+            "--xodr_path": (
+                auto_xodr_path if self.auto_xodr_checkbox.isChecked() else ""
+            ),
             "--lib_path": auto_lib_path,
             "--gt_lib_path": auto_gt_lib_path,
         }
@@ -1111,7 +1143,11 @@ class LauncherWindow(QMainWindow):
                 value = widget.text().strip()
                 if not value:
                     continue
-                if arg_type == "str" and default is not None and str(default).strip() == value:
+                if (
+                    arg_type == "str"
+                    and default is not None
+                    and str(default).strip() == value
+                ):
                     continue
                 args += [name, value]
         return args
@@ -1158,12 +1194,20 @@ class LauncherWindow(QMainWindow):
         self.start_all_btn.setEnabled(not (py_running and gt_running))
         self.stop_all_btn.setEnabled(py_running or gt_running)
 
-        self.start_python_btn.setProperty("tone", "strong" if not py_running else "muted")
+        self.start_python_btn.setProperty(
+            "tone", "strong" if not py_running else "muted"
+        )
         self.stop_python_btn.setProperty("tone", "strong" if py_running else "muted")
-        self.start_gtsim_btn.setProperty("tone", "strong" if not gt_running else "muted")
+        self.start_gtsim_btn.setProperty(
+            "tone", "strong" if not gt_running else "muted"
+        )
         self.stop_gtsim_btn.setProperty("tone", "strong" if gt_running else "muted")
-        self.start_all_btn.setProperty("tone", "strong" if not (py_running and gt_running) else "muted")
-        self.stop_all_btn.setProperty("tone", "strong" if (py_running or gt_running) else "muted")
+        self.start_all_btn.setProperty(
+            "tone", "strong" if not (py_running and gt_running) else "muted"
+        )
+        self.stop_all_btn.setProperty(
+            "tone", "strong" if (py_running or gt_running) else "muted"
+        )
 
         self._refresh_dynamic_style(self.start_python_btn)
         self._refresh_dynamic_style(self.stop_python_btn)
@@ -1172,10 +1216,18 @@ class LauncherWindow(QMainWindow):
         self._refresh_dynamic_style(self.start_all_btn)
         self._refresh_dynamic_style(self.stop_all_btn)
 
-        self.python_status_lamp.setProperty("status", "running" if py_running else "stopped")
-        self.gtsim_status_lamp.setProperty("status", "running" if gt_running else "stopped")
-        self.python_status_lamp.setToolTip(f"Python: {'RUNNING' if py_running else 'STOPPED'}")
-        self.gtsim_status_lamp.setToolTip(f"GT_Sim: {'RUNNING' if gt_running else 'STOPPED'}")
+        self.python_status_lamp.setProperty(
+            "status", "running" if py_running else "stopped"
+        )
+        self.gtsim_status_lamp.setProperty(
+            "status", "running" if gt_running else "stopped"
+        )
+        self.python_status_lamp.setToolTip(
+            f"Python: {'RUNNING' if py_running else 'STOPPED'}"
+        )
+        self.gtsim_status_lamp.setToolTip(
+            f"GT_Sim: {'RUNNING' if gt_running else 'STOPPED'}"
+        )
         self._refresh_dynamic_style(self.python_status_lamp)
         self._refresh_dynamic_style(self.gtsim_status_lamp)
 
@@ -1351,7 +1403,9 @@ class LauncherWindow(QMainWindow):
         proc.terminate()
         if not proc.waitForFinished(3000):
             if name == "Python":
-                self._append_python_log(f"{name} did not exit in time. Killing process.")
+                self._append_python_log(
+                    f"{name} did not exit in time. Killing process."
+                )
             else:
                 self._append_gtsim_log(f"{name} did not exit in time. Killing process.")
             proc.kill()
@@ -1376,8 +1430,12 @@ class LauncherWindow(QMainWindow):
         self._terminate_process(self.python_proc, "Python")
 
     def _load_settings(self) -> None:
-        self.gt_sim_path_edit.setText(self.settings.value("gt_sim_path", _default_gt_sim_path()))
-        self.python_path_edit.setText(self.settings.value("python_path", sys.executable))
+        self.gt_sim_path_edit.setText(
+            self.settings.value("gt_sim_path", _default_gt_sim_path())
+        )
+        self.python_path_edit.setText(
+            self.settings.value("python_path", sys.executable)
+        )
 
         self.scenario_folder_edit.setText(
             self.settings.value("scenario_folder", _default_scenario_folder())
@@ -1401,9 +1459,13 @@ class LauncherWindow(QMainWindow):
         except Exception:
             self.script_arg_values_by_script = {}
         self.gtsim_extra_args_edit.setText(self.settings.value("gtsim_extra_args", ""))
-        self.auto_xodr_checkbox.setChecked(self.settings.value("auto_xodr", True, type=bool))
+        self.auto_xodr_checkbox.setChecked(
+            self.settings.value("auto_xodr", True, type=bool)
+        )
 
-        self.realdriver_checkbox.setChecked(self.settings.value("realdriver_on", True, type=bool))
+        self.realdriver_checkbox.setChecked(
+            self.settings.value("realdriver_on", True, type=bool)
+        )
         self.entity_name_edit.setText(self.settings.value("entity_name", "Ego"))
         self.base_port_spin.setValue(self.settings.value("base_port", 53995, type=int))
         self.osi_edit.setText(self.settings.value("osi", "127.0.0.1"))
@@ -1412,10 +1474,16 @@ class LauncherWindow(QMainWindow):
         self.win_y_spin.setValue(self.settings.value("win_y", 60, type=int))
         self.win_w_spin.setValue(self.settings.value("win_w", 1280, type=int))
         self.win_h_spin.setValue(self.settings.value("win_h", 720, type=int))
-        self.threads_checkbox.setChecked(self.settings.value("threads", True, type=bool))
+        self.threads_checkbox.setChecked(
+            self.settings.value("threads", True, type=bool)
+        )
         self.py_arg_ip_edit.setText(self.settings.value("py_arg_ip", "127.0.0.1"))
-        self.py_arg_port_spin.setValue(self.settings.value("py_arg_port", 53995, type=int))
-        self.py_arg_osi_port_spin.setValue(self.settings.value("py_arg_osi_port", 48198, type=int))
+        self.py_arg_port_spin.setValue(
+            self.settings.value("py_arg_port", 53995, type=int)
+        )
+        self.py_arg_osi_port_spin.setValue(
+            self.settings.value("py_arg_osi_port", 48198, type=int)
+        )
         self.py_arg_id_spin.setValue(self.settings.value("py_arg_id", 0, type=int))
         self.py_arg_target_speed_port_spin.setValue(
             self.settings.value("py_arg_target_speed_port", 54995, type=int)
@@ -1428,7 +1496,9 @@ class LauncherWindow(QMainWindow):
     def _save_settings(self) -> None:
         self.settings.setValue("gt_sim_path", self.gt_sim_path_edit.text().strip())
         self.settings.setValue("python_path", self.python_path_edit.text().strip())
-        self.settings.setValue("scenario_folder", self.scenario_folder_edit.text().strip())
+        self.settings.setValue(
+            "scenario_folder", self.scenario_folder_edit.text().strip()
+        )
         self.settings.setValue("script_folder", self.script_folder_edit.text().strip())
         self.settings.setValue("scenario_path", self.scenario_edit.text().strip())
         self.settings.setValue("script_path", self.script_edit.text().strip())
@@ -1438,8 +1508,12 @@ class LauncherWindow(QMainWindow):
             self.script_arg_values_by_script[os.path.normpath(current_script)] = (
                 self._capture_script_arg_values()
             )
-        self.settings.setValue("script_arg_values_json", json.dumps(self.script_arg_values_by_script))
-        self.settings.setValue("gtsim_extra_args", self.gtsim_extra_args_edit.text().strip())
+        self.settings.setValue(
+            "script_arg_values_json", json.dumps(self.script_arg_values_by_script)
+        )
+        self.settings.setValue(
+            "gtsim_extra_args", self.gtsim_extra_args_edit.text().strip()
+        )
         self.settings.setValue("auto_xodr", self.auto_xodr_checkbox.isChecked())
 
         self.settings.setValue("realdriver_on", self.realdriver_checkbox.isChecked())
@@ -1456,7 +1530,9 @@ class LauncherWindow(QMainWindow):
         self.settings.setValue("py_arg_port", self.py_arg_port_spin.value())
         self.settings.setValue("py_arg_osi_port", self.py_arg_osi_port_spin.value())
         self.settings.setValue("py_arg_id", self.py_arg_id_spin.value())
-        self.settings.setValue("py_arg_target_speed_port", self.py_arg_target_speed_port_spin.value())
+        self.settings.setValue(
+            "py_arg_target_speed_port", self.py_arg_target_speed_port_spin.value()
+        )
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.pending_start_all = False

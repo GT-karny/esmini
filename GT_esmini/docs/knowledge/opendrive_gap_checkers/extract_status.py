@@ -3,6 +3,7 @@ result (group + rules[] with status), and build an authoritative rule_name -> {s
 reason, group} mapping. Prefer the VERIFY result over the IMPLEMENT result for a group
 (verify is the later, audited word). Emit final_status.json + a coverage summary.
 Reports any group/rule gaps so we know exactly what still needs hand-work."""
+
 import json
 import sys
 from pathlib import Path
@@ -10,16 +11,34 @@ from collections import defaultdict, Counter
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-SP = Path(r"C:/Users/Owner/AppData/Local/Temp/claude/e--Repository-GT-esmini-esmini/41686c41-ce61-4296-9913-8755428933ec/scratchpad/checks_gap")
-JOURNAL = Path(r"C:/Users/Owner/.claude/projects/e--Repository-GT-esmini-esmini/41686c41-ce61-4296-9913-8755463ec".replace("463ec", "8933ec")) / "subagents/workflows/wf_ae2895a2-020/journal.jsonl"
+SP = Path(
+    r"C:/Users/Owner/AppData/Local/Temp/claude/e--Repository-GT-esmini-esmini/41686c41-ce61-4296-9913-8755428933ec/scratchpad/checks_gap"
+)
+JOURNAL = (
+    Path(
+        r"C:/Users/Owner/.claude/projects/e--Repository-GT-esmini-esmini/41686c41-ce61-4296-9913-8755463ec".replace(
+            "463ec", "8933ec"
+        )
+    )
+    / "subagents/workflows/wf_ae2895a2-020/journal.jsonl"
+)
 # fix path robustly:
-JOURNAL = Path(r"C:/Users/Owner/.claude/projects/e--Repository-GT-esmini-esmini/41686c41-ce61-4296-9913-8755428933ec/subagents/workflows/wf_ae2895a2-020/journal.jsonl")
+JOURNAL = Path(
+    r"C:/Users/Owner/.claude/projects/e--Repository-GT-esmini-esmini/41686c41-ce61-4296-9913-8755428933ec/subagents/workflows/wf_ae2895a2-020/journal.jsonl"
+)
 
-VALID = {"implemented_gt", "gap_geometry_math", "gap_niche", "gap_ambiguous", "gap_deferred"}
+VALID = {
+    "implemented_gt",
+    "gap_geometry_math",
+    "gap_niche",
+    "gap_ambiguous",
+    "gap_deferred",
+}
 
 # collect results: each result line has a 'value' (the agent's returned object) and a label
 implement_by_group = {}
 verify_by_group = {}
+
 
 def walk(obj):
     """Yield dicts that look like an agent structured result (have group + rules)."""
@@ -31,6 +50,7 @@ def walk(obj):
     elif isinstance(obj, list):
         for v in obj:
             yield from walk(v)
+
 
 n_result = 0
 for line in JOURNAL.read_text(encoding="utf-8").splitlines():
@@ -61,19 +81,27 @@ for line in JOURNAL.read_text(encoding="utf-8").splitlines():
         implement_by_group[g] = rec
 
 print(f"journal result lines: {n_result}")
-print(f"verify groups: {len(verify_by_group)}  implement groups: {len(implement_by_group)}")
+print(
+    f"verify groups: {len(verify_by_group)}  implement groups: {len(implement_by_group)}"
+)
 
 # Load full rule lists per group (ground truth of what must be classified)
 group_rules = {}
 for jf in SP.glob("rules_*.json"):
-    g = jf.stem[len("rules_"):]
-    group_rules[g] = [r["rule_name"] for r in json.loads(jf.read_text(encoding="utf-8"))]
+    g = jf.stem[len("rules_") :]
+    group_rules[g] = [
+        r["rule_name"] for r in json.loads(jf.read_text(encoding="utf-8"))
+    ]
 
 final = {}
 missing_report = []
 for g, rule_names in group_rules.items():
     src = verify_by_group.get(g) or implement_by_group.get(g)
-    src_kind = "verify" if g in verify_by_group else ("implement" if g in implement_by_group else "NONE")
+    src_kind = (
+        "verify"
+        if g in verify_by_group
+        else ("implement" if g in implement_by_group else "NONE")
+    )
     by_name = {}
     if src:
         for r in src.get("rules", []):
@@ -85,7 +113,8 @@ for g, rule_names in group_rules.items():
                 "status": r["status"],
                 "reason": r.get("reason", ""),
                 "group": g,
-                "function": r.get("function") or ("run_checks" if r["status"] == "implemented_gt" else None),
+                "function": r.get("function")
+                or ("run_checks" if r["status"] == "implemented_gt" else None),
                 "source": src_kind,
             }
         else:
@@ -101,9 +130,13 @@ if missing_report:
     for g, rn, sk in missing_report:
         bg[g].append(rn)
     for g in sorted(bg):
-        print(f"  [{g}] src={dict(Counter(sk for gg,rr,sk in missing_report if gg==g))} ({len(bg[g])} rules):")
+        print(
+            f"  [{g}] src={dict(Counter(sk for gg,rr,sk in missing_report if gg==g))} ({len(bg[g])} rules):"
+        )
         for rn in bg[g]:
             print(f"      - {rn}")
 
-(SP / "final_status.json").write_text(json.dumps(final, ensure_ascii=False, indent=2), encoding="utf-8")
+(SP / "final_status.json").write_text(
+    json.dumps(final, ensure_ascii=False, indent=2), encoding="utf-8"
+)
 print(f"\n[out] {SP / 'final_status.json'}")

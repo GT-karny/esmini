@@ -35,7 +35,9 @@ async def sv_websocket(websocket: WebSocket, job_id: str):
                 raw = await asyncio.wait_for(queue.get(), timeout=2.0)
             except asyncio.TimeoutError:
                 if not bridge.running:
-                    await websocket.send_json({"type": "end", "reason": "simulation_ended"})
+                    await websocket.send_json(
+                        {"type": "end", "reason": "simulation_ended"}
+                    )
                     break
                 continue
 

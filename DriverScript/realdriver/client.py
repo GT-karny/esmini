@@ -5,17 +5,20 @@ import time
 from osi3 import osi_hostvehicledata_pb2
 from osi3.osi_hostvehicledata_pb2 import HostVehicleData
 
+
 # Enums for high-level API
 class LightMode:
     OFF = 0
     LOW = 1
     HIGH = 2
 
+
 class IndicatorMode:
     OFF = 0
     LEFT = 1
     RIGHT = 2
     HAZARD = 3
+
 
 class RealDriverClient:
     """
@@ -42,7 +45,9 @@ class RealDriverClient:
         self.hvd = HostVehicleData()
 
         # Initialize basic fields
-        self.hvd.vehicle_basics.operating_state = osi_hostvehicledata_pb2.HostVehicleData.VehicleBasics.OPERATING_STATE_DRIVING
+        self.hvd.vehicle_basics.operating_state = (
+            osi_hostvehicledata_pb2.HostVehicleData.VehicleBasics.OPERATING_STATE_DRIVING
+        )
         self.hvd.vehicle_powertrain.gear_transmission = 1
         self.hvd.vehicle_steering.vehicle_steering_wheel.angle = 0.0
 
@@ -90,7 +95,7 @@ class RealDriverClient:
     def set_light_mask_bit(self, bit_index, on):
         """Helper to set/clear a specific bit in light_mask"""
         if on:
-            self.light_mask |= (1 << bit_index)
+            self.light_mask |= 1 << bit_index
         else:
             self.light_mask &= ~(1 << bit_index)
 
@@ -102,16 +107,16 @@ class RealDriverClient:
             mode (LightMode): OFF, LOW, or HIGH
         """
         # Clear Low/High/License bits first
-        self.set_light_mask_bit(0, False) # Low
-        self.set_light_mask_bit(1, False) # High
-        self.set_light_mask_bit(8, False) # License Plate
+        self.set_light_mask_bit(0, False)  # Low
+        self.set_light_mask_bit(1, False)  # High
+        self.set_light_mask_bit(8, False)  # License Plate
 
         if mode == LightMode.LOW:
             self.set_light_mask_bit(0, True)
-            self.set_light_mask_bit(8, True) # License plate linked
+            self.set_light_mask_bit(8, True)  # License plate linked
         elif mode == LightMode.HIGH:
             self.set_light_mask_bit(1, True)
-            self.set_light_mask_bit(8, True) # License plate linked
+            self.set_light_mask_bit(8, True)  # License plate linked
 
     def set_indicators(self, mode):
         """
@@ -121,8 +126,8 @@ class RealDriverClient:
             mode (IndicatorMode): OFF, LEFT, RIGHT, HAZARD
         """
         # Clear Indicator bits
-        self.set_light_mask_bit(2, False) # Left
-        self.set_light_mask_bit(3, False) # Right
+        self.set_light_mask_bit(2, False)  # Left
+        self.set_light_mask_bit(3, False)  # Right
 
         if mode == IndicatorMode.LEFT:
             self.set_light_mask_bit(2, True)
@@ -152,24 +157,26 @@ class RealDriverClient:
 
     def set_light_state(self, light_type, on):
         """Legacy string-based setter mapped to new logic"""
-        if light_type == 'low':
+        if light_type == "low":
             # This is tricky because string interface implies individual control
             # We'll map 'low' to bit 0 directly
             self.set_light_mask_bit(0, on)
             # Link license plate if turning ON
-            if on: self.set_light_mask_bit(8, True)
-        elif light_type == 'high':
+            if on:
+                self.set_light_mask_bit(8, True)
+        elif light_type == "high":
             self.set_light_mask_bit(1, on)
-            if on: self.set_light_mask_bit(8, True)
-        elif light_type == 'left':
+            if on:
+                self.set_light_mask_bit(8, True)
+        elif light_type == "left":
             self.set_light_mask_bit(2, on)
-        elif light_type == 'right':
+        elif light_type == "right":
             self.set_light_mask_bit(3, on)
-        elif light_type == 'hazard':
+        elif light_type == "hazard":
             self.set_indicators(IndicatorMode.HAZARD if on else IndicatorMode.OFF)
-        elif light_type == 'fog_front':
+        elif light_type == "fog_front":
             self.set_fog_lights(front=on)
-        elif light_type == 'fog_rear':
+        elif light_type == "fog_rear":
             self.set_fog_lights(rear=on)
 
     def set_adas_function(self, function_name, state, custom_name=None):
@@ -185,7 +192,9 @@ class RealDriverClient:
 
         if not found:
             func = self.hvd.vehicle_automated_driving_function.add()
-            func.name = osi_hostvehicledata_pb2.HostVehicleData.VehicleAutomatedDrivingFunction.NAME_OTHER
+            func.name = (
+                osi_hostvehicledata_pb2.HostVehicleData.VehicleAutomatedDrivingFunction.NAME_OTHER
+            )
             func.custom_name = function_name
             func.state = state
 
@@ -200,13 +209,15 @@ class RealDriverClient:
 
             # Create Packet: [LightMask (4 bytes)] + [HVD Data]
             # using 'i' for signed int (matches C++ int), little-endian
-            packet = struct.pack('<i', self.light_mask) + hvd_data
+            packet = struct.pack("<i", self.light_mask) + hvd_data
 
             # Send
             self.sock.sendto(packet, (self.ip, self.port))
 
             if self.frame_number % 50 == 0:
-                print(f"UDP Sent (Frame {self.frame_number}): Port={self.port}, Thr={self.hvd.vehicle_powertrain.pedal_position_acceleration:.2f}, Brk={self.hvd.vehicle_brake_system.pedal_position_brake:.2f}")
+                print(
+                    f"UDP Sent (Frame {self.frame_number}): Port={self.port}, Thr={self.hvd.vehicle_powertrain.pedal_position_acceleration:.2f}, Brk={self.hvd.vehicle_brake_system.pedal_position_brake:.2f}"
+                )
 
             self.frame_number += 1
 

@@ -23,6 +23,7 @@ Examples
   py gt_sim_test.py compare results/vd_basic results/baselines/straight_constant_speed
   py gt_sim_test.py assert  results/vd_basic --expectations <scenario>.expectations.yaml
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,7 +49,10 @@ from gt_lib import GtLib  # noqa: E402  (local module, same dir)
 # yaml/osi3), so importing it flat here is safe in the dev tree and the package.
 sys.path.insert(0, str(REPO_ROOT / "GT_esmini" / "web" / "backend" / "services"))
 import vd_metrics as _vd  # noqa: E402
-from vd_metrics import load_telemetry as _load_telemetry, _speed_accel_jerk  # noqa: E402
+from vd_metrics import (
+    load_telemetry as _load_telemetry,
+    _speed_accel_jerk,
+)  # noqa: E402
 
 # OSI groundtruth capture (opt-in). GT_Sim/GT_esminiLib emit OSI over UDP with
 # --osi (default port 48198), reassembled with the same counter/size framing as
@@ -59,9 +63,30 @@ OSI_UDP_PORT = 48198
 OSI_BUFFER_SIZE = 8208  # max OSI UDP payload + 8-byte header (contract with esmini)
 
 # osi3 enum -> string maps (mirror of api/osi_stream.py, kept local on purpose).
-_TL_COLOR_MAP = {0: "unknown", 1: "other", 2: "red", 3: "yellow", 4: "green", 5: "blue", 6: "white"}
-_TL_MODE_MAP = {0: "unknown", 1: "other", 2: "off", 3: "constant", 4: "flashing", 5: "counting"}
-_MOVING_TYPE_MAP = {0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: "animal"}
+_TL_COLOR_MAP = {
+    0: "unknown",
+    1: "other",
+    2: "red",
+    3: "yellow",
+    4: "green",
+    5: "blue",
+    6: "white",
+}
+_TL_MODE_MAP = {
+    0: "unknown",
+    1: "other",
+    2: "off",
+    3: "constant",
+    4: "flashing",
+    5: "counting",
+}
+_MOVING_TYPE_MAP = {
+    0: "unknown",
+    1: "other",
+    2: "vehicle",
+    3: "pedestrian",
+    4: "animal",
+}
 
 # Enum names for the fields added by the ④観測 wiring (traffic-sign classification,
 # stationary-object type, traffic-light icon) are read off the protobuf descriptor
@@ -76,7 +101,9 @@ def _enum_name(msg_cls, field: str, value: int, prefix: str) -> str:
     if table is None:
         try:
             enum_type = msg_cls.DESCRIPTOR.fields_by_name[field].enum_type
-            table = {v.number: v.name.removeprefix(prefix).lower() for v in enum_type.values}
+            table = {
+                v.number: v.name.removeprefix(prefix).lower() for v in enum_type.values
+            }
         except Exception:
             table = {}
         _ENUM_NAME_CACHE[key] = table
@@ -100,15 +127,20 @@ _CROSSWALK_SYNTH_ID_BASE = 900000000
 _STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects", "lane_map")
 
 
-
 # ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
 
+
 def _git_commit() -> str:
     try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=str(REPO_ROOT),
-                             capture_output=True, text=True, timeout=10)
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         return out.stdout.strip() if out.returncode == 0 else ""
     except Exception:
         return ""
@@ -236,7 +268,7 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             if ref.type == "net.asam.openscenario":
                 for ident in ref.identifier:
                     if ident.startswith("entity_name:"):
-                        name = ident[len("entity_name:"):]
+                        name = ident[len("entity_name:") :]
         # When OSI reports no body extents (dim <= 0) we emit the 4.0x2.0 m default
         # so the geometry maths still run, but flag it: an OBB anti-collision gate
         # must NOT report a clean measured pass on fabricated dimensions (a larger
@@ -248,7 +280,7 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "x": round(pos.x, 3),
             "y": round(pos.y, 3),
             "h": round(o.base.orientation.yaw, 4),
-            "speed": round(math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2), 3),
+            "speed": round(math.sqrt(vel.x**2 + vel.y**2 + vel.z**2), 3),
             "vx": round(vel.x, 3),
             "vy": round(vel.y, 3),
             "vz": round(vel.z, 3),
@@ -261,8 +293,9 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "type": _MOVING_TYPE_MAP.get(o.type, "unknown"),
             # OSI assigned_lane_id (global lane id); resolve to OpenDRIVE
             # road_id/lane_id via scene["lane_map"]. None when OSI set no lane.
-            "lane_global_id": (o.assigned_lane_id[0].value
-                               if o.assigned_lane_id else None),
+            "lane_global_id": (
+                o.assigned_lane_id[0].value if o.assigned_lane_id else None
+            ),
         }
         if dims_fallback:
             obj["dims_fallback"] = True
@@ -272,19 +305,23 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     for tl in gt.traffic_light:
         pos = tl.base.position
         cls = tl.classification
-        traffic_lights.append({
-            "id": tl.id.value,
-            "x": round(pos.x, 3),
-            "y": round(pos.y, 3),
-            "h": round(tl.base.orientation.yaw, 4),
-            "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
-            "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
-            # icon is what distinguishes a pedestrian head (walk/dont_walk/
-            # pedestrian) from a vehicle head; without it every lamp looks alike.
-            "icon": _enum_name(TrafficLight.Classification, "icon", cls.icon, "ICON_"),
-            # repeated in OSI: one head may govern several lanes.
-            "assigned_lane_ids": [i.value for i in cls.assigned_lane_id],
-        })
+        traffic_lights.append(
+            {
+                "id": tl.id.value,
+                "x": round(pos.x, 3),
+                "y": round(pos.y, 3),
+                "h": round(tl.base.orientation.yaw, 4),
+                "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
+                "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
+                # icon is what distinguishes a pedestrian head (walk/dont_walk/
+                # pedestrian) from a vehicle head; without it every lamp looks alike.
+                "icon": _enum_name(
+                    TrafficLight.Classification, "icon", cls.icon, "ICON_"
+                ),
+                # repeated in OSI: one head may govern several lanes.
+                "assigned_lane_ids": [i.value for i in cls.assigned_lane_id],
+            }
+        )
 
     scene = {"objects": objects, "traffic_lights": traffic_lights}
 
@@ -302,14 +339,16 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
                 continue
             for ident in ref.identifier:
                 if ident.startswith("road_id:"):
-                    road_id = ident[len("road_id:"):]
+                    road_id = ident[len("road_id:") :]
                 elif ident.startswith("lane_id:"):
-                    lane_id = ident[len("lane_id:"):]
+                    lane_id = ident[len("lane_id:") :]
         if road_id is None:
             continue
         try:
-            entry = {"road_id": int(road_id),
-                     "lane_id": int(lane_id) if lane_id is not None else None}
+            entry = {
+                "road_id": int(road_id),
+                "lane_id": int(lane_id) if lane_id is not None else None,
+            }
         except ValueError:
             continue
         # str key: telemetry.jsonl round-trips dict keys through JSON as strings,
@@ -323,15 +362,21 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     for ts in gt.traffic_sign:
         main = ts.main_sign
         cls = main.classification
-        traffic_signs.append({
-            "id": ts.id.value,
-            "type": _enum_name(TrafficSign.MainSign.Classification, "type", cls.type, "TYPE_"),
-            "value": round(cls.value.value, 3),
-            "value_unit": _enum_name(type(cls.value), "value_unit", cls.value.value_unit, "UNIT_"),
-            "x": round(main.base.position.x, 3),
-            "y": round(main.base.position.y, 3),
-            "h": round(main.base.orientation.yaw, 4),
-        })
+        traffic_signs.append(
+            {
+                "id": ts.id.value,
+                "type": _enum_name(
+                    TrafficSign.MainSign.Classification, "type", cls.type, "TYPE_"
+                ),
+                "value": round(cls.value.value, 3),
+                "value_unit": _enum_name(
+                    type(cls.value), "value_unit", cls.value.value_unit, "UNIT_"
+                ),
+                "x": round(main.base.position.x, 3),
+                "y": round(main.base.position.y, 3),
+                "h": round(main.base.orientation.yaw, 4),
+            }
+        )
     if traffic_signs:
         scene["traffic_signs"] = traffic_signs
 
@@ -343,38 +388,54 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             for ident in ref.identifier:
                 if ident.startswith("object_id:"):
                     try:
-                        odr_id = int(ident[len("object_id:"):])
+                        odr_id = int(ident[len("object_id:") :])
                     except ValueError:
                         pass
-        stationary.append({
-            "id": so.id.value,
-            "type": _enum_name(StationaryObject.Classification, "type",
-                               so.classification.type, "TYPE_"),
-            "x": round(so.base.position.x, 3),
-            "y": round(so.base.position.y, 3),
-            "h": round(so.base.orientation.yaw, 4),
-            "length": round(dim.length, 2),
-            "width": round(dim.width, 2),
-            "height": round(dim.height, 2),
-            "odr_object_id": odr_id,
-            # Only synthesised crossPath crosswalks are recognisable in-band;
-            # see _CROSSWALK_SYNTH_ID_BASE. False here means "not provably a
-            # crosswalk", NOT "provably not a crosswalk".
-            "is_crosswalk": odr_id is not None and odr_id >= _CROSSWALK_SYNTH_ID_BASE,
-            # Object-LOCAL corners, not world: esmini fills base_polygon from
-            # Outline::GetPosLocal (GT_OSIReporter.cpp:840-843). A consumer
-            # wanting world coordinates must rotate by `h` and offset by x,y.
-            "polygon": [[round(p.x, 3), round(p.y, 3)] for p in so.base.base_polygon],
-        })
+        stationary.append(
+            {
+                "id": so.id.value,
+                "type": _enum_name(
+                    StationaryObject.Classification,
+                    "type",
+                    so.classification.type,
+                    "TYPE_",
+                ),
+                "x": round(so.base.position.x, 3),
+                "y": round(so.base.position.y, 3),
+                "h": round(so.base.orientation.yaw, 4),
+                "length": round(dim.length, 2),
+                "width": round(dim.width, 2),
+                "height": round(dim.height, 2),
+                "odr_object_id": odr_id,
+                # Only synthesised crossPath crosswalks are recognisable in-band;
+                # see _CROSSWALK_SYNTH_ID_BASE. False here means "not provably a
+                # crosswalk", NOT "provably not a crosswalk".
+                "is_crosswalk": odr_id is not None
+                and odr_id >= _CROSSWALK_SYNTH_ID_BASE,
+                # Object-LOCAL corners, not world: esmini fills base_polygon from
+                # Outline::GetPosLocal (GT_OSIReporter.cpp:840-843). A consumer
+                # wanting world coordinates must rotate by `h` and offset by x,y.
+                "polygon": [
+                    [round(p.x, 3), round(p.y, 3)] for p in so.base.base_polygon
+                ],
+            }
+        )
     if stationary:
         scene["stationary_objects"] = stationary
 
     return scene
 
 
-def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
-        snapshots: int, dll: Path | None, capture_osi: bool = False,
-        osi_port: int = OSI_UDP_PORT) -> dict:
+def run(
+    scenario: Path,
+    out_dir: Path,
+    dt: float,
+    max_time: float,
+    snapshots: int,
+    dll: Path | None,
+    capture_osi: bool = False,
+    osi_port: int = OSI_UDP_PORT,
+) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = out_dir / "telemetry.jsonl"
 
@@ -401,8 +462,10 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
             rc = lib.init_with_args(args)
             if rc != 0:
                 cause = lib.get_last_error()
-                raise RuntimeError(f"GT_InitWithArgs failed (rc={rc}) for {scenario}"
-                                   + (f": {cause}" if cause else ""))
+                raise RuntimeError(
+                    f"GT_InitWithArgs failed (rc={rc}) for {scenario}"
+                    + (f": {cause}" if cause else "")
+                )
             if osi_cap is not None:
                 # GT_InitWithArgs doesn't open the OSI socket (only GT_Sim.exe does);
                 # open it now so GT_Step emits groundtruth to 127.0.0.1:48198.
@@ -447,8 +510,11 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
 
     duration = frames[-1]["sim_time"] if frames else 0.0
     meta = {
-        "scenario": str(scenario.relative_to(REPO_ROOT)) if scenario.is_absolute()
-        and str(scenario).startswith(str(REPO_ROOT)) else str(scenario),
+        "scenario": (
+            str(scenario.relative_to(REPO_ROOT))
+            if scenario.is_absolute() and str(scenario).startswith(str(REPO_ROOT))
+            else str(scenario)
+        ),
         "controller": "VirtualDriver",
         "dt": dt,
         "frames": len(frames),
@@ -461,17 +527,23 @@ def run(scenario: Path, out_dir: Path, dt: float, max_time: float,
     if frames:
         _render_snapshots(frames, out_dir / "snapshots", max(1, snapshots))
 
-    print(f"[run] {scenario.name}: {len(frames)} frames, {duration:.1f}s -> {jsonl_path}",
-          file=sys.stderr)
+    print(
+        f"[run] {scenario.name}: {len(frames)} frames, {duration:.1f}s -> {jsonl_path}",
+        file=sys.stderr,
+    )
     if not frames:
-        print("[run] WARNING: no VirtualDriver telemetry captured - does the scenario "
-              "assign a VirtualDriverController to the ego?", file=sys.stderr)
+        print(
+            "[run] WARNING: no VirtualDriver telemetry captured - does the scenario "
+            "assign a VirtualDriverController to the ego?",
+            file=sys.stderr,
+        )
     return meta
 
 
 def _render_snapshots(frames: list[dict], snap_dir: Path, count: int) -> None:
     """Top-down keyframes: ego path so far + the ego's short-horizon preview."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -482,23 +554,38 @@ def _render_snapshots(frames: list[dict], snap_dir: Path, count: int) -> None:
     xlim = (min(xs) - pad, max(xs) + pad)
     ylim = (min(ys) - pad, max(ys) + pad)
 
-    idxs = [int(round(i * (len(frames) - 1) / max(1, count - 1))) for i in range(count)] \
-        if count > 1 else [len(frames) - 1]
+    idxs = (
+        [int(round(i * (len(frames) - 1) / max(1, count - 1))) for i in range(count)]
+        if count > 1
+        else [len(frames) - 1]
+    )
 
     for k, idx in enumerate(idxs):
         fr = frames[idx]
         fig, ax = plt.subplots(figsize=(5, 6))
-        ax.plot(xs[:idx + 1], ys[:idx + 1], "-", color="#7B88E8", lw=1.2, label="ego path")
+        ax.plot(
+            xs[: idx + 1], ys[: idx + 1], "-", color="#7B88E8", lw=1.2, label="ego path"
+        )
         ego = fr["ego"]
         ax.plot(ego["x"], ego["y"], "o", color="#9B84E8", ms=8, label="ego")
         prev = fr.get("preview", {})
         pts = prev.get("points", [])
         if pts:
-            ax.plot([p["x"] for p in pts], [p["y"] for p in pts], ".-",
-                    color="#4FD18B", ms=2, lw=0.8, label="preview")
-        ax.set_xlim(*xlim); ax.set_ylim(*ylim); ax.set_aspect("equal", "box")
+            ax.plot(
+                [p["x"] for p in pts],
+                [p["y"] for p in pts],
+                ".-",
+                color="#4FD18B",
+                ms=2,
+                lw=0.8,
+                label="preview",
+            )
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        ax.set_aspect("equal", "box")
         ax.set_title(f"t={ego.get('speed', 0):.1f} m/s  sim_t={fr['sim_time']:.1f}s")
-        ax.legend(loc="upper right", fontsize=7); ax.grid(alpha=0.2)
+        ax.legend(loc="upper right", fontsize=7)
+        ax.grid(alpha=0.2)
         fig.tight_layout()
         fig.savefig(snap_dir / f"frame_{k:02d}_t{fr['sim_time']:.1f}.png", dpi=90)
         plt.close(fig)
@@ -508,12 +595,15 @@ def _render_snapshots(frames: list[dict], snap_dir: Path, count: int) -> None:
 # compare
 # ---------------------------------------------------------------------------
 
+
 def compare(run_dir: Path, baseline: Path, grid_dt: float = 0.1) -> dict:
     """Thin CLI wrapper over vd_metrics.compare (adds a stderr summary line)."""
     result = _vd.compare(run_dir, baseline, grid_dt)
-    print(f"[compare] xy_rmse={result['xy_rmse_m']}m  speed_rmse={result['speed_rmse_mps']}m/s  "
-          f"max_dev={result['xy_max_dev_m']}m -> {run_dir / 'compare.json'} (+baseline_track.json)",
-          file=sys.stderr)
+    print(
+        f"[compare] xy_rmse={result['xy_rmse_m']}m  speed_rmse={result['speed_rmse_mps']}m/s  "
+        f"max_dev={result['xy_max_dev_m']}m -> {run_dir / 'compare.json'} (+baseline_track.json)",
+        file=sys.stderr,
+    )
     return result
 
 
@@ -521,12 +611,16 @@ def compare(run_dir: Path, baseline: Path, grid_dt: float = 0.1) -> dict:
 # assert (expectations.yaml)
 # ---------------------------------------------------------------------------
 
+
 def assert_expectations(run_dir: Path, expectations: Path) -> dict:
     """Thin CLI wrapper over vd_metrics.assert_expectations (adds stderr prints)."""
     verdict = _vd.assert_expectations(run_dir, expectations)
     s = verdict["summary"]
-    print(f"[assert] overall={verdict['overall']}  pass={s['pass']} fail={s['fail']} "
-          f"skip={s['skip']} -> {run_dir / 'verdict.json'}", file=sys.stderr)
+    print(
+        f"[assert] overall={verdict['overall']}  pass={s['pass']} fail={s['fail']} "
+        f"skip={s['skip']} -> {run_dir / 'verdict.json'}",
+        file=sys.stderr,
+    )
     for r in verdict["results"]:
         print(f"   [{r['status']:4}] {r['event']}: {r['detail']}", file=sys.stderr)
     return verdict
@@ -536,11 +630,15 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
 # deceleration-profile report
 # ---------------------------------------------------------------------------
 
-def _render_decel_report(frames: list[dict], out_path: Path, expectation: dict | None = None) -> None:
+
+def _render_decel_report(
+    frames: list[dict], out_path: Path, expectation: dict | None = None
+) -> None:
     """Speed-vs-s (primary) + speed/accel-vs-t (twin) chart for the mid/long
     deceleration case. Overlays decel onset, the landmark, and the target band
     pulled from the expectations spec. Written as a PNG that Claude can Read."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -570,9 +668,15 @@ def _render_decel_report(frames: list[dict], out_path: Path, expectation: dict |
     # decel-phase window [onset -> landmark passage], same as the matcher
     lm = None
     if landmark_s is not None:
-        lm = next((i for i in range(n)
-                   if (road_id is None or frames[i]["ego"].get("track") == road_id)
-                   and s[i] >= landmark_s), None)
+        lm = next(
+            (
+                i
+                for i in range(n)
+                if (road_id is None or frames[i]["ego"].get("track") == road_id)
+                and s[i] >= landmark_s
+            ),
+            None,
+        )
     onset = next((i for i in range(n) if a[i] < -0.3 and (lm is None or i < lm)), None)
     if onset is not None and lm is not None and lm - onset >= 2:
         seg = range(onset, lm + 1)
@@ -588,24 +692,41 @@ def _render_decel_report(frames: list[dict], out_path: Path, expectation: dict |
     ax0.plot(s, v_raw, color="#9AA7FF", lw=0.8, alpha=0.6, label="speed (raw)")
     ax0.plot(s, v, color="#3B5BDB", lw=1.4, label="speed (smoothed)")
     if target_speed is not None:
-        ax0.axhspan(target_speed - target_tol, target_speed + target_tol,
-                    color="#4FD18B", alpha=0.18, label=f"target {target_speed:g}±{target_tol:g}")
+        ax0.axhspan(
+            target_speed - target_tol,
+            target_speed + target_tol,
+            color="#4FD18B",
+            alpha=0.18,
+            label=f"target {target_speed:g}±{target_tol:g}",
+        )
     if landmark_s is not None:
-        ax0.axvline(landmark_s, color="#E8590C", ls="--", lw=1.2, label=f"landmark s={landmark_s:g}")
+        ax0.axvline(
+            landmark_s,
+            color="#E8590C",
+            ls="--",
+            lw=1.2,
+            label=f"landmark s={landmark_s:g}",
+        )
     if onset is not None and lm is not None and lm > onset:
         ax0.axvspan(s[onset], s[lm], color="#3B5BDB", alpha=0.07, label="decel phase")
     if onset is not None:
         ax0.plot(s[onset], v[onset], "v", color="#E03131", ms=9, label="decel onset")
-    ax0.set_xlabel("route s [m]"); ax0.set_ylabel("speed [m/s]")
-    ax0.set_title(f"Deceleration profile  ({win_label}: max decel={max_decel:.2f} m/s^2, "
-                  f"max |jerk|={max_jerk:.2f} m/s^3)")
-    ax0.grid(alpha=0.25); ax0.legend(fontsize=7, loc="best")
+    ax0.set_xlabel("route s [m]")
+    ax0.set_ylabel("speed [m/s]")
+    ax0.set_title(
+        f"Deceleration profile  ({win_label}: max decel={max_decel:.2f} m/s^2, "
+        f"max |jerk|={max_jerk:.2f} m/s^3)"
+    )
+    ax0.grid(alpha=0.25)
+    ax0.legend(fontsize=7, loc="best")
 
     ax1.plot(t, v, color="#3B5BDB", lw=1.2, label="speed [m/s]")
     ax1b = ax1.twinx()
     ax1b.plot(t, a, color="#E8590C", lw=1.0, alpha=0.8, label="accel [m/s^2]")
     ax1b.axhline(0, color="#aaaaaa", lw=0.6)
-    ax1.set_xlabel("sim_time [s]"); ax1.set_ylabel("speed [m/s]"); ax1b.set_ylabel("accel [m/s^2]")
+    ax1.set_xlabel("sim_time [s]")
+    ax1.set_ylabel("speed [m/s]")
+    ax1b.set_ylabel("accel [m/s^2]")
     ax1.grid(alpha=0.25)
 
     fig.tight_layout()
@@ -618,6 +739,7 @@ def _render_decel_report(frames: list[dict], out_path: Path, expectation: dict |
 # ---------------------------------------------------------------------------
 # batch
 # ---------------------------------------------------------------------------
+
 
 def _resolve_repo(p) -> Path:
     """Resolve a manifest path: absolute as-is, else relative to the repo root."""
@@ -660,7 +782,9 @@ def _write_policy_config(policies: list[str], out_path: Path) -> Path:
     for p in policies:
         flag = _POLICY_FLAG.get(p)
         if flag is None:
-            raise ValueError(f"unknown policy '{p}' (want one of {sorted(_POLICY_FLAG)})")
+            raise ValueError(
+                f"unknown policy '{p}' (want one of {sorted(_POLICY_FLAG)})"
+            )
         base[flag] = True
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
@@ -678,8 +802,11 @@ def _prepare_policy_xosc(scenario: Path, run_dir: Path, config_path: Path) -> Pa
     root = tree.getroot()
     base_dir = scenario.parent
 
-    for tag, attr in (("LogicFile", "filepath"), ("SceneGraphFile", "filepath"),
-                      ("Directory", "path")):
+    for tag, attr in (
+        ("LogicFile", "filepath"),
+        ("SceneGraphFile", "filepath"),
+        ("Directory", "path"),
+    ):
         for el in root.iter(tag):
             fp = el.get(attr)
             if fp and not Path(fp).is_absolute():
@@ -691,10 +818,14 @@ def _prepare_policy_xosc(scenario: Path, run_dir: Path, config_path: Path) -> Pa
             props = ctrl.find("Properties")
             if props is None:
                 props = ET.SubElement(ctrl, "Properties")
-            ET.SubElement(props, "Property", {"name": "ConfigFile", "value": str(config_path)})
+            ET.SubElement(
+                props, "Property", {"name": "ConfigFile", "value": str(config_path)}
+            )
             injected = True
     if not injected:
-        raise RuntimeError(f"{scenario.name}: no VirtualDriverController to inject ConfigFile into")
+        raise RuntimeError(
+            f"{scenario.name}: no VirtualDriverController to inject ConfigFile into"
+        )
 
     run_dir.mkdir(parents=True, exist_ok=True)
     out = run_dir / (scenario.stem + ".policyrun.xosc")
@@ -708,6 +839,7 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     'error' and do not abort the batch. Writes batch_verdict.json + a
     Claude-readable batch_summary.md."""
     import yaml
+
     spec = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     name = spec.get("name", manifest.stem)
     defaults = spec.get("defaults", {}) or {}
@@ -723,18 +855,34 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
         scen_path = _resolve_repo(entry["scenario"])
         stem = scen_path.stem
         run_dir = out_root / stem
-        rec = {"scenario": entry["scenario"], "run_dir": str(run_dir),
-               "frames": 0, "compare": None, "verdict": None, "error": None}
+        rec = {
+            "scenario": entry["scenario"],
+            "run_dir": str(run_dir),
+            "frames": 0,
+            "compare": None,
+            "verdict": None,
+            "error": None,
+        }
         capture_osi = bool(entry.get("osi", default_osi))
         policies = entry.get("policies") or defaults.get("policies") or []
         rec["policies"] = policies
         try:
             scen_to_run = scen_path
             if policies:
-                cfg = _write_policy_config(policies, run_dir / "virtual_driver.run.json")
+                cfg = _write_policy_config(
+                    policies, run_dir / "virtual_driver.run.json"
+                )
                 scen_to_run = _prepare_policy_xosc(scen_path, run_dir, cfg)
-            meta = run(scen_to_run, run_dir, dt, max_time, snapshots, dll,
-                       capture_osi=capture_osi, osi_port=osi_port)
+            meta = run(
+                scen_to_run,
+                run_dir,
+                dt,
+                max_time,
+                snapshots,
+                dll,
+                capture_osi=capture_osi,
+                osi_port=osi_port,
+            )
             rec["frames"] = meta["frames"]
             if meta["frames"] == 0:
                 rec["error"] = "no VirtualDriver telemetry captured"
@@ -745,8 +893,10 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
             if baseline:
                 try:
                     cmp = compare(run_dir, _resolve_repo(baseline))
-                    rec["compare"] = {k: cmp[k] for k in
-                                      ("xy_rmse_m", "xy_max_dev_m", "speed_rmse_mps")}
+                    rec["compare"] = {
+                        k: cmp[k]
+                        for k in ("xy_rmse_m", "xy_max_dev_m", "speed_rmse_mps")
+                    }
                 except Exception as e:  # baseline missing / no overlap -> non-fatal
                     print(f"[batch] {stem}: compare skipped ({e})", file=sys.stderr)
 
@@ -758,8 +908,9 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
                 rec["verdict"] = {"overall": v["overall"], "summary": v["summary"]}
 
             if entry.get("report") == "decel":
-                _render_decel_report(_load_telemetry(run_dir),
-                                     run_dir / "decel_report.png", exp_spec)
+                _render_decel_report(
+                    _load_telemetry(run_dir), run_dir / "decel_report.png", exp_spec
+                )
         except Exception as e:
             rec["error"] = str(e)
             print(f"[batch] {stem}: ERROR {e}", file=sys.stderr)
@@ -776,23 +927,42 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     for rec in scen_results:
         st = _status(rec)
         counts[st] = counts.get(st, 0) + 1
-    overall = ("fail" if counts["fail"] or counts["error"]
-               else "needs-review" if counts["needs-review"] else "pass")
+    overall = (
+        "fail"
+        if counts["fail"] or counts["error"]
+        else "needs-review" if counts["needs-review"] else "pass"
+    )
 
-    agg = {"name": name, "manifest": str(manifest), "commit": _git_commit(),
-           "scenarios": scen_results, "summary": counts, "overall": overall}
-    (out_root / "batch_verdict.json").write_text(json.dumps(agg, indent=2), encoding="utf-8")
+    agg = {
+        "name": name,
+        "manifest": str(manifest),
+        "commit": _git_commit(),
+        "scenarios": scen_results,
+        "summary": counts,
+        "overall": overall,
+    }
+    (out_root / "batch_verdict.json").write_text(
+        json.dumps(agg, indent=2), encoding="utf-8"
+    )
 
-    lines = [f"# Batch: {name}", "",
-             f"**Overall: {overall}**  (pass={counts['pass']} fail={counts['fail']} "
-             f"needs-review={counts['needs-review']} error={counts['error']})  "
-             f"commit={agg['commit']}", "",
-             "| scenario | status | pass/fail/skip | xy_rmse | speed_rmse | first failing event |",
-             "| :-- | :-- | :-- | --: | --: | :-- |"]
+    lines = [
+        f"# Batch: {name}",
+        "",
+        f"**Overall: {overall}**  (pass={counts['pass']} fail={counts['fail']} "
+        f"needs-review={counts['needs-review']} error={counts['error']})  "
+        f"commit={agg['commit']}",
+        "",
+        "| scenario | status | pass/fail/skip | xy_rmse | speed_rmse | first failing event |",
+        "| :-- | :-- | :-- | --: | --: | :-- |",
+    ]
     for rec in scen_results:
         st = _status(rec)
         v = rec["verdict"]
-        pfs = f"{v['summary']['pass']}/{v['summary']['fail']}/{v['summary']['skip']}" if v else "-"
+        pfs = (
+            f"{v['summary']['pass']}/{v['summary']['fail']}/{v['summary']['skip']}"
+            if v
+            else "-"
+        )
         c = rec["compare"]
         xy = f"{c['xy_rmse_m']:.2f}" if c else "-"
         sp = f"{c['speed_rmse_mps']:.2f}" if c else "-"
@@ -808,12 +978,17 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
                 pass
         if rec["error"]:
             first_fail = f"ERROR: {rec['error']}"
-        lines.append(f"| {Path(rec['scenario']).name} | {st} | {pfs} | {xy} | {sp} | {first_fail} |")
+        lines.append(
+            f"| {Path(rec['scenario']).name} | {st} | {pfs} | {xy} | {sp} | {first_fail} |"
+        )
     lines += ["", f"OVERALL: {overall}"]
     (out_root / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
-    print(f"[batch] {name}: overall={overall}  {counts} "
-          f"-> {out_root / 'batch_verdict.json'} (+batch_summary.md)", file=sys.stderr)
+    print(
+        f"[batch] {name}: overall={overall}  {counts} "
+        f"-> {out_root / 'batch_verdict.json'} (+batch_summary.md)",
+        file=sys.stderr,
+    )
     return agg
 
 
@@ -821,9 +996,11 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pr = sub.add_parser("run", help="run a scenario in-process and record telemetry")
@@ -832,34 +1009,62 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--dt", type=float, default=0.05, help="fixed timestep [s]")
     pr.add_argument("--max-time", type=float, default=60.0, help="safety cap [s]")
     pr.add_argument("--snapshots", type=int, default=3, help="number of keyframe PNGs")
-    pr.add_argument("--dll", type=Path, default=None, help="GT_esminiLib.dll path override")
-    pr.add_argument("--osi", action="store_true",
-                    help="capture OSI groundtruth (objects + signal phase) into telemetry.scene")
-    pr.add_argument("--osi-port", type=int, default=OSI_UDP_PORT, help="OSI UDP port to bind")
-    pr.add_argument("--policy", default=None,
-                    help="comma list of traffic policies to enable "
-                         "(lead,traffic_light,stop_yield); injects a ConfigFile into a temp xosc")
+    pr.add_argument(
+        "--dll", type=Path, default=None, help="GT_esminiLib.dll path override"
+    )
+    pr.add_argument(
+        "--osi",
+        action="store_true",
+        help="capture OSI groundtruth (objects + signal phase) into telemetry.scene",
+    )
+    pr.add_argument(
+        "--osi-port", type=int, default=OSI_UDP_PORT, help="OSI UDP port to bind"
+    )
+    pr.add_argument(
+        "--policy",
+        default=None,
+        help="comma list of traffic policies to enable "
+        "(lead,traffic_light,stop_yield); injects a ConfigFile into a temp xosc",
+    )
 
     pc = sub.add_parser("compare", help="compare run vs Default baseline (ego RMSE)")
     pc.add_argument("run_dir", type=Path)
     pc.add_argument("baseline", type=Path, help=".osi file or baselines/<name>/ dir")
-    pc.add_argument("--max-xy-rmse", type=float, default=None,
-                    help="fail (exit 1) when xy_rmse_m exceeds this [m]")
-    pc.add_argument("--max-xy-dev", type=float, default=None,
-                    help="fail (exit 1) when xy_max_dev_m exceeds this [m]")
-    pc.add_argument("--max-speed-rmse", type=float, default=None,
-                    help="fail (exit 1) when speed_rmse_mps exceeds this [m/s]")
+    pc.add_argument(
+        "--max-xy-rmse",
+        type=float,
+        default=None,
+        help="fail (exit 1) when xy_rmse_m exceeds this [m]",
+    )
+    pc.add_argument(
+        "--max-xy-dev",
+        type=float,
+        default=None,
+        help="fail (exit 1) when xy_max_dev_m exceeds this [m]",
+    )
+    pc.add_argument(
+        "--max-speed-rmse",
+        type=float,
+        default=None,
+        help="fail (exit 1) when speed_rmse_mps exceeds this [m/s]",
+    )
 
     pa = sub.add_parser("assert", help="match run telemetry against expectations.yaml")
     pa.add_argument("run_dir", type=Path)
     pa.add_argument("--expectations", type=Path, required=True)
 
-    pb = sub.add_parser("batch", help="run a manifest of scenarios (run+compare+assert each)")
+    pb = sub.add_parser(
+        "batch", help="run a manifest of scenarios (run+compare+assert each)"
+    )
     pb.add_argument("manifest", type=Path)
     pb.add_argument("--out", type=Path, required=True)
-    pb.add_argument("--dll", type=Path, default=None, help="GT_esminiLib.dll path override")
+    pb.add_argument(
+        "--dll", type=Path, default=None, help="GT_esminiLib.dll path override"
+    )
 
-    prep = sub.add_parser("report", help="render a deceleration-profile PNG for an existing run")
+    prep = sub.add_parser(
+        "report", help="render a deceleration-profile PNG for an existing run"
+    )
     prep.add_argument("run_dir", type=Path)
     prep.add_argument("--expectations", type=Path, default=None)
 
@@ -875,9 +1080,16 @@ def main(argv: list[str] | None = None) -> int:
             policies = [p.strip() for p in args.policy.split(",") if p.strip()]
             cfg = _write_policy_config(policies, out_dir / "virtual_driver.run.json")
             scen = _prepare_policy_xosc(scen, out_dir, cfg)
-        meta = run(scen, out_dir, args.dt,
-                   args.max_time, args.snapshots, args.dll,
-                   capture_osi=args.osi, osi_port=args.osi_port)
+        meta = run(
+            scen,
+            out_dir,
+            args.dt,
+            args.max_time,
+            args.snapshots,
+            args.dll,
+            capture_osi=args.osi,
+            osi_port=args.osi_port,
+        )
         return 0 if meta["frames"] > 0 else 1
 
     if args.cmd == "compare":
@@ -887,9 +1099,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[compare] ERROR: {e}", file=sys.stderr)
             return 1
         violations = []
-        for opt, key, unit in (("max_xy_rmse", "xy_rmse_m", "m"),
-                               ("max_xy_dev", "xy_max_dev_m", "m"),
-                               ("max_speed_rmse", "speed_rmse_mps", "m/s")):
+        for opt, key, unit in (
+            ("max_xy_rmse", "xy_rmse_m", "m"),
+            ("max_xy_dev", "xy_max_dev_m", "m"),
+            ("max_speed_rmse", "speed_rmse_mps", "m/s"),
+        ):
             limit = getattr(args, opt)
             if limit is not None and result[key] > limit:
                 violations.append(f"{key}={result[key]}{unit} > {limit}{unit}")
@@ -914,7 +1128,10 @@ def main(argv: list[str] | None = None) -> int:
         exp = None
         if args.expectations:
             import yaml
-            exp = yaml.safe_load(args.expectations.resolve().read_text(encoding="utf-8"))
+
+            exp = yaml.safe_load(
+                args.expectations.resolve().read_text(encoding="utf-8")
+            )
         _render_decel_report(frames, args.run_dir.resolve() / "decel_report.png", exp)
         return 0
 

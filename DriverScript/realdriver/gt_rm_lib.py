@@ -10,7 +10,6 @@ import os
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 
-
 # Constants matching GT_esminiRMLib.hpp
 GT_RM_LINK_TYPE_PREDECESSOR = 0
 GT_RM_LINK_TYPE_SUCCESSOR = 1
@@ -27,6 +26,7 @@ GT_RM_CONTACT_POINT_END = 2
 @dataclass
 class RoadLinkInfo:
     """Road link information."""
+
     element_id: int
     element_type: int  # GT_RM_ELEMENT_TYPE_*
     contact_point: int  # GT_RM_CONTACT_POINT_*
@@ -42,15 +42,16 @@ class RoadLinkInfo:
     @property
     def contact_point_name(self) -> str:
         if self.contact_point == GT_RM_CONTACT_POINT_START:
-            return 'start'
+            return "start"
         elif self.contact_point == GT_RM_CONTACT_POINT_END:
-            return 'end'
-        return 'unknown'
+            return "end"
+        return "unknown"
 
 
 @dataclass
 class JunctionConnection:
     """Junction connection information."""
+
     incoming_road_id: int
     connecting_road_id: int
     contact_point: int  # GT_RM_CONTACT_POINT_*
@@ -59,6 +60,7 @@ class JunctionConnection:
 @dataclass
 class RoadSignalInfo:
     """Road signal information."""
+
     id: int
     s: float
     t: float
@@ -84,7 +86,7 @@ class GT_RM_RoadLinkInfo(ctypes.Structure):
     _fields_ = [
         ("elementId", ctypes.c_uint32),
         ("elementType", ctypes.c_int),
-        ("contactPoint", ctypes.c_int)
+        ("contactPoint", ctypes.c_int),
     ]
 
 
@@ -92,7 +94,7 @@ class GT_RM_JunctionConnection(ctypes.Structure):
     _fields_ = [
         ("incomingRoadId", ctypes.c_uint32),
         ("connectingRoadId", ctypes.c_uint32),
-        ("contactPoint", ctypes.c_int)
+        ("contactPoint", ctypes.c_int),
     ]
 
 
@@ -115,7 +117,7 @@ class GT_RM_RoadSignalInfo(ctypes.Structure):
         ("text", ctypes.c_char * 128),
         ("isDynamic", ctypes.c_bool),
         ("height", ctypes.c_double),
-        ("width", ctypes.c_double)
+        ("width", ctypes.c_double),
     ]
 
 
@@ -160,14 +162,14 @@ class GTEsminiRMLib:
         # GT_RM_GetRoadSuccessor
         self.lib.GT_RM_GetRoadSuccessor.argtypes = [
             ctypes.c_uint32,
-            ctypes.POINTER(GT_RM_RoadLinkInfo)
+            ctypes.POINTER(GT_RM_RoadLinkInfo),
         ]
         self.lib.GT_RM_GetRoadSuccessor.restype = ctypes.c_int
 
         # GT_RM_GetRoadPredecessor
         self.lib.GT_RM_GetRoadPredecessor.argtypes = [
             ctypes.c_uint32,
-            ctypes.POINTER(GT_RM_RoadLinkInfo)
+            ctypes.POINTER(GT_RM_RoadLinkInfo),
         ]
         self.lib.GT_RM_GetRoadPredecessor.restype = ctypes.c_int
 
@@ -179,14 +181,14 @@ class GTEsminiRMLib:
         self.lib.GT_RM_GetJunctionConnection.argtypes = [
             ctypes.c_uint32,
             ctypes.c_int,
-            ctypes.POINTER(GT_RM_JunctionConnection)
+            ctypes.POINTER(GT_RM_JunctionConnection),
         ]
         self.lib.GT_RM_GetJunctionConnection.restype = ctypes.c_int
 
         # GT_RM_GetJunctionConnectionsFromRoad
         self.lib.GT_RM_GetJunctionConnectionsFromRoad.argtypes = [
             ctypes.c_uint32,
-            ctypes.c_uint32
+            ctypes.c_uint32,
         ]
         self.lib.GT_RM_GetJunctionConnectionsFromRoad.restype = ctypes.c_int
 
@@ -195,7 +197,7 @@ class GTEsminiRMLib:
             ctypes.c_uint32,
             ctypes.c_uint32,
             ctypes.c_int,
-            ctypes.POINTER(ctypes.c_uint32)
+            ctypes.POINTER(ctypes.c_uint32),
         ]
         self.lib.GT_RM_GetJunctionConnectionFromRoadByIndex.restype = ctypes.c_int
 
@@ -219,7 +221,7 @@ class GTEsminiRMLib:
         self.lib.GT_RM_GetRoadSignal.argtypes = [
             ctypes.c_uint32,
             ctypes.c_int,
-            ctypes.POINTER(GT_RM_RoadSignalInfo)
+            ctypes.POINTER(GT_RM_RoadSignalInfo),
         ]
         self.lib.GT_RM_GetRoadSignal.restype = ctypes.c_int
 
@@ -233,7 +235,7 @@ class GTEsminiRMLib:
         Returns:
             0 on success, -1 on failure
         """
-        result = self.lib.GT_RM_Init(odr_path.encode('utf-8'))
+        result = self.lib.GT_RM_Init(odr_path.encode("utf-8"))
         if result == 0:
             print(f"[INFO] GT_esminiRMLib: Loaded {odr_path}")
         else:
@@ -261,7 +263,7 @@ class GTEsminiRMLib:
             return RoadLinkInfo(
                 element_id=link_info.elementId,
                 element_type=link_info.elementType,
-                contact_point=link_info.contactPoint
+                contact_point=link_info.contactPoint,
             )
         return None
 
@@ -282,7 +284,7 @@ class GTEsminiRMLib:
             return RoadLinkInfo(
                 element_id=link_info.elementId,
                 element_type=link_info.elementType,
-                contact_point=link_info.contactPoint
+                contact_point=link_info.contactPoint,
             )
         return None
 
@@ -298,7 +300,9 @@ class GTEsminiRMLib:
         """
         return self.lib.GT_RM_GetJunctionConnectionCount(junction_id)
 
-    def get_junction_connection(self, junction_id: int, index: int) -> Optional[JunctionConnection]:
+    def get_junction_connection(
+        self, junction_id: int, index: int
+    ) -> Optional[JunctionConnection]:
         """
         Get a junction connection by index.
 
@@ -310,13 +314,15 @@ class GTEsminiRMLib:
             JunctionConnection if found, None otherwise
         """
         conn = GT_RM_JunctionConnection()
-        result = self.lib.GT_RM_GetJunctionConnection(junction_id, index, ctypes.byref(conn))
+        result = self.lib.GT_RM_GetJunctionConnection(
+            junction_id, index, ctypes.byref(conn)
+        )
 
         if result == 0:
             return JunctionConnection(
                 incoming_road_id=conn.incomingRoadId,
                 connecting_road_id=conn.connectingRoadId,
-                contact_point=conn.contactPoint
+                contact_point=conn.contactPoint,
             )
         return None
 
@@ -341,8 +347,9 @@ class GTEsminiRMLib:
                 connections.append(conn)
         return connections
 
-    def get_junction_connections_from_road(self, junction_id: int,
-                                            incoming_road_id: int) -> List[int]:
+    def get_junction_connections_from_road(
+        self, junction_id: int, incoming_road_id: int
+    ) -> List[int]:
         """
         Get all connecting road IDs from a specific incoming road through a junction.
 
@@ -353,7 +360,9 @@ class GTEsminiRMLib:
         Returns:
             List of connecting road IDs
         """
-        count = self.lib.GT_RM_GetJunctionConnectionsFromRoad(junction_id, incoming_road_id)
+        count = self.lib.GT_RM_GetJunctionConnectionsFromRoad(
+            junction_id, incoming_road_id
+        )
         if count <= 0:
             return []
 
@@ -367,8 +376,9 @@ class GTEsminiRMLib:
                 connecting_roads.append(road_id.value)
         return connecting_roads
 
-    def get_junction_connections_from_road_with_contact(self, junction_id: int,
-                                                         incoming_road_id: int) -> List[Tuple[int, int]]:
+    def get_junction_connections_from_road_with_contact(
+        self, junction_id: int, incoming_road_id: int
+    ) -> List[Tuple[int, int]]:
         """
         Get all connecting road IDs and their contactPoints from a specific incoming road through a junction.
 
@@ -479,15 +489,15 @@ class GTEsminiRMLib:
                 h=signal_info.h,
                 p=signal_info.p,
                 r=signal_info.r,
-                type=signal_info.type.decode('utf-8', errors='replace'),
-                subtype=signal_info.subtype.decode('utf-8', errors='replace'),
-                country=signal_info.country.decode('utf-8', errors='replace'),
+                type=signal_info.type.decode("utf-8", errors="replace"),
+                subtype=signal_info.subtype.decode("utf-8", errors="replace"),
+                country=signal_info.country.decode("utf-8", errors="replace"),
                 value=signal_info.value,
-                unit=signal_info.unit.decode('utf-8', errors='replace'),
-                text=signal_info.text.decode('utf-8', errors='replace'),
+                unit=signal_info.unit.decode("utf-8", errors="replace"),
+                text=signal_info.text.decode("utf-8", errors="replace"),
                 is_dynamic=signal_info.isDynamic,
                 height=signal_info.height,
-                width=signal_info.width
+                width=signal_info.width,
             )
         return None
 
@@ -512,7 +522,9 @@ class GTEsminiRMLib:
                 signals.append(signal)
         return signals
 
-    def get_connected_roads(self, road_id: int, direction: str = 'both') -> List[Tuple[int, str, int]]:
+    def get_connected_roads(
+        self, road_id: int, direction: str = "both"
+    ) -> List[Tuple[int, str, int]]:
         """
         Get roads connected to a given road.
 
@@ -526,24 +538,40 @@ class GTEsminiRMLib:
         """
         connected = []
 
-        if direction in ('successor', 'both'):
+        if direction in ("successor", "both"):
             succ = self.get_road_successor(road_id)
             if succ:
                 if succ.is_road:
-                    connected.append((succ.element_id, 'successor', succ.contact_point))
+                    connected.append((succ.element_id, "successor", succ.contact_point))
                 elif succ.is_junction:
                     # Get all connecting roads through junction with contactPoint
-                    for conn_road_id, contact_pt in self.get_junction_connections_from_road_with_contact(succ.element_id, road_id):
-                        connected.append((conn_road_id, 'junction_successor', contact_pt))
+                    for (
+                        conn_road_id,
+                        contact_pt,
+                    ) in self.get_junction_connections_from_road_with_contact(
+                        succ.element_id, road_id
+                    ):
+                        connected.append(
+                            (conn_road_id, "junction_successor", contact_pt)
+                        )
 
-        if direction in ('predecessor', 'both'):
+        if direction in ("predecessor", "both"):
             pred = self.get_road_predecessor(road_id)
             if pred:
                 if pred.is_road:
-                    connected.append((pred.element_id, 'predecessor', pred.contact_point))
+                    connected.append(
+                        (pred.element_id, "predecessor", pred.contact_point)
+                    )
                 elif pred.is_junction:
                     # Get all connecting roads through junction with contactPoint
-                    for conn_road_id, contact_pt in self.get_junction_connections_from_road_with_contact(pred.element_id, road_id):
-                        connected.append((conn_road_id, 'junction_predecessor', contact_pt))
+                    for (
+                        conn_road_id,
+                        contact_pt,
+                    ) in self.get_junction_connections_from_road_with_contact(
+                        pred.element_id, road_id
+                    ):
+                        connected.append(
+                            (conn_road_id, "junction_predecessor", contact_pt)
+                        )
 
         return connected

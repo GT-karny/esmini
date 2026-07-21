@@ -18,28 +18,30 @@ from .gt_rm_lib import GTEsminiRMLib, GT_RM_ELEMENT_TYPE_JUNCTION
 @dataclass
 class RoadNode:
     """Node in the road network graph for pathfinding."""
+
     road_id: int
     lane_id: int
     s: float  # Position along road
     cost: float = 0.0
     heuristic: float = 0.0
     contact_point: int = 1  # 1=START (enter at s=0), 2=END (enter at s=road_length)
-    parent: Optional['RoadNode'] = None
-
+    parent: Optional["RoadNode"] = None
 
     @property
     def total_cost(self) -> float:
         return self.cost + self.heuristic
 
-    def __lt__(self, other: 'RoadNode') -> bool:
+    def __lt__(self, other: "RoadNode") -> bool:
         return self.total_cost < other.total_cost
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, RoadNode):
             return False
-        return (self.road_id == other.road_id and
-                self.lane_id == other.lane_id and
-                abs(self.s - other.s) < 1.0)
+        return (
+            self.road_id == other.road_id
+            and self.lane_id == other.lane_id
+            and abs(self.s - other.s) < 1.0
+        )
 
     def __hash__(self) -> int:
         return hash((self.road_id, self.lane_id, int(self.s)))
@@ -83,24 +85,29 @@ class SimplifiedRouter:
                 lane_ids.append(int(lane_id))
         return lane_ids
 
-    def _order_lane_candidates(self, road_id: int, desired_lane: int, s: float) -> List[int]:
+    def _order_lane_candidates(
+        self, road_id: int, desired_lane: int, s: float
+    ) -> List[int]:
         candidates = list(dict.fromkeys(self._get_drivable_lane_ids(road_id, s)))
         if not candidates:
             return []
         if desired_lane in candidates:
-            return [desired_lane] + [lane for lane in candidates if lane != desired_lane]
+            return [desired_lane] + [
+                lane for lane in candidates if lane != desired_lane
+            ]
 
         if desired_lane == 0:
             return sorted(candidates, key=lambda lane: (abs(lane), lane))
 
         same_sign = [lane for lane in candidates if lane * desired_lane > 0]
         opposite_sign = [lane for lane in candidates if lane * desired_lane <= 0]
-        return (
-            sorted(same_sign, key=lambda lane: (abs(lane), lane))
-            + sorted(opposite_sign, key=lambda lane: (abs(lane), lane))
+        return sorted(same_sign, key=lambda lane: (abs(lane), lane)) + sorted(
+            opposite_sign, key=lambda lane: (abs(lane), lane)
         )
 
-    def _resolve_drivable_lane_id(self, road_id: int, desired_lane: int, s: float) -> Optional[int]:
+    def _resolve_drivable_lane_id(
+        self, road_id: int, desired_lane: int, s: float
+    ) -> Optional[int]:
         ordered = self._order_lane_candidates(road_id, desired_lane, s)
         if not ordered:
             return None
@@ -126,7 +133,9 @@ class SimplifiedRouter:
     ) -> Tuple[int, Optional[int]]:
         ordered = self._order_lane_candidates(road_id, desired_lane, s)
         for lane_id in ordered:
-            res = self.rm.SetLanePosition(pos_handle, road_id, lane_id, lane_offset, s, align)
+            res = self.rm.SetLanePosition(
+                pos_handle, road_id, lane_id, lane_offset, s, align
+            )
             if res >= 0:
                 if desired_lane != 0 and lane_id != desired_lane:
                     key = (int(road_id), int(desired_lane), int(lane_id))
@@ -157,8 +166,9 @@ class SimplifiedRouter:
         # Also check for 0 depending on implementation, but typically -1/max
         return pos_data.junctionId != 0xFFFFFFFF and pos_data.junctionId != -1
 
-    def calculate_path(self, start: Waypoint, target: Waypoint,
-                       waypoint_spacing: float = 20.0) -> List[Waypoint]:
+    def calculate_path(
+        self, start: Waypoint, target: Waypoint, waypoint_spacing: float = 20.0
+    ) -> List[Waypoint]:
         """
         Calculate a path from start to target position.
 
@@ -175,7 +185,9 @@ class SimplifiedRouter:
         target_pos = self._get_road_position(target)
 
         if start_pos is None or target_pos is None:
-            print("[WARN] SimplifiedRouter: Could not get road position for start or target")
+            print(
+                "[WARN] SimplifiedRouter: Could not get road position for start or target"
+            )
             return []
 
         # Check if start and target are on the same road
@@ -202,30 +214,31 @@ class SimplifiedRouter:
             road_path, start_pos, target_pos, waypoint_spacing
         )
 
-    def calculate_route_from_waypoints(self, current_pos: Waypoint, waypoints: List[Waypoint], 
-                                      step_size: float = 1.0) -> List[Waypoint]:
+    def calculate_route_from_waypoints(
+        self, current_pos: Waypoint, waypoints: List[Waypoint], step_size: float = 1.0
+    ) -> List[Waypoint]:
         """
         Calculate a dense route from a list of sparse waypoints.
-        
+
         Args:
             current_pos: Current vehicle position
             waypoints: List of sparse waypoints (from UDP)
             step_size: Spacing for dense waypoints (meters)
-            
+
         Returns:
             List of dense waypoints
         """
         if not waypoints:
             return []
-            
+
         if not waypoints:
             return []
-            
+
         dense_route = []
-        
-        # Add current pos as start waypoints? Not really needed for dense route 
+
+        # Add current pos as start waypoints? Not really needed for dense route
         # but let's see. logic is: current -> WP[0] -> ...
-        
+
         # 1. Segment: Current -> WP[0]
         # Skip cross-road bootstrapping here; sparse waypoints already encode the route intent.
         first_wp = waypoints[0]
@@ -237,76 +250,88 @@ class SimplifiedRouter:
         # Only if WP[0] is somewhat far away (> 5m), otherwise skip to avoid jitter
         if (not skip_current_bootstrap) and current_pos.distance_to(first_wp) > 5.0:
             segment = self.calculate_path(current_pos, waypoints[0], step_size)
-            dense_route.extend(segment[:-1]) # Exclude end to avoid duplicate with next start
-        
+            dense_route.extend(
+                segment[:-1]
+            )  # Exclude end to avoid duplicate with next start
+
         # 2. Iteratively process waypoints with lookahead
         i = 0
         while i < len(waypoints) - 1:
             start_wp = waypoints[i]
-            
+
             # Check for lookahead possibility: can we skip WP[i+1]?
             # Only if WP[i+1] is in a junction (as requested)
             # and we have a WP[i+2]
             lookahead_success = False
-            
+
             if i < len(waypoints) - 2:
-                next_wp = waypoints[i+1]
-                target_wp = waypoints[i+2]
-                
+                next_wp = waypoints[i + 1]
+                target_wp = waypoints[i + 2]
+
                 # Check if next_wp is in a junction
                 if self._is_in_junction(next_wp):
                     # Try to calculate path directly from start_wp to target_wp
-                    print(f"[DEBUG] calc_route: Trying lookahead across junction at WP[{i+1}]")
+                    print(
+                        f"[DEBUG] calc_route: Trying lookahead across junction at WP[{i+1}]"
+                    )
                     direct_segment = self.calculate_path(start_wp, target_wp, step_size)
-                    
+
                     if direct_segment:
                         # Check if this path passes close to next_wp
                         # "Close" means distance < threshold (e.g. 10m)
-                        min_dist = float('inf')
+                        min_dist = float("inf")
                         for p in direct_segment:
                             d = p.distance_to(next_wp)
                             if d < min_dist:
                                 min_dist = d
-                        
-                        if min_dist < 2.0: # 2.0 meters threshold to avoid wrong lane selection
-                            print(f"[DEBUG] calc_route: Lookahead successful! Skipped WP[{i+1}] (min_dist={min_dist:.1f}m)")
-                            
+
+                        if (
+                            min_dist < 2.0
+                        ):  # 2.0 meters threshold to avoid wrong lane selection
+                            print(
+                                f"[DEBUG] calc_route: Lookahead successful! Skipped WP[{i+1}] (min_dist={min_dist:.1f}m)"
+                            )
+
                             if i < len(waypoints) - 3:
                                 dense_route.extend(direct_segment[:-1])
                             else:
-                                dense_route.extend(direct_segment) # Include end for very last segment
-                            
-                            i += 2 # Skip next_wp
+                                dense_route.extend(
+                                    direct_segment
+                                )  # Include end for very last segment
+
+                            i += 2  # Skip next_wp
                             lookahead_success = True
                         else:
-                            print(f"[DEBUG] calc_route: Lookahead path too far from WP[{i+1}] (min_dist={min_dist:.1f}m)")
+                            print(
+                                f"[DEBUG] calc_route: Lookahead path too far from WP[{i+1}] (min_dist={min_dist:.1f}m)"
+                            )
                     else:
                         print(f"[DEBUG] calc_route: Lookahead path calculation failed")
-            
+
             if not lookahead_success:
                 # Standard segment: WP[i] -> WP[i+1]
-                end_wp = waypoints[i+1]
-                
+                end_wp = waypoints[i + 1]
+
                 segment = self.calculate_path(start_wp, end_wp, step_size)
                 if segment:
                     if i < len(waypoints) - 2:
                         dense_route.extend(segment[:-1])
                     else:
-                        dense_route.extend(segment) # Include end for last segment
+                        dense_route.extend(segment)  # Include end for last segment
                 else:
                     # Fallback if pathfinding fails: just add the point
                     dense_route.append(start_wp)
-                
+
                 i += 1
-        
+
         # Add last waypoint if not included
         if dense_route and dense_route[-1] != waypoints[-1]:
-             dense_route.append(waypoints[-1])
-             
+            dense_route.append(waypoints[-1])
+
         # If route is empty (e.g. single WP close by), just return WPs
         if not dense_route:
             return list(waypoints)
-            
+
         return dense_route
 
     def _get_road_position(self, wp: Waypoint) -> Optional[RM_PositionData]:
@@ -320,7 +345,9 @@ class SimplifiedRouter:
             if wp.road_id >= 0 and wp.s >= 0 and wp.lane_id != 0:
                 # Use SetLanePosition to get position data for the specified road
                 if abs(wp.lane_offset) > 0.01:
-                    print(f"[DEBUG_ROUTER] Calling SetLanePos with offset={wp.lane_offset:.3f}")
+                    print(
+                        f"[DEBUG_ROUTER] Calling SetLanePos with offset={wp.lane_offset:.3f}"
+                    )
                 res, _ = self._set_lane_position_with_resolution(
                     pos_handle, wp.road_id, wp.lane_id, wp.lane_offset, wp.s, True
                 )
@@ -328,7 +355,9 @@ class SimplifiedRouter:
                     res, pos_data = self.rm.GetPositionData(pos_handle)
                     if res >= 0:
                         if abs(wp.lane_offset) > 0.01:
-                             print(f"[DEBUG_ROUTER] GetPosData returned offset={pos_data.laneOffset:.3f}")
+                            print(
+                                f"[DEBUG_ROUTER] GetPosData returned offset={pos_data.laneOffset:.3f}"
+                            )
                         return pos_data
                 # If SetLanePosition fails, fall back to world coordinates
 
@@ -354,8 +383,9 @@ class SimplifiedRouter:
                 self._road_cache[road_id] = 100.0  # Default fallback
         return self._road_cache[road_id]
 
-    def _find_road_path(self, start_pos: RM_PositionData,
-                        target_pos: RM_PositionData) -> List[Tuple[int, int, int]]:
+    def _find_road_path(
+        self, start_pos: RM_PositionData, target_pos: RM_PositionData
+    ) -> List[Tuple[int, int, int]]:
         """
         Find a path of roads from start to target using A*.
 
@@ -368,13 +398,17 @@ class SimplifiedRouter:
 
         start_road = start_pos.roadId
         target_road = target_pos.roadId
-        start_lane = self._resolve_drivable_lane_id(start_road, int(start_pos.laneId), float(start_pos.s))
+        start_lane = self._resolve_drivable_lane_id(
+            start_road, int(start_pos.laneId), float(start_pos.s)
+        )
         if start_lane is None:
             start_lane = int(start_pos.laneId)
         target_lane = target_pos.laneId
 
-        print(f"[DEBUG] _find_road_path: Finding path from road {start_road} lane {start_lane} "
-              f"to road {target_road} lane {target_lane}")
+        print(
+            f"[DEBUG] _find_road_path: Finding path from road {start_road} lane {start_lane} "
+            f"to road {target_road} lane {target_lane}"
+        )
 
         # A* pathfinding
         open_set: List[RoadNode] = []
@@ -385,7 +419,7 @@ class SimplifiedRouter:
             lane_id=start_lane,
             s=start_pos.s,
             cost=0.0,
-            heuristic=self._estimate_distance(start_pos, target_pos)
+            heuristic=self._estimate_distance(start_pos, target_pos),
         )
 
         heapq.heappush(open_set, start_node)
@@ -405,7 +439,9 @@ class SimplifiedRouter:
                 # not the lane we should actually drive in
                 # current.lane_id = target_lane  # REMOVED - don't switch lanes
                 path = self._reconstruct_path(current)
-                print(f"[DEBUG] _find_road_path: Found path with {len(path)} roads: {path}")
+                print(
+                    f"[DEBUG] _find_road_path: Found path with {len(path)} roads: {path}"
+                )
                 return path
 
             node_key = (current.road_id, current.lane_id)
@@ -416,7 +452,9 @@ class SimplifiedRouter:
             # Expand neighbors
             connected = self.gt_rm.get_connected_roads(current.road_id)
             if iterations == 1:
-                print(f"[DEBUG] _find_road_path: Road {current.road_id} connected to: {connected}")
+                print(
+                    f"[DEBUG] _find_road_path: Road {current.road_id} connected to: {connected}"
+                )
             for neighbor_road, connection_type, contact_point in connected:
                 # [FIX] Lane polarity depends on contactPoint:
                 # - contactPoint == 1 (START): entering at s=0, travel Start→End, lane -1 is right
@@ -427,7 +465,9 @@ class SimplifiedRouter:
                 else:
                     neighbor_lane = current.lane_id  # Keep same polarity
 
-                lane_probe_s = self._get_road_length(neighbor_road) if contact_point == 2 else 0.0
+                lane_probe_s = (
+                    self._get_road_length(neighbor_road) if contact_point == 2 else 0.0
+                )
                 resolved_neighbor_lane = self._resolve_drivable_lane_id(
                     neighbor_road, neighbor_lane, lane_probe_s
                 )
@@ -453,18 +493,17 @@ class SimplifiedRouter:
                     cost=new_cost,
                     heuristic=heuristic,
                     contact_point=contact_point,  # Track how we enter this road
-                    parent=current
+                    parent=current,
                 )
 
                 heapq.heappush(open_set, neighbor_node)
-
 
         print(f"[DEBUG] _find_road_path: No path found after {iterations} iterations")
         return []  # No path found
 
     def _reconstruct_path(self, end_node: RoadNode) -> List[Tuple[int, int, int]]:
         """Reconstruct path from end node back to start.
-        
+
         Returns:
             List of (road_id, lane_id, contact_point) tuples
         """
@@ -476,21 +515,22 @@ class SimplifiedRouter:
         path.reverse()
         return path
 
-
     def _estimate_distance(self, pos1: RM_PositionData, pos2: RM_PositionData) -> float:
         """Estimate distance between two positions."""
         dx = pos2.x - pos1.x
         dy = pos2.y - pos1.y
         return math.sqrt(dx * dx + dy * dy)
 
-    def _generate_waypoints_same_road(self, start_pos: RM_PositionData,
-                                       target_pos: RM_PositionData,
-                                       spacing: float) -> List[Waypoint]:
+    def _generate_waypoints_same_road(
+        self, start_pos: RM_PositionData, target_pos: RM_PositionData, spacing: float
+    ) -> List[Waypoint]:
         """Generate waypoints along a single road."""
         waypoints = []
 
         road_id = start_pos.roadId
-        lane_id = self._resolve_drivable_lane_id(road_id, int(start_pos.laneId), float(start_pos.s))
+        lane_id = self._resolve_drivable_lane_id(
+            road_id, int(start_pos.laneId), float(start_pos.s)
+        )
         if lane_id is None:
             lane_id = int(start_pos.laneId)
 
@@ -508,13 +548,21 @@ class SimplifiedRouter:
         start_offset = start_pos.laneOffset
         target_offset = target_pos.laneOffset
         total_dist = abs(s_end - s_start)
-        
+
         # Generate waypoints
         pos_handle = self.rm.CreatePosition()
         if pos_handle < 0:
-            return [Waypoint(x=target_pos.x, y=target_pos.y, h=target_pos.h,
-                            road_id=target_pos.roadId, s=target_pos.s,
-                            lane_id=target_pos.laneId, lane_offset=target_pos.laneOffset)]
+            return [
+                Waypoint(
+                    x=target_pos.x,
+                    y=target_pos.y,
+                    h=target_pos.h,
+                    road_id=target_pos.roadId,
+                    s=target_pos.s,
+                    lane_id=target_pos.laneId,
+                    lane_offset=target_pos.laneOffset,
+                )
+            ]
 
         s = s_start
         while (direction > 0 and s < s_end) or (direction < 0 and s > s_end):
@@ -524,7 +572,7 @@ class SimplifiedRouter:
                 current_offset = start_offset + factor * (target_offset - start_offset)
             else:
                 current_offset = start_offset
-            
+
             # Force log
             print(f"[DEBUG] InterpOffset s={s:.1f} offset={current_offset:.3f}")
 
@@ -535,39 +583,48 @@ class SimplifiedRouter:
             if res >= 0:
                 res, pos_data = self.rm.GetPositionData(pos_handle)
                 if res >= 0:
-                    waypoints.append(Waypoint(
-                        x=pos_data.x,
-                        y=pos_data.y,
-                        h=pos_data.h,
-                        road_id=road_id,
-                        s=s,
-                        lane_id=used_lane if used_lane is not None else lane_id,
-                        lane_offset=current_offset
-                    ))
+                    waypoints.append(
+                        Waypoint(
+                            x=pos_data.x,
+                            y=pos_data.y,
+                            h=pos_data.h,
+                            road_id=road_id,
+                            s=s,
+                            lane_id=used_lane if used_lane is not None else lane_id,
+                            lane_offset=current_offset,
+                        )
+                    )
 
             s += direction * spacing
 
         # Add final target waypoint
-        waypoints.append(Waypoint(
-            x=target_pos.x,
-            y=target_pos.y,
-            h=target_pos.h,
-            road_id=target_pos.roadId,
-            s=target_pos.s,
-            lane_id=target_pos.laneId
-        ))
+        waypoints.append(
+            Waypoint(
+                x=target_pos.x,
+                y=target_pos.y,
+                h=target_pos.h,
+                road_id=target_pos.roadId,
+                s=target_pos.s,
+                lane_id=target_pos.laneId,
+            )
+        )
 
-        print(f"[DEBUG] _generate_waypoints_same_road: Generated {len(waypoints)} waypoints "
-              f"from s={s_start:.1f} to s={s_end:.1f} on road {road_id}")
+        print(
+            f"[DEBUG] _generate_waypoints_same_road: Generated {len(waypoints)} waypoints "
+            f"from s={s_start:.1f} to s={s_end:.1f} on road {road_id}"
+        )
 
         return waypoints
 
-    def _generate_waypoints_along_path(self, road_path: List[Tuple[int, int, int]],
-                                        start_pos: RM_PositionData,
-                                        target_pos: RM_PositionData,
-                                        spacing: float) -> List[Waypoint]:
+    def _generate_waypoints_along_path(
+        self,
+        road_path: List[Tuple[int, int, int]],
+        start_pos: RM_PositionData,
+        target_pos: RM_PositionData,
+        spacing: float,
+    ) -> List[Waypoint]:
         """Generate waypoints along a multi-road path.
-        
+
         Args:
             road_path: List of (road_id, lane_id, contact_point) tuples
         """
@@ -578,10 +635,22 @@ class SimplifiedRouter:
         if pos_handle < 0:
             # Fallback to just start/end
             return [
-                Waypoint(x=start_pos.x, y=start_pos.y, h=start_pos.h,
-                        road_id=start_pos.roadId, s=start_pos.s, lane_id=start_pos.laneId),
-                Waypoint(x=target_pos.x, y=target_pos.y, h=target_pos.h,
-                        road_id=target_pos.roadId, s=target_pos.s, lane_id=target_pos.laneId)
+                Waypoint(
+                    x=start_pos.x,
+                    y=start_pos.y,
+                    h=start_pos.h,
+                    road_id=start_pos.roadId,
+                    s=start_pos.s,
+                    lane_id=start_pos.laneId,
+                ),
+                Waypoint(
+                    x=target_pos.x,
+                    y=target_pos.y,
+                    h=target_pos.h,
+                    road_id=target_pos.roadId,
+                    s=target_pos.s,
+                    lane_id=target_pos.laneId,
+                ),
             ]
 
         # 1. Generate waypoints along the FIRST road (from start_pos.s to road end)
@@ -592,7 +661,7 @@ class SimplifiedRouter:
         )
         if first_lane_resolved is None:
             first_lane_resolved = int(first_lane_id)
-        
+
         # Determine direction on first road (towards successor, so s increases)
         s = start_pos.s
         while s < first_road_length:
@@ -602,21 +671,32 @@ class SimplifiedRouter:
             if res >= 0:
                 res, pos_data = self.rm.GetPositionData(pos_handle)
                 if res >= 0:
-                    waypoints.append(Waypoint(
-                        x=pos_data.x, y=pos_data.y, h=pos_data.h,
-                        road_id=first_road_id, s=s,
-                        lane_id=used_lane if used_lane is not None else first_lane_resolved
-                    ))
+                    waypoints.append(
+                        Waypoint(
+                            x=pos_data.x,
+                            y=pos_data.y,
+                            h=pos_data.h,
+                            road_id=first_road_id,
+                            s=s,
+                            lane_id=(
+                                used_lane
+                                if used_lane is not None
+                                else first_lane_resolved
+                            ),
+                        )
+                    )
             s += spacing
 
         # 2. Generate waypoints for intermediate roads (full length)
         for road_id, lane_id, contact_point in road_path[1:-1]:
             road_length = self._get_road_length(road_id)
             lane_probe_s = road_length if contact_point == 2 else 0.0
-            lane_id_resolved = self._resolve_drivable_lane_id(road_id, int(lane_id), lane_probe_s)
+            lane_id_resolved = self._resolve_drivable_lane_id(
+                road_id, int(lane_id), lane_probe_s
+            )
             if lane_id_resolved is None:
                 continue
-            
+
             # contact_point determines where we enter the road
             # contact_point=1 (START): enter at s=0, travel toward s=road_length
             # contact_point=2 (END): enter at s=road_length, travel toward s=0
@@ -629,11 +709,20 @@ class SimplifiedRouter:
                     if res >= 0:
                         res, pos_data = self.rm.GetPositionData(pos_handle)
                         if res >= 0:
-                            waypoints.append(Waypoint(
-                                x=pos_data.x, y=pos_data.y, h=pos_data.h,
-                                road_id=road_id, s=s,
-                                lane_id=used_lane if used_lane is not None else lane_id_resolved
-                            ))
+                            waypoints.append(
+                                Waypoint(
+                                    x=pos_data.x,
+                                    y=pos_data.y,
+                                    h=pos_data.h,
+                                    road_id=road_id,
+                                    s=s,
+                                    lane_id=(
+                                        used_lane
+                                        if used_lane is not None
+                                        else lane_id_resolved
+                                    ),
+                                )
+                            )
                     s -= spacing
             else:  # Enter at START
                 s = 0.0
@@ -644,11 +733,20 @@ class SimplifiedRouter:
                     if res >= 0:
                         res, pos_data = self.rm.GetPositionData(pos_handle)
                         if res >= 0:
-                            waypoints.append(Waypoint(
-                                x=pos_data.x, y=pos_data.y, h=pos_data.h,
-                                road_id=road_id, s=s,
-                                lane_id=used_lane if used_lane is not None else lane_id_resolved
-                            ))
+                            waypoints.append(
+                                Waypoint(
+                                    x=pos_data.x,
+                                    y=pos_data.y,
+                                    h=pos_data.h,
+                                    road_id=road_id,
+                                    s=s,
+                                    lane_id=(
+                                        used_lane
+                                        if used_lane is not None
+                                        else lane_id_resolved
+                                    ),
+                                )
+                            )
                     s += spacing
 
         # 3. Generate waypoints along the LAST road (from entry point to target_pos.s)
@@ -661,9 +759,11 @@ class SimplifiedRouter:
             )
             if last_lane_resolved is None:
                 last_lane_resolved = int(last_lane_id)
-            
+
             # contact_point determines where we enter the last road
-            if last_contact_point == 2:  # Enter at END (s=road_length), travel toward target_pos.s
+            if (
+                last_contact_point == 2
+            ):  # Enter at END (s=road_length), travel toward target_pos.s
                 s = last_road_length
                 while s > target_pos.s:
                     res, used_lane = self._set_lane_position_with_resolution(
@@ -672,11 +772,20 @@ class SimplifiedRouter:
                     if res >= 0:
                         res, pos_data = self.rm.GetPositionData(pos_handle)
                         if res >= 0:
-                            waypoints.append(Waypoint(
-                                x=pos_data.x, y=pos_data.y, h=pos_data.h,
-                                road_id=last_road_id, s=s,
-                                lane_id=used_lane if used_lane is not None else last_lane_resolved
-                            ))
+                            waypoints.append(
+                                Waypoint(
+                                    x=pos_data.x,
+                                    y=pos_data.y,
+                                    h=pos_data.h,
+                                    road_id=last_road_id,
+                                    s=s,
+                                    lane_id=(
+                                        used_lane
+                                        if used_lane is not None
+                                        else last_lane_resolved
+                                    ),
+                                )
+                            )
                     s -= spacing
             else:  # Enter at START (s=0), travel toward target_pos.s
                 s = 0.0
@@ -687,33 +796,55 @@ class SimplifiedRouter:
                     if res >= 0:
                         res, pos_data = self.rm.GetPositionData(pos_handle)
                         if res >= 0:
-                            waypoints.append(Waypoint(
-                                x=pos_data.x, y=pos_data.y, h=pos_data.h,
-                                road_id=last_road_id, s=s,
-                                lane_id=used_lane if used_lane is not None else last_lane_resolved
-                            ))
+                            waypoints.append(
+                                Waypoint(
+                                    x=pos_data.x,
+                                    y=pos_data.y,
+                                    h=pos_data.h,
+                                    road_id=last_road_id,
+                                    s=s,
+                                    lane_id=(
+                                        used_lane
+                                        if used_lane is not None
+                                        else last_lane_resolved
+                                    ),
+                                )
+                            )
                     s += spacing
 
-
         # Add final target waypoint
-        waypoints.append(Waypoint(
-            x=target_pos.x, y=target_pos.y, h=target_pos.h,
-            road_id=target_pos.roadId, s=target_pos.s, lane_id=target_pos.laneId
-        ))
+        waypoints.append(
+            Waypoint(
+                x=target_pos.x,
+                y=target_pos.y,
+                h=target_pos.h,
+                road_id=target_pos.roadId,
+                s=target_pos.s,
+                lane_id=target_pos.laneId,
+            )
+        )
 
-        print(f"[DEBUG] _generate_waypoints_along_path: Generated {len(waypoints)} waypoints "
-              f"along {len(road_path)} roads")
+        print(
+            f"[DEBUG] _generate_waypoints_along_path: Generated {len(waypoints)} waypoints "
+            f"along {len(road_path)} roads"
+        )
         # Print first and last waypoints of each road for debugging
         if waypoints and len(road_path) > 1:
-            print(f"[DEBUG] First WP: ({waypoints[0].x:.1f}, {waypoints[0].y:.1f}) road={waypoints[0].road_id}")
+            print(
+                f"[DEBUG] First WP: ({waypoints[0].x:.1f}, {waypoints[0].y:.1f}) road={waypoints[0].road_id}"
+            )
             for i, wp in enumerate(waypoints):
-                if i > 0 and wp.road_id != waypoints[i-1].road_id:
-                    print(f"[DEBUG] Transition at WP[{i}]: ({wp.x:.1f}, {wp.y:.1f}) road={waypoints[i-1].road_id}->{wp.road_id}")
-            print(f"[DEBUG] Last WP: ({waypoints[-1].x:.1f}, {waypoints[-1].y:.1f}) road={waypoints[-1].road_id}")
+                if i > 0 and wp.road_id != waypoints[i - 1].road_id:
+                    print(
+                        f"[DEBUG] Transition at WP[{i}]: ({wp.x:.1f}, {wp.y:.1f}) road={waypoints[i-1].road_id}->{wp.road_id}"
+                    )
+            print(
+                f"[DEBUG] Last WP: ({waypoints[-1].x:.1f}, {waypoints[-1].y:.1f}) road={waypoints[-1].road_id}"
+            )
 
         return waypoints
 
-    def get_next_roads(self, road_id: int, direction: str = 'successor') -> List[int]:
+    def get_next_roads(self, road_id: int, direction: str = "successor") -> List[int]:
         """
         Get the next roads from a given road.
 

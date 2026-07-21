@@ -25,6 +25,7 @@ Not implemented (classified in the structured report, not here):
 Pure stdlib xml.etree.ElementTree. Matches the parsing idiom of scratchpad/gap_rule_check.py
 (roads dict / road_ids / junction_ids passed in by the integration layer -- not re-derived here).
 """
+
 from collections import defaultdict
 
 _EPS = 1e-6
@@ -50,11 +51,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             for e in ep.findall("elevation"):
                 s = _fnum(e.get("s"))
                 if prev_s is not None and s < prev_s - _EPS:
-                    flags.append((
-                        "road.elevation.elem_asc_order",
-                        f"elevation s={s:g} が直前の elevation s={prev_s:g} より小さい（s昇順違反）",
-                        f"road {rid} s={s:g}",
-                    ))
+                    flags.append(
+                        (
+                            "road.elevation.elem_asc_order",
+                            f"elevation s={s:g} が直前の elevation s={prev_s:g} より小さい（s昇順違反）",
+                            f"road {rid} s={s:g}",
+                        )
+                    )
                 prev_s = s
 
         # ---------------------------------------------------------------
@@ -66,11 +69,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             for se in lp.findall("superelevation"):
                 s = _fnum(se.get("s"))
                 if prev_s is not None and s < prev_s - _EPS:
-                    flags.append((
-                        "road.superelevation.elem_asc_order",
-                        f"superelevation s={s:g} が直前の superelevation s={prev_s:g} より小さい（s昇順違反）",
-                        f"road {rid} s={s:g}",
-                    ))
+                    flags.append(
+                        (
+                            "road.superelevation.elem_asc_order",
+                            f"superelevation s={s:g} が直前の superelevation s={prev_s:g} より小さい（s昇順違反）",
+                            f"road {rid} s={s:g}",
+                        )
+                    )
                 prev_s = s
 
             # -----------------------------------------------------------
@@ -84,17 +89,21 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     t = _fnum(sh.get("t"))
                     if prev_s is not None:
                         if s < prev_s - _EPS:
-                            flags.append((
-                                "road.shape.elem_asc_order",
-                                f"shape s={s:g} が直前の shape s={prev_s:g} より小さい（s昇順違反）",
-                                f"road {rid} s={s:g} t={t:g}",
-                            ))
+                            flags.append(
+                                (
+                                    "road.shape.elem_asc_order",
+                                    f"shape s={s:g} が直前の shape s={prev_s:g} より小さい（s昇順違反）",
+                                    f"road {rid} s={s:g} t={t:g}",
+                                )
+                            )
                         elif abs(s - prev_s) <= _EPS and t < prev_t - _EPS:
-                            flags.append((
-                                "road.shape.elem_asc_order",
-                                f"同一 s={s:g} 内で shape t={t:g} が直前の t={prev_t:g} より小さい（t昇順違反）",
-                                f"road {rid} s={s:g} t={t:g}",
-                            ))
+                            flags.append(
+                                (
+                                    "road.shape.elem_asc_order",
+                                    f"同一 s={s:g} 内で shape t={t:g} が直前の t={prev_t:g} より小さい（t昇順違反）",
+                                    f"road {rid} s={s:g} t={t:g}",
+                                )
+                            )
                     prev_s, prev_t = s, t
 
                 groups = defaultdict(list)
@@ -112,12 +121,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                         continue
                     min_t = min(tlist)
                     if min_t >= -_EPS:
-                        flags.append((
-                            "road.use_cases.shape_elements_start_right",
-                            f"s={s_key:g} の shape 群（{len(tlist)}要素）の最小t={min_t:g} が負でない"
-                            "（右側 t<0 の要素を持たない片側定義の疑い）",
-                            f"road {rid} s={s_key:g}",
-                        ))
+                        flags.append(
+                            (
+                                "road.use_cases.shape_elements_start_right",
+                                f"s={s_key:g} の shape 群（{len(tlist)}要素）の最小t={min_t:g} が負でない"
+                                "（右側 t<0 の要素を持たない片側定義の疑い）",
+                                f"road {rid} s={s_key:g}",
+                            )
+                        )
 
         # ---------------------------------------------------------------
         # road.type.elem_asc_order  +  road.type.only_alpha_2_country_codes
@@ -126,20 +137,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         for ty in r.findall("type"):
             s = _fnum(ty.get("s"))
             if prev_s is not None and s < prev_s - _EPS:
-                flags.append((
-                    "road.type.elem_asc_order",
-                    f"type s={s:g} が直前の type s={prev_s:g} より小さい（s昇順違反）",
-                    f"road {rid} s={s:g}",
-                ))
+                flags.append(
+                    (
+                        "road.type.elem_asc_order",
+                        f"type s={s:g} が直前の type s={prev_s:g} より小さい（s昇順違反）",
+                        f"road {rid} s={s:g}",
+                    )
+                )
             prev_s = s
 
             country = ty.get("country")
             if country and country != "OpenDRIVE" and len(country) != 2:
-                flags.append((
-                    "road.type.only_alpha_2_country_codes",
-                    f"type s={s:g} の country=\"{country}\" がALPHA-2でない"
-                    "（ALPHA-3または非標準の国名表記の疑い）",
-                    f"road {rid} s={s:g}",
-                ))
+                flags.append(
+                    (
+                        "road.type.only_alpha_2_country_codes",
+                        f'type s={s:g} の country="{country}" がALPHA-2でない'
+                        "（ALPHA-3または非標準の国名表記の疑い）",
+                        f"road {rid} s={s:g}",
+                    )
+                )
 
     return flags

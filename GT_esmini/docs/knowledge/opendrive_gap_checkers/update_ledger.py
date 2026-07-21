@@ -9,6 +9,7 @@ bucket - zero left at bare status: gap).
 Usage: DriverScript/.venv/Scripts/python.exe update_ledger.py final_status.json
 final_status.json: {rule_name: {status, reason, group, function}}
 """
+
 import sys
 import re
 import json
@@ -21,7 +22,13 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(r"e:/Repository/GT_esmini/esmini")
 LEDGER = ROOT / "GT_esmini/docs/knowledge/opendrive_rule_ledger.yaml"
 
-VALID_STATUSES = {"implemented_gt", "gap_geometry_math", "gap_niche", "gap_ambiguous", "gap_deferred"}
+VALID_STATUSES = {
+    "implemented_gt",
+    "gap_geometry_math",
+    "gap_niche",
+    "gap_ambiguous",
+    "gap_deferred",
+}
 
 
 def yq(s):
@@ -59,18 +66,22 @@ def main():
 
         sm = re.search(r"^(\s*)status:\s*gap\s*$", entry, re.M)
         if not sm:
-            raise SystemExit(f"rule {rname}: expected 'status: gap' line not found (already patched? re-run from a clean checkout)")
+            raise SystemExit(
+                f"rule {rname}: expected 'status: gap' line not found (already patched? re-run from a clean checkout)"
+            )
         indent = sm.group(1)
         extra = f'{indent}status: {status}\n{indent}status_reason: "{yq(reason)}"\n'
         if status == "implemented_gt" and func:
             extra += f'{indent}checker: "GT_esmini/docs/knowledge/opendrive_gap_checkers/check_{group}.py::{func}"\n'
-        entry = entry[: sm.start()] + extra + entry[sm.end() + 1:]
+        entry = entry[: sm.start()] + extra + entry[sm.end() + 1 :]
         out_entries.append(entry)
         touched.add(rname)
 
     missing = set(mapping) - touched
     if missing:
-        raise SystemExit(f"rule_names in mapping not found in ledger (typo?): {sorted(missing)}")
+        raise SystemExit(
+            f"rule_names in mapping not found in ledger (typo?): {sorted(missing)}"
+        )
 
     body = "".join(out_entries)
 
@@ -111,7 +122,9 @@ def main():
     print(f"patched {len(touched)} rules")
     print("status counts:", dict(status_counts))
     if still_gap:
-        print(f"WARNING: {still_gap} rules still at bare 'gap' status (untriaged) — accounting NOT closed")
+        print(
+            f"WARNING: {still_gap} rules still at bare 'gap' status (untriaged) — accounting NOT closed"
+        )
         for r in d2["rules"]:
             if r["status"] == "gap":
                 print("  -", r["rule_name"])

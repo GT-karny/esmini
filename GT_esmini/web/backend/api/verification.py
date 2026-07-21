@@ -6,6 +6,7 @@ errors) without a live socket transport from GT_Sim. Live streaming is added
 later once the C++ telemetry emit is wired; the replay shape is identical, so
 the same overlay component will drive both.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,11 @@ RESULTS_ROOT = RESULTS_DIR.resolve()
 def _a_sim_is_running() -> bool:
     """True if a GT_Sim subprocess is currently active (baseline generation would
     otherwise collide on the OSI UDP port)."""
-    from GT_esmini.web.backend.services.simulation_runner import _running_procs, _running_procs_lock
+    from GT_esmini.web.backend.services.simulation_runner import (
+        _running_procs,
+        _running_procs_lock,
+    )
+
     with _running_procs_lock:
         return len(_running_procs) > 0
 
@@ -74,12 +79,14 @@ async def list_runs():
     if RESULTS_ROOT.is_dir():
         for d in sorted(RESULTS_ROOT.iterdir()):
             if d.is_dir() and (d / "telemetry.jsonl").is_file():
-                runs.append({
-                    "id": d.name,
-                    "meta": _read_json(d / "meta.json") or {},
-                    "has_compare": (d / "compare.json").is_file(),
-                    "has_verdict": (d / "verdict.json").is_file(),
-                })
+                runs.append(
+                    {
+                        "id": d.name,
+                        "meta": _read_json(d / "meta.json") or {},
+                        "has_compare": (d / "compare.json").is_file(),
+                        "has_verdict": (d / "verdict.json").is_file(),
+                    }
+                )
     return {"runs": runs}
 
 
@@ -141,7 +148,9 @@ async def baseline_compare(run_id: str):
     def _work():
         meta_b = vd_verify.generate_baseline(scenario, baseline_dir)
         if meta_b.get("frames", 0) == 0:
-            raise RuntimeError("baseline produced 0 OSI frames (is GT_Sim emitting OSI?)")
+            raise RuntimeError(
+                "baseline produced 0 OSI frames (is GT_Sim emitting OSI?)"
+            )
         return vd_verify.compare(run_dir, baseline_dir)
 
     try:

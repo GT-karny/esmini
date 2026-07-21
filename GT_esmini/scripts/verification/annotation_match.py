@@ -12,6 +12,7 @@ standalone:
 No import-time side effects (no DLL load) — telemetry helpers are inlined rather
 than imported from gt_sim_test, which loads GT_esminiLib at import.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,10 +21,10 @@ import math
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Telemetry helpers (inlined minimal copies of gt_sim_test internals)
 # ---------------------------------------------------------------------------
+
 
 def _load_telemetry(run_dir: Path) -> list[dict]:
     jsonl = run_dir / "telemetry.jsonl"
@@ -59,8 +60,11 @@ def _accel_jerk(frames: list[dict], smooth_window: int = 5) -> tuple[float, floa
     if w % 2 == 0:
         w += 1
     half = w // 2
-    v = [sum(v_raw[max(0, i - half):min(n, i + half + 1)])
-         / len(v_raw[max(0, i - half):min(n, i + half + 1)]) for i in range(n)]
+    v = [
+        sum(v_raw[max(0, i - half) : min(n, i + half + 1)])
+        / len(v_raw[max(0, i - half) : min(n, i + half + 1)])
+        for i in range(n)
+    ]
 
     def _central(y: list[float]) -> list[float]:
         d = [0.0] * n
@@ -80,8 +84,13 @@ def _accel_jerk(frames: list[dict], smooth_window: int = 5) -> tuple[float, floa
 # Feature extraction
 # ---------------------------------------------------------------------------
 
-def extract_features(run_dir: Path | None = None, frames: list[dict] | None = None,
-                     verdict: dict | None = None, meta: dict | None = None) -> dict:
+
+def extract_features(
+    run_dir: Path | None = None,
+    frames: list[dict] | None = None,
+    verdict: dict | None = None,
+    meta: dict | None = None,
+) -> dict:
     """Scalar behavior fingerprint from a run's telemetry + verdict + meta."""
     if frames is None:
         frames = _load_telemetry(run_dir) if run_dir is not None else []
@@ -107,8 +116,11 @@ def extract_features(run_dir: Path | None = None, frames: list[dict] | None = No
         if scene and any(not o.get("is_host", False) for o in scene.get("objects", [])):
             has_lead = True
 
-    failing = {r.get("event") for r in verdict.get("results", [])
-               if r.get("status") == "fail" and r.get("event")}
+    failing = {
+        r.get("event")
+        for r in verdict.get("results", [])
+        if r.get("status") == "fail" and r.get("event")
+    }
     policy_sources: set[str] = set()
     for fr in frames:
         pol = fr.get("policy") or {}
@@ -138,6 +150,7 @@ def extract_features(run_dir: Path | None = None, frames: list[dict] | None = No
 # Similarity
 # ---------------------------------------------------------------------------
 
+
 def _gaussian_close(a: float, b: float, scale: float) -> float:
     """1.0 when equal, decaying with |a-b| over `scale`."""
     d = abs((a or 0.0) - (b or 0.0))
@@ -162,11 +175,15 @@ def similarity(a: dict, b: dict) -> tuple[float, list[str]]:
 
     score = 0.0
     # Same auto verdict (0.3)
-    if a.get("verdict_overall") and a.get("verdict_overall") == b.get("verdict_overall"):
+    if a.get("verdict_overall") and a.get("verdict_overall") == b.get(
+        "verdict_overall"
+    ):
         score += 0.3
         reasons.append(f"both verdict={a['verdict_overall']}")
     # Overlap of failing event kinds (0.3)
-    jac = _jaccard(a.get("failing_event_kinds", set()), b.get("failing_event_kinds", set()))
+    jac = _jaccard(
+        a.get("failing_event_kinds", set()), b.get("failing_event_kinds", set())
+    )
     score += 0.3 * jac
     shared = a.get("failing_event_kinds", set()) & b.get("failing_event_kinds", set())
     if shared:
@@ -184,16 +201,24 @@ def similarity(a: dict, b: dict) -> tuple[float, list[str]]:
     return round(min(1.0, score), 4), reasons
 
 
-def rank(target: dict, candidates: list[tuple[str, str, str, dict]],
-         k: int = 5) -> list[dict]:
+def rank(
+    target: dict, candidates: list[tuple[str, str, str, dict]], k: int = 5
+) -> list[dict]:
     """candidates: [(run_id, label, comment, features)] -> top-k MatchOut dicts."""
     scored = []
     for run_id, label, comment, feat in candidates:
         score, reasons = similarity(target, feat)
         if score <= 0.0:
             continue
-        scored.append({"run_id": run_id, "label": label, "comment": comment,
-                       "score": score, "reasons": reasons})
+        scored.append(
+            {
+                "run_id": run_id,
+                "label": label,
+                "comment": comment,
+                "score": score,
+                "reasons": reasons,
+            }
+        )
     scored.sort(key=lambda m: m["score"], reverse=True)
     return scored[:k]
 
@@ -201,6 +226,7 @@ def rank(target: dict, candidates: list[tuple[str, str, str, dict]],
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _features_for(run_dir: Path) -> dict:
     return extract_features(
@@ -211,11 +237,16 @@ def _features_for(run_dir: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("run_dir", type=Path, help="the target run dir")
-    p.add_argument("--against", type=Path, required=True,
-                   help="dir whose immediate subdirs are candidate runs")
+    p.add_argument(
+        "--against",
+        type=Path,
+        required=True,
+        help="dir whose immediate subdirs are candidate runs",
+    )
     p.add_argument("-k", type=int, default=5)
     args = p.parse_args(argv)
 
@@ -231,9 +262,17 @@ def main(argv: list[str] | None = None) -> int:
         candidates.append((d.name, verdict.get("overall", "?"), "", _features_for(d)))
 
     matches = rank(target, candidates, args.k)
-    print(json.dumps({"target_dir": str(args.run_dir),
-                      "scenario_stem": target.get("scenario_stem"),
-                      "matches": matches}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "target_dir": str(args.run_dir),
+                "scenario_stem": target.get("scenario_stem"),
+                "matches": matches,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

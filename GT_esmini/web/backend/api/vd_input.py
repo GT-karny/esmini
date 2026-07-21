@@ -26,14 +26,29 @@ router = APIRouter()
 # Must match gt_esmini::NetworkInputBridge MAGIC_PEDAL_STEER ('PSTC' = 0x50535443)
 # and the wire layout in NetworkInputBridge::Poll().
 _MAGIC = 0x50535443
-_WIRE = struct.Struct("<I4diI")  # magic, steering, throttle, brake, clutch, gear, buttons
+_WIRE = struct.Struct(
+    "<I4diI"
+)  # magic, steering, throttle, brake, clutch, gear, buttons
 _DEFAULT_INPUT_PORT = DEFAULT_VD_INPUT_PORT
 
 
-def _pack(steering: float, throttle: float, brake: float, buttons: int,
-          clutch: float = 0.0, gear: int = 0) -> bytes:
-    return _WIRE.pack(_MAGIC, float(steering), float(throttle), float(brake),
-                      float(clutch), int(gear), int(buttons) & 0xFFFFFFFF)
+def _pack(
+    steering: float,
+    throttle: float,
+    brake: float,
+    buttons: int,
+    clutch: float = 0.0,
+    gear: int = 0,
+) -> bytes:
+    return _WIRE.pack(
+        _MAGIC,
+        float(steering),
+        float(throttle),
+        float(brake),
+        float(clutch),
+        int(gear),
+        int(buttons) & 0xFFFFFFFF,
+    )
 
 
 @router.websocket("/ws/input/{job_id}")
@@ -48,7 +63,9 @@ async def vd_input_websocket(websocket: WebSocket, job_id: str):
         port = _DEFAULT_INPUT_PORT
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    logger.info("WebSocket input client connected for job %s -> udp 127.0.0.1:%d", job_id, port)
+    logger.info(
+        "WebSocket input client connected for job %s -> udp 127.0.0.1:%d", job_id, port
+    )
 
     try:
         while True:

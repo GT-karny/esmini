@@ -25,4 +25,3 @@ class OSIAdapter:
         if not ground_truth.host_vehicle_id.value:
             return None
         return int(ground_truth.host_vehicle_id.value)
-

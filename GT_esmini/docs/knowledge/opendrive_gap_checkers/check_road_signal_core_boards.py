@@ -52,11 +52,13 @@ def _check_signal_like(el, kind, rid, flags, loc_extra=""):
     # type="-1" subtype="-1", used in this repo for bare road-marking arrows encoded
     # as signals) genuinely carries no identifying type information.
     if styp in _NONSPECIFIC and ssub in _NONSPECIFIC:
-        flags.append((
-            "road.signal.signal_type",
-            f"{kind} id={sid}: type={el.get('type')!r} subtype={el.get('subtype')!r} は非specific（type/subtypeともに未指定/-1/none）",
-            loc,
-        ))
+        flags.append(
+            (
+                "road.signal.signal_type",
+                f"{kind} id={sid}: type={el.get('type')!r} subtype={el.get('subtype')!r} は非specific（type/subtypeともに未指定/-1/none）",
+                loc,
+            )
+        )
     # road.signal.use_country_code: "A country code shall be added to refer to
     # country-specific rules using the @country attribute." Only meaningful once the
     # signal actually carries a specific type (a fully generic/-1 signal has no
@@ -67,11 +69,13 @@ def _check_signal_like(el, kind, rid, flags, loc_extra=""):
     # _BOARD_SENTINEL_TYPES).
     country = _norm(el.get("country"))
     if not country and styp not in _NONSPECIFIC and styp not in _BOARD_SENTINEL_TYPES:
-        flags.append((
-            "road.signal.use_country_code",
-            f"{kind} id={sid}: type={el.get('type')!r} だが @country が未指定",
-            loc,
-        ))
+        flags.append(
+            (
+                "road.signal.use_country_code",
+                f"{kind} id={sid}: type={el.get('type')!r} だが @country が未指定",
+                loc,
+            )
+        )
 
 
 def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
@@ -106,8 +110,12 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             # schema-valid document could violate. Iterate for
             # completeness/documentation; this can never append a flag (see
             # impl_briefs/road_signal_core_boards.md).
-            for _dep_holder in [sig] + sig.findall("staticBoard") + sig.findall("vmsBoard"):
-                len(_dep_holder.findall("dependency"))  # no upper bound to compare against
+            for _dep_holder in (
+                [sig] + sig.findall("staticBoard") + sig.findall("vmsBoard")
+            ):
+                len(
+                    _dep_holder.findall("dependency")
+                )  # no upper bound to compare against
 
             _check_signal_like(sig, "signal", rid, flags)
 
@@ -127,41 +135,49 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             #   not(@type='multiBoard') or (@dynamic=true() and staticBoard>=1 and vmsBoard>=1)
             if sig_type == "multiBoard":
                 if not (has_static and has_vms):
-                    flags.append((
-                        "road.signal.boards.multi_board_have_sub_boards",
-                        f"signal id={sid}: type=multiBoard だが staticBoard={len(static_boards)}件 "
-                        f"vmsBoard={len(vms_boards)}件（各1件以上必要）",
-                        f"road {rid} signal id={sid}",
-                    ))
+                    flags.append(
+                        (
+                            "road.signal.boards.multi_board_have_sub_boards",
+                            f"signal id={sid}: type=multiBoard だが staticBoard={len(static_boards)}件 "
+                            f"vmsBoard={len(vms_boards)}件（各1件以上必要）",
+                            f"road {rid} signal id={sid}",
+                        )
+                    )
                 # t_yesNo domain is literally "yes"/"no" (not xs:boolean "true"/"false");
                 # the schema assert's `@dynamic=true()` maps to @dynamic="yes" in-domain,
                 # consistent with this repo's own canonical multiBoard fixture (21_boards_vmsgroup_19).
                 if dynamic != "yes":
-                    flags.append((
-                        "road.signal.boards.multi_board_use_dynamic_true",
-                        f"signal id={sid}: type=multiBoard だが @dynamic={dynamic!r}（'yes' であるべき）",
-                        f"road {rid} signal id={sid}",
-                    ))
+                    flags.append(
+                        (
+                            "road.signal.boards.multi_board_use_dynamic_true",
+                            f"signal id={sid}: type=multiBoard だが @dynamic={dynamic!r}（'yes' であるべき）",
+                            f"road {rid} signal id={sid}",
+                        )
+                    )
 
             # road.signal.boards.multi_board_use_correct_type (converse direction: any
             # signal that structurally IS a multi-board -- carries both board kinds --
             # must declare @type="multiBoard").
             if has_static and has_vms and sig_type != "multiBoard":
-                flags.append((
-                    "road.signal.boards.multi_board_use_correct_type",
-                    f"signal id={sid}: staticBoard+vmsBoard を両方持つが @type={sig_type!r}（'multiBoard' であるべき）",
-                    f"road {rid} signal id={sid}",
-                ))
+                flags.append(
+                    (
+                        "road.signal.boards.multi_board_use_correct_type",
+                        f"signal id={sid}: staticBoard+vmsBoard を両方持つが @type={sig_type!r}（'multiBoard' であるべき）",
+                        f"road {rid} signal id={sid}",
+                    )
+                )
 
             # road.signal.boards.static_board_use_correct_type: a signal carrying ONLY
             # staticBoard children (no vmsBoard -- i.e. not a multi-board) should declare
             # @type="staticBoard".
             if has_static and not has_vms and sig_type != "staticBoard":
-                flags.append((
-                    "road.signal.boards.static_board_use_correct_type",
-                    f"signal id={sid}: staticBoard のみを持つが @type={sig_type!r}（'staticBoard' であるべき）",
-                    f"road {rid} signal id={sid}",
-                ))
+                flags.append(
+                    (
+                        "road.signal.boards.static_board_use_correct_type",
+                        f"signal id={sid}: staticBoard のみを持つが @type={sig_type!r}（'staticBoard' であるべき）",
+                        f"road {rid} signal id={sid}",
+                    )
+                )
 
             for sb in static_boards:
                 signs = sb.findall("sign")
@@ -169,16 +185,20 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 # multiple signs onto one physical sheet -- exactly one sign defeats
                 # the purpose ("a stop sign on a single sheet of metal").
                 if len(signs) == 1:
-                    flags.append((
-                        "road.signal.boards.static_boards_no_single_signal",
-                        f"signal id={sid}: staticBoard が sign 1個のみ（単一標識にboardを使うべきでない）",
-                        f"road {rid} signal id={sid}",
-                    ))
+                    flags.append(
+                        (
+                            "road.signal.boards.static_boards_no_single_signal",
+                            f"signal id={sid}: staticBoard が sign 1個のみ（単一標識にboardを使うべきでない）",
+                            f"road {rid} signal id={sid}",
+                        )
+                    )
                 for sn in signs:
                     snid = sn.get("id")
                     if snid is not None:
                         all_signal_ids.add(snid)
-                    _check_signal_like(sn, "sign", rid, flags, loc_extra=f" (board of signal {sid})")
+                    _check_signal_like(
+                        sn, "sign", rid, flags, loc_extra=f" (board of signal {sid})"
+                    )
 
     # road.signal.controller.valid_for_signals: top-level <controller> (t_controller,
     # direct child of <OpenDRIVE>) -- NOT the same-named but semantically distinct
@@ -188,25 +208,31 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         cid = ctrl.get("id")
         controls = ctrl.findall("control")
         if len(controls) == 0:
-            flags.append((
-                "road.signal.controller.valid_for_signals",
-                f"controller id={cid}: control（対象signal）が1つも無い",
-                f"controller {cid}",
-            ))
+            flags.append(
+                (
+                    "road.signal.controller.valid_for_signals",
+                    f"controller id={cid}: control（対象signal）が1つも無い",
+                    f"controller {cid}",
+                )
+            )
         for c in controls:
             sidref = c.get("signalId")
             if not sidref:
-                flags.append((
-                    "road.signal.controller.valid_for_signals",
-                    f"controller id={cid}: control@signalId が未指定",
-                    f"controller {cid}",
-                ))
+                flags.append(
+                    (
+                        "road.signal.controller.valid_for_signals",
+                        f"controller id={cid}: control@signalId が未指定",
+                        f"controller {cid}",
+                    )
+                )
             elif sidref not in all_signal_ids:
-                flags.append((
-                    "road.signal.controller.valid_for_signals",
-                    f"controller id={cid}: control@signalId={sidref!r} は未定義signal（このcontrollerはどのsignalにも有効でない可能性）",
-                    f"controller {cid}",
-                ))
+                flags.append(
+                    (
+                        "road.signal.controller.valid_for_signals",
+                        f"controller id={cid}: control@signalId={sidref!r} は未定義signal（このcontrollerはどのsignalにも有効でない可能性）",
+                        f"controller {cid}",
+                    )
+                )
 
     # road.signal.gantry.vmsgroup_at_least_one_reference: the structurally-checkable
     # half of "Each gantry shall have one <vmsGroup> element with at least one
@@ -219,11 +245,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         vgid = vg.get("id")
         refs = vg.findall("vmsBoardReference")
         if len(refs) == 0:
-            flags.append((
-                "road.signal.gantry.vmsgroup_at_least_one_reference",
-                f"vmsGroup id={vgid}: vmsBoardReference が1つも無い",
-                f"vmsGroup {vgid}",
-            ))
+            flags.append(
+                (
+                    "road.signal.gantry.vmsgroup_at_least_one_reference",
+                    f"vmsGroup id={vgid}: vmsBoardReference が1つも無い",
+                    f"vmsGroup {vgid}",
+                )
+            )
 
         # road.signal.gantry.all_variable_boards_same_gantry -- DETERMINISTIC
         # SUB-CASE ONLY (see impl_briefs/road_signal_core_boards.md for the
@@ -238,16 +266,20 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             rsid = ref.get("signalId")
             loc = f"vmsGroup {vgid} vmsBoardReference signalId={rsid}"
             if rsid not in signal_by_id:
-                flags.append((
-                    "road.signal.gantry.all_variable_boards_same_gantry",
-                    f"vmsGroup id={vgid}: vmsBoardReference@signalId={rsid!r} は未定義signal（参照切れ）",
-                    loc,
-                ))
+                flags.append(
+                    (
+                        "road.signal.gantry.all_variable_boards_same_gantry",
+                        f"vmsGroup id={vgid}: vmsBoardReference@signalId={rsid!r} は未定義signal（参照切れ）",
+                        loc,
+                    )
+                )
             elif rsid not in vmsboard_signal_ids:
-                flags.append((
-                    "road.signal.gantry.all_variable_boards_same_gantry",
-                    f"vmsGroup id={vgid}: vmsBoardReference@signalId={rsid!r} のsignalはvmsBoardを持たない（可変情報板でない）",
-                    loc,
-                ))
+                flags.append(
+                    (
+                        "road.signal.gantry.all_variable_boards_same_gantry",
+                        f"vmsGroup id={vgid}: vmsBoardReference@signalId={rsid!r} のsignalはvmsBoardを持たない（可変情報板でない）",
+                        loc,
+                    )
+                )
 
     return flags

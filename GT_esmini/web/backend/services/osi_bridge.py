@@ -144,7 +144,10 @@ class OSIBridge:
         self._running = True
         logger.info(
             "OSI Bridge started (GT=%s:%d, HVD=%s:%d)",
-            self._bind_ip, self._gt_port, self._bind_ip, self._hvd_port,
+            self._bind_ip,
+            self._gt_port,
+            self._bind_ip,
+            self._hvd_port,
         )
 
     async def stop(self) -> None:
@@ -161,11 +164,15 @@ class OSIBridge:
         self._running = False
         logger.info("OSI Bridge stopped")
 
-    def subscribe_gt(self, subscriber_id: str | None = None) -> tuple[str, asyncio.Queue[bytes]]:
+    def subscribe_gt(
+        self, subscriber_id: str | None = None
+    ) -> tuple[str, asyncio.Queue[bytes]]:
         """Subscribe to GroundTruth stream. Returns (subscriber_id, queue)."""
         return self._subscribe(self._gt, subscriber_id)
 
-    def subscribe_hvd(self, subscriber_id: str | None = None) -> tuple[str, asyncio.Queue[bytes]]:
+    def subscribe_hvd(
+        self, subscriber_id: str | None = None
+    ) -> tuple[str, asyncio.Queue[bytes]]:
         """Subscribe to HostVehicleData stream. Returns (subscriber_id, queue)."""
         return self._subscribe(self._hvd, subscriber_id)
 
@@ -238,5 +245,7 @@ async def stop_all_bridges() -> int:
                 count += 1
                 logger.info("Shutdown: stopped OSI bridge for job %s", job_id)
             except Exception as e:
-                logger.warning("Error stopping bridge for %s during shutdown: %s", job_id, e)
+                logger.warning(
+                    "Error stopping bridge for %s during shutdown: %s", job_id, e
+                )
     return count

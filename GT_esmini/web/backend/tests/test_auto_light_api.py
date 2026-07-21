@@ -61,7 +61,14 @@ def test_put_then_get_roundtrip(sandbox):
 def test_put_preserves_comment_keys(sandbox):
     _run(auto_light_api.update_config({"headlight_enabled": True}))
     on_disk = json.loads(sandbox.read_text(encoding="utf-8"))
-    for k in ("// F6", "// safety", "// enable", "// night", "// tunnel", "// highbeam"):
+    for k in (
+        "// F6",
+        "// safety",
+        "// enable",
+        "// night",
+        "// tunnel",
+        "// highbeam",
+    ):
         assert k in on_disk, f"comment key {k} was dropped"
     assert on_disk["headlight_enabled"] is True
 

@@ -11,6 +11,7 @@ import argparse
 import time
 
 from realdriver import RealDriverClient, LightMode, IndicatorMode
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -19,18 +20,18 @@ except ImportError:
 # OSI compliant ADAS function labels for GUI (commonly used subset)
 ADAS_GUI_FUNCTIONS = {
     # key: (display_label, osi_function_name)
-    'acc': ('ACC (Adaptive Cruise)', 'adaptive_cruise_control'),
-    'cc':  ('Cruise Control', 'cruise_control'),
-    'lka': ('LKA (Lane Keep)', 'lane_keeping_assist'),
-    'ldw': ('LDW (Lane Departure)', 'lane_departure_warning'),
-    'aeb': ('AEB (Emergency Brake)', 'automatic_emergency_braking'),
-    'bsw': ('BSW (Blind Spot)', 'blind_spot_warning'),
-    'fcw': ('FCW (Forward Collision)', 'forward_collision_warning'),
-    'ada': ('Active Driving Assist', 'active_driving_assistance'),
-    'hap': ('Highway Autopilot', 'highway_autopilot'),
-    'apa': ('Active Parking', 'active_parking_assistance'),
-    'ahb': ('Auto High Beams', 'automatic_high_beams'),
-    'dm':  ('Driver Monitoring', 'driver_monitoring'),
+    "acc": ("ACC (Adaptive Cruise)", "adaptive_cruise_control"),
+    "cc": ("Cruise Control", "cruise_control"),
+    "lka": ("LKA (Lane Keep)", "lane_keeping_assist"),
+    "ldw": ("LDW (Lane Departure)", "lane_departure_warning"),
+    "aeb": ("AEB (Emergency Brake)", "automatic_emergency_braking"),
+    "bsw": ("BSW (Blind Spot)", "blind_spot_warning"),
+    "fcw": ("FCW (Forward Collision)", "forward_collision_warning"),
+    "ada": ("Active Driving Assist", "active_driving_assistance"),
+    "hap": ("Highway Autopilot", "highway_autopilot"),
+    "apa": ("Active Parking", "active_parking_assistance"),
+    "ahb": ("Auto High Beams", "automatic_high_beams"),
+    "dm": ("Driver Monitoring", "driver_monitoring"),
 }
 
 # State mapping for GUI
@@ -41,9 +42,10 @@ ADAS_STATES = {
     "UNAVAILABLE": 3,
     "AVAILABLE": 4,
     "STANDBY": 5,
-    "ACTIVE": 6
+    "ACTIVE": 6,
 }
 ADAS_STATE_NAMES = list(ADAS_STATES.keys())
+
 
 class RealDriverGUI:
     def __init__(self, root, client):
@@ -55,18 +57,18 @@ class RealDriverGUI:
         self.throttle_var = tk.DoubleVar(value=0.0)
         self.brake_var = tk.DoubleVar(value=0.0)
         self.steer_var = tk.DoubleVar(value=0.0)
-        self.gear_var = tk.IntVar(value=1) # 1: D, 0: N, -1: R
-        self.engine_brake_var = tk.DoubleVar(value=0.49) # Default 0.49
+        self.gear_var = tk.IntVar(value=1)  # 1: D, 0: N, -1: R
+        self.engine_brake_var = tk.DoubleVar(value=0.49)  # Default 0.49
 
         # Light variables
         self.light_vars = {
-            'low': tk.BooleanVar(value=False),
-            'high': tk.BooleanVar(value=False),
-            'left': tk.BooleanVar(value=False),
-            'right': tk.BooleanVar(value=False),
-            'hazard': tk.BooleanVar(value=False),
-            'fog_front': tk.BooleanVar(value=False),
-            'fog_rear': tk.BooleanVar(value=False)
+            "low": tk.BooleanVar(value=False),
+            "high": tk.BooleanVar(value=False),
+            "left": tk.BooleanVar(value=False),
+            "right": tk.BooleanVar(value=False),
+            "hazard": tk.BooleanVar(value=False),
+            "fog_front": tk.BooleanVar(value=False),
+            "fog_rear": tk.BooleanVar(value=False),
         }
 
         # ADAS variables (OSI compliant function names)
@@ -85,28 +87,63 @@ class RealDriverGUI:
 
         # Throttle
         ttk.Label(control_frame, text="Throttle").grid(row=0, column=0, sticky="e")
-        ttk.Scale(control_frame, from_=0.0, to=1.0, variable=self.throttle_var, orient="horizontal", length=200).grid(row=0, column=1, padx=10)
+        ttk.Scale(
+            control_frame,
+            from_=0.0,
+            to=1.0,
+            variable=self.throttle_var,
+            orient="horizontal",
+            length=200,
+        ).grid(row=0, column=1, padx=10)
 
         # Brake
         ttk.Label(control_frame, text="Brake").grid(row=1, column=0, sticky="e")
-        ttk.Scale(control_frame, from_=0.0, to=1.0, variable=self.brake_var, orient="horizontal", length=200).grid(row=1, column=1, padx=10)
+        ttk.Scale(
+            control_frame,
+            from_=0.0,
+            to=1.0,
+            variable=self.brake_var,
+            orient="horizontal",
+            length=200,
+        ).grid(row=1, column=1, padx=10)
 
         # Steering
         ttk.Label(control_frame, text="Steering").grid(row=2, column=0, sticky="e")
-        ttk.Scale(control_frame, from_=-1.0, to=1.0, variable=self.steer_var, orient="horizontal", length=200).grid(row=2, column=1, padx=10)
+        ttk.Scale(
+            control_frame,
+            from_=-1.0,
+            to=1.0,
+            variable=self.steer_var,
+            orient="horizontal",
+            length=200,
+        ).grid(row=2, column=1, padx=10)
 
         # Engine Brake
-        ttk.Label(control_frame, text="Eng Brake (m/s2)").grid(row=3, column=0, sticky="e")
-        ttk.Scale(control_frame, from_=0.0, to=5.0, variable=self.engine_brake_var, orient="horizontal", length=200).grid(row=3, column=1, padx=10)
-
+        ttk.Label(control_frame, text="Eng Brake (m/s2)").grid(
+            row=3, column=0, sticky="e"
+        )
+        ttk.Scale(
+            control_frame,
+            from_=0.0,
+            to=5.0,
+            variable=self.engine_brake_var,
+            orient="horizontal",
+            length=200,
+        ).grid(row=3, column=1, padx=10)
 
         # Gear
         gear_frame = ttk.LabelFrame(self.root, text="Gear", padding=10)
         gear_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Radiobutton(gear_frame, text="Reverse (R)", variable=self.gear_var, value=-1).pack(side="left", padx=10)
-        ttk.Radiobutton(gear_frame, text="Neutral (N)", variable=self.gear_var, value=0).pack(side="left", padx=10)
-        ttk.Radiobutton(gear_frame, text="Drive (D)", variable=self.gear_var, value=1).pack(side="left", padx=10)
+        ttk.Radiobutton(
+            gear_frame, text="Reverse (R)", variable=self.gear_var, value=-1
+        ).pack(side="left", padx=10)
+        ttk.Radiobutton(
+            gear_frame, text="Neutral (N)", variable=self.gear_var, value=0
+        ).pack(side="left", padx=10)
+        ttk.Radiobutton(
+            gear_frame, text="Drive (D)", variable=self.gear_var, value=1
+        ).pack(side="left", padx=10)
 
         # Lights
         light_frame = ttk.LabelFrame(self.root, text="Lights", padding=10)
@@ -114,14 +151,16 @@ class RealDriverGUI:
 
         # Layout mapping
         layout = [
-            [("Low Beam", 'low'), ("High Beam", 'high')],
-            [("Left Ind", 'left'), ("Hazard", 'hazard'), ("Right Ind", 'right')],
-            [("Fog Front", 'fog_front'), ("Fog Rear", 'fog_rear')]
+            [("Low Beam", "low"), ("High Beam", "high")],
+            [("Left Ind", "left"), ("Hazard", "hazard"), ("Right Ind", "right")],
+            [("Fog Front", "fog_front"), ("Fog Rear", "fog_rear")],
         ]
 
         for r, row_items in enumerate(layout):
             for c, (label, key) in enumerate(row_items):
-                ttk.Checkbutton(light_frame, text=label, variable=self.light_vars[key]).grid(row=r, column=c, padx=5, sticky="w")
+                ttk.Checkbutton(
+                    light_frame, text=label, variable=self.light_vars[key]
+                ).grid(row=r, column=c, padx=5, sticky="w")
 
         # ADAS Functions Frame (OSI compliant)
         adas_frame = ttk.LabelFrame(self.root, text="ADAS Functions (OSI)", padding=10)
@@ -140,7 +179,13 @@ class RealDriverGUI:
 
             ttk.Label(frame, text=label).pack(anchor="w")
 
-            cb = ttk.Combobox(frame, textvariable=self.adas_vars[osi_name], values=ADAS_STATE_NAMES, state="readonly", width=12)
+            cb = ttk.Combobox(
+                frame,
+                textvariable=self.adas_vars[osi_name],
+                values=ADAS_STATE_NAMES,
+                state="readonly",
+                width=12,
+            )
             cb.pack(anchor="w")
 
         # Quit Button
@@ -154,7 +199,7 @@ class RealDriverGUI:
         self.client.set_controls(
             throttle=self.throttle_var.get(),
             brake=self.brake_var.get(),
-            steering=steer_input
+            steering=steer_input,
         )
 
         self.client.set_gear(self.gear_var.get())
@@ -162,27 +207,27 @@ class RealDriverGUI:
 
         # Update lights using High-Level API
         # Headlights
-        if self.light_vars['high'].get():
+        if self.light_vars["high"].get():
             self.client.set_headlights(LightMode.HIGH)
-        elif self.light_vars['low'].get():
+        elif self.light_vars["low"].get():
             self.client.set_headlights(LightMode.LOW)
         else:
             self.client.set_headlights(LightMode.OFF)
 
         # Indicators
-        if self.light_vars['hazard'].get():
+        if self.light_vars["hazard"].get():
             self.client.set_indicators(IndicatorMode.HAZARD)
-        elif self.light_vars['left'].get():
+        elif self.light_vars["left"].get():
             self.client.set_indicators(IndicatorMode.LEFT)
-        elif self.light_vars['right'].get():
+        elif self.light_vars["right"].get():
             self.client.set_indicators(IndicatorMode.RIGHT)
         else:
             self.client.set_indicators(IndicatorMode.OFF)
 
         # Fog Lights
         self.client.set_fog_lights(
-            front=self.light_vars['fog_front'].get(),
-            rear=self.light_vars['fog_rear'].get()
+            front=self.light_vars["fog_front"].get(),
+            rear=self.light_vars["fog_rear"].get(),
         )
 
         # Update ADAS functions (OSI compliant)
@@ -196,6 +241,7 @@ class RealDriverGUI:
 
         # Schedule next update (20ms = 50Hz)
         self.root.after(20, self.update_loop)
+
 
 def main():
     parser = argparse.ArgumentParser(description="RealDriver GUI Controller")
@@ -219,6 +265,7 @@ def main():
         root.mainloop()
     finally:
         client.close()
+
 
 if __name__ == "__main__":
     main()

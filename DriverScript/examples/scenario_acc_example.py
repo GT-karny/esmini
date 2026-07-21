@@ -37,6 +37,7 @@ from realdriver import (
     Waypoint,
     OSIReceiverWrapper,
 )
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -56,6 +57,7 @@ def create_sample_waypoints():
 def main():
     # Calculate script directory for relative paths
     import os
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Go up to DriverScript directory, then to bin
     bin_dir = os.path.normpath(os.path.join(script_dir, "..", "bin"))
@@ -65,31 +67,53 @@ def main():
     parser = argparse.ArgumentParser(
         description="ScenarioDrive + ACC Example - シナリオルート追従 + 先行車追従"
     )
-    parser.add_argument("--ip", type=str, default="127.0.0.1",
-                        help="esmini Host IP")
-    parser.add_argument("--port", type=int, default=53995,
-                        help="RealDriver Base Port")
-    parser.add_argument("--osi_port", type=int, default=48198,
-                        help="OSI Port")
-    parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="Deprecated: ignored by embedded-only ScenarioDriveController")
-    parser.add_argument("--id", type=int, default=0,
-                        help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default=default_lib_path,
-                        help="Path to esminiRMLib.dll")
-    parser.add_argument("--gt_lib_path", type=str, default=default_gt_lib_path,
-                        help="Path to GT_esminiLib.dll (for routing)")
-    parser.add_argument("--xodr_path", type=str, required=True,
-                        help="Path to OpenDRIVE map file (.xodr)")
-    parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s")
-    parser.add_argument("--mode", type=str, default="waypoints",
-                        choices=["waypoints", "target"],
-                        help="Control mode: waypoints=explicit, target=auto-route")
-    parser.add_argument("--target_x", type=float, default=300.0,
-                        help="Target X coordinate (for target mode)")
-    parser.add_argument("--target_y", type=float, default=0.0,
-                        help="Target Y coordinate (for target mode)")
+    parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
+    parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
+    parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
+    parser.add_argument(
+        "--target_speed_port",
+        type=int,
+        default=54995,
+        help="Deprecated: ignored by embedded-only ScenarioDriveController",
+    )
+    parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
+    parser.add_argument(
+        "--lib_path", type=str, default=default_lib_path, help="Path to esminiRMLib.dll"
+    )
+    parser.add_argument(
+        "--gt_lib_path",
+        type=str,
+        default=default_gt_lib_path,
+        help="Path to GT_esminiLib.dll (for routing)",
+    )
+    parser.add_argument(
+        "--xodr_path",
+        type=str,
+        required=True,
+        help="Path to OpenDRIVE map file (.xodr)",
+    )
+    parser.add_argument(
+        "--target_speed", type=float, default=10.0, help="Default target speed in m/s"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="waypoints",
+        choices=["waypoints", "target"],
+        help="Control mode: waypoints=explicit, target=auto-route",
+    )
+    parser.add_argument(
+        "--target_x",
+        type=float,
+        default=300.0,
+        help="Target X coordinate (for target mode)",
+    )
+    parser.add_argument(
+        "--target_y",
+        type=float,
+        default=0.0,
+        help="Target Y coordinate (for target mode)",
+    )
     add_dump_argspec_option(parser)
 
     args = parser.parse_args()
@@ -204,17 +228,24 @@ def main():
                         speed = controller._last_speed
                         target_spd = controller.target_speed
                         lead = acc.lead_vehicle
-                        lead_str = (f"lead: gap={lead.gap_distance:.1f}m, "
-                                    f"spd={lead.lead_speed:.1f}m/s"
-                                    if lead else "lead: none")
-                        print(f"Speed: {speed:.2f}/{target_spd:.2f} m/s | "
-                              f"Steer: {steering:.3f} | "
-                              f"Thr: {lon_output.throttle:.2f} | "
-                              f"Brk: {lon_output.brake:.2f} | "
-                              f"{lead_str}")
+                        lead_str = (
+                            f"lead: gap={lead.gap_distance:.1f}m, "
+                            f"spd={lead.lead_speed:.1f}m/s"
+                            if lead
+                            else "lead: none"
+                        )
+                        print(
+                            f"Speed: {speed:.2f}/{target_spd:.2f} m/s | "
+                            f"Steer: {steering:.3f} | "
+                            f"Thr: {lon_output.throttle:.2f} | "
+                            f"Brk: {lon_output.brake:.2f} | "
+                            f"{lead_str}"
+                        )
 
                     # --- Send Controls ---
-                    client.set_controls(lon_output.throttle, lon_output.brake, -steering)
+                    client.set_controls(
+                        lon_output.throttle, lon_output.brake, -steering
+                    )
                     client.set_gear(1)
                     client.send_update()
 

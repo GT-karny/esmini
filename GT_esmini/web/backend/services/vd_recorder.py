@@ -46,7 +46,9 @@ async def _telemetry_loop(jsonl_path: Path, counter: dict) -> None:
                 f.write(line + "\n")
                 f.flush()
                 counter["frames"] += 1
-                counter["last_sim_time"] = frame.get("sim_time", counter["last_sim_time"])
+                counter["last_sim_time"] = frame.get(
+                    "sim_time", counter["last_sim_time"]
+                )
     except asyncio.CancelledError:
         pass
     except Exception as e:  # pragma: no cover
@@ -76,11 +78,17 @@ async def _scene_loop(job_id: str, jsonl_path: Path) -> None:
                 if t - last_t < _SCENE_MIN_DT:
                     continue
                 last_t = t
-                f.write(json.dumps({
-                    "sim_time": t,
-                    "objects": data.get("objects", []),
-                    "traffic_lights": data.get("traffic_lights", []),
-                }, separators=(",", ":")) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "sim_time": t,
+                            "objects": data.get("objects", []),
+                            "traffic_lights": data.get("traffic_lights", []),
+                        },
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
                 f.flush()
     except asyncio.CancelledError:
         pass
@@ -100,7 +108,9 @@ def start(job_id: str, out_dir: Path, record_scene: bool = False) -> None:
     if record_scene:
         tasks.append(asyncio.create_task(_scene_loop(job_id, out_dir / "scene.jsonl")))
     _recordings[job_id] = {"tasks": tasks, "out_dir": out_dir, "counter": counter}
-    logger.info("VD recorder started for %s (scene=%s) -> %s", job_id, record_scene, out_dir)
+    logger.info(
+        "VD recorder started for %s (scene=%s) -> %s", job_id, record_scene, out_dir
+    )
 
 
 async def stop(job_id: str, meta_extra: dict | None = None) -> dict | None:

@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Callable
 
-
 LogCallback = Callable[[str], None]
 
 
@@ -105,12 +104,18 @@ class GTExecutionPlanner:
                     path = (directory.get("path") or "").strip()
                     if not path:
                         continue
-                    abs_dir = path if os.path.isabs(path) else os.path.normpath(os.path.join(scenario_dir, path))
+                    abs_dir = (
+                        path
+                        if os.path.isabs(path)
+                        else os.path.normpath(os.path.join(scenario_dir, path))
+                    )
                     catalog_dirs.append(abs_dir)
 
             catalog_refs = root.findall(".//CatalogReference")
             if catalog_refs and not catalog_dirs:
-                errors.append("CatalogReference exists but CatalogLocations/Directory is missing.")
+                errors.append(
+                    "CatalogReference exists but CatalogLocations/Directory is missing."
+                )
                 return errors
 
             for ref in catalog_refs:
@@ -139,7 +144,13 @@ class GTExecutionPlanner:
             errors.append(f"Failed to parse scenario: {exc}")
         return errors
 
-    def get_target_scenario(self, source_path: str, realdriver_enabled: bool, entity_name: str, base_port: int) -> str:
+    def get_target_scenario(
+        self,
+        source_path: str,
+        realdriver_enabled: bool,
+        entity_name: str,
+        base_port: int,
+    ) -> str:
         if not realdriver_enabled:
             return source_path
         return self.generate_temp_realdriver_scenario(
@@ -148,7 +159,9 @@ class GTExecutionPlanner:
             base_port=base_port,
         )
 
-    def generate_temp_realdriver_scenario(self, src_path: str, entity_name: str, base_port: int) -> str:
+    def generate_temp_realdriver_scenario(
+        self, src_path: str, entity_name: str, base_port: int
+    ) -> str:
         tree = ET.parse(src_path)
         root = tree.getroot()
 
@@ -271,7 +284,9 @@ class GTExecutionPlanner:
                     continue
                 path = directory.get("path", "")
                 if path and not os.path.isabs(path):
-                    directory.set("path", os.path.normpath(os.path.join(base_dir, path)))
+                    directory.set(
+                        "path", os.path.normpath(os.path.join(base_dir, path))
+                    )
 
         # Controller Properties/File (e.g. SumoController .sumocfg)
         for file_elem in root.iter("File"):
@@ -316,7 +331,9 @@ class GTExecutionPlanner:
                 return ""
             if os.path.isabs(logic_fp):
                 return logic_fp if os.path.exists(logic_fp) else ""
-            abs_fp = os.path.normpath(os.path.join(os.path.dirname(scenario_path), logic_fp))
+            abs_fp = os.path.normpath(
+                os.path.join(os.path.dirname(scenario_path), logic_fp)
+            )
             return abs_fp if os.path.exists(abs_fp) else ""
         except Exception:
             return ""
@@ -326,7 +343,9 @@ class GTExecutionPlanner:
         if not script_path:
             return ""
         script_dir = os.path.dirname(os.path.abspath(script_path))
-        candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "esminiRMLib.dll"))
+        candidate = os.path.normpath(
+            os.path.join(script_dir, "..", "bin", "esminiRMLib.dll")
+        )
         return candidate if os.path.exists(candidate) else ""
 
     @staticmethod
@@ -334,10 +353,14 @@ class GTExecutionPlanner:
         if not script_path:
             return ""
         script_dir = os.path.dirname(os.path.abspath(script_path))
-        candidate = os.path.normpath(os.path.join(script_dir, "..", "bin", "GT_esminiLib.dll"))
+        candidate = os.path.normpath(
+            os.path.join(script_dir, "..", "bin", "GT_esminiLib.dll")
+        )
         return candidate if os.path.exists(candidate) else ""
 
-    def build_python_args(self, req: PythonArgsRequest, on_log: LogCallback | None = None) -> list[str]:
+    def build_python_args(
+        self, req: PythonArgsRequest, on_log: LogCallback | None = None
+    ) -> list[str]:
         logger = on_log or self._on_log
         extra_args = list(req.dynamic_args) + safe_split(req.extra_args_line)
         args = []
@@ -357,10 +380,19 @@ class GTExecutionPlanner:
 
         xodr_path = self.resolve_logicfile_xodr(req.scenario_path)
 
-        if req.auto_xodr and supports_xodr and xodr_path and not has_option(extra_args, "--xodr_path"):
+        if (
+            req.auto_xodr
+            and supports_xodr
+            and xodr_path
+            and not has_option(extra_args, "--xodr_path")
+        ):
             extra_args += ["--xodr_path", xodr_path]
             logger(f"Auto-added --xodr_path from scenario LogicFile: {xodr_path}")
-        elif req.auto_xodr and supports_xodr and not has_option(extra_args, "--xodr_path"):
+        elif (
+            req.auto_xodr
+            and supports_xodr
+            and not has_option(extra_args, "--xodr_path")
+        ):
             raise RuntimeError(
                 "Failed to resolve --xodr_path from selected Scenario (.xosc). "
                 "Select a valid scenario with <RoadNetwork><LogicFile ...>, or set --xodr_path manually."
@@ -368,10 +400,14 @@ class GTExecutionPlanner:
 
         if not supports_mode and has_option(extra_args, "--mode"):
             extra_args = strip_option(extra_args, "--mode")
-            logger("Removed --mode argument because selected script does not define --mode.")
+            logger(
+                "Removed --mode argument because selected script does not define --mode."
+            )
 
         script_basename = os.path.basename(req.script_path).lower()
-        if script_basename == "scenario_drive_example.py" and not has_option(extra_args, "--mode"):
+        if script_basename == "scenario_drive_example.py" and not has_option(
+            extra_args, "--mode"
+        ):
             logger(
                 "Hint: scenario_drive_example.py default mode is 'waypoints'. "
                 "Use '--mode udp' if you want route/waypoints from ControllerRealDriver."
@@ -410,7 +446,9 @@ class GTExecutionService:
             text=True,
         )
 
-    def stop_process(self, proc: subprocess.Popen | None, timeout_sec: float = 3.0) -> None:
+    def stop_process(
+        self, proc: subprocess.Popen | None, timeout_sec: float = 3.0
+    ) -> None:
         if proc is None or proc.poll() is not None:
             return
         proc.terminate()

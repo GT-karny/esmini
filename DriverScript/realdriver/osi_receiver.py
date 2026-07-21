@@ -4,10 +4,12 @@ import struct
 import math
 import socket
 
+
 class OSIReceiverWrapper:
     """
     Wrapper around OSIReceiver to easily fetch Ego vehicle data.
     """
+
     def __init__(self, port=48198):
         self.receiver = CommonOSIReceiver()
 
@@ -15,7 +17,7 @@ class OSIReceiverWrapper:
         # If user requests a different port, we must close the default one and recreate.
         if port != 48198:
             self.receiver.udp_receiver.close()
-            self.receiver.udp_receiver = UdpReceiver(ip='127.0.0.1', port=port)
+            self.receiver.udp_receiver = UdpReceiver(ip="127.0.0.1", port=port)
 
         self.last_msg = None
 
@@ -49,7 +51,7 @@ class OSIReceiverWrapper:
                     break
 
             # 2. Try host_vehicle_id if not found
-            if ego_obj is None and self.last_msg.HasField('host_vehicle_id'):
+            if ego_obj is None and self.last_msg.HasField("host_vehicle_id"):
                 host_id = self.last_msg.host_vehicle_id.value
                 for obj in self.last_msg.moving_object:
                     if obj.id.value == host_id:
@@ -75,19 +77,22 @@ class OSIReceiverWrapper:
                 speed = math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)
 
                 return {
-                    'x': pos.x,
-                    'y': pos.y,
-                    'z': pos.z,
-                    'h': ori.yaw,
-                    'speed': speed,
-                    'valid': True
+                    "x": pos.x,
+                    "y": pos.y,
+                    "z": pos.z,
+                    "h": ori.yaw,
+                    "speed": speed,
+                    "valid": True,
                 }
             else:
                 # Fallback: Check HostVehicleData if available?
                 # GroundTruth usually contains ALL objects.
                 # If ID not found, return None or Invalid
                 found_ids = [obj.id.value for obj in self.last_msg.moving_object]
-                return {'valid': False, 'error': f'ID {ego_id} not found. Received IDs: {found_ids}'}
+                return {
+                    "valid": False,
+                    "error": f"ID {ego_id} not found. Received IDs: {found_ids}",
+                }
 
         except socket.timeout:
             # Expected timeout if non-blocking

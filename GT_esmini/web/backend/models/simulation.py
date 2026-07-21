@@ -137,8 +137,12 @@ class ExecutionConfig(BaseModel):
     vehicle_physics: bool = True
     kinematic_mode: bool = False
     route_drive_mode: bool = False
-    route_drive_timing: str = "normal"  # RouteDrive lane-change Timing knob (late | normal | early)
-    route_drive_gap: str = "normal"     # RouteDrive lane-change Gap knob (wide | normal | tight)
+    route_drive_timing: str = (
+        "normal"  # RouteDrive lane-change Timing knob (late | normal | early)
+    )
+    route_drive_gap: str = (
+        "normal"  # RouteDrive lane-change Gap knob (wide | normal | tight)
+    )
     threads: bool = False
     window: WindowConfig = WindowConfig()
     extra_args: list[str] = []
@@ -175,8 +179,14 @@ class SimulationListResponse(BaseModel):
 
 
 class SpeedRequest(BaseModel):
-    speed_factor: float = Field(ge=0.1, le=100.0, description="Speed multiplier (1.0 = realtime)")
+    speed_factor: float = Field(
+        ge=0.1, le=100.0, description="Speed multiplier (1.0 = realtime)"
+    )
 
 
 class DriveModeRequest(BaseModel):
-    mode: str = Field(min_length=1, max_length=32, description="HVDEstimator drive mode (e.g. 'comfort', 'sport')")
+    mode: str = Field(
+        min_length=1,
+        max_length=32,
+        description="HVDEstimator drive mode (e.g. 'comfort', 'sport')",
+    )

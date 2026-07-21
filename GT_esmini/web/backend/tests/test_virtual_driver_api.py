@@ -43,7 +43,9 @@ def test_get_defaults_returns_shipping_values(sandbox):
     assert d["idm_desired_speed"] == 50.0
     # Returns a copy — mutating it must not corrupt the module constant.
     d["policy_lead_enabled"] = True
-    assert virtual_driver_api.DEFAULT_VIRTUAL_DRIVER_CONFIG["policy_lead_enabled"] is False
+    assert (
+        virtual_driver_api.DEFAULT_VIRTUAL_DRIVER_CONFIG["policy_lead_enabled"] is False
+    )
 
 
 def test_put_roundtrips_policy_toggle_and_numeric_param(sandbox):
@@ -85,10 +87,14 @@ def test_put_rejects_invalid_enum_value(sandbox):
 
 
 def test_put_accepts_valid_enum_values(sandbox):
-    written = _run(virtual_driver_api.update_config({
-        "override_lateral": "scenario",
-        "override_longitudinal": "manual",
-    }))
+    written = _run(
+        virtual_driver_api.update_config(
+            {
+                "override_lateral": "scenario",
+                "override_longitudinal": "manual",
+            }
+        )
+    )
     assert written["override_lateral"] == "scenario"
     assert written["override_longitudinal"] == "manual"
 
@@ -96,17 +102,34 @@ def test_put_accepts_valid_enum_values(sandbox):
 def test_put_preserves_comment_keys(sandbox):
     _run(virtual_driver_api.update_config({"policy_lead_enabled": True}))
     on_disk = json.loads(sandbox.read_text(encoding="utf-8"))
-    for k in ("_comment", "_planner", "_midlong", "_driver", "_control_point",
-              "_indicator", "_policies", "_policy_lead", "_override", "_input"):
+    for k in (
+        "_comment",
+        "_planner",
+        "_midlong",
+        "_driver",
+        "_control_point",
+        "_indicator",
+        "_policies",
+        "_policy_lead",
+        "_override",
+        "_input",
+    ):
         assert k in on_disk, f"comment key {k} was dropped"
     assert on_disk["policy_lead_enabled"] is True
 
 
 def test_put_ignores_incoming_comment_keys(sandbox):
     # A client-supplied comment key must not be written verbatim; server keeps its own.
-    _run(virtual_driver_api.update_config({"_comment": "injected", "policy_lead_enabled": True}))
+    _run(
+        virtual_driver_api.update_config(
+            {"_comment": "injected", "policy_lead_enabled": True}
+        )
+    )
     on_disk = json.loads(sandbox.read_text(encoding="utf-8"))
-    assert on_disk["_comment"] == virtual_driver_api.DEFAULT_VIRTUAL_DRIVER_CONFIG["_comment"]
+    assert (
+        on_disk["_comment"]
+        == virtual_driver_api.DEFAULT_VIRTUAL_DRIVER_CONFIG["_comment"]
+    )
 
 
 def test_get_defaults_matches_factory_dict(sandbox):

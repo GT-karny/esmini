@@ -1,23 +1,23 @@
-'''
-   HostVehicleData UDP Receiver Test Script
+"""
+HostVehicleData UDP Receiver Test Script
 
-   This script verifies that GT_HostVehicleReporter is correctly
-   sending OSI HostVehicleData via UDP.
+This script verifies that GT_HostVehicleReporter is correctly
+sending OSI HostVehicleData via UDP.
 
-   Prerequisites:
-      Python 3
-      pip install protobuf==3.20.2
+Prerequisites:
+   Python 3
+   pip install protobuf==3.20.2
 
-   Usage:
-   1. Start THIS script first:
-      python GT_esmini/scripts/test_hostvehicledata.py
+Usage:
+1. Start THIS script first:
+   python GT_esmini/scripts/test_hostvehicledata.py
 
-   2. Start GT_Sim with a RealDriver scenario:
-      ./bin/GT_Sim.exe --osc resources/xosc/test_real_driver_lights.xosc
+2. Start GT_Sim with a RealDriver scenario:
+   ./bin/GT_Sim.exe --osc resources/xosc/test_real_driver_lights.xosc
 
-   3. (Optional) Start RealDriverClient to send control inputs:
-      python scripts/udp_driver/testUDP_RealDriver.py --id 0
-'''
+3. (Optional) Start RealDriverClient to send control inputs:
+   python scripts/udp_driver/testUDP_RealDriver.py --id 0
+"""
 
 from socket import AF_INET, SOCK_DGRAM, socket, timeout
 import struct
@@ -27,16 +27,21 @@ import argparse
 import math
 
 # Add scripts root directory to module search path for osi3
-SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'))
+SCRIPTS_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "scripts")
+)
 sys.path.append(SCRIPTS_DIR)
 
 try:
     from osi3.osi_hostvehicledata_pb2 import HostVehicleData
+
     PROTOBUF_AVAILABLE = True
 except ImportError:
     PROTOBUF_AVAILABLE = False
     print("[WARNING] osi_hostvehicledata_pb2 not found. Running in raw mode.")
-    print("          To enable full parsing, add osi_hostvehicledata_pb2.py to scripts/osi3/")
+    print(
+        "          To enable full parsing, add osi_hostvehicledata_pb2.py to scripts/osi3/"
+    )
 
 
 DEFAULT_PORT = 48199
@@ -44,7 +49,7 @@ BUFFER_SIZE = 8208  # MAX OSI data size + header (two ints)
 
 
 class HostVehicleDataReceiver:
-    def __init__(self, ip='127.0.0.1', port=DEFAULT_PORT, timeout_sec=-1):
+    def __init__(self, ip="127.0.0.1", port=DEFAULT_PORT, timeout_sec=-1):
         self.sock = socket(AF_INET, SOCK_DGRAM)
         if timeout_sec >= 0:
             self.sock.settimeout(timeout_sec)
@@ -57,7 +62,7 @@ class HostVehicleDataReceiver:
         """Receive and parse HostVehicleData message"""
         done = False
         next_index = 1
-        complete_msg = b''
+        complete_msg = b""
 
         # Large messages might be split into multiple parts
         while not done:
@@ -69,7 +74,7 @@ class HostVehicleDataReceiver:
                 print(f"[ERROR] Message too short: {len(msg)} bytes")
                 return None, 0
 
-            counter, size = struct.unpack('iI', msg[:header_size])
+            counter, size = struct.unpack("iI", msg[:header_size])
             frame = msg[header_size:]
 
             if len(frame) != size:
@@ -141,20 +146,14 @@ def operating_state_to_string(state):
         4: "BOARDING",
         5: "ENTERTAINMENT",
         6: "DRIVING",
-        7: "DIAGNOSTIC"
+        7: "DIAGNOSTIC",
     }
     return states.get(state, f"UNKNOWN({state})")
 
 
 def motor_type_to_string(motor_type):
     """Convert motor type enum to string"""
-    types = {
-        0: "UNKNOWN",
-        1: "OTHER",
-        2: "OTTO",
-        3: "DIESEL",
-        4: "ELECTRIC"
-    }
+    types = {0: "UNKNOWN", 1: "OTHER", 2: "OTTO", 3: "DIESEL", 4: "ELECTRIC"}
     return types.get(motor_type, f"UNKNOWN({motor_type})")
 
 
@@ -167,7 +166,7 @@ def adas_state_to_string(state):
         3: "UNAVAILABLE",
         4: "AVAILABLE",
         5: "STANDBY",
-        6: "ACTIVE"
+        6: "ACTIVE",
     }
     return states.get(state, f"UNKNOWN({state})")
 
@@ -185,30 +184,32 @@ def print_hostvehicledata(msg, frame_count, data_size):
         return
 
     # Location
-    if msg.HasField('location'):
+    if msg.HasField("location"):
         loc = msg.location
         print("\n  Location:")
 
-        if loc.HasField('position'):
+        if loc.HasField("position"):
             p = loc.position
             print(f"    Position:     x={p.x:10.2f} y={p.y:10.2f} z={p.z:10.2f}")
 
-        if loc.HasField('velocity'):
+        if loc.HasField("velocity"):
             v = loc.velocity
             print(f"    Velocity:     x={v.x:10.2f} y={v.y:10.2f} z={v.z:10.2f}")
 
-        if loc.HasField('orientation'):
+        if loc.HasField("orientation"):
             o = loc.orientation
             yaw_deg = rad_to_deg(o.yaw)
-            print(f"    Orientation:  yaw={o.yaw:6.3f} pitch={o.pitch:6.3f} roll={o.roll:6.3f} ({yaw_deg:.1f} deg)")
+            print(
+                f"    Orientation:  yaw={o.yaw:6.3f} pitch={o.pitch:6.3f} roll={o.roll:6.3f} ({yaw_deg:.1f} deg)"
+            )
 
     # Vehicle Controls
     print("\n  Vehicle Controls:")
 
     # Steering
-    if msg.HasField('vehicle_steering'):
+    if msg.HasField("vehicle_steering"):
         vs = msg.vehicle_steering
-        if vs.HasField('vehicle_steering_wheel'):
+        if vs.HasField("vehicle_steering_wheel"):
             angle = vs.vehicle_steering_wheel.angle
             angle_deg = rad_to_deg(angle)
             print(f"    Steering:     {angle:6.3f} rad ({angle_deg:.1f} deg)")
@@ -216,7 +217,7 @@ def print_hostvehicledata(msg, frame_count, data_size):
     # Powertrain (throttle, gear)
     throttle = 0.0
     gear = 1
-    if msg.HasField('vehicle_powertrain'):
+    if msg.HasField("vehicle_powertrain"):
         vp = msg.vehicle_powertrain
         throttle = vp.pedal_position_acceleration
         gear = vp.gear_transmission
@@ -225,22 +226,24 @@ def print_hostvehicledata(msg, frame_count, data_size):
 
     # Brake
     brake = 0.0
-    if msg.HasField('vehicle_brake_system'):
+    if msg.HasField("vehicle_brake_system"):
         vb = msg.vehicle_brake_system
         brake = vb.pedal_position_brake
     print(f"    Brake:        {brake:.2f}")
 
     # Powertrain Motor details
-    if msg.HasField('vehicle_powertrain'):
+    if msg.HasField("vehicle_powertrain"):
         vp = msg.vehicle_powertrain
         if len(vp.motor) > 0:
             print("\n  Powertrain Motor:")
             for i, motor in enumerate(vp.motor):
-                print(f"    [{i}] Type: {motor_type_to_string(motor.type)}, "
-                      f"RPM: {motor.rpm:.1f}, Torque: {motor.torque:.1f} Nm")
+                print(
+                    f"    [{i}] Type: {motor_type_to_string(motor.type)}, "
+                    f"RPM: {motor.rpm:.1f}, Torque: {motor.torque:.1f} Nm"
+                )
 
     # Operating State
-    if msg.HasField('vehicle_basics'):
+    if msg.HasField("vehicle_basics"):
         vb = msg.vehicle_basics
         print(f"\n  Operating State: {operating_state_to_string(vb.operating_state)}")
 
@@ -263,30 +266,44 @@ def print_raw_data(data, frame_count, data_size):
     print(f"  Raw data received: {data_size} bytes")
     if data_size > 0:
         # Show first 64 bytes as hex
-        preview = data[:min(64, data_size)]
-        hex_str = ' '.join(f'{b:02x}' for b in preview)
+        preview = data[: min(64, data_size)]
+        hex_str = " ".join(f"{b:02x}" for b in preview)
         print(f"  First bytes: {hex_str}...")
-    print("\n  [NOTE] Install osi_hostvehicledata_pb2.py in scripts/osi3/ for full parsing")
+    print(
+        "\n  [NOTE] Install osi_hostvehicledata_pb2.py in scripts/osi3/ for full parsing"
+    )
     print("=" * 80)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='HostVehicleData UDP Receiver Test')
-    parser.add_argument('--port', type=int, default=DEFAULT_PORT,
-                        help=f'UDP port to listen on (default: {DEFAULT_PORT})')
-    parser.add_argument('--timeout', type=float, default=5.0,
-                        help='Socket timeout in seconds (default: 5.0)')
+    parser = argparse.ArgumentParser(description="HostVehicleData UDP Receiver Test")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"UDP port to listen on (default: {DEFAULT_PORT})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=5.0,
+        help="Socket timeout in seconds (default: 5.0)",
+    )
     args = parser.parse_args()
 
     print("=" * 80)
     print("HostVehicleData UDP Receiver Test")
     print("=" * 80)
     print(f"\nListening on UDP port {args.port}")
-    print(f"Protobuf parsing: {'ENABLED' if PROTOBUF_AVAILABLE else 'DISABLED (raw mode)'}")
+    print(
+        f"Protobuf parsing: {'ENABLED' if PROTOBUF_AVAILABLE else 'DISABLED (raw mode)'}"
+    )
     print("\nMake sure to:")
     print("  1. START THIS SCRIPT FIRST")
     print("  2. Run GT_Sim with a RealDriver scenario")
-    print("     Example: bin/GT_Sim.exe --osc resources/xosc/test_real_driver_lights.xosc")
+    print(
+        "     Example: bin/GT_Sim.exe --osc resources/xosc/test_real_driver_lights.xosc"
+    )
     print("  3. (Optional) Run RealDriverClient to send inputs")
     print("\nPress Ctrl+C to quit\n")
     print("=" * 80)
@@ -308,7 +325,9 @@ def main():
                     print_raw_data(msg, frame_count, data_size)
 
             except timeout:
-                print(f"[Timeout] No data received for {args.timeout}s, still waiting...")
+                print(
+                    f"[Timeout] No data received for {args.timeout}s, still waiting..."
+                )
 
     except KeyboardInterrupt:
         print("\n\n[Quit] Ctrl+C pressed")

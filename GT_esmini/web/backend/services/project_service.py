@@ -33,6 +33,7 @@ BUILTIN_PROJECT_ID = "builtin"
 # Built-in project initialization
 # ---------------------------------------------------------------------------
 
+
 async def ensure_builtin_project() -> None:
     """Register the resources/ directory as a read-only built-in project."""
     db = await get_db()
@@ -52,7 +53,12 @@ async def ensure_builtin_project() -> None:
         await db.execute(
             """INSERT INTO projects (project_id, name, description, is_builtin, root_path)
                VALUES (?, ?, ?, 1, ?)""",
-            (BUILTIN_PROJECT_ID, "Built-in Samples", "Default scenarios from resources/", str(RESOURCES_DIR)),
+            (
+                BUILTIN_PROJECT_ID,
+                "Built-in Samples",
+                "Default scenarios from resources/",
+                str(RESOURCES_DIR),
+            ),
         )
         await db.commit()
     finally:
@@ -62,6 +68,7 @@ async def ensure_builtin_project() -> None:
 # ---------------------------------------------------------------------------
 # Filesystem ↔ DB sync
 # ---------------------------------------------------------------------------
+
 
 async def sync_projects() -> None:
     """Scan the active projects directory and sync with DB.
@@ -102,7 +109,9 @@ async def sync_projects() -> None:
                        VALUES (?, ?, '', 0, ?, ?, ?)""",
                     (project_id, folder_name, dir_path, now, now),
                 )
-                _logger.info("Auto-registered project '%s' from %s", folder_name, dir_path)
+                _logger.info(
+                    "Auto-registered project '%s' from %s", folder_name, dir_path
+                )
 
         # Remove DB entries whose folders no longer exist
         for root_path, project_id in db_projects.items():
@@ -122,6 +131,7 @@ async def sync_projects() -> None:
 # ---------------------------------------------------------------------------
 # File counting helpers
 # ---------------------------------------------------------------------------
+
 
 def _count_files(root_path: Path) -> tuple[int, int, int]:
     """Count (scenario_count, road_count, total_file_count) in a project directory."""
@@ -159,6 +169,7 @@ def _file_type(path: Path) -> str:
 # Project CRUD
 # ---------------------------------------------------------------------------
 
+
 async def list_projects() -> list[ProjectListItem]:
     """List all projects including the built-in one."""
     await sync_projects()
@@ -172,17 +183,19 @@ async def list_projects() -> list[ProjectListItem]:
         for row in rows:
             root = Path(row["root_path"])
             sc, rd, total = _count_files(root)
-            results.append(ProjectListItem(
-                project_id=row["project_id"],
-                name=row["name"],
-                description=row["description"] or "",
-                is_builtin=bool(row["is_builtin"]),
-                scenario_count=sc,
-                road_count=rd,
-                file_count=total,
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-            ))
+            results.append(
+                ProjectListItem(
+                    project_id=row["project_id"],
+                    name=row["name"],
+                    description=row["description"] or "",
+                    is_builtin=bool(row["is_builtin"]),
+                    scenario_count=sc,
+                    road_count=rd,
+                    file_count=total,
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
         return results
     finally:
         await db.close()
@@ -248,25 +261,31 @@ async def create_project(req: ProjectCreateRequest) -> ProjectDetail:
     )
 
 
-async def create_project_from_zip(zip_data: bytes, name: str, description: str = "") -> ProjectDetail:
+async def create_project_from_zip(
+    zip_data: bytes, name: str, description: str = ""
+) -> ProjectDetail:
     """Create a project by extracting a ZIP archive."""
     project_id = uuid.uuid4().hex[:12]
     project_dir = get_projects_dir() / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
     import io
+
     try:
         with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
             # Check for a single root directory in the ZIP
             top_dirs = {n.split("/")[0] for n in zf.namelist() if "/" in n}
             names = zf.namelist()
             # If all files share a common root directory, strip it
-            if len(top_dirs) == 1 and all(n.startswith(f"{list(top_dirs)[0]}/") or n == list(top_dirs)[0] + "/" for n in names):
+            if len(top_dirs) == 1 and all(
+                n.startswith(f"{list(top_dirs)[0]}/") or n == list(top_dirs)[0] + "/"
+                for n in names
+            ):
                 prefix = list(top_dirs)[0] + "/"
                 for member in zf.infolist():
                     if member.is_dir():
                         continue
-                    rel = member.filename[len(prefix):]
+                    rel = member.filename[len(prefix) :]
                     if not rel:
                         continue
                     target = project_dir / rel
@@ -306,7 +325,9 @@ async def create_project_from_zip(zip_data: bytes, name: str, description: str =
     )
 
 
-async def update_project(project_id: str, name: str | None, description: str | None) -> bool:
+async def update_project(
+    project_id: str, name: str | None, description: str | None
+) -> bool:
     """Update project metadata. Returns False if builtin or not found."""
     proj = await get_project(project_id)
     if proj is None or proj.is_builtin:
@@ -361,6 +382,7 @@ async def delete_project(project_id: str) -> bool:
 # File management
 # ---------------------------------------------------------------------------
 
+
 async def list_files(project_id: str) -> list[ProjectFile] | None:
     """List all files in a project directory."""
     proj = await get_project(project_id)
@@ -378,23 +400,31 @@ async def list_files(project_id: str) -> list[ProjectFile] | None:
         if any(part.startswith(".") for part in rel.parts):
             continue
         if p.is_dir():
-            files.append(ProjectFile(
-                path=str(rel).replace("\\", "/"),
-                name=p.name,
-                type="directory",
-                size=0,
-                modified=datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat(),
-                is_dir=True,
-            ))
+            files.append(
+                ProjectFile(
+                    path=str(rel).replace("\\", "/"),
+                    name=p.name,
+                    type="directory",
+                    size=0,
+                    modified=datetime.fromtimestamp(
+                        p.stat().st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                    is_dir=True,
+                )
+            )
         else:
             stat = p.stat()
-            files.append(ProjectFile(
-                path=str(rel).replace("\\", "/"),
-                name=p.name,
-                type=_file_type(p),
-                size=stat.st_size,
-                modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            ))
+            files.append(
+                ProjectFile(
+                    path=str(rel).replace("\\", "/"),
+                    name=p.name,
+                    type=_file_type(p),
+                    size=stat.st_size,
+                    modified=datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                )
+            )
     return files
 
 
@@ -475,6 +505,7 @@ async def delete_file(project_id: str, file_path: str) -> bool:
 # Scenario parsing
 # ---------------------------------------------------------------------------
 
+
 async def list_scenarios(project_id: str) -> list[ScenarioInfo] | None:
     """List and parse all xosc files in a project."""
     proj = await get_project(project_id)
@@ -509,8 +540,7 @@ def _parse_xosc(xosc_path: Path, rel_path: str) -> ScenarioInfo:
         for e in result.entities
     ]
     params = [
-        ScenarioParam(name=p.name, type=p.type, value=p.value)
-        for p in result.params
+        ScenarioParam(name=p.name, type=p.type, value=p.value) for p in result.params
     ]
     return ScenarioInfo(
         file=rel_path,
@@ -522,7 +552,9 @@ def _parse_xosc(xosc_path: Path, rel_path: str) -> ScenarioInfo:
     )
 
 
-async def get_scenario_params(project_id: str, scenario_file: str) -> list[ScenarioParam] | None:
+async def get_scenario_params(
+    project_id: str, scenario_file: str
+) -> list[ScenarioParam] | None:
     """Get ParameterDeclarations from a specific scenario file."""
     proj = await get_project(project_id)
     if proj is None:
@@ -538,8 +570,7 @@ async def get_scenario_params(project_id: str, scenario_file: str) -> list[Scena
         return []
 
     return [
-        ScenarioParam(name=p.name, type=p.type, value=p.value)
-        for p in result.params
+        ScenarioParam(name=p.name, type=p.type, value=p.value) for p in result.params
     ]
 
 
@@ -619,7 +650,8 @@ def _read_presets_file(filepath: Path) -> dict:
         return {}
     if not isinstance(data, dict):
         raise PresetFileCorruptedError(
-            filepath, TypeError(f"Top-level YAML must be a mapping, got {type(data).__name__}"),
+            filepath,
+            TypeError(f"Top-level YAML must be a mapping, got {type(data).__name__}"),
         )
     return data
 
@@ -653,6 +685,7 @@ def _write_presets_file(filepath: Path, data: dict) -> None:
         from GT_esmini.web.backend.services.preset_watcher import (
             get_preset_watcher_manager,
         )
+
         get_preset_watcher_manager().mark_self_write(filepath, payload_bytes)
     except Exception:
         # Watcher is best-effort; never fail a save because of it.
@@ -728,7 +761,10 @@ async def create_preset(
     _write_presets_file(filepath, data)
 
     return ParameterPreset(
-        preset_id=key, name=key, description=description, values=values,
+        preset_id=key,
+        name=key,
+        description=description,
+        values=values,
     )
 
 
@@ -775,7 +811,9 @@ async def update_preset(
 
 
 async def delete_preset(
-    project_id: str, scenario_file: str, preset_id: str,
+    project_id: str,
+    scenario_file: str,
+    preset_id: str,
 ) -> bool:
     presets_dir = await _get_presets_dir(project_id)
     if presets_dir is None:

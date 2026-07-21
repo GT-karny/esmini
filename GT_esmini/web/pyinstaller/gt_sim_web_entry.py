@@ -53,18 +53,28 @@ def setup_environment() -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="GT_Sim Web Server")
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
+    )
     # Default port resolves to config.HTTP_PORT (8000 unless GT_SIM_HTTP_PORT is set).
     # Left as None here because config.py must be imported AFTER setup_environment()
     # sets GT_SIM_WEB_PACKAGE_ROOT (see below).
-    parser.add_argument("--port", type=int, default=None, help="Port to bind (default: config HTTP_PORT, 8000)")
-    parser.add_argument("--no-browser", action="store_true", help="Do not open browser on start")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind (default: config HTTP_PORT, 8000)",
+    )
+    parser.add_argument(
+        "--no-browser", action="store_true", help="Do not open browser on start"
+    )
     args = parser.parse_args()
 
     pkg_root = setup_environment()
 
     if args.port is None:
         from GT_esmini.web.backend.config import HTTP_PORT
+
         args.port = HTTP_PORT
 
     import uvicorn
@@ -95,6 +105,7 @@ def main() -> None:
     # Convert SIGBREAK (Windows CTRL_CLOSE_EVENT) to SIGINT
     # so uvicorn's graceful shutdown path is triggered.
     if hasattr(signal, "SIGBREAK"):
+
         def _on_sigbreak(signum, frame):
             os.kill(os.getpid(), signal.SIGINT)
 
@@ -103,7 +114,9 @@ def main() -> None:
     # atexit fallback: kill orphaned subprocesses if lifespan didn't complete
     def _atexit_cleanup():
         try:
-            from GT_esmini.web.backend.services.simulation_runner import kill_all_running
+            from GT_esmini.web.backend.services.simulation_runner import (
+                kill_all_running,
+            )
 
             killed = kill_all_running()
             if killed:
@@ -116,6 +129,7 @@ def main() -> None:
     # setup_environment() has set GT_SIM_WEB_PACKAGE_ROOT, so config.py resolves
     # the packaged data dir before we build the file-handler path.
     from GT_esmini.web.backend.logging_config import setup_logging
+
     log_config = setup_logging()
 
     uvicorn.run(

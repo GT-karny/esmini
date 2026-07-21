@@ -40,6 +40,7 @@ from realdriver import (
     # Road Manager
     EsminiRMLib,
 )
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -51,8 +52,12 @@ def print_safety_check(safety, direction):
     print(f"\n=== Safety Check ({direction}) ===")
     print(f"  Safe: {safety.is_safe}")
     print(f"  Reason: {safety.reason}")
-    print(f"  Front: gap={safety.min_gap_front:.1f}m, ttc={safety.min_ttc_front:.1f}s, count={len(safety.front_vehicles)}")
-    print(f"  Rear:  gap={safety.min_gap_rear:.1f}m, ttc={safety.min_ttc_rear:.1f}s, count={len(safety.rear_vehicles)}")
+    print(
+        f"  Front: gap={safety.min_gap_front:.1f}m, ttc={safety.min_ttc_front:.1f}s, count={len(safety.front_vehicles)}"
+    )
+    print(
+        f"  Rear:  gap={safety.min_gap_rear:.1f}m, ttc={safety.min_ttc_rear:.1f}s, count={len(safety.rear_vehicles)}"
+    )
 
 
 def print_adjacent_vehicles(vehicles, direction):
@@ -64,24 +69,32 @@ def print_adjacent_vehicles(vehicles, direction):
 
     for veh in sorted(vehicles, key=lambda v: v.longitudinal_dist):
         position = "front" if veh.longitudinal_dist > 0 else "rear"
-        print(f"  [{position}] ID={veh.obj_id}: "
-              f"dist={veh.longitudinal_dist:.1f}m, "
-              f"speed={veh.speed:.1f}m/s, "
-              f"ttc={veh.ttc:.1f}s")
+        print(
+            f"  [{position}] ID={veh.obj_id}: "
+            f"dist={veh.longitudinal_dist:.1f}m, "
+            f"speed={veh.speed:.1f}m/s, "
+            f"ttc={veh.ttc:.1f}s"
+        )
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Lane Change Controller Example"
-    )
+    parser = argparse.ArgumentParser(description="Lane Change Controller Example")
     parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
     parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
     parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
     parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll")
-    parser.add_argument("--xodr_path", type=str, default=None, help="Path to OpenDRIVE map file")
-    parser.add_argument("--target_speed", type=float, default=15.0, help="Target speed in m/s")
-    parser.add_argument("--demo", action="store_true", help="Run demonstration without connecting")
+    parser.add_argument(
+        "--lib_path", type=str, default=None, help="Path to esminiRMLib.dll"
+    )
+    parser.add_argument(
+        "--xodr_path", type=str, default=None, help="Path to OpenDRIVE map file"
+    )
+    parser.add_argument(
+        "--target_speed", type=float, default=15.0, help="Target speed in m/s"
+    )
+    parser.add_argument(
+        "--demo", action="store_true", help="Run demonstration without connecting"
+    )
     add_dump_argspec_option(parser)
     args = parser.parse_args()
     if maybe_dump_argspec(
@@ -179,9 +192,11 @@ while True:
         min_gap_front=15.0,
         min_gap_rear=10.0,
         lane_change_duration=4.0,
-        steering_gain=0.3
+        steering_gain=0.3,
     )
-    lc_controller = LaneChangeController(rm_lib=rm_lib, ego_id=args.id, config=lc_config)
+    lc_controller = LaneChangeController(
+        rm_lib=rm_lib, ego_id=args.id, config=lc_config
+    )
     lc_controller.set_base_speed(args.target_speed)
     lc_controller.enable_debug(True)
 
@@ -222,11 +237,11 @@ while True:
                 elapsed = current_time - start_time
                 if not lane_change_triggered and elapsed > trigger_delay:
                     # Check safety first
-                    safety = lc_controller.check_safety(ground_truth, 'left')
-                    print_safety_check(safety, 'left')
+                    safety = lc_controller.check_safety(ground_truth, "left")
+                    print_safety_check(safety, "left")
 
                     if safety.is_safe:
-                        if lc_controller.trigger_lane_change('left'):
+                        if lc_controller.trigger_lane_change("left"):
                             print("\n>>> Lane change triggered!")
                             lane_change_triggered = True
                     else:
@@ -248,9 +263,11 @@ while True:
 
                     # Print status
                     if frame_number % 20 == 0:
-                        print(f"[LC] Progress={lc_controller.progress:.2f}, "
-                              f"State={output.state.name}, "
-                              f"Steer={output.steering:.3f}")
+                        print(
+                            f"[LC] Progress={lc_controller.progress:.2f}, "
+                            f"State={output.state.name}, "
+                            f"Steer={output.steering:.3f}"
+                        )
 
                 elif output.completed:
                     print("\n>>> Lane change COMPLETED!")
@@ -269,8 +286,10 @@ while True:
                     client.set_indicators(IndicatorMode.OFF)
 
                     if frame_number % 50 == 0:
-                        print(f"[IDLE] Speed={lon_controller.last_speed:.2f}/"
-                              f"{lon_controller.target_speed:.2f} m/s")
+                        print(
+                            f"[IDLE] Speed={lon_controller.last_speed:.2f}/"
+                            f"{lon_controller.target_speed:.2f} m/s"
+                        )
 
                 client.set_gear(1)
                 client.send_update()

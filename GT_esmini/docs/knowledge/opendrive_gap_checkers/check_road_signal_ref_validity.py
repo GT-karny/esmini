@@ -55,12 +55,23 @@ narrower "wrong-sign-only" sub-case implemented above IS fully deterministic and
 """
 
 _CATEGORY_TAGS = {
-    "lane", "parking", "priority", "prohibited", "routing",
-    "speed", "streetname", "tourist", "warning",
+    "lane",
+    "parking",
+    "priority",
+    "prohibited",
+    "routing",
+    "speed",
+    "streetname",
+    "tourist",
+    "warning",
 }
 _SUPPLEMENTARY_TAGS = {
-    "supplementaryTime", "supplementaryAllows", "supplementaryProhibits",
-    "supplementaryDistance", "supplementaryEnvironment", "supplementaryExplanatory",
+    "supplementaryTime",
+    "supplementaryAllows",
+    "supplementaryProhibits",
+    "supplementaryDistance",
+    "supplementaryEnvironment",
+    "supplementaryExplanatory",
 }
 
 
@@ -80,7 +91,13 @@ def _traffic_hand(road):
 
 
 _DRIVING_LANE_TYPES = {
-    "driving", "entry", "exit", "offRamp", "onRamp", "connectingRamp", "bidirectional",
+    "driving",
+    "entry",
+    "exit",
+    "offRamp",
+    "onRamp",
+    "connectingRamp",
+    "bidirectional",
 }
 
 
@@ -142,7 +159,8 @@ def _road_has_expected_driving_side(driving_ids, expected):
 
 def _expected_sign(hand, orient):
     """RHT: '+' -> only negative lane ids expected ('neg'); '-' -> only positive ('pos').
-    LHT: '+' -> only positive lane ids expected ('pos'); '-' -> only negative ('neg')."""
+    LHT: '+' -> only positive lane ids expected ('pos'); '-' -> only negative ('neg').
+    """
     if hand == "RHT":
         return "neg" if orient == "+" else "pos"
     return "pos" if orient == "+" else "neg"
@@ -182,29 +200,35 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             # --- road.signal.reference.specify_direction ---
             orient = sref.get("orientation")
             if orient is None or orient.strip() == "":
-                flags.append((
-                    "road.signal.reference.specify_direction",
-                    f"signalReference id={ref_id} に @orientation が未指定（+/-/none のいずれかが必須）",
-                    loc,
-                ))
+                flags.append(
+                    (
+                        "road.signal.reference.specify_direction",
+                        f"signalReference id={ref_id} に @orientation が未指定（+/-/none のいずれかが必須）",
+                        loc,
+                    )
+                )
 
             # --- road.signal.reference.used_for_signals_only ---
             if ref_id is not None and ref_id not in all_signal_ids:
-                flags.append((
-                    "road.signal.reference.used_for_signals_only",
-                    f"signalReference id={ref_id} が参照する signal が未定義（signal要素のidとして存在しない）",
-                    loc,
-                ))
+                flags.append(
+                    (
+                        "road.signal.reference.used_for_signals_only",
+                        f"signalReference id={ref_id} が参照する signal が未定義（signal要素のidとして存在しない）",
+                        loc,
+                    )
+                )
 
             # --- road.signal.reference.from_lower_equal_to ---
             for v in sref.findall("validity"):
                 fl, tl = _as_int(v.get("fromLane")), _as_int(v.get("toLane"))
                 if fl is not None and tl is not None and fl > tl:
-                    flags.append((
-                        "road.signal.reference.from_lower_equal_to",
-                        f"signalReference id={ref_id} の validity fromLane={fl} > toLane={tl}",
-                        loc,
-                    ))
+                    flags.append(
+                        (
+                            "road.signal.reference.from_lower_equal_to",
+                            f"signalReference id={ref_id} の validity fromLane={fl} > toLane={tl}",
+                            loc,
+                        )
+                    )
 
             # --- road.signal.reference.right_hand_traffic_lane_ids / .left_hand_traffic_lane_ids ---
             # Deterministic "wrong-sign-only" sub-case (see module docstring). SR is the
@@ -216,20 +240,25 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 has_pos, has_neg = _lane_id_signs(sref, driving_ids)
                 if has_pos or has_neg:
                     expected = _expected_sign(hand, orient)
-                    if (_wrong_sign_only_violation(expected, has_pos, has_neg)
-                            and _road_has_expected_driving_side(driving_ids, expected)):
-                        rule_name = ("road.signal.reference.right_hand_traffic_lane_ids"
-                                     if hand == "RHT" else
-                                     "road.signal.reference.left_hand_traffic_lane_ids")
+                    if _wrong_sign_only_violation(
+                        expected, has_pos, has_neg
+                    ) and _road_has_expected_driving_side(driving_ids, expected):
+                        rule_name = (
+                            "road.signal.reference.right_hand_traffic_lane_ids"
+                            if hand == "RHT"
+                            else "road.signal.reference.left_hand_traffic_lane_ids"
+                        )
                         wrong_side = "正" if has_pos else "負"
                         right_side = "負" if expected == "neg" else "正"
-                        flags.append((
-                            rule_name,
-                            f"signalReference id={ref_id} ({hand}) @orientation={orient!r} は"
-                            f"{right_side}のレーンidのみ許容だが validity が{wrong_side}のレーンid"
-                            f"のみを参照（{right_side}idは含まれない）",
-                            loc,
-                        ))
+                        flags.append(
+                            (
+                                rule_name,
+                                f"signalReference id={ref_id} ({hand}) @orientation={orient!r} は"
+                                f"{right_side}のレーンidのみ許容だが validity が{wrong_side}のレーンid"
+                                f"のみを参照（{right_side}idは含まれない）",
+                                loc,
+                            )
+                        )
 
     # --- road.signal.validity.right_hand_traffic_lane_ids / .left_hand_traffic_lane_ids ---
     # Deterministic "wrong-sign-only" sub-case (see module docstring). Mirrors
@@ -246,21 +275,26 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             if not has_pos and not has_neg:
                 continue
             expected = _expected_sign(hand, orient)
-            if (_wrong_sign_only_violation(expected, has_pos, has_neg)
-                    and _road_has_expected_driving_side(driving_ids, expected)):
-                rule_name = ("road.signal.validity.right_hand_traffic_lane_ids"
-                             if hand == "RHT" else
-                             "road.signal.validity.left_hand_traffic_lane_ids")
+            if _wrong_sign_only_violation(
+                expected, has_pos, has_neg
+            ) and _road_has_expected_driving_side(driving_ids, expected):
+                rule_name = (
+                    "road.signal.validity.right_hand_traffic_lane_ids"
+                    if hand == "RHT"
+                    else "road.signal.validity.left_hand_traffic_lane_ids"
+                )
                 sid = sig.get("id")
                 wrong_side = "正" if has_pos else "負"
                 right_side = "負" if expected == "neg" else "正"
-                flags.append((
-                    rule_name,
-                    f"signal id={sid} ({hand}) @orientation={orient!r} は{right_side}のレーンid"
-                    f"のみ許容だが validity が{wrong_side}のレーンidのみを参照"
-                    f"（{right_side}idは含まれない）",
-                    f"road {rid} signal id={sid}",
-                ))
+                flags.append(
+                    (
+                        rule_name,
+                        f"signal id={sid} ({hand}) @orientation={orient!r} は{right_side}のレーンid"
+                        f"のみ許容だが validity が{wrong_side}のレーンidのみを参照"
+                        f"（{right_side}idは含まれない）",
+                        f"road {rid} signal id={sid}",
+                    )
+                )
 
     # --- road.signal.semantics.no_semantics_without_category ---
     # <semantics> is a child of the abstract t_road_signals_signal base type, which is extended
@@ -278,12 +312,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             if has_supplementary and not has_category:
                 sid = sig.get("id")
                 supp_list = sorted(present & _SUPPLEMENTARY_TAGS)
-                flags.append((
-                    "road.signal.semantics.no_semantics_without_category",
-                    f"{sig.tag} id={sid} の <semantics> が supplementary要素{supp_list}のみで、"
-                    f"意味付けを与えるcategory要素（speed/lane/priority/prohibited/routing/"
-                    f"streetname/tourist/warning/parking）が無い",
-                    f"road {rid} {sig.tag} id={sid}",
-                ))
+                flags.append(
+                    (
+                        "road.signal.semantics.no_semantics_without_category",
+                        f"{sig.tag} id={sid} の <semantics> が supplementary要素{supp_list}のみで、"
+                        f"意味付けを与えるcategory要素（speed/lane/priority/prohibited/routing/"
+                        f"streetname/tourist/warning/parking）が無い",
+                        f"road {rid} {sig.tag} id={sid}",
+                    )
+                )
 
     return flags

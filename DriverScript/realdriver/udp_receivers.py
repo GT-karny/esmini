@@ -8,7 +8,11 @@ import socket
 from typing import Optional, Tuple, List
 
 from .waypoint import Waypoint, parse_waypoints_from_udp
-from .protocol.lon_profile import LonProfilePoint, parse_lon_profile_packet, interpolate_speed
+from .protocol.lon_profile import (
+    LonProfilePoint,
+    parse_lon_profile_packet,
+    interpolate_speed,
+)
 
 
 class LongitudinalProfileReceiver:
@@ -36,7 +40,9 @@ class LongitudinalProfileReceiver:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._sock.bind((self.host, self.port))
             self._sock.setblocking(False)
-            print(f"[INFO] LongitudinalProfileReceiver: Listening on {self.host}:{self.port}")
+            print(
+                f"[INFO] LongitudinalProfileReceiver: Listening on {self.host}:{self.port}"
+            )
         except Exception as e:
             print(f"[WARN] LongitudinalProfileReceiver: Failed to setup socket: {e}")
             self._sock = None

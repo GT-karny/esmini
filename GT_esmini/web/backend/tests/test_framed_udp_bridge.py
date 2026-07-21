@@ -24,6 +24,7 @@ def _dgram(counter: int, payload: bytes, size: int | None = None) -> bytes:
 # _FramedUdpProtocol framing
 # ---------------------------------------------------------------------------
 
+
 def test_protocol_forwards_valid_frame():
     got = []
     proto = _FramedUdpProtocol("T", got.append)
@@ -49,6 +50,7 @@ def test_protocol_drops_size_mismatch():
 # ---------------------------------------------------------------------------
 # fan-out semantics
 # ---------------------------------------------------------------------------
+
 
 def test_fanout_delivers_to_all_subscribers():
     bridge = FramedUdpFanoutBridge(label="T", listen_port=0)
@@ -80,6 +82,7 @@ def test_unsubscribe_stops_delivery():
 # ---------------------------------------------------------------------------
 # real UDP end-to-end (loopback, ephemeral port)
 # ---------------------------------------------------------------------------
+
 
 def _free_udp_port() -> int:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -122,6 +125,7 @@ async def test_start_is_idempotent_and_stop_clears_subscribers():
 # BridgeRegistry semantics (global-first, per-job fallback)
 # ---------------------------------------------------------------------------
 
+
 class StubBridge(FramedUdpFanoutBridge):
     def __init__(self, listen_port: int) -> None:
         super().__init__(label="STUB", listen_port=listen_port)
@@ -154,12 +158,12 @@ async def test_jobs_ride_the_global_bridge():
     reg = _registry()
     g = await reg.start_global(1111)
     j = await reg.start_for_job("job-1", 2222)
-    assert j is g                          # no second socket
+    assert j is g  # no second socket
     assert reg.get_for_job("job-1") is g
     assert reg.get_for_job("unknown-job") is g  # global serves everyone
 
     await reg.stop_for_job("job-1")
-    assert g.n_stopped == 0                # global must survive job teardown
+    assert g.n_stopped == 0  # global must survive job teardown
 
 
 async def test_per_job_fallback_without_global():
@@ -180,7 +184,7 @@ async def test_per_job_fallback_without_global():
 async def test_stop_all_stops_jobs_and_global():
     reg = _registry()
     g = await reg.start_global(1111)
-    await reg.start_for_job("job-1", 2222)   # rides global
+    await reg.start_for_job("job-1", 2222)  # rides global
     count = await reg.stop_all()
     assert g.n_stopped == 1
     assert reg.get_global() is None

@@ -49,6 +49,7 @@ Re-running replaces all previously injected <priority> elements (every existing
 <priority> child of each junction is removed first), so repeated runs produce
 byte-identical output and never duplicate records.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -103,7 +104,9 @@ def inject_priority(
         cr_incoming = _connecting_road_incoming_map(junction)
         # Classify each connecting road as main (priority) or not.
         main_crs = [cr for cr, inc in cr_incoming.items() if inc and inc <= main_set]
-        minor_crs = [cr for cr, inc in cr_incoming.items() if not (inc and inc <= main_set)]
+        minor_crs = [
+            cr for cr, inc in cr_incoming.items() if not (inc and inc <= main_set)
+        ]
 
         # Stable, deterministic ordering (numeric connecting-road id).
         main_crs.sort(key=int)
@@ -129,7 +132,11 @@ def inject_priority(
             insert_at = list(junction).index(controllers[0])
         else:
             connections = junction.findall("connection")
-            insert_at = (list(junction).index(connections[-1]) + 1) if connections else len(junction)
+            insert_at = (
+                (list(junction).index(connections[-1]) + 1)
+                if connections
+                else len(junction)
+            )
 
         # Give the element before the insertion point a newline+indent tail so
         # the first injected <priority> starts on its own line.

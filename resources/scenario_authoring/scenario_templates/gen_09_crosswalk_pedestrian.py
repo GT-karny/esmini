@@ -73,6 +73,7 @@ Usage:
     DriverScript/.venv/Scripts/python.exe \
         resources/scenario_authoring/scenario_templates/gen_09_crosswalk_pedestrian.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -100,7 +101,6 @@ from authoring_common import (  # noqa: E402
 )
 from scenariogeneration import xosc  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Road / geometry constants (straight_crosswalk[_pedsig]__mid)
 # ---------------------------------------------------------------------------
@@ -113,11 +113,11 @@ ROADFILE_REL = {
 PHASE = "3d-crosswalk"
 
 ROAD_ID = 0
-DRIVE_LANE = -1          # RHT: ego drives lane -1 in +s
-CROSSWALK_S = 250.0      # crosswalk centre (footprint 248..252)
+DRIVE_LANE = -1  # RHT: ego drives lane -1 in +s
+CROSSWALK_S = 250.0  # crosswalk centre (footprint 248..252)
 EGO_START_S = 100.0
 EGO_ROUTE_END_S = 450.0
-EGO_SPEED = 13.9         # measured VirtualDriver cruise hold (13.80-13.90)
+EGO_SPEED = 13.9  # measured VirtualDriver cruise hold (13.80-13.90)
 EGO_ARRIVAL = (CROSSWALK_S - EGO_START_S) / EGO_SPEED  # 10.79 s
 
 # Sidewalk standing lanes and lateral distances (sidewalk centre |t| = 4.5,
@@ -125,8 +125,8 @@ EGO_ARRIVAL = (CROSSWALK_S - EGO_START_S) / EGO_SPEED  # 10.79 s
 SIDEWALK_LANE = {"from_left": 2, "from_right": -2}
 DEST_LANE = {"from_left": -2, "from_right": 2}
 DIST_TO_EGO_LANE_MID = {"from_left": 6.25, "from_right": 2.75}
-DIST_TO_ROADWAY = 1.0    # sidewalk centre -> roadway edge, both sides
-LEAD_MARGIN = 1.0        # 'lead' timing: roadway entry this long before ego
+DIST_TO_ROADWAY = 1.0  # sidewalk centre -> roadway edge, both sides
+LEAD_MARGIN = 1.0  # 'lead' timing: roadway entry this long before ego
 
 # Standing pose: relative h=+pi/2 resolves (via the lane driving direction) to
 # facing the roadway on BOTH sidewalks (verified: world h -pi/2 on the left
@@ -155,50 +155,98 @@ ALREADY_CROSSED_SPEED = 1.4
 # Variant spec table (deterministic order -> stable p### assignment)
 # ---------------------------------------------------------------------------
 
+
 def build_specs() -> list[dict]:
     specs: list[dict] = []
     # p001-p012 crossing sweep
     for spd in PED_SPEEDS:
         for direction in DIRECTIONS:
             for timing in TIMINGS:
-                specs.append({
-                    "kind": "crossing", "road": ROAD_A, "ped_speed": spd,
-                    "direction": direction, "timing": timing, "signal": None,
-                })
+                specs.append(
+                    {
+                        "kind": "crossing",
+                        "road": ROAD_A,
+                        "ped_speed": spd,
+                        "direction": direction,
+                        "timing": timing,
+                        "signal": None,
+                    }
+                )
     # p013-p014 waiting
     for direction in DIRECTIONS:
-        specs.append({
-            "kind": "waiting", "road": ROAD_A, "ped_speed": None,
-            "direction": direction, "timing": None, "signal": None,
-        })
+        specs.append(
+            {
+                "kind": "waiting",
+                "road": ROAD_A,
+                "ped_speed": None,
+                "direction": direction,
+                "timing": None,
+                "signal": None,
+            }
+        )
     # p015 no-ped
-    specs.append({
-        "kind": "no_ped", "road": ROAD_A, "ped_speed": None,
-        "direction": None, "timing": None, "signal": None,
-    })
+    specs.append(
+        {
+            "kind": "no_ped",
+            "road": ROAD_A,
+            "ped_speed": None,
+            "direction": None,
+            "timing": None,
+            "signal": None,
+        }
+    )
     # p016 already-crossed
-    specs.append({
-        "kind": "already_crossed", "road": ROAD_A,
-        "ped_speed": ALREADY_CROSSED_SPEED, "direction": "from_left",
-        "timing": "early", "signal": None,
-    })
+    specs.append(
+        {
+            "kind": "already_crossed",
+            "road": ROAD_A,
+            "ped_speed": ALREADY_CROSSED_SPEED,
+            "direction": "from_left",
+            "timing": "early",
+            "signal": None,
+        }
+    )
     # p017-p020 ped-signal road
-    specs.append({
-        "kind": "red_waiting", "road": ROAD_B, "ped_speed": None,
-        "direction": "from_left", "timing": None, "signal": "red",
-    })
-    specs.append({
-        "kind": "red_jaywalk", "road": ROAD_B, "ped_speed": 1.4,
-        "direction": "from_left", "timing": "conflict", "signal": "red",
-    })
-    specs.append({
-        "kind": "green_waiting", "road": ROAD_B, "ped_speed": None,
-        "direction": "from_left", "timing": None, "signal": "green",
-    })
-    specs.append({
-        "kind": "green_crossing", "road": ROAD_B, "ped_speed": 1.4,
-        "direction": "from_left", "timing": "conflict", "signal": "green",
-    })
+    specs.append(
+        {
+            "kind": "red_waiting",
+            "road": ROAD_B,
+            "ped_speed": None,
+            "direction": "from_left",
+            "timing": None,
+            "signal": "red",
+        }
+    )
+    specs.append(
+        {
+            "kind": "red_jaywalk",
+            "road": ROAD_B,
+            "ped_speed": 1.4,
+            "direction": "from_left",
+            "timing": "conflict",
+            "signal": "red",
+        }
+    )
+    specs.append(
+        {
+            "kind": "green_waiting",
+            "road": ROAD_B,
+            "ped_speed": None,
+            "direction": "from_left",
+            "timing": None,
+            "signal": "green",
+        }
+    )
+    specs.append(
+        {
+            "kind": "green_crossing",
+            "road": ROAD_B,
+            "ped_speed": 1.4,
+            "direction": "from_left",
+            "timing": "conflict",
+            "signal": "green",
+        }
+    )
     return specs
 
 
@@ -288,6 +336,7 @@ _EXPECTED = {
 # One variant
 # ---------------------------------------------------------------------------
 
+
 def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
     catalog_id = f"09_crosswalk_pedestrian__p{idx:03d}"
     kind = sp["kind"]
@@ -296,7 +345,9 @@ def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
 
     # --- entities ---------------------------------------------------------
     entities = xosc.Entities()
-    entities.add_scenario_object("Ego", make_ego_vehicle(), make_virtual_driver_controller())
+    entities.add_scenario_object(
+        "Ego", make_ego_vehicle(), make_virtual_driver_controller()
+    )
     if has_ped:
         entities.add_scenario_object(PED_NAME, make_pedestrian())
 
@@ -312,7 +363,9 @@ def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
     add_routed_actor_init(
         init, "Ego", lane_pos(ROAD_ID, DRIVE_LANE, EGO_START_S), ego_route, EGO_SPEED
     )
-    init.add_init_action("Ego", xosc.ActivateControllerAction(lateral=True, longitudinal=True))
+    init.add_init_action(
+        "Ego", xosc.ActivateControllerAction(lateral=True, longitudinal=True)
+    )
 
     release_t = None
     if has_ped:
@@ -320,15 +373,16 @@ def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
         # Standing pose: sidewalk lane centre at the crosswalk s, facing the
         # roadway (relative h=+pi/2 resolves to face the road on both sides).
         ped_start = xosc.LanePosition(
-            CROSSWALK_S, 0.0, str(start_lane), str(ROAD_ID),
+            CROSSWALK_S,
+            0.0,
+            str(start_lane),
+            str(ROAD_ID),
             orientation=xosc.Orientation(
                 h=PED_FACE_ROAD_H, reference=xosc.ReferenceContext.relative
             ),
         )
         init.add_init_action(PED_NAME, xosc.TeleportAction(ped_start))
-        init.add_init_action(
-            PED_NAME, xosc.AbsoluteSpeedAction(0.0, step_dynamics())
-        )
+        init.add_init_action(PED_NAME, xosc.AbsoluteSpeedAction(0.0, step_dynamics()))
 
     # --- launch act (crossing variants only) --------------------------------
     launch_act = None
@@ -337,8 +391,11 @@ def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
             crossing_release_time(sp["ped_speed"], sp["direction"], sp["timing"]), 3
         )
         traj = make_crossing_trajectory(
-            "ped_crossing", ROAD_ID, CROSSWALK_S,
-            SIDEWALK_LANE[sp["direction"]], DEST_LANE[sp["direction"]],
+            "ped_crossing",
+            ROAD_ID,
+            CROSSWALK_S,
+            SIDEWALK_LANE[sp["direction"]],
+            DEST_LANE[sp["direction"]],
         )
         launch_act = make_ped_crossing_act(
             "PedLaunch", PED_NAME, release_t, sp["ped_speed"], traj
@@ -357,8 +414,13 @@ def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
     description = "; ".join(description_bits)
 
     scenario = assemble_scenario(
-        catalog_id, description, ROADFILE_REL[sp["road"]], entities, init,
-        STOP_TIME_S, launch_act,
+        catalog_id,
+        description,
+        ROADFILE_REL[sp["road"]],
+        entities,
+        init,
+        STOP_TIME_S,
+        launch_act,
     )
 
     # --- ped-signal phases (road B): single long-duration phase ------------
@@ -434,12 +496,16 @@ def build_variant(idx: int, sp: dict) -> tuple[xosc.Scenario, dict, dict, str]:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate the Phase 3d crosswalk-pedestrian scenario grid (20 variants)."
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=None, metavar="DIR",
+        "--out-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
         help="Output directory. Default: <this file's dir>/generated.",
     )
     return parser.parse_args()
@@ -447,8 +513,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    out_dir: Path = args.out_dir if args.out_dir is not None else (
-        Path(__file__).resolve().parent / "generated"
+    out_dir: Path = (
+        args.out_dir
+        if args.out_dir is not None
+        else (Path(__file__).resolve().parent / "generated")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 

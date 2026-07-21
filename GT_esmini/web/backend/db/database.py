@@ -100,16 +100,15 @@ async def init_db() -> None:
         await db.executescript(_SCHEMA)
         await _migrate_simulations_table(db)
         # Mark stale "running" jobs from a previous ungraceful shutdown as failed
-        cursor = await db.execute(
-            """UPDATE simulations
+        cursor = await db.execute("""UPDATE simulations
                SET status = 'failed',
                    error_message = 'Server restarted (previous session did not shut down cleanly)',
                    completed_at = datetime('now'),
                    pid = NULL
-               WHERE status = 'running'"""
-        )
+               WHERE status = 'running'""")
         if cursor.rowcount and cursor.rowcount > 0:
             import logging
+
             logging.getLogger(__name__).warning(
                 "Cleaned up %d stale 'running' job(s) from previous session",
                 cursor.rowcount,
@@ -120,9 +119,11 @@ async def init_db() -> None:
     # startup. Best-effort: a scan failure must not block server boot.
     try:
         from GT_esmini.web.backend.services import annotation_store
+
         await annotation_store.scan_registry(force=True)
     except Exception:
         import logging
+
         logging.getLogger(__name__).warning(
             "verification registry warm scan failed at startup", exc_info=True
         )

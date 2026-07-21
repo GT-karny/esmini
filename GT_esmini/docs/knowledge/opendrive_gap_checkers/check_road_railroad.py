@@ -43,6 +43,7 @@ and Ex_Railway-Switch/):
     pattern, where the reference line is centered on the roadway, not the
     track -- that pattern must not be flagged (fixed post-adversarial-audit).
 """
+
 import xml.etree.ElementTree as ET  # noqa: F401  (root is already parsed by caller; kept for type clarity)
 
 
@@ -75,7 +76,12 @@ def _lane_offset_at(lanes_elem, s):
         los = _fnum(lo.get("s"))
         if los <= s + 1e-9 and (best_s is None or los > best_s):
             best_s = los
-            best_coeffs = (_fnum(lo.get("a")), _fnum(lo.get("b")), _fnum(lo.get("c")), _fnum(lo.get("d")))
+            best_coeffs = (
+                _fnum(lo.get("a")),
+                _fnum(lo.get("b")),
+                _fnum(lo.get("c")),
+                _fnum(lo.get("d")),
+            )
     if best_s is None:
         return 0.0
     ds = s - best_s
@@ -91,7 +97,12 @@ def _lane_first_width_a(lane_elem):
     if not widths:
         return 0.0
     w0 = min(widths, key=lambda w: _fnum(w.get("sOffset")))
-    a, b, c, d = _fnum(w0.get("a")), _fnum(w0.get("b")), _fnum(w0.get("c")), _fnum(w0.get("d"))
+    a, b, c, d = (
+        _fnum(w0.get("a")),
+        _fnum(w0.get("b")),
+        _fnum(w0.get("c")),
+        _fnum(w0.get("d")),
+    )
     return _poly3(a, b, c, d, 0.0)
 
 
@@ -107,7 +118,14 @@ _RAIL_TYPES = ("rail", "tram")
 # does not apply (road.railroad.rail_refline_centered FALSE_POSITIVE: adv
 # fixtures r3_fp_street_tram.xodr, r1_neg_mixed_one_rail.xodr).
 _RAIL_COMPATIBLE_NON_RAIL_TYPES = {
-    "none", "border", "shoulder", "sidewalk", "walking", "median", "curb", None,
+    "none",
+    "border",
+    "shoulder",
+    "sidewalk",
+    "walking",
+    "median",
+    "curb",
+    None,
 }
 
 
@@ -148,11 +166,13 @@ def _check_one_rail_per_road(rid, road_elem, flags):
                     railish.append((side, lane.get("id"), lane.get("type")))
         if len(railish) > 1:
             desc = ", ".join(f"{side}:id={lid}({lt})" for side, lid, lt in railish)
-            flags.append((
-                "road.railroad.one_rail_per_road",
-                f"同一laneSectionに rail/tram 車線が{len(railish)}本（{desc}）。1本のみであるべき",
-                f"road {rid} s={s:g}",
-            ))
+            flags.append(
+                (
+                    "road.railroad.one_rail_per_road",
+                    f"同一laneSectionに rail/tram 車線が{len(railish)}本（{desc}）。1本のみであるべき",
+                    f"road {rid} s={s:g}",
+                )
+            )
 
 
 def _check_rail_lane_width_validity(rid, road_elem, flags):
@@ -182,13 +202,15 @@ def _check_rail_lane_width_validity(rid, road_elem, flags):
                 for w in lane.findall("width"):
                     a = _fnum(w.get("a"))
                     if a <= 0:
-                        flags.append((
-                            "road.railroad.rail_lane_width_validity",
-                            f"{side} {lane.get('type')}車線(id={lane.get('id')}) の "
-                            f"<width sOffset={w.get('sOffset')!r}> @a={w.get('a')!r} "
-                            f"（0以下または未指定、rail-bound車両の幅として不正）",
-                            f"road {rid} s={s:g}",
-                        ))
+                        flags.append(
+                            (
+                                "road.railroad.rail_lane_width_validity",
+                                f"{side} {lane.get('type')}車線(id={lane.get('id')}) の "
+                                f"<width sOffset={w.get('sOffset')!r}> @a={w.get('a')!r} "
+                                f"（0以下または未指定、rail-bound車両の幅として不正）",
+                                f"road {rid} s={s:g}",
+                            )
+                        )
 
 
 def _check_rail_refline_centered(rid, road_elem, flags, tol=0.05):
@@ -225,12 +247,14 @@ def _check_rail_refline_centered(rid, road_elem, flags, tol=0.05):
                 if ltype in _RAIL_TYPES:
                     center_t = (inner_t + outer_t) / 2.0
                     if abs(center_t) > tol:
-                        flags.append((
-                            "road.railroad.rail_refline_centered",
-                            f"{side} {ltype}車線(id={lane.get('id')}) の中心 t={center_t:.3f}"
-                            f"（基準線 t=0 が軌道対の中心になっていない、laneOffset={origin_t:g} width={w:g}）",
-                            f"road {rid} s={s:g}",
-                        ))
+                        flags.append(
+                            (
+                                "road.railroad.rail_refline_centered",
+                                f"{side} {ltype}車線(id={lane.get('id')}) の中心 t={center_t:.3f}"
+                                f"（基準線 t=0 が軌道対の中心になっていない、laneOffset={origin_t:g} width={w:g}）",
+                                f"road {rid} s={s:g}",
+                            )
+                        )
                 cum += w
 
 
@@ -239,30 +263,38 @@ def _check_platform_and_station_rules(root, flags):
         sid = station.get("id")
         platforms = station.findall("platform")
         if len(platforms) == 0:
-            flags.append((
-                "road.railroad.platforms.min_amount",
-                f"station {sid} に platform が0個定義されている（最低1個必要）",
-                f"station {sid}",
-            ))
-            flags.append((
-                "road.railroad.stations.one_platform_per_station",
-                f"station {sid} の後に platform 要素が1つも続いていない",
-                f"station {sid}",
-            ))
+            flags.append(
+                (
+                    "road.railroad.platforms.min_amount",
+                    f"station {sid} に platform が0個定義されている（最低1個必要）",
+                    f"station {sid}",
+                )
+            )
+            flags.append(
+                (
+                    "road.railroad.stations.one_platform_per_station",
+                    f"station {sid} の後に platform 要素が1つも続いていない",
+                    f"station {sid}",
+                )
+            )
         for platform in platforms:
             pid = platform.get("id")
             segments = platform.findall("segment")
             if len(segments) == 0:
-                flags.append((
-                    "road.railroad.platforms.min_segments",
-                    f"platform {pid}（station {sid}）に segment が0個定義されている（最低1個必要）",
-                    f"station {sid} platform {pid}",
-                ))
-                flags.append((
-                    "road.railroad.segment.segments_per_platform_min_amount",
-                    f"platform {pid}（station {sid}）に segment が1つも無い",
-                    f"station {sid} platform {pid}",
-                ))
+                flags.append(
+                    (
+                        "road.railroad.platforms.min_segments",
+                        f"platform {pid}（station {sid}）に segment が0個定義されている（最低1個必要）",
+                        f"station {sid} platform {pid}",
+                    )
+                )
+                flags.append(
+                    (
+                        "road.railroad.segment.segments_per_platform_min_amount",
+                        f"platform {pid}（station {sid}）に segment が1つも無い",
+                        f"station {sid} platform {pid}",
+                    )
+                )
 
 
 def _collect_switches(root):
@@ -276,13 +308,15 @@ def _collect_switches(root):
             mt = sw.find("mainTrack")
             st = sw.find("sideTrack")
             pt = sw.find("partner")
-            switches.append({
-                "id": sw.get("id"),
-                "road_id": rid,
-                "main_id": mt.get("id") if mt is not None else None,
-                "side_id": st.get("id") if st is not None else None,
-                "partner_id": pt.get("id") if pt is not None else None,
-            })
+            switches.append(
+                {
+                    "id": sw.get("id"),
+                    "road_id": rid,
+                    "main_id": mt.get("id") if mt is not None else None,
+                    "side_id": st.get("id") if st is not None else None,
+                    "partner_id": pt.get("id") if pt is not None else None,
+                }
+            )
     return switches
 
 
@@ -301,12 +335,14 @@ def _check_switch_rules(root, flags):
     overlap = main_ids & side_ids
     for s in switches:
         if s["main_id"] and s["main_id"] in overlap:
-            flags.append((
-                "road.railroad.switch.check_switch_conn",
-                f"switch {s['id']} の mainTrack（road {s['main_id']}）が、"
-                f"他のswitchの sideTrack としても参照されている（メイントラックでswitch同士を接続してはならない）",
-                f"road {s['road_id']} switch {s['id']}",
-            ))
+            flags.append(
+                (
+                    "road.railroad.switch.check_switch_conn",
+                    f"switch {s['id']} の mainTrack（road {s['main_id']}）が、"
+                    f"他のswitchの sideTrack としても参照されている（メイントラックでswitch同士を接続してはならない）",
+                    f"road {s['road_id']} switch {s['id']}",
+                )
+            )
 
     # single_switch_no_partner: partner links must be reciprocal. A switch with no
     # <partner> child is "single"; no other switch may point at it via <partner>.
@@ -319,12 +355,14 @@ def _check_switch_rules(root, flags):
         if partner is None:
             continue  # dangling partner ref -> referential-integrity territory, not ours
         if not partner["partner_id"]:
-            flags.append((
-                "road.railroad.switch.single_switch_no_partner",
-                f"switch {s['id']} が switch {pid} を partner として参照しているが、"
-                f"switch {pid} 自体は partner 要素を持たない単独switch（相互参照になっていない）",
-                f"road {s['road_id']} switch {s['id']}",
-            ))
+            flags.append(
+                (
+                    "road.railroad.switch.single_switch_no_partner",
+                    f"switch {s['id']} が switch {pid} を partner として参照しているが、"
+                    f"switch {pid} 自体は partner 要素を持たない単独switch（相互参照になっていない）",
+                    f"road {s['road_id']} switch {s['id']}",
+                )
+            )
 
 
 def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):

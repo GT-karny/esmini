@@ -15,14 +15,12 @@ def _parse(xml: str) -> ET.Element:
 
 
 def test_logic_and_scenegraph_files_absolutized():
-    root = _parse(
-        """<OpenSCENARIO>
+    root = _parse("""<OpenSCENARIO>
              <RoadNetwork>
                <LogicFile filepath="../xodr/road.xodr"/>
                <SceneGraphFile filepath="../models/road.osgb"/>
              </RoadNetwork>
-           </OpenSCENARIO>"""
-    )
+           </OpenSCENARIO>""")
     absolutize_scenario_paths(root, BASE)
     logic = root.find("RoadNetwork/LogicFile").get("filepath")
     scene = root.find("RoadNetwork/SceneGraphFile").get("filepath")
@@ -33,14 +31,12 @@ def test_logic_and_scenegraph_files_absolutized():
 
 
 def test_catalog_directories_absolutized():
-    root = _parse(
-        """<OpenSCENARIO>
+    root = _parse("""<OpenSCENARIO>
              <CatalogLocations>
                <VehicleCatalog><Directory path="../Catalogs/Vehicles"/></VehicleCatalog>
                <ControllerCatalog><Directory path="../Catalogs/Controllers"/></ControllerCatalog>
              </CatalogLocations>
-           </OpenSCENARIO>"""
-    )
+           </OpenSCENARIO>""")
     absolutize_scenario_paths(root, BASE)
     for cat in root.find("CatalogLocations"):
         path = cat.find("Directory").get("path")
@@ -48,15 +44,13 @@ def test_catalog_directories_absolutized():
 
 
 def test_controller_properties_file_absolutized():
-    root = _parse(
-        """<OpenSCENARIO>
+    root = _parse("""<OpenSCENARIO>
              <Entities>
                <Controller><Properties>
                  <File filepath="../sumo/cfg.sumocfg"/>
                </Properties></Controller>
              </Entities>
-           </OpenSCENARIO>"""
-    )
+           </OpenSCENARIO>""")
     absolutize_scenario_paths(root, BASE)
     fp = next(root.iter("File")).get("filepath")
     assert os.path.isabs(fp)
@@ -65,11 +59,9 @@ def test_controller_properties_file_absolutized():
 
 def test_absolute_paths_left_untouched():
     abs_path = os.path.join(BASE, "road.xodr")
-    root = _parse(
-        f"""<OpenSCENARIO>
+    root = _parse(f"""<OpenSCENARIO>
               <RoadNetwork><LogicFile filepath="{abs_path}"/></RoadNetwork>
-            </OpenSCENARIO>"""
-    )
+            </OpenSCENARIO>""")
     absolutize_scenario_paths(root, BASE)
     assert root.find("RoadNetwork/LogicFile").get("filepath") == abs_path
 
@@ -80,10 +72,8 @@ def test_empty_and_missing_elements_are_noops():
     absolutize_scenario_paths(root, BASE)
 
     # Empty filepath attribute stays empty.
-    root = _parse(
-        """<OpenSCENARIO>
+    root = _parse("""<OpenSCENARIO>
              <RoadNetwork><LogicFile filepath=""/></RoadNetwork>
-           </OpenSCENARIO>"""
-    )
+           </OpenSCENARIO>""")
     absolutize_scenario_paths(root, BASE)
     assert root.find("RoadNetwork/LogicFile").get("filepath") == ""

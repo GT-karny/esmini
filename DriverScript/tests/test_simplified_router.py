@@ -111,7 +111,9 @@ def test_generate_waypoints_along_path_with_invalid_lane_hints_is_not_empty():
     start = _make_pos(230, -1, 10.0, x=0.0, y=0.0)
     target = _make_pos(242, -1, 90.0, x=100.0, y=0.0)
 
-    waypoints = router._generate_waypoints_along_path(road_path, start, target, spacing=20.0)
+    waypoints = router._generate_waypoints_along_path(
+        road_path, start, target, spacing=20.0
+    )
 
     assert len(waypoints) > 1
     assert any(wp.road_id == 239 for wp in waypoints)

@@ -123,7 +123,9 @@ async def get_system_info() -> dict[str, Any]:
         "gt_sim_exists": GT_SIM_EXE.exists(),
         "repo_root": str(REPO_ROOT),
         "scenarios_dir": str(SCENARIOS_DIR),
-        "scenarios_count": len(list(SCENARIOS_DIR.glob("*.xosc"))) if SCENARIOS_DIR.is_dir() else 0,
+        "scenarios_count": (
+            len(list(SCENARIOS_DIR.glob("*.xosc"))) if SCENARIOS_DIR.is_dir() else 0
+        ),
         "sv_multicast_group": SV_MULTICAST_GROUP,
         "sv_multicast_port": SV_MULTICAST_PORT,
     }

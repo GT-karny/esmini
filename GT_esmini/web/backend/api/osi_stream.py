@@ -29,26 +29,54 @@ _GENERIC_LIGHT_ON = 3
 
 # --- MovingObject.Type enum ---
 _MOVING_TYPE_MAP = {
-    0: "unknown", 1: "other", 2: "vehicle", 3: "pedestrian", 4: "animal",
+    0: "unknown",
+    1: "other",
+    2: "vehicle",
+    3: "pedestrian",
+    4: "animal",
 }
 
 # --- TrafficLight.Classification.Color enum (osi3) ---
 _TL_COLOR_MAP = {
-    0: "unknown", 1: "other", 2: "red", 3: "yellow", 4: "green", 5: "blue", 6: "white",
+    0: "unknown",
+    1: "other",
+    2: "red",
+    3: "yellow",
+    4: "green",
+    5: "blue",
+    6: "white",
 }
 
 # --- TrafficLight.Classification.Mode enum (osi3) ---
 _TL_MODE_MAP = {
-    0: "unknown", 1: "other", 2: "off", 3: "constant", 4: "flashing", 5: "counting",
+    0: "unknown",
+    1: "other",
+    2: "off",
+    3: "constant",
+    4: "flashing",
+    5: "counting",
 }
 
 # --- VehicleClassification.Type enum ---
 _VEHICLE_CLASS_MAP = {
-    0: "unknown", 1: "other", 2: "small_car", 3: "compact_car",
-    4: "medium_car", 5: "luxury_car", 6: "delivery_van", 7: "heavy_truck",
-    8: "semitrailer", 9: "trailer", 10: "motorbike", 11: "bicycle",
-    12: "bus", 13: "tram", 14: "train", 15: "wheelchair",
-    16: "semitractor", 17: "standup_scooter",
+    0: "unknown",
+    1: "other",
+    2: "small_car",
+    3: "compact_car",
+    4: "medium_car",
+    5: "luxury_car",
+    6: "delivery_van",
+    7: "heavy_truck",
+    8: "semitrailer",
+    9: "trailer",
+    10: "motorbike",
+    11: "bicycle",
+    12: "bus",
+    13: "tram",
+    14: "train",
+    15: "wheelchair",
+    16: "semitractor",
+    17: "standup_scooter",
 }
 
 
@@ -58,7 +86,7 @@ def _extract_entity_name(obj) -> str:
         if ref.type == "net.asam.openscenario":
             for ident in ref.identifier:
                 if ident.startswith("entity_name:"):
-                    return ident[len("entity_name:"):]
+                    return ident[len("entity_name:") :]
     return ""
 
 
@@ -140,16 +168,18 @@ def _gt_to_json(raw: bytes) -> dict | None:
     for tl in gt.traffic_light:
         pos = tl.base.position
         cls = tl.classification
-        traffic_lights.append({
-            "id": tl.id.value,
-            "x": round(pos.x, 3),
-            "y": round(pos.y, 3),
-            "z": round(pos.z, 3),
-            "h": round(tl.base.orientation.yaw, 4),
-            "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
-            "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
-            "icon": cls.icon,
-        })
+        traffic_lights.append(
+            {
+                "id": tl.id.value,
+                "x": round(pos.x, 3),
+                "y": round(pos.y, 3),
+                "z": round(pos.z, 3),
+                "h": round(tl.base.orientation.yaw, 4),
+                "color": _TL_COLOR_MAP.get(cls.color, "unknown"),
+                "mode": _TL_MODE_MAP.get(cls.mode, "unknown"),
+                "icon": cls.icon,
+            }
+        )
 
     result = {
         "type": "ground_truth",
@@ -173,14 +203,28 @@ def _hvd_to_json(raw: bytes) -> dict | None:
     ts = hvd.timestamp
     sim_time = ts.seconds + ts.nanos * 1e-9 if ts.seconds or ts.nanos else 0.0
 
-    throttle = hvd.vehicle_powertrain.pedal_position_acceleration if hvd.HasField("vehicle_powertrain") else 0.0
-    brake = hvd.vehicle_brake_system.pedal_position_brake if hvd.HasField("vehicle_brake_system") else 0.0
+    throttle = (
+        hvd.vehicle_powertrain.pedal_position_acceleration
+        if hvd.HasField("vehicle_powertrain")
+        else 0.0
+    )
+    brake = (
+        hvd.vehicle_brake_system.pedal_position_brake
+        if hvd.HasField("vehicle_brake_system")
+        else 0.0
+    )
 
     steering_angle = 0.0
-    if hvd.HasField("vehicle_steering") and hvd.vehicle_steering.HasField("vehicle_steering_wheel"):
+    if hvd.HasField("vehicle_steering") and hvd.vehicle_steering.HasField(
+        "vehicle_steering_wheel"
+    ):
         steering_angle = hvd.vehicle_steering.vehicle_steering_wheel.angle
 
-    gear = hvd.vehicle_powertrain.gear_transmission if hvd.HasField("vehicle_powertrain") else 0
+    gear = (
+        hvd.vehicle_powertrain.gear_transmission
+        if hvd.HasField("vehicle_powertrain")
+        else 0
+    )
     rpm = 0.0
     torque = 0.0
     if hvd.HasField("vehicle_powertrain") and len(hvd.vehicle_powertrain.motor) > 0:
@@ -244,7 +288,9 @@ async def osi_websocket(websocket: WebSocket, job_id: str):
 
             if not done:
                 if not bridge.running:
-                    await websocket.send_json({"type": "end", "reason": "simulation_ended"})
+                    await websocket.send_json(
+                        {"type": "end", "reason": "simulation_ended"}
+                    )
                     break
                 continue
 

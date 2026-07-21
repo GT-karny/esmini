@@ -61,11 +61,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         for conn in j.findall("connection"):
             cr = conn.get("connectingRoad")
             if cr is not None:
-                flags.append((
-                    "junctions.connection.no_connecting_road_direct",
-                    f"junction {jid}(type=direct) connection id={conn.get('id')} が @connectingRoad={cr} を使用（@linkedRoadを使うべき）",
-                    f"junction {jid}",
-                ))
+                flags.append(
+                    (
+                        "junctions.connection.no_connecting_road_direct",
+                        f"junction {jid}(type=direct) connection id={conn.get('id')} が @connectingRoad={cr} を使用（@linkedRoadを使うべき）",
+                        f"junction {jid}",
+                    )
+                )
 
     # ------------------------------------------------------------------
     # junctions.crossing.only_road_sections (1.8.0)
@@ -79,11 +81,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             continue
         bad_children = [c.tag for c in j if c.tag in ("connection", "crossPath")]
         if bad_children:
-            flags.append((
-                "junctions.crossing.only_road_sections",
-                f"junction {jid}(type=crossing) に {sorted(set(bad_children))} 要素（roadSection以外）が存在",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.crossing.only_road_sections",
+                    f"junction {jid}(type=crossing) に {sorted(set(bad_children))} 要素（roadSection以外）が存在",
+                    f"junction {jid}",
+                )
+            )
 
     # ------------------------------------------------------------------
     # junctions.crossing.only_one_high_prio (1.8.0)
@@ -102,11 +106,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 highs.append(h)
         distinct_highs = sorted(set(highs))
         if len(distinct_highs) > 1:
-            flags.append((
-                "junctions.crossing.only_one_high_prio",
-                f"junction {jid}(crossing) の priority @high が複数の道路 {distinct_highs} にまたがる（1つのみであるべき）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.crossing.only_one_high_prio",
+                    f"junction {jid}(crossing) の priority @high が複数の道路 {distinct_highs} にまたがる（1つのみであるべき）",
+                    f"junction {jid}",
+                )
+            )
 
     # ------------------------------------------------------------------
     # junctions.priority.high_and_low_attr (1.8.0)
@@ -117,13 +123,17 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
     for jid, j in junctions.items():
         for idx, pr in enumerate(j.findall("priority")):
             h, low = pr.get("high"), pr.get("low")
-            missing = [n for n, v in (("high", h), ("low", low)) if v is None or v == ""]
+            missing = [
+                n for n, v in (("high", h), ("low", low)) if v is None or v == ""
+            ]
             if missing:
-                flags.append((
-                    "junctions.priority.high_and_low_attr",
-                    f"junction {jid} priority[{idx}] に必須属性 {missing} が欠落",
-                    f"junction {jid}",
-                ))
+                flags.append(
+                    (
+                        "junctions.priority.high_and_low_attr",
+                        f"junction {jid} priority[{idx}] に必須属性 {missing} が欠落",
+                        f"junction {jid}",
+                    )
+                )
 
     # ------------------------------------------------------------------
     # junctions.cross_path.correct_junction_id (1.8.0)
@@ -161,11 +171,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             continue  # dangling ref handled by ids.only_ref_defined_ids (not ours)
         member_ids = _junction_member_road_ids(junctions[jid])
         if rid not in member_ids:
-            flags.append((
-                "junctions.cross_path.correct_junction_id",
-                f"road {rid} は @junction={jid} を宣言するが、junction {jid} 内で connectingRoad/linkedRoad/crossingRoad/boundary roadId として参照されていない",
-                f"road {rid}",
-            ))
+            flags.append(
+                (
+                    "junctions.cross_path.correct_junction_id",
+                    f"road {rid} は @junction={jid} を宣言するが、junction {jid} 内で connectingRoad/linkedRoad/crossingRoad/boundary roadId として参照されていない",
+                    f"road {rid}",
+                )
+            )
 
     # ------------------------------------------------------------------
     # junctions.cross_path.lane_linkage (1.8.0)
@@ -196,13 +208,18 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             crossing_road_id = cp.get("crossingRoad")
             crossing_road = roads.get(crossing_road_id) if crossing_road_id else None
             if crossing_road_id is not None and crossing_road_id not in road_ids:
-                flags.append((
-                    "junctions.cross_path.lane_linkage",
-                    f"junction {jid} crossPath id={cp_id} @crossingRoad={crossing_road_id} が未定義road",
-                    f"junction {jid} crossPath id={cp_id}",
-                ))
+                flags.append(
+                    (
+                        "junctions.cross_path.lane_linkage",
+                        f"junction {jid} crossPath id={cp_id} @crossingRoad={crossing_road_id} が未定義road",
+                        f"junction {jid} crossPath id={cp_id}",
+                    )
+                )
 
-            for tag, road_attr in (("startLaneLink", "roadAtStart"), ("endLaneLink", "roadAtEnd")):
+            for tag, road_attr in (
+                ("startLaneLink", "roadAtStart"),
+                ("endLaneLink", "roadAtEnd"),
+            ):
                 link = cp.find(tag)
                 if link is None:
                     continue
@@ -210,28 +227,34 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 to_id = link.get("to")
 
                 if other_road_id is not None and other_road_id not in road_ids:
-                    flags.append((
-                        "junctions.cross_path.lane_linkage",
-                        f"junction {jid} crossPath id={cp_id} {tag} の @{road_attr}={other_road_id} が未定義road",
-                        f"junction {jid} crossPath id={cp_id}",
-                    ))
+                    flags.append(
+                        (
+                            "junctions.cross_path.lane_linkage",
+                            f"junction {jid} crossPath id={cp_id} {tag} の @{road_attr}={other_road_id} が未定義road",
+                            f"junction {jid} crossPath id={cp_id}",
+                        )
+                    )
 
                 if crossing_road is not None and to_id is not None:
                     to_lanes = _lanes_by_id_in_road(crossing_road)
                     if to_id not in to_lanes:
-                        flags.append((
-                            "junctions.cross_path.lane_linkage",
-                            f"junction {jid} crossPath id={cp_id} {tag} @to={to_id} が crossingRoad {crossing_road_id} に存在しないlane id",
-                            f"junction {jid} crossPath id={cp_id}",
-                        ))
+                        flags.append(
+                            (
+                                "junctions.cross_path.lane_linkage",
+                                f"junction {jid} crossPath id={cp_id} {tag} @to={to_id} が crossingRoad {crossing_road_id} に存在しないlane id",
+                                f"junction {jid} crossPath id={cp_id}",
+                            )
+                        )
                     else:
                         types = {ln.get("type") for ln in to_lanes[to_id]}
                         if types and not (types & PEDESTRIAN_LANE_TYPES):
-                            flags.append((
-                                "junctions.cross_path.only_connect_correct_type",
-                                f"junction {jid} crossPath id={cp_id} {tag} @to={to_id} (crossingRoad {crossing_road_id}) の lane type={sorted(types)} は walking/biking ではない",
-                                f"junction {jid} crossPath id={cp_id}",
-                            ))
+                            flags.append(
+                                (
+                                    "junctions.cross_path.only_connect_correct_type",
+                                    f"junction {jid} crossPath id={cp_id} {tag} @to={to_id} (crossingRoad {crossing_road_id}) の lane type={sorted(types)} は walking/biking ではない",
+                                    f"junction {jid} crossPath id={cp_id}",
+                                )
+                            )
 
     # ------------------------------------------------------------------
     # junctions.cross_path.within_junction_area (1.8.0)
@@ -243,11 +266,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
     for jid, j in junctions.items():
         jtype = j.get("type")
         if jtype in ("crossing", "direct") and j.findall("crossPath"):
-            flags.append((
-                "junctions.cross_path.within_junction_area",
-                f"junction {jid}(type={jtype}) に crossPath が存在（commonまたはvirtualのみ許容）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.cross_path.within_junction_area",
+                    f"junction {jid}(type={jtype}) に crossPath が存在（commonまたはvirtualのみ許容）",
+                    f"junction {jid}",
+                )
+            )
 
     # ------------------------------------------------------------------
     # junctions.priority.no_signals (PARTIAL_DETERMINISTIC, 1.7.0)
@@ -294,12 +319,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     dynamic_hits.append((rid, sig.get("id")))
         if dynamic_hits:
             roads_hit = sorted({rid for rid, _ in dynamic_hits})
-            flags.append((
-                "junctions.priority.no_signals",
-                f"junction {jid}(type={jtype}) に <priority> が定義されているが、参加road "
-                f"{roads_hit} に @dynamic=\"yes\" の signal（動的信号機）が存在"
-                "（動的信号がある場合priorityは使うべきでない）",
-                f"junction {jid}",
-            ))
+            flags.append(
+                (
+                    "junctions.priority.no_signals",
+                    f"junction {jid}(type={jtype}) に <priority> が定義されているが、参加road "
+                    f'{roads_hit} に @dynamic="yes" の signal（動的信号機）が存在'
+                    "（動的信号がある場合priorityは使うべきでない）",
+                    f"junction {jid}",
+                )
+            )
 
     return flags

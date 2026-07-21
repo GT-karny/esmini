@@ -22,6 +22,7 @@ shows up in the GUI immediately. Run via DriverScript/.venv.
 
     py GT_esmini/scripts/verification/build_verification_project.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,10 +43,17 @@ CATEGORY_POLICY = {
     "05": None,
     "06": "lead",
 }
-CATEGORIES = ("03_traffic_signals", "04_traffic_signs", "05_anticipation", "06_lead_vehicle")
+CATEGORIES = (
+    "03_traffic_signals",
+    "04_traffic_signs",
+    "05_anticipation",
+    "06_lead_vehicle",
+)
 
 
-def _collect_and_rewrite(root: ET.Element, xosc_dir: Path) -> dict[str, tuple[str, str]]:
+def _collect_and_rewrite(
+    root: ET.Element, xosc_dir: Path
+) -> dict[str, tuple[str, str]]:
     """Rewrite asset refs to project-relative and return {abs_src: (subdir, name)}."""
     copies: dict[str, tuple[str, str]] = {}
 
@@ -142,7 +150,9 @@ def build(out_dir: Path, make_zip: bool) -> Path:
                     missing.append(src_str)
 
             out_name = f"{num}_{xosc.stem}.xosc"
-            tree.write(out_dir / "xosc" / out_name, encoding="utf-8", xml_declaration=True)
+            tree.write(
+                out_dir / "xosc" / out_name, encoding="utf-8", xml_declaration=True
+            )
             listed.append((out_name, policy))
 
     _write_readme(out_dir, listed)
@@ -154,12 +164,15 @@ def build(out_dir: Path, make_zip: bool) -> Path:
 
     n_xodr = len(list((out_dir / "xodr").glob("*")))
     n_mdl = len(list((out_dir / "models").glob("*")))
-    print(f"[build] {len(listed)} scenarios, {n_xodr} xodr, {n_mdl} models -> {out_dir}")
+    print(
+        f"[build] {len(listed)} scenarios, {n_xodr} xodr, {n_mdl} models -> {out_dir}"
+    )
 
     if make_zip:
         zip_base = out_dir.parent / out_dir.name.replace(" ", "_")
-        archive = shutil.make_archive(str(zip_base), "zip", root_dir=out_dir.parent,
-                                      base_dir=out_dir.name)
+        archive = shutil.make_archive(
+            str(zip_base), "zip", root_dir=out_dir.parent, base_dir=out_dir.name
+        )
         print(f"[build] zip -> {archive}")
     return out_dir
 
@@ -187,11 +200,20 @@ def _write_readme(out_dir: Path, listed: list[tuple[str, str | None]]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--out", type=Path, default=DEFAULT_PROJECTS_DIR / "VirtualDriver Verification",
-                   help="project output dir (default: dev projects dir, auto-registered by the GUI)")
-    p.add_argument("--zip", action="store_true", help="also write a .zip for the GUI Upload-ZIP flow")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_PROJECTS_DIR / "VirtualDriver Verification",
+        help="project output dir (default: dev projects dir, auto-registered by the GUI)",
+    )
+    p.add_argument(
+        "--zip",
+        action="store_true",
+        help="also write a .zip for the GUI Upload-ZIP flow",
+    )
     args = p.parse_args(argv)
     build(args.out.resolve(), args.zip)
     return 0

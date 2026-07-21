@@ -17,6 +17,7 @@ Usage:
 
 Import path:  generators add scenario_authoring/ to sys.path so authoring_common is importable.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,10 +29,13 @@ from pathlib import Path
 _AUTHORING_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_AUTHORING_ROOT))
 
-from authoring_common import git_short_hash, normalize_header_date, write_meta_yaml  # noqa: E402
+from authoring_common import (
+    git_short_hash,
+    normalize_header_date,
+    write_meta_yaml,
+)  # noqa: E402
 from priority_injector import inject_priority  # noqa: E402
 from scenariogeneration import xodr  # noqa: E402
-
 
 # Pinned OpenDRIVE header dates (scenariogeneration stamps datetime.now() — see
 # normalize_header_date). Frozen so regeneration is byte-reproducible.
@@ -51,6 +55,7 @@ _SIGN_SETBACK = 8.0
 # ---------------------------------------------------------------------------
 # Road network builder
 # ---------------------------------------------------------------------------
+
 
 def make_t_junction_road(
     angle_deg: float,
@@ -73,8 +78,12 @@ def make_t_junction_road(
 
     geom = xodr.Line(leg_length)
     road0 = xodr.create_road(geom, id=0, left_lanes=lanes, right_lanes=lanes)
-    road1 = xodr.create_road(xodr.Line(leg_length), id=1, left_lanes=lanes, right_lanes=lanes)
-    road2 = xodr.create_road(xodr.Line(leg_length), id=2, left_lanes=lanes, right_lanes=lanes)
+    road1 = xodr.create_road(
+        xodr.Line(leg_length), id=1, left_lanes=lanes, right_lanes=lanes
+    )
+    road2 = xodr.create_road(
+        xodr.Line(leg_length), id=2, left_lanes=lanes, right_lanes=lanes
+    )
 
     junction_creator = xodr.CommonJunctionCreator(id=100, name="T")
     junction_creator.add_incoming_road_circular_geometry(
@@ -116,17 +125,19 @@ def make_t_junction_road(
     # minor leg (road 2) gets a YIELD sign on its approach. The <priority>
     # records themselves are injected post-generation (see main()).
     if add_yield_sign:
-        road2.add_signal(xodr.Signal(
-            s=leg_length - _SIGN_SETBACK,
-            t=_SIGN_T,
-            country=_SIGN_COUNTRY,
-            Type=_YIELD_TYPE,
-            subtype="-1",
-            name="yield_minor",
-            dynamic=xodr.Dynamic.no,
-            orientation=xodr.Orientation.positive,
-            zOffset=_SIGN_ZOFFSET,
-        ))
+        road2.add_signal(
+            xodr.Signal(
+                s=leg_length - _SIGN_SETBACK,
+                t=_SIGN_T,
+                country=_SIGN_COUNTRY,
+                Type=_YIELD_TYPE,
+                subtype="-1",
+                name="yield_minor",
+                dynamic=xodr.Dynamic.no,
+                orientation=xodr.Orientation.positive,
+                zOffset=_SIGN_ZOFFSET,
+            )
+        )
 
     return odr
 
@@ -134,6 +145,7 @@ def make_t_junction_road(
 # ---------------------------------------------------------------------------
 # catalog_id builder
 # ---------------------------------------------------------------------------
+
 
 def build_catalog_id(angle_deg: int, lanes: int, priority_main: bool = False) -> str:
     """Return the catalog_id following §6.3 naming conventions.
@@ -152,6 +164,7 @@ def build_catalog_id(angle_deg: int, lanes: int, priority_main: bool = False) ->
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -190,9 +203,9 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Treat the two collinear through legs (roads 0+1) as the priority "
-             "road: inject <priority> records and (with --signage) add a YIELD "
-             "sign on the minor leg (road 2). Changes catalog_id to "
-             "t_junction_priority__a{angle}.",
+        "road: inject <priority> records and (with --signage) add a YIELD "
+        "sign on the minor leg (road 2). Changes catalog_id to "
+        "t_junction_priority__a{angle}.",
     )
     parser.add_argument(
         "--signage",
@@ -220,8 +233,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    out_dir: Path = args.out_dir if args.out_dir is not None else (
-        Path(__file__).resolve().parent / "generated"
+    out_dir: Path = (
+        args.out_dir
+        if args.out_dir is not None
+        else (Path(__file__).resolve().parent / "generated")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -265,8 +280,16 @@ def main() -> None:
         "kind": "road",
         "geometry_type": "G4+G13" if args.priority_main else "G4",
         "signage": signage,
-        "priority": {"main": "through", "injected": True, "main_legs": [0, 1], "minor_legs": [2]}
-                    if args.priority_main else "none",
+        "priority": (
+            {
+                "main": "through",
+                "injected": True,
+                "main_legs": [0, 1],
+                "minor_legs": [2],
+            }
+            if args.priority_main
+            else "none"
+        ),
         "generator": {
             "script": "road_catalog/gen_t_junction.py",
             "params": {

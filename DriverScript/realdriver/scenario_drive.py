@@ -36,6 +36,7 @@ DEFAULT_STEERING_CONFIG = LateralConfig()
 @dataclass
 class ControlOutput:
     """Control output values."""
+
     steering: float
     throttle: float
     brake: float
@@ -43,9 +44,11 @@ class ControlOutput:
 
     @property
     def is_valid(self) -> bool:
-        return not (math.isnan(self.steering) or
-                   math.isnan(self.throttle) or
-                   math.isnan(self.brake))
+        return not (
+            math.isnan(self.steering)
+            or math.isnan(self.throttle)
+            or math.isnan(self.brake)
+        )
 
 
 class ScenarioDriveController:
@@ -74,21 +77,23 @@ class ScenarioDriveController:
         output = longitudinal.update(state.speed, dt)
     """
 
-    def __init__(self,
-                 lib_path: str,
-                 xodr_path: str,
-                 ego_id: int = 0,
-                 target_speed_port: int = 54995,
-                 waypoint_port: int = 54996,
-                 gt_lib_path: Optional[str] = None,
-                 steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
-                 speed_pid: Optional[Tuple[float, float, float]] = None,
-                 lane_change_time: float = 5.0,
-                 lookahead_distance: float = 5.0,
-                 steering_config: Optional[LateralConfig] = None,
-                 longitudinal_config: Optional[LongitudinalConfig] = None,
-                 allow_reverse_from_profile: bool = False,
-                 mode: str = "embedded"):
+    def __init__(
+        self,
+        lib_path: str,
+        xodr_path: str,
+        ego_id: int = 0,
+        target_speed_port: int = 54995,
+        waypoint_port: int = 54996,
+        gt_lib_path: Optional[str] = None,
+        steering_pid: Tuple[float, float, float] = (1.0, 0.01, 0.1),
+        speed_pid: Optional[Tuple[float, float, float]] = None,
+        lane_change_time: float = 5.0,
+        lookahead_distance: float = 5.0,
+        steering_config: Optional[LateralConfig] = None,
+        longitudinal_config: Optional[LongitudinalConfig] = None,
+        allow_reverse_from_profile: bool = False,
+        mode: str = "embedded",
+    ):
         """
         Initialize ScenarioDriveController.
 
@@ -115,7 +120,9 @@ class ScenarioDriveController:
         # Initialize RoadManager
         self.rm_lib = EsminiRMLib(lib_path)
         if self.rm_lib.Init(xodr_path) < 0:
-            raise RuntimeError(f"Failed to initialize RoadManager with map: {xodr_path}")
+            raise RuntimeError(
+                f"Failed to initialize RoadManager with map: {xodr_path}"
+            )
 
         # Initialize GT extension (optional)
         self.gt_rm_lib = None
@@ -139,19 +146,14 @@ class ScenarioDriveController:
         lateral_config.lane_change_time = lane_change_time
 
         # Initialize sub-controllers
-        self.lateral = LateralController(
-            rm_lib=self.rm_lib,
-            config=lateral_config
-        )
+        self.lateral = LateralController(rm_lib=self.rm_lib, config=lateral_config)
 
         # Longitudinal controller: use explicit config, or build from legacy speed_pid, or use defaults
         if longitudinal_config is not None:
             lon_config = longitudinal_config
         elif speed_pid is not None:
             lon_config = LongitudinalConfig(
-                pid_kp=speed_pid[0],
-                pid_ki=speed_pid[1],
-                pid_kd=speed_pid[2]
+                pid_kp=speed_pid[0], pid_ki=speed_pid[1], pid_kd=speed_pid[2]
             )
         else:
             lon_config = LongitudinalConfig()
@@ -225,22 +227,32 @@ class ScenarioDriveController:
     def _build_waypoint_signature(self, waypoints: List[Waypoint]) -> Tuple:
         if not waypoints:
             return tuple()
-        sample_ids = [0, len(waypoints) // 4, len(waypoints) // 2, (3 * len(waypoints)) // 4, len(waypoints) - 1]
+        sample_ids = [
+            0,
+            len(waypoints) // 4,
+            len(waypoints) // 2,
+            (3 * len(waypoints)) // 4,
+            len(waypoints) - 1,
+        ]
         sig = [len(waypoints)]
         for i in sample_ids:
             wp = waypoints[i]
-            sig.append((
-                round(wp.x, 2),
-                round(wp.y, 2),
-                round(wp.h, 3),
-                int(wp.road_id),
-                int(wp.lane_id),
-                round(wp.s, 1),
-                round(wp.lane_offset, 2),
-            ))
+            sig.append(
+                (
+                    round(wp.x, 2),
+                    round(wp.y, 2),
+                    round(wp.h, 3),
+                    int(wp.road_id),
+                    int(wp.lane_id),
+                    round(wp.s, 1),
+                    round(wp.lane_offset, 2),
+                )
+            )
         return tuple(sig)
 
-    def _find_closest_index(self, ego_pos: Waypoint, waypoints: List[Waypoint], limit: int = 100) -> int:
+    def _find_closest_index(
+        self, ego_pos: Waypoint, waypoints: List[Waypoint], limit: int = 100
+    ) -> int:
         if not waypoints:
             return 0
         min_dist = float("inf")
@@ -295,20 +307,26 @@ class ScenarioDriveController:
                     )
                     if dense_route and len(dense_route) > len(future_wps):
                         next_waypoints = dense_route
-                        next_index = self._find_closest_index(self._last_ego_pos, next_waypoints)
+                        next_index = self._find_closest_index(
+                            self._last_ego_pos, next_waypoints
+                        )
                         print(
                             f"[INFO] Embedded: Generated dense route with {len(dense_route)} waypoints "
                             f"from {len(future_wps)} sparse WPs"
                         )
 
             self.lateral.set_calculated_waypoints(next_waypoints)
-            self.waypoint_mgr.current_index = max(0, min(next_index, max(0, len(next_waypoints) - 1)))
+            self.waypoint_mgr.current_index = max(
+                0, min(next_index, max(0, len(next_waypoints) - 1))
+            )
             self._last_embedded_waypoint_sig = sig_tuple
             self._last_embedded_waypoint_generation_version = generation_version
             return
 
         max_index = max(0, len(self.waypoint_mgr.waypoints) - 1)
-        self.waypoint_mgr.current_index = max(0, min(max(self.waypoint_mgr.current_index, incoming_index), max_index))
+        self.waypoint_mgr.current_index = max(
+            0, min(max(self.waypoint_mgr.current_index, incoming_index), max_index)
+        )
 
     def _ensure_dense_route(self) -> None:
         """Ensure sparse route fallback is densified once ego pose becomes available."""
@@ -316,7 +334,13 @@ class ScenarioDriveController:
             return
         if len(self.waypoint_mgr.waypoints) >= 10:
             return
-        idx = max(0, min(self.waypoint_mgr.current_index, max(0, len(self.waypoint_mgr.waypoints) - 1)))
+        idx = max(
+            0,
+            min(
+                self.waypoint_mgr.current_index,
+                max(0, len(self.waypoint_mgr.waypoints) - 1),
+            ),
+        )
         future_wps = self.waypoint_mgr.waypoints[idx:]
         if not future_wps:
             return
@@ -326,9 +350,13 @@ class ScenarioDriveController:
         if dense_route and len(dense_route) > len(future_wps):
             print(f"[INFO] Embedded: Late densification ({len(dense_route)} pts)")
             self.lateral.set_calculated_waypoints(dense_route)
-            self.waypoint_mgr.current_index = self._find_closest_index(self._last_ego_pos, dense_route)
+            self.waypoint_mgr.current_index = self._find_closest_index(
+                self._last_ego_pos, dense_route
+            )
 
-    def update(self, ground_truth, dt: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    def update(
+        self, ground_truth, dt: float
+    ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """
         Update the controller and calculate control outputs.
 
@@ -359,8 +387,12 @@ class ScenarioDriveController:
         # Cache for route planning
         self._last_speed = state.speed
         self._last_ego_pos = Waypoint(
-            x=state.x, y=state.y, h=state.h,
-            road_id=state.road_id, s=state.s, lane_id=state.lane_id
+            x=state.x,
+            y=state.y,
+            h=state.h,
+            road_id=state.road_id,
+            s=state.s,
+            lane_id=state.lane_id,
         )
 
         # Handle pending target (auto-route calculation)
@@ -376,15 +408,19 @@ class ScenarioDriveController:
         # Check if we have waypoints
         if not self.lateral.has_route:
             if not self._no_route_warned:
-                print("[WARN] ScenarioDrive: No route configured, skipping control output")
+                print(
+                    "[WARN] ScenarioDrive: No route configured, skipping control output"
+                )
                 self._no_route_warned = True
             return None, None, None
 
         # Get current target waypoint for lane change check
         target_wp = self.waypoint_mgr.get_current_waypoint()
         if target_wp is None:
-            print(f"[INFO] ScenarioDrive: All waypoints completed "
-                  f"(index={self.waypoint_mgr.current_index}, total={len(self.waypoint_mgr.waypoints)})")
+            print(
+                f"[INFO] ScenarioDrive: All waypoints completed "
+                f"(index={self.waypoint_mgr.current_index}, total={len(self.waypoint_mgr.waypoints)})"
+            )
             return None, None, None
 
         # Calculate steering (use _from_state since we already extracted state)
@@ -406,7 +442,7 @@ class ScenarioDriveController:
 
     def close(self) -> None:
         """Clean up resources."""
-        if hasattr(self, 'rm_lib') and self.rm_lib:
+        if hasattr(self, "rm_lib") and self.rm_lib:
             try:
                 self.rm_lib.Close()
             except Exception:

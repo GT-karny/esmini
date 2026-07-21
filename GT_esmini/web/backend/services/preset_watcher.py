@@ -43,6 +43,7 @@ def _path_key(path: Path) -> str:
         resolved = str(path)
     return os.path.normcase(resolved)
 
+
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -156,7 +157,11 @@ class PresetWatcherManager:
                 # subscriber doesn't overwrite a hash mid-edit.
                 for k, h in baseline.items():
                     self._content_hashes.setdefault(k, h)
-                _logger.info("Preset watcher started for project=%s dir=%s", project_id, presets_dir)
+                _logger.info(
+                    "Preset watcher started for project=%s dir=%s",
+                    project_id,
+                    presets_dir,
+                )
         return sub_id, queue
 
     async def unsubscribe(self, project_id: str, sub_id: str) -> None:
@@ -280,7 +285,10 @@ class PresetWatcherManager:
         if loop is None:
             return
         self._timers[key] = loop.call_later(
-            DEBOUNCE_SECONDS, self._dispatch, project_id, scenario_stem,
+            DEBOUNCE_SECONDS,
+            self._dispatch,
+            project_id,
+            scenario_stem,
         )
 
     def _dispatch(self, project_id: str, scenario_stem: str) -> None:
@@ -298,12 +306,17 @@ class PresetWatcherManager:
         if loop is None:
             return
         asyncio.ensure_future(
-            self._dispatch_with_hash_check(project_id, scenario_stem, payload["change"]),
+            self._dispatch_with_hash_check(
+                project_id, scenario_stem, payload["change"]
+            ),
             loop=loop,
         )
 
     async def _dispatch_with_hash_check(
-        self, project_id: str, scenario_stem: str, change: str,
+        self,
+        project_id: str,
+        scenario_stem: str,
+        change: str,
     ) -> None:
         key = (project_id, scenario_stem)
         presets_dir = await _get_presets_dir(project_id)
@@ -315,7 +328,8 @@ class PresetWatcherManager:
             if new_hash == old_hash:
                 _logger.debug(
                     "preset watcher: content unchanged for %s/%s, skipping notify",
-                    project_id, scenario_stem,
+                    project_id,
+                    scenario_stem,
                 )
                 return
             self._content_hashes[key] = new_hash
@@ -330,7 +344,9 @@ class PresetWatcherManager:
             try:
                 q.put_nowait(message)
             except asyncio.QueueFull:
-                _logger.warning("Preset watcher queue full, dropping event for %s", project_id)
+                _logger.warning(
+                    "Preset watcher queue full, dropping event for %s", project_id
+                )
 
 
 _manager: PresetWatcherManager | None = None

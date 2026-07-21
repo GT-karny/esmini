@@ -20,4 +20,3 @@ class EmbeddedControllerBase(ABC):
     def close(self) -> None:
         """Optional shutdown hook."""
         return None
-

@@ -11,7 +11,11 @@ from GT_esmini.web.backend.models.simulation import (
     SpeedRequest,
     DriveModeRequest,
 )
-from GT_esmini.web.backend.services import project_service, scenario_service, simulation_runner
+from GT_esmini.web.backend.services import (
+    project_service,
+    scenario_service,
+    simulation_runner,
+)
 from GT_esmini.web.backend.services.simulation_runner import SimulationConflictError
 
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
@@ -26,8 +30,11 @@ async def create_simulation(req: SimulationRequest):
     if req.project_id:
         proj = await project_service.get_project(req.project_id)
         if proj is None:
-            raise HTTPException(status_code=404, detail=f"Project '{req.project_id}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Project '{req.project_id}' not found"
+            )
         from pathlib import Path
+
         candidate = Path(proj.root_path) / req.scenario_id
         if candidate.is_file():
             scenario_path = candidate
@@ -63,7 +70,11 @@ async def list_simulations(
 ):
     """List simulation jobs."""
     jobs, total = await simulation_runner.list_simulations(
-        status, project_id, limit, offset, scenario_id=scenario_id,
+        status,
+        project_id,
+        limit,
+        offset,
+        scenario_id=scenario_id,
     )
     return SimulationListResponse(jobs=jobs, total=total)
 

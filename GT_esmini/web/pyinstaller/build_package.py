@@ -24,7 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Source paths
 BUILD_RELEASE = REPO_ROOT / "build" / "GT_esmini" / "Release"
-EMBEDDED_PYTHON = REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+EMBEDDED_PYTHON = (
+    REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+)
 FRONTEND_DIR = REPO_ROOT / "GT_esmini" / "web" / "frontend"
 FRONTEND_DIST = FRONTEND_DIR / "dist"
 PYINSTALLER_DIR = Path(__file__).resolve().parent
@@ -51,14 +53,22 @@ CONFIG_FILES = [
     # virtual_driver.json: loaded by simulation_runner.py; missing → silent {} fallback
     ("GT_esmini/config/virtual_driver.json", "config/virtual_driver.json"),
     # route_drive_controller.json: resolved beside the exe by GT_esminiLib.cpp
-    ("GT_esmini/config/route_drive_controller.json", "config/route_drive_controller.json"),
+    (
+        "GT_esmini/config/route_drive_controller.json",
+        "config/route_drive_controller.json",
+    ),
     # auto_light.json: F6 environment-driven headlights, resolved beside the exe (v0.13)
     ("GT_esmini/config/auto_light.json", "config/auto_light.json"),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
 IGNORE_PATTERNS = shutil.ignore_patterns(
-    "__pycache__", "*.pyc", "*.pyo", "*.proto", "*.temp.xosc", ".git",
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.proto",
+    "*.temp.xosc",
+    ".git",
 )
 
 
@@ -71,11 +81,15 @@ def verify_prerequisites() -> None:
     errors: list[str] = []
 
     if not (BUILD_RELEASE / "GT_Sim.exe").exists():
-        errors.append(f"GT_Sim.exe not found at {BUILD_RELEASE}. Run CMake build first.")
+        errors.append(
+            f"GT_Sim.exe not found at {BUILD_RELEASE}. Run CMake build first."
+        )
     if not (BUILD_RELEASE / "GT_esminiLib.dll").exists():
         errors.append(f"GT_esminiLib.dll not found at {BUILD_RELEASE}.")
     if not (BUILD_RELEASE / "GT_RoadGen.exe").exists():
-        errors.append(f"GT_RoadGen.exe not found at {BUILD_RELEASE} (parallel road-mesh generator). Run CMake build first.")
+        errors.append(
+            f"GT_RoadGen.exe not found at {BUILD_RELEASE} (parallel road-mesh generator). Run CMake build first."
+        )
     if not FRONTEND_DIST.is_dir() or not (FRONTEND_DIST / "index.html").exists():
         errors.append(f"Frontend not built. Run 'npm run build' in {FRONTEND_DIR}.")
     if not EMBEDDED_PYTHON.is_dir():
@@ -136,12 +150,16 @@ def run_pyinstaller() -> None:
     """Execute PyInstaller with the spec file."""
     print("[BUILD] Running PyInstaller...")
     cmd = [
-        sys.executable, "-m", "PyInstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--clean",
         "--noconfirm",
         str(SPEC_FILE),
-        "--distpath", str(PYINSTALLER_DIR / "dist"),
-        "--workpath", str(PYINSTALLER_DIR / "build_temp"),
+        "--distpath",
+        str(PYINSTALLER_DIR / "dist"),
+        "--workpath",
+        str(PYINSTALLER_DIR / "build_temp"),
     ]
     result = subprocess.run(cmd, cwd=str(REPO_ROOT))
     if result.returncode != 0:
@@ -271,7 +289,9 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     # which looks under PACKAGE_ROOT/GT_esmini/scripts/verification/, so ship it there.
     vdir = pkg_dir / "GT_esmini" / "scripts" / "verification"
     vdir.mkdir(parents=True, exist_ok=True)
-    am_src = REPO_ROOT / "GT_esmini" / "scripts" / "verification" / "annotation_match.py"
+    am_src = (
+        REPO_ROOT / "GT_esmini" / "scripts" / "verification" / "annotation_match.py"
+    )
     if am_src.exists():
         shutil.copy2(am_src, vdir / "annotation_match.py")
         log("GT_esmini/scripts/verification/: annotation_match.py (match API)")
@@ -327,11 +347,21 @@ def create_archive(pkg_dir: Path) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build GT_Sim Web distributable package")
-    parser.add_argument("--version", default="0.1.0", help="Version string (default: 0.1.0)")
-    parser.add_argument("--output", default=str(REPO_ROOT / "dist"), help="Output directory")
-    parser.add_argument("--skip-pyinstaller", action="store_true", help="Skip PyInstaller step")
-    parser.add_argument("--skip-frontend", action="store_true", help="Skip frontend build")
+    parser = argparse.ArgumentParser(
+        description="Build GT_Sim Web distributable package"
+    )
+    parser.add_argument(
+        "--version", default="0.1.0", help="Version string (default: 0.1.0)"
+    )
+    parser.add_argument(
+        "--output", default=str(REPO_ROOT / "dist"), help="Output directory"
+    )
+    parser.add_argument(
+        "--skip-pyinstaller", action="store_true", help="Skip PyInstaller step"
+    )
+    parser.add_argument(
+        "--skip-frontend", action="store_true", help="Skip frontend build"
+    )
     parser.add_argument("--no-zip", action="store_true", help="Skip zip creation")
     args = parser.parse_args()
 

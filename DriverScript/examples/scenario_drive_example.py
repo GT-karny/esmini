@@ -21,8 +21,9 @@ from realdriver import (
     RealDriverClient,
     ScenarioDriveController,
     Waypoint,
-    OSIReceiverWrapper
+    OSIReceiverWrapper,
 )
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -31,7 +32,9 @@ except ImportError:
 try:
     from scripts.collect_osi_light_metrics import OsiLightMetricsCollector
 except ImportError:
-    repo_scripts = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts"))
+    repo_scripts = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts")
+    )
     if repo_scripts not in sys.path:
         sys.path.insert(0, repo_scripts)
     from collect_osi_light_metrics import OsiLightMetricsCollector
@@ -58,41 +61,81 @@ def main():
     parser = argparse.ArgumentParser(
         description="ScenarioDrive Controller Example - Autonomous waypoint following"
     )
-    parser.add_argument("--ip", type=str, default="127.0.0.1",
-                        help="esmini Host IP")
-    parser.add_argument("--port", type=int, default=53995,
-                        help="RealDriver Base Port")
-    parser.add_argument("--osi_port", type=int, default=48198,
-                        help="OSI Port")
-    parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="Deprecated: ignored by embedded-only ScenarioDriveController")
-    parser.add_argument("--id", type=int, default=0,
-                        help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default=default_lib_path,
-                        help="Path to esminiRMLib.dll")
-    parser.add_argument("--gt_lib_path", type=str, default=default_gt_lib_path,
-                        help="Path to GT_esminiLib.dll (for routing)")
-    parser.add_argument("--xodr_path", type=str, required=True,
-                        help="Path to OpenDRIVE map file (.xodr)")
-    parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s")
-    parser.add_argument("--mode", type=str, default="waypoints",
-                        choices=["waypoints", "target"],
-                        help="Control mode: waypoints=explicit, target=auto-route")
-    parser.add_argument("--target_x", type=float, default=300.0,
-                        help="Target X coordinate (for target mode)")
-    parser.add_argument("--target_y", type=float, default=0.0,
-                        help="Target Y coordinate (for target mode)")
-    parser.add_argument("--allow_reverse_from_profile", action="store_true",
-                        help="Allow negative target speed from UDP profile and use reverse gear")
-    parser.add_argument("--collect_osi_light_metrics", action="store_true",
-                        help="Collect brake/reverse light metrics from received OSI GroundTruth")
-    parser.add_argument("--light_metrics_out", type=str, default="",
-                        help="Output JSON path for OSI light metrics")
-    parser.add_argument("--light_metrics_csv_out", type=str, default="",
-                        help="Optional output CSV path for OSI light samples")
-    parser.add_argument("--max_runtime_s", type=float, default=0.0,
-                        help="Exit loop after this many seconds (0=run until interrupted)")
+    parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
+    parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
+    parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
+    parser.add_argument(
+        "--target_speed_port",
+        type=int,
+        default=54995,
+        help="Deprecated: ignored by embedded-only ScenarioDriveController",
+    )
+    parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
+    parser.add_argument(
+        "--lib_path", type=str, default=default_lib_path, help="Path to esminiRMLib.dll"
+    )
+    parser.add_argument(
+        "--gt_lib_path",
+        type=str,
+        default=default_gt_lib_path,
+        help="Path to GT_esminiLib.dll (for routing)",
+    )
+    parser.add_argument(
+        "--xodr_path",
+        type=str,
+        required=True,
+        help="Path to OpenDRIVE map file (.xodr)",
+    )
+    parser.add_argument(
+        "--target_speed", type=float, default=10.0, help="Default target speed in m/s"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="waypoints",
+        choices=["waypoints", "target"],
+        help="Control mode: waypoints=explicit, target=auto-route",
+    )
+    parser.add_argument(
+        "--target_x",
+        type=float,
+        default=300.0,
+        help="Target X coordinate (for target mode)",
+    )
+    parser.add_argument(
+        "--target_y",
+        type=float,
+        default=0.0,
+        help="Target Y coordinate (for target mode)",
+    )
+    parser.add_argument(
+        "--allow_reverse_from_profile",
+        action="store_true",
+        help="Allow negative target speed from UDP profile and use reverse gear",
+    )
+    parser.add_argument(
+        "--collect_osi_light_metrics",
+        action="store_true",
+        help="Collect brake/reverse light metrics from received OSI GroundTruth",
+    )
+    parser.add_argument(
+        "--light_metrics_out",
+        type=str,
+        default="",
+        help="Output JSON path for OSI light metrics",
+    )
+    parser.add_argument(
+        "--light_metrics_csv_out",
+        type=str,
+        default="",
+        help="Optional output CSV path for OSI light samples",
+    )
+    parser.add_argument(
+        "--max_runtime_s",
+        type=float,
+        default=0.0,
+        help="Exit loop after this many seconds (0=run until interrupted)",
+    )
     add_dump_argspec_option(parser)
 
     args = parser.parse_args()
@@ -106,7 +149,6 @@ def main():
         },
     ):
         return 0
-
 
     # 1. Initialize RealDriverClient
     print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port}")
@@ -157,7 +199,9 @@ def main():
 
     print("\nStarting control loop. Press Ctrl+C to stop.")
     print("-" * 60)
-    light_metrics = OsiLightMetricsCollector() if args.collect_osi_light_metrics else None
+    light_metrics = (
+        OsiLightMetricsCollector() if args.collect_osi_light_metrics else None
+    )
 
     try:
         last_time = time.time()
@@ -168,7 +212,10 @@ def main():
         reverse_deadband_mps = 0.2
 
         while True:
-            if args.max_runtime_s > 0.0 and (time.time() - start_time) >= args.max_runtime_s:
+            if (
+                args.max_runtime_s > 0.0
+                and (time.time() - start_time) >= args.max_runtime_s
+            ):
                 break
             # --- 1. Get raw OSI GroundTruth ---
             try:
@@ -207,9 +254,11 @@ def main():
                     if frame_number % 20 == 0:
                         speed = controller._last_speed
                         target_spd = controller.target_speed
-                        print(f"Speed: {speed:.2f}/{target_spd:.2f} m/s | "
-                              f"Steer: {steering:.3f} | "
-                              f"Thr: {throttle:.2f} | Brk: {brake:.2f}")
+                        print(
+                            f"Speed: {speed:.2f}/{target_spd:.2f} m/s | "
+                            f"Steer: {steering:.3f} | "
+                            f"Thr: {throttle:.2f} | Brk: {brake:.2f}"
+                        )
 
                     # --- 5. Send Controls via RealDriverClient ---
                     # Note: esmini steering convention: +1 = right, -1 = left
@@ -251,7 +300,11 @@ def main():
     finally:
         if light_metrics is not None and args.light_metrics_out:
             json_out = os.path.abspath(args.light_metrics_out)
-            csv_out = os.path.abspath(args.light_metrics_csv_out) if args.light_metrics_csv_out else None
+            csv_out = (
+                os.path.abspath(args.light_metrics_csv_out)
+                if args.light_metrics_csv_out
+                else None
+            )
             light_metrics.write_outputs(
                 json_out=Path(json_out),
                 csv_out=Path(csv_out) if csv_out else None,

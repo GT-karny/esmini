@@ -6,7 +6,13 @@ from pathlib import Path
 
 def _load_validator_module():
     repo_root = Path(__file__).resolve().parents[2]
-    script_path = repo_root / "archive" / "frozen_python_verification" / "scripts" / "validate_realdriver_feature_results.py"
+    script_path = (
+        repo_root
+        / "archive"
+        / "frozen_python_verification"
+        / "scripts"
+        / "validate_realdriver_feature_results.py"
+    )
     spec = importlib.util.spec_from_file_location("validator_mod", script_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -117,7 +123,9 @@ def test_assign_route_completion_does_not_require_hold_time(tmp_path: Path) -> N
     scenario = tmp_path / "scenario.xosc"
     _write_scenario(scenario, final_lane=-1)
 
-    (tmp_path / "stdout.txt").write_text("[3.0] StopAtFinalWaypoint: true\n", encoding="utf-8")
+    (tmp_path / "stdout.txt").write_text(
+        "[3.0] StopAtFinalWaypoint: true\n", encoding="utf-8"
+    )
     (tmp_path / "sim.csv").write_text(
         "Version: 2\n"
         "time,id,roadId,laneId,s\n"
@@ -127,9 +135,10 @@ def test_assign_route_completion_does_not_require_hold_time(tmp_path: Path) -> N
     )
     kpi = {"road_id_end": 2, "lane_id_end": -1, "s_end_m": 90.0}
 
-    result = mod.evaluate_assign_route_completion(tmp_path, scenario, kpi, s_tolerance_m=5.0)
+    result = mod.evaluate_assign_route_completion(
+        tmp_path, scenario, kpi, s_tolerance_m=5.0
+    )
     assert result["pass"] is True
     assert result["kpi"]["assign_route_final_waypoint_reached"] is True
     assert result["kpi"]["assign_route_waypoint_validity_pass"] is True
     assert result["kpi"]["assign_route_end_hold_time_s"] == 0.0
-

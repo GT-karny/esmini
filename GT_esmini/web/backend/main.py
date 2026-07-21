@@ -54,35 +54,53 @@ async def lifespan(app: FastAPI):
 
     # Register built-in project (resources/)
     from GT_esmini.web.backend.services.project_service import ensure_builtin_project
+
     await ensure_builtin_project()
 
     # Clean up expired temp files from previous sessions
-    from GT_esmini.web.backend.services.scenario_service import cleanup_expired_scenarios
+    from GT_esmini.web.backend.services.scenario_service import (
+        cleanup_expired_scenarios,
+    )
     from GT_esmini.web.backend.services.road_service import cleanup_expired_roads
+
     expired_s = cleanup_expired_scenarios()
     expired_r = cleanup_expired_roads()
     if expired_s or expired_r:
-        _logger.info("Cleaned up %d expired temp scenario(s) and %d road(s)", expired_s, expired_r)
+        _logger.info(
+            "Cleaned up %d expired temp scenario(s) and %d road(s)",
+            expired_s,
+            expired_r,
+        )
 
     # Start always-on SV bridge (UDP listener for scenario variables)
     from GT_esmini.web.backend.services.sv_bridge import start_global_sv_bridge
+
     try:
         await start_global_sv_bridge()
     except Exception as e:
-        _logger.warning("Global SV Bridge failed to start: %s — will use per-job bridges", e)
+        _logger.warning(
+            "Global SV Bridge failed to start: %s — will use per-job bridges", e
+        )
 
     # Start always-on VD bridge (UDP listener for live VirtualDriver telemetry)
     from GT_esmini.web.backend.services.vd_bridge import start_global_vd_bridge
+
     try:
         await start_global_vd_bridge()
     except Exception as e:
-        _logger.warning("Global VD Bridge failed to start: %s — will use per-job bridges", e)
+        _logger.warning(
+            "Global VD Bridge failed to start: %s — will use per-job bridges", e
+        )
 
     grpc_srv = None
     try:
         grpc_srv = await start_grpc_server(port=GRPC_PORT)
     except Exception as e:
-        _logger.warning("gRPC server failed to start (port %s): %s — continuing without gRPC", GRPC_PORT, e)
+        _logger.warning(
+            "gRPC server failed to start (port %s): %s — continuing without gRPC",
+            GRPC_PORT,
+            e,
+        )
 
     async def _periodic_temp_cleanup():
         while True:
@@ -124,6 +142,7 @@ async def lifespan(app: FastAPI):
         _logger.info("Stopped %d SV bridge(s)", sv_count)
 
     from GT_esmini.web.backend.services.vd_bridge import stop_all_vd_bridges
+
     vd_count = await stop_all_vd_bridges()
     if vd_count:
         _logger.info("Stopped %d VD bridge(s)", vd_count)
@@ -134,6 +153,7 @@ async def lifespan(app: FastAPI):
 
     # Stop filesystem watchers (preset YAML observers)
     from GT_esmini.web.backend.services.preset_watcher import get_preset_watcher_manager
+
     try:
         await asyncio.to_thread(get_preset_watcher_manager().shutdown)
     except Exception:
@@ -151,14 +171,12 @@ async def _mark_stale_jobs() -> None:
 
     db = await get_db()
     try:
-        cursor = await db.execute(
-            """UPDATE simulations
+        cursor = await db.execute("""UPDATE simulations
                SET status = 'failed',
                    error_message = 'Server shut down while job was running',
                    completed_at = datetime('now'),
                    pid = NULL
-               WHERE status = 'running'"""
-        )
+               WHERE status = 'running'""")
         await db.commit()
         if cursor.rowcount and cursor.rowcount > 0:
             _logger.info("Marked %d running job(s) as failed", cursor.rowcount)
@@ -222,14 +240,18 @@ if getattr(sys, "frozen", False):
 else:
     _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _FRONTEND_DIST.is_dir():
-    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="static")
+    app.mount(
+        "/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="static"
+    )
 
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
         """Serve React SPA for all non-API routes."""
         # Try static file first
         file_path = _FRONTEND_DIST / full_path
-        if file_path.is_file() and file_path.resolve().is_relative_to(_FRONTEND_DIST.resolve()):
+        if file_path.is_file() and file_path.resolve().is_relative_to(
+            _FRONTEND_DIST.resolve()
+        ):
             return FileResponse(str(file_path))
         # Fall back to index.html for SPA routing
         return FileResponse(str(_FRONTEND_DIST / "index.html"))

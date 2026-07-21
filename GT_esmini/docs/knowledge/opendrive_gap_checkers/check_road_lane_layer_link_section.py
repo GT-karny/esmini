@@ -17,6 +17,7 @@ Key domain fact (ASAM OpenDRIVE 1.9.0 Section 11.2 "Lane layers" / 11.6 "Lane li
     cover the road implicitly/contiguously, cannot use @length -- XSD encodes this via
     an xs:assert that most XSD validators/tools do not enforce -> a genuine gap).
 """
+
 import xml.etree.ElementTree as ET  # noqa: F401  (kept for parity with sibling modules; root is pre-parsed)
 
 _EPS = 1e-6
@@ -30,13 +31,21 @@ _STOL = 1e-3  # s-coordinate comparison tolerance (meters)
 # long stretches -- e.g. a <border> lane simply has no border along most of the road --
 # and are NOT what the rule's "using lanes with a width of 0 ... should be avoided"
 # guidance is warning about.
-_DRIVING_LANE_TYPES = {"driving", "entry", "exit", "offRamp", "onRamp", "connectingRamp",
-                        "bidirectional"}
+_DRIVING_LANE_TYPES = {
+    "driving",
+    "entry",
+    "exit",
+    "offRamp",
+    "onRamp",
+    "connectingRamp",
+    "bidirectional",
+}
 
 
 # --------------------------------------------------------------------------------------
 # small numeric / structural helpers
 # --------------------------------------------------------------------------------------
+
 
 def _fnum(x, default=0.0):
     try:
@@ -84,7 +93,8 @@ def _section_length(road, lanes_elem, sec, idx, secs_sorted):
 def _lane_width_at(lane_elem, ds):
     """Evaluate a left/right <lane>'s width polynomial at ds (offset from the start of
     its own laneSection). Returns None if the lane uses <border> (unsupported -- would
-    need road-reference-line t-computation, out of scope) or defines no <width> at all."""
+    need road-reference-line t-computation, out of scope) or defines no <width> at all.
+    """
     if lane_elem.find("border") is not None:
         return None
     widths = lane_elem.findall("width")
@@ -92,8 +102,15 @@ def _lane_width_at(lane_elem, ds):
         return None
     recs = []
     for w in widths:
-        recs.append((_fnum(w.get("sOffset")), _fnum(w.get("a")), _fnum(w.get("b")),
-                     _fnum(w.get("c")), _fnum(w.get("d"))))
+        recs.append(
+            (
+                _fnum(w.get("sOffset")),
+                _fnum(w.get("a")),
+                _fnum(w.get("b")),
+                _fnum(w.get("c")),
+                _fnum(w.get("d")),
+            )
+        )
     recs.sort(key=lambda r: r[0])
     applicable = recs[0]
     for r in recs:
@@ -111,8 +128,15 @@ def _laneoffset_at(lanes_elem, s):
     (0.0 if none defined -- no shift)."""
     recs = []
     for lo in lanes_elem.findall("laneOffset"):
-        recs.append((_fnum(lo.get("s")), _fnum(lo.get("a")), _fnum(lo.get("b")),
-                     _fnum(lo.get("c")), _fnum(lo.get("d"))))
+        recs.append(
+            (
+                _fnum(lo.get("s")),
+                _fnum(lo.get("a")),
+                _fnum(lo.get("b")),
+                _fnum(lo.get("c")),
+                _fnum(lo.get("d")),
+            )
+        )
     if not recs:
         return 0.0
     recs.sort(key=lambda r: r[0])
@@ -188,6 +212,7 @@ def _lane_group_width_sum(sec, side, ds_for_width, exclude_types=None):
 # run_checks
 # --------------------------------------------------------------------------------------
 
+
 def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
     flags = []
 
@@ -199,9 +224,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
 
         # ---- road.lane_section.lane_sect_req -------------------------------------
         if not list(road.iter("laneSection")):
-            flags.append(("road.lane_section.lane_sect_req",
-                           f"road {rid} に laneSection が1つも定義されていない",
-                           f"road {rid}"))
+            flags.append(
+                (
+                    "road.lane_section.lane_sect_req",
+                    f"road {rid} に laneSection が1つも定義されていない",
+                    f"road {rid}",
+                )
+            )
             # nothing further to check structurally for this road's lanes
             continue
 
@@ -209,32 +238,52 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
         perm_count = sum(1 for c in lanes_elems if _layer_of(c) == "permanent")
         temp_count = sum(1 for c in lanes_elems if _layer_of(c) == "temporary")
         if perm_count != 1:
-            flags.append(("road.lane.layer.layer_limits",
-                           f"road {rid} の permanent lane層数={perm_count}（要求=ちょうど1）",
-                           f"road {rid}"))
+            flags.append(
+                (
+                    "road.lane.layer.layer_limits",
+                    f"road {rid} の permanent lane層数={perm_count}（要求=ちょうど1）",
+                    f"road {rid}",
+                )
+            )
         if temp_count > 1:
-            flags.append(("road.lane.layer.layer_limits",
-                           f"road {rid} の temporary lane層数={temp_count}（上限1）",
-                           f"road {rid}"))
+            flags.append(
+                (
+                    "road.lane.layer.layer_limits",
+                    f"road {rid} の temporary lane層数={temp_count}（上限1）",
+                    f"road {rid}",
+                )
+            )
 
         # ---- road.lane.layer.layer_mandatory_permanent -----------------------------
         if perm is None:
-            flags.append(("road.lane.layer.layer_mandatory_permanent",
-                           f"road {rid} に permanent lane層が存在しない（全s区間でlaneが欠落）",
-                           f"road {rid}"))
+            flags.append(
+                (
+                    "road.lane.layer.layer_mandatory_permanent",
+                    f"road {rid} に permanent lane層が存在しない（全s区間でlaneが欠落）",
+                    f"road {rid}",
+                )
+            )
         else:
             perm_secs = _lane_sections_sorted(perm)
             if not perm_secs:
-                flags.append(("road.lane.layer.layer_mandatory_permanent",
-                               f"road {rid} permanent層に laneSection が無い",
-                               f"road {rid}"))
+                flags.append(
+                    (
+                        "road.lane.layer.layer_mandatory_permanent",
+                        f"road {rid} permanent層に laneSection が無い",
+                        f"road {rid}",
+                    )
+                )
             else:
                 first_s = _fnum(perm_secs[0].get("s"))
                 if abs(first_s) > _STOL:
-                    flags.append(("road.lane.layer.layer_mandatory_permanent",
-                                   f"road {rid} permanent層の最初のlaneSection s={first_s:g} != 0"
-                                   f"（s=0〜{first_s:g}区間でpermanent laneが存在しない）",
-                                   f"road {rid} s=0"))
+                    flags.append(
+                        (
+                            "road.lane.layer.layer_mandatory_permanent",
+                            f"road {rid} permanent層の最初のlaneSection s={first_s:g} != 0"
+                            f"（s=0〜{first_s:g}区間でpermanent laneが存在しない）",
+                            f"road {rid} s=0",
+                        )
+                    )
 
         # ---- per-<lanes> (per layer) checks ----------------------------------------
         for lanes_elem in lanes_elems:
@@ -247,9 +296,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             for sec in secs_doc_order:
                 s = _fnum(sec.get("s"))
                 if prev_s is not None and s < prev_s - _EPS:
-                    flags.append(("road.lane_section.elem_asc_order",
-                                   f"road {rid} ({layer}層) laneSection s={s:g} が直前 s={prev_s:g} より小さい",
-                                   f"road {rid} s={s:g}"))
+                    flags.append(
+                        (
+                            "road.lane_section.elem_asc_order",
+                            f"road {rid} ({layer}層) laneSection s={s:g} が直前 s={prev_s:g} より小さい",
+                            f"road {rid} s={s:g}",
+                        )
+                    )
                 prev_s = s
 
             # road.lanes.lane_offset.elem_asc_order
@@ -258,9 +311,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             for lo in offs:
                 s = _fnum(lo.get("s"))
                 if prev_os is not None and s < prev_os - _EPS:
-                    flags.append(("road.lanes.lane_offset.elem_asc_order",
-                                   f"road {rid} ({layer}層) laneOffset s={s:g} が直前 s={prev_os:g} より小さい",
-                                   f"road {rid} s={s:g}"))
+                    flags.append(
+                        (
+                            "road.lanes.lane_offset.elem_asc_order",
+                            f"road {rid} ({layer}層) laneOffset s={s:g} が直前 s={prev_os:g} より小さい",
+                            f"road {rid} s={s:g}",
+                        )
+                    )
                 prev_os = s
 
             # road.lanes.lane_offset.no_offset_if_border_defined
@@ -269,9 +326,13 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             # self-closed <border/> (no children, the common case) is falsy and would
             # silently vanish from an `any()` over the iterator. Count explicitly.
             if offs and next(lanes_elem.iter("border"), None) is not None:
-                flags.append(("road.lanes.lane_offset.no_offset_if_border_defined",
-                               f"road {rid} ({layer}層) laneOffset とborder定義（幅記述）が併存",
-                               f"road {rid}"))
+                flags.append(
+                    (
+                        "road.lanes.lane_offset.no_offset_if_border_defined",
+                        f"road {rid} ({layer}層) laneOffset とborder定義（幅記述）が併存",
+                        f"road {rid}",
+                    )
+                )
 
             # road.lane.layer.center_lane_permanent
             if layer == "permanent":
@@ -280,40 +341,60 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     center = sec.find("center")
                     clane = center.find("lane") if center is not None else None
                     if clane is None or clane.get("id") != "0":
-                        flags.append(("road.lane.layer.center_lane_permanent",
-                                       f"road {rid} permanent層 laneSection s={s} に center lane(id=0)が無い",
-                                       f"road {rid} s={s}"))
+                        flags.append(
+                            (
+                                "road.lane.layer.center_lane_permanent",
+                                f"road {rid} permanent層 laneSection s={s} に center lane(id=0)が無い",
+                                f"road {rid} s={s}",
+                            )
+                        )
 
             # road.lane.layer.length_only_temporary (permanent layer must not use @length)
             if layer == "permanent":
                 for sec in secs_doc_order:
                     if sec.get("length") is not None:
-                        flags.append(("road.lane.layer.length_only_temporary",
-                                       f"road {rid} permanent層 laneSection s={sec.get('s')} が@lengthを使用"
-                                       "（temporary層限定の属性）",
-                                       f"road {rid} s={sec.get('s')}"))
+                        flags.append(
+                            (
+                                "road.lane.layer.length_only_temporary",
+                                f"road {rid} permanent層 laneSection s={sec.get('s')} が@lengthを使用"
+                                "（temporary層限定の属性）",
+                                f"road {rid} s={sec.get('s')}",
+                            )
+                        )
 
             # road.lane.layer.lane_phys_attr_temporary (temporary lanes: no height/material)
             if layer == "temporary":
                 for lane in lanes_elem.iter("lane"):
                     lid = _lane_id(lane)
                     if lane.find("height") is not None:
-                        flags.append(("road.lane.layer.lane_phys_attr_temporary",
-                                       f"road {rid} temporary層 lane {lid} に <height> が存在",
-                                       f"road {rid} lane {lid}"))
+                        flags.append(
+                            (
+                                "road.lane.layer.lane_phys_attr_temporary",
+                                f"road {rid} temporary層 lane {lid} に <height> が存在",
+                                f"road {rid} lane {lid}",
+                            )
+                        )
                     if lane.find("material") is not None:
-                        flags.append(("road.lane.layer.lane_phys_attr_temporary",
-                                       f"road {rid} temporary層 lane {lid} に <material> が存在",
-                                       f"road {rid} lane {lid}"))
+                        flags.append(
+                            (
+                                "road.lane.layer.lane_phys_attr_temporary",
+                                f"road {rid} temporary層 lane {lid} に <material> が存在",
+                                f"road {rid} lane {lid}",
+                            )
+                        )
 
             # road.lane_section.valid_length (> 0, strictly -- XSD only enforces >= 0)
             for idx, sec in enumerate(secs_sorted):
                 s = _fnum(sec.get("s"))
                 length = _section_length(road, lanes_elem, sec, idx, secs_sorted)
                 if length is not None and length <= _EPS:
-                    flags.append(("road.lane_section.valid_length",
-                                   f"road {rid} ({layer}層) laneSection s={s:g} の長さ={length:g} <= 0",
-                                   f"road {rid} s={s:g}"))
+                    flags.append(
+                        (
+                            "road.lane_section.valid_length",
+                            f"road {rid} ({layer}層) laneSection s={s:g} の長さ={length:g} <= 0",
+                            f"road {rid} s={s:g}",
+                        )
+                    )
 
             # road.lane_section.lanesec_length_limit_road (@length shall not exceed road end)
             if road_len_v is not None:
@@ -324,10 +405,14 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                     s = _fnum(sec.get("s"))
                     Lval = _fnum(Lattr)
                     if s + Lval > road_len_v + _STOL:
-                        flags.append(("road.lane_section.lanesec_length_limit_road",
-                                       f"road {rid} laneSection s={s:g} +@length={Lval:g} = {s+Lval:g} "
-                                       f"> road長 {road_len_v:g}",
-                                       f"road {rid} s={s:g}"))
+                        flags.append(
+                            (
+                                "road.lane_section.lanesec_length_limit_road",
+                                f"road {rid} laneSection s={s:g} +@length={Lval:g} = {s+Lval:g} "
+                                f"> road長 {road_len_v:g}",
+                                f"road {rid} s={s:g}",
+                            )
+                        )
 
             # road.lane_section.lane_long_zero_width (heuristic: an entire laneSection's
             # width polynomial is identically zero -- all coefficients zero, not just a
@@ -348,13 +433,21 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                         widths = lane.findall("width")
                         if not widths or lane.find("border") is not None:
                             continue
-                        if all(abs(_fnum(w.get("a"))) < _EPS and abs(_fnum(w.get("b"))) < _EPS
-                               and abs(_fnum(w.get("c"))) < _EPS and abs(_fnum(w.get("d"))) < _EPS
-                               for w in widths):
-                            flags.append(("road.lane_section.lane_long_zero_width",
-                                           f"road {rid} lane {_lane_id(lane)} が s={s:g}〜{s+length:g}"
-                                           f"（{length:g}m）にわたり幅0",
-                                           f"road {rid} s={s:g} lane {_lane_id(lane)}"))
+                        if all(
+                            abs(_fnum(w.get("a"))) < _EPS
+                            and abs(_fnum(w.get("b"))) < _EPS
+                            and abs(_fnum(w.get("c"))) < _EPS
+                            and abs(_fnum(w.get("d"))) < _EPS
+                            for w in widths
+                        ):
+                            flags.append(
+                                (
+                                    "road.lane_section.lane_long_zero_width",
+                                    f"road {rid} lane {_lane_id(lane)} が s={s:g}〜{s+length:g}"
+                                    f"（{length:g}m）にわたり幅0",
+                                    f"road {rid} s={s:g} lane {_lane_id(lane)}",
+                                )
+                            )
 
             # NOTE: an earlier revision also flagged lanes with a present-but-empty
             # <link/> (no predecessor/successor children) under the "has no link" half
@@ -402,23 +495,34 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                             if not widths:
                                 continue
                             const_zero = all(
-                                abs(_fnum(w.get("a"))) < _EPS and abs(_fnum(w.get("b"))) < _EPS
-                                and abs(_fnum(w.get("c"))) < _EPS and abs(_fnum(w.get("d"))) < _EPS
-                                for w in widths)
+                                abs(_fnum(w.get("a"))) < _EPS
+                                and abs(_fnum(w.get("b"))) < _EPS
+                                and abs(_fnum(w.get("c"))) < _EPS
+                                and abs(_fnum(w.get("d"))) < _EPS
+                                for w in widths
+                            )
                             if not const_zero:
                                 continue  # tapers to/from non-zero -- legitimate begin/end
                             lid = _lane_id(lane)
                             if link.findall("predecessor"):
-                                flags.append(("road.lane.link.multiple_connections",
-                                               f"road {rid} lane {lid} は predecessorリンクを持つが"
-                                               f"区間全体(s={s:g}〜)で幅が恒常的に0",
-                                               f"road {rid} s={s:g} lane {lid}"))
+                                flags.append(
+                                    (
+                                        "road.lane.link.multiple_connections",
+                                        f"road {rid} lane {lid} は predecessorリンクを持つが"
+                                        f"区間全体(s={s:g}〜)で幅が恒常的に0",
+                                        f"road {rid} s={s:g} lane {lid}",
+                                    )
+                                )
                             if link.findall("successor"):
                                 end_s = s + length if length is not None else s
-                                flags.append(("road.lane.link.multiple_connections",
-                                               f"road {rid} lane {lid} は successorリンクを持つが"
-                                               f"区間全体(s={s:g}〜{end_s:g})で幅が恒常的に0",
-                                               f"road {rid} s={end_s:g} lane {lid}"))
+                                flags.append(
+                                    (
+                                        "road.lane.link.multiple_connections",
+                                        f"road {rid} lane {lid} は successorリンクを持つが"
+                                        f"区間全体(s={s:g}〜{end_s:g})で幅が恒常的に0",
+                                        f"road {rid} s={end_s:g} lane {lid}",
+                                    )
+                                )
 
         # NOTE: road.lane.link.no_link -- both structural readings tried during
         # development produced real false positives against the official ASAM
@@ -478,9 +582,11 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 perm_off = _laneoffset_at(perm, target_s)
                 for side in ("left", "right"):
                     temp_total, temp_ok, temp_n = _lane_group_width_sum(
-                        t_sec, side, 0.0, {"border"})
+                        t_sec, side, 0.0, {"border"}
+                    )
                     perm_total, perm_ok, perm_n = _lane_group_width_sum(
-                        p_sec, side, target_s - p_start, {"border"})
+                        p_sec, side, target_s - p_start, {"border"}
+                    )
                     if not (temp_ok and perm_ok):
                         continue  # a <border>-defined lane in play -> cannot compute safely
                     if temp_n == 0 and perm_n == 0:
@@ -492,11 +598,15 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                         temp_extent = temp_total + temp_off
                         perm_extent = perm_total + perm_off
                     if temp_extent > perm_extent + 1e-3:
-                        flags.append(("road.lane.layer.lane_group_width_temporary",
-                                       f"road {rid} s={target_s:g} ({side}側, border型除く): "
-                                       f"temporary層 幅(offset込み)={temp_extent:.3f} > "
-                                       f"permanent層 幅(offset込み)={perm_extent:.3f}",
-                                       f"road {rid} s={target_s:g} {side}"))
+                        flags.append(
+                            (
+                                "road.lane.layer.lane_group_width_temporary",
+                                f"road {rid} s={target_s:g} ({side}側, border型除く): "
+                                f"temporary層 幅(offset込み)={temp_extent:.3f} > "
+                                f"permanent層 幅(offset込み)={perm_extent:.3f}",
+                                f"road {rid} s={target_s:g} {side}",
+                            )
+                        )
 
         # ---- road.lane.link.temporary_layer_section_link_permanent -----------------
         # At the aggregate start/end of the temporary layer's lane-section run, every
@@ -511,6 +621,7 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
             temp_secs = _lane_sections_sorted(temp)
             perm_secs = _lane_sections_sorted(perm)
             if temp_secs:
+
                 def _perm_section_at(target_s):
                     for ps in perm_secs:
                         if abs(_fnum(ps.get("s")) - target_s) < _STOL:
@@ -554,12 +665,21 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                         lid = _lane_id(lane)
                         link = lane.find("link")
                         preds = link.findall("predecessor") if link is not None else []
-                        own_ok = any((p.get("layer") or "permanent") == "permanent" for p in preds)
-                        if not own_ok and not _perm_reciprocal(perm_at_first, lid, "successor"):
-                            flags.append(("road.lane.link.temporary_layer_section_link_permanent",
-                                           f"road {rid} temporary層区間開始(s={first_s:g}) drivable lane {lid}"
-                                           f"(幅{w0:.2f}) がpermanent層にリンクされていない",
-                                           f"road {rid} s={first_s:g} lane {lid}"))
+                        own_ok = any(
+                            (p.get("layer") or "permanent") == "permanent"
+                            for p in preds
+                        )
+                        if not own_ok and not _perm_reciprocal(
+                            perm_at_first, lid, "successor"
+                        ):
+                            flags.append(
+                                (
+                                    "road.lane.link.temporary_layer_section_link_permanent",
+                                    f"road {rid} temporary層区間開始(s={first_s:g}) drivable lane {lid}"
+                                    f"(幅{w0:.2f}) がpermanent層にリンクされていない",
+                                    f"road {rid} s={first_s:g} lane {lid}",
+                                )
+                            )
 
                 last_idx = len(temp_secs) - 1
                 last_sec = temp_secs[last_idx]
@@ -579,13 +699,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                                 continue
                             lid = _lane_id(lane)
                             link = lane.find("link")
-                            succs = link.findall("successor") if link is not None else []
-                            own_ok = any((s2.get("layer") or "permanent") == "permanent" for s2 in succs)
-                            if not own_ok and not _perm_reciprocal(perm_at_last, lid, "predecessor"):
-                                flags.append(("road.lane.link.temporary_layer_section_link_permanent",
-                                               f"road {rid} temporary層区間終了(s={last_end_s:g}) "
-                                               f"drivable lane {lid}(幅{wend:.2f}) がpermanent層にリンクされていない",
-                                               f"road {rid} s={last_end_s:g} lane {lid}"))
+                            succs = (
+                                link.findall("successor") if link is not None else []
+                            )
+                            own_ok = any(
+                                (s2.get("layer") or "permanent") == "permanent"
+                                for s2 in succs
+                            )
+                            if not own_ok and not _perm_reciprocal(
+                                perm_at_last, lid, "predecessor"
+                            ):
+                                flags.append(
+                                    (
+                                        "road.lane.link.temporary_layer_section_link_permanent",
+                                        f"road {rid} temporary層区間終了(s={last_end_s:g}) "
+                                        f"drivable lane {lid}(幅{wend:.2f}) がpermanent層にリンクされていない",
+                                        f"road {rid} s={last_end_s:g} lane {lid}",
+                                    )
+                                )
 
         # ---- road.lane_section.new_lanesec_link_temp_to_perm ------------------------
         # Wherever a permanent<->temporary cross-layer lane link is actually declared,
@@ -636,16 +767,24 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 last_idx = len(temp_secs) - 1
                 last_sec = temp_secs[last_idx]
                 last_len = _section_length(road, temp, last_sec, last_idx, temp_secs)
-                last_end_s = _fnum(last_sec.get("s")) + last_len if last_len is not None else None
+                last_end_s = (
+                    _fnum(last_sec.get("s")) + last_len
+                    if last_len is not None
+                    else None
+                )
 
                 # START boundary: evidence is either the temp section's own predecessor
                 # declaring layer="permanent", OR a permanent laneSection AT s=first_s
                 # declaring a successor with layer="temporary" pointing back.
-                start_cross = _layer_cross_declared_on(first_sec, ("predecessor",), "permanent")
+                start_cross = _layer_cross_declared_on(
+                    first_sec, ("predecessor",), "permanent"
+                )
                 if not start_cross:
                     for ps in perm_secs:
                         if abs(_fnum(ps.get("s")) - first_s) < _STOL:
-                            if _layer_cross_declared_on(ps, ("successor",), "temporary"):
+                            if _layer_cross_declared_on(
+                                ps, ("successor",), "temporary"
+                            ):
                                 start_cross = True
                                 break
 
@@ -654,25 +793,41 @@ def run_checks(file_path, root, roads, road_ids, junctions, junction_ids):
                 # a predecessor with layer="temporary".
                 end_cross = False
                 if last_end_s is not None:
-                    end_cross = _layer_cross_declared_on(last_sec, ("successor",), "permanent")
+                    end_cross = _layer_cross_declared_on(
+                        last_sec, ("successor",), "permanent"
+                    )
                     if not end_cross:
                         for ps in perm_secs:
                             if abs(_fnum(ps.get("s")) - last_end_s) < _STOL:
-                                if _layer_cross_declared_on(ps, ("predecessor",), "temporary"):
+                                if _layer_cross_declared_on(
+                                    ps, ("predecessor",), "temporary"
+                                ):
                                     end_cross = True
                                     break
 
                 if start_cross and (road_len_v is None or (first_s > _STOL)):
                     if not any(abs(ps - first_s) < _STOL for ps in perm_s_values):
-                        flags.append(("road.lane_section.new_lanesec_link_temp_to_perm",
-                                       f"road {rid} temporary層開始 s={first_s:g} と一致する permanent層"
-                                       "laneSection境界が無い（cross-layer link用の新セクション未定義）",
-                                       f"road {rid} s={first_s:g}"))
-                if end_cross and last_end_s is not None and (road_len_v is None or last_end_s < road_len_v - _STOL):
+                        flags.append(
+                            (
+                                "road.lane_section.new_lanesec_link_temp_to_perm",
+                                f"road {rid} temporary層開始 s={first_s:g} と一致する permanent層"
+                                "laneSection境界が無い（cross-layer link用の新セクション未定義）",
+                                f"road {rid} s={first_s:g}",
+                            )
+                        )
+                if (
+                    end_cross
+                    and last_end_s is not None
+                    and (road_len_v is None or last_end_s < road_len_v - _STOL)
+                ):
                     if not any(abs(ps - last_end_s) < _STOL for ps in perm_s_values):
-                        flags.append(("road.lane_section.new_lanesec_link_temp_to_perm",
-                                       f"road {rid} temporary層終了 s={last_end_s:g} と一致する permanent層"
-                                       "laneSection境界が無い（cross-layer link用の新セクション未定義）",
-                                       f"road {rid} s={last_end_s:g}"))
+                        flags.append(
+                            (
+                                "road.lane_section.new_lanesec_link_temp_to_perm",
+                                f"road {rid} temporary層終了 s={last_end_s:g} と一致する permanent層"
+                                "laneSection境界が無い（cross-layer link用の新セクション未定義）",
+                                f"road {rid} s={last_end_s:g}",
+                            )
+                        )
 
     return flags
