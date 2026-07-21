@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:31ecf4c08328fad8 -->
+<!-- generated-from: sha256:1389ec4d39573ca7 -->
 
-ノード 166・辺 168（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 170・辺 174（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -175,6 +175,9 @@ flowchart LR
     n_matcher_min_speed_above["min_speed_above"]
     n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
     n_matcher_min_separation_above["min_separation_above"]
+    n_matcher_lane_keep["lane_keep"]
+    n_matcher_steer_not_saturated["steer_not_saturated"]
+    n_matcher_no_constraint_kind["no_constraint_kind"]
   end
   subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
     n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
@@ -195,6 +198,7 @@ flowchart LR
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
     n_gate_aeb_safety_regression["aeb-safety-regression"]
+    n_gate_anticipation_driving_regression["anticipation-driving-regression"]
     n_gate_regression_gate["regression-gate"]
     n_gate_unit_ctest["unit-ctest"]
     n_gate_odr_conformance_quick["odr-conformance-quick"]
@@ -363,10 +367,16 @@ flowchart LR
   n_matcher_no_emergency_without_conflict -->|sustained-by| n_gate_aeb_safety_regression
   n_req_vd_ad_REQ_AD_001 -->|sustained-by| n_gate_aeb_safety_regression
   n_req_vd_ad_REQ_AD_013 -->|sustained-by| n_gate_aeb_safety_regression
+  n_matcher_deceleration_profile_smooth -->|sustained-by| n_gate_anticipation_driving_regression
+  n_matcher_speed_reduction_before_landmark -->|sustained-by| n_gate_anticipation_driving_regression
+  n_matcher_lane_keep -->|sustained-by| n_gate_anticipation_driving_regression
+  n_matcher_steer_not_saturated -->|sustained-by| n_gate_anticipation_driving_regression
+  n_matcher_no_constraint_kind -->|sustained-by| n_gate_anticipation_driving_regression
   n_gate_regression_gate -->|depends-on| n_gate_unit_ctest
   n_gate_regression_gate -->|depends-on| n_gate_odr_conformance_quick
   n_gate_regression_gate -->|depends-on| n_gate_vd_behavior_regression
   n_gate_regression_gate -->|depends-on| n_gate_aeb_safety_regression
+  n_gate_regression_gate -->|depends-on| n_gate_anticipation_driving_regression
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_census
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_drift
   n_gate_odr_conformance_quick -->|depends-on| n_gate_resync_guards
@@ -450,7 +460,7 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (21)
+### depends-on (22)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -471,6 +481,7 @@ flowchart LR
 | `gate:regression-gate` | `gate:odr-conformance-quick` | Step 1.5（ハード、-SkipOdr で除外可） |
 | `gate:regression-gate` | `gate:vd-behavior-regression` | Step 2（既定 WARN、-FailOnBehavioral でハード化） |
 | `gate:regression-gate` | `gate:aeb-safety-regression` | Step 2.6（既定 WARN、-FailOnBehavioral でハード化、-SkipAeb で単独スキップ）。 Step 2 と同じ recipe（共有関数 Invoke-BehavioralBatch）を別マニフェスト・別ベースラインで回す。 |
+| `gate:regression-gate` | `gate:anticipation-driving-regression` | Step 2.7（既定 WARN、-FailOnBehavioral でハード化、-SkipAnticipation で単独スキップ）。 Step 2/2.6 と同じ共有関数 Invoke-BehavioralBatch を別マニフェスト・別ベースラインで回す。 |
 | `gate:odr-conformance-quick` | `gate:fork-census` | :1556-1558 はプロファイル分岐より前で無条件＝CI の schema-only 起動でも走る。 census/drift/resync-guards が「独立スクリプト」ではなく適合ハーネスに内包された 常設ゲートであることは、名前からは読めない事実。 |
 | `gate:odr-conformance-quick` | `gate:fork-drift` |  |
 | `gate:odr-conformance-quick` | `gate:resync-guards` |  |
@@ -562,7 +573,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (11)
+### sustained-by (16)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -577,6 +588,11 @@ flowchart LR
 | `matcher:no_emergency_without_conflict` | `gate:aeb-safety-regression` | 負例3件（normal_following / benign_cutin / parallel_overtake）の主判定 |
 | `req-vd-ad:REQ-AD-001` | `gate:aeb-safety-regression` | 正例2シナリオ（直進=緩和 / カーブ=完全回避） |
 | `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
+| `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
+| `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
+| `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id は面1 lane_map(source_reference) 経由、lane は telemetry（OSI assigned_lane_id は VD Position レーンと別量のため。§2.3a D 実施結果）。 |
+| `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
+| `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 
 ### upstream-candidate (6)
 

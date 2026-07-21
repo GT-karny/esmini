@@ -1,0 +1,58 @@
+manifest: resources/xosc/verification/anticipation_driving_batch.yaml
+note: Committed regression baseline for the VirtualDriver behavioral batch. Compared per-scenario/per-matcher
+  by scripts/check_regression_baseline.py. Any deviation (new fail OR a known fail turning pass) fails
+  the check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
+  committing.
+expected_summary:
+  pass: 5
+  fail: 0
+  needs-review: 0
+  error: 0
+scenarios:
+  decelerate_for_curve:
+    status: pass
+    matchers:
+    - event: speed_reduction_before_landmark
+      status: pass
+    - event: deceleration_profile_smooth
+      status: pass
+    - event: lane_keep
+      status: pass
+  decelerate_for_right_turn:
+    status: pass
+    matchers:
+    - event: speed_reduction_before_landmark
+      status: pass
+    - event: deceleration_profile_smooth
+      status: pass
+    - event: steer_not_saturated
+      status: pass
+  cross_straight_junction:
+    status: pass
+    matchers:
+    - event: no_constraint_kind
+      status: pass
+    - event: min_speed_above
+      status: pass
+  speed_limit_change:
+    status: pass
+    matchers:
+    - event: speed_above
+      status: pass
+    - event: speed_reduction_before_landmark
+      status: pass
+    - event: deceleration_profile_smooth
+      status: pass
+    - event: lane_keep
+      status: pass
+  traffic_lights_junction:
+    status: pass
+    matchers:
+    - event: speed_below
+      status: pass
+    - event: speed_reduction_before_landmark
+      status: pass
+    - event: steer_not_saturated
+      status: pass
+    - event: lane_keep
+      status: pass

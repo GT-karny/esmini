@@ -528,6 +528,41 @@ jobs:
             test_results/ci/aeb_safety/batch_summary.md
           if-no-files-found: warn
 
+      # gate:anticipation-driving-regression -- the local regression gate's Step 2.7,
+      # wired to CI (2026-07-21). Rides in this job for the same reason as AEB: the
+      # Release build above dominates the runtime, so a separate job would pay it twice.
+      # Separate step names + a separate artifact keep failure attribution: an
+      # anticipation regression never hides inside the car_following or AEB report.
+      # The 5/5-green baseline was taken with osi:true after the ego-anchor-face1
+      # migration (deceleration_profile_smooth a=osi). Covers 5 of the 6 previously
+      # un-gated anticipation matchers; lane_change_count stays ungated (no scenario
+      # here performs a lane change).
+      # NON-BLOCKING like the batches above: promote by dropping continue-on-error from
+      # the compare step once CI has shown the baseline stable across a few runs.
+      - name: Run anticipation-driving batch
+        continue-on-error: true
+        shell: bash
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/anticipation_driving_batch.yaml --out test_results/ci/anticipation_driving
+
+      # --baseline is mandatory: check_regression_baseline.py defaults to the
+      # car_following baseline, so omitting it would silently compare the wrong one.
+      - name: Compare anticipation vs committed baseline (per-scenario)
+        id: anticipation-regression
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/anticipation_driving --baseline GT_esmini/test/regression_baseline/anticipation_driving_expected.yaml
+
+      - name: Upload anticipation regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anticipation-driving-regression-report
+          path: |
+            test_results/ci/anticipation_driving/regression_report.md
+            test_results/ci/anticipation_driving/batch_verdict.json
+            test_results/ci/anticipation_driving/batch_summary.md
+          if-no-files-found: warn
+
   release:
     needs: [test, test-no-external-modules, embedded-python-option]
     if: github.ref_type == 'tag'

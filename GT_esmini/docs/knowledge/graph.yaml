@@ -916,6 +916,41 @@ edges:
       負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、
       片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。
 
+  # ---- ⑥常設: 先読み運転 matcher を常設ゲートへ（2026-07-21・§5.1 の穴を塞ぐ） ----
+  # sustained-by 欠6件（全て 05_anticipation 系）のうち5件を gate:anticipation-driving-regression
+  # で閉じる（run_regression_gate.ps1 Step 2.7）。lane_change_count は本バッチに車線変更シナリオが
+  # 無いため未カバー＝下の「引けなかった辺」に残す。速度系（speed_above/below/min_speed_above）は
+  # 本バッチでも発火するが gate:vd-behavior-regression で既に守られているため二重結線しない。
+  - from: matcher:deceleration_profile_smooth
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: >-
+      decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。
+      osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。
+  - from: matcher:speed_reduction_before_landmark
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。
+  - from: matcher:lane_keep
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: >-
+      curve / speed_limit / traffic_lights の3シナリオ。road_id は面1 lane_map(source_reference)
+      経由、lane は telemetry（OSI assigned_lane_id は VD Position レーンと別量のため。§2.3a D 実施結果）。
+  - from: matcher:steer_not_saturated
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。
+  - from: matcher:no_constraint_kind
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。
+
   # ---- ゲート同士の構造（傘ラダーの構成） ----
   - from: gate:regression-gate
     to: gate:unit-ctest
@@ -939,6 +974,13 @@ edges:
     note: >-
       Step 2.6（既定 WARN、-FailOnBehavioral でハード化、-SkipAeb で単独スキップ）。
       Step 2 と同じ recipe（共有関数 Invoke-BehavioralBatch）を別マニフェスト・別ベースラインで回す。
+  - from: gate:regression-gate
+    to: gate:anticipation-driving-regression
+    type: depends-on
+    source: scripts/run_regression_gate.ps1
+    note: >-
+      Step 2.7（既定 WARN、-FailOnBehavioral でハード化、-SkipAnticipation で単独スキップ）。
+      Step 2/2.6 と同じ共有関数 Invoke-BehavioralBatch を別マニフェスト・別ベースラインで回す。
   - from: gate:odr-conformance-quick
     to: gate:fork-census
     type: depends-on
@@ -1008,8 +1050,16 @@ edges:
   #   min_separation_above は依然0件だが、これは穴ではなく **DEPRECATED 確定**
   #   （min_obb_separation_above の厳密な劣位版。上の observes 辺の note に根拠）。
   #   min_separation_above はどの資産からも参照されず（実測0件）＝実装のみのデッド matcher。
-
-  # ---- ②刺激欠の結線と「引けなかった主張」（2026-07-21 の一次記録） ----
+  #
+  # ★2026-07-21 更新その2（残る6件のうち先読み運転分5件を塞いだ / spine-work:anticipation-gate-wiring）:
+  #   gate:anticipation-driving-regression を新設し（run_regression_gate.ps1 Step 2.7 +
+  #   resources/xosc/verification/anticipation_driving_batch.yaml=旧 anticipation_batch+traffic_lights_regression
+  #   を統合 + committed baseline、osi:true）、lane_keep / deceleration_profile_smooth /
+  #   speed_reduction_before_landmark / steer_not_saturated / no_constraint_kind の5件が常設で発火。
+  #   **残る sustained-by 欠は lane_change_count の1件のみ**（本バッチのどのシナリオも車線変更を
+  #   しないため未カバー。閉じるには車線変更シナリオの追加が要る）。
+  #   常設ゲートが発火させる matcher は 9件 → **14件**（16 中）。今回は AEB と違い CI にも配線
+  #   （vd-behavioral-regression job へ相乗り・別 artifact・continue-on-error）＝AEB より一段強い。
   # capability_model.md §7 の②刺激欠 25件（req 12 + scene 13）を全件手作業で吟味した結果。
   # 根拠は verification 資産の実読（batch の policies: 指定 ＋ expectations の must matcher）。
   # **結線できたのは req 7件（辺8本）＝ ②刺激欠 25 → 18**。scene は13件全て引けなかった。

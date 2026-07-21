@@ -152,6 +152,10 @@ param(
     [string]$AebBatch = "resources/xosc/verification/aeb_safety_batch.yaml",
     [string]$AebOutDir = "test_results/regression/aeb_safety",
     [string]$AebBaseline = "GT_esmini/test/regression_baseline/aeb_safety_expected.yaml",
+    [switch]$SkipAnticipation,
+    [string]$AntBatch = "resources/xosc/verification/anticipation_driving_batch.yaml",
+    [string]$AntOutDir = "test_results/regression/anticipation_driving",
+    [string]$AntBaseline = "GT_esmini/test/regression_baseline/anticipation_driving_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -381,6 +385,55 @@ if ($SkipBehavioral) {
         foreach ($m in $aebMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
     } else {
         if (-not (Invoke-BehavioralBatch -Label "Step 2.6" -BatchPath $aebBatchPath -OutPath $aebOutPath -BaselinePath (Resolve-RepoPath $AebBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.7 - Anticipation-driving batch (reported gate, skippable)
+#
+# Same recipe as Steps 2 / 2.6 (shared Invoke-BehavioralBatch) on the mid/long
+# ANTICIPATION matchers: smooth deceleration for a curve / turn / speed-limit
+# drop, target speed reached by the landmark, lane keeping, steering non-
+# saturation, no spurious junction constraint. A SEPARATE step for the same
+# reason AEB is: it answers a different question (does the driver read the road
+# ahead and act early?) and is read by different people when it goes red, so a
+# red names the broken claim without opening the report.
+#
+# Before this step existed, these matchers ran only in a manual 05_anticipation
+# batch — a regression in the anticipation planner would have reached master
+# unnoticed (capability_model.md §5.1, the same gap AEB had). Runs with osi:true
+# so the ego anchor is the FACE-1 path (deceleration_profile_smooth a=osi),
+# whose baseline was taken after the ego-anchor-face1 migration.
+# NOTE: covers 5 of the 6 previously-ungated anticipation matchers; lane_change_count
+# is still ungated (no scenario in this batch performs a lane change).
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.7: Anticipation-driving batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipAnticipation) {
+    Write-Host "==== Step 2.7: Anticipation-driving batch - SKIPPED (-SkipAnticipation) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.7: Anticipation-driving batch (gt_sim_test) ====" -ForegroundColor Cyan
+
+    # Same prerequisites as Steps 2 / 2.6 (venv + Release DLL); reuse resolution.
+    $antBatchPath = Resolve-RepoPath $AntBatch
+    $antOutPath = Resolve-RepoPath $AntOutDir
+
+    $antMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $antMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $antMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $antBatchPath)) { $antMissing += "batch manifest $antBatchPath" }
+
+    if ($antMissing.Count -gt 0) {
+        Write-Host "Step 2.7: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $antMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.7" -BatchPath $antBatchPath -OutPath $antOutPath -BaselinePath (Resolve-RepoPath $AntBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
             $overallOk = $false
         }
     }

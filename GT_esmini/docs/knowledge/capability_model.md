@@ -858,6 +858,31 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     別主張＝名前類似の罠）＋ scene 13件全て（生成 scenario-variant 56件は SCN-005/006/009 のみを覆い
     対象13シーンに未到達）。一次記録・登録提案・coupling 副作用（req→policy 5辺が face3→face2 で
     coupling_direct_edge 0→5）は graph.yaml 末尾に記載。
+- **`spine-work:ego-anchor-face1-migration` ✅完了（2026-07-21）**: §2.3a が実数化した「verdict の自車アンカーが
+  面2テレメトリ」を面1 OSI へ移行（D）。`vd_metrics._ego_state`（scene 優先＋telemetry fallback＋使用面を
+  verdict の `ego_source` に記録＝案b）に集約し、移行可能な7 matcher を面1へ。**coupling 純面2直結 10→3**
+  （残る3件 no_constraint_kind / no_emergency_without_conflict / steer_not_saturated は VD 内部量で OSI に
+  相当が無く移行不能）、**併用 6→13**。面1化した量＝x/y/speed/h・縦加速度（OSI 直読 a=osi、`ego_accel_long`
+  (b)→●・`ego_orientation` yaw (b)→●）・road_id（OSI `Lane.source_reference` を `lane_map` に載せ is_host の
+  `assigned_lane_id` で join、実 road 遷移含め telemetry track と 777/777 一致）。
+  - **面1化しない量（実測で確定した既知ギャップ）**: `s`（OSI 未 populate）と `lane`（OSI `assigned_lane_id`
+    は「オブジェクト位置レーン」で VD 追従 Position レーンと別量＝red_stop_green_go 実測で62%乖離）。
+    lane_map は road 粒度でのみ信頼、lane/s は telemetry 維持。面1化には C++（GT_OSIReporter）が要り範囲外。
+  - **基準値**: full regression gate PASS、car_following 12 / AEB 5 とも baseline 比 **deviation 0**（verdict 不変）。
+    lint 可視化のため各 matcher branch で `_ego_state(` を直接呼ぶ（`check_knowledge_graph._inlined_helpers` は
+    1段展開のみ＝2段ヘルパ内の scene 読みは matcher に帰属しない）。commit 5cea47b2。
+- **`spine-work:anticipation-gate-wiring` ✅完了（2026-07-21）**: §5.1 の残る穴「05_anticipation 系 matcher が
+  手動実行のみ」を塞いだ（E、AEB 常設化と同型）。`gate:anticipation-driving-regression` を新設
+  （`run_regression_gate.ps1` **Step 2.7**）し、`resources/xosc/verification/anticipation_driving_batch.yaml`
+  （旧 `anticipation_batch`4件＋`traffic_lights_regression`1件を統合・内容 slug へ改名、由来は `origin:` メタ、
+  **osi:true** で自車アンカーが面1）と committed baseline `anticipation_driving_expected.yaml`（**5/5 緑・known-red
+  無し**、D 移行後の実装で採取＝E を D の後に置いた理由）を配線。`sustained-by` 5辺＋ラダー1辺、lint+`--render`
+  グリーン（**16 gates / 174 edges**）。
+  - **常設で発火する matcher は 9件 → 14件（16 中）**。**残る sustained-by 欠は `lane_change_count` の1件のみ**
+    （本バッチのどのシナリオも車線変更をしない＝gate の `not_covers` に明記。閉じるには車線変更シナリオ追加）。
+    副次的に **REQ-AD-014 の⑥常設欠も解消**（`deceleration_profile_smooth` が常設化）＝⑥常設欠 1→0。
+  - **CI 配線**: AEB と同じく `vd-behavioral-regression` job に相乗り＋別 artifact
+    （`anticipation-driving-regression-report`）＋`continue-on-error`（初回 non-blocking、昇格は数回安定後）。
 - **`spine-work:vertical-wiring`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
   行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
 - **`spine-work:derived-report-lint` ✅完了（2026-07-21）**: 派生レポート（§6）＋ **coupling-audit（§0.5）**

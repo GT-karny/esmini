@@ -144,6 +144,37 @@ gates:
       **昇格手順**: compare ステップの `continue-on-error` を外す（ローカル側は既定を
       -FailOnBehavioral 相当へ）。
 
+  - id: anticipation-driving-regression
+    title: 先読み運転 挙動回帰（anticipation_driving バッチ vs committed baseline）
+    command: >-
+      gt_sim_test.py batch resources/xosc/verification/anticipation_driving_batch.yaml →
+      scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/anticipation_driving_expected.yaml
+    context: both  # local（regression-gate Step 2.7）＋ ci.yml vd-behavioral-regression job（非ブロッキング）
+    blocking: false  # 既定 WARN。ローカルは -FailOnBehavioral でハード化／CI は continue-on-error
+    requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード。osi:true 必須（a=osi パス）
+    covers: >-
+      中長期の先読み運転 matcher を5シナリオ（decelerate_for_curve / decelerate_for_right_turn /
+      cross_straight_junction / speed_limit_change / traffic_lights_junction）で常設判定。
+      deceleration_profile_smooth（滑らかな減速＝bounded decel/jerk、**a=osi の面1直読加速度**で判定）／
+      speed_reduction_before_landmark（ランドマーク手前で目標速度到達）／lane_keep（操舵飽和由来の
+      レーン逸脱なし）／steer_not_saturated（コーナーで操舵が飽和しない）／no_constraint_kind
+      （直進通過の接続路で junction 制約を上げない）。2026-07-21 時点 5/5 緑＝**known-red を持たない
+      ベースライン**（D=ego-anchor-face1 移行後の実装で採取）。
+    not_covers: >-
+      **lane_change_count は未カバー**：本バッチのどのシナリオも車線変更を行わないため、
+      6件の sustained-by 欠のうち5件のみ閉じ、lane_change_count は依然どの常設ゲートにも乗らない
+      （閉じるには車線変更シナリオの追加が要る）。速度系（speed_above/below・min_speed_above）も
+      本バッチで発火するが常設保証は gate:vd-behavior-regression 側で済み＝二重結線しない。
+      geometry は curve/turn/junction のみ。
+    note: >-
+      §5.1 が検出した「05_anticipation 系 matcher が手動実行のみ＝退行が master へ素通り」を塞ぐ
+      （AEB 常設化 gate:aeb-safety-regression と同型）。run_regression_gate.ps1 Step 2.7 として配線、
+      CI は vd-behavioral-regression job に相乗り（Release ビルド二重化回避）＋別 artifact
+      （anticipation-driving-regression-report）で赤の切り分けを担保。osi:true で自車アンカーが面1
+      （deceleration_profile_smooth a=osi）になった実装でベースラインを採ったのが、E を D の後に置いた理由。
+      **昇格手順**: CI で数回ベースライン安定を確認後、compare ステップの continue-on-error を外す
+      （ローカルは既定を -FailOnBehavioral 相当へ）。
+
   # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
   - id: odr-conformance-quick
     title: ODR適合 quick プロファイル（schema + rm + motion）
