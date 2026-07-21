@@ -654,6 +654,78 @@ edges:
     source: GT_esmini/docs/virtualdriver/aeb_requirements.md
     note: 誤作動ゼロ判定に緊急制動発火メトリクスが必要
 
+  # ---- ②刺激: req -> stimulated-by -> policy / scenario-variant（capability_model.md §5） ----
+  # 「その主張を実際にどの資産が発火させるか」。根拠は必ず batch の policies: 指定 ＋
+  # expectations の must matcher（実行が主張の状態へ追い込む証拠）で、シナリオ名の類似では引かない。
+  # **face 注記**: policy は face:2、req-vd-ad は face:3 → req->policy は coupling-audit の
+  # 面3→面2 直結として計上される。検証シナリオが登録済み scenario-variant(face:3) の場合は
+  # そちらを優先し face-clean にする（005/006）。検証xosc が手書き（07_aeb / 06_lead / 03/04）で
+  # scenario-variant 化されていない 001/002/003/004/013 は policy が唯一の登録ハンドル
+  # ＝ 面3→面2 は名前空間設計の穴の症状（末尾の一次記録・登録提案を参照）。
+  - from: req-vd-ad:REQ-AD-001
+    to: policy:aeb
+    type: stimulated-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: >-
+      cutin_hard_brake(_curve).xosc が policies:[lead,aeb]（:47,:50）で AebSafety を発火させ、
+      impact_speed_below(直進, 閾10.0)/min_obb_separation_above(カーブ, 閾0.5) で判定。
+      判定を担うのは lead ではなく aeb 側 matcher。
+      ※ requirements_vd_ad.yaml:68 の red_asset は policies:[lead] と記すが陳腐化（実バッチは [lead,aeb]）。
+  - from: req-vd-ad:REQ-AD-013
+    to: policy:aeb
+    type: stimulated-by
+    source: resources/xosc/verification/aeb_safety_batch.yaml
+    note: >-
+      負例3本 normal_following/benign_cutin/parallel_overtake が policies:[lead,aeb]（:58,:61,:64）で
+      AEB パイプラインの各段（ゲート非発火/候補拒否）を狙い撃ち、no_emergency_without_conflict で
+      誤発火ゼロを判定。正例(001)と同一バッチ・同一ベースライン（sustained-by:aeb-safety-regression 参照）。
+  - from: req-vd-ad:REQ-AD-002
+    to: policy:lead
+    type: stimulated-by
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
+    note: >-
+      06_lead_vehicle/follow_steady.xosc が policies:[lead]（:59）。
+      maintained_following_distance（min_thw 1.0/max_thw 3.5/percentile 50）で快適車間維持を判定。
+  - from: req-vd-ad:REQ-AD-003
+    to: policy:traffic_light
+    type: stimulated-by
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
+    note: >-
+      03_traffic_signals/red_stop_green_go.xosc が policies:[traffic_light]（:25）。
+      stopped_at_signal(require_red=true, signal_id:1/road_id:3) で停止線手前停止を判定。red_hold も同 policy で補強。
+  - from: req-vd-ad:REQ-AD-004
+    to: policy:stop_yield
+    type: stimulated-by
+    source: resources/xosc/verification/car_following_traffic_control_batch.yaml
+    note: >-
+      04_traffic_signs/stop_sign_full_stop.xosc が policies:[stop_yield]（:38）。
+      stopped_at_stop_sign(sign_id:10/road_id:1/min_duration 1.0) で完全停止を判定。
+  - from: req-vd-ad:REQ-AD-005
+    to: scenario-variant:09_crosswalk_pedestrian__p005
+    type: stimulated-by
+    source: resources/xosc/verification/crosswalk_pedestrian_batch.yaml
+    note: >-
+      p005（crosswalk_pedestrian_batch.yaml:36-38, policies:[crosswalk]）が横断中歩行者へ発火。
+      min_obb_separation_above(閾0.3, 歩行者 footprint 0.6x0.5 実寸との分離)＋speed_below で衝突回避を判定。
+      登録済み scenario-variant を直指し＝face:3 で face-clean（policy:crosswalk 迂回を回避）。
+  - from: req-vd-ad:REQ-AD-006
+    to: scenario-variant:07_oncoming_yield__p017
+    type: stimulated-by
+    source: resources/xosc/verification/junction_conflict_batch.yaml
+    note: >-
+      p017（junction_conflict_batch.yaml:31-33, policies:[conflict]）＝Ego 左折が 14m/s 対向直進車を横切る
+      ＝要求 title「対向直進車に譲る」に字句一致。min_obb_separation_above/speed_below で判定。
+      face:3 scenario-variant を直指し。
+  - from: req-vd-ad:REQ-AD-006
+    to: scenario-variant:08_unsignalized_junction__p004
+    type: stimulated-by
+    source: resources/xosc/verification/junction_priority_batch.yaml
+    note: >-
+      p004_nonpriority_yield（junction_priority_batch.yaml:38-40, policies:[conflict,junction_priority]）＝
+      非優先(MINOR)側が優先側に譲り STOP_AT_S で待つ＝要求 rationale「優先権を評価…非優先側は STOP_AT_S」
+      および realized_by FUNC-029(交差点優先権) に一致（直交交差車で title の「対向直進」とは別ファセット）。
+      title=p017／rationale=p004 の2ファセットを別辺で明示（要求が両面を包含）。
+
   # ---- ④観測: matcher -> observes -> signal（capability_model.md §5, フェーズ1） ----
   # vd_metrics.py::eval_must の全分岐を実読して引いた辺。**引けなかった辺こそ情報**で、
   # 末尾の「引けなかった列」コメントに残す（縦串の切れた箇所の一次記録）。
@@ -936,3 +1008,59 @@ edges:
   #   min_separation_above は依然0件だが、これは穴ではなく **DEPRECATED 確定**
   #   （min_obb_separation_above の厳密な劣位版。上の observes 辺の note に根拠）。
   #   min_separation_above はどの資産からも参照されず（実測0件）＝実装のみのデッド matcher。
+
+  # ---- ②刺激欠の結線と「引けなかった主張」（2026-07-21 の一次記録） ----
+  # capability_model.md §7 の②刺激欠 25件（req 12 + scene 13）を全件手作業で吟味した結果。
+  # 根拠は verification 資産の実読（batch の policies: 指定 ＋ expectations の must matcher）。
+  # **結線できたのは req 7件（辺8本）＝ ②刺激欠 25 → 18**。scene は13件全て引けなかった。
+  #
+  # 【結線した req 7件（上の stimulated-by 節）】
+  #   001,013 -> policy:aeb ／ 002 -> policy:lead ／ 003 -> policy:traffic_light ／
+  #   004 -> policy:stop_yield ／ 005 -> scenario-variant:09_crosswalk_pedestrian__p005 ／
+  #   006 -> scenario-variant:07_oncoming_yield__p017（title）+ :08_unsignalized_junction__p004（rationale）。
+  #
+  # 【(i) 真の②刺激欠＝台帳に残すべき数字（辺を引けない・資産が無い）】
+  #   req 5件:
+  #     REQ-AD-010(CCRs) — 07_aeb に stationary target シナリオ無し（xosc は cutin/lead 系5本のみ）。
+  #     REQ-AD-011(CCRm/CCRb) — カットイン無しの等速/制動先行車 safety 資産無し。近い follow_hard_brake は
+  #       policy:lead の快適 tier(maintained_following_distance)であって safety-AEB を発火させない
+  #       ＝**名前類似の罠**。verified_by:[min_obb_separation_above] は充足資産と未一致。
+  #     REQ-AD-012(VRU-AEB) — aeb_implementation_plan.md:27 が「Out(後続波)」と明記。crosswalk バッチは
+  #       compliance/courtesy tier の計画的停止＝別 tier の主張（AEB でない）。
+  #     REQ-AD-014(層調停) — deceleration_profile_smooth は 05_anticipation（policy 指定なし・カーブ/右折/
+  #       制限速度の快適減速）でのみ走り、AEB と comfort の調停状態へ追い込む資産は無い（別文脈）。
+  #     REQ-AD-015(規制フロア) — verified_by:[] が自認、aeb_activation_envelope matcher 自体が未実装。
+  #   scene 13件（全て）: 生成 scenario-variant 56件は SCN-005/006/009(covered) のみを覆い、
+  #     対象13シーンには layer-1 生成対象が及んでいない。to に使える __pNNN が1件も無い。
+  #     完全に資産無し: SCN-007(ラウンドアバウト)/012(工事)/013(緊急車)/015(共存空間)/017(車車間認知)/018(動物)。
+  #
+  # 【(ii) 資産は在るが登録名前空間の ID が無い＝**登録提案**（親判断・勝手に新設しない）】
+  #   - 検証xosc が face:3 の scenario-variant として未登録: 07_aeb/06_lead/03_traffic_signals/
+  #     04_traffic_signs の手書き xosc（001-004,013 の発火資産）。今回は唯一の登録ハンドルである
+  #     policy(face:2) に結線したため、これらは coupling-audit の**面3→面2 直結として +5 計上される**
+  #     （下記 coupling 注記）。face-clean にするには検証xosc を scenario-variant 化するか、
+  #     検証シナリオ用の face:3 名前空間を新設する必要がある＝**登録提案**。
+  #   - scene の非登録資産: SCN-001(01_vehicle_model/straight_constant_speed・05_anticipation/decelerate_for_curve)、
+  #     SCN-002(02_basic_control/lane_change_simple.xosc)、SCN-008(highway_example_with_merge_and_split.xodr 等の
+  #     道路単体)。いずれも走行関連の実資産だが scenario-variant 命名(__pNNN)未満＝未登録。coverage=partial の
+  #     裏付け（資産はあるが検証未整備）と整合。SCN-011(トンネル xodr/xosc + F6 コード)・SCN-016(LHT は
+  #     odr_fixtures/lht の**適合フィクスチャ**＝face:1、生成07系は全 lht:false)・SCN-014(駐車場デモ) は
+  #     「資産らしきもの」はあるが VD 挙動主張を発火させる構成でない（上流デモ/適合フィクスチャ）ため(i)寄り。
+  #
+  # 【(iii) 主張が曖昧＝主張の書き直し候補（親調整）】
+  #   - REQ-AD-006 は title「対向直進車」と rationale「優先権を評価」が別シーン(p017/p004)を指す2ファセット。
+  #     今回は両ファセットに別辺を張って解消したが、要求文が単一シーンを名指ししていない点は要整理。
+  #   - REQ-AD-011/014 の verified_by は「同名 matcher が存在する」事実だけを根拠にしており、実際に主張状態を
+  #     発火させる資産と未一致（上記(i)）。verified_by を aspirational と実在で区別する記述整理が要る。
+  #
+  # 【親へ回す報告（本セッションでは直さない・触るなリスト内）】
+  #   R1. requirements_vd_ad.yaml:68 REQ-AD-001 red_asset の policies:[lead] は陳腐化（実バッチ [lead,aeb]）。
+  #   R2. REQ-AD-011 verified_by / REQ-AD-014 verified_by が充足資産と未一致（(iii)）。
+  #   R3. REQ-AD-015 verified_by:[] ＋ aeb_activation_envelope 未実装（matcher 新規が前提）。
+  #   R4. scene coverage は正確（partial=資産あり検証未／none=資産無し）だが、SCN-001/002/008 の非登録資産を
+  #       face:3 に登録すれば scene も stimulated-by で結線可能＝**scenario-variant 化 or 新名前空間の登録提案**。
+  #   R5. **coupling 副作用**: 今回の req->policy 5辺は face:3->face:2 ＝ spine-report の coupling_direct_edge が
+  #       0 → 5 に増える。stimulated-by は「観測」ではなく「刺激」の辺であり §0.2 が禁じる面3→面2 *観測*直結とは
+  #       別物だが、check_knowledge_graph.py の coupling_direct_edge は edge type を問わず face3->face2 を一律計上する。
+  #       ＝ **coupling-audit を stimulus 辺で除外するか（監査側の修正）／検証xosc を face:3 化するか（資産側）**の
+  #       いずれかを親が判断する事項（check_knowledge_graph.py は本セッションの触るなリスト）。

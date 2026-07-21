@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:906f8db99c3bc79d -->
+<!-- generated-from: sha256:31ecf4c08328fad8 -->
 
-ノード 163・辺 160（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 166・辺 168（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -176,6 +176,11 @@ flowchart LR
     n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
     n_matcher_min_separation_above["min_separation_above"]
   end
+  subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
+    n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
+    n_scenario_variant_07_oncoming_yield__p017["07_oncoming_yield__p017"]
+    n_scenario_variant_08_unsignalized_junction__p004["08_unsignalized_junction__p004"]
+  end
   subgraph sg_signal["signal｜観測可能量（OSI GroundTruth / HostVehicleData が canonical）"]
     n_signal_ego_speed["ego_speed"]
     n_signal_ego_pose["ego_pose"]
@@ -320,6 +325,14 @@ flowchart LR
   n_req_vd_ad_REQ_AD_011 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_012 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_013 -->|depends-on| n_proposal_P11
+  n_req_vd_ad_REQ_AD_001 -->|stimulated-by| n_policy_aeb
+  n_req_vd_ad_REQ_AD_013 -->|stimulated-by| n_policy_aeb
+  n_req_vd_ad_REQ_AD_002 -->|stimulated-by| n_policy_lead
+  n_req_vd_ad_REQ_AD_003 -->|stimulated-by| n_policy_traffic_light
+  n_req_vd_ad_REQ_AD_004 -->|stimulated-by| n_policy_stop_yield
+  n_req_vd_ad_REQ_AD_005 -->|stimulated-by| n_scenario_variant_09_crosswalk_pedestrian__p005
+  n_req_vd_ad_REQ_AD_006 -->|stimulated-by| n_scenario_variant_07_oncoming_yield__p017
+  n_req_vd_ad_REQ_AD_006 -->|stimulated-by| n_scenario_variant_08_unsignalized_junction__p004
   n_matcher_speed_above -->|observes| n_signal_ego_speed
   n_matcher_speed_below -->|observes| n_signal_ego_speed
   n_matcher_min_speed_above -->|observes| n_signal_ego_speed
@@ -529,6 +542,19 @@ flowchart LR
 | :--- | :--- | :--- |
 | `proposal:P5` | `proposal:P40` | ReplayInputSource機構の一本化必須 |
 | `proposal:P1` | `proposal:P23` | 外部制御注入の二重資産回避のため設計共有必須 |
+
+### stimulated-by (8)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `req-vd-ad:REQ-AD-001` | `policy:aeb` | cutin_hard_brake(_curve).xosc が policies:[lead,aeb]（:47,:50）で AebSafety を発火させ、 impact_speed_below(直進, 閾10.0)/min_obb_separation_above(カーブ, 閾0.5) で判定。 判定を担うのは lead ではなく aeb 側 matcher。 ※ requirements_vd_ad.yaml:68 の red_asset は policies:[lead] と記すが陳腐化（実バッチは [lead,aeb]）。 |
+| `req-vd-ad:REQ-AD-013` | `policy:aeb` | 負例3本 normal_following/benign_cutin/parallel_overtake が policies:[lead,aeb]（:58,:61,:64）で AEB パイプラインの各段（ゲート非発火/候補拒否）を狙い撃ち、no_emergency_without_conflict で 誤発火ゼロを判定。正例(001)と同一バッチ・同一ベースライン（sustained-by:aeb-safety-regression 参照）。 |
+| `req-vd-ad:REQ-AD-002` | `policy:lead` | 06_lead_vehicle/follow_steady.xosc が policies:[lead]（:59）。 maintained_following_distance（min_thw 1.0/max_thw 3.5/percentile 50）で快適車間維持を判定。 |
+| `req-vd-ad:REQ-AD-003` | `policy:traffic_light` | 03_traffic_signals/red_stop_green_go.xosc が policies:[traffic_light]（:25）。 stopped_at_signal(require_red=true, signal_id:1/road_id:3) で停止線手前停止を判定。red_hold も同 policy で補強。 |
+| `req-vd-ad:REQ-AD-004` | `policy:stop_yield` | 04_traffic_signs/stop_sign_full_stop.xosc が policies:[stop_yield]（:38）。 stopped_at_stop_sign(sign_id:10/road_id:1/min_duration 1.0) で完全停止を判定。 |
+| `req-vd-ad:REQ-AD-005` | `scenario-variant:09_crosswalk_pedestrian__p005` | p005（crosswalk_pedestrian_batch.yaml:36-38, policies:[crosswalk]）が横断中歩行者へ発火。 min_obb_separation_above(閾0.3, 歩行者 footprint 0.6x0.5 実寸との分離)＋speed_below で衝突回避を判定。 登録済み scenario-variant を直指し＝face:3 で face-clean（policy:crosswalk 迂回を回避）。 |
+| `req-vd-ad:REQ-AD-006` | `scenario-variant:07_oncoming_yield__p017` | p017（junction_conflict_batch.yaml:31-33, policies:[conflict]）＝Ego 左折が 14m/s 対向直進車を横切る ＝要求 title「対向直進車に譲る」に字句一致。min_obb_separation_above/speed_below で判定。 face:3 scenario-variant を直指し。 |
+| `req-vd-ad:REQ-AD-006` | `scenario-variant:08_unsignalized_junction__p004` | p004_nonpriority_yield（junction_priority_batch.yaml:38-40, policies:[conflict,junction_priority]）＝ 非優先(MINOR)側が優先側に譲り STOP_AT_S で待つ＝要求 rationale「優先権を評価…非優先側は STOP_AT_S」 および realized_by FUNC-029(交差点優先権) に一致（直交交差車で title の「対向直進」とは別ファセット）。 title=p017／rationale=p004 の2ファセットを別辺で明示（要求が両面を包含）。 |
 
 ### supersedes (1)
 

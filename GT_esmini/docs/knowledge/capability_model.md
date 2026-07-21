@@ -825,7 +825,16 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     (b) ~~新ゲートは **CI 未配線＝ローカル限定**~~ → **2026-07-21 解消**（上記「CI 配線」）。
     (c) `cutin_hard_brake` の実測 impact speed は **9.14 m/s（閾値 10.0、余裕 8.6%）**で、
     expectations のコメントが言う「達成 ~8.75」より薄い（2回の実行で 9.14 再現＝フレークではなく記述の陳腐化）。
-    (d) 派生レポートの **②刺激欠に REQ-AD-001/013 が残る**（`stimulated-by` 辺は未結線・25件の一部）。
+    (d) ~~派生レポートの **②刺激欠に REQ-AD-001/013 が残る**（`stimulated-by` 辺は未結線・25件の一部）~~
+    → **2026-07-21 解消（②刺激欠 25→18）**: ②刺激欠 25件を全件吟味し、発火資産が実在する req 7件を
+    `stimulated-by` で結線（001/013→policy:aeb・002→policy:lead・003→policy:traffic_light・
+    004→policy:stop_yield・005→scenario-variant:09_crosswalk_pedestrian__p005・
+    006→scenario-variant:07_oncoming_yield__p017＋08_unsignalized_junction__p004）。根拠は batch の
+    policies: 指定＋expectations の must matcher（名前類似では引かない）。残る18件は真の②刺激欠
+    ＝ req 5件（010/011/012/014/015・safety-AEB 資産が未実装。011 の follow_hard_brake は快適 tier で
+    別主張＝名前類似の罠）＋ scene 13件全て（生成 scenario-variant 56件は SCN-005/006/009 のみを覆い
+    対象13シーンに未到達）。一次記録・登録提案・coupling 副作用（req→policy 5辺が face3→face2 で
+    coupling_direct_edge 0→5）は graph.yaml 末尾に記載。
 - **`spine-work:vertical-wiring`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
   行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
 - **`spine-work:derived-report-lint` ✅完了（2026-07-21）**: 派生レポート（§6）＋ **coupling-audit（§0.5）**
