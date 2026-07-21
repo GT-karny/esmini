@@ -42,7 +42,7 @@
 
 | 17 | `[GT_ODR:junc-connroad]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、link 節) | ~:4019-4023 | 5 | **誤警告修正(1.8 意味論追従漏れ、upstream バグ)**: 「connecting road {} in junction {} lacks successor/predesessor」WARN が `road/@junction != -1` だけを条件にしていた。ODR 1.6 では @junction は「**connecting road として**所属する junction の ID」だったが、**1.8 で「例えば connecting road、cross path、junction boundary road が所属する junction の ID」に緩められた**(1.9 `OpenDRIVE_Road.xsd` @junction の documentation)。crossPath road は `<crossPath><startLaneLink>/<endLaneLink>` で接続され(1.9 `OpenDRIVE_Junction.xsd` `t_junction_crossPath`: "the cross path itself is a separate road")、`<link>` successor/predecessor を**規格上持たなくてよい**ため、正当な 1.8 資産に誤警告が出ていた。条件を `gt_esmini::odr::IsConnectingRoad(node, rid_str)`(`<junction><connection @connectingRoad>` の DOM プリスキャン、実装は予算外の `odr_side/OdrJunctionExtras.cpp`)で肯定判定に置換。1.6 形式資産では「@junction != -1 の road は必ずどこかの @connectingRoad」のため**既存挙動はビット同一**。junction boundary road / direct junction にも同時に効く。再現資産: `test/odr_fixtures/handauthored/01_crossing_junction_18.xodr` | **PR-5**(高、明白な upstream バグ) |
 
-- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 22**(hook×2 / country-rev×1 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×2 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 76**(古典 22 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 76`(ctest `MarkerCount` が本値をパース)。
+- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 24**(hook×2 / country-rev×2 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×3 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 78(2026-07-21 +2: 明示マーカー化)**(古典 22 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 76`(ctest `MarkerCount` が本値をパース)。
 - **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 92 / 150**(include 1 + country-rev 2 + junc-abort 3 + junc-connroad 5 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2 + 2026-07-13 bugfix 5、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 99`(古典 87 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 93`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
 - 事前承認済みコンティンジェンシー残(未使用): **lane-border フォールバック ~8 は P2 で不使用のまま温存** — border→width 正規化は公開 `Lane::AddLaneWidth` 経由で GT 側(`odr_side/OdrLaneExtras.cpp` の `ApplyBorderWidths`)に実装。既存フック呼び出し `BuildSideModel(doc, this)` が P2 新設の型付きオーバーロード(`roadmanager::OpenDrive*`)へ **exact match で自動束縛**されるため、フォーク改変ゼロで実現。/ P6 分割ヘルパー ~25 / lane @direction ~25
 
@@ -118,7 +118,7 @@
 version: 1
 baseline_upstream_tag: v3.4.1            # re-recorded at the v3.4.1 resync (2026-07-08, merge d7d7e20d); snapshots written byte-exact from `git cat-file blob v3.4.1:<path>` (RoadManager.cpp + OSIReporter.cpp changed; other 4 blobs identical to v3.4.0)
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 76           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
+fork_odr_marker_total: 78           # literal "[GT_ODR:" count in the fork. 2026-07-21 +2 (clang-format-15 準拠化で diff hunk が分離した行への明示マーカー: country-rev if行 + curvelocal for行). S2: +12; S3: +9; S4: +25 mirrored;
                                     # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
                                     # P6-reconcile: +4 = P7 curvelocal(×2)+repeat-cubics(×1) + P8 lane-layers(×1)
                                     # merged from dev_v0.12 (measured literal count = 75).
@@ -155,9 +155,9 @@ budget_groups:
 second_class_files:
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp
     upstream_blob_sha: 8dbd661856ced5d7b120901a4c82dfe1fe9b6838
-    budget_nonblank: 75
+    budget_nonblank: 77
     additive_only: true
-    marker_census: {vj-model: 73, vj-synth: 1}  # S1 data model + S3 EstablishVirtualJunctionConnections() decl (1 line, hpp 74/75)
+    marker_census: {vj-model: 76, vj-synth: 1}  # S1 data model + S3 decl。2026-07-21 clang-format-15 準拠化: anchor メンバを upstream 桁揃えグループの外へ移設（グループ中央挿入だと clang-format が upstream 行を再整形し additive_only が破れる）+ 配置注意コメント3行 = 73→76, budget 75→77
     marker_occurrences: 16               # literal "[GT_ODR:" comment count (ctest SecondClassCensus)
     pr_slice: "PR-A..D"
     status: active-S5              # hpp FROZEN at 74/75 through S5 (no data-model change; S5 is cpp-only)
@@ -165,7 +165,9 @@ second_class_files:
     upstream_blob_sha: 0f46c9438473ce0393577e76633b8f71c526b3a0   # v3.4.1 (curb lane type joined upstream)
     budget_nonblank: 550
     additive_only: false
-    marker_census: {vj-parse-link: 26, vj-parse-junction: 84, vj-synth: 133, vj-membership: 4, vj-osi-class: 6, vj-path: 84, vj-connect: 81, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
+    marker_census: {vj-parse-link: 31, vj-parse-junction: 87, vj-synth: 134, vj-membership: 4, vj-osi-class: 6, vj-path: 83, vj-connect: 83, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
+                        # 2026-07-21 clang-format-15 準拠化: GT 行の再折返しのみ（ctor 初期化リスト 1→6行 等）。
+                        # 意味変更ゼロ（空白除去トークン列一致で機械検証済み）。cpp total 530→540/550。
                         # S2 parse (RoadLink elementS/elementDir + 6-arg ctor + operator== | junction VIRTUAL
                         # dispatch/span attrs + connection anchors/kind-2 + Connection 5-arg ctor).
                         # S3 vj-synth 133 = EstablishVirtualJunctionConnections + 2 registry accessors block 116
@@ -189,7 +191,7 @@ second_class_files:
     budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
     budget_group: router
     additive_only: false
-    marker_census: {vj-router: 122}
+    marker_census: {vj-router: 123}  # 2026-07-21 clang-format-15 準拠化 +1（折返しのみ・意味変更ゼロ）
                         # S6 [GT_ODR:vj-router] (PRISTINE-ONLY, PR-C): LaneIndependentRouter across a virtual
                         # junction. Block-form InjectVirtualJunctionAnchorNodes static helper (49) seeds/expands one
                         # child per registry anchor (partial main-road weight, anchor link identity = dedup key);
