@@ -24,7 +24,7 @@
                     <EnvironmentAction>
                         <Environment name="day">
                             <Weather>
-                                <Sun azimuth="3.14" illuminance="100000" elevation="0.7"/>
+                                <Sun azimuth="3.14" intensity="100000" elevation="0.7"/>
                             </Weather>
                         </Environment>
                     </EnvironmentAction>

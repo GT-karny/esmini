@@ -20,6 +20,7 @@
       <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
       <ParameterDeclaration name="LimitSpeed" parameterType="double" value="8.33"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/straight_500m.xodr"/>
    </RoadNetwork>

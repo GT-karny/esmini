@@ -131,8 +131,16 @@ def make_straight_crosswalk_road(add_ped_signal: bool) -> xodr.OpenDrive:
         hdg=0.0,
         length=2.0 * CROSSWALK_HALF_S,
         width=2.0 * CROSSWALK_HALF_T,
+        height=0.0,
+        validLength=0.0,
     )
-    outline = xodr.Outline(closed=True, id=0)
+    outline = xodr.Outline(
+        closed=True,
+        id=0,
+        fill_type=xodr.FillType.pavement,
+        lane_type=xodr.LaneType.sidewalk,
+        outer=True,
+    )
     corners = [
         (CROSSWALK_S - CROSSWALK_HALF_S, -CROSSWALK_HALF_T),
         (CROSSWALK_S + CROSSWALK_HALF_S, -CROSSWALK_HALF_T),
@@ -168,6 +176,15 @@ def make_straight_crosswalk_road(add_ped_signal: bool) -> xodr.OpenDrive:
     odr = xodr.OpenDrive("straight_crosswalk")
     odr.add_road(road)
     odr.adjust_roads_and_lanes()
+
+    # OpenDRIVE 1.5 (this catalog's declared version) requires >=1 <elevation>
+    # child inside every <elevationProfile>. scenariogeneration seeds an empty
+    # profile per road; add a flat (level) elevation record to any road that
+    # still lacks one.
+    for _r in odr.roads.values():
+        if not _r.elevationprofile.elevations:
+            _r.add_elevation(0, 0, 0, 0, 0)
+
     return odr
 
 
@@ -216,6 +233,16 @@ def _build_and_write(ped_signal: bool, out_dir: Path) -> None:
     xodr_path = out_dir / f"{catalog_id}.xodr"
     odr.write_xml(str(xodr_path))
     normalize_header_date(xodr_path, _PINNED_DATE)
+    if ped_signal:
+        # scenariogeneration force-uppercases <signal country> (Signal.get_attributes
+        # does str(country).upper()), turning the generic "OpenDRIVE" country into
+        # "OPENDRIVE", which is not a valid OpenDRIVE e_countryCode enum value
+        # (the enum is the mixed-case "OpenDRIVE"). Restore the canonical case.
+        _text = xodr_path.read_text(encoding="utf-8")
+        xodr_path.write_text(
+            _text.replace('country="OPENDRIVE"', 'country="OpenDRIVE"'),
+            encoding="utf-8",
+        )
     print(
         f"[xodr] -> {xodr_path}  ({len(odr.roads)} road, "
         f"{'ped-signal' if ped_signal else 'no-signal'})"

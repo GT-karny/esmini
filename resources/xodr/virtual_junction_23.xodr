@@ -5,7 +5,7 @@
          (the P6 S2 authoritative virtual-junction fixture), relocated into resources/xodr/ so the resources-side
          VD verification scenes (resources/xosc/verification/p6_virtual_junction/) can reference it via the
          standard ../../../xodr/ LogicFile convention. A resources copy is legitimate scenario-authoring
-         practice; the GT test tree remains the source of truth -- re-copy from there if the fixture changes. -->
+         practice; the GT test tree remains the source of truth - re-copy from there if the fixture changes. -->
     <!-- P6 S2 fixture: 1.7 virtual junction (ASAM 10.4). Main road 1 stays unsplit and carries NO links;
          branch road 2 attaches mid-road via <predecessor elementS="100" elementDir="+"> (no contactPoint);
          junction 888 type="virtual" declares the span (mainRoad/sStart/sEnd/orientation), one default-shaped

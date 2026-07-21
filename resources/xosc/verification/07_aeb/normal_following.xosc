@@ -35,6 +35,7 @@
       <ParameterDeclaration name="LeadSpeed"  parameterType="double" value="23.0"/>  <!-- 82.8 km/h; v_close=2.0 m/s -->
       <ParameterDeclaration name="LeadStartS" parameterType="double" value="85.0"/>  <!-- ~50 m bumper gap ahead of Ego -->
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
    </RoadNetwork>

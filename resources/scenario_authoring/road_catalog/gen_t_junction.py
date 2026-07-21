@@ -101,11 +101,25 @@ def make_t_junction_road(
     junction_creator.add_connection(road_one_id=0, road_two_id=2)
     junction_creator.add_connection(road_one_id=1, road_two_id=2)
 
-    odr = xodr.OpenDrive("t_junction")
+    # DE (ISO 3166-1 alpha-2) signal country codes are only valid from OpenDRIVE
+    # 1.6 onward (the 1.5 e_countryCode enum accepts only full names / alpha-3),
+    # so any variant that emits a DE-country signal must declare >=1.6. The plain
+    # (signal-less) T-junction stays 1.5.
+    odr = xodr.OpenDrive(
+        "t_junction", revMinor="6" if (add_signal or add_yield_sign) else "5"
+    )
     for r in (road0, road1, road2):
         odr.add_road(r)
     odr.add_junction_creator(junction_creator)
     odr.adjust_roads_and_lanes()
+
+    # OpenDRIVE 1.5 (this catalog's declared version) requires >=1 <elevation>
+    # child inside every <elevationProfile>. scenariogeneration seeds an empty
+    # profile per road (incl. junction-generated connecting roads); add a flat
+    # (level) elevation record to any road that still lacks one.
+    for _r in odr.roads.values():
+        if not _r.elevationprofile.elevations:
+            _r.add_elevation(0, 0, 0, 0, 0)
 
     # Optional traffic signal on the ego approach leg (road 0) near the stop line.
     if add_signal:
@@ -118,6 +132,8 @@ def make_t_junction_road(
             name="ego_traffic_light",
             dynamic=xodr.Dynamic.yes,
             orientation=xodr.Orientation.positive,
+            width=0.6,
+            height=0.9,
         )
         road0.add_signal(signal)
 
@@ -136,6 +152,8 @@ def make_t_junction_road(
                 dynamic=xodr.Dynamic.no,
                 orientation=xodr.Orientation.positive,
                 zOffset=_SIGN_ZOFFSET,
+                width=0.6,
+                height=0.9,
             )
         )
 

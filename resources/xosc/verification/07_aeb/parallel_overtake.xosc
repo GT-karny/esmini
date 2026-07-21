@@ -31,6 +31,7 @@
       <ParameterDeclaration name="OvertakerSpeed"  parameterType="double" value="30.0"/>  <!-- 108 km/h -->
       <ParameterDeclaration name="OvertakerStartS" parameterType="double" value="10.0"/>  <!-- 20 m behind Ego's s=30 -->
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
    </RoadNetwork>

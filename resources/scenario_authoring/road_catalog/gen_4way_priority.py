@@ -121,11 +121,22 @@ def make_4way_road(
         for n in minor_legs:
             junction_creator.add_connection(road_one_id=m, road_two_id=n)
 
-    odr = xodr.OpenDrive("4way_priority")
+    # DE (ISO 3166-1 alpha-2) signal country codes are only valid from OpenDRIVE
+    # 1.6 onward (the 1.5 e_countryCode enum accepts only full names / alpha-3),
+    # so a signed catalog must declare >=1.6. Unsigned variants stay 1.5.
+    odr = xodr.OpenDrive("4way_priority", revMinor="6" if add_signage else "5")
     for r in roads:
         odr.add_road(r)
     odr.add_junction_creator(junction_creator)
     odr.adjust_roads_and_lanes()
+
+    # OpenDRIVE 1.5 (this catalog's declared version) requires >=1 <elevation>
+    # child inside every <elevationProfile>. scenariogeneration seeds an empty
+    # profile per road (incl. junction-generated connecting roads); add a flat
+    # (level) elevation record to any road that still lacks one.
+    for _r in odr.roads.values():
+        if not _r.elevationprofile.elevations:
+            _r.add_elevation(0, 0, 0, 0, 0)
 
     if add_signage:
         # Priority-road sign on both main approaches.
@@ -141,6 +152,8 @@ def make_4way_road(
                     dynamic=xodr.Dynamic.no,
                     orientation=xodr.Orientation.positive,
                     zOffset=_SIGN_ZOFFSET,
+                    width=0.6,
+                    height=0.9,
                 )
             )
         # YIELD sign on both minor approaches.
@@ -156,6 +169,8 @@ def make_4way_road(
                     dynamic=xodr.Dynamic.no,
                     orientation=xodr.Orientation.positive,
                     zOffset=_SIGN_ZOFFSET,
+                    width=0.6,
+                    height=0.9,
                 )
             )
 

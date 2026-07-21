@@ -19,6 +19,7 @@
    <ParameterDeclarations>
       <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/straight_invalidated_stop_sign.xodr"/>
    </RoadNetwork>

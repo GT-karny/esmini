@@ -21,6 +21,7 @@
       <ParameterDeclaration name="BrakeRate"  parameterType="double" value="8.0"/>
       <ParameterDeclaration name="BrakeTarget" parameterType="double" value="0.0"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/curve_2lane_r300.xodr"/>
    </RoadNetwork>

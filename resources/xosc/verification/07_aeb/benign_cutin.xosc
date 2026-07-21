@@ -36,6 +36,7 @@
       <ParameterDeclaration name="CutInTime"  parameterType="double" value="1.6"/>
       <ParameterDeclaration name="CutInDur"   parameterType="double" value="1.4"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
    </RoadNetwork>
