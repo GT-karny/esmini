@@ -106,6 +106,16 @@ lineages:
       pristine resync; the fork's file writers simply do not use them.) The in-tree pristine
       OSIReporter.cpp is tracked separately as a 2nd-class file (census manifest, PR-D row).
 
+      GT-side divergence to carry across resyncs (2026-07-21, spine-work:osi-assigned-lane-driving):
+      GT_OSIReporter_Moving.cpp populates the moving-object assigned_lane_id from a GT helper
+      ResolveMovingObjectAssignedLaneGlobalId (the object's cached DRIVING lane, Position::GetLaneId)
+      instead of upstream's pos.GetLaneGlobalId() (which re-derives the lane from (s,t) over
+      LANE_TYPE_ANY and drifts a laterally-offset driving vehicle onto border/sidewalk lanes -2/-3).
+      This is a GT-local fix in the split fork file only: upstream RoadManager (GetLaneGlobalId /
+      GetClosestLaneIdx / IsOSILaneById) is UNTOUCHED, so it is an upstream-candidate — if upstream
+      ever fixes the assigned_lane_id semantics, reconcile the two rather than double-applying. There
+      is no machine census for this lineage (this manifest is INBOUND-only); this note is the record.
+
   - id: roadgen
     description: >
       Fork of the viewer road-mesh generator (GT_RoadGen parallel generator + .osgb cache)

@@ -61,7 +61,7 @@ signals:
     title: 自車姿勢（roll / pitch / yaw）
     exposure: [osi, hvd]
     state: "●"
-    emit: GT_HostVehicleReporter.cpp:255-256,267-268,276-277,285-286 ／ RealVehicle.cpp:410-430 → OSI GT_OSIReporter_Moving.cpp:756-757
+    emit: GT_HostVehicleReporter.cpp:255-256,267-268,276-277,285-286 ／ RealVehicle.cpp:410-430 → OSI GT_OSIReporter_Moving.cpp:812-813
     note: >-
       yaw（方位 h）は配線済み（2026-07-21, spine-work:ego-anchor-face1-migration）。
       vd_metrics._ego_state が is_host の `h`（OSI orientation.yaw）を取り、
@@ -74,7 +74,7 @@ signals:
     title: 自車の縦加速度
     exposure: [osi]
     state: "●"
-    emit: GT_OSIReporter_Moving.cpp:772-774
+    emit: GT_OSIReporter_Moving.cpp:828-830
     note: >-
       配線済み（2026-07-21, spine-work:ego-anchor-face1-migration）。vd_metrics._speed_accel_jerk
       が _gt_to_scene の `ax,ay`（OSI base.acceleration）を is_host から取り、方位で縦方向に
@@ -125,7 +125,7 @@ signals:
     title: 歩行者の速度ベクトル
     exposure: [osi]
     state: "●"
-    emit: GT_OSIReporter_Moving.cpp:767-769
+    emit: GT_OSIReporter_Moving.cpp:823-825
     note: >-
       2026-07-21 配線。旧: `_gt_to_scene` が sqrt(vx²+vy²+vz²) のスカラーに潰し
       **「離れつつあるか」の符号情報が消えていた**（損失は emit ではなく scene 変換層）。
@@ -366,11 +366,14 @@ signals:
     title: lane_id / 方向指示器（Kinematic・RouteDrive）
     exposure: [osi]
     state: "(b)"
-    emit: GT_OSIReporter_Moving.cpp:777（lane_id）／:512（indicator）
+    emit: GT_OSIReporter_Moving.cpp:835（lane_id）／:568（indicator）
     note: >-
       OSI には汎用経路で出ているが、**telemetry frame を作るのは VD だけ**なので
       frame/matcher に一切届かない。面3が面2テレメトリに依存している構造的帰結
       （§0.3 の結合負債が「VD以外を検証できない」形で表面化した例）。
+      lane_id の emit 実体は 2026-07-21（spine-work:osi-assigned-lane-driving）以降
+      キャッシュ走行レーン（`Position::GetLaneId` 由来、`ResolveMovingObjectAssignedLaneGlobalId`）
+      ＝旧 `GetLaneGlobalId()` の (s,t) 再探索を廃し border/sidewalk へのドリフトを解消。
 
   - id: traffic_vehicle_pitch_roll
     title: 交通車の動的 pitch/roll

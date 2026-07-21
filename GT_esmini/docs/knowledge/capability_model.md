@@ -598,11 +598,16 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 >   廃し a_source=osi）、road_id（OSI `Lane.source_reference` の `road_id:` を初回フレームの
 >   `lane_map` に載せ、is_host の `assigned_lane_id` で join）。
 > - **面1化しない量（実測で確定した既知ギャップ）**: ① `s`（レーン沿い距離）＝OSI は MovingObject
->   s_position を populate しない。② `lane`（車線）＝OSI `assigned_lane_id` は「オブジェクト位置レーン」で
->   VD 追従 Position レーンと**別量**。red_stop_green_go 実測で ego が road 1 を進む間に assigned lane が
->   -1→-2→-3 とドリフト（telemetry は lane -1 保持）＝62% 不一致。∴ lane_map は **road 粒度でのみ信頼**
->   （road_id は実 road 遷移含め 777/777 一致）し、lane は telemetry 維持。これらの面1化には C++
->   （GT_OSIReporter で s_position populate 等）が要り本 D の範囲外。
+>   s_position を populate しない。② `lane`（車線）＝**D 時点**では OSI `assigned_lane_id` が
+>   `GetLaneGlobalId()` で (s,t) から毎回全レーン種別を再探索し「幾何的に触れるレーン」を返していたため、
+>   横オフセットが外側へ寄ると border/sidewalk へ滑った（red_stop_green_go 実測で assigned lane が
+>   -1→-2→-3、62% 不一致。telemetry は lane -1 保持）。
+>   → **後日修正（2026-07-21, spine-work:osi-assigned-lane-driving）**: moving object の assigned_lane_id を
+>   キャッシュ走行レーン（`Position::GetLaneId` 由来、`GT_OSIReporter_Moving.cpp` の
+>   `ResolveMovingObjectAssignedLaneGlobalId`）へ差し替え、同シーンで **1200/1200 一致**・以後ドリフトせず。
+>   ただし `lane` は現状も telemetry 維持＝面1化は lane_keep/lane_change_count baseline の再検証を要する
+>   **別 follow-on**。lane_map は road_id 供給に使用（実 road 遷移含め 777/777 一致）。
+>   面1化に C++ が残るのは `s`（s_position populate）のみで本 D の範囲外。
 > - **基準値**: full regression gate PASS、car_following 12 / AEB 5 とも baseline 比 **deviation 0**
 >   （面1移行後も verdict 不変）。
 
@@ -865,9 +870,12 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
   相当が無く移行不能）、**併用 6→13**。面1化した量＝x/y/speed/h・縦加速度（OSI 直読 a=osi、`ego_accel_long`
   (b)→●・`ego_orientation` yaw (b)→●）・road_id（OSI `Lane.source_reference` を `lane_map` に載せ is_host の
   `assigned_lane_id` で join、実 road 遷移含め telemetry track と 777/777 一致）。
-  - **面1化しない量（実測で確定した既知ギャップ）**: `s`（OSI 未 populate）と `lane`（OSI `assigned_lane_id`
-    は「オブジェクト位置レーン」で VD 追従 Position レーンと別量＝red_stop_green_go 実測で62%乖離）。
-    lane_map は road 粒度でのみ信頼、lane/s は telemetry 維持。面1化には C++（GT_OSIReporter）が要り範囲外。
+  - **面1化しない量（実測で確定した既知ギャップ）**: `s`（OSI 未 populate）と `lane`（D 時点は OSI
+    `assigned_lane_id` が (s,t) 再探索で「幾何的に触れるレーン」を返し VD Position レーンと別量＝
+    red_stop_green_go 実測で62%乖離）。lane_map は road 粒度でのみ信頼、lane/s は telemetry 維持。
+    → `lane` の原因は**後日修正済**（2026-07-21, spine-work:osi-assigned-lane-driving＝assigned_lane_id を
+    キャッシュ走行レーンへ差し替え、同シーン 1200/1200 一致）。lane 自体の面1化は baseline 再検証を要する
+    別 follow-on として保留、`s` の面1化のみ C++（s_position populate）が残り範囲外。
   - **基準値**: full regression gate PASS、car_following 12 / AEB 5 とも baseline 比 **deviation 0**（verdict 不変）。
     lint 可視化のため各 matcher branch で `_ego_state(` を直接呼ぶ（`check_knowledge_graph._inlined_helpers` は
     1段展開のみ＝2段ヘルパ内の scene 読みは matcher に帰属しない）。commit 5cea47b2。

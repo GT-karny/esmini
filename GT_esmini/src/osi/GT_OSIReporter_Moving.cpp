@@ -37,6 +37,62 @@ static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, id_t roadId
     return 0; // Not found in route, default to lane 0
 }
 
+// [GT_MOD] Resolve the OSI assigned_lane_id (lane global id) for a moving object.
+//
+// osi_object.proto defines assigned_lane_id as the lane(s) the object is *assigned*
+// to (semantic membership), not merely a lane the body geometrically overlaps.
+// Position::GetLaneGlobalId() re-derives the lane from (s_, t_) on every call via
+// GetClosestLaneIdx(..., LANE_TYPE_ANY), so a driving vehicle whose lateral offset
+// drifts outward (e.g. VirtualDriver writing back world coordinates with an
+// intentional lateral lag) gets reported as assigned to a border/sidewalk lane
+// (-2 / -3) even while the object's own cached driving lane (Position::GetLaneId(),
+// snapped with LANE_TYPE_ANY_DRIVING) stays -1. That contradicts the object's own
+// reported track/lane and the "assigned" semantics of the field.
+//
+// This helper mirrors GetLaneGlobalId()'s junction handling but, for the plain lane
+// case, returns the global id of the cached driving lane instead of re-searching all
+// lane types. It falls back to GetLaneGlobalId() whenever the road / lane section is
+// unavailable or the cached lane id has no global id in the current section, so the
+// output never regresses relative to the previous behaviour. Scope is intentionally
+// limited to the moving-object assigned_lane_id: GetLaneGlobalId() itself is left
+// untouched for its other callers (adjacency scan, RouteSignalScan, HVD) that
+// legitimately want "any lane the position sits on".
+static id_t ResolveMovingObjectAssignedLaneGlobalId(const roadmanager::Position &pos)
+{
+    using namespace roadmanager;
+
+    Road *road = pos.GetRoadById(pos.GetTrackId());
+    if (road == nullptr)
+    {
+        return pos.GetLaneGlobalId();  // no road: defer to the canonical resolver
+    }
+
+    // Parity with GetLaneGlobalId(): an object on an OSI-intersection connecting
+    // road is assigned to the intersection itself.
+    if (road->GetJunction() != ID_UNDEFINED)
+    {
+        Junction *junction = Position::GetOpenDrive()->GetJunctionById(road->GetJunction());
+        if (junction != nullptr && junction->IsOsiIntersection())
+        {
+            return junction->GetGlobalId();
+        }
+    }
+
+    LaneSection *lane_section = road->GetLaneSectionByS(pos.GetS());
+    if (lane_section == nullptr)
+    {
+        return pos.GetLaneGlobalId();
+    }
+
+    id_t global_id = lane_section->GetLaneGlobalIdById(pos.GetLaneId());
+    if (global_id == ID_UNDEFINED)
+    {
+        return pos.GetLaneGlobalId();
+    }
+
+    return global_id;
+}
+
 // [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
 static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStateRef, scenarioengine::ScenarioEngine* scenario_engine)
 {
@@ -774,7 +830,9 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
     obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_z(objectState.pos_.GetAccZ());
 
     // Set ego lane
-    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(objectState.pos_.GetLaneGlobalId());
+    // [GT_MOD] Use the cached driving-lane global id (see ResolveMovingObjectAssignedLaneGlobalId)
+    // so a laterally-drifting driving vehicle is not reported as assigned to a border/sidewalk lane.
+    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(ResolveMovingObjectAssignedLaneGlobalId(objectState.pos_));
 
     // simplified wheel info, set nr wheels based on object type
     // can be improved by considering axels and actual wheel configuration

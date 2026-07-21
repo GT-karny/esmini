@@ -426,16 +426,21 @@ def _ego_state(fr: dict) -> dict:
     Two fields are telemetry-only ON PURPOSE (documented face-1 gaps, not laziness):
       * `s` (along-lane distance): OSI GroundTruth does not populate MovingObject
         s_position (capability_model.md §2.3a), so the scene cannot supply it.
-      * `lane`: OSI moving_object.assigned_lane_id (= Position::GetLaneGlobalId of
-        the object's reported position) measures a DIFFERENT quantity than the VD's
-        tracked Position lane, and the two diverge in practice — 2026-07-21 measured
-        red_stop_green_go: as the ego drove one road the assigned lane drifted
-        -1 -> -2 -> -3 while telemetry held lane -1 (verify_scene.py). The lane_map
-        join is only trustworthy at ROAD granularity (all of a road's lanes share
-        its road_id, and road_id matched telemetry track 777/777 including across a
-        real road transition), so lane_map is used for road_id ONLY; lane stays the
-        VD Position lane the lane_keep / lane_change_count assertions were authored
-        against.
+      * `lane`: OSI moving_object.assigned_lane_id USED to measure a different
+        quantity than the VD's tracked Position lane — it re-derived the lane from
+        (s, t) via GetLaneGlobalId(), so a laterally-drifting driving vehicle was
+        reported as assigned to a border/sidewalk lane (red_stop_green_go 2026-07-21:
+        assigned lane drifted -1 -> -2 -> -3 while telemetry held -1, 62% mismatch).
+        That defect was FIXED GT-side (2026-07-21, spine-work:osi-assigned-lane-driving):
+        the moving-object assigned_lane_id now emits the object's cached DRIVING lane
+        (see GT_OSIReporter_Moving.cpp ResolveMovingObjectAssignedLaneGlobalId), so it
+        no longer drifts and now agrees with the VD Position lane (same scenario:
+        1200/1200 frames). `lane` is nonetheless STILL read from telemetry here: moving
+        it to the face-1 scene is a deliberate, separate follow-on, because the
+        lane_keep / lane_change_count assertions were authored against the VD Position
+        lane and the regression baselines must be re-checked before the switch. The
+        lane_map join keeps supplying road_id (matched telemetry track 777/777,
+        including across a real road transition).
 
     `accel_long` is None when the scene is absent. The chosen face is recorded in
     "_source" (scene | telemetry) so the verdict can surface which one fed the
