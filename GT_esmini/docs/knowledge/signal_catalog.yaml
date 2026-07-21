@@ -60,23 +60,28 @@ signals:
   - id: ego_orientation
     title: 自車姿勢（roll / pitch / yaw）
     exposure: [osi, hvd]
-    state: "(b)"
+    state: "●"
     emit: GT_HostVehicleReporter.cpp:255-256,267-268,276-277,285-286 ／ RealVehicle.cpp:410-430 → OSI GT_OSIReporter_Moving.cpp:756-757
     note: >-
-      **「emit済みだが未配線」の純粋形**。frame が x/y/speed/s しか運ばないため matcher が
-      書けず gate も無い。signal を frame契約に限定していたら「観測不能(a)」と誤分類していた
-      当の対象（capability_model.md §3-2）。
+      yaw（方位 h）は配線済み（2026-07-21, spine-work:ego-anchor-face1-migration）。
+      vd_metrics._ego_state が is_host の `h`（OSI orientation.yaw）を取り、
+      matcher:maintained_following_distance の前方投影（cos/sin h）に使う（scene 優先・
+      telemetry fallback）。roll/pitch は依然 matcher 未消費だが、yaw が正規IF経由で verdict に
+      効いたため純 (b) は解消。かつて frame契約だけ見て「観測不能(a)」と誤分類しかけた対象
+      （capability_model.md §3-2）。
 
   - id: ego_accel_long
     title: 自車の縦加速度
     exposure: [osi]
-    state: "(b)"
+    state: "●"
     emit: GT_OSIReporter_Moving.cpp:772-774
     note: >-
-      **面3→面2 直結の差し替え最有力候補**（§2.3a）。vd_metrics.py:253-259 が
-      「Telemetry carries no acceleration」とコメントした上で speed の中心差分で
-      自前推定している＝OSI に出ているのに使っていない。matcher:deceleration_profile_smooth
-      をこの signal 経由に付け替えれば1件が正規IFへ移る。
+      配線済み（2026-07-21, spine-work:ego-anchor-face1-migration）。vd_metrics._speed_accel_jerk
+      が _gt_to_scene の `ax,ay`（OSI base.acceleration）を is_host から取り、方位で縦方向に
+      投影して matcher:deceleration_profile_smooth の加速度・ジャークに使う（scene が有れば
+      OSI 直読 a=osi、無ければ従来の speed 中心差分 a=telemetry に fallback、verdict の
+      detail に a_source を明記）。かつての「speed 中心差分で自前推定」（旧 §2.3a 最有力候補）は
+      解消。実挙動: decelerate_for_curve で a=osi・max decel 2.19/jerk 4.71 の PASS を確認。
 
   - id: ego_jerk
     title: 自車ジャーク

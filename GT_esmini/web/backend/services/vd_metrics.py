@@ -120,7 +120,7 @@ def load_telemetry(run_dir: Path) -> list[dict]:
 # first frame only, so the recorder writes it once instead of on every frame
 # (gt_sim_test._STATIC_SCENE_KEYS). Matchers must not have to know which frame
 # that was: fill it forward here, sharing the list object rather than copying.
-_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects")
+_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects", "lane_map")
 
 
 def _forward_fill_static_scene(frames: list[dict]) -> None:
@@ -272,25 +272,36 @@ def time_window_ok(t: float, spec: dict) -> bool:
 
 
 def _speed_accel_jerk(frames: list[dict], smooth_window: int = 5) -> dict:
-    """Derive (t, v, s, a, j) series from telemetry for the mid/long matchers.
+    """Derive (t, v, s, a, j) series for the mid/long matchers, anchored on the
+    face-1 OSI scene wherever available (via _ego_state).
 
-    Telemetry carries no acceleration, so smooth the speed with a centered moving
-    average (odd window, ~0.25 s at dt=0.05) then central-difference twice to get
-    acceleration `a` [m/s^2] and jerk `j` [m/s^3]. Endpoints are clamped to their
-    neighbours. Returns equal-length lists keyed t/v/s/a/j (n = len(frames))."""
+    Speed `v` and along-lane `s` come from _ego_state (scene-preferred; `s` is
+    telemetry-only, OSI carries no host s). Acceleration `a` PREFERS the OSI
+    longitudinal acceleration (base.acceleration projected on heading,
+    GT_OSIReporter_Moving.cpp:772-774): when every frame carries it, `a` is that
+    face-1 signal, smoothed with the same centered window used for speed;
+    otherwise it falls back to central-differencing the smoothed speed (face-2 —
+    telemetry has no acceleration, the historical path). Jerk `j` is the central
+    difference of `a`. Endpoints clamp to neighbours. Returns equal-length lists
+    t/v/s/a/j (n = len(frames)) plus `a_source` (osi | telemetry)."""
     n = len(frames)
+    states = [_ego_state(fr) for fr in frames]
     t = [fr["sim_time"] for fr in frames]
-    v_raw = [fr["ego"]["speed"] for fr in frames]
-    s = [fr["ego"].get("s", 0.0) for fr in frames]
+    v_raw = [st["speed"] for st in states]
+    s = [st["s"] if st["s"] is not None else 0.0 for st in states]
+    a_osi = [st["accel_long"] for st in states]
 
     w = max(1, int(smooth_window))
     if w % 2 == 0:
         w += 1
     half = w // 2
-    v = []
-    for i in range(n):
-        seg = v_raw[max(0, i - half):min(n, i + half + 1)]
-        v.append(sum(seg) / len(seg))
+
+    def _smooth(y: list[float]) -> list[float]:
+        out = []
+        for i in range(n):
+            seg = y[max(0, i - half):min(n, i + half + 1)]
+            out.append(sum(seg) / len(seg))
+        return out
 
     def _central(y: list[float]) -> list[float]:
         d = [0.0] * n
@@ -301,9 +312,15 @@ def _speed_accel_jerk(frames: list[dict], smooth_window: int = 5) -> dict:
             d[0], d[-1] = d[1], d[-2]
         return d
 
-    a = _central(v)
+    v = _smooth(v_raw)
+    if n >= 3 and all(a is not None for a in a_osi):
+        a = _smooth(a_osi)          # face-1 OSI acceleration, same smoothing as v
+        a_source = "osi"
+    else:
+        a = _central(v)             # face-2 fallback: central-difference of speed
+        a_source = "telemetry"
     j = _central(a)
-    return {"t": t, "v": v, "s": s, "a": a, "j": j}
+    return {"t": t, "v": v, "s": s, "a": a, "j": j, "a_source": a_source}
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -396,14 +413,75 @@ def _closing_speed(ego: dict, obj: dict) -> float:
     return max(0.0, closing)
 
 
+def _ego_state(fr: dict) -> dict:
+    """Resolve the host-vehicle anchor, preferring the face-1 OSI GroundTruth
+    scene over the face-2 VD telemetry ego.
+
+    Position / speed / heading and road_id (via the scene lane_map) come from
+    the is_host moving object of frame["scene"]; longitudinal acceleration comes
+    from that object's OSI acceleration vector (ax, ay projected on the heading,
+    GT_OSIReporter_Moving.cpp:772-774). When no scene was captured (--osi off)
+    every field falls back to the telemetry ego.
+
+    Two fields are telemetry-only ON PURPOSE (documented face-1 gaps, not laziness):
+      * `s` (along-lane distance): OSI GroundTruth does not populate MovingObject
+        s_position (capability_model.md §2.3a), so the scene cannot supply it.
+      * `lane`: OSI moving_object.assigned_lane_id (= Position::GetLaneGlobalId of
+        the object's reported position) measures a DIFFERENT quantity than the VD's
+        tracked Position lane, and the two diverge in practice — 2026-07-21 measured
+        red_stop_green_go: as the ego drove one road the assigned lane drifted
+        -1 -> -2 -> -3 while telemetry held lane -1 (verify_scene.py). The lane_map
+        join is only trustworthy at ROAD granularity (all of a road's lanes share
+        its road_id, and road_id matched telemetry track 777/777 including across a
+        real road transition), so lane_map is used for road_id ONLY; lane stays the
+        VD Position lane the lane_keep / lane_change_count assertions were authored
+        against.
+
+    `accel_long` is None when the scene is absent. The chosen face is recorded in
+    "_source" (scene | telemetry) so the verdict can surface which one fed the
+    anchor.
+
+    Both the fr.get("scene") and the fr["ego"] reads live in this one helper by
+    design: check_knowledge_graph.py (_inlined_helpers) inlines it one level into
+    every matcher branch that calls _ego_state(...), so the OSI-preferred /
+    telemetry-fallback coupling is attributed to that matcher instead of hidden
+    behind the call — the scene-preferred read must not be buried two levels deep."""
+    ego = fr["ego"]
+    scene = fr.get("scene")
+    src = "telemetry"
+    x, y, speed, h = ego["x"], ego["y"], ego["speed"], ego.get("h", 0.0)
+    track, lane, accel_long = ego.get("track"), ego.get("lane"), None
+    if scene:
+        host = next((o for o in scene.get("objects", []) if o.get("is_host")), None)
+        if host is not None:
+            src = "scene"
+            x, y, speed = host["x"], host["y"], host["speed"]
+            h = host.get("h", h)
+            gid = host.get("lane_global_id")
+            entry = (scene.get("lane_map") or {}).get(str(gid)) if gid is not None else None
+            if entry is not None and entry.get("road_id") is not None:
+                track = entry["road_id"]   # road_id only; lane stays telemetry (see docstring)
+            ax, ay = host.get("ax"), host.get("ay")
+            if ax is not None and ay is not None:
+                accel_long = ax * math.cos(h) + ay * math.sin(h)
+    return {"x": x, "y": y, "speed": speed, "h": h, "s": ego.get("s"),
+            "track": track, "lane": lane, "accel_long": accel_long, "_source": src}
+
+
 def eval_must(must: dict, frames: list[dict]) -> dict:
     """Evaluate one must[] entry. Fail results carry the first offending frame's
-    `t` and `idx` so the UI can jump straight to the failure."""
+    `t` and `idx` so the UI can jump straight to the failure. Matchers that
+    anchor on the host vehicle resolve it through _ego_state (face-1 OSI scene
+    preferred, face-2 telemetry fallback) and pass the chosen face as
+    `ego_source`, which the verdict carries so a telemetry fallback stays
+    visible (never silently presented as a face-1 result)."""
     kind = must.get("event")
     reason = must.get("reason", "")
 
-    def res(status, detail, fail_idx=None):
+    def res(status, detail, fail_idx=None, ego_source=None):
         out = {"event": kind, "status": status, "detail": detail, "reason": reason}
+        if ego_source is not None:
+            out["ego_source"] = ego_source
         if status == "fail" and fail_idx is not None:
             out["idx"] = fail_idx
             out["t"] = round(frames[fail_idx]["sim_time"], 3)
@@ -411,21 +489,27 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
     if kind in ("speed_above", "speed_below"):
         thr = float(must["threshold"])
-        gated = [(i, frames[i]["ego"]["speed"]) for i in range(len(frames))
+        gated = [(i, _ego_state(frames[i])) for i in range(len(frames))
                  if time_window_ok(frames[i]["sim_time"], must)]
         if not gated:
             return res("skip", "no frames in time window")
-        if kind == "speed_above":
-            ok = any(s >= thr for _, s in gated)
-            worst_i = max(gated, key=lambda p: p[1])[0]  # closest attempt
-            detail = f"max speed in window = {frames[worst_i]['ego']['speed']:.2f} (>= {thr}?)"
-            return res("pass" if ok else "fail", detail, None if ok else worst_i)
+        src = gated[0][1]["_source"]
+        speeds = {i: eg["speed"] for i, eg in gated}
+        # NB: a bare `if kind == "speed_above"` here would read as a second
+        # matcher-branch head to the coupling lint and mask this branch's
+        # _ego_state read; use a boolean so the whole branch stays one unit.
+        want_above = kind == "speed_above"
+        if want_above:
+            ok = any(s >= thr for s in speeds.values())
+            worst_i = max(speeds, key=speeds.get)  # closest attempt
+            detail = f"max speed in window = {speeds[worst_i]:.2f} (>= {thr}?)"
+            return res("pass" if ok else "fail", detail, None if ok else worst_i, ego_source=src)
         else:
-            offenders = [i for i, s in gated if s > thr]
+            offenders = [i for i, s in speeds.items() if s > thr]
             ok = not offenders
-            worst = max(s for _, s in gated)
+            worst = max(speeds.values())
             detail = f"max speed in window = {worst:.2f} (<= {thr}?)"
-            return res("pass" if ok else "fail", detail, None if ok else offenders[0])
+            return res("pass" if ok else "fail", detail, None if ok else offenders[0], ego_source=src)
 
     if kind == "min_speed_above":
         # Lowest speed in the window must stay above threshold: a "do not slow
@@ -433,17 +517,20 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # through). Optional road_id confines the window to one road/connector.
         thr = float(must["threshold"])
         road_id = must.get("road_id")
-        gated = [i for i in range(len(frames))
-                 if time_window_ok(frames[i]["sim_time"], must)
-                 and (road_id is None or int(frames[i]["ego"].get("track", -10 ** 9)) == road_id)]
+        states = {i: _ego_state(frames[i]) for i in range(len(frames))
+                  if time_window_ok(frames[i]["sim_time"], must)}
+        gated = [i for i, eg in states.items()
+                 if road_id is None or int(eg["track"] if eg["track"] is not None
+                                           else -10 ** 9) == road_id]
         if not gated:
             where = f" on road {road_id}" if road_id is not None else ""
             return res("skip", f"no frames in time window{where}")
-        worst_i = min(gated, key=lambda i: frames[i]["ego"]["speed"])
-        v_min = frames[worst_i]["ego"]["speed"]
+        src = states[gated[0]]["_source"]
+        worst_i = min(gated, key=lambda i: states[i]["speed"])
+        v_min = states[worst_i]["speed"]
         ok = v_min >= thr
         detail = f"min speed in window = {v_min:.2f} (>= {thr}?)"
-        return res("pass" if ok else "fail", detail, None if ok else worst_i)
+        return res("pass" if ok else "fail", detail, None if ok else worst_i, ego_source=src)
 
     if kind == "no_constraint_kind":
         # Assert the mid/long planner never raises a constraint of the given kind
@@ -463,21 +550,26 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                   f"'{target}' constraint")
         return res("pass" if ok else "fail", detail, None if ok else offenders[0])
 
-    # Lane events use the road-coordinate fields the telemetry exposes
-    # (ego.lane / ego.track). If a frame lacks them (older DLL) the event skips.
-    def lane_series() -> list[tuple[int, int, int]]:
-        out = []
-        for i, fr in enumerate(frames):
-            ego = fr["ego"]
-            if "lane" in ego and "track" in ego:
-                out.append((i, int(ego["track"]), int(ego["lane"])))
-        return out
-
+    # Lane events use the ego's road-coordinate anchor (road_id / lane). It is
+    # resolved through _ego_state, which prefers the face-1 OSI scene: the
+    # is_host object's lane_global_id joined against scene["lane_map"] (built
+    # from OSI Lane.source_reference) yields OpenDRIVE road_id/lane_id, falling
+    # back to the telemetry ego.track/ego.lane. A frame lacking both skips.
+    # (Building the series inline in each branch — rather than via a shared
+    # nested helper — keeps the _ego_state read inside the matcher's own branch,
+    # where the coupling lint's one-level inlining can see it.)
     if kind == "lane_keep":
         road_id = must.get("road_id")
         lane_id = must.get("lane_id")
-        ls = [(i, trk, ln) for (i, trk, ln) in lane_series()
-              if time_window_ok(frames[i]["sim_time"], must)]
+        ls, src = [], "telemetry"
+        for i, fr in enumerate(frames):
+            if not time_window_ok(fr["sim_time"], must):
+                continue
+            eg = _ego_state(fr)
+            if eg["lane"] is None or eg["track"] is None:
+                continue
+            src = eg["_source"]
+            ls.append((i, int(eg["track"]), int(eg["lane"])))
         if not ls:
             return res("skip", "no lane data in window (lane/track absent or empty window)")
         bad = [i for (i, trk, ln) in ls
@@ -485,17 +577,24 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         detail = (f"{len(ls)} frames in window on lane(s) "
                   f"{sorted(set(ln for _, _, ln in ls))} road(s) {sorted(set(trk for _, trk, _ in ls))}; "
                   f"expected road={road_id} lane={lane_id}")
-        return res("pass" if not bad else "fail", detail, None if not bad else bad[0])
+        return res("pass" if not bad else "fail", detail, None if not bad else bad[0], ego_source=src)
 
     if kind == "lane_change_count":
         expected = must.get("count")
-        ls = lane_series()
+        ls, src = [], "telemetry"
+        for i, fr in enumerate(frames):
+            eg = _ego_state(fr)
+            if eg["lane"] is None or eg["track"] is None:
+                continue
+            src = eg["_source"]
+            ls.append((i, int(eg["track"]), int(eg["lane"])))
         if not ls:
             return res("skip", "no lane data")
         changes = [ls[i][0] for i in range(1, len(ls)) if ls[i][2] != ls[i - 1][2]]
         ok = (expected is None) or (len(changes) == expected)
         detail = f"observed {len(changes)} lane change(s); expected {expected}"
-        return res("pass" if ok else "fail", detail, None if ok else (changes[0] if changes else None))
+        return res("pass" if ok else "fail", detail,
+                   None if ok else (changes[0] if changes else None), ego_source=src)
 
     # --- mid/long anticipation matchers (V2) ---------------------------------
     # "Physically plausible deceleration" judged from VirtualDriver telemetry
@@ -506,6 +605,12 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         if len(gated) < 3:
             return res("skip", "fewer than 3 frames in time window")
         prof = _speed_accel_jerk(frames, int(must.get("smooth_window", 5)))
+        # Anchor road_id/heading on the face-1 scene where captured (falls back
+        # to telemetry). `a_src` tells whether the acceleration judged below is
+        # the OSI signal or the telemetry central-difference fallback.
+        egos = {i: _ego_state(frames[i]) for i in gated}
+        src = egos[gated[0]]["_source"]
+        a_src = prof["a_source"]
 
         # Scope jerk/decel to the deceleration approach: [onset -> landmark
         # passage]. This excludes the launch-from-rest spike, the post-landmark
@@ -515,17 +620,18 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # speed_reduction_before_landmark.)
         road_id = must.get("road_id")
         landmark_s = must.get("landmark_s")
-        eval_idx, win = gated, ""
+        eval_idx, win = gated, f" [a={a_src}]"
         if landmark_s is not None:
             lm = next((i for i in gated
-                       if (road_id is None or int(frames[i]["ego"].get("track", -10 ** 9)) == road_id)
+                       if (road_id is None
+                           or int(egos[i]["track"] if egos[i]["track"] is not None else -10 ** 9) == road_id)
                        and prof["s"][i] >= float(landmark_s)), None)
             if lm is not None:
                 onset = next((i for i in gated if i <= lm and prof["a"][i] < -0.3), None)
                 if onset is not None and lm - onset >= 2:
                     eval_idx = [i for i in gated if onset <= i <= lm]
                     win = (f" [decel phase t{frames[onset]['sim_time']:.1f}-"
-                           f"{frames[lm]['sim_time']:.1f}s]")
+                           f"{frames[lm]['sim_time']:.1f}s, a={a_src}]")
 
         max_jerk = must.get("max_jerk")
         if max_jerk is not None:
@@ -533,7 +639,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             if abs(prof["j"][worst]) > float(max_jerk):
                 return res("fail",
                            f"max |jerk| = {abs(prof['j'][worst]):.2f} m/s^3 (<= {max_jerk}?){win}",
-                           worst)
+                           worst, ego_source=src)
 
         max_decel = must.get("max_decel")
         if max_decel is not None:
@@ -541,12 +647,13 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             if -prof["a"][worst] > float(max_decel):
                 return res("fail",
                            f"max deceleration = {-prof['a'][worst]:.2f} m/s^2 (<= {max_decel}?){win}",
-                           worst)
+                           worst, ego_source=src)
 
         wj = max(eval_idx, key=lambda i: abs(prof["j"][i]))
         wa = min(eval_idx, key=lambda i: prof["a"][i])
         return res("pass", f"max |jerk|={abs(prof['j'][wj]):.2f} m/s^3, "
-                           f"max decel={-prof['a'][wa]:.2f} m/s^2 within bounds{win}")
+                           f"max decel={-prof['a'][wa]:.2f} m/s^2 within bounds{win}",
+                   ego_source=src)
 
     if kind == "speed_reduction_before_landmark":
         landmark_s = must.get("landmark_s")
@@ -555,25 +662,25 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             return res("skip", "landmark_s and target_speed are required")
         tol = float(must.get("tolerance", 0.5))
         road_id = must.get("road_id")
-        hit = None
+        hit, hit_eg = None, None
         for i in range(len(frames)):
             if not time_window_ok(frames[i]["sim_time"], must):
                 continue
-            ego = frames[i]["ego"]
-            if "s" not in ego:
+            eg = _ego_state(frames[i])
+            if eg["s"] is None:  # along-lane s is telemetry-only (not in OSI)
                 continue
-            if road_id is not None and int(ego.get("track", -10 ** 9)) != road_id:
+            if road_id is not None and int(eg["track"] if eg["track"] is not None else -10 ** 9) != road_id:
                 continue
-            if ego["s"] >= float(landmark_s):
-                hit = i
+            if eg["s"] >= float(landmark_s):
+                hit, hit_eg = i, eg
                 break
         if hit is None:
             where = f" on road {road_id}" if road_id is not None else ""
             return res("skip", f"landmark s={landmark_s}{where} not reached")
-        v_hit = frames[hit]["ego"]["speed"]
+        v_hit = hit_eg["speed"]
         ok = v_hit <= float(target_speed) + tol
         detail = f"speed at landmark s={landmark_s} = {v_hit:.2f} m/s (<= {target_speed}+{tol}?)"
-        return res("pass" if ok else "fail", detail, None if ok else hit)
+        return res("pass" if ok else "fail", detail, None if ok else hit, ego_source=hit_eg["_source"])
 
     if kind == "steer_not_saturated":
         thr = float(must.get("threshold", 0.98))
@@ -662,18 +769,23 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         target_id = must.get("target_id")
         lane_half = float(must.get("lane_half_width", 2.5))
         eps, stop_speed = 0.1, 0.3
-        thws = []
+        thws, src = [], "telemetry"
         for i, fr in enumerate(frames):
             if not time_window_ok(fr["sim_time"], must):
                 continue
             scene = fr.get("scene")
             if not scene:
                 continue
-            ego = fr["ego"]
-            v = ego["speed"]
+            # Anchor the ego on the SAME face-1 scene frame as the lead (was
+            # telemetry ego vs scene lead — the mixed-basis THW §2.3a flagged);
+            # _ego_state falls back to telemetry when no scene is present, but
+            # this branch already requires a scene, so here it is the is_host.
+            eg = _ego_state(fr)
+            src = eg["_source"]
+            v = eg["speed"]
             if v < stop_speed:
                 continue  # standstill -> THW undefined
-            ch, sh = math.cos(ego["h"]), math.sin(ego["h"])
+            ch, sh = math.cos(eg["h"]), math.sin(eg["h"])
             ego_len = next((o["length"] for o in scene["objects"] if o.get("is_host")), 5.0)
             best = None  # (forward, lead_len)
             for o in scene["objects"]:
@@ -681,7 +793,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                     continue
                 if target_id is not None and o["id"] != target_id:
                     continue
-                dx, dy = o["x"] - ego["x"], o["y"] - ego["y"]
+                dx, dy = o["x"] - eg["x"], o["y"] - eg["y"]
                 forward = dx * ch + dy * sh
                 lateral = -dx * sh + dy * ch
                 if forward <= 0 or abs(lateral) > lane_half:
@@ -702,7 +814,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         hi_ok = (max_thw is None) or (val <= float(max_thw))
         detail = (f"p{pct:g} THW = {val:.2f}s over {len(thws)} frames "
                   f"(want {min_thw}..{max_thw}s)")
-        return res("pass" if (lo_ok and hi_ok) else "fail", detail)
+        return res("pass" if (lo_ok and hi_ok) else "fail", detail, ego_source=src)
 
     if kind == "min_separation_above":
         # Anti-collision gate: over the window, the minimum center-to-center

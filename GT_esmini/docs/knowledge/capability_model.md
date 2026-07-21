@@ -583,6 +583,29 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 うち **加速度系（deceleration_profile_smooth）は OSI に emit 済み**
 （`GT_OSIReporter_Moving.cpp:772-774`）＝ **配線を差し替えるだけで面1経由に移せる最有力候補**。
 
+> **✅ D 実施結果（2026-07-21, `spine-work:ego-anchor-face1-migration`）**: 自車アンカーを
+> `vd_metrics._ego_state`（scene 優先＋telemetry fallback＋使用面を verdict の `ego_source` に記録
+> ＝案b）に集約し、移行可能な matcher を面1へ付け替えた。lint（`--spine-report` coupling 節）の
+> 実測で **「判定が面1 OSI を一切読まない」10 → 3**、**「OSI 読むが面2アンカー併用」6 → 13**。
+> - **移行できた（7件）**: speed_above·below / min_speed_above / lane_keep / lane_change_count /
+>   deceleration_profile_smooth / speed_reduction_before_landmark（＋併用側 maintained_following_distance
+>   の自車アンカーも scene の is_host に統一し §2.3a の「2系統 ego」を解消）。
+> - **移行できない・据え置き（残り3件）**: no_constraint_kind（midlong.constraints）/
+>   no_emergency_without_conflict（policy.constraints source=aeb）/ steer_not_saturated（driver.steer）
+>   ＝いずれも VD 内部量で OSI GroundTruth に相当フィールドが無い（自車アンカーではない）。
+> - **面1化した観測量**: x/y/speed/h（is_host）、縦加速度（OSI `base.acceleration` を `_gt_to_scene` の
+>   `ax,ay`→方位投影で直読、`ego_accel_long` (b)→●、`deceleration_profile_smooth` の中心差分自前推定を
+>   廃し a_source=osi）、road_id（OSI `Lane.source_reference` の `road_id:` を初回フレームの
+>   `lane_map` に載せ、is_host の `assigned_lane_id` で join）。
+> - **面1化しない量（実測で確定した既知ギャップ）**: ① `s`（レーン沿い距離）＝OSI は MovingObject
+>   s_position を populate しない。② `lane`（車線）＝OSI `assigned_lane_id` は「オブジェクト位置レーン」で
+>   VD 追従 Position レーンと**別量**。red_stop_green_go 実測で ego が road 1 を進む間に assigned lane が
+>   -1→-2→-3 とドリフト（telemetry は lane -1 保持）＝62% 不一致。∴ lane_map は **road 粒度でのみ信頼**
+>   （road_id は実 road 遷移含め 777/777 一致）し、lane は telemetry 維持。これらの面1化には C++
+>   （GT_OSIReporter で s_position populate 等）が要り本 D の範囲外。
+> - **基準値**: full regression gate PASS、car_following 12 / AEB 5 とも baseline 比 **deviation 0**
+>   （面1移行後も verdict 不変）。
+
 ## 3. メタ所見
 
 1. **検証成熟度が主張ごとに極端に不均一**。道路/ODR層は①〜⑥ほぼ全通し（census＋conformance＋
@@ -631,8 +654,8 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 | signal 候補 | exposure | state |
 | :-- | :-- | :-- |
 | `ego_pose` / `ego_speed` | osi,hvd,frame | ● |
-| `ego_orientation`(roll/pitch/yaw) | osi,hvd | (b) |
-| `ego_accel_long` | osi | **(b)** ← 差し替え最有力（§2.3a） |
+| `ego_orientation`(roll/pitch/yaw) | osi,hvd | ● ← yaw配線済（D, §2.3a）。roll/pitch は未消費 |
+| `ego_accel_long` | osi | ● ← 配線済（D, §2.3a: a_source=osi） |
 | `ego_jerk` | derived | (a) |
 | `front_bumper_localization` | frame | (b) |
 | `obb_separation` / `object_poses` | osi,frame | ● |

@@ -97,7 +97,7 @@ _CROSSWALK_SYNTH_ID_BASE = 900000000
 
 # scene keys that hold static GroundTruth: emitted on the frame they were first
 # captured and forward-filled by vd_metrics.load_telemetry (they never change).
-_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects")
+_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects", "lane_map")
 
 
 
@@ -177,20 +177,35 @@ class _OsiCapture:
 def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     """Parse a raw GroundTruth frame into a lightweight scene dict:
 
-      objects:            [{id,name,x,y,h,speed,vx,vy,vz,length,width,is_host,type}]
+      objects:            [{id,name,x,y,h,speed,vx,vy,vz,ax,ay,az,length,width,
+                            is_host,type,lane_global_id}]
       traffic_lights:     [{id,x,y,h,color,mode,icon,assigned_lane_ids}]
       traffic_signs:      [{id,type,value,value_unit,x,y,h}]        (static, see below)
       stationary_objects: [{id,type,x,y,h,length,width,height,
                             odr_object_id,is_crosswalk,polygon}]    (static, see below)
+      lane_map:           {str(lane_global_id): {road_id,lane_id}}  (static, see below)
 
     Keys are only ever added, never repurposed: `speed` stays the scalar
     magnitude it always was and `vx,vy,vz` are additive, because the scalar
     destroys the sign of the approach ("is the pedestrian moving away?") that
-    OSI does carry (GT_OSIReporter_Moving.cpp:767-769).
+    OSI does carry (GT_OSIReporter_Moving.cpp:767-769). `ax,ay,az` are the OSI
+    longitudinal/lateral acceleration vector (base.acceleration,
+    GT_OSIReporter_Moving.cpp:772-774) — face-1's own acceleration, so the
+    mid/long matchers no longer have to reconstruct it from a speed difference.
+    `lane_global_id` is the object's OSI assigned_lane_id (GetLaneGlobalId,
+    GT_OSIReporter_Moving.cpp:777); joined against `lane_map` (built from OSI
+    Lane.source_reference, GT_OSIReporter_Geometry.cpp:1335-1344) it yields the
+    OpenDRIVE road_id/lane_id from face-1. The join is trustworthy at ROAD
+    granularity only: assigned_lane_id tracks the object's *reported-position*
+    lane, which diverges from the VD's tracked Position lane (measured
+    red_stop_green_go: assigned lane drifted -1->-3 while the VD stayed lane -1),
+    but all of a road's lanes share its road_id so road_id stays exact. Consumers
+    resolving the host's lane should keep the telemetry lane; use lane_map for
+    road_id (see vd_metrics._ego_state).
 
-    `traffic_signs` / `stationary_objects` are *static* GroundTruth and in the
-    default static-report mode are present on the first emitted frame only, so
-    these two keys are omitted from frames that carry no static content. The
+    `traffic_signs` / `stationary_objects` / `lane_map` are *static* GroundTruth
+    and in the default static-report mode are present on the first emitted frame
+    only, so these keys are omitted from frames that carry no static content. The
     caller is responsible for carrying them forward (run() below stores them,
     vd_metrics.load_telemetry forward-fills them for the matchers).
 
@@ -214,6 +229,7 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     for o in gt.moving_object:
         pos = o.base.position
         vel = o.base.velocity
+        acc = o.base.acceleration
         dim = o.base.dimension
         name = ""
         for ref in o.source_reference:
@@ -236,10 +252,17 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "vx": round(vel.x, 3),
             "vy": round(vel.y, 3),
             "vz": round(vel.z, 3),
+            "ax": round(acc.x, 3),
+            "ay": round(acc.y, 3),
+            "az": round(acc.z, 3),
             "length": round(dim.length, 2) if dim.length > 0 else 4.0,
             "width": round(dim.width, 2) if dim.width > 0 else 2.0,
             "is_host": (host_id is not None and o.id.value == host_id),
             "type": _MOVING_TYPE_MAP.get(o.type, "unknown"),
+            # OSI assigned_lane_id (global lane id); resolve to OpenDRIVE
+            # road_id/lane_id via scene["lane_map"]. None when OSI set no lane.
+            "lane_global_id": (o.assigned_lane_id[0].value
+                               if o.assigned_lane_id else None),
         }
         if dims_fallback:
             obj["dims_fallback"] = True
@@ -266,6 +289,36 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     scene = {"objects": objects, "traffic_lights": traffic_lights}
 
     # --- static GroundTruth (first emitted frame only) ----------------------
+    # OSI Lane -> OpenDRIVE road_id/lane_id table. esmini stamps every lane's
+    # source_reference with type="net.asam.opendrive" and identifiers
+    # road_id:<n>/road_s:<s>/lane_id:<m> (GT_OSIReporter_Geometry.cpp:1335-1344),
+    # and the Lane.id shares the global-id space with moving_object's
+    # assigned_lane_id, so this is a straight face-1 join key -> road/lane.
+    lane_map = {}
+    for ln in gt.lane:
+        road_id = lane_id = None
+        for ref in ln.source_reference:
+            if ref.type != "net.asam.opendrive":
+                continue
+            for ident in ref.identifier:
+                if ident.startswith("road_id:"):
+                    road_id = ident[len("road_id:"):]
+                elif ident.startswith("lane_id:"):
+                    lane_id = ident[len("lane_id:"):]
+        if road_id is None:
+            continue
+        try:
+            entry = {"road_id": int(road_id),
+                     "lane_id": int(lane_id) if lane_id is not None else None}
+        except ValueError:
+            continue
+        # str key: telemetry.jsonl round-trips dict keys through JSON as strings,
+        # so the consumer looks up str(lane_global_id) either way.
+        lane_map[str(ln.id.value)] = entry
+    if lane_map:
+        scene["lane_map"] = lane_map
+
+    # --- static GroundTruth: signs / stationary objects ---------------------
     traffic_signs = []
     for ts in gt.traffic_sign:
         main = ts.main_sign
