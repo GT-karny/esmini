@@ -246,14 +246,22 @@ set(GT_OSI_HEADERS
 # three times (gt_* + GT_esminiLib + GT_esminiLib_static). The module split lives on in
 # the GT_*_SOURCES variables.
 
-# GT-only: GT extension targets are Windows-only. GT is coupled to the MSVC-vendored OSI 3.7.0
-# package (externals/osi/v11); on Linux/macOS the toolchain resolves the older downloaded OSI 3.5.0
-# (GT_HostVehicleReporter uses OSI 3.7.0 vehicle_motion) and the frozen embedded-Python stack pulls
-# <windows.h>. Cross-platform GT support is tracked in issue #36. The configure logic above (options,
-# the "Embedded Python ... DISABLED" line the embedded-python CI job asserts) still runs on all OSes;
-# only the target creation below is gated so the upstream Linux/macOS test jobs build upstream-only.
-if(NOT WIN32)
-    message(STATUS "GT_esmini: non-Windows host -- GT extension targets skipped (issue #36); upstream targets still build")
+# GT-only: GT extension targets are Windows-only AND require the full external stack. GT is coupled to
+# the MSVC-vendored OSI 3.7.0 package (externals/osi/v11); on Linux/macOS the toolchain resolves the
+# older downloaded OSI 3.5.0 (GT_HostVehicleReporter uses OSI 3.7.0 vehicle_motion) and the frozen
+# embedded-Python stack pulls <windows.h>. Cross-platform GT support is tracked in issue #36.
+#
+# The external-module guard matters for the slim test-no-external-modules CI job (USE_OSG/OSI/SUMO=OFF):
+# on Windows that job would otherwise try to build GT (GT_OSIReporter needs OSI, GT_RoadGen needs OSG,
+# GT_esminiLib_static links transitive core/SUMO) and fail. Gating here (and the matching GT_OSMP_FMU
+# guard in the root CMakeLists) keeps that slim job upstream-only on every OS. The configure logic above
+# (options, the "Embedded Python ... DISABLED" line the embedded-python CI job asserts) still runs
+# everywhere; only the target creation below is gated.
+if(NOT WIN32
+   OR NOT USE_OSI
+   OR NOT USE_OSG
+   OR NOT USE_SUMO)
+    message(STATUS "GT_esmini: GT extension targets skipped (need Windows + USE_OSI/OSG/SUMO; issue #36); upstream targets still build")
     return()
 endif()
 
