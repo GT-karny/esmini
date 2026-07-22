@@ -16,6 +16,8 @@ static void EnsureWSA()
     }
 }
 #else
+#include <fcntl.h>   // fcntl / F_GETFL / F_SETFL / O_NONBLOCK (POSIX non-blocking socket)
+#include <unistd.h>  // close()
 static void EnsureWSA() {}
 #endif
 
