@@ -88,7 +88,12 @@ TEST(AdasFunctionReport, LeadVehicleMapsToTheStandardAdaptiveCruiseControlName)
     TrafficPolicySnapshot snap;
     snap.constraints.push_back(FromSource("lead_vehicle"));
 
-    const auto* lead = Find(BuildAdasFunctionReport(AllEnabled(), snap), "gt.lead_vehicle");
+    // NB: bind the report to a named local first -- Find() returns a pointer INTO the
+    // vector, so inlining BuildAdasFunctionReport() here would dangle once the temporary
+    // is destroyed at the end of the full expression (0xDDDDDDDD under the MSVC Debug
+    // heap; Release masked it by leaving the freed bytes intact).
+    const auto  report = BuildAdasFunctionReport(AllEnabled(), snap);
+    const auto* lead   = Find(report, "gt.lead_vehicle");
     ASSERT_NE(lead, nullptr);
     EXPECT_EQ(lead->name, osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL);
     EXPECT_EQ(lead->state, osi_adas::STATE_ACTIVE);
@@ -113,7 +118,10 @@ TEST(AdasFunctionReport, StopYieldIsActiveForEitherStopOrYieldSource)
         TrafficPolicySnapshot snap;
         snap.constraints.push_back(FromSource(source));
 
-        const auto* f = Find(BuildAdasFunctionReport(AllEnabled(), snap), "gt.stop_yield");
+        // named local: Find() points into the vector; a temporary would dangle (see
+        // LeadVehicleMapsToTheStandardAdaptiveCruiseControlName).
+        const auto  report = BuildAdasFunctionReport(AllEnabled(), snap);
+        const auto* f      = Find(report, "gt.stop_yield");
         ASSERT_NE(f, nullptr) << source;
         EXPECT_EQ(f->state, osi_adas::STATE_ACTIVE) << source;
     }

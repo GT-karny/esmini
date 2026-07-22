@@ -157,14 +157,49 @@ std::map<std::string, int64_t> ParsePyConstants(const std::string& content, cons
         {
             continue;
         }
+        const std::string full_name = m[1].str();
+        const std::string name      = m[2].str();
+        std::string       rhs       = m[3].str();
+
+        // Handle black-formatted multi-line parenthesized RHS, e.g.
+        //     RM_LANE_TYPE_ANY_DRIVING = (
+        //         RM_LANE_TYPE_DRIVING
+        //         | RM_LANE_TYPE_ENTRY
+        //         ...
+        //     )
+        // black wraps any `A | B | ...` composition longer than the line limit into this form, so
+        // the parser must join it back to a single `A | B | ...` expression before evaluating.
+        if (!rhs.empty() && rhs.front() == '(')
+        {
+            rhs.erase(0, 1);  // drop the opening '('
+            const std::size_t close = rhs.find(')');
+            if (close != std::string::npos)
+            {
+                rhs = rhs.substr(0, close);  // single-line "( ... )"
+            }
+            else
+            {
+                std::string more;
+                while (std::getline(in, more))
+                {
+                    const std::size_t rp = more.find(')');
+                    rhs += " " + (rp == std::string::npos ? more : more.substr(0, rp));
+                    if (rp != std::string::npos)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
         int64_t value = 0;
-        if (!EvalIntExpr(m[3].str(), full, value))
+        if (!EvalIntExpr(rhs, full, value))
         {
             bad_lines.push_back(line);
             continue;
         }
-        full[m[1].str()]   = value;
-        result[m[2].str()] = value;
+        full[full_name]   = value;
+        result[name]      = value;
     }
     return result;
 }

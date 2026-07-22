@@ -47,6 +47,10 @@
         </signals>
     </road>
     <road name="road_rht" length="100.0" id="2" junction="-1" rule="RHT">
+        <!-- GT test fixture fix (issue #37 sweep): signal ids must be unique document-wide
+             (test_OdrLhtRoadTransitions.SignalOrientationFollowsRoadRule expects 200/201 on the
+             RHT road). The earlier commit reused road 1's 100/101 here, so SignalById(rht,200)
+             returned null and the test aborted -- undetected while CI was dark. -->
         <planView>
             <geometry s="0.0" x="0.0" y="100.0" hdg="0.0" length="100.0">
                 <line/>
@@ -70,8 +74,8 @@
             </laneSection>
         </lanes>
         <signals>
-            <signal s="50.0" t="-6.0" id="100" name="speed_plus" dynamic="no" orientation="+" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
-            <signal s="50.0" t="6.0" id="101" name="speed_minus" dynamic="no" orientation="-" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
+            <signal s="50.0" t="-6.0" id="200" name="speed_plus" dynamic="no" orientation="+" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
+            <signal s="50.0" t="6.0" id="201" name="speed_minus" dynamic="no" orientation="-" zOffset="2.0" country="de" type="274" subtype="50" value="50" unit="km/h" height="0.8" width="0.8"/>
         </signals>
     </road>
 </OpenDRIVE>
