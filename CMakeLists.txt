@@ -309,9 +309,8 @@ add_subdirectory(EnvironmentSimulator)
 add_subdirectory(GT_esmini)
 # esmini_fmu links GT_esminiLib_static (audit BLD-1 repaired — no hand-copied GT source list anymore) and is part of ALL_BUILD again. Note:
 # EXCLUDE_FROM_ALL must NOT come back lightly — under the VS generator it also drops the target from esmini.sln, breaking `cmake --build build
-# --target esmini_fmu` (MSB1009).
-# GT-only: esmini_fmu links the Windows-only GT_esminiLib_static; skip it on Linux/macOS (GT extension is
-# Windows-only until issue #36). The upstream OSMP_FMU wrapper is unaffected.
+# --target esmini_fmu` (MSB1009). GT-only: esmini_fmu links the Windows-only GT_esminiLib_static; skip it on Linux/macOS (GT extension is Windows-only
+# until issue #36). The upstream OSMP_FMU wrapper is unaffected.
 if(WIN32)
     add_subdirectory(GT_OSMP_FMU)
 endif()
