@@ -49,11 +49,36 @@ lineages:
         upstream v3.4.1" (merged via c063e04b, upstream merge d7d7e20d "Merge tag 'v3.4.1'").
         Cross-check: the gt_roadmanager_patches.md census manifest pins RoadManager.cpp
         upstream_blob_sha 0f46c943..., which equals `git rev-parse v3.4.1:<path>`.
-    ported: []
+    ported:
+      - commit: 4f33b3be9ac56bb5ec51d56fbc0a341d9cc1f235   # "Fix wrong pivot pos for osi point calculation"
+        reason: >
+          PORTED verbatim (2026-07-23, feature/fork-sync-rm-osi-points, issue #37 Group A).
+          CheckAndAddOSIPoint gains x_last_ok/y_last_ok collectors so the pivot tangent
+          points are reset from the last OK position (not the last candidate); callers
+          SetLaneOSIPoints / SetLaneBoundaryPoints / SetRoadMarkOSIPoints updated to
+          declare/seed/pass them. Applied to GT_RoadManager.cpp plus the 2-line
+          CheckAndAddOSIPoint signature sync in the 2nd-class RoadManager.hpp
+          (census re-baselined). The formerly skipped
+          OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve was re-enabled in run_tests.sh
+          alongside (its CI failure was most likely cross-test crash contamination, not
+          this defect: it passes standalone pre- and post-port; see run_tests.sh comment).
+      - commit: 0403645c8eec9decbfd45e0a433a0fa1aef9bc55   # "Fix wrong s-value of tunnel OSI points"
+        reason: >
+          PORTED verbatim (2026-07-23, feature/fork-sync-rm-osi-points, issue #37 Group A).
+          CreateTunnelOSIPointsAndObjects: the two OutlineCornerRoad constructions (wall
+          and roof loops) now pass tunnel->s_ as center_s instead of 0.0, so
+          resolve_corners no longer adds the object s twice.
     notes: >
       The in-place 2nd-class edits (RoadManager.hpp, LaneIndependentRouter.*,
       ControllerLooming.cpp) share this base via the census manifest's
       baseline_upstream_tag: v3.4.1.
+
+      Companion commit taken with the 4f33b3be port (2026-07-23): upstream 01dbcf12
+      "Update testcases for updates OSI point calculations" -- test-expectation updates
+      only (RoadManager_test / ScenarioEngine_test / ScenarioEngineDll_test /
+      test/smoke_test.py), applied verbatim; it touches no lineage upstream_paths so it
+      never appears in the pending walk, recorded here for traceability. Its unrelated
+      new script scripts/scenario_scripts/create_curb_parking.py was NOT taken.
 
   - id: gt_osireporter
     description: >

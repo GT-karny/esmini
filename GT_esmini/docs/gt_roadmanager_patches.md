@@ -154,7 +154,7 @@ budget_groups:
 # --- 2nd-class file set (user-approved 2026-07-04; ScenarioEngine excluded) ---
 second_class_files:
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp
-    upstream_blob_sha: 8dbd661856ced5d7b120901a4c82dfe1fe9b6838
+    upstream_blob_sha: 55cce73cb817f5a72f4965f4d8845329e3b3f9a9   # upstream @4f33b3be (CheckAndAddOSIPoint +x_last_ok/y_last_ok; cherry-port 2026-07-23, §10.2)
     budget_nonblank: 77
     additive_only: true
     marker_census: {vj-model: 76, vj-synth: 1}  # S1 data model + S3 decl。2026-07-21 clang-format-15 準拠化: anchor メンバを upstream 桁揃えグループの外へ移設（グループ中央挿入だと clang-format が upstream 行を再整形し additive_only が破れる）+ 配置注意コメント3行 = 73→76, budget 75→77
@@ -162,7 +162,7 @@ second_class_files:
     pr_slice: "PR-A..D"
     status: active-S5              # hpp FROZEN at 74/75 through S5 (no data-model change; S5 is cpp-only)
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-    upstream_blob_sha: 0f46c9438473ce0393577e76633b8f71c526b3a0   # v3.4.1 (curb lane type joined upstream)
+    upstream_blob_sha: 23ceb307081892f812a4faf7c285d4261eccefca   # upstream @0403645c (v3.4.1 + OSI point fixes 4f33b3be/0403645c; cherry-port 2026-07-23, §10.2)
     budget_nonblank: 550
     additive_only: false
     marker_census: {vj-parse-link: 31, vj-parse-junction: 87, vj-synth: 134, vj-membership: 4, vj-osi-class: 6, vj-path: 83, vj-connect: 83, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
@@ -442,3 +442,12 @@ exclusions: []
 - **census 再基準化**: baseline_upstream_tag v3.4.0→v3.4.1。スナップショット 2 本追記(RoadManager.cpp@0f46c9438473 / OSIReporter.cpp@752dcaa0f3db、`git cat-file blob` バイト厳密 — record-baselines は HEAD blob 方式のため GT パッチ混入回避で不使用)。legacy_sites 行スパン +3 シフト(country-rev 4931→4934 / curvelocal 5290-5291→5293-5294)。実測: fork_odr_expect_lines 100→**99** / fork_odr_drift_expect_lines 94→**93** / マーカーリテラル 75 不変。
 - **R1 CMake 例外**: [GT_ODR:cmake]×2 / [GT_ODR:osi-path] とも upstream 未接触で生存。
 - **ゴールデン**: 再基準化**ゼロ**(`--update-golden` 不使用)。conformance full --check-matrix = PASS 350 / FAIL 0 / XFAIL 13 / XPASS 0(既存ゴールデン全一致 — curb は GT が先行対応済みだったため RM レーン型出力も不変)。unit ctest + upstream RoadManager_test(フォークビルド)緑、wasm 再ビルド+ブラウザスモーク PASS。
+
+### 10.2 OSI point 修正 2 件の cherry-port(2026-07-23、issue #37 Group A)
+
+- **対象**: upstream `4f33b3be` "Fix wrong pivot pos for osi point calculation"(CheckAndAddOSIPoint に x_last_ok/y_last_ok 追加・pivot 更新を last-OK 位置基準へ是正、呼び出し元 SetLaneOSIPoints / SetLaneBoundaryPoints / SetRoadMarkOSIPoints 3 箇所)+ `0403645c` "Fix wrong s-value of tunnel OSI points"(CreateTunnelOSIPointsAndObjects の OutlineCornerRoad 2 箇所で center_s=tunnel->s_)。
+- **適用**: フォーク `GT_RoadManager.cpp` と pristine `RoadManager.cpp` に**逐語ミラー**(各 +39/−12、変更行集合の一致を機械検証)。pristine 側は swap-build により非コンパイルのため挙動影響なし — census 二面チェックの基準整合のためのミラー。`RoadManager.hpp` はシグネチャ +2 行の第2種同期。
+- **census 再基準化**: snapshot 2 本前進 — RoadManager.cpp@23ceb3070818(upstream @0403645c blob)/ RoadManager.hpp@55cce73cb817(upstream @4f33b3be blob)、いずれも `git cat-file blob` バイト厳密(hash-object 一致実測、v3.4.1 時と同じ record-baselines 不使用方式)。マーカー census・予算・legacy_sites・fork_odr_* 全指標**不変**(実測: census OK / fork-drift 98/150 OK)。
+- **companion テスト期待値**: upstream `01dbcf12` "Update testcases for updates OSI point calculations" の Unittest 3 ファイル+ test/smoke_test.py ハンクを逐語適用(無関係な新規 create_curb_parking.py は除外)。実測値が upstream 新期待値と完全一致(例: MixedRoadsFixture.OSIPointTest Point(4).x 17.6344)= port が upstream と同一挙動である証拠。
+- **skip 解除**: `OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve` を run_tests.sh の SCENARIOPLAYER_SKIP から除去(当初 CI 失敗は同一バイナリ内の先行 OSI outline テストクラッシュ汚染の可能性が高く、単独では port 前後とも PASS — run_tests.sh コメント参照)。
+- **ゴールデン**: conformance quick = PASS 190 / FAIL 0 / XFAIL 3 / XPASS 0(再基準化ゼロ — RM probe/motion ゴールデンは OSI point pivot 修正の影響外)。
