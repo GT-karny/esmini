@@ -101,8 +101,11 @@ if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
     #   - OSI.TestDirectJunctions/TestLanePairingJunctionUnorderedRoads/TestGeoOffset*: upstream
     #     junction lane-pairing / geo-offset OSI evolution not ported (GT emits fewer objects ->
     #     repeated_field index CHECK under the Debug protobuf runtime).
-    #   - OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve: maps to pending upstream RoadManager fix
-    #     0403645c "Fix wrong s-value of tunnel OSI points" (not yet ported).
+    #   - OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve: re-enabled 2026-07-23. The original CI
+    #     failure was most likely cross-test contamination from a preceding OSI outline-test crash
+    #     in the same binary (chain start now removed by the skips above), not a RoadManager defect:
+    #     the test passes standalone and in batch, Debug and Release. The two upstream OSI point
+    #     fixes (4f33b3be pivot pos / 0403645c tunnel s-value) are ported to GT_RoadManager alongside.
     #   - TrafficSignals.TestTrafficSignalActions: GT traffic-signal-controller timing divergence
     #     (converges to <0.03 m at the final checkpoint; benign but outside the 1e-3 transient tol).
     # These are fork-lineage divergences, which GT governance treats as WARN-only / non-blocking
@@ -114,7 +117,6 @@ if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
     SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestOutlineOfVariousObjectTypes:OSI.TestStationaryObjects"
     SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestDirectJunctions:OSI.TestLanePairingJunctionUnorderedRoads"
     SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestGeoOffset:OSI.TestGeoOffsetIgnoreODROffset"
-    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve"
     if ! ${EXE_FOLDER}/ScenarioPlayer_test --disable_stdout --gtest_filter="$SCENARIOPLAYER_SKIP"; then
         exit_with_msg "ScenarioPlayer_test failed"
     fi
