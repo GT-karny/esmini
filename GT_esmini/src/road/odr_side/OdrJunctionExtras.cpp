@@ -352,7 +352,7 @@ void SynthesizeCrosswalks(OdrSideModel& model, roadmanager::OpenDrive* od)
                 {
                     continue;
                 }
-                const unsigned int oid = static_cast<unsigned int>(o->GetId());
+                const unsigned int oid = o->GetId();  // GetId() returns id_t (uint32_t); no cast needed (-Werror=useless-cast)
                 if (oid >= kCrosswalkSynthIdBase || oid == cand_id)
                 {
                     collide = true;
