@@ -350,24 +350,28 @@ jobs:
           cmake . -B build -G "Visual Studio 17 2022" -T v142 -A x64 -DUSE_OSI=OFF
           cmake --build build --config ${{ matrix.configuration }}
 
+      # GT-only: this is the SLIM (USE_OSI/OSG/SUMO=OFF) build. The smoke tests run full
+      # scenarios that emit OSI (test_ad_hoc_traffic needs ground_truth.osi) and exercise the
+      # osi-traffic_command code-example binary -- neither exists in a USE_OSI=OFF build, so smoke
+      # tests can only fail here (Release previously ran them; Debug already skipped). Smoke coverage
+      # lives in the full `test` job (USE_OSI=ON). Skip smoke unconditionally in every config here;
+      # the unit-test binaries (which is what "builds without external modules" is meant to prove)
+      # still run.
       - name: Run Tests - Linux
         if: runner.os == 'Linux'
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p --skip_smoke_test
 
       - name: Run Tests - macOS
         if: runner.os == 'macOS'
-        env:
-          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p $DEBUG_FLAG
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p --skip_smoke_test
 
       - name: Run Tests - Windows
         if: runner.os == 'Windows'
         env:
           GALLIUM_DRIVER: softpipe
           MESA_GL_VERSION_OVERRIDE: 4.5
-          DEBUG_FLAG: ${{ matrix.configuration == 'Debug' && '--skip_smoke_test' || '' }}
         shell: bash
-        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w $DEBUG_FLAG
+        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w --skip_smoke_test
 
       - name: Debugging with tmate
         if: ${{ failure() && env.USE_TMATE == 'true' }}
