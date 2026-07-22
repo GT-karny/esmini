@@ -357,13 +357,18 @@ jobs:
       # lives in the full `test` job (USE_OSI=ON). Skip smoke unconditionally in every config here;
       # the unit-test binaries (which is what "builds without external modules" is meant to prove)
       # still run.
+      # GT-only: no -p (performance test) here. run_tests.sh's perf step runs performance_test.py from
+      # the build Unittest dir, but the Linux Ninja `--target install` build does not stage that script
+      # there (VS/macOS generators do), so ubuntu Release failed with "performance_test.py: No such file".
+      # The perf benchmark isn't the point of the slim no-external job (which proves "builds + unit tests
+      # pass without external modules"); the full `test` job keeps -p. Dropped on every OS for consistency.
       - name: Run Tests - Linux
         if: runner.os == 'Linux'
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p --skip_smoke_test
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} --skip_smoke_test
 
       - name: Run Tests - macOS
         if: runner.os == 'macOS'
-        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p --skip_smoke_test
+        run: ${{ matrix.os == 'ubuntu-22.04' && 'xvfb-run' || '' }} ./scripts/run_tests.sh -b ${{ matrix.configuration }} --skip_smoke_test
 
       - name: Run Tests - Windows
         if: runner.os == 'Windows'
@@ -371,7 +376,7 @@ jobs:
           GALLIUM_DRIVER: softpipe
           MESA_GL_VERSION_OVERRIDE: 4.5
         shell: bash
-        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -p -w --skip_smoke_test
+        run: ./scripts/run_tests.sh -b ${{ matrix.configuration }} -w --skip_smoke_test
 
       - name: Debugging with tmate
         if: ${{ failure() && env.USE_TMATE == 'true' }}
