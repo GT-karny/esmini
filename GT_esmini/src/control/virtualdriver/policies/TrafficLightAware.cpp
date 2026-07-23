@@ -1,4 +1,5 @@
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 #include "gt_esmini/control/virtualdriver/policies/RouteSignalScan.hpp"
 
 #include "Entities.hpp"
@@ -99,6 +100,20 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
             stop = TrafficLightShouldStop(phase, s.distance_ahead, ctx.ego->GetSpeed(), cfg_.params);
             if (stop) committed_[id] = true;
         }
+
+        // Diagnostics for both decisions (tokens: red/yellow/green/unknown):
+        // phase + distance explain a pass-through (green, or a yellow too close
+        // to brake for) as well as a hold; `committed` marks the stop latch that
+        // survives a shrinking yellow gap or a brief scan loss.
+        AddDetail(snap.detail, "gt.traffic_light.signal_id", id);
+        AddDetail(snap.detail,
+                  "gt.traffic_light.phase",
+                  phase == TrafficLightPhase::RED      ? "red"
+                  : phase == TrafficLightPhase::YELLOW ? "yellow"
+                  : phase == TrafficLightPhase::GREEN  ? "green"
+                                                       : "unknown");
+        AddDetail(snap.detail, "gt.traffic_light.dist_m", s.distance_ahead);
+        AddDetail(snap.detail, "gt.traffic_light.committed", static_cast<bool>(committed_[id]));
 
         if (stop)
         {

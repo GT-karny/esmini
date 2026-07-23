@@ -423,7 +423,12 @@ UNAVAILABLE（config で無効）** の3値＝「AEBは見張っていて撃た�
 ##### 残る債務（本作業で意図的に触っていない）
 
 - ~~`GT_esminiLib.cpp` の `adasNames[]` の並びが **OSI `Name` 列挙順とずれている**~~ → **2026-07-20 解消**（下記）。
-- 他5 policy の `custom_detail` は未実装（W3 は AEB のみ）。規約と口は共通なので追加は各 policy の1-2行。
+- ~~他5 policy の `custom_detail` は未実装（W3 は AEB のみ）~~ → **2026-07-24 解消**: 全6 policy が
+  `gt.<policy>.*` を emit。負の診断優先（lead=gap/sstar で「快適車間ゆえ非制約」、traffic_light=
+  phase/dist/committed で「青/黄不可避ゆえ通過」、stop_yield=最寄り標識の sign_id/dist/phase
+  （approach/hold/creep/cleared）、conflict_point=priority_pruned で「優先権ゆえ非譲歩」＋
+  governing other_id/stop_s、crosswalk=crosswalks/peds 数＋committed の object_id/road_id/stop_s）。
+  id・トークン用に `AddDetail` の int/const char* オーバーロードを規約ごと拡張（PolicyDetail.hpp）。
 
 ##### 実装（2026-07-20, 固定24枠の `Name` 整合）
 

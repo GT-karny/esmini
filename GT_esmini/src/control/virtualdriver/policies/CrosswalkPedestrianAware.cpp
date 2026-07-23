@@ -1,5 +1,7 @@
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
 
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
+
 #include "Entities.hpp"
 #include "RoadManager.hpp"
 
@@ -259,6 +261,12 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
         peds.push_back(ps);
     }
 
+    // Decision scope this frame (W3 pattern, negative case included): a silent
+    // frame with both counts non-zero means "evaluated and not blocked", which
+    // used to be indistinguishable from "saw nothing ahead".
+    AddDetail(snap.detail, "gt.crosswalk.crosswalks", static_cast<int>(scan.crosswalks.size()));
+    AddDetail(snap.detail, "gt.crosswalk.peds", static_cast<int>(peds.size()));
+
     const double ego_half_width = 0.5 * ego->boundingbox_.dimensions_.width_;
     const double ego_x          = ego->pos_.GetX();
     const double ego_y          = ego->pos_.GetY();
@@ -356,6 +364,12 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
     }
 
     if (!committed_) return snap;  // free to proceed
+
+    // Which crosswalk is holding the ego (identifiers were previously squashed
+    // into the bare source string — the W2-shaped information loss).
+    AddDetail(snap.detail, "gt.crosswalk.object_id", static_cast<int>(committed_object_id_));
+    AddDetail(snap.detail, "gt.crosswalk.road_id", static_cast<int>(committed_road_id_));
+    AddDetail(snap.detail, "gt.crosswalk.stop_s_m", committed_stop_s_);
 
     PolicyConstraint c;
     c.kind   = PolicyConstraint::Kind::STOP_AT_S;

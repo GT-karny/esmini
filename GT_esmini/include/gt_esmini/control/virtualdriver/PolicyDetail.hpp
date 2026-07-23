@@ -37,7 +37,11 @@
 //                        _mps2, _rad). The unit lives in the KEY, never in
 //                        the value, so consumers parse a plain number.
 //   * value            — fixed 3-decimal decimal string ("%.3f"), or
-//                        "true"/"false" for booleans.
+//                        "true"/"false" for booleans. Unitless discretes take
+//                        no unit suffix: identifiers/counts are plain integer
+//                        strings ("%d"), enum-like states are lower-case
+//                        tokens ("hold", "red") from a finite set the emitting
+//                        policy documents at its call site.
 // ============================================================================
 
 namespace gt_esmini
@@ -54,6 +58,22 @@ inline void AddDetail(PolicyDetail& detail, const std::string& key, double value
 inline void AddDetail(PolicyDetail& detail, const std::string& key, bool value)
 {
     detail.emplace_back(key, std::string(value ? "true" : "false"));
+}
+
+// Identifiers and counts (unitless): plain integer string. Also disambiguates
+// AddDetail(d, k, 42), which would otherwise be ambiguous between the double
+// and bool overloads.
+inline void AddDetail(PolicyDetail& detail, const std::string& key, int value)
+{
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%d", value);
+    detail.emplace_back(key, std::string(buf));
+}
+
+// Enum-like states: a lower-case token from a finite, policy-documented set.
+inline void AddDetail(PolicyDetail& detail, const std::string& key, const char* value)
+{
+    detail.emplace_back(key, std::string(value));
 }
 
 }  // namespace gt_esmini

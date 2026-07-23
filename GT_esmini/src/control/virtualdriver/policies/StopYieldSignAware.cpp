@@ -1,4 +1,5 @@
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 #include "gt_esmini/control/virtualdriver/policies/RouteSignalScan.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"
 #include "gt_esmini/road/OdrSideExtras.hpp"
@@ -136,6 +137,22 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
         return osi;  // no behavioural semantics -> unchanged
     };
 
+    // Diagnostics (W3 pattern) for the NEAREST governing priority sign only —
+    // the scan is distance-ordered, so the first stop/yield sign is the one
+    // whose state answers "why did/didn't the ego stop here". Tokens:
+    // yield / approach / hold / creep / cleared ("cleared" is the negative case
+    // that used to be undiagnosable: sign visible, dwell already served).
+    auto phase_token = [](stop_fsm::Phase p) -> const char* {
+        switch (p)
+        {
+            case stop_fsm::Phase::APPROACH: return "approach";
+            case stop_fsm::Phase::HOLD:     return "hold";
+            case stop_fsm::Phase::CREEP:    return "creep";
+            default:                        return "cleared";
+        }
+    };
+    bool detail_done = false;
+
     std::vector<int> visible_stop_ids;
     for (const auto& s : signals)
     {
@@ -144,6 +161,13 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
 
         if (osi == roadmanager::Signal::TYPE_GIVE_WAY)
         {
+            if (!detail_done)
+            {
+                detail_done = true;
+                AddDetail(snap.detail, "gt.stop_yield.sign_id", id);
+                AddDetail(snap.detail, "gt.stop_yield.dist_m", s.distance_ahead);
+                AddDetail(snap.detail, "gt.stop_yield.phase", "yield");
+            }
             // YIELD: decelerate to a creep up to the sign. No stop (deferred to 3d).
             PolicyConstraint c;
             c.kind   = PolicyConstraint::Kind::MAX_SPEED_TO_S;
@@ -155,13 +179,25 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
         else if (osi == roadmanager::Signal::TYPE_STOP)
         {
             visible_stop_ids.push_back(id);
-            stop_fsm::State& st = stop_states_[id];
-            if (st.phase == stop_fsm::Phase::CLEARED) continue;  // already done
+            stop_fsm::State& st         = stop_states_[id];
+            const bool       first_sign = !detail_done;
+            if (first_sign)
+            {
+                detail_done = true;
+                AddDetail(snap.detail, "gt.stop_yield.sign_id", id);
+                AddDetail(snap.detail, "gt.stop_yield.dist_m", s.distance_ahead);
+            }
+            if (st.phase == stop_fsm::Phase::CLEARED)
+            {
+                if (first_sign) AddDetail(snap.detail, "gt.stop_yield.phase", "cleared");
+                continue;  // already done
+            }
 
             // Target a point stop_margin before the sign so the front halts at the
             // line and the sign stays in scan (FSM sees adjusted dist ~ 0 when stopped).
             const double dist_adj = std::max(0.0, s.distance_ahead - cfg_.stop_margin);
             PolicyConstraint c = stop_fsm::Update(st, dist_adj, v_ego, now, cfg_.stop);
+            if (first_sign) AddDetail(snap.detail, "gt.stop_yield.phase", phase_token(st.phase));
             if (c.kind != PolicyConstraint::Kind::NONE)
             {
                 c.source = "stop_sign";

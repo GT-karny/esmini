@@ -2,6 +2,7 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"  // F3: GetJunctionPriorities (P5 side model)
 
 #include <algorithm>
@@ -548,13 +549,14 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
     }
 
     // ── Per-frame scan: find the nearest governing space-time conflict. ────────
-    bool   gov_found    = false;
-    double gov_se_in    = 0.0;  // ego region entry arc-length of the governing conflict
-    double gov_exit_x   = 0.0;  // governing other's region-exit world point (release ref)
-    double gov_exit_y   = 0.0;
-    double gov_exit_tx  = 1.0;  // other's path tangent at the exit (fixed release axis)
-    double gov_exit_ty  = 0.0;
-    int    gov_other_id = -1;
+    bool   gov_found          = false;
+    double gov_se_in          = 0.0;  // ego region entry arc-length of the governing conflict
+    double gov_exit_x         = 0.0;  // governing other's region-exit world point (release ref)
+    double gov_exit_y         = 0.0;
+    double gov_exit_tx        = 1.0;  // other's path tangent at the exit (fixed release axis)
+    double gov_exit_ty        = 0.0;
+    int    gov_other_id       = -1;
+    int    pruned_by_priority = 0;  // conflicts dropped because the ego out-ranked them (F3)
 
     // Cache of the scan pass keyed on the CURRENTLY-latched governing id, so the
     // latch block below reuses this frame's PredictPath/region instead of redoing
@@ -610,6 +612,7 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
                 junction_priority::Resolve(ego_conn, oth_conn, ego_priorities) ==
                     junction_priority::Relation::EGO_PRIORITY)
             {
+                ++pruned_by_priority;
                 continue;
             }
         }
@@ -776,7 +779,15 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         committed_exit_ty_  = gov_exit_ty;
     }
 
+    // Negative diagnosis (W3 pattern): a right-of-way pass-through must stay
+    // distinguishable from "saw no conflict at all" — this count is the only
+    // externally visible trace that F3 priority actively dropped candidates.
+    if (have_ego_priority) AddDetail(snap.detail, "gt.conflict_point.priority_pruned", pruned_by_priority);
+
     if (!committed_) return snap;  // free to proceed — no constraint
+
+    AddDetail(snap.detail, "gt.conflict_point.other_id", committed_other_id_);
+    AddDetail(snap.detail, "gt.conflict_point.stop_s_m", committed_stop_s_);
 
     PolicyConstraint c;
     c.kind   = PolicyConstraint::Kind::STOP_AT_S;
