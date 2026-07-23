@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:1389ec4d39573ca7 -->
+<!-- generated-from: sha256:c2a2a51007e11611 -->
 
 ノード 170・辺 174（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -174,7 +174,6 @@ flowchart LR
     n_matcher_speed_below["speed_below"]
     n_matcher_min_speed_above["min_speed_above"]
     n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
-    n_matcher_min_separation_above["min_separation_above"]
     n_matcher_lane_keep["lane_keep"]
     n_matcher_steer_not_saturated["steer_not_saturated"]
     n_matcher_no_constraint_kind["no_constraint_kind"]
@@ -199,6 +198,7 @@ flowchart LR
     n_gate_vd_behavior_regression["vd-behavior-regression"]
     n_gate_aeb_safety_regression["aeb-safety-regression"]
     n_gate_anticipation_driving_regression["anticipation-driving-regression"]
+    n_gate_integration_ctest["integration-ctest"]
     n_gate_regression_gate["regression-gate"]
     n_gate_unit_ctest["unit-ctest"]
     n_gate_odr_conformance_quick["odr-conformance-quick"]
@@ -351,7 +351,6 @@ flowchart LR
   n_matcher_impact_speed_below -->|observes| n_signal_pedestrian_velocity_vector
   n_matcher_maintained_following_distance -->|observes| n_signal_object_poses
   n_matcher_maintained_following_distance -->|observes| n_signal_ego_speed
-  n_matcher_min_separation_above -->|observes| n_signal_object_poses
   n_matcher_min_obb_separation_above -->|observes| n_signal_obb_separation
   n_matcher_impact_speed_below -->|observes| n_signal_obb_separation
   n_matcher_impact_speed_below -->|observes| n_signal_object_poses
@@ -372,6 +371,7 @@ flowchart LR
   n_matcher_lane_keep -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_steer_not_saturated -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_no_constraint_kind -->|sustained-by| n_gate_anticipation_driving_regression
+  n_feature_F6 -->|sustained-by| n_gate_integration_ctest
   n_gate_regression_gate -->|depends-on| n_gate_unit_ctest
   n_gate_regression_gate -->|depends-on| n_gate_odr_conformance_quick
   n_gate_regression_gate -->|depends-on| n_gate_vd_behavior_regression
@@ -495,7 +495,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (19)
+### observes (18)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -513,7 +513,6 @@ flowchart LR
 | `matcher:impact_speed_below` | `signal:pedestrian_velocity_vector` | _closing_speed が scene.objects[].vx,vy（OSI 速度ベクトル）を第一候補として読む （2026-07-21）。従来は速度スカラー＋heading から再構成しており、**自機の heading と 逆向きに動く物体（後退車・車道から後ずさる歩行者）の符号を落としていた**。 heading 再構成は旧テレメトリ向けの後方互換 fallback として残置。 |
 | `matcher:maintained_following_distance` | `signal:object_poses` | scene.objects[]（正規IF＝面1 OSI 直結の4件のうち1件） |
 | `matcher:maintained_following_distance` | `signal:ego_speed` | THW = gap / speed の分母 |
-| `matcher:min_separation_above` | `signal:object_poses` | 中心間ユークリッド距離。**DEPRECATED（2026-07-21 判断）**: min_obb_separation_above の 厳密な劣位版であり、復活させる価値が無い。中心間距離は隣接レーン通過（中心間 ~2.8m）を 「接近」と誤読するのに対し OBB 版は車体が重ならないことを正しく安全と読む （vd_metrics.py:685-687 のコメント自身がこの移行理由を述べている）。参照資産0件（実測）。 **扱い＝新規資産で使わない・実装は当面残置**。実装削除は vd_metrics.py の変更＝ 本作業のスコープ外のため別コミットで行う（削除時は namespaces.yaml の matcher id_pattern と count:16 も同時に更新すること）。「保留」ではなく廃止確定であり、 デッド matcher を派生レポートが毎回「未配線」として再検出するのを止めるためこの note を根拠に置く。 |
 | `matcher:min_obb_separation_above` | `signal:obb_separation` | SAT による OBB 分離（隣接レーン通過での誤検出を避けるため中心間距離から移行） |
 | `matcher:impact_speed_below` | `signal:obb_separation` | OBB 接触判定と接近速度の組み合わせ |
 | `matcher:impact_speed_below` | `signal:object_poses` | 相手の位置・方位・速度 |
@@ -573,7 +572,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (16)
+### sustained-by (17)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -593,6 +592,7 @@ flowchart LR
 | `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id は面1 lane_map(source_reference) 経由、lane は telemetry（OSI assigned_lane_id は VD Position レーンと別量のため。§2.3a D 実施結果）。 |
 | `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
+| `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |
 
 ### upstream-candidate (6)
 

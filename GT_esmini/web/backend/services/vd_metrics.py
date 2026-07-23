@@ -985,38 +985,11 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
         return res("pass" if (lo_ok and hi_ok) else "fail", detail, ego_source=src)
 
-    if kind == "min_separation_above":
-        # Anti-collision gate: over the window, the minimum center-to-center
-        # distance between the ego (is_host) and EVERY other scene object must stay
-        # >= threshold. Requires capture_osi (telemetry.scene). Unlike a speed proxy
-        # this cannot false-positive: it measures the actual closing distance, so it
-        # catches a collision regardless of how the ego moves.
-        thr = float(must["threshold"])
-        worst_sep = None  # (sep, frame_idx)
-        for i, fr in enumerate(frames):
-            if not time_window_ok(fr["sim_time"], must):
-                continue
-            scene = fr.get("scene")
-            if not scene:
-                continue
-            ego = next((o for o in scene["objects"] if o.get("is_host")), None)
-            if ego is None:
-                continue
-            for o in scene["objects"]:
-                if o.get("is_host"):
-                    continue
-                sep = math.hypot(o["x"] - ego["x"], o["y"] - ego["y"])
-                if worst_sep is None or sep < worst_sep[0]:
-                    worst_sep = (sep, i)
-        if worst_sep is None:
-            return res("skip", "no scene frames in time window")
-        sep, worst_i = worst_sep
-        ok = sep >= thr
-        detail = (
-            f"min center-to-center separation = {sep:.2f} m at "
-            f"t={frames[worst_i]['sim_time']:.2f} (>= {thr}?)"
-        )
-        return res("pass" if ok else "fail", detail, None if ok else worst_i)
+    # "min_separation_above" (center-to-center distance) was removed 2026-07-24:
+    # it was a strictly inferior twin of min_obb_separation_above (an adjacent-lane
+    # pass at ~2.8 m center distance reads as "close" while the OBB test correctly
+    # reads non-overlapping bodies as safe) and no asset ever referenced it.
+    # Rationale is recorded on the matcher namespace in graph.yaml (DEPRECATED note).
 
     if kind == "min_obb_separation_above":
         # Anti-collision gate, OBB (oriented bounding box) edition. Over the window,

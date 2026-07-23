@@ -26,7 +26,7 @@ defaults:
   dt: 0.05
   max_time: 35.0
   snapshots: 3
-  osi: true   # min_separation_above (anti-collision gate) reads the captured OSI scene
+  osi: true   # min_obb_separation_above (anti-collision gate) reads the captured OSI scene
 scenarios:
   - scenario: resources/scenario_authoring/scenario_templates/generated/07_oncoming_yield__p017.xosc
     expectations: resources/xosc/verification/07_oncoming_yield/p017_yield.expectations.yaml

@@ -818,19 +818,13 @@ edges:
     type: observes
     source: GT_esmini/web/backend/services/vd_metrics.py
     note: THW = gap / speed の分母
-  - from: matcher:min_separation_above
-    to: signal:object_poses
-    type: observes
-    source: GT_esmini/web/backend/services/vd_metrics.py
-    note: >-
-      中心間ユークリッド距離。**DEPRECATED（2026-07-21 判断）**: min_obb_separation_above の
-      厳密な劣位版であり、復活させる価値が無い。中心間距離は隣接レーン通過（中心間 ~2.8m）を
-      「接近」と誤読するのに対し OBB 版は車体が重ならないことを正しく安全と読む
-      （vd_metrics.py:685-687 のコメント自身がこの移行理由を述べている）。参照資産0件（実測）。
-      **扱い＝新規資産で使わない・実装は当面残置**。実装削除は vd_metrics.py の変更＝
-      本作業のスコープ外のため別コミットで行う（削除時は namespaces.yaml の matcher
-      id_pattern と count:16 も同時に更新すること）。「保留」ではなく廃止確定であり、
-      デッド matcher を派生レポートが毎回「未配線」として再検出するのを止めるためこの note を根拠に置く。
+  # DEPRECATED→削除済み: matcher:min_separation_above -> signal:object_poses の observes 辺は
+  # 2026-07-24 に実装削除と同時に撤去（辺だけ残すと lint が id_pattern 不一致で落ちるため）。
+  # 判断の記録（2026-07-21 確定）: 中心間ユークリッド距離は min_obb_separation_above の
+  # 厳密な劣位版であり復活させる価値が無い。中心間距離は隣接レーン通過（中心間 ~2.8m）を
+  # 「接近」と誤読するのに対し OBB 版は車体が重ならないことを正しく安全と読む
+  # （vd_metrics.py の OBB 実装コメント自身がこの移行理由を述べている）。参照資産0件（実測）。
+  # 実装削除時に namespaces.yaml の matcher id_pattern / count 16→15 も同時更新済み。
   - from: matcher:min_obb_separation_above
     to: signal:obb_separation
     type: observes
@@ -950,6 +944,23 @@ edges:
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
     note: cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。
+
+  # ---- ⑥常設: AutoLight/F6 の判定・常設は GT_Loader 統合テストに内包 ----
+  # spine-work:vertical-wiring（2026-07-24）: 行列の生成ビュー化で AutoLight 行の
+  # ⑤⑥が「✕＝結線欠落」と出た。実体は matcher でなく GT_esmini_Integration_* の
+  # per-test アサーション（AutoLight/LightStateAction 6 ＋ F6 環境ヘッドライト 5）
+  # ＝ gate:integration-ctest 内オラクル。sustained-by の from は従来 req/matcher
+  # だが、matcher 台帳の外で判定される主張（feature 級）はこの辺でしか⑥に到達
+  # できないため feature を from に許す（意味は同じ「どの常設ゲートで守られるか」。
+  # opt-in・blocking:false の弱い常設であることは gate 側の台帳が持つ）。
+  - from: feature:F6
+    to: gate:integration-ctest
+    type: sustained-by
+    source: GT_esmini/docs/knowledge/gate_catalog.yaml
+    note: >-
+      F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test
+      アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。
+      「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。
 
   # ---- ゲート同士の構造（傘ラダーの構成） ----
   - from: gate:regression-gate

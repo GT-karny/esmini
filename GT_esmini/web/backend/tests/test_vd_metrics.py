@@ -183,28 +183,6 @@ def test_no_constraint_kind():
     assert eval_must({"event": "no_constraint_kind"}, frames)["status"] == "skip"
 
 
-def test_min_separation_above_from_scene():
-    def scene_frame(t, others):
-        fr = _frame(t, 10.0)
-        objs = [{"id": 0, "x": 0.0, "y": 0.0, "h": 0.0, "is_host": True}]
-        objs += [
-            {"id": i + 1, "x": x, "y": y, "h": 0.0} for i, (x, y) in enumerate(others)
-        ]
-        fr["scene"] = {"objects": objs}
-        return fr
-
-    frames = [scene_frame(0.0, [(50.0, 0.0)]), scene_frame(1.0, [(3.0, 4.0)])]
-    r = eval_must({"event": "min_separation_above", "threshold": 4.0}, frames)
-    assert r["status"] == "pass"  # min separation = 5.0 m
-    r = eval_must({"event": "min_separation_above", "threshold": 6.0}, frames)
-    assert r["status"] == "fail" and r["idx"] == 1
-    # no scene at all -> skip
-    r = eval_must(
-        {"event": "min_separation_above", "threshold": 1.0}, [_frame(0.0, 10.0)]
-    )
-    assert r["status"] == "skip"
-
-
 def test_min_obb_separation_fallback_dims_inconclusive():
     fr = _frame(0.0, 10.0)
     fr["scene"] = {

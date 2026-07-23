@@ -267,10 +267,14 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_separation_above|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 16
+    count: 15
+    notes: >-
+      min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
+      2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
+      matcher 節 DEPRECATED note）。
 
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）
