@@ -14,9 +14,41 @@
 #include "OSIReporter.hpp"
 #include "GT_OSIReporter_Internals.hpp"
 #include <array>
+#include <cctype>
+#include <cstdlib>
 #include <map>
 
 constexpr const char *SOURCE_REF_TYPE_OSC = "net.asam.openscenario";
+
+// [GT_MOD #37 G4] Env gate for the GT-only future_trajectory (Shadow Simulation) output.
+// Default ON (GT behavior unchanged): the gate only disables when GT_OSI_FUTURE_TRAJECTORY is
+// explicitly set to a falsy value (0/false/off/no). Unset or any other value -> enabled.
+// Rationale: the projected trajectory inflates/reshapes the OSI MovingObject message relative to
+// pristine upstream, which is intentional GT surface -- but upstream unit tests
+// (GroundTruthTests.check_* exact serialized sizes, GetOSIRoadLaneTest.lane_no_obj) assert
+// byte-exact upstream layouts. Those test binaries cannot call GT config APIs, so an env var
+// (read once, same lazy-init idiom as GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY in OdrJunctionGeom)
+// lets run_tests.sh turn the field off for the upstream suites only.
+static bool FutureTrajectoryEnabled()
+{
+    static int cached = -1;  // -1 = uninitialized, 0 = disabled, 1 = enabled
+    if (cached < 0)
+    {
+        bool        disabled = false;
+        const char *v        = std::getenv("GT_OSI_FUTURE_TRAJECTORY");
+        if (v != nullptr && v[0] != '\0')
+        {
+            std::string s(v);
+            for (char &c : s)
+            {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            disabled = (s == "0" || s == "false" || s == "off" || s == "no");
+        }
+        cached = disabled ? 0 : 1;
+    }
+    return cached == 1;
+}
 
 static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, id_t roadId)
 {
@@ -569,7 +601,11 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
         }
 
         // [New] Generate Future Trajectory
-        if (this->scenario_engine_)
+        // [GT_MOD #37 G4] env-gated (GT_OSI_FUTURE_TRAJECTORY=0 disables; default ON). This single
+        // block is the only producer of osi3 future_trajectory points: the ghost trail_ sampling
+        // below and both GenerateProjectedTrajectory call sites (whose add_future_trajectory lives
+        // inside that helper) are all reached exclusively from here.
+        if (this->scenario_engine_ && FutureTrajectoryEnabled())
         {
             int id = objectState.id_;
             scenarioengine::Object* targetObj = this->scenario_engine_->entities_.GetObjectById(id);
