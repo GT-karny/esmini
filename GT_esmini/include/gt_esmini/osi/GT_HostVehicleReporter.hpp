@@ -85,22 +85,14 @@ public:
     void SetPowertrain(int vehicle_id, double rpm, double torque);
 
     /**
-     * Add or update ADAS function state
-     * @param vehicle_id Vehicle ID
-     * @param function_name OSI function name (e.g., "ADAPTIVE_CRUISE_CONTROL")
-     * @param state OSI function state (0-6)
-     */
-    void AddADASFunction(int vehicle_id, const std::string& function_name, int state);
-
-    /**
      * Add or update one ADAS function using the OSI Name enum (W1).
      *
-     * AddADASFunction() above always lands as NAME_OTHER + custom_name, because
-     * its callers only have a label. This overload carries the real OSI
-     * `Name` enum value plus the custom_detail KVs, which is what makes the
-     * function machine-identifiable to any OSI consumer instead of merely
-     * human-readable. Both paths coexist: ControllerRealDriver / PythonDriver
-     * keep the fixed-24-slot label path unchanged.
+     * Carries the real OSI `Name` enum value plus the custom_detail KVs, which
+     * is what makes the function machine-identifiable to any OSI consumer
+     * instead of merely human-readable. The label-only AddADASFunction()
+     * predecessor (always NAME_OTHER, no detail) was removed once every caller
+     * — including the fixed-24-slot ControllerRealDriver / PythonDriver path —
+     * had migrated here; NAME_OTHER rows are still expressible via osi_name.
      *
      * @param vehicle_id  Vehicle ID
      * @param osi_name    osi3 ...VehicleAutomatedDrivingFunction_Name value
@@ -194,8 +186,8 @@ private:
         {
             std::string name;
             int state;
-            // W1: -1 means "no OSI Name known" -> emitted as NAME_OTHER, which is
-            // exactly what the legacy AddADASFunction() label path always did.
+            // W1: -1 means "no OSI Name known" -> emitted as NAME_OTHER
+            // (defensive default; AddADASFunctionEx always sets a real value).
             int osi_name = -1;
             std::vector<std::pair<std::string, std::string>> detail;  // -> custom_detail
         };

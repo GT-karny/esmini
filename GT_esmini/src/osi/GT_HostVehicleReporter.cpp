@@ -162,31 +162,6 @@ void GT_HostVehicleReporter::SetPowertrain(int vehicle_id, double rpm, double to
     cache.torque = torque;
 }
 
-void GT_HostVehicleReporter::AddADASFunction(int vehicle_id, const std::string& function_name, int state)
-{
-    auto& cache = input_cache_[vehicle_id];
-
-    // Update existing or add new
-    bool found = false;
-    for (auto& func : cache.adas_functions)
-    {
-        if (func.name == function_name)
-        {
-            func.state = state;
-            found = true;
-            break;
-        }
-    }
-
-    if (!found)
-    {
-        InputCache::ADASFunction func;
-        func.name = function_name;
-        func.state = state;
-        cache.adas_functions.push_back(func);
-    }
-}
-
 void GT_HostVehicleReporter::AddADASFunctionEx(int                                                     vehicle_id,
                                                int                                                     osi_name,
                                                const std::string&                                      custom_name,
@@ -360,7 +335,7 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     }
 
     // 4. ADAS functions
-    // GT_Step populates ADAS via AddADASFunction for all controller types.
+    // GT_Step populates ADAS via AddADASFunctionEx for all controller types.
     // Always apply input_cache_ ADAS functions (replaces any from base_data).
     if (input_cache_.count(vehicle_id) > 0)
     {

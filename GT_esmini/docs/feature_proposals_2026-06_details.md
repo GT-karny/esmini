@@ -173,9 +173,9 @@
 
 - **対象**: 警報・TOR(テイクオーバー要求)実験を設計するHMI/ヒューマンファクター研究者。
 - **ストーリー**: XOSCに「先行車急減速の2秒前にFCW警報」「トンネル進入5秒後にTOR発出」をGT拡張アクションとして記述。警報がクラスタ画面に表示され、OSI HVDのADAS状態として外部HMI実機へも配信。発火時刻はイベントマーカーとしてテレメトリに記録され反応時間計測の基準点になる。
-- **既存資産**: GT_ScenarioReader::ParseExtensionActionsの確立済み注入パターン、ExtraAction.cppのGT_TrafficSignalControllerAction実装雛形、GT_StepポストステップManager連鎖、GT_HostVehicleReporter::AddADASFunction(custom_name+stateの汎用ADAS出力口)、JSON-over-UDPレポーター雛形(GT_ScenarioVariablesReporter 48200)。
+- **既存資産**: GT_ScenarioReader::ParseExtensionActionsの確立済み注入パターン、ExtraAction.cppのGT_TrafficSignalControllerAction実装雛形、GT_StepポストステップManager連鎖、GT_HostVehicleReporter::AddADASFunctionEx(OSI Name列挙+custom_name+state+custom_detailの汎用ADAS出力口。label-onlyの旧AddADASFunctionは2026-07-24削除済み)、JSON-over-UDPレポーター雛形(GT_ScenarioVariablesReporter 48200)。
 - **欠落**: シナリオ語彙に「HMIイベント(警報/TOR)」という概念が存在しない。OSI HVDのADAS状態はコントローラ読み出し専用でシナリオ側から駆動する経路が無い。F6(AutoLight)は灯火の話で別物。
-- **設計**: ExtraAction.cppにGT_HMIEventAction(event_type=TOR/FCW/LDW/カスタム、severity、duration)追加。発火イベントは新HMIEventBusシングルトンに積み、GT_Stepポストステップで (a)AddADASFunction経由OSI HVD (b)新GT_HMIEventReporter(JSON-over-UDP) (c)C API GT_GetHMIEvents で出力。
+- **設計**: ExtraAction.cppにGT_HMIEventAction(event_type=TOR/FCW/LDW/カスタム、severity、duration)追加。発火イベントは新HMIEventBusシングルトンに積み、GT_Stepポストステップで (a)AddADASFunctionEx経由OSI HVD (b)新GT_HMIEventReporter(JSON-over-UDP) (c)C API GT_GetHMIEvents で出力。
 - **依存**: なし(P16/P18と束でDiL実験系が完結)。R5-U3とは独立(灯火に触らない)。
 - **リスク**: UDPポート追加は慣例固定群との衝突回避(48203はP2/P35と取り合い — ポート台帳調停要)。外部HMI実機との名前規約(例: gt.hmi.tor=1)の文書化。
 - **審査**: 3面とも完成形の前例がありクリーンな拡張 / DiL実験成立の要石 / 'critical'評価はDiL実験需要前提でP16/P18と束でないと単独MVPの価値が出ない。
