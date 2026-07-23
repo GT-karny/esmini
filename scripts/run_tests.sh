@@ -89,56 +89,56 @@ if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
     fi
 
     echo $'\n'ScenarioPlayer_test:
-    # GT-only skip (fork drift, issue #37): these upstream OSI/traffic-signal tests assert the
-    # CURRENT upstream OSIReporter / RoadManager behavior, but GT swaps in GT_OSIReporter.cpp /
-    # GT_RoadManager.cpp which are forked from an OLDER upstream and have not re-synced the
-    # relevant refactors (check_fork_sync.py: gt_osireporter / gt_roadmanager lineages behind
-    # master). Root-caused 2026-07:
-    #   - OSI.TestStationaryObjects/TestOrientationAndOutline/TestOutlineOfVariousObjectTypes:
-    #     upstream refactored stationary-object OSI to a road-info (`ri`) struct + build_outline_polygon
-    #     + a corrected z formula (ri.z + h/2). GT still uses GetZ()+GetZOffset()+h/2, which double-
-    #     counts z (reports z=8 where upstream expects 4) and lacks the outline/label rework.
-    #   - OSI.TestDirectJunctions/TestLanePairingJunctionUnorderedRoads/TestGeoOffset*: upstream
-    #     junction lane-pairing / geo-offset OSI evolution not ported (GT emits fewer objects ->
-    #     repeated_field index CHECK under the Debug protobuf runtime).
-    #   - OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve: re-enabled 2026-07-23. The original CI
-    #     failure was most likely cross-test contamination from a preceding OSI outline-test crash
-    #     in the same binary (chain start now removed by the skips above), not a RoadManager defect:
-    #     the test passes standalone and in batch, Debug and Release. The two upstream OSI point
-    #     fixes (4f33b3be pivot pos / 0403645c tunnel s-value) are ported to GT_RoadManager alongside.
+    # GT-only skip (fork drift, issue #37): as of this commit, GT_OSIReporter has been re-synced with
+    # upstream 752dcaa0..77028d83 (stationary/outline/markings rework cbf22f5a + ed95d1c6 + 4ab787ac,
+    # plus c0a143d5 open-outline idx bounds guard -- see fork_sync_manifest.yaml gt_osireporter
+    # lineage). Root-cause re-triage 2026-07 found the drift was NOT "junction lane-pairing / geo-offset
+    # evolution not ported" as previously written here: OSI.TestDirectJunctions,
+    # TestLanePairingJunctionUnorderedRoads, TestGeoOffset[IgnoreODROffset] all PASS standalone on the
+    # pre-port binary -- their batch failures were cascading contamination from the outline tests
+    # throwing a fatal protobuf CHECK (open/unclosed base_polygon, double-counted z) without releasing
+    # the ScenarioPlayer, corrupting state for whatever ran next in the same process. The real drift was
+    # confined to OSI.TestStationaryObjects / TestOrientationAndOutline / TestOutlineOfVariousObjectTypes
+    # (old GT body: raw per-corner z via GetZ()+GetZOffset()+h/2 double-counting height, no outline
+    # closure, no `restrictions:` label prefix, single-instance-only <repeat> handling) -- all fixed by
+    # the port above and re-enabled below.
+    # OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve was likewise re-enabled (2026-07-23): its original
+    # CI failure was the same cross-test contamination, not a RoadManager defect (passes standalone and
+    # in batch, Debug and Release). The two upstream OSI point fixes (4f33b3be pivot pos / 0403645c
+    # tunnel s-value) are ported to GT_RoadManager alongside (gt_roadmanager lineage, pending=0).
+    # Still skipped (intentional GT divergence, not un-synced drift):
     #   - TrafficSignals.TestTrafficSignalActions: GT traffic-signal-controller timing divergence
     #     (converges to <0.03 m at the final checkpoint; benign but outside the 1e-3 transient tol).
-    # These are fork-lineage divergences, which GT governance treats as WARN-only / non-blocking
-    # (check_fork_sync). Skipped at the invocation site to keep the upstream test source pristine
-    # (R1) until the GT_OSIReporter re-sync tracked in issue #37. Concrete drift-bugs (z=8) are
-    # captured there so rigor is deferred, not dropped.
+    #   - OSI.TestTrafficLightStates: GT_RoadManager [GT_LHT] 1-E resolves signal orientation by the
+    #     road's traffic rule, assigning the correct-side lane on LHT test roads (global id 6 vs
+    #     upstream's RHT-assumption 2). Intentional GT fix; upstream PR candidate.
     SCENARIOPLAYER_SKIP='-TrafficSignals.TestTrafficSignalActions'
-    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestTrafficLightStates:OSI.TestOrientationAndOutline"
-    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestOutlineOfVariousObjectTypes:OSI.TestStationaryObjects"
-    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestDirectJunctions:OSI.TestLanePairingJunctionUnorderedRoads"
-    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestGeoOffset:OSI.TestGeoOffsetIgnoreODROffset"
+    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestTrafficLightStates"
     if ! ${EXE_FOLDER}/ScenarioPlayer_test --disable_stdout --gtest_filter="$SCENARIOPLAYER_SKIP"; then
         exit_with_msg "ScenarioPlayer_test failed"
     fi
 
     echo ${EXE_FOLDER}/ScenarioEngineDll_test
-    # GT-only skip (fork drift, issue #37): same GT_OSIReporter divergence as the ScenarioPlayer_test
-    # OSI block. These assert upstream's OSI GroundTruth serialized sizes / sign counts, which differ
-    # because GT_OSIReporter emits a different message shape (traffic-light / sign / object handling not
-    # re-synced with upstream). Root-caused 2026-07: GroundTruthTests.check_frequency_* and
-    # check_update_osi_ground_truth_* assert exact serialized byte sizes (e.g. msg_size 12534 vs the
-    # 10000 cap) that GT's larger/rearranged GroundTruth exceeds; OSILaneParing.Signs expects 10 OSI
-    # signs but GT emits 0; GetOSIRoadLaneTest.lane_no_obj asserts upstream lane-object OSI layout.
-    # GroundTruthTests keeps 6 passing tests (crop / frequency_change / teleport) -- only the 6
-    # size/content-exact ones are skipped. Fork-lineage divergence = WARN-only per GT governance;
-    # skipped pending the GT_OSIReporter re-sync (issue #37), upstream test source kept pristine (R1).
+    # GT-only skip (issue #37): GroundTruthTests.check_frequency_* / check_update_osi_ground_truth_* /
+    # check_GroundTruth_including_init_state / check_update_gt_twice_same_frame assert EXACT serialized
+    # OSI GroundTruth byte sizes (e.g. msg_size 12534 vs a fixed cap). This is not fork drift in the
+    # ported functions -- it is GT's own intentional extension surface (future_trajectory projection,
+    # HVD-related fields, assigned_lane_id correction, sentinel guards, ...) permanently inflating/
+    # reshaping the message relative to pristine upstream. Re-baselining these exact-size assertions is
+    # tracked separately (G4 judgment call), not part of this OSIReporter fork-sync.
+    # GetOSIRoadLaneTest.lane_no_obj: same root cause -- GT's future_trajectory generation (Moving.cpp
+    # GenerateProjectedTrajectory) adds points the upstream lane/OSI layout assertion for this fixture
+    # does not expect. Intentional GT divergence, not a bug; re-baseline judgment deferred to G4.
+    # OSILaneParing.Signs re-enabled below: root cause was GT_OSIReporter_Traffic.cpp using the local
+    # per-road signal id (signal->GetId()) instead of the process-wide global id upstream switched to
+    # (752dcaa0..77028d83, #747-line) -- fixed by this commit (G2).
     SCENARIOENGINEDLL_SKIP='-GroundTruthTests.check_GroundTruth_including_init_state'
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_frequency_explicit"
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_frequency_implicit"
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_update_gt_twice_same_frame"
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_update_osi_ground_truth_api"
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_update_osi_ground_truth_api_and_log"
-    SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GetOSIRoadLaneTest.lane_no_obj:OSILaneParing.Signs"
+    SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GetOSIRoadLaneTest.lane_no_obj"
     if ! ${EXE_FOLDER}/ScenarioEngineDll_test --disable_stdout --gtest_filter="$SCENARIOENGINEDLL_SKIP"; then
         exit_with_msg "ScenarioEngineDll_test failed"
     fi

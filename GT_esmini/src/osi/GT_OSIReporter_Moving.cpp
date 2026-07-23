@@ -875,8 +875,9 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
         }
     }
 
-    // Set 3D model file as OSI model reference
-    obj_osi_internal.mobj->set_model_reference(objectState.GetModel3DFilename());
+    // [fork-sync #37 G3] Set 3D model file as OSI model reference. Upstream 752dcaa0..77028d83 switched
+    // this from the bare filename (GetModel3DFilename) to the full resolved path (GetModel3DFullPath).
+    obj_osi_internal.mobj->set_model_reference(objectState.GetModel3DFullPath());
 
     // SOURCE REFERENCE
     auto source_reference = obj_osi_internal.mobj->add_source_reference();
@@ -886,6 +887,16 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
     source_reference->add_identifier(fmt::format("entity_type:{}", entity_type));
     source_reference->add_identifier(fmt::format("entity_name:{}", objectState.name_));
 
+    // [fork-sync #37 G3] Color (ported from upstream): report the authored <Color> (if any) as an OSI
+    // color_description RGB triplet.
+    if (!objectState.GetColorStr().empty())
+    {
+        auto rgb = objectState.GetColorRgb();
+        obj_osi_internal.mobj->mutable_color_description()->mutable_rgb()->set_red(rgb.r);
+        obj_osi_internal.mobj->mutable_color_description()->mutable_rgb()->set_green(rgb.g);
+        obj_osi_internal.mobj->mutable_color_description()->mutable_rgb()->set_blue(rgb.b);
+    }
+
     // Set source reference if available
     if (!objectState.GetSourceReference().empty())
     {
@@ -893,6 +904,14 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
         {
             source_reference->add_identifier(ref);
         }
+    }
+
+    // [fork-sync #37 G3] Set outline if available (ported from upstream): obj.outline_2d_ -> base_polygon.
+    for (const auto &p : objectState.outline_2d_)
+    {
+        osi3::Vector2d *vec = obj_osi_internal.mobj->mutable_base()->add_base_polygon();
+        vec->set_x(p.x);
+        vec->set_y(p.y);
     }
 
     return 0;

@@ -90,7 +90,11 @@ int OSIReporter::UpdateStaticTrafficSignals()
                 else
                 {
                     osi3::TrafficSign *trafficSign = obj_osi_internal.static_gt->add_traffic_sign();
-                    trafficSign->mutable_id()->set_value(static_cast<unsigned int>(signal->GetId()));
+                    // [fork-sync #37 G2] upstream 752dcaa0..77028d83 (#747-line) switched traffic_sign.id
+                    // from the local per-road signal id to the process-wide global id (matches every other
+                    // OSI entity: stationary_object, lane, lane_boundary, ...). Local GetId() collides across
+                    // roads and is not what OSILaneParing.Signs (and any consumer keyed on OSI id) expects.
+                    trafficSign->mutable_id()->set_value(signal->GetGlobalId());
                     trafficSign->mutable_main_sign()->mutable_classification()->mutable_value()->set_value(signal->GetValue());
                     trafficSign->mutable_main_sign()->mutable_classification()->mutable_value()->set_text(signal->GetText());
                     // GT-fix (bug ①): GetOSIType() may hold the protobuf sentinel
