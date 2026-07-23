@@ -73,21 +73,45 @@ lineages:
       - EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.cpp
       - EnvironmentSimulator/Modules/ScenarioEngine/SourceFiles/OSIReporter.hpp
     base:
-      commit: 8d2ebfb752e9d4535487dfedd04bdd9c03a85ee1   # "Add basic VehicleLightState info in API"
+      commit: c0a143d5f075d364a8c95e9bfd7158ab1daac645   # "Add outline polygon idx out of bounds check"
       method: git-history
       evidence: >
-        R5-U4 (feature/upstream-u4-osi-lights). Advanced from v3.3.0 (ab7c404d) after
-        reviewing every upstream OSIReporter.cpp/.hpp commit up to 8d2ebfb7:
-          * 8d2ebfb7 "Add basic VehicleLightState info in API" -- PORTED. The OSI light-state
-            block + the five Get*LightMode mappers are re-implemented GT-side in
-            GT_OSIReporter_Moving.cpp, reading the native Object::vehLghtStsList[] storage
-            (the R5-U3 single source of truth) gated on DirtyBit::LIGHT_STATE via the
-            has_lightstate_action_ latch. This replaced the former g_LightStateProvider hook
-            (which after R5-U3 was only a thin indirection over the same storage), removing
-            the last light dual-system. The commit's non-OSI parts (Entities.hpp `emitting`
-            flag, esminiLib/OSCPrivateAction VehicleLightState API, C# wrapper) are out of
-            scope for the OSI fork lineage and untouched (R1 keeps EnvironmentSimulator
-            pristine; GT exposes its own light API via GT_esminiLib).
+        fork-sync #37 groups G1-G3 (feature/fork-sync-osireporter-g123, 2026-07). Advanced from
+        8d2ebfb7 after discovering the previous base advance had reviewed-but-not-fully-ported
+        four upstream commits that are ALL ancestors of 8d2ebfb7 (so they were correctly marked
+        "covered" by the base pointer, but the corresponding GT-side reimplementation was never
+        actually written):
+          * cbf22f5a "Refactor road objects and add object markings" (2026-06-01) + ed95d1c6
+            "Calculate positions once" (2026-06-09) + 4ab787ac "Refine and extend demo scenario"
+            (2026-06-02, OSIReporter.cpp hunk only) -- together the stationary/outline/markings
+            rework: RMObject::UpdateOSIStationaryObjectODR rewritten around a `RepeatInstance`
+            (`ri`) struct + `build_outline_polygon` lambda (per-repeat-instance emission via
+            object->GetRepeatInstances(road), corrected z = ri.z + height/2, outline-polygon
+            closure for open outlines, `restrictions:` source-reference label prefix) and a new
+            OSIReporter::UpdateOSIRoadMarkingsODR + ODRColor2OSIMarkingColor (GT had no
+            implementation despite the declaration already existing in shared OSIReporter.hpp).
+            NOW PORTED (G1) into GT_esmini/src/osi/GT_OSIReporter.cpp, function-for-function,
+            preserving GT's P8 invalidated-object skip in the caller.
+          * 81ec9e62 "Fix missing global ids in odr signals global #747" (2026-01-07) -- switched
+            traffic_sign.id from the local per-road signal id (signal->GetId()) to the process-
+            wide global id (signal->GetGlobalId()), matching every other OSI entity. NOW PORTED
+            (G2) into GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp:97 (one line + rationale
+            comment); no in-repo consumer of the OSI traffic_sign id assumed the old local-id
+            semantics (grep audit: VD policies / web backend / DriverScript key off
+            roadmanager::Signal directly, never off the serialized OSI traffic_sign.id).
+          * c0a143d5 "Add outline polygon idx out of bounds check" (2026-07-13, new base) --
+            the `desired_idx >= 0` guard in the open-outline closure loop. Ported as part of G1
+            (it lives inside the same build_outline_polygon lambda).
+        Also folded in as G3 (same commits' broader diff, moving/OSC-stationary object fields
+        that were previously missing from the GT split-fork): outline_2d_ -> base_polygon,
+        color_description RGB (obj.GetColorStr()/GetColorRgb()), and
+        GetModel3DFilename()->GetModel3DFullPath() for both UpdateOSIMovingObject
+        (GT_OSIReporter_Moving.cpp) and the OSC-side UpdateOSIStationaryObject
+        (GT_OSIReporter.cpp).
+        `git log 8d2ebfb7..upstream/master -- OSIReporter.cpp OSIReporter.hpp` confirms c0a143d5
+        is the only commit after 8d2ebfb7 touching these paths, so the new base is also the
+        current upstream/master tip for this lineage (77028d83, "Clarification in release
+        notes", touches neither path).
           * ca2153cb "Support OSI compression via zlib" + f15ca58d "Prototype zip osi"
             (ancestors of 8d2ebfb7) -- REVIEWED & REJECTED, deliberately NOT ported. See notes.
     ported: []
