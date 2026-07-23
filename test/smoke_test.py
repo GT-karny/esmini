@@ -289,7 +289,10 @@ class TestSuite(unittest.TestCase):
         self.assertTrue(re.search('\\n33.200, 0, Ego, 23.401, 600.127, -0.826, 1.448, 6.283, 0.000, 23.659, 0.020, 3.029', csv))
         self.assertTrue(re.search('\\n45.000, 0, Ego, 32.161, 688.644, -0.922, 1.461, 0.003, 0.000, 0.053, -0.001, 5.844', csv))
 
-    @unittest.skip("GT fork-divergence vs upstream golden positions (issue #37)")
+    @unittest.skip("RNG-distribution outcome divergence, NOT RoadManager/LHT fork logic (ruled out: "
+                   "junction-free RHT road, no GT marker reachable, consuming sources byte-identical to "
+                   "upstream; most entities bit-exact vs golden, one spawn heading + one trailer pick "
+                   "differ). Root cause not fully proven -- see issue #37 triage 2026-07-24")
     def test_swarm(self):
         log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/swarm.xosc'), COMMON_ESMINI_ARGS + ' --seed 1' + ' --fixed_timestep 0.1')
 
@@ -1949,7 +1952,11 @@ class TestSuite(unittest.TestCase):
         self.assertTrue(re.search('^40.100, 0, ego, 358.970, -1.535, 0.000, 0.000, 0.000, 0.000, 1.000, 0.000, 4.314', csv, re.MULTILINE))
         self.assertTrue(re.search('^40.100, 1, actor_1, 385.150, -1.535, 0.000, 0.000, 0.000, 0.000, 1.000, 0.000, 2.527', csv, re.MULTILINE))
 
-    @unittest.skip("GT fork-divergence vs upstream golden positions (issue #37)")
+    @unittest.skip("OSI 3.7.0 enum-alias presentation: TYPE_CAR and TYPE_MEDIUM_CAR are aliases for "
+                   "value 4, and 3.7.0 declares TYPE_CAR first so osi2csv.py prints CAR where the "
+                   "golden expects MEDIUM_CAR. All injection/position assertions match the golden "
+                   "exactly; classification VALUE unchanged. Permanent GT platform divergence "
+                   "(OSI 3.7.0 vs upstream 3.5.0, see gt_roadmanager_patches.md) -- issue #37 triage 2026-07-24")
     def test_ad_hoc_traffic(self):
         # this test case exercises the action injection mechanism
 
@@ -2403,7 +2410,11 @@ class TestSuite(unittest.TestCase):
         # needs to be done explicitly.
         self.controller_conflict_common('1_3')
 
-    @unittest.skip("GT fork-divergence vs upstream golden positions (issue #37)")
+    @unittest.skip("RNG-distribution outcome divergence in VehiclePool::GetRandomVehicle trailer pick "
+                   "(truck1 towed 0 trailers vs golden's 3; every other entity/field bit-exact, ids "
+                   "shifted by the missing-trailer count). ControllerSumo/VehiclePool/VehicleCatalog "
+                   "byte-identical to upstream; NOT RoadManager/LHT fork logic. Same family as "
+                   "test_swarm -- see issue #37 triage 2026-07-24")
     def test_cut_in_sumo(self):
         if use_package("SUMO"):
             log, duration, cpu_time, _ = run_scenario(os.path.join(ESMINI_PATH, 'resources/xosc/cut-in_sumo.xosc'), COMMON_ESMINI_ARGS + "--seed 2 --fixed_timestep 0.5 --log_level debug")
