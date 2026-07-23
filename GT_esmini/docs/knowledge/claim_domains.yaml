@@ -1,0 +1,148 @@
+# 主張ドメイン行定義（能力モデル行列の「行」の単一真実源）
+#
+# capability_model.md §2 の行列は 2026-07-24 以降 **生成ビュー**
+# （`check_knowledge_graph.py --spine-matrix`）であり、本ファイルはその行定義。
+# 行 ＝「再現していると主張する挙動のドメイン」（面1∪面2 の主張、§0）。
+#
+# **本ファイルが持つのは所属（membership）だけで、セル値は持たない。**
+# セル値（●/◐/○/✕/？）は生成器が台帳（signal/gate/req/scene/vd-func カタログ＋
+# vd_metrics.py の matcher 台帳）と graph.yaml の辺（observes / verifies /
+# sustained-by / stimulated-by / realizes）から毎回計算する。手動フラグは腐る
+# （§2 の手書き行列は5回以上の手修正を経て本ビューに置換された）。
+# 計算できないセルは「？＝計算不能」と出る — それ自体が結線の欠落の検出である。
+#
+# フィールド（lint が値域と ID 解決を hard 検査する）:
+#   id       : 内容 slug（§7.1 規約4。序数・連番は不可）
+#   title    : §2 の行見出し（日本語）
+#   face     : 主張の所有面。"1"（OSI/OpenX シム）| "2"（VD ほか SUT 側）
+#   signals  : この主張を裏付ける観測量（signal_catalog.yaml の id）。④観測の分母
+#   funcs    : 実装台帳（function_catalog_vd_ad.yaml）。"all" か id リスト。③の分母
+#   reqs     : 主張台帳（requirements_vd_ad.yaml）。"all" か id リスト。①②③⑤の分母
+#   scenes   : 刺激台帳（scene_catalog_vd_ad.yaml）。"all" か id リスト。②の分母
+#   modifiers: 刺激の共有軸（scene_catalog の modifiers.axis）。②の分母
+#   features : feature 名前空間の主張（例 F6）。①と sustained-by 経由の⑤⑥
+#   gates    : ゲート台帳の直接所属（gate_catalog.yaml の id）。
+#              **matcher/req/feature からの sustained-by 辺で到達できない行
+#              （面1 適合系）に限って使う**。辺で表せる所属は辺に書く。
+#   claim_namespaces: 主張台帳が独自 namespace で管理される行（ODR）の参照
+#   impl_namespaces : 実装台帳が独自 namespace で管理される行（ODR の fork-patch）の参照
+#   stimulus_paths  : 刺激資産のディレクトリ（存在チェックのみ＝弱い証拠）
+#   note     : 所属の根拠と、計算不能セルの背景（判断の一次記録。値は書かない）
+#
+# 行の粒度は §8 既決: B1-B6 で行を増やさない（vd-func の layer/kind 属性で切る）。
+
+meta:
+  derived_from: GT_esmini/docs/knowledge/capability_model.md  # §2 の9行を初期値に
+  seeded: 2026-07-24  # spine-work:vertical-wiring
+
+domains:
+  - id: vd-autonomous-behavior
+    title: VD 自動運転挙動
+    face: "2"
+    signals: [ego_pose, ego_speed, ego_orientation, ego_accel_long, ego_jerk,
+              front_bumper_localization, lead_vehicle_gap, obb_separation,
+              object_poses, pedestrian_velocity_vector, traffic_light_state,
+              traffic_light_assigned_lane, traffic_sign_classification,
+              crosswalk_footprint, junction_priority, conflict_prediction_span,
+              conflict_pet, stop_fsm_phase, aeb_trigger_flag, aeb_ttc,
+              aeb_a_req, policy_constraint_tier, adas_states]
+    funcs: all
+    reqs: all
+    scenes: all
+    note: >-
+      signal は §2.3 D1 の棚卸し全量。funcs/reqs/scenes は台帳全体＝
+      「横の穴」（B1-B6, layer=strategic built 0）も分母に含めて数える。
+
+  - id: manual-drive
+    title: ManualDrive（FFB / 合図）
+    face: "2"
+    signals: [hvd_steering_angle, hvd_acceleration, hvd_inputs, hvd_powertrain,
+              ffb_internal_state, manualdrive_adas_states, override_domain_state]
+    note: >-
+      §2.3 D2。主張台帳が無い（FFB 忠実度を要求化していない＝①は生成上「？」。
+      §8-3 の決定は deferred(†)＝意図的に空けている）。②③⑤も台帳未整備＝？。
+      ManualDrive 中の ADAS 全停止は manualdrive_adas_states の (a) と
+      vd-func:FUNC-075（status=none, 2026-07-24 凍結例外で台帳化）が捕捉。
+      FUNC-075 は本行でなく VD 行の funcs:all に入る（機能台帳は vd-func 一本のため。
+      本行の③はドメイン実装台帳＝ManualDrive 実装そのものの台帳が無いという検出）。
+
+  - id: kinematic-route-drive
+    title: Kinematic / RouteDrive
+    face: "2"
+    signals: [kinematic_curvature, lane_id_indicator_nonvd, hvd_steering_angle]
+    note: >-
+      §2.3 D3。telemetry frame を作るのは VD だけ＝lane_id/indicator は OSI に
+      出ても matcher 非到達 (b)。①は deferred(†)（§8-3）＝生成上は「？」。
+
+  - id: real-vehicle-physics
+    title: RealVehicle 物理（pitch/roll）
+    face: "2"
+    signals: [ego_orientation, traffic_vehicle_pitch_roll, hvd_acceleration]
+    note: >-
+      §2.3 D4。「検証未配線」の典型列（③実装済・④emit済み(b)・⑤⑥空）。
+      主張台帳・実装台帳・刺激台帳がいずれも未整備＝①②③は？。
+
+  - id: autolight-environment
+    title: AutoLight（F6 環境ヘッドライト）
+    face: "2"
+    signals: [vehicle_lights, vehicle_lights_reversing, vehicle_lights_high_beam,
+              environmental_conditions, light_source_ownership, tunnel_occupancy,
+              light_state_unset_vs_off]
+    features: [F6]
+    modifiers: [illumination]
+    note: >-
+      §2.3 D5。⑤⑥は matcher でなく GT_Loader 統合テスト（per-test アサーション）
+      ＝ feature:F6 -sustained-by-> gate:integration-ctest 辺で到達（opt-in）。
+      ②は scene modifiers の illumination 軸（F6 で partial）。
+
+  - id: traffic-signal-control
+    title: TrafficSignalController
+    face: "1"
+    signals: [traffic_light_lamp_detail, signal_resolution_failure,
+              traffic_light_state]
+    scenes: [SCN-004]
+    modifiers: [signal_phase]
+    note: >-
+      §2.3 D6。①主張台帳なし（deferred †, §8-3）。⑤⑥は
+      matcher:stopped_at_signal（member signal 経由）→ gate:vd-behavior-regression
+      の間接到達のみ。
+
+  - id: osi-groundtruth-output
+    title: OSI-GT 出力（中核主張）
+    face: "1"
+    signals: [gt_timestamp_monotonicity, gt_frame_loss_rate,
+              gt_entity_count_consistency, object_poses, light_state_unset_vs_off,
+              traffic_sign_classification, traffic_light_lamp_detail,
+              crosswalk_footprint, environmental_conditions]
+    note: >-
+      §2.3 D7。内容 emit（object/sign/light）は厚いが GT 自身の健全性 signal
+      3件が (a) 未emit＝中核主張の自己観測欠。①は「要求化する」決定済み・未着地
+      （§8 未決「OSI-GT 正当性の要求化の形」）＝生成上は？。②が？なのは
+      「どのシナリオでも発火する（専用刺激資産という概念が無い）」ため＝手書きの「–」。
+
+  - id: osc-extension-parsing
+    title: OpenSCENARIO 拡張パース
+    face: "1"
+    signals: [traffic_light_state]
+    note: >-
+      §2.3 D8。R5-U3 以降のパース対象は TrafficSignalController 系のみで、結果は
+      OSI traffic_light に出る。ctest 標的 test_ScenarioReaderParsing は名前に反し
+      非カバー（gate:unit-ctest の not_covers）＝検出は E2E
+      （matcher:stopped_at_signal → gate:vd-behavior-regression）のみ。
+
+  - id: roadmanager-odr
+    title: RoadManager LHT / ODR 1.6-1.9
+    face: "1"
+    signals: [odr_rm_probe, odr_osi_layer_probe]
+    claim_namespaces: [odr-cluster, odr-pending]
+    impl_namespaces: [fork-patch]
+    gates: [odr-conformance-quick, odr-conformance-schema-ci,
+            odr-conformance-full, fork-census, fork-drift, resync-guards,
+            fork-sync]
+    modifiers: [driving_direction]
+    stimulus_paths: [GT_esmini/test/odr_fixtures]
+    note: >-
+      §2.3 D9・最強スパイン（手本）。判定は matcher 名前空間でなく適合ハーネス内
+      golden（gate 内オラクル）＝⑤は「◐(gate内オラクル)」が正直な採点で、手書きの
+      ●は §1.1「golden は回帰であって真偽ではない」と整合しない（生成側が正）。
+      gates 直接所属は本行のみ許容（req/matcher が無く辺で到達できないため）。

@@ -95,9 +95,74 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         kg.REPO_ROOT = orig_root
 
+print("== 2b. 行定義（claim_domains.yaml, hard）==")
+
+
+def run_domains(catalogs, namespaces):
+    errs = []
+    kg.check_claim_domains(catalogs, namespaces, errs.append)
+    return errs
+
+
+expect("baseline clean", run_domains(CATALOGS, NAMESPACES), want=False)
+
+bad = copy.deepcopy(CATALOGS)
+bad["domain"][0]["signals"].append("no_such_signal")
+expect("未知 signal 参照を検出",
+       [e for e in run_domains(bad, NAMESPACES) if "no_such_signal" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["domain"][0]["cell4"] = "◐"  # セル値の手書き混入（行定義は所属のみ）
+expect("未知キー（セル値の手書き混入）を検出",
+       [e for e in run_domains(bad, NAMESPACES) if "cell4" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["domain"][0]["id"] = "phase3"  # 内容 slug でない（規約4）
+expect("非内容slugの行 id を検出",
+       [e for e in run_domains(bad, NAMESPACES) if "phase3" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["domain"][0]["face"] = "3"  # 行は面1∪面2 の主張
+expect("face=3 の行を検出",
+       [e for e in run_domains(bad, NAMESPACES) if "face" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["domain"][-1]["gates"] = ["no-such-gate"]
+expect("未知 gate 参照を検出",
+       [e for e in run_domains(bad, NAMESPACES) if "no-such-gate" in e])
+
+print("== 2c. 行列生成器（--spine-matrix）＝セルが台帳と辺に追随すること ==")
+mat = {r["id"]: r for r in kg.spine_matrix(CATALOGS, NAMESPACES, GRAPH["edges"])}
+expect("行数＝行定義数", len(mat) == len(CATALOGS["domain"]))
+expect("台帳の無い行の①は？（黙って埋まらない）",
+       mat["manual-drive"]["cells"][1][0] == kg.SYM_NA)
+expect("AutoLight ⑥ は F6 sustained-by 辺経由で ◐",
+       mat["autolight-environment"]["cells"][6][0] == "◐")
+
+# 辺を消すとセルが落ちる＝セル値が辺から計算されている証拠
+edges = [e for e in copy.deepcopy(GRAPH["edges"])
+         if not (e.get("from") == "feature:F6" and e.get("type") == "sustained-by")]
+mat2 = {r["id"]: r for r in kg.spine_matrix(CATALOGS, NAMESPACES, edges)}
+expect("F6 sustained-by 辺を消すと AutoLight ⑥ が ✕ に落ちる",
+       mat2["autolight-environment"]["cells"][6][0] == "✕")
+
+# signal 台帳の state を悪化させるとセルが落ちる＝台帳追随の証拠
+bad = copy.deepcopy(CATALOGS)
+for s in bad["signal"]:
+    if s["id"] in (bad["domain"][0].get("signals") or []):
+        s["state"] = "(a)"
+mat3 = {r["id"]: r for r in kg.spine_matrix(bad, NAMESPACES, GRAPH["edges"])}
+expect("member signal を全て (a) にすると④が ✕ に落ちる",
+       mat3[bad["domain"][0]["id"]]["cells"][4][0] == "✕")
+
 print("== 3. 派生レポート / coupling-audit ==")
 base = kg.spine_report(CATALOGS, NAMESPACES, GRAPH["edges"])
-expect("面3→面2 直結辺: 実データでは 0件", base["coupling_direct_edge"], want=False)
+# 2026-07-21 の ②刺激結線（req->policy の stimulated-by 5辺）は face3->face2 として
+# 意図的に計上されている（graph.yaml 末尾 R5: 監査側で除外するか資産側を face:3 化
+# するかは親判断待ち）。それ以外の直結辺が無いことを確認する。
+expect("面3→面2 直結辺: 既知の stimulated-by(req→policy) 以外は 0件",
+       [x for x in base["coupling_direct_edge"] if "stimulated-by" not in x],
+       want=False)
 expect("整合破れ: 実データでは 0件", base["obs_verdict_on_unemitted"], want=False)
 
 # 面3(matcher) -> 面2(policy) の直結辺を注入

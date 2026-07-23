@@ -167,10 +167,43 @@ XSDは通る）。②刺激の資産は3段の妥当性を持ち、各資産ノ�
   **健全確認**: 幾何連続・id一意はGT違反0。**校正教訓（再）**: 意味checkerは**junction文脈認識必須**（connecting road除外しないと991FP）
   ＝β'妥当性境界と同型「文脈で誤検出制御」。現況＝gap 259 のうち8ルール実装。将来: qc-framework bundle化してupstream貢献候補。
 
-## 2. repo横断 能力モデル行列（主張ドメイン × スパイン）
+## 2. repo横断 能力モデル行列（主張ドメイン × スパイン）— 生成ビュー化済み
 
-モジュールトポロジ（GT_esmini/CLAUDE.md §1: control/scenario/osi/io ＋ 道路層）から
-「再現していると主張する挙動」を行に取る。（● 充足 / ◐ 部分 / ○ 希薄 / ✕ 欠 / ? 要確認）
+> **2026-07-24（spine-work:vertical-wiring）: 本節の行列は生成ビューへ移行した。現在値は必ず**
+> `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --spine-matrix`
+> **で読むこと。** 行定義（9行の所属＝どの signal/req/func/scene/gate がその主張を
+> 支えるか）は `claim_domains.yaml`、セル値は台帳（signal/gate/req/scene/vd-func ＋
+> vd_metrics.py の matcher 台帳）と graph.yaml の辺（observes / verifies /
+> sustained-by / stimulated-by / realizes）から毎回計算する。**手動フラグは持たない**。
+> 計算できないセルは「？」と出る＝それ自体が結線の欠落の検出。本節に固定値の行列を
+> 書き直さない（§6 の「陳腐化する実数を doc に置かない」と同じ規律。手書き時代は
+> 5回以上の手修正を経ており、放置すれば必ず腐る）。
+>
+> **生成ビューとの突合（2026-07-24 初回）で判明した食い違い** — いずれも生成側が
+> 台帳・辺に忠実（手書きの陳腐化 or 混同の分離）:
+> - **VD ③ ●→◐**: REQ-AD-012(VRU-AEB) が realizes 先 built を持たないまま分母に居る
+>   （手書きは実装済み側だけを見ていた）。
+> - **RealVehicle ④ の「交通車(a)」は陳腐化**: signal 台帳が 2026-07-21 に (b) へ訂正済み。
+> - **TSC ② ◐→●・⑥ ○→◐**: scene SCN-004=covered、gate 台帳が「唯一の常設検出手段＝
+>   vd-behavior-regression(warn)」を確定済み（手書きの「? 要確認」は解消）。
+>   **④ ●→◐**: signal_resolution_failure(a) を分母に含めた（解決失敗の観測不能の反映）。
+> - **OSC拡張パース ④ ◐→●**: パース対象の観測量（traffic_light_state）自体は充足。
+>   手書きは⑤の欠（ctest 非カバー）を④に混ぜていた。⑤⑥は E2E 1経路(warn)＝◐。
+> - **ODR ⑤ ●→◐(gate内オラクル)**: §1.1「golden は回帰であって真偽ではない」と整合させた。
+> - **AutoLight ① ●→◐**: feature:F6 のみで定量受入なし（③実装完了と①主張の混同を分離）。
+>   ⑤⑥は新設辺 `feature:F6 -sustained-by-> gate:integration-ctest` で到達（opt-in ◐）。
+> - **①の †(deferred) と OSI-GT ②の「–」は生成では「？」**: 台帳から計算できない判断のため。
+>   判断の一次記録は §8-3 と claim_domains.yaml の note が持つ。
+> - **①②③の「？」多発（ManualDrive / Kinematic / RealVehicle / TSC / OSI-GT / OSC）は
+>   行列の弱点ではなく検出**: 主張・実装の台帳が VD（req-vd-ad / vd-func）と
+>   ODR（odr-cluster / fork-patch）にしか存在しないという事実の可視化。
+
+### 2.0 手書き行列スナップショット（2026-07-22 時点・凍結＝一次記録）
+
+以下は生成ビュー移行前の手書き行列。**更新しない**（過去の再採点判断「←付き訂正」の
+根拠として残す）。モジュールトポロジ（GT_esmini/CLAUDE.md §1: control/scenario/osi/io ＋
+道路層）から「再現していると主張する挙動」を行に取った。
+（● 充足 / ◐ 部分 / ○ 希薄 / ✕ 欠 / ? 要確認）
 
 **①列の凡例（2026-07-20 決定, §8-3）**: `†` ＝ **deferred（将来の目標。今は要求化しないが
 スコープ外ではない）**。`✕`/`○` と違い「意図的に空けている」ことを示す。要求化する主張は
@@ -891,8 +924,30 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     副次的に **REQ-AD-014 の⑥常設欠も解消**（`deceleration_profile_smooth` が常設化）＝⑥常設欠 1→0。
   - **CI 配線**: AEB と同じく `vd-behavioral-regression` job に相乗り＋別 artifact
     （`anticipation-driving-regression-report`）＋`continue-on-error`（初回 non-blocking、昇格は数回安定後）。
-- **`spine-work:vertical-wiring`**: 既存の厚い列（VD-AD の built 4機能・AutoLight・ODR）を縦串で結線し、
-  行列を **生成ビュー化**（scene×func×spine を3ソースから render）。
+- **`spine-work:vertical-wiring` ✅完了（2026-07-24）**: §2 の手書き行列を**生成ビュー**へ置換した。
+  - **行定義カタログ `claim_domains.yaml` 新設**: 9行の所属（signals/funcs/reqs/scenes/gates/
+    features/modifiers/claim_namespaces/impl_namespaces/stimulus_paths）だけを持ち、セル値は
+    持たない（§8-2 既決どおり行は9ドメイン維持・B1-B6 は vd-func の layer/kind で切る）。
+  - **生成器 `--spine-matrix`**（check_knowledge_graph.py）: セル値を台帳（signal/gate/req/
+    scene/vd-func ＋ vd_metrics.py matcher 台帳）と辺（observes/verifies/sustained-by/
+    stimulated-by/realizes）から毎回計算。記号は §2 凡例を固定規則で導出し、
+    **計算不能セルは「？」**（＝結線の欠落の検出。† 等の判断は §8-3 と行定義 note が持つ）。
+  - **lint 追加（hard）**: 行定義の未知キー（セル値の手書き混入防止）・参照 ID の台帳実在・
+    行 id の内容 slug（規約4）・face∈{1,2}。導入時点の実測違反 0件。検知器の向きは
+    test_check_knowledge_graph.py の意図的違反データで実証済み。
+  - **結線**: AutoLight の⑤⑥「✕」露出を `feature:F6 -sustained-by-> gate:integration-ctest`
+    で解消（判定は matcher でなく GT_Loader 統合テスト内アサーション＝gate内オラクル。
+    sustained-by の from に feature を許す判断はこの辺の graph.yaml コメントに記録）。
+  - **突合結果**: 手書きとの食い違い8点は §2 冒頭に列挙（VD③・TSC②④⑥・OSC④・ODR⑤・
+    AutoLight①・RealVehicle④交通車ほか。いずれも生成側が台帳に忠実＝手書きの陳腐化）。
+  - **FUNC-075 新設（ユーザー判断 2026-07-24・凍結例外）**: ManualDrive 中の ADAS 全停止
+    （`derived-report-lint` 積み残し(b)）を「運転主体によらない ADAS 並行稼働」として
+    vd-func 台帳に載せた（status=none）。vd-func は OPAQUE_LEGACY 凍結だが、機能台帳
+    そのものを完全凍結すると台帳が育たないため例外を認めた（根拠はカタログ内コメント。
+    内容 slug 体系への移行時に他 FUNC と一緒に移す）。
+  - **積み残し**: (a) ①主張台帳が VD/ODR 以外に無い（？の列）— OSI-GT 要求化（§8 未決）が
+    次の閉じ先。(b) ③実装台帳も vd-func/fork-patch のみ＝ManualDrive/Kinematic/AutoLight
+    等の行は？のまま（実装台帳の新設 or 行定義への結線が要る）。
 - **`spine-work:derived-report-lint` ✅完了（2026-07-21）**: 派生レポート（§6）＋ **coupling-audit（§0.5）**
   を lint に追加 → 「縦串の切れた列」と「面3→面2直結の結合負債」を CI で可視化。
   値域チェックと規約2 は hard、派生レポートは報告のみ。実装詳細・初回実測・検知器の向きの実証は **§6**。
@@ -928,8 +983,10 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     `GT_esminiLib.cpp:1312-1315` のコメントどおり **ManualDrive 搭載車は自動スタックから明示的に除外**。
     → 打ち手は「emit の新設」＝(a) の定義どおりで、`(-)` に寄せるのは**真の穴を台帳から消す**誤り。
     **「非該当だから対象外」を受け入れる前に、非該当の理由が *原理* か *未実装* かを確かめること。**
-    ManualDrive 中の ADAS 稼働は未記録の機能ギャップとして残す（規模はドメイン別スタックの拡張＋
-    `AebSafety` の VD からの切り出しで、別プログラム規模）。
+    ~~ManualDrive 中の ADAS 稼働は未記録の機能ギャップとして残す~~ → **2026-07-24 台帳化**:
+    `vd-func:FUNC-075`（運転主体によらない ADAS 並行稼働、status=none・凍結例外はユーザー判断。
+    §7 `vertical-wiring` 参照）。規模はドメイン別スタックの拡張＋
+    `AebSafety` の VD からの切り出しで、別プログラム規模。
 - **`spine-work:empty-spine-stitching`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
 
 ### 7.1 命名規約（2026-07-20 制定・`spine-work:derived-report-lint` で機械化）

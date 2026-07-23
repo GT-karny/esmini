@@ -162,3 +162,10 @@ functions:
   - { id: FUNC-072, tier: safety, layer: tactical,  kind: enabler, agent: AD, dim: both, status: none, verify: osi-custom-detail, by: '', note: "不確実性を考慮した意思決定。予測(FUNC-067..070)の不確実性に応じて車間/余裕/速度を上げる。完全知覚下でも「予測の不確実性」は残るため perception-ideal でも意味を持つ。検証: 取った余裕とその根拠を custom_detail に数値で出す" }
   - { id: FUNC-073, tier: safety, layer: tactical,  kind: behavior, agent: AD, dim: both, status: none, by: '', note: "未知シナリオでの安全側デフォルト挙動。想定外の幾何/状況で「止まる・徐行する」既定則。SOTIF の unknown-unsafe 対策の実体" }
   - { id: FUNC-074, tier: safety, layer: '-',       kind: enabler, agent: AD, dim: none, status: none, verify: osi-adf, by: '', note: "機能限界の自己認識と外部通知。自信度/限界を OSI 側に出す＝検証環境(面3)が「VDが無理だと分かっていたか」を観測できるようにする。④観測配線と直結する enabler。検証: ADFunction.State ＋ DriverOverride。**既存の空スタブ GetADASStates(W1) を埋めるのがそのまま第一歩**" }
+
+  # ----- 2026-07-24 追加: 運転主体横断の ADAS 稼働（spine-work:vertical-wiring） -----
+  # ★凍結例外（ユーザー判断 2026-07-24）: vd-func は OPAQUE_LEGACY 凍結（§7.1 規約1(a)
+  # 「既存体系に新 ID を足さない」）だが、本カタログは機能台帳そのものであり完全凍結では
+  # 台帳が育たない。網羅性の穴（ManualDrive 中の ADAS 全停止）を分母に載せるため
+  # FUNC-075 を例外的に追加する（体系の内容 slug 移行時に他 FUNC と一緒に移行する）。
+  - { id: FUNC-075, tier: safety, layer: '-', kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "運転主体によらない ADAS 並行稼働。実車では手動運転中も AEB は監視し続け、LKA/ACC と手動操作は共存する。本 repo では未実装4点の重なりで ManualDrive 中は ADAS 全停止（① GetADASStates 恒久スタブ ControllerManualDrive.hpp:36 ② AebSafety は ITrafficPolicy として VD 専属生成 ③「横だけ自動」の実体は ManualDriveCoordinator の素の OSC 追従 ④ OSI DriverOverride 未populate。詳細 signal:manualdrive_adas_states / capability_model.md §7 derived-report-lint 積み残し(b)）。規模は AebSafety の VD からの切り出し＋ドメイン別スタック拡張＝別プログラム。layer='-'（コントローラ横断）" }

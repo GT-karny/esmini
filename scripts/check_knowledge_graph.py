@@ -27,6 +27,12 @@ Checks:
   8. 規約2 (§7.1): no process ordinal (phase3_/stage2_/...) in the filename of
      a permanent asset. Repo-wide hits at introduction: 0 — new violations only.
 
+Matrix mode (--spine-matrix), NOT a gate: the capability-model matrix
+(capability_model.md §2) rendered as a generated view — rows come from
+claim_domains.yaml (membership only), cell values are computed from the
+catalogs and graph edges every time. Uncomputable cells print ？ — that is
+itself the detection of missing wiring, never a hand-scored value.
+
 Report mode (--spine-report), NOT a gate: the "縦串の切れた列" derived report
 (§6) plus the coupling-audit (§0.5) — ④観測欠 split into (a)未emit / (b)未配線,
 ⑥常設欠, ②刺激欠, and 面3→面2 の結合負債. Computed as ledger-minus-edges set
@@ -76,6 +82,8 @@ SIGNAL_CATALOG_YAML = KNOWLEDGE_DIR / "signal_catalog.yaml"
 GATE_CATALOG_YAML = KNOWLEDGE_DIR / "gate_catalog.yaml"
 REQ_CATALOG_YAML = KNOWLEDGE_DIR / "requirements_vd_ad.yaml"
 SCENE_CATALOG_YAML = KNOWLEDGE_DIR / "scene_catalog_vd_ad.yaml"
+FUNC_CATALOG_YAML = KNOWLEDGE_DIR / "function_catalog_vd_ad.yaml"
+CLAIM_DOMAINS_YAML = KNOWLEDGE_DIR / "claim_domains.yaml"
 
 # --- 値域（capability_model.md §2.2 / §2.3 / §4）---------------------------
 # 語彙を1か所に置き、カタログとグラフの両方をこれで照合する。
@@ -185,6 +193,9 @@ def load_catalogs() -> dict:
         "gate": rows(GATE_CATALOG_YAML, "gates"),
         "req-vd-ad": rows(REQ_CATALOG_YAML, "requirements"),
         "scene": rows(SCENE_CATALOG_YAML, "scenes"),
+        "scene-modifier": rows(SCENE_CATALOG_YAML, "modifiers"),
+        "vd-func": rows(FUNC_CATALOG_YAML, "functions"),
+        "domain": rows(CLAIM_DOMAINS_YAML, "domains"),
     }
 
 
@@ -231,6 +242,95 @@ def check_catalog_values(catalogs: dict, namespaces: dict, err) -> None:
         elif str(face) not in FACE_VALUES:
             err(f"namespace '{slug}': 未知の face '{face}' "
                 f"(許容: {'/'.join(sorted(FACE_VALUES))})")
+
+
+# --- 行定義（claim_domains.yaml）の検査語彙 --------------------------------
+# 行定義が持ってよいキー。ここに無いキーは typo か「セル値の手書き」の混入なので
+# hard で弾く（行定義に手動フラグを持たせないための機械的な防波堤）。
+DOMAIN_ALLOWED_KEYS = {
+    "id", "title", "face", "note", "signals", "funcs", "reqs", "scenes",
+    "gates", "features", "modifiers", "claim_namespaces", "impl_namespaces",
+    "stimulus_paths",
+}
+# 行 id は内容 slug（§7.1 規約4）。ハイフンを1つ以上含む小文字英数。
+DOMAIN_ID_RE = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)+")
+# 行は面1∪面2 の主張（capability_model.md §0）。面3（検証環境自身）は行にならない。
+DOMAIN_FACE_VALUES = {"1", "2"}
+
+
+def check_claim_domains(catalogs: dict, namespaces: dict, err) -> None:
+    """行定義（claim_domains.yaml）の hard 検査。
+
+    行定義は所属（membership）だけを持ち、セル値は生成器が計算する。
+    ここでは (1) 未知キー＝手動フラグ混入の防止、(2) 参照 ID が各台帳に
+    実在すること、(3) 行 id が内容 slug であること、を強制する。
+    参照切れを許すと行列が黙って痩せる（分母から落ちる）ため hard。
+    """
+    signal_ids = {s.get("id") for s in catalogs["signal"]}
+    gate_ids = {g.get("id") for g in catalogs["gate"]}
+    req_ids = {r.get("id") for r in catalogs["req-vd-ad"]}
+    scene_ids = {s.get("id") for s in catalogs["scene"]}
+    func_ids = {f.get("id") for f in catalogs["vd-func"]}
+    modifier_axes = {m.get("axis") for m in catalogs["scene-modifier"]}
+    feature_ns = namespaces.get("feature", {})
+
+    seen_ids = set()
+    for i, d in enumerate(catalogs["domain"]):
+        where = f"claim_domains.yaml domains[{i}] ({d.get('id', '?')})"
+        did = d.get("id")
+        if not did:
+            err(f"{where}: missing id")
+        elif not DOMAIN_ID_RE.fullmatch(did):
+            err(f"{where}: 行 id '{did}' は内容 slug ではありません"
+                "（§7.1 規約4: 小文字英数＋ハイフン1つ以上）")
+        elif did in seen_ids:
+            err(f"{where}: duplicate domain id '{did}'")
+        seen_ids.add(did)
+        if not str(d.get("title") or "").strip():
+            err(f"{where}: title が空です")
+        if str(d.get("face")) not in DOMAIN_FACE_VALUES:
+            err(f"{where}: face は 1|2 が必須です（行は面1∪面2 の主張。§0）")
+        for key in d:
+            if key not in DOMAIN_ALLOWED_KEYS:
+                err(f"{where}: 未知のキー '{key}'（行定義は所属のみ・セル値は"
+                    "生成器が計算する。許容: "
+                    f"{', '.join(sorted(DOMAIN_ALLOWED_KEYS))}）")
+
+        def members(key, universe, label):
+            val = d.get(key)
+            if val is None:
+                return
+            if val == "all":
+                return
+            if not isinstance(val, list):
+                err(f"{where}: {key} はリストか 'all' が必要です")
+                return
+            for ref in val:
+                if ref not in universe:
+                    err(f"{where}: {key} の '{ref}' が{label}に存在しません")
+
+        members("signals", signal_ids, " signal_catalog.yaml")
+        members("gates", gate_ids, " gate_catalog.yaml")
+        members("reqs", req_ids, " requirements_vd_ad.yaml")
+        members("scenes", scene_ids, " scene_catalog_vd_ad.yaml")
+        members("funcs", func_ids, " function_catalog_vd_ad.yaml")
+        members("modifiers", modifier_axes, " scene_catalog の modifiers.axis")
+        for key in ("claim_namespaces", "impl_namespaces"):
+            for ref in d.get(key) or []:
+                if ref not in namespaces:
+                    err(f"{where}: {key} の '{ref}' は未登録 namespace です")
+        for p in d.get("stimulus_paths") or []:
+            if not (REPO_ROOT / p).exists():
+                err(f"{where}: stimulus_paths の '{p}' が存在しません")
+        rx = None
+        try:
+            rx = re.compile(feature_ns.get("id_pattern", ""))
+        except re.error:
+            rx = None
+        for ref in d.get("features") or []:
+            if rx and not rx.fullmatch(str(ref)):
+                err(f"{where}: features の '{ref}' が feature の id_pattern に"
+                    "一致しません")
 
 
 def check_asset_naming(err) -> None:
@@ -485,6 +585,280 @@ def spine_report_cmd(out_path: str | None) -> int:
     return 0
 
 
+# --- 能力モデル行列（capability_model.md §2 の生成ビュー）---------------------
+# セル記号は §2 の凡例を踏襲: ● 充足 / ◐ 部分 / ○ 希薄 / ✕ 欠 / ？ 計算不能。
+# ？＝行定義に該当台帳の所属が無い（結線の欠落そのものの検出）。手書き行列に
+# あった †(deferred) は「要求化しない判断」＝台帳から計算できない判断であり、
+# 生成ビューでは？になる（判断の一次記録は claim_domains.yaml の note と
+# capability_model.md §8-3 が持つ）。
+SYM_NA = "？"
+
+# ④観測: state がこの集合なら「観測面として充足」（(-) は別面に正当な経路あり）。
+OBS_SATISFIED = {"●", "(-)", "(–)"}
+
+
+def _resolve(val, catalog_rows):
+    """行定義の 'all' / id リストを台帳の行リストへ解決する。"""
+    if val == "all":
+        return list(catalog_rows)
+    if not val:
+        return []
+    by_id = {r.get("id"): r for r in catalog_rows}
+    return [by_id[x] for x in val if x in by_id]
+
+
+def spine_matrix(catalogs: dict, namespaces: dict, edges: list) -> list:
+    """行 × スパイン①-⑥ のセルを台帳と辺から計算する（手動フラグなし）。
+
+    真実源: claim_domains.yaml（行の所属のみ）＋ 各台帳（signal/gate/req/scene/
+    vd-func カタログ）＋ graph.yaml の辺（observes/verifies/sustained-by/
+    stimulated-by/realizes）。返り値は行ごとの {id,title,cells,evidence}。
+    """
+    # -- 辺の索引 --------------------------------------------------------------
+    observes = {}        # matcher local -> {signal local}
+    verifies = {}        # req ref ("req-vd-ad:X") -> {matcher local}
+    sustained = {}       # from ref -> {gate local}
+    stimulated = {}      # from ref -> {asset ref}
+    realizers = {}       # req ref -> [func rows]（realizes: vd-func -> req）
+    func_rows = {f.get("id"): f for f in catalogs["vd-func"]}
+    for e in edges:
+        f, t, ty = e.get("from"), e.get("to"), e.get("type")
+        if not isinstance(f, str) or not isinstance(t, str):
+            continue
+        if ty == "observes" and f.startswith("matcher:") and t.startswith("signal:"):
+            observes.setdefault(f.split(":", 1)[1], set()).add(t.split(":", 1)[1])
+        elif ty == "verifies" and f.startswith("matcher:"):
+            verifies.setdefault(t, set()).add(f.split(":", 1)[1])
+        elif ty == "sustained-by" and t.startswith("gate:"):
+            sustained.setdefault(f, set()).add(t.split(":", 1)[1])
+        elif ty == "stimulated-by":
+            stimulated.setdefault(f, set()).add(t)
+        elif ty == "realizes" and f.startswith("vd-func:"):
+            fr = func_rows.get(f.split(":", 1)[1])
+            if fr:
+                realizers.setdefault(t, []).append(fr)
+
+    signal_by_id = {s.get("id"): s for s in catalogs["signal"]}
+    gate_by_id = {g.get("id"): g for g in catalogs["gate"]}
+    modifier_by_axis = {m.get("axis"): m for m in catalogs["scene-modifier"]}
+
+    def ratio_sym(r):
+        return "●" if r >= 0.999 else "◐" if r >= 0.4 else "○" if r > 0 else "✕"
+
+    out = []
+    for d in catalogs["domain"]:
+        sig_ids = set(d.get("signals") or [])
+        reqs = _resolve(d.get("reqs"), catalogs["req-vd-ad"])
+        funcs = _resolve(d.get("funcs"), catalogs["vd-func"])
+        scenes = _resolve(d.get("scenes"), catalogs["scene"])
+        features = [str(x) for x in d.get("features") or []]
+        member_gates = list(d.get("gates") or [])
+        claim_ns = list(d.get("claim_namespaces") or [])
+        cells, ev = {}, []
+
+        # ---- ① 主張・受入: 要求台帳（定量受入の有無）/ feature / 独自台帳 ----
+        if reqs:
+            quant = [r for r in reqs if r.get("acceptance") or r.get("response")]
+            cells[1] = ("●" if len(quant) == len(reqs) else "◐",
+                        f"req {len(reqs)}（定量受入 {len(quant)}）")
+            ev.append(f"①: req-vd-ad {len(reqs)}件、うち定量受入(acceptance/response)"
+                      f"つき {len(quant)}件")
+        elif claim_ns:
+            counts = ", ".join(
+                f"{ns}:{namespaces.get(ns, {}).get('count', '?')}" for ns in claim_ns)
+            cells[1] = ("●", f"台帳 {counts}")
+            ev.append(f"①: 独自主張台帳 {counts}")
+        elif features:
+            cells[1] = ("◐", f"feature {','.join(features)}のみ（定量受入なし）")
+            ev.append(f"①: feature {features} のみ＝要求化されていない")
+        else:
+            cells[1] = (SYM_NA, "主張台帳なし")
+            ev.append("①: 主張台帳（req/feature/独自namespace）が行定義に無い")
+
+        # ---- ② 刺激: req の stimulated-by / scene coverage / modifiers / 資産 --
+        parts = []
+        if reqs:
+            stim = [r for r in reqs
+                    if stimulated.get(f"req-vd-ad:{r.get('id')}")]
+            parts.append((len(stim) / len(reqs),
+                          f"req刺激 {len(stim)}/{len(reqs)}"))
+        if scenes:
+            cov = sum(1 for s in scenes if s.get("coverage") == "covered")
+            par = sum(1 for s in scenes if s.get("coverage") == "partial")
+            parts.append(((cov + 0.5 * par) / len(scenes),
+                          f"scene covered {cov}/partial {par}/計 {len(scenes)}"))
+        for ax in d.get("modifiers") or []:
+            m = modifier_by_axis.get(ax) or {}
+            c = m.get("coverage")
+            parts.append(({"covered": 1.0, "partial": 0.5}.get(c, 0.0),
+                          f"modifier {ax}={c}"))
+        for p in d.get("stimulus_paths") or []:
+            parts.append((1.0 if (REPO_ROOT / p).exists() else 0.0, f"資産 {p}"))
+        if parts:
+            r = sum(x for x, _ in parts) / len(parts)
+            cells[2] = (ratio_sym(r), "、".join(t for _, t in parts))
+            ev.append(f"②: {'、'.join(t for _, t in parts)}")
+        else:
+            cells[2] = (SYM_NA, "刺激台帳なし")
+            ev.append("②: 刺激台帳（req/scene/modifier/資産パス）が行定義に無い")
+
+        # ---- ③ 実装: req を built 実装が支えるか（realizes 辺）/ funcs 内訳 ----
+        if reqs:
+            def best(req):
+                sts = {f.get("status") for f in
+                       realizers.get(f"req-vd-ad:{req.get('id')}", [])}
+                return ("built" if "built" in sts
+                        else "partial" if "partial" in sts
+                        else "none")
+            built_r = [r for r in reqs if best(r) == "built"]
+            part_r = [r for r in reqs if best(r) == "partial"]
+            sym = ("●" if len(built_r) == len(reqs)
+                   else "◐" if built_r or part_r else "✕")
+            detail = f"req実装 built {len(built_r)}/partial {len(part_r)}/{len(reqs)}"
+            if funcs:
+                c = {k: sum(1 for f in funcs if f.get("status") == k)
+                     for k in ("built", "partial", "none", "oos")}
+                detail += (f"｜func built {c['built']}/partial {c['partial']}"
+                           f"/none {c['none']}/oos {c['oos']}")
+            cells[3] = (sym, detail)
+            ev.append(f"③: {detail}"
+                      + (f"（未実装req: {[r.get('id') for r in reqs if best(r) == 'none']}）"
+                         if len(built_r) + len(part_r) < len(reqs) else ""))
+        elif funcs:
+            c = {k: sum(1 for f in funcs if f.get("status") == k)
+                 for k in ("built", "partial", "none", "oos")}
+            sym = "●" if c["built"] else "◐" if c["partial"] else "✕"
+            cells[3] = (sym, f"func built {c['built']}/partial {c['partial']}"
+                             f"/none {c['none']}/oos {c['oos']}")
+        elif d.get("impl_namespaces"):
+            counts = ", ".join(
+                f"{ns}:{namespaces.get(ns, {}).get('count', '?')}"
+                for ns in d["impl_namespaces"])
+            cells[3] = ("●", f"台帳 {counts}")
+            ev.append(f"③: 独自実装台帳 {counts}（census で機械検証済み）")
+        else:
+            cells[3] = (SYM_NA, "実装台帳なし")
+            ev.append("③: 実装台帳（vd-func / req realizes）が行定義に無い＝"
+                      "vd-func 以外のドメインに機能カタログが存在しない")
+
+        # ---- ④ 観測: member signal の state 内訳（emit 基準・§2.3）------------
+        if sig_ids:
+            states = [signal_by_id[s].get("state") for s in sorted(sig_ids)
+                      if s in signal_by_id]
+            n = {"●": 0, "(-)": 0, "(a)": 0, "(b)": 0, "(b')": 0}
+            for st in states:
+                key = "(-)" if st in ("(-)", "(–)") else st
+                if key in n:
+                    n[key] += 1
+            sat = n["●"] + n["(-)"]
+            if sat == len(states):
+                sym = "●"
+            elif sat:
+                sym = "◐"
+            elif n["(b)"] or n["(b')"]:
+                sym = "○"
+            else:
+                sym = "✕"
+            detail = " ".join(f"{k}{v}" for k, v in n.items() if v)
+            cells[4] = (sym, detail)
+            ev.append(f"④: {len(states)} signal — {detail}")
+        else:
+            cells[4] = (SYM_NA, "signal 所属なし")
+            ev.append("④: 行定義に signal が無い")
+
+        # ---- ⑤ 判定: member signal を observes / member req を verifies する
+        #      matcher。matcher が無くても gate 内オラクル（ODR golden・統合テスト
+        #      アサーション）があれば ◐（§1.1: golden は回帰であって真偽ではない）。
+        matchers_d = {m for m, sigs in observes.items() if sigs & sig_ids}
+        req_refs = {f"req-vd-ad:{r.get('id')}" for r in reqs}
+        for ref in req_refs:
+            matchers_d |= verifies.get(ref, set())
+        gates_d = set(member_gates)
+        for m in matchers_d:
+            gates_d |= sustained.get(f"matcher:{m}", set())
+        for ref in req_refs:
+            gates_d |= sustained.get(ref, set())
+        for fe in features:
+            gates_d |= sustained.get(f"feature:{fe}", set())
+        if matchers_d:
+            verified = [r for r in reqs
+                        if verifies.get(f"req-vd-ad:{r.get('id')}")]
+            sym = ("●" if reqs and len(verified) == len(reqs) else "◐")
+            detail = f"matcher {len(matchers_d)}"
+            if reqs:
+                detail += f"（req検証 {len(verified)}/{len(reqs)}）"
+            cells[5] = (sym, detail)
+            ev.append(f"⑤: matcher {sorted(matchers_d)}"
+                      + (f"、verifies 未結線 req: "
+                         f"{[r.get('id') for r in reqs if not verifies.get('req-vd-ad:' + str(r.get('id')))]}"
+                         if reqs and len(verified) < len(reqs) else ""))
+        elif gates_d:
+            cells[5] = ("◐", "gate内オラクル（matcher 台帳外）")
+            ev.append(f"⑤: matcher 0。判定は gate 内オラクル {sorted(gates_d)} に内包"
+                      "（golden/テストアサーション＝回帰オラクル。§1.1）")
+        else:
+            cells[5] = ("✕", "matcher 0・gate内オラクルなし")
+            ev.append("⑤: この行の signal/req に達する matcher が 1件も無い")
+
+        # ---- ⑥ 常設: 到達 gate の blocking で採点 ------------------------------
+        if gates_d:
+            rows = [gate_by_id[g] for g in sorted(gates_d) if g in gate_by_id]
+            blocking = [g for g in rows if g.get("blocking") is True]
+            sym = "●" if blocking else "◐"
+            names = ", ".join(
+                f"{g.get('id')}({'hard' if g.get('blocking') else 'warn'})"
+                for g in rows)
+            cells[6] = (sym, names)
+            ev.append(f"⑥: {names}")
+        else:
+            cells[6] = ("✕", "常設ゲート到達なし")
+            ev.append("⑥: sustained-by でも gates 所属でも常設ゲートに到達しない")
+
+        out.append({"id": d.get("id"), "title": d.get("title"),
+                    "cells": cells, "evidence": ev})
+    return out
+
+
+def spine_matrix_cmd(out_path: str | None) -> int:
+    """--spine-matrix: 能力モデル行列（§2 の生成ビュー）を出力する。"""
+    registry = load_yaml(NAMESPACES_YAML)
+    graph = load_yaml(GRAPH_YAML)
+    namespaces = {ns["slug"]: ns for ns in registry.get("namespaces", [])
+                  if ns.get("slug")}
+    rows = spine_matrix(load_catalogs(), namespaces, graph.get("edges", []))
+
+    lines = [
+        "# repo横断 能力モデル行列（生成ビュー）", "",
+        "> 生成物。`check_knowledge_graph.py --spine-matrix` で再生成する。",
+        "> 行定義: claim_domains.yaml（所属のみ）。セル値は台帳"
+        "（signal/gate/req/scene/vd-func）と graph.yaml の辺から毎回計算する。",
+        "> 凡例: ● 充足 / ◐ 部分 / ○ 希薄 / ✕ 欠 / **？ 計算不能＝台帳未結線**"
+        "（？こそ結線の欠落の検出。手書き時代の †(deferred) 判断は "
+        "claim_domains.yaml の note と capability_model.md §8-3 に残る）。", "",
+        "| 主張ドメイン | ①主張 | ②刺激 | ③実装 | ④観測 | ⑤判定 | ⑥常設 |",
+        "| :-- | :-- | :-- | :-- | :-- | :-- | :-- |",
+    ]
+    for r in rows:
+        cells = " | ".join(
+            f"{r['cells'][i][0]} <sub>{r['cells'][i][1]}</sub>"
+            for i in range(1, 7))
+        lines.append(f"| **{r['title']}** | {cells} |")
+    lines.append("")
+    lines.append("## 行ごとの計算根拠")
+    for r in rows:
+        lines.append("")
+        lines.append(f"### {r['title']}（`{r['id']}`）")
+        lines.extend(f"- {x}" for x in r["evidence"])
+    lines.append("")
+    text = "\n".join(lines)
+    if out_path:
+        Path(out_path).write_text(text, encoding="utf-8")
+        print(f"spine matrix -> {out_path} ({len(rows)} domains)")
+    else:
+        print(text)
+    return 0
+
+
 def check() -> int:
     errors = []
 
@@ -630,9 +1004,10 @@ def check() -> int:
             err("graph_view.md is STALE (graph.yaml/namespaces.yaml changed) — "
                 "regenerate with --render")
 
-    # -- 7. カタログ値域 ＋ 規約2（いずれも hard・導入時点の実測違反 0件）---------
+    # -- 7. カタログ値域 ＋ 行定義 ＋ 規約2（いずれも hard・導入時点の実測違反 0件）
     catalogs = load_catalogs()
     check_catalog_values(catalogs, namespaces, err)
+    check_claim_domains(catalogs, namespaces, err)
     check_asset_naming(err)
 
     if errors:
@@ -644,6 +1019,7 @@ def check() -> int:
           f"({len(namespaces)} namespaces, {len(edges)} curated edges, "
           f"{len(concept_ids)} openx concepts, "
           f"{len(catalogs['signal'])} signals, {len(catalogs['gate'])} gates, "
+          f"{len(catalogs['domain'])} claim domains, "
           f"view fresh)")
 
     # -- 8. 派生レポート ＋ coupling-audit（**報告のみ・ゲートにしない**）----------
@@ -1088,6 +1464,8 @@ def main() -> int:
                          "(mapped / exempt / unknown; advisory)")
     ap.add_argument("--spine-report", action="store_true",
                     help="「主張 × 欠けた縦層」の未検証台帳と結合負債を出力（報告のみ）")
+    ap.add_argument("--spine-matrix", action="store_true",
+                    help="能力モデル行列（capability_model.md §2 の生成ビュー）を出力")
     ap.add_argument("--query", metavar="REF",
                     help="show everything related to a node "
                          "(e.g. proposal:P13; bare ids resolved when unambiguous)")
@@ -1108,6 +1486,8 @@ def main() -> int:
         return render(args.out)
     if args.spine_report:
         return spine_report_cmd(args.out)
+    if args.spine_matrix:
+        return spine_matrix_cmd(args.out)
     if args.suggest:
         return suggest()
     if args.query:
