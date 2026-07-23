@@ -199,6 +199,11 @@ signals:
       実装定義とし（[0]="object"/[1]=id が規定、追加は非破壊）、ExternalReference.identifier は
       repeated string で拡張前提。xosc MiscObject 経路（UpdateOSIStationaryObject）は
       source_reference 自体を出さない別経路＝本作業の射程外。
+      **env ゲート（2026-07-24 CI赤で追加）**: `GT_OSI_ODR_OBJECT_TYPE=0` で無効化（default ON、
+      GT_OSI_FUTURE_TRAJECTORY と同 idiom）。upstream の OSI.TestStationaryObjects が
+      identifier().size()==3 を ASSERT し、その早期 abort が共有 obj_osi_internal を汚して
+      後続 fixture（TestOSIBrokenRoadmarkCurve）まで連鎖赤にするため、run_tests.sh の
+      ScenarioPlayer_test 呼び出しのみ OFF（連鎖はバッチ失敗単独再確認で切り分け済み）。
       **残る欠は⑤のみ**: stationary_objects を読む matcher が無い（matcher 追加は別作業）。
 
   - id: junction_priority

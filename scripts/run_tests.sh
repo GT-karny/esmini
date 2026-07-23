@@ -118,7 +118,13 @@ if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
     #     road's traffic rule, assigning the correct-side lane on LHT test roads (global id 6 vs
     #     upstream's RHT-assumption 2). Intentional GT fix; upstream PR candidate.
     SCENARIOPLAYER_SKIP='-OSI.TestTrafficLightStates'
-    if ! ${EXE_FOLDER}/ScenarioPlayer_test --disable_stdout --gtest_filter="$SCENARIOPLAYER_SKIP"; then
+    # GT_OSI_ODR_OBJECT_TYPE=0 disables the GT-only "odr_type:" source_reference identifier
+    # (default ON; gate in GT_esmini/src/osi/GT_OSIReporter.cpp). OSI.TestStationaryObjects
+    # ASSERTs the upstream identifier count (== 3), and its early-ASSERT abort corrupts shared
+    # OSI state for later fixtures in this process (the contamination pattern documented above,
+    # measured 2026-07-24: OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve fails in batch but
+    # passes standalone). Same idiom as GT_OSI_FUTURE_TRAJECTORY.
+    if ! GT_OSI_ODR_OBJECT_TYPE=0 ${EXE_FOLDER}/ScenarioPlayer_test --disable_stdout --gtest_filter="$SCENARIOPLAYER_SKIP"; then
         exit_with_msg "ScenarioPlayer_test failed"
     fi
 

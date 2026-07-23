@@ -18,7 +18,9 @@
 #include "RoadManager.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"  // WP4: authored junction boundary -> OSI intersection contour
 // #include "gt_esmini/scenario/ExtraEntities.hpp"
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 #include <utility>
 #include <array>
@@ -40,6 +42,34 @@
 
 constexpr const char *SOURCE_REF_TYPE_ODR = "net.asam.opendrive";
 constexpr const char *SOURCE_REF_TYPE_OSC = "net.asam.openscenario";
+
+// [GT_MOD] Env gate for the GT-only "odr_type:<...>" source_reference identifier
+// (signal:crosswalk_footprint). Default ON; GT_OSI_ODR_OBJECT_TYPE=0/false/off/no disables.
+// Same idiom and rationale as GT_OSI_FUTURE_TRAJECTORY (GT_OSIReporter_Moving.cpp): upstream
+// unit suites assert the exact upstream source_reference layout (ScenarioPlayer_test
+// OSI.TestStationaryObjects ASSERTs identifier().size() == 3, and its early-ASSERT abort then
+// corrupts the shared obj_osi_internal state for later fixtures in the same process) and those
+// binaries cannot call GT config APIs, so run_tests.sh turns the identifier off for them only.
+static bool OdrObjectTypeIdentifierEnabled()
+{
+    static int cached = -1;  // -1 = uninitialized, 0 = disabled, 1 = enabled
+    if (cached < 0)
+    {
+        bool        disabled = false;
+        const char *v        = std::getenv("GT_OSI_ODR_OBJECT_TYPE");
+        if (v != nullptr && v[0] != '\0')
+        {
+            std::string s(v);
+            for (char &c : s)
+            {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            disabled = (s == "0" || s == "false" || s == "off" || s == "no");
+        }
+        cached = disabled ? 0 : 1;
+    }
+    return cached == 1;
+}
 
 // Large OSI messages needs to be split for UDP transmission
 // This struct must be mached on receiver side
@@ -876,7 +906,11 @@ int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object, roa
         // crosswalk/railing/patch/... into TYPE_OTHER, so the ODR <object type> string is the only way a
         // consumer can tell them apart without re-parsing the xodr. Synthesized crossPath objects carry
         // ObjectType::CROSSWALK too, so "odr_type:crosswalk" covers both authored and synthesized ones.
-        source_reference->add_identifier(fmt::format("odr_type:{}", object->GetTypeStr()));
+        // Env-gated (see OdrObjectTypeIdentifierEnabled above) for the upstream unit suites only.
+        if (OdrObjectTypeIdentifierEnabled())
+        {
+            source_reference->add_identifier(fmt::format("odr_type:{}", object->GetTypeStr()));
+        }
 
         // Set OSI Stationary Object Orientation
         obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(ri.r));
