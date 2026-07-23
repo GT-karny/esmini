@@ -872,6 +872,11 @@ int OSIReporter::UpdateOSIStationaryObjectODR(roadmanager::RMObject *object, roa
 
         source_reference->add_identifier(fmt::format("object_type:{}", src_ref_type));
         source_reference->add_identifier(fmt::format("object_id:{}", object->GetId()));
+        // [GT_MOD] In-band ODR object kind (signal:crosswalk_footprint): the classification above folds
+        // crosswalk/railing/patch/... into TYPE_OTHER, so the ODR <object type> string is the only way a
+        // consumer can tell them apart without re-parsing the xodr. Synthesized crossPath objects carry
+        // ObjectType::CROSSWALK too, so "odr_type:crosswalk" covers both authored and synthesized ones.
+        source_reference->add_identifier(fmt::format("odr_type:{}", object->GetTypeStr()));
 
         // Set OSI Stationary Object Orientation
         obj_osi_internal.sobj->mutable_base()->mutable_orientation()->set_roll(GetAngleInIntervalMinusPIPlusPI(ri.r));

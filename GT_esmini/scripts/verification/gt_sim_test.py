@@ -116,10 +116,11 @@ def _enum_name(msg_cls, field: str, value: int, prefix: str) -> str:
 
 # OpenDRIVE object ids at/above this value are synthesised by GT's 1.8 junction
 # <crossPath> expansion (OdrJunctionExtras.cpp kCrosswalkSynthIdBase) rather than
-# authored in the xodr. OSI folds every "other" road object into TYPE_OTHER
-# (GT_OSIReporter.cpp:789-797), so this reserved range is the only in-band way to
-# recognise a crosswalk footprint; authored <object type="crosswalk"> stays
-# indistinguishable from railings/patches/islands on the OSI side alone.
+# authored in the xodr. The primary in-band crosswalk evidence is the
+# "odr_type:crosswalk" source_reference identifier (OSI folds every "other" road
+# object into TYPE_OTHER, so the ODR <object type> string is emitted alongside
+# object_id); this id range remains only as a fallback for telemetry captured
+# with a DLL that predates the odr_type identifier.
 _CROSSWALK_SYNTH_ID_BASE = 900000000
 
 # scene keys that hold static GroundTruth: emitted on the frame they were first
@@ -213,8 +214,8 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
                             is_host,type,lane_global_id}]
       traffic_lights:     [{id,x,y,h,color,mode,icon,assigned_lane_ids}]
       traffic_signs:      [{id,type,value,value_unit,x,y,h}]        (static, see below)
-      stationary_objects: [{id,type,x,y,h,length,width,height,
-                            odr_object_id,is_crosswalk,polygon}]    (static, see below)
+      stationary_objects: [{id,type,x,y,h,length,width,height,odr_object_id,
+                            odr_type,is_crosswalk,polygon}]         (static, see below)
       lane_map:           {str(lane_global_id): {road_id,lane_id}}  (static, see below)
 
     Keys are only ever added, never repurposed: `speed` stays the scalar
@@ -384,6 +385,7 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     for so in gt.stationary_object:
         dim = so.base.dimension
         odr_id = None
+        odr_type = None
         for ref in so.source_reference:
             for ident in ref.identifier:
                 if ident.startswith("object_id:"):
@@ -391,6 +393,8 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
                         odr_id = int(ident[len("object_id:") :])
                     except ValueError:
                         pass
+                elif ident.startswith("odr_type:"):
+                    odr_type = ident[len("odr_type:") :]
         stationary.append(
             {
                 "id": so.id.value,
@@ -407,11 +411,19 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
                 "width": round(dim.width, 2),
                 "height": round(dim.height, 2),
                 "odr_object_id": odr_id,
-                # Only synthesised crossPath crosswalks are recognisable in-band;
-                # see _CROSSWALK_SYNTH_ID_BASE. False here means "not provably a
-                # crosswalk", NOT "provably not a crosswalk".
-                "is_crosswalk": odr_id is not None
-                and odr_id >= _CROSSWALK_SYNTH_ID_BASE,
+                # The ODR <object type> string ("crosswalk", "railing", ...), or
+                # None on telemetry from a DLL predating the odr_type identifier.
+                "odr_type": odr_type,
+                # False still means "not provably a crosswalk", NOT "provably not
+                # a crosswalk": with odr_type present the answer is authoritative
+                # (authored AND synthesised), without it only the synth id range
+                # is recognisable (see _CROSSWALK_SYNTH_ID_BASE).
+                "is_crosswalk": (odr_type == "crosswalk")
+                or (
+                    odr_type is None
+                    and odr_id is not None
+                    and odr_id >= _CROSSWALK_SYNTH_ID_BASE
+                ),
                 # Object-LOCAL corners, not world: esmini fills base_polygon from
                 # Outline::GetPosLocal (GT_OSIReporter.cpp:840-843). A consumer
                 # wanting world coordinates must rotate by `h` and offset by x,y.

@@ -180,22 +180,26 @@ signals:
     title: 横断歩道のフットプリント
     exposure: [osi]
     state: "(b)"
-    emit: GT_OSIReporter.cpp:829-850（StationaryObject.base_polygon）
+    emit: GT_OSIReporter.cpp:829-850（StationaryObject.base_polygon）＋ :875-879（odr_type identifier）
     note: >-
-      **半分だけ前進（2026-07-21）。state は (b) のまま**＝これを読む matcher がまだ無いため。
-      scene.stationary_objects[] に id/type/寸法/odr_object_id/polygon を載せる配線は完了し
-      （traffic_sign と同じ静的GT経路・前方補完に相乗り）、実測で横断歩道の footprint を
-      取得できることを確認済み（polygon は **object-local 座標**＝Outline::GetPosLocal 由来、
-      world にするには h 回転＋x,y 平行移動が要る）。
-      **残る欠は配線ではなく emit 側**: classification.type が TYPE_OTHER 固定（:791-796）で
-      obstacle/railing/patch/trafficisland/streetlamp/gantry/soundbarrier/wind/roadmark と
-      区別できず、`source_reference` も object_type:"object" 固定のため in-band で横断歩道と
-      断定できない。唯一使えるのは GT の 1.8 <crossPath> 合成が使う予約 id 範囲
-      （>= 900000000, OdrJunctionExtras.cpp kCrosswalkSynthIdBase）で、scene の
-      `is_crosswalk` はこれのみを根拠にする＝**false は「横断歩道でない」ではなく
-      「横断歩道と証明できない」**。xodr に人が書いた <object type="crosswalk"> は
-      この範囲に入らず判別不能。**次の打ち手は matcher 追加ではなく emit 側で
-      種別を source_reference に載せること**（別作業）。
+      **emit 側種別も解消（2026-07-24）。state は (b) のまま**＝これを読む matcher がまだ無いため。
+      scene.stationary_objects[] への配線（id/type/寸法/odr_object_id/polygon、traffic_sign と
+      同じ静的GT経路・前方補完に相乗り）は 2026-07-21 完了済み（polygon は **object-local 座標**＝
+      Outline::GetPosLocal 由来、world にするには h 回転＋x,y 平行移動が要る）。
+      2026-07-24 に残っていた emit 側の欠を閉じた: classification.type は TYPE_OTHER 固定
+      （:791-796、OSI 列挙に crosswalk が無い以上ここは正当）だが、source_reference の
+      3本目 identifier `odr_type:<ODR object type文字列>`（RMObject::GetTypeStr、upstream と
+      同じ key:value 流儀の GT 拡張）を**全 ODR stationary オブジェクト**に emit し、
+      crosswalk/railing/patch/... を in-band で判別可能にした。authored
+      <object type="crosswalk"> も P5 合成 crossPath（ObjectType::CROSSWALK）も同じ
+      "odr_type:crosswalk" になる。消費側 `_gt_to_scene` は scene に `odr_type` を追加し、
+      `is_crosswalk` は odr_type を第一根拠・予約 id 範囲（>= 900000000,
+      kCrosswalkSynthIdBase）は**旧DLL採取テレメトリ向け fallback** に降格。
+      意味論根拠: osi_object.proto StationaryObject.source_reference は identifier の詳細を
+      実装定義とし（[0]="object"/[1]=id が規定、追加は非破壊）、ExternalReference.identifier は
+      repeated string で拡張前提。xosc MiscObject 経路（UpdateOSIStationaryObject）は
+      source_reference 自体を出さない別経路＝本作業の射程外。
+      **残る欠は⑤のみ**: stationary_objects を読む matcher が無い（matcher 追加は別作業）。
 
   - id: junction_priority
     title: 交差点の `<priority>` 関係

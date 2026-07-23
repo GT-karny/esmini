@@ -472,7 +472,7 @@ W1-W3 は **enabler の議論と独立に効いた**（対象は built 済みの
 | traffic light phase | OSI `GT_OSIReporter_Traffic.cpp:282` | `_gt_to_scene`(`gt_sim_test.py:190`)→`stopped_at_signal` の require_red | ●（`capture_osi` 有効時のみ） | osi,frame |
 | traffic light `assigned_lane_id` | OSI `:286-288` | ~~`_gt_to_scene` の辞書に含まれない~~ → **配線済(2026-07-21)**: `scene.traffic_lights[].assigned_lane_ids`、`stopped_at_signal` が must の `lane_id` 指定時に絞り込む | **●** | osi |
 | stop/yield sign id・classification | OSI `:96-97`(P4 意味論 fallback `:187-220`) | ~~`_gt_to_scene` は `traffic_sign` を一切パースしない~~ → **配線済(2026-07-21)**: `scene.traffic_signs[]`、`stopped_at_stop_sign` の require_sign が読む | **●** | osi |
-| 横断歩道 footprint | OSI `StationaryObject.base_polygon`(`GT_OSIReporter.cpp:829-850`) ただし type は `TYPE_OTHER` 固定(`:791-796`) | **scene までは配線済(2026-07-21)** `scene.stationary_objects[]`。ただし**読む matcher が無く**、かつ横断歩道と断定する手段が合成 crossPath の予約id範囲しか無い＝**残る欠は emit 側** | (b) | osi |
+| 横断歩道 footprint | OSI `StationaryObject.base_polygon`(`GT_OSIReporter.cpp:829-850`)＋`odr_type:` identifier(`:875-879`, 2026-07-24) | scene 配線済(2026-07-21)＋emit 側種別も解消(2026-07-24): `source_reference` の `odr_type:crosswalk` で authored/合成とも in-band 断定可、`is_crosswalk` の予約id範囲は旧DLL向け fallback に降格。**残る欠は読む matcher が無いことのみ** | (b) | osi |
 | 歩行者 velocity ベクトル | OSI `GT_OSIReporter_Moving.cpp:767-769` | ~~`_gt_to_scene` がスカラーに潰す~~ → **配線済(2026-07-21)**: `vx,vy,vz` を追加（`speed` は不変）、`impact_speed_below` の `_closing_speed` が読む＝**符号情報が復旧** | **●** | osi |
 | 歩行者用信号 phase | OSI lamp `:281-284`（内部で `FoldPedPhase`） | scene に `traffic_lights[].icon`(walk/dont_walk/pedestrian) を追加済だが matcher は非消費 | (b) | osi |
 | 交差点 `<priority>` | **OSI に無い**。`OdrSideModel` で xodr 直読み(`ConflictPointResolver.cpp:336-346`) | 非到達 | (a) | derived |
