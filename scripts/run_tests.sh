@@ -106,14 +106,18 @@ if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
     # CI failure was the same cross-test contamination, not a RoadManager defect (passes standalone and
     # in batch, Debug and Release). The two upstream OSI point fixes (4f33b3be pivot pos / 0403645c
     # tunnel s-value) are ported to GT_RoadManager alongside (gt_roadmanager lineage, pending=0).
+    # TrafficSignals.TestTrafficSignalActions was re-enabled (2026-07-23): the "timing divergence"
+    # previously recorded here was misattributed. The real cause was that GT had modified the
+    # upstream asset resources/xosc/traffic_lights.xosc in place (WaitOnRedEvent actually stopping
+    # the Ego at the red light + teleport s=10->11 + Event priority overwrite->override), shifting
+    # the positions the upstream test asserts. The GT behavior now lives in
+    # resources/xosc/traffic_lights_gt.xosc and the upstream asset is restored byte-exact
+    # (blob 26fd7191 @ upstream 8e2d6584), so the upstream test runs against upstream data again.
     # Still skipped (intentional GT divergence, not un-synced drift):
-    #   - TrafficSignals.TestTrafficSignalActions: GT traffic-signal-controller timing divergence
-    #     (converges to <0.03 m at the final checkpoint; benign but outside the 1e-3 transient tol).
     #   - OSI.TestTrafficLightStates: GT_RoadManager [GT_LHT] 1-E resolves signal orientation by the
     #     road's traffic rule, assigning the correct-side lane on LHT test roads (global id 6 vs
     #     upstream's RHT-assumption 2). Intentional GT fix; upstream PR candidate.
-    SCENARIOPLAYER_SKIP='-TrafficSignals.TestTrafficSignalActions'
-    SCENARIOPLAYER_SKIP="$SCENARIOPLAYER_SKIP:OSI.TestTrafficLightStates"
+    SCENARIOPLAYER_SKIP='-OSI.TestTrafficLightStates'
     if ! ${EXE_FOLDER}/ScenarioPlayer_test --disable_stdout --gtest_filter="$SCENARIOPLAYER_SKIP"; then
         exit_with_msg "ScenarioPlayer_test failed"
     fi

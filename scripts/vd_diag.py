@@ -53,7 +53,7 @@ def inject_virtual_driver(src_xosc: str, dst_xosc: str) -> None:
 
 def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        ROOT, "resources", "xosc", "traffic_lights.xosc")
+        ROOT, "resources", "xosc", "traffic_lights_gt.xosc")  # GT variant: Ego actually stops at red
     sim_s = float(sys.argv[2]) if len(sys.argv) > 2 else 30.0
     dt = float(sys.argv[3]) if len(sys.argv) > 3 else 0.05
 
