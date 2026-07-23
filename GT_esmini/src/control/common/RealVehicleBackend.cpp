@@ -121,12 +121,29 @@ osi3::HostVehicleData RealVehicleBackend::BuildHVD(const PedalSteerCommand& cmd)
     location->mutable_velocity()->set_x(real_vehicle_.speed_ * std::cos(real_vehicle_.heading_));
     location->mutable_velocity()->set_y(real_vehicle_.speed_ * std::sin(real_vehicle_.heading_));
 
-    // Acceleration (vehicle frame: x=longitudinal, y=lateral)
-    location->mutable_acceleration()->set_x(real_vehicle_.longAcc_);
-    location->mutable_acceleration()->set_y(real_vehicle_.latAcc_);
+    // Acceleration — BaseMoving `location` is the PARENT (global) frame per OSI
+    // (osi_common.proto), so the model's body-frame long/lat pair is rotated by
+    // heading. The body-frame originals go to vehicle_motion below, which is the
+    // field OSI actually specifies in the vehicle coordinate system (G6 fix —
+    // these two fields used to carry each other's frame).
+    const double cos_h = std::cos(real_vehicle_.heading_);
+    const double sin_h = std::sin(real_vehicle_.heading_);
+    location->mutable_acceleration()->set_x(real_vehicle_.longAcc_ * cos_h - real_vehicle_.latAcc_ * sin_h);
+    location->mutable_acceleration()->set_y(real_vehicle_.longAcc_ * sin_h + real_vehicle_.latAcc_ * cos_h);
 
     // Angular velocity (yaw rate)
     location->mutable_orientation_rate()->set_yaw(real_vehicle_.headingDot_);
+
+    // VehicleMotion — velocity/acceleration are "measured on the vehicle
+    // coordinate system" (osi_hostvehicledata.proto). These are the model's
+    // MEASURED body-frame values; GT_HostVehicleReporter preserves them instead
+    // of overwriting with simulation-state projections. The bicycle model has no
+    // lateral slip state, so body velocity is (speed, 0).
+    auto* vmot = hvd.mutable_vehicle_motion();
+    vmot->mutable_velocity()->set_x(real_vehicle_.speed_);
+    vmot->mutable_velocity()->set_y(0.0);
+    vmot->mutable_acceleration()->set_x(real_vehicle_.longAcc_);
+    vmot->mutable_acceleration()->set_y(real_vehicle_.latAcc_);
 
     // Vehicle Steering
     auto* steering = hvd.mutable_vehicle_steering();

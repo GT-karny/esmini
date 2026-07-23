@@ -16,6 +16,7 @@
 #include "Entities.hpp"
 #include "osi_hostvehicledata.pb.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace gt_esmini
@@ -257,7 +258,21 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     const double pitch = egoState->pos_.GetP();
     const double roll  = egoState->pos_.GetR();
 
+    // vehicle_motion velocity/acceleration are specified in the VEHICLE frame
+    // (osi_hostvehicledata.proto VehicleMotion), unlike location /
+    // vehicle_localization (global). When the controller supplied MEASURED
+    // values via base_data (RealVehicleBackend model, ControllerRealDriver
+    // external hardware), those are kept; otherwise the simulation state is
+    // projected into the body frame below. Decide BEFORE any mutable_*() call
+    // materializes an empty vehicle_motion. Writing the raw global vector here
+    // was the G6 spec violation (frame mislabel).
+    const bool keep_vm_vel = has_base && hv_data.has_vehicle_motion() && hv_data.vehicle_motion().has_velocity();
+    const bool keep_vm_acc = has_base && hv_data.has_vehicle_motion() && hv_data.vehicle_motion().has_acceleration();
+
     // Deprecated (backward compatibility): HostVehicleData.location
+    // BaseMoving is the parent (global) frame — acceleration included (G6: it
+    // used to be left as the base_data body-frame value while everything else
+    // here was global).
     auto* location = hv_data.mutable_location();
     location->mutable_position()->set_x(pos_x);
     location->mutable_position()->set_y(pos_y);
@@ -265,6 +280,9 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     location->mutable_velocity()->set_x(vel_x);
     location->mutable_velocity()->set_y(vel_y);
     location->mutable_velocity()->set_z(vel_z);
+    location->mutable_acceleration()->set_x(acc_x);
+    location->mutable_acceleration()->set_y(acc_y);
+    location->mutable_acceleration()->set_z(acc_z);
     location->mutable_orientation()->set_yaw(yaw);
     location->mutable_orientation()->set_pitch(pitch);
     location->mutable_orientation()->set_roll(roll);
@@ -278,7 +296,10 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     vloc->mutable_orientation()->set_pitch(pitch);
     vloc->mutable_orientation()->set_roll(roll);
 
-    // Current: vehicle_motion (position + orientation + velocity + acceleration).
+    // Current: vehicle_motion. Position (global) and orientation stay
+    // simulation-authoritative like location; velocity/acceleration are body
+    // frame per spec — keep base-measured values, else project the simulation
+    // state by yaw (planar rotation; the model itself is planar).
     auto* vmot = hv_data.mutable_vehicle_motion();
     vmot->mutable_position()->set_x(pos_x);
     vmot->mutable_position()->set_y(pos_y);
@@ -286,12 +307,20 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     vmot->mutable_orientation()->set_yaw(yaw);
     vmot->mutable_orientation()->set_pitch(pitch);
     vmot->mutable_orientation()->set_roll(roll);
-    vmot->mutable_velocity()->set_x(vel_x);
-    vmot->mutable_velocity()->set_y(vel_y);
-    vmot->mutable_velocity()->set_z(vel_z);
-    vmot->mutable_acceleration()->set_x(acc_x);
-    vmot->mutable_acceleration()->set_y(acc_y);
-    vmot->mutable_acceleration()->set_z(acc_z);
+    const double cos_yaw = std::cos(yaw);
+    const double sin_yaw = std::sin(yaw);
+    if (!keep_vm_vel)
+    {
+        vmot->mutable_velocity()->set_x(vel_x * cos_yaw + vel_y * sin_yaw);
+        vmot->mutable_velocity()->set_y(-vel_x * sin_yaw + vel_y * cos_yaw);
+        vmot->mutable_velocity()->set_z(vel_z);
+    }
+    if (!keep_vm_acc)
+    {
+        vmot->mutable_acceleration()->set_x(acc_x * cos_yaw + acc_y * sin_yaw);
+        vmot->mutable_acceleration()->set_y(-acc_x * sin_yaw + acc_y * cos_yaw);
+        vmot->mutable_acceleration()->set_z(acc_z);
+    }
 
     // 2. Vehicle Basics (operating state)
     // If not set by base, set default

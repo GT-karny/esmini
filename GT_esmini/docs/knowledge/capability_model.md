@@ -507,7 +507,7 @@ OSI 側は出しているのに **scene 変換層でせき止められている*
 | signal | emit（file:line） | 消費到達 | 判定 | exposure |
 | :-- | :-- | :-- | :-: | :-- |
 | **HVD `steering_angle`** | `ControllerManualDrive.cpp:192-197` が**タイヤ舵角(rad)**を渡し、`GT_HostVehicleReporter.cpp:141` が `steering_input_to_wheel_ratio`(既定12.9) を適用して **OSI ハンドル角**へ変換 | Web `HvdGaugePanel.tsx:55`（`clamp(±540°)`＝ハンドル角として描画）。0.61rad×12.9=451° で整合 | **●** | hvd |
-| HVD acceleration | `RealVehicleBackend::BuildHVD` の値を `GT_HostVehicleReporter.cpp:237-292` が `egoState->pos_.GetAcc*()` で**毎フレーム上書き**（コメントに "Always OVERWRITE" と明記） | RealVehicle の正確な加速度は外に出ない | **(b′)** | hvd |
+| HVD acceleration | location=グローバル／vehicle_motion=車体系に修正済み（2026-07-24。旧実装は両フィールドが互いのフレームを取り違え）。base 実測値（RealDriver 外部実機・RealVehicle モデル）は vehicle_motion で温存 | 実測: VD 経路の値ずれは Euler 恒等式でゼロ・欠陥の実体はフレームラベルだった。読む matcher は依然無し | **(b)** ←(b′)から訂正 | hvd |
 | Kinematic wheel_angle | `ControllerKinematic.cpp:445-447` → `GT_esminiLib.cpp:1516-1531`（`GetWheelAngle()`＝タイヤ舵角 rad, 既定上限1.047rad） | 同じ ratio 経路＝**正しい**。ただし上限1.047rad(60°)はハンドル角換算774°で540°ロック超過＝**タイヤ角上限そのものが非現実的**（別件） | ● | hvd |
 | **VD wheel_angle** | `ControllerVirtualDriver.cpp:587-588` が ManualDrive と**同一パターン**（`current_hvd_.vehicle_steering_wheel().angle()`＝RealVehicleBackend のタイヤ舵角）を渡す | 同じ ratio 経路＝**正しい** | ● | hvd |
 | **RealDriver wheel_angle**（★2026-07-20 是正） | 旧: `ControllerRealDriver.cpp:745` が**正規化指令値 [-1,1]** を渡し ratio 適用で 12.9rad(739°)＝真値451°の**1.64倍(=1/steer_gain)**。現: `real_vehicle_.wheelAngle_`（他3経路と同一の物理タイヤ舵角）を渡す | `HvdGaugePanel.tsx` | ●（修正済） | hvd |

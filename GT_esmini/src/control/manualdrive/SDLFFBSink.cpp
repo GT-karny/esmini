@@ -161,10 +161,19 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
             double vy = loc.velocity().y();
             speed = std::sqrt(vx * vx + vy * vy);
         }
-        if (loc.has_acceleration())
-        {
-            lat_accel = loc.acceleration().y();
-        }
+    }
+    // Lateral acceleration for the FFB force must be BODY frame. The spec home
+    // for that is vehicle_motion (G6 fix; RealVehicleBackend fills it). Legacy
+    // producers that only fill location (external NetworkPhysicsBridge peers)
+    // historically wrote body-frame values there, so the fallback keeps the old
+    // interpretation for them.
+    if (hvd.has_vehicle_motion() && hvd.vehicle_motion().has_acceleration())
+    {
+        lat_accel = hvd.vehicle_motion().acceleration().y();
+    }
+    else if (hvd.has_location() && hvd.location().has_acceleration())
+    {
+        lat_accel = hvd.location().acceleration().y();
     }
     if (hvd.has_vehicle_steering() && hvd.vehicle_steering().has_vehicle_steering_wheel())
     {

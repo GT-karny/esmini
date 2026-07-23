@@ -305,11 +305,25 @@ signals:
   - id: hvd_acceleration
     title: HVD の加速度
     exposure: [hvd]
-    state: "(b')"
-    emit: GT_HostVehicleReporter.cpp:237-292（"Always OVERWRITE" と明記）
+    state: "(b)"
+    emit: GT_HostVehicleReporter.cpp（location=グローバル / vehicle_motion=車体系）＋ RealVehicleBackend::BuildHVD
     note: >-
-      RealVehicleBackend::BuildHVD の値を `egoState->pos_.GetAcc*()` で毎フレーム上書き。
-      RealVehicle の正確な加速度は外に出ない。届くが値が別物＝(b′)。
+      **★2026-07-24 実測で (b′) の実体を訂正し、同日修正済み**。当初の「RealVehicle の値が
+      egoState 上書きで失われる」は VD/ManualDrive 経路では**値のずれゼロ**だった（実測440
+      フレーム diff=0.000。RealVehicle が Euler 積分 v_new=v_old+a·dt するため egoState の
+      有限差分 (v_new−v_old)/dt は同じ a に厳密一致する）。**真の欠陥は座標系の取り違え**:
+      OSI 規定は vehicle_motion.acceleration/velocity=車両座標系・location(BaseMoving)=
+      グローバルだが、旧実装は両フィールドとも逆のフレームを書いていた（規格を信じる外部
+      消費者は yaw 分回った値を誤読する）。修正: (1) BuildHVD は location をグローバルへ
+      回転し、車体系実測値は正規の家 vehicle_motion へ (2) レポーターは location.acceleration
+      もグローバル egoState 値で統一上書きし、vehicle_motion の velocity/acceleration は
+      **base 実測値があれば温存**（ControllerRealDriver 外部実機の実測が捨てられていた問題も
+      同時解消）・無ければ yaw で車体系へ投影 (3) 消費者 SDLFFBSink は vehicle_motion 優先＋
+      location fallback は旧ピア（NetworkPhysicsBridge 外部プロデューサ）互換で車体系解釈を
+      維持。Web は速度の大きさのみ読む＝回転不変で無変更。カーブ路実測で
+      R(−yaw)·location ≒ vehicle_motion（rmse 縦0.008/横0.086 m/s²、残差はモデル瞬時値 vs
+      有限差分の離散化差）。残る欠は**読む matcher が無いこと**＝(b)。
+      教訓は steering 12.9 倍と同型: 意味論（フレーム規定）は .proto 直読まで確定しない。
 
   - id: hvd_inputs
     title: HVD の運転入力（throttle / brake / gear）
