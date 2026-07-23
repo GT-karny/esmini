@@ -119,19 +119,21 @@ if [[ "$OSTYPE" =~ ^(msys|cygwin|linux-gnu) ]]; then
     fi
 
     echo ${EXE_FOLDER}/ScenarioEngineDll_test
-    # GT-only skip (issue #37): GroundTruthTests.check_frequency_* / check_update_osi_ground_truth_* /
-    # check_GroundTruth_including_init_state / check_update_gt_twice_same_frame assert EXACT serialized
-    # OSI GroundTruth byte sizes (e.g. msg_size 12534 vs a fixed cap). This is not fork drift in the
-    # ported functions -- it is GT's own intentional extension surface (future_trajectory projection,
-    # HVD-related fields, assigned_lane_id correction, sentinel guards, ...) permanently inflating/
-    # reshaping the message relative to pristine upstream. Re-baselining these exact-size assertions is
-    # tracked separately (G4 judgment call), not part of this OSIReporter fork-sync.
-    # GetOSIRoadLaneTest.lane_no_obj: same root cause -- GT's future_trajectory generation (Moving.cpp
-    # GenerateProjectedTrajectory) adds points the upstream lane/OSI layout assertion for this fixture
-    # does not expect. Intentional GT divergence, not a bug; re-baseline judgment deferred to G4.
-    # OSILaneParing.Signs re-enabled below: root cause was GT_OSIReporter_Traffic.cpp using the local
-    # per-road signal id (signal->GetId()) instead of the process-wide global id upstream switched to
-    # (752dcaa0..77028d83, #747-line) -- fixed by this commit (G2).
+    # GT-only skip (issue #37 G4, root cause MEASURED 2026-07 against a pristine upstream/master
+    # build): these 7 tests assert BYTE-EXACT serialized OSI sizes (st_size 10067 / 185928 / msg_size
+    # <= 10000 caps). GT emits the same entities, point counts and field VALUES as upstream (verified
+    # message-by-message), but GT links OSI 3.7.0 (externals/osi/v11) whose protos use proto3
+    # explicit field presence: every field the reporter explicitly sets to 0.0 (z, roll/pitch, vel z,
+    # orientation_rate zeros, wheel y, ...) serializes at ~9 bytes, while upstream's OSI 3.5.0
+    # (implicit presence) omits them. Measured on cut-in_simple: static+dynamic msg 11288 (GT, with
+    # future_trajectory already OFF) vs 7661 (pristine upstream) -- identical content, ~3.6 KB of
+    # zero-valued-field encoding. The OSI 3.7.0 upgrade is a permanent, intentional GT platform
+    # divergence (upstream cmake FATALs on anything but 3.5.0 -- see gt_roadmanager_patches.md), so
+    # these exact-size assertions are structurally non-satisfiable for GT; NOT a reporter bug.
+    # The GT-only future_trajectory (Shadow Simulation) output ALSO inflates these messages; it is
+    # env-gatable since G4 (GT_OSI_FUTURE_TRAJECTORY=0 disables; default ON -- gate in
+    # GT_esmini/src/osi/GT_OSIReporter_Moving.cpp) but that alone cannot close the OSI-version gap,
+    # so the skips stay until the assertions are decoupled from the OSI serialization version.
     SCENARIOENGINEDLL_SKIP='-GroundTruthTests.check_GroundTruth_including_init_state'
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_frequency_explicit"
     SCENARIOENGINEDLL_SKIP="$SCENARIOENGINEDLL_SKIP:GroundTruthTests.check_frequency_implicit"
