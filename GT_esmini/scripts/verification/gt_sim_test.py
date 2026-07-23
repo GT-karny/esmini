@@ -294,8 +294,13 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
             "type": _MOVING_TYPE_MAP.get(o.type, "unknown"),
             # OSI assigned_lane_id (global lane id); resolve to OpenDRIVE
             # road_id/lane_id via scene["lane_map"]. None when OSI set no lane.
+            # Prefer the OSI 3.7.0 home (MovingObjectClassification); the
+            # MovingObject-level field is deprecated and kept as fallback for
+            # telemetry captured with a DLL predating the dual emit.
             "lane_global_id": (
-                o.assigned_lane_id[0].value if o.assigned_lane_id else None
+                o.moving_object_classification.assigned_lane_id[0].value
+                if o.moving_object_classification.assigned_lane_id
+                else (o.assigned_lane_id[0].value if o.assigned_lane_id else None)
             ),
         }
         if dims_fallback:

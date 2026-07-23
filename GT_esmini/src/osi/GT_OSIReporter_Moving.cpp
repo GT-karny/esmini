@@ -868,7 +868,14 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
     // Set ego lane
     // [GT_MOD] Use the cached driving-lane global id (see ResolveMovingObjectAssignedLaneGlobalId)
     // so a laterally-drifting driving vehicle is not reported as assigned to a border/sidewalk lane.
-    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(ResolveMovingObjectAssignedLaneGlobalId(objectState.pos_));
+    // Dual emit during the deprecation transition: MovingObject.assigned_lane_id (field 4) is
+    // deprecated in OSI 3.7.0 in favour of MovingObjectClassification.assigned_lane_id, but the
+    // deprecated field is still what replayer's osi_receiver and the upstream UDP samples read —
+    // those are core-side consumers GT cannot patch (R1). GT-side consumers prefer the
+    // classification field and fall back to the deprecated one (gt_sim_test._gt_to_scene).
+    const id_t assigned_lane_gid = ResolveMovingObjectAssignedLaneGlobalId(objectState.pos_);
+    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(assigned_lane_gid);
+    obj_osi_internal.mobj->mutable_moving_object_classification()->add_assigned_lane_id()->set_value(assigned_lane_gid);
 
     // simplified wheel info, set nr wheels based on object type
     // can be improved by considering axels and actual wheel configuration

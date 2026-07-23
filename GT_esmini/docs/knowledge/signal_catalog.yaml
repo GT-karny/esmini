@@ -378,6 +378,12 @@ signals:
       lane_id の emit 実体は 2026-07-21（spine-work:osi-assigned-lane-driving）以降
       キャッシュ走行レーン（`Position::GetLaneId` 由来、`ResolveMovingObjectAssignedLaneGlobalId`）
       ＝旧 `GetLaneGlobalId()` の (s,t) 再探索を廃し border/sidewalk へのドリフトを解消。
+      2026-07-24 から **deprecated field 移行の dual emit**: MovingObject 直下 field4
+      （OSI 3.7.0 で deprecated）と後継 `MovingObjectClassification.assigned_lane_id` の
+      両方に同値を出す。旧 field を残す理由は replayer `osi_receiver.cpp` と upstream UDP
+      サンプル群が field4 直読みで R1 により GT から修正不可のため。GT 自前消費者
+      （gt_sim_test `lane_global_id`）は classification 優先＋旧 field fallback に移行済み。
+      片寄せ（旧 field 廃止）は upstream/OSI 4.0 の動きに合わせて別途判断。
 
   - id: traffic_vehicle_pitch_roll
     title: 交通車の動的 pitch/roll
