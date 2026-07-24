@@ -49,6 +49,7 @@ private:
     int           high_beam_button_      = -1;
     int           fog_light_button_      = -1;
     int           hazard_button_         = -1;
+    int           auto_resume_button_    = -1;  // feature:F7
     bool          sdl_initialized_        = false;
 
     GearTracker gear_tracker_;

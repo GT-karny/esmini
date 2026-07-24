@@ -120,7 +120,12 @@ export function LiveVdPanel({
               Virtual Driver controller.
             </div>
           )}
-          {showOverride && effectiveJobId && <VdManualOverridePanel jobId={effectiveJobId} />}
+          {showOverride && effectiveJobId && (
+            <VdManualOverridePanel
+              jobId={effectiveJobId}
+              mode={frame ? frame.override : null}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -573,7 +573,15 @@ export interface VdTelemetryFrame {
     x: number; y: number; z: number; h: number; speed: number;
     track?: number; lane?: number; offset?: number; s?: number;
   };
-  override: { lateral: boolean; longitudinal: boolean };
+  // feature:F7 — manual_transition / auto_transition are the single-frame
+  // edges of the AUTO<->MANUAL flip. Optional so older telemetry sources still
+  // deserialize; the panel only uses them when present.
+  override: {
+    lateral: boolean;
+    longitudinal: boolean;
+    manual_transition?: boolean;
+    auto_transition?: boolean;
+  };
   driver: {
     throttle: number; brake: number; steer: number;
     lateral_error: number; heading_error: number; speed_error: number;

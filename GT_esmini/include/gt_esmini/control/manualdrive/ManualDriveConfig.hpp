@@ -26,6 +26,7 @@ struct ManualDriveConfig
         int    high_beam_button     = -1;
         int    fog_light_button     = -1;
         int    hazard_button        = -1;
+        int    auto_resume_button   = -1;  // feature:F7 — resume AD after manual override
     } sdl2;
 
     // Input: SDL2 keyboard

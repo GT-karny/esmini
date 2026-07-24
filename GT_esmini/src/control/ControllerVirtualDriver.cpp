@@ -384,6 +384,8 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.s                     = object_->pos_.GetS();
     telemetry_.override_lateral      = lat_manual;
     telemetry_.override_longitudinal = lon_manual;
+    telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
+    telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
     telemetry_.policy                = policy_snap;

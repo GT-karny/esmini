@@ -54,6 +54,7 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
     high_beam_button_       = config.sdl2.high_beam_button;
     fog_light_button_       = config.sdl2.fog_light_button;
     hazard_button_          = config.sdl2.hazard_button;
+    auto_resume_button_     = config.sdl2.auto_resume_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -163,6 +164,7 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
     read_btn(high_beam_button_,       ButtonBits::HIGH_BEAM);
     read_btn(fog_light_button_,       ButtonBits::FOG_LIGHT);
     read_btn(hazard_button_,          ButtonBits::HAZARD);
+    read_btn(auto_resume_button_,     ButtonBits::AUTO_RESUME);
 
     frame.pedal_steer = cmd;
     return frame;

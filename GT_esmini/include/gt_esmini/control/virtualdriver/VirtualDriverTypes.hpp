@@ -178,6 +178,14 @@ struct VirtualDriverTelemetry
     bool override_lateral      = false;
     bool override_longitudinal = false;
 
+    // feature:F7 mode-transition edges. True only on the single frame the
+    // AUTO<->MANUAL flip occurred, so the web overlay / logging pipeline can
+    // record a "human took over" or "resumed AD" event without diffing the
+    // per-domain flags itself. Both false in steady state and while a domain
+    // is scenario-locked. Never simultaneously true.
+    bool manual_transition = false;  // AUTO -> MANUAL this frame
+    bool auto_transition   = false;  // MANUAL -> AUTO this frame (resume-button or timeout)
+
     // Per-layer snapshots.
     ShortPlannerSnapshot   short_plan;
     DriverModelSnapshot    driver;

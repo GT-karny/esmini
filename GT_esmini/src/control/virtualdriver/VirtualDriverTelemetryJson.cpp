@@ -23,7 +23,9 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"s\":" << t.front_bumper.s << ",\"t\":" << t.front_bumper.t
        << ",\"offset\":" << t.front_bumper.offset << ",\"valid\":" << b(t.front_bumper.valid) << "}"
        << ",\"override\":{\"lateral\":" << b(t.override_lateral)
-       << ",\"longitudinal\":" << b(t.override_longitudinal) << "}"
+       << ",\"longitudinal\":" << b(t.override_longitudinal)
+       << ",\"manual_transition\":" << b(t.manual_transition)
+       << ",\"auto_transition\":" << b(t.auto_transition) << "}"
        << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake
        << ",\"steer\":" << t.driver.steer << ",\"lateral_error\":" << t.driver.lateral_error
        << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error

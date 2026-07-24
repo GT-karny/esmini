@@ -114,6 +114,7 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_int("high_beam_button", sdl2.high_beam_button);
         parse_int("fog_light_button", sdl2.fog_light_button);
         parse_int("hazard_button", sdl2.hazard_button);
+        parse_int("auto_resume_button", sdl2.auto_resume_button);
 
         // SDL2 keyboard input (key names are SDL scancode names)
         parse_string("steer_left",      keyboard.steer_left);

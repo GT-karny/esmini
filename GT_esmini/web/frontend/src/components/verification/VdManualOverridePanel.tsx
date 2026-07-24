@@ -6,17 +6,32 @@ const BTN = {
   INDICATOR_LEFT: 1 << 1,
   INDICATOR_RIGHT: 1 << 2,
   HAZARD: 1 << 6,
+  AUTO_RESUME: 1 << 7,
 } as const;
 
 const SEND_HZ = 30;
+// One-shot pulse duration for AUTO_RESUME: long enough for the rising edge to
+// land in a controller frame (VD default 20 Hz; 200 ms = ~4 frames) but short
+// enough to release before the operator can flick the wheel and re-latch.
+const RESUME_PULSE_MS = 200;
 
 /**
  * Live manual-override control for VirtualDriver. Streams pedal/steer/indicator
  * commands to the backend over /ws/input/{jobId}, which packs them into the
  * NetworkInputBridge wire format and forwards via UDP to GT_Sim. Requires the
  * run to have been launched with manual override enabled (input_type=network).
+ *
+ * feature:F7 — the "Resume Auto" button issues a one-shot AUTO_RESUME pulse
+ * that returns both domains to AUTO on the OverrideManager side (rising-edge
+ * detection). The current mode is fed in via `mode` (from telemetry.override).
  */
-export function VdManualOverridePanel({ jobId }: { jobId: string }) {
+export function VdManualOverridePanel({
+  jobId,
+  mode,
+}: {
+  jobId: string;
+  mode?: { lateral: boolean; longitudinal: boolean } | null;
+}) {
   const [steering, setSteering] = useState(0);
   const [throttle, setThrottle] = useState(0);
   const [brake, setBrake] = useState(0);
@@ -24,6 +39,7 @@ export function VdManualOverridePanel({ jobId }: { jobId: string }) {
   const [left, setLeft] = useState(false);
   const [right, setRight] = useState(false);
   const [hazard, setHazard] = useState(false);
+  const [resumePulse, setResumePulse] = useState(false);
   const [connected, setConnected] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -36,8 +52,9 @@ export function VdManualOverridePanel({ jobId }: { jobId: string }) {
     if (left) buttons |= BTN.INDICATOR_LEFT;
     if (right) buttons |= BTN.INDICATOR_RIGHT;
     if (hazard) buttons |= BTN.HAZARD;
+    if (resumePulse) buttons |= BTN.AUTO_RESUME;
     cmdRef.current = { steering, throttle, brake, buttons };
-  }, [steering, throttle, brake, override, left, right, hazard]);
+  }, [steering, throttle, brake, override, left, right, hazard, resumePulse]);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -61,6 +78,23 @@ export function VdManualOverridePanel({ jobId }: { jobId: string }) {
   const toggleLeft = () => { setLeft((v) => !v); setRight(false); };
   const toggleRight = () => { setRight((v) => !v); setLeft(false); };
 
+  const pulseResumeAuto = () => {
+    setResumePulse(true);
+    // Also release any latched manual controls the operator was holding, so the
+    // wheel/pedals don't sit above the override threshold and re-latch on the
+    // frame the AUTO_RESUME pulse ends.
+    setSteering(0);
+    setThrottle(0);
+    setBrake(0);
+    setOverride(false);
+    window.setTimeout(() => setResumePulse(false), RESUME_PULSE_MS);
+  };
+
+  const isManual = !!(mode && (mode.lateral || mode.longitudinal));
+  const modeLabel = mode == null
+    ? 'mode: —'
+    : `mode: ${modeText(mode)}`;
+
   return (
     <div className="rounded border border-glass-edge p-3 text-xs space-y-2">
       <div className="flex items-center justify-between">
@@ -68,6 +102,21 @@ export function VdManualOverridePanel({ jobId }: { jobId: string }) {
         <span className={connected ? 'text-success' : 'text-text-tertiary'}>
           ● {connected ? 'linked' : 'offline'}
         </span>
+      </div>
+
+      <div className="flex items-center justify-between text-[11px]">
+        <span className={isManual ? 'text-warning' : 'text-success'}>{modeLabel}</span>
+        <button
+          onClick={pulseResumeAuto}
+          disabled={!isManual}
+          className={`px-2 py-1 rounded text-[11px] border border-glass-edge ${
+            isManual
+              ? 'bg-success/70 text-white hover:bg-success'
+              : 'text-text-tertiary opacity-50 cursor-not-allowed'
+          }`}
+        >
+          Resume Auto
+        </button>
       </div>
 
       <Slider label="steer" min={-1} max={1} step={0.01} value={steering} onChange={setSteering} fmt={(v) => v.toFixed(2)} />
@@ -88,10 +137,17 @@ export function VdManualOverridePanel({ jobId }: { jobId: string }) {
         Center / release pedals
       </button>
       <p className="text-[10px] text-text-tertiary leading-tight">
-        Steer &gt; 0.05 or pedal &gt; 0.1 takes the corresponding domain (or use Override).
+        Steer &gt; 0.05 or pedal &gt; 0.1 takes the corresponding domain (or use Override). Press Resume Auto to hand control back to the VD.
       </p>
     </div>
   );
+}
+
+function modeText(mode: { lateral: boolean; longitudinal: boolean }): string {
+  if (mode.lateral && mode.longitudinal) return 'MANUAL (both)';
+  if (mode.lateral) return 'MANUAL (lat)';
+  if (mode.longitudinal) return 'MANUAL (lon)';
+  return 'AUTO';
 }
 
 function Slider({
