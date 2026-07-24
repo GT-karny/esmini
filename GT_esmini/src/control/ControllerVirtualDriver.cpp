@@ -68,6 +68,17 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.override_cfg.auto_return_timeout = vd_config_.auto_return_timeout;
     io_config_.domain.lateral      = vd_config_.override_lateral;
     io_config_.domain.longitudinal = vd_config_.override_longitudinal;
+    // SDL2 wheel button bindings (only consumed when input_type=="sdl2_wheel").
+    io_config_.sdl2.override_button        = vd_config_.sdl2_override_button;
+    io_config_.sdl2.indicator_left_button  = vd_config_.sdl2_indicator_left_button;
+    io_config_.sdl2.indicator_right_button = vd_config_.sdl2_indicator_right_button;
+    io_config_.sdl2.upshift_button         = vd_config_.sdl2_upshift_button;
+    io_config_.sdl2.downshift_button       = vd_config_.sdl2_downshift_button;
+    io_config_.sdl2.headlight_button       = vd_config_.sdl2_headlight_button;
+    io_config_.sdl2.high_beam_button       = vd_config_.sdl2_high_beam_button;
+    io_config_.sdl2.fog_light_button       = vd_config_.sdl2_fog_light_button;
+    io_config_.sdl2.hazard_button          = vd_config_.sdl2_hazard_button;
+    io_config_.sdl2.auto_resume_button     = vd_config_.sdl2_auto_resume_button;  // feature:F7
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2

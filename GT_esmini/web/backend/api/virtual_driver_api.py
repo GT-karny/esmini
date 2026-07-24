@@ -123,7 +123,25 @@ _STRING_ENUM_KEYS: dict[str, frozenset[str]] = {
     "override_lateral": frozenset({"manual", "scenario"}),
     "override_longitudinal": frozenset({"manual", "scenario"}),
 }
-KNOWN_KEYS = _BOOL_KEYS | _NUMBER_KEYS | frozenset(_STRING_ENUM_KEYS)
+# Integer-typed keys — SDL2 wheel button IDs (feature:F7 exposed the whole set
+# so bindings can be remapped without a rebuild). Only used when the run's
+# input_type is "sdl2_wheel". -1 = unassigned; any non-negative integer is a
+# raw SDL joystick button ID (see SDL2WheelInput.Poll).
+_INT_KEYS = frozenset(
+    {
+        "sdl2_override_button",
+        "sdl2_indicator_left_button",
+        "sdl2_indicator_right_button",
+        "sdl2_upshift_button",
+        "sdl2_downshift_button",
+        "sdl2_headlight_button",
+        "sdl2_high_beam_button",
+        "sdl2_fog_light_button",
+        "sdl2_hazard_button",
+        "sdl2_auto_resume_button",
+    }
+)
+KNOWN_KEYS = _BOOL_KEYS | _NUMBER_KEYS | frozenset(_STRING_ENUM_KEYS) | _INT_KEYS
 
 # Owned by the per-run writer (_write_virtual_driver_config); a GUI edit must
 # never override these, so PUT rejects them as unknown.
@@ -241,6 +259,22 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "input_type": "stub",
     "input_port": 9100,
     "input_transport": "udp",
+    "_sdl2_bindings": (
+        "SDL2 wheel button IDs (only consumed when input_type=sdl2_wheel). "
+        "Edit at runtime — no rebuild needed. -1 = unassigned. "
+        "sdl2_auto_resume_button is feature:F7's manual->auto RESUME; RESUME "
+        "is also reachable from the Web panel or the AUTO_RESUME PSTC bit."
+    ),
+    "sdl2_override_button": 0,
+    "sdl2_indicator_left_button": 7,
+    "sdl2_indicator_right_button": 6,
+    "sdl2_upshift_button": 4,
+    "sdl2_downshift_button": 5,
+    "sdl2_headlight_button": -1,
+    "sdl2_high_beam_button": -1,
+    "sdl2_fog_light_button": -1,
+    "sdl2_hazard_button": -1,
+    "sdl2_auto_resume_button": 3,
 }
 
 
@@ -281,6 +315,12 @@ def _coerce(key: str, value: Any) -> Any:
                 detail=f"'{key}' must be one of {sorted(allowed)}",
             )
         return value
+    if key in _INT_KEYS:
+        # SDL joystick button IDs are integers. Accept int; reject bool/float.
+        # bool must be rejected first because it's a subclass of int in Python.
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise HTTPException(status_code=422, detail=f"'{key}' must be an integer")
+        return int(value)
     # number key
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise HTTPException(status_code=422, detail=f"'{key}' must be a number")

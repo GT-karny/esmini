@@ -126,6 +126,17 @@ const BoolField kBoolFields[] = {
 
 const IntField kIntFields[] = {
     {"input_port", &VirtualDriverConfig::input_port},
+    // SDL2 wheel button bindings (only used when input_type == "sdl2_wheel").
+    {"sdl2_override_button",        &VirtualDriverConfig::sdl2_override_button},
+    {"sdl2_indicator_left_button",  &VirtualDriverConfig::sdl2_indicator_left_button},
+    {"sdl2_indicator_right_button", &VirtualDriverConfig::sdl2_indicator_right_button},
+    {"sdl2_upshift_button",         &VirtualDriverConfig::sdl2_upshift_button},
+    {"sdl2_downshift_button",       &VirtualDriverConfig::sdl2_downshift_button},
+    {"sdl2_headlight_button",       &VirtualDriverConfig::sdl2_headlight_button},
+    {"sdl2_high_beam_button",       &VirtualDriverConfig::sdl2_high_beam_button},
+    {"sdl2_fog_light_button",       &VirtualDriverConfig::sdl2_fog_light_button},
+    {"sdl2_hazard_button",          &VirtualDriverConfig::sdl2_hazard_button},
+    {"sdl2_auto_resume_button",     &VirtualDriverConfig::sdl2_auto_resume_button},  // feature:F7
 };
 
 void WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)
@@ -180,6 +191,16 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
 
     LOG_INFO("VirtualDriverConfig: planner(horizon={:.1f}s dt={:.2f}) driver(la_gain={:.2f} kp={:.2f}) input={}",
              horizon_s, short_dt, lookahead_gain, speed_kp, input_type);
+    // Observable for feature:F7 GUI/runtime-reload verification: the parsed
+    // SDL2 wheel button IDs. Only meaningful when input_type=="sdl2_wheel",
+    // but always logged so a config edit can be confirmed to have taken
+    // effect on the next scenario load without a rebuild.
+    LOG_INFO("VirtualDriverConfig: sdl2 buttons: override={} resume={} indL={} indR={} up={} down={} hl={} hb={} fog={} hzd={}",
+             sdl2_override_button, sdl2_auto_resume_button,
+             sdl2_indicator_left_button, sdl2_indicator_right_button,
+             sdl2_upshift_button, sdl2_downshift_button,
+             sdl2_headlight_button, sdl2_high_beam_button,
+             sdl2_fog_light_button, sdl2_hazard_button);
     return true;
 }
 

@@ -161,6 +161,24 @@ struct VirtualDriverConfig
     int         input_port = 9100;
     std::string input_transport = "udp";
 
+    // SDL2 wheel button IDs (only used when input_type=="sdl2_wheel"). Every
+    // key ends up in io_config_.sdl2.* and drives SDL2WheelInput.Poll button
+    // reads. Prefixed sdl2_* to avoid clashing with the bool `override_button`
+    // above (which enables/disables the OVERRIDE bit dispatch, not a wheel
+    // binding). Defaults mirror ManualDriveConfig::sdl2 so the wheel behaves
+    // identically under VD without any JSON present. -1 = unassigned.
+    // feature:F7 — sdl2_auto_resume_button is the new manual->auto RESUME.
+    int         sdl2_override_button        = 0;
+    int         sdl2_indicator_left_button  = 7;
+    int         sdl2_indicator_right_button = 6;
+    int         sdl2_upshift_button         = 4;
+    int         sdl2_downshift_button       = 5;
+    int         sdl2_headlight_button       = -1;
+    int         sdl2_high_beam_button       = -1;
+    int         sdl2_fog_light_button       = -1;
+    int         sdl2_hazard_button          = -1;
+    int         sdl2_auto_resume_button     = -1;
+
     bool LoadFromFile(const std::string& filepath);
 
     // Convenience accessors for the sub-configs of the pluggable components.

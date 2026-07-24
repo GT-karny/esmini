@@ -37,6 +37,11 @@ const EDITABLE_KEYS = [
   'aeb_ttc_threshold', 'aeb_lateral_tol', 'aeb_min_a_req', 'aeb_stop_margin',
   'override_enabled', 'override_button', 'steering_threshold', 'throttle_threshold',
   'brake_threshold', 'auto_return_timeout', 'override_lateral', 'override_longitudinal',
+  // SDL2 wheel bindings (feature:F7 + related). Only consumed under sdl2_wheel input.
+  'sdl2_override_button', 'sdl2_indicator_left_button', 'sdl2_indicator_right_button',
+  'sdl2_upshift_button', 'sdl2_downshift_button',
+  'sdl2_headlight_button', 'sdl2_high_beam_button', 'sdl2_fog_light_button',
+  'sdl2_hazard_button', 'sdl2_auto_resume_button',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -335,6 +340,41 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
             </div>
           </div>
         )}
+      </section>
+
+      {/* SDL2 Wheel Bindings — only consumed when input_type=sdl2_wheel. Values
+          are raw SDL joystick button IDs; -1 = unassigned. feature:F7 exposed
+          these so bindings can be remapped from the GUI without a rebuild. */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          Wheel Bindings (SDL2)
+        </h3>
+        <p className="text-[10px] text-text-tertiary mb-2 leading-tight">
+          Raw SDL joystick button IDs. Only used with the sdl2_wheel input source.
+          -1 = unassigned. Run the SDL2 probe once to learn your device's IDs.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="Override" step={1} value={cfg.sdl2_override_button ?? 0}
+            onChange={setNum('sdl2_override_button')} />
+          <NumberInput label="Auto Resume (F7)" step={1} value={cfg.sdl2_auto_resume_button ?? -1}
+            onChange={setNum('sdl2_auto_resume_button')} />
+          <NumberInput label="Indicator Left" step={1} value={cfg.sdl2_indicator_left_button ?? 7}
+            onChange={setNum('sdl2_indicator_left_button')} />
+          <NumberInput label="Indicator Right" step={1} value={cfg.sdl2_indicator_right_button ?? 6}
+            onChange={setNum('sdl2_indicator_right_button')} />
+          <NumberInput label="Upshift" step={1} value={cfg.sdl2_upshift_button ?? 4}
+            onChange={setNum('sdl2_upshift_button')} />
+          <NumberInput label="Downshift" step={1} value={cfg.sdl2_downshift_button ?? 5}
+            onChange={setNum('sdl2_downshift_button')} />
+          <NumberInput label="Headlight" step={1} value={cfg.sdl2_headlight_button ?? -1}
+            onChange={setNum('sdl2_headlight_button')} />
+          <NumberInput label="High Beam" step={1} value={cfg.sdl2_high_beam_button ?? -1}
+            onChange={setNum('sdl2_high_beam_button')} />
+          <NumberInput label="Fog Light" step={1} value={cfg.sdl2_fog_light_button ?? -1}
+            onChange={setNum('sdl2_fog_light_button')} />
+          <NumberInput label="Hazard" step={1} value={cfg.sdl2_hazard_button ?? -1}
+            onChange={setNum('sdl2_hazard_button')} />
+        </div>
       </section>
 
       {/* Footer actions */}

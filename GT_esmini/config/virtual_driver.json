@@ -114,5 +114,17 @@
     "_input": "Input source: stub | network | sdl2_wheel",
     "input_type": "stub",
     "input_port": 9100,
-    "input_transport": "udp"
+    "input_transport": "udp",
+
+    "_sdl2_bindings": "SDL2 wheel button IDs (only consumed when input_type=sdl2_wheel). Edit at runtime — no rebuild needed. -1 = unassigned. sdl2_auto_resume_button is feature:F7's manual->auto RESUME; RESUME is also reachable from the Web panel or the AUTO_RESUME PSTC bit over UDP.",
+    "sdl2_override_button":        0,
+    "sdl2_indicator_left_button":  7,
+    "sdl2_indicator_right_button": 6,
+    "sdl2_upshift_button":         4,
+    "sdl2_downshift_button":       5,
+    "sdl2_headlight_button":       -1,
+    "sdl2_high_beam_button":       -1,
+    "sdl2_fog_light_button":       -1,
+    "sdl2_hazard_button":          -1,
+    "sdl2_auto_resume_button":     3
 }

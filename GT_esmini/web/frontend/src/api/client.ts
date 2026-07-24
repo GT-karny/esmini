@@ -366,6 +366,20 @@ export interface VirtualDriverConfig {
   auto_return_timeout?: number;
   override_lateral?: 'manual' | 'scenario';
   override_longitudinal?: 'manual' | 'scenario';
+
+  // SDL2 wheel button bindings (integer joystick button IDs; -1 = unassigned).
+  // Only consumed when input_type=="sdl2_wheel"; sdl2_auto_resume_button is
+  // feature:F7's manual->auto RESUME.
+  sdl2_override_button?: number;
+  sdl2_indicator_left_button?: number;
+  sdl2_indicator_right_button?: number;
+  sdl2_upshift_button?: number;
+  sdl2_downshift_button?: number;
+  sdl2_headlight_button?: number;
+  sdl2_high_beam_button?: number;
+  sdl2_fog_light_button?: number;
+  sdl2_hazard_button?: number;
+  sdl2_auto_resume_button?: number;
 }
 
 export interface ControllerConfig {
