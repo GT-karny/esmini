@@ -71,6 +71,8 @@ kg スキルは記帳作法。**「何を結線すれば検証可能な機能に
    req/matcher→ `sustained-by` →gate、実装→ `realizes`、matcher→ `verifies`。
    新しい観測量は `signal_catalog.yaml` に exposure/state 付きで起こす（on-demand、
    canonical は OSI/HVD 面）。新しい常設ゲートは `gate_catalog.yaml`（covers/not_covers を正直に）。
+   **新しい matcher / policy は namespaces.yaml の列挙 id_pattern と count の更新が必須**
+   （列挙型名前空間のため。更新しないと lint が新IDの辺を拒否する。削除時も同様 — 前例 G5）。
 5. **確認**: lint + `--render` グリーン → `--spine-report` の件数が意図どおり動いたか
    （辺を張ったのに減らない＝結線の書き方が台帳の数え方と合っていない）。
 

@@ -80,7 +80,7 @@ DriverScript\.venv\Scripts\python.exe scripts\check_knowledge_graph.py --brief <
 2. **【必読】** — 冒頭で実行させる `--brief <ns:id>` コマンド／対象ファイル・関連 doc（新資産なら capability_model.md §7.1 命名規約）／要点＋memory 名の指し先（物語は転記しない）。
 3. **【やること】** — スコープ（やる範囲・やらないこと）と受入基準（何が green なら完了か）。新資産は /kg チェックリスト準拠を明記。
 4. **【ユーザー判断を仰ぐ】** — 設計分岐は AskUserQuestion で、**必ず推奨案を1つ提示して**問う。凍結名前空間（`req-vd-ad` / `vd-func` / `scenario-variant` 等）への新IDは**実装前に**例外承認を取る（FUNC-075 前例、/kg チェックリスト3）。
-5. **【検証】** — ゲートは実走（「回るはず」禁止）。以下を明記:
+5. **【検証】** — ゲートは実走（「回るはず」禁止）。実装系は test-first（`/test-driven-development`）、ゲート実行と解釈は `/gates`、ビルドは `/build` を指名する。以下を明記:
    - **ベースライン聖域**: deviation が出たら停止して1件ずつ原因特定。更新は根拠付き個別（まとめて `--update` 禁止）。
    - push 後の CI は run の緑でなく **non-blocking ジョブの中身まで**確認（「ゲートがある≠機能している」— memory: ci_red_blindness_2026-07）。
    - バッチ失敗は連鎖クラッシュの可能性 — **単独再実行で再確認**（memory: fork_drift_resolution_2026-07）。
