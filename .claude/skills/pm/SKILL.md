@@ -56,7 +56,15 @@ node $cli list-panes --json
 ### 1ワーカー1往復の手順
 
 1. **ペイン特定**: `list-panes --json` → `surfacePtyIds` の **ptyId（`daemon-*`）を使う**。`pane-<uuid>` を `--pane` に渡すとエラーにならず空が返る（実測）。
-2. **ワーカー起動**: `node $cli send "claude" --submit --pane <ptyId>` → フォルダ信頼プロンプトが出たら `node $cli send-key Enter --pane <ptyId>`。
+2. **ワーカー起動** — 標準モデル構成: **セッション=Opus 4.7（完全IDでピン）・subagent=Sonnet 5**（ユーザー決定 2026-07-24。根拠＝Opus 4.8 幻覚バグと解除条件は memory: worker_model_policy）:
+
+   ```powershell
+   node $cli send "`$env:CLAUDE_CODE_SUBAGENT_MODEL='claude-sonnet-5'; claude --model claude-opus-4-7" --submit --pane <ptyId>
+   ```
+
+   フォルダ信頼プロンプトが出たら `node $cli send-key Enter --pane <ptyId>`。
+   - alias `--model opus` は使わない（最新＝4.8 を掴む）。
+   - `CLAUDE_CODE_SUBAGENT_MODEL` は v2.1.196+・ペインスコープ・全 subagent に**最優先**で効く（Agent 呼び出しの model 指定より強い＝ワーカー内から個別に Opus へ逃がせない。一律 Sonnet を承知の上の構成）。
 3. **タスク送信**: `node $cli send "<プロンプト>" --submit --pane <ptyId>`。日本語はそのまま通る（実測）。
 4. **ターン終了検知**: `node $cli read-screen --pane <ptyId> --tail 40` を 3〜5 秒間隔でポーリング。
    - busy = 画面に `esc to interrupt` がある
