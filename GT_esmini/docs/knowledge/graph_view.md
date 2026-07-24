@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:c2a2a51007e11611 -->
+<!-- generated-from: sha256:e396d1a531a4e6cb -->
 
-ノード 170・辺 174（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 172・辺 176（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -172,9 +172,10 @@ flowchart LR
     n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
     n_matcher_speed_above["speed_above"]
     n_matcher_speed_below["speed_below"]
+    n_matcher_lane_keep["lane_keep"]
+    n_matcher_lane_change_count["lane_change_count"]
     n_matcher_min_speed_above["min_speed_above"]
     n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
-    n_matcher_lane_keep["lane_keep"]
     n_matcher_steer_not_saturated["steer_not_saturated"]
     n_matcher_no_constraint_kind["no_constraint_kind"]
   end
@@ -185,6 +186,7 @@ flowchart LR
   end
   subgraph sg_signal["signal｜観測可能量（OSI GroundTruth / HostVehicleData が canonical）"]
     n_signal_ego_speed["ego_speed"]
+    n_signal_ego_lane["ego_lane"]
     n_signal_ego_pose["ego_pose"]
     n_signal_traffic_light_state["traffic_light_state"]
     n_signal_traffic_sign_classification["traffic_sign_classification"]
@@ -339,6 +341,8 @@ flowchart LR
   n_req_vd_ad_REQ_AD_006 -->|stimulated-by| n_scenario_variant_08_unsignalized_junction__p004
   n_matcher_speed_above -->|observes| n_signal_ego_speed
   n_matcher_speed_below -->|observes| n_signal_ego_speed
+  n_matcher_lane_keep -->|observes| n_signal_ego_lane
+  n_matcher_lane_change_count -->|observes| n_signal_ego_lane
   n_matcher_min_speed_above -->|observes| n_signal_ego_speed
   n_matcher_speed_reduction_before_landmark -->|observes| n_signal_ego_speed
   n_matcher_speed_reduction_before_landmark -->|observes| n_signal_ego_pose
@@ -495,12 +499,14 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (18)
+### observes (20)
 
 | from | to | note |
 | :--- | :--- | :--- |
 | `matcher:speed_above` | `signal:ego_speed` | frames[i]["ego"]["speed"]（面2テレメトリ投影経由） |
 | `matcher:speed_below` | `signal:ego_speed` | 同上（speed_above と同一分岐） |
+| `matcher:lane_keep` | `signal:ego_lane` | ★2026-07-24 結線（c22aeb5d lane 面1化）: _ego_state が is_host の assigned_lane_id （classification 優先・field4 fallback）を scene.lane_map で解決（scene 優先・ telemetry fallback・使用面は verdict の ego_source に記録）。 |
+| `matcher:lane_change_count` | `signal:ego_lane` | 同上（lane_keep と同じ _ego_state 経由の判定車線）。 |
 | `matcher:min_speed_above` | `signal:ego_speed` | 同上 |
 | `matcher:speed_reduction_before_landmark` | `signal:ego_speed` | ego.speed ＋ ego.s（ランドマーク手前の減速率） |
 | `matcher:speed_reduction_before_landmark` | `signal:ego_pose` | ego.s（走行距離）で窓を切る |
@@ -589,7 +595,7 @@ flowchart LR
 | `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
 | `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
 | `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
-| `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id は面1 lane_map(source_reference) 経由、lane は telemetry（OSI assigned_lane_id は VD Position レーンと別量のため。§2.3a D 実施結果）。 |
+| `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id / lane とも面1 lane_map (source_reference) 経由（★2026-07-24 更新: 旧「lane は telemetry＝assigned_lane_id は 別量のため」は 7baf202d の走行レーン由来化と c22aeb5d の lane 面1化で解消。 junction 内 171/15800 フレームのみ telemetry fallback）。 |
 | `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 | `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |

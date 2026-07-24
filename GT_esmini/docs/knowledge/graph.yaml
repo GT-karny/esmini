@@ -739,6 +739,19 @@ edges:
     type: observes
     source: GT_esmini/web/backend/services/vd_metrics.py
     note: 同上（speed_above と同一分岐）
+  - from: matcher:lane_keep
+    to: signal:ego_lane
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      ★2026-07-24 結線（c22aeb5d lane 面1化）: _ego_state が is_host の assigned_lane_id
+      （classification 優先・field4 fallback）を scene.lane_map で解決（scene 優先・
+      telemetry fallback・使用面は verdict の ego_source に記録）。
+  - from: matcher:lane_change_count
+    to: signal:ego_lane
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: 同上（lane_keep と同じ _ego_state 経由の判定車線）。
   - from: matcher:min_speed_above
     to: signal:ego_speed
     type: observes
@@ -932,8 +945,10 @@ edges:
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
     note: >-
-      curve / speed_limit / traffic_lights の3シナリオ。road_id は面1 lane_map(source_reference)
-      経由、lane は telemetry（OSI assigned_lane_id は VD Position レーンと別量のため。§2.3a D 実施結果）。
+      curve / speed_limit / traffic_lights の3シナリオ。road_id / lane とも面1 lane_map
+      (source_reference) 経由（★2026-07-24 更新: 旧「lane は telemetry＝assigned_lane_id は
+      別量のため」は 7baf202d の走行レーン由来化と c22aeb5d の lane 面1化で解消。
+      junction 内 171/15800 フレームのみ telemetry fallback）。
   - from: matcher:steer_not_saturated
     to: gate:anticipation-driving-regression
     type: sustained-by
@@ -1028,9 +1043,10 @@ edges:
 
   # ---- 引けなかった辺（縦串の切れた箇所・2026-07-20 実測の一次記録） ----
   # observes を引けなかった matcher（読む量に対応する signal が canonical 面に無い）:
-  #   - lane_keep / lane_change_count -> ego の lane_id。OSI は lane_id を emit する
-  #     （GT_OSIReporter_Moving.cpp:777）が、matcher が読むのは frame の `ego.lane`
-  #     ＝面2コントローラ由来。同名の量が2面に別経路で存在し、検証は面2側を見ている。
+  #   - ~~lane_keep / lane_change_count -> ego の lane_id~~
+  #     ★2026-07-24 解消: 7baf202d（assigned_lane_id の走行レーン由来化）→ c22aeb5d
+  #     （lane 面1化）で signal:ego_lane が成立し、observes 辺を結線済み（上記）。
+  #     「同名の量が2面に別経路で存在し検証は面2側を見ている」状態は終了。
   #   - steer_not_saturated -> `driver.steer`（面2の操舵指令）。
   #     ★2026-07-20 訂正: 当初「乗り換え先の signal:hvd_steering_angle は (b′) 誤配線なので
   #     先に直す必要がある」と書いたが、**その (b′) 判定自体が誤診だった**
