@@ -220,7 +220,7 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 | 主張ドメイン | ①主張 | ②刺激 | ③実装 | ④観測 | ⑤判定 | ⑥常設 |
 | :-- | :-: | :-: | :-: | :-: | :-: | :-: |
 | **VD 自動運転挙動** | ◐ | ◐ | ● | ◐(b優勢) | ◐ | ◐ |
-| ManualDrive（FFB / 合図） | ○† | ◐ | ● | **◐(b′は加速度のみ)** ←○から復帰 | ○ | ✕ ←◐から訂正 |
+| ManualDrive（FFB / 合図） | ○† | ◐ | ● | **◐(b)** ←(b′)全解消 2026-07-24 | ○ | ✕ ←◐から訂正 |
 | Kinematic / RouteDrive | ○† | ◐ | ● | ○(b/a) ←(b′)撤回 | ○ | ✕ ←◐から訂正 |
 | **RealVehicle 物理（pitch/roll）** | ✕ | ○ | ● | ◐(b) ＋交通車(a) | ✕ | ✕ |
 | AutoLight（F6 環境ヘッドライト） | ● | ◐ | ● | ◐(b) | ◐ | ◐※opt-in |
@@ -241,9 +241,11 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 >   `VehicleSteeringWheel.angle` は**ハンドル角**であり、12.9 はステアリングギア比＝変換は正当
 >   （実測でも RealDriver 修正後にピーク 450.9°＝予測 0.61×12.9=451° と一致）。ManualDrive/VD/
 >   Kinematic は健全で、壊れていたのは RealDriver 経路のみ（`abd55140` で修正済み）。詳細は §2.3 D2。
->   **降格の根拠として残るのは acceleration のみ**: `GT_HostVehicleReporter.cpp:237-292` が
->   `egoState->pos_.GetAcc*()` で**毎フレーム上書き**し RealVehicle の値が外に出ない（射程外・未検証）。
->   ＝ ④ は ○ ではなく **◐(b′限定)** が妥当。
+>   ~~降格の根拠として残るのは acceleration のみ（毎フレーム上書き・射程外未検証）~~
+>   → **★2026-07-24 解消（2a3a0f41）**: 実体は上書きではなく**座標系の取り違え**
+>   （HVD `location` はグローバル系 / `vehicle_motion` は車体系、という OSI 意味論に対して
+>   フレームを混用していた）で、G6 で修正済み。**(b′) はゼロ**になった。
+>   残る欠は「HVD 加速度を読む matcher が無い」＝**(b)**。＝ ④ は **◐(b)** が妥当。
 > - **ManualDrive / Kinematic ⑥ ◐ → ✕**: `test/CMakeLists.txt` と integration 26本を全照合した結果、
 >   **ManualDrive・Kinematic・RouteDrive・pitch/roll に言及する自動テストは unit/integration いずれにも
 >   1件も無い**。従来の「単体ゲート一部」は誤り（AutoIndicator/PIDPurePursuit は VD 側の部品）。
