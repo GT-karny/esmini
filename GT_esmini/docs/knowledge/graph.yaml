@@ -679,6 +679,27 @@ edges:
       負例3本 normal_following/benign_cutin/parallel_overtake が policies:[lead,aeb]（:58,:61,:64）で
       AEB パイプラインの各段（ゲート非発火/候補拒否）を狙い撃ち、no_emergency_without_conflict で
       誤発火ゼロを判定。正例(001)と同一バッチ・同一ベースライン（sustained-by:aeb-safety-regression 参照）。
+  - from: req-vd-ad:REQ-AD-010
+    to: policy:aeb
+    type: stimulated-by
+    source: resources/xosc/verification/aeb_c2c_grid_batch.yaml
+    note: >-
+      CCRs 7セル（aeb_c2c_grid/ccrs_ego10..70.xosc, policies:[lead,aeb], osi:true）＝停止先行車への
+      パラメトリック接近（初期ギャップ=閉じ速度x6s）。判定は expectations でなく探索スイープ層の
+      score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。
+      2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、
+      回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。
+      行列は GT_esmini/docs/virtualdriver/aeb_c2c_grid_matrix.md に固化。
+  - from: req-vd-ad:REQ-AD-011
+    to: policy:aeb
+    type: stimulated-by
+    source: resources/xosc/verification/aeb_c2c_grid_batch.yaml
+    note: >-
+      CCRm 5セル（ccrm_ego30..70_lead20.xosc）＋ CCRb 4セル（ccrb_hw{12,40}_d{2,6}.xosc,
+      NCAP 車間12/40m・制動-2/-6 m/s²）、policies:[lead,aeb]。判定は score_aeb_c2c_grid.py の帯行列。
+      2026-07-24 実測: 全セル avoid(no_aeb)。ただし ccrb_hw12 系は max 8.6 m/s² の強制動での回避
+      ＝本物のニアミス（min TTC 2.83s、Claim B「IDM経路は快適天井を迂回」の実証セル）。
+      avoid/mitigate 境界は本グリッドの外側＝格子細分化/ギャップ短縮が後続課題。
   - from: req-vd-ad:REQ-AD-002
     to: policy:lead
     type: stimulated-by
@@ -1097,11 +1118,10 @@ edges:
   #   006 -> scenario-variant:07_oncoming_yield__p017（title）+ :08_unsignalized_junction__p004（rationale）。
   #
   # 【(i) 真の②刺激欠＝台帳に残すべき数字（辺を引けない・資産が無い）】
-  #   req 5件:
-  #     REQ-AD-010(CCRs) — 07_aeb に stationary target シナリオ無し（xosc は cutin/lead 系5本のみ）。
-  #     REQ-AD-011(CCRm/CCRb) — カットイン無しの等速/制動先行車 safety 資産無し。近い follow_hard_brake は
-  #       policy:lead の快適 tier(maintained_following_distance)であって safety-AEB を発火させない
-  #       ＝**名前類似の罠**。verified_by:[min_obb_separation_above] は充足資産と未一致。
+  #   （2026-07-24 更新: REQ-AD-010/011 は aeb_c2c_grid_batch.yaml（CCRs 7 + CCRm 5 + CCRb 4 の
+  #    16セル・パラメトリック格子、探索スイープ層・非ゲート）で解消 → 上の stimulated-by 節に結線。
+  #    req の刺激欠は 5件 → 3件。）
+  #   req 3件:
   #     REQ-AD-012(VRU-AEB) — aeb_implementation_plan.md:27 が「Out(後続波)」と明記。crosswalk バッチは
   #       compliance/courtesy tier の計画的停止＝別 tier の主張（AEB でない）。
   #     REQ-AD-014(層調停) — deceleration_profile_smooth は 05_anticipation（policy 指定なし・カーブ/右折/
