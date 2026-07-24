@@ -137,13 +137,25 @@ jobs:
             resources/models
           key: ${{ runner.os }}-external-resources
 
+      # GT-only (tentative): trial compiler-cache for the `test` job's Windows build, the
+      # single dominant step in this job (~10min of ~15min job time, all other steps <2min
+      # combined). Wires into support/cmake/rule/ccache.cmake's enable_ccache(), which was
+      # already present but never turned on (ENABLE_CCACHE defaults OFF, no CI caller passed
+      # -DENABLE_CCACHE=ON). sccache-action sets SCCACHE_GHA_ENABLED + the GHA cache backend
+      # env vars for subsequent steps automatically. Debug config uses MSVC's default /Zi
+      # (shared PDB), which sccache generally can't cache -- expect the win on Release only
+      # until/unless Debug is switched to /Z7 (CMAKE_MSVC_DEBUG_INFORMATION_FORMAT); tracked
+      # as a follow-up, not done here.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
       - name: CMake Configure - Windows
         if: runner.os == 'Windows'
         shell: pwsh
         # GT-only: v143 (default) not v142 — the vendored OSI 3.7.0 protobuf libs are built with the
         # VS2022 STL and fail to link under v142 (LNK2001 __std_init_once_link_alternate_names_and_abort).
         # Matches Protocol A (which pins no toolset).
-        run: cmake . -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -G "Visual Studio 17 2022" -A x64
+        run: cmake . -DESMINI_BUILD_VERSION=${{ env.BUILD_NUMBER }} -B build ${{ env.ESMINI_CHECKS }} -DCMAKE_BUILD_TYPE:STRING=${{ matrix.configuration }} -G "Visual Studio 17 2022" -A x64 -DENABLE_CCACHE=ON
 
       - name: CMake Configure - Linux
         if: runner.os == 'Linux'
@@ -157,6 +169,11 @@ jobs:
 
       - name: CMake Build
         run: cmake --build build --config ${{ matrix.configuration }} --target install -j 2
+
+      - name: Show sccache stats
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
 
       - name: Compile minimal C example
         if: runner.os == 'Linux'
