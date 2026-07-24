@@ -115,9 +115,7 @@ def test_ccrs_ego70_params(tmp_path):
     # internally — bumper_gap_m is the documented public formula, so reuse it
     # rather than a hand-recomputed value that would drift on rounding).
     expected_gap = gen.bumper_gap_m(70.0 / 3.6)
-    assert math.isclose(
-        lead_s - ego_s, expected_gap + gen.VEHICLE_LENGTH, rel_tol=1e-6
-    )
+    assert math.isclose(lead_s - ego_s, expected_gap + gen.VEHICLE_LENGTH, rel_tol=1e-6)
 
 
 def test_ccrb_hw12_d6_params(tmp_path):

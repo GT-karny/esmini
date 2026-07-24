@@ -207,7 +207,9 @@ def _make_init(ego_speed_ms: float, lead_s: float, lead_speed_ms: float) -> xosc
 
     # Lead: teleport + constant speed only (no route, no controller) — matches
     # the Lead entity in 07_aeb/cutin_hard_brake.xosc before its cut-in.
-    init.add_init_action("Lead", xosc.TeleportAction(lane_pos(ROAD_ID, LANE_ID, lead_s)))
+    init.add_init_action(
+        "Lead", xosc.TeleportAction(lane_pos(ROAD_ID, LANE_ID, lead_s))
+    )
     init.add_init_action(
         "Lead", xosc.AbsoluteSpeedAction(lead_speed_ms, step_dynamics())
     )
@@ -254,7 +256,9 @@ def build_ccrs(ego_kmh: float) -> Cell:
 
     entities = _make_entities()
     init = _make_init(ego_ms, EGO_TELEPORT_S + gap + VEHICLE_LENGTH, lead_ms)
-    description = f"AEB c2c grid CCRs: ego={ego_kmh:g}km/h vs stopped lead, gap={gap:g}m"
+    description = (
+        f"AEB c2c grid CCRs: ego={ego_kmh:g}km/h vs stopped lead, gap={gap:g}m"
+    )
     scenario = assemble_scenario(
         stem, description, ROADFILE_REL, entities, init, duration
     )
@@ -287,9 +291,7 @@ def build_ccrb(hw_m: float, decel_mps2: float) -> Cell:
     lead_ms = kmh_to_ms(CCRB_EGO_LEAD_KMH)
     lead_stop_time = lead_ms / decel_mps2
     duration = round(
-        CCRB_BRAKE_TIME_S
-        + max(lead_stop_time, ego_stop_time_s(ego_ms))
-        + MARGIN_S,
+        CCRB_BRAKE_TIME_S + max(lead_stop_time, ego_stop_time_s(ego_ms)) + MARGIN_S,
         1,
     )
 

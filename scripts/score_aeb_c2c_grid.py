@@ -104,8 +104,13 @@ def parse_cell_name(name: str) -> CellSpec:
     if m:
         ego = float(m.group(1))
         return CellSpec(
-            name=name, family="ccrs", ego_kmh=ego, lead_kmh=None, hw_m=None,
-            decel_mps2=None, nominal_closing_mps=ego * KMH_TO_MPS,
+            name=name,
+            family="ccrs",
+            ego_kmh=ego,
+            lead_kmh=None,
+            hw_m=None,
+            decel_mps2=None,
+            nominal_closing_mps=ego * KMH_TO_MPS,
         )
 
     m = _RE_CCRM.match(name)
@@ -113,7 +118,11 @@ def parse_cell_name(name: str) -> CellSpec:
         ego = float(m.group(1))
         lead = float(m.group(2))
         return CellSpec(
-            name=name, family="ccrm", ego_kmh=ego, lead_kmh=lead, hw_m=None,
+            name=name,
+            family="ccrm",
+            ego_kmh=ego,
+            lead_kmh=lead,
+            hw_m=None,
             decel_mps2=None,
             nominal_closing_mps=max(0.0, ego - lead) * KMH_TO_MPS,
         )
@@ -123,8 +132,12 @@ def parse_cell_name(name: str) -> CellSpec:
         hw = float(m.group(1))
         d = float(m.group(2))
         return CellSpec(
-            name=name, family="ccrb", ego_kmh=None, lead_kmh=None,
-            hw_m=hw, decel_mps2=d,
+            name=name,
+            family="ccrb",
+            ego_kmh=None,
+            lead_kmh=None,
+            hw_m=hw,
+            decel_mps2=d,
             nominal_closing_mps=CCRB_NOMINAL_KMH * KMH_TO_MPS,
         )
 
@@ -166,7 +179,9 @@ def classify_band(
 # ---------------------------------------------------------------------------
 
 
-def compute_cell_metrics(frames: list[dict], contact_sep: float = CONTACT_SEP_M) -> dict:
+def compute_cell_metrics(
+    frames: list[dict], contact_sep: float = CONTACT_SEP_M
+) -> dict:
     """Pure function over already-loaded telemetry frames (see
     vd_metrics.load_telemetry). Mirrors the frame loops of vd_metrics'
     min_obb_separation_above / impact_speed_below matchers, but returns raw
@@ -287,7 +302,9 @@ def _empty_record(name: str) -> dict:
     }
 
 
-def score_cell(name: str, batch_out: Path, verdict_index: dict[str, dict] | None) -> dict:
+def score_cell(
+    name: str, batch_out: Path, verdict_index: dict[str, dict] | None
+) -> dict:
     """Score one grid cell. Never raises: any measurement failure (unparseable
     name, missing run dir, missing/empty telemetry, or a batch_verdict-level
     'error' status) resolves to band == "crash" with an explanatory note,
@@ -312,7 +329,9 @@ def score_cell(name: str, batch_out: Path, verdict_index: dict[str, dict] | None
     try:
         frames = _vd.load_telemetry(cell_dir)
     except FileNotFoundError:
-        rec["note"] = "run directory / telemetry.jsonl missing (needs single-cell re-run)"
+        rec["note"] = (
+            "run directory / telemetry.jsonl missing (needs single-cell re-run)"
+        )
         return rec
 
     rec["frames"] = len(frames)
@@ -330,13 +349,17 @@ def score_cell(name: str, batch_out: Path, verdict_index: dict[str, dict] | None
     rec["max_ego_decel_mps2"] = metrics["max_ego_decel_mps2"]
 
     band, label = classify_band(
-        spec.nominal_closing_mps, metrics["contact"], metrics["impact_speed_mps"],
+        spec.nominal_closing_mps,
+        metrics["contact"],
+        metrics["impact_speed_mps"],
         rec["aeb_fired"],
     )
     rec["band"] = band
     rec["label"] = label
     if metrics["contact"] and metrics["impact_speed_mps"] is not None:
-        rec["speed_reduction_mps"] = spec.nominal_closing_mps - metrics["impact_speed_mps"]
+        rec["speed_reduction_mps"] = (
+            spec.nominal_closing_mps - metrics["impact_speed_mps"]
+        )
     return rec
 
 
@@ -475,8 +498,15 @@ def render_markdown(cells: list[dict]) -> str:
     lines.append("## 生値テーブル（全セル）")
     lines.append("")
     cols = [
-        "cell", "band", "min_sep_m", "impact_v_mps", "min_ttc_s",
-        "triggered", "max_ego_decel_mps2", "speed_reduction_mps", "note",
+        "cell",
+        "band",
+        "min_sep_m",
+        "impact_v_mps",
+        "min_ttc_s",
+        "triggered",
+        "max_ego_decel_mps2",
+        "speed_reduction_mps",
+        "note",
     ]
     lines.append("| " + " | ".join(cols) + " |")
     lines.append("| " + " | ".join(":--" for _ in cols) + " |")

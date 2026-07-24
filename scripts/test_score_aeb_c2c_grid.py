@@ -27,7 +27,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import score_aeb_c2c_grid as grid  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # fixture helpers
 # ---------------------------------------------------------------------------
@@ -49,8 +48,18 @@ def _obj(id_, name, x, vx, is_host, length=4.5, width=1.8):
     }
 
 
-def _frame(t, ego_x, ego_vx, lead_x, lead_vx, triggered=False, aeb_constraint=False,
-           ttc=None, gap=None, a_req=None):
+def _frame(
+    t,
+    ego_x,
+    ego_vx,
+    lead_x,
+    lead_vx,
+    triggered=False,
+    aeb_constraint=False,
+    ttc=None,
+    gap=None,
+    a_req=None,
+):
     detail = {
         "gt.aeb.triggered": "true" if triggered else "false",
     }
@@ -158,33 +167,43 @@ def test_parse_cell_name_invalid_raises():
 def test_classify_band_avoid_no_aeb():
     # "no_aeb" ではなく "comfort" と呼ぶと、AEB 非発火だが IDM 経路で 8+ m/s²
     # 制動したセル（実測 ccrb_hw12_d6）の中身を偽る（命名規約3）。
-    band, label = grid.classify_band(13.89, contact=False, impact_speed_mps=None, aeb_active=False)
+    band, label = grid.classify_band(
+        13.89, contact=False, impact_speed_mps=None, aeb_active=False
+    )
     assert band == "avoid"
     assert label == "avoid(no_aeb)"
 
 
 def test_classify_band_avoid_aeb():
-    band, label = grid.classify_band(13.89, contact=False, impact_speed_mps=None, aeb_active=True)
+    band, label = grid.classify_band(
+        13.89, contact=False, impact_speed_mps=None, aeb_active=True
+    )
     assert band == "avoid"
     assert label == "avoid(aeb)"
 
 
 def test_classify_band_mitigate_by_speed_reduction():
     # nominal 13.89, impact 3.0 -> reduction 10.89 >= 5.56
-    band, label = grid.classify_band(13.89, contact=True, impact_speed_mps=3.0, aeb_active=True)
+    band, label = grid.classify_band(
+        13.89, contact=True, impact_speed_mps=3.0, aeb_active=True
+    )
     assert band == "mitigate"
     assert "mitigate" in label
 
 
 def test_classify_band_mitigate_by_half_nominal():
     # nominal 10.0, impact 4.5 <= 50% of nominal (5.0), but reduction (5.5) < 5.56
-    band, label = grid.classify_band(10.0, contact=True, impact_speed_mps=4.5, aeb_active=True)
+    band, label = grid.classify_band(
+        10.0, contact=True, impact_speed_mps=4.5, aeb_active=True
+    )
     assert band == "mitigate"
 
 
 def test_classify_band_fail():
     # nominal 13.89, impact 12.0 -> reduction 1.89 < 5.56, impact > 50% of nominal
-    band, label = grid.classify_band(13.89, contact=True, impact_speed_mps=12.0, aeb_active=False)
+    band, label = grid.classify_band(
+        13.89, contact=True, impact_speed_mps=12.0, aeb_active=False
+    )
     assert band == "fail"
     assert "fail" in label
 
@@ -317,25 +336,52 @@ def test_render_markdown_contains_band_rules_and_cell_labels():
     md = grid.render_markdown(
         [
             {
-                "cell": "ccrs_ego30", "family": "ccrs", "nominal_closing_mps": 8.33,
-                "band": "avoid", "label": "avoid(aeb)", "note": None,
-                "min_sep_m": 1.5, "impact_speed_mps": None, "min_ttc_s": 0.4,
-                "triggered": True, "aeb_constraint_seen": False, "aeb_fired": True,
-                "speed_reduction_mps": None, "frames": 4,
+                "cell": "ccrs_ego30",
+                "family": "ccrs",
+                "nominal_closing_mps": 8.33,
+                "band": "avoid",
+                "label": "avoid(aeb)",
+                "note": None,
+                "min_sep_m": 1.5,
+                "impact_speed_mps": None,
+                "min_ttc_s": 0.4,
+                "triggered": True,
+                "aeb_constraint_seen": False,
+                "aeb_fired": True,
+                "speed_reduction_mps": None,
+                "frames": 4,
             },
             {
-                "cell": "ccrs_ego50", "family": "ccrs", "nominal_closing_mps": 13.89,
-                "band": "fail", "label": "fail 12.0m/s", "note": None,
-                "min_sep_m": 0.0, "impact_speed_mps": 12.0, "min_ttc_s": 0.1,
-                "triggered": False, "aeb_constraint_seen": False, "aeb_fired": False,
-                "speed_reduction_mps": 1.89, "frames": 3,
+                "cell": "ccrs_ego50",
+                "family": "ccrs",
+                "nominal_closing_mps": 13.89,
+                "band": "fail",
+                "label": "fail 12.0m/s",
+                "note": None,
+                "min_sep_m": 0.0,
+                "impact_speed_mps": 12.0,
+                "min_ttc_s": 0.1,
+                "triggered": False,
+                "aeb_constraint_seen": False,
+                "aeb_fired": False,
+                "speed_reduction_mps": 1.89,
+                "frames": 3,
             },
             {
-                "cell": "ccrs_ego60", "family": "ccrs", "nominal_closing_mps": 16.67,
-                "band": "crash", "label": "crash", "note": "run directory / telemetry.jsonl missing",
-                "min_sep_m": None, "impact_speed_mps": None, "min_ttc_s": None,
-                "triggered": False, "aeb_constraint_seen": False, "aeb_fired": False,
-                "speed_reduction_mps": None, "frames": 0,
+                "cell": "ccrs_ego60",
+                "family": "ccrs",
+                "nominal_closing_mps": 16.67,
+                "band": "crash",
+                "label": "crash",
+                "note": "run directory / telemetry.jsonl missing",
+                "min_sep_m": None,
+                "impact_speed_mps": None,
+                "min_ttc_s": None,
+                "triggered": False,
+                "aeb_constraint_seen": False,
+                "aeb_fired": False,
+                "speed_reduction_mps": None,
+                "frames": 0,
             },
         ]
     )
@@ -349,11 +395,20 @@ def test_render_markdown_contains_band_rules_and_cell_labels():
 def test_build_yaml_doc_has_all_cells_with_band_and_raw_metrics():
     cells = [
         {
-            "cell": "ccrs_ego30", "family": "ccrs", "nominal_closing_mps": 8.33,
-            "band": "avoid", "label": "avoid(aeb)", "note": None,
-            "min_sep_m": 1.5, "impact_speed_mps": None, "min_ttc_s": 0.4,
-            "triggered": True, "aeb_constraint_seen": False, "aeb_fired": True,
-            "speed_reduction_mps": None, "frames": 4,
+            "cell": "ccrs_ego30",
+            "family": "ccrs",
+            "nominal_closing_mps": 8.33,
+            "band": "avoid",
+            "label": "avoid(aeb)",
+            "note": None,
+            "min_sep_m": 1.5,
+            "impact_speed_mps": None,
+            "min_ttc_s": 0.4,
+            "triggered": True,
+            "aeb_constraint_seen": False,
+            "aeb_fired": True,
+            "speed_reduction_mps": None,
+            "frames": 4,
         }
     ]
     doc = grid.build_yaml_doc(cells)
@@ -376,9 +431,12 @@ def test_main_writes_md_and_yaml_outputs(tmp_path):
 
     rc = grid.main(
         [
-            "--batch-out", str(batch_out),
-            "--out-md", str(out_md),
-            "--out-yaml", str(out_yaml),
+            "--batch-out",
+            str(batch_out),
+            "--out-md",
+            str(out_md),
+            "--out-yaml",
+            str(out_yaml),
         ]
     )
 
@@ -388,6 +446,7 @@ def test_main_writes_md_and_yaml_outputs(tmp_path):
     md_text = out_md.read_text(encoding="utf-8")
     assert "ccrs_ego50" in md_text
     import yaml as _yaml
+
     doc = _yaml.safe_load(out_yaml.read_text(encoding="utf-8"))
     names = {c["cell"] for c in doc["cells"]}
     assert "ccrs_ego50" in names
