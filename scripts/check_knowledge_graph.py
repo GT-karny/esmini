@@ -859,6 +859,147 @@ def spine_matrix_cmd(out_path: str | None) -> int:
     return 0
 
 
+def brief(ref: str) -> int:
+    """--brief: 作業キックオフブリーフを真実源からその場で生成する。
+
+    セッションプロンプトに手書きされてきた「固有文脈」のうち **導出可能な部分**
+    （ノード現況・縦串の結線状態・本件該当の未検証項目・関連ファイル・近傍とコミット）
+    を組み立てる。手書きの事実転記は必ず腐る（「25 unit sources」「初回実測88件」の轍）
+    ＝導出できるものはプロンプトに書かずに本コマンドで拾う、が目的。
+    **判断（スコープ・並列所有・受入基準）は生成しない** — それは決定であって検索ではない。
+    """
+    registry = load_yaml(NAMESPACES_YAML)
+    graph = load_yaml(GRAPH_YAML)
+    ns_by_slug = {n["slug"]: n for n in registry.get("namespaces", []) if n.get("slug")}
+    edges = graph.get("edges", []) or []
+    catalogs = load_catalogs()
+
+    # bare-id 解決（--query と同じ規則: 一意なら補完・曖昧なら拒否）
+    if ":" not in ref or ref.split(":", 1)[0] not in ns_by_slug:
+        cands = []
+        for ns in ns_by_slug.values():
+            try:
+                if re.fullmatch(ns.get("id_pattern", ""), ref or ""):
+                    cands.append(ns["slug"])
+            except re.error:
+                continue
+        if len(cands) == 1:
+            ref = f"{cands[0]}:{ref}"
+            print(f"(resolved bare id to {ref})")
+        else:
+            print(f"ERROR: '{ref}' は{'どの名前空間にも一致しない' if not cands else f'曖昧 {sorted(cands)}'}"
+                  " — 名前空間で修飾すること", file=sys.stderr)
+            return 1
+    slug, local = ref.split(":", 1)
+
+    def nbrs(node: str, etype: str, direction: str) -> list:
+        out = []
+        for e in edges:
+            if e.get("type") != etype:
+                continue
+            if direction in ("out", "both") and e.get("from") == node:
+                out.append(e.get("to"))
+            if direction in ("in", "both") and e.get("to") == node:
+                out.append(e.get("from"))
+        return [x for x in out if isinstance(x, str)]
+
+    print(f"# キックオフブリーフ: {ref}")
+    print("# 真実源からその場で導出（プロンプトへの手書き転記は禁物＝腐る）")
+    print()
+
+    # --- 1. ノードのカタログ行 ------------------------------------------------
+    print("## ノード（カタログ行）")
+    row = next((r for r in catalogs.get(slug, []) if r.get("id") == local), None)
+    if row:
+        for k, v in row.items():
+            if k != "note":
+                print(f"- {k}: {v}")
+        if row.get("note"):
+            print(f"- note: {str(row['note']).strip()}")
+    else:
+        src = ns_by_slug[slug].get("source_of_truth", "?")
+        print(f"- （{slug} のノード台帳に行なし — source_of_truth: {src} を直接参照）")
+    print()
+
+    # --- 2. 縦串の現況（realizes で結ばれた req を軸に ②⑤④⑥）---------------
+    reqs: set = set()
+    if slug == "req-vd-ad":
+        reqs.add(ref)
+    else:
+        for r in nbrs(ref, "realizes", "out") + nbrs(ref, "verifies", "out"):
+            if r.startswith("req-vd-ad:"):
+                reqs.add(r)
+    sig_by_id = {s.get("id"): s for s in catalogs.get("signal", [])}
+    gate_by_id = {g.get("id"): g for g in catalogs.get("gate", [])}
+
+    print("## 縦串の現況（①req → ②刺激 / ⑤matcher → ④signal / ⑥gate）")
+    if not reqs and slug not in ("signal", "gate", "matcher"):
+        print("- 結線済みの req-vd-ad なし ＝ **①主張が未接続**（realizes 辺から始める）")
+    for rq in sorted(reqs):
+        print(f"- {rq}")
+        stim = nbrs(rq, "stimulated-by", "out")
+        print(f"  - ②刺激: {', '.join(stim) if stim else '**未結線（②刺激欠）**'}")
+        matchers = sorted(set(nbrs(rq, "verifies", "in")))
+        if not matchers:
+            print("  - ⑤判定: **matcher なし（⑤欠）**")
+        for m in matchers:
+            obs, gts = nbrs(m, "observes", "out"), nbrs(m, "sustained-by", "out")
+            obs_s = []
+            for o in obs:
+                s = sig_by_id.get(o.split(":", 1)[1]) if o.startswith("signal:") else None
+                obs_s.append(f"{o}[{s.get('state')} {'/'.join(s.get('exposure', []))}]" if s else o)
+            gt_s = []
+            for g in gts:
+                gr = gate_by_id.get(g.split(":", 1)[1]) if g.startswith("gate:") else None
+                gt_s.append(f"{g}[{'blocking' if gr and gr.get('blocking') else 'non-blocking'}]" if gr else g)
+            print(f"  - ⑤ {m}")
+            print(f"    - ④観測: {', '.join(obs_s) if obs_s else '**observes 未結線**'}")
+            print(f"    - ⑥常設: {', '.join(gt_s) if gt_s else '**sustained-by 未結線**'}")
+    if slug == "signal":
+        readers = sorted(set(nbrs(ref, "observes", "in")))
+        print(f"- この signal を observes する matcher: "
+              f"{', '.join(readers) if readers else '**なし＝(b) 候補**'}")
+    if slug == "gate":
+        held = sorted(set(nbrs(ref, "sustained-by", "in")))
+        print(f"- この gate へ sustained-by: {', '.join(held) if held else '（なし）'}")
+    print()
+
+    # --- 3. 未検証台帳のうち本件に該当する行 ---------------------------------
+    findings = spine_report(catalogs, ns_by_slug, edges)
+    tokens = {local} | {r.split(":", 1)[1] for r in reqs}
+    print("## 未検証台帳のうち本件該当（--spine-report の部分集合）")
+    hit = False
+    for key, _title in SPINE_SECTIONS:
+        for item in findings.get(key, []):
+            if any(t in str(item) for t in tokens):
+                print(f"- [{key}] {item}")
+                hit = True
+    if not hit:
+        print("- （該当なし）")
+    print()
+
+    # --- 4. 関連ファイル（path_map の逆引き）--------------------------------
+    pm = load_yaml(PATH_MAP_YAML) or {}
+    closure = {ref} | reqs
+    globs = [m.get("glob") for m in pm.get("mappings", [])
+             if any(str(i) in closure for i in (m.get("ids") or []))]
+    print("## 関連ファイル（path_map 逆引き）")
+    for g in globs or ["（マッピングなし — 実装後に path_map.yaml への追記を検討）"]:
+        print(f"- {g}")
+    print()
+
+    # --- 5. 近傍とコミット（既存 --query に委譲）-----------------------------
+    print("## 近傍（--query depth 2 + commits）")
+    query(ref, 2, True, False)
+    print()
+    print("## 指し先（判断系＝ここには生成されない）")
+    print("- 作法: /kg スキル「新機能・新資産を追加するときのチェックリスト」")
+    print("- 命名・凍結例外: capability_model.md §7.1 ／ 検証スパイン定義: 同 §1")
+    print("- 教訓・罠: セッション自動読込の MEMORY.md から関連行を辿って該当 memory を読む")
+    print("- スコープ・並列セッションのファイル所有・受入基準は**人が決めてプロンプトに書く**")
+    return 0
+
+
 def check() -> int:
     errors = []
 
@@ -1466,6 +1607,9 @@ def main() -> int:
                     help="「主張 × 欠けた縦層」の未検証台帳と結合負債を出力（報告のみ）")
     ap.add_argument("--spine-matrix", action="store_true",
                     help="能力モデル行列（capability_model.md §2 の生成ビュー）を出力")
+    ap.add_argument("--brief", metavar="REF",
+                    help="作業キックオフブリーフを生成（ノード現況・縦串の結線状態・"
+                         "本件該当の未検証項目・関連ファイル・近傍。判断系は生成しない）")
     ap.add_argument("--query", metavar="REF",
                     help="show everything related to a node "
                          "(e.g. proposal:P13; bare ids resolved when unambiguous)")
@@ -1490,6 +1634,8 @@ def main() -> int:
         return spine_matrix_cmd(args.out)
     if args.suggest:
         return suggest()
+    if args.brief:
+        return brief(args.brief)
     if args.query:
         return query(args.query, args.depth, args.commits, args.issues)
     return check()

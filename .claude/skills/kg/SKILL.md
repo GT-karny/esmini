@@ -25,7 +25,13 @@ description: プロジェクト知識グラフ（GT_esmini/docs/knowledge）の�
 $kg = "scripts/check_knowledge_graph.py"
 $py = "DriverScript/.venv/Scripts/python.exe"
 
-# 照会（着手前コンテキスト収集。裸IDは一意なら自動解決、曖昧なら候補提示）
+# キックオフブリーフ（新機能/作業の着手前はまずこれ。--query の上位互換）
+# ノードのカタログ行・縦串の結線状態（②⑤④⑥と欠け）・本件該当の未検証項目・
+# 関連ファイル(path_map逆引き)・近傍とコミットを真実源からその場で生成。
+# **判断（スコープ・並列所有・受入基準）は生成しない＝プロンプトで人が書く**
+& $py $kg --brief vd-func:FUNC-002
+
+# 照会（単純な近傍照会。裸IDは一意なら自動解決、曖昧なら候補提示）
 & $py $kg --query proposal:P13 --commits    # --depth N（既定2）/ --issues も可
 
 # 構造lint（CI test job でハードゲート。値域チェック・命名規約4・spine件数サマリ含む）
@@ -52,8 +58,9 @@ $py = "DriverScript/.venv/Scripts/python.exe"
 kg スキルは記帳作法。**「何を結線すれば検証可能な機能になるか」は検証スパイン**
 （capability_model.md §1: ①主張→②刺激→③実装→④観測→⑤判定→⑥常設）が定める。
 
-1. **着手前**: `--query` で関連ノード把握。`function_catalog_vd_ad.yaml` の該当 FUNC の
-   status/layer/kind を確認（enabler なら `verify:` が④⑤の当て方を指定している）。
+1. **着手前**: `--brief <対象ID>` を実行（カタログ行＋縦串の結線状態＋欠け＋関連ファイルが
+   一括で出る）。enabler なら `verify:` フィールドが④⑤の当て方を指定している。
+   **ブリーフの内容をプロンプトへ手書き転記しない**（腐る）— セッション冒頭で再実行する。
 2. **命名（§7.1・lint が機械強制）**: 新資産・新IDに**序数・工程名を使わない**
    （`phase2_*`/`wave3_*` 不可、内容slugで）。恒久資産の由来は名前でなく `origin:` メタデータ。
 3. **凍結の罠**: `scenario-variant` / `req-vd-ad` / `vd-func` 等の既存序数体系は
