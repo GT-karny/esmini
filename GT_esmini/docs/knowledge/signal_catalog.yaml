@@ -557,3 +557,14 @@ signals:
     note: >-
       実装済みだが `--profile full` の**手動実行のみ**でゲート未配線
       （gate:odr-conformance-full 参照）。ODR列で唯一の (b)。
+
+  - id: driver_override_state
+    title: 運転主体オーバーライド状態（override.lateral/longitudinal + manual/auto_transition 単発エッジ）
+    exposure: [frame]
+    state: "(b)"
+    emit: VirtualDriverTelemetryJson.cpp:25-28（transition エッジは feature:F7 commit 91c9fed7 で追加）
+    note: >-
+      gt_lib.py が毎フレーム GT_GetVirtualDriverTelemetry を telemetry.jsonl へ取り込むため
+      frame 面には既に届いている（PM 直読 2026-07-25）が、読む matcher が無い＝未配線。
+      配線候補: テイクオーバー系 matcher（例: resumed_to_auto_within）を起こすときに observes 辺で結線。
+      OSI 側 DriverOverride は未populate（vd-func:FUNC-075 の④と同根）。

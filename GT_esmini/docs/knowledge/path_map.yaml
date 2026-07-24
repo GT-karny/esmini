@@ -21,6 +21,12 @@ mappings:
     ids: [feature:F6]
   - glob: "GT_esmini/config/auto_light.json"
     ids: [feature:F6]
+  - glob: "*manualdrive/OverrideManager*"
+    ids: [feature:F7]
+  - glob: "*verification/VdManualOverridePanel*"
+    ids: [feature:F7]
+  - glob: "scripts/vd_override_smoke.py"
+    ids: [feature:F7]
   # VirtualDriver policies
   - glob: "*virtualdriver/policies/LeadVehicleAware*"
     ids: [policy:lead]

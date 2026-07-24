@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:6316634f97a8c726 -->
+<!-- generated-from: sha256:42f574ec863f47bf -->
 
-ノード 172・辺 178（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 176・辺 182（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -25,11 +25,14 @@ flowchart LR
     n_proposal_P11["P11"]
     n_proposal_P26["P26"]
     n_proposal_P12["P12"]
+    n_proposal_P17["P17"]
+    n_proposal_P18["P18"]
   end
   subgraph sg_feature["feature｜機能ロードマップ F1-F7"]
     n_feature_F2["F2"]
     n_feature_F3["F3"]
     n_feature_F6["F6"]
+    n_feature_F7["F7"]
   end
   subgraph sg_debt_phase["debt-phase｜負債返済ロードマップ R0-R5（R5はU1-U4に細分）"]
     n_debt_phase_R5_U4["R5-U4"]
@@ -147,6 +150,7 @@ flowchart LR
     n_vd_func_FUNC_029["FUNC-029"]
     n_vd_func_FUNC_001["FUNC-001"]
     n_vd_func_FUNC_002["FUNC-002"]
+    n_vd_func_FUNC_075["FUNC-075"]
   end
   subgraph sg_req_vd_ad["req-vd-ad｜VirtualDriver 自動運転/ADAS 対応シーン要求（機能軸 安全/快適/法規遵守/譲り合い）"]
     n_req_vd_ad_REQ_AD_001["REQ-AD-001"]
@@ -389,16 +393,21 @@ flowchart LR
   n_gate_odr_conformance_schema_ci -->|depends-on| n_gate_fork_census
   n_gate_fork_sync -->|complements| n_gate_fork_census
   n_gate_odr_conformance_full -->|supersedes| n_gate_odr_conformance_quick
+  n_proposal_P17 -->|depends-on| n_feature_F7
+  n_proposal_P18 -->|depends-on| n_feature_F7
+  n_feature_F7 -->|complements| n_vd_func_FUNC_075
+  n_feature_F7 -->|sustained-by| n_gate_unit_ctest
 ```
 
 ## 辺の一覧（type別）
 
-### complements (2)
+### complements (3)
 
 | from | to | note |
 | :--- | :--- | :--- |
 | `proposal:P11` | `feature:F2` | 安全マージン評価に直結・F2と並走前提 |
 | `gate:fork-sync` | `gate:fork-census` | INBOUND（上流未取込）と OUTBOUND（フォーク会計）の対。どちらもLHTの*正しさ*は見ない |
+| `feature:F7` | `vd-func:FUNC-075` | 運転主体遷移の隣接スコープ・非重複（F7=切替そのもの、FUNC-075=手動運転中のADAS並行稼働）。混同防止で明記 |
 
 ### concerns (61)
 
@@ -466,7 +475,7 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (22)
+### depends-on (24)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -492,6 +501,8 @@ flowchart LR
 | `gate:odr-conformance-quick` | `gate:fork-drift` |  |
 | `gate:odr-conformance-quick` | `gate:resync-guards` |  |
 | `gate:odr-conformance-schema-ci` | `gate:fork-census` | schema層のみの CI 起動でも census は走る（同上） |
+| `proposal:P17` | `feature:F7` | TORトリガ実験（DiL束）はAD⇄手動切替の実基盤が前提。F7がその土台を提供 |
+| `proposal:P18` | `feature:F7` | 被験者応答テレメトリの反応時間計測は切替イベント（manual/auto_transition エッジ）が基準点 |
 
 ### merged-into (3)
 
@@ -582,7 +593,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (17)
+### sustained-by (18)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -603,6 +614,7 @@ flowchart LR
 | `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 | `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |
+| `feature:F7` | `gate:unit-ctest` | OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない |
 
 ### upstream-candidate (6)
 

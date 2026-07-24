@@ -273,6 +273,8 @@ VirtualDriver **内**のモード切替として実装する(コントローラ�
 - 関連: proposal:P17/P18(DiL/TOR 実験装置 — 本機能はその土台)、vd-func:FUNC-075(手動中の ADAS 並行稼働 = 別スコープ、混同しない)
 - 受入: オーバーライド→ラッチ→ボタン復帰→AD が現在位置から計画再開、のサイクルを smoke + unit で実証。既存 override 挙動("never"/"deadzone" 等)の非回帰。
 
+> **状態(2026-07-25): コア完了** — commit `91c9fed7`。ButtonBits::AUTO_RESUME(bit7) + OverrideManager 復帰パス(立ち上がりエッジ・同フレーム抑制) + telemetry manual/auto_transition + Web「Resume Auto」+ sdl2.auto_resume_button。実測: unit 傘バイナリに OverrideManagerTest 10ケース(green)、smoke フルサイクル 19/19 PASS(PM 再実行でも PASS)、回帰ゲート Step1/1.5/2/2.6/2.7 deviation ゼロ。**残=F7b(別セッション)**: FFB 目標角追従 + 位置偏差トルク代理判定(IFFBSink 界面は温存済み)。着手前に Day-1 スパイク(実 G29 での spring 追従実現性/偏差閾値校正/network 入力フォールバック)。注: 受入基準に書いた "never/deadzone" 等の4値 enum は実在しない設計メモ語彙だった(実体は bool+閾値群) — 非回帰は既定 config 挙動同一性で担保。
+
 ### 推奨順序(リファクタと統合)
 
 ```

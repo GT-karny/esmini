@@ -1161,3 +1161,28 @@ edges:
   #       別物だが、check_knowledge_graph.py の coupling_direct_edge は edge type を問わず face3->face2 を一律計上する。
   #       ＝ **coupling-audit を stimulus 辺で除外するか（監査側の修正）／検証xosc を face:3 化するか（資産側）**の
   #       いずれかを親が判断する事項（check_knowledge_graph.py は本セッションの触るなリスト）。
+
+  # ---- feature:F7 運転主体テイクオーバー（2026-07-25 着地, commit 91c9fed7） ----
+  - from: proposal:P17
+    to: feature:F7
+    type: depends-on
+    source: GT_esmini/docs/tech_debt_audit_2026-06.md
+    note: TORトリガ実験（DiL束）はAD⇄手動切替の実基盤が前提。F7がその土台を提供
+
+  - from: proposal:P18
+    to: feature:F7
+    type: depends-on
+    source: GT_esmini/docs/tech_debt_audit_2026-06.md
+    note: 被験者応答テレメトリの反応時間計測は切替イベント（manual/auto_transition エッジ）が基準点
+
+  - from: feature:F7
+    to: vd-func:FUNC-075
+    type: complements
+    source: GT_esmini/docs/tech_debt_audit_2026-06.md
+    note: 運転主体遷移の隣接スコープ・非重複（F7=切替そのもの、FUNC-075=手動運転中のADAS並行稼働）。混同防止で明記
+
+  - from: feature:F7
+    to: gate:unit-ctest
+    type: sustained-by
+    source: GT_esmini/test/CMakeLists.txt
+    note: OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない
