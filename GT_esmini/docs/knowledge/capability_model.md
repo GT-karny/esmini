@@ -645,9 +645,13 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
 >   → **後日修正（2026-07-21, spine-work:osi-assigned-lane-driving）**: moving object の assigned_lane_id を
 >   キャッシュ走行レーン（`Position::GetLaneId` 由来、`GT_OSIReporter_Moving.cpp` の
 >   `ResolveMovingObjectAssignedLaneGlobalId`）へ差し替え、同シーンで **1200/1200 一致**・以後ドリフトせず。
->   ただし `lane` は現状も telemetry 維持＝面1化は lane_keep/lane_change_count baseline の再検証を要する
->   **別 follow-on**。lane_map は road_id 供給に使用（実 road 遷移含め 777/777 一致）。
->   面1化に C++ が残るのは `s`（s_position populate）のみで本 D の範囲外。
+>   → **② は 2026-07-24 に面1化完了**（signal:ego_lane）: `_ego_state` の `lane` を lane_map join
+>   （is_host `assigned_lane_id` → `{road_id,lane_id}`）の scene 優先・telemetry fallback へ切替、
+>   使用面を `_lane_source` として verdict に記録。baseline 再検証は回帰3バッチ22シナリオで
+>   **deviation 0**・フレームレベルでも join 解決 15629 フレーム全一致（更新不要だった）。
+>   既知の fallback 残: junction 内 171/15800 フレーム＝OSI が接続路レーンを TYPE_INTERSECTION
+>   1本へ併合し lane_map に個別レーンが無いため（構造的・signal:ego_lane の note 参照）。
+>   自車状態で telemetry 残置は `s` のみとなり、面1化に C++ が残るのも `s`（s_position populate）のみ。
 > - **基準値**: full regression gate PASS、car_following 12 / AEB 5 とも baseline 比 **deviation 0**
 >   （面1移行後も verdict 不変）。
 

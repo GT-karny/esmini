@@ -225,16 +225,19 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     longitudinal/lateral acceleration vector (base.acceleration,
     GT_OSIReporter_Moving.cpp:772-774) — face-1's own acceleration, so the
     mid/long matchers no longer have to reconstruct it from a speed difference.
-    `lane_global_id` is the object's OSI assigned_lane_id (GetLaneGlobalId,
-    GT_OSIReporter_Moving.cpp:777); joined against `lane_map` (built from OSI
+    `lane_global_id` is the object's OSI assigned_lane_id (classification
+    preferred, deprecated MovingObject field4 fallback — the dual emit of
+    signal:lane_id_indicator_nonvd); joined against `lane_map` (built from OSI
     Lane.source_reference, GT_OSIReporter_Geometry.cpp:1335-1344) it yields the
-    OpenDRIVE road_id/lane_id from face-1. The join is trustworthy at ROAD
-    granularity only: assigned_lane_id tracks the object's *reported-position*
-    lane, which diverges from the VD's tracked Position lane (measured
-    red_stop_green_go: assigned lane drifted -1->-3 while the VD stayed lane -1),
-    but all of a road's lanes share its road_id so road_id stays exact. Consumers
-    resolving the host's lane should keep the telemetry lane; use lane_map for
-    road_id (see vd_metrics._ego_state).
+    OpenDRIVE road_id/lane_id from face-1. The join is trustworthy at LANE
+    granularity since the GT-side fix (2026-07-21,
+    spine-work:osi-assigned-lane-driving): assigned_lane_id used to re-derive
+    the lane from (s, t) via GetLaneGlobalId() and drifted onto border/sidewalk
+    lanes (measured red_stop_green_go: -1->-3 while the VD stayed lane -1); it
+    now emits the object's cached DRIVING lane
+    (ResolveMovingObjectAssignedLaneGlobalId) and agrees with the VD Position
+    lane (same scenario: 1200/1200 frames). vd_metrics._ego_state resolves the
+    host's road_id AND lane through this join, telemetry fallback.
 
     `traffic_signs` / `stationary_objects` / `lane_map` are *static* GroundTruth
     and in the default static-report mode are present on the first emitted frame

@@ -458,28 +458,33 @@ def _ego_state(fr: dict) -> dict:
     GT_OSIReporter_Moving.cpp:772-774). When no scene was captured (--osi off)
     every field falls back to the telemetry ego.
 
-    Two fields are telemetry-only ON PURPOSE (documented face-1 gaps, not laziness):
+    One field is telemetry-only ON PURPOSE (documented face-1 gap, not laziness):
       * `s` (along-lane distance): OSI GroundTruth does not populate MovingObject
         s_position (capability_model.md §2.3a), so the scene cannot supply it.
-      * `lane`: OSI moving_object.assigned_lane_id USED to measure a different
-        quantity than the VD's tracked Position lane — it re-derived the lane from
-        (s, t) via GetLaneGlobalId(), so a laterally-drifting driving vehicle was
-        reported as assigned to a border/sidewalk lane (red_stop_green_go 2026-07-21:
-        assigned lane drifted -1 -> -2 -> -3 while telemetry held -1, 62% mismatch).
-        That defect was FIXED GT-side (2026-07-21, spine-work:osi-assigned-lane-driving):
-        the moving-object assigned_lane_id now emits the object's cached DRIVING lane
-        (see GT_OSIReporter_Moving.cpp ResolveMovingObjectAssignedLaneGlobalId), so it
-        no longer drifts and now agrees with the VD Position lane (same scenario:
-        1200/1200 frames). `lane` is nonetheless STILL read from telemetry here: moving
-        it to the face-1 scene is a deliberate, separate follow-on, because the
-        lane_keep / lane_change_count assertions were authored against the VD Position
-        lane and the regression baselines must be re-checked before the switch. The
-        lane_map join keeps supplying road_id (matched telemetry track 777/777,
-        including across a real road transition).
+
+    `lane` is scene-preferred since 2026-07-24 (follow-on of
+    spine-work:ego-anchor-face1-migration, which had deliberately left it on
+    telemetry): the host's lane_global_id joined against scene["lane_map"] now
+    yields the OpenDRIVE lane_id through the same join that already supplied
+    road_id (777/777 track match incl. a real road transition). The unlock was
+    the GT-side fix (2026-07-21, spine-work:osi-assigned-lane-driving): OSI
+    assigned_lane_id USED to re-derive the lane from (s, t) via GetLaneGlobalId(),
+    so a laterally-drifting driving vehicle was reported on a border/sidewalk
+    lane (red_stop_green_go 2026-07-21: drifted -1 -> -2 -> -3 while telemetry
+    held -1, 62% mismatch); it now emits the object's cached DRIVING lane
+    (GT_OSIReporter_Moving.cpp ResolveMovingObjectAssignedLaneGlobalId) and
+    agrees with the VD Position lane (same scenario: 1200/1200 frames) — the
+    basis the lane_keep / lane_change_count baselines were authored against, so
+    the switch was gated on a regression-gate re-check. When the join cannot
+    supply a lane (no scene, no lane_map entry, or entry without lane_id) the
+    telemetry lane is the fallback.
 
     `accel_long` is None when the scene is absent. The chosen face is recorded in
     "_source" (scene | telemetry) so the verdict can surface which one fed the
-    anchor.
+    anchor; "_lane_source" records the same for `lane` separately, because a
+    scene-anchored frame can still fall back to the telemetry lane (lane_map
+    entry missing/laneless) and the lane matchers must not present that as a
+    face-1 result.
 
     Both the fr.get("scene") and the fr["ego"] reads live in this one helper by
     design: check_knowledge_graph.py (_inlined_helpers) inlines it one level into
@@ -488,7 +493,7 @@ def _ego_state(fr: dict) -> dict:
     behind the call — the scene-preferred read must not be buried two levels deep."""
     ego = fr["ego"]
     scene = fr.get("scene")
-    src = "telemetry"
+    src = lane_src = "telemetry"
     x, y, speed, h = ego["x"], ego["y"], ego["speed"], ego.get("h", 0.0)
     track, lane, accel_long = ego.get("track"), ego.get("lane"), None
     if scene:
@@ -502,9 +507,10 @@ def _ego_state(fr: dict) -> dict:
                 (scene.get("lane_map") or {}).get(str(gid)) if gid is not None else None
             )
             if entry is not None and entry.get("road_id") is not None:
-                track = entry[
-                    "road_id"
-                ]  # road_id only; lane stays telemetry (see docstring)
+                track = entry["road_id"]
+            if entry is not None and entry.get("lane_id") is not None:
+                lane = entry["lane_id"]
+                lane_src = "scene"
             ax, ay = host.get("ax"), host.get("ay")
             if ax is not None and ay is not None:
                 accel_long = ax * math.cos(h) + ay * math.sin(h)
@@ -518,6 +524,7 @@ def _ego_state(fr: dict) -> dict:
         "lane": lane,
         "accel_long": accel_long,
         "_source": src,
+        "_lane_source": lane_src,
     }
 
 
@@ -636,11 +643,14 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
     # Lane events use the ego's road-coordinate anchor (road_id / lane). It is
     # resolved through _ego_state, which prefers the face-1 OSI scene: the
     # is_host object's lane_global_id joined against scene["lane_map"] (built
-    # from OSI Lane.source_reference) yields OpenDRIVE road_id/lane_id, falling
-    # back to the telemetry ego.track/ego.lane. A frame lacking both skips.
-    # (Building the series inline in each branch — rather than via a shared
-    # nested helper — keeps the _ego_state read inside the matcher's own branch,
-    # where the coupling lint's one-level inlining can see it.)
+    # from OSI Lane.source_reference) yields OpenDRIVE road_id AND lane_id,
+    # falling back to the telemetry ego.track/ego.lane. A frame lacking both
+    # skips. The verdict carries eg["_lane_source"] (not "_source"): the lane is
+    # the judged quantity here, and it can fall back to telemetry even on a
+    # scene-anchored frame. (Building the series inline in each branch — rather
+    # than via a shared nested helper — keeps the _ego_state read inside the
+    # matcher's own branch, where the coupling lint's one-level inlining can
+    # see it.)
     if kind == "lane_keep":
         road_id = must.get("road_id")
         lane_id = must.get("lane_id")
@@ -651,7 +661,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             eg = _ego_state(fr)
             if eg["lane"] is None or eg["track"] is None:
                 continue
-            src = eg["_source"]
+            src = eg["_lane_source"]
             ls.append((i, int(eg["track"]), int(eg["lane"])))
         if not ls:
             return res(
@@ -682,7 +692,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             eg = _ego_state(fr)
             if eg["lane"] is None or eg["track"] is None:
                 continue
-            src = eg["_source"]
+            src = eg["_lane_source"]
             ls.append((i, int(eg["track"]), int(eg["lane"])))
         if not ls:
             return res("skip", "no lane data")

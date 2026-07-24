@@ -70,6 +70,26 @@ signals:
       効いたため純 (b) は解消。かつて frame契約だけ見て「観測不能(a)」と誤分類しかけた対象
       （capability_model.md §3-2）。
 
+  - id: ego_lane
+    title: 自車の車線（OpenDRIVE road_id / lane_id）
+    exposure: [osi, frame]
+    state: "●"
+    emit: GT_OSIReporter_Moving.cpp:877-878（assigned_lane_id dual emit）／ GT_OSIReporter_Geometry.cpp:1335-1344（Lane.source_reference）
+    note: >-
+      2026-07-24 面1化（spine-work:ego-anchor-face1-migration が意図的に telemetry へ
+      残置した最後の自車状態量の follow-on）。vd_metrics._ego_state が is_host の
+      assigned_lane_id（classification 優先・deprecated field4 fallback）を
+      scene.lane_map（OSI Lane.source_reference 由来 str(global_id)→{road_id,lane_id}）で
+      解決し、lane_keep / lane_change_count の判定車線とする（scene 優先・telemetry
+      fallback・使用面は _lane_source として verdict の ego_source に記録）。解禁根拠は
+      spine-work:osi-assigned-lane-driving の走行レーン由来化（red_stop_green_go で
+      1200/1200 一致）。切替時の実測: 回帰3バッチ22シナリオ deviation 0、フレーム
+      レベルでも join 解決 15629 フレームで telemetry lane と完全一致。既知の join 欠け:
+      junction 内は OSI が接続路レーンを個別 emit せず TYPE_INTERSECTION 1本へ併合する
+      （GT_OSIReporter_Geometry.cpp:224-229、id=junction global id）ため assigned_lane_id
+      （接続路レーンの global id）が lane_map に無い（実測 171/15800 フレーム、全て
+      junction 通過中）→ telemetry fallback が受ける。
+
   - id: ego_accel_long
     title: 自車の縦加速度
     exposure: [osi]
@@ -403,6 +423,9 @@ signals:
       サンプル群が field4 直読みで R1 により GT から修正不可のため。GT 自前消費者
       （gt_sim_test `lane_global_id`）は classification 優先＋旧 field fallback に移行済み。
       片寄せ（旧 field 廃止）は upstream/OSI 4.0 の動きに合わせて別途判断。
+      自車側の消費（lane_keep / lane_change_count が OSI 車線で判定）は 2026-07-24 に
+      面1化済み＝ signal:ego_lane を参照。本 signal の (b) は「非VD車のレーンが
+      frame に届かない」構造問題として残る。
 
   - id: traffic_vehicle_pitch_roll
     title: 交通車の動的 pitch/roll
