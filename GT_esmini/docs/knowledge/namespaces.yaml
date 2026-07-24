@@ -65,13 +65,13 @@ namespaces:
       "(proposal P<n>)" を書く慣行とし、implements辺を抽出可能にする。
 
   - slug: feature
-    title: 機能ロードマップ F1-F6
+    title: 機能ロードマップ F1-F7
     entity_type: feature
     face: "cross"
-    id_pattern: "F[1-6]"
+    id_pattern: "F[1-7]"
     source_of_truth: GT_esmini/docs/tech_debt_audit_2026-06.md
     status: active
-    count: 6
+    count: 7
     extract: commit-mentions
 
   - slug: audit-debt

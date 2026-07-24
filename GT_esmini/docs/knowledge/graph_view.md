@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:44127913b51d600a -->
+<!-- generated-from: sha256:6316634f97a8c726 -->
 
 ノード 172・辺 178（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -26,7 +26,7 @@ flowchart LR
     n_proposal_P26["P26"]
     n_proposal_P12["P12"]
   end
-  subgraph sg_feature["feature｜機能ロードマップ F1-F6"]
+  subgraph sg_feature["feature｜機能ロードマップ F1-F7"]
     n_feature_F2["F2"]
     n_feature_F3["F3"]
     n_feature_F6["F6"]
