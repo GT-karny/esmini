@@ -142,6 +142,7 @@ _NUMBER_KEYS = frozenset(
         "ffb_target_track_override_target_rate_gate",
         "ffb_target_track_override_position_error_rate_gate",
         "ffb_target_track_override_wheel_over_target_epsilon",
+        "ffb_target_track_override_opposition_velocity_gate",
     }
 )
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
@@ -345,6 +346,7 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "ffb_target_track_override_target_rate_gate": 0.30,
     "ffb_target_track_override_position_error_rate_gate": 0.10,
     "ffb_target_track_override_wheel_over_target_epsilon": 0.05,
+    "ffb_target_track_override_opposition_velocity_gate": 0.30,
 }
 
 

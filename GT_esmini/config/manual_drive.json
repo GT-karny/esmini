@@ -76,7 +76,8 @@
         "target_track_override_steer_dev_threshold": 0.04,
         "target_track_override_sustain_time": 0.10,
         "target_track_override_target_rate_gate": 0.30,
-        "target_track_override_position_error_rate_gate": 0.10
+        "target_track_override_position_error_rate_gate": 0.10,
+        "target_track_override_opposition_velocity_gate": 0.30
     },
     "override": {
         "enabled": true,

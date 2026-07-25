@@ -35,11 +35,13 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     ffb_target_rate_gate_      = config.ffb.target_track.override_target_rate_gate;
     ffb_derror_rate_gate_      = config.ffb.target_track.override_position_error_rate_gate;
     ffb_wheel_over_target_eps_ = config.ffb.target_track.override_wheel_over_target_epsilon;
+    ffb_opposition_vel_gate_   = config.ffb.target_track.override_opposition_velocity_gate;
     ffb_sustain_accum_         = 0.0;
     ffb_prev_target_norm_      = 0.0;
     ffb_prev_pos_error_        = 0.0;
     ffb_history_valid_         = false;
     ffb_sample_                = {};
+    ffb_diag_                  = {};
 }
 
 void OverrideManager::UpdateFfbSample(const FfbInterventionSample& sample)
@@ -148,8 +150,22 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     // Only meaningful for the LATERAL domain (steering); the pedal path stays
     // exclusive to the direct throttle/brake threshold check above.
     //
-    // Detection uses TWO rate gates. Both must be settled (rate below gate)
-    // for sustain to accumulate:
+    // Detection combines TWO independent signatures of "driver opposing the
+    // servo", either of which is sufficient (see driver_opposing below):
+    //
+    //   (A) POSITION opposition (wheel_engaged_position, unchanged since
+    //       f723fa90): the physical wheel sits past/against the target
+    //       (magnitude or sign). Gated by the two rate gates below, because
+    //       it assumes a roughly-static/monotonic target — see the a43e4c67 /
+    //       549e5823 history below for why that assumption needs the gates.
+    //   (B) VELOCITY opposition (wheel_engaged_velocity, new post-93b2c6c4):
+    //       the wheel's own rate of motion opposes the SIGNED servo force.
+    //       This is invariant to how fast/which direction the target is
+    //       moving, so it is NOT gated by target_rate/derror_rate — see its
+    //       own comment block below for the physical argument and the bug
+    //       (envelope-ramp blackout) it fixes.
+    //
+    // Two rate gates, used by signature (A) only:
     //
     //   1. |d(target)/dt|  < target_rate_gate  (AD not actively steering)
     //   2. |d(dev)/dt|     < derror_rate_gate  (servo not actively catching up)
@@ -160,14 +176,19 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     // ALL leave one or both rates non-zero and get suppressed.
     //
     // The Day-1 spike (scripts/ffb_spike/05_torque_proxy.py) calibrated the
-    // |u|/|dev| thresholds against a STATIC target + zeroed axis only. Both
-    // real-machine bugs sat outside that calibration:
+    // |u|/|dev| thresholds against a STATIC target + zeroed axis only. Real-
+    // machine bugs found outside that calibration:
     //   - after commit a43e4c67: false latch during curves / lane-changes
     //     (moving target + tracking lag)      → target_rate_gate closed this
     //   - after commit 549e5823: false latch on straight-drive startup
     //     (static target + wheel-inertia lag) → derror_rate_gate closes this
+    //   - after commit 93b2c6c4 (AD steering safety envelope): the envelope's
+    //     recovery ramp keeps |d(target)/dt| above target_rate_gate for the
+    //     WHOLE post-RESUME transient, so signature (A) stays blacked out
+    //     exactly when a driver is most likely to grab the wheel → signature
+    //     (B) (velocity opposition) closes this without reopening (A)'s gates.
     //
-    // Bootstrap: the very first active sample has no history for either rate.
+    // Bootstrap: the very first active sample has no history for any rate.
     // We cannot distinguish "transient in progress" from "steady-state" until
     // we have TWO consecutive samples. Suppress accumulation on the bootstrap
     // frame; the detector arms starting on the 2nd active sample.
@@ -175,12 +196,19 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     {
         bool suppress = !ffb_history_valid_ || dt <= 1e-6;
 
+        // actual_norm derived from the sample; the sink records
+        // position_error = target_norm - actual_norm exactly.
+        const double actual_norm = ffb_sample_.target_norm - ffb_sample_.position_error;
+
         double target_rate = 0.0;
         double derror_rate = 0.0;
+        double actual_rate = 0.0;
         if (!suppress)
         {
+            const double prev_actual_norm = ffb_prev_target_norm_ - ffb_prev_pos_error_;
             target_rate = (ffb_sample_.target_norm    - ffb_prev_target_norm_) / dt;
             derror_rate = (ffb_sample_.position_error - ffb_prev_pos_error_)   / dt;
+            actual_rate = (actual_norm - prev_actual_norm) / dt;
         }
         // Store current sample as prev for the next frame (always, so the
         // 2nd active frame has valid history even if the 1st was suppressed).
@@ -193,7 +221,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         const bool over_force         = std::abs(ffb_sample_.commanded_force) > ffb_force_threshold_;
         const bool over_dev           = std::abs(ffb_sample_.position_error)  > ffb_dev_threshold_;
 
-        // Third gate (post-f723fa90): the physical wheel must be OPPOSING
+        // Signature (A), post-f723fa90: the physical wheel must be OPPOSING
         // the target. See ManualDriveConfig for the full rationale — short
         // version: an unheld wheel either sits at 0 (small AD target below
         // G29 breakaway friction) or slowly creeps toward target under
@@ -202,9 +230,8 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // target and |actual| < |target|; both are servo behavior, not
         // driver behavior. A driver actively taking over either moves the
         // wheel past target (magnitude opposition) or reverses direction
-        // (sign opposition). Derive actual_norm from the sample; the sink
-        // records position_error = target_norm - actual_norm exactly.
-        const double actual_norm    = ffb_sample_.target_norm - ffb_sample_.position_error;
+        // (sign opposition).
+        //
         // The sign-opposition arm additionally requires |actual| >= epsilon:
         // real-G29 right_turn measured on 2026-07-25 shows the physical axis
         // sitting at +0.011 (column noise / mechanical offset) when target
@@ -217,15 +244,46 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                                           && std::abs(actual_norm) >= ffb_wheel_over_target_eps_;
         const bool magnitude_opposition = std::abs(actual_norm) >
                                           std::abs(ffb_sample_.target_norm) + ffb_wheel_over_target_eps_;
-        const bool wheel_engaged        = sign_opposition || magnitude_opposition;
+        const bool wheel_engaged_position = sign_opposition || magnitude_opposition;
 
-        if (suppress || moving_target || tracking_transient)
+        // Signature (B), post-93b2c6c4: VELOCITY opposition. Physical
+        // argument: the servo's signed feedback force always points in the
+        // direction that reduces |target - actual|; if the wheel is unheld,
+        // it accelerates that way too, so sign(commanded_force_signed) tracks
+        // sign(d(actual_norm)/dt) REGARDLESS of whether/how fast the target
+        // itself is moving (unlike signature A, which assumes the target is
+        // roughly static). A driver actively resisting is the only thing
+        // that can invert that relationship — either holding the wheel still
+        // against a moving force (rate near zero, not "opposing" — same
+        // documented edge case as signature A's "held at 0" trade-off, see
+        // ManualDriveConfig) or physically turning it the other way (rate
+        // opposes force — detected here).
+        //
+        // |actual_rate| must clear ffb_opposition_vel_gate_ before the sign
+        // check matters, so a momentary inertial mismatch right at a target
+        // reversal (wheel still coasting the old direction for a few ms
+        // while the force has already flipped) doesn't count as "opposing" —
+        // see ManualDriveConfig.ffb.target_track.override_opposition_velocity_gate
+        // for the gate's derivation and residual risk. bootstrap-suppressed
+        // like every other rate here (actual_rate is 0.0 while suppress).
+        const bool wheel_engaged_velocity =
+            !suppress && std::abs(actual_rate) > ffb_opposition_vel_gate_ &&
+            (ffb_sample_.commanded_force_signed * actual_rate) < 0.0;
+
+        // Signature (B) is target-motion-invariant by construction, so it is
+        // allowed to accumulate sustain EVEN WHILE moving_target/
+        // tracking_transient are tripped — that is precisely the envelope-
+        // ramp blackout this fix closes. Signature (A) keeps requiring both
+        // rate gates settled, unchanged from before.
+        const bool driver_opposing = wheel_engaged_velocity ||
+            (wheel_engaged_position && !moving_target && !tracking_transient);
+
+        if (suppress)
         {
-            // Not steady-state. Reset sustain. Detector re-arms as soon as
-            // both rates settle below their gates.
+            // No history yet. Reset sustain; detector arms on the 2nd sample.
             ffb_sustain_accum_ = 0.0;
         }
-        else if ((over_force || over_dev) && wheel_engaged)
+        else if ((over_force || over_dev) && driver_opposing)
         {
             ffb_sustain_accum_ += dt;
             if (ffb_sustain_accum_ >= ffb_sustain_time_)
@@ -233,13 +291,79 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                 lat_active = true;
             }
         }
+        else if ((over_force || over_dev) && wheel_engaged_position)
+        {
+            // HOLD (found 2026-07-26 from real headless-repro measurement):
+            // position signature shows genuine, standing opposition (the
+            // wheel really is past/against target right now) but this frame
+            // is rate-gated (moving_target/tracking_transient) — if
+            // driver_opposing were true we'd already be in the branch above,
+            // so wheel_engaged_velocity is false here. Under a FAST,
+            // OSCILLATING AD target (the envelope's own ramp), the
+            // instantaneous sign check in signature (B) can miss individual
+            // frames by pure coincidence (target_rate and actual_rate share
+            // a sign for one frame) even while the driver pushes back
+            // continuously the whole time — measured on real headless repro
+            // data (target_rate sequence with sign flips almost every
+            // frame). Resetting the accumulator on every such coincidental
+            // frame would repeatedly restart the clock and could delay the
+            // latch far longer than sustain_time. Instead, PAUSE (neither
+            // advance nor reset) while standing position evidence persists;
+            // only a frame with NO opposition evidence at all (the final
+            // else below) restarts the clock.
+        }
         else
         {
-            // Either signals are quiet or the wheel is at rest — in both
-            // cases reset the sustain accumulator so a subsequent real
-            // driver push starts fresh.
+            // Either signals are quiet, or neither opposition signature has
+            // ANY standing evidence — reset the sustain accumulator so a
+            // subsequent real driver push starts fresh.
             ffb_sustain_accum_ = 0.0;
         }
+
+        // Single-identifier "why blocked" classification (real-machine
+        // diagnosis: this is the field to look at first). Priority mirrors
+        // the gating logic above exactly.
+        using BlockReason = FfbLatchDiagnostics::BlockReason;
+        BlockReason block_reason = BlockReason::NONE;
+        if (suppress)
+        {
+            block_reason = BlockReason::BOOTSTRAP;
+        }
+        else if (!(over_force || over_dev))
+        {
+            block_reason = BlockReason::BELOW_THRESHOLD;
+        }
+        else if (!driver_opposing)
+        {
+            if (!wheel_engaged_position && !wheel_engaged_velocity)
+                block_reason = BlockReason::WHEEL_NOT_ENGAGED;
+            else if (moving_target)
+                block_reason = BlockReason::MOVING_TARGET;
+            else if (tracking_transient)
+                block_reason = BlockReason::TRACKING_TRANSIENT;
+            else
+                block_reason = BlockReason::WHEEL_NOT_ENGAGED;  // shouldn't reach, defensive
+        }
+        // else: NONE (accumulating this frame, or lat_active already set)
+
+        ffb_diag_.sample_active          = true;
+        ffb_diag_.bootstrap_suppressed   = suppress;
+        ffb_diag_.over_force             = over_force;
+        ffb_diag_.over_dev               = over_dev;
+        ffb_diag_.moving_target          = moving_target;
+        ffb_diag_.tracking_transient     = tracking_transient;
+        ffb_diag_.sign_opposition        = sign_opposition;
+        ffb_diag_.magnitude_opposition   = magnitude_opposition;
+        ffb_diag_.wheel_engaged_position = wheel_engaged_position;
+        ffb_diag_.wheel_engaged_velocity = wheel_engaged_velocity;
+        ffb_diag_.driver_opposing        = driver_opposing;
+        ffb_diag_.target_rate            = target_rate;
+        ffb_diag_.derror_rate            = derror_rate;
+        ffb_diag_.actual_rate            = actual_rate;
+        ffb_diag_.actual_norm            = actual_norm;
+        ffb_diag_.sustain_accum          = ffb_sustain_accum_;
+        ffb_diag_.sustain_time           = ffb_sustain_time_;
+        ffb_diag_.block_reason           = block_reason;
     }
     else
     {
@@ -248,6 +372,8 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // History is re-armed at the next active sample.
         ffb_sustain_accum_ = 0.0;
         ffb_history_valid_ = false;
+        ffb_diag_          = {};
+        ffb_diag_.block_reason = FfbLatchDiagnostics::BlockReason::INACTIVE;
     }
 
 #ifdef GT_ENABLE_OSI_MOTION_REQUEST

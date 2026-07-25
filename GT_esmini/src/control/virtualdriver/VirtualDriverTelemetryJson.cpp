@@ -30,7 +30,26 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        // consumers that predate it (existing overlay) simply ignore it.
        << ",\"ffb\":{\"target_active\":" << b(t.ffb_target_active)
        << ",\"commanded_force\":" << t.ffb_commanded_force
-       << ",\"position_error\":" << t.ffb_position_error << "}"
+       << ",\"position_error\":" << t.ffb_position_error
+       // feature:F7 (F7b, post-93b2c6c4) override-latch gate diagnostics.
+       // Additive sub-object; consumers that predate it ignore it.
+       // sustain_accum + block_reason are the two fields to check first when
+       // diagnosing "why didn't it fire" on a real machine.
+       << ",\"gates\":{\"over_force\":" << b(t.ffb_gate_over_force)
+       << ",\"over_dev\":" << b(t.ffb_gate_over_dev)
+       << ",\"moving_target\":" << b(t.ffb_gate_moving_target)
+       << ",\"tracking_transient\":" << b(t.ffb_gate_tracking_transient)
+       << ",\"sign_opposition\":" << b(t.ffb_gate_sign_opposition)
+       << ",\"magnitude_opposition\":" << b(t.ffb_gate_magnitude_opposition)
+       << ",\"wheel_engaged_pos\":" << b(t.ffb_gate_wheel_engaged_pos)
+       << ",\"wheel_engaged_vel\":" << b(t.ffb_gate_wheel_engaged_vel)
+       << ",\"driver_opposing\":" << b(t.ffb_gate_driver_opposing)
+       << ",\"target_rate\":" << t.ffb_gate_target_rate
+       << ",\"derror_rate\":" << t.ffb_gate_derror_rate
+       << ",\"actual_rate\":" << t.ffb_gate_actual_rate
+       << ",\"actual_norm\":" << t.ffb_gate_actual_norm
+       << ",\"sustain_accum\":" << t.ffb_gate_sustain_accum
+       << ",\"block_reason\":\"" << t.ffb_gate_block_reason << "\"}}"
        // feature:F7 AD steering safety envelope observability. Additive block;
        // consumers that predate it simply ignore it. steer_in/steer_out let a
        // verifier see the envelope's actual effect: "driver":{"steer":...} below

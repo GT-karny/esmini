@@ -100,6 +100,7 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_target_rate_gate         = vd_config_.ffb_target_track_override_target_rate_gate;
     io_config_.ffb.target_track.override_position_error_rate_gate = vd_config_.ffb_target_track_override_position_error_rate_gate;
     io_config_.ffb.target_track.override_wheel_over_target_epsilon = vd_config_.ffb_target_track_override_wheel_over_target_epsilon;
+    io_config_.ffb.target_track.override_opposition_velocity_gate  = vd_config_.ffb_target_track_override_opposition_velocity_gate;
 
     // feature:F7 — AD steering safety envelope (see AdSteeringEnvelope.hpp).
     // Built once here; config is not hot-reloaded during a run.
@@ -491,6 +492,41 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_target_active    = false;
         telemetry_.ffb_commanded_force  = 0.0;
         telemetry_.ffb_position_error   = 0.0;
+    }
+    // feature:F7 (F7b, follow-up post-93b2c6c4) — override-latch gate
+    // diagnostics. Real-machine "why didn't it fire" observability: without
+    // this, diagnosing the envelope-ramp blackout required re-instrumenting
+    // the code on-site. See OverrideManager::FfbLatchDiagnostics.
+    {
+        using BlockReason = OverrideManager::FfbLatchDiagnostics::BlockReason;
+        const auto& diag = override_mgr_.GetFfbLatchDiagnostics();
+        const char* reason_str = "none";
+        switch (diag.block_reason)
+        {
+            case BlockReason::NONE:               reason_str = "none";               break;
+            case BlockReason::INACTIVE:            reason_str = "inactive";           break;
+            case BlockReason::BOOTSTRAP:           reason_str = "bootstrap";          break;
+            case BlockReason::BELOW_THRESHOLD:     reason_str = "below_threshold";    break;
+            case BlockReason::MOVING_TARGET:       reason_str = "moving_target";      break;
+            case BlockReason::TRACKING_TRANSIENT:  reason_str = "tracking_transient"; break;
+            case BlockReason::WHEEL_NOT_ENGAGED:   reason_str = "wheel_not_engaged";  break;
+        }
+
+        telemetry_.ffb_gate_over_force           = diag.over_force;
+        telemetry_.ffb_gate_over_dev             = diag.over_dev;
+        telemetry_.ffb_gate_moving_target        = diag.moving_target;
+        telemetry_.ffb_gate_tracking_transient   = diag.tracking_transient;
+        telemetry_.ffb_gate_sign_opposition      = diag.sign_opposition;
+        telemetry_.ffb_gate_magnitude_opposition = diag.magnitude_opposition;
+        telemetry_.ffb_gate_wheel_engaged_pos    = diag.wheel_engaged_position;
+        telemetry_.ffb_gate_wheel_engaged_vel    = diag.wheel_engaged_velocity;
+        telemetry_.ffb_gate_driver_opposing      = diag.driver_opposing;
+        telemetry_.ffb_gate_target_rate          = diag.target_rate;
+        telemetry_.ffb_gate_derror_rate          = diag.derror_rate;
+        telemetry_.ffb_gate_actual_rate          = diag.actual_rate;
+        telemetry_.ffb_gate_actual_norm          = diag.actual_norm;
+        telemetry_.ffb_gate_sustain_accum        = diag.sustain_accum;
+        telemetry_.ffb_gate_block_reason         = reason_str;
     }
     // feature:F7 — AD steering safety envelope observability (verification:
     // "normal driving never trips the envelope"). See AdSteeringEnvelope.hpp.

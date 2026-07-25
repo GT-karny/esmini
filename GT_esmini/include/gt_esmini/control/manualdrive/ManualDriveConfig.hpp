@@ -202,6 +202,60 @@ struct ManualDriveConfig
             // (a min-deflection gate) confuses "user firmly at 0" with
             // "wheel stuck at rest" and cannot resolve the ambiguity.
             double override_wheel_over_target_epsilon = 0.05;
+
+            // feature:F7 (F7b, follow-up post-93b2c6c4) — velocity-opposition
+            // gate. Fourth (additive) detection signature, independent of the
+            // target_rate/position_error_rate gates above.
+            //
+            // Bug this closes: the AD steering safety envelope (93b2c6c4)
+            // ramps the wheel target at up to steer_rate_max (default 1.5
+            // rad/s ≈ 2.46 axis-frac/s) during the post-RESUME recovery
+            // transient — comfortably above override_target_rate_gate (0.30)
+            // for the ENTIRE transient. moving_target therefore stays true and
+            // zeroes ffb_sustain_accum_ every frame, so a driver grabbing the
+            // wheel during exactly that window (the moment they'd want to
+            // take over) could never latch MANUAL — a safety regression.
+            //
+            // Raising target_rate_gate is not an option (defeats its purpose);
+            // ignoring moving_target while wheel_engaged (position test) is
+            // also unsafe: during a FAST-REVERSING target, tracking lag alone
+            // can make |actual| momentarily exceed |target| (the position
+            // test's opposition condition) with zero driver input — the
+            // envelope's ramp can plausibly reverse direction faster than the
+            // physical wheel/servo settles.
+            //
+            // This gate instead characterises "driver opposing" via a
+            // signature that is invariant to how the target is moving: a
+            // servo alone can only push the wheel in the direction that
+            // reduces tracking error, so sign(commanded_force_signed) tracks
+            // sign(d(actual_norm)/dt) whenever the wheel is unheld — true
+            // whether the target is static, ramping, or reversing. A driver
+            // fighting the servo is the only thing that can invert that
+            // relationship. Condition (see OverrideManager::Update):
+            //
+            //   wheel_engaged_velocity = |d(actual_norm)/dt| > this gate
+            //                            AND commanded_force_signed * d(actual_norm)/dt < 0
+            //
+            // When true, sustain is allowed to accumulate EVEN WHILE
+            // moving_target/tracking_transient are tripped — this is exactly
+            // the case the two rate gates otherwise blackout. The existing
+            // position-based wheel_engaged test (override_wheel_over_target_
+            // epsilon) is UNCHANGED and still requires both rate gates to be
+            // settled, so none of the four real-machine false-positive fixes
+            // above (a43e4c67 / 549e5823 / f723fa90 follow-ups) are weakened.
+            //
+            // Default 0.30 axis-frac/s: same order of magnitude as
+            // override_target_rate_gate — comfortably above G29 physical
+            // jitter (~0.25/s peak, see override_position_error_rate_gate
+            // comment) so brief inertial coasting right at a target reversal
+            // doesn't false-trigger, while well below a deliberate driver
+            // countersteer (a quarter-axis flick in 150 ms ≈ 1-2/s). Residual
+            // risk: an unusually slow, sustained (>=sustain_time) inertial
+            // mismatch right at a reversal could theoretically still cross
+            // this gate; not observed in the 33-scenario/22,983-frame
+            // characterization run behind 93b2c6c4 but not exhaustively
+            // proven against this specific gate. Flagged for real-G29 replay.
+            double override_opposition_velocity_gate = 0.30;  // axis-frac / s
         } target_track;
     } ffb;
 
