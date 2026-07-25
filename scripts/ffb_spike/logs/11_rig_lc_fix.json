@@ -1,0 +1,18 @@
+{
+ "label": "lc_fix",
+ "scenario": "resources/xosc/virtual_driver_basic.xosc",
+ "frames": 800,
+ "sim_s": 20.05,
+ "wall_s": 20.36,
+ "realtime_ratio": 1.015,
+ "servo_active_frames": 800,
+ "wheel_ever_moved": true,
+ "frac_time_moved": 0.845,
+ "peak_abs_target": 0.0648,
+ "peak_abs_axis": 0.0706,
+ "follow_pct": 109.0,
+ "err_mean_while_steering": 0.01058,
+ "override_lateral_ever": false,
+ "max_commanded_force": 0.4603,
+ "frac_force_over_020": 0.0025
+}

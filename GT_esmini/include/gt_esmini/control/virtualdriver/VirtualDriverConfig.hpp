@@ -166,6 +166,11 @@ struct VirtualDriverConfig
     double ffb_target_track_kd                                   = 0.35;
     double ffb_target_track_max_force                            = 0.6;
     double ffb_target_track_hard_stop_zone                       = 0.85;
+    // Coulomb friction feed-forward (< min breakaway 0.170) + road-feel
+    // authority while the servo is active. CHARACTERIZATION.md §4/§6/§7.
+    double ffb_target_track_friction_ff                          = 0.15;
+    double ffb_target_track_friction_ff_eps                      = 0.01;
+    double ffb_target_track_feel_ratio                           = 0.0;
     double ffb_target_track_override_steer_force_threshold       = 0.20;
     double ffb_target_track_override_steer_dev_threshold         = 0.04;
     double ffb_target_track_override_sustain_time                = 0.10;   // seconds

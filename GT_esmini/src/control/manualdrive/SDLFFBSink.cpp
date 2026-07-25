@@ -44,6 +44,9 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     servo_cfg_.kd                = config.ffb.target_track.kd;
     servo_cfg_.max_force         = config.ffb.target_track.max_force;
     servo_cfg_.hard_stop_zone    = config.ffb.target_track.hard_stop_zone;
+    servo_cfg_.friction_ff       = config.ffb.target_track.friction_ff;
+    servo_cfg_.friction_ff_eps   = config.ffb.target_track.friction_ff_eps;
+    feel_ratio_                  = config.ffb.target_track.feel_ratio;
     ResetSteerServo(servo_state_);
     target_norm_        = 0.0;
     target_active_      = false;
@@ -54,9 +57,11 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
              "damp_base={:.3f} damp_spd={:.3f} assist_lo={:.2f} assist_hi={:.2f} max_force={:.2f}",
              sat_gain_, sat_centering_gain_, friction_base_, friction_speed_gain_,
              damper_base_, damper_speed_gain_, assist_low_speed_, assist_high_speed_, max_force_);
-    LOG_INFO("SDLFFBSink: target_track enabled={} kp={:.2f} kd={:.2f} max_force={:.2f} hard_stop_zone={:.2f}",
+    LOG_INFO("SDLFFBSink: target_track enabled={} kp={:.2f} kd={:.2f} max_force={:.2f} hard_stop_zone={:.2f} "
+             "friction_ff={:.3f} (eps={:.3f}) feel_ratio={:.2f}",
              target_track_enabled_, servo_cfg_.kp, servo_cfg_.kd,
-             servo_cfg_.max_force, servo_cfg_.hard_stop_zone);
+             servo_cfg_.max_force, servo_cfg_.hard_stop_zone,
+             servo_cfg_.friction_ff, servo_cfg_.friction_ff_eps, feel_ratio_);
 
     if (!SDL_JoystickIsHaptic(joystick))
     {
@@ -108,6 +113,28 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         {
             LOG_WARN("SDLFFBSink: Failed to create constant effect: {}", SDL_GetError());
         }
+    }
+
+    // When target-tracking is on we already know the combined-constant path is
+    // the only force channel (see the emulate_via_constant_ decision below), so
+    // do not create SPRING/DAMPER at all.
+    //
+    // Leaving them merely *running* is not free on a G29: with the CARTESIAN
+    // direction fix these effects now succeed in being created, and DirectInput
+    // then mixes three live effects and shares the device's force budget between
+    // them. Measured on the rig: with them running, a commanded CONSTANT of
+    // 0.269 held for 5 s did not move the wheel at all, even though a bare 0.22
+    // constant force turns it at ~0.2 axis-frac/s (script 07). The servo tracked
+    // only 77% of a curve and 53% of a right turn; with them not created it
+    // reaches the values the characterization predicted.
+    const bool constant_only = target_track_enabled_ && has_constant_ && constant_effect_id_ >= 0;
+    if (constant_only)
+    {
+        has_spring_ = false;
+        has_damper_ = false;
+        LOG_INFO("SDLFFBSink: target_track on — skipping SPRING/DAMPER creation "
+                 "(CONSTANT is the sole force channel; concurrent effects measurably "
+                 "attenuate it on G29)");
     }
 
     // Create spring effect (centering)
@@ -239,7 +266,12 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
     if (has_constant_ && constant_effect_id_ >= 0)
     {
         double assist_ratio = assist_low_speed_ + (assist_high_speed_ - assist_low_speed_) * speed_factor;
-        double force = -lat_accel * sat_gain_ * (1.0 - assist_ratio);
+        // Same feel-authority rule as the combined path — kept in sync so the
+        // two branches behave identically (see UpdateCombinedConstantForce §0).
+        // Unreachable while target-tracking is on today (Init pins
+        // emulate_via_constant_), but the branches must not diverge silently.
+        double force = -lat_accel * sat_gain_ * (1.0 - assist_ratio) *
+                       (target_active_ ? feel_ratio_ : 1.0);
 
         // feature:F7 (F7b) — target-track servo term rides on the CONSTANT
         // channel in the native path too. The SPRING/DAMPER CARTESIAN fix
@@ -251,10 +283,11 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
         if (target_active_)
         {
             const double actual_norm = ReadPhysicalWheelNorm();
+            double u_feedback = 0.0;
             const double u = ComputeSteerServoForce(target_norm_, actual_norm, dt,
-                                                    servo_state_, servo_cfg_);
+                                                    servo_state_, servo_cfg_, &u_feedback);
             force += u;
-            last_sample_.commanded_force = std::abs(u);
+            last_sample_.commanded_force = std::abs(u_feedback);  // see combined path
             last_sample_.position_error  = target_norm_ - actual_norm;
             last_sample_.target_norm     = target_norm_;
             last_sample_.active          = true;
@@ -405,6 +438,30 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
 
     double speed_factor = std::clamp(speed / 30.0, 0.0, 1.0);
 
+    // --- 0. Feel authority while the target-track servo owns the wheel ---
+    //
+    // SAT / friction / damping are all computed from `steering_pos`, which is
+    // the SIMULATED wheel angle out of HVD. While target-tracking is active the
+    // servo's target IS that same simulated angle, so these terms oppose the
+    // servo by construction: the harder AD steers, the harder they centre away
+    // from where the servo is trying to go. With the G29's breakaway force at
+    // only ~0.19, the measured cost is severe — the wheel reached just 28.8% of
+    // a commanded lane change and 34.2% of a right turn (real-rig replay of
+    // recorded AD steering, CHARACTERIZATION.md §6).
+    //
+    // Sourcing them from the physical wheel instead (the obvious fix) only
+    // reaches 72%: the reactive-SAT term is a function of lat_accel, not of
+    // wheel angle, so swapping the position source cannot remove it.
+    //
+    // So while the servo is active the feel terms are scaled by feel_ratio
+    // (default 0 = the servo owns the wheel, which is what a hands-off
+    // AD-driven wheel physically is). This is NOT a permanent loss of road
+    // feel: target_active_ is driven by `active=!lat_manual` from
+    // ControllerVirtualDriver, so the instant the driver's push latches the
+    // override to MANUAL, target_active_ goes false and the full SAT/friction/
+    // damping model returns on the very next tick.
+    const double feel = target_active_ ? feel_ratio_ : 1.0;
+
     // --- 1. SAT (Self-Aligning Torque) ---
     // Two components:
     //   Predictive: steering angle → slip angle → Fy → SAT (immediate response)
@@ -419,12 +476,12 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
     // NOT affected by power assist (it's a geometric/tire effect, not column torque).
     // Gentle onset: begins at walking speed (~1 m/s), full effect by ~5 m/s.
     double caster_onset = std::clamp(speed / 5.0, 0.0, 1.0);
-    double sat_predictive = -steering_pos * sat_centering_gain_ * caster_onset;
+    double sat_predictive = -steering_pos * sat_centering_gain_ * caster_onset * feel;
 
     // Reactive SAT: from actual lateral acceleration (richer dynamics, grip-limit lightening).
     double slip_proxy = std::clamp(std::abs(lat_accel) / 9.81, 0.0, 1.0);
     double trail_factor = std::max(0.0, 1.0 - slip_proxy * slip_proxy);
-    double sat_reactive = -lat_accel * sat_gain_ * trail_factor * manual_ratio;
+    double sat_reactive = -lat_accel * sat_gain_ * trail_factor * manual_ratio * feel;
 
     double sat = sat_predictive + sat_reactive;
 
@@ -432,15 +489,17 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
     // Opposes steering velocity in both directions — this is the "weight" of steering.
     // Increases slightly with speed for highway stability.
     double friction_mag = friction_base_ + friction_speed_gain_ * speed_factor;
-    double friction = -std::tanh(steering_vel * 3.0) * friction_mag;
+    double friction = -std::tanh(steering_vel * 3.0) * friction_mag * feel;
 
     // --- 3. Damping (viscous) ---
     // Velocity-proportional resistance. More damping at speed for stability.
     double damping_coeff = damper_base_ + damper_speed_gain_ * speed_factor;
-    double damping = -steering_vel * damping_coeff;
+    double damping = -steering_vel * damping_coeff * feel;
 
     // --- 4. Soft Stop ---
     // Progressive resistance near steering lock to prevent hard slam.
+    // Deliberately NOT scaled by `feel`: this is end-stop protection, not road
+    // feel, and safety limiters must not be attenuated by a comfort setting.
     double soft_stop = 0.0;
     double stop_zone = 0.1;  // ramp-up zone width [rad]
     double overshoot = std::abs(steering_pos) - (lock_angle_ - stop_zone);
@@ -463,9 +522,12 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
     if (target_active_)
     {
         const double actual_norm = ReadPhysicalWheelNorm();
+        double u_feedback = 0.0;
         target_track = ComputeSteerServoForce(target_norm_, actual_norm, dt,
-                                              servo_state_, servo_cfg_);
-        last_sample_.commanded_force = std::abs(target_track);
+                                              servo_state_, servo_cfg_, &u_feedback);
+        // Feedback-only: the friction feed-forward is plant compensation, not
+        // driver resistance, and must not consume the detector's margin.
+        last_sample_.commanded_force = std::abs(u_feedback);
         last_sample_.position_error  = target_norm_ - actual_norm;
         last_sample_.target_norm     = target_norm_;
         last_sample_.active          = true;

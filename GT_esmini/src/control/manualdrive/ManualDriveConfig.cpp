@@ -173,6 +173,9 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("target_track_kd",                              ffb.target_track.kd);
         parse_double("target_track_max_force",                       ffb.target_track.max_force);
         parse_double("target_track_hard_stop_zone",                  ffb.target_track.hard_stop_zone);
+        parse_double("target_track_friction_ff",                     ffb.target_track.friction_ff);
+        parse_double("target_track_friction_ff_eps",                 ffb.target_track.friction_ff_eps);
+        parse_double("target_track_feel_ratio",                      ffb.target_track.feel_ratio);
         parse_double("target_track_override_steer_force_threshold",  ffb.target_track.override_steer_force_threshold);
         parse_double("target_track_override_steer_dev_threshold",    ffb.target_track.override_steer_dev_threshold);
         parse_double("target_track_override_sustain_time",           ffb.target_track.override_sustain_time);

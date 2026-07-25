@@ -389,6 +389,9 @@ export interface VirtualDriverConfig {
   ffb_target_track_kd?: number;
   ffb_target_track_max_force?: number;
   ffb_target_track_hard_stop_zone?: number;
+  ffb_target_track_friction_ff?: number;
+  ffb_target_track_friction_ff_eps?: number;
+  ffb_target_track_feel_ratio?: number;
   ffb_target_track_override_steer_force_threshold?: number;
   ffb_target_track_override_steer_dev_threshold?: number;
   ffb_target_track_override_sustain_time?: number;

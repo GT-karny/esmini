@@ -90,6 +90,9 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.kd                             = vd_config_.ffb_target_track_kd;
     io_config_.ffb.target_track.max_force                      = vd_config_.ffb_target_track_max_force;
     io_config_.ffb.target_track.hard_stop_zone                 = vd_config_.ffb_target_track_hard_stop_zone;
+    io_config_.ffb.target_track.friction_ff                    = vd_config_.ffb_target_track_friction_ff;
+    io_config_.ffb.target_track.friction_ff_eps                = vd_config_.ffb_target_track_friction_ff_eps;
+    io_config_.ffb.target_track.feel_ratio                     = vd_config_.ffb_target_track_feel_ratio;
     io_config_.ffb.target_track.override_steer_force_threshold = vd_config_.ffb_target_track_override_steer_force_threshold;
     io_config_.ffb.target_track.override_steer_dev_threshold   = vd_config_.ffb_target_track_override_steer_dev_threshold;
     io_config_.ffb.target_track.override_sustain_time          = vd_config_.ffb_target_track_override_sustain_time;

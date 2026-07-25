@@ -43,7 +43,8 @@ import sys
 import time
 from pathlib import Path
 
-from g29lib import (DT, LOGS, PROFILES, Rig, Servo, ServoParams, WheelModel,
+import g29lib
+from g29lib import (LOGS, PROFILES, Rig, Servo, ServoParams, WheelModel,
                     banner, write_csv)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -138,6 +139,7 @@ def interp(prof: list, t: float) -> tuple:
 
 
 def replay(profile: str, args, rig: Rig | None) -> dict:
+    DT = 1.0 / args.loop_hz
     prof = load_profile(profile)
     cfg = load_ffb_config()
     steer_gain = cfg["steer_gain"]
@@ -181,7 +183,7 @@ def replay(profile: str, args, rig: Rig | None) -> dict:
         terms = comp.step(feel_pos, lat, speed, DT)
 
         target_abs = base + steer
-        u_servo, u_fb = servo.step(target_abs, actual, t)
+        u_servo, u_fb = servo.step(target_abs, actual, t, DT)
         total = max(-outer_max, min(outer_max, u_servo + terms["sum"]))
 
         if rig is not None:
@@ -266,6 +268,9 @@ def main() -> int:
     ap.add_argument("--max-seconds", type=float, default=30.0)
     ap.add_argument("--max-force-cap", type=float, default=1.0, help="dry-run outer clamp")
     ap.add_argument("--override-thresh", type=float, default=0.20)
+    ap.add_argument("--loop-hz", type=float, default=250.0,
+                    help="servo update rate; the PRODUCT runs the FFB sink once "
+                         "per sim frame (~20-40 Hz), not at the spike's 250 Hz")
     ap.add_argument("--excursion", type=float, default=0.45,
                     help="safety travel limit from rest; raise only for large-signal "
                          "profiles like right_turn (target 0.83 = ~370 deg of wheel)")

@@ -8,7 +8,8 @@ namespace gt_esmini
 
 double ComputeSteerServoForce(double target_norm, double actual_norm,
                               double dt, SteerServoState& state,
-                              const SteerServoConfig& cfg)
+                              const SteerServoConfig& cfg,
+                              double* out_feedback)
 {
     // Clamp dt away from 0 so the D term never explodes on the caller's edge
     // cases (paused sim, first frame after resume, ...). 1 ms is safely below
@@ -23,10 +24,20 @@ double ComputeSteerServoForce(double target_norm, double actual_norm,
     // Sign flip: on G29 via SDL2, positive CONSTANT level pushes wheel LEFT
     // (axis negative). To servo toward +target we need NEGATIVE force. See
     // scripts/ffb_spike/README.md §1f for the diagnostic that established this.
-    double u = -(cfg.kp * err + cfg.kd * derr);
+    double u_fb = -(cfg.kp * err + cfg.kd * derr);
 
     // Clamp to per-tick force cap first.
-    u = std::clamp(u, -cfg.max_force, cfg.max_force);
+    u_fb = std::clamp(u_fb, -cfg.max_force, cfg.max_force);
+
+    // Coulomb friction feed-forward. Same sign as the feedback term (both are
+    // -sign(err)), so it always helps rather than fights. tanh gives a smooth
+    // knee through err=0 — a raw sign() would chatter on axis quantization.
+    // Bounded by friction_ff, which is held below the wheel's breakaway force
+    // so this term can never start the wheel on its own (see header).
+    const double u_ff = -cfg.friction_ff *
+                        std::tanh(err / std::max(cfg.friction_ff_eps, 1.0e-9));
+
+    double u = std::clamp(u_fb + u_ff, -cfg.max_force, cfg.max_force);
 
     // Hard-stop taper (spike §3d): near the physical stop, do not push the
     // wheel further into the stop. "Outward" = force sign OPPOSITE to actual
@@ -39,9 +50,16 @@ double ComputeSteerServoForce(double target_norm, double actual_norm,
         const double denom = std::max(1.0e-6, 1.0 - cfg.hard_stop_zone);
         const double t     = std::clamp((a - cfg.hard_stop_zone) / denom, 0.0, 1.0);
         const double taper = 1.0 - t;   // 1.0 at zone edge, 0.0 at full lock
-        u *= taper;
+        u    *= taper;
+        // Taper the reported feedback too: the proxy should describe the force
+        // actually delivered, not one the stop guard suppressed.
+        u_fb *= taper;
     }
 
+    if (out_feedback)
+    {
+        *out_feedback = u_fb;
+    }
     return u;
 }
 

@@ -45,6 +45,8 @@ const EDITABLE_KEYS = [
   // feature:F7 (F7b) FFB target-tracking (AD wheel following + torque-proxy override).
   'ffb_target_track_enabled', 'ffb_target_track_kp', 'ffb_target_track_kd',
   'ffb_target_track_max_force', 'ffb_target_track_hard_stop_zone',
+  'ffb_target_track_friction_ff', 'ffb_target_track_friction_ff_eps',
+  'ffb_target_track_feel_ratio',
   'ffb_target_track_override_steer_force_threshold',
   'ffb_target_track_override_steer_dev_threshold',
   'ffb_target_track_override_sustain_time',
@@ -400,6 +402,15 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           Drives the physical wheel to follow AD's commanded steering (SDL2 only).
           A sustained push against the servo latches to MANUAL. Default OFF;
           calibrate thresholds on the real bench.
+          <br />
+          <span className="text-text-tertiary">
+            Friction feed-forward cancels the wheel's static friction so small
+            steering commands can actually move it — keep it BELOW the wheel's
+            breakaway force (G29 measured 0.170) or the wheel can creep on its
+            own. Road feel scales SAT/friction/damping while AD is steering
+            (0 = servo owns the wheel); full feel always returns the moment an
+            override latches to MANUAL.
+          </span>
         </p>
         <div className="mb-3">
           <ToggleSwitch
@@ -421,6 +432,15 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Hard-stop zone (|axis|)" step={0.01}
             value={cfg.ffb_target_track_hard_stop_zone ?? 0.85}
             onChange={setNum('ffb_target_track_hard_stop_zone')} />
+          <NumberInput label="Friction feed-forward (< breakaway)" step={0.01}
+            value={cfg.ffb_target_track_friction_ff ?? 0.15}
+            onChange={setNum('ffb_target_track_friction_ff')} />
+          <NumberInput label="Friction FF knee (axis-frac)" step={0.005}
+            value={cfg.ffb_target_track_friction_ff_eps ?? 0.01}
+            onChange={setNum('ffb_target_track_friction_ff_eps')} />
+          <NumberInput label="Road feel while AD steers (0..1)" step={0.05}
+            value={cfg.ffb_target_track_feel_ratio ?? 0.0}
+            onChange={setNum('ffb_target_track_feel_ratio')} />
           <NumberInput label="Override force threshold" step={0.01}
             value={cfg.ffb_target_track_override_steer_force_threshold ?? 0.20}
             onChange={setNum('ffb_target_track_override_steer_force_threshold')} />

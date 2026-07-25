@@ -29,6 +29,8 @@ public:
         servo_cfg_.kd               = config.ffb.target_track.kd;
         servo_cfg_.max_force        = config.ffb.target_track.max_force;
         servo_cfg_.hard_stop_zone   = config.ffb.target_track.hard_stop_zone;
+        servo_cfg_.friction_ff      = config.ffb.target_track.friction_ff;
+        servo_cfg_.friction_ff_eps  = config.ffb.target_track.friction_ff_eps;
         ResetSteerServo(servo_state_);
         target_norm_        = 0.0;
         target_active_      = false;
@@ -101,9 +103,13 @@ public:
         if (target_active_)
         {
             const double actual_norm = CurrentAxis();
-            const double u = ComputeSteerServoForce(target_norm_, actual_norm, dt,
-                                                    servo_state_, servo_cfg_);
-            last_sample_.commanded_force = std::abs(u);
+            double u_feedback = 0.0;
+            ComputeSteerServoForce(target_norm_, actual_norm, dt,
+                                   servo_state_, servo_cfg_, &u_feedback);
+            // Feedback-only, exactly as SDLFFBSink reports it — the headless
+            // closed-loop tests are only meaningful if the detector sees the
+            // same signal the real SDL2 path feeds it.
+            last_sample_.commanded_force = std::abs(u_feedback);
             last_sample_.position_error  = target_norm_ - actual_norm;
             last_sample_.target_norm     = target_norm_;
             last_sample_.active          = true;

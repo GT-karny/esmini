@@ -113,6 +113,21 @@ struct ManualDriveConfig
             double kd                                   = 0.35;
             double max_force                            = 0.6;
             double hard_stop_zone                       = 0.85;
+            // Coulomb friction feed-forward — removes the F_break/Kp static
+            // friction deadband that otherwise swallows small AD steering
+            // commands. MUST stay below the wheel's minimum breakaway force
+            // (G29 measured 0.170) or the term could move the wheel by itself.
+            // scripts/ffb_spike/CHARACTERIZATION.md §4/§7.
+            double friction_ff                          = 0.15;
+            double friction_ff_eps                      = 0.01;
+            // Road-feel authority while the servo is active: SAT / friction /
+            // damping are multiplied by this. 0 = the servo owns the wheel
+            // (correct for a hands-off AD-driven wheel, and what the rig
+            // measurements are calibrated against); 1 = legacy behaviour, where
+            // the feel terms fight the servo and it reaches ~29% of a lane
+            // change. Full feel always returns on override latch — that clears
+            // target_active. CHARACTERIZATION.md §6/§8.
+            double feel_ratio                           = 0.0;
             double override_steer_force_threshold       = 0.20;
             double override_steer_dev_threshold         = 0.04;
             double override_sustain_time                = 0.10;  // seconds

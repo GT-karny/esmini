@@ -72,6 +72,10 @@ private:
 
     // feature:F7 (F7b) — target-tracking (AD wheel following)
     bool                  target_track_enabled_ = false;  // config: master on/off
+    // Scales SAT / friction / damping while the servo is active (0 = servo owns
+    // the wheel). Full feel returns the tick the driver's override latches,
+    // because that clears target_active_. See UpdateCombinedConstantForce §0.
+    double                feel_ratio_           = 0.0;
     SteerServoConfig      servo_cfg_            = {};
     SteerServoState       servo_state_          = {};
     double                target_norm_          = 0.0;
