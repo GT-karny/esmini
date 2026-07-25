@@ -258,15 +258,25 @@ Write-Host "==== Step 0: build/config drift check ====" -ForegroundColor Cyan
 $configFiles = @("virtual_driver.json", "manual_drive.json", "auto_light.json")
 $driftDetected = $false
 foreach ($cf in $configFiles) {
+    # Portability notes for Windows PowerShell 5.1 (PM's invocation):
+    #  - Join-Path takes only Path+ChildPath positionally under 5.1; pwsh 7 accepts
+    #    a third positional via -AdditionalChildPath. Use nested Join-Path so this
+    #    step works under BOTH powershell.exe and pwsh.exe.
+    #  - Get-FileHash is missing from some minimal / locked-down 5.1 installations
+    #    (encountered locally). Use .NET [System.IO.File]::ReadAllText for the
+    #    equality check — every one of our config files is text (JSON), and 5.1's
+    #    .NET binding is universally available.
     $src = Join-Path "GT_esmini/config" $cf
-    $bld = Join-Path $BuildDir "GT_esmini/config" $cf
+    $bld = Join-Path (Join-Path $BuildDir "GT_esmini/config") $cf
     if (-not (Test-Path $src)) { continue }
     if (-not (Test-Path $bld)) {
         Write-Host "  MISSING $bld -- restaging from source" -ForegroundColor Yellow
         Copy-Item $src $bld -Force
         continue
     }
-    if ((Get-FileHash $src).Hash -ne (Get-FileHash $bld).Hash) {
+    $srcTxt = [System.IO.File]::ReadAllText((Resolve-Path $src).ProviderPath)
+    $bldTxt = [System.IO.File]::ReadAllText((Resolve-Path $bld).ProviderPath)
+    if ($srcTxt -ne $bldTxt) {
         Write-Host "  DRIFT   $cf : build differs from source (hand-edit leak?)" -ForegroundColor Red
         Write-Host "          diff:" -ForegroundColor Red
         Compare-Object (Get-Content $src) (Get-Content $bld) | Select-Object -First 20 |

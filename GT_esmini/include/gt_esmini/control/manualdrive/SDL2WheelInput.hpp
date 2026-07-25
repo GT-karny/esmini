@@ -6,6 +6,7 @@
 #include "gt_esmini/control/manualdrive/SDLFFBSink.hpp"
 
 #include <SDL.h>
+#include <vector>
 
 namespace gt_esmini
 {
@@ -51,6 +52,12 @@ private:
     int           hazard_button_         = -1;
     int           auto_resume_button_    = -1;  // feature:F7
     bool          sdl_initialized_        = false;
+    // Per-axis "has reported a non-zero value since open" latch. Used by the
+    // pedal read guard to treat raw=0 as "released" (32767) until we've seen
+    // a real HID report — Windows/DirectInput can return raw=0 for pedals
+    // for hundreds of ms after JoystickOpen, and phantom NormalizePedal(0)=0.5
+    // would spuriously trip OverrideManager's throttle_threshold.
+    std::vector<bool> axis_seen_live_;
 
     GearTracker gear_tracker_;
     SDLFFBSink  ffb_sink_;
