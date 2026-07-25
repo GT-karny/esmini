@@ -50,6 +50,7 @@ const EDITABLE_KEYS = [
   'ffb_target_track_override_sustain_time',
   'ffb_target_track_override_target_rate_gate',
   'ffb_target_track_override_position_error_rate_gate',
+  'ffb_target_track_override_wheel_over_target_epsilon',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -435,13 +436,21 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Position-error rate gate (axis-frac/s)" step={0.05}
             value={cfg.ffb_target_track_override_position_error_rate_gate ?? 0.10}
             onChange={setNum('ffb_target_track_override_position_error_rate_gate')} />
+          <NumberInput label="Wheel-over-target epsilon (|axis|)" step={0.01}
+            value={cfg.ffb_target_track_override_wheel_over_target_epsilon ?? 0.05}
+            onChange={setNum('ffb_target_track_override_wheel_over_target_epsilon')} />
         </div>
         <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
-          Two gates suppress override detection: target rate (AD steering
-          transient) + position-error rate (physical wheel still catching up).
-          Detection fires only when BOTH signals are settled AND thresholds
-          crossed — the shape of a real driver block. Prevents startup /
-          curve / lane-change false positives.
+          Three gates suppress override detection: target rate (AD steering
+          transient) + position-error rate (physical wheel still catching up)
+          + wheel-over-target opposition (an unheld G29 wheel either stays
+          at 0 or slowly creeps toward target under sustained servo pressure —
+          both are servo behavior. A real driver override moves the wheel PAST
+          target by more than this epsilon, or reverses direction entirely).
+          Detection fires only when all gates settle AND thresholds cross —
+          the shape of a real driver block. Prevents startup / curve /
+          lane-change / small-command false positives (post-f723fa90
+          real-machine regression).
         </p>
       </section>
 

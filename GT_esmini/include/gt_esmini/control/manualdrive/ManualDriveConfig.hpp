@@ -143,6 +143,50 @@ struct ManualDriveConfig
             // two catches the transient; 0.10 leaves headroom for physical
             // wheel jitter (~0.005 per 20 ms tick = 0.25 /s peak).
             double override_position_error_rate_gate    = 0.10;  // axis-frac / s
+            // Third gate: the physical wheel must be OPPOSING the target
+            // (either sign-opposed, or overshooting the target magnitude by
+            // more than this epsilon) for the torque-proxy latch to fire.
+            //
+            // Rationale (real-machine bug found on virtual_driver_basic LC /
+            // anticipation curves / right_turn after commit f723fa90): the
+            // small AD servo command cannot overcome G29 breakaway friction,
+            // so the wheel either stays at 0 (short scenarios) or slowly
+            // creeps toward target under sustained pressure (long scenarios
+            // like a curve — measured ~5%/s creep). In both cases the wheel
+            // is following the servo's direction, |actual| ≤ |target|,
+            // dev ≈ target and force ≈ Kp·target — signals identical to a
+            // "driver holding wheel steady" case except for one physical
+            // truth: the wheel is NOT past target. A driver actively taking
+            // over either turns the wheel PAST where AD wants it (opposition
+            // by magnitude), or in the OPPOSITE direction (sign opposition).
+            // A wheel obediently between 0 and target is servo behavior,
+            // never user behavior.
+            //
+            // Servo-dynamics-aware condition:
+            //   wheel_engaged = (target*actual < 0 AND |actual| >= ε)   # sign opposition (deadzoned)
+            //                 OR (|actual| > |target| + ε)              # magnitude opposition
+            // Where actual = target - position_error (derived from the sample).
+            //
+            // Default ε = 0.05 axis-fraction = 5% of full lock ≈ 22° on G29
+            // 900°. Absorbs natural PID overshoot (kd=0.35 with sinusoidal
+            // targets never exceeds ~2%) plus physical jitter margin. Small
+            // enough that even a modest deliberate over-push (60°) latches
+            // immediately. The deadzone on the sign arm is required because
+            // a stuck G29 wheel measured on 2026-07-25 (right_turn scenario,
+            // target -0.83) sits at +0.011 axis due to column mechanical
+            // offset / SDL2 noise floor (~0.001 = 1 raw count in ~32767) —
+            // technically opposite sign of target but nowhere near a real
+            // driver push. ε at 50× the noise floor is safely above hardware
+            // jitter but well below any deliberate hand movement.
+            //
+            // Edge case: user holding wheel firmly at 0 while AD wants ±X.
+            // wheel_engaged=false (same sign, |actual|=0 < |target|+ε).
+            // The latch will not fire — the user must either move the wheel
+            // to a non-trivial position OR use the RESUME button / config
+            // button-override. This is a defensible trade: the alternative
+            // (a min-deflection gate) confuses "user firmly at 0" with
+            // "wheel stuck at rest" and cannot resolve the ambiguity.
+            double override_wheel_over_target_epsilon = 0.05;
         } target_track;
     } ffb;
 

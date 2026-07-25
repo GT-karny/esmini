@@ -29,16 +29,17 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
 
     // feature:F7 (F7b) — FFB torque-proxy thresholds. Independent of the
     // steering_threshold_ used for the direct pedal_steer.steering path.
-    ffb_force_threshold_    = config.ffb.target_track.override_steer_force_threshold;
-    ffb_dev_threshold_      = config.ffb.target_track.override_steer_dev_threshold;
-    ffb_sustain_time_       = config.ffb.target_track.override_sustain_time;
-    ffb_target_rate_gate_   = config.ffb.target_track.override_target_rate_gate;
-    ffb_derror_rate_gate_   = config.ffb.target_track.override_position_error_rate_gate;
-    ffb_sustain_accum_      = 0.0;
-    ffb_prev_target_norm_   = 0.0;
-    ffb_prev_pos_error_     = 0.0;
-    ffb_history_valid_      = false;
-    ffb_sample_             = {};
+    ffb_force_threshold_       = config.ffb.target_track.override_steer_force_threshold;
+    ffb_dev_threshold_         = config.ffb.target_track.override_steer_dev_threshold;
+    ffb_sustain_time_          = config.ffb.target_track.override_sustain_time;
+    ffb_target_rate_gate_      = config.ffb.target_track.override_target_rate_gate;
+    ffb_derror_rate_gate_      = config.ffb.target_track.override_position_error_rate_gate;
+    ffb_wheel_over_target_eps_ = config.ffb.target_track.override_wheel_over_target_epsilon;
+    ffb_sustain_accum_         = 0.0;
+    ffb_prev_target_norm_      = 0.0;
+    ffb_prev_pos_error_        = 0.0;
+    ffb_history_valid_         = false;
+    ffb_sample_                = {};
 }
 
 void OverrideManager::UpdateFfbSample(const FfbInterventionSample& sample)
@@ -192,13 +193,39 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         const bool over_force         = std::abs(ffb_sample_.commanded_force) > ffb_force_threshold_;
         const bool over_dev           = std::abs(ffb_sample_.position_error)  > ffb_dev_threshold_;
 
+        // Third gate (post-f723fa90): the physical wheel must be OPPOSING
+        // the target. See ManualDriveConfig for the full rationale — short
+        // version: an unheld wheel either sits at 0 (small AD target below
+        // G29 breakaway friction) or slowly creeps toward target under
+        // sustained servo force (large AD target, wheel gradually catches
+        // up over seconds). BOTH regimes keep the wheel same-signed as
+        // target and |actual| < |target|; both are servo behavior, not
+        // driver behavior. A driver actively taking over either moves the
+        // wheel past target (magnitude opposition) or reverses direction
+        // (sign opposition). Derive actual_norm from the sample; the sink
+        // records position_error = target_norm - actual_norm exactly.
+        const double actual_norm    = ffb_sample_.target_norm - ffb_sample_.position_error;
+        // The sign-opposition arm additionally requires |actual| >= epsilon:
+        // real-G29 right_turn measured on 2026-07-25 shows the physical axis
+        // sitting at +0.011 (column noise / mechanical offset) when target
+        // is -0.83 and the servo cannot move the stuck wheel. Without the
+        // deadzone, that +0.011 counts as "sign opposition" and false-latches
+        // just as the pre-fix behavior did. epsilon is 50× the SDL2 noise
+        // floor (~0.001 = 32 raw counts out of 32767), safely above hardware
+        // jitter but below any deliberate hand movement.
+        const bool sign_opposition      = (ffb_sample_.target_norm * actual_norm) < 0.0
+                                          && std::abs(actual_norm) >= ffb_wheel_over_target_eps_;
+        const bool magnitude_opposition = std::abs(actual_norm) >
+                                          std::abs(ffb_sample_.target_norm) + ffb_wheel_over_target_eps_;
+        const bool wheel_engaged        = sign_opposition || magnitude_opposition;
+
         if (suppress || moving_target || tracking_transient)
         {
             // Not steady-state. Reset sustain. Detector re-arms as soon as
             // both rates settle below their gates.
             ffb_sustain_accum_ = 0.0;
         }
-        else if (over_force || over_dev)
+        else if ((over_force || over_dev) && wheel_engaged)
         {
             ffb_sustain_accum_ += dt;
             if (ffb_sustain_accum_ >= ffb_sustain_time_)
@@ -208,6 +235,9 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         }
         else
         {
+            // Either signals are quiet or the wheel is at rest — in both
+            // cases reset the sustain accumulator so a subsequent real
+            // driver push starts fresh.
             ffb_sustain_accum_ = 0.0;
         }
     }

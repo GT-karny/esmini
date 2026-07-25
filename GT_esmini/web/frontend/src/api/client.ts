@@ -394,6 +394,7 @@ export interface VirtualDriverConfig {
   ffb_target_track_override_sustain_time?: number;
   ffb_target_track_override_target_rate_gate?: number;
   ffb_target_track_override_position_error_rate_gate?: number;
+  ffb_target_track_override_wheel_over_target_epsilon?: number;
 }
 
 export interface ControllerConfig {

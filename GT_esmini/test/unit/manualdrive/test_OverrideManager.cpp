@@ -287,13 +287,17 @@ TEST(OverrideManagerTest, FfbSampleBelowThresholdsNeverLatches)
 TEST(OverrideManagerTest, FfbSampleShortBurstDoesNotLatch)
 {
     // Over threshold for less than sustain time — must NOT latch.
+    // Post-f723fa90: use a physically-realistic sample where the actual wheel
+    // is deflected (satisfies the min_actual_wheel_deflection gate), so this
+    // test is exercising the sustain timer specifically, not the wheel gate.
     OverrideManager m;
     m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, /*sustain=*/0.10));
 
     FfbInterventionSample s;
-    s.active = true;
+    s.active          = true;
     s.commanded_force = 0.50;   // above force threshold
-    s.position_error  = 0.00;
+    s.position_error  = 0.10;   // above dev threshold
+    s.target_norm     = 0.00;   // actual = 0 - 0.10 = -0.10 → wheel engaged
 
     // 4 frames × 20 ms = 80 ms < 100 ms sustain
     for (int i = 0; i < 4; ++i)
@@ -306,13 +310,17 @@ TEST(OverrideManagerTest, FfbSampleShortBurstDoesNotLatch)
 
 TEST(OverrideManagerTest, FfbSampleSustainedForceLatchesLateral)
 {
+    // Real driver holding the wheel at -0.10 (actual_norm) while AD wants +0.05
+    // (target_norm) → position_error = +0.05 - (-0.10) = +0.15 → PID force
+    // = Kp*|err| = 0.60 (saturated). Both thresholds crossed, wheel engaged.
     OverrideManager m;
     m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
 
     FfbInterventionSample s;
-    s.active = true;
-    s.commanded_force = 0.50;
-    s.position_error  = 0.00;
+    s.active          = true;
+    s.commanded_force = 0.60;
+    s.position_error  = 0.15;
+    s.target_norm     = 0.05;   // actual = 0.05 - 0.15 = -0.10 → wheel engaged
 
     // 6 × 20 ms = 120 ms > 100 ms sustain
     for (int i = 0; i < 6; ++i)
@@ -348,11 +356,22 @@ TEST(OverrideManagerTest, FfbSustainResetsWhenSignalDrops)
     // Signal above threshold, then drops (below threshold), then above again.
     // The sustain timer must reset on the drop; otherwise a series of short
     // pushes would eventually accumulate into a spurious latch.
+    // Post-f723fa90: use physically-realistic samples where actual_norm is
+    // deflected past the min gate (so the sustain-reset behavior — not the
+    // wheel gate — is what's under test).
     OverrideManager m;
     m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
 
-    FfbInterventionSample hi; hi.active = true; hi.commanded_force = 0.50;
-    FfbInterventionSample lo; lo.active = true; lo.commanded_force = 0.05;
+    FfbInterventionSample hi;
+    hi.active          = true;
+    hi.commanded_force = 0.50;
+    hi.position_error  = 0.10;
+    hi.target_norm     = 0.00;   // actual = -0.10 → wheel engaged
+    FfbInterventionSample lo;
+    lo.active          = true;
+    lo.commanded_force = 0.05;
+    lo.position_error  = 0.00;   // signal off; also wheel returns to rest
+    lo.target_norm     = 0.00;
 
     // 3 × 20 ms hi = 60 ms
     for (int i = 0; i < 3; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
@@ -392,21 +411,35 @@ TEST(OverrideManagerTest, FfbLatchHoldsAcrossReleaseTransient)
     // Once latched, the existing OverrideManager latch model must keep MANUAL
     // regardless of what the FFB sample does — clearing goes through RESUME
     // (below), never through "sample dropped below threshold".
+    // Post-f723fa90: hi sample now includes a non-zero position_error so
+    // actual_norm = target - dev is deflected past the min-deflection gate.
     OverrideManager m;
     m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
 
-    FfbInterventionSample hi; hi.active = true; hi.commanded_force = 0.50;
+    FfbInterventionSample hi;
+    hi.active          = true;
+    hi.commanded_force = 0.50;
+    hi.position_error  = 0.10;
+    hi.target_norm     = 0.00;   // actual = -0.10 → wheel engaged
     for (int i = 0; i < 6; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
     ASSERT_TRUE(m.IsLateralManual());
 
     // Simulate release: signal goes below threshold. Latch stays.
-    FfbInterventionSample lo; lo.active = true; lo.commanded_force = 0.03;
+    FfbInterventionSample lo;
+    lo.active          = true;
+    lo.commanded_force = 0.03;
+    lo.position_error  = 0.00;
+    lo.target_norm     = 0.00;
     for (int i = 0; i < 50; ++i) { m.UpdateFfbSample(lo); m.Update(QuietFrame(), 0.02); }
     EXPECT_TRUE(m.IsLateralManual());
 
     // Simulate the release overshoot: signal spikes back above threshold.
     // Latch still stays (already MANUAL — nothing to change).
-    FfbInterventionSample spike; spike.active = true; spike.commanded_force = 0.55;
+    FfbInterventionSample spike;
+    spike.active          = true;
+    spike.commanded_force = 0.55;
+    spike.position_error  = 0.15;
+    spike.target_norm     = 0.00;   // actual = -0.15
     for (int i = 0; i < 30; ++i) { m.UpdateFfbSample(spike); m.Update(QuietFrame(), 0.02); }
     EXPECT_TRUE(m.IsLateralManual());
 }
@@ -419,7 +452,11 @@ TEST(OverrideManagerTest, FfbResumeEdgeWinsOverSustainedFfbSameFrame)
     OverrideManager m;
     m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
 
-    FfbInterventionSample hi; hi.active = true; hi.commanded_force = 0.50;
+    FfbInterventionSample hi;
+    hi.active          = true;
+    hi.commanded_force = 0.50;
+    hi.position_error  = 0.10;
+    hi.target_norm     = 0.00;   // actual = -0.10 → wheel engaged
 
     // Latch MANUAL via sustained FFB.
     for (int i = 0; i < 6; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
@@ -617,8 +654,12 @@ TEST(OverrideManagerTest, FfbStableTargetAfterMotionAllowsLatch)
 {
     // Realistic sequence: target moves (transient — must not latch), then
     // settles (target rate ≈ 0). If the driver is still blocking the wheel
-    // at that point (position_error persists), torque-proxy should latch
-    // shortly after target settles.
+    // at a position past target (magnitude opposition) at that point,
+    // torque-proxy should latch shortly after target settles.
+    // Post-f723fa90 (wheel-over-target gate): the driver's held wheel must
+    // be PAST target (|actual| > |target|+ε) — a wheel between 0 and target
+    // is servo behavior. Update fixtures accordingly: dev = -0.10 so that
+    // actual = target - dev = 1.0 - (-0.10) = 1.10 (past target 1.0 + ε 0.05).
     OverrideManager m;
     ManualDriveConfig cfg = MakeConfigWithFfbThresholds(0.20, 0.04, 0.10);
     cfg.ffb.target_track.override_target_rate_gate = 0.30;
@@ -627,7 +668,7 @@ TEST(OverrideManagerTest, FfbStableTargetAfterMotionAllowsLatch)
     FfbInterventionSample s;
     s.active          = true;
     s.commanded_force = 0.50;
-    s.position_error  = 0.20;
+    s.position_error  = -0.10;   // driver's wheel is PAST target by 0.10
 
     // Phase 1: 2 s ramp (rate 0.5 /s → above gate → no latch)
     for (int i = 0; i < 100; ++i)
@@ -638,8 +679,9 @@ TEST(OverrideManagerTest, FfbStableTargetAfterMotionAllowsLatch)
     }
     ASSERT_FALSE(m.IsLateralManual());
 
-    // Phase 2: target held at 1.0 (rate = 0). Driver still frozen (dev/force
-    // persist above thresholds). Sustain now accumulates.
+    // Phase 2: target held at 1.0 (rate = 0). Driver still holds wheel at
+    // +1.10 (dev/force persist above thresholds; |actual|=1.10 > 1.05).
+    // Sustain accumulates and latches.
     for (int i = 0; i < 6; ++i)   // 120 ms > 100 ms sustain
     {
         s.target_norm = 1.0;
@@ -772,8 +814,9 @@ TEST(OverrideManagerTest, FfbSteadyStateBlockAfterTransientLatches)
 {
     // The fix must NOT break real blocks. After a servo transient settles
     // (dev stops changing) at a persistent above-threshold value, torque-
-    // proxy should latch after sustain. This is the "driver held the wheel,
-    // it settled, AD kept trying" case.
+    // proxy should latch after sustain. Post-f723fa90 semantics: the
+    // wheel must be PAST target for the latch — this represents "driver
+    // aggressively over-steered during transient and now holds past target".
     OverrideManager m;
     m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
 
@@ -781,33 +824,260 @@ TEST(OverrideManagerTest, FfbSteadyStateBlockAfterTransientLatches)
     s.active      = true;
     s.target_norm = 0.30;
 
-    // Phase 1: transient — dev decays 0.30 → 0.20 over 10 frames.
-    double dev = 0.30;
+    // Phase 1: transient — dev goes -0.10 → -0.15 over 10 frames (driver
+    // pushed wheel PAST target and it's oscillating a bit).
+    double dev = -0.10;
     for (int i = 0; i < 10; ++i)
     {
-        s.position_error  = dev;
+        s.position_error  = dev;                   // actual = 0.30 - dev = 0.40 → 0.45
         s.commanded_force = std::abs(4.0 * dev);
         m.UpdateFfbSample(s);
         m.Update(QuietFrame(), 0.02);
-        dev = std::max(0.20, dev * 0.93);
+        dev = std::max(-0.15, dev - 0.007);
     }
     ASSERT_FALSE(m.IsLateralManual());   // transient → no latch yet
 
-    // Phase 2: dev SETTLED at 0.20 (driver holding wheel from moving further).
+    // Phase 2: dev SETTLED at -0.15 (driver holding wheel past target).
+    //   actual = 0.30 - (-0.15) = +0.45 > |target| + ε = 0.35 → engaged.
     // Both rates ≈ 0. Sustain accumulates. Bootstrap-safe budget: 10 frames.
-    // The manual_transition edge is only true on the SINGLE frame it fires
-    // (reset each Update), so we sample it inside the loop rather than after.
     bool saw_manual_edge = false;
     for (int i = 0; i < 10; ++i)
     {
-        s.position_error  = 0.20;
-        s.commanded_force = 0.80;   // saturated
+        s.position_error  = -0.15;
+        s.commanded_force = 0.60;   // saturated
         m.UpdateFfbSample(s);
         m.Update(QuietFrame(), 0.02);
         if (m.JustTransitionedToManual()) saw_manual_edge = true;
     }
     EXPECT_TRUE(m.IsLateralManual());
     EXPECT_TRUE(saw_manual_edge);
+}
+
+// --- feature:F7 (F7b) — wheel-over-target opposition gate -------------------
+//
+// Fourth-order regression (found on real G29 after commit f723fa90 shipped
+// the bootstrap + derror-rate gate fix). Reproducer scenario:
+// virtual_driver_basic.xosc (straight → LC → curve). Anticipation scenarios
+// (curve / right_turn) also affected. User report: "レーンチェンジ出来てない
+// / カーブも交差点も曲がれていない".
+//
+// Diagnosis (two regimes, same root):
+//   Regime A — small AD target (e.g. LC ±0.057): PID output ≈ Kp×|target| =
+//     ~0.23, below G29 breakaway friction (F ~0.3 in normalized units on
+//     a fresh column). Wheel stays at 0. In this stuck-at-rest state:
+//       * position_error ≈ target (constant)
+//       * commanded_force ≈ Kp·|target| (constant, over_force threshold)
+//       * derror_rate = 0 (dev constant → gate settled)
+//       * target_rate = 0 (target stopped changing → gate settled)
+//     The prior two rate gates green-light the check, force/dev cross,
+//     sustain latches within 100 ms → target_active flips off → servo dies
+//     → cmd.steering = 0 (raw wheel) → ego cannot LC / turn.
+//
+//   Regime B — sustained larger target (curve): servo commands more force
+//     (approaching max_force=0.6), just enough to overcome friction and
+//     move the wheel VERY slowly toward target (real-G29-measured: ~5 %/s).
+//     Over seconds, |actual| grows from 0 → some fraction of target. dev
+//     stays elevated (target - creeping actual). All rate gates still
+//     settle to near-zero. |actual| gradually crosses ANY absolute
+//     threshold. Same latch mechanism fires late in the maneuver, killing
+//     the servo mid-turn — real-G29 curve traversal completes only ~70%
+//     of the intended heading change (measured before the fix).
+//
+//     Fix: distinguish "servo doing its job" from "driver opposing" using
+//         the servo's own physical direction. Under servo alone, the wheel
+//         always moves TOWARD target (same sign as target, |actual| ≤
+//         |target|). A driver override manifests as either sign opposition
+//         (actual and target opposite direction) or magnitude opposition
+//         (|actual| exceeds |target| + epsilon). Anything else — the wheel
+//         obediently between 0 and target — is servo behavior, not driver
+//         behavior, regardless of how long it persists.
+//
+//     Documented trade-off: a driver who holds the wheel firmly at
+//     0 < |actual| < |target| while AD tries to steer harder is NOT
+//     detected — the signal is identical to servo creep. Users can express
+//     this override via the RESUME button or the config's button-override.
+//     This is a defensible loss: the alternative (a simple absolute-
+//     deflection gate) confuses servo creep with user-holding and false-
+//     latches on all sustained-steer scenarios.
+
+TEST(OverrideManagerTest, FfbSmallTargetWheelStuckAtRestDoesNotLatch)
+{
+    // Reproduces the real-machine LC / curve / right-turn Regime A:
+    // small AD target (~ ±0.06), servo commands ~0.24 force, wheel stuck at
+    // 0. Force above threshold and dev above threshold, both rates settled
+    // — but the wheel is same-sign as target and |actual|=0 ≤ |target|+ε,
+    // so the servo-direction gate blocks the latch.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.target_norm     = -0.057;   // LC peak (AD command)
+    s.position_error  = -0.057;   // wheel at 0 → dev = target - 0
+    s.commanded_force = 0.228;    // |Kp × err| unclamped
+
+    // 2 s = 100 frames, way past sustain window. Latch must not fire.
+    for (int i = 0; i < 100; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+    EXPECT_FALSE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbCurveScenarioSaturatedForceWheelStuckDoesNotLatch)
+{
+    // Regime A on a larger target: servo saturates at max_force=0.6, wheel
+    // still stuck at 0. Same reasoning — wheel same-sign as target and not
+    // past it, so the servo-direction gate blocks the latch.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.target_norm     = -0.30;    // curve peak
+    s.position_error  = -0.30;    // wheel at 0
+    s.commanded_force = 0.60;     // saturated
+
+    for (int i = 0; i < 100; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbCurveCreepingWheelBelowTargetDoesNotLatch)
+{
+    // Real-G29 Regime B (measured on decelerate_for_curve.xosc under
+    // sdl2_wheel + target_track=true): sustained target ~-0.13, servo
+    // commands ~0.45 force, wheel slowly creeps from 0 toward target.
+    // Even 22 seconds in, |actual| is still only ~0.03 (below ~25 % of
+    // target). Wheel is same-sign as target and not past target →
+    // servo-direction gate keeps the latch quiet.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.target_norm     = -0.133;
+    s.position_error  = -0.103;   // actual = -0.030 (creeping)
+    s.commanded_force = 0.440;
+
+    // 5 s straight after target stabilised. Would false-latch under the
+    // simple |actual|≥0.03 draft of this fix; must not under the servo-
+    // direction gate.
+    for (int i = 0; i < 250; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbRightTurnStuckWheelWithColumnNoiseDoesNotLatch)
+{
+    // Real-G29 measurement on decelerate_for_right_turn.xosc (2026-07-25):
+    // target grows to ~-0.83, servo saturates at max_force=0.6, wheel is
+    // stuck by hardware friction and the physical axis sits at +0.011
+    // (column mechanical offset / SDL2 noise floor is ~0.001). Without a
+    // deadzone on the sign-opposition arm, +0.011 counts as "user pushing
+    // opposite" and false-latches at t=13.55, killing the turn at 48° of
+    // the intended 92°. The deadzone (|actual| >= ε) must suppress.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.target_norm     = -0.83;
+    s.position_error  = -0.8410;   // actual = -0.83 - (-0.841) = +0.011
+    s.commanded_force = 0.60;      // saturated
+
+    for (int i = 0; i < 100; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbDriverPushesOppositeToTargetLatches)
+{
+    // Legitimate override: driver holds wheel at +0.30 while AD wants
+    // -0.05. Sign opposition (target × actual < 0) → gate passes.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.target_norm     = -0.05;
+    s.position_error  = -0.35;    // actual = -0.05 - (-0.35) = +0.30
+    s.commanded_force = 0.60;
+
+    for (int i = 0; i < 6; ++i)   // 120 ms > 100 ms sustain
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbDriverPushesPastTargetLatches)
+{
+    // Legitimate override: driver over-steers in the same direction as AD.
+    // AD wants -0.20; driver pushes wheel to -0.35 (|actual| > |target|+ε).
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.target_norm     = -0.20;
+    s.position_error  = 0.15;     // actual = -0.20 - 0.15 = -0.35
+    s.commanded_force = 0.60;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbWheelOverTargetGateBoundary)
+{
+    // Boundary test for the magnitude-opposition arm. With default ε=0.05
+    // and target=+0.20, the gate opens when |actual| > 0.25.
+    ManualDriveConfig cfg = MakeConfigWithFfbThresholds(0.20, 0.04, 0.10);
+    ASSERT_DOUBLE_EQ(cfg.ffb.target_track.override_wheel_over_target_epsilon, 0.05);
+
+    // Below gate: target=+0.20, position_error=-0.04 → actual=+0.24.
+    // Same sign as target, |actual|=0.24 < |target|+ε=0.25.
+    // force=0.22 is above 0.20 threshold so over_force fires; the gate is
+    // the only thing that should keep this from latching.
+    {
+        OverrideManager m; m.Configure(cfg);
+        FfbInterventionSample s;
+        s.active          = true;
+        s.target_norm     = 0.20;
+        s.position_error  = -0.04;    // actual = +0.24 (below gate)
+        s.commanded_force = 0.22;     // above force threshold
+        for (int i = 0; i < 100; ++i) { m.UpdateFfbSample(s); m.Update(QuietFrame(), 0.02); }
+        EXPECT_FALSE(m.IsLateralManual());
+    }
+    // At gate: actual = +0.26 (target=+0.20, position_error=-0.06). Over ε.
+    {
+        OverrideManager m; m.Configure(cfg);
+        FfbInterventionSample s;
+        s.active          = true;
+        s.target_norm     = 0.20;
+        s.position_error  = -0.06;   // actual = +0.26 > 0.25 = |target| + ε
+        s.commanded_force = 0.24;
+        for (int i = 0; i < 6; ++i)   { m.UpdateFfbSample(s); m.Update(QuietFrame(), 0.02); }
+        EXPECT_TRUE(m.IsLateralManual());
+    }
 }
 
 }  // namespace gt_esmini

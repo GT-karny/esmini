@@ -171,6 +171,7 @@ struct VirtualDriverConfig
     double ffb_target_track_override_sustain_time                = 0.10;   // seconds
     double ffb_target_track_override_target_rate_gate            = 0.30;   // axis-frac / s
     double ffb_target_track_override_position_error_rate_gate    = 0.10;   // axis-frac / s
+    double ffb_target_track_override_wheel_over_target_epsilon = 0.05;   // axis-fraction; post-f723fa90
 
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"

@@ -45,11 +45,30 @@ DLL = os.path.join(ROOT, "build", "GT_esmini", "Release", "GT_esminiLib.dll")
 BASE_CFG = os.path.join(ROOT, "GT_esmini", "config", "virtual_driver.json")
 
 SCENARIOS = [
+    # LC-only reproducer for the post-f723fa90 wheel-stuck false-latch bug.
+    # Prior to that fix, follower mode passed (perfect axis follow → no false
+    # latch); the FROZEN@0 mode variant below catches the real-G29 case
+    # (small AD steer command below breakaway friction → wheel stays at 0).
+    "resources/xosc/virtual_driver_basic.xosc",
     "resources/xosc/verification/05_anticipation/decelerate_for_curve.xosc",
     "resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc",
     "resources/xosc/verification/05_anticipation/cross_straight_junction.xosc",
     "resources/xosc/verification/05_anticipation/speed_limit_change.xosc",
     "resources/xosc/verification/05_anticipation/traffic_lights_junction.xosc",
+]
+
+# HeadlessFfbInput's synthetic-wheel physics models. See HeadlessFfbInput.cpp:
+#   follower  — wheel perfectly tracks target (no lag, no friction). Unrealistic
+#               idealisation of a hands-off G29; catches only pathological VD
+#               regressions.
+#   frozen    — wheel stuck at GT_HEADLESS_FFB_FROZEN_AT regardless of servo
+#               force. Models a hands-off G29 whose breakaway/static friction
+#               exceeds what the small target-track servo can deliver — the
+#               real-machine LC / anticipation regression class.
+# Both must pass. Adding a mode is one more line here.
+FOLLOWER_MODES = [
+    ("follower", None),
+    ("frozen",   0.0),
 ]
 
 
@@ -175,15 +194,14 @@ def main() -> int:
     tmpdir = tempfile.mkdtemp(prefix="vd_ffb_parity_")
     cfg_stub = _write_cfg(tmpdir, "stub",         False, "stub")
     cfg_ffb  = _write_cfg(tmpdir, "headless_ffb", True,  "ffb")
-    os.environ["GT_HEADLESS_FFB_MODE"] = "follower"
-    os.environ.pop("GT_HEADLESS_FFB_FROZEN_AT", None)
     os.environ.pop("GT_HEADLESS_FFB_LAG_TAU", None)
 
     overall_ok = True
     print("=" * 80)
     print("FFB vs stub no-touch parity — criterion (2)")
     print("  stub baseline: input_type=stub, ffb_target_track_enabled=false")
-    print("  ffb variant:   input_type=headless_ffb, ffb_target_track_enabled=true (follower)")
+    print("  ffb variants: input_type=headless_ffb, ffb_target_track_enabled=true")
+    print(f"    modes: {[m for m, _ in FOLLOWER_MODES]}")
     print("=" * 80)
 
     for scen in SCENARIOS:
@@ -193,20 +211,31 @@ def main() -> int:
 
         print(f"\n[scenario] {name}")
         print("  running stub baseline …", end=" ")
+        # stub baseline is independent of FOLLOWER_MODES (no FFB sink).
+        os.environ["GT_HEADLESS_FFB_MODE"] = "follower"
+        os.environ.pop("GT_HEADLESS_FFB_FROZEN_AT", None)
         frames_stub = _run_headless(DLL, xosc_stub)
         print(f"{len(frames_stub)} frames")
-        print("  running ffb+target_track (follower, no-touch) …", end=" ")
-        frames_ffb  = _run_headless(DLL, xosc_ffb)
-        print(f"{len(frames_ffb)} frames")
 
-        diffs = _diff_frames(frames_stub, frames_ffb)
-        if not diffs:
-            print("  PARITY: PASS  (per-frame ego kinematics identical, override state identical)")
-        else:
-            overall_ok = False
-            print("  PARITY: FAIL")
-            for d in diffs:
-                print(f"    - {d}")
+        for mode, frozen in FOLLOWER_MODES:
+            os.environ["GT_HEADLESS_FFB_MODE"] = mode
+            if mode == "frozen":
+                os.environ["GT_HEADLESS_FFB_FROZEN_AT"] = f"{frozen:.3f}"
+            else:
+                os.environ.pop("GT_HEADLESS_FFB_FROZEN_AT", None)
+            label = f"{mode}" + (f"@{frozen:.2f}" if mode == "frozen" else "")
+            print(f"  running ffb+target_track ({label}, no-touch) …", end=" ")
+            frames_ffb = _run_headless(DLL, xosc_ffb)
+            print(f"{len(frames_ffb)} frames")
+
+            diffs = _diff_frames(frames_stub, frames_ffb)
+            if not diffs:
+                print(f"    PARITY[{label}]: PASS")
+            else:
+                overall_ok = False
+                print(f"    PARITY[{label}]: FAIL")
+                for d in diffs:
+                    print(f"      - {d}")
 
     shutil.rmtree(tmpdir, ignore_errors=True)
     print()

@@ -87,6 +87,9 @@ private:
     double                ffb_prev_target_norm_       = 0.0;
     double                ffb_prev_pos_error_         = 0.0;
     bool                  ffb_history_valid_          = false;
+    // feature:F7 (F7b, follow-up post-f723fa90) — wheel-opposing-target gate.
+    // See ManualDriveConfig.ffb.target_track.override_wheel_over_target_epsilon.
+    double                ffb_wheel_over_target_eps_  = 0.05;
 };
 
 } // namespace gt_esmini
