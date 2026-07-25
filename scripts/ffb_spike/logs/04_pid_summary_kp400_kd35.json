@@ -1,0 +1,54 @@
+{
+  "kp": 4.0,
+  "kd": 0.35,
+  "ki": 0.0,
+  "max_force": 0.6,
+  "gain": 100,
+  "profiles": [
+    {
+      "profile": "step",
+      "duration_s": 12.0,
+      "kp": 4.0,
+      "kd": 0.35,
+      "ki": 0.0,
+      "max_force_cap": 0.6,
+      "samples": 3000,
+      "real_loop_hz": 250.08,
+      "err_mean_abs_frac": 0.12448,
+      "err_rms_frac": 0.1974,
+      "err_max_abs_frac": 0.46052,
+      "u_max_abs": 0.6,
+      "csv": "04_pid_step_kp400_kd35.csv"
+    },
+    {
+      "profile": "sine",
+      "duration_s": 10.0,
+      "kp": 4.0,
+      "kd": 0.35,
+      "ki": 0.0,
+      "max_force_cap": 0.6,
+      "samples": 2500,
+      "real_loop_hz": 250.09,
+      "err_mean_abs_frac": 0.16602,
+      "err_rms_frac": 0.20446,
+      "err_max_abs_frac": 0.59606,
+      "u_max_abs": 0.6,
+      "csv": "04_pid_sine_kp400_kd35.csv"
+    },
+    {
+      "profile": "chirp",
+      "duration_s": 15.0,
+      "kp": 4.0,
+      "kd": 0.35,
+      "ki": 0.0,
+      "max_force_cap": 0.6,
+      "samples": 3750,
+      "real_loop_hz": 250.06,
+      "err_mean_abs_frac": 0.2313,
+      "err_rms_frac": 0.2702,
+      "err_max_abs_frac": 0.46019,
+      "u_max_abs": 0.6,
+      "csv": "04_pid_chirp_kp400_kd35.csv"
+    }
+  ]
+}

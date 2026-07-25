@@ -1,0 +1,42 @@
+{
+  "spring": 0.95,
+  "damper": 0.3,
+  "profiles": [
+    {
+      "profile": "step",
+      "duration_s": 12.0,
+      "spring_coeff_frac": 0.95,
+      "damper_coeff_frac": 0.3,
+      "samples": 3000,
+      "real_loop_hz": 250.08,
+      "err_mean_abs_frac": 0.17024,
+      "err_rms_frac": 0.22944,
+      "err_max_abs_frac": 0.46162,
+      "csv": "03_spring_damper_step_kp95_kd30.csv"
+    },
+    {
+      "profile": "sine",
+      "duration_s": 10.0,
+      "spring_coeff_frac": 0.95,
+      "damper_coeff_frac": 0.3,
+      "samples": 2500,
+      "real_loop_hz": 250.09,
+      "err_mean_abs_frac": 0.35698,
+      "err_rms_frac": 0.39562,
+      "err_max_abs_frac": 0.58843,
+      "csv": "03_spring_damper_sine_kp95_kd30.csv"
+    },
+    {
+      "profile": "chirp",
+      "duration_s": 15.0,
+      "spring_coeff_frac": 0.95,
+      "damper_coeff_frac": 0.3,
+      "samples": 3750,
+      "real_loop_hz": 250.07,
+      "err_mean_abs_frac": 0.28997,
+      "err_rms_frac": 0.33153,
+      "err_max_abs_frac": 0.63384,
+      "csv": "03_spring_damper_chirp_kp95_kd30.csv"
+    }
+  ]
+}

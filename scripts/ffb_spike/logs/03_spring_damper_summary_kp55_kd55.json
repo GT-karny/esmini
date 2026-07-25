@@ -1,0 +1,42 @@
+{
+  "spring": 0.55,
+  "damper": 0.55,
+  "profiles": [
+    {
+      "profile": "step",
+      "duration_s": 12.0,
+      "spring_coeff_frac": 0.55,
+      "damper_coeff_frac": 0.55,
+      "samples": 3000,
+      "real_loop_hz": 250.07,
+      "err_mean_abs_frac": 0.22087,
+      "err_rms_frac": 0.25932,
+      "err_max_abs_frac": 0.481,
+      "csv": "03_spring_damper_step_kp55_kd55.csv"
+    },
+    {
+      "profile": "sine",
+      "duration_s": 10.0,
+      "spring_coeff_frac": 0.55,
+      "damper_coeff_frac": 0.55,
+      "samples": 2500,
+      "real_loop_hz": 250.09,
+      "err_mean_abs_frac": 0.33922,
+      "err_rms_frac": 0.37582,
+      "err_max_abs_frac": 0.57521,
+      "csv": "03_spring_damper_sine_kp55_kd55.csv"
+    },
+    {
+      "profile": "chirp",
+      "duration_s": 15.0,
+      "spring_coeff_frac": 0.55,
+      "damper_coeff_frac": 0.55,
+      "samples": 3750,
+      "real_loop_hz": 250.06,
+      "err_mean_abs_frac": 0.29324,
+      "err_rms_frac": 0.33182,
+      "err_max_abs_frac": 0.6693,
+      "csv": "03_spring_damper_chirp_kp55_kd55.csv"
+    }
+  ]
+}
