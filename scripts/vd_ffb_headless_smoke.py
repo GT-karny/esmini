@@ -121,7 +121,7 @@ def _make_variant(tmpdir: str, mode: str, frozen_at: float | None = None) -> tup
 
 
 def _run_phase(mode: str, frozen_at: float | None, duration_s: float,
-               dt: float = 0.05) -> tuple[list[dict], list[dict]]:
+               dt: float = 0.05, lag_tau: float | None = None) -> tuple[list[dict], list[dict]]:
     """Run one headless phase with the given synthetic-wheel mode.
     Returns (frames, edges) where:
       frames — list of telemetry dicts sampled each Step
@@ -134,6 +134,10 @@ def _run_phase(mode: str, frozen_at: float | None, duration_s: float,
         os.environ["GT_HEADLESS_FFB_FROZEN_AT"] = f"{frozen_at:.4f}"
     else:
         os.environ.pop("GT_HEADLESS_FFB_FROZEN_AT", None)
+    if lag_tau is not None:
+        os.environ["GT_HEADLESS_FFB_LAG_TAU"] = f"{lag_tau:.4f}"
+    else:
+        os.environ.pop("GT_HEADLESS_FFB_LAG_TAU", None)
 
     tmpdir = tempfile.mkdtemp(prefix=f"vd_ffb_smoke_{mode}_")
     xosc, _cfg = _make_variant(tmpdir, mode, frozen_at)
@@ -325,6 +329,45 @@ def main() -> int:
           "aggressive; if frozen@0.4 passes but C fails, gate too permissive during transient.")
     check("C.no-manual-transition-edge",  len(sc.get("manual_transition_frames", [])) == 0,
           "manual_transition edge fired during transient")
+
+    # ==== Phase D: lagging physical wheel (real-hardware inertia simulation) ====
+    # This is the most realistic phase: the synthetic physical wheel follows
+    # target through a 1st-order lag (tau = 0.3s, matching spike §1e G29 step
+    # response). During ANY target change (startup, curve, lane change) dev is
+    # non-zero because the wheel is catching up. Force is non-zero because the
+    # servo is pushing. The target rate might be small (slow AD steering) but
+    # the DEV RATE (|d(position_error)/dt|) is high while catching up. Detection
+    # must suppress via the derror-rate gate — the fix in this commit.
+    #
+    # This is the exact real-machine bug: "straight-drive startup false-latch"
+    # + "lane change false-latch". The follower phase (dev≈0) hides the bug,
+    # the lagging phase (dev>0 during transient) exposes it.
+    print("== Phase D: lagging follower (tau=0.3s — real G29 inertia simulation) ==")
+    fd, ed = _run_phase(mode="lagging", frozen_at=None, duration_s=15.0, lag_tau=0.30)
+    sd = _summarize(fd)
+    print(f"  frames={sd.get('n_frames', 0)} sim_end={sd.get('sim_time_final', 0):.2f}s "
+          f"ffb_active_frames={sd.get('ffb_active_frames', 0)} "
+          f"ffb_force_max={sd.get('ffb_force_max', 0):.3f} "
+          f"ffb_dev_absmax={sd.get('ffb_dev_absmax', 0):.3f}")
+    print(f"  lat_manual_ever={sd.get('lat_manual_ever')} "
+          f"manual_transitions={sd.get('manual_transition_frames', [])}")
+
+    check("D.telemetry-nonempty",       sd.get("n_frames", 0) > 200,
+          f"frames={sd.get('n_frames', 0)}")
+    check("D.ffb-servo-was-active",     sd.get("ffb_active_frames", 0) > 100,
+          "target_track servo never ran in lagging mode")
+    check("D.no-startup-false-latch",   not sd.get("lat_manual_ever"),
+          "MANUAL latched during LAGGING follower run — the servo transient (physical wheel "
+          "catching up to target) is being misread as driver intervention. "
+          "This is the real-machine bug this smoke exists to catch — derror-rate gate must fire.")
+    check("D.no-manual-transition-edge", len(sd.get("manual_transition_frames", [])) == 0,
+          "manual_transition edge fired mid-servo-catchup")
+    # If dev/force are always tiny in lagging mode, we have no signal to test
+    # the derror gate against. Sanity-check dev DID grow at some point (means
+    # the wheel-inertia lag was real — otherwise the test is a no-op).
+    check("D.dev-actually-lagged",      sd.get("ffb_dev_absmax", 0) > 0.02,
+          f"position_error absmax={sd.get('ffb_dev_absmax', 0):.3f} — lagging mode should show "
+          f"measurable dev during transients (otherwise the derror gate isn't being exercised)")
 
     ok = all(c[1] for c in checks)
     print()

@@ -126,6 +126,23 @@ struct ManualDriveConfig
             // torque proxy against STATIC target only — this gate closes that
             // real-driving gap; real-machine bug found after commit a43e4c67).
             double override_target_rate_gate            = 0.30;  // axis-frac / s
+            // Second gate on |d(position_error)/dt|. Distinguishes the
+            // "servo chasing" transient (dev changes as the wheel catches up
+            // to target) from a real block (dev sits at a persistent value —
+            // driver is holding). Also masks the startup transient when the
+            // physical wheel is at rest and the servo hasn't accelerated it
+            // yet — the first commit's rate-gate alone did NOT cover this
+            // because target itself is nearly static at startup while dev
+            // is large. Real-machine bug found after commit 549e5823.
+            //
+            // Default 0.10 axis-frac/s is calibrated for typical G29 first-
+            // order response: a 0.10-axis-fraction step decays through the
+            // dev threshold over ~300 ms → decay rate ~0.30 /s → firmly
+            // above the gate for the whole transient. A truly held wheel
+            // sits at exactly 0 rate. Any positive gate value between the
+            // two catches the transient; 0.10 leaves headroom for physical
+            // wheel jitter (~0.005 per 20 ms tick = 0.25 /s peak).
+            double override_position_error_rate_gate    = 0.10;  // axis-frac / s
         } target_track;
     } ffb;
 

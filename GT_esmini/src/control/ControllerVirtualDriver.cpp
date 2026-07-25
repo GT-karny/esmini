@@ -93,7 +93,8 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_steer_force_threshold = vd_config_.ffb_target_track_override_steer_force_threshold;
     io_config_.ffb.target_track.override_steer_dev_threshold   = vd_config_.ffb_target_track_override_steer_dev_threshold;
     io_config_.ffb.target_track.override_sustain_time          = vd_config_.ffb_target_track_override_sustain_time;
-    io_config_.ffb.target_track.override_target_rate_gate      = vd_config_.ffb_target_track_override_target_rate_gate;
+    io_config_.ffb.target_track.override_target_rate_gate         = vd_config_.ffb_target_track_override_target_rate_gate;
+    io_config_.ffb.target_track.override_position_error_rate_gate = vd_config_.ffb_target_track_override_position_error_rate_gate;
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2

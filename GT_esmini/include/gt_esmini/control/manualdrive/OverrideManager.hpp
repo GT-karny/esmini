@@ -68,14 +68,25 @@ private:
     double                ffb_dev_threshold_        = 0.04;
     double                ffb_sustain_time_         = 0.10;
     double                ffb_sustain_accum_        = 0.0;
-    // Rate-gate state: prev_target_norm_ + sample dt → |d(target)/dt|.
-    // When above ffb_target_rate_gate_ we're in a moving-target transient
-    // and the servo's normal lag is expected to grow position_error above
-    // dev_threshold — must NOT trip. See Update() comment. prev_valid_
-    // arms the derivative on the 2nd sample (avoids a bogus initial spike).
-    double                ffb_target_rate_gate_     = 0.30;   // axis-frac/s
-    double                ffb_prev_target_norm_     = 0.0;
-    bool                  ffb_prev_target_valid_    = false;
+    // Rate-gate state: two gates + shared history validity flag. On the
+    // FIRST active sample after ffb goes active there is no previous frame
+    // to compare against, so any threshold check with rate=0 (bootstrap
+    // fake) would spuriously permit accumulation while the servo is
+    // actually mid-transient. The `history_valid_` flag suppresses the
+    // detector entirely until the 2nd active sample, at which point BOTH
+    // derivatives are meaningful. See Update() comment.
+    //
+    // Two gates:
+    //   target_rate_gate  — |d(target)/dt|: AD actively steering
+    //   position_error_rate_gate — |d(dev)/dt|: servo actively catching up
+    // The detector requires BOTH rates below their gates AND thresholds
+    // crossed to accumulate sustain. Real block = both rates ≈ 0 (target
+    // static, dev static) AND thresholds crossed. Anything else = transient.
+    double                ffb_target_rate_gate_       = 0.30;
+    double                ffb_derror_rate_gate_       = 0.10;
+    double                ffb_prev_target_norm_       = 0.0;
+    double                ffb_prev_pos_error_         = 0.0;
+    bool                  ffb_history_valid_          = false;
 };
 
 } // namespace gt_esmini

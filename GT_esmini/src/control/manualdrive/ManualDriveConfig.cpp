@@ -176,7 +176,8 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("target_track_override_steer_force_threshold",  ffb.target_track.override_steer_force_threshold);
         parse_double("target_track_override_steer_dev_threshold",    ffb.target_track.override_steer_dev_threshold);
         parse_double("target_track_override_sustain_time",           ffb.target_track.override_sustain_time);
-        parse_double("target_track_override_target_rate_gate",       ffb.target_track.override_target_rate_gate);
+        parse_double("target_track_override_target_rate_gate",         ffb.target_track.override_target_rate_gate);
+        parse_double("target_track_override_position_error_rate_gate", ffb.target_track.override_position_error_rate_gate);
 
         // Domain assignment
         parse_string("lateral", domain.lateral);

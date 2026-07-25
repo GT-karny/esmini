@@ -46,10 +46,18 @@ public:
             try { frozen_at_ = std::stod(frozen_env); }
             catch (...) { frozen_at_ = 0.0; }
         }
+        const char* tau_env = std::getenv("GT_HEADLESS_FFB_LAG_TAU");
+        lag_tau_ = 0.30;   // 300 ms default — spike §1e G29 step response
+        if (tau_env)
+        {
+            try { lag_tau_ = std::stod(tau_env); }
+            catch (...) { lag_tau_ = 0.30; }
+        }
+        lag_axis_ = 0.0;   // start at rest — models the real physical wheel
 
-        LOG_INFO("HeadlessFfbSink: mode={} frozen_at={:.3f} target_track_enabled={} "
-                 "kp={:.2f} kd={:.2f} max_force={:.2f}",
-                 mode_, frozen_at_, target_track_enabled_,
+        LOG_INFO("HeadlessFfbSink: mode={} frozen_at={:.3f} lag_tau={:.3f}s "
+                 "target_track_enabled={} kp={:.2f} kd={:.2f} max_force={:.2f}",
+                 mode_, frozen_at_, lag_tau_, target_track_enabled_,
                  servo_cfg_.kp, servo_cfg_.kd, servo_cfg_.max_force);
     }
 
@@ -57,16 +65,39 @@ public:
     // Called by SyntheticSink itself for the servo error AND by
     // HeadlessFfbInput::Poll to feed pedal_steer.steering — one source of
     // truth, so the closed loop is genuinely closed.
+    // "lagging" mode uses a 1st-order low-pass to model wheel inertia:
+    // during a target step the servo commands force, physical wheel takes
+    // ~lag_tau seconds to catch up — position_error decays as the wheel
+    // catches up. This is precisely the startup transient that surfaced
+    // the derror-rate-gate bug on real G29 (commit 549e5823 → follow-up).
     double CurrentAxis() const
     {
-        if (mode_ == "frozen") return frozen_at_;
-        // "follower" default
+        if (mode_ == "frozen")  return frozen_at_;
+        if (mode_ == "lagging") return lag_axis_;
+        // "follower" default: perfect (no lag)
         return target_norm_;
+    }
+
+    // Advance the lagging axis model by dt seconds toward target_norm.
+    // No-op unless mode == "lagging". Called from Update BEFORE the servo
+    // computation so this frame's ComputeSteerServoForce sees the freshly-
+    // advanced axis (matching the "physical wheel moved between polls" flow
+    // of the real hardware).
+    void AdvanceLag(double dt)
+    {
+        if (mode_ != "lagging" || dt <= 0.0) return;
+        // Standard 1st-order LPF (impulse-invariant discretisation).
+        const double alpha = 1.0 - std::exp(-dt / std::max(lag_tau_, 1e-3));
+        lag_axis_ += alpha * (target_norm_ - lag_axis_);
     }
 
     // --- IFFBSink ---
     void Update(const osi3::HostVehicleData& /*hvd*/, double dt) override
     {
+        // Advance the physical-wheel model FIRST (models "servo commanded
+        // force on frame N-1 → wheel moved between then and now").
+        AdvanceLag(dt);
+
         if (target_active_)
         {
             const double actual_norm = CurrentAxis();
@@ -104,6 +135,8 @@ public:
 private:
     std::string           mode_                 = "follower";
     double                frozen_at_            = 0.0;
+    double                lag_tau_              = 0.30;
+    double                lag_axis_             = 0.0;
     bool                  target_track_enabled_ = false;
     SteerServoConfig      servo_cfg_            = {};
     SteerServoState       servo_state_          = {};

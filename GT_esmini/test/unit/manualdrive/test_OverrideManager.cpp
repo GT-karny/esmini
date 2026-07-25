@@ -229,12 +229,16 @@ namespace
 
 ManualDriveConfig MakeConfigWithFfbThresholds(double force_thr = 0.20,
                                               double dev_thr   = 0.04,
-                                              double sustain_s = 0.10)
+                                              double sustain_s = 0.10,
+                                              double target_rate_gate = 0.30,
+                                              double derror_rate_gate = 0.10)
 {
     ManualDriveConfig cfg = MakeConfig();
-    cfg.ffb.target_track.override_steer_force_threshold = force_thr;
-    cfg.ffb.target_track.override_steer_dev_threshold   = dev_thr;
-    cfg.ffb.target_track.override_sustain_time          = sustain_s;
+    cfg.ffb.target_track.override_steer_force_threshold      = force_thr;
+    cfg.ffb.target_track.override_steer_dev_threshold        = dev_thr;
+    cfg.ffb.target_track.override_sustain_time               = sustain_s;
+    cfg.ffb.target_track.override_target_rate_gate           = target_rate_gate;
+    cfg.ffb.target_track.override_position_error_rate_gate   = derror_rate_gate;
     return cfg;
 }
 
@@ -662,30 +666,148 @@ TEST(OverrideManagerTest, FfbRateGateResetsSustainOnTargetJerk)
     s.commanded_force = 0.50;
     s.position_error  = 0.20;
 
-    // Phase 1: target static at 0 for 60 ms (accumulate but < 100 ms sustain)
+    // Phase 1: target static at 0 for 60 ms with STATIC dev (both gates
+    // settled). Sustain accumulates.
     for (int i = 0; i < 3; ++i)
     {
-        s.target_norm = 0.0;
+        s.target_norm    = 0.0;
+        s.position_error = 0.20;    // dev also static → derror rate = 0
         m.UpdateFfbSample(s);
         m.Update(QuietFrame(), 0.02);
     }
-    // Phase 2: single frame with large target jump → rate spike
-    s.target_norm = 0.5;   // (0.5 - 0.0)/0.02 = 25 /s → gate trips → reset
+    // Phase 2: single frame with large target jump → target rate spike
+    s.target_norm    = 0.5;
+    s.position_error = 0.20;
     m.UpdateFfbSample(s);
     m.Update(QuietFrame(), 0.02);
-    // Phase 3: 60 ms more at target=0.5 static.
-    // If rate-gate correctly reset the accumulator in phase 2, sustain
-    // rebuilds from 0 and would need another 100 ms of stability to latch.
+    // Phase 3: 60 ms more at target=0.5 with STATIC dev (both gates settled
+    // again). If rate-gate correctly reset in phase 2, sustain rebuilds from
+    // 0 and needs another 100 ms to latch.
     for (int i = 0; i < 3; ++i)
     {
-        s.target_norm = 0.5;
+        s.target_norm    = 0.5;
+        s.position_error = 0.20;
         m.UpdateFfbSample(s);
         m.Update(QuietFrame(), 0.02);
     }
-    // Total time at "over threshold + stable" = phase 1 (60 ms) + phase 3
-    // (60 ms) = 120 ms, but phase 2's jerk reset the accumulator, so effective
-    // sustain window is only 60 ms (phase 3) < 100 ms sustain time → no latch.
     EXPECT_FALSE(m.IsLateralManual());
+}
+
+// --- feature:F7 (F7b) — bootstrap + derror-rate gate -----------------------
+//
+// Third-order regression (found on real G29 after commit 549e5823 shipped
+// the target-rate-gate fix):
+//   Straight-drive scenario startup FALSE-POSITIVE LATCH. Diagnosis:
+//     (a) On the very first active FFB sample, OverrideManager had no
+//         history to compute d(target)/dt → treated rate=0 as "settled" →
+//         permitted threshold check on the bootstrap frame.
+//     (b) At startup the physical wheel is at rest but AD may command
+//         non-zero steering (driver-model warmup, small lane-keep
+//         corrections). PID servo hasn't moved the wheel yet → dev is
+//         large. Target itself is essentially static (small AD command,
+//         changing slowly) → target-rate gate does NOT suppress. Sustain
+//         accumulates → MANUAL latches in 100 ms with no driver touch.
+//
+//   Fix (two-part, this session's third commit):
+//     (i)  Bootstrap suppression: on the FIRST active sample, both rate
+//          derivatives are unknown. Suppress accumulation until we have
+//          two consecutive active samples.
+//     (ii) Add a SECOND rate gate on |d(position_error)/dt| — while the
+//          servo is actively catching up to the target, dev is changing.
+//          Only when BOTH target rate AND dev rate are settled does the
+//          detector allow accumulation. "Real block" = target static AND
+//          dev static (persistent, non-changing) AND thresholds crossed.
+
+TEST(OverrideManagerTest, FfbBootstrapDoesNotFalseLatch)
+{
+    // First active sample carries no history. Even if dev/force are above
+    // thresholds, sustain must NOT accumulate on the bootstrap frame.
+    // Without this fix, a single frame with dev>threshold at startup would
+    // start counting sustain against a spurious rate=0.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.50;   // ABOVE force threshold
+    s.position_error  = 0.20;   // ABOVE dev threshold
+    s.target_norm     = 0.05;   // small AD steering, but static
+
+    // Only ONE frame with active sample. Bootstrap = no history = suppress.
+    m.UpdateFfbSample(s);
+    m.Update(QuietFrame(), 0.02);
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbServoTransientDoesNotFalseLatch)
+{
+    // Real-hardware startup shape: physical wheel at rest (axis=0), AD
+    // commands small non-zero target (0.10). Servo starts pushing wheel,
+    // dev decays from 0.10 → 0.04 over ~10 frames (200 ms). During the
+    // whole decay, |d(dev)/dt| is non-zero (~0.35 /s max at 7%/frame decay)
+    // → derror-rate gate (default 0.10 /s) suppresses → no latch. This is
+    // Bug 3 (commit 549e5823 follow-up).
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active      = true;
+    s.target_norm = 0.10;   // AD command, static
+
+    // Simulate the servo catching up over 20 frames (400 ms). Each frame
+    // dev decays by ~7%. Force decays proportionally with Kp.
+    double dev = 0.10;
+    for (int i = 0; i < 20; ++i)
+    {
+        s.position_error  = dev;
+        s.commanded_force = std::abs(4.0 * dev);   // Kp=4 (unclamped)
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+        dev *= 0.93;   // 7% per-frame decay toward 0
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbSteadyStateBlockAfterTransientLatches)
+{
+    // The fix must NOT break real blocks. After a servo transient settles
+    // (dev stops changing) at a persistent above-threshold value, torque-
+    // proxy should latch after sustain. This is the "driver held the wheel,
+    // it settled, AD kept trying" case.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10, 0.30, 0.10));
+
+    FfbInterventionSample s;
+    s.active      = true;
+    s.target_norm = 0.30;
+
+    // Phase 1: transient — dev decays 0.30 → 0.20 over 10 frames.
+    double dev = 0.30;
+    for (int i = 0; i < 10; ++i)
+    {
+        s.position_error  = dev;
+        s.commanded_force = std::abs(4.0 * dev);
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+        dev = std::max(0.20, dev * 0.93);
+    }
+    ASSERT_FALSE(m.IsLateralManual());   // transient → no latch yet
+
+    // Phase 2: dev SETTLED at 0.20 (driver holding wheel from moving further).
+    // Both rates ≈ 0. Sustain accumulates. Bootstrap-safe budget: 10 frames.
+    // The manual_transition edge is only true on the SINGLE frame it fires
+    // (reset each Update), so we sample it inside the loop rather than after.
+    bool saw_manual_edge = false;
+    for (int i = 0; i < 10; ++i)
+    {
+        s.position_error  = 0.20;
+        s.commanded_force = 0.80;   // saturated
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+        if (m.JustTransitionedToManual()) saw_manual_edge = true;
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(saw_manual_edge);
 }
 
 }  // namespace gt_esmini
