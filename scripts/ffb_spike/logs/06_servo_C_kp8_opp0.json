@@ -1,0 +1,39 @@
+{
+  "rest_axis": 0.01187,
+  "kp": 8.0,
+  "kd": 0.35,
+  "max_force": 0.85,
+  "opposing": 0.0,
+  "fstat": 0.0,
+  "ff_eps": 0.01,
+  "runs": [
+    {
+      "target_rel": 0.03,
+      "first_move_s": 0.175,
+      "reach_s": 0.175,
+      "final_disp": 0.01019,
+      "peak_disp": 0.01019,
+      "tail_abs_err": 0.01981,
+      "u_max": 0.24
+    },
+    {
+      "target_rel": 0.06,
+      "first_move_s": 0.054,
+      "reach_s": 0.128,
+      "final_disp": 0.06638,
+      "peak_disp": 0.06644,
+      "tail_abs_err": 0.00638,
+      "u_max": 0.48
+    },
+    {
+      "target_rel": 0.15,
+      "first_move_s": 0.048,
+      "reach_s": 0.193,
+      "final_disp": 0.1551,
+      "peak_disp": 0.15522,
+      "tail_abs_err": 0.0051,
+      "u_max": 0.85
+    }
+  ],
+  "csv": "06_servo_kp800_mf85_opp0.csv"
+}

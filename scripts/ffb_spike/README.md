@@ -1,5 +1,12 @@
 # F7b Day-1 Spike — FFB Steering Actuation (research)
 
+> **続編あり → [`CHARACTERIZATION.md`](CHARACTERIZATION.md)（Day-2）**
+> 本書 (Day-1) の計測は**振幅 ±0.45 の周期波形のみ**で、実 AD 操舵が要求する ±0.035 の微小信号領域を
+> 一度も測っていない。実機で「ホイールが動かない」不具合はその未計測領域で起きた。
+> Day-2 では静止摩擦マップ・微小信号デッドバンド・力→速度・**実 AD 操舵時系列の再生**・
+> 多成分合成の再現・stiction 対策 5 手法の比較を実測し、推奨設計を確定させている。
+> **§1e の Kp/max_force 校正値は大振幅でのみ有効**であり、微小信号では別途摩擦補償が要る（Day-2 §4）。
+
 **Date**: 2026-07-25 · **Wheel**: Logitech G29 · **Env**: Python 3.12 / PySDL2 0.9.17 / pysdl2-dll 2.32.10 (SDL 2.32.10) / Windows 11
 
 Purpose: before committing C++ IFFBSink code for F7b (FFB target-angle tracking + position-error torque proxy for AD⇄manual override), verify feasibility and gather implementation-shaping numbers.

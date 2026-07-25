@@ -1,0 +1,116 @@
+{
+  "steps": [],
+  "directions": {
+    "force_pos_axis_left": {
+      "breakaway_force": 0.18,
+      "first_creep_force": 0.18,
+      "holding_force": 0.16,
+      "steps": [
+        {
+          "force": 0.02,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.04,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.06,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.08,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.1,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.12,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.14,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.16,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.18,
+          "disp_max": 0.04031,
+          "disp_end": 0.04089
+        }
+      ]
+    },
+    "force_neg_axis_right": {
+      "breakaway_force": 0.2,
+      "first_creep_force": 0.2,
+      "holding_force": 0.16,
+      "steps": [
+        {
+          "force": 0.02,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.04,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.06,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.08,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.1,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.12,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.14,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.16,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.18,
+          "disp_max": 0.0,
+          "disp_end": 0.0
+        },
+        {
+          "force": 0.2,
+          "disp_max": 0.03629,
+          "disp_end": 0.03665
+        }
+      ]
+    }
+  },
+  "rest_axis": 0.0,
+  "csv": "06_breakaway.csv"
+}

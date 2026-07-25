@@ -1,0 +1,29 @@
+[
+  {
+    "name": "lc",
+    "frames": 1200,
+    "dur_s": 20.05,
+    "steer_abs_max": 0.0648,
+    "lat_abs_max": 1.785,
+    "frac_over_0035": 0.038,
+    "csv": "scripts\\ffb_spike\\profiles\\lc.csv"
+  },
+  {
+    "name": "curve",
+    "frames": 1200,
+    "dur_s": 28.05,
+    "steer_abs_max": 0.1339,
+    "lat_abs_max": 1.971,
+    "frac_over_0035": 0.158,
+    "csv": "scripts\\ffb_spike\\profiles\\curve.csv"
+  },
+  {
+    "name": "right_turn",
+    "frames": 1200,
+    "dur_s": 25.05,
+    "steer_abs_max": 0.8312,
+    "lat_abs_max": 1.971,
+    "frac_over_0035": 0.099,
+    "csv": "scripts\\ffb_spike\\profiles\\right_turn.csv"
+  }
+]

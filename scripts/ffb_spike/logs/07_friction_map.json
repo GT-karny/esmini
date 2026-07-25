@@ -1,0 +1,242 @@
+{
+  "breakaway": {
+    "pos+0.00_left": {
+      "trials": [
+        0.17,
+        0.17
+      ],
+      "mean": 0.17,
+      "std": 0.0
+    },
+    "pos+0.00_right": {
+      "trials": [
+        0.19,
+        0.2
+      ],
+      "mean": 0.195,
+      "std": 0.005
+    },
+    "pos-0.15_left": {
+      "trials": [
+        0.21,
+        0.17
+      ],
+      "mean": 0.19,
+      "std": 0.02
+    },
+    "pos-0.15_right": {
+      "trials": [
+        0.19,
+        0.19
+      ],
+      "mean": 0.19,
+      "std": 0.0
+    },
+    "pos+0.15_left": {
+      "trials": [
+        0.17,
+        0.17
+      ],
+      "mean": 0.17,
+      "std": 0.0
+    },
+    "pos+0.15_right": {
+      "trials": [
+        0.2,
+        0.19
+      ],
+      "mean": 0.195,
+      "std": 0.005
+    },
+    "pos-0.35_left": {
+      "trials": [
+        0.19,
+        0.18
+      ],
+      "mean": 0.185,
+      "std": 0.005
+    },
+    "pos-0.35_right": {
+      "trials": [
+        0.21,
+        0.2
+      ],
+      "mean": 0.205,
+      "std": 0.005
+    },
+    "pos+0.35_left": {
+      "trials": [
+        0.17,
+        0.18
+      ],
+      "mean": 0.175,
+      "std": 0.005
+    },
+    "pos+0.35_right": {
+      "trials": [
+        0.21,
+        0.2
+      ],
+      "mean": 0.205,
+      "std": 0.005
+    }
+  },
+  "hysteresis": {
+    "left": {
+      "static_trials": [
+        0.17,
+        0.17
+      ],
+      "kinetic_trials": [
+        0.15,
+        0.15
+      ],
+      "static_mean": 0.17,
+      "kinetic_mean": 0.15,
+      "hysteresis_band": 0.02
+    },
+    "right": {
+      "static_trials": [
+        0.2,
+        0.18
+      ],
+      "kinetic_trials": [
+        0.17,
+        0.16
+      ],
+      "static_mean": 0.19,
+      "kinetic_mean": 0.165,
+      "hysteresis_band": 0.025
+    }
+  },
+  "force_velocity": [
+    {
+      "force": 0.16,
+      "dir": "left",
+      "v_peak": 0.0,
+      "v_late": 0.0,
+      "travel": 0.0,
+      "t_end": 0.703
+    },
+    {
+      "force": 0.16,
+      "dir": "right",
+      "v_peak": 0.0,
+      "v_late": 0.0,
+      "travel": 0.0,
+      "t_end": 0.702
+    },
+    {
+      "force": 0.22,
+      "dir": "left",
+      "v_peak": -0.2501,
+      "v_late": -0.2342,
+      "travel": -0.1505,
+      "t_end": 0.704
+    },
+    {
+      "force": 0.22,
+      "dir": "right",
+      "v_peak": 0.1956,
+      "v_late": 0.1823,
+      "travel": 0.1135,
+      "t_end": 0.701
+    },
+    {
+      "force": 0.28,
+      "dir": "left",
+      "v_peak": -0.4398,
+      "v_late": -0.4174,
+      "travel": -0.2672,
+      "t_end": 0.704
+    },
+    {
+      "force": 0.28,
+      "dir": "right",
+      "v_peak": 0.3673,
+      "v_late": 0.3447,
+      "travel": 0.2224,
+      "t_end": 0.701
+    },
+    {
+      "force": 0.34,
+      "dir": "left",
+      "v_peak": -0.6665,
+      "v_late": -0.641,
+      "travel": -0.3002,
+      "t_end": 0.523
+    },
+    {
+      "force": 0.34,
+      "dir": "right",
+      "v_peak": 0.5865,
+      "v_late": 0.564,
+      "travel": 0.3008,
+      "t_end": 0.592
+    },
+    {
+      "force": 0.4,
+      "dir": "left",
+      "v_peak": -0.8265,
+      "v_late": -0.7971,
+      "travel": -0.3029,
+      "t_end": 0.443
+    },
+    {
+      "force": 0.4,
+      "dir": "right",
+      "v_peak": 0.809,
+      "v_late": 0.7784,
+      "travel": 0.3005,
+      "t_end": 0.442
+    },
+    {
+      "force": 0.46,
+      "dir": "left",
+      "v_peak": -0.8749,
+      "v_late": -0.8414,
+      "travel": -0.3012,
+      "t_end": 0.417
+    },
+    {
+      "force": 0.46,
+      "dir": "right",
+      "v_peak": 0.8504,
+      "v_late": 0.8266,
+      "travel": 0.3004,
+      "t_end": 0.422
+    },
+    {
+      "force": 0.52,
+      "dir": "left",
+      "v_peak": -0.9282,
+      "v_late": -0.8921,
+      "travel": -0.3027,
+      "t_end": 0.4
+    },
+    {
+      "force": 0.52,
+      "dir": "right",
+      "v_peak": 0.9292,
+      "v_late": 0.8931,
+      "travel": 0.3012,
+      "t_end": 0.394
+    },
+    {
+      "force": 0.58,
+      "dir": "left",
+      "v_peak": -0.9824,
+      "v_late": -0.9504,
+      "travel": -0.3003,
+      "t_end": 0.371
+    },
+    {
+      "force": 0.58,
+      "dir": "right",
+      "v_peak": 0.9826,
+      "v_late": 0.9539,
+      "travel": 0.3006,
+      "t_end": 0.372
+    }
+  ]
+}

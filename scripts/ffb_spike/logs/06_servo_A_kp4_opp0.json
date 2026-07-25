@@ -1,0 +1,37 @@
+{
+  "rest_axis": 0.0,
+  "kp": 4.0,
+  "kd": 0.35,
+  "max_force": 0.6,
+  "opposing": 0.0,
+  "runs": [
+    {
+      "target_rel": 0.03,
+      "first_move_s": null,
+      "reach_s": null,
+      "final_disp": 0.0,
+      "peak_disp": 0.0,
+      "tail_abs_err": 0.03,
+      "u_max": 0.6
+    },
+    {
+      "target_rel": 0.06,
+      "first_move_s": 0.134,
+      "reach_s": null,
+      "final_disp": 0.01914,
+      "peak_disp": 0.01914,
+      "tail_abs_err": 0.04086,
+      "u_max": 0.6
+    },
+    {
+      "target_rel": 0.15,
+      "first_move_s": 0.05,
+      "reach_s": null,
+      "final_disp": 0.1185,
+      "peak_disp": 0.1185,
+      "tail_abs_err": 0.0315,
+      "u_max": 0.6
+    }
+  ],
+  "csv": "06_servo_kp400_mf60_opp0.csv"
+}
