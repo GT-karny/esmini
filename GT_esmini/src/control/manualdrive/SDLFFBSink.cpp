@@ -71,6 +71,14 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         return false;
     }
 
+    // spike §1e: script 04 (constant-force PID servo, the calibration source for
+    // Kp/Kd) explicitly set gain to 100 (max). Without this call, SDL uses a
+    // driver-dependent default that may attenuate CONSTANT-force level below
+    // what the servo Kp expects, leaving the wheel too weak to overcome
+    // SAT/friction. Set once at Init so downstream force commands land at the
+    // gain the spike measured against.
+    SDL_HapticSetGain(haptic_, 100);
+
     // Query device capabilities
     unsigned int caps = SDL_HapticQuery(haptic_);
     has_constant_ = (caps & SDL_HAPTIC_CONSTANT) != 0;
@@ -156,11 +164,21 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         }
     }
 
-    // If spring/damper failed but constant works, emulate via constant force
-    if (has_constant_ && constant_effect_id_ >= 0 && (!has_spring_ || !has_damper_))
+    // If spring/damper failed but constant works, emulate via constant force.
+    // Also force this path when target_track is enabled — the spike (§1c/§3a)
+    // validated target-following on the CONSTANT-only combined-force channel;
+    // running SPRING natively pulls the wheel toward axis=0 and would compete
+    // with the servo's attempt to move it toward the AD-commanded target.
+    // Keep the CONSTANT path as the single source of steering wheel force.
+    if (has_constant_ && constant_effect_id_ >= 0 &&
+        (!has_spring_ || !has_damper_ || target_track_enabled_))
     {
         emulate_via_constant_ = true;
-        LOG_INFO("SDLFFBSink: Emulating spring/damper via constant force (G29 compatible)");
+        LOG_INFO("SDLFFBSink: Emulating spring/damper via constant force "
+                 "(reason: {} target_track_enabled={} has_spring={} has_damper={})",
+                 target_track_enabled_ ? "target_track pin (spike §1c)"
+                                        : "spring/damper native creation failed",
+                 target_track_enabled_, has_spring_, has_damper_);
     }
 
     return true;

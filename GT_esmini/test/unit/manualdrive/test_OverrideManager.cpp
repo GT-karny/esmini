@@ -428,4 +428,133 @@ TEST(OverrideManagerTest, FfbResumeEdgeWinsOverSustainedFfbSameFrame)
     EXPECT_TRUE(m.JustTransitionedToAuto());
 }
 
+// --- feature:F7 (F7b) — closed-loop feedback protection ---------------------
+//
+// Bug this block guards against (first surfaced on G29 real-machine test after
+// the initial F7b commit, 1c2939a0):
+//
+//   1. AD commands non-zero steering; SetSteerTarget → servo pushes physical wheel.
+//   2. Next frame SDL_JoystickUpdate reads the servo-moved axis position.
+//   3. SDL2WheelInput::Poll returns pedal_steer.steering = <servo-moved value>.
+//   4. OverrideManager::Update sees |steering| > steering_threshold (0.05).
+//   5. lat_active=true → lat_mode=MANUAL → on frame 3 target_active_ goes false.
+//   6. Servo dies. Wheel returns to center. User sees "no active following"
+//      and "override never latches" (because it already silently latched to
+//      MANUAL from the servo's own motion — the observed override transition
+//      would already have fired on frame 2 without any driver push).
+//
+// The FIX: while the servo is active (ffb_sample_.active), the direct axis
+// threshold on pedal_steer.steering must be SUPPRESSED — the torque proxy
+// (position_error / commanded_force) is the correct intervention detector
+// because it distinguishes "servo where AD wants" (position_error≈0, no push)
+// from "driver fighting the servo" (position_error grows, force grows).
+//
+// The tests below are the ones the original F7b unit suite MISSED: they
+// exercise the closed loop that the pedal_steer path implicitly closes.
+
+TEST(OverrideManagerTest, FfbActiveSuppressesDirectSteeringThreshold)
+{
+    // Servo actively pushing wheel to non-zero position; driver is NOT pushing
+    // back (torque-proxy sample is quiet). The wheel's axis is above the
+    // steering_threshold ONLY because the servo drove it there. Direct-axis
+    // path must be suppressed — otherwise MANUAL latches on frame 1.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.10;   // BELOW force threshold — servo tracking OK
+    s.position_error  = 0.02;   // BELOW dev threshold — driver not pushing
+
+    // 100 frames = 2 s at 50 Hz, plenty over any sustain window.
+    // pedal_steer.steering = 0.5 (well above the default 0.05 threshold) —
+    // this is what the wheel reads back AFTER the servo moved it there.
+    for (int i = 0; i < 100; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(MakeFrame(/*steering=*/0.5), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());       // servo did NOT self-trip override
+    EXPECT_FALSE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbInactiveKeepsDirectSteeringThreshold)
+{
+    // Regression guard: when the servo is OFF (target_track disabled, or
+    // scenario without an FFB-capable input source), the pre-F7b direct-axis
+    // behavior MUST be preserved. |pedal_steer.steering| > threshold latches
+    // MANUAL. Otherwise a plain-old wheel push under ManualDrive stops working.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active = false;   // servo not running
+
+    m.UpdateFfbSample(s);
+    m.Update(MakeFrame(/*steering=*/0.10), 0.02);   // 0.10 > 0.05 threshold
+    EXPECT_TRUE(m.IsLateralManual());               // pre-F7b behavior preserved
+    EXPECT_TRUE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbClosedLoopServoDoesNotSelfTripOverride)
+{
+    // End-to-end simulation of the G29 real-machine bug: servo drives wheel
+    // through varying positions (as it would while following AD steering
+    // through a curve). Each frame the axis reads back the servo-driven value.
+    // Without the fix, on the very first frame axis passes threshold the
+    // manager latches MANUAL and the servo dies.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.25;   // ABOVE force threshold on purpose — servo IS
+                                // producing measurable force to move the wheel
+    s.position_error  = 0.02;   // but position_error stays SMALL — the servo
+                                // is tracking well, driver is NOT pushing.
+                                // The torque-proxy path uses force OR dev, so
+                                // to stay under the sustained-latch condition,
+                                // force must ALSO be under threshold. Set it
+                                // under to isolate the "closed-loop" bug — the
+                                // separate "driver-push does latch" case is in
+                                // FfbActiveWithHighPositionErrorLatchesViaTorqueProxy.
+    s.commanded_force = 0.10;
+
+    for (int i = 0; i < 500; ++i)   // 10 s
+    {
+        // Simulate: physical wheel oscillates ±0.6 as servo tracks a
+        // varying target. Any of these values above the 0.05 direct threshold
+        // WOULD trip MANUAL without the fix.
+        const double axis = 0.6 * std::sin(static_cast<double>(i) * 0.1);
+        m.UpdateFfbSample(s);
+        m.Update(MakeFrame(axis), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbActiveWithHighPositionErrorLatchesViaTorqueProxy)
+{
+    // The FIX must NOT break the real intervention case: driver pushing back
+    // against the servo grows position_error (and commanded_force via the
+    // PID), the torque-proxy path latches after sustain. Raw axis is above
+    // threshold too, but that path is suppressed; torque-proxy is the one
+    // that fires.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.50;   // ABOVE force threshold
+    s.position_error  = 0.10;   // ABOVE dev threshold
+
+    for (int i = 0; i < 6; ++i)   // 120 ms > 100 ms sustain
+    {
+        m.UpdateFfbSample(s);
+        m.Update(MakeFrame(/*steering=*/0.5), 0.02);
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+    // Torque-proxy path fired, not direct-axis path — either way the outcome
+    // for the driver is a MANUAL latch when they actually push back.
+}
+
 }  // namespace gt_esmini

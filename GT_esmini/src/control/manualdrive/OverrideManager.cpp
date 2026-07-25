@@ -96,7 +96,30 @@ void OverrideManager::Update(const InputFrame& input, double dt)
 
         if (lat_configured_manual_)
         {
-            lat_active = std::abs(ps.steering) > steering_threshold_;
+            // feature:F7 (F7b) closed-loop feedback protection.
+            // While the target-track servo is active, the physical wheel is
+            // being DRIVEN by the servo (SDLFFBSink CONSTANT force). The next
+            // frame's SDL_JoystickGetAxis reads back the servo's own motion —
+            // if we ran the direct-axis threshold check here, |ps.steering|
+            // would cross steering_threshold_ purely because the servo moved
+            // the wheel, and the manager would latch MANUAL on frame 2, which
+            // would flip target_active_ off (via !lat_manual in
+            // ControllerVirtualDriver::Step step 5a) and kill the servo. The
+            // servo would then re-arm next frame, re-latch, re-die — but the
+            // first latch already stuck (one-way latch), so from the user's
+            // perspective the servo appears to never engage and any push-back
+            // never seems to "fire" the override (it already fired silently).
+            //
+            // The correct detector under an active servo is the TORQUE PROXY
+            // block below: it distinguishes "wheel where AD wants it"
+            // (position_error≈0, no push) from "driver fighting the servo"
+            // (position_error and commanded_force both grow). Direct-axis
+            // path is preserved when the servo is off (target_track disabled,
+            // stub/network input, ManualDrive-only run).
+            if (!ffb_sample_.active)
+            {
+                lat_active = std::abs(ps.steering) > steering_threshold_;
+            }
         }
 
         if (long_configured_manual_)
