@@ -237,6 +237,53 @@ function Invoke-BehavioralBatch {
 }
 
 # ----------------------------------------------------------------------------
+# Step 0 - build/config drift check (HARD gate)
+# ----------------------------------------------------------------------------
+# The anticipation_driving batch (and any other batch whose scenarios lack a
+# <Property name="policies">) runs the raw xosc with NO per-run config
+# generation, so the VirtualDriverController reads whatever is currently in
+# build/GT_esmini/config/virtual_driver.json (and manual_drive.json). Any hand-
+# edit left over from real-machine testing (input_type=sdl2_wheel,
+# ffb_target_track_enabled=true, override_lateral=scenario, etc.) leaks
+# straight into the batch behaviour and shows up as a phantom "regression"
+# that has nothing to do with the code under test.
+#
+# Root-caused during F7b real-machine iteration (post-f8a5ce56): PM's
+# independent gate run showed 10 deviations on anticipation_driving; 3-way
+# validation (pre-F7b + shipped / F7b + shipped / F7b + drifted-build-config)
+# proved the code was innocent and the drift was 100% of the regression.
+# This step exists to fail loudly on that class of hygiene bug before the
+# behavioural batches ever run.
+Write-Host "==== Step 0: build/config drift check ====" -ForegroundColor Cyan
+$configFiles = @("virtual_driver.json", "manual_drive.json", "auto_light.json")
+$driftDetected = $false
+foreach ($cf in $configFiles) {
+    $src = Join-Path "GT_esmini/config" $cf
+    $bld = Join-Path $BuildDir "GT_esmini/config" $cf
+    if (-not (Test-Path $src)) { continue }
+    if (-not (Test-Path $bld)) {
+        Write-Host "  MISSING $bld -- restaging from source" -ForegroundColor Yellow
+        Copy-Item $src $bld -Force
+        continue
+    }
+    if ((Get-FileHash $src).Hash -ne (Get-FileHash $bld).Hash) {
+        Write-Host "  DRIFT   $cf : build differs from source (hand-edit leak?)" -ForegroundColor Red
+        Write-Host "          diff:" -ForegroundColor Red
+        Compare-Object (Get-Content $src) (Get-Content $bld) | Select-Object -First 20 |
+            ForEach-Object { Write-Host ("          " + $_.SideIndicator + " " + $_.InputObject) -ForegroundColor Red }
+        $driftDetected = $true
+    }
+}
+if ($driftDetected) {
+    Write-Host "Step 0: FAIL -- build/config drifted from source." -ForegroundColor Red
+    Write-Host "        Restage before rerunning:" -ForegroundColor Red
+    Write-Host "          Copy-Item GT_esmini/config/*.json $BuildDir/GT_esmini/config/ -Force" -ForegroundColor Red
+    Write-Host "        (Or accept the drift into source if intentional.)" -ForegroundColor Red
+    exit 1
+}
+Write-Host "Step 0: PASS (build/config matches source)" -ForegroundColor Green
+
+# ----------------------------------------------------------------------------
 # Step 1 - Unit + integration tests (HARD gate)
 # ----------------------------------------------------------------------------
 Write-Host "==== Step 1/2: GT unit + integration tests (ctest) ====" -ForegroundColor Cyan
