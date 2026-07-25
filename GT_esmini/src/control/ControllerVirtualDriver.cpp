@@ -15,6 +15,7 @@
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
+#include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
@@ -99,6 +100,10 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_target_rate_gate         = vd_config_.ffb_target_track_override_target_rate_gate;
     io_config_.ffb.target_track.override_position_error_rate_gate = vd_config_.ffb_target_track_override_position_error_rate_gate;
     io_config_.ffb.target_track.override_wheel_over_target_epsilon = vd_config_.ffb_target_track_override_wheel_over_target_epsilon;
+
+    // feature:F7 — AD steering safety envelope (see AdSteeringEnvelope.hpp).
+    // Built once here; config is not hot-reloaded during a run.
+    ad_envelope_cfg_ = vd_config_.AdEnvelopeConfig();
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
@@ -345,6 +350,21 @@ void ControllerVirtualDriver::Step(double timeStep)
     DriverModelSnapshot dsnap;
     PedalSteerCommand   auto_cmd = driver_model_->Compute(plan, dstate, timeStep, &dsnap);
 
+    // 3a. feature:F7 AD steering safety envelope — clamp AD's raw command to
+    // physical lateral-accel / yaw-rate / steering-rate limits BEFORE it
+    // reaches the manual-override merge below or the FFB target servo (5a).
+    // Pure Pursuit + TrajectoryShortPlanner's per-frame lane-center snap have
+    // no lateral-deviation/rate/amplitude limit of their own — see
+    // AdSteeringEnvelope.hpp. Independent of max_lateral_accel (that value
+    // already shapes curve speed, so reusing it here would clamp during
+    // ordinary curve driving). Overwriting auto_cmd.steering in place means
+    // both the merge below and the FFB target at 5a see the clamped value
+    // for free, with no further change needed at either site.
+    AdSteeringEnvelopeSnapshot envelope_snap;
+    auto_cmd.steering = ComputeAdSteeringEnvelope(
+        auto_cmd.steering, dstate.speed, dstate.wheel_base, vd_config_.max_steer_angle,
+        timeStep, ad_envelope_state_, ad_envelope_cfg_, &envelope_snap);
+
     // 4. Merge manual override per domain
     PedalSteerCommand cmd = auto_cmd;
     if (frame.pedal_steer)
@@ -358,6 +378,14 @@ void ControllerVirtualDriver::Step(double timeStep)
         cmd.paddle_down_pressed = m.paddle_down_pressed;
     }
     last_cmd_ = cmd;
+
+    // 4a. feature:F7 — persist WHATEVER steering command was actually realized
+    // this frame (the envelope's own clamped AD output while AUTO, or the raw
+    // manual input while MANUAL) as next frame's rate-limit anchor. This is
+    // what lets a manual->AUTO_RESUME transition ramp smoothly from the
+    // physical wheel angle instead of a stale AD proposal, with no dedicated
+    // "resume ramp" state machine (AdSteeringEnvelope.hpp).
+    ad_envelope_state_.prev_steer_norm = cmd.steering;
 
     // 4b. Manual indicator (turn-signal) control from input-source buttons,
     // via ManualDrive's auto-cancel FSM. When the human arms an indicator this
@@ -375,7 +403,9 @@ void ControllerVirtualDriver::Step(double timeStep)
     osi3::HostVehicleData hvd = physics_backend_->StepPedalSteer(cmd, timeStep);
 
     // 5a. feature:F7 (F7b) FFB target-track servo update. AD's commanded wheel
-    // angle (auto_cmd.steering, normalized [-1..1]) is handed to the servo so
+    // angle (auto_cmd.steering, normalized [-1..1] — already passed through the
+    // steering envelope at 3a, so the servo never chases a pathological
+    // target and err = target - actual stays small) is handed to the servo so
     // it drives the physical wheel to follow. active=true only when AD owns
     // lateral (lat_manual=false); the config master gate ffb.target_track.enabled
     // lives inside SDLFFBSink::SetSteerTarget so it always wins over active.
@@ -462,6 +492,18 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_commanded_force  = 0.0;
         telemetry_.ffb_position_error   = 0.0;
     }
+    // feature:F7 — AD steering safety envelope observability (verification:
+    // "normal driving never trips the envelope"). See AdSteeringEnvelope.hpp.
+    telemetry_.ad_envelope_lateral_accel_active = envelope_snap.lateral_accel_active;
+    telemetry_.ad_envelope_yaw_rate_active      = envelope_snap.yaw_rate_active;
+    telemetry_.ad_envelope_steer_rate_active    = envelope_snap.steer_rate_active;
+    telemetry_.ad_envelope_active               = envelope_snap.any_active;
+    // dsnap.steer (telemetry_.driver.steer, set via telemetry_.driver = dsnap
+    // below) stays the RAW pre-envelope AD proposal — deliberately untouched.
+    // These two are what the envelope actually saw/produced, so "did the
+    // envelope change anything this frame" is observable from telemetry alone.
+    telemetry_.ad_envelope_steer_in  = envelope_snap.steer_norm_in;
+    telemetry_.ad_envelope_steer_out = envelope_snap.steer_norm_out;
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
     telemetry_.policy                = policy_snap;

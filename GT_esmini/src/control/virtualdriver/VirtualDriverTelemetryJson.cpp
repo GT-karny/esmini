@@ -31,6 +31,17 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"ffb\":{\"target_active\":" << b(t.ffb_target_active)
        << ",\"commanded_force\":" << t.ffb_commanded_force
        << ",\"position_error\":" << t.ffb_position_error << "}"
+       // feature:F7 AD steering safety envelope observability. Additive block;
+       // consumers that predate it simply ignore it. steer_in/steer_out let a
+       // verifier see the envelope's actual effect: "driver":{"steer":...} below
+       // stays the RAW pre-envelope AD proposal (untouched on purpose), while
+       // envelope.steer_out is what was actually applied to the vehicle/FFB.
+       << ",\"envelope\":{\"lateral_accel_active\":" << b(t.ad_envelope_lateral_accel_active)
+       << ",\"yaw_rate_active\":" << b(t.ad_envelope_yaw_rate_active)
+       << ",\"steer_rate_active\":" << b(t.ad_envelope_steer_rate_active)
+       << ",\"active\":" << b(t.ad_envelope_active)
+       << ",\"steer_in\":" << t.ad_envelope_steer_in
+       << ",\"steer_out\":" << t.ad_envelope_steer_out << "}"
        << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake
        << ",\"steer\":" << t.driver.steer << ",\"lateral_error\":" << t.driver.lateral_error
        << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error

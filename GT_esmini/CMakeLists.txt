@@ -117,6 +117,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/TrajectoryShortPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/PIDPurePursuitDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdSteeringEnvelope.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdasFunctionReport.cpp
@@ -193,6 +194,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/RouteSignalScan.hpp

@@ -60,6 +60,11 @@ const DoubleField kDoubleFields[] = {
     {"speed_kp", &VirtualDriverConfig::speed_kp},
     {"speed_ki", &VirtualDriverConfig::speed_ki},
     {"speed_kd", &VirtualDriverConfig::speed_kd},
+    // AD steering safety envelope (feature:F7).
+    {"a_lat_max_steer", &VirtualDriverConfig::a_lat_max_steer},
+    {"yaw_rate_max", &VirtualDriverConfig::yaw_rate_max},
+    {"steer_rate_max", &VirtualDriverConfig::steer_rate_max},
+    {"envelope_v_floor", &VirtualDriverConfig::envelope_v_floor},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
@@ -137,6 +142,7 @@ const BoolField kBoolFields[] = {
     {"override_enabled", &VirtualDriverConfig::override_enabled},
     {"override_button", &VirtualDriverConfig::override_button},
     {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
+    {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
 };
 
 const IntField kIntFields[] = {
@@ -257,6 +263,17 @@ PIDPurePursuitConfig VirtualDriverConfig::DriverConfig() const
     c.kp = speed_kp;
     c.ki = speed_ki;
     c.kd = speed_kd;
+    return c;
+}
+
+AdSteeringEnvelopeConfig VirtualDriverConfig::AdEnvelopeConfig() const
+{
+    AdSteeringEnvelopeConfig c;
+    c.enabled         = ad_steering_envelope_enabled;
+    c.a_lat_max_steer = a_lat_max_steer;
+    c.yaw_rate_max    = yaw_rate_max;
+    c.steer_rate_max  = steer_rate_max;
+    c.v_floor         = envelope_v_floor;
     return c;
 }
 

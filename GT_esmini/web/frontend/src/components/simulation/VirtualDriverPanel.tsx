@@ -21,7 +21,10 @@ const EDITABLE_KEYS = [
   'horizon_s', 'short_dt', 'max_lateral_accel', 'comfort_decel', 'emergency_decel', 'comfort_jerk',
   'scan_distance', 'scan_step', 'turn_speed', 'min_turn_speed', 'stop_band', 'respect_speed_limit',
   'lookahead_gain', 'min_lookahead', 'max_lookahead', 'max_steer_angle', 'steering_sign',
-  'speed_kp', 'speed_ki', 'speed_kd', 'control_point_offset', 'control_point_min_speed',
+  'speed_kp', 'speed_ki', 'speed_kd',
+  // feature:F7 AD steering safety envelope (clamps AD's commanded steering only).
+  'ad_steering_envelope_enabled', 'a_lat_max_steer', 'yaw_rate_max', 'steer_rate_max', 'envelope_v_floor',
+  'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
   'idm_lookahead', 'idm_lateral_tol', 'idm_target_horizon',
@@ -472,6 +475,47 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           lane-change / small-command false positives (post-f723fa90
           real-machine regression).
         </p>
+      </section>
+
+      {/* AD Steering Safety Envelope — feature:F7.
+          Clamps AD's COMMANDED steering (never manual input) to physical
+          lateral-accel / yaw-rate / steering-rate limits. Fixes the
+          manual->AUTO_RESUME hard-steer defect (Pure Pursuit + the short
+          planner's per-frame lane-center snap have no limit of their own).
+          Default ON — this is a safety feature. Independent of the "Max
+          lateral accel" field under Planner (Advanced): that value is already
+          consumed picking curve speed, so reusing it here would clamp during
+          ordinary curve driving. Limits are FINAL (fixed from a real-vehicle
+          measurement pool). */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Steering Safety Envelope
+        </h3>
+        <p className="text-[10px] text-text-tertiary mb-2 leading-tight">
+          Clamps AD's commanded steering only — manual input is never limited.
+          Default ON. Limits are fixed from a real-vehicle measurement pool.
+        </p>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable steering safety envelope"
+            checked={Boolean(cfg.ad_steering_envelope_enabled)}
+            onChange={(v) => set('ad_steering_envelope_enabled', v)}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="Max lateral accel (m/s²)" step={0.1}
+            value={cfg.a_lat_max_steer ?? 4.3}
+            onChange={setNum('a_lat_max_steer')} />
+          <NumberInput label="Max yaw rate (rad/s)" step={0.05}
+            value={cfg.yaw_rate_max ?? 1.0}
+            onChange={setNum('yaw_rate_max')} />
+          <NumberInput label="Max steering rate (rad/s)" step={0.05}
+            value={cfg.steer_rate_max ?? 1.5}
+            onChange={setNum('steer_rate_max')} />
+          <NumberInput label="Speed floor (m/s)" step={0.1}
+            value={cfg.envelope_v_floor ?? 1.0}
+            onChange={setNum('envelope_v_floor')} />
+        </div>
       </section>
 
       {/* Footer actions */}

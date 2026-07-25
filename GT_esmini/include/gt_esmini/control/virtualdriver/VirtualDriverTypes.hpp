@@ -197,6 +197,28 @@ struct VirtualDriverTelemetry
     double ffb_commanded_force = 0.0;
     double ffb_position_error  = 0.0;
 
+    // feature:F7 — AD steering safety envelope observability (AdSteeringEnvelope.hpp).
+    // Which physical constraint(s) clamped this frame's AD-commanded steering
+    // (or none). All false when the envelope is disabled or nothing clipped.
+    // Verification uses this to show "normal driving never trips the envelope".
+    bool ad_envelope_lateral_accel_active = false;
+    bool ad_envelope_yaw_rate_active      = false;
+    bool ad_envelope_steer_rate_active    = false;
+    bool ad_envelope_active               = false;  // OR of the three
+    // Normalized steering [-1,1] the envelope actually saw/produced this
+    // frame. driver.steer (DriverModelSnapshot below) is the raw AD proposal
+    // BEFORE the envelope — it is intentionally left untouched by the
+    // envelope so "what AD wanted" stays observable. ad_envelope_steer_in is
+    // the same raw value restated here (redundant with driver.steer today,
+    // but keeps the envelope block self-contained if driver.steer's meaning
+    // ever changes) and ad_envelope_steer_out is the CLAMPED value that was
+    // actually sent to the physics backend / FFB target servo. Comparing the
+    // two is how verification sees the envelope's effect at all — without
+    // steer_out, "did the envelope change anything" is unobservable from
+    // telemetry even though the vehicle's actual behavior did change.
+    double ad_envelope_steer_in  = 0.0;
+    double ad_envelope_steer_out = 0.0;
+
     // Per-layer snapshots.
     ShortPlannerSnapshot   short_plan;
     DriverModelSnapshot    driver;

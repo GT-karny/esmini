@@ -8,6 +8,7 @@
 #include "gt_esmini/control/virtualdriver/VirtualDriverConfig.hpp"
 #include "gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp"
 #include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
+#include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <vector>
@@ -111,6 +112,14 @@ private:
 
     OverrideManager  override_mgr_;
     HVDStateApplier  state_applier_;
+
+    // feature:F7 — AD steering safety envelope (AdSteeringEnvelope.hpp). Config
+    // is built once in the constructor (not hot-reloaded during a run);
+    // ad_envelope_state_.prev_steer_norm is updated every Step() with whichever
+    // steering command was ACTUALLY applied that frame (AUTO's clamped output
+    // or MANUAL's raw input) — see Step() for the core design invariant.
+    AdSteeringEnvelopeConfig ad_envelope_cfg_;
+    AdSteeringEnvelopeState  ad_envelope_state_;
 
     // Manual indicator (turn-signal) control via input-source buttons, reusing
     // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes

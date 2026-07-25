@@ -305,6 +305,14 @@ export interface VirtualDriverConfig {
   speed_kp?: number;
   speed_ki?: number;
   speed_kd?: number;
+  // feature:F7 — AD steering safety envelope (clamps AD's commanded steering;
+  // never the manual input). Default ON (safety feature). Limits are FINAL
+  // (fixed from a real-vehicle measurement pool).
+  ad_steering_envelope_enabled?: boolean;
+  a_lat_max_steer?: number;
+  yaw_rate_max?: number;
+  steer_rate_max?: number;
+  envelope_v_floor?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Indicator

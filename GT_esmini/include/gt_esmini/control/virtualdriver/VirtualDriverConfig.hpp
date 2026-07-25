@@ -5,6 +5,7 @@
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
+#include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
@@ -55,6 +56,20 @@ struct VirtualDriverConfig
     double speed_kp = 0.6;
     double speed_ki = 0.2;
     double speed_kd = 0.0;
+
+    // --- AD steering safety envelope (feature:F7) ---
+    // Clamps AD's COMMANDED steering (never the manual input) to physical
+    // lateral-accel / yaw-rate / steering-rate limits — see AdSteeringEnvelope.hpp
+    // for the defect this fixes and why it is independent of max_lateral_accel
+    // above. Default ON (safety feature). Limits are FINAL (fixed from a
+    // real-vehicle measurement pool; see AdSteeringEnvelope.hpp for the
+    // rationale); defaults mirror AdSteeringEnvelopeConfig's own (single
+    // C++-side source of truth: gt_esmini::kAdEnvelopeDefault*).
+    bool   ad_steering_envelope_enabled = true;
+    double a_lat_max_steer  = kAdEnvelopeDefaultALatMaxSteer;
+    double yaw_rate_max     = kAdEnvelopeDefaultYawRateMax;
+    double steer_rate_max   = kAdEnvelopeDefaultSteerRateMax;
+    double envelope_v_floor = kAdEnvelopeDefaultVFloor;
 
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
@@ -208,6 +223,7 @@ struct VirtualDriverConfig
     TrajectoryShortPlannerConfig   ShortPlannerConfig() const;
     ManeuverAwareSpeedPlannerConfig MidLongConfig() const;
     PIDPurePursuitConfig           DriverConfig() const;
+    AdSteeringEnvelopeConfig        AdEnvelopeConfig() const;
     AutoIndicatorConfig            IndicatorConfig() const;
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;
