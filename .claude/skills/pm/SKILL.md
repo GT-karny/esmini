@@ -56,14 +56,14 @@ node $cli list-panes --json
 ### 1ワーカー1往復の手順
 
 1. **ペイン特定**: `list-panes --json` → `surfacePtyIds` の **ptyId（`daemon-*`）を使う**。`pane-<uuid>` を `--pane` に渡すとエラーにならず空が返る（実測）。
-2. **ワーカー起動** — 標準モデル構成: **セッション=Opus 4.7（完全IDでピン）・subagent=Sonnet 5**（ユーザー決定 2026-07-24。根拠＝Opus 4.8 幻覚バグと解除条件は memory: worker_model_policy）＋ **`--permission-mode auto` 必須**（2026-07-25 確定）:
+2. **ワーカー起動** — 標準モデル構成: **セッション=Opus 5・subagent=Sonnet 5**（ユーザー決定 2026-07-25。旧 Opus 4.7 ピンからの移行経緯は memory: worker_model_policy）＋ **`--permission-mode auto` 必須**（2026-07-25 確定）:
 
    ```powershell
-   node $cli send "`$env:CLAUDE_CODE_SUBAGENT_MODEL='claude-sonnet-5'; claude --model claude-opus-4-7 --permission-mode auto" --submit --pane <ptyId>
+   node $cli send "`$env:CLAUDE_CODE_SUBAGENT_MODEL='claude-sonnet-5'; claude --model claude-opus-5 --permission-mode auto" --submit --pane <ptyId>
    ```
 
    フォルダ信頼プロンプトが出たら `node $cli send-key Enter --pane <ptyId>`。
-   - alias `--model opus` は使わない（最新＝4.8 を掴む）。
+   - alias `--model opus` は使わない（完全 ID で固定する）。
    - `CLAUDE_CODE_SUBAGENT_MODEL` は v2.1.196+・ペインスコープ・全 subagent に**最優先**で効く（Agent 呼び出しの model 指定より強い＝ワーカー内から個別に Opus へ逃がせない。一律 Sonnet を承知の上の構成）。
    - **`--permission-mode auto` の理由**: 権限ダイアログは wmux の read-screen に**描画されないことがある**（AUQ 含む。ワーカーが「Reading…」等で無限静止に見える）。auto は分類器が許可/拒否を代行しプロンプト自体が出ないため、この問題が構造的に消える。危険操作は拒否されるので bypass より安全側。詳細と、auto を使えない場合のフォールバック（Enter プローブ — ただし AUQ の推奨案を代答してしまう副作用あり）は memory: wmux-claude-worker-pitfalls。bypassPermissions 起動や permissions 設定編集は PM の遠隔操作では分類器が一貫拒否＝人間の手のみ。
    - **ガードフックはプロンプト文字列も検査する**: `send` で流す指示文に「Python」等の語があると venv ルールが誤発火してコマンドごと拒否される — 言い換える（memory 同上）。
