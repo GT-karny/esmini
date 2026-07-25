@@ -23,9 +23,15 @@ mappings:
     ids: [feature:F6]
   - glob: "*manualdrive/OverrideManager*"
     ids: [feature:F7]
+  - glob: "*manualdrive/FfbTargetServo*"
+    ids: [feature:F7]
+  - glob: "*manualdrive/SDLFFBSink*"
+    ids: [feature:F7]
   - glob: "*verification/VdManualOverridePanel*"
     ids: [feature:F7]
   - glob: "scripts/vd_override_smoke.py"
+    ids: [feature:F7]
+  - glob: "scripts/ffb_spike/*"
     ids: [feature:F7]
   # VirtualDriver policies
   - glob: "*virtualdriver/policies/LeadVehicleAware*"

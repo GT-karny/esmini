@@ -48,7 +48,7 @@ Renamed from `ControllerRacingWheel` → `ControllerManualDrive` (v0.8).
 Key capabilities:
 - **Input**: Pluggable sources (`SDL2WheelInput`, `NetworkInputBridge`, `StubInputSource`)
 - **Physics**: Pluggable backends (`RealVehicleBackend`, `NetworkPhysicsBridge`)
-- **FFB**: Spring, damper, Coulomb friction model (G29-compatible)
+- **FFB**: Spring, damper, Coulomb friction model (G29-compatible); plus optional **target-angle tracking servo** (F7b — CONSTANT-force PID, SDL2 only, default OFF) that drives the wheel to the AD-commanded steering angle and exposes a position-error torque proxy for takeover detection
 - **Button mapping**: Fully configurable via `manual_drive.json`
 - **Domain control**: Independent lateral/longitudinal domain assignment (manual/scenario)
 - **Indicator FSM**: Auto-cancel with steering return detection
