@@ -115,6 +115,7 @@ const DoubleField kDoubleFields[] = {
     {"ffb_target_track_override_steer_force_threshold",  &VirtualDriverConfig::ffb_target_track_override_steer_force_threshold},
     {"ffb_target_track_override_steer_dev_threshold",    &VirtualDriverConfig::ffb_target_track_override_steer_dev_threshold},
     {"ffb_target_track_override_sustain_time",           &VirtualDriverConfig::ffb_target_track_override_sustain_time},
+    {"ffb_target_track_override_target_rate_gate",       &VirtualDriverConfig::ffb_target_track_override_target_rate_gate},
 };
 
 const BoolField kBoolFields[] = {

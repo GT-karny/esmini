@@ -29,11 +29,14 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
 
     // feature:F7 (F7b) — FFB torque-proxy thresholds. Independent of the
     // steering_threshold_ used for the direct pedal_steer.steering path.
-    ffb_force_threshold_ = config.ffb.target_track.override_steer_force_threshold;
-    ffb_dev_threshold_   = config.ffb.target_track.override_steer_dev_threshold;
-    ffb_sustain_time_    = config.ffb.target_track.override_sustain_time;
-    ffb_sustain_accum_   = 0.0;
-    ffb_sample_          = {};
+    ffb_force_threshold_    = config.ffb.target_track.override_steer_force_threshold;
+    ffb_dev_threshold_      = config.ffb.target_track.override_steer_dev_threshold;
+    ffb_sustain_time_       = config.ffb.target_track.override_sustain_time;
+    ffb_target_rate_gate_   = config.ffb.target_track.override_target_rate_gate;
+    ffb_sustain_accum_      = 0.0;
+    ffb_prev_target_norm_   = 0.0;
+    ffb_prev_target_valid_  = false;
+    ffb_sample_             = {};
 }
 
 void OverrideManager::UpdateFfbSample(const FfbInterventionSample& sample)
@@ -140,11 +143,37 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     // Only meaningful for the LATERAL domain (steering); the pedal path stays
     // exclusive to the direct throttle/brake threshold check above. Long-only-
     // scenario setups therefore stay unaffected.
+    //
+    // Rate-gate on |d(target)/dt|: while AD is actively steering (target
+    // moving), the PID servo's normal tracking lag creates position_error
+    // and commanded_force even without any driver touch. The Day-1 spike
+    // (scripts/ffb_spike/05_torque_proxy.py) calibrated the |u|/|dev|
+    // thresholds against a STATIC target only, so a raw threshold check
+    // would spuriously latch on every curve / lane change. Suppress
+    // detection (and reset sustain) while above the gate; re-arm when the
+    // target settles. Real-machine bug found after commit a43e4c67.
     if (lat_configured_manual_ && ffb_sample_.active)
     {
+        double target_rate = 0.0;
+        if (ffb_prev_target_valid_ && dt > 1e-6)
+            target_rate = (ffb_sample_.target_norm - ffb_prev_target_norm_) / dt;
+        ffb_prev_target_norm_  = ffb_sample_.target_norm;
+        ffb_prev_target_valid_ = true;
+
+        const bool moving_target = std::abs(target_rate) > ffb_target_rate_gate_;
         const bool over_force = std::abs(ffb_sample_.commanded_force) > ffb_force_threshold_;
         const bool over_dev   = std::abs(ffb_sample_.position_error)  > ffb_dev_threshold_;
-        if (over_force || over_dev)
+
+        if (moving_target)
+        {
+            // Target-following transient: reset sustain, do NOT latch.
+            // The driver may in fact be pushing, but we cannot distinguish
+            // that from normal PID tracking lag until target settles. The
+            // detector re-arms with fresh sustain the moment target rate
+            // drops below the gate.
+            ffb_sustain_accum_ = 0.0;
+        }
+        else if (over_force || over_dev)
         {
             ffb_sustain_accum_ += dt;
             if (ffb_sustain_accum_ >= ffb_sustain_time_)
@@ -160,8 +189,10 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     else
     {
         // Sample missing or servo off: reset the accumulator so a stale burst
-        // can never be revived on the next Configure/enable.
-        ffb_sustain_accum_ = 0.0;
+        // can never be revived on the next Configure/enable. Prev-target
+        // gets re-armed at the next active sample.
+        ffb_sustain_accum_     = 0.0;
+        ffb_prev_target_valid_ = false;
     }
 
 #ifdef GT_ENABLE_OSI_MOTION_REQUEST

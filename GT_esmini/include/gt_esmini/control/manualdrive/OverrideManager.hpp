@@ -68,6 +68,14 @@ private:
     double                ffb_dev_threshold_        = 0.04;
     double                ffb_sustain_time_         = 0.10;
     double                ffb_sustain_accum_        = 0.0;
+    // Rate-gate state: prev_target_norm_ + sample dt → |d(target)/dt|.
+    // When above ffb_target_rate_gate_ we're in a moving-target transient
+    // and the servo's normal lag is expected to grow position_error above
+    // dev_threshold — must NOT trip. See Update() comment. prev_valid_
+    // arms the derivative on the 2nd sample (avoids a bogus initial spike).
+    double                ffb_target_rate_gate_     = 0.30;   // axis-frac/s
+    double                ffb_prev_target_norm_     = 0.0;
+    bool                  ffb_prev_target_valid_    = false;
 };
 
 } // namespace gt_esmini

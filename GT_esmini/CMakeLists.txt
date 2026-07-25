@@ -134,6 +134,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/FfbTargetServo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HeadlessFfbInput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/EngineModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AutoTransmission.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
@@ -169,6 +170,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveConfig.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/OverrideManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/FfbTargetServo.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HeadlessFfbInput.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/EngineModel.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AutoTransmission.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/ShiftLogic.hpp

@@ -128,6 +128,7 @@ _NUMBER_KEYS = frozenset(
         "ffb_target_track_override_steer_force_threshold",
         "ffb_target_track_override_steer_dev_threshold",
         "ffb_target_track_override_sustain_time",
+        "ffb_target_track_override_target_rate_gate",
     }
 )
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
@@ -302,6 +303,7 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "ffb_target_track_override_steer_force_threshold": 0.20,
     "ffb_target_track_override_steer_dev_threshold": 0.04,
     "ffb_target_track_override_sustain_time": 0.10,
+    "ffb_target_track_override_target_rate_gate": 0.30,
 }
 
 

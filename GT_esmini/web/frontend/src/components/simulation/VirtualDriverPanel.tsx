@@ -48,6 +48,7 @@ const EDITABLE_KEYS = [
   'ffb_target_track_override_steer_force_threshold',
   'ffb_target_track_override_steer_dev_threshold',
   'ffb_target_track_override_sustain_time',
+  'ffb_target_track_override_target_rate_gate',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -427,7 +428,16 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Override sustain (s)" step={0.01}
             value={cfg.ffb_target_track_override_sustain_time ?? 0.10}
             onChange={setNum('ffb_target_track_override_sustain_time')} />
+          <NumberInput label="Target rate gate (axis-frac/s)" step={0.05}
+            value={cfg.ffb_target_track_override_target_rate_gate ?? 0.30}
+            onChange={setNum('ffb_target_track_override_target_rate_gate')} />
         </div>
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Rate gate suppresses override detection while the AD target is actively
+          moving (curves, lane changes) — the PID's normal tracking lag would
+          otherwise be mistaken for a driver push. Detection re-arms when target
+          settles.
+        </p>
       </section>
 
       {/* Footer actions */}

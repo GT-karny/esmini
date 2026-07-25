@@ -9,10 +9,21 @@ namespace gt_esmini
 // on a driver push against the target-tracking servo. Units are NORMALIZED
 // axis-fraction (matches SDLFFBSink's actual physical wheel read and the
 // spike calibration; see FfbTargetServo.hpp).
+//
+// target_norm is exposed so OverrideManager can compute |d(target)/dt| and
+// SUPPRESS torque-proxy detection while the target is moving fast — the PID
+// servo's normal tracking lag creates non-zero position_error even without
+// any driver push, and the Day-1 spike (scripts/ffb_spike/05_torque_proxy.py)
+// only calibrated the |u|/|dev| thresholds against a STATIC target
+// (target=0), so a naive threshold check spuriously latches on every curve
+// / lane change / any AD-driven steering transient (real-machine bug found
+// after commit a43e4c67). The rate gate keeps the threshold-based detector
+// honest — see OverrideManager::Update.
 struct FfbInterventionSample
 {
     double commanded_force = 0.0;   // last |u| the servo commanded, [0..max_force]
     double position_error  = 0.0;   // target - actual, [-1..1] axis-fraction
+    double target_norm     = 0.0;   // AD-commanded wheel target this frame; rate-gate source
     bool   active          = false; // true only while the servo is running
 };
 

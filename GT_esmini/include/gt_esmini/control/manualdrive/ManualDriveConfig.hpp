@@ -116,6 +116,16 @@ struct ManualDriveConfig
             double override_steer_force_threshold       = 0.20;
             double override_steer_dev_threshold         = 0.04;
             double override_sustain_time                = 0.10;  // seconds
+            // Rate-gate for the torque-proxy detector. When |d(target)/dt|
+            // exceeds this (axis-fraction per second), the servo is chasing a
+            // moving target and its tracking lag creates non-zero
+            // position_error that MUST NOT be misread as driver intervention.
+            // Detection sustain is reset while above the gate; re-arms when
+            // the target settles. Default 0.30 = ~10% axis-fraction per 333 ms
+            // = comfortably above a slow lane change (spike §2b calibrated
+            // torque proxy against STATIC target only — this gate closes that
+            // real-driving gap; real-machine bug found after commit a43e4c67).
+            double override_target_rate_gate            = 0.30;  // axis-frac / s
         } target_track;
     } ffb;
 

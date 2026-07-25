@@ -169,6 +169,7 @@ struct VirtualDriverConfig
     double ffb_target_track_override_steer_force_threshold       = 0.20;
     double ffb_target_track_override_steer_dev_threshold         = 0.04;
     double ffb_target_track_override_sustain_time                = 0.10;   // seconds
+    double ffb_target_track_override_target_rate_gate            = 0.30;   // axis-frac / s
 
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"

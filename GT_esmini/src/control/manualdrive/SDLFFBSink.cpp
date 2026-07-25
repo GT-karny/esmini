@@ -256,6 +256,7 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
             force += u;
             last_sample_.commanded_force = std::abs(u);
             last_sample_.position_error  = target_norm_ - actual_norm;
+            last_sample_.target_norm     = target_norm_;
             last_sample_.active          = true;
         }
 
@@ -456,6 +457,8 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
     // "how hard is the driver pushing back?" sample. Units throughout are
     // NORMALIZED axis-fraction — matches spike Kp calibration; unrelated to
     // the sim wheel radians used above for SAT/friction/damping.
+    // target_norm is exposed in the sample so OverrideManager can rate-gate
+    // its threshold check (see IFFBSink.hpp / OverrideManager::Update).
     double target_track = 0.0;
     if (target_active_)
     {
@@ -464,6 +467,7 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
                                               servo_state_, servo_cfg_);
         last_sample_.commanded_force = std::abs(target_track);
         last_sample_.position_error  = target_norm_ - actual_norm;
+        last_sample_.target_norm     = target_norm_;
         last_sample_.active          = true;
     }
 

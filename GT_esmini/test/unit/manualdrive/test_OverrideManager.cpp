@@ -546,6 +546,7 @@ TEST(OverrideManagerTest, FfbActiveWithHighPositionErrorLatchesViaTorqueProxy)
     s.active          = true;
     s.commanded_force = 0.50;   // ABOVE force threshold
     s.position_error  = 0.10;   // ABOVE dev threshold
+    // Target is STATIC (rate-gate below not tripped) so torque-proxy fires.
 
     for (int i = 0; i < 6; ++i)   // 120 ms > 100 ms sustain
     {
@@ -555,6 +556,136 @@ TEST(OverrideManagerTest, FfbActiveWithHighPositionErrorLatchesViaTorqueProxy)
     EXPECT_TRUE(m.IsLateralManual());
     // Torque-proxy path fired, not direct-axis path — either way the outcome
     // for the driver is a MANUAL latch when they actually push back.
+}
+
+// --- feature:F7 (F7b) — moving-target rate gate ----------------------------
+//
+// Second-order regression (found on real G29 after commit a43e4c67 shipped):
+//   The Day-1 spike (scripts/ffb_spike/05_torque_proxy.py) calibrated the
+//   |u|>0.20 / |dev|>0.04 / 100 ms-sustain torque-proxy thresholds against a
+//   STATIC target (target=0). In real driving the AD target moves whenever
+//   the ego needs to steer (curve, lane change), and the PID servo's normal
+//   tracking lag creates non-zero position_error and non-zero commanded_force
+//   even without any driver touch. The unguarded threshold check therefore
+//   fires spuriously on every AD steering transient — MANUAL latches without
+//   the driver moving a finger.
+//
+//   Fix: rate-gate on |d(target)/dt|. When the AD target is actively moving
+//   above override_target_rate_gate (default 0.30 axis-frac/s), suppress the
+//   torque-proxy detection AND reset the sustain accumulator. Detection re-
+//   arms when the target settles. This lets the servo track transients
+//   without the manager mistaking normal PID lag for intervention.
+
+TEST(OverrideManagerTest, FfbMovingTargetSuppressesFalsePositive)
+{
+    // Simulates the false-positive real-machine scenario: AD is steering
+    // through a curve (target ramps up), PID lags → position_error and
+    // commanded_force stay above the raw thresholds throughout the transient.
+    // Without the rate-gate the manager would latch MANUAL within 100 ms.
+    // With the rate-gate: moving_target=true, sustain never accumulates.
+    OverrideManager m;
+    ManualDriveConfig cfg = MakeConfigWithFfbThresholds(0.20, 0.04, 0.10);
+    cfg.ffb.target_track.override_target_rate_gate = 0.30;  // axis-frac / s
+    m.Configure(cfg);
+
+    // Target ramps 0 → 0.5 over 2 s = rate 0.25 axis-frac/s, then held.
+    // 0.25 < 0.30 gate? Let's use a rate of 0.5/s to be firmly ABOVE gate.
+    // (target 0 → 1.0 over 2 s @ 50 Hz = 100 frames)
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.50;    // ABOVE force threshold on every frame
+    s.position_error  = 0.20;    // ABOVE dev threshold on every frame
+
+    for (int i = 0; i < 100; ++i)   // 2 s ramp
+    {
+        // 0 → 1.0 linear ramp = rate 0.5 /s (well above 0.30 gate).
+        s.target_norm = 0.01 * static_cast<double>(i);
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    // Even though force AND dev are always above thresholds, the moving
+    // target rate-gates the accumulator and MANUAL never latches.
+    EXPECT_FALSE(m.IsLateralManual());
+    EXPECT_FALSE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbStableTargetAfterMotionAllowsLatch)
+{
+    // Realistic sequence: target moves (transient — must not latch), then
+    // settles (target rate ≈ 0). If the driver is still blocking the wheel
+    // at that point (position_error persists), torque-proxy should latch
+    // shortly after target settles.
+    OverrideManager m;
+    ManualDriveConfig cfg = MakeConfigWithFfbThresholds(0.20, 0.04, 0.10);
+    cfg.ffb.target_track.override_target_rate_gate = 0.30;
+    m.Configure(cfg);
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.50;
+    s.position_error  = 0.20;
+
+    // Phase 1: 2 s ramp (rate 0.5 /s → above gate → no latch)
+    for (int i = 0; i < 100; ++i)
+    {
+        s.target_norm = 0.01 * static_cast<double>(i);
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    ASSERT_FALSE(m.IsLateralManual());
+
+    // Phase 2: target held at 1.0 (rate = 0). Driver still frozen (dev/force
+    // persist above thresholds). Sustain now accumulates.
+    for (int i = 0; i < 6; ++i)   // 120 ms > 100 ms sustain
+    {
+        s.target_norm = 1.0;
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbRateGateResetsSustainOnTargetJerk)
+{
+    // Target settles for a while (sustain accumulates), then abruptly moves
+    // (rate spikes above gate) BEFORE sustain-latch triggers. The gate must
+    // reset the accumulator so that the transient doesn't ride out its final
+    // fraction and false-latch mid-motion.
+    OverrideManager m;
+    ManualDriveConfig cfg = MakeConfigWithFfbThresholds(0.20, 0.04, 0.10);
+    cfg.ffb.target_track.override_target_rate_gate = 0.30;
+    m.Configure(cfg);
+
+    FfbInterventionSample s;
+    s.active          = true;
+    s.commanded_force = 0.50;
+    s.position_error  = 0.20;
+
+    // Phase 1: target static at 0 for 60 ms (accumulate but < 100 ms sustain)
+    for (int i = 0; i < 3; ++i)
+    {
+        s.target_norm = 0.0;
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    // Phase 2: single frame with large target jump → rate spike
+    s.target_norm = 0.5;   // (0.5 - 0.0)/0.02 = 25 /s → gate trips → reset
+    m.UpdateFfbSample(s);
+    m.Update(QuietFrame(), 0.02);
+    // Phase 3: 60 ms more at target=0.5 static.
+    // If rate-gate correctly reset the accumulator in phase 2, sustain
+    // rebuilds from 0 and would need another 100 ms of stability to latch.
+    for (int i = 0; i < 3; ++i)
+    {
+        s.target_norm = 0.5;
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    // Total time at "over threshold + stable" = phase 1 (60 ms) + phase 3
+    // (60 ms) = 120 ms, but phase 2's jerk reset the accumulator, so effective
+    // sustain window is only 60 ms (phase 3) < 100 ms sustain time → no latch.
+    EXPECT_FALSE(m.IsLateralManual());
 }
 
 }  // namespace gt_esmini

@@ -6,6 +6,7 @@
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
+#include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
 #include "gt_esmini/control/manualdrive/StubInputSource.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #ifdef GT_ENABLE_SDL2
@@ -92,6 +93,7 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_steer_force_threshold = vd_config_.ffb_target_track_override_steer_force_threshold;
     io_config_.ffb.target_track.override_steer_dev_threshold   = vd_config_.ffb_target_track_override_steer_dev_threshold;
     io_config_.ffb.target_track.override_sustain_time          = vd_config_.ffb_target_track_override_sustain_time;
+    io_config_.ffb.target_track.override_target_rate_gate      = vd_config_.ffb_target_track_override_target_rate_gate;
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
@@ -101,6 +103,12 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
 #endif
     if (vd_config_.input_type == "network")
         input_source_ = new NetworkInputBridge();
+    else if (vd_config_.input_type == "headless_ffb")
+        // feature:F7 (F7b) — synthetic-wheel + synthetic-FFB source for the
+        // headless closed-loop regression smoke (vd_ffb_headless_smoke.py).
+        // Exists ONLY to exercise the servo-to-override-manager wiring on CI
+        // where no SDL2 wheel is plugged in. Not intended for scenario runs.
+        input_source_ = new HeadlessFfbInput();
     else
         input_source_ = new StubInputSource();
 
