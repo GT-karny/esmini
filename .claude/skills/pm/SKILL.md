@@ -65,6 +65,7 @@ node $cli list-panes --json
    フォルダ信頼プロンプトが出たら `node $cli send-key Enter --pane <ptyId>`。
    - alias `--model opus` は使わない（完全 ID で固定する）。
    - `CLAUDE_CODE_SUBAGENT_MODEL` は v2.1.196+・ペインスコープ・全 subagent に**最優先**で効く（Agent 呼び出しの model 指定より強い＝ワーカー内から個別に Opus へ逃がせない。一律 Sonnet を承知の上の構成）。
+   - **役割分担をキックオフで課す**（ユーザー決定 2026-07-25）: ワーカー(Opus 5)は**オーケストレータに徹し、調査・実装・計測は Sonnet 5 の subagent へ委譲**する。明記しないと Opus が自分で実装してしまう。ワーカー自身の仕事は方針判断・仮説設計・**subagent 報告の検証**・統合・PM への報告。
    - **`--permission-mode auto` の理由**: 権限ダイアログは wmux の read-screen に**描画されないことがある**（AUQ 含む。ワーカーが「Reading…」等で無限静止に見える）。auto は分類器が許可/拒否を代行しプロンプト自体が出ないため、この問題が構造的に消える。危険操作は拒否されるので bypass より安全側。詳細と、auto を使えない場合のフォールバック（Enter プローブ — ただし AUQ の推奨案を代答してしまう副作用あり）は memory: wmux-claude-worker-pitfalls。bypassPermissions 起動や permissions 設定編集は PM の遠隔操作では分類器が一貫拒否＝人間の手のみ。
    - **ガードフックはプロンプト文字列も検査する**: `send` で流す指示文に「Python」等の語があると venv ルールが誤発火してコマンドごと拒否される — 言い換える（memory 同上）。
 3. **タスク送信**: `node $cli send "<プロンプト>" --submit --pane <ptyId>`。日本語はそのまま通る（実測）。
