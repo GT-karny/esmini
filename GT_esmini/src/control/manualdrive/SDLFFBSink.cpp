@@ -24,6 +24,7 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     {
         return false;
     }
+    joystick_ = joystick;   // NOT owned — needed to read physical wheel angle in target-track servo
 
     sat_gain_            = config.ffb.sat_gain;
     sat_centering_gain_  = config.ffb.sat_centering_gain;
@@ -37,10 +38,25 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     assist_high_speed_   = config.ffb.assist_high_speed;
     max_force_           = config.ffb.max_force;
 
+    // feature:F7 (F7b) target-tracking config.
+    target_track_enabled_        = config.ffb.target_track.enabled;
+    servo_cfg_.kp                = config.ffb.target_track.kp;
+    servo_cfg_.kd                = config.ffb.target_track.kd;
+    servo_cfg_.max_force         = config.ffb.target_track.max_force;
+    servo_cfg_.hard_stop_zone    = config.ffb.target_track.hard_stop_zone;
+    ResetSteerServo(servo_state_);
+    target_norm_        = 0.0;
+    target_active_      = false;
+    target_active_prev_ = false;
+    last_sample_        = {};
+
     LOG_INFO("SDLFFBSink: Config loaded — sat_gain={:.3f} centering={:.3f} fric_base={:.3f} fric_spd={:.3f} "
              "damp_base={:.3f} damp_spd={:.3f} assist_lo={:.2f} assist_hi={:.2f} max_force={:.2f}",
              sat_gain_, sat_centering_gain_, friction_base_, friction_speed_gain_,
              damper_base_, damper_speed_gain_, assist_low_speed_, assist_high_speed_, max_force_);
+    LOG_INFO("SDLFFBSink: target_track enabled={} kp={:.2f} kd={:.2f} max_force={:.2f} hard_stop_zone={:.2f}",
+             target_track_enabled_, servo_cfg_.kp, servo_cfg_.kd,
+             servo_cfg_.max_force, servo_cfg_.hard_stop_zone);
 
     if (!SDL_JoystickIsHaptic(joystick))
     {
@@ -91,6 +107,14 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     {
         SDL_HapticEffect effect = {};
         effect.type = SDL_HAPTIC_SPRING;
+        // spike §1b / §3b: G29 rejects condition-effect creation with
+        // "Unable to create effect" unless direction.type is CARTESIAN and
+        // direction.dir[0]=1, even though SDL docs treat direction as ignored
+        // for condition effects. Missing this silently drops us to constant-
+        // force emulation, which currently masks the bug but is not the
+        // intended behaviour on hardware that DOES support SPRING natively.
+        effect.condition.direction.type   = SDL_HAPTIC_CARTESIAN;
+        effect.condition.direction.dir[0] = 1;
         effect.condition.length = SDL_HAPTIC_INFINITY;
         effect.condition.right_coeff[0] = 0;
         effect.condition.left_coeff[0] = 0;
@@ -113,6 +137,8 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     {
         SDL_HapticEffect effect = {};
         effect.type = SDL_HAPTIC_DAMPER;
+        effect.condition.direction.type   = SDL_HAPTIC_CARTESIAN;   // spike §3b, see SPRING above
+        effect.condition.direction.dir[0] = 1;
         effect.condition.length = SDL_HAPTIC_INFINITY;
         effect.condition.right_coeff[0] = 0;
         effect.condition.left_coeff[0] = 0;
@@ -185,7 +211,7 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
         double steering_vel = (steering_pos - prev_steering_) / std::max(dt, 0.001);
         prev_steering_ = steering_pos;
 
-        UpdateCombinedConstantForce(lat_accel, speed, steering_pos, steering_vel);
+        UpdateCombinedConstantForce(lat_accel, speed, steering_pos, steering_vel, dt);
         return;
     }
 
@@ -196,6 +222,25 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
     {
         double assist_ratio = assist_low_speed_ + (assist_high_speed_ - assist_low_speed_) * speed_factor;
         double force = -lat_accel * sat_gain_ * (1.0 - assist_ratio);
+
+        // feature:F7 (F7b) — target-track servo term rides on the CONSTANT
+        // channel in the native path too. The SPRING/DAMPER CARTESIAN fix
+        // above lets G29 create native effects successfully, which switches
+        // this branch on; without adding the servo term here it would silently
+        // stop working. Keep behavior aligned with the emulate_via_constant
+        // branch (see UpdateCombinedConstantForce §5) so target-tracking is
+        // identical regardless of which path is taken.
+        if (target_active_)
+        {
+            const double actual_norm = ReadPhysicalWheelNorm();
+            const double u = ComputeSteerServoForce(target_norm_, actual_norm, dt,
+                                                    servo_state_, servo_cfg_);
+            force += u;
+            last_sample_.commanded_force = std::abs(u);
+            last_sample_.position_error  = target_norm_ - actual_norm;
+            last_sample_.active          = true;
+        }
+
         force = std::clamp(force, -max_force_, max_force_);
         UpdateConstantEffect(force);
     }
@@ -220,6 +265,38 @@ void SDLFFBSink::SetEnabled(bool enabled)
     {
         SDL_HapticStopAll(haptic_);
     }
+}
+
+void SDLFFBSink::SetSteerTarget(double target_norm, bool active)
+{
+    // feature:F7 (F7b) — AD hands the servo a fresh target every frame.
+    // Master gate is target_track_enabled_ (config); the caller can still
+    // pause per-frame via active=false without touching the config.
+    target_norm_       = target_norm;
+    // If the config disables target-tracking, force active=false regardless of caller intent.
+    target_active_     = active && target_track_enabled_;
+    // If the servo just transitioned OFF -> ON, re-prime the derivative so
+    // the first D step is 0 (avoids a bogus initial spike from stale prev_err).
+    if (target_active_ && !target_active_prev_)
+    {
+        ResetSteerServo(servo_state_);
+    }
+    target_active_prev_ = target_active_;
+    // If the servo is OFF, expose an inert sample so OverrideManager never
+    // latches on stale readings (matches FfbSampleInactiveNeverLatches).
+    if (!target_active_)
+    {
+        last_sample_ = {};
+    }
+}
+
+double SDLFFBSink::ReadPhysicalWheelNorm() const
+{
+    if (!joystick_) return 0.0;
+    // Axis 0 is the steering axis; normalize to [-1, +1] exactly like
+    // SDL2WheelInput::NormalizeAxis so target and actual live in one unit space.
+    const int raw = SDL_JoystickGetAxis(joystick_, 0);
+    return static_cast<double>(raw) / 32767.0;
 }
 
 void SDLFFBSink::Close()
@@ -294,7 +371,8 @@ void SDLFFBSink::UpdateDamperEffect(double coefficient)
 }
 
 void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
-                                              double steering_pos, double steering_vel)
+                                              double steering_pos, double steering_vel,
+                                              double dt)
 {
     // === FFB Model v5: Physics-Inspired ===
     //
@@ -353,15 +431,33 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
         soft_stop = -std::copysign(normalized * normalized * soft_stop_gain_, steering_pos);
     }
 
+    // --- 5. Target-track (F7b) ---
+    // Drives the physical wheel toward the AD-commanded angle via a PID servo
+    // against the physical axis (spike script 04). Default OFF so existing
+    // ManualDrive-only behavior is unchanged. Also feeds OverrideManager the
+    // "how hard is the driver pushing back?" sample. Units throughout are
+    // NORMALIZED axis-fraction — matches spike Kp calibration; unrelated to
+    // the sim wheel radians used above for SAT/friction/damping.
+    double target_track = 0.0;
+    if (target_active_)
+    {
+        const double actual_norm = ReadPhysicalWheelNorm();
+        target_track = ComputeSteerServoForce(target_norm_, actual_norm, dt,
+                                              servo_state_, servo_cfg_);
+        last_sample_.commanded_force = std::abs(target_track);
+        last_sample_.position_error  = target_norm_ - actual_norm;
+        last_sample_.active          = true;
+    }
+
     // Combine
-    double total = sat + friction + damping + soft_stop;
+    double total = sat + friction + damping + soft_stop + target_track;
     total = std::clamp(total, -max_force_, max_force_);
 
     static int log_counter = 0;
     if (++log_counter % 50 == 0 || log_counter <= 5)
     {
-        LOG_INFO("SDLFFBSink v5: total={:.3f} (sat_p={:.3f} sat_r={:.3f} fric={:.3f} damp={:.3f} stop={:.3f}) steer={:.3f} lat_a={:.2f} v={:.1f}",
-                 total, sat_predictive, sat_reactive, friction, damping, soft_stop, steering_pos, lat_accel, speed);
+        LOG_INFO("SDLFFBSink v5: total={:.3f} (sat_p={:.3f} sat_r={:.3f} fric={:.3f} damp={:.3f} stop={:.3f} tt={:.3f}) steer={:.3f} lat_a={:.2f} v={:.1f}",
+                 total, sat_predictive, sat_reactive, friction, damping, soft_stop, target_track, steering_pos, lat_accel, speed);
     }
 
     UpdateConstantEffect(total);

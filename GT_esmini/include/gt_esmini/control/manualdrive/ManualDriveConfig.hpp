@@ -96,6 +96,27 @@ struct ManualDriveConfig
         double assist_high_speed   = 0.20;  // power assist ratio at 30 m/s
         double max_force           = 1.0;   // output clamp [-1, 1]
         bool   disable_non_realtime = true;
+
+        // feature:F7 (F7b) — FFB target-angle tracking (AD⇄手動 override).
+        // When enabled, the FFB adds a PID servo term that drives the physical
+        // wheel toward a target angle supplied by the AD stack (via
+        // IFFBSink::SetSteerTarget). The commanded force + position error are
+        // then read by OverrideManager as a torque-proxy intervention signal:
+        // sustained push above the force/dev thresholds latches to MANUAL.
+        // Default OFF so existing behavior (ManualDrive-only FFB) is unchanged.
+        // Numbers from scripts/ffb_spike/README.md §1e/§2e (G29-calibrated,
+        // NORMALIZED axis-fraction units — NOT radians).
+        struct
+        {
+            bool   enabled                              = false;
+            double kp                                   = 4.0;
+            double kd                                   = 0.35;
+            double max_force                            = 0.6;
+            double hard_stop_zone                       = 0.85;
+            double override_steer_force_threshold       = 0.20;
+            double override_steer_dev_threshold         = 0.04;
+            double override_sustain_time                = 0.10;  // seconds
+        } target_track;
     } ffb;
 
     // Domain assignment (lateral / longitudinal)

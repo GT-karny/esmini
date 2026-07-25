@@ -186,6 +186,17 @@ struct VirtualDriverTelemetry
     bool manual_transition = false;  // AUTO -> MANUAL this frame
     bool auto_transition   = false;  // MANUAL -> AUTO this frame (resume-button or timeout)
 
+    // feature:F7 (F7b) — FFB target-tracking servo state. Populated only when
+    // the SDLFFBSink servo is running (ffb.target_track.enabled + AD lateral):
+    // ffb_target_active is the servo-on gate, commanded_force is the last |u|
+    // the PID emitted (axis-fraction units, [0..target_track.max_force]),
+    // position_error is target - physical actual (axis-fraction, signed).
+    // All zero when the servo is idle. Additive fields; JSON serializer emits
+    // them as ffb.{target_active,commanded_force,position_error}.
+    bool   ffb_target_active   = false;
+    double ffb_commanded_force = 0.0;
+    double ffb_position_error  = 0.0;
+
     // Per-layer snapshots.
     ShortPlannerSnapshot   short_plan;
     DriverModelSnapshot    driver;

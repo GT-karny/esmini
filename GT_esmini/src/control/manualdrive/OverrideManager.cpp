@@ -26,6 +26,19 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     just_transitioned_to_manual_ = false;
     just_transitioned_to_auto_   = false;
     prev_resume_pressed_         = false;
+
+    // feature:F7 (F7b) — FFB torque-proxy thresholds. Independent of the
+    // steering_threshold_ used for the direct pedal_steer.steering path.
+    ffb_force_threshold_ = config.ffb.target_track.override_steer_force_threshold;
+    ffb_dev_threshold_   = config.ffb.target_track.override_steer_dev_threshold;
+    ffb_sustain_time_    = config.ffb.target_track.override_sustain_time;
+    ffb_sustain_accum_   = 0.0;
+    ffb_sample_          = {};
+}
+
+void OverrideManager::UpdateFfbSample(const FfbInterventionSample& sample)
+{
+    ffb_sample_ = sample;
 }
 
 void OverrideManager::Update(const InputFrame& input, double dt)
@@ -65,6 +78,10 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         if (lat_configured_manual_)  lat_mode_ = Mode::AUTO;
         if (long_configured_manual_) long_mode_ = Mode::AUTO;
         idle_timer_ = 0.0;
+        // Also reset the FFB sustain accumulator so a still-sustained push after
+        // RESUME gets a fresh sustain window (would otherwise re-latch on the
+        // very next frame). Matches the driver-intent of "no, back to AUTO".
+        ffb_sustain_accum_ = 0.0;
         if (was_any_manual)
             just_transitioned_to_auto_ = true;
         return;  // suppress same-frame intervention re-latch
@@ -93,6 +110,35 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             if (lat_configured_manual_)  lat_active = true;
             if (long_configured_manual_) long_active = true;
         }
+    }
+
+    // feature:F7 (F7b) — FFB torque-proxy path. Fires the lateral latch after
+    // the servo has been actively pushed against for at least sustain_time.
+    // Only meaningful for the LATERAL domain (steering); the pedal path stays
+    // exclusive to the direct throttle/brake threshold check above. Long-only-
+    // scenario setups therefore stay unaffected.
+    if (lat_configured_manual_ && ffb_sample_.active)
+    {
+        const bool over_force = std::abs(ffb_sample_.commanded_force) > ffb_force_threshold_;
+        const bool over_dev   = std::abs(ffb_sample_.position_error)  > ffb_dev_threshold_;
+        if (over_force || over_dev)
+        {
+            ffb_sustain_accum_ += dt;
+            if (ffb_sustain_accum_ >= ffb_sustain_time_)
+            {
+                lat_active = true;
+            }
+        }
+        else
+        {
+            ffb_sustain_accum_ = 0.0;
+        }
+    }
+    else
+    {
+        // Sample missing or servo off: reset the accumulator so a stale burst
+        // can never be revived on the next Configure/enable.
+        ffb_sustain_accum_ = 0.0;
     }
 
 #ifdef GT_ENABLE_OSI_MOTION_REQUEST

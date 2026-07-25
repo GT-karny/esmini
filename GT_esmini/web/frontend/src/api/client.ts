@@ -380,6 +380,18 @@ export interface VirtualDriverConfig {
   sdl2_fog_light_button?: number;
   sdl2_hazard_button?: number;
   sdl2_auto_resume_button?: number;
+
+  // feature:F7 (F7b) — FFB target-tracking (AD wheel following + torque-proxy
+  // override detection). SDL2 wheel only. Default disabled so existing VD
+  // behavior is bit-identical. Units NORMALIZED axis-fraction (spike-calibrated).
+  ffb_target_track_enabled?: boolean;
+  ffb_target_track_kp?: number;
+  ffb_target_track_kd?: number;
+  ffb_target_track_max_force?: number;
+  ffb_target_track_hard_stop_zone?: number;
+  ffb_target_track_override_steer_force_threshold?: number;
+  ffb_target_track_override_steer_dev_threshold?: number;
+  ffb_target_track_override_sustain_time?: number;
 }
 
 export interface ControllerConfig {

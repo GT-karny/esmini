@@ -2,6 +2,7 @@
 
 #ifdef GT_ENABLE_SDL2
 
+#include "gt_esmini/control/manualdrive/FfbTargetServo.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 
 #include <SDL.h>
@@ -20,6 +21,8 @@ public:
     bool Init(SDL_Joystick* joystick, const ManualDriveConfig& config);
     void Update(const osi3::HostVehicleData& state, double dt) override;
     void SetEnabled(bool enabled) override;
+    void SetSteerTarget(double target_norm, bool active) override;
+    FfbInterventionSample GetInterventionSample() const override { return last_sample_; }
     void Close();
 
 private:
@@ -27,10 +30,16 @@ private:
     void UpdateSpringEffect(double coefficient);
     void UpdateDamperEffect(double coefficient);
     void UpdateCombinedConstantForce(double lat_accel, double speed,
-                                     double steering_pos, double steering_vel);
+                                     double steering_pos, double steering_vel,
+                                     double dt);
 
-    SDL_Haptic* haptic_ = nullptr;
-    bool        enabled_ = true;
+    // Read the raw physical wheel angle in normalized axis-fraction [-1, +1].
+    // Returns 0 if no joystick — the servo term then evaluates to 0 too.
+    double ReadPhysicalWheelNorm() const;
+
+    SDL_Joystick* joystick_ = nullptr;  // NOT owned — SDL2WheelInput owns it
+    SDL_Haptic*   haptic_   = nullptr;
+    bool          enabled_  = true;
 
     // Effect IDs (-1 = not created)
     int constant_effect_id_ = -1;
@@ -60,6 +69,15 @@ private:
 
     // State for emulation
     double prev_steering_ = 0.0;
+
+    // feature:F7 (F7b) — target-tracking (AD wheel following)
+    bool                  target_track_enabled_ = false;  // config: master on/off
+    SteerServoConfig      servo_cfg_            = {};
+    SteerServoState       servo_state_          = {};
+    double                target_norm_          = 0.0;
+    bool                  target_active_        = false;  // per-tick input from AD
+    bool                  target_active_prev_   = false;
+    FfbInterventionSample last_sample_          = {};
 };
 
 } // namespace gt_esmini

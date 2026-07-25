@@ -166,6 +166,17 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("max_force", ffb.max_force);
         parse_bool("disable_non_realtime", ffb.disable_non_realtime);
 
+        // FFB target-tracking (F7b). Flat unique keys under ffb; the JSON
+        // groups them into an "ffb.target_track" object purely for humans.
+        parse_bool  ("target_track_enabled",                         ffb.target_track.enabled);
+        parse_double("target_track_kp",                              ffb.target_track.kp);
+        parse_double("target_track_kd",                              ffb.target_track.kd);
+        parse_double("target_track_max_force",                       ffb.target_track.max_force);
+        parse_double("target_track_hard_stop_zone",                  ffb.target_track.hard_stop_zone);
+        parse_double("target_track_override_steer_force_threshold",  ffb.target_track.override_steer_force_threshold);
+        parse_double("target_track_override_steer_dev_threshold",    ffb.target_track.override_steer_dev_threshold);
+        parse_double("target_track_override_sustain_time",           ffb.target_track.override_sustain_time);
+
         // Domain assignment
         parse_string("lateral", domain.lateral);
         parse_string("longitudinal", domain.longitudinal);
@@ -183,6 +194,11 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
              "assist_lo={:.2f} assist_hi={:.2f} max_force={:.2f}",
              ffb.sat_gain, ffb.sat_centering_gain, ffb.friction_base,
              ffb.assist_low_speed, ffb.assist_high_speed, ffb.max_force);
+    LOG_INFO("ManualDriveConfig: FFB target_track enabled={} kp={:.2f} kd={:.2f} max_force={:.2f} "
+             "force_thr={:.3f} dev_thr={:.3f} sustain={:.3f}s",
+             ffb.target_track.enabled, ffb.target_track.kp, ffb.target_track.kd,
+             ffb.target_track.max_force, ffb.target_track.override_steer_force_threshold,
+             ffb.target_track.override_steer_dev_threshold, ffb.target_track.override_sustain_time);
 
     return true;
 }

@@ -2,6 +2,7 @@
 #include "gt_esmini/control/common/JunctionTurn.hpp"
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/common/TransitionDynamics.hpp"
+#include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
@@ -79,6 +80,18 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.sdl2.fog_light_button       = vd_config_.sdl2_fog_light_button;
     io_config_.sdl2.hazard_button          = vd_config_.sdl2_hazard_button;
     io_config_.sdl2.auto_resume_button     = vd_config_.sdl2_auto_resume_button;  // feature:F7
+
+    // feature:F7 (F7b) — FFB target-track config propagates from VD flat keys
+    // into the shared ManualDriveConfig struct that SDLFFBSink + OverrideManager
+    // both read. Default enabled=false → existing VD behavior unchanged.
+    io_config_.ffb.target_track.enabled                        = vd_config_.ffb_target_track_enabled;
+    io_config_.ffb.target_track.kp                             = vd_config_.ffb_target_track_kp;
+    io_config_.ffb.target_track.kd                             = vd_config_.ffb_target_track_kd;
+    io_config_.ffb.target_track.max_force                      = vd_config_.ffb_target_track_max_force;
+    io_config_.ffb.target_track.hard_stop_zone                 = vd_config_.ffb_target_track_hard_stop_zone;
+    io_config_.ffb.target_track.override_steer_force_threshold = vd_config_.ffb_target_track_override_steer_force_threshold;
+    io_config_.ffb.target_track.override_steer_dev_threshold   = vd_config_.ffb_target_track_override_steer_dev_threshold;
+    io_config_.ffb.target_track.override_sustain_time          = vd_config_.ffb_target_track_override_sustain_time;
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
@@ -203,6 +216,17 @@ void ControllerVirtualDriver::Step(double timeStep)
 
     // 1. Poll input + override decision
     InputFrame frame = input_source_->Poll(timeStep);
+
+    // 1a. feature:F7 (F7b) FFB torque-proxy: feed OverrideManager last frame's
+    // servo sample so the driver push-back can latch to MANUAL. Sample is
+    // inert (active=false) unless the target-track servo is running (config
+    // gate ffb.target_track.enabled + AD lateral, wired below in step 6).
+    IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr;
+    if (ffb)
+    {
+        override_mgr_.UpdateFfbSample(ffb->GetInterventionSample());
+    }
+
     override_mgr_.Update(frame, timeStep);
     const bool lat_manual = override_mgr_.IsLateralManual();
     const bool lon_manual = override_mgr_.IsLongitudinalManual();
@@ -337,6 +361,19 @@ void ControllerVirtualDriver::Step(double timeStep)
     // 5. Physics step
     osi3::HostVehicleData hvd = physics_backend_->StepPedalSteer(cmd, timeStep);
 
+    // 5a. feature:F7 (F7b) FFB target-track servo update. AD's commanded wheel
+    // angle (auto_cmd.steering, normalized [-1..1]) is handed to the servo so
+    // it drives the physical wheel to follow. active=true only when AD owns
+    // lateral (lat_manual=false); the config master gate ffb.target_track.enabled
+    // lives inside SDLFFBSink::SetSteerTarget so it always wins over active.
+    // Order matters: SetSteerTarget BEFORE ffb->Update so the servo evaluates
+    // against the fresh target this frame.
+    if (ffb)
+    {
+        ffb->SetSteerTarget(auto_cmd.steering, /*active=*/!lat_manual);
+        ffb->Update(hvd, timeStep);
+    }
+
     // 6. Extract resolved vehicle state from HVD
     double pos_x = 0.0, pos_y = 0.0, pos_z = 0.0, heading = 0.0, speed = 0.0, wheel_angle = 0.0;
     if (hvd.has_location())
@@ -397,6 +434,21 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.override_longitudinal = lon_manual;
     telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
     telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+    // feature:F7 (F7b) FFB target-track observability. Sample this frame's
+    // servo state (populated by ffb->Update above; inert when servo is off).
+    if (ffb)
+    {
+        const FfbInterventionSample s   = ffb->GetInterventionSample();
+        telemetry_.ffb_target_active    = s.active;
+        telemetry_.ffb_commanded_force  = s.commanded_force;
+        telemetry_.ffb_position_error   = s.position_error;
+    }
+    else
+    {
+        telemetry_.ffb_target_active    = false;
+        telemetry_.ffb_commanded_force  = 0.0;
+        telemetry_.ffb_position_error   = 0.0;
+    }
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
     telemetry_.policy                = policy_snap;

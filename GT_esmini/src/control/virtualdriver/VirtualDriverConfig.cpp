@@ -107,6 +107,14 @@ const DoubleField kDoubleFields[] = {
     {"throttle_threshold", &VirtualDriverConfig::throttle_threshold},
     {"brake_threshold", &VirtualDriverConfig::brake_threshold},
     {"auto_return_timeout", &VirtualDriverConfig::auto_return_timeout},
+    // F7b FFB target-track (flat keys; propagated into io_config_.ffb.target_track in the controller).
+    {"ffb_target_track_kp",                              &VirtualDriverConfig::ffb_target_track_kp},
+    {"ffb_target_track_kd",                              &VirtualDriverConfig::ffb_target_track_kd},
+    {"ffb_target_track_max_force",                       &VirtualDriverConfig::ffb_target_track_max_force},
+    {"ffb_target_track_hard_stop_zone",                  &VirtualDriverConfig::ffb_target_track_hard_stop_zone},
+    {"ffb_target_track_override_steer_force_threshold",  &VirtualDriverConfig::ffb_target_track_override_steer_force_threshold},
+    {"ffb_target_track_override_steer_dev_threshold",    &VirtualDriverConfig::ffb_target_track_override_steer_dev_threshold},
+    {"ffb_target_track_override_sustain_time",           &VirtualDriverConfig::ffb_target_track_override_sustain_time},
 };
 
 const BoolField kBoolFields[] = {
@@ -122,6 +130,7 @@ const BoolField kBoolFields[] = {
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
     {"override_button", &VirtualDriverConfig::override_button},
+    {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
 };
 
 const IntField kIntFields[] = {

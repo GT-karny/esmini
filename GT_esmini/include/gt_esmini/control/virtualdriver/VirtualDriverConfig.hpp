@@ -156,6 +156,20 @@ struct VirtualDriverConfig
     std::string override_lateral       = "manual";    // "manual" (overridable) | "scenario" (locked auto)
     std::string override_longitudinal  = "manual";
 
+    // --- FFB target-track (F7b) — copied into io_config_.ffb.target_track ---
+    // Flat keys (VD config style; the equivalent lives under ffb.target_track in
+    // ManualDriveConfig). Defaults match scripts/ffb_spike/README.md §1e/§2e —
+    // NORMALIZED axis-fraction units (not radians). enabled=false so existing
+    // VD behavior is bit-identical unless opt-in.
+    bool   ffb_target_track_enabled                              = false;
+    double ffb_target_track_kp                                   = 4.0;
+    double ffb_target_track_kd                                   = 0.35;
+    double ffb_target_track_max_force                            = 0.6;
+    double ffb_target_track_hard_stop_zone                       = 0.85;
+    double ffb_target_track_override_steer_force_threshold       = 0.20;
+    double ffb_target_track_override_steer_dev_threshold         = 0.04;
+    double ffb_target_track_override_sustain_time                = 0.10;   // seconds
+
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"
     int         input_port = 9100;

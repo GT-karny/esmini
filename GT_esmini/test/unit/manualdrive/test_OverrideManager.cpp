@@ -213,4 +213,219 @@ TEST(OverrideManagerTest, ResumeRequiresRisingEdge)
     EXPECT_TRUE(m.JustTransitionedToAuto());
 }
 
+// --- feature:F7 (F7b) — FFB torque-proxy intervention path -----------------
+//
+// The FFB target-tracking servo (SDLFFBSink target_track) exposes a "how hard
+// is the driver pushing against the servo?" sample every frame. This block
+// wires that sample into OverrideManager so a physical steering push against
+// AD becomes a latch to MANUAL, subject to a debounce (spike §2d release-
+// transient concerns) and the existing scenario / RESUME rules.
+//
+// Config lives under ffb.target_track (spike §3c) and only takes effect when
+// UpdateFfbSample() is called with active=true (the servo is running).
+
+namespace
+{
+
+ManualDriveConfig MakeConfigWithFfbThresholds(double force_thr = 0.20,
+                                              double dev_thr   = 0.04,
+                                              double sustain_s = 0.10)
+{
+    ManualDriveConfig cfg = MakeConfig();
+    cfg.ffb.target_track.override_steer_force_threshold = force_thr;
+    cfg.ffb.target_track.override_steer_dev_threshold   = dev_thr;
+    cfg.ffb.target_track.override_sustain_time          = sustain_s;
+    return cfg;
+}
+
+// Fresh AUTO-mode frame with no manual input.
+InputFrame QuietFrame() { return MakeFrame(0.0, 0.0, 0.0, 0u); }
+
+}  // namespace
+
+TEST(OverrideManagerTest, FfbSampleInactiveNeverLatches)
+{
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds());
+
+    FfbInterventionSample sample;
+    sample.active           = false;   // servo off — sample must be ignored
+    sample.commanded_force  = 1.0;     // way over threshold
+    sample.position_error   = 1.0;     // way over threshold
+
+    for (int i = 0; i < 100; ++i)  // 2 s at 50 Hz — plenty over any sustain
+    {
+        m.UpdateFfbSample(sample);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+    EXPECT_FALSE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, FfbSampleBelowThresholdsNeverLatches)
+{
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(/*force*/0.20, /*dev*/0.04));
+
+    FfbInterventionSample sample;
+    sample.active          = true;
+    sample.commanded_force = 0.15;   // below 0.20
+    sample.position_error  = 0.03;   // below 0.04
+
+    for (int i = 0; i < 100; ++i)
+    {
+        m.UpdateFfbSample(sample);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbSampleShortBurstDoesNotLatch)
+{
+    // Over threshold for less than sustain time — must NOT latch.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, /*sustain=*/0.10));
+
+    FfbInterventionSample s;
+    s.active = true;
+    s.commanded_force = 0.50;   // above force threshold
+    s.position_error  = 0.00;
+
+    // 4 frames × 20 ms = 80 ms < 100 ms sustain
+    for (int i = 0; i < 4; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbSampleSustainedForceLatchesLateral)
+{
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active = true;
+    s.commanded_force = 0.50;
+    s.position_error  = 0.00;
+
+    // 6 × 20 ms = 120 ms > 100 ms sustain
+    for (int i = 0; i < 6; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_FALSE(m.IsLongitudinalManual());  // lateral only — pedal path untouched
+}
+
+TEST(OverrideManagerTest, FfbSampleSustainedDevAloneLatches)
+{
+    // dev channel alone (spike §2e fallback) must also fire.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample s;
+    s.active = true;
+    s.commanded_force = 0.10;   // below force threshold
+    s.position_error  = 0.10;   // above dev threshold
+
+    for (int i = 0; i < 6; ++i)
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_TRUE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbSustainResetsWhenSignalDrops)
+{
+    // Signal above threshold, then drops (below threshold), then above again.
+    // The sustain timer must reset on the drop; otherwise a series of short
+    // pushes would eventually accumulate into a spurious latch.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample hi; hi.active = true; hi.commanded_force = 0.50;
+    FfbInterventionSample lo; lo.active = true; lo.commanded_force = 0.05;
+
+    // 3 × 20 ms hi = 60 ms
+    for (int i = 0; i < 3; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
+    // 3 × 20 ms lo — sustain resets
+    for (int i = 0; i < 3; ++i) { m.UpdateFfbSample(lo); m.Update(QuietFrame(), 0.02); }
+    // 4 × 20 ms hi = 80 ms — still under 100 ms
+    for (int i = 0; i < 4; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
+
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbScenarioLateralIsImmuneToFfbIntervention)
+{
+    // domain.lateral="scenario" locks lateral to AUTO. FFB thresholds crossed
+    // sustainably must NOT latch it to MANUAL.
+    OverrideManager m;
+    ManualDriveConfig cfg = MakeConfigWithFfbThresholds();
+    cfg.domain.lateral = "scenario";
+    m.Configure(cfg);
+
+    FfbInterventionSample s;
+    s.active = true;
+    s.commanded_force = 1.0;
+    s.position_error  = 1.0;
+
+    for (int i = 0; i < 50; ++i)  // 1 s well past sustain
+    {
+        m.UpdateFfbSample(s);
+        m.Update(QuietFrame(), 0.02);
+    }
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbLatchHoldsAcrossReleaseTransient)
+{
+    // Spike §2d: after a firm hold, the PID overshoots for ~400 ms releasing.
+    // Once latched, the existing OverrideManager latch model must keep MANUAL
+    // regardless of what the FFB sample does — clearing goes through RESUME
+    // (below), never through "sample dropped below threshold".
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample hi; hi.active = true; hi.commanded_force = 0.50;
+    for (int i = 0; i < 6; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
+    ASSERT_TRUE(m.IsLateralManual());
+
+    // Simulate release: signal goes below threshold. Latch stays.
+    FfbInterventionSample lo; lo.active = true; lo.commanded_force = 0.03;
+    for (int i = 0; i < 50; ++i) { m.UpdateFfbSample(lo); m.Update(QuietFrame(), 0.02); }
+    EXPECT_TRUE(m.IsLateralManual());
+
+    // Simulate the release overshoot: signal spikes back above threshold.
+    // Latch still stays (already MANUAL — nothing to change).
+    FfbInterventionSample spike; spike.active = true; spike.commanded_force = 0.55;
+    for (int i = 0; i < 30; ++i) { m.UpdateFfbSample(spike); m.Update(QuietFrame(), 0.02); }
+    EXPECT_TRUE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, FfbResumeEdgeWinsOverSustainedFfbSameFrame)
+{
+    // Sustained FFB (would latch on its own) + a RESUME rising edge on the
+    // same frame: RESUME wins. The frame after RESUME releases, FFB is still
+    // sustained (state carried over) — that frame IS allowed to re-latch.
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfbThresholds(0.20, 0.04, 0.10));
+
+    FfbInterventionSample hi; hi.active = true; hi.commanded_force = 0.50;
+
+    // Latch MANUAL via sustained FFB.
+    for (int i = 0; i < 6; ++i) { m.UpdateFfbSample(hi); m.Update(QuietFrame(), 0.02); }
+    ASSERT_TRUE(m.IsLateralManual());
+
+    // Same frame: RESUME pressed AND FFB still sustained.
+    m.UpdateFfbSample(hi);
+    m.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::AUTO_RESUME), 0.02);
+    EXPECT_FALSE(m.IsAnyManual());               // RESUME edge wins
+    EXPECT_TRUE(m.JustTransitionedToAuto());
+}
+
 }  // namespace gt_esmini

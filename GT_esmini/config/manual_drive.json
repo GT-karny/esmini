@@ -62,7 +62,16 @@
         "assist_low_speed": 0.90,
         "assist_high_speed": 0.20,
         "max_force": 1.0,
-        "disable_non_realtime": true
+        "disable_non_realtime": true,
+        "_target_track": "F7b: AD wheel following + torque-proxy override detection. Default OFF so pure ManualDrive behavior is unchanged. Units NORMALIZED axis-fraction (spike-calibrated). VD uses the equivalent ffb_target_track_* keys in virtual_driver.json.",
+        "target_track_enabled": false,
+        "target_track_kp": 4.0,
+        "target_track_kd": 0.35,
+        "target_track_max_force": 0.6,
+        "target_track_hard_stop_zone": 0.85,
+        "target_track_override_steer_force_threshold": 0.20,
+        "target_track_override_steer_dev_threshold": 0.04,
+        "target_track_override_sustain_time": 0.10
     },
     "override": {
         "enabled": true,

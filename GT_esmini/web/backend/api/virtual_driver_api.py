@@ -46,6 +46,8 @@ _BOOL_KEYS = frozenset(
         "crosswalk_ped_signal_aware",
         "override_enabled",
         "override_button",
+        # feature:F7 (F7b) — FFB target-tracking master gate.
+        "ffb_target_track_enabled",
     }
 )
 _NUMBER_KEYS = frozenset(
@@ -116,6 +118,16 @@ _NUMBER_KEYS = frozenset(
         "throttle_threshold",
         "brake_threshold",
         "auto_return_timeout",
+        # feature:F7 (F7b) — FFB target-tracking numeric gains / thresholds.
+        # Units are NORMALIZED axis-fraction (spike-calibrated); see
+        # scripts/ffb_spike/README.md §1e/§2e.
+        "ffb_target_track_kp",
+        "ffb_target_track_kd",
+        "ffb_target_track_max_force",
+        "ffb_target_track_hard_stop_zone",
+        "ffb_target_track_override_steer_force_threshold",
+        "ffb_target_track_override_steer_dev_threshold",
+        "ffb_target_track_override_sustain_time",
     }
 )
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
@@ -275,6 +287,21 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "sdl2_fog_light_button": -1,
     "sdl2_hazard_button": -1,
     "sdl2_auto_resume_button": 3,
+    "_ffb_target_track": (
+        "feature:F7 (F7b) FFB target-tracking — SDLFFBSink drives the wheel "
+        "toward AD's commanded angle, and OverrideManager treats a sustained "
+        "driver push-back as a MANUAL latch (torque-proxy). Units NORMALIZED "
+        "axis-fraction (spike scripts/ffb_spike/README.md §1e/§2e). SDL2 wheel "
+        "only. Default OFF so existing VD behavior is bit-identical."
+    ),
+    "ffb_target_track_enabled": False,
+    "ffb_target_track_kp": 4.0,
+    "ffb_target_track_kd": 0.35,
+    "ffb_target_track_max_force": 0.6,
+    "ffb_target_track_hard_stop_zone": 0.85,
+    "ffb_target_track_override_steer_force_threshold": 0.20,
+    "ffb_target_track_override_steer_dev_threshold": 0.04,
+    "ffb_target_track_override_sustain_time": 0.10,
 }
 
 

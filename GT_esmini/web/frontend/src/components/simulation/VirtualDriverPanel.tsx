@@ -42,6 +42,12 @@ const EDITABLE_KEYS = [
   'sdl2_upshift_button', 'sdl2_downshift_button',
   'sdl2_headlight_button', 'sdl2_high_beam_button', 'sdl2_fog_light_button',
   'sdl2_hazard_button', 'sdl2_auto_resume_button',
+  // feature:F7 (F7b) FFB target-tracking (AD wheel following + torque-proxy override).
+  'ffb_target_track_enabled', 'ffb_target_track_kp', 'ffb_target_track_kd',
+  'ffb_target_track_max_force', 'ffb_target_track_hard_stop_zone',
+  'ffb_target_track_override_steer_force_threshold',
+  'ffb_target_track_override_steer_dev_threshold',
+  'ffb_target_track_override_sustain_time',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -374,6 +380,53 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
             onChange={setNum('sdl2_fog_light_button')} />
           <NumberInput label="Hazard" step={1} value={cfg.sdl2_hazard_button ?? -1}
             onChange={setNum('sdl2_hazard_button')} />
+        </div>
+      </section>
+
+      {/* AD Wheel Following (FFB target-tracking) — feature:F7 (F7b).
+          SDL2 wheel only; the servo drives the physical wheel to follow AD's
+          commanded angle, and a sustained driver push back against it latches
+          to MANUAL (torque-proxy override). Default OFF so existing VD
+          behavior is bit-identical. Units are NORMALIZED axis-fraction
+          (spike-calibrated, scripts/ffb_spike/README.md §1e/§2e). */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Wheel Following (FFB)
+        </h3>
+        <p className="text-[10px] text-text-tertiary mb-2 leading-tight">
+          Drives the physical wheel to follow AD's commanded steering (SDL2 only).
+          A sustained push against the servo latches to MANUAL. Default OFF;
+          calibrate thresholds on the real bench.
+        </p>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable AD wheel following"
+            checked={Boolean(cfg.ffb_target_track_enabled)}
+            onChange={(v) => set('ffb_target_track_enabled', v)}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="Kp (servo P gain)" step={0.1}
+            value={cfg.ffb_target_track_kp ?? 4.0}
+            onChange={setNum('ffb_target_track_kp')} />
+          <NumberInput label="Kd (servo D gain)" step={0.05}
+            value={cfg.ffb_target_track_kd ?? 0.35}
+            onChange={setNum('ffb_target_track_kd')} />
+          <NumberInput label="Max force (0..1)" step={0.05}
+            value={cfg.ffb_target_track_max_force ?? 0.6}
+            onChange={setNum('ffb_target_track_max_force')} />
+          <NumberInput label="Hard-stop zone (|axis|)" step={0.01}
+            value={cfg.ffb_target_track_hard_stop_zone ?? 0.85}
+            onChange={setNum('ffb_target_track_hard_stop_zone')} />
+          <NumberInput label="Override force threshold" step={0.01}
+            value={cfg.ffb_target_track_override_steer_force_threshold ?? 0.20}
+            onChange={setNum('ffb_target_track_override_steer_force_threshold')} />
+          <NumberInput label="Override deviation threshold" step={0.005}
+            value={cfg.ffb_target_track_override_steer_dev_threshold ?? 0.04}
+            onChange={setNum('ffb_target_track_override_steer_dev_threshold')} />
+          <NumberInput label="Override sustain (s)" step={0.01}
+            value={cfg.ffb_target_track_override_sustain_time ?? 0.10}
+            onChange={setNum('ffb_target_track_override_sustain_time')} />
         </div>
       </section>
 
