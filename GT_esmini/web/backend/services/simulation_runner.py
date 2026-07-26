@@ -170,10 +170,13 @@ def _generate_virtual_driver_variant(
     (full-physics virtual driver) and activates it on both domains.
 
     When ``enable_override`` is set (default), a per-run virtual_driver.json is
-    written next to the variant with ``input_type=network`` and the controller's
-    ``ConfigFile`` property points at it, so the web manual-override panel can
-    inject pedal/steer/indicator commands over UDP at any time. With no input the
-    NetworkInputBridge stays empty and the auto pipeline drives normally.
+    written next to the variant (see ``_write_virtual_driver_config`` for how
+    input_type is chosen) and the controller's ``ConfigFile`` property points
+    at it. With the default "network" input_type the web manual-override
+    panel can inject pedal/steer/indicator commands over UDP at any time; with
+    no input the NetworkInputBridge stays empty and the auto pipeline drives
+    normally. Choosing "sdl2_wheel" instead hands input over to a physical
+    wheel and the web override panel has nothing to drive.
     """
     import xml.etree.ElementTree as ET
 
@@ -266,12 +269,25 @@ _VD_POLICY_FLAG = {
 def _write_virtual_driver_config(
     output_dir: Path, policies: list[str] | None = None
 ) -> Path:
-    """Write a per-run virtual_driver.json that enables network manual input.
+    """Write a per-run virtual_driver.json, respecting the user's input_type.
 
-    Starts from the shipped config/virtual_driver.json (preserving tuned gains)
-    and forces input_type=network so the web override panel (/ws/input) can drive
-    the ego. ``policies`` enables the listed Phase-3 traffic policies (opt-in per
-    scenario; default none). Returns the absolute path for the ConfigFile property.
+    Starts from the shipped config/virtual_driver.json (preserving tuned gains
+    AND the input_type the user chose via PUT /api/virtual-driver/config —
+    see virtual_driver_api.py's _STRING_ENUM_KEYS). We only default a base
+    input_type of "stub" (the shipped, never-configured default) up to
+    "network", so the web override panel (/ws/input) keeps driving the ego out
+    of the box for anyone who has never touched the setting. An explicit
+    "network" or "sdl2_wheel" choice passes through unmodified.
+
+    Note: choosing "sdl2_wheel" means NetworkInputBridge is never constructed
+    for the run (see ControllerVirtualDriver.cpp's input-source selection), so
+    the /ws/input manual-override panel has nothing to drive — a physical
+    SDL2 wheel owns lateral/longitudinal input instead. This is surfaced to
+    the user in VirtualDriverPanel.tsx next to the input-source selector.
+
+    ``policies`` enables the listed Phase-3 traffic policies (opt-in per
+    scenario; default none). Returns the absolute path for the ConfigFile
+    property.
     """
     base_config_path = CONFIG_DIR / "virtual_driver.json"
     base: dict = {}
@@ -281,7 +297,8 @@ def _write_virtual_driver_config(
         except (json.JSONDecodeError, OSError):
             base = {}
 
-    base["input_type"] = "network"
+    if base.get("input_type", "stub") == "stub":
+        base["input_type"] = "network"
     base.setdefault("input_port", DEFAULT_VD_INPUT_PORT)
     base.setdefault("input_transport", "udp")
 

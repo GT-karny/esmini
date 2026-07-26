@@ -11,10 +11,13 @@ interface VirtualDriverPanelProps {
 }
 
 // Editable keys only — the GET payload also carries "_..." comment keys and the
-// runner-owned input_type/input_port/input_transport/vehicle_params_file keys
-// (see virtual_driver_api.py _EXCLUDED_KEYS); those must never enter form state
-// or be sent back on PUT (the backend rejects them with 422).
+// runner-owned input_port/input_transport/vehicle_params_file keys (see
+// virtual_driver_api.py _EXCLUDED_KEYS); those must never enter form state or
+// be sent back on PUT (the backend rejects them with 422). input_type IS
+// editable (moved to _STRING_ENUM_KEYS) — the runner only defaults it
+// (stub -> network) rather than owning it outright.
 const EDITABLE_KEYS = [
+  'input_type',
   'policy_lead_enabled', 'policy_traffic_light_enabled', 'policy_stop_yield_enabled',
   'policy_conflict_enabled', 'policy_crosswalk_enabled', 'policy_junction_priority_enabled',
   'policy_aeb_enabled',
@@ -156,6 +159,30 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <em> next</em> run.
         </span>
       </p>
+
+      {/* Input source */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          Input Source
+        </h3>
+        <SelectInput
+          label="Input type"
+          value={cfg.input_type ?? 'stub'}
+          onChange={(e) => set('input_type', e.target.value as VirtualDriverConfig['input_type'])}
+        >
+          <option value="network">Network (web override panel)</option>
+          <option value="sdl2_wheel">SDL2 wheel (physical wheel)</option>
+          <option value="stub">Stub (no manual input)</option>
+        </SelectInput>
+        <p className="text-[10px] text-text-tertiary mt-1.5 leading-tight">
+          "Network" is required for the browser's manual-override panel
+          (<span className="font-mono">/ws/input</span>) to be able to drive the ego — this is
+          also what an unconfigured run defaults to. Switching to "SDL2 wheel" hands
+          lateral/longitudinal input to a physical wheel instead, and the browser override
+          panel then has nothing to drive. "Stub" disables manual input entirely (the AD
+          pipeline drives alone). Takes effect on the next run.
+        </p>
+      </section>
 
       {/* Policies */}
       <section>

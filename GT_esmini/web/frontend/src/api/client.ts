@@ -316,6 +316,12 @@ export interface VirtualDriverConfig {
   ad_steering_envelope_steer_jerk_max?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
+  // Input source for the run. "network" (default when never configured — see
+  // simulation_runner.py's _write_virtual_driver_config) feeds NetworkInputBridge,
+  // which is what the web override panel (/ws/input) drives; "sdl2_wheel" hands
+  // input to a physical wheel instead, and the web override panel then has
+  // nothing to drive; "stub" means no manual input source at all.
+  input_type?: 'stub' | 'network' | 'sdl2_wheel';
   // Indicator
   indicator_lead_time?: number;
   indicator_min_on_time?: number;

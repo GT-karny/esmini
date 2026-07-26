@@ -138,11 +138,29 @@ def test_get_defaults_matches_factory_dict(sandbox):
 
 
 def test_put_rejects_excluded_runner_owned_key(sandbox):
-    # input_type / input_port / input_transport / vehicle_params_file are owned by
+    # input_port / input_transport / vehicle_params_file are owned by
     # _write_virtual_driver_config (simulation_runner.py) — a GUI edit must not
-    # fight the per-run writer.
+    # fight the per-run writer. input_type is NOT excluded (see below) — it
+    # is GUI-editable so the user's chosen input source reaches the run.
     with pytest.raises(HTTPException) as exc:
-        _run(virtual_driver_api.update_config({"input_type": "network"}))
+        _run(virtual_driver_api.update_config({"input_port": 9999}))
+    assert exc.value.status_code == 422
+    assert not sandbox.exists()
+
+
+def test_put_accepts_input_type_choices(sandbox):
+    # input_type moved to _STRING_ENUM_KEYS: the GUI can now choose the run's
+    # input source, and simulation_runner._write_virtual_driver_config reads
+    # it back as the base (see test_simulation_runner_vd_config.py).
+    for choice in ("stub", "network", "sdl2_wheel"):
+        written = _run(virtual_driver_api.update_config({"input_type": choice}))
+        assert written["input_type"] == choice
+        assert _run(virtual_driver_api.get_config())["input_type"] == choice
+
+
+def test_put_rejects_invalid_input_type(sandbox):
+    with pytest.raises(HTTPException) as exc:
+        _run(virtual_driver_api.update_config({"input_type": "headless_ffb"}))
     assert exc.value.status_code == 422
     assert not sandbox.exists()
 

@@ -4,13 +4,21 @@ Mirrors ``auto_light_api`` (audit WEB-*, GitHub issue #33): reads/writes the
 shared config file ``CONFIG_DIR / virtual_driver.json`` — the same file
 ``ConfigLoader::ResolveConfigPath`` resolves at runtime and that
 ``_write_virtual_driver_config()`` (services/simulation_runner.py) reads as its
-base for every run before forcing ``input_type=network`` and additively
-enabling scenario ``<Property name="policies">`` policies. Editing the shared
-file here is therefore automatically picked up on the next run — no runner
-change is needed for persistence.
+base for every run, additively enabling scenario
+``<Property name="policies">`` policies. Editing the shared file here is
+therefore automatically picked up on the next run — no runner change is
+needed for persistence.
 
-Deliberately EXCLUDED from the known/editable keys: ``input_type``,
-``input_port``, ``input_transport``, ``vehicle_params_file`` — the runner
+``input_type`` is editable here (string-enum key; see ``_STRING_ENUM_KEYS``)
+so the GUI can choose the run's input source. ``_write_virtual_driver_config``
+still defaults a ``"stub"`` (the shipped default, meaning nothing was ever
+chosen) up to ``"network"`` so the web override panel (``/ws/input``) keeps
+working out of the box, but an explicit ``"network"`` or ``"sdl2_wheel"``
+choice made here passes through unmodified — see that function's docstring
+for the "sdl2_wheel disables the override panel" caveat.
+
+Deliberately EXCLUDED from the known/editable keys: ``input_port``,
+``input_transport``, ``vehicle_params_file`` — the runner
 (``_write_virtual_driver_config``) owns those at run time and a GUI edit must
 not fight it. GET still returns them (they live in the on-disk file, returned
 verbatim); PUT rejects them as unknown (422).
@@ -168,9 +176,18 @@ _NUMBER_KEYS = frozenset(
 # returns them verbatim (on-disk truth); PUT rejects them as unknown (422).
 # Not exposed in the GUI either — see VirtualDriverPanel.tsx.
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
+# ``input_type`` is the run's input source (see ControllerVirtualDriver.cpp's
+# input-source selection): "sdl2_wheel" only when GT_ENABLE_SDL2, "network"
+# drives NetworkInputBridge (what the web /ws/input override panel targets),
+# anything else (including "stub") falls back to StubInputSource. Note
+# "headless_ffb" is ALSO accepted by the C++ side but is deliberately NOT
+# offered here — VirtualDriverConfig.hpp/ControllerVirtualDriver.cpp document
+# it as existing only for the headless FFB closed-loop regression smoke
+# (vd_ffb_headless_smoke.py), not for scenario/GUI runs.
 _STRING_ENUM_KEYS: dict[str, frozenset[str]] = {
     "override_lateral": frozenset({"manual", "scenario"}),
     "override_longitudinal": frozenset({"manual", "scenario"}),
+    "input_type": frozenset({"stub", "network", "sdl2_wheel"}),
 }
 # Integer-typed keys — SDL2 wheel button IDs (feature:F7 exposed the whole set
 # so bindings can be remapped without a rebuild). Only used when the run's
@@ -193,10 +210,11 @@ _INT_KEYS = frozenset(
 KNOWN_KEYS = _BOOL_KEYS | _NUMBER_KEYS | frozenset(_STRING_ENUM_KEYS) | _INT_KEYS
 
 # Owned by the per-run writer (_write_virtual_driver_config); a GUI edit must
-# never override these, so PUT rejects them as unknown.
+# never override these, so PUT rejects them as unknown. input_type is NOT
+# here — it moved to _STRING_ENUM_KEYS (GUI-editable) — the runner only
+# defaults it (stub -> network) rather than owning it outright.
 _EXCLUDED_KEYS = frozenset(
     {
-        "input_type",
         "input_port",
         "input_transport",
         "vehicle_params_file",
@@ -445,9 +463,9 @@ def _coerce(key: str, value: Any) -> Any:
 async def get_config() -> dict[str, Any]:
     """Read current virtual_driver.json (VD planner/policy/driver settings).
 
-    Includes the "_..." comment keys and the runner-owned ``input_*`` /
-    ``vehicle_params_file`` keys (spec documentation / on-disk truth). Falls
-    back to the shipped defaults when the file is absent.
+    Includes the "_..." comment keys and the runner-owned ``input_port`` /
+    ``input_transport`` / ``vehicle_params_file`` keys (spec documentation /
+    on-disk truth). Falls back to the shipped defaults when the file is absent.
     """
     return _read_config()
 
@@ -462,11 +480,13 @@ async def get_defaults() -> dict[str, Any]:
 async def update_config(patch: dict[str, Any]) -> dict[str, Any]:
     """Write virtual_driver.json.
 
-    - Only known ``policy_*`` / planner / driver / policy-tuning keys are
-      accepted; any other non-comment key — including the runner-owned
-      ``input_type`` / ``input_port`` / ``input_transport`` /
+    - Only known ``policy_*`` / planner / driver / policy-tuning keys plus
+      ``input_type`` are accepted; any other non-comment key — including the
+      runner-owned ``input_port`` / ``input_transport`` /
       ``vehicle_params_file`` — is rejected (422).
-    - Each value is type-checked (bool / number / enum string).
+    - Each value is type-checked (bool / number / enum string). ``input_type``
+      must be one of "stub" / "network" / "sdl2_wheel" — see
+      ``_STRING_ENUM_KEYS``.
     - "_..." comment keys and the runner-owned keys are preserved: we start
       from the existing file (or the shipped defaults) and overwrite only the
       supplied known keys, so the self-documenting comments and the per-run
