@@ -405,7 +405,15 @@ export interface VirtualDriverConfig {
   ffb_target_track_override_sustain_time?: number;
   ffb_target_track_override_target_rate_gate?: number;
   ffb_target_track_override_position_error_rate_gate?: number;
-  ffb_target_track_override_wheel_over_target_epsilon?: number;
+  ffb_target_track_override_residual_threshold?: number;
+  ffb_target_track_override_residual_reanchor_tau?: number;
+  ffb_target_track_override_shadow_breakaway?: number;
+  ffb_target_track_override_shadow_breakaway_left?: number;
+  ffb_target_track_override_shadow_breakaway_right?: number;
+  ffb_target_track_override_shadow_motion_epsilon?: number;
+  ffb_target_track_override_shadow_kinetic?: number;
+  ffb_target_track_override_shadow_force_to_velocity?: number;
+  ffb_target_track_override_shadow_v_max?: number;
 }
 
 export interface ControllerConfig {

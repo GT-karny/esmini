@@ -197,6 +197,31 @@ struct VirtualDriverTelemetry
     double ffb_commanded_force = 0.0;
     double ffb_position_error  = 0.0;
 
+    // feature:F7 (F7b, follow-up post-93b2c6c4) — override-latch gate
+    // diagnostics (real-machine "why didn't it fire" debugging). Mirrors
+    // OverrideManager::FfbLatchDiagnostics; all false/zero while
+    // ffb_target_active is false. See OverrideManager.hpp for what each gate
+    // means. ffb_gate_sustain_accum is the single most useful field to watch
+    // live: is it growing toward sustain_time, or stuck/resetting?
+    // ffb_gate_block_reason is a single human-readable identifier for why the
+    // accumulator isn't advancing this frame ("none" when it is advancing or
+    // already latched): "inactive" | "bootstrap" | "below_residual".
+    bool        ffb_gate_over_force           = false;
+    bool        ffb_gate_over_dev             = false;
+    bool        ffb_gate_moving_target        = false;
+    bool        ffb_gate_tracking_transient   = false;
+    double      ffb_gate_target_rate          = 0.0;
+    double      ffb_gate_derror_rate          = 0.0;
+    double      ffb_gate_actual_norm          = 0.0;
+    // feature:F7 residual detector — the fields to read first.
+    double      ffb_gate_shadow_norm          = 0.0;   // predicted unheld-wheel axis
+    double      ffb_gate_residual             = 0.0;   // |actual - shadow| — the detection signal
+    double      ffb_gate_residual_threshold   = 0.0;
+    double      ffb_gate_effective_force      = 0.0;   // signed force driving the shadow
+    bool        ffb_gate_shadow_moving        = false; // shadow plant in kinetic regime
+    double      ffb_gate_sustain_accum        = 0.0;
+    std::string ffb_gate_block_reason         = "none";
+
     // feature:F7 — AD steering safety envelope observability (AdSteeringEnvelope.hpp).
     // Which physical constraint(s) clamped this frame's AD-commanded steering
     // (or none). All false when the envelope is disabled or nothing clipped.

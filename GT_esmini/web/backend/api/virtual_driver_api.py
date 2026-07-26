@@ -141,7 +141,15 @@ _NUMBER_KEYS = frozenset(
         "ffb_target_track_override_sustain_time",
         "ffb_target_track_override_target_rate_gate",
         "ffb_target_track_override_position_error_rate_gate",
-        "ffb_target_track_override_wheel_over_target_epsilon",
+        "ffb_target_track_override_residual_threshold",
+        "ffb_target_track_override_residual_reanchor_tau",
+        "ffb_target_track_override_shadow_breakaway",
+        "ffb_target_track_override_shadow_breakaway_left",
+        "ffb_target_track_override_shadow_breakaway_right",
+        "ffb_target_track_override_shadow_motion_epsilon",
+        "ffb_target_track_override_shadow_kinetic",
+        "ffb_target_track_override_shadow_force_to_velocity",
+        "ffb_target_track_override_shadow_v_max",
     }
 )
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
@@ -344,7 +352,15 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "ffb_target_track_override_sustain_time": 0.10,
     "ffb_target_track_override_target_rate_gate": 0.30,
     "ffb_target_track_override_position_error_rate_gate": 0.10,
-    "ffb_target_track_override_wheel_over_target_epsilon": 0.05,
+    "ffb_target_track_override_residual_threshold": 0.08,
+    "ffb_target_track_override_residual_reanchor_tau": 1.50,
+    "ffb_target_track_override_shadow_breakaway": 0.21,
+    "ffb_target_track_override_shadow_breakaway_left": 0.170,
+    "ffb_target_track_override_shadow_breakaway_right": 0.190,
+    "ffb_target_track_override_shadow_motion_epsilon": 0.01,
+    "ffb_target_track_override_shadow_kinetic": 0.16,
+    "ffb_target_track_override_shadow_force_to_velocity": 3.35,
+    "ffb_target_track_override_shadow_v_max": 1.00,
 }
 
 

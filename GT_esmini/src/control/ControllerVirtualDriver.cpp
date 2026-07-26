@@ -99,7 +99,15 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_sustain_time          = vd_config_.ffb_target_track_override_sustain_time;
     io_config_.ffb.target_track.override_target_rate_gate         = vd_config_.ffb_target_track_override_target_rate_gate;
     io_config_.ffb.target_track.override_position_error_rate_gate = vd_config_.ffb_target_track_override_position_error_rate_gate;
-    io_config_.ffb.target_track.override_wheel_over_target_epsilon = vd_config_.ffb_target_track_override_wheel_over_target_epsilon;
+    io_config_.ffb.target_track.override_residual_threshold        = vd_config_.ffb_target_track_override_residual_threshold;
+    io_config_.ffb.target_track.override_residual_reanchor_tau     = vd_config_.ffb_target_track_override_residual_reanchor_tau;
+    io_config_.ffb.target_track.override_shadow_breakaway          = vd_config_.ffb_target_track_override_shadow_breakaway;
+    io_config_.ffb.target_track.override_shadow_breakaway_left     = vd_config_.ffb_target_track_override_shadow_breakaway_left;
+    io_config_.ffb.target_track.override_shadow_breakaway_right    = vd_config_.ffb_target_track_override_shadow_breakaway_right;
+    io_config_.ffb.target_track.override_shadow_motion_epsilon     = vd_config_.ffb_target_track_override_shadow_motion_epsilon;
+    io_config_.ffb.target_track.override_shadow_kinetic            = vd_config_.ffb_target_track_override_shadow_kinetic;
+    io_config_.ffb.target_track.override_shadow_force_to_velocity  = vd_config_.ffb_target_track_override_shadow_force_to_velocity;
+    io_config_.ffb.target_track.override_shadow_v_max              = vd_config_.ffb_target_track_override_shadow_v_max;
 
     // feature:F7 — AD steering safety envelope (see AdSteeringEnvelope.hpp).
     // Built once here; config is not hot-reloaded during a run.
@@ -491,6 +499,37 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_target_active    = false;
         telemetry_.ffb_commanded_force  = 0.0;
         telemetry_.ffb_position_error   = 0.0;
+    }
+    // feature:F7 — override-latch diagnostics. Real-machine "why didn't it
+    // fire" observability: without this, diagnosing a missed latch required
+    // re-instrumenting the code on-site. The residual/shadow pair is the part
+    // to read first. See OverrideManager::FfbLatchDiagnostics.
+    {
+        using BlockReason = OverrideManager::FfbLatchDiagnostics::BlockReason;
+        const auto& diag = override_mgr_.GetFfbLatchDiagnostics();
+        const char* reason_str = "none";
+        switch (diag.block_reason)
+        {
+            case BlockReason::NONE:            reason_str = "none";            break;
+            case BlockReason::INACTIVE:        reason_str = "inactive";        break;
+            case BlockReason::BOOTSTRAP:       reason_str = "bootstrap";       break;
+            case BlockReason::BELOW_RESIDUAL:  reason_str = "below_residual";  break;
+        }
+
+        telemetry_.ffb_gate_over_force           = diag.over_force;
+        telemetry_.ffb_gate_over_dev             = diag.over_dev;
+        telemetry_.ffb_gate_moving_target        = diag.moving_target;
+        telemetry_.ffb_gate_tracking_transient   = diag.tracking_transient;
+        telemetry_.ffb_gate_target_rate          = diag.target_rate;
+        telemetry_.ffb_gate_derror_rate          = diag.derror_rate;
+        telemetry_.ffb_gate_actual_norm          = diag.actual_norm;
+        telemetry_.ffb_gate_shadow_norm          = diag.shadow_norm;
+        telemetry_.ffb_gate_residual             = diag.residual;
+        telemetry_.ffb_gate_residual_threshold   = diag.residual_threshold;
+        telemetry_.ffb_gate_effective_force      = diag.effective_force;
+        telemetry_.ffb_gate_shadow_moving        = diag.shadow_moving;
+        telemetry_.ffb_gate_sustain_accum        = diag.sustain_accum;
+        telemetry_.ffb_gate_block_reason         = reason_str;
     }
     // feature:F7 — AD steering safety envelope observability (verification:
     // "normal driving never trips the envelope"). See AdSteeringEnvelope.hpp.

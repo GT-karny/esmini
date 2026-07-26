@@ -55,7 +55,15 @@ const EDITABLE_KEYS = [
   'ffb_target_track_override_sustain_time',
   'ffb_target_track_override_target_rate_gate',
   'ffb_target_track_override_position_error_rate_gate',
-  'ffb_target_track_override_wheel_over_target_epsilon',
+  'ffb_target_track_override_residual_threshold',
+  'ffb_target_track_override_residual_reanchor_tau',
+  'ffb_target_track_override_shadow_breakaway',
+  'ffb_target_track_override_shadow_breakaway_left',
+  'ffb_target_track_override_shadow_breakaway_right',
+  'ffb_target_track_override_shadow_motion_epsilon',
+  'ffb_target_track_override_shadow_kinetic',
+  'ffb_target_track_override_shadow_force_to_velocity',
+  'ffb_target_track_override_shadow_v_max',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -444,36 +452,96 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Road feel while AD steers (0..1)" step={0.05}
             value={cfg.ffb_target_track_feel_ratio ?? 0.0}
             onChange={setNum('ffb_target_track_feel_ratio')} />
-          <NumberInput label="Override force threshold" step={0.01}
-            value={cfg.ffb_target_track_override_steer_force_threshold ?? 0.20}
-            onChange={setNum('ffb_target_track_override_steer_force_threshold')} />
-          <NumberInput label="Override deviation threshold" step={0.005}
-            value={cfg.ffb_target_track_override_steer_dev_threshold ?? 0.04}
-            onChange={setNum('ffb_target_track_override_steer_dev_threshold')} />
+          <NumberInput label="Override residual threshold (|axis|)" step={0.01}
+            value={cfg.ffb_target_track_override_residual_threshold ?? 0.08}
+            onChange={setNum('ffb_target_track_override_residual_threshold')} />
           <NumberInput label="Override sustain (s)" step={0.01}
             value={cfg.ffb_target_track_override_sustain_time ?? 0.10}
             onChange={setNum('ffb_target_track_override_sustain_time')} />
-          <NumberInput label="Target rate gate (axis-frac/s)" step={0.05}
-            value={cfg.ffb_target_track_override_target_rate_gate ?? 0.30}
-            onChange={setNum('ffb_target_track_override_target_rate_gate')} />
-          <NumberInput label="Position-error rate gate (axis-frac/s)" step={0.05}
-            value={cfg.ffb_target_track_override_position_error_rate_gate ?? 0.10}
-            onChange={setNum('ffb_target_track_override_position_error_rate_gate')} />
-          <NumberInput label="Wheel-over-target epsilon (|axis|)" step={0.01}
-            value={cfg.ffb_target_track_override_wheel_over_target_epsilon ?? 0.05}
-            onChange={setNum('ffb_target_track_override_wheel_over_target_epsilon')} />
+          <NumberInput label="Shadow re-anchor tau (s)" step={0.05}
+            value={cfg.ffb_target_track_override_residual_reanchor_tau ?? 1.5}
+            onChange={setNum('ffb_target_track_override_residual_reanchor_tau')} />
         </div>
         <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
-          Three gates suppress override detection: target rate (AD steering
-          transient) + position-error rate (physical wheel still catching up)
-          + wheel-over-target opposition (an unheld G29 wheel either stays
-          at 0 or slowly creeps toward target under sustained servo pressure —
-          both are servo behavior. A real driver override moves the wheel PAST
-          target by more than this epsilon, or reverses direction entirely).
-          Detection fires only when all gates settle AND thresholds cross —
-          the shape of a real driver block. Prevents startup / curve /
-          lane-change / small-command false positives (post-f723fa90
-          real-machine regression).
+          Takeover is detected by RESIDUAL, not by direction. Each frame a
+          shadow model integrates the force actually delivered to the wheel
+          through the device's measured friction/velocity characteristic
+          (below) to predict where an untouched wheel would be. If the real
+          wheel diverges from that prediction by more than the residual
+          threshold for the sustain time, the lateral domain latches MANUAL.
+          Because it compares the wheel against a prediction of itself, it
+          detects a driver holding SHORT of the AD command (the natural
+          reaction to an over-aggressive command, and undetectable by the
+          previous direction-based test) just as readily as overtaking or
+          countersteering it — and it stays valid while AD is actively
+          steering. A stuck wheel predicts itself: below breakaway the shadow
+          does not move either, so the residual stays at zero.
+          Re-anchor tau bleeds accumulated model error back toward the
+          measurement while no intervention is present; the shadow is an
+          integrator, so this is what keeps long drives from drifting into a
+          false latch. Release is unchanged: AUTO_RESUME button only.
+        </p>
+
+        {/* Shadow-plant constants: properties of the WHEEL, not the
+            controller. G29-measured (scripts/ffb_spike/CHARACTERIZATION.md
+            §2/§3); a different device must be re-calibrated. */}
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <NumberInput label="Shadow breakaway, unconditional (force)" step={0.01}
+            value={cfg.ffb_target_track_override_shadow_breakaway ?? 0.21}
+            onChange={setNum('ffb_target_track_override_shadow_breakaway')} />
+          <NumberInput label="Breakaway band bottom, push left (force>0)" step={0.005}
+            value={cfg.ffb_target_track_override_shadow_breakaway_left ?? 0.170}
+            onChange={setNum('ffb_target_track_override_shadow_breakaway_left')} />
+          <NumberInput label="Breakaway band bottom, push right (force<0)" step={0.005}
+            value={cfg.ffb_target_track_override_shadow_breakaway_right ?? 0.190}
+            onChange={setNum('ffb_target_track_override_shadow_breakaway_right')} />
+          <NumberInput label="Shadow kinetic floor (force)" step={0.01}
+            value={cfg.ffb_target_track_override_shadow_kinetic ?? 0.16}
+            onChange={setNum('ffb_target_track_override_shadow_kinetic')} />
+          <NumberInput label="Observed-motion epsilon (|axis|)" step={0.005}
+            value={cfg.ffb_target_track_override_shadow_motion_epsilon ?? 0.01}
+            onChange={setNum('ffb_target_track_override_shadow_motion_epsilon')} />
+          <NumberInput label="Shadow force→velocity ((axis-frac/s)/force)" step={0.05}
+            value={cfg.ffb_target_track_override_shadow_force_to_velocity ?? 3.35}
+            onChange={setNum('ffb_target_track_override_shadow_force_to_velocity')} />
+          <NumberInput label="Shadow v_max (axis-frac/s)" step={0.05}
+            value={cfg.ffb_target_track_override_shadow_v_max ?? 1.0}
+            onChange={setNum('ffb_target_track_override_shadow_v_max')} />
+        </div>
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Shadow plant — measured properties of the physical wheel, not of the
+          controller; a different wheel must be re-calibrated. What starts a
+          wheel at rest is BREAKAWAY, and on a G29 it is a direction-asymmetric
+          band: 0.170–0.210 pushing left, 0.190–0.210 pushing right. The kinetic
+          floor (0.16) is <em>not</em> an onset threshold — it is where an
+          already-moving wheel stops and the intercept of v ≈ 3.35·(|f|−0.16),
+          which saturates near 1.0/s. The shadow starts unconditionally at the
+          top of the band, and at the band bottom only once the real axis is
+          observed to move, which is what pins down where in the band this
+          particular wheel sits.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <NumberInput label="Force threshold (diagnostic only)" step={0.01}
+            value={cfg.ffb_target_track_override_steer_force_threshold ?? 0.20}
+            onChange={setNum('ffb_target_track_override_steer_force_threshold')} />
+          <NumberInput label="Deviation threshold (diagnostic only)" step={0.005}
+            value={cfg.ffb_target_track_override_steer_dev_threshold ?? 0.04}
+            onChange={setNum('ffb_target_track_override_steer_dev_threshold')} />
+          <NumberInput label="Target rate gate (diagnostic only)" step={0.05}
+            value={cfg.ffb_target_track_override_target_rate_gate ?? 0.30}
+            onChange={setNum('ffb_target_track_override_target_rate_gate')} />
+          <NumberInput label="Position-error rate gate (diagnostic only)" step={0.05}
+            value={cfg.ffb_target_track_override_position_error_rate_gate ?? 0.10}
+            onChange={setNum('ffb_target_track_override_position_error_rate_gate')} />
+        </div>
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          These four no longer gate the latch. They are still evaluated and
+          reported in the override telemetry (over_force / over_dev /
+          moving_target / tracking_transient) because they are the context a
+          human needs when reading a trace: was the servo pushing at all, how
+          far off was the wheel, was AD steering, was the servo still catching
+          up.
         </p>
       </section>
 

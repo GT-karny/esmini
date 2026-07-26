@@ -287,10 +287,10 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
             const double u = ComputeSteerServoForce(target_norm_, actual_norm, dt,
                                                     servo_state_, servo_cfg_, &u_feedback);
             force += u;
-            last_sample_.commanded_force = std::abs(u_feedback);  // see combined path
-            last_sample_.position_error  = target_norm_ - actual_norm;
-            last_sample_.target_norm     = target_norm_;
-            last_sample_.active          = true;
+            last_sample_.commanded_force        = std::abs(u_feedback);  // see combined path
+            last_sample_.position_error         = target_norm_ - actual_norm;
+            last_sample_.target_norm            = target_norm_;
+            last_sample_.active                 = true;
         }
 
         force = std::clamp(force, -max_force_, max_force_);
@@ -527,15 +527,26 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
                                               servo_state_, servo_cfg_, &u_feedback);
         // Feedback-only: the friction feed-forward is plant compensation, not
         // driver resistance, and must not consume the detector's margin.
-        last_sample_.commanded_force = std::abs(u_feedback);
-        last_sample_.position_error  = target_norm_ - actual_norm;
-        last_sample_.target_norm     = target_norm_;
-        last_sample_.active          = true;
+        last_sample_.commanded_force        = std::abs(u_feedback);
+        last_sample_.position_error         = target_norm_ - actual_norm;
+        last_sample_.target_norm            = target_norm_;
+        last_sample_.active                 = true;
     }
 
     // Combine
     double total = sat + friction + damping + soft_stop + target_track;
     total = std::clamp(total, -max_force_, max_force_);
+
+    // feature:F7 — the EFFECTIVE force, i.e. what the device is actually told
+    // to produce this frame. This (not the feedback-only value recorded above)
+    // is what OverrideManager's shadow plant must integrate; see
+    // IFFBSink.hpp's effective_force_signed comment for why the distinction is
+    // load-bearing. Written after the combine+clamp precisely so it can never
+    // drift from the value handed to UpdateConstantEffect below.
+    if (target_active_)
+    {
+        last_sample_.effective_force_signed = total;
+    }
 
     static int log_counter = 0;
     if (++log_counter % 50 == 0 || log_counter <= 5)

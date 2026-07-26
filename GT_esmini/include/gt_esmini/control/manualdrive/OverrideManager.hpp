@@ -21,12 +21,56 @@ public:
     void Update(const InputFrame& input, double dt);
     void RequestAutoMode();
 
-    // feature:F7 (F7b) — stash the latest FFB torque-proxy sample. Called by
-    // the controller BEFORE Update() each frame; consumed inside Update() only
-    // when the servo is active and the ffb.target_track thresholds are crossed
-    // for at least override_sustain_time seconds. Feeds the existing lateral
-    // latch — never gates the release path (spike §2d).
+    // feature:F7 — stash the latest FFB servo sample. Called by the controller
+    // BEFORE Update() each frame; consumed inside Update() only when the servo
+    // is active, and only to drive the residual detector (the wheel's measured
+    // position vs. the shadow plant's prediction of an unheld wheel) for at
+    // least override_sustain_time seconds. Feeds the existing lateral latch —
+    // never gates the release path (spike §2d): release is AUTO_RESUME only.
     void UpdateFfbSample(const FfbInterventionSample& sample);
+
+    // feature:F7 — real-machine "why didn't it latch" diagnostics. Reflects the
+    // residual detector's state as of the most recent Update() call; all
+    // false/zero when the FFB sample is inactive. Exposed so telemetry
+    // (VirtualDriverTelemetry) can show what the detector saw without
+    // re-instrumenting the code — this observability gap is what made the
+    // earlier real-machine failures so hard to diagnose.
+    struct FfbLatchDiagnostics
+    {
+        // Single human-readable answer to "why isn't it latching right now?"
+        // NONE means nothing is blocking (sustain is accumulating this frame,
+        // or the domain is already latched MANUAL).
+        enum class BlockReason
+        {
+            NONE,               // accumulating this frame, or already latched
+            INACTIVE,           // FFB sample inactive / lateral domain not manual
+            BOOTSTRAP,          // shadow not seeded yet (1st active sample)
+            BELOW_RESIDUAL,     // |actual - shadow| <= residual_threshold
+        };
+
+        bool   sample_active          = false;  // ffb_sample_.active this frame
+        bool   bootstrap_suppressed   = false;  // shadow not seeded yet (1st active sample)
+        // --- Observational context (does NOT gate the latch; see
+        //     ManualDriveConfig.ffb.target_track for why these thresholds
+        //     are retained as diagnostics only) -------------------------
+        bool   over_force             = false;  // |commanded_force| > force_threshold
+        bool   over_dev               = false;  // |position_error| > dev_threshold
+        bool   moving_target          = false;  // |d(target)/dt| > target_rate_gate — "AD is steering"
+        bool   tracking_transient     = false;  // |d(position_error)/dt| > derror_rate_gate — "servo catching up"
+        double target_rate            = 0.0;    // d(target_norm)/dt, axis-frac/s
+        double derror_rate            = 0.0;    // d(position_error)/dt, axis-frac/s
+        // --- The detector proper ------------------------------------------
+        double actual_norm            = 0.0;    // target_norm - position_error (the real axis)
+        double shadow_norm            = 0.0;    // where an UNHELD wheel would be, per the plant model
+        double residual               = 0.0;    // |actual_norm - shadow_norm| — THE detection signal
+        double residual_threshold     = 0.0;    // configured threshold, for context
+        double effective_force        = 0.0;    // signed force driving the shadow this frame
+        bool   shadow_moving          = false;  // shadow plant is in its kinetic (moving) regime
+        double sustain_accum          = 0.0;    // seconds accumulated toward sustain_time (is it growing?)
+        double sustain_time           = 0.0;    // configured sustain_time, for context
+        BlockReason block_reason      = BlockReason::NONE;
+    };
+    const FfbLatchDiagnostics& GetFfbLatchDiagnostics() const { return ffb_diag_; }
 
     // Domain-level queries
     bool IsLateralManual() const { return lat_mode_ == Mode::MANUAL; }
@@ -62,34 +106,45 @@ private:
     bool   just_transitioned_to_auto_   = false;
     bool   prev_resume_pressed_         = false;  // feature:F7 rising-edge detector
 
-    // feature:F7 (F7b) — FFB torque-proxy latch (see UpdateFfbSample).
+    // feature:F7 — FFB residual-based intervention latch (see UpdateFfbSample
+    // and ManualDriveConfig.ffb.target_track for the full design rationale).
     FfbInterventionSample ffb_sample_               = {};
-    double                ffb_force_threshold_      = 0.20;
-    double                ffb_dev_threshold_        = 0.04;
     double                ffb_sustain_time_         = 0.10;
     double                ffb_sustain_accum_        = 0.0;
-    // Rate-gate state: two gates + shared history validity flag. On the
-    // FIRST active sample after ffb goes active there is no previous frame
-    // to compare against, so any threshold check with rate=0 (bootstrap
-    // fake) would spuriously permit accumulation while the servo is
-    // actually mid-transient. The `history_valid_` flag suppresses the
-    // detector entirely until the 2nd active sample, at which point BOTH
-    // derivatives are meaningful. See Update() comment.
-    //
-    // Two gates:
-    //   target_rate_gate  — |d(target)/dt|: AD actively steering
-    //   position_error_rate_gate — |d(dev)/dt|: servo actively catching up
-    // The detector requires BOTH rates below their gates AND thresholds
-    // crossed to accumulate sustain. Real block = both rates ≈ 0 (target
-    // static, dev static) AND thresholds crossed. Anything else = transient.
+    // Observational-only thresholds/gates. Reported through
+    // FfbLatchDiagnostics; they do NOT gate the latch.
+    double                ffb_force_threshold_        = 0.20;
+    double                ffb_dev_threshold_          = 0.04;
     double                ffb_target_rate_gate_       = 0.30;
     double                ffb_derror_rate_gate_       = 0.10;
     double                ffb_prev_target_norm_       = 0.0;
     double                ffb_prev_pos_error_         = 0.0;
     bool                  ffb_history_valid_          = false;
-    // feature:F7 (F7b, follow-up post-f723fa90) — wheel-opposing-target gate.
-    // See ManualDriveConfig.ffb.target_track.override_wheel_over_target_epsilon.
-    double                ffb_wheel_over_target_eps_  = 0.05;
+
+    // --- Shadow model: "where would an UNHELD wheel be right now?" ---------
+    // A 1-D stick-slip plant integrated every frame from the EFFECTIVE force
+    // (FfbInterventionSample::effective_force_signed — NOT the feedback-only
+    // force; see that field's comment). Constants are the real-G29 measured
+    // friction/velocity characteristic. The detector fires on the distance
+    // between this prediction and the measured axis, which is why it works
+    // regardless of which direction the driver pushes.
+    double                ffb_shadow_norm_            = 0.0;
+    bool                  ffb_shadow_moving_          = false;  // stick-slip regime
+    bool                  ffb_shadow_valid_           = false;  // seeded from the 1st active sample
+    double                ffb_residual_threshold_     = 0.08;
+    double                ffb_residual_reanchor_tau_  = 0.30;
+    double                ffb_shadow_breakaway_       = 0.21;
+    double                ffb_shadow_breakaway_left_  = 0.170;   // force > 0 (pushes wheel left)
+    double                ffb_shadow_breakaway_right_ = 0.190;   // force < 0 (pushes wheel right)
+    double                ffb_shadow_motion_eps_      = 0.01;
+    // Measured axis at the moment the shadow last came to rest. The
+    // "demonstrably moving" test is a DISPLACEMENT from this anchor, not a
+    // per-frame rate, so bounded column jitter can never satisfy it.
+    double                ffb_shadow_rest_anchor_     = 0.0;
+    double                ffb_shadow_kinetic_         = 0.16;
+    double                ffb_shadow_force_to_vel_    = 3.35;
+    double                ffb_shadow_v_max_           = 1.0;
+    FfbLatchDiagnostics   ffb_diag_;
 };
 
 } // namespace gt_esmini

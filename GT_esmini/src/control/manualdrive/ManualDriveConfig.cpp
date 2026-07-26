@@ -181,7 +181,15 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("target_track_override_sustain_time",           ffb.target_track.override_sustain_time);
         parse_double("target_track_override_target_rate_gate",         ffb.target_track.override_target_rate_gate);
         parse_double("target_track_override_position_error_rate_gate", ffb.target_track.override_position_error_rate_gate);
-        parse_double("target_track_override_wheel_over_target_epsilon", ffb.target_track.override_wheel_over_target_epsilon);
+        parse_double("target_track_override_residual_threshold",       ffb.target_track.override_residual_threshold);
+        parse_double("target_track_override_residual_reanchor_tau",    ffb.target_track.override_residual_reanchor_tau);
+        parse_double("target_track_override_shadow_breakaway",         ffb.target_track.override_shadow_breakaway);
+        parse_double("target_track_override_shadow_breakaway_left",     ffb.target_track.override_shadow_breakaway_left);
+        parse_double("target_track_override_shadow_breakaway_right",    ffb.target_track.override_shadow_breakaway_right);
+        parse_double("target_track_override_shadow_motion_epsilon",    ffb.target_track.override_shadow_motion_epsilon);
+        parse_double("target_track_override_shadow_kinetic",           ffb.target_track.override_shadow_kinetic);
+        parse_double("target_track_override_shadow_force_to_velocity", ffb.target_track.override_shadow_force_to_velocity);
+        parse_double("target_track_override_shadow_v_max",             ffb.target_track.override_shadow_v_max);
 
         // Domain assignment
         parse_string("lateral", domain.lateral);

@@ -125,7 +125,15 @@ const DoubleField kDoubleFields[] = {
     {"ffb_target_track_override_sustain_time",           &VirtualDriverConfig::ffb_target_track_override_sustain_time},
     {"ffb_target_track_override_target_rate_gate",       &VirtualDriverConfig::ffb_target_track_override_target_rate_gate},
     {"ffb_target_track_override_position_error_rate_gate", &VirtualDriverConfig::ffb_target_track_override_position_error_rate_gate},
-    {"ffb_target_track_override_wheel_over_target_epsilon", &VirtualDriverConfig::ffb_target_track_override_wheel_over_target_epsilon},
+    {"ffb_target_track_override_residual_threshold",       &VirtualDriverConfig::ffb_target_track_override_residual_threshold},
+    {"ffb_target_track_override_residual_reanchor_tau",    &VirtualDriverConfig::ffb_target_track_override_residual_reanchor_tau},
+    {"ffb_target_track_override_shadow_breakaway",         &VirtualDriverConfig::ffb_target_track_override_shadow_breakaway},
+    {"ffb_target_track_override_shadow_breakaway_left",     &VirtualDriverConfig::ffb_target_track_override_shadow_breakaway_left},
+    {"ffb_target_track_override_shadow_breakaway_right",    &VirtualDriverConfig::ffb_target_track_override_shadow_breakaway_right},
+    {"ffb_target_track_override_shadow_motion_epsilon",    &VirtualDriverConfig::ffb_target_track_override_shadow_motion_epsilon},
+    {"ffb_target_track_override_shadow_kinetic",           &VirtualDriverConfig::ffb_target_track_override_shadow_kinetic},
+    {"ffb_target_track_override_shadow_force_to_velocity", &VirtualDriverConfig::ffb_target_track_override_shadow_force_to_velocity},
+    {"ffb_target_track_override_shadow_v_max",             &VirtualDriverConfig::ffb_target_track_override_shadow_v_max},
 };
 
 const BoolField kBoolFields[] = {

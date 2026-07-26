@@ -191,7 +191,18 @@ struct VirtualDriverConfig
     double ffb_target_track_override_sustain_time                = 0.10;   // seconds
     double ffb_target_track_override_target_rate_gate            = 0.30;   // axis-frac / s
     double ffb_target_track_override_position_error_rate_gate    = 0.10;   // axis-frac / s
-    double ffb_target_track_override_wheel_over_target_epsilon = 0.05;   // axis-fraction; post-f723fa90
+    // feature:F7 — residual intervention detector + shadow-plant constants.
+    // See ManualDriveConfig.ffb.target_track for the design rationale and the
+    // real-G29 measurements the defaults come from.
+    double ffb_target_track_override_residual_threshold          = 0.08;   // axis-fraction
+    double ffb_target_track_override_residual_reanchor_tau       = 1.5;    // seconds
+    double ffb_target_track_override_shadow_breakaway            = 0.21;   // force (unconditional)
+    double ffb_target_track_override_shadow_breakaway_left       = 0.170;  // force > 0, with observed motion
+    double ffb_target_track_override_shadow_breakaway_right      = 0.190;  // force < 0, with observed motion
+    double ffb_target_track_override_shadow_motion_epsilon       = 0.01;   // axis-fraction
+    double ffb_target_track_override_shadow_kinetic              = 0.16;   // force
+    double ffb_target_track_override_shadow_force_to_velocity    = 3.35;   // (axis-frac/s) / force
+    double ffb_target_track_override_shadow_v_max                = 1.0;    // axis-frac / s
 
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"
