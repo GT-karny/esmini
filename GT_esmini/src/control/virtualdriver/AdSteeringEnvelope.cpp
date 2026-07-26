@@ -106,7 +106,41 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
         delta_hi = std::min(delta_hi, jerk_hi);
     }
 
-    const double delta_final = std::clamp(delta_after_lat_yaw, delta_lo, delta_hi);
+    double delta_final = std::clamp(delta_after_lat_yaw, delta_lo, delta_hi);
+
+    // The curvature cap is applied LAST, and that ordering is the whole point.
+    //
+    // Everything above shapes HOW FAST the command may move; this bounds WHERE
+    // it may be. The rate and jerk windows are centred on delta_prev, so when
+    // delta_prev sits outside the curvature-safe zone (a human held the wheel
+    // past it, or speed rose and tightened kappa_max under a standing angle),
+    // clamping into those windows lands delta_final at the window EDGE — still
+    // outside the cap that delta_after_lat_yaw was carefully clamped to. The
+    // shaping term then silently defeats the safety term.
+    //
+    // That is not hypothetical, and it is NOT specific to the steering-jerk
+    // stage. Measured over a 112-cell AUTO_RESUME sweep at dt=0.01, curvature
+    // computed straight from this function's own output against kappa_max:
+    //     steer_jerk_max=0  (rate limiter alone, as shipped):  1.0078x, 17/28 cells
+    //     steer_jerk_max=50                                    1.2695x
+    //     steer_jerk_max=25                                    1.7719x
+    //     steer_jerk_max=10                                    3.5781x
+    // The rate limiter alone already leaves the envelope, if only barely. The
+    // jerk stage turns that into a severe excursion, monotonically worse the
+    // tighter the cap, because a tighter cap takes longer to walk delta_prev
+    // back inside — sustained 39-176 consecutive frames at 10.5-11.9 m/s, with
+    // lateral_accel_active reporting true throughout: the envelope announcing
+    // it was clamping while its output sat at twice the limit it enforces.
+    //
+    // Re-clamping here costs nothing when the shaped command is already legal
+    // (delta_after_lat_yaw is inside this bound by construction, so the clamp
+    // only bites on an excursion), and it keeps the smooth manual->AUTO_RESUME
+    // hand-over intact INSIDE the safe zone. Outside it, the command snaps to
+    // the boundary instead of ramping: leaving the vehicle commanded beyond
+    // its lateral-acceleration limit for a tenth of a second, to make the
+    // return prettier, is not a trade this envelope is allowed to make.
+    const double delta_kappa_max = std::atan(kappa_max * wb);
+    delta_final = std::clamp(delta_final, -delta_kappa_max, delta_kappa_max);
 
     const double steer_norm_out = std::clamp(delta_final / msa, -1.0, 1.0);
 

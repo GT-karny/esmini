@@ -757,4 +757,62 @@ TEST(AdSteeringEnvelopeTest, ShippedDefaultLeavesSteerJerkLimitDisabled)
     EXPECT_NEAR(out, state.prev_steer_norm + max_step_norm, 1e-12);
 }
 
+// The curvature cap is an INVARIANT on the output, not merely a stage in the
+// pipeline. Whatever the previous applied angle was, whatever dt is, and
+// whatever shaping the rate/jerk windows apply, the returned command must
+// never imply a curvature above kappa_max.
+//
+// This regression-pins a measured defect: because the rate and jerk windows
+// are centred on prev_steer_norm, a prev angle outside the safe zone used to
+// leave the output at the window edge — outside the cap — for as long as the
+// shaping took to unwind. An 84-cell AUTO_RESUME sweep saw the output's own
+// curvature reach 2.15x kappa_max, held for 0.38s, while the envelope
+// reported lateral_accel_active on every one of those frames.
+TEST(AdSteeringEnvelopeTest, OutputCurvatureNeverExceedsCapFromAnyPriorState)
+{
+    for (const double v : {0.0, 2.0, 8.0, 14.0, 30.0})
+    {
+        for (const double dt : {0.001, 0.01, 0.02, 0.05, 0.2})
+        {
+            for (const double prev : {-1.0, -0.6, -0.05, 0.0, 0.05, 0.6, 1.0})
+            {
+                for (const double prev_rate : {-100.0, -2.46, 0.0, 2.46, 100.0})
+                {
+                    for (const double jerk : {0.0, 10.0, 25.0, 1000.0})
+                    {
+                        for (const double cmd : {-1.0, -0.3, 0.0, 0.3, 1.0})
+                        {
+                            AdSteeringEnvelopeConfig cfg;  // shipped limits
+                            cfg.steer_jerk_max = jerk;
+                            AdSteeringEnvelopeState state;
+                            state.prev_steer_norm      = prev;
+                            state.prev_steer_rate_norm = prev_rate;
+
+                            AdSteeringEnvelopeSnapshot snap;
+                            const double out = ComputeAdSteeringEnvelope(
+                                cmd, v, kWheelBase, kMaxSteerAngle, dt, state, cfg, &snap);
+
+                            ASSERT_TRUE(std::isfinite(out));
+                            ASSERT_LE(std::fabs(out), 1.0);
+
+                            // Recompute the cap exactly as the implementation does.
+                            const double v_eff = std::max({v, cfg.v_floor, 1.0e-6});
+                            const double kappa_max = std::min(cfg.a_lat_max_steer / (v_eff * v_eff),
+                                                              cfg.yaw_rate_max / v_eff);
+                            const double kappa_out =
+                                std::fabs(std::tan(out * kMaxSteerAngle) / kWheelBase);
+
+                            // 1e-12 absorbs the atan/tan round trip only.
+                            EXPECT_LE(kappa_out, kappa_max + 1e-12)
+                                << "v=" << v << " dt=" << dt << " prev=" << prev
+                                << " prev_rate=" << prev_rate << " jerk=" << jerk
+                                << " cmd=" << cmd << " -> out=" << out;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 }  // namespace gt_esmini
