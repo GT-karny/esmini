@@ -76,7 +76,8 @@ def release_haptics_out_of_process() -> int:
         return 2
     try:
         r = subprocess.run([str(SPIKE_VENV_PY), str(RELEASE_TOOL)],
-                           capture_output=True, text=True, timeout=60)
+                           capture_output=True, text=True, timeout=60,
+                           encoding="utf-8", errors="replace")
         for ln in (r.stdout or "").splitlines():
             print("   " + ln)
         for ln in (r.stderr or "").splitlines():
@@ -109,14 +110,49 @@ def main() -> int:
         args.jsonl.unlink()
     args.jsonl.parent.mkdir(parents=True, exist_ok=True)
 
+    # cwd を exe ディレクトリに移すので、出力先は絶対パスでなければならない。
+    args.jsonl = args.jsonl.resolve()
     env = dict(os.environ)
     env["GT_VD_TELEMETRY_JSONL"] = str(args.jsonl)
 
-    cmd = [args.exe, "--osc", args.osc] + list(args.extra)
+    # GT_Sim.exe の起動要件（.claude/skills/build/SKILL.md）。ここで環境を整えるのは、
+    # 手順書に「PATH を通してから起動せよ」と書いて運用者に覚えさせるより確実だから。
+    #   - 組込 Python の DLL が PATH に無いと 0xC0000135 (STATUS_DLL_NOT_FOUND) で
+    #     即死する。実際に踏んだ。
+    #   - VSCode 配下のシェルは ELECTRON_RUN_AS_NODE=1 を継承する。GT_Sim.exe は
+    #     Electron 同梱版なので、これが残っていると Node として起動してしまう。
+    repo_root = Path(__file__).resolve().parents[2]
+    embed_py = repo_root / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+    path_parts = [str(embed_py), os.path.dirname(os.path.abspath(os.path.normpath(args.exe)))]
+    if not embed_py.is_dir():
+        print(f"[supervisor] WARN: 組込 Python が見つからない: {embed_py} "
+              "(0xC0000135 で起動失敗する可能性)")
+    env["PATH"] = os.pathsep.join(path_parts + [env.get("PATH", "")])
+    env.pop("ELECTRON_RUN_AS_NODE", None)
+
+    # Windows の CreateProcess は、スラッシュ区切りの相対パスを実行ファイル名として
+    # 受け付けず ERROR_FILE_NOT_FOUND を返す（`/` をスイッチ区切りとして扱うため）。
+    # os.path.exists が True でも起動に失敗するので、必ず正規化した絶対パスを渡す。
+    exe_path = os.path.abspath(os.path.normpath(args.exe))
+    osc_path = os.path.abspath(os.path.normpath(args.osc))
+    if not os.path.isfile(exe_path):
+        print(f"[supervisor] FATAL: exe が見つからない: {exe_path}")
+        return 2
+    if not os.path.isfile(osc_path):
+        print(f"[supervisor] FATAL: シナリオが見つからない: {osc_path}")
+        return 2
+    cmd = [exe_path, "--osc", osc_path] + list(args.extra)
+    # GT_Sim.exe は自分のディレクトリの DLL（GT_esminiLib / SDL2 / esminiRMLib）と、
+    # そこからの相対パスで resources / config を解決する。リポジトリルートから起動すると
+    # DLL 解決に失敗して 0xC0000135 (STATUS_DLL_NOT_FOUND) で即死する — 実際に踏んだ。
+    # 必ず exe のディレクトリを cwd にして起動する。
+    workdir = os.path.dirname(exe_path)
     print(f"[supervisor] launching: {' '.join(cmd)}")
+    print(f"[supervisor] cwd       : {workdir}")
     print(f"[supervisor] telemetry -> {args.jsonl}")
     logfh = io.open(args.logfile, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen(cmd, stdout=logfh, stderr=subprocess.STDOUT, env=env)
+    proc = subprocess.Popen(cmd, stdout=logfh, stderr=subprocess.STDOUT,
+                            env=env, cwd=workdir)
 
     t0 = time.monotonic()
     seen = 0
@@ -218,7 +254,7 @@ def main() -> int:
             return 3
 
     # --- 後始末の確認: プロセスが残っていないこと -------------------------
-    exe_name = Path(args.exe).name
+    exe_name = Path(exe_path).name
     leftovers = []
     try:
         out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe_name}"],
@@ -239,6 +275,12 @@ def main() -> int:
     print(f"[supervisor] captured {len(frames)} telemetry frames")
     if abort_reason:
         print(f"[supervisor] RESULT: ABORTED ({abort_reason})")
+        return 1
+    if rc != 0:
+        # 子が自力で異常終了した場合。S5 は既に走っているが、走行データは
+        # 信用できないので成功扱いにしない（"completed normally" と出していた
+        # のは誤り。0xC0000135 で即死した実行がそう表示された）。
+        print(f"[supervisor] RESULT: 子プロセスが異常終了した (rc={rc} = 0x{rc & 0xFFFFFFFF:08X})")
         return 1
     print("[supervisor] RESULT: completed normally")
     return 0
