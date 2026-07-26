@@ -3,6 +3,8 @@
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"  // FfbInterventionSample
 #include "gt_esmini/control/manualdrive/ManualDriveTypes.hpp"
 
+#include <deque>
+
 namespace gt_esmini
 {
 
@@ -158,6 +160,15 @@ private:
     double                ffb_shadow_kinetic_         = 0.16;
     double                ffb_shadow_force_to_vel_    = 3.35;
     double                ffb_shadow_v_max_           = 1.0;
+    // Mechanical inertia: the measured force->velocity curve is a
+    // STEADY-STATE map, so the shadow reached it instantly while a real
+    // wheel cannot. See the note at the integration site.
+    double                ffb_shadow_velocity_tau_    = 0.10;
+    double                ffb_shadow_vel_             = 0.0;
+    // Transport delay. 0 = disabled until measured.
+    double                ffb_shadow_dead_time_       = 0.0;
+    struct ForceSample { double force; double dt; };
+    std::deque<ForceSample> ffb_force_history_;
     FfbLatchDiagnostics   ffb_diag_;
 };
 

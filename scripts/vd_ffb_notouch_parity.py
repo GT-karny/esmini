@@ -216,7 +216,14 @@ def _write_cfg(tmpdir: str, input_type: str, target_track_enabled: bool, tag: st
     return out
 
 
-def _run_headless(dll_path: str, xosc_path: str, dt: float = 0.05,
+# 実機の GT_Sim は、--fixed_timestep 0.05 を渡しても検出器が見る dt は 0.01 だった
+# （2026-07-26 の実機 3 走行すべてで実測 0.01）。合成を 0.05 で回すと実機と 5 倍違い、
+# 残差は dt に依存する（合成 worst case は tau=0 で 0.0139@0.05 -> 0.0248@0.01）。
+# 検証は実機と同じ刻みで行う。
+REAL_MACHINE_DT = 0.01
+
+
+def _run_headless(dll_path: str, xosc_path: str, dt: float = REAL_MACHINE_DT,
                   max_time_s: float = 40.0) -> list[dict]:
     """Run one scenario headless and collect per-frame telemetry dicts."""
     lib = ctypes.CDLL(dll_path)

@@ -363,6 +363,49 @@ struct ManualDriveConfig
             double override_shadow_force_to_velocity    = 3.35;
             // Velocity saturation beyond the linear region (|f| >= 0.40).
             double override_shadow_v_max                = 1.0;   // axis-frac / s
+
+            // ---- Transient behaviour (the steady-state map is not enough) --
+            //
+            // Everything above describes where the wheel ENDS UP for a given
+            // force: it was measured by applying a constant force and reading
+            // the terminal speed. The shadow used that map as if the wheel
+            // reached it instantly. It does not, and on the 2026-07-26
+            // hands-off G29 runs that cost 0.070 s of the 0.100 s latch clock
+            // on traffic_lights_junction — 30 ms short of a false MANUAL latch
+            // with nobody touching the wheel.
+            //
+            // velocity_tau: first-order lag on the shadow's velocity, i.e.
+            // mechanical inertia. Identified on ONE run and validated on two
+            // held-out runs (see the completion report §17). Takes the latch
+            // clock to 0.000 s on all three measured scenarios.
+            //
+            // HONEST LIMIT: this does NOT make the shadow correct. The peak
+            // residual margin only reaches ~1.2x, so about three quarters of
+            // the residual is still not explained by anything in this model
+            // family. Do not read the presence of this constant as validation.
+            //
+            // SHIPPED DEFAULT IS 0 (disabled), NOT the fitted 0.10 — see the
+            // completion report §18. Enabling it on the detector alone turns
+            // the verification plant into a false-alarm generator: the
+            // synthetic plant is memoryless, so a shadow with inertia lags it
+            // systematically and the hands-off parity fixture LATCHES
+            // (measured: worst residual 0.0139 -> 0.0864 at dt=0.05, and a
+            // real latch at dt=0.01). Both sides have to gain the dynamics,
+            // and both values have to come from a dedicated measurement
+            // rather than a fit to driving data — otherwise they agree by
+            // construction and prove nothing.
+            double override_shadow_velocity_tau         = 0.0;   // seconds
+
+            // dead_time: transport delay between commanding a force and the
+            // wheel feeling it (plus the delay in reading the axis back).
+            // DEFAULT 0 = DISABLED, deliberately: the residual's correlation
+            // with the force's rate of change (+0.51..+0.80) is the classic
+            // signature of a dead time, but fitting it against AD-driven runs
+            // did not generalise — the value identified on one run made a
+            // held-out run slightly worse. A delay must be measured with
+            // dedicated step inputs, not inferred from driving data. The
+            // plumbing is here so that measurement lands as a config change.
+            double override_shadow_dead_time            = 0.0;   // seconds
         } target_track;
 
         // feature:F7 — UNATTENDED-RUN SAFETY WATCHDOG (SDLFFBSink only).

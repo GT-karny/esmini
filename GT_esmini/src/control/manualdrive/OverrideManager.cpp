@@ -47,13 +47,17 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     ffb_shadow_kinetic_        = config.ffb.target_track.override_shadow_kinetic;
     ffb_shadow_force_to_vel_   = config.ffb.target_track.override_shadow_force_to_velocity;
     ffb_shadow_v_max_          = config.ffb.target_track.override_shadow_v_max;
+    ffb_shadow_velocity_tau_   = config.ffb.target_track.override_shadow_velocity_tau;
+    ffb_shadow_dead_time_      = config.ffb.target_track.override_shadow_dead_time;
     ffb_sustain_accum_         = 0.0;
     ffb_prev_target_norm_      = 0.0;
     ffb_prev_pos_error_        = 0.0;
     ffb_history_valid_         = false;
     ffb_shadow_norm_           = 0.0;
     ffb_shadow_moving_         = false;
+    ffb_shadow_vel_            = 0.0;
     ffb_shadow_valid_          = false;
+    ffb_force_history_.clear();
     ffb_sample_                = {};
     ffb_diag_                  = {};
 }
@@ -119,6 +123,8 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         ffb_history_valid_ = false;
         ffb_shadow_valid_  = false;
         ffb_shadow_moving_ = false;
+        ffb_shadow_vel_    = 0.0;
+        ffb_force_history_.clear();
         if (was_any_manual)
             just_transitioned_to_auto_ = true;
         return;  // suppress same-frame intervention re-latch
@@ -252,10 +258,38 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             ffb_shadow_norm_        = actual_norm;
             ffb_shadow_rest_anchor_ = actual_norm;
             ffb_shadow_moving_      = false;
+            ffb_shadow_vel_         = 0.0;
             ffb_shadow_valid_       = true;
         }
 
-        const double f = ffb_sample_.effective_force_signed;
+        // --- Transport delay (dead time) -------------------------------
+        // The shadow is driven by the force the wheel felt `dead_time` seconds
+        // ago, not the force commanded this frame. Default 0 = disabled, i.e.
+        // no behaviour change until the delay has actually been MEASURED (see
+        // ManualDriveConfig). The history is kept regardless so enabling it is
+        // a config change, not a code change.
+        ffb_force_history_.push_back({ffb_sample_.effective_force_signed, dt});
+        double f = ffb_sample_.effective_force_signed;
+        {
+            // Drop anything older than we could ever need, then walk back
+            // `dead_time` worth of frames.
+            double age = 0.0;
+            for (auto it = ffb_force_history_.rbegin(); it != ffb_force_history_.rend(); ++it)
+            {
+                f = it->force;
+                age += it->dt;
+                if (age >= ffb_shadow_dead_time_) break;
+            }
+            double total = 0.0;
+            for (const auto& e : ffb_force_history_) total += e.dt;
+            while (ffb_force_history_.size() > 1 &&
+                   total - ffb_force_history_.front().dt > ffb_shadow_dead_time_ + 0.5)
+            {
+                total -= ffb_force_history_.front().dt;
+                ffb_force_history_.pop_front();
+            }
+        }
+
         if (!suppress)
         {
             // Stick-slip: a wheel at rest needs `breakaway` to start; once
@@ -298,6 +332,13 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                     // for the observed-motion test above.
                     ffb_shadow_moving_      = false;
                     ffb_shadow_rest_anchor_ = actual_norm;
+                    // Static friction grabs: velocity goes to zero at once, it
+                    // does NOT decay through the lag below. Measured: the
+                    // "wheel coasts on after the force drops" regime accounts
+                    // for ~0.1% of residual growth on the real machine
+                    // (residual_decompose.py R4), so modelling it would add
+                    // drift for no fidelity.
+                    ffb_shadow_vel_ = 0.0;
                 }
                 else
                 {
@@ -308,7 +349,29 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                     shadow_vel = (f >= 0.0) ? -speed : speed;
                 }
             }
-            ffb_shadow_norm_ = std::clamp(ffb_shadow_norm_ + shadow_vel * dt, -1.0, 1.0);
+            // --- First-order velocity lag (mechanical inertia) -------------
+            // The measured force->velocity curve is a STEADY-STATE map: a
+            // constant force was applied and the terminal speed recorded. A
+            // real wheel does not reach that speed instantly, and the shadow
+            // used the map as if it did. On the 2026-07-26 hands-off runs that
+            // cost 0.070s of the 0.100s latch clock on traffic_lights_junction
+            // — 30 ms from a false MANUAL latch with nobody touching the wheel.
+            //
+            // Adding this lag takes the clock to 0.000s on all three measured
+            // scenarios. It does NOT make the model correct: the peak residual
+            // margin only improves to ~1.2x, so roughly three quarters of the
+            // residual is still unexplained by anything in this model family.
+            // See test_results/f7_residual_completion_report.md §17.
+            if (ffb_shadow_velocity_tau_ > 1e-9)
+            {
+                const double alpha = 1.0 - std::exp(-dt / ffb_shadow_velocity_tau_);
+                ffb_shadow_vel_ += alpha * (shadow_vel - ffb_shadow_vel_);
+            }
+            else
+            {
+                ffb_shadow_vel_ = shadow_vel;
+            }
+            ffb_shadow_norm_ = std::clamp(ffb_shadow_norm_ + ffb_shadow_vel_ * dt, -1.0, 1.0);
         }
 
         const double residual = std::abs(actual_norm - ffb_shadow_norm_);
@@ -391,6 +454,8 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         ffb_history_valid_ = false;
         ffb_shadow_valid_  = false;
         ffb_shadow_moving_ = false;
+        ffb_shadow_vel_    = 0.0;
+        ffb_force_history_.clear();
         ffb_diag_          = {};
         ffb_diag_.block_reason = FfbLatchDiagnostics::BlockReason::INACTIVE;
     }

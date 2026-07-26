@@ -134,6 +134,8 @@ const DoubleField kDoubleFields[] = {
     {"ffb_target_track_override_shadow_kinetic",           &VirtualDriverConfig::ffb_target_track_override_shadow_kinetic},
     {"ffb_target_track_override_shadow_force_to_velocity", &VirtualDriverConfig::ffb_target_track_override_shadow_force_to_velocity},
     {"ffb_target_track_override_shadow_v_max",             &VirtualDriverConfig::ffb_target_track_override_shadow_v_max},
+    {"ffb_target_track_override_shadow_velocity_tau",      &VirtualDriverConfig::ffb_target_track_override_shadow_velocity_tau},
+    {"ffb_target_track_override_shadow_dead_time",         &VirtualDriverConfig::ffb_target_track_override_shadow_dead_time},
     {"ffb_safety_max_saturation_seconds",                  &VirtualDriverConfig::ffb_safety_max_saturation_seconds},
     {"ffb_safety_max_runtime_seconds",                     &VirtualDriverConfig::ffb_safety_max_runtime_seconds},
     {"ffb_safety_saturation_ratio",                        &VirtualDriverConfig::ffb_safety_saturation_ratio},

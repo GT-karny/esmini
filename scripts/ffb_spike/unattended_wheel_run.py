@@ -102,6 +102,13 @@ def main() -> int:
     ap.add_argument("--max-hardstop", type=float, default=2.0, help="S2 端張り付きの上限 [s]")
     ap.add_argument("--hardstop-level", type=float, default=0.95, help="S2 とみなす |軸|")
     ap.add_argument("--max-stall", type=float, default=10.0, help="S4 無更新の上限 [s]")
+    ap.add_argument("--min-frames", type=int, default=100,
+                    help="G1: 捕捉フレームがこれ未満なら失敗（0 件を成功と表示しないため）")
+    ap.add_argument("--min-moving-frames", type=int, default=0,
+                    help="F6: 同定計測用。shadow_moving のフレームがこれ未満なら失敗"
+                         "（0 = 検査しない。実測目安 right_turn 590 / basic 180）")
+    ap.add_argument("--allow-no-wheel", action="store_true",
+                    help="G2 の実機事前条件チェックを外す（実機を使わない疎通確認用）")
     ap.add_argument("--extra", nargs=argparse.REMAINDER, default=[],
                     help="GT_Sim へ渡す追加引数")
     args = ap.parse_args()
@@ -273,6 +280,61 @@ def main() -> int:
 
     frames, _ = read_tail(args.jsonl, 0)
     print(f"[supervisor] captured {len(frames)} telemetry frames")
+
+    # --- G1: フレーム 0 を失敗にする -------------------------------------
+    # 印字するだけでは足りない。config 切替漏れ・G29 未認識・シナリオ即終了の
+    # いずれでも rc=0 で 0 フレームになり得るが、それは「成功した無走行」ではなく
+    # 計測失敗である。無人運用では、失敗を成功と表示するのが最も危険なバグ。
+    if len(frames) < args.min_frames:
+        print(f"[supervisor] FAIL: 捕捉フレームが {len(frames)} 件しかない"
+              f"（下限 {args.min_frames}）。config 切替漏れ / G29 未認識 / "
+              f"シナリオ即終了のいずれかを疑うこと")
+        return 4
+
+    # --- G2: Haptic opened をログから自動確認 -----------------------------
+    # A-4 の中断条件は目視前提だったが、無人走行に目視は存在しない。
+    # 実機を掴めていないまま「走行した」と報告するのを構造的に防ぐ。
+    try:
+        logtext = io.open(args.logfile, encoding="utf-8", errors="replace").read()
+    except OSError:
+        logtext = ""
+    required = [
+        ("SDLFFBSink: Haptic opened", "G29 を掴めていない（実機に繋がっていない可能性）"),
+        ("input=sdl2_wheel", "config が実機用に切り替わっていない（stub のまま）"),
+        ("safety watchdog", "安全ウォッチドッグのログが無い（古いビルド？）"),
+    ]
+    forbidden = [
+        ("Joystick does not support haptic feedback", "別デバイスを掴んでいる"),
+        ("SAFETY MISCONFIGURED", "ウォッチドッグが発火し得ない設定になっている"),
+    ]
+    problems = [f"'{s}' がログに無い -> {why}" for s, why in required if s not in logtext]
+    problems += [f"'{s}' がログに出ている -> {why}" for s, why in forbidden if s in logtext]
+    # watchdog が有効化されているか（0.0s は無効）
+    import re as _re
+    m = _re.search(r"safety watchdog max_saturation=([0-9.]+)s max_runtime=([0-9.]+)s", logtext)
+    if m and (float(m.group(1)) <= 0.0 or float(m.group(2)) <= 0.0):
+        problems.append(f"安全ウォッチドッグが無効 (max_saturation={m.group(1)}s "
+                        f"max_runtime={m.group(2)}s)")
+    if problems and not args.allow_no_wheel:
+        print("[supervisor] FAIL: 実機走行の事前条件を満たしていない:")
+        for pr in problems:
+            print("   - " + pr)
+        return 5
+
+    # --- F6: 同定計測の事前条件 -------------------------------------------
+    # 過渡を同定したいのに運動区間がほとんど無い走行では、何を当てはめても意味が
+    # ない。shadow_moving=True のフレーム数を数えて下限を割ったら失敗にする。
+    # 実測（2026-07-26）: right_turn 590 / tljunction 570 / basic 180 フレーム。
+    # basic のような走行を同定に使うと、静止区間ばかりのデータに当てはめることになる。
+    if args.min_moving_frames > 0:
+        moving = sum(1 for f in frames
+                     if f.get("ffb", {}).get("gates", {}).get("shadow_moving"))
+        print(f"[supervisor] shadow_moving フレーム: {moving} / {len(frames)}")
+        if moving < args.min_moving_frames:
+            print(f"[supervisor] FAIL: 運動区間が {moving} フレームしかない"
+                  f"（下限 {args.min_moving_frames}）。過渡の同定には使えない")
+            return 6
+
     if abort_reason:
         print(f"[supervisor] RESULT: ABORTED ({abort_reason})")
         return 1
