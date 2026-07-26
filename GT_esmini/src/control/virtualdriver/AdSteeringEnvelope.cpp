@@ -118,19 +118,34 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
     // outside the cap that delta_after_lat_yaw was carefully clamped to. The
     // shaping term then silently defeats the safety term.
     //
-    // That is not hypothetical, and it is NOT specific to the steering-jerk
-    // stage. Measured over a 112-cell AUTO_RESUME sweep at dt=0.01, curvature
-    // computed straight from this function's own output against kappa_max:
-    //     steer_jerk_max=0  (rate limiter alone, as shipped):  1.0078x, 17/28 cells
-    //     steer_jerk_max=50                                    1.2695x
-    //     steer_jerk_max=25                                    1.7719x
-    //     steer_jerk_max=10                                    3.5781x
-    // The rate limiter alone already leaves the envelope, if only barely. The
-    // jerk stage turns that into a severe excursion, monotonically worse the
-    // tighter the cap, because a tighter cap takes longer to walk delta_prev
-    // back inside — sustained 39-176 consecutive frames at 10.5-11.9 m/s, with
-    // lateral_accel_active reporting true throughout: the envelope announcing
-    // it was clamping while its output sat at twice the limit it enforces.
+    // That is not hypothetical. Measured over a 112-cell AUTO_RESUME sweep at
+    // dt=0.01, curvature computed straight from this function's own output
+    // against kappa_max, BEFORE this clamp existed:
+    //     steer_jerk_max=50    1.2695x
+    //     steer_jerk_max=25    1.7719x
+    //     steer_jerk_max=10    3.5781x
+    // Monotonically worse the tighter the cap, because a tighter cap takes
+    // longer to walk delta_prev back inside — sustained 39-176 consecutive
+    // frames at 10.5-11.9 m/s, with lateral_accel_active reporting true
+    // throughout: the envelope announcing it was clamping while its output sat
+    // at twice the limit it enforces.
+    //
+    // The rate limiter ALONE (steer_jerk_max=0, i.e. the configuration shipped
+    // before the jerk stage existed) does NOT reach outside the envelope. An
+    // earlier revision of this comment claimed it did, at 1.0078x over 17/28
+    // cells; that number was an artifact of the verification script, which
+    // (a) built kappa_max from the lateral-accel term only, dropping the min()
+    // against the yaw-rate term, and (b) compared against a kappa_max computed
+    // from the frame's REPORTED speed, while the envelope had used the
+    // previous frame's — telemetry reports speed after that frame's physics
+    // integration, so in a mid-acceleration scenario the mismatch is
+    // systematic, not noise. Corrected, the rate-limiter-only worst case is
+    // exactly 1.0. The hole is structural and real, but only a jerk cap
+    // tight enough to stall the unwind actually opens it.
+    //
+    // With this clamp in place the sweep re-verifies at 0/112 cells over the
+    // envelope, max ratio 1.000000, at every steer_jerk_max tested — including
+    // the 3.5781x case above.
     //
     // Re-clamping here costs nothing when the shaped command is already legal
     // (delta_after_lat_yaw is inside this bound by construction, so the clamp
