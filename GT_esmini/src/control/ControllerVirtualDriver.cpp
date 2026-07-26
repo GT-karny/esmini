@@ -488,6 +488,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.override_longitudinal = lon_manual;
     telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
     telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+    telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
     // feature:F7 (F7b) FFB target-track observability. Sample this frame's
     // servo state (populated by ffb->Update above; inert when servo is off).
     if (ffb)

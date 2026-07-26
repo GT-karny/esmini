@@ -94,9 +94,25 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     // Register for emergency release BEFORE any effect is created, so even a
     // crash during effect setup leaves the device silenced.
     RegisterEmergencyRelease(this);
-    LOG_INFO("SDLFFBSink: safety watchdog max_saturation={:.1f}s max_runtime={:.1f}s "
-             "(0 = disabled) saturation_ratio={:.2f}",
-             safety_max_saturation_s_, safety_max_runtime_s_, safety_saturation_ratio_);
+    {
+        // Log the ABSOLUTE trip level, not just the ratio. A ratio alone hides
+        // the defect this line exists to make impossible: a trip level above
+        // the force the servo can actually produce, i.e. a watchdog that can
+        // never fire. The runbook's abort check reads this line.
+        const double reachable_cap = ReachableForceCap();
+        const double sat_level = safety_saturation_ratio_ * reachable_cap;
+        LOG_INFO("SDLFFBSink: safety watchdog max_saturation={:.1f}s max_runtime={:.1f}s "
+                 "(0 = disabled) saturation_ratio={:.2f} reachable_cap={:.2f} "
+                 "-> trips at |force| >= {:.3f}",
+                 safety_max_saturation_s_, safety_max_runtime_s_,
+                 safety_saturation_ratio_, reachable_cap, sat_level);
+        if (safety_max_saturation_s_ > 0.0 && sat_level > reachable_cap)
+        {
+            LOG_WARN("SDLFFBSink: SAFETY MISCONFIGURED — saturation trip {:.3f} exceeds the "
+                     "reachable cap {:.3f}; this watchdog can never fire",
+                     sat_level, reachable_cap);
+        }
+    }
 
     // spike §1e: script 04 (constant-force PID servo, the calibration source for
     // Kp/Kd) explicitly set gain to 100 (max). Without this call, SDL uses a
@@ -415,6 +431,69 @@ BOOL WINAPI ConsoleRelease(DWORD)
     ReleaseAllHaptics();
     return FALSE;   // let the default handler continue terminating us
 }
+
+// STRUCTURED EXCEPTIONS — the hole signal(SIGSEGV) does not cover.
+//
+// On MSVC, an access violation or a stack overflow is delivered as a
+// STRUCTURED exception. The CRT only synthesises SIGSEGV for a subset of
+// cases, and a stack overflow in particular unwinds through the SEH
+// machinery without the signal handler ever running. On a supervised run that
+// just means a crash dialog; on an UNATTENDED run with a powered wheel it
+// means the CONSTANT effect keeps pulling until somebody walks in. So the SEH
+// path gets closed too, at both ends:
+//
+//   - a VECTORED handler (first chance, runs before any __except in any
+//     frame, so a library that swallows the exception cannot hide it from us)
+//   - SetUnhandledExceptionFilter (last chance, for anything the vectored
+//     handler declined)
+//
+// Only unambiguously fatal codes are acted on. C++ exceptions (0xE06D7363)
+// and breakpoints are normal control flow and are ignored — reacting to those
+// would silence the wheel during ordinary operation. Both handlers ALWAYS
+// pass the exception on (CONTINUE_SEARCH / chain to the previous filter), so
+// the process still crashes exactly as it would have; the only change is that
+// the device is quiet when it does.
+//
+// Residual risk, stated: calling into SDL from an exception handler is not
+// formally safe, and a first-chance hit that some frame goes on to handle
+// would leave FFB stopped for the rest of the run. Both are strictly better
+// than a wheel left under load with nobody present — a stopped servo is a
+// degraded run, a stuck force is a hazard.
+bool IsFatalSehCode(DWORD code)
+{
+    switch (code)
+    {
+        case EXCEPTION_ACCESS_VIOLATION:
+        case EXCEPTION_STACK_OVERFLOW:
+        case EXCEPTION_ILLEGAL_INSTRUCTION:
+        case EXCEPTION_PRIV_INSTRUCTION:
+        case EXCEPTION_IN_PAGE_ERROR:
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:
+        case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+        case EXCEPTION_NONCONTINUABLE_EXCEPTION:
+            return true;
+        default:
+            return false;
+    }
+}
+
+LONG CALLBACK VectoredRelease(EXCEPTION_POINTERS* info)
+{
+    if (info && info->ExceptionRecord && IsFatalSehCode(info->ExceptionRecord->ExceptionCode))
+    {
+        ReleaseAllHaptics();
+    }
+    return EXCEPTION_CONTINUE_SEARCH;   // never alter the outcome
+}
+
+LPTOP_LEVEL_EXCEPTION_FILTER g_prev_seh_filter = nullptr;
+
+LONG WINAPI UnhandledRelease(EXCEPTION_POINTERS* info)
+{
+    ReleaseAllHaptics();
+    if (g_prev_seh_filter) return g_prev_seh_filter(info);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 #endif
 }  // namespace
 
@@ -439,6 +518,9 @@ void SDLFFBSink::RegisterEmergencyRelease(SDLFFBSink* sink)
         std::signal(SIGSEGV, &SignalRelease);
 #ifdef _WIN32
         SetConsoleCtrlHandler(&ConsoleRelease, TRUE);
+        // SEH — the path signal(SIGSEGV) misses on MSVC. See VectoredRelease.
+        AddVectoredExceptionHandler(1 /*call first*/, &VectoredRelease);
+        g_prev_seh_filter = SetUnhandledExceptionFilter(&UnhandledRelease);
 #endif
         hooks_installed = true;
     }
@@ -450,6 +532,12 @@ void SDLFFBSink::UnregisterEmergencyRelease(SDLFFBSink* sink)
     std::lock_guard<std::mutex> lk(LiveSinksMutex());
     auto& v = LiveSinks();
     v.erase(std::remove(v.begin(), v.end(), sink), v.end());
+}
+
+double SDLFFBSink::ReachableForceCap() const
+{
+    return target_track_enabled_ ? std::min(max_force_, servo_cfg_.max_force)
+                                 : max_force_;
 }
 
 void SDLFFBSink::UpdateSafetyWatchdog(double applied_force, double dt)
@@ -470,7 +558,25 @@ void SDLFFBSink::UpdateSafetyWatchdog(double applied_force, double dt)
 
     if (safety_max_saturation_s_ > 0.0)
     {
-        const double sat_level = safety_saturation_ratio_ * max_force_;
+        // SATURATION MUST BE MEASURED AGAINST A REACHABLE FORCE.
+        //
+        // The obvious reference, max_force_, is the CLAMP on the combined
+        // output (ffb.max_force, shipped 1.0) — not the largest force this
+        // sink can actually sustain. While the target-track servo owns the
+        // channel (feel_ratio 0 suppresses sat/friction/damping) the only
+        // continuous contributor is the servo, capped at
+        // target_track.max_force = 0.6. Referencing max_force_ therefore puts
+        // the trip at 0.95, which the servo can never reach: soft_stop would
+        // have to add another 0.35 on top, i.e. the wheel would have to be
+        // jammed against its lock — and that is S2's job, not this one.
+        //
+        // The result was a watchdog that could never fire in exactly the
+        // situation it exists for ("the servo is pushing and the wheel is not
+        // moving"). Reference the achievable cap instead, which also puts
+        // this in agreement with the supervisor's independently-derived
+        // 0.95 x 0.6 = 0.57.
+        const double reachable_cap = ReachableForceCap();
+        const double sat_level = safety_saturation_ratio_ * reachable_cap;
         if (std::abs(applied_force) >= sat_level)
         {
             safety_saturation_accum_ += dt;

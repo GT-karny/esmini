@@ -70,6 +70,17 @@ private:
     // on. See ManualDriveConfig.ffb.safety.
     void UpdateSafetyWatchdog(double applied_force, double dt);
 
+    // Largest force this sink can actually SUSTAIN, which is what the
+    // saturation watchdog must be measured against. NOT max_force_: that is
+    // the clamp on the combined output (shipped 1.0), while the only
+    // continuous contributor under an active servo with the feel terms
+    // suppressed is the servo itself, capped at target_track.max_force (0.6).
+    // Using the clamp put the trip at 0.95 — unreachable without jamming the
+    // wheel into its lock — so the watchdog could never fire in the exact
+    // situation it guards. Single definition on purpose: the trip level and
+    // the value logged at Init must not be able to drift apart.
+    double ReachableForceCap() const;
+
     // Emergency release: stop and destroy every effect on every live sink.
     // Registered with atexit()/signal()/console-ctrl so a crash, an abort, or a
     // Ctrl-C still silences the device instead of leaving a CONSTANT effect

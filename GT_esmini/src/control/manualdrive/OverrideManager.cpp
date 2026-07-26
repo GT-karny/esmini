@@ -27,6 +27,7 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     just_transitioned_to_manual_ = false;
     just_transitioned_to_auto_   = false;
     prev_resume_pressed_         = false;
+    resume_edge_                 = false;
 
     // feature:F7 — FFB residual detector. Independent of the
     // steering_threshold_ used for the direct pedal_steer.steering path.
@@ -66,6 +67,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
 {
     just_transitioned_to_manual_ = false;
     just_transitioned_to_auto_   = false;
+    resume_edge_                 = false;
 
     // Domains configured as "scenario" are always AUTO
     if (!lat_configured_manual_)  lat_mode_ = Mode::AUTO;
@@ -93,6 +95,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     const bool resume_pressed = (buttons & ButtonBits::AUTO_RESUME) != 0;
     const bool resume_edge    = resume_pressed && !prev_resume_pressed_;
     prev_resume_pressed_ = resume_pressed;
+    resume_edge_         = resume_edge;   // observability; see JustPressedResume()
 
     if (resume_edge)
     {

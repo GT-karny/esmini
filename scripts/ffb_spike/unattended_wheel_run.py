@@ -53,6 +53,33 @@ def read_tail(path: Path, seen: int) -> tuple[list[dict], int]:
     return out, new_seen
 
 
+SPIKE_VENV_PY = (Path(__file__).resolve().parent / ".venv" / "Scripts" / "python.exe")
+RELEASE_TOOL  = (Path(__file__).resolve().parent / "haptic_release.py")
+
+
+def release_haptics_out_of_process() -> int:
+    """強制終了の後始末: 別プロセスでデバイスを開き直し全エフェクトを止める。
+
+    TerminateProcess は対象にコードを実行させないので、製品側の歯止めは一つも
+    走らない。ここだけが最後の砦になる。pysdl2 が要るので ffb_spike の venv で
+    起動する（無ければ失敗として報告する — 黙って諦めない）。
+    """
+    if not SPIKE_VENV_PY.exists():
+        print(f"[supervisor] ERROR: {SPIKE_VENV_PY} が無い。haptic を解放できない")
+        return 2
+    try:
+        r = subprocess.run([str(SPIKE_VENV_PY), str(RELEASE_TOOL)],
+                           capture_output=True, text=True, timeout=60)
+        for ln in (r.stdout or "").splitlines():
+            print("   " + ln)
+        for ln in (r.stderr or "").splitlines():
+            print("   ! " + ln)
+        return r.returncode
+    except Exception as e:   # noqa: BLE001
+        print(f"[supervisor] ERROR: haptic 解放ツールの実行に失敗: {e}")
+        return 2
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -90,6 +117,7 @@ def main() -> int:
     stop_since = None
     last_frame_wall = t0
     abort_reason = None
+    hard_killed = False
 
     try:
         while proc.poll() is None:
@@ -134,12 +162,28 @@ def main() -> int:
                     print("[supervisor] terminate に応答なし — kill する")
                     proc.kill()
                     proc.wait(timeout=10)
+                    hard_killed = True
                 break
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=10)
+            hard_killed = True
         logfh.close()
+
+    # --- 強制終了経路の後始末（C6）---------------------------------------
+    # kill() は Windows では TerminateProcess であり、対象プロセスに一切コードを
+    # 実行させない。製品側の destructor / atexit / signal / console-ctrl / SEH
+    # フィルタは **どれも走らない**。OS がデバイスを解放するはずだが、それは
+    # 確認できる保証ではない。人がいない以上「たぶん止まる」で済ませないので、
+    # 別プロセスでデバイスを開き直して全エフェクトを停止・解放する。
+    if hard_killed:
+        print("[supervisor] 強制終了経路を通った — 別プロセスで haptic を解放する")
+        rel = release_haptics_out_of_process()
+        if rel != 0:
+            print("[supervisor] !! haptic の外部解放に失敗した。"
+                  "ホイールに力が残っている可能性がある — 目視/電源で確認すること")
+            return 3
 
     rc = proc.returncode
     print(f"[supervisor] process exited rc={rc} after {time.monotonic() - t0:.1f}s wall")

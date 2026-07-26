@@ -78,6 +78,19 @@ public:
     bool IsAnyManual() const { return lat_mode_ == Mode::MANUAL || long_mode_ == Mode::MANUAL; }
     bool IsEnabled() const { return enabled_; }
 
+    // feature:F7 — AUTO_RESUME button rising edge: true on the frame the
+    // driver PRESSED it, whether or not it changed anything.
+    //
+    // Exposed separately from JustTransitionedToAuto() because that one only
+    // fires when the domain actually WAS manual. A driver who tries to take
+    // over, fails to trigger a latch, and presses RESUME anyway leaves NO
+    // trace in the transition stream — so a recorded session cannot be split
+    // into attempts, and the one outcome worth measuring ("which attempt
+    // failed to latch?") is unrecoverable. The button press is the driver's
+    // own delimiter of an attempt, so it is what a session analysis must key
+    // off. See scripts/ffb_spike/wheel_session_report.py.
+    bool JustPressedResume() const { return resume_edge_; }
+
     // Transition detection: true only on the frame the AUTO→MANUAL or
     // MANUAL→AUTO transition occurred. feature:F7 telemetry consumer.
     bool JustTransitionedToManual() const { return just_transitioned_to_manual_; }
@@ -105,6 +118,7 @@ private:
     bool   just_transitioned_to_manual_ = false;
     bool   just_transitioned_to_auto_   = false;
     bool   prev_resume_pressed_         = false;  // feature:F7 rising-edge detector
+    bool   resume_edge_                 = false;  // this frame's rising edge (observability)
 
     // feature:F7 — FFB residual-based intervention latch (see UpdateFfbSample
     // and ManualDriveConfig.ffb.target_track for the full design rationale).

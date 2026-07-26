@@ -25,7 +25,8 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"override\":{\"lateral\":" << b(t.override_lateral)
        << ",\"longitudinal\":" << b(t.override_longitudinal)
        << ",\"manual_transition\":" << b(t.manual_transition)
-       << ",\"auto_transition\":" << b(t.auto_transition) << "}"
+       << ",\"auto_transition\":" << b(t.auto_transition)
+       << ",\"resume_pressed\":" << b(t.resume_pressed) << "}"
        // feature:F7 (F7b) FFB target-track observability. Additive block;
        // consumers that predate it (existing overlay) simply ignore it.
        << ",\"ffb\":{\"target_active\":" << b(t.ffb_target_active)

@@ -185,6 +185,11 @@ struct VirtualDriverTelemetry
     // is scenario-locked. Never simultaneously true.
     bool manual_transition = false;  // AUTO -> MANUAL this frame
     bool auto_transition   = false;  // MANUAL -> AUTO this frame (resume-button or timeout)
+    // AUTO_RESUME pressed this frame, EVEN IF it changed nothing. Without it a
+    // failed takeover attempt leaves no trace at all (auto_transition needs the
+    // domain to have been manual), so a session cannot be segmented into
+    // attempts. See OverrideManager::JustPressedResume().
+    bool resume_pressed    = false;
 
     // feature:F7 (F7b) — FFB target-tracking servo state. Populated only when
     // the SDLFFBSink servo is running (ffb.target_track.enabled + AD lateral):
