@@ -31,6 +31,7 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"ffb\":{\"target_active\":" << b(t.ffb_target_active)
        << ",\"commanded_force\":" << t.ffb_commanded_force
        << ",\"position_error\":" << t.ffb_position_error
+       << ",\"target_norm\":" << t.ffb_target_norm
        // feature:F7 (F7b, post-93b2c6c4) override-latch gate diagnostics.
        // Additive sub-object; consumers that predate it ignore it.
        // sustain_accum + block_reason are the two fields to check first when

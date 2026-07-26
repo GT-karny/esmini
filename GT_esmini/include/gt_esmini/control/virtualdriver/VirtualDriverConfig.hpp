@@ -203,6 +203,12 @@ struct VirtualDriverConfig
     double ffb_target_track_override_shadow_kinetic              = 0.16;   // force
     double ffb_target_track_override_shadow_force_to_velocity    = 3.35;   // (axis-frac/s) / force
     double ffb_target_track_override_shadow_v_max                = 1.0;    // axis-frac / s
+    // feature:F7 unattended-run safety watchdog. 0 = disabled (default), so
+    // supervised runs and every existing gate are unaffected. The unattended
+    // runbook turns these on. See ManualDriveConfig.ffb.safety.
+    double ffb_safety_max_saturation_seconds                     = 0.0;    // s; 0 = off
+    double ffb_safety_max_runtime_seconds                        = 0.0;    // s; 0 = off
+    double ffb_safety_saturation_ratio                           = 0.95;
 
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"

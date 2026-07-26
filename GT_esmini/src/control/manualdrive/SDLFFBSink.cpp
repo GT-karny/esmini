@@ -5,8 +5,15 @@
 #include "CommonMini.hpp"
 #include "logger.hpp"
 
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <csignal>
+#include <cstdlib>
+#include <mutex>
+#include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace gt_esmini
 {
@@ -47,6 +54,14 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     servo_cfg_.friction_ff       = config.ffb.target_track.friction_ff;
     servo_cfg_.friction_ff_eps   = config.ffb.target_track.friction_ff_eps;
     feel_ratio_                  = config.ffb.target_track.feel_ratio;
+    // feature:F7 unattended-run safety watchdog (both 0 = disabled by default,
+    // so supervised behaviour is unchanged). See SDLFFBSink.hpp.
+    safety_max_saturation_s_ = config.ffb.safety.max_saturation_seconds;
+    safety_max_runtime_s_    = config.ffb.safety.max_runtime_seconds;
+    safety_saturation_ratio_ = config.ffb.safety.saturation_ratio;
+    safety_saturation_accum_ = 0.0;
+    safety_runtime_accum_    = 0.0;
+    safety_tripped_          = false;
     ResetSteerServo(servo_state_);
     target_norm_        = 0.0;
     target_active_      = false;
@@ -75,6 +90,13 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         LOG_WARN("SDLFFBSink: Failed to open haptic: {}", SDL_GetError());
         return false;
     }
+
+    // Register for emergency release BEFORE any effect is created, so even a
+    // crash during effect setup leaves the device silenced.
+    RegisterEmergencyRelease(this);
+    LOG_INFO("SDLFFBSink: safety watchdog max_saturation={:.1f}s max_runtime={:.1f}s "
+             "(0 = disabled) saturation_ratio={:.2f}",
+             safety_max_saturation_s_, safety_max_runtime_s_, safety_saturation_ratio_);
 
     // spike §1e: script 04 (constant-force PID servo, the calibration source for
     // Kp/Kd) explicitly set gain to 100 (max). Without this call, SDL uses a
@@ -351,8 +373,132 @@ double SDLFFBSink::ReadPhysicalWheelNorm() const
     return static_cast<double>(raw) / 32767.0;
 }
 
+// --- feature:F7 unattended-run safety -------------------------------------
+//
+// Emergency release. A CONSTANT effect on a G29 keeps pulling until something
+// stops it; process death releases the DirectInput device, but a hang, an
+// abort() or a Ctrl-C in between leaves the wheel loaded with nobody in the
+// room. These hooks close that window.
+namespace
+{
+std::vector<SDLFFBSink*>& LiveSinks()
+{
+    static std::vector<SDLFFBSink*> sinks;
+    return sinks;
+}
+std::mutex& LiveSinksMutex()
+{
+    static std::mutex m;
+    return m;
+}
+void ReleaseAllHaptics()
+{
+    // Deliberately minimal: stop effects, do not free, do not log, do not
+    // throw. This runs from atexit and from signal handlers.
+    for (SDLFFBSink* s : LiveSinks())
+    {
+        if (s) s->SilenceDevice();
+    }
+}
+void SignalRelease(int sig)
+{
+    ReleaseAllHaptics();
+    // Restore the default action and re-raise so the process still dies the
+    // way it was going to — swallowing the signal would be worse than the
+    // stuck force we are preventing.
+    std::signal(sig, SIG_DFL);
+    std::raise(sig);
+}
+#ifdef _WIN32
+BOOL WINAPI ConsoleRelease(DWORD)
+{
+    ReleaseAllHaptics();
+    return FALSE;   // let the default handler continue terminating us
+}
+#endif
+}  // namespace
+
+void SDLFFBSink::SilenceDevice()
+{
+    if (haptic_)
+    {
+        SDL_HapticStopAll(haptic_);
+    }
+}
+
+void SDLFFBSink::RegisterEmergencyRelease(SDLFFBSink* sink)
+{
+    std::lock_guard<std::mutex> lk(LiveSinksMutex());
+    static bool hooks_installed = false;
+    if (!hooks_installed)
+    {
+        std::atexit(&ReleaseAllHaptics);
+        std::signal(SIGINT,  &SignalRelease);
+        std::signal(SIGTERM, &SignalRelease);
+        std::signal(SIGABRT, &SignalRelease);
+        std::signal(SIGSEGV, &SignalRelease);
+#ifdef _WIN32
+        SetConsoleCtrlHandler(&ConsoleRelease, TRUE);
+#endif
+        hooks_installed = true;
+    }
+    LiveSinks().push_back(sink);
+}
+
+void SDLFFBSink::UnregisterEmergencyRelease(SDLFFBSink* sink)
+{
+    std::lock_guard<std::mutex> lk(LiveSinksMutex());
+    auto& v = LiveSinks();
+    v.erase(std::remove(v.begin(), v.end(), sink), v.end());
+}
+
+void SDLFFBSink::UpdateSafetyWatchdog(double applied_force, double dt)
+{
+    if (safety_tripped_ || dt <= 0.0) return;
+
+    if (safety_max_runtime_s_ > 0.0)
+    {
+        safety_runtime_accum_ += dt;
+        if (safety_runtime_accum_ >= safety_max_runtime_s_)
+        {
+            safety_tripped_ = true;
+            LOG_WARN("SDLFFBSink SAFETY: total runtime {:.1f}s reached the configured "
+                     "limit {:.1f}s — force disabled for the rest of this process",
+                     safety_runtime_accum_, safety_max_runtime_s_);
+        }
+    }
+
+    if (safety_max_saturation_s_ > 0.0)
+    {
+        const double sat_level = safety_saturation_ratio_ * max_force_;
+        if (std::abs(applied_force) >= sat_level)
+        {
+            safety_saturation_accum_ += dt;
+            if (safety_saturation_accum_ >= safety_max_saturation_s_)
+            {
+                safety_tripped_ = true;
+                LOG_WARN("SDLFFBSink SAFETY: |force| stayed >= {:.3f} for {:.1f}s "
+                         "(limit {:.1f}s) — the servo is straining against something it "
+                         "cannot move; force disabled for the rest of this process",
+                         sat_level, safety_saturation_accum_, safety_max_saturation_s_);
+            }
+        }
+        else
+        {
+            safety_saturation_accum_ = 0.0;   // must be CONTINUOUS to count
+        }
+    }
+
+    if (safety_tripped_)
+    {
+        UpdateConstantEffect(0.0);
+        SDL_HapticStopAll(haptic_);
+    }
+}
+
 void SDLFFBSink::Close()
 {
+    UnregisterEmergencyRelease(this);
     if (haptic_)
     {
         SDL_HapticStopAll(haptic_);
@@ -555,7 +701,13 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
                  total, sat_predictive, sat_reactive, friction, damping, soft_stop, target_track, steering_pos, lat_accel, speed);
     }
 
+    // feature:F7 unattended-run safety: evaluate BEFORE commanding, and hold
+    // the force at zero once tripped. Placed here (not inside
+    // UpdateConstantEffect) so the trip sees the same value the device would
+    // have received, and so the emulated spring/damper path cannot bypass it.
+    if (safety_tripped_) total = 0.0;
     UpdateConstantEffect(total);
+    UpdateSafetyWatchdog(total, dt);
 }
 
 } // namespace gt_esmini

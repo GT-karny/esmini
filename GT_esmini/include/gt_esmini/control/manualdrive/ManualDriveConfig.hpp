@@ -207,6 +207,34 @@ struct ManualDriveConfig
             // Deliberate behaviour change: a driver gripping the wheel at 0
             // while AD steers away NOW LATCHES (it used to be documented as
             // undetectable). That is the desired safety behaviour.
+            //
+            // ---- SCOPE OF THE NON-FIRING GUARANTEE (stated, not implied) --
+            //
+            // The guarantee "a stuck wheel does not latch" holds ONLY while
+            // the effective force stays inside the measured breakaway band
+            // (<= 0.210). Above the band, a wheel that does not move is
+            // indistinguishable from a wheel someone is holding — every
+            // observable is identical — and the behaviour change above chose
+            // detection. Both cannot hold at once.
+            //
+            // This IS a narrowing of what commit b6dc58f0 guaranteed, and the
+            // record says its stuck condition was NOT confined to the band:
+            // CHARACTERIZATION.md §6 measured, hands-off on the b6dc58f0-era
+            // shipped configuration, a combined force above 0.20 for 4.5 % of
+            // a lane change, 28.6 % of a curve and 18.8 % of a right turn,
+            // while the wheel followed only 28.8 / 45.4 / 34.2 % of the
+            // command. So force above the band with the wheel barely moving
+            // did occur, and today's detector would fire on it.
+            //
+            // What removes it in practice is that the b6dc58f0-era
+            // configuration no longer exists: commit cb9e1c1c added the
+            // friction feed-forward, suppressed the feel terms while the servo
+            // is active, and stopped creating SPRING/DAMPER alongside CONSTANT.
+            // Hands-off follow rose to 92-109 % (CHARACTERIZATION.md §8e), i.e.
+            // the wheel is no longer stuck, and the 2026-07-26 hands-off G29
+            // run reproduces no stuck state at all. The remaining real failure
+            // mode — force commanded but not reaching the wheel — is NOT
+            // detectable by this design, and that is accepted knowingly.
 
             // Axis-fraction the real wheel must diverge from the shadow
             // prediction before the sustain clock runs. 0.08 ≈ 36° of a G29's
@@ -336,6 +364,35 @@ struct ManualDriveConfig
             // Velocity saturation beyond the linear region (|f| >= 0.40).
             double override_shadow_v_max                = 1.0;   // axis-frac / s
         } target_track;
+
+        // feature:F7 — UNATTENDED-RUN SAFETY WATCHDOG (SDLFFBSink only).
+        //
+        // A haptic wheel is a powered actuator, and a supervised run has a
+        // human as its last line of defence. An unattended run does not, so
+        // the sink must be able to shut itself up. See SDLFFBSink.hpp for the
+        // physical argument behind each trip.
+        //
+        // BOTH DEFAULT TO 0 = DISABLED. Supervised/interactive behaviour and
+        // every existing gate are therefore bit-identical; only the unattended
+        // runbook turns them on. When a trip fires it is LATCHED for the rest
+        // of the process (a watchdog that re-arms oscillates) and the servo is
+        // held at zero force.
+        struct
+        {
+            // Seconds of CONTINUOUS saturation before shutting the force off.
+            // "Saturated" = |applied force| >= saturation_ratio * max_force.
+            // Sizing: the servo legitimately touches the cap during a step, but
+            // hands-off tracking of the most aggressive measured profile peaks
+            // near 0.29 (CHARACTERIZATION.md §6), so seconds at the cap means
+            // the loop is straining against something it cannot move.
+            double max_saturation_seconds = 0.0;   // 0 = disabled
+            // Seconds of total force-commanding lifetime for this sink. Catches
+            // the case saturation cannot see: a run that hangs with a modest
+            // but non-zero force applied.
+            double max_runtime_seconds    = 0.0;   // 0 = disabled
+            // Fraction of max_force that counts as saturated.
+            double saturation_ratio       = 0.95;
+        } safety;
     } ffb;
 
     // Domain assignment (lateral / longitudinal)

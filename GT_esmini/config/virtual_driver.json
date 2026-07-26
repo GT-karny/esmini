@@ -158,5 +158,9 @@
     "ffb_target_track_override_shadow_motion_epsilon":       0.01,
     "ffb_target_track_override_shadow_kinetic":              0.16,
     "ffb_target_track_override_shadow_force_to_velocity":    3.35,
-    "ffb_target_track_override_shadow_v_max":                1.00
+    "ffb_target_track_override_shadow_v_max":                1.00,
+    "_comment_ffb_safety": "Unattended-run watchdog. 0 = disabled. Turn on only for unmanned real-wheel runs.",
+    "ffb_safety_max_saturation_seconds":                     0.0,
+    "ffb_safety_max_runtime_seconds":                        0.0,
+    "ffb_safety_saturation_ratio":                           0.95
 }

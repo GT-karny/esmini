@@ -1403,6 +1403,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     return 0;
 }
 
+// feature:F7 — forward decl; definition (and the rationale) is below.
+static void GT_CaptureVirtualDriverTelemetryFrame(void* player_ptr);
+
 GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step
@@ -1646,6 +1649,60 @@ GT_ESMINI_API void GT_Step(double dt)
             gt_esmini::GT_VirtualDriverReporter::Instance().Send(gt_esmini::ToJson(vd->GetTelemetry()));
         }
     }
+    GT_CaptureVirtualDriverTelemetryFrame(player);
+}
+
+// feature:F7 — per-frame telemetry capture to a file (JSON Lines).
+//
+// WHY THIS EXISTS. Validating the override detector's shadow model needs the
+// force actually applied and the physical wheel position at EVERY frame. The
+// SDLFFBSink log line is emitted once per 50 frames and carries no physical
+// axis at all, so it cannot describe a trajectory.
+//
+// The telemetry block already carries everything required —
+// ffb.gates.{effective_force, actual_norm, shadow_norm, residual}, ffb.target_norm,
+// sim_time — because those are the SHIPPED detector's own inputs and outputs.
+// Capturing them is therefore not a second model: a replay against this file is
+// a replay against the product. That is the whole point; anything that
+// re-implemented the shadow offline would be validating a copy.
+//
+// Opt-in via GT_VD_TELEMETRY_JSONL=<path>; a no-op otherwise, so no gate,
+// package, or interactive run changes behaviour. Append mode, flushed per
+// frame, so an external supervisor can tail it as a live safety signal and a
+// hard kill still leaves every frame written up to that point.
+static void GT_CaptureVirtualDriverTelemetryFrame(void* player_ptr)
+{
+    static bool  resolved = false;
+    static FILE* fp       = nullptr;
+    if (!resolved)
+    {
+        resolved = true;
+        if (const char* path = std::getenv("GT_VD_TELEMETRY_JSONL"))
+        {
+            if (path[0] != '\0')
+            {
+                fp = std::fopen(path, "w");
+                if (!fp)
+                    LOG_WARN("GT_VD_TELEMETRY_JSONL: cannot open '{}' for writing", path);
+                else
+                    LOG_INFO("GT_VD_TELEMETRY_JSONL: capturing per-frame telemetry to '{}'", path);
+            }
+        }
+    }
+    if (!fp) return;
+
+    auto* player = static_cast<ScenarioPlayer*>(player_ptr);
+    if (!player || !player->scenarioEngine || player->scenarioEngine->entities_.object_.empty()) return;
+    scenarioengine::Object* egoObj = player->scenarioEngine->entities_.object_[0];
+    scenarioengine::Controller* ctrl =
+        egoObj ? egoObj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME) : nullptr;
+    auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl);
+    if (!vd) return;
+
+    const std::string line = gt_esmini::ToJson(vd->GetTelemetry());
+    std::fwrite(line.data(), 1, line.size(), fp);
+    std::fputc('\n', fp);
+    std::fflush(fp);
 }
 
 GT_ESMINI_API void GT_EnableVehiclePhysics()

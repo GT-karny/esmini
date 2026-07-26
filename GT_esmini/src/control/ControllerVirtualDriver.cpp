@@ -108,6 +108,9 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_shadow_kinetic            = vd_config_.ffb_target_track_override_shadow_kinetic;
     io_config_.ffb.target_track.override_shadow_force_to_velocity  = vd_config_.ffb_target_track_override_shadow_force_to_velocity;
     io_config_.ffb.target_track.override_shadow_v_max              = vd_config_.ffb_target_track_override_shadow_v_max;
+    io_config_.ffb.safety.max_saturation_seconds                   = vd_config_.ffb_safety_max_saturation_seconds;
+    io_config_.ffb.safety.max_runtime_seconds                      = vd_config_.ffb_safety_max_runtime_seconds;
+    io_config_.ffb.safety.saturation_ratio                         = vd_config_.ffb_safety_saturation_ratio;
 
     // feature:F7 — AD steering safety envelope (see AdSteeringEnvelope.hpp).
     // Built once here; config is not hot-reloaded during a run.
@@ -493,12 +496,14 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_target_active    = s.active;
         telemetry_.ffb_commanded_force  = s.commanded_force;
         telemetry_.ffb_position_error   = s.position_error;
+        telemetry_.ffb_target_norm      = s.target_norm;
     }
     else
     {
         telemetry_.ffb_target_active    = false;
         telemetry_.ffb_commanded_force  = 0.0;
         telemetry_.ffb_position_error   = 0.0;
+        telemetry_.ffb_target_norm      = 0.0;
     }
     // feature:F7 — override-latch diagnostics. Real-machine "why didn't it
     // fire" observability: without this, diagnosing a missed latch required

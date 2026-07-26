@@ -25,6 +25,13 @@ public:
     FfbInterventionSample GetInterventionSample() const override { return last_sample_; }
     void Close();
 
+    // feature:F7 — stop every running effect on this device, immediately.
+    // Public because the process-wide emergency-release hooks (atexit / signal
+    // / console-ctrl) must be able to call it on every live sink from outside
+    // any instance. Deliberately minimal: no free, no log, no throw — it runs
+    // from signal handlers. See SDLFFBSink.cpp.
+    void SilenceDevice();
+
 private:
     void UpdateConstantEffect(double force);
     void UpdateSpringEffect(double coefficient);
@@ -36,6 +43,40 @@ private:
     // Read the raw physical wheel angle in normalized axis-fraction [-1, +1].
     // Returns 0 if no joystick — the servo term then evaluates to 0 too.
     double ReadPhysicalWheelNorm() const;
+
+    // feature:F7 — UNATTENDED-RUN SAFETY WATCHDOG.
+    //
+    // A haptic wheel is a powered actuator. When a run is supervised, a human
+    // is the last line of defence: they see the wheel fighting and pull the
+    // plug. An unattended run has no such backstop, so the sink has to be its
+    // own. Two independent trips, both of which ZERO the force and latch OFF
+    // permanently (never re-arm inside a run — a watchdog that re-arms is a
+    // watchdog that oscillates):
+    //
+    //   1. SUSTAINED SATURATION. The servo is designed to spend brief moments
+    //      at max_force during a step, but never seconds: measured hands-off
+    //      tracking of the most aggressive profile peaks around 0.29 (see
+    //      CHARACTERIZATION.md §6). Force pinned at the cap for seconds means
+    //      the loop is fighting something it cannot move, which is exactly the
+    //      state that heats a G29's motor and, on a wheel nobody is holding,
+    //      has nothing useful to accomplish.
+    //   2. TOTAL RUNTIME. A bound on how long this sink may command ANY force
+    //      in one process lifetime. Guards the case the watchdog above cannot
+    //      see — a scenario that hangs mid-run with a modest but non-zero force
+    //      applied, which would otherwise persist until someone notices.
+    //
+    // Both are OFF by default (0 = disabled) so supervised/interactive use and
+    // every existing gate are bit-identical. The unattended runbook turns them
+    // on. See ManualDriveConfig.ffb.safety.
+    void UpdateSafetyWatchdog(double applied_force, double dt);
+
+    // Emergency release: stop and destroy every effect on every live sink.
+    // Registered with atexit()/signal()/console-ctrl so a crash, an abort, or a
+    // Ctrl-C still silences the device instead of leaving a CONSTANT effect
+    // running on hardware with nobody in the room. Static because a signal
+    // handler cannot be handed an instance.
+    static void RegisterEmergencyRelease(SDLFFBSink* sink);
+    static void UnregisterEmergencyRelease(SDLFFBSink* sink);
 
     SDL_Joystick* joystick_ = nullptr;  // NOT owned — SDL2WheelInput owns it
     SDL_Haptic*   haptic_   = nullptr;
@@ -69,6 +110,14 @@ private:
 
     // State for emulation
     double prev_steering_ = 0.0;
+
+    // feature:F7 — unattended-run safety watchdog (see UpdateSafetyWatchdog).
+    double safety_max_saturation_s_ = 0.0;   // 0 = disabled
+    double safety_max_runtime_s_    = 0.0;   // 0 = disabled
+    double safety_saturation_ratio_ = 0.95;  // |f| >= ratio * max_force counts as saturated
+    double safety_saturation_accum_ = 0.0;
+    double safety_runtime_accum_    = 0.0;
+    bool   safety_tripped_          = false; // latched; never re-arms within a run
 
     // feature:F7 (F7b) — target-tracking (AD wheel following)
     bool                  target_track_enabled_ = false;  // config: master on/off

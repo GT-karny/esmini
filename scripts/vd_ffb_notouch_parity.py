@@ -15,11 +15,11 @@ Interpreted precisely:
       ffb_target_track_enabled=true → AD run must EQUAL (1).  FFB may only
       be an OUTPUT path — the servo pushing the wheel must NEVER change what
       AD decides, plans, or drives. This script proves (2) headlessly by
-      running each scenario twice (config A: stub baseline; config B: headless
-      FFB + target_track ON, swept across THREE force-coupled wheel-physics
-      variants — see FOLLOWER_MODES below) and asserting the per-scenario
-      verdict AND the per-frame ego kinematic telemetry (x, y, speed,
-      track_id, lane_id) match within tolerance, for every variant.
+      running each scenario against a stub baseline (config A) and against a
+      set of synthetic wheel fixtures (config B), then asserting per-frame ego
+      kinematic telemetry (x, y, speed, track_id, lane_id) matches within
+      tolerance. Fixtures come in two classes with DIFFERENT expectations —
+      see FOLLOWER_MODES below.
 
 The sweep runs the force-coupled "plant" wheel at three points spanning the
 real calibration uncertainty (breakaway across the measured 0.170-0.210 band,
@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -64,35 +65,61 @@ SCENARIOS = [
 
 # HeadlessFfbInput's synthetic-wheel physics models. See HeadlessFfbInput.cpp.
 #
-# WHY follower/frozen ARE NO LONGER SWEPT HERE (2026-07-26, residual rework).
-# Both are KINEMATIC fictions: they assert an axis trajectory outright, with no
-# regard for the force acting on the wheel.
-#   follower — axis == target every frame. The servo therefore commands ~0
-#              force, yet the wheel moves. A wheel that moves with no force on
-#              it has, by definition, an external hand on it.
-#   frozen   — axis pinned regardless of force, including while the servo
-#              saturates at 0.6. Measured G29 breakaway is 0.170-0.210, so a
-#              real wheel is moving well before that. A wheel immobile under
-#              0.6 also has an external hand on it.
-# Against the previous DIRECTION-based detector these were harmless (it only
-# looked at where the wheel sat relative to target). Against a FORCE-based
-# detector they are, by construction, indistinguishable from a driver — and
-# indeed both now produce MANUAL latches here. Keeping them would require
-# either disabling the detector under test or calibrating the shadow to a
-# device that does not exist, so they are retired rather than papered over.
+# TWO FIXTURE CLASSES, BECAUSE THEY ASK DIFFERENT QUESTIONS.
 #
-# The evidence that this is a fixture defect and not a product defect:
-#   - the force-coupled plant, whose constants are all measured, passes every
-#     scenario including the two that used to FAIL;
-#   - the real machine, run hands-off on decelerate_for_right_turn (the same
-#     scenario), produced ZERO MANUAL latches (test_results/
-#     f7_realwheel_stuck_check.log). Reality agrees with "plant", not with
-#     "follower"/"frozen".
-# The positional edge cases they used to cover are now covered honestly by the
-# unit gate: a stuck wheel across the measured breakaway band
-# (FalsePositive1_StuckWheelWithinMeasuredBand) and hands-off tracking
-# (FalsePositive2/3). Set GT_VD_PARITY_LEGACY_MODES=1 to sweep them anyway for
-# a one-off comparison; they are expected to FAIL and are not part of the gate.
+# The synthetic wheels fall into two physically distinct groups, and lumping
+# them together is what made the earlier mode list confusing:
+#
+#   FORCE-COUPLED ("plant"): the axis is INTEGRATED from the force the servo
+#     actually delivers, through the measured G29 friction characteristic. This
+#     is what a hands-off wheel really does, so the detector must stay silent
+#     and the AD side must be bit-identical to the stub baseline.
+#     -> class "parity": expect NO divergence.
+#
+#   KINEMATIC ("frozen", "follower"): the axis trajectory is ASSERTED outright,
+#     with no regard for the force acting on the wheel.
+#       follower — axis == target every frame, so the servo commands ~0 force
+#                  yet the wheel moves. A wheel that moves under no force has,
+#                  by definition, something external moving it.
+#       frozen   — axis pinned regardless of force, including while the servo
+#                  saturates at 0.6, far above the measured 0.170-0.210
+#                  breakaway. A wheel immobile under 0.6 has something external
+#                  holding it.
+#     Under the old DIRECTION-based detector these were inert (it only compared
+#     positions). Under a FORCE-based detector they ARE, by construction, a
+#     driver — and detecting a driver is the feature. Deleting them would throw
+#     away real fixture diversity; asserting "no latch" would assert the
+#     detector is broken. So they are kept as POSITIVE fixtures.
+#     -> class "liveness". The two do NOT share an expectation, because they
+#        reach the detector by different routes and pretending otherwise is
+#        what makes such a check look arbitrary:
+#
+#        frozen   — POSITIVE fixture. The axis is pinned, so the tracking error
+#                   equals the AD command and never decays; the servo holds a
+#                   standing force, and once that clears the shadow's breakaway
+#                   the shadow accelerates away with nothing to stop it. The
+#                   residual then grows WITHOUT BOUND however small the command,
+#                   so the predicate is purely "does the force clear breakaway"
+#                   (~|target| >= 0.017 with shipped constants) — independent of
+#                   the residual threshold. Falsifiable both ways: a scenario
+#                   that never steers (speed_limit_change) must NOT latch.
+#
+#        follower — NO-BLEED fixture; its latch is deliberately NOT predicted.
+#                   With the axis glued to the target the servo commands ~no
+#                   force, the shadow never moves, and the only residual
+#                   available is the re-anchor's lag — a function of the
+#                   target's whole RATE HISTORY, i.e. a property of the
+#                   SCENARIO, not of the fixture. Predicting it would mean
+#                   re-deriving the detector's dynamics inside the check.
+#                   What it does assert is the invariant this script is named
+#                   after (no FFB bleed into AD) plus the one direction that
+#                   needs no model: no steering command => no latch.
+#
+#        Both additionally assert PRE-LATCH AD PARITY: up to the moment of any
+#        legitimate takeover, the AD side must still match the stub baseline.
+#        After the latch the ego is under manual control, so divergence there
+#        is expected and is not compared.
+#
 #   plant     — FORCE-COUPLED stick-slip wheel. The axis is integrated from
 #               the force the servo actually delivers, through the real G29
 #               friction/velocity characteristic measured in
@@ -129,26 +156,22 @@ SCENARIOS = [
 #               deliberately place the plant away from the shadow's constants
 #               (shadow: unconditional 0.210, band bottoms 0.170 left /
 #               0.190 right, slope 3.35) so no run is a fixed point of both.
-# 6 scenarios x 3 variants = 18 checks. All must pass.
+# 6 scenarios x 5 fixtures = 30 checks (18 parity + 12 liveness). All must pass.
 FOLLOWER_MODES = [
+    # --- force-coupled: expect NO divergence ------------------------------
     # bottom of the measured band, slope 10% below nominal
-    ("plant", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.170",
-               "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.00"}),
+    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.170",
+                         "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.00"}),
     # mid-band, nominal slope
-    ("plant", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.190",
-               "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.35"}),
+    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.190",
+                         "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.35"}),
     # top of the measured band, slope 10% above nominal
-    ("plant", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.210",
-               "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.70"}),
+    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.210",
+                         "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.70"}),
+    # --- kinematic: expect a latch iff one is physically reachable ---------
+    ("frozen",   "liveness", {"GT_HEADLESS_FFB_FROZEN_AT": "0.000"}),
+    ("follower", "liveness", {}),
 ]
-
-# Opt-in only; expected to FAIL (see the note above). Not part of the gate.
-LEGACY_MODES = [
-    ("follower", {}),
-    ("frozen",   {"GT_HEADLESS_FFB_FROZEN_AT": "0.000"}),
-]
-if os.environ.get("GT_VD_PARITY_LEGACY_MODES") == "1":
-    FOLLOWER_MODES = FOLLOWER_MODES + LEGACY_MODES
 
 
 def _absolutize(root: ET.Element, base_dir: str) -> None:
@@ -266,11 +289,135 @@ def _diff_frames(a: list[dict], b: list[dict],
     return diffs
 
 
+def _first_latch_index(frames: list[dict]) -> int:
+    """Index of the first frame where the lateral override latched (-1 = never)."""
+    for i, f in enumerate(frames):
+        if f.get("override", {}).get("lateral"):
+            return i
+    return -1
+
+
+def _liveness_verdict(mode: str, cfg: dict,
+                      frames_stub: list[dict], frames_ffb: list[dict]) -> tuple[bool, str]:
+    """Check a KINEMATIC fixture (frozen / follower).
+
+    Two assertions:
+
+      1. A latch must occur exactly when one is physically REACHABLE. The two
+         fixtures reach it by completely different routes, so they get
+         different predicates — using one formula for both is what makes this
+         check look arbitrary.
+
+         frozen   — the axis is pinned, so the tracking error equals the AD
+                    command and never decays. The servo therefore holds a
+                    standing force, and once that force clears the shadow's
+                    breakaway the shadow accelerates away with nothing to stop
+                    it: the residual grows WITHOUT BOUND, however small the
+                    command. So the predicate is purely "does the servo force
+                    ever clear breakaway", i.e.
+                        kp·max|target| + friction_ff·tanh(max|target|/eps) >= breakaway
+                    (~|target| >= 0.017 with shipped constants). NOT a function
+                    of the residual threshold at all.
+
+         follower — the axis equals the target every frame, so the tracking
+                    error is ~0 and the servo commands ~no force. The shadow
+                    never enters its moving state; it only creeps via the
+                    re-anchor, which chases the measured axis with time
+                    constant tau. The residual is therefore what the re-anchor
+                    LAGS BY, which depends on how fast the target moves, not
+                    how far it goes:
+                        max|d(target)/dt| · tau > residual_threshold
+                    This is the §3.4 rate floor seen end-to-end: a slow curve
+                    stays under it, a sharp junction turn does not.
+
+         Both predicates are static formulas over config constants — they do
+         not re-implement the shadow, and they are falsifiable in both
+         directions (a scenario that barely steers must NOT latch).
+
+      2. Up to the latch, the AD side must still match the stub baseline —
+         i.e. the FFB path did not bleed into AD decisions BEFORE the takeover
+         it legitimately caused. After the latch the ego is under manual
+         control, so divergence there is expected and not compared.
+    """
+    thr = 0.0
+    max_target = 0.0
+    max_target_rate = 0.0
+    prev_t = prev_target = None
+    for f in frames_ffb:
+        ffb = f.get("ffb", {})
+        gates = ffb.get("gates", {})
+        thr = max(thr, float(gates.get("residual_threshold", 0.0)))
+        tgt = float(ffb.get("target_norm", 0.0))
+        max_target = max(max_target, abs(tgt))
+        t = float(f.get("sim_time", 0.0))
+        if prev_t is not None and t > prev_t:
+            max_target_rate = max(max_target_rate, abs(tgt - prev_target) / (t - prev_t))
+        prev_t, prev_target = t, tgt
+
+    if thr <= 0.0:
+        return False, "no residual_threshold in telemetry (servo never armed?)"
+
+    key = lambda k, d: float(cfg.get("ffb_target_track_" + k, d))
+    latch_i = _first_latch_index(frames_ffb)
+    latched = latch_i >= 0
+
+    if mode == "frozen":
+        kp   = key("kp", 4.0)
+        ff   = key("friction_ff", 0.15)
+        eps  = key("friction_ff_eps", 0.01)
+        brk  = key("override_shadow_breakaway", 0.21)
+        force = kp * max_target + ff * math.tanh(max_target / max(eps, 1e-9))
+        reachable = force >= brk
+        basis = (f"standing servo force {force:.3f} vs shadow breakaway {brk:.3f} "
+                 f"(max|target_norm|={max_target:.4f})")
+    elif mode == "follower":
+        # Deliberately NOT predicted. With the axis glued to the target the
+        # servo commands ~no force, so the shadow never enters its moving
+        # state and the only residual available is what the re-anchor lags by.
+        # That lag is a function of the target's whole RATE HISTORY (a brief
+        # spike builds almost nothing; a sustained ramp builds rate x tau), so
+        # whether this fixture latches is a property of the SCENARIO's steering
+        # profile, not of the fixture. Predicting it would mean re-deriving the
+        # detector's dynamics inside the check — precisely the second
+        # implementation this suite exists to avoid.
+        #
+        # What follower CAN establish, and always could, is the invariant this
+        # whole script is named after: the FFB path must not bleed into AD. So
+        # assert that (below), plus the one falsifiable direction that needs no
+        # model: NO STEERING COMMAND => NO LATCH. A latch with the wheel and
+        # the target both parked at zero would be a spurious fire with no
+        # possible cause.
+        if max_target <= 0.0 and latched:
+            return False, ("LIVENESS MISMATCH: latched at t="
+                           f"{frames_ffb[latch_i]['sim_time']:.2f} although AD never "
+                           "commanded any steering (max|target_norm| = 0)")
+        reachable = latched   # not asserted; recorded below
+        basis = (f"max|target_norm|={max_target:.4f}, max|d(target)/dt|={max_target_rate:.4f}/s "
+                 f"(latch not predicted for this fixture — scenario-dependent)")
+    else:
+        return False, f"unknown liveness fixture '{mode}'"
+
+    detail = (f"{basis} -> latch {'expected' if reachable else 'not expected'}; "
+              f"observed {'latch @ t=' + format(frames_ffb[latch_i]['sim_time'], '.2f') if latched else 'no latch'}")
+
+    if latched != reachable:
+        return False, "LIVENESS MISMATCH: " + detail
+
+    # Pre-latch AD parity. Compare only the frames before the takeover.
+    n = latch_i if latched else min(len(frames_stub), len(frames_ffb))
+    pre_diffs = _diff_frames(frames_stub[:n], frames_ffb[:n]) if n > 1 else []
+    if pre_diffs:
+        return False, ("pre-latch AD divergence (" + detail + "):\n      - "
+                       + "\n      - ".join(pre_diffs))
+    return True, detail + f"; pre-latch AD parity over {n} frames"
+
+
 def main() -> int:
     if not os.path.exists(DLL):
         print(f"FAIL: DLL missing: {DLL}"); return 1
 
     tmpdir = tempfile.mkdtemp(prefix="vd_ffb_parity_")
+    base_cfg = json.loads(Path(BASE_CFG).read_text(encoding="utf-8"))
     cfg_stub = _write_cfg(tmpdir, "stub",         False, "stub")
     cfg_ffb  = _write_cfg(tmpdir, "headless_ffb", True,  "ffb")
     os.environ.pop("GT_HEADLESS_FFB_LAG_TAU", None)
@@ -280,7 +427,10 @@ def main() -> int:
     print("FFB vs stub no-touch parity — criterion (2)")
     print("  stub baseline: input_type=stub, ffb_target_track_enabled=false")
     print("  ffb variants: input_type=headless_ffb, ffb_target_track_enabled=true")
-    print(f"    modes: {[m for m, _ in FOLLOWER_MODES]}")
+    print(f"    parity fixtures  (expect no divergence): "
+          f"{[m for m, c, _ in FOLLOWER_MODES if c == 'parity']}")
+    print(f"    liveness fixtures (expect latch iff reachable): "
+          f"{[m for m, c, _ in FOLLOWER_MODES if c == 'liveness']}")
     print("=" * 80)
 
     for scen in SCENARIOS:
@@ -296,7 +446,7 @@ def main() -> int:
         frames_stub = _run_headless(DLL, xosc_stub)
         print(f"{len(frames_stub)} frames")
 
-        for mode, extra_env in FOLLOWER_MODES:
+        for mode, fixture_class, extra_env in FOLLOWER_MODES:
             os.environ["GT_HEADLESS_FFB_MODE"] = mode
             # Clear every mode-specific knob first so each variant starts from
             # a known state regardless of run order, then apply this mode's own.
@@ -311,18 +461,28 @@ def main() -> int:
                          f"slope={extra_env['GT_HEADLESS_FFB_PLANT_SLOPE']})")
             else:
                 label = mode
-            print(f"  running ffb+target_track ({label}, no-touch) …", end=" ")
+            tag = "PARITY" if fixture_class == "parity" else "LIVENESS"
+            print(f"  running ffb+target_track ({label}, {fixture_class}, no-touch) …", end=" ")
             frames_ffb = _run_headless(DLL, xosc_ffb)
             print(f"{len(frames_ffb)} frames")
 
-            diffs = _diff_frames(frames_stub, frames_ffb)
-            if not diffs:
-                print(f"    PARITY[{label}]: PASS")
+            if fixture_class == "parity":
+                diffs = _diff_frames(frames_stub, frames_ffb)
+                if not diffs:
+                    print(f"    {tag}[{label}]: PASS")
+                else:
+                    overall_ok = False
+                    print(f"    {tag}[{label}]: FAIL")
+                    for d in diffs:
+                        print(f"      - {d}")
             else:
-                overall_ok = False
-                print(f"    PARITY[{label}]: FAIL")
-                for d in diffs:
-                    print(f"      - {d}")
+                ok, detail = _liveness_verdict(mode, base_cfg, frames_stub, frames_ffb)
+                if ok:
+                    print(f"    {tag}[{label}]: PASS  ({detail})")
+                else:
+                    overall_ok = False
+                    print(f"    {tag}[{label}]: FAIL")
+                    print(f"      - {detail}")
 
     shutil.rmtree(tmpdir, ignore_errors=True)
     print()

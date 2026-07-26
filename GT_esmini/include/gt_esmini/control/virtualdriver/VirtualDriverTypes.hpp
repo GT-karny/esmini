@@ -196,6 +196,10 @@ struct VirtualDriverTelemetry
     bool   ffb_target_active   = false;
     double ffb_commanded_force = 0.0;
     double ffb_position_error  = 0.0;
+    // AD-commanded wheel target this frame [-1,+1] axis-fraction. Exposed so a
+    // per-frame capture carries the servo's INPUT alongside its output — needed
+    // to tell 'AD asked for nothing' apart from 'AD asked and nothing happened'.
+    double ffb_target_norm     = 0.0;
 
     // feature:F7 (F7b, follow-up post-93b2c6c4) — override-latch gate
     // diagnostics (real-machine "why didn't it fire" debugging). Mirrors
