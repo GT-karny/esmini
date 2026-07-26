@@ -25,19 +25,6 @@ struct FfbInterventionSample
     double position_error  = 0.0;   // target - actual, [-1..1] axis-fraction
     double target_norm     = 0.0;   // AD-commanded wheel target this frame; rate-gate source
     bool   active          = false; // true only while the servo is running
-
-    // feature:F7 (F7b, follow-up post-93b2c6c4) — SIGNED feedback-only servo
-    // force (same computation as commanded_force, before the abs()). Needed by
-    // OverrideManager's velocity-opposition detector: a servo alone can only
-    // push the physical wheel in the direction that reduces tracking error, so
-    // sign(commanded_force_signed) tracks sign(d(actual)/dt) whenever the
-    // driver isn't touching the wheel — regardless of how fast the AD target
-    // itself is moving. Comparing this against the wheel's own rate of motion
-    // (derived by OverrideManager from target_norm/position_error history) is
-    // therefore a target-motion-INVARIANT way to detect "driver pushing back",
-    // unlike the two rate gates above which assume a roughly-static target.
-    // See OverrideManager.cpp Update() for the full detector.
-    double commanded_force_signed = 0.0;
 };
 
 class IFFBSink

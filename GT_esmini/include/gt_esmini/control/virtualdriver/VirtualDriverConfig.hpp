@@ -192,9 +192,6 @@ struct VirtualDriverConfig
     double ffb_target_track_override_target_rate_gate            = 0.30;   // axis-frac / s
     double ffb_target_track_override_position_error_rate_gate    = 0.10;   // axis-frac / s
     double ffb_target_track_override_wheel_over_target_epsilon = 0.05;   // axis-fraction; post-f723fa90
-    // post-93b2c6c4 velocity-opposition gate (envelope-ramp blackout fix).
-    // See ManualDriveConfig.ffb.target_track.override_opposition_velocity_gate.
-    double ffb_target_track_override_opposition_velocity_gate  = 0.30;   // axis-frac / s
 
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"

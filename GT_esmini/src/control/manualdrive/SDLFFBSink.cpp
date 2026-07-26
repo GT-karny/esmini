@@ -287,11 +287,10 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
             const double u = ComputeSteerServoForce(target_norm_, actual_norm, dt,
                                                     servo_state_, servo_cfg_, &u_feedback);
             force += u;
-            last_sample_.commanded_force        = std::abs(u_feedback);  // see combined path
-            last_sample_.commanded_force_signed = u_feedback;
-            last_sample_.position_error         = target_norm_ - actual_norm;
-            last_sample_.target_norm            = target_norm_;
-            last_sample_.active                 = true;
+            last_sample_.commanded_force = std::abs(u_feedback);  // see combined path
+            last_sample_.position_error  = target_norm_ - actual_norm;
+            last_sample_.target_norm     = target_norm_;
+            last_sample_.active          = true;
         }
 
         force = std::clamp(force, -max_force_, max_force_);
@@ -528,11 +527,10 @@ void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
                                               servo_state_, servo_cfg_, &u_feedback);
         // Feedback-only: the friction feed-forward is plant compensation, not
         // driver resistance, and must not consume the detector's margin.
-        last_sample_.commanded_force        = std::abs(u_feedback);
-        last_sample_.commanded_force_signed = u_feedback;
-        last_sample_.position_error         = target_norm_ - actual_norm;
-        last_sample_.target_norm            = target_norm_;
-        last_sample_.active                 = true;
+        last_sample_.commanded_force = std::abs(u_feedback);
+        last_sample_.position_error  = target_norm_ - actual_norm;
+        last_sample_.target_norm     = target_norm_;
+        last_sample_.active          = true;
     }
 
     // Combine

@@ -28,58 +28,6 @@ public:
     // latch — never gates the release path (spike §2d).
     void UpdateFfbSample(const FfbInterventionSample& sample);
 
-    // feature:F7 (F7b, follow-up post-93b2c6c4) — real-machine "why didn't it
-    // latch" diagnostics. Reflects the torque-proxy gate state as of the most
-    // recent Update() call; all false/zero when the FFB sample is inactive.
-    // Exposed so telemetry (VirtualDriverTelemetry) can show which gate is
-    // blocking the sustain accumulator without re-instrumenting the code —
-    // this observability gap is what made the envelope-ramp blackout hard to
-    // diagnose from a real-machine session in the first place.
-    struct FfbLatchDiagnostics
-    {
-        // Single human-readable answer to "why isn't it latching right now?"
-        // Priority order matches the actual gating logic in Update() — see
-        // there for how each value is derived. NONE means nothing is blocking
-        // (sustain is accumulating this frame, or the domain is already
-        // latched MANUAL).
-        enum class BlockReason
-        {
-            NONE,               // accumulating this frame, or already latched
-            INACTIVE,           // FFB sample inactive / lateral domain not manual
-            BOOTSTRAP,          // no rate history yet (1st active sample)
-            BELOW_THRESHOLD,    // neither over_force nor over_dev crossed
-            // MOVING_TARGET / TRACKING_TRANSIENT: position signature shows
-            // standing opposition but is rate-gated (velocity signature not
-            // opposing this exact frame either). The clock is HELD (not
-            // reset) whenever wheel_engaged_position is true, so this reason
-            // can mean either "paused, holding prior progress" or "reset from
-            // zero" depending on whether sustain_accum > 0 — check that field.
-            MOVING_TARGET,
-            TRACKING_TRANSIENT,
-            WHEEL_NOT_ENGAGED,  // rates settled but neither opposition signature fired
-        };
-
-        bool   sample_active          = false;  // ffb_sample_.active this frame
-        bool   bootstrap_suppressed   = false;  // no rate history yet (1st active sample)
-        bool   over_force             = false;  // |commanded_force| > force_threshold
-        bool   over_dev               = false;  // |position_error| > dev_threshold
-        bool   moving_target          = false;  // |d(target)/dt| > target_rate_gate
-        bool   tracking_transient     = false;  // |d(position_error)/dt| > derror_rate_gate
-        bool   sign_opposition        = false;  // actual/target opposite sign (position signature, arm 1)
-        bool   magnitude_opposition   = false;  // |actual| > |target| + eps (position signature, arm 2)
-        bool   wheel_engaged_position = false;  // sign_opposition || magnitude_opposition
-        bool   wheel_engaged_velocity = false;  // force-vs-velocity opposition (rate-invariant)
-        bool   driver_opposing        = false;  // combined signal actually gating accumulation
-        double target_rate            = 0.0;    // d(target_norm)/dt, axis-frac/s
-        double derror_rate            = 0.0;    // d(position_error)/dt, axis-frac/s
-        double actual_rate            = 0.0;    // d(actual_norm)/dt, axis-frac/s
-        double actual_norm            = 0.0;    // target_norm - position_error
-        double sustain_accum          = 0.0;    // seconds accumulated toward sustain_time (most important field: is it growing?)
-        double sustain_time           = 0.0;    // configured sustain_time, for context
-        BlockReason block_reason      = BlockReason::NONE;
-    };
-    const FfbLatchDiagnostics& GetFfbLatchDiagnostics() const { return ffb_diag_; }
-
     // Domain-level queries
     bool IsLateralManual() const { return lat_mode_ == Mode::MANUAL; }
     bool IsLongitudinalManual() const { return long_mode_ == Mode::MANUAL; }
@@ -142,10 +90,6 @@ private:
     // feature:F7 (F7b, follow-up post-f723fa90) — wheel-opposing-target gate.
     // See ManualDriveConfig.ffb.target_track.override_wheel_over_target_epsilon.
     double                ffb_wheel_over_target_eps_  = 0.05;
-    // feature:F7 (F7b, follow-up post-93b2c6c4) — velocity-opposition gate.
-    // See ManualDriveConfig.ffb.target_track.override_opposition_velocity_gate.
-    double                ffb_opposition_vel_gate_    = 0.30;
-    FfbLatchDiagnostics   ffb_diag_;
 };
 
 } // namespace gt_esmini

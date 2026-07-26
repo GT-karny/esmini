@@ -56,7 +56,6 @@ const EDITABLE_KEYS = [
   'ffb_target_track_override_target_rate_gate',
   'ffb_target_track_override_position_error_rate_gate',
   'ffb_target_track_override_wheel_over_target_epsilon',
-  'ffb_target_track_override_opposition_velocity_gate',
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -463,9 +462,6 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Wheel-over-target epsilon (|axis|)" step={0.01}
             value={cfg.ffb_target_track_override_wheel_over_target_epsilon ?? 0.05}
             onChange={setNum('ffb_target_track_override_wheel_over_target_epsilon')} />
-          <NumberInput label="Opposition velocity gate (axis-frac/s)" step={0.05}
-            value={cfg.ffb_target_track_override_opposition_velocity_gate ?? 0.30}
-            onChange={setNum('ffb_target_track_override_opposition_velocity_gate')} />
         </div>
         <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
           Three gates suppress override detection: target rate (AD steering
@@ -477,12 +473,7 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           Detection fires only when all gates settle AND thresholds cross —
           the shape of a real driver block. Prevents startup / curve /
           lane-change / small-command false positives (post-f723fa90
-          real-machine regression). A FOURTH, independent signature (the
-          opposition velocity gate) also fires whenever the wheel's own
-          motion opposes the servo's signed push hard enough — this one is
-          NOT suppressed by the two rate gates, so a driver can still take
-          over while the AD steering safety envelope is actively ramping the
-          target (e.g. right after RESUME) — post-93b2c6c4 regression fix.
+          real-machine regression).
         </p>
       </section>
 

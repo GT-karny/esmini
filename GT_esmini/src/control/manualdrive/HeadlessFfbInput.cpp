@@ -2,27 +2,15 @@
 
 #include "gt_esmini/control/manualdrive/FfbTargetServo.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
-#include "gt_esmini/control/manualdrive/ITransport.hpp"
 #include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
-#include "gt_esmini/control/manualdrive/UdpTransport.hpp"
-#include "gt_esmini/control/common/VehicleCommand.hpp"
 #include "logger.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <string>
 
 namespace gt_esmini
 {
-
-// Wire format for the pushback listener — identical to NetworkInputBridge's
-// PedalSteerCommand encoding (only the "steering" field is actually read
-// here). Kept as a local duplicate rather than a shared include to avoid
-// coupling this test-only class to NetworkInputBridge's internals.
-static constexpr uint32_t MAGIC_PEDAL_STEER      = 0x50535443;  // "PSTC"
-static constexpr size_t   PEDAL_STEER_WIRE_SIZE  = 44;
 
 // Nested synthetic FFB sink. Mirrors the calibrated pieces of SDLFFBSink that
 // the closed-loop path touches — SetSteerTarget storage, servo PID, sample
@@ -68,20 +56,12 @@ public:
             catch (...) { lag_tau_ = 0.30; }
         }
         lag_axis_ = 0.0;   // start at rest — models the real physical wheel
-        pushback_norm_ = 0.0;
 
         LOG_INFO("HeadlessFfbSink: mode={} frozen_at={:.3f} lag_tau={:.3f}s "
                  "target_track_enabled={} kp={:.2f} kd={:.2f} max_force={:.2f}",
                  mode_, frozen_at_, lag_tau_, target_track_enabled_,
                  servo_cfg_.kp, servo_cfg_.kd, servo_cfg_.max_force);
     }
-
-    const std::string& Mode() const { return mode_; }
-
-    // "pushback" mode only: the driver-injected offset from target_norm_ for
-    // THIS frame, read live by HeadlessFfbInput::Poll() from the UDP
-    // listener (see class comment). 0.0 = not pushing = axis follows target.
-    void SetPushback(double v) { pushback_norm_ = v; }
 
     // Current synthetic physical wheel axis fraction [-1, +1].
     // Called by SyntheticSink itself for the servo error AND by
@@ -94,9 +74,8 @@ public:
     // the derror-rate-gate bug on real G29 (commit 549e5823 → follow-up).
     double CurrentAxis() const
     {
-        if (mode_ == "frozen")   return frozen_at_;
-        if (mode_ == "lagging")  return lag_axis_;
-        if (mode_ == "pushback") return std::clamp(target_norm_ + pushback_norm_, -1.0, 1.0);
+        if (mode_ == "frozen")  return frozen_at_;
+        if (mode_ == "lagging") return lag_axis_;
         // "follower" default: perfect (no lag)
         return target_norm_;
     }
@@ -130,11 +109,10 @@ public:
             // Feedback-only, exactly as SDLFFBSink reports it — the headless
             // closed-loop tests are only meaningful if the detector sees the
             // same signal the real SDL2 path feeds it.
-            last_sample_.commanded_force        = std::abs(u_feedback);
-            last_sample_.commanded_force_signed = u_feedback;
-            last_sample_.position_error         = target_norm_ - actual_norm;
-            last_sample_.target_norm            = target_norm_;
-            last_sample_.active                 = true;
+            last_sample_.commanded_force = std::abs(u_feedback);
+            last_sample_.position_error  = target_norm_ - actual_norm;
+            last_sample_.target_norm     = target_norm_;
+            last_sample_.active          = true;
         }
         else
         {
@@ -165,7 +143,6 @@ private:
     double                frozen_at_            = 0.0;
     double                lag_tau_              = 0.30;
     double                lag_axis_             = 0.0;
-    double                pushback_norm_        = 0.0;
     bool                  target_track_enabled_ = false;
     SteerServoConfig      servo_cfg_            = {};
     SteerServoState       servo_state_          = {};
@@ -182,63 +159,11 @@ bool HeadlessFfbInput::Init(const ManualDriveConfig& config)
 {
     sink_ = std::make_unique<SyntheticSink>();
     sink_->Configure(config);
-
-    // "pushback" mode only: open the live pushback listener (see
-    // HeadlessFfbInput.hpp class comment). No-op for every other mode.
-    if (sink_->Mode() == "pushback")
-    {
-        int port = 9105;
-        if (const char* port_env = std::getenv("GT_HEADLESS_FFB_PUSHBACK_PORT"))
-        {
-            try { port = std::stoi(port_env); }
-            catch (...) { port = 9105; }
-        }
-        auto* udp = new UdpTransport();
-        TransportConfig tc;
-        tc.type        = "udp";
-        tc.listen_port = port;
-        tc.is_server   = true;
-        if (udp->Open(tc))
-        {
-            pushback_transport_ = udp;
-            LOG_INFO("HeadlessFfbSink: pushback listener on UDP port {}", port);
-        }
-        else
-        {
-            LOG_ERROR("HeadlessFfbSink: failed to open pushback listener on UDP port {}", port);
-            delete udp;
-        }
-    }
     return true;
 }
 
 InputFrame HeadlessFfbInput::Poll(double /*dt*/)
 {
-    // "pushback" mode only: drain the listener, keep the latest packet's
-    // "steering" field as this frame's pushback offset (hold-last-value, same
-    // pattern as NetworkInputBridge — see class comment). Must run BEFORE
-    // CurrentAxis() below so the freshest value is used this Step (Poll()
-    // runs before ControllerVirtualDriver::Step's SetSteerTarget/Update —
-    // see gt_esmini::ControllerVirtualDriver::Step).
-    if (pushback_transport_ && sink_)
-    {
-        char buf[64];
-        double latest_pushback = 0.0;
-        bool   got_new = false;
-        while (true)
-        {
-            int received = pushback_transport_->Recv(buf, sizeof(buf));
-            if (received <= 0) break;
-            if (static_cast<size_t>(received) < PEDAL_STEER_WIRE_SIZE) continue;
-            uint32_t magic = 0;
-            std::memcpy(&magic, buf, 4);
-            if (magic != MAGIC_PEDAL_STEER) continue;
-            std::memcpy(&latest_pushback, buf + 4, 8);  // "steering" field
-            got_new = true;
-        }
-        if (got_new) sink_->SetPushback(latest_pushback);
-    }
-
     InputFrame f;
     f.connected = true;
     PedalSteerCommand ps;
@@ -255,12 +180,6 @@ InputFrame HeadlessFfbInput::Poll(double /*dt*/)
 void HeadlessFfbInput::Shutdown()
 {
     sink_.reset();
-    if (pushback_transport_)
-    {
-        pushback_transport_->Close();
-        delete pushback_transport_;
-        pushback_transport_ = nullptr;
-    }
 }
 
 IFFBSink* HeadlessFfbInput::GetFFBSink()
