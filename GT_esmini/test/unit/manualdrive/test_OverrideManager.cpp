@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 
 #include "gt_esmini/control/manualdrive/OverrideManager.hpp"
@@ -258,6 +259,15 @@ ManualDriveConfig MakeConfigWithFfb(double sustain_s   = 0.10,
     cfg.ffb.target_track.override_sustain_time          = sustain_s;
     cfg.ffb.target_track.override_residual_threshold    = residual_thr;
     cfg.ffb.target_track.override_residual_reanchor_tau = reanchor_tau;
+    // feature:F7 — 打ち手A（onset grace）+ 実測 θ/τ を有効にした構成でも
+    // 受け入れマトリクスが通ることを、同じテスト資産で確認できるようにする。
+    // 出荷既定は 0（合成プラント側の過渡が未実装で parity が壊れるため）なので、
+    // 環境変数で切り替える。検出コストの数値はこの経路で取った。
+    if (std::getenv("GT_F7_EVAL_AB")) {
+        cfg.ffb.target_track.override_shadow_onset_grace  = 0.05;
+        cfg.ffb.target_track.override_shadow_dead_time    = 0.041;
+        cfg.ffb.target_track.override_shadow_velocity_tau = 0.018;
+    }
     return cfg;
 }
 
@@ -669,12 +679,17 @@ TEST(OverrideManagerTest, MovingAdTargetDoesNotBlockDetection)
         const double target = std::min(0.6, 2.5 * (i * dt));   // 2.5 axis-frac/s ramp
         m.UpdateFfbSample(rig.StepHold(target, dt, 0.0));
         m.Update(QuietFrame(), dt);
+        // Sampled over the whole window UP TO the latch, not only at the latch
+        // frame. The point of this flag is "was the blackout condition present
+        // while the driver was pushing", and the ramp that creates it finishes
+        // at t=0.24s. Any change that adds latch latency (dead-time / inertia /
+        // onset grace all do) pushes the latch past the ramp and would fail a
+        // same-frame check for a reason that has nothing to do with detection.
+        const auto& d = m.GetFfbLatchDiagnostics();
+        if (latch_frame < 0 && (d.moving_target || d.tracking_transient))
+            gated_when_latched = true;
         if (latch_frame < 0 && m.IsLateralManual())
-        {
             latch_frame = i;
-            const auto& d = m.GetFfbLatchDiagnostics();
-            gated_when_latched = d.moving_target || d.tracking_transient;
-        }
     }
 
     ASSERT_GE(latch_frame, 0) << "a driver must be able to take over during an AD ramp";

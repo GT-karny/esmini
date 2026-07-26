@@ -406,6 +406,38 @@ struct ManualDriveConfig
             // dedicated step inputs, not inferred from driving data. The
             // plumbing is here so that measurement lands as a config change.
             double override_shadow_dead_time            = 0.0;   // seconds
+
+            // ---- Onset grace: treat the physically undecidable as undecided --
+            //
+            // Breakaway is a MEASURED BAND (0.170-0.210), which means that for
+            // a force inside the band it is not knowable whether this wheel is
+            // about to move. Accumulating residual across that instant is not a
+            // modelling error to be fixed with a better constant — the quantity
+            // itself is indeterminate. Measured cost: the onset regime accounts
+            // for 17-50% of residual growth on the real machine
+            // (residual_decompose.py R1).
+            //
+            // So when the shadow's motion STATE disagrees with the measured
+            // axis's, the shadow is re-synced to the measurement instead of
+            // banking the difference — but only for this long. A driver does
+            // not show up as a few tens of milliseconds of onset-timing skew;
+            // they show up as a disagreement that PERSISTS. Past the grace the
+            // residual accumulates exactly as before, so a held wheel is still
+            // detected.
+            //
+            // This is NOT the old direction gate coming back: nothing here
+            // looks at which way the wheel sits relative to the target. It only
+            // declines to measure during an interval that is physically
+            // indeterminate.
+            //
+            // Too generous a grace would swallow a slow push, the same hole the
+            // re-anchor has. The detection floors are measured by
+            // Acceptance34_MinimumDetectableDriverRampRate; keep them in view
+            // when changing this.
+            double override_shadow_onset_grace          = 0.0;   // seconds; 0 = off
+            // Axis rate above which the measured wheel counts as moving, for
+            // the state comparison above.
+            double override_shadow_motion_rate_eps      = 0.02;  // axis-frac / s
         } target_track;
 
         // feature:F7 — UNATTENDED-RUN SAFETY WATCHDOG (SDLFFBSink only).

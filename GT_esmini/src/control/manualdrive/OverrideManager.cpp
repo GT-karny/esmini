@@ -49,6 +49,10 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     ffb_shadow_v_max_          = config.ffb.target_track.override_shadow_v_max;
     ffb_shadow_velocity_tau_   = config.ffb.target_track.override_shadow_velocity_tau;
     ffb_shadow_dead_time_      = config.ffb.target_track.override_shadow_dead_time;
+    ffb_shadow_onset_grace_    = config.ffb.target_track.override_shadow_onset_grace;
+    ffb_shadow_motion_rate_eps_= config.ffb.target_track.override_shadow_motion_rate_eps;
+    ffb_disagree_elapsed_      = 0.0;
+    ffb_disagree_active_       = false;
     ffb_sustain_accum_         = 0.0;
     ffb_prev_target_norm_      = 0.0;
     ffb_prev_pos_error_        = 0.0;
@@ -372,6 +376,33 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                 ffb_shadow_vel_ = shadow_vel;
             }
             ffb_shadow_norm_ = std::clamp(ffb_shadow_norm_ + ffb_shadow_vel_ * dt, -1.0, 1.0);
+        }
+
+        // --- Onset grace (see ManualDriveConfig) --------------------------
+        // While the shadow says "moving" and the measurement says "at rest"
+        // (or vice versa), we are inside the breakaway band's indeterminacy.
+        // Re-sync rather than bank the difference — but only for as long as a
+        // transition could plausibly take. A driver's disagreement persists.
+        if (!suppress && ffb_shadow_onset_grace_ > 0.0)
+        {
+            const double prev_actual = ffb_prev_target_norm_ - ffb_prev_pos_error_;
+            const bool observed_moving =
+                std::abs((actual_norm - prev_actual) / dt) > ffb_shadow_motion_rate_eps_;
+            if (observed_moving != ffb_shadow_moving_)
+            {
+                ffb_disagree_elapsed_ = ffb_disagree_active_ ? ffb_disagree_elapsed_ + dt : 0.0;
+                ffb_disagree_active_  = true;
+                if (ffb_disagree_elapsed_ <= ffb_shadow_onset_grace_)
+                {
+                    ffb_shadow_norm_ = actual_norm;
+                    if (!observed_moving) ffb_shadow_vel_ = 0.0;
+                }
+            }
+            else
+            {
+                ffb_disagree_active_  = false;
+                ffb_disagree_elapsed_ = 0.0;
+            }
         }
 
         const double residual = std::abs(actual_norm - ffb_shadow_norm_);

@@ -167,6 +167,13 @@ private:
     double                ffb_shadow_vel_             = 0.0;
     // Transport delay. 0 = disabled until measured.
     double                ffb_shadow_dead_time_       = 0.0;
+    // Onset grace (see ManualDriveConfig): re-sync instead of banking residual
+    // while the shadow's and the measurement's motion states disagree, but only
+    // for as long as the transition itself could plausibly last.
+    double                ffb_shadow_onset_grace_     = 0.0;
+    double                ffb_shadow_motion_rate_eps_ = 0.02;
+    double                ffb_disagree_elapsed_       = 0.0;
+    bool                  ffb_disagree_active_        = false;
     struct ForceSample { double force; double dt; };
     std::deque<ForceSample> ffb_force_history_;
     FfbLatchDiagnostics   ffb_diag_;
