@@ -65,6 +65,7 @@ const DoubleField kDoubleFields[] = {
     {"yaw_rate_max", &VirtualDriverConfig::yaw_rate_max},
     {"steer_rate_max", &VirtualDriverConfig::steer_rate_max},
     {"envelope_v_floor", &VirtualDriverConfig::envelope_v_floor},
+    {"ad_steering_envelope_steer_jerk_max", &VirtualDriverConfig::ad_steering_envelope_steer_jerk_max},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
@@ -289,6 +290,7 @@ AdSteeringEnvelopeConfig VirtualDriverConfig::AdEnvelopeConfig() const
     c.yaw_rate_max    = yaw_rate_max;
     c.steer_rate_max  = steer_rate_max;
     c.v_floor         = envelope_v_floor;
+    c.steer_jerk_max  = ad_steering_envelope_steer_jerk_max;
     return c;
 }
 

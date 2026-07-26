@@ -130,7 +130,21 @@ def _make_variant(tmpdir: str, cfg_overrides: dict, speed_mps: float, push_trigg
                 if stc is not None:
                     stc.set("value", new_value)
 
-    for target in root.findall(".//AccelAction//AbsoluteTargetSpeed"):
+    # "AccelAction" is the Action's NAME ATTRIBUTE, not a tag — the old
+    # ".//AccelAction//AbsoluteTargetSpeed" xpath therefore matched nothing and
+    # every run silently used the scenario's hard-coded 15.0 m/s target no
+    # matter what --speed said. Selecting on the attribute is not enough on its
+    # own either: the scenario has a SECOND AbsoluteTargetSpeed (StopAction,
+    # value 0.0) that must NOT be rewritten. Empty match is a hard failure so a
+    # renamed action can never re-open the same silent hole.
+    accel_targets = root.findall(
+        ".//Action[@name='AccelAction']//AbsoluteTargetSpeed")
+    if not accel_targets:
+        raise RuntimeError(
+            "vd_resume_transient: no AbsoluteTargetSpeed under Action[@name='AccelAction'] "
+            f"in {BASE_XOSC} — the --speed sweep would silently run at the scenario's own "
+            "hard-coded speed. Fix the xpath or the scenario before trusting any result.")
+    for target in accel_targets:
         target.set("value", f"{speed_mps:.2f}")
 
     ctrl = root.find(".//ObjectController/Controller")

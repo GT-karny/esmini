@@ -313,6 +313,7 @@ export interface VirtualDriverConfig {
   yaw_rate_max?: number;
   steer_rate_max?: number;
   envelope_v_floor?: number;
+  ad_steering_envelope_steer_jerk_max?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Indicator

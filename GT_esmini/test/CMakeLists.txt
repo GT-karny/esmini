@@ -155,6 +155,37 @@ if(WIN32 AND GT_ENABLE_SDL2 AND EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/lib/
     )
 endif()
 
+# --- FFB Override Replay Harness (feature:F7, permanent diagnostic tool) ---
+#
+# Standalone CLI, NOT a ctest/gtest target -- like GT_Loader above, a plain
+# add_executable() beside (not inside) the unittest() umbrella binary, because
+# it is a manually-invoked measurement tool (multiple --jsonl runs x multiple
+# detector configs, printed as a table) rather than a pass/fail assertion
+# suite. See the tool's own file header for the full rationale.
+#
+# Unlike GT_Loader (which drives the public C API and links ${TARGET_SHARED}),
+# this tool reaches into gt_esmini::OverrideManager directly -- an internal
+# class never exported from GT_esminiLib.dll -- so it links ${TARGET_STATIC}
+# instead. ${TARGET_STATIC}'s own link libraries (ScenarioEngine, CommonMini,
+# RoadManager, OSI, ...), even the PRIVATE ones, propagate automatically to
+# any executable that links a STATIC library target in CMake (this is exactly
+# what lets GT_OSMP_FMU/CMakeLists.txt link the same static lib alone -- see
+# this repo's CLAUDE.md Protocol B note), so no other GT_esmini/upstream
+# library needs to be named again here. EXTERNALS_OSI_INCLUDES IS added
+# explicitly below regardless: IFFBSink.hpp (pulled in via OverrideManager.hpp)
+# includes an OSI proto header, and unlike the unittest() macro above, a plain
+# add_executable() does not supply that include path on its own.
+set(FFB_REPLAY_TARGET ffb_override_replay)
+add_executable(${FFB_REPLAY_TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/tools/ffb_override_replay.cpp)
+target_link_libraries(${FFB_REPLAY_TARGET} PRIVATE ${TARGET_STATIC})
+target_include_directories(${FFB_REPLAY_TARGET} PRIVATE
+    ${CMAKE_SOURCE_DIR}/GT_esmini/include
+)
+target_include_directories(${FFB_REPLAY_TARGET} SYSTEM PRIVATE
+    ${EXTERNALS_OSI_INCLUDES}
+)
+message(STATUS "GT_esmini: Added ${FFB_REPLAY_TARGET} (feature:F7 FFB override replay tool)")
+
 # Register Integration Tests (audit R3/TST re-authoring)
 #
 # Registration is explicit (no GLOB): every test states the expectations GT_Loader

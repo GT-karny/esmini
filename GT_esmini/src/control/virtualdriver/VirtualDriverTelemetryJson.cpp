@@ -5,11 +5,34 @@
 namespace gt_esmini
 {
 
+// feature:F7 — WARNING for anyone replaying or differencing this record: ONE
+// LINE HOLDS TWO INSTANTS. The top-level "ffb" block is the sink's sample
+// AFTER this frame's FFB update, while "ffb.gates" is OverrideManager's
+// diagnostic computed from the sample it was handed BEFORE that update — i.e.
+// the sample that was written into the PREVIOUS line's "ffb" block. Measured
+// on f7_realwheel_basic.jsonl: gates.actual_norm(N) equals
+// (ffb.target_norm - ffb.position_error)(N-1) exactly, for every frame once
+// the wheel is moving. While the wheel sits at 0 the two agree and the skew is
+// invisible, which is precisely what makes it dangerous — a consumer that
+// pairs ffb.*(N) with gates.*(N) validates fine on the stationary prologue and
+// is silently one frame off for the whole part that matters.
+// GT_esmini/test/tools/ffb_override_replay.cpp pairs them correctly; copy that
+// alignment rather than re-deriving it.
 std::string ToJson(const VirtualDriverTelemetry& t)
 {
     std::ostringstream os;
     os.setf(std::ios::fixed);
-    os.precision(4);
+    // feature:F7 — 9, not 4. At 4 decimals a normalized steering value has a
+    // 1e-4 quantum, so a per-frame difference at dt=0.01 quantizes the STEERING
+    // RATE to 0.01 /s and the STEERING JERK to 1.0 /s^2. That put the entire
+    // normal-driving jerk distribution (median 0.0, p99 2.0 /s^2) inside the
+    // first two quanta: every derived statistic there was reading the
+    // instrument's own floor rather than the signal, and "basic's jerk is 1.0"
+    // meant only "below the floor". The measuring device must be finer than the
+    // thing measured; 9 decimals puts the jerk quantum at 1e-5 /s^2, five orders
+    // below the smallest number anyone reasons about here. Cost is file size
+    // (~1.6x) on an opt-in capture path.
+    os.precision(9);
     auto b = [](bool v) { return v ? "true" : "false"; };
 
     os << "{\"sim_time\":" << t.sim_time
@@ -33,6 +56,10 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"commanded_force\":" << t.ffb_commanded_force
        << ",\"position_error\":" << t.ffb_position_error
        << ",\"target_norm\":" << t.ffb_target_norm
+       // Raw sink force for this instant — see the one-row lag note at the top
+       // of this file for why ffb.gates.effective_force is NOT interchangeable
+       // with it.
+       << ",\"sample_effective_force\":" << t.ffb_sample_effective_force
        // feature:F7 (F7b, post-93b2c6c4) override-latch gate diagnostics.
        // Additive sub-object; consumers that predate it ignore it.
        // sustain_accum + block_reason are the two fields to check first when
@@ -59,6 +86,7 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"envelope\":{\"lateral_accel_active\":" << b(t.ad_envelope_lateral_accel_active)
        << ",\"yaw_rate_active\":" << b(t.ad_envelope_yaw_rate_active)
        << ",\"steer_rate_active\":" << b(t.ad_envelope_steer_rate_active)
+       << ",\"steer_jerk_active\":" << b(t.ad_envelope_steer_jerk_active)
        << ",\"active\":" << b(t.ad_envelope_active)
        << ",\"steer_in\":" << t.ad_envelope_steer_in
        << ",\"steer_out\":" << t.ad_envelope_steer_out << "}"

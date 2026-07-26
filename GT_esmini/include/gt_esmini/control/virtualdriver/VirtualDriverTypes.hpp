@@ -205,6 +205,13 @@ struct VirtualDriverTelemetry
     // per-frame capture carries the servo's INPUT alongside its output — needed
     // to tell 'AD asked for nothing' apart from 'AD asked and nothing happened'.
     double ffb_target_norm     = 0.0;
+    // The sink sample's RAW signed force, belonging to this same instant.
+    // Deliberately not the same number as ffb.gates.effective_force: that one
+    // is the detector's diagnostic, one frame behind this block AND already
+    // dead-time-delayed. Replays need the raw, undelayed force to feed back
+    // in; without this field they can only be reconstructed from gates, which
+    // is correct only for recordings made at dead_time=0.
+    double ffb_sample_effective_force = 0.0;
 
     // feature:F7 (F7b, follow-up post-93b2c6c4) — override-latch gate
     // diagnostics (real-machine "why didn't it fire" debugging). Mirrors
@@ -238,7 +245,13 @@ struct VirtualDriverTelemetry
     bool ad_envelope_lateral_accel_active = false;
     bool ad_envelope_yaw_rate_active      = false;
     bool ad_envelope_steer_rate_active    = false;
-    bool ad_envelope_active               = false;  // OR of the three
+    // feature:F7 — the steering-JERK stage (a further narrowing of the rate
+    // window). Reported separately from steer_rate_active so a run can answer
+    // "did the jerk cap constrain ordinary driving" on its own: the unit tests
+    // pin the STEADY-state case only (they seed prev_steer_rate_norm), so the
+    // transition case is checked here, on real runs, instead.
+    bool ad_envelope_steer_jerk_active    = false;
+    bool ad_envelope_active               = false;  // OR of the four
     // Normalized steering [-1,1] the envelope actually saw/produced this
     // frame. driver.steer (DriverModelSnapshot below) is the raw AD proposal
     // BEFORE the envelope — it is intentionally left untouched by the

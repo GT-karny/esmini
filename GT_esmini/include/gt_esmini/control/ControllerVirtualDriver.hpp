@@ -115,9 +115,10 @@ private:
 
     // feature:F7 — AD steering safety envelope (AdSteeringEnvelope.hpp). Config
     // is built once in the constructor (not hot-reloaded during a run);
-    // ad_envelope_state_.prev_steer_norm is updated every Step() with whichever
-    // steering command was ACTUALLY applied that frame (AUTO's clamped output
-    // or MANUAL's raw input) — see Step() for the core design invariant.
+    // ad_envelope_state_ (angle AND realized-rate anchors) is updated every
+    // Step() via UpdateAdSteeringEnvelopeState() with whichever steering
+    // command was ACTUALLY applied that frame (AUTO's clamped output or
+    // MANUAL's raw input) — see Step() for the core design invariant.
     AdSteeringEnvelopeConfig ad_envelope_cfg_;
     AdSteeringEnvelopeState  ad_envelope_state_;
 

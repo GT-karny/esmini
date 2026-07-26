@@ -63,10 +63,50 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
     // header — the caller owns updating state.prev_steer_norm).
     const double delta_prev = state.prev_steer_norm * msa;
     const double max_step   = cfg.steer_rate_max * dt_safe;
-    const double delta_lo   = delta_prev - max_step;
-    const double delta_hi   = delta_prev + max_step;
-    const bool   rate_clipped = (delta_after_lat_yaw < delta_lo) || (delta_after_lat_yaw > delta_hi);
-    const double delta_final  = std::clamp(delta_after_lat_yaw, delta_lo, delta_hi);
+    double       delta_lo   = delta_prev - max_step;
+    double       delta_hi   = delta_prev + max_step;
+    // Evaluated against this ORIGINAL (pre-jerk-narrowing) window, so that
+    // steer_rate_active and steer_jerk_active (below) attribute a clip to
+    // whichever constraint actually did it, even though delta_lo/delta_hi are
+    // narrowed further by the jerk stage before delta_final is computed.
+    const bool rate_clipped = (delta_after_lat_yaw < delta_lo) || (delta_after_lat_yaw > delta_hi);
+
+    // Steering-JERK limit (feature:F7): a further narrowing of the rate
+    // window above, not a separate rate limiter. cfg.steer_jerk_max <= 0 is a
+    // bit-identical no-op onto the rate-only code path above (required for
+    // the regression baseline's deviation=0 check).
+    //
+    // rate_prev_rad (the realized rate anchor, converted to the rad domain)
+    // is CLAMPED to +-steer_rate_max before use, for two reasons:
+    //   1. The REALIZED rate can exceed steer_rate_max while a HUMAN is
+    //      steering (the caller records the raw manual command via
+    //      UpdateAdSteeringEnvelopeState, which has no rate limit of its
+    //      own). Without this clamp, an AUTO_RESUME right after a large
+    //      manual input would force the envelope to keep ramping at that
+    //      stale realized rate for |rate|/jerk seconds before the jerk
+    //      limiter could even begin to pull it back down. The clamp caps
+    //      that forced continuation at steer_rate_max/steer_jerk_max
+    //      (~0.098s with the shipped defaults, ~0.12 in normalized steering)
+    //      instead of the unbounded raw rate.
+    //   2. It guarantees the jerk window is never empty: whenever
+    //      |rate_prev_rad| <= steer_rate_max, delta_prev + rate_prev_rad*dt
+    //      falls inside BOTH the original rate window and the jerk window,
+    //      so delta_lo <= delta_hi always holds and the std::clamp below
+    //      never sees an inverted (empty) range.
+    bool jerk_clipped = false;
+    if (cfg.steer_jerk_max > 0.0 && dt_safe > 0.0)
+    {
+        const double rate_prev_rad = std::clamp(state.prev_steer_rate_norm * msa,
+                                                -cfg.steer_rate_max, cfg.steer_rate_max);
+        const double jerk_step_rad = cfg.steer_jerk_max * msa * dt_safe;  // [rad/s] per frame
+        const double jerk_lo = delta_prev + (rate_prev_rad - jerk_step_rad) * dt_safe;
+        const double jerk_hi = delta_prev + (rate_prev_rad + jerk_step_rad) * dt_safe;
+        jerk_clipped = (delta_after_lat_yaw < jerk_lo) || (delta_after_lat_yaw > jerk_hi);
+        delta_lo = std::max(delta_lo, jerk_lo);
+        delta_hi = std::min(delta_hi, jerk_hi);
+    }
+
+    const double delta_final = std::clamp(delta_after_lat_yaw, delta_lo, delta_hi);
 
     const double steer_norm_out = std::clamp(delta_final / msa, -1.0, 1.0);
 
@@ -74,11 +114,13 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
     {
         out_snapshot->valid                = true;
         out_snapshot->lateral_accel_active = kappa_clipped && lat_binding;
-        out_snapshot->yaw_rate_active      = kappa_clipped && yaw_binding;
-        out_snapshot->steer_rate_active    = rate_clipped;
+        out_snapshot->yaw_rate_active       = kappa_clipped && yaw_binding;
+        out_snapshot->steer_rate_active     = rate_clipped;
+        out_snapshot->steer_jerk_active     = jerk_clipped;
         out_snapshot->any_active           = out_snapshot->lateral_accel_active ||
                                              out_snapshot->yaw_rate_active ||
-                                             out_snapshot->steer_rate_active;
+                                             out_snapshot->steer_rate_active ||
+                                             out_snapshot->steer_jerk_active;
         out_snapshot->kappa_cmd            = kappa_cmd;
         out_snapshot->kappa_limit          = kappa_max;
         out_snapshot->steer_norm_in        = steer_norm_cmd;
@@ -86,6 +128,12 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
     }
 
     return steer_norm_out;
+}
+
+void UpdateAdSteeringEnvelopeState(AdSteeringEnvelopeState& state, double applied_steer_norm, double dt)
+{
+    state.prev_steer_rate_norm = (dt > 0.0) ? (applied_steer_norm - state.prev_steer_norm) / dt : 0.0;
+    state.prev_steer_norm      = applied_steer_norm;
 }
 
 }  // namespace gt_esmini

@@ -79,6 +79,7 @@ _NUMBER_KEYS = frozenset(
         "yaw_rate_max",
         "steer_rate_max",
         "envelope_v_floor",
+        "ad_steering_envelope_steer_jerk_max",
         "control_point_offset",
         "control_point_min_speed",
         "indicator_lead_time",
@@ -219,28 +220,26 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "speed_ki": 0.2,
     "speed_kd": 0.0,
     "_ad_steering_envelope": (
-        "feature:F7 AD steering safety envelope. FINAL (fixed). Clamps the "
-        "AD-COMMANDED steering (never the manual input) to three physical "
-        "limits: lateral accel, yaw rate, steering rate. Independent from "
+        "feature:F7 AD steering safety envelope. Clamps the AD-COMMANDED "
+        "steering (never the manual input) to four physical limits: lateral "
+        "accel, yaw rate, steering rate, steering jerk. Independent from "
         "max_lateral_accel above (that value is already consumed picking "
         "curve speed, so reusing it here would clamp during ordinary curve "
-        "driving). Default ON (safety feature). a_lat_max_steer/yaw_rate_max "
-        "= 15-scenario real-vehicle measurement pool normal-driving max x1.3 "
-        "(a_lat 3.289->4.3, yaw_rate 0.780->1.0); time-to-full-lock stretches "
-        "from ~0.12s to ~0.61s. steer_rate_max=1.5 (not the same x1.3 rule): "
-        "a wider 27-scenario/19557-frame pass found an oncoming-yield creep "
-        "scenario (v=1.47 m/s, ordinary PID micro-oscillation, not a bug) "
-        "reaching 0.964 rad/s = 96.4% of a 1.0 cap; a flat rate cap is also "
-        "physically mismatched (lateral jerk scales with speed) and 1.5 "
-        "still suppresses measured pathological rates (3.66-3.84 rad/s) by "
-        "~2.5x. At typical AUTO_RESUME speeds a_lat_max_steer is the binding "
-        "cap regardless."
+        "driving). Default ON (safety feature). a_lat_max_steer/yaw_rate_max/"
+        "steer_rate_max are FINAL (fixed from a 15-scenario real-vehicle "
+        "measurement pool; a_lat/yaw = pool max x1.3, steer_rate_max=1.5 on "
+        "separate grounds — see AdSteeringEnvelope.hpp). "
+        "ad_steering_envelope_steer_jerk_max=25.0 is PROVISIONAL (measured "
+        "through an instrument with only 1.0 /s^2 jerk resolution — see "
+        "AdSteeringEnvelope.hpp kAdEnvelopeDefaultSteerJerkMax) pending "
+        "remeasurement at adequate resolution."
     ),
     "ad_steering_envelope_enabled": True,
     "a_lat_max_steer": 4.3,
     "yaw_rate_max": 1.0,
     "steer_rate_max": 1.5,
     "envelope_v_floor": 1.0,
+    "ad_steering_envelope_steer_jerk_max": 25.0,
     "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
     "control_point_offset": 0.0,
     "control_point_min_speed": 1.0,

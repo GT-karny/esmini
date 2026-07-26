@@ -396,11 +396,13 @@ void ControllerVirtualDriver::Step(double timeStep)
 
     // 4a. feature:F7 — persist WHATEVER steering command was actually realized
     // this frame (the envelope's own clamped AD output while AUTO, or the raw
-    // manual input while MANUAL) as next frame's rate-limit anchor. This is
+    // manual input while MANUAL) as next frame's rate-limit anchor, AND the
+    // realized rate this produced as next frame's jerk-limit anchor. This is
     // what lets a manual->AUTO_RESUME transition ramp smoothly from the
-    // physical wheel angle instead of a stale AD proposal, with no dedicated
-    // "resume ramp" state machine (AdSteeringEnvelope.hpp).
-    ad_envelope_state_.prev_steer_norm = cmd.steering;
+    // physical wheel angle (and its realized rate) instead of a stale AD
+    // proposal, with no dedicated "resume ramp" state machine
+    // (AdSteeringEnvelope.hpp).
+    UpdateAdSteeringEnvelopeState(ad_envelope_state_, cmd.steering, timeStep);
 
     // 4b. Manual indicator (turn-signal) control from input-source buttons,
     // via ManualDrive's auto-cancel FSM. When the human arms an indicator this
@@ -502,6 +504,19 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_commanded_force  = s.commanded_force;
         telemetry_.ffb_position_error   = s.position_error;
         telemetry_.ffb_target_norm      = s.target_norm;
+        // The RAW sink force, recorded alongside the rest of this frame's
+        // sample. gates.effective_force below is NOT a substitute: that is
+        // OverrideManager's own diagnostic, so it is (a) one frame behind this
+        // block and (b) the DEAD-TIME-DELAYED force the detector actually
+        // consumed. The two coincide only while dead_time is 0, which is what
+        // the pre-2026-07-26 recordings happen to have. Anything recorded
+        // under the shipped defaults (dead_time=0.041) has a gates force that
+        // is genuinely not this one, so a replay reconstructing the detector's
+        // input from gates would silently feed it an already-delayed force and
+        // delay it a second time. GT_esmini/test/tools/ffb_override_replay.cpp
+        // prefers this field and falls back to the shifted gates force only
+        // for the older fixtures that predate it.
+        telemetry_.ffb_sample_effective_force = s.effective_force_signed;
     }
     else
     {
@@ -509,6 +524,7 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_commanded_force  = 0.0;
         telemetry_.ffb_position_error   = 0.0;
         telemetry_.ffb_target_norm      = 0.0;
+        telemetry_.ffb_sample_effective_force = 0.0;
     }
     // feature:F7 — override-latch diagnostics. Real-machine "why didn't it
     // fire" observability: without this, diagnosing a missed latch required
@@ -546,6 +562,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.ad_envelope_lateral_accel_active = envelope_snap.lateral_accel_active;
     telemetry_.ad_envelope_yaw_rate_active      = envelope_snap.yaw_rate_active;
     telemetry_.ad_envelope_steer_rate_active    = envelope_snap.steer_rate_active;
+    telemetry_.ad_envelope_steer_jerk_active    = envelope_snap.steer_jerk_active;
     telemetry_.ad_envelope_active               = envelope_snap.any_active;
     // dsnap.steer (telemetry_.driver.steer, set via telemetry_.driver = dsnap
     // below) stays the RAW pre-envelope AD proposal — deliberately untouched.

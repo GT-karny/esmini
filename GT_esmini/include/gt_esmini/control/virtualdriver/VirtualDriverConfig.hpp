@@ -70,6 +70,7 @@ struct VirtualDriverConfig
     double yaw_rate_max     = kAdEnvelopeDefaultYawRateMax;
     double steer_rate_max   = kAdEnvelopeDefaultSteerRateMax;
     double envelope_v_floor = kAdEnvelopeDefaultVFloor;
+    double ad_steering_envelope_steer_jerk_max = kAdEnvelopeDefaultSteerJerkMax;  // [1/s^2] normalized; <=0 disables
 
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
