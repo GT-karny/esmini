@@ -394,7 +394,7 @@ struct ManualDriveConfig
             // and both values have to come from a dedicated measurement
             // rather than a fit to driving data — otherwise they agree by
             // construction and prove nothing.
-            double override_shadow_velocity_tau         = 0.0;   // seconds
+            double override_shadow_velocity_tau         = 0.018; // seconds (measured)
 
             // dead_time: transport delay between commanding a force and the
             // wheel feeling it (plus the delay in reading the axis back).
@@ -405,7 +405,7 @@ struct ManualDriveConfig
             // held-out run slightly worse. A delay must be measured with
             // dedicated step inputs, not inferred from driving data. The
             // plumbing is here so that measurement lands as a config change.
-            double override_shadow_dead_time            = 0.0;   // seconds
+            double override_shadow_dead_time            = 0.041; // seconds (measured)
 
             // ---- Onset grace: treat the physically undecidable as undecided --
             //
@@ -434,7 +434,7 @@ struct ManualDriveConfig
             // re-anchor has. The detection floors are measured by
             // Acceptance34_MinimumDetectableDriverRampRate; keep them in view
             // when changing this.
-            double override_shadow_onset_grace          = 0.0;   // seconds; 0 = off
+            double override_shadow_onset_grace          = 0.05;  // seconds; 0 = off
             // Axis rate above which the measured wheel counts as moving, for
             // the state comparison above.
             double override_shadow_motion_rate_eps      = 0.02;  // axis-frac / s

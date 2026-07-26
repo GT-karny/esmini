@@ -203,8 +203,10 @@ struct VirtualDriverConfig
     double ffb_target_track_override_shadow_kinetic              = 0.16;   // force
     double ffb_target_track_override_shadow_force_to_velocity    = 3.35;   // (axis-frac/s) / force
     double ffb_target_track_override_shadow_v_max                = 1.0;    // axis-frac / s
-    double ffb_target_track_override_shadow_velocity_tau         = 0.0;    // s (0 = until measured)
-    double ffb_target_track_override_shadow_dead_time            = 0.0;    // s (0 = until measured)
+    double ffb_target_track_override_shadow_velocity_tau         = 0.018;  // s (measured)
+    double ffb_target_track_override_shadow_dead_time            = 0.041;  // s (measured)
+    double ffb_target_track_override_shadow_onset_grace          = 0.05;   // s
+    double ffb_target_track_override_shadow_motion_rate_eps      = 0.02;   // axis-frac/s
     // feature:F7 unattended-run safety watchdog. 0 = disabled (default), so
     // supervised runs and every existing gate are unaffected. The unattended
     // runbook turns these on. See ManualDriveConfig.ffb.safety.

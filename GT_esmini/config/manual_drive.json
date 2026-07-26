@@ -86,8 +86,10 @@
         "target_track_override_shadow_kinetic": 0.16,
         "target_track_override_shadow_force_to_velocity": 3.35,
         "target_track_override_shadow_v_max": 1.00,
-        "target_track_override_shadow_velocity_tau": 0.00,
-        "target_track_override_shadow_dead_time": 0.00,
+        "target_track_override_shadow_velocity_tau": 0.018,
+        "target_track_override_shadow_dead_time": 0.041,
+        "target_track_override_shadow_onset_grace": 0.05,
+        "target_track_override_shadow_motion_rate_eps": 0.02,
         "safety_max_saturation_seconds": 0.0,
         "safety_max_runtime_seconds": 0.0,
         "safety_saturation_ratio": 0.95

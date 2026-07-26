@@ -159,15 +159,25 @@ SCENARIOS = [
 # 6 scenarios x 5 fixtures = 30 checks (18 parity + 12 liveness). All must pass.
 FOLLOWER_MODES = [
     # --- force-coupled: expect NO divergence ------------------------------
-    # bottom of the measured band, slope 10% below nominal
-    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.170",
-                         "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.00"}),
-    # mid-band, nominal slope
-    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.190",
-                         "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.35"}),
-    # top of the measured band, slope 10% above nominal
-    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY": "0.210",
-                         "GT_HEADLESS_FFB_PLANT_SLOPE":     "3.70"}),
+    # 3 点とも、静摩擦帯・力速度傾き・**過渡**（theta, tau）を同時に振る。
+    # 過渡の振り幅は 2026-07-26 の実機同定のばらつきから取った
+    # （theta 中央値 0.0408 / min 0.0361 / max 0.0815、tau 中央値 0.0179 / max 0.0227）。
+    # シャドウ側には公称値だけを入れる。ここで同じ値を入れてしまうと一致は構成上の
+    # 必然になり、ヘッドレスの結果は何も証明しなくなる（INDEPENDENCE REQUIREMENT）。
+    # このモードの役割は「シャドウと一致すること」ではなく
+    # 「シャドウが現実のばらつきに対して頑健であることを試すこと」である。
+    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY":    "0.170",
+                         "GT_HEADLESS_FFB_PLANT_SLOPE":        "3.00",
+                         "GT_HEADLESS_FFB_PLANT_DEAD_TIME":    "0.030",
+                         "GT_HEADLESS_FFB_PLANT_VELOCITY_TAU": "0.010"}),
+    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY":    "0.190",
+                         "GT_HEADLESS_FFB_PLANT_SLOPE":        "3.35",
+                         "GT_HEADLESS_FFB_PLANT_DEAD_TIME":    "0.041",
+                         "GT_HEADLESS_FFB_PLANT_VELOCITY_TAU": "0.018"}),
+    ("plant", "parity", {"GT_HEADLESS_FFB_PLANT_BREAKAWAY":    "0.210",
+                         "GT_HEADLESS_FFB_PLANT_SLOPE":        "3.70",
+                         "GT_HEADLESS_FFB_PLANT_DEAD_TIME":    "0.055",
+                         "GT_HEADLESS_FFB_PLANT_VELOCITY_TAU": "0.025"}),
     # --- kinematic: expect a latch iff one is physically reachable ---------
     ("frozen",   "liveness", {"GT_HEADLESS_FFB_FROZEN_AT": "0.000"}),
     ("follower", "liveness", {}),
@@ -458,7 +468,8 @@ def main() -> int:
             # Clear every mode-specific knob first so each variant starts from
             # a known state regardless of run order, then apply this mode's own.
             for var in ("GT_HEADLESS_FFB_FROZEN_AT", "GT_HEADLESS_FFB_LAG_TAU",
-                        "GT_HEADLESS_FFB_PLANT_BREAKAWAY", "GT_HEADLESS_FFB_PLANT_SLOPE"):
+                        "GT_HEADLESS_FFB_PLANT_BREAKAWAY", "GT_HEADLESS_FFB_PLANT_SLOPE",
+                        "GT_HEADLESS_FFB_PLANT_DEAD_TIME", "GT_HEADLESS_FFB_PLANT_VELOCITY_TAU"):
                 os.environ.pop(var, None)
             os.environ.update(extra_env)
             if mode == "frozen":

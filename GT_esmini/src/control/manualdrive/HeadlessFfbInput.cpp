@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <random>
 #include <string>
 
@@ -90,6 +91,23 @@ public:
         {
             try { plant_kinetic_ = std::stod(v); } catch (...) { plant_kinetic_ = 0.16; }
         }
+        // 過渡（2026-07-26 実機同定: theta 中央値 0.0408s / tau 中央値 0.0179s）。
+        // シャドウ側は公称値を使うが、こちらは **範囲で振る** のが役割である。
+        // 同じ値を両側に入れると一致は構成上の必然になり何も証明しない
+        // （INDEPENDENCE REQUIREMENT）。合成プラントの仕事は「シャドウと一致すること」
+        // ではなく「シャドウが現実のばらつきに対して頑健であることを試すこと」。
+        plant_dead_time_ = 0.0;
+        if (const char* v = std::getenv("GT_HEADLESS_FFB_PLANT_DEAD_TIME"))
+        {
+            try { plant_dead_time_ = std::stod(v); } catch (...) { plant_dead_time_ = 0.0; }
+        }
+        plant_velocity_tau_ = 0.0;
+        if (const char* v = std::getenv("GT_HEADLESS_FFB_PLANT_VELOCITY_TAU"))
+        {
+            try { plant_velocity_tau_ = std::stod(v); } catch (...) { plant_velocity_tau_ = 0.0; }
+        }
+        plant_force_history_.clear();
+
         plant_slope_ = 3.35;
         if (const char* v = std::getenv("GT_HEADLESS_FFB_PLANT_SLOPE"))
         {
@@ -198,7 +216,31 @@ public:
     {
         if (mode_ != "plant" || dt <= 0.0) return;
 
-        const double net_force = servo_force + driver_force_norm_;
+        // --- 輸送遅れ theta: theta 秒前の力で駆動する ---
+        // 実機同定でステップ応答 0.0408s / 反転遅れ 0.0445s と独立2系統が一致した。
+        // 遅れの正体は輸送遅れであって一次遅れではない。
+        plant_force_history_.push_back({servo_force + driver_force_norm_, dt});
+        double net_force = plant_force_history_.back().force;
+        if (plant_dead_time_ > 0.0)
+        {
+            double age = 0.0;
+            for (auto it = plant_force_history_.rbegin(); it != plant_force_history_.rend(); ++it)
+            {
+                net_force = it->force;
+                age += it->dt;
+                if (age >= plant_dead_time_) break;
+            }
+        }
+        {
+            double total = 0.0;
+            for (const auto& e : plant_force_history_) total += e.dt;
+            while (plant_force_history_.size() > 1 &&
+                   total - plant_force_history_.front().dt > plant_dead_time_ + 0.5)
+            {
+                total -= plant_force_history_.front().dt;
+                plant_force_history_.pop_front();
+            }
+        }
 
         if (!plant_moving_)
         {
@@ -225,7 +267,17 @@ public:
             {
                 const double speed = std::min(plant_slope_ * effective, plant_vmax_);
                 // -sign(net_force): positive force = wheel left = axis negative.
-                plant_velocity_ = (net_force >= 0.0) ? -speed : speed;
+                const double v_target = (net_force >= 0.0) ? -speed : speed;
+                // 慣性（一次遅れ）。実機同定 tau 中央値 0.0179s。0 = 無効（従来挙動）。
+                if (plant_velocity_tau_ > 1e-9)
+                {
+                    const double alpha = 1.0 - std::exp(-dt / plant_velocity_tau_);
+                    plant_velocity_ += alpha * (v_target - plant_velocity_);
+                }
+                else
+                {
+                    plant_velocity_ = v_target;
+                }
             }
         }
 
@@ -343,6 +395,10 @@ private:
     double                driver_force_norm_    = 0.0;     // live-injected driver force (§3)
     double                plant_breakaway_      = 0.19;
     double                plant_kinetic_        = 0.16;
+    double                plant_dead_time_      = 0.0;    // 実機同定の範囲で振る
+    double                plant_velocity_tau_   = 0.0;
+    struct PlantForce { double force; double dt; };
+    std::deque<PlantForce> plant_force_history_;
     double                plant_slope_          = 3.35;
     double                plant_vmax_           = 1.0;
     double                plant_noise_amp_      = 0.0;      // default OFF

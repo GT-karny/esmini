@@ -110,6 +110,8 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.ffb.target_track.override_shadow_v_max              = vd_config_.ffb_target_track_override_shadow_v_max;
     io_config_.ffb.target_track.override_shadow_velocity_tau       = vd_config_.ffb_target_track_override_shadow_velocity_tau;
     io_config_.ffb.target_track.override_shadow_dead_time          = vd_config_.ffb_target_track_override_shadow_dead_time;
+    io_config_.ffb.target_track.override_shadow_onset_grace        = vd_config_.ffb_target_track_override_shadow_onset_grace;
+    io_config_.ffb.target_track.override_shadow_motion_rate_eps    = vd_config_.ffb_target_track_override_shadow_motion_rate_eps;
     io_config_.ffb.safety.max_saturation_seconds                   = vd_config_.ffb_safety_max_saturation_seconds;
     io_config_.ffb.safety.max_runtime_seconds                      = vd_config_.ffb_safety_max_runtime_seconds;
     io_config_.ffb.safety.saturation_ratio                         = vd_config_.ffb_safety_saturation_ratio;

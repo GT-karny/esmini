@@ -263,11 +263,6 @@ ManualDriveConfig MakeConfigWithFfb(double sustain_s   = 0.10,
     // 受け入れマトリクスが通ることを、同じテスト資産で確認できるようにする。
     // 出荷既定は 0（合成プラント側の過渡が未実装で parity が壊れるため）なので、
     // 環境変数で切り替える。検出コストの数値はこの経路で取った。
-    if (std::getenv("GT_F7_EVAL_AB")) {
-        cfg.ffb.target_track.override_shadow_onset_grace  = 0.05;
-        cfg.ffb.target_track.override_shadow_dead_time    = 0.041;
-        cfg.ffb.target_track.override_shadow_velocity_tau = 0.018;
-    }
     return cfg;
 }
 

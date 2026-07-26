@@ -192,6 +192,8 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("target_track_override_shadow_v_max",             ffb.target_track.override_shadow_v_max);
         parse_double("target_track_override_shadow_velocity_tau",      ffb.target_track.override_shadow_velocity_tau);
         parse_double("target_track_override_shadow_dead_time",         ffb.target_track.override_shadow_dead_time);
+        parse_double("target_track_override_shadow_onset_grace",       ffb.target_track.override_shadow_onset_grace);
+        parse_double("target_track_override_shadow_motion_rate_eps",   ffb.target_track.override_shadow_motion_rate_eps);
         // feature:F7 unattended-run safety watchdog (0 = disabled).
         parse_double("safety_max_saturation_seconds", ffb.safety.max_saturation_seconds);
         parse_double("safety_max_runtime_seconds",    ffb.safety.max_runtime_seconds);
