@@ -21,6 +21,13 @@ atexit / signal / console-ctrl による緊急解放）。本スクリプトは�
 終了後は**プロセスが残っていないこと**を必ず確認する。プロセス消滅で OS が
 DirectInput デバイスを解放し CONSTANT effect は止まるが、残存確認までやって
 はじめて「ホイールに力がかかり続けない」と言える。
+
+**Windows では terminate() は穏当な終了ではない。** CPython の Popen.kill は
+Windows ブランチで terminate と同一関数（`kill = terminate`）で、どちらも
+TerminateProcess を呼ぶ。子プロセスは一切コードを実行せずに死ぬので、製品側の
+歯止め（Close / atexit / signal / console-ctrl / SEH）は**一つも走らない**。
+よって**スーパーバイザが中断させた場合は必ず**、別プロセスによる haptic 解放
+（S5）を走らせる。
 """
 
 from __future__ import annotations
@@ -154,15 +161,25 @@ def main() -> int:
 
             if abort_reason:
                 print(f"[supervisor] ABORT: {abort_reason}")
-                # まず穏当に。製品側の Close() が effect を破棄するのが最善。
+                # WINDOWS では terminate() は穏当ではない。CPython の
+                # Popen.kill は Windows ブランチで terminate と同一関数
+                # （subprocess.py: `kill = terminate`）であり、どちらも
+                # TerminateProcess を呼ぶ。対象プロセスは **一切コードを実行せずに**
+                # 死ぬので、Close() も atexit も signal も console-ctrl も SEH
+                # フィルタも走らない。
+                #
+                # したがって hard_killed はここで立てる。kill() 側だけで立てていた
+                # 以前の実装は、S1-S4 で中断して terminate が 10 秒以内に成功した
+                # 経路 — つまり最も普通に起きる経路 — で haptic 解放を丸ごと飛ばし、
+                # 安全条件が実際にトリップした場面でこそ後始末が抜けていた。
                 proc.terminate()
+                hard_killed = True
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     print("[supervisor] terminate に応答なし — kill する")
                     proc.kill()
                     proc.wait(timeout=10)
-                    hard_killed = True
                 break
     finally:
         if proc.poll() is None:
@@ -172,11 +189,15 @@ def main() -> int:
         logfh.close()
 
     # --- 強制終了経路の後始末（C6）---------------------------------------
-    # kill() は Windows では TerminateProcess であり、対象プロセスに一切コードを
-    # 実行させない。製品側の destructor / atexit / signal / console-ctrl / SEH
-    # フィルタは **どれも走らない**。OS がデバイスを解放するはずだが、それは
+    # Windows では terminate() も kill() も TerminateProcess であり、対象プロセスに
+    # 一切コードを実行させない（CPython subprocess.py の Windows ブランチは
+    # `kill = terminate`）。製品側の destructor / atexit / signal / console-ctrl /
+    # SEH フィルタは **どれも走らない**。OS がデバイスを解放するはずだが、それは
     # 確認できる保証ではない。人がいない以上「たぶん止まる」で済ませないので、
     # 別プロセスでデバイスを開き直して全エフェクトを停止・解放する。
+    #
+    # つまり「スーパーバイザが中断させた」＝必ずこの経路を通る。正常完走のときだけ
+    # 製品側の Close() が走るので、そのときは不要。
     if hard_killed:
         print("[supervisor] 強制終了経路を通った — 別プロセスで haptic を解放する")
         rel = release_haptics_out_of_process()
