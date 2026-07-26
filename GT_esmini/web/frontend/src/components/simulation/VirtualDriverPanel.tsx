@@ -24,6 +24,7 @@ const EDITABLE_KEYS = [
   'speed_kp', 'speed_ki', 'speed_kd',
   // feature:F7 AD steering safety envelope (clamps AD's commanded steering only).
   'ad_steering_envelope_enabled', 'a_lat_max_steer', 'yaw_rate_max', 'steer_rate_max', 'envelope_v_floor',
+  'ad_steering_envelope_steer_jerk_max',
   'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
@@ -64,6 +65,15 @@ const EDITABLE_KEYS = [
   'ffb_target_track_override_shadow_kinetic',
   'ffb_target_track_override_shadow_force_to_velocity',
   'ffb_target_track_override_shadow_v_max',
+  'ffb_target_track_override_shadow_onset_grace',
+  'ffb_target_track_override_shadow_dead_time',
+  'ffb_target_track_override_shadow_velocity_tau',
+  'ffb_target_track_override_shadow_motion_rate_eps',
+  // Deliberately NOT exposed: ffb_safety_max_saturation_seconds /
+  // ffb_safety_max_runtime_seconds / ffb_safety_saturation_ratio. These are an
+  // unattended-run watchdog (default 0=disabled); enabling them for an
+  // interactive session would force-terminate a run mid-drive. Backend keeps
+  // them out of _NUMBER_KEYS/KNOWN_KEYS too (virtual_driver_api.py).
 ] as const satisfies readonly (keyof VirtualDriverConfig)[];
 
 function pickEditable(src: VirtualDriverConfig): VirtualDriverConfig {
@@ -139,6 +149,12 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
         Persisted to <span className="font-mono">config/virtual_driver.json</span> — applies to
         every Virtual Driver run. A scenario's own <span className="font-mono">policies</span>{' '}
         property additively enables further policies on top of these.
+        <br />
+        <span className="text-text-tertiary">
+          Read once at the start of each run — there is no hot-reload. A run already in
+          progress keeps whatever was loaded when it started; edits here take effect on the
+          <em> next</em> run.
+        </span>
       </p>
 
       {/* Policies */}
@@ -507,6 +523,18 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Shadow v_max (axis-frac/s)" step={0.05}
             value={cfg.ffb_target_track_override_shadow_v_max ?? 1.0}
             onChange={setNum('ffb_target_track_override_shadow_v_max')} />
+          <NumberInput label="Wheel dead time (s)" step={0.001}
+            value={cfg.ffb_target_track_override_shadow_dead_time ?? 0.041}
+            onChange={setNum('ffb_target_track_override_shadow_dead_time')} />
+          <NumberInput label="Wheel velocity time constant (s)" step={0.001}
+            value={cfg.ffb_target_track_override_shadow_velocity_tau ?? 0.018}
+            onChange={setNum('ffb_target_track_override_shadow_velocity_tau')} />
+          <NumberInput label="Motion-onset grace (s)" step={0.01}
+            value={cfg.ffb_target_track_override_shadow_onset_grace ?? 0.05}
+            onChange={setNum('ffb_target_track_override_shadow_onset_grace')} />
+          <NumberInput label="Motion rate epsilon (axis-frac/s)" step={0.005}
+            value={cfg.ffb_target_track_override_shadow_motion_rate_eps ?? 0.02}
+            onChange={setNum('ffb_target_track_override_shadow_motion_rate_eps')} />
         </div>
         <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
           Shadow plant — measured properties of the physical wheel, not of the
@@ -518,7 +546,15 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           which saturates near 1.0/s. The shadow starts unconditionally at the
           top of the band, and at the band bottom only once the real axis is
           observed to move, which is what pins down where in the band this
-          particular wheel sits.
+          particular wheel sits. Dead time and the velocity time constant are
+          the servo's measured delay/lag (dead time first, then a first-order
+          approach to the force→velocity line above) — they shape when the
+          shadow's prediction starts moving, not just how fast. Motion-onset
+          grace briefly tolerates the wheel lagging the shadow right as motion
+          starts (before the servo has caught up) so that catch-up alone does
+          not read as a takeover; motion rate epsilon is the axis-rate floor
+          below which the wheel counts as still (the rate-domain twin of the
+          observed-motion epsilon above, which is position-domain).
         </p>
 
         <div className="grid grid-cols-2 gap-3 mt-3">
@@ -583,7 +619,19 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Speed floor (m/s)" step={0.1}
             value={cfg.envelope_v_floor ?? 1.0}
             onChange={setNum('envelope_v_floor')} />
+          <NumberInput label="Steer jerk cap (1/s², 0=disabled)" step={1}
+            value={cfg.ad_steering_envelope_steer_jerk_max ?? 0.0}
+            onChange={setNum('ad_steering_envelope_steer_jerk_max')} />
         </div>
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Steer jerk cap is an optional ride-feel feature, default OFF (0 =
+          disabled, restores the rate-only limiter above bit-identically) —
+          unlike the three limits above it is not a validated safety limit.
+          Enabling it (measured candidate ~25) smooths abrupt steering-rate
+          transitions (e.g. an AUTO_RESUME handoff) at the cost of a higher
+          residual while AD is steering with "AD Wheel Following (FFB)"
+          enabled, since the servo has to track a further-shaped command.
+        </p>
       </section>
 
       {/* Footer actions */}

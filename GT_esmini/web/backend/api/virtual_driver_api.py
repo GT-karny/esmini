@@ -151,8 +151,22 @@ _NUMBER_KEYS = frozenset(
         "ffb_target_track_override_shadow_kinetic",
         "ffb_target_track_override_shadow_force_to_velocity",
         "ffb_target_track_override_shadow_v_max",
+        # feature:F7 — wheel dead-time / first-order-lag + motion-onset tuning
+        # (G29-measured; present in virtual_driver.json but were missing here,
+        # so a PUT touching them 422'd and the GUI could not reach them).
+        "ffb_target_track_override_shadow_onset_grace",
+        "ffb_target_track_override_shadow_dead_time",
+        "ffb_target_track_override_shadow_velocity_tau",
+        "ffb_target_track_override_shadow_motion_rate_eps",
     }
 )
+# ffb_safety_max_saturation_seconds / ffb_safety_max_runtime_seconds /
+# ffb_safety_saturation_ratio also exist in virtual_driver.json (unattended-run
+# watchdog, default 0=disabled — see its "_comment_ffb_safety") but are
+# DELIBERATELY left out of _NUMBER_KEYS/KNOWN_KEYS: enabling them for an
+# interactive session would force-terminate the run mid-drive. GET still
+# returns them verbatim (on-disk truth); PUT rejects them as unknown (422).
+# Not exposed in the GUI either — see VirtualDriverPanel.tsx.
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
 _STRING_ENUM_KEYS: dict[str, frozenset[str]] = {
     "override_lateral": frozenset({"manual", "scenario"}),
@@ -229,17 +243,25 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
         "steer_rate_max are FINAL (fixed from a 15-scenario real-vehicle "
         "measurement pool; a_lat/yaw = pool max x1.3, steer_rate_max=1.5 on "
         "separate grounds — see AdSteeringEnvelope.hpp). "
-        "ad_steering_envelope_steer_jerk_max=25.0 is PROVISIONAL (measured "
-        "through an instrument with only 1.0 /s^2 jerk resolution — see "
-        "AdSteeringEnvelope.hpp kAdEnvelopeDefaultSteerJerkMax) pending "
-        "remeasurement at adequate resolution."
+        "ad_steering_envelope_steer_jerk_max=0.0 (disabled) is the shipping "
+        "default: a direct closed-loop measurement of what each candidate cap "
+        "does at dt=0.01 (not a distribution percentile — an earlier "
+        "valley-of-the-histogram derivation was withdrawn, its instrument "
+        "only resolved jerk to 1.0 /s^2) shows the effective caps are either "
+        "near-invisible (25: engages 1.1-4.5% of frames, shifts the path "
+        "0.001-0.004 m) or intrusive (10: engages ~50% of frames in turning "
+        "runs, shifts the path >1 m); this is an optional comfort feature, "
+        "not a validated safety limit, so it ships OFF pending a product "
+        "decision. 0 or negative disables it, restoring the rate-only "
+        "limiter bit-identically. See AdSteeringEnvelope.hpp "
+        "kAdEnvelopeDefaultSteerJerkMax for the full rationale."
     ),
     "ad_steering_envelope_enabled": True,
     "a_lat_max_steer": 4.3,
     "yaw_rate_max": 1.0,
     "steer_rate_max": 1.5,
     "envelope_v_floor": 1.0,
-    "ad_steering_envelope_steer_jerk_max": 25.0,
+    "ad_steering_envelope_steer_jerk_max": 0.0,
     "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
     "control_point_offset": 0.0,
     "control_point_min_speed": 1.0,
@@ -360,6 +382,13 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "ffb_target_track_override_shadow_kinetic": 0.16,
     "ffb_target_track_override_shadow_force_to_velocity": 3.35,
     "ffb_target_track_override_shadow_v_max": 1.00,
+    "ffb_target_track_override_shadow_onset_grace": 0.05,
+    "ffb_target_track_override_shadow_dead_time": 0.041,
+    "ffb_target_track_override_shadow_velocity_tau": 0.018,
+    "ffb_target_track_override_shadow_motion_rate_eps": 0.02,
+    # ffb_safety_max_saturation_seconds / ffb_safety_max_runtime_seconds /
+    # ffb_safety_saturation_ratio intentionally NOT listed here — see the
+    # _NUMBER_KEYS comment above. GET still round-trips them from disk.
 }
 
 

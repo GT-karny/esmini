@@ -555,6 +555,7 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_gate_effective_force      = diag.effective_force;
         telemetry_.ffb_gate_shadow_moving        = diag.shadow_moving;
         telemetry_.ffb_gate_sustain_accum        = diag.sustain_accum;
+        telemetry_.ffb_gate_sustain_time         = diag.sustain_time;
         telemetry_.ffb_gate_block_reason         = reason_str;
     }
     // feature:F7 — AD steering safety envelope observability (verification:

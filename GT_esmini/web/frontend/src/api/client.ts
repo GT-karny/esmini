@@ -415,6 +415,10 @@ export interface VirtualDriverConfig {
   ffb_target_track_override_shadow_kinetic?: number;
   ffb_target_track_override_shadow_force_to_velocity?: number;
   ffb_target_track_override_shadow_v_max?: number;
+  ffb_target_track_override_shadow_onset_grace?: number;
+  ffb_target_track_override_shadow_dead_time?: number;
+  ffb_target_track_override_shadow_velocity_tau?: number;
+  ffb_target_track_override_shadow_motion_rate_eps?: number;
 }
 
 export interface ControllerConfig {
@@ -616,6 +620,48 @@ export interface TrafficPolicySnapshot {
   constraints: PolicyConstraint[];
 }
 
+/* feature:F7 (F7b) FFB target-track observability + override-latch gate
+ * diagnostics. Mirrors OverrideManager::FfbLatchDiagnostics via
+ * VirtualDriverTelemetryJson.cpp's `ffb`/`ffb.gates` blocks. Optional on the
+ * frame: telemetry recorded before this block was serialized has no `ffb`
+ * field, and the panel consuming it (FfbMarginPanel) degrades gracefully.
+ *
+ * All `gates` fields are zeroed and `block_reason` is "inactive" whenever the
+ * FFB target-track servo isn't running this frame (feature disabled, no AD
+ * lateral, or lateral not manual-capable) — see OverrideManager.cpp
+ * (`ffb_diag_ = {}`). `residual_threshold` and `sustain_time` are zeroed in
+ * that same state, so a consumer must check `block_reason` before treating
+ * `residual` as a live value (0 there means "no detector running", not
+ * "wheel perfectly tracked"). */
+export type FfbBlockReason = 'none' | 'inactive' | 'bootstrap' | 'below_residual';
+
+export interface FfbGateDiagnostics {
+  over_force: boolean;
+  over_dev: boolean;
+  moving_target: boolean;
+  tracking_transient: boolean;
+  target_rate: number;
+  derror_rate: number;
+  actual_norm: number;
+  shadow_norm: number;
+  residual: number;              // |actual_norm - shadow_norm| — the detection signal
+  residual_threshold: number;    // configured threshold; 0 while block_reason=="inactive"
+  effective_force: number;
+  shadow_moving: boolean;
+  sustain_accum: number;         // seconds accumulated toward sustain_time
+  sustain_time: number;          // configured sustain_time; 0 while block_reason=="inactive"
+  block_reason: FfbBlockReason;
+}
+
+export interface FfbTelemetry {
+  target_active: boolean;
+  commanded_force: number;
+  position_error: number;
+  target_norm: number;
+  sample_effective_force: number;
+  gates: FfbGateDiagnostics;
+}
+
 export interface VdTelemetryFrame {
   sim_time: number;
   ego: {
@@ -640,6 +686,7 @@ export interface VdTelemetryFrame {
   preview: { dt: number; valid: boolean; points: VdPreviewPoint[] };
   midlong?: MidLongProfile;  // Phase 2+ (optional; see MidLongProfile)
   policy?: TrafficPolicySnapshot;  // Phase 3+ (optional; see TrafficPolicySnapshot)
+  ffb?: FfbTelemetry;  // feature:F7 (F7b), optional; see FfbTelemetry
 }
 
 export interface VerificationRun {

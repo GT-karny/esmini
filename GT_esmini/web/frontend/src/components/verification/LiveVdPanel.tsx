@@ -5,6 +5,7 @@ import { ErrorChart, TelemetryInfoRows } from './TelemetryPanels';
 import { VTargetProfileChart } from './VTargetProfileChart';
 import { PolicyTimelinePanel } from './PolicyTimelinePanel';
 import { ActivePolicyPanel } from './ActivePolicyPanel';
+import { FfbMarginPanel } from './FfbMarginPanel';
 import { VdManualOverridePanel } from './VdManualOverridePanel';
 import { useVdStream } from '../../hooks/useVdStream';
 import { useOsiStream, type OsiObject } from '../../hooks/useOsiStream';
@@ -113,6 +114,7 @@ export function LiveVdPanel({
               <VTargetProfileChart frames={history} idx={history.length - 1} midlong={frame.midlong} />
               <ActivePolicyPanel frames={history} />
               <PolicyTimelinePanel frames={history} idx={history.length - 1} />
+              <FfbMarginPanel frame={frame} runKey={effectiveJobId} />
             </>
           ) : (
             <div className="rounded border border-glass-edge p-3 text-xs text-text-tertiary">

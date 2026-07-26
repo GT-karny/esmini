@@ -236,6 +236,12 @@ struct VirtualDriverTelemetry
     double      ffb_gate_effective_force      = 0.0;   // signed force driving the shadow
     bool        ffb_gate_shadow_moving        = false; // shadow plant in kinetic regime
     double      ffb_gate_sustain_accum        = 0.0;
+    // feature:F7 — configured sustain_time (OverrideManager::FfbLatchDiagnostics
+    // ::sustain_time), for context. Lets a live consumer compute
+    // sustain_accum/sustain_time (0..1, latches at 1.0) without reading config.
+    // Zeroed alongside the rest of the diagnostic block while
+    // ffb_gate_block_reason=="inactive" (see OverrideManager.cpp: ffb_diag_={}).
+    double      ffb_gate_sustain_time          = 0.0;
     std::string ffb_gate_block_reason         = "none";
 
     // feature:F7 — AD steering safety envelope observability (AdSteeringEnvelope.hpp).

@@ -77,6 +77,7 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"effective_force\":" << t.ffb_gate_effective_force
        << ",\"shadow_moving\":" << b(t.ffb_gate_shadow_moving)
        << ",\"sustain_accum\":" << t.ffb_gate_sustain_accum
+       << ",\"sustain_time\":" << t.ffb_gate_sustain_time
        << ",\"block_reason\":\"" << t.ffb_gate_block_reason << "\"}}"
        // feature:F7 AD steering safety envelope observability. Additive block;
        // consumers that predate it simply ignore it. steer_in/steer_out let a
