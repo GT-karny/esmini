@@ -30,11 +30,15 @@ class ManualDriveButtonMapping(BaseModel):
     fog_light: int = -1
     hazard: int = -1
 
+    model_config = {"extra": "allow"}
+
 
 class ManualDriveSDL2Config(BaseModel):
     device_index: int = 0
     deadzone: float = 0.05
     button_mapping: ManualDriveButtonMapping = ManualDriveButtonMapping()
+
+    model_config = {"extra": "allow"}
 
 
 class ManualDriveKeyboardConfig(BaseModel):
@@ -57,10 +61,14 @@ class ManualDriveKeyboardConfig(BaseModel):
     pedal_press_rate: float = 4.0
     pedal_release_rate: float = 6.0
 
+    model_config = {"extra": "allow"}
+
 
 class ManualDriveDomainConfig(BaseModel):
     lateral: str = "manual"
     longitudinal: str = "manual"
+
+    model_config = {"extra": "allow"}
 
 
 class ManualDriveNetworkInput(BaseModel):
@@ -68,12 +76,16 @@ class ManualDriveNetworkInput(BaseModel):
     port: int = DEFAULT_VD_INPUT_PORT
     level: str = "pedal_steer"
 
+    model_config = {"extra": "allow"}
+
 
 class ManualDriveNetworkPhysics(BaseModel):
     transport_type: str = "udp"
     host: str = "127.0.0.1"
     cmd_port: int = 9200
     state_port: int = 9201
+
+    model_config = {"extra": "allow"}
 
 
 class ManualDriveFFBConfig(BaseModel):
@@ -90,6 +102,15 @@ class ManualDriveFFBConfig(BaseModel):
     max_force: float = 1.0
     disable_non_realtime: bool = True
 
+    # F7b (target-tracking servo) and F7 (jerk-cap safety watchdog) added many
+    # more ffb.* keys directly to config/manual_drive.json without extending
+    # this model. Without extra="allow", pydantic v2's default extra='ignore'
+    # silently dropped every key this model doesn't declare (e.g.
+    # target_track_*, safety_*) the instant *any* manual-drive config was
+    # saved through the API, including edits unrelated to FFB. See
+    # ManualDriveControllerConfig below for the same fix applied uniformly.
+    model_config = {"extra": "allow"}
+
 
 class ManualDriveControllerConfig(BaseModel):
     input_type: str = "sdl2_wheel"
@@ -101,6 +122,12 @@ class ManualDriveControllerConfig(BaseModel):
     input_network: ManualDriveNetworkInput = ManualDriveNetworkInput()
     physics_network: ManualDriveNetworkPhysics = ManualDriveNetworkPhysics()
     ffb: ManualDriveFFBConfig = ManualDriveFFBConfig()
+
+    # Preserve any on-disk section this model doesn't model as a typed field
+    # (e.g. legacy "input" / "physics" / "override" / "indicator_cancel_angle"
+    # top-level keys that ManualDriveConfig.cpp's flat key-scan still reads).
+    # Extra fields round-trip through model_dump() instead of being dropped.
+    model_config = {"extra": "allow"}
 
 
 class ControllerConfig(BaseModel):

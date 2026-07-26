@@ -58,6 +58,24 @@ def _config_path():
     return CONFIG_DIR / MANUAL_DRIVE_CONFIG_FILE
 
 
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``overlay`` onto ``base``.
+
+    Keys present in ``overlay`` win (recursing when both sides hold a dict at
+    that key); keys present only in ``base`` are preserved untouched. Used so
+    a PUT that only touches e.g. button mapping doesn't erase unrelated
+    sections (or unmodeled keys within them) that happen not to be re-sent.
+    """
+    merged = dict(base)
+    for key, value in overlay.items():
+        existing = merged.get(key)
+        if isinstance(value, dict) and isinstance(existing, dict):
+            merged[key] = _deep_merge(existing, value)
+        else:
+            merged[key] = value
+    return merged
+
+
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
     """Read current manual_drive.json configuration."""
@@ -69,16 +87,32 @@ async def get_config() -> dict[str, Any]:
 
 @router.put("/config")
 async def update_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Write manual_drive.json configuration."""
-    # Validate via pydantic
-    validated = ManualDriveControllerConfig(**config)
+    """Write manual_drive.json configuration.
+
+    Shape/type-validated via pydantic, but persisted by deep-merging the raw
+    request onto the existing on-disk file (or schema defaults if none exists
+    yet) rather than replacing the file with ``validated.model_dump()``
+    wholesale. Two reasons this matters, both belt-and-suspenders with the
+    models' own ``extra="allow"`` (models/simulation.py):
+      - a request that itself omits some on-disk keys (e.g. applying a
+        built-in preset, or an older frontend build) must not delete them;
+      - the FFB/target-track keys are numerous and evolve independently of
+        this endpoint, so "unknown to the model" must never mean "discarded".
+    """
+    ManualDriveControllerConfig(**config)  # shape/type validation; raises on bad input
     path = _config_path()
+    base = (
+        json.loads(path.read_text(encoding="utf-8"))
+        if path.exists()
+        else ManualDriveControllerConfig().model_dump()
+    )
+    merged = _deep_merge(base, config)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(validated.model_dump(), indent=4, ensure_ascii=False),
+        json.dumps(merged, indent=4, ensure_ascii=False),
         encoding="utf-8",
     )
-    return validated.model_dump()
+    return merged
 
 
 @router.get("/presets")
