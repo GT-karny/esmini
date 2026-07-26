@@ -52,9 +52,10 @@ DLL_PATH = ROOT / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 
 
 def _make_config(tmpdir: Path, jerk_cap: float) -> Path:
+    """base(shipped) + jerk_capのみ明示的に上書き。shipped defaultが0(無効)に変わったため
+    既定に頼らず必ず明示する。steer_snap_maxはコードから撤去済み（設定に無い/効かない）。"""
     base = json.loads(BASE_VD_CONFIG.read_text(encoding="utf-8"))
     base["ad_steering_envelope_steer_jerk_max"] = jerk_cap
-    base["ad_steering_envelope_steer_snap_max"] = 0.0  # 撤去作業中、掃引の混在を避けるため常に無効
     cfg_path = tmpdir / "virtual_driver.json"
     cfg_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
     return cfg_path

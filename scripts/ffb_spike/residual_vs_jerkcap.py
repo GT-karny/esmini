@@ -60,15 +60,31 @@ SCENARIOS = {
                   / "traffic_lights_junction.xosc",
 }
 
+# kappa安全チェック用。AdSteeringEnvelope の shipped defaults + シナリオごとの wheel_base
+# (bbox.length*0.6, ControllerVirtualDriver.cpp:312)。basic はカタログ car_white(length=5.04)、
+# 他2つはインライン car_white 定義(length=5.0) でわずかに違う。
+A_LAT_MAX_STEER = 4.3
+YAW_RATE_MAX = 1.0
+V_FLOOR = 1.0
+MAX_STEER_ANGLE = 0.61
+WHEEL_BASE = {"basic": 5.04 * 0.6, "right_turn": 5.0 * 0.6, "tljunction": 5.0 * 0.6}
+
+
+def kappa_ratio(steer_out: float, speed: float, wheel_base: float) -> float:
+    v_eff = max(speed, V_FLOOR)
+    kappa_max = min(A_LAT_MAX_STEER / (v_eff ** 2), YAW_RATE_MAX / v_eff)
+    kappa_out = math.tan(steer_out * MAX_STEER_ANGLE) / wheel_base
+    return abs(kappa_out) / kappa_max if kappa_max > 0 else float("nan")
+
 
 def _write_cfg_jerk(tmpdir: str, jerk_cap: float, tag: str) -> str:
-    """base(shipped) config + jerk_cap のみ上書き。snap は常に0。他は一切変えない。"""
+    """base(shipped) config + jerk_cap のみ明示的に上書き（shipped defaultが0に変わったため
+    既定に頼らない）。他は一切変えない。steer_snap_maxはコードから撤去済み。"""
     with open(BASE_CFG, encoding="utf-8") as f:
         base = json.load(f)
     base["input_type"] = "headless_ffb"
     base["ffb_target_track_enabled"] = True
     base["ad_steering_envelope_steer_jerk_max"] = jerk_cap
-    base["ad_steering_envelope_steer_snap_max"] = 0.0
     out = os.path.join(tmpdir, f"vd_config_jerk{jerk_cap:g}_{tag}.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(base, f, indent=2, ensure_ascii=False)
@@ -101,7 +117,8 @@ def _jerk_out_series(frames: list[dict]) -> list[float]:
     return jerk
 
 
-def run_one(scenario_path: Path, jerk_cap: float, plant_extra: dict, tmpdir: str, tag: str) -> dict:
+def run_one(scenario_path: Path, jerk_cap: float, plant_extra: dict, tmpdir: str, tag: str,
+            sname: str = "") -> dict:
     cfg = _write_cfg_jerk(tmpdir, jerk_cap, tag)
     variant = _write_variant(str(scenario_path), tmpdir, cfg, tag)
     _set_plant_env(plant_extra)
@@ -115,11 +132,14 @@ def run_one(scenario_path: Path, jerk_cap: float, plant_extra: dict, tmpdir: str
     jerk_out = _jerk_out_series(frames)
     max_abs_jerk_out = max((abs(j) for j in jerk_out), default=0.0)
     latched = any(f.get("override", {}).get("lateral") for f in frames)
+    wb = WHEEL_BASE.get(sname, 3.0)
+    max_kappa_ratio = max((kappa_ratio(float(f.get("envelope", {}).get("steer_out", 0.0)),
+                                       float(f["ego"]["speed"]), wb) for f in frames), default=float("nan"))
 
     return dict(n=len(frames), dt_actual=frames[1]["sim_time"] - frames[0]["sim_time"] if len(frames) > 1 else None,
                 residual_peak=max(residuals), residual_threshold=float(frames[0]["ffb"]["gates"].get("residual_threshold", 0.08)),
                 sustain_max=max(sustains), jerk_active_n=jerk_active_n, jerk_active_frac=jerk_active_n / len(frames),
-                max_abs_jerk_out=max_abs_jerk_out, latched=latched)
+                max_abs_jerk_out=max_abs_jerk_out, latched=latched, max_kappa_ratio=max_kappa_ratio)
 
 
 def main() -> int:
@@ -146,7 +166,7 @@ def main() -> int:
                 per_variant = []
                 for vi, (mode, extra) in enumerate(PLANT_VARIANTS):
                     tag = f"{sname}_cap{cap:g}_v{vi}"
-                    r = run_one(spath, cap, extra, tmpdir, tag)
+                    r = run_one(spath, cap, extra, tmpdir, tag, sname=sname)
                     r["variant"] = extra
                     per_variant.append(r)
                 results[sname][cap] = per_variant
@@ -154,49 +174,66 @@ def main() -> int:
         # --- 決定性の抜き打ち確認: 同一設定を2回走らせて残差ピークが一致するか ---
         tag_a = "determinism_A"
         tag_b = "determinism_B"
-        rA = run_one(SCENARIOS["tljunction"], 25.0, PLANT_VARIANTS[1][1], tmpdir, tag_a)
-        rB = run_one(SCENARIOS["tljunction"], 25.0, PLANT_VARIANTS[1][1], tmpdir, tag_b)
+        rA = run_one(SCENARIOS["tljunction"], 25.0, PLANT_VARIANTS[1][1], tmpdir, tag_a, sname="tljunction")
+        rB = run_one(SCENARIOS["tljunction"], 25.0, PLANT_VARIANTS[1][1], tmpdir, tag_b, sname="tljunction")
         determinism_match = (rA["residual_peak"] == rB["residual_peak"] and rA["n"] == rB["n"])
 
-        # --- 自己検証 (これが通るまで残差の数値は報告しない方針) ---
-        print("[自己検証: これに全て通らない限り残差の数値は使わない]")
+        # --- 自己検証: cap=0発火率0%は致命的ゲート。jerk上限クリップ超過は診断情報として
+        # 報告する（曲率安全再クランプがjerk窓の外でsteer_outを動かせるため、cap超過自体が
+        # 実システムの挙動でありうる — f7_jerk_cap_binding_check.py で確認済み）。
+        print("[自己検証]")
+        cap0_ok = True
         for sname in SCENARIOS:
             for vi, r in enumerate(results[sname][0.0]):
                 if r["jerk_active_n"] != 0:
-                    self_check_ok = False
-                    print(f"  NG: {sname} cap=0 variant{vi}: steer_jerk_active "
+                    cap0_ok = False
+                    print(f"  NG(fatal): {sname} cap=0 variant{vi}: steer_jerk_active "
                           f"{r['jerk_active_n']}/{r['n']} (0のはず)")
-            for cap in (25.0, 50.0):
-                # 許容誤差: steer_out は9桁固定小数でシリアライズされ、そこから外部で
-                # 有限差分再計算した jerk には量子化起因の丸め誤差が乗る。実測では
-                # cap超過が高々2e-5程度だったので、cap比0.01%+1e-3を許容とする
-                # （実値の張り付き=クリップ機能の確認にはこれで十分な精度）。
-                tol = max(1e-3, cap * 1e-4)
-                for vi, r in enumerate(results[sname][cap]):
-                    if r["max_abs_jerk_out"] > cap + tol:
-                        self_check_ok = False
-                        print(f"  NG: {sname} cap={cap} variant{vi}: max|jerk(steer_out)|="
-                              f"{r['max_abs_jerk_out']:.6f} > cap+tol({cap+tol:.6f})")
+        if not cap0_ok:
+            print("  cap=0で発火が0でない=設定不適用の疑い。致命的、ここで打ち切る。")
+            return 1
         cap0_total = sum(r["n"] for sname in SCENARIOS for r in results[sname][0.0])
         cap0_active = sum(r["jerk_active_n"] for sname in SCENARIOS for r in results[sname][0.0])
-        print(f"  cap=0: steer_jerk_active {cap0_active}/{cap0_total} フレーム (0.00%のはず)")
+        print(f"  cap=0: steer_jerk_active {cap0_active}/{cap0_total} フレーム (0.00%) — OK")
+
+        jerk_ng = []
         for cap in (25.0, 50.0):
-            maxes = [r["max_abs_jerk_out"] for sname in SCENARIOS for r in results[sname][cap]]
-            print(f"  cap={cap:g}: 全run中の max|jerk(steer_out)| の最大 = {max(maxes):.6f} "
-                  f"(<= {cap:g} のはず)")
+            tol = max(1e-3, cap * 1e-4)
+            for sname in SCENARIOS:
+                for vi, r in enumerate(results[sname][cap]):
+                    if r["max_abs_jerk_out"] > cap + tol:
+                        jerk_ng.append((sname, cap, vi, r["max_abs_jerk_out"]))
+        if jerk_ng:
+            print(f"  NG(非致命・報告対象): jerk(steer_out)がcapを超過: {jerk_ng}")
+        else:
+            print("  cap=25/50: 全variantでmax|jerk(steer_out)| <= cap — OK")
+        self_check_ok = cap0_ok  # cap0のみを致命ゲートとする
+
         noise_abs = abs(rA["residual_peak"] - rB["residual_peak"])
         noise_rel = noise_abs / rA["residual_peak"] * 100.0 if rA["residual_peak"] else float("nan")
         print(f"  [情報・非ゲート] 決定性抜き打ち確認(tljunction cap=25 variant1を2回実行): "
               f"peak_A={rA['residual_peak']:.9f} peak_B={rB['residual_peak']:.9f} "
               f"完全一致={'YES' if determinism_match else 'NO'}  "
               f"差={noise_abs:.9f}({noise_rel:.4f}%) — これを測定ノイズ床の目安として使う")
-        print(f"  自己検証(cap=0発火率とjerk上限クリップの2点のみ判定): "
-              f"{'PASS' if self_check_ok else 'FAIL — 以下の残差数値は無効扱い'}")
         print()
 
-        if not self_check_ok:
-            print("自己検証NGのため残差の数値報告を中止する。")
-            return 1
+        print("[kappa安全チェック] |kappa(steer_out)|/kappa_max の最大値（全27セル=3走行x3cap"
+              "x3プラント変種の中の最悪値。修正で恒久的に<=1のはず）")
+        print(f"  {'run':<12}{'cap=0':>12}{'cap=25':>12}{'cap=50':>12}")
+        kappa_violations = []
+        for sname in SCENARIOS:
+            row = []
+            for cap in JERK_CAPS:
+                mx = max(r["max_kappa_ratio"] for r in results[sname][cap])
+                row.append(mx)
+                if mx > 1.0 + 1e-4:
+                    kappa_violations.append((sname, cap, mx))
+            print(f"  {sname:<12}" + "".join(f"{v:>12.6f}" for v in row))
+        if kappa_violations:
+            print(f"  => 超過あり: {kappa_violations} — 修正が不完全である可能性。期待に合わせず報告する。")
+        else:
+            print("  => 全27セルで1.0+1e-4以内。")
+        print()
 
         print("[残差ピーク / sustain_accum 最大 — worst case (3プラント変種中の最悪値)]")
         print(f"  {'run':<12}{'cap':>6}{'residual_peak(worst)':>22}{'margin(thr/peak)':>18}"

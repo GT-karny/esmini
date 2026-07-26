@@ -498,7 +498,15 @@ def analyze_resume_case(frames: list, window_s: float = 1.0) -> dict | None:
     rate_env_valid = _splice_free_flags(override_lat, 1)
     jerk_env_valid_splice = _splice_free_flags(override_lat, 2)
     jerk_env_valid_sat = _not_saturating_flags(applied, 2)
-    jerk_env_valid = [a and b for a, b in zip(jerk_env_valid_splice, jerk_env_valid_sat)]
+    # team-lead 8th round: the just-landed kappa-clamp-last safety fix
+    # introduces a FOURTH mechanism, structurally identical to the +-1.0
+    # saturation case -- see _not_kappa_saturating_flags's doc. Confirmed
+    # live: kappa/kappa_max ratio climbs smoothly then PINS at ~1.0002 the
+    # instant the new final clamp engages, producing a jerk spike (234.6 at
+    # jerk_max=10) that is the boundary-snap, not a jerk-limiter defect.
+    jerk_env_valid_kappa = _not_kappa_saturating_flags(applied, v, 2)
+    jerk_env_valid = [a and b and c for a, b, c in
+                       zip(jerk_env_valid_splice, jerk_env_valid_sat, jerk_env_valid_kappa)]
 
     # team-lead correction (2026-07-26, 8th round): the gating above is
     # correct (a splice-straddling derivative is not a physical rate/jerk in
@@ -526,6 +534,23 @@ def analyze_resume_case(frames: list, window_s: float = 1.0) -> dict | None:
         i_jerk = idx0_in_ext - 2
         if 0 <= i_jerk < len(jerk_env):
             onset_effective_jerk = jerk_env[i_jerk]
+
+    # kappa-boundary-clamp jerk (team-lead 8th round): the UNGATED peak among
+    # frames excluded SPECIFICALLY by the new kappa-saturation gate (not also
+    # a splice case), i.e. what the jerk reads at the moment the safety fix's
+    # final clamp snaps the output onto the kappa boundary. Reported
+    # separately for the same reason as onset_effective_jerk -- an exclusion
+    # must not make the excluded quantity disappear from the report.
+    kappa_clamp_max_jerk = 0.0
+    kappa_clamp_n_frames = 0
+    for k, val in enumerate(jerk_env):
+        i = k + 2
+        if i >= len(mask) or not mask[i]:
+            continue
+        if k < len(jerk_env_valid_splice) and jerk_env_valid_splice[k] and \
+           k < len(jerk_env_valid_kappa) and not jerk_env_valid_kappa[k]:
+            kappa_clamp_n_frames += 1
+            kappa_clamp_max_jerk = max(kappa_clamp_max_jerk, abs(val))
 
     yaw_rate = []
     for i in range(1, len(h)):
@@ -601,6 +626,11 @@ def analyze_resume_case(frames: list, window_s: float = 1.0) -> dict | None:
         # handoff frame by design); report and interpret separately.
         "onset_rate_step": onset_rate_step,
         "onset_effective_jerk": onset_effective_jerk,
+        # UNGATED kappa-boundary-clamp transition -- see comment above. Distinct
+        # from onset (manual->auto handoff): this is the NEW safety fix's own
+        # final-clamp boundary snap, which can occur later in the trajectory.
+        "kappa_clamp_max_jerk": kappa_clamp_max_jerk,
+        "kappa_clamp_n_frames": kappa_clamp_n_frames,
         "profiles": profiles,
     }
 
@@ -1120,6 +1150,7 @@ def run_lane_offset_resume_report(speeds: list, jerk_max_values: list, target_of
                 "a_lat_peak": m1s["a_lat_peak"], "yaw_rate_peak": m1s["yaw_rate_peak"],
                 "steer_rate_peak": m1s["steer_rate_peak_env_out"], "steer_jerk_peak": m1s["steer_jerk_peak_env_out"],
                 "onset_rate_step": m1s["onset_rate_step"], "onset_effective_jerk": m1s["onset_effective_jerk"],
+                "kappa_clamp_max_jerk": m1s["kappa_clamp_max_jerk"], "kappa_clamp_n_frames": m1s["kappa_clamp_n_frames"],
                 "offset_overshoot_m": mconv.get("offset_overshoot_m"),
                 "offset_converge_s": mconv.get("offset_converge_s"),
                 "steer_jerk_active_frames_window": m1s["steer_jerk_active_frames"],
@@ -1655,6 +1686,8 @@ def _main_lane_offset(args) -> int:
               f"steer_rate={row['steer_rate_peak']:.4f}/s steer_jerk(gated)={row['steer_jerk_peak']:.3f}/s2")
             w(f"    ONSET (ungated, handoff frame): onset_rate_step={row['onset_rate_step']:.4f}/s  "
               f"onset_effective_jerk={row['onset_effective_jerk']:.3f}/s2")
+            w(f"    KAPPA-CLAMP boundary snap (ungated, new safety-fix side effect, n_frames="
+              f"{row['kappa_clamp_n_frames']}): max_jerk={row['kappa_clamp_max_jerk']:.3f}/s2")
             w(f"    steer_jerk_active: window={row['steer_jerk_active_frames_window']}  "
               f"full_run={row['steer_jerk_active_frames_full_run']}  by_phase={row['steer_jerk_active_by_phase']}")
             w(f"    time-to-resume={row['offset_converge_s']}  overshoot={row['offset_overshoot_m']:.4f}m")
