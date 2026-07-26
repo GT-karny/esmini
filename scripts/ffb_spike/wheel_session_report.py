@@ -18,22 +18,27 @@ RESUME を押す動機は「MANUAL に入ったから AUTO に戻したい」で
 知りたい失敗の証拠が痕跡なく消える**。手順書に「各回のあと必ず押す」と書いても、
 唯一の要求が「覚えることは何もない」と併記された中では埋もれる。
 
-そこで**ドライバーの操作そのもの**で区切る: `|actual − target|` が閾値を超えて
-継続している区間を 1 介入エピソードとみなす。ヒステリシス付きで、短すぎる区間は捨てる。
-ユーザーへの要求はゼロになり、RESUME を押し忘れても、押す順番を変えても、
-順不同でやっても結果は変わらない。
+そこで**ドライバーの操作そのもの**で区切る: `|actual − target|` が閾値を超えた状態が
+**継続した**区間を 1 介入エピソードとみなす（開始も終了も継続時間で判定する。
+理由は find_episodes() の docstring）。ユーザーへの要求はゼロになり、RESUME を
+押し忘れても、押す順番を変えても、順不同でやっても結果は変わらない。
 
 RESUME 押下は**補助的な分割点**としてのみ使う（押されていれば、間に手が戻らない
 連続 2 回の介入を分離できる）。押下が無くても判定は成立する。
 
-## 閾値の根拠（実測）
+## しきい値は製品の検出下限より「下」に置く
 
-力結合プラントの手放し走行（right_turn、820 フレーム）で `|actual − target|` は
-**最大 0.0556 / p99 0.0355 / 中央値 0.0123**。これは AD の追従誤差そのもので、
-ドライバーは関与していない。一方、介入時の乖離は設計上どの象限でも大きい
-（例: AD 0.20 に対し 0.05 で押さえる → 0.15）。
-よって enter を **0.08**（実測最大の 1.4 倍）、exit を 0.04 に置けば、
-追従誤差を拾わずに介入だけを切り出せる。
+製品の検出下限は **0.01729 axis-frac（約 7.8 度）**。ツールの下限をそれより上に置くと
+**測定器が測定対象より鈍い**状態になり、7.8〜36 度の本物の介入を製品は検出するのに
+ツールが記録しない。ユーザーが軽く押さえた回は、製品が正しくラッチしても
+レポート上は「その象限は未実施」と出る。よって enter = **0.015**。
+
+大きさで足切りできない分は**継続時間**で分離する。手放しの追従誤差は過渡的で
+続かない（0.015 超えの連続区間は実測 最長 0.25 s）のに対し、ドライバーが握るのは
+秒単位だからである。実測値と導出は find_episodes() を見ること。
+
+製品の検出下限を下回るピーク乖離のエピソードは、**非ラッチが仕様どおり**なので
+失敗に数えず、区別して報告する。
 
 ## 出すもの
 
@@ -83,59 +88,91 @@ def deviation(f: dict) -> float | None:
     return abs(float(g.get("actual_norm", 0.0)) - float(ffb.get("target_norm", 0.0)))
 
 
-def find_episodes(frames: list[dict], enter: float, exit_: float,
-                  min_dur: float) -> list[tuple[int, int]]:
-    """|actual-target| がヒステリシス閾値を超えて継続する区間を切り出す。
+def find_episodes(frames: list[dict], enter: float, open_dur: float,
+                  close_dur: float) -> list[tuple[int, int]]:
+    """介入エピソードを切り出す。**大きさではなく継続時間で切る。**
 
-    RESUME 押下は補助的な分割点としてのみ使う（押されていれば連続 2 回の介入を
-    分離できる）。押されていなくてもエピソードは成立する。
+    開始: `|actual-target| > enter` が `open_dur` 秒 連続したとき（開始点は遡る）
+    終了: `|actual-target| <= enter` が `close_dur` 秒 連続したとき
+          （ただし `override.lateral` が立っている間は開いたまま）
+
+    ## なぜ大きさで切ってはいけないか（PM 判断・監査 D2/D3）
+
+    製品の検出下限は 0.01729 axis-frac（約 7.8 度）。ツールの下限をそれより上
+    （旧実装は 0.08 = 約 36 度）に置くと、**7.8〜36 度の本物の介入を製品は検出するのに
+    ツールが記録しない**。ユーザーが軽く押さえた回は、製品が正しくラッチしても
+    レポート上は「その象限は未実施」と出て、誤った結論を生む。測定器が測定対象より鈍い。
+
+    ## なぜ継続時間なら切れるか（実測）
+
+    手放し走行（力結合プラント・right_turn・820 フレーム）で `|actual-target|` が
+    0.015 を超える連続区間は **最長 0.25 s**（0.020 なら 0.15 s、0.025 以上は 0.05 s）。
+    AD の追従誤差は「サーボが追いつく途中」なので本質的に過渡的で続かない。対して
+    ドライバーが握るのは秒単位。よって enter=0.015 / open_dur=0.50 s（実測最長の 2 倍）で、
+    手放しからはエピソードが 1 本も出ない一方、製品が検出できる最小の介入より下から拾える。
+
+    ## 終了もしきい値ではなく継続時間で見る理由（実装中に踏んだ罠）
+
+    最初は「`exit` を下回ったら終了」というヒステリシスにしていたが、これは実機で
+    **一度開いたエピソードが二度と閉じない**。手放しの定常乖離は中央値 0.0123 で、
+    enter(0.015) より下だが exit(0.010) より **上** だからである。閾値を下げても
+    中央値より下には置けない（置けば開始条件と逆転する）。
+    「enter 以下が close_dur 秒続いたら閉じる」なら、手放しでは 820 中 762 フレームが
+    enter 以下なので確実に閉じ、介入中は閉じない。開始と同じ原理で対称になる。
     """
     eps = []
-    start = None
-    for i, f in enumerate(frames):
+    start = None          # 確定したエピソードの開始 index
+    above_since = None    # enter 超えが続いている区間の開始 (index, time)
+    below_since = None    # enter 以下が続いている時刻（エピソード中のみ意味を持つ）
+    for i_, f in enumerate(frames):
         d = deviation(f)
+        t_now = float(f.get("sim_time", 0.0))
         latched = bool(f.get("override", {}).get("lateral"))
         resumed = bool(f.get("override", {}).get("resume_pressed"))
+        above = (d is not None and d > enter)
+
         if start is None:
-            if d is not None and d > enter:
-                start = i
+            if above:
+                if above_since is None:
+                    above_since = (i_, t_now)
+                elif (t_now - above_since[1]) >= open_dur:
+                    start, above_since, below_since = above_since[0], None, None
+            else:
+                above_since = None
+            # 製品がラッチしたなら継続時間を待たずに開く。製品が検出したものを
+            # ツールが取りこぼさないための保険。
+            if start is None and latched:
+                start = above_since[0] if above_since else i_
+                above_since, below_since = None, None
         else:
-            # 区間の継続条件。`latched` を OR に入れているのは必須で、外すと
-            # **成功した介入が全部「非ラッチ」に見える**:
-            #   ControllerVirtualDriver::Step は同一フレーム内で
-            #   SetSteerTarget(active = !lat_manual) を呼ぶ。ラッチした瞬間に
-            #   lat_manual が true になるので target_active は **その同じフレームで**
-            #   false になり、gates がゼロ化されて deviation() が None を返す。
-            #   継続条件が乖離だけだと、エピソードは override.lateral が立つ
-            #   ちょうど 1 フレーム手前で閉じ、ラッチを含まない窓になる。
-            #   MANUAL のあいだはドライバーが操作しているのだから、区間は開いたまま
-            #   でよい。
-            still_open = latched or (d is not None and d >= exit_)
-            if (not still_open) or resumed:
-                eps.append((start, i + 1 if latched else i))
-                start = None
-                # RESUME と同時に次の介入が始まっている場合に備える
-                if resumed and d is not None and d > enter:
-                    start = i
+            if latched or above:
+                below_since = None          # MANUAL 中／乖離継続中は閉じない
+            elif below_since is None:
+                below_since = t_now
+            closed = (below_since is not None and (t_now - below_since) >= close_dur)
+            if closed or resumed:
+                # 終端は「最後に乖離があった／ラッチしていた」ところまで。
+                end = i_
+                while end > start and not (
+                        (deviation(frames[end - 1]) or 0.0) > enter
+                        or frames[end - 1].get("override", {}).get("lateral")):
+                    end -= 1
+                eps.append((start, max(end, start + 1)))
+                start, below_since = None, None
+                above_since = (i_, t_now) if above else None
     if start is not None:
         eps.append((start, len(frames)))
-
-    out = []
-    for i, j in eps:
-        t0 = float(frames[i].get("sim_time", 0.0))
-        t1 = float(frames[j - 1].get("sim_time", 0.0))
-        if (t1 - t0) >= min_dur:
-            out.append((i, j))
-    return out
+    return eps
 
 
-def classify(frames: list[dict], zero_eps: float, min_peak: float) -> tuple[str, float]:
-    """Which quadrant was this episode? Judged at the frame of PEAK deviation.
+def classify(frames: list[dict], zero_eps: float) -> tuple[str, float]:
+    """このエピソードはどの象限の介入だったか。ピーク乖離のフレームで判定する。
 
-    A minimum peak is required. Without it, a stretch with essentially no
-    deviation (e.g. two RESUME presses back to back leaving an empty window)
-    gets bucketed into (a) or (b) by sign alone and shows up as a bogus failed
-    attempt.
+    **ピーク乖離の大きさで足切りはしない**（PM 判断）。大きさで切ると、製品が検出
+    できる小さな介入をツールが捨ててしまう。旧実装が持っていた `--min-peak 0.08` が
+    解決していた「空区間が符号だけで (a)/(b) に誤分類される」問題は、
+    find_episodes() 側の**最小継続時間**が構造的に解決している（乖離の無い区間は
+    そもそもエピソードとして開かない）。
     """
     best = None
     for f in frames:
@@ -148,8 +185,6 @@ def classify(frames: list[dict], zero_eps: float, min_peak: float) -> tuple[str,
     if best is None:
         return "-(servo never armed)", 0.0
     peak, actual, target = best
-    if peak < min_peak:
-        return f"-(peak deviation {peak:.4f} below floor)", peak
     if actual * target < 0.0 and abs(actual) >= zero_eps:
         return "(c) countersteer", peak
     if abs(actual) < zero_eps:
@@ -167,20 +202,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--jsonl", type=Path, required=True)
-    ap.add_argument("--enter", type=float, default=0.08,
-                    help="エピソード開始: |actual-target| がこれを超える（実測の手放し最大 0.0556 の 1.4 倍）")
-    ap.add_argument("--exit", dest="exit_", type=float, default=0.04,
-                    help="エピソード終了: これを下回る（ヒステリシス）")
-    ap.add_argument("--min-duration", type=float, default=0.15,
-                    help="これより短い区間は捨てる [s]")
-    ap.add_argument("--min-peak", type=float, default=0.08,
-                    help="象限を判定するのに必要なピーク乖離の下限")
+    ap.add_argument("--enter", type=float, default=0.015,
+                    help="エピソード開始しきい値。製品の検出下限 0.01729 より下に置く")
+    ap.add_argument("--min-duration", type=float, default=0.50,
+                    help="開始に必要な継続時間 [s]。実測の手放し最長 0.25s の 2 倍")
+    ap.add_argument("--close-duration", type=float, default=0.50,
+                    help="終了に必要な『enter 以下』の継続時間 [s]")
     ap.add_argument("--zero-eps", type=float, default=0.02,
                     help="|axis| がこれ未満なら『センター』とみなす（0.02 axis ≈ 9 deg）")
     args = ap.parse_args()
 
     frames = load(args.jsonl)
-    episodes = find_episodes(frames, args.enter, args.exit_, args.min_duration)
+    episodes = find_episodes(frames, args.enter, args.min_duration, args.close_duration)
     resumes = sum(1 for f in frames if f.get("override", {}).get("resume_pressed"))
 
     print("=" * 78)
@@ -189,8 +222,10 @@ def main() -> int:
     print(f"source   : {args.jsonl}")
     print(f"frames   : {len(frames)}   span {frames[0].get('sim_time', 0):.2f}s .. "
           f"{frames[-1].get('sim_time', 0):.2f}s")
-    print(f"区切り   : |actual-target| > {args.enter} で開始 / < {args.exit_} で終了 "
-          f"/ 最短 {args.min_duration}s")
+    print(f"区切り   : |actual-target| > {args.enter} が {args.min_duration}s 継続で開始 "
+          f"/ 以下が {args.close_duration}s 継続で終了")
+    print(f"           （製品の検出下限 {UNDETECTABLE_BAND:.5f} より下に置いてある。"
+          f"ツールが製品より鈍くならないようにするため）")
     print(f"介入エピソード : {len(episodes)} 件   （参考: RESUME 押下 {resumes} 回）")
     print("NOTE: 区切りはドライバーの操作そのもの。RESUME を押し忘れても、順番を変えても、")
     print("      順不同でも結果は変わらない。ユーザーへの要求はゼロ。")
@@ -207,7 +242,7 @@ def main() -> int:
     print(hdr)
     print("-" * len(hdr))
 
-    failed, quads = [], {}
+    failed, below_floor, quads = [], [], {}
     for n, (i, j) in enumerate(episodes, 1):
         seg = frames[i:j]
         t0 = float(seg[0].get("sim_time", 0.0))
@@ -218,14 +253,22 @@ def main() -> int:
             rpk = max(rpk, float(g.get("residual", 0.0)))
             if latch_t is None and f.get("override", {}).get("lateral"):
                 latch_t = float(f.get("sim_time", 0.0))
-        quad, peak = classify(seg, args.zero_eps, args.min_peak)
+        quad, peak = classify(seg, args.zero_eps)
         lat = f"{latch_t - t0:.2f}s" if latch_t is not None else "-"
         print(f"{n:>2} {t0:7.2f}..{t1:7.2f} {quad:<24} {peak:>9.4f} "
               f"{'YES' if latch_t is not None else 'NO':>8} {lat:>8} {rpk:>12.4f}")
         if not quad.startswith("-"):
             quads.setdefault(quad, []).append(n)
             if latch_t is None:
-                failed.append((n, quad, peak, rpk))
+                # 製品の検出下限 (0.01729 axis-frac ≈ 7.8 deg) を下回る
+                # 押さえは、サーボ力が breakaway に届かず無負荷ホイールも
+                # 動かないので **非ラッチが仕様どおり**。失敗に数えない。
+                # ツールの下限を製品より下げた結果ここが見えるように
+                # なったので、区別して報告する。
+                if peak < UNDETECTABLE_BAND:
+                    below_floor.append((n, quad, peak))
+                else:
+                    failed.append((n, quad, peak, rpk))
 
     print("\n象限カバレッジ:")
     for q in QUADRANTS:
@@ -236,6 +279,12 @@ def main() -> int:
                    if any(f.get("override", {}).get("lateral") for f in frames[i:j])]
     print(f"\n多サイクル: {len(latched_eps)} 回ラッチ（エピソード "
           f"{','.join(map(str, latched_eps)) or '-'}）")
+
+    if below_floor:
+        print("\n製品の検出下限を下回った介入（非ラッチは仕様どおり・失敗ではない）:")
+        for n_, q, peak in below_floor:
+            print(f"  エピソード {n_}  {q}  ピーク乖離 {peak:.4f} < "
+                  f"{UNDETECTABLE_BAND:.5f}（約 {peak*450:.1f} deg）")
 
     if failed:
         print("\n入らなかった介入:")

@@ -196,18 +196,26 @@ def main() -> int:
     # 確認できる保証ではない。人がいない以上「たぶん止まる」で済ませないので、
     # 別プロセスでデバイスを開き直して全エフェクトを停止・解放する。
     #
-    # つまり「スーパーバイザが中断させた」＝必ずこの経路を通る。正常完走のときだけ
-    # 製品側の Close() が走るので、そのときは不要。
-    if hard_killed:
-        print("[supervisor] 強制終了経路を通った — 別プロセスで haptic を解放する")
+    # 子が自力で異常終了した場合も同様に走らせる。ここを hard_killed だけに
+    # していたのが穴だった: スタックオーバーフローのように製品側 SEH フィルタが
+    # 枯渇スタック上で走れず到達できないケースでは、プロセスは自分で死ぬので
+    # `while proc.poll() is None` を抜けるだけになり、hard_killed は False のまま
+    # S5 が丸ごと飛ぶ。S4（テレメトリ無更新）は**プロセスが生きている間しか
+    # 評価されない**ので受け皿にならない。
+    #
+    # よって条件は「正常完走 (rc == 0) 以外はすべて」。正常完走のときだけ製品側の
+    # Close() が走ったと言えるので、そのときだけ不要。
+    rc = proc.returncode
+    print(f"[supervisor] process exited rc={rc} after {time.monotonic() - t0:.1f}s wall")
+
+    if hard_killed or rc != 0:
+        why = "強制終了経路" if hard_killed else f"子プロセスの異常終了 (rc={rc})"
+        print(f"[supervisor] {why} — 別プロセスで haptic を解放する")
         rel = release_haptics_out_of_process()
         if rel != 0:
             print("[supervisor] !! haptic の外部解放に失敗した。"
                   "ホイールに力が残っている可能性がある — 目視/電源で確認すること")
             return 3
-
-    rc = proc.returncode
-    print(f"[supervisor] process exited rc={rc} after {time.monotonic() - t0:.1f}s wall")
 
     # --- 後始末の確認: プロセスが残っていないこと -------------------------
     exe_name = Path(args.exe).name
