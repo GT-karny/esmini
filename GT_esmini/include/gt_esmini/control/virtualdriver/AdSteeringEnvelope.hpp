@@ -4,13 +4,20 @@
 //
 // The Pure Pursuit driver model (PIDPurePursuitDriver.cpp:30-58) is completely
 // STATELESS and has no limit on lateral deviation, rate, or amplitude beyond
-// the final `clamp(+-1)` on its own output. TrajectoryShortPlanner.cpp:139-140
-// anchors the preview to the routed lane CENTER instantaneously every frame
-// (no ramp), so a large raw cross-track error at the moment a manual->
+// the final `clamp(+-1)` on its own output. TrajectoryShortPlanner.cpp's
+// anchor step anchors the preview to the CURRENT (physically occupied) lane
+// center instantaneously every frame (no ramp) -- NOT "the routed lane" an
+// earlier version of this comment claimed (resume_merge_trajectory_design.md
+// section 2-2: pos.GetLaneId() tracks physical occupancy, it never consults
+// the route). So a large raw cross-track error at the moment a manual->
 // AUTO_RESUME transition fires turns directly into a maximal steering command.
 // Measured with FFB fully OFF: steer_peak 0.957 / yaw rate 1.95 rad/s /
 // estimated lateral accel ~29 m/s^2 — the defect is in the AD command itself,
-// not the haptic loop.
+// not the haptic loop. (feature:F7 resume-merge, shipped default OFF, now
+// smooths specifically this transition by ramping a ROUTE-lane-anchored
+// reference instead of snapping to it -- see ResumeMergeProfile.hpp and
+// TrajectoryShortPlanner.cpp's ctx.merge_active branch. This envelope stays
+// the final physical clamp regardless of whether that feature is enabled.)
 //
 // This module clamps an AD-commanded normalized steering angle to four
 // physical limits:

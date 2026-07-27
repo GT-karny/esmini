@@ -66,6 +66,11 @@ const DoubleField kDoubleFields[] = {
     {"steer_rate_max", &VirtualDriverConfig::steer_rate_max},
     {"envelope_v_floor", &VirtualDriverConfig::envelope_v_floor},
     {"ad_steering_envelope_steer_jerk_max", &VirtualDriverConfig::ad_steering_envelope_steer_jerk_max},
+    // AD resume-merge trajectory (feature:F7).
+    {"resume_merge_a_lat_comfort", &VirtualDriverConfig::resume_merge_a_lat_comfort},
+    {"resume_merge_duration_min_s", &VirtualDriverConfig::resume_merge_duration_min_s},
+    {"resume_merge_duration_max_s", &VirtualDriverConfig::resume_merge_duration_max_s},
+    {"resume_merge_min_offset_m", &VirtualDriverConfig::resume_merge_min_offset_m},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
@@ -159,6 +164,7 @@ const BoolField kBoolFields[] = {
     {"override_button", &VirtualDriverConfig::override_button},
     {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
     {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
+    {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7
 };
 
 const IntField kIntFields[] = {
@@ -291,6 +297,17 @@ AdSteeringEnvelopeConfig VirtualDriverConfig::AdEnvelopeConfig() const
     c.steer_rate_max  = steer_rate_max;
     c.v_floor         = envelope_v_floor;
     c.steer_jerk_max  = ad_steering_envelope_steer_jerk_max;
+    return c;
+}
+
+ResumeMergeConfig VirtualDriverConfig::ResumeMergeCfg() const
+{
+    ResumeMergeConfig c;
+    c.enabled        = resume_merge_enabled;
+    c.a_lat_comfort  = resume_merge_a_lat_comfort;
+    c.duration_min_s = resume_merge_duration_min_s;
+    c.duration_max_s = resume_merge_duration_max_s;
+    c.min_offset_m   = resume_merge_min_offset_m;
     return c;
 }
 

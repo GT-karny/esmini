@@ -6,6 +6,7 @@
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
@@ -71,6 +72,20 @@ struct VirtualDriverConfig
     double steer_rate_max   = kAdEnvelopeDefaultSteerRateMax;
     double envelope_v_floor = kAdEnvelopeDefaultVFloor;
     double ad_steering_envelope_steer_jerk_max = kAdEnvelopeDefaultSteerJerkMax;  // [1/s^2] normalized; <=0 disables
+
+    // --- AD resume-merge trajectory (feature:F7) ---
+    // On AUTO_RESUME, generates a smooth lane-change-like merge back to the
+    // ROUTE lane over a few seconds instead of steering back by the shortest
+    // path. Pure-logic profile lives in ResumeMergeProfile.hpp; defaults
+    // mirror its own kResumeMergeDefault* constants (single C++-side source
+    // of truth, same convention as the AD steering envelope above). The AD
+    // steering safety envelope remains the hard cap regardless of this
+    // maneuver's comfort target. Default OFF.
+    bool   resume_merge_enabled        = kResumeMergeDefaultEnabled;
+    double resume_merge_a_lat_comfort  = kResumeMergeDefaultALatComfort;   // [m/s^2]
+    double resume_merge_duration_min_s = kResumeMergeDefaultDurationMinS; // [s]
+    double resume_merge_duration_max_s = kResumeMergeDefaultDurationMaxS; // [s]
+    double resume_merge_min_offset_m   = kResumeMergeDefaultMinOffsetM;   // [m]
 
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
@@ -246,6 +261,7 @@ struct VirtualDriverConfig
     ManeuverAwareSpeedPlannerConfig MidLongConfig() const;
     PIDPurePursuitConfig           DriverConfig() const;
     AdSteeringEnvelopeConfig        AdEnvelopeConfig() const;
+    ResumeMergeConfig              ResumeMergeCfg() const;
     AutoIndicatorConfig            IndicatorConfig() const;
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;

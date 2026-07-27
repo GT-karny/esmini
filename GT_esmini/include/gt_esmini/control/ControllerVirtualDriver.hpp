@@ -9,6 +9,7 @@
 #include "gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp"
 #include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <vector>
@@ -91,6 +92,14 @@ private:
     // Used to pre-arm turn signals before intersections (no lane change involved).
     int    DetectJunctionTurn(double speed) const;
     void   ApplyLights(const PedalSteerCommand& cmd, const IndicatorSnapshot& ind);
+    // feature:F7 resume-merge -- resolve the ego's ROUTE lane at its current
+    // track/s (design doc resume_merge_trajectory_design.md section 2-0-1).
+    // Returns "" (success; out_track/out_lane valid) or a short fallback
+    // reason ("no_route" | "off_route" | "track_mismatch") mirrored into
+    // telemetry's resume_merge.fallback_reason. Uses an ISOLATED route clone
+    // internally (pos.CopyRoute, same pattern as JunctionTurn.hpp), so it
+    // never mutates object_->pos_'s shared Route*.
+    const char* ResolveResumeMergeRouteLane(unsigned int& out_track, int& out_lane) const;
     // Target speed the driver tracks. Read from a running SpeedAction (which the
     // engine no longer applies to object speed once a controller owns the LONG
     // domain) and latched so it persists after the action completes.
@@ -121,6 +130,20 @@ private:
     // MANUAL's raw input) — see Step() for the core design invariant.
     AdSteeringEnvelopeConfig ad_envelope_cfg_;
     AdSteeringEnvelopeState  ad_envelope_state_;
+
+    // feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // Config captured once at construction (not hot-reloaded), mirroring
+    // ad_envelope_cfg_ above -- Step() gates ALL resume-merge logic behind
+    // resume_merge_cfg_.enabled so the disabled path (shipped default) runs
+    // no new arithmetic at all. resume_merge_state_ persists the armed
+    // hand-over capture (d0/v0_lat/a0_lat/T) across frames. prev_heading_ is
+    // the rolling one-frame-back ego heading used to derive
+    // a0_lat = yaw_rate * speed at the instant of arming (design doc section
+    // 8-3(a)); only tracked while resume_merge_cfg_.enabled.
+    ResumeMergeConfig resume_merge_cfg_;
+    ResumeMergeState   resume_merge_state_{};
+    double             prev_heading_       = 0.0;
+    bool               prev_heading_valid_ = false;
 
     // Manual indicator (turn-signal) control via input-source buttons, reusing
     // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes
