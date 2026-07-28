@@ -108,11 +108,18 @@ KAPPA_EPS_ABS = 1e-9
 
 # Same idea, propagated to the steering-RATE column. That series is a finite
 # difference of steer_out, so the 1e-9 steering quantum is amplified by
-# MAX_STEER_ANGLE/dt (~1.2e-8 at dt=0.05). A rate limiter pinned exactly at its
-# cap therefore serializes as a hair over it, and a bare `>` reports the
-# limiter working as the limiter failing. 1e-6 sits three orders above that
-# amplified quantum and six below the cap itself.
-RATE_EPS_ABS = 1e-6
+# MAX_STEER_ANGLE/dt: 1.2e-8 at dt=0.05, 6.1e-8 at dt=0.01. A rate limiter
+# pinned exactly at its cap can serialize a hair either side of it, and a bare
+# `>` would report the limiter working as the limiter failing.
+#
+# MEASURED, not guessed: over the 12-scenario car_following capture the largest
+# applied steer_rate is 1.4999999862 against the 1.5 cap — i.e. 1.38e-8 BELOW
+# it, one quantum, exactly what a limiter sitting on its cap looks like through
+# this instrument. This constant was 1e-6 on first writing, which is 72x the
+# distance it was meant to guard and would have hidden any real excess up to
+# 1e-6. Tightened to 1e-7: a few quanta at the tightest dt in use, and an order
+# below the only margin ever observed.
+RATE_EPS_ABS = 1e-7
 
 
 def series_from_phase1(name: str) -> dict:

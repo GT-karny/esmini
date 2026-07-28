@@ -201,6 +201,16 @@ def _slim(frame: dict, phase: str) -> dict:
         # actually handed to physics + FFB after clamping. steer_in should equal
         # driver_steer bit-for-bit (both are the envelope's input).
         "envelope_active": env.get("active"),
+        # feature:F7 — the envelope's OWN curvature numbers, forwarded verbatim.
+        # Consumers that need "was the command at the curvature boundary" must
+        # use these rather than re-deriving kappa from a wheelbase and a speed
+        # sample: that derivation is systematically off (wheelbase is
+        # boundingbox.length*0.6, and the clamp runs before physics integration
+        # while ego.speed is recorded after), which is what produced the
+        # "~1.0002 residual" that resume_ride_feel.py used to absorb with a 2%
+        # tolerance. None on captures made before the fields existed.
+        "envelope_kappa_out": env.get("kappa_out"),
+        "envelope_kappa_limit": env.get("kappa_limit"),
         "envelope_lat_accel_active": env.get("lateral_accel_active"),
         "envelope_yaw_rate_active": env.get("yaw_rate_active"),
         "envelope_steer_rate_active": env.get("steer_rate_active"),

@@ -179,7 +179,8 @@ def _not_saturating_flags(vals: list, deriv_order: int, sat: float = 1.0, eps: f
 def _not_kappa_saturating_flags(applied: list, speeds: list, deriv_order: int,
                                  wheel_base: float = SIM_WHEEL_BASE, max_steer_angle: float = None,
                                  a_lat_max: float = A_LAT_MAX_STEER, yaw_rate_max: float = YAW_RATE_MAX,
-                                 v_floor: float = V_FLOOR, ratio_eps: float = 0.02) -> list:
+                                 v_floor: float = V_FLOOR, ratio_eps: float = 0.02,
+                                 kappa_out: list = None, kappa_limit: list = None) -> list:
     """team-lead 8th-round FOURTH mechanism, structurally identical to the
     +-1.0 saturation case above but at a DIFFERENT boundary: the safety fix
     just landed (kappa clamp applied LAST: `delta_final = clamp(delta_final,
@@ -192,21 +193,54 @@ def _not_kappa_saturating_flags(applied: list, speeds: list, deriv_order: int,
     (still-ramping -> pinned) reads jerk=234.6 despite jerk_max=10, purely
     from this NEW boundary-snap, not a jerk-limiter defect. Same treatment as
     +-1.0 saturation: exclude any derivative stencil where kappa/kappa_max is
-    at or past the boundary (ratio_eps tolerance for the ~1.0002 numerical
-    residual) at ANY of the deriv_order+1 samples."""
+    at or past the boundary at ANY of the deriv_order+1 samples.
+
+    WHERE THE "~1.0002" CAME FROM, AND WHY THE 2% TOLERANCE IS GONE
+    ---------------------------------------------------------------
+    A ratio that pins at 1.0002 is not a numerical residual of the product —
+    the envelope clamps its output to the boundary exactly, so the true ratio
+    pins at 1.000000. The 0.0002 was THIS FUNCTION's error: it rebuilt both
+    sides of the ratio from a hard-coded wheelbase and from `ego.speed`, but
+    the product derives wheel_base as boundingbox.length*0.6 and runs the clamp
+    BEFORE the frame's physics integration while telemetry records speed after.
+    The response at the time was `ratio_eps = 0.02` — a 2% tolerance to absorb
+    a 0.02% error, i.e. a 100x margin over an artefact that was never traced.
+    That is the same "widen the threshold instead of finding the cause" move
+    that telemetry_golden.py made on 2026-07-04 and that hid a real engine
+    nondeterminism for three weeks.
+
+    Since 2026-07-28 the envelope publishes `kappa_out` and `kappa_limit`
+    (AdSteeringEnvelope.cpp). When the caller supplies them, the ratio is
+    exact and the tolerance collapses to the telemetry's own quantum. The
+    derived path is kept ONLY for captures that predate those fields, and it
+    keeps the loose tolerance because with a guessed wheelbase and speed
+    sample nothing tighter is defensible — it says so out loud rather than
+    presenting a 2% fudge as a physical threshold."""
     if max_steer_angle is None:
         max_steer_angle = MAX_STEER_ANGLE
     n = len(applied)
+    # Published-value path: exact ratio, tolerance = one serialization quantum
+    # of the fixed-9-decimal record, scaled by the smallest cap in play.
+    have_pub = (kappa_out is not None and kappa_limit is not None
+                and len(kappa_out) >= n and len(kappa_limit) >= n
+                and all(isinstance(kappa_out[i], (int, float))
+                        and isinstance(kappa_limit[i], (int, float))
+                        and kappa_limit[i] > 0.0 for i in range(n)))
     out = []
     for j in range(n - deriv_order):
         ok = True
         for k in range(j, j + deriv_order + 1):
-            v_eff = max(speeds[k], v_floor)
-            kappa_max = min(a_lat_max / (v_eff * v_eff), yaw_rate_max / v_eff)
-            if kappa_max <= 0:
-                continue
-            kappa = math.tan(applied[k] * max_steer_angle) / wheel_base
-            if abs(kappa) / kappa_max >= 1.0 - ratio_eps:
+            if have_pub:
+                ratio = abs(kappa_out[k]) / kappa_limit[k]
+                eps = 1e-9 / kappa_limit[k]  # 1 quantum expressed as a ratio
+            else:
+                v_eff = max(speeds[k], v_floor)
+                kappa_max = min(a_lat_max / (v_eff * v_eff), yaw_rate_max / v_eff)
+                if kappa_max <= 0:
+                    continue
+                ratio = abs(math.tan(applied[k] * max_steer_angle) / wheel_base) / kappa_max
+                eps = ratio_eps
+            if ratio >= 1.0 - eps:
                 ok = False
                 break
         out.append(ok)
@@ -504,7 +538,13 @@ def analyze_resume_case(frames: list, window_s: float = 1.0) -> dict | None:
     # live: kappa/kappa_max ratio climbs smoothly then PINS at ~1.0002 the
     # instant the new final clamp engages, producing a jerk spike (234.6 at
     # jerk_max=10) that is the boundary-snap, not a jerk-limiter defect.
-    jerk_env_valid_kappa = _not_kappa_saturating_flags(applied, v, 2)
+    # Pass the envelope's OWN curvature numbers when the capture carries them,
+    # so the boundary test is exact instead of a 2%-tolerance approximation
+    # (see _not_kappa_saturating_flags' doc).
+    jerk_env_valid_kappa = _not_kappa_saturating_flags(
+        applied, v, 2,
+        kappa_out=series("envelope_kappa_out"),
+        kappa_limit=series("envelope_kappa_limit"))
     jerk_env_valid = [a and b and c for a, b, c in
                        zip(jerk_env_valid_splice, jerk_env_valid_sat, jerk_env_valid_kappa)]
 

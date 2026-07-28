@@ -77,6 +77,22 @@ RATE_LIMIT_NORM = STEER_RATE_MAX / MAX_STEER_ANGLE  # ≈ 2.4590 normalized/s
 
 JERK_LIMIT_CANDIDATE = 25.0
 JERK_HIGH_THRESHOLD = 50.0
+# ⚠ STALE TOLERANCE — sized for an instrument that no longer exists.
+# The 0.02 above is justified by "target_norm は JSON へ小数点4桁で丸められて
+# 出力される". VirtualDriverTelemetryJson.cpp now writes NINE decimals, and its
+# own comment records why the 4-decimal record was retired: at 1e-4 quantum the
+# derived jerk quantized to 1.0 /s^2 and the whole normal-driving distribution
+# was instrument floor rather than signal. For a 9-decimal capture the
+# corresponding rate tolerance is ~1e-7, i.e. this constant is FIVE ORDERS too
+# loose and will call anything within 0.02 /s of the rate cap "pinned".
+#
+# NOT changed here, deliberately: this script is a forensic tool pointed at
+# historical captures, and I cannot verify which of its inputs predate the
+# 9-decimal change — silently tightening it would reinterpret old data. Anyone
+# re-running it on a fresh capture should pass the tighter value. Flagged
+# rather than fixed, and flagged rather than left silent: a tolerance whose
+# stated reason has expired is exactly how telemetry_golden.py hid a real
+# engine nondeterminism from 2026-07-04 to 2026-07-28.
 SAT_TOL = 0.02
 BOUNDARY_TOL = 2
 RES_EPISODE_THR_B = 0.04  # 窓(b)の定義: residual>0.04 の最大継続エピソード
