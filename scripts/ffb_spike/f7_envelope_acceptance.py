@@ -128,13 +128,30 @@ def series_from_phase2(name: str, path: Path) -> dict:
     # -- 0.22% over a limit that was in fact respected. That was the whole of
     # the UNDETERMINED residue once the wheelbase term was accounted for.
     #
-    # So each frame is paired with the PREVIOUS row's speed. The first frame
-    # keeps its own (no earlier sample exists); it is a settling frame at
-    # ~0 m/s where a_lat is ~0 either way.
-    speeds = [active[max(0, i - 1)]["ego"]["speed"] for i in range(len(active))]
+    # PAIRING WITH ONE SIDE IS NOT ENOUGH -- measured both ways.
+    # Simply switching to the previous row's speed fixed car_following (where
+    # the car accelerates, so the earlier speed is lower) and BROKE the
+    # aeb_safety set (where it brakes hard, so the earlier speed is HIGHER and
+    # inflates a_lat instead). Neither side is universally correct because the
+    # envelope does not publish the speed it used.
+    #
+    # So the timing ambiguity is treated as what it is: a bounded interval. Each
+    # frame gets both candidates, and a frame only counts as over the limit when
+    # it is over under BOTH -- i.e. when no admissible speed sample explains it.
+    # Anything that straddles the limit is timing-ambiguous, not a breach, and
+    # the verdict reports it separately instead of picking whichever side gives
+    # the answer we prefer.
+    speeds = [r["ego"]["speed"] for r in active]
+    speeds_prev = [active[max(0, i - 1)]["ego"]["speed"] for i in range(len(active))]
     kappas = [math.tan(d) / PHASE2_WB for d in deltas]
-    a_lat = [abs(v * v * k) for v, k in zip(speeds, kappas)]
-    yaw = [abs(v * k) for v, k in zip(speeds, kappas)]
+    # The reported series uses the larger of the two admissible speed samples
+    # (the conservative reading), and a_lat_lo keeps the smaller one so the
+    # verdict can tell "over under every admissible sample" from "over only
+    # under the pessimistic one".
+    a_lat = [abs(max(v, vp) ** 2 * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
+    a_lat_lo = [abs(min(v, vp) ** 2 * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
+    yaw = [abs(max(v, vp) * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
+    yaw_lo = [abs(min(v, vp) * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
     meta = {"a_lat": list(zip(a_lat, active)), "yaw": list(zip(yaw, active))}
     steer_rate, sr_meta = [], []
     for i in range(1, len(active)):
@@ -153,6 +170,7 @@ def series_from_phase2(name: str, path: Path) -> dict:
     ]
     return {"a_lat": a_lat, "yaw": yaw, "steer_rate": steer_rate,
             "active": active, "sr_meta": sr_meta,
+            "a_lat_lo": a_lat_lo, "yaw_lo": yaw_lo,
             "a_lat_req": a_lat_req, "a_lat_clamp_on": clamp_on}
 
 
@@ -268,14 +286,18 @@ def main() -> int:
         return 2
 
     unclamped_breaches = []
+    certain_over = []
     request_excursions = 0
-    for scen, s in all_series.items():
-        for a_out, a_req, on in zip(s.get("a_lat", []), s.get("a_lat_req", []),
-                                     s.get("a_lat_clamp_on", [])):
+    for scen, s_ in all_series.items():
+        for a_out, a_req, on in zip(s_.get("a_lat", []), s_.get("a_lat_req", []),
+                                     s_.get("a_lat_clamp_on", [])):
             if a_req > LIMITS["a_lat"]:
                 request_excursions += 1
             if a_out > LIMITS["a_lat"] and not on:
                 unclamped_breaches.append((scen, a_out))
+        for a_lo in s_.get("a_lat_lo", []):
+            if a_lo > LIMITS["a_lat"]:
+                certain_over.append((scen, a_lo))
 
     print(f"\n=== applied vs requested ===")
     print(f"  AD requests beyond the a_lat limit (clamp's job to catch): {request_excursions}")
@@ -286,6 +308,14 @@ def main() -> int:
         print(f"\nRESULT: FAIL — the envelope let {len(unclamped_breaches)} frame(s) "
               f"through above the lateral-accel limit WITHOUT engaging:")
         for scen, a in unclamped_breaches[:5]:
+            print(f"    {scen}: a_lat={a:.3f} (limit {LIMITS['a_lat']})")
+        return 1
+
+    if certain_over:
+        print(f"\nRESULT: FAIL — {len(certain_over)} applied frame-metric(s) exceed a "
+              f"limit under EVERY admissible speed sample, so the exceedance cannot be "
+              f"explained by the +/-1 frame timing ambiguity:")
+        for scen, a in certain_over[:5]:
             print(f"    {scen}: a_lat={a:.3f} (limit {LIMITS['a_lat']})")
         return 1
 
