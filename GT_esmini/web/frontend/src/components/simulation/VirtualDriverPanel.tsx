@@ -28,6 +28,9 @@ const EDITABLE_KEYS = [
   // feature:F7 AD steering safety envelope (clamps AD's commanded steering only).
   'ad_steering_envelope_enabled', 'a_lat_max_steer', 'yaw_rate_max', 'steer_rate_max', 'envelope_v_floor',
   'ad_steering_envelope_steer_jerk_max',
+  // feature:F7 AD resume-merge trajectory. Default ON since 2026-07-28.
+  'resume_merge_enabled', 'resume_merge_a_lat_comfort', 'resume_merge_duration_min_s',
+  'resume_merge_duration_max_s', 'resume_merge_min_offset_m',
   'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
@@ -658,6 +661,46 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           transitions (e.g. an AUTO_RESUME handoff) at the cost of a higher
           residual while AD is steering with "AD Wheel Following (FFB)"
           enabled, since the servo has to track a further-shaped command.
+        </p>
+      </section>
+
+      {/* AD Resume Merge — feature:F7.
+          On AUTO_RESUME, generates a smooth lane-change-like merge back to the
+          ROUTE lane over a few seconds instead of steering back by the
+          shortest path. Default ON since 2026-07-28 (smoothness confirmed on
+          the real wheel). The AD Steering Safety Envelope above remains the
+          hard cap regardless of this maneuver's comfort target. */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Resume Merge
+        </h3>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable resume merge"
+            checked={Boolean(cfg.resume_merge_enabled)}
+            onChange={(v) => set('resume_merge_enabled', v)}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="Comfort lateral accel (m/s²)" step={0.1}
+            value={cfg.resume_merge_a_lat_comfort ?? 1.5}
+            onChange={setNum('resume_merge_a_lat_comfort')} />
+          <NumberInput label="Min merge duration (s)" step={0.1}
+            value={cfg.resume_merge_duration_min_s ?? 1.5}
+            onChange={setNum('resume_merge_duration_min_s')} />
+          <NumberInput label="Max merge duration (s)" step={0.1}
+            value={cfg.resume_merge_duration_max_s ?? 6.0}
+            onChange={setNum('resume_merge_duration_max_s')} />
+          <NumberInput label="Min offset to arm (m)" step={0.1}
+            value={cfg.resume_merge_min_offset_m ?? 0.5}
+            onChange={setNum('resume_merge_min_offset_m')} />
+        </div>
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Default ON since 2026-07-28. On AUTO_RESUME this generates a
+          lane-change-like merge back to the ROUTE lane over a few seconds
+          instead of steering back by the shortest path. The comfort
+          lateral-accel limit shapes the maneuver, but the AD Steering Safety
+          Envelope above remains the hard cap regardless.
         </p>
       </section>
 

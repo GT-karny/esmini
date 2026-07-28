@@ -8,7 +8,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from GT_esmini.web.backend.config import CONFIG_DIR, load_settings, save_settings
-from GT_esmini.web.backend.models.simulation import ManualDriveControllerConfig
+from GT_esmini.web.backend.models.simulation import (
+    SDL2_BUTTON_KEY_MAP,
+    ManualDriveControllerConfig,
+)
 
 router = APIRouter(prefix="/api/manual-drive", tags=["manual-drive"])
 
@@ -76,6 +79,57 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def _normalize_sdl2_to_cpp_shape(config: dict[str, Any]) -> dict[str, Any]:
+    """Translate the GUI's nested ``sdl2`` block into the flat shape C++ reads.
+
+    feature:F7 gap #2. The frontend sends ``sdl2.button_mapping.upshift``;
+    ManualDriveConfig.cpp reads ``upshift_button`` and does so with a line-wise
+    substring scan that has no notion of JSON nesting. Deep-merging the nested
+    request straight onto the flat on-disk file therefore did two bad things:
+
+      - the remapped button never reached C++ (the shipped symptom: "I
+        reassigned it in the GUI and nothing changed"); and
+      - ``"button_mapping": {"upshift": 4}`` collides with
+        ManualDriveKeyboardConfig's identically-named ``upshift``. Because the
+        scan takes the LAST matching line in the file and the appended block
+        sorts after ``keyboard``, the keyboard binding was overwritten with a
+        number -- an invalid SDL scancode name. Eight bindings were exposed
+        this way (upshift, downshift, indicator_left/right, headlight,
+        high_beam, fog_light, hazard).
+
+    Translating here keeps the persisted file in exactly the shape C++ expects
+    and keeps the nested block out of it entirely, so neither failure can
+    occur. Values already sent in flat form win over the nested ones (an
+    explicit ``input.upshift_button`` is more specific than a translated one).
+    """
+    sdl2 = config.get("sdl2")
+    if not isinstance(sdl2, dict):
+        return config
+
+    translated: dict[str, Any] = {}
+    mapping = sdl2.get("button_mapping")
+    if isinstance(mapping, dict):
+        for field, value in mapping.items():
+            cpp_key = SDL2_BUTTON_KEY_MAP.get(field)
+            if cpp_key is not None:
+                translated[cpp_key] = value
+    for passthrough in ("device_index", "deadzone"):
+        if passthrough in sdl2:
+            translated[passthrough] = sdl2[passthrough]
+
+    if not translated:
+        return config
+
+    out = {k: v for k, v in config.items() if k != "sdl2"}
+    existing_input = out.get("input")
+    merged_input = dict(existing_input) if isinstance(existing_input, dict) else {}
+    # Flat wins: only fill keys the caller did not already state flatly.
+    for k, v in translated.items():
+        merged_input.setdefault(k, v)
+    out["input"] = merged_input
+    return out
+
+
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
     """Read current manual_drive.json configuration."""
@@ -106,7 +160,9 @@ async def update_config(config: dict[str, Any]) -> dict[str, Any]:
         if path.exists()
         else ManualDriveControllerConfig().model_dump()
     )
-    merged = _deep_merge(base, config)
+    # feature:F7 gap #2 -- normalize BEFORE merging, so the nested sdl2 block
+    # never lands in the file C++ parses. See _normalize_sdl2_to_cpp_shape.
+    merged = _deep_merge(base, _normalize_sdl2_to_cpp_shape(config))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(merged, indent=4, ensure_ascii=False),

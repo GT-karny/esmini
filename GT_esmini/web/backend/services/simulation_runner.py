@@ -26,6 +26,7 @@ from GT_esmini.web.backend.config import (
 )
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
+    SDL2_BUTTON_KEY_MAP,
     ControllerConfig,
     ExecutionConfig,
     SimulationRequest,
@@ -313,6 +314,45 @@ def _write_virtual_driver_config(
     return out_path
 
 
+def _sdl2_button_entries(mapping: Any, base: dict) -> dict[str, int]:
+    """Build the flat C++ ``input.*_button`` entries from the shared table.
+
+    feature:F7 gap #2/#5. Per button, in order of precedence:
+      1. the request's own value, when the pydantic model carries that field;
+      2. the existing on-disk config, for buttons the model does not model yet
+         (``auto_resume`` today -- gap #6);
+      3. -1 (C++'s "unassigned"), so a brand-new button can never silently
+         inherit a stale value.
+
+    Deriving this from SDL2_BUTTON_KEY_MAP is the whole point: the previous
+    hand-written block is how auto_resume went missing on every GUI-launched
+    manual run without anything failing.
+    """
+    base_input = base.get("input", {}) if isinstance(base.get("input"), dict) else {}
+    entries: dict[str, int] = {}
+    for field, cpp_key in SDL2_BUTTON_KEY_MAP.items():
+        if hasattr(mapping, field):
+            entries[cpp_key] = getattr(mapping, field)
+        else:
+            entries[cpp_key] = base_input.get(cpp_key, -1)
+    return entries
+
+
+# feature:F7 gap #4 -- mirrors ManualDriveConfig.hpp:483-488 (the C++
+# compile-time defaults). Keep in sync with that struct: these are what a
+# per-run config falls back to when the base config has no "override" section,
+# and they are chosen so that behaviour is unchanged from the previous
+# hardcoded {"enabled": True} whenever the base is silent.
+_OVERRIDE_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "steering_threshold": 0.05,
+    "throttle_threshold": 0.1,
+    "brake_threshold": 0.1,
+    "auto_return_timeout": 0.0,
+    "button_override": True,
+}
+
+
 def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
     """Write manual_drive.json for per-run config override.
 
@@ -338,29 +378,73 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
         "input": {
             "device_index": md.sdl2.device_index,
             "deadzone": md.sdl2.deadzone,
-            "upshift_button": md.sdl2.button_mapping.upshift,
-            "downshift_button": md.sdl2.button_mapping.downshift,
-            "override_button": md.sdl2.button_mapping.override,
-            "indicator_left_button": md.sdl2.button_mapping.indicator_left,
-            "indicator_right_button": md.sdl2.button_mapping.indicator_right,
-            "headlight_button": md.sdl2.button_mapping.headlight,
-            "high_beam_button": md.sdl2.button_mapping.high_beam,
-            "fog_light_button": md.sdl2.button_mapping.fog_light,
-            "hazard_button": md.sdl2.button_mapping.hazard,
+            # feature:F7 gap #2 -- these nine lines used to be written out by
+            # hand, which is the second of the two mapping tables that drifted
+            # apart (see SDL2_BUTTON_KEY_MAP). Derived from the shared table
+            # now, so adding a button in one place propagates here.
+            # Includes auto_resume_button (gap #5). The first fix for #5 was a
+            # standalone `"auto_resume_button": base.get(...)` line placed
+            # AFTER this spread, which silently won over the table -- the same
+            # last-writer-wins shape as the C++ config scanner that caused #2.
+            # It was removed once gap #6 made auto_resume a typed field, so the
+            # user's GUI edit now reaches the run instead of being overwritten
+            # by the on-disk value.
+            **_sdl2_button_entries(md.sdl2.button_mapping, base),
             "transport_type": md.input_network.transport_type,
             "port": md.input_network.port,
             "level": md.input_network.level,
         },
         "keyboard": md.keyboard.model_dump(),
         "physics": {
-            "vehicle_params_file": "real_vehicle_params.json",
+            # feature:F7 gap #3 -- was hardcoded "real_vehicle_params.json",
+            # so a user who pointed config/manual_drive.json at a different
+            # vehicle parameter file had it silently replaced on every
+            # GUI-launched manual run. Invisible until now only because the
+            # hardcoded string happens to equal the shipped value; a
+            # default-vs-default test cannot see this bug at all.
+            # gap #6: a GUI-stated value wins; None means "not stated" and
+            # falls back to the on-disk config (gap #3's fix).
+            "vehicle_params_file": (
+                md.vehicle_params_file
+                if md.vehicle_params_file is not None
+                else base.get("physics", {}).get(
+                    "vehicle_params_file", "real_vehicle_params.json"
+                )
+            ),
             "host": md.physics_network.host,
             "cmd_port": md.physics_network.cmd_port,
             "state_port": md.physics_network.state_port,
         },
-        "indicator_cancel_angle": base.get("indicator_cancel_angle", 0.06),
+        "indicator_cancel_angle": (
+            md.indicator_cancel_angle
+            if md.indicator_cancel_angle is not None
+            else base.get("indicator_cancel_angle", 0.06)
+        ),
+        # NOTE: ffb still takes the on-disk value over the request, unlike the
+        # gap #6 fields above and unlike the button mapping. That asymmetry
+        # predates this work and changing it would alter behaviour beyond
+        # gap #6's scope -- flagged as a follow-up rather than silently
+        # rewritten here.
         "ffb": base.get("ffb", md.ffb.model_dump()),
-        "override": {"enabled": True},
+        # feature:F7 gap #4 -- was {"enabled": True}, which dropped the other
+        # five override settings entirely AND ignored the user's own
+        # `enabled`. C++ then fell back to its compile-time defaults
+        # (ManualDriveConfig.hpp:483-488), which coincide with the shipped
+        # JSON values -- so the loss was invisible with a stock config and
+        # would have surfaced the moment gap #6 exposed these in the GUI.
+        #
+        # Defaults below mirror those C++ compile-time values, so a base with
+        # no "override" section produces exactly the previous behaviour. Base
+        # wins per key. Nothing in the request model carries these yet (that
+        # is gap #6), so the request deliberately contributes nothing here.
+        # Precedence: C++ defaults < on-disk config < this request (gap #6).
+        # The request layer is omitted entirely when override_cfg is None, so
+        # a frontend that does not send it behaves exactly as before.
+        "override": {
+            **_OVERRIDE_DEFAULTS,
+            **(base.get("override") if isinstance(base.get("override"), dict) else {}),
+            **(md.override_cfg.model_dump() if md.override_cfg is not None else {}),
+        },
     }
     config_path = output_dir / "manual_drive.json"
     config_path.write_text(

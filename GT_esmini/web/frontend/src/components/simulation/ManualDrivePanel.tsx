@@ -22,7 +22,11 @@ const DEFAULT_CONFIG: ManualDriveConfig = {
   sdl2: {
     device_index: 0,
     deadzone: 0.05,
-    button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1 },
+    // auto_resume defaults to 3, matching config/manual_drive.json and the
+    // pydantic model. NOT -1: an omitted/defaulted value is written straight
+    // into the per-run config, so -1 here would hand C++ "unassigned" and
+    // re-create gap #5 through the control meant to expose it.
+    button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 },
   },
   keyboard: {
     steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
@@ -46,7 +50,34 @@ const BUTTON_LABELS: Record<string, string> = {
   high_beam: 'High Beam',
   fog_light: 'Fog Light',
   hazard: 'Hazard',
+  // feature:F7 gap #6 -- this Record drives the button-assignment rows, so
+  // adding the label is what actually exposes AUTO_RESUME in the GUI.
+  auto_resume: 'Auto Resume',
 };
+
+// feature:F7 gap #6. Defaults mirror config/manual_drive.json AND
+// ManualDriveConfig.hpp:483-488 (they coincide), so filling a blank box with
+// the default and sending it changes nothing.
+const DEFAULT_OVERRIDE_CFG = {
+  enabled: true,
+  steering_threshold: 0.05,
+  throttle_threshold: 0.1,
+  brake_threshold: 0.1,
+  auto_return_timeout: 0.0,
+  button_override: true,
+};
+
+const OVERRIDE_NUMBER_FIELDS: { key: 'steering_threshold' | 'throttle_threshold' | 'brake_threshold' | 'auto_return_timeout'; label: string; step: number }[] = [
+  { key: 'steering_threshold',  label: 'Steering thr.',  step: 0.01 },
+  { key: 'throttle_threshold',  label: 'Throttle thr.',  step: 0.01 },
+  { key: 'brake_threshold',     label: 'Brake thr.',     step: 0.01 },
+  { key: 'auto_return_timeout', label: 'Auto-return (s)', step: 0.1 },
+];
+
+const OVERRIDE_BOOL_FIELDS: { key: 'enabled' | 'button_override'; label: string }[] = [
+  { key: 'enabled',         label: 'Override enabled' },
+  { key: 'button_override', label: 'Button override' },
+];
 
 const KEYBOARD_BINDINGS: { key: string; label: string }[] = [
   { key: 'steer_left',      label: 'Steer Left' },
@@ -319,6 +350,77 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
             </div>
           </section>
         )}
+
+        {/* Takeover thresholds + misc (feature:F7 gap #6)
+            These lived only in config/manual_drive.json with no control
+            anywhere -- "GUI から一切触れない" was the complaint. Leaving a
+            field blank sends undefined, which the backend reads as "not
+            stated" and falls back to the on-disk value, so clearing a box
+            restores the file's setting rather than forcing a default. */}
+        <section>
+          <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">Takeover / Misc</h3>
+          <div className="space-y-1.5">
+            {OVERRIDE_NUMBER_FIELDS.map(({ key, label, step }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-xs text-text-secondary w-28 shrink-0">{label}</span>
+                <input
+                  type="number"
+                  step={step}
+                  value={config.override_cfg?.[key] ?? ''}
+                  placeholder="(config)"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const next = { ...(config.override_cfg ?? DEFAULT_OVERRIDE_CFG) };
+                    next[key] = raw === '' ? DEFAULT_OVERRIDE_CFG[key] : Number(raw);
+                    onChange({ ...config, override_cfg: raw === '' && !config.override_cfg ? undefined : next });
+                  }}
+                  className="text-xs font-mono bg-glass-1 border border-glass-edge rounded px-2 py-0.5 w-24"
+                />
+              </div>
+            ))}
+            {OVERRIDE_BOOL_FIELDS.map(({ key, label }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-xs text-text-secondary w-28 shrink-0">{label}</span>
+                <input
+                  type="checkbox"
+                  checked={config.override_cfg?.[key] ?? DEFAULT_OVERRIDE_CFG[key]}
+                  onChange={(e) => onChange({
+                    ...config,
+                    override_cfg: { ...(config.override_cfg ?? DEFAULT_OVERRIDE_CFG), [key]: e.target.checked },
+                  })}
+                  className="accent-primary"
+                />
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-secondary w-28 shrink-0">Ind. cancel angle</span>
+              <input
+                type="number"
+                step={0.01}
+                value={config.indicator_cancel_angle ?? ''}
+                placeholder="(config)"
+                onChange={(e) => onChange({
+                  ...config,
+                  indicator_cancel_angle: e.target.value === '' ? undefined : Number(e.target.value),
+                })}
+                className="text-xs font-mono bg-glass-1 border border-glass-edge rounded px-2 py-0.5 w-24"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-secondary w-28 shrink-0">Vehicle params</span>
+              <input
+                type="text"
+                value={config.vehicle_params_file ?? ''}
+                placeholder="real_vehicle_params.json"
+                onChange={(e) => onChange({
+                  ...config,
+                  vehicle_params_file: e.target.value === '' ? undefined : e.target.value,
+                })}
+                className="text-xs font-mono bg-glass-1 border border-glass-edge rounded px-2 py-0.5 flex-1"
+              />
+            </div>
+          </div>
+        </section>
 
         {/* Keyboard Mapping (Keyboard input only) */}
         {config.input_type === 'sdl2_keyboard' && (

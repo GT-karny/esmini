@@ -216,6 +216,12 @@ export interface ManualDriveConfig {
       high_beam: number;
       fog_light: number;
       hazard: number;
+      // feature:F7 gap #6 -- AUTO_RESUME (hand back to AD after a manual
+      // takeover). Shipped as button 3 but had no GUI control, which is the
+      // half of the user's original F7 request ("let the button assignment be
+      // changeable from settings later") that stayed unfulfilled even after
+      // gap #5 fixed the backend path.
+      auto_resume: number;
     };
   };
   keyboard: {
@@ -241,6 +247,20 @@ export interface ManualDriveConfig {
   input_network: { transport_type: string; port: number; level: string };
   physics_network: { transport_type: string; host: string; cmd_port: number; state_port: number };
   ffb: { spring_coefficient: number; damper_coefficient: number; constant_gain: number; max_force: number };
+  // feature:F7 gap #6 -- previously reachable only by hand-editing
+  // config/manual_drive.json. Optional on purpose: undefined means "this
+  // request does not state it", and the per-run writer then keeps the value
+  // already on disk. Sending a concrete value makes it win for that run.
+  override_cfg?: {
+    enabled: boolean;
+    steering_threshold: number;
+    throttle_threshold: number;
+    brake_threshold: number;
+    auto_return_timeout: number;
+    button_override: boolean;
+  };
+  indicator_cancel_angle?: number;
+  vehicle_params_file?: string;
 }
 
 export interface ManualDrivePreset {
@@ -314,6 +334,16 @@ export interface VirtualDriverConfig {
   steer_rate_max?: number;
   envelope_v_floor?: number;
   ad_steering_envelope_steer_jerk_max?: number;
+  // feature:F7 — AD resume-merge trajectory (additive; editor-side sync).
+  // On AUTO_RESUME, generates a smooth lane-change-like merge back to the
+  // ROUTE lane instead of steering back by the shortest path. Default ON
+  // since 2026-07-28 (smoothness confirmed on the real wheel; see
+  // ResumeMergeProfile.hpp kResumeMergeDefaultEnabled).
+  resume_merge_enabled?: boolean;
+  resume_merge_a_lat_comfort?: number;
+  resume_merge_duration_min_s?: number;
+  resume_merge_duration_max_s?: number;
+  resume_merge_min_offset_m?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Input source for the run. "network" (default when never configured — see
