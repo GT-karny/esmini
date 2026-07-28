@@ -694,7 +694,13 @@ def _diff_frames_against_backup(new_frames: list[dict], backup_tag: str) -> dict
             v_new = n.get(k)
             if v_old != v_new:
                 diffs.append((i, k, v_old, v_new))
+    # If sim_time itself differs on (nearly) every frame the two runs are not
+    # sampled at the same instants, so a field-by-field comparison is comparing
+    # different moments. Flagged so the verdict can call it incomparable rather
+    # than a regression -- see the verdict block in main().
+    n_time = sum(1 for i, k, _o, _n in diffs if k in ("sim_time", "t"))
     return {"backup_found": True, "identical": len(diffs) == 0, "n_diffs": len(diffs),
+            "time_base_differs": n_time >= max(1, int(0.9 * len(new_frames))),
             "sample_diffs": diffs[:8]}
 
 
@@ -912,7 +918,17 @@ def main() -> int:
     # nothing to do with the product. Only a comparison of the SAME shape can
     # speak to the no-op guarantee.
     def _shape_mismatch(d: dict) -> bool:
-        return "frame count differs" in str(d.get("reason", ""))
+        if "frame count differs" in str(d.get("reason", "")):
+            return True
+        # A capture on a DIFFERENT TIME BASE is equally incomparable, even when
+        # the frame counts happen to match. Measured on normal_baseline: the
+        # saved file (2026-07-25) differs from a current run in `sim_time` on
+        # 400 of 400 frames, i.e. the two runs are not sampled at the same
+        # instants at all -- it predates the --fixed_timestep correction that
+        # made the requested dt actually reach GT_Step. Comparing values
+        # sampled at different times and calling the difference a regression
+        # would be measuring the clock, not the product.
+        return bool(d.get("time_base_differs"))
 
     differing = [k for k, v in compared.items()
                  if not v.get("identical") and not _shape_mismatch(v)]

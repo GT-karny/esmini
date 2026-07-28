@@ -84,6 +84,24 @@ def main() -> int:
         for cap in JERK_CAPS:
             paths[f"{name}/cap_{cap:g}"] = str(run_one(name, xosc_path, cap))
     print(json.dumps(paths))
+
+    # feature:F7 — exit code, because "it ran" and "it produced what was asked
+    # for" are different claims and this used to report 0 for both. It is a
+    # DATA-PRODUCING step (it writes one telemetry capture per scenario x cap
+    # for downstream analysis), so its verdict is about coverage: every
+    # requested cell must exist, or whatever reads these paths later is
+    # analysing a hole it cannot see.
+    expected = sum(1 for x in SCENARIOS.values() if x.exists()) * len(JERK_CAPS)
+    missing = [k for k, v in paths.items() if not os.path.exists(v)]
+    if expected == 0:
+        print("RESULT: NOT MEASURED — no scenario file was found; nothing was run.",
+              file=sys.stderr)
+        return 2
+    if missing or len(paths) != expected:
+        print(f"RESULT: FAIL — {len(paths)}/{expected} cells produced, "
+              f"{len(missing)} output file(s) missing: {missing[:5]}", file=sys.stderr)
+        return 1
+    print(f"RESULT: PASS — {len(paths)}/{expected} cells produced.", file=sys.stderr)
     return 0
 
 

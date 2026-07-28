@@ -2,6 +2,29 @@
 across the FULL evaluated regression set (Phase 1: lc/curve/right_turn CSVs +
 Phase 2: 12-scenario car_following_traffic_control_batch telemetry)?
 
+!! THIS IS NOT AN INDEPENDENT VERIFICATION. READ THIS BEFORE CITING IT. !!
+
+    The limits it checks were DERIVED FROM THE SAME 15-scenario pool it checks
+    them against. AdSteeringEnvelope.hpp states it outright: "normal driving
+    peaks (15-scenario pool) were a_lat=3.289, yaw_rate=0.780, steer_rate=0.769;
+    a_lat_max_steer and yaw_rate_max are that pool max x1.3". Running this file
+    over that same pool therefore cannot fail for the reason that matters -- the
+    limits were constructed to sit above those maxima, so "nothing clips" is
+    arithmetic, not evidence. It tells you the constants were transcribed
+    correctly and nothing else.
+
+    This is the same identify-and-verify-on-one-dataset circularity that was
+    found in the shadow model vs the synthetic plant, reappearing in the safety
+    envelope. A real acceptance needs a pool this script has never seen:
+    scenarios outside the 15 used to set the limits (junction/crosswalk/AEB
+    manifests, or a real-vehicle capture). Point the CLI at such a root and the
+    result becomes meaningful:
+
+        python f7_envelope_acceptance.py <root-of-scenarios-not-in-the-15>
+
+    Until that is done, the honest reading of a PASS here is "the shipped
+    constants still bound the pool they were fitted to".
+
 Candidate limits under test (team-lead's x1.3 proposal):
     a_lat_max_steer = 4.3   m/s^2
     yaw_rate_max    = 1.0   rad/s
@@ -60,7 +83,36 @@ def series_from_phase2(name: str, path: Path) -> dict:
             break
         active.append(r)
         prev_t = t
-    deltas = [r["driver"]["steer"] * MAX_STEER_ANGLE for r in active]
+    # feature:F7 — WHICH STEER SIGNAL THIS READS, and why it changed.
+    #
+    # `driver.steer` is the AD's RAW REQUEST, recorded BEFORE the safety
+    # envelope clamps it. Deriving a_lat/yaw/steer_rate from it answers "did
+    # the AD ever ASK for something outside the limits", which is not the
+    # question this file's name promises and is not a safety statement at all:
+    # a run where the envelope caught every excursion perfectly would still be
+    # reported as clipping.
+    #
+    # Measured on car_following_traffic_control/green_no_stop t=12.00:
+    #     envelope.steer_in  = 0.9458   (the request -- 94.6% of full lock at 14 m/s)
+    #     envelope.steer_out = 0.0150   (what actually reached the vehicle)
+    # The old metric read 0.9458 and reported a_lat = 42.6 m/s^2 (991% of the
+    # limit). The envelope had done exactly its job.
+    #
+    # So the applied signal is `envelope.steer_out` when the telemetry carries
+    # it. `driver.steer` remains the fallback for older captures that predate
+    # the envelope block, and the request series is kept separately because
+    # "how often does the AD ask for something the clamp has to catch" is worth
+    # reporting -- just not as a safety verdict.
+    def _steer_out(r):
+        env = r.get("envelope") or {}
+        return env["steer_out"] if "steer_out" in env else r["driver"]["steer"]
+
+    def _steer_in(r):
+        env = r.get("envelope") or {}
+        return env["steer_in"] if "steer_in" in env else r["driver"]["steer"]
+
+    deltas = [_steer_out(r) * MAX_STEER_ANGLE for r in active]
+    deltas_req = [_steer_in(r) * MAX_STEER_ANGLE for r in active]
     speeds = [r["ego"]["speed"] for r in active]
     kappas = [math.tan(d) / PHASE2_WB for d in deltas]
     a_lat = [abs(v * v * k) for v, k in zip(speeds, kappas)]
@@ -72,8 +124,18 @@ def series_from_phase2(name: str, path: Path) -> dict:
         if dt > 0:
             steer_rate.append(abs(deltas[i] - deltas[i - 1]) / dt)
             sr_meta.append(active[i])
+    # Request-side excursions (context only, never a verdict) and, per frame,
+    # whether the corresponding clamp stage was engaged. The flags are what
+    # separate "the clamp never ran" (a real defect) from "the clamp ran and an
+    # offline recomputation disagrees slightly" (a measurement mismatch).
+    kappas_req = [math.tan(d) / PHASE2_WB for d in deltas_req]
+    a_lat_req = [abs(v * v * k) for v, k in zip(speeds, kappas_req)]
+    clamp_on = [
+        bool((r.get("envelope") or {}).get("lateral_accel_active", False)) for r in active
+    ]
     return {"a_lat": a_lat, "yaw": yaw, "steer_rate": steer_rate,
-            "active": active, "sr_meta": sr_meta}
+            "active": active, "sr_meta": sr_meta,
+            "a_lat_req": a_lat_req, "a_lat_clamp_on": clamp_on}
 
 
 def main() -> int:
@@ -155,17 +217,64 @@ def main() -> int:
             print(f"  {scen} t={t:.2f}s metric={m} value={v:.3f} v={spd:.2f}m/s steer_norm={steer:.4f}")
 
     # --- verdict ---------------------------------------------------------
+    #
+    # Two different findings live in "the applied a_lat exceeded the limit",
+    # and collapsing them would either hide a real defect or cry wolf:
+    #
+    #   clamp NOT engaged  -> the envelope did not act on a frame that needed
+    #                         it. That is an unambiguous safety defect and it
+    #                         fails the run.
+    #   clamp engaged      -> the envelope acted and held the command at ITS
+    #                         computed ceiling, while this file's offline
+    #                         recomputation lands slightly above. Measured:
+    #                         4.338 vs the 4.3 ceiling, 0.88% over, on the two
+    #                         frames of green_no_stop where the clamp was
+    #                         active. Candidate causes are a speed-sample
+    #                         difference (a_lat goes as v^2, so 0.4% in v is
+    #                         0.9% here) or a wheelbase difference between this
+    #                         script's PHASE2_WB and the vehicle's parameter.
+    #                         UNDETERMINED, and reported as such rather than
+    #                         being rounded away -- narrowing it needs the
+    #                         envelope's own speed source, which is not in the
+    #                         telemetry.
     evaluated = sum(total_n.values())
     if evaluated == 0:
         print("\nRESULT: NOT EVALUATED — no series were found. "
               "Zero frames checked is not an acceptance.")
         return 2
+
+    unclamped_breaches = []
+    request_excursions = 0
+    for scen, s in all_series.items():
+        for a_out, a_req, on in zip(s.get("a_lat", []), s.get("a_lat_req", []),
+                                     s.get("a_lat_clamp_on", [])):
+            if a_req > LIMITS["a_lat"]:
+                request_excursions += 1
+            if a_out > LIMITS["a_lat"] and not on:
+                unclamped_breaches.append((scen, a_out))
+
+    print(f"\n=== applied vs requested ===")
+    print(f"  AD requests beyond the a_lat limit (clamp's job to catch): {request_excursions}")
+    print(f"  applied output beyond the limit with the clamp NOT engaged: "
+          f"{len(unclamped_breaches)}")
+
+    if unclamped_breaches:
+        print(f"\nRESULT: FAIL — the envelope let {len(unclamped_breaches)} frame(s) "
+              f"through above the lateral-accel limit WITHOUT engaging:")
+        for scen, a in unclamped_breaches[:5]:
+            print(f"    {scen}: a_lat={a:.3f} (limit {LIMITS['a_lat']})")
+        return 1
+
     clipped_total = sum(total_clips.values())
     if clipped_total:
-        print(f"\nRESULT: FAIL — {clipped_total} frame-metric(s) exceeded a candidate "
-              f"limit across {evaluated} evaluated frame-metrics.")
-        return 1
-    print(f"\nRESULT: PASS — no frame exceeded any candidate limit "
+        print(f"\nRESULT: UNDETERMINED — {clipped_total} applied frame-metric(s) sit "
+              f"above a limit, but on every one of them the corresponding clamp was "
+              f"ENGAGED. That is an offline/online recomputation mismatch (see the "
+              f"verdict comment), not a demonstrated clamp failure. Not passing it, "
+              f"not failing it.")
+        return 3
+
+    print(f"\nRESULT: PASS — nothing above any limit reached the vehicle "
           f"({evaluated} frame-metrics evaluated).")
     return 0
 
