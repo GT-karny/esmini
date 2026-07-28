@@ -35,6 +35,16 @@ import sys
 from pathlib import Path
 
 MAX_STEER_ANGLE = 0.61  # rad
+# feature:F7 — NOT a safety comparison, and must never become one with this
+# constant. The product derives wheel_base as boundingbox.length*0.6, so 3.0 is
+# right for these 12 scenarios BY COINCIDENCE of their vehicle size, not by
+# construction; a scenario with a different bbox silently invalidates it. That
+# coincidence, plus the pre/post-integration speed skew, is exactly what
+# produced a phantom 0.88% envelope "overshoot" in f7_envelope_acceptance.py.
+# This file characterizes the DISTRIBUTION of the AD's raw request
+# (driver.steer, pre-envelope) to inform limit selection — it makes no claim
+# about what reached the vehicle. If you ever want that claim, read the
+# published envelope.kappa_out / envelope.kappa_limit instead of computing here.
 WHEEL_BASE = 3.0  # m, all 12 scenarios use bbox length=5.0 -> 5.0*0.6
 
 

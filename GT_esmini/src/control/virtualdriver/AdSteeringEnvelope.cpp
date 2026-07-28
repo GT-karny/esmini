@@ -159,6 +159,15 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
 
     const double steer_norm_out = std::clamp(delta_final / msa, -1.0, 1.0);
 
+    // feature:F7 — the curvature this function's OWN OUTPUT implies, derived
+    // from steer_norm_out (not delta_final: the +-1 clamp above can still
+    // reduce the magnitude, and what leaves this function is the normalized
+    // value). Same wheel_base and max_steer_angle the clamp itself used, so a
+    // verifier comparing |kappa_out| against kappa_limit is comparing two
+    // numbers produced here, with no wheelbase/speed/timing assumption of its
+    // own — see AdSteeringEnvelopeSnapshot::kappa_out for why that matters.
+    const double kappa_out = std::tan(steer_norm_out * msa) / wb;
+
     if (out_snapshot)
     {
         out_snapshot->valid                = true;
@@ -172,6 +181,7 @@ double ComputeAdSteeringEnvelope(double                          steer_norm_cmd,
                                              out_snapshot->steer_jerk_active;
         out_snapshot->kappa_cmd            = kappa_cmd;
         out_snapshot->kappa_limit          = kappa_max;
+        out_snapshot->kappa_out            = kappa_out;
         out_snapshot->steer_norm_in        = steer_norm_cmd;
         out_snapshot->steer_norm_out       = steer_norm_out;
     }

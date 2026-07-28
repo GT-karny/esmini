@@ -13,6 +13,7 @@
 
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace gt_esmini
@@ -795,24 +796,109 @@ TEST(AdSteeringEnvelopeTest, OutputCurvatureNeverExceedsCapFromAnyPriorState)
                             ASSERT_TRUE(std::isfinite(out));
                             ASSERT_LE(std::fabs(out), 1.0);
 
-                            // Recompute the cap exactly as the implementation does.
-                            const double v_eff = std::max({v, cfg.v_floor, 1.0e-6});
-                            const double kappa_max = std::min(cfg.a_lat_max_steer / (v_eff * v_eff),
-                                                              cfg.yaw_rate_max / v_eff);
-                            const double kappa_out =
-                                std::fabs(std::tan(out * kMaxSteerAngle) / kWheelBase);
-
+                            // Both sides come from the snapshot. This used to
+                            // recompute the cap AND the output curvature here,
+                            // which is the same shape of mistake the offline
+                            // checker made: a test that re-derives what it is
+                            // checking can only ever verify its own arithmetic.
                             // 1e-12 absorbs the atan/tan round trip only.
-                            EXPECT_LE(kappa_out, kappa_max + 1e-12)
+                            EXPECT_LE(std::fabs(snap.kappa_out), snap.kappa_limit + 1e-12)
                                 << "v=" << v << " dt=" << dt << " prev=" << prev
                                 << " prev_rate=" << prev_rate << " jerk=" << jerk
                                 << " cmd=" << cmd << " -> out=" << out;
+
+                            // ...and kappa_out must describe the value actually
+                            // RETURNED, otherwise the invariant above would be
+                            // self-satisfying (a snapshot field that agrees with
+                            // itself proves nothing about the vehicle command).
+                            EXPECT_NEAR(snap.kappa_out,
+                                        std::tan(out * kMaxSteerAngle) / kWheelBase, 1e-12)
+                                << "v=" << v << " dt=" << dt << " prev=" << prev
+                                << " prev_rate=" << prev_rate << " jerk=" << jerk
+                                << " cmd=" << cmd;
+
+                            // Recompute the cap independently once, so the
+                            // snapshot's own kappa_limit cannot drift from the
+                            // implementation without a test noticing.
+                            const double v_eff = std::max({v, cfg.v_floor, 1.0e-6});
+                            const double kappa_max = std::min(cfg.a_lat_max_steer / (v_eff * v_eff),
+                                                              cfg.yaw_rate_max / v_eff);
+                            EXPECT_NEAR(snap.kappa_limit, kappa_max, 1e-15);
                         }
                     }
                 }
             }
         }
     }
+}
+
+// feature:F7 — kappa_out is NOT min(|kappa_cmd|, kappa_limit), and this test
+// exists to stop that substitution from being reintroduced as an "obvious"
+// simplification (it was proposed as one).
+//
+// The curvature clamp is stage 1 of 3. The steer_rate and steer_jerk stages
+// run AFTER it and move the command again, so on any frame where either of
+// them binds, the applied curvature is strictly BELOW the curvature cap and
+// min(|kappa_cmd|, kappa_limit) over-states it. A checker fed the substitute
+// would compare a number the vehicle never saw.
+TEST(AdSteeringEnvelopeTest, KappaOutIsNotMinOfCmdAndLimitWhenRateStageBinds)
+{
+    AdSteeringEnvelopeConfig cfg;      // shipped limits (jerk stage off by default)
+    cfg.steer_rate_max = 0.05;         // deliberately tight: the rate stage must bind
+    AdSteeringEnvelopeState state;     // anchored at 0
+
+    AdSteeringEnvelopeSnapshot snap;
+    ComputeAdSteeringEnvelope(/*steer_norm_cmd=*/1.0, /*v=*/8.0, kWheelBase, kMaxSteerAngle,
+                              /*dt=*/0.01, state, cfg, &snap);
+
+    ASSERT_TRUE(snap.valid);
+    ASSERT_TRUE(snap.steer_rate_active) << "test setup failed to make the rate stage bind";
+
+    const double substitute = std::min(std::fabs(snap.kappa_cmd), snap.kappa_limit);
+    EXPECT_LT(std::fabs(snap.kappa_out), substitute * 0.5)
+        << "kappa_out=" << snap.kappa_out << " substitute=" << substitute;
+}
+
+// Same, for the jerk stage: it narrows the window AFTER the curvature clamp
+// (AdSteeringEnvelope.hpp's DEFECT note), so it too pulls the applied
+// curvature below the cap.
+TEST(AdSteeringEnvelopeTest, KappaOutIsNotMinOfCmdAndLimitWhenJerkStageBinds)
+{
+    AdSteeringEnvelopeConfig cfg;      // shipped limits
+    cfg.steer_jerk_max = 1.0;          // tight enough that the jerk window binds first
+    AdSteeringEnvelopeState state;     // anchored at 0, zero realized rate
+
+    AdSteeringEnvelopeSnapshot snap;
+    ComputeAdSteeringEnvelope(/*steer_norm_cmd=*/1.0, /*v=*/8.0, kWheelBase, kMaxSteerAngle,
+                              /*dt=*/0.01, state, cfg, &snap);
+
+    ASSERT_TRUE(snap.valid);
+    ASSERT_TRUE(snap.steer_jerk_active) << "test setup failed to make the jerk stage bind";
+
+    const double substitute = std::min(std::fabs(snap.kappa_cmd), snap.kappa_limit);
+    EXPECT_LT(std::fabs(snap.kappa_out), substitute * 0.5)
+        << "kappa_out=" << snap.kappa_out << " substitute=" << substitute;
+}
+
+// The disabled pass-through computes no cap, so it must publish no curvature
+// either — kappa_limit == 0 is the "not computed" signal every consumer gates
+// on. A kappa_out populated next to a zero kappa_limit would read as a breach.
+TEST(AdSteeringEnvelopeTest, DisabledPublishesNoCurvatureNumbers)
+{
+    AdSteeringEnvelopeState  state;
+    AdSteeringEnvelopeConfig cfg = MakeLooseCfg();
+    cfg.enabled = false;
+
+    AdSteeringEnvelopeSnapshot snap;
+    ComputeAdSteeringEnvelope(/*steer_norm_cmd=*/0.83, /*v=*/20.0, kWheelBase, kMaxSteerAngle,
+                              /*dt=*/0.02, state, cfg, &snap);
+
+    EXPECT_EQ(snap.kappa_cmd, 0.0);
+    EXPECT_EQ(snap.kappa_limit, 0.0);
+    EXPECT_EQ(snap.kappa_out, 0.0);
+    // ...while the steering pass-through IS still published (see
+    // DisabledSnapshotEchoesInputOnBothInAndOut).
+    EXPECT_EQ(snap.steer_norm_out, 0.83);
 }
 
 }  // namespace gt_esmini

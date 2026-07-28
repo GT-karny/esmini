@@ -863,6 +863,11 @@ void ControllerVirtualDriver::Step(double timeStep)
     // from speed and wheelbase and inheriting both guesses' error.
     telemetry_.ad_envelope_kappa_cmd   = envelope_snap.kappa_cmd;
     telemetry_.ad_envelope_kappa_limit = envelope_snap.kappa_limit;
+    // The APPLIED curvature — the left-hand side of that comparison. Without
+    // it a verifier still had to reconstruct the applied curvature from
+    // steer_out and a guessed wheelbase, which is the half of the original
+    // double-mistake that publishing kappa_limit alone did not remove.
+    telemetry_.ad_envelope_kappa_out   = envelope_snap.kappa_out;
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
     telemetry_.policy                = policy_snap;

@@ -70,6 +70,16 @@ BTN_AUTO_RESUME = 1 << 7
 # gives wheel_base = 5.04*0.6 = 3.024 — confirmed by reading both sources, not
 # assumed. (The earlier 2.7 value overstated kappa, and therefore a_lat_cmd
 # and omega_cmd, by ~11%; |dδ/dt| is unaffected — it has no wheel_base term.)
+#
+# feature:F7 SCOPE LIMIT (2026-07-28): these constants are fine for DESCRIBING
+# this scenario's transient (a_lat_cmd / omega_cmd magnitudes, compared against
+# a stored baseline of the same quantity), which is all this file does. They are
+# NOT fine for asking "did the applied command stay inside the safety envelope"
+# — that comparison must read the envelope's published envelope.kappa_out and
+# envelope.kappa_limit, because the wheelbase is scenario-dependent and the
+# clamp's speed sample predates the frame's physics integration. Deriving both
+# sides here instead cost a full investigation once (a phantom 0.88% overshoot
+# in f7_envelope_acceptance.py). Do not grow a cap comparison in this file.
 WHEEL_BASE = 3.024      # [m], = car_white bbox length (5.04) * 0.6, per
                         # ControllerVirtualDriver.cpp:297
 MAX_STEER_ANGLE = 0.61  # [rad], virtual_driver.json "max_steer_angle" default

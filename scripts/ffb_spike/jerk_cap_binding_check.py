@@ -31,15 +31,8 @@ SCENARIOS = ("basic", "right_turn", "tljunction")
 CAPS = (0.0, 10.0, 25.0, 50.0)
 SAT_TOL = 1e-3  # cap値超過の許容誤差(9桁シリアライズ由来の丸め)
 
-# AdSteeringEnvelope の shipped defaults（config/virtual_driver.json）。
-# kappa(steer_out)/kappa_max のセルフチェックに使う。書き換えていないので既定値そのまま。
-A_LAT_MAX_STEER = 4.3   # m/s^2
-YAW_RATE_MAX = 1.0      # rad/s
-V_FLOOR = 1.0           # m/s
-MAX_STEER_ANGLE = 0.61  # rad
-# wheel_base = bbox.length * 0.6 (ControllerVirtualDriver.cpp:312)。シナリオごとの car_white
-# 定義がわずかに違う（basic はカタログ参照 length=5.04、他2つはインライン定義 length=5.0）。
-WHEEL_BASE = {"basic": 5.04 * 0.6, "right_turn": 5.0 * 0.6, "tljunction": 5.0 * 0.6}
+MAX_STEER_ANGLE = 0.61  # rad — rate/jerk 系列の rad 換算にのみ使う（曲率検査には不要）
+KAPPA_EPS_ABS = 1e-9    # telemetry の固定9桁シリアライズ1量子。これ未満は計測器の分解能以下
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -58,46 +51,41 @@ def truncate_at_freeze(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def kappa_ratio(steer_out: float, speed: float, wheel_base: float) -> float:
-    """|kappa(steer_out)| / kappa_max。AdSteeringEnvelope.cpp と同じ式
-    （kappa_max=min(a_lat_max_steer/v_eff^2, yaw_rate_max/v_eff)、
-    kappa_cmd=tan(steer_norm*max_steer_angle)/wheel_base）。修正後はこれが恒久的に
-    <=1(丸め程度)であることを確認するためのセルフチェック。
+def build_series(rows: list[dict]) -> list[dict]:
+    """曲率比は **telemetry が publish した値だけ** で作る（推測計算はしない）。
 
-    `speed` は呼び出し側が選ぶ責任を負う。製品 C++（ControllerVirtualDriver.cpp）は
-    このフレームの物理積分より前に読んだ速度（= 前フレームの積分後速度）を
-    envelope に渡す（AdSteeringEnvelope.cpp:42 の v）。一方 telemetry の
-    `ego.speed` はこのフレームの物理積分「後」に記録される
-    （ControllerVirtualDriver.cpp:488、step 11）ので、行 i の envelope 計算に
-    対応する速度は行 i の `ego.speed` ではなく行 i-1 の `ego.speed` である。"""
-    v_eff = max(speed, V_FLOOR)
-    kappa_max = min(A_LAT_MAX_STEER / (v_eff ** 2), YAW_RATE_MAX / v_eff)
-    delta = steer_out * MAX_STEER_ANGLE
-    kappa_out = math.tan(delta) / wheel_base
-    return abs(kappa_out) / kappa_max if kappa_max > 0 else float("nan")
+    以前ここには `kappa_ratio(steer_out, speed, wheel_base)` があり、比の
+    **両辺**をハーネス側で組み立てていた: 左辺は固定ホイールベース定数からの
+    `tan(steer_norm*max_steer_angle)/wheel_base`、右辺は shipped 定数と
+    `ego.speed` からの `min(a_lat_max/v^2, yaw_max/v)`。ところが製品は
+    wheel_base を `boundingbox.length*0.6` で導き、クランプは車両を積分する
+    **前**に走る一方 `ego.speed` は積分**後**に記録される。この二重の取り違えが
+    0.88% の幻の超過を生み、`kappa_ratio_same` / `kappa_ratio_prev`（同一フレーム版と
+    前フレーム版）という 2 系列を並記する回避策まで作らせた。
 
-
-def build_series(rows: list[dict], wheel_base: float) -> list[dict]:
+    包絡線が `kappa_out` / `kappa_limit` を publish するようになったので、
+    その 2 系列も推測計算も不要になった。**両辺とも製品の値**であり、
+    どちらの速度サンプルを充てるかという問いがそもそも消えている。
+    publish されていない古いキャプチャは `None`（未評価）にする——推測はしない。
+    """
     S = []
     for r in rows:
         env = r.get("envelope", {})
         ego = r["ego"]
+        k_out = env.get("kappa_out")
+        k_lim = env.get("kappa_limit")
+        if isinstance(k_out, (int, float)) and isinstance(k_lim, (int, float)) and k_lim > 0.0:
+            ratio = abs(k_out) / k_lim
+            excess = abs(k_out) - k_lim
+        else:
+            ratio = excess = None  # 未評価。0.0 でも nan でもなく「測っていない」
         S.append(dict(t=float(r["sim_time"]), speed=float(ego["speed"]),
                        x=float(ego["x"]), y=float(ego["y"]),
                        steer_in=float(env.get("steer_in", 0.0)),
                        steer_out=float(env.get("steer_out", 0.0)),
-                       jerk_active=bool(env.get("steer_jerk_active", False))))
+                       jerk_active=bool(env.get("steer_jerk_active", False)),
+                       kappa_ratio=ratio, kappa_excess=excess))
     n = len(S)
-    for i, s in enumerate(S):
-        # 同一フレーム版(検算対象・バグ2の疑いがある版): このフレームのtelemetryが
-        # 報告する speed をそのまま使う。
-        s["kappa_ratio_same"] = kappa_ratio(s["steer_out"], s["speed"], wheel_base)
-        # 前フレーム版(製品C++が実際に使う速度に対応): 行0には前行が無いので
-        # 自分の値で代用する(注記対象・下のNOTE_ROW0参照)。
-        prev_speed = S[i - 1]["speed"] if i > 0 else s["speed"]
-        s["kappa_ratio_prev"] = kappa_ratio(s["steer_out"], prev_speed, wheel_base)
-        # 後方互換(未使用箇所があれば同一フレーム版を指す)。
-        s["kappa_ratio"] = s["kappa_ratio_same"]
     for key in ("steer_in", "steer_out"):
         rate = [0.0] * n
         for i in range(1, n):
@@ -140,7 +128,7 @@ def load_all() -> dict[str, dict[float, list[dict]]]:
         for cap in CAPS:
             path = IN_ROOT / name / f"cap_{cap:g}" / "telemetry.jsonl"
             rows = truncate_at_freeze(load_jsonl(path))
-            data[name][cap] = build_series(rows, WHEEL_BASE[name])
+            data[name][cap] = build_series(rows)
     return data
 
 
@@ -201,56 +189,40 @@ def main() -> int:
           "——ツール自身の警告としてそのまま報告する（除外せず、以降の数値は全セル報告する）。")
     print()
 
-    print("[kappa安全チェック] |kappa(steer_out)|/kappa_max の最大値（修正で恒久的に<=1のはず）")
-    print("  一次証拠(ControllerVirtualDriver.cpp:298-311,380,488): envelopeに渡る速度は"
-          "このフレームの物理積分より前(=前フレームの積分後速度)。telemetryのego.speedは"
-          "このフレームの物理積分より後に記録される。よって行iのenvelope計算に対応する速度は"
-          "行iのego.speedではなく行i-1のego.speed —— 二版を両方報告する。")
-    print("  [同一フレーム版](旧計算・検算対象。行iのenvelope計算に行iのego.speedを充てる=バグ2)")
+    print("[kappa安全チェック] |kappa_out|/kappa_limit の最大値（恒久的に<=1のはず）")
+    print("  **両辺とも包絡線が publish した値**（AdSteeringEnvelope.cpp）。ホイールベースも"
+          "速度サンプルもタイミングも、この比較には入らない。")
+    print("  以前ここには「同一フレーム版 / 前フレーム版」の2表があった。あれは"
+          "ハーネスが速度を推測していた時代の産物で、どちらの版が正しいかという問い自体が"
+          "publish によって消えている。超過(1/m)も併記する——比が 1.000000 と出たとき、"
+          "上限に張り付いている(=0)のか本当に超えているのかは比では見分けられない。")
     print(f"  {'run':<12}" + "".join(f"{'cap='+str(int(c)):>16}" for c in CAPS))
-    kappa_violations_same = []
+    kappa_violations = []
+    n_unevaluated = 0
     for name in SCENARIOS:
         vals = []
         for cap in CAPS:
             S = data[name][cap]
-            mx = max(s["kappa_ratio_same"] for s in S)
+            rs = [s["kappa_ratio"] for s in S if s["kappa_ratio"] is not None]
+            n_unevaluated += len(S) - len(rs)
+            if not rs:
+                vals.append(None)
+                continue
+            mx = max(rs)
+            ex = max(s["kappa_excess"] for s in S if s["kappa_excess"] is not None)
             vals.append(mx)
-            if mx > 1.0 + 1e-4:
-                kappa_violations_same.append((name, cap, mx))
-        print(f"  {name:<12}" + "".join(f"{v:>16.6f}" for v in vals))
-    if kappa_violations_same:
-        print(f"  => 超過あり（丸め1e-4を超える）: {kappa_violations_same}")
+            if ex > KAPPA_EPS_ABS:
+                kappa_violations.append((name, cap, mx, ex))
+        print(f"  {name:<12}" + "".join(
+            (f"{'未評価':>16}" if v is None else f"{v:>16.6f}") for v in vals))
+    if n_unevaluated:
+        print(f"  注意: {n_unevaluated} フレームは kappa_out/kappa_limit を持たない"
+              "（publish 前のキャプチャ）——**未評価**として除外した。推測での代用はしない。")
+    if kappa_violations:
+        print(f"  => 超過あり（{KAPPA_EPS_ABS:g} 1/m 超）: {kappa_violations}")
+        print("     => 期待に合わせず、そのまま報告する。")
     else:
-        print("  => 全セルで1.0+1e-4以内。")
-    print()
-
-    print("  [前フレーム版](製品C++の実装に対応する版。行iのenvelope計算に行i-1のego.speedを充てる)")
-    print("  注記: 行0(各走行の最初の1フレーム)は前行が無いため自分の値で代用——検算の結論には影響しない"
-          "(発火は加速中盤で起きており、行0は非発火区間)。")
-    print(f"  {'run':<12}" + "".join(f"{'cap='+str(int(c)):>16}" for c in CAPS))
-    kappa_violations_prev = []
-    for name in SCENARIOS:
-        vals = []
-        for cap in CAPS:
-            S = data[name][cap]
-            mx = max(s["kappa_ratio_prev"] for s in S)
-            vals.append(mx)
-            if mx > 1.0 + 1e-4:
-                kappa_violations_prev.append((name, cap, mx))
-        print(f"  {name:<12}" + "".join(f"{v:>16.6f}" for v in vals))
-    if kappa_violations_prev:
-        print(f"  => 超過あり（丸め1e-4を超える）: {kappa_violations_prev}")
-        print("     => 修正が不完全である可能性——期待に合わせず、そのまま報告する。")
-    else:
-        print("  => 全セルで1.0+1e-4以内。修正後は恒久的に守られていることを確認。")
-    print()
-
-    print("  [cap=10 名指し比較] right_turn / tljunction の同一フレーム版 vs 前フレーム版")
-    for name in ("right_turn", "tljunction"):
-        S = data[name][10.0]
-        mx_same = max(s["kappa_ratio_same"] for s in S)
-        mx_prev = max(s["kappa_ratio_prev"] for s in S)
-        print(f"    {name:<12} 同一フレーム={mx_same:.7f}  前フレーム={mx_prev:.7f}")
+        print(f"  => 全セルで超過 0（しきい {KAPPA_EPS_ABS:g} 1/m = telemetry 1量子）。")
     print()
 
     print("[1: steer_jerk_active 発火数/発火率]  (走行ごと x cap)")

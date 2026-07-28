@@ -336,9 +336,20 @@ struct VirtualDriverTelemetry
     // before the vehicle is integrated, telemetry records after). Both guesses
     // produced a spurious ~0.9% 'overshoot' that took a full investigation to
     // attribute. Publishing the cap removes the guessing: a verifier compares
-    // kappa_cmd/kappa_limit directly, in the envelope's own units.
+    // kappa_out against kappa_limit directly, in the envelope's own units.
+    //
+    // PUBLISHING ONLY THE CAP WAS NOT ENOUGH, and that half-measure shipped
+    // once: with kappa_limit alone a checker still had to re-derive the
+    // LEFT-hand side (the applied curvature) from steer_out plus a guessed
+    // wheelbase, so exactly one of the two guesses was removed while the
+    // verdict kept depending on the other. kappa_out closes it — both sides of
+    // the comparison now come from the envelope itself.
+    //
+    // All three are 0.0 when the envelope is disabled (no cap is computed).
+    // Gate on kappa_limit > 0 before comparing: 0 means "not computed".
     double ad_envelope_kappa_cmd          = 0.0;   // curvature implied by the raw command [1/m]
     double ad_envelope_kappa_limit        = 0.0;   // effective curvature cap this frame [1/m]
+    double ad_envelope_kappa_out          = 0.0;   // curvature implied by the APPLIED command [1/m]
     // Normalized steering [-1,1] the envelope actually saw/produced this
     // frame. driver.steer (DriverModelSnapshot below) is the raw AD proposal
     // BEFORE the envelope — it is intentionally left untouched by the

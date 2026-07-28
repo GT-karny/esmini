@@ -60,21 +60,28 @@ SCENARIOS = {
                   / "traffic_lights_junction.xosc",
 }
 
-# kappa安全チェック用。AdSteeringEnvelope の shipped defaults + シナリオごとの wheel_base
-# (bbox.length*0.6, ControllerVirtualDriver.cpp:312)。basic はカタログ car_white(length=5.04)、
-# 他2つはインライン car_white 定義(length=5.0) でわずかに違う。
-A_LAT_MAX_STEER = 4.3
-YAW_RATE_MAX = 1.0
-V_FLOOR = 1.0
-MAX_STEER_ANGLE = 0.61
-WHEEL_BASE = {"basic": 5.04 * 0.6, "right_turn": 5.0 * 0.6, "tljunction": 5.0 * 0.6}
+# telemetry の固定9桁シリアライズ1量子。曲率差がこれ未満なら計測器の分解能以下。
+KAPPA_EPS_ABS = 1e-9
 
 
-def kappa_ratio(steer_out: float, speed: float, wheel_base: float) -> float:
-    v_eff = max(speed, V_FLOOR)
-    kappa_max = min(A_LAT_MAX_STEER / (v_eff ** 2), YAW_RATE_MAX / v_eff)
-    kappa_out = math.tan(steer_out * MAX_STEER_ANGLE) / wheel_base
-    return abs(kappa_out) / kappa_max if kappa_max > 0 else float("nan")
+def kappa_ratio_published(frame: dict):
+    """|kappa_out| / kappa_limit を **包絡線が publish した値だけ** から作る。
+
+    以前の実装は比の両辺をここで組み立てていた——左辺は固定ホイールベース定数からの
+    `tan(steer_out*max_steer_angle)/wheel_base`、右辺は shipped 定数と `ego.speed` からの
+    `min(a_lat_max/v^2, yaw_max/v)`。製品は wheel_base を `boundingbox.length*0.6` で導き、
+    クランプは車両の積分**前**に走る一方 `ego.speed` は積分**後**に記録されるので、
+    両方とも系統的にずれていた（0.88% の幻の超過の正体）。`kappa_out`/`kappa_limit` の
+    publish 後は推測が一切要らない。
+
+    返り値は `(ratio, excess)`、publish されていないフレームは `(None, None)`。
+    **未評価は未評価として返す**——推測での穴埋めをしない。
+    """
+    env = frame.get("envelope") or {}
+    k_out, k_lim = env.get("kappa_out"), env.get("kappa_limit")
+    if not (isinstance(k_out, (int, float)) and isinstance(k_lim, (int, float))) or k_lim <= 0.0:
+        return None, None
+    return abs(k_out) / k_lim, abs(k_out) - k_lim
 
 
 def _write_cfg_jerk(tmpdir: str, jerk_cap: float, tag: str) -> str:
@@ -132,14 +139,18 @@ def run_one(scenario_path: Path, jerk_cap: float, plant_extra: dict, tmpdir: str
     jerk_out = _jerk_out_series(frames)
     max_abs_jerk_out = max((abs(j) for j in jerk_out), default=0.0)
     latched = any(f.get("override", {}).get("lateral") for f in frames)
-    wb = WHEEL_BASE.get(sname, 3.0)
-    max_kappa_ratio = max((kappa_ratio(float(f.get("envelope", {}).get("steer_out", 0.0)),
-                                       float(f["ego"]["speed"]), wb) for f in frames), default=float("nan"))
+    # publish された値だけを見る。未評価フレームは黙って 0 埋めせず数える。
+    pub = [kappa_ratio_published(f) for f in frames]
+    ratios = [r for r, _ in pub if r is not None]
+    excesses = [e for _, e in pub if e is not None]
+    max_kappa_ratio = max(ratios, default=float("nan"))
+    max_kappa_excess = max(excesses, default=float("nan"))
 
     return dict(n=len(frames), dt_actual=frames[1]["sim_time"] - frames[0]["sim_time"] if len(frames) > 1 else None,
                 residual_peak=max(residuals), residual_threshold=float(frames[0]["ffb"]["gates"].get("residual_threshold", 0.08)),
                 sustain_max=max(sustains), jerk_active_n=jerk_active_n, jerk_active_frac=jerk_active_n / len(frames),
-                max_abs_jerk_out=max_abs_jerk_out, latched=latched, max_kappa_ratio=max_kappa_ratio)
+                max_abs_jerk_out=max_abs_jerk_out, latched=latched, max_kappa_ratio=max_kappa_ratio,
+                max_kappa_excess=max_kappa_excess, n_kappa_unevaluated=len(frames) - len(ratios))
 
 
 def main() -> int:
@@ -217,22 +228,32 @@ def main() -> int:
               f"差={noise_abs:.9f}({noise_rel:.4f}%) — これを測定ノイズ床の目安として使う")
         print()
 
-        print("[kappa安全チェック] |kappa(steer_out)|/kappa_max の最大値（全27セル=3走行x3cap"
-              "x3プラント変種の中の最悪値。修正で恒久的に<=1のはず）")
+        print("[kappa安全チェック] |kappa_out|/kappa_limit の最大値（全27セル=3走行x3cap"
+              "x3プラント変種の中の最悪値。恒久的に<=1のはず）")
+        print("  **両辺とも包絡線が publish した値**。ホイールベース・速度サンプル・"
+              "タイミングはこの比較に入らない。判定は比ではなく超過(1/m)で行う"
+              "——比が 1.000000 では上限に張り付いた状態と本当の超過を見分けられない。")
         print(f"  {'run':<12}{'cap=0':>12}{'cap=25':>12}{'cap=50':>12}")
         kappa_violations = []
+        n_uneval = 0
         for sname in SCENARIOS:
             row = []
             for cap in JERK_CAPS:
-                mx = max(r["max_kappa_ratio"] for r in results[sname][cap])
+                cells = results[sname][cap]
+                n_uneval += sum(r.get("n_kappa_unevaluated", 0) for r in cells)
+                mx = max(r["max_kappa_ratio"] for r in cells)
+                ex = max(r["max_kappa_excess"] for r in cells)
                 row.append(mx)
-                if mx > 1.0 + 1e-4:
-                    kappa_violations.append((sname, cap, mx))
+                if ex > KAPPA_EPS_ABS:
+                    kappa_violations.append((sname, cap, mx, ex))
             print(f"  {sname:<12}" + "".join(f"{v:>12.6f}" for v in row))
+        if n_uneval:
+            print(f"  注意: {n_uneval} フレームは kappa_out/kappa_limit 未publish のため"
+                  "**未評価**として除外（推測での代用はしない）。")
         if kappa_violations:
             print(f"  => 超過あり: {kappa_violations} — 修正が不完全である可能性。期待に合わせず報告する。")
         else:
-            print("  => 全27セルで1.0+1e-4以内。")
+            print(f"  => 全27セルで超過 0（しきい {KAPPA_EPS_ABS:g} 1/m = telemetry 1量子）。")
         print()
 
         print("[残差ピーク / sustain_accum 最大 — worst case (3プラント変種中の最悪値)]")

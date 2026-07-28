@@ -1,42 +1,72 @@
-"""feature:F7 acceptance check — do the proposed envelope limits ever clip a frame
-across the FULL evaluated regression set (Phase 1: lc/curve/right_turn CSVs +
-Phase 2: 12-scenario car_following_traffic_control_batch telemetry)?
+"""feature:F7 acceptance check — did any frame apply a steering curvature above
+the AD safety envelope's own cap, across the evaluated run set?
 
-!! THIS IS NOT AN INDEPENDENT VERIFICATION. READ THIS BEFORE CITING IT. !!
+WHAT THIS FILE ASSERTS, AND WITH WHAT ASSUMPTIONS
+-------------------------------------------------
+The verdict comes from ONE comparison, per frame, on telemetry produced by the
+envelope itself:
 
-    The limits it checks were DERIVED FROM THE SAME 15-scenario pool it checks
-    them against. AdSteeringEnvelope.hpp states it outright: "normal driving
-    peaks (15-scenario pool) were a_lat=3.289, yaw_rate=0.780, steer_rate=0.769;
-    a_lat_max_steer and yaw_rate_max are that pool max x1.3". Running this file
-    over that same pool therefore cannot fail for the reason that matters -- the
-    limits were constructed to sit above those maxima, so "nothing clips" is
-    arithmetic, not evidence. It tells you the constants were transcribed
-    correctly and nothing else.
+    |envelope.kappa_out|  <=  envelope.kappa_limit
 
-    This is the same identify-and-verify-on-one-dataset circularity that was
-    found in the shadow model vs the synthetic plant, reappearing in the safety
-    envelope. A real acceptance needs a pool this script has never seen:
-    scenarios outside the 15 used to set the limits (junction/crosswalk/AEB
-    manifests, or a real-vehicle capture). Point the CLI at such a root and the
-    result becomes meaningful:
+Both sides are published by AdSteeringEnvelope.cpp, computed inside the same
+call, from the same wheel_base / max_steer_angle / speed the clamp actually
+used. NOTHING about the vehicle geometry, the speed sample, or the frame
+timing enters this file's verdict. That is the entire point, and it took three
+attempts to get there:
+
+  1. The check read `driver.steer` — the AD's raw REQUEST, before the clamp —
+     and reported a_lat = 42.6 m/s^2 (991% of limit) on a frame where the
+     envelope had done its job perfectly (steer_in 0.9458 -> steer_out 0.0150).
+  2. Corrected to read `envelope.steer_out`, it then re-derived the applied
+     curvature from a hard-coded wheelbase (3.0) and the row's speed. The
+     product derives wheel_base as boundingbox.length*0.6, and the clamp runs
+     BEFORE the vehicle is integrated while telemetry records speed after.
+     Two wrong assumptions, together manufacturing a 0.88% phantom overshoot
+     that cost a full investigation. A "+/-1 frame interval" workaround was
+     built on top, which narrowed the phantom without removing it.
+  3. `kappa_limit` was then published, and the RIGHT-hand side was fixed — but
+     the LEFT-hand side kept the hard-coded wheelbase. Half the double-mistake
+     survived, and the 12 scenarios then in use happened to all be 5.0 m
+     vehicles (-> 3.0), so the two numbers agreed by coincidence, not by
+     construction. Worse, the direct comparison was assembled into a local
+     `kappa_over` list that the function never returned, so the "direct check"
+     could not fail at all: every PASS it printed came from the derived path
+     it claimed to supersede.
+
+`kappa_out` closes it. The derived-curvature path for run telemetry is GONE —
+not superseded, deleted — so there is no longer a code path in which a
+wheelbase or a speed sample can influence this file's answer.
+
+min(|kappa_cmd|, kappa_limit) is NOT a valid substitute for kappa_out: the
+curvature clamp is stage 1 of 3, and the steer_rate / steer_jerk stages move
+the command again afterwards (pinned by
+test_AdSteeringEnvelope.cpp's KappaOutIsNotMinOfCmdAndLimitWhen*StageBinds).
+
+!! A PASS ON THE FITTING POOL IS NOT AN INDEPENDENT VERIFICATION. !!
+
+    The envelope's limits were DERIVED from the 15-scenario pool
+    (AdSteeringEnvelope.hpp: "normal driving peaks were a_lat=3.289,
+    yaw_rate=0.780, steer_rate=0.769; a_lat_max_steer and yaw_rate_max are
+    that pool max x1.3"). Running over that same pool cannot fail for the
+    reason that matters. Point the CLI at scenarios outside those 15
+    (junction / crosswalk / AEB manifests, or a real-vehicle capture) for the
+    result to mean anything:
 
         python f7_envelope_acceptance.py <root-of-scenarios-not-in-the-15>
 
-    Until that is done, the honest reading of a PASS here is "the shipped
-    constants still bound the pool they were fitted to".
-
-Candidate limits under test (team-lead's x1.3 proposal):
-    a_lat_max_steer = 4.3   m/s^2
-    yaw_rate_max    = 1.0   rad/s
-    steer_rate_max  = 1.0   rad/s
-
-Per-scenario: max value per metric, % of limit used (headroom), and clip
-count/pct at the candidate limits. No simulation run here -- reads the same
-Phase-1 CSVs (scripts/ffb_spike/profiles/*.csv) and Phase-2 telemetry.jsonl
-already produced.
+WHAT STILL CARRIES AN ASSUMPTION (reported, never part of the verdict)
+---------------------------------------------------------------------
+  * the steering-RATE column, which converts normalized steering to radians
+    with MAX_STEER_ANGLE below. That is the product's configured
+    max_steer_angle, not a published per-frame value, so it is a config
+    assumption. It bounds a different limit (steer_rate_max) than the
+    curvature comparison and is reported separately.
+  * the Phase-1 CSV profiles, which predate the envelope entirely and carry no
+    telemetry block. Their wheelbase is known per file (PHASE1_WB) and their
+    numbers describe the pool the limits were fitted to. Context only.
 
 Usage:
-    DriverScript/.venv/Scripts/python.exe scripts/ffb_spike/f7_envelope_acceptance.py <phase2_out_root>
+    DriverScript/.venv/Scripts/python.exe scripts/ffb_spike/f7_envelope_acceptance.py <run_out_root> [...]
 """
 from __future__ import annotations
 
@@ -47,15 +77,50 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).parent
+
+# Config assumption, used ONLY for the steering-rate column and the Phase-1
+# profiles — never for the curvature verdict (see module doc).
 MAX_STEER_ANGLE = 0.61
 
-LIMITS = {"a_lat": 4.3, "yaw": 1.0, "steer_rate": 1.0}
+# Mirrors the SHIPPED constants in AdSteeringEnvelope.hpp
+# (kAdEnvelopeDefault{ALatMaxSteer,YawRateMax,SteerRateMax}), not the original
+# "pool max x1.3" proposal. steer_rate was 1.0 here long after the product
+# settled on 1.5 on separate grounds (the hpp explains why the x1.3 rule does
+# not apply to it), which made this table report the rate limiter doing its job
+# at exactly its cap as a 150% exceedance. Kept overridable with
+# --steer-rate-max= for comparing candidate values.
+LIMITS = {"a_lat": 4.3, "yaw": 1.0, "steer_rate": 1.5}
 
+# Phase-1 CSVs are pre-envelope captures with a per-file known vehicle; they
+# have no telemetry block to publish anything. There is deliberately no
+# PHASE2_WB counterpart: run telemetry now publishes its own curvature, and
+# re-introducing a wheelbase constant here would re-open the defect this file
+# spent three revisions closing.
 PHASE1_WB = {"lc": 5.04 * 0.6, "curve": 5.0 * 0.6, "right_turn": 5.0 * 0.6}
-PHASE2_WB = 3.0
+
+# One serialization quantum of VirtualDriverTelemetryJson.cpp's fixed 9
+# decimals. kappa_out and kappa_limit are each rounded to 1e-9 absolute before
+# they reach this file, so a difference below that is the instrument's own
+# resolution floor and cannot be evidence of anything. A finer epsilon would
+# manufacture breaches out of rounding; a coarser one would hide real ones
+# (1e-9 of curvature is ~2e-7 m/s^2 of lateral accel at 14 m/s).
+KAPPA_EPS_ABS = 1e-9
+
+# Same idea, propagated to the steering-RATE column. That series is a finite
+# difference of steer_out, so the 1e-9 steering quantum is amplified by
+# MAX_STEER_ANGLE/dt (~1.2e-8 at dt=0.05). A rate limiter pinned exactly at its
+# cap therefore serializes as a hair over it, and a bare `>` reports the
+# limiter working as the limiter failing. 1e-6 sits three orders above that
+# amplified quantum and six below the cap itself.
+RATE_EPS_ABS = 1e-6
 
 
 def series_from_phase1(name: str) -> dict:
+    """Pre-envelope CSV profile. Derived metrics, known per-file wheelbase.
+
+    Context only — this data has no envelope block, so it cannot answer the
+    applied-curvature question and never contributes to the verdict.
+    """
     rows = []
     with (HERE / "profiles" / f"{name}.csv").open(encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
@@ -71,11 +136,26 @@ def series_from_phase1(name: str) -> dict:
         dt = rows[i]["t_s"] - rows[i - 1]["t_s"]
         if dt > 0:
             steer_rate.append(abs(deltas[i] - deltas[i - 1]) / dt)
-    return {"a_lat": a_lat, "yaw": yaw, "steer_rate": steer_rate, "frames_meta": []}
+    return {"kind": "phase1", "a_lat": a_lat, "yaw": yaw, "steer_rate": steer_rate}
 
 
-def series_from_phase2(name: str, path: Path) -> dict:
+def series_from_run(path: Path) -> dict:
+    """Run telemetry. The applied-curvature check reads PUBLISHED values only.
+
+    A frame is DIRECTLY EVALUATED when its envelope block carries both
+    kappa_limit > 0 and kappa_out. Anything else is counted as un-evaluated and
+    reported as such — this function never falls back to reconstructing the
+    applied curvature, because every reconstruction available to it needs a
+    wheelbase and a speed sample it would have to invent.
+
+    kappa_limit == 0 is the envelope's "no cap computed this frame" signal (the
+    disabled pass-through), not a cap of zero. Those frames are un-evaluated
+    too, and separately counted so a run made with the envelope switched off
+    cannot be mistaken for a clean run.
+    """
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    # Telemetry can wrap around when a run restarts within one file; keep the
+    # first monotonically increasing stretch only.
     active, prev_t = [], None
     for r in rows:
         t = r["sim_time"]
@@ -83,306 +163,218 @@ def series_from_phase2(name: str, path: Path) -> dict:
             break
         active.append(r)
         prev_t = t
-    # feature:F7 — WHICH STEER SIGNAL THIS READS, and why it changed.
-    #
-    # `driver.steer` is the AD's RAW REQUEST, recorded BEFORE the safety
-    # envelope clamps it. Deriving a_lat/yaw/steer_rate from it answers "did
-    # the AD ever ASK for something outside the limits", which is not the
-    # question this file's name promises and is not a safety statement at all:
-    # a run where the envelope caught every excursion perfectly would still be
-    # reported as clipping.
-    #
-    # Measured on car_following_traffic_control/green_no_stop t=12.00:
-    #     envelope.steer_in  = 0.9458   (the request -- 94.6% of full lock at 14 m/s)
-    #     envelope.steer_out = 0.0150   (what actually reached the vehicle)
-    # The old metric read 0.9458 and reported a_lat = 42.6 m/s^2 (991% of the
-    # limit). The envelope had done exactly its job.
-    #
-    # So the applied signal is `envelope.steer_out` when the telemetry carries
-    # it. `driver.steer` remains the fallback for older captures that predate
-    # the envelope block, and the request series is kept separately because
-    # "how often does the AD ask for something the clamp has to catch" is worth
-    # reporting -- just not as a safety verdict.
+
+    kappa_over = []       # direct breaches: (t, |kappa_out|, kappa_limit, clamp_engaged)
+    ratios = []           # |kappa_out| / kappa_limit on directly evaluated frames
+    excess = []           # |kappa_out| - kappa_limit [1/m], signed: the margin itself
+    n_direct = 0
+    n_no_kappa_out = 0    # has a cap but no applied curvature -> capture predates kappa_out
+    n_no_cap = 0          # envelope did not run (disabled) or block absent entirely
+    req_over = 0          # AD asked for more curvature than the cap: the clamp had work to do
+
+    for r in active:
+        env = r.get("envelope") or {}
+        k_lim = env.get("kappa_limit")
+        if not isinstance(k_lim, (int, float)) or k_lim <= 0.0:
+            n_no_cap += 1
+            continue
+        k_out = env.get("kappa_out")
+        if not isinstance(k_out, (int, float)):
+            n_no_kappa_out += 1
+            continue
+        n_direct += 1
+        ratios.append(abs(k_out) / k_lim)
+        excess.append(abs(k_out) - k_lim)
+        if abs(k_out) > k_lim + KAPPA_EPS_ABS:
+            # Whether the clamp was ENGAGED separates the two findings that
+            # live in "the output went over": clamp off means the envelope did
+            # not act on a frame that needed it (unambiguous defect); clamp on
+            # means it acted and its own output still exceeded its own cap
+            # (also a defect, and a stranger one). Both fail; the message
+            # distinguishes them.
+            engaged = bool(env.get("lateral_accel_active") or env.get("yaw_rate_active"))
+            kappa_over.append((r.get("sim_time"), abs(k_out), k_lim, engaged))
+        k_cmd = env.get("kappa_cmd")
+        if isinstance(k_cmd, (int, float)) and abs(k_cmd) > k_lim + KAPPA_EPS_ABS:
+            req_over += 1
+
+    # Steering RATE from the APPLIED command. No wheelbase and no speed enters
+    # this; the one assumption is MAX_STEER_ANGLE (see module doc). Falls back
+    # to driver.steer only for captures with no envelope block at all, where
+    # the raw proposal is the only steering signal that exists.
     def _steer_out(r):
         env = r.get("envelope") or {}
         return env["steer_out"] if "steer_out" in env else r["driver"]["steer"]
 
-    def _steer_in(r):
-        env = r.get("envelope") or {}
-        return env["steer_in"] if "steer_in" in env else r["driver"]["steer"]
-
     deltas = [_steer_out(r) * MAX_STEER_ANGLE for r in active]
-    deltas_req = [_steer_in(r) * MAX_STEER_ANGLE for r in active]
-    # feature:F7 — WHICH SPEED THE ENVELOPE ACTUALLY SAW.
-    #
-    # The clamp is kappa <= a_lat_max / max(v, v_floor)^2, evaluated inside the
-    # controller step BEFORE the vehicle is integrated. `ego.speed` in a
-    # telemetry row is the POST-step value. Pairing a row's steer_out with that
-    # row's speed therefore over-states v by one frame of acceleration, and
-    # because a_lat goes as v^2 the error is doubled.
-    #
-    # Measured, on the two frames that used to come out above the limit
-    # (green_no_stop t=11.95/12.05): the envelope clamped to exactly 4.3 using
-    # v=13.992, the row records v=14.005 (+0.013 m/s = one frame at the
-    # observed 0.26 m/s^2), and recomputing with the row's speed yields 4.3095
-    # -- 0.22% over a limit that was in fact respected. That was the whole of
-    # the UNDETERMINED residue once the wheelbase term was accounted for.
-    #
-    # PAIRING WITH ONE SIDE IS NOT ENOUGH -- measured both ways.
-    # Simply switching to the previous row's speed fixed car_following (where
-    # the car accelerates, so the earlier speed is lower) and BROKE the
-    # aeb_safety set (where it brakes hard, so the earlier speed is HIGHER and
-    # inflates a_lat instead). Neither side is universally correct because the
-    # envelope does not publish the speed it used.
-    #
-    # So the timing ambiguity is treated as what it is: a bounded interval. Each
-    # frame gets both candidates, and a frame only counts as over the limit when
-    # it is over under BOTH -- i.e. when no admissible speed sample explains it.
-    # Anything that straddles the limit is timing-ambiguous, not a breach, and
-    # the verdict reports it separately instead of picking whichever side gives
-    # the answer we prefer.
-    speeds = [r["ego"]["speed"] for r in active]
-    speeds_prev = [active[max(0, i - 1)]["ego"]["speed"] for i in range(len(active))]
-    kappas = [math.tan(d) / PHASE2_WB for d in deltas]
-    # The reported series uses the larger of the two admissible speed samples
-    # (the conservative reading), and a_lat_lo keeps the smaller one so the
-    # verdict can tell "over under every admissible sample" from "over only
-    # under the pessimistic one".
-    a_lat = [abs(max(v, vp) ** 2 * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
-    a_lat_lo = [abs(min(v, vp) ** 2 * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
-    yaw = [abs(max(v, vp) * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
-    yaw_lo = [abs(min(v, vp) * k) for v, vp, k in zip(speeds, speeds_prev, kappas)]
-    meta = {"a_lat": list(zip(a_lat, active)), "yaw": list(zip(yaw, active))}
     steer_rate, sr_meta = [], []
     for i in range(1, len(active)):
         dt = active[i]["sim_time"] - active[i - 1]["sim_time"]
         if dt > 0:
             steer_rate.append(abs(deltas[i] - deltas[i - 1]) / dt)
             sr_meta.append(active[i])
-    # Request-side excursions (context only, never a verdict) and, per frame,
-    # whether the corresponding clamp stage was engaged. The flags are what
-    # separate "the clamp never ran" (a real defect) from "the clamp ran and an
-    # offline recomputation disagrees slightly" (a measurement mismatch).
-    # feature:F7 — THE DIRECT CHECK, when the capture carries it.
-    #
-    # Everything else in this function re-derives a_lat from steer_out, and to
-    # do that it has to guess the wheelbase and which speed sample the clamp
-    # used. Both guesses were wrong once and produced a ~0.9% phantom overshoot
-    # that took a full investigation to attribute. Since 2026-07-28 the
-    # envelope publishes its OWN numbers, so the honest comparison is
-    # kappa_cmd vs kappa_limit in the envelope's own units -- no wheelbase, no
-    # speed, no timing assumption. Frames from older captures have neither and
-    # fall back to the derived path.
-    kappa_over = []
-    for r in active:
-        env = r.get("envelope") or {}
-        if "kappa_limit" in env and env.get("kappa_limit", 0.0) > 0.0:
-            k_out = math.tan(_steer_out(r) * MAX_STEER_ANGLE) / PHASE2_WB
-            # Applied curvature must not exceed the cap the envelope itself
-            # computed. Compared with a relative epsilon for float noise only.
-            if abs(k_out) > env["kappa_limit"] * (1.0 + 1e-9):
-                kappa_over.append((r.get("sim_time"), abs(k_out), env["kappa_limit"]))
 
-    kappas_req = [math.tan(d) / PHASE2_WB for d in deltas_req]
-    a_lat_req = [abs(v * v * k) for v, k in zip(speeds, kappas_req)]
-    clamp_on = [
-        bool((r.get("envelope") or {}).get("lateral_accel_active", False)) for r in active
-    ]
-    return {"a_lat": a_lat, "yaw": yaw, "steer_rate": steer_rate,
-            "active": active, "sr_meta": sr_meta,
-            "a_lat_lo": a_lat_lo, "yaw_lo": yaw_lo,
-            "a_lat_req": a_lat_req, "a_lat_clamp_on": clamp_on}
+    return {"kind": "run", "steer_rate": steer_rate, "sr_meta": sr_meta,
+            "kappa_over": kappa_over, "kappa_ratios": ratios, "kappa_excess": excess,
+            "n_direct": n_direct, "n_no_kappa_out": n_no_kappa_out,
+            "n_no_cap": n_no_cap, "req_over": req_over, "n_frames": len(active)}
 
 
 def main() -> int:
     """Returns a PROCESS EXIT CODE, and that is the point.
 
-    This file is named "acceptance" and its whole job is to answer "do the
-    candidate envelope limits ever clip a frame across the evaluated set". It
-    used to be declared `-> None` and called bare from __main__, so it could
-    not report a verdict to anything: it printed a clip count and exited 0
-    whether that count was 0 or 4000. Every commit that cited it as evidence
-    was citing a program that is structurally incapable of failing.
+    This file is named "acceptance" and its whole job is to answer "did any
+    applied steering command exceed the safety envelope's own curvature cap".
+    It was once declared `-> None` and called bare, so it printed a count and
+    exited 0 whether that count was 0 or 4000; then, after it grew a verdict,
+    the direct comparison it based that verdict on was built into a local that
+    the producing function never returned, so it still could not fail. Both
+    holes are closed, and the structure below is arranged so a future one is
+    harder to open: the PASS branch requires a POSITIVE count of directly
+    evaluated frames, never merely an empty list of breaches.
 
     Exit codes:
-      0 - no frame clipped any candidate limit
-      1 - at least one frame clipped (the answer this check exists to give)
-      2 - nothing was evaluated (no series found), which is not a pass either
+      0 - frames were directly evaluated and none exceeded the envelope's cap
+      1 - at least one applied curvature exceeded the envelope's own cap
+      2 - the question was not answered (no run telemetry, or none of it
+          carries the published curvature) — not a pass
+      3 - no curvature breach, but a steering-rate/Phase-1 candidate-limit
+          exceedance was seen; those paths still carry assumptions, so they
+          are reported without being called a product finding
     """
-    # Accepts one or more roots; each is searched recursively (rglob) for
-    # telemetry.jsonl so both flat (phase2: root/<scenario>/telemetry.jsonl)
-    # and nested (junction batches: root/<manifest>/<scenario>/telemetry.jsonl)
-    # layouts work without a flag. Optional --steer-rate-max=X overrides the
-    # steer_rate candidate limit (for comparing 1.0 vs 1.5 without editing code).
     args = sys.argv[1:]
     for a in list(args):
         if a.startswith("--steer-rate-max="):
             LIMITS["steer_rate"] = float(a.split("=", 1)[1])
             args.remove(a)
+    # Each root is searched recursively for telemetry.jsonl, so both flat
+    # (root/<scenario>/) and nested (root/<manifest>/<scenario>/) layouts work.
     extra_roots = [Path(a) for a in args]
-    all_series: dict[str, dict] = {}
+
+    phase1: dict[str, dict] = {}
+    runs: dict[str, dict] = {}
     for name in PHASE1_WB:
-        all_series[f"phase1/{name}"] = series_from_phase1(name)
+        phase1[f"phase1/{name}"] = series_from_phase1(name)
     for root in extra_roots:
         label = root.name
         for p in sorted(root.rglob("telemetry.jsonl")):
-            scen_name = p.parent.name
-            all_series[f"{label}/{scen_name}"] = series_from_phase2(scen_name, p)
+            runs[f"{label}/{p.parent.name}"] = series_from_run(p)
 
-    print(f"{'scenario':28s} {'a_lat max(%lim)':>18s} {'yaw max(%lim)':>16s} "
-          f"{'steer_rate max(%lim)':>22s} {'clip(a_lat/yaw/sr)':>20s}")
-    total_clips = {"a_lat": 0, "yaw": 0, "steer_rate": 0}
-    total_n = {"a_lat": 0, "yaw": 0, "steer_rate": 0}
+    # --- Table A: the verdict's own data -----------------------------------
+    print("=== applied curvature vs the envelope's OWN cap (published both sides) ===")
+    if not runs:
+        print("  (no run telemetry found)")
+    else:
+        # max_excess is the same comparison in ABSOLUTE curvature [1/m], and it
+        # is the number to read when the ratio prints as 1.000000: a rate
+        # limiter parked exactly on its cap and a genuine hairline breach look
+        # identical at 6 decimals of ratio, but not here.
+        print(f"{'scenario':40s} {'frames':>8s} {'direct':>8s} {'|k_out|/k_lim max':>19s} "
+              f"{'max excess [1/m]':>18s} {'AD over cap':>12s} {'breach':>7s}")
+    total_direct = total_no_kappa_out = total_no_cap = total_req_over = 0
+    worst_excess = float("-inf")
+    breaches: list[tuple] = []
+    for scen, s in sorted(runs.items()):
+        ratio_max = max(s["kappa_ratios"], default=float("nan"))
+        excess_max = max(s["kappa_excess"], default=float("nan"))
+        if s["kappa_excess"]:
+            worst_excess = max(worst_excess, excess_max)
+        total_direct += s["n_direct"]
+        total_no_kappa_out += s["n_no_kappa_out"]
+        total_no_cap += s["n_no_cap"]
+        total_req_over += s["req_over"]
+        for b in s["kappa_over"]:
+            breaches.append((scen, *b))
+        print(f"{scen:40s} {s['n_frames']:8d} {s['n_direct']:8d} {ratio_max:19.6f} "
+              f"{excess_max:18.3e} {s['req_over']:12d} {len(s['kappa_over']):7d}")
+
+    if runs:
+        print(f"  directly evaluated frames: {total_direct}")
+        if worst_excess > float("-inf"):
+            print(f"  worst |kappa_out| - kappa_limit over all frames: {worst_excess:.3e} 1/m "
+                  f"(breach threshold: > +{KAPPA_EPS_ABS:.0e})")
+        if total_no_kappa_out:
+            print(f"  frames with a cap but NO kappa_out (capture predates it): "
+                  f"{total_no_kappa_out} — NOT evaluated, NOT guessed")
+        if total_no_cap:
+            print(f"  frames with no cap (envelope disabled or block absent): {total_no_cap} "
+                  f"— NOT evaluated")
+        print(f"  AD requests above the cap (the clamp's job to catch): {total_req_over}")
+
+    # --- Table B: context that still carries assumptions --------------------
+    print("\n=== context (assumption-carrying; never the verdict) ===")
+    print(f"{'series':40s} {'a_lat max(%lim)':>18s} {'yaw max(%lim)':>16s} "
+          f"{'steer_rate max(%lim)':>22s} {'clips':>18s}")
+    context_clips = 0
     clip_detail = []
-    for scen, s in all_series.items():
-        cells = []
-        clipcounts = []
+    for scen, s in list(phase1.items()) + sorted(runs.items()):
+        cells, counts = [], []
         for m in ("a_lat", "yaw", "steer_rate"):
-            vals = s[m]
+            vals = s.get(m)
+            if vals is None:
+                cells.append(f"{'-':>15s}")
+                counts.append(0)
+                continue
             mx = max(vals) if vals else 0.0
             lim = LIMITS[m]
-            pct = 100.0 * mx / lim
-            cells.append(f"{mx:7.3f} ({pct:5.1f}%)")
-            clipped = [v for v in vals if v > lim]
-            clipcounts.append(len(clipped))
-            total_clips[m] += len(clipped)
-            total_n[m] += len(vals)
-            if clipped and "phase2" in scen:
-                # find offending frame(s) for reporting
-                src = s.get("active" if m != "steer_rate" else "sr_meta", [])
-                pairs = zip(s[m], src) if m != "steer_rate" else zip(s[m], s["sr_meta"])
-                for v, fr in pairs:
-                    if v > lim:
-                        clip_detail.append((scen, m, v, fr["sim_time"], fr["ego"]["speed"], fr["driver"]["steer"]))
-        print(f"{scen:28s} {cells[0]:>18s} {cells[1]:>16s} {cells[2]:>22s} "
-              f"{str(clipcounts):>20s}")
-
-    print(f"\n=== TOTAL across {len(all_series)} scenarios ===")
-    for m in ("a_lat", "yaw", "steer_rate"):
-        print(f"  {m}: clipped={total_clips[m]}/{total_n[m]} "
-              f"({100*total_clips[m]/max(1,total_n[m]):.3f}%)")
+            cells.append(f"{mx:7.3f} ({100.0 * mx / lim:5.1f}%)")
+            eps = RATE_EPS_ABS if m == "steer_rate" else 0.0
+            clipped = [v for v in vals if v > lim + eps]
+            counts.append(len(clipped))
+            context_clips += len(clipped)
+            if clipped and m == "steer_rate" and s.get("sr_meta"):
+                for v, fr in zip(vals, s["sr_meta"]):
+                    if v > lim + eps:
+                        clip_detail.append((scen, m, v, fr["sim_time"], fr["ego"]["speed"]))
+        print(f"{scen:40s} {cells[0]:>18s} {cells[1]:>16s} {cells[2]:>22s} {str(counts):>18s}")
 
     if clip_detail:
-        print("\n=== clip detail (phase2) ===")
+        print("\n--- steer_rate clip detail ---")
         seen = set()
-        for scen, m, v, t, spd, steer in clip_detail:
+        for scen, m, v, t, spd in clip_detail:
             key = (scen, round(t, 2))
             if key in seen:
                 continue
             seen.add(key)
-            print(f"  {scen} t={t:.2f}s metric={m} value={v:.3f} v={spd:.2f}m/s steer_norm={steer:.4f}")
+            print(f"  {scen} t={t:.2f}s {m}={v:.3f} v={spd:.2f}m/s")
 
-    # --- verdict ---------------------------------------------------------
-    #
-    # Two different findings live in "the applied a_lat exceeded the limit",
-    # and collapsing them would either hide a real defect or cry wolf:
-    #
-    #   clamp NOT engaged  -> the envelope did not act on a frame that needed
-    #                         it. That is an unambiguous safety defect and it
-    #                         fails the run.
-    #   clamp engaged      -> the envelope acted and held the command at ITS
-    #                         computed ceiling while this recomputation lands
-    #                         above it. Kept as a distinct outcome because it
-    #                         is a disagreement between two calculations of the
-    #                         same quantity, not evidence that anything unsafe
-    #                         reached the vehicle.
-    #
-    # THAT OUTCOME WAS ONCE REACHED, AND WAS TRACKED DOWN RATHER THAN LEFT
-    # OPEN. green_no_stop t=11.95/12.05 recomputed to 4.3095 against the 4.3
-    # ceiling (0.22% over) with the clamp demonstrably active. The cause was
-    # this file, in two parts, both now fixed:
-    #   * wheelbase -- the product derives it as boundingbox.length * 0.6
-    #     (ControllerVirtualDriver.cpp), i.e. 3.00 for these 5.0 m vehicles;
-    #     an ad-hoc check against 2.98 inflated the gap to 0.89%.
-    #   * speed sample -- the clamp runs BEFORE the vehicle is integrated, so
-    #     it used v=13.992 while the row records the post-step v=14.005. One
-    #     frame of acceleration, doubled by the v^2.
-    # With the pairing corrected the same data reports 0 clips out of 11,149.
-    # The envelope had been correct the whole time.
-    evaluated = sum(total_n.values())
-    if evaluated == 0:
-        print("\nRESULT: NOT EVALUATED — no series were found. "
-              "Zero frames checked is not an acceptance.")
+    # --- verdict -----------------------------------------------------------
+    if breaches:
+        engaged_n = sum(1 for b in breaches if b[4])
+        print(f"\nRESULT: FAIL — {len(breaches)} frame(s) applied a curvature above the "
+              f"envelope's OWN cap ({engaged_n} of them with the curvature clamp reporting "
+              f"ENGAGED). No wheelbase, speed sample, or timing assumption enters this "
+              f"comparison:")
+        for scen, t, k_out, k_lim, engaged in breaches[:5]:
+            print(f"    {scen} t={t}: |kappa_out|={k_out:.9f} > kappa_limit={k_lim:.9f} "
+                  f"(clamp engaged: {engaged})")
+        return 1
+
+    if total_direct == 0:
+        print("\nRESULT: NOT EVALUATED — no frame carried both kappa_out and a positive "
+              "kappa_limit, so the applied-curvature question was never asked. "
+              f"(run telemetry frames seen: {sum(s['n_frames'] for s in runs.values())}; "
+              f"missing kappa_out: {total_no_kappa_out}; no cap: {total_no_cap}) "
+              "Zero frames checked is not an acceptance — rebuild and re-capture.")
         return 2
 
-    unclamped_breaches = []
-    certain_over = []
-    request_excursions = 0
-    for scen, s_ in all_series.items():
-        for a_out, a_req, on in zip(s_.get("a_lat", []), s_.get("a_lat_req", []),
-                                     s_.get("a_lat_clamp_on", [])):
-            if a_req > LIMITS["a_lat"]:
-                request_excursions += 1
-            if a_out > LIMITS["a_lat"] and not on:
-                unclamped_breaches.append((scen, a_out))
-        for a_lo in s_.get("a_lat_lo", []):
-            if a_lo > LIMITS["a_lat"]:
-                certain_over.append((scen, a_lo))
-
-    print(f"\n=== applied vs requested ===")
-    print(f"  AD requests beyond the a_lat limit (clamp's job to catch): {request_excursions}")
-    print(f"  applied output beyond the limit with the clamp NOT engaged: "
-          f"{len(unclamped_breaches)}")
-
-    if unclamped_breaches:
-        print(f"\nRESULT: FAIL — the envelope let {len(unclamped_breaches)} frame(s) "
-              f"through above the lateral-accel limit WITHOUT engaging:")
-        for scen, a in unclamped_breaches[:5]:
-            print(f"    {scen}: a_lat={a:.3f} (limit {LIMITS['a_lat']})")
-        return 1
-
-    # The authoritative check, when the capture carries the envelope's own cap.
-    # No wheelbase, no speed sample, no timing assumption enters it.
-    kappa_breaches = []
-    for scen, s_ in all_series.items():
-        for t, k_out, k_lim in s_.get("kappa_over", []):
-            kappa_breaches.append((scen, t, k_out, k_lim))
-    if kappa_breaches:
-        print(f"\nRESULT: FAIL — {len(kappa_breaches)} frame(s) applied a curvature above "
-              f"the envelope's OWN cap:")
-        for scen, t, k_out, k_lim in kappa_breaches[:5]:
-            print(f"    {scen} t={t}: |kappa_out|={k_out:.6f} > kappa_limit={k_lim:.6f}")
-        return 1
-
-    # When the capture carries the envelope's own cap, THAT is the answer, and
-    # the derived a_lat path is not allowed to overrule it. The derived path
-    # has to assume a wheelbase and a speed sample; the direct comparison
-    # assumes neither. Letting a known-inferior instrument turn a clean direct
-    # result into UNDETERMINED would be reporting our own approximation error
-    # as a product finding -- which is exactly what this file did for a whole
-    # investigation before the cause was tracked down.
-    have_direct = any(
-        any("kappa_limit" in ((r.get("envelope") or {})) for r in s_.get("active", []))
-        for s_ in all_series.values()
-    )
-    if have_direct and not kappa_breaches:
-        straddle = sum(total_clips.values())
-        print(f"\nRESULT: PASS — no frame applied a curvature above the envelope's own "
-              f"cap (direct comparison, no wheelbase/speed assumption).")
-        if straddle:
-            print(f"  ({straddle} frame-metric(s) straddle the derived a_lat limit; that "
-                  f"path assumes a wheelbase and a speed sample and is superseded here.)")
-        return 0
-
-    if certain_over:
-        print(f"\nRESULT: FAIL — {len(certain_over)} applied frame-metric(s) exceed a "
-              f"limit under EVERY admissible speed sample, so the exceedance cannot be "
-              f"explained by the +/-1 frame timing ambiguity:")
-        for scen, a in certain_over[:5]:
-            print(f"    {scen}: a_lat={a:.3f} (limit {LIMITS['a_lat']})")
-        return 1
-
-    clipped_total = sum(total_clips.values())
-    if clipped_total:
-        print(f"\nRESULT: UNDETERMINED — {clipped_total} applied frame-metric(s) sit "
-              f"above a limit, but on every one of them the corresponding clamp was "
-              f"ENGAGED. That is an offline/online recomputation mismatch (see the "
-              f"verdict comment), not a demonstrated clamp failure. Not passing it, "
-              f"not failing it.")
+    if context_clips:
+        print(f"\nRESULT: UNDETERMINED — the curvature check PASSED on {total_direct} frames, "
+              f"but {context_clips} value(s) in the assumption-carrying context table sit above "
+              f"a candidate limit. Those paths assume max_steer_angle (and, for Phase-1, a "
+              f"wheelbase), so they are reported, not called a product finding.")
         return 3
 
-    print(f"\nRESULT: PASS — nothing above any limit reached the vehicle "
-          f"({evaluated} frame-metrics evaluated).")
+    print(f"\nRESULT: PASS — {total_direct} frame(s) directly evaluated, none applied a "
+          f"curvature above the envelope's own cap. Both sides of the comparison are "
+          f"published by the envelope: no wheelbase, no speed sample, no timing assumption.")
+    if total_req_over:
+        print(f"  The clamp was not idle: {total_req_over} AD request(s) exceeded the cap "
+              f"and were caught.")
+    else:
+        print("  NOTE: the clamp never had to act on this set, so this PASS shows the "
+              "envelope did no harm, not that it works. Point the CLI at a set that "
+              "provokes it.")
     return 0
 
 

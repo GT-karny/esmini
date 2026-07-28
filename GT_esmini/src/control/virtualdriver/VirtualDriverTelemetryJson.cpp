@@ -121,7 +121,14 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        // feature:F7 — the envelope's own curvature cap, so a verifier need not
        // re-derive it from speed and wheelbase (see VirtualDriverTypes.hpp).
        << ",\"kappa_cmd\":" << t.ad_envelope_kappa_cmd
-       << ",\"kappa_limit\":" << t.ad_envelope_kappa_limit << "}"
+       << ",\"kappa_limit\":" << t.ad_envelope_kappa_limit
+       // feature:F7 — and the APPLIED curvature, so the safety comparison
+       // |kappa_out| <= kappa_limit has BOTH sides published by the envelope.
+       // Serialized at the record's fixed 9 decimals like everything else:
+       // kappa is O(1e-2) here, so the quantum is ~1e-7 RELATIVE, which is the
+       // resolution floor of any comparison made from this file. A consumer
+       // must not use an epsilon finer than 1e-9 absolute on these two.
+       << ",\"kappa_out\":" << t.ad_envelope_kappa_out << "}"
        // feature:F7 resume-merge observability (design doc
        // resume_merge_trajectory_design.md section 8-6). Additive block;
        // consumers that predate it simply ignore it. fallback_reason is the

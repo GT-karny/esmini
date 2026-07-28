@@ -217,6 +217,34 @@ struct AdSteeringEnvelopeSnapshot
     bool   any_active           = false;  // OR of the four, for quick telemetry gating
     double kappa_cmd            = 0.0;    // curvature implied by the raw command [1/m]
     double kappa_limit          = 0.0;    // effective curvature cap this frame (min of lat/yaw caps) [1/m]
+    // feature:F7 — curvature implied by the command this function ACTUALLY
+    // RETURNED, i.e. tan(steer_norm_out * max_steer_angle) / wheel_base,
+    // computed here from the very same wheel_base and max_steer_angle the
+    // clamp used.
+    //
+    // This exists so that "did the applied command respect the envelope's own
+    // cap" is answerable by comparing two numbers that BOTH come from this
+    // function: |kappa_out| <= kappa_limit. It is not a convenience field.
+    // Before it existed, the only way to ask that question offline was to
+    // re-derive the left-hand side from steer_norm_out plus a GUESSED
+    // wheelbase and a GUESSED speed sample, and both guesses were wrong at
+    // once: the product derives wheel_base as boundingbox.length*0.6
+    // (ControllerVirtualDriver.cpp) while the checker hard-coded a constant,
+    // and the clamp runs BEFORE the vehicle is integrated while telemetry
+    // records speed after. Together they manufactured a ~0.9% phantom
+    // overshoot that cost a full investigation to attribute to the instrument.
+    //
+    // min(|kappa_cmd|, kappa_limit) is NOT a substitute and must never be used
+    // as one: the curvature clamp is followed by the steer_rate and steer_jerk
+    // stages, which move the command again, so the two disagree on any frame
+    // where either of those stages binds.
+    //
+    // kappa_cmd / kappa_limit / kappa_out are all left at 0.0 on the DISABLED
+    // pass-through below (no cap is computed when the envelope does not run).
+    // A consumer must therefore gate on kappa_limit > 0 before comparing —
+    // kappa_limit == 0 means "no cap was computed this frame", never "the cap
+    // was zero". steer_norm_in/out, by contrast, are always populated.
+    double kappa_out            = 0.0;    // curvature implied by the APPLIED command [1/m]
     // Always populated, enabled or not (the pass-through when disabled sets
     // both to steer_norm_cmd) — telemetry compares these two to see the
     // envelope's actual effect, so neither may silently stay 0.0.
