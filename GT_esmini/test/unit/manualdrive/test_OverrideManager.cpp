@@ -22,6 +22,11 @@ namespace gt_esmini
 namespace
 {
 
+// feature:F7 — the startup axis reference is only armed when the residual
+// detector exists to back it up, so any test of that reference must say which
+// world it is in. This helper is the "FFB servo available" world.
+ManualDriveConfig MakeConfigWithTargetTrack();
+
 ManualDriveConfig MakeConfig(bool enabled = true,
                              const std::string& lat = "manual",
                              const std::string& lon = "manual")
@@ -52,6 +57,13 @@ InputFrame MakeFrame(double steering = 0.0,
     f.pedal_steer = ps;
     f.connected   = true;
     return f;
+}
+
+ManualDriveConfig MakeConfigWithTargetTrack()
+{
+    ManualDriveConfig cfg = MakeConfig();
+    cfg.ffb.target_track.enabled = true;
+    return cfg;
 }
 
 }  // namespace
@@ -319,11 +331,20 @@ TEST(OverrideManagerTest, ResumeRequiresRisingEdge)
 // that level is not evidence of a driver. The direct-axis path therefore
 // measures CHANGE from the startup angle until the wheel is first seen inside
 // the neutral band, after which the plain absolute test resumes.
+//
+// THE REFERENCE IS ONLY ARMED WHEN THE RESIDUAL DETECTOR CAN TAKE OVER, so
+// every test below runs in the "FFB servo available" world
+// (MakeConfigWithTargetTrack). Suppressing the direct-axis check where there
+// is no second detector would leave a driver who holds the wheel from t=0
+// undetected for the entire run; the pair of tests at the end of this section
+// pins both halves of that -- the hand IS caught with the servo available (via
+// the residual path) and the direct-axis check is left completely alone when
+// it is not.
 
 TEST(OverrideManagerTest, StartupAxisReferenceDoesNotLatchOnALeftOverWheelAngle)
 {
     OverrideManager m;
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
 
     // The regression, exactly: -0.137 axis-frac on the very first frame, far
     // above the 0.05 threshold, with nobody touching the wheel.
@@ -342,7 +363,7 @@ TEST(OverrideManagerTest, StartupAxisReferenceStillCatchesADriverTurningFromThat
     // The reference must not make the detector deaf: a driver who takes a
     // wheel that STARTED off-centre and turns it further is still an override.
     OverrideManager m;
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
 
     m.Update(MakeFrame(-0.137), 0.01);
     ASSERT_FALSE(m.IsLateralManual());
@@ -363,7 +384,7 @@ TEST(OverrideManagerTest, StartupAxisReferenceIsDroppedOnceTheWheelIsSeenCentred
     // from last time" no longer explains anything, so the absolute test comes
     // back -- including for an angle that was previously the reference.
     OverrideManager m;
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
 
     m.Update(MakeFrame(-0.137), 0.01);
     ASSERT_FALSE(m.IsLateralManual());
@@ -385,7 +406,7 @@ TEST(OverrideManagerTest, StartupAxisReferenceNeverArmsForACentredStart)
     // A start inside the band must not arm the reference at all, so the very
     // next frame above threshold latches immediately, as it always did.
     OverrideManager m;
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
 
     m.Update(MakeFrame(0.04), 0.01);   // inside the 0.05 band
     ASSERT_FALSE(m.IsLateralManual());
@@ -405,7 +426,7 @@ TEST(OverrideManagerTest, StartupAxisReferenceIsTakenFromTheFirstFrameEvenWithRe
     // frame 1 would be forgotten and latch anyway. Found by
     // ResumeRequiresRisingEdge failing against the first version of this fix.
     OverrideManager m;
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
 
     // Frame 1: leftover angle AND a RESUME press (rising edge -> early return).
     m.Update(MakeFrame(-0.137, 0.0, 0.0, ButtonBits::AUTO_RESUME), 0.01);
@@ -417,12 +438,37 @@ TEST(OverrideManagerTest, StartupAxisReferenceIsTakenFromTheFirstFrameEvenWithRe
     EXPECT_FALSE(m.IsLateralManual());
 }
 
+TEST(OverrideManagerTest, StartupAxisReferenceIsNotArmedWithoutTheResidualDetector)
+{
+    // POSITIVE FIXTURE (the one the audit found missing): ffb_target_track is
+    // DISABLED -- the shipped default -- so the FFB sample never goes active
+    // and the residual path never runs. The direct-axis check is then the only
+    // detector in the system, and a driver who is already holding the wheel
+    // when the run starts must still be caught.
+    //
+    // This is the case where suppressing the check costs a real intervention
+    // rather than trading it for another detector, so the reference is not
+    // armed here at all and the pre-existing behaviour stands.
+    OverrideManager m;
+    m.Configure(MakeConfig());          // no target_track -> no residual path
+
+    m.Update(MakeFrame(-0.30), 0.01);
+    EXPECT_TRUE(m.IsLateralManual())
+        << "with no residual detector available, a wheel held off-centre from the "
+           "first frame must still latch -- otherwise the driver gets no control at all";
+    EXPECT_TRUE(m.JustTransitionedToManual());
+
+    // And it must keep holding: the driver is still there.
+    for (int i = 0; i < 200; ++i) m.Update(MakeFrame(-0.30), 0.01);
+    EXPECT_TRUE(m.IsLateralManual());
+}
+
 TEST(OverrideManagerTest, StartupAxisReferenceIsRearmedByReconfigure)
 {
     // Configure() starts a fresh session; a reference left over from the
     // previous one would measure the new run against a meaningless angle.
     OverrideManager m;
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
 
     m.Update(MakeFrame(-0.137), 0.01);
     ASSERT_FALSE(m.IsLateralManual());
@@ -430,7 +476,7 @@ TEST(OverrideManagerTest, StartupAxisReferenceIsRearmedByReconfigure)
     m.Update(MakeFrame(-0.137), 0.01);
     ASSERT_TRUE(m.IsLateralManual());
 
-    m.Configure(MakeConfig());
+    m.Configure(MakeConfigWithTargetTrack());
     EXPECT_FALSE(m.IsLateralManual());
     m.Update(MakeFrame(-0.137), 0.01);  // new session, leftover angle again
     EXPECT_FALSE(m.IsLateralManual());
@@ -932,6 +978,189 @@ TEST(OverrideManagerTest, MovingAdTargetDoesNotBlockDetection)
     std::cout << "[ramp takeover] latch_frame=" << latch_frame
               << " t=" << (latch_frame + 1) * dt << "s"
               << " rate_gate_tripped_at_latch=" << gated_when_latched << "\n";
+}
+
+// --- feature:F7 — auto-return must measure steering, not wheel position -----
+
+TEST(OverrideManagerTest, AutoReturnFiresWithTheWheelParkedOffCentre)
+{
+    // MEASURED while building vd_resume_false_latch_probe.py: an episode that
+    // latched MANUAL and then waited never returned to AUTO. While MANUAL the
+    // servo is off, so the direct-axis LEVEL check runs, and a wheel parked
+    // off-centre by the intervention stays past the threshold forever -- so
+    // the idle timer was re-armed on every frame. At the shipped threshold
+    // (0.05) auto-return could therefore only fire when the wheel happened to
+    // be inside the neutral band, i.e. when it was not needed.
+    //
+    // The existing headless harnesses set steering_threshold: 1.0 to work
+    // around it, which is not a value any user runs -- the workaround hid the
+    // production behaviour.
+    ManualDriveConfig cfg = MakeConfig();
+    cfg.override_cfg.auto_return_timeout = 0.5;
+
+    OverrideManager m;
+    m.Configure(cfg);
+
+    m.Update(MakeFrame(0.0), 0.02);
+    m.Update(MakeFrame(0.40), 0.02);          // driver steers -> MANUAL
+    ASSERT_TRUE(m.IsLateralManual());
+
+    // Hand off, wheel left parked at 0.40 (well past the 0.05 threshold).
+    int  returned_at = -1;
+    bool saw_auto_edge = false;
+    for (int i = 0; i < 40; ++i)
+    {
+        m.Update(MakeFrame(0.40), 0.02);
+        // JustTransitionedToAuto() is a ONE-FRAME edge; it has to be caught as
+        // it happens, not read after the loop.
+        if (m.JustTransitionedToAuto()) saw_auto_edge = true;
+        if (returned_at < 0 && !m.IsLateralManual()) returned_at = i;
+    }
+    std::cout << "[auto-return] parked wheel: first AUTO frame=" << returned_at
+              << " (timeout 0.5s @ dt=0.02 => frame ~25)\n";
+
+    EXPECT_FALSE(m.IsLateralManual())
+        << "a wheel sitting still is not an ongoing intervention -- auto-return "
+           "must fire even though it is parked past the threshold";
+    EXPECT_TRUE(saw_auto_edge);
+    EXPECT_GE(returned_at, 0);
+    // ...and it must STAY returned: the level check must not re-latch the
+    // still-parked wheel on the very next frame, or the return is a one-frame
+    // blip that no user would ever see.
+    for (int i = 0; i < 50; ++i) m.Update(MakeFrame(0.40), 0.02);
+    EXPECT_FALSE(m.IsLateralManual())
+        << "auto-return must stick — the parked wheel re-latched immediately";
+}
+
+TEST(OverrideManagerTest, AutoReturnDoesNotFireWhileTheDriverKeepsSteering)
+{
+    // The other side: a driver still working the wheel must NOT be dropped
+    // back to AUTO under them. Movement, not position, is what holds it.
+    ManualDriveConfig cfg = MakeConfig();
+    cfg.override_cfg.auto_return_timeout = 0.5;
+
+    OverrideManager m;
+    m.Configure(cfg);
+
+    m.Update(MakeFrame(0.0), 0.02);
+    m.Update(MakeFrame(0.40), 0.02);
+    ASSERT_TRUE(m.IsLateralManual());
+
+    // Keep turning: 0.06 per frame, just over the 0.05 threshold each time.
+    double axis = 0.40;
+    for (int i = 0; i < 40; ++i)
+    {
+        axis += (i % 2 == 0) ? 0.06 : -0.06;   // working the wheel back and forth
+        m.Update(MakeFrame(axis), 0.02);
+    }
+
+    EXPECT_TRUE(m.IsLateralManual())
+        << "the driver is still steering -- auto-return must not take the car back";
+}
+
+// --- feature:F7 — every route back to AUTO resets the same state ------------
+
+TEST(OverrideManagerTest, AllThreeReturnsToAutoClearTheInterventionState)
+{
+    // The RESUME button used to be the only route that reset the detector.
+    // auto_return_timeout and RequestAutoMode() returned to AUTO carrying a
+    // shadow frozen from before the MANUAL episode, so the NEXT intervention
+    // was measured against a meaningless reference -- i.e. "I came back and
+    // then could not override again", which is the symptom the user reported.
+    //
+    // Asserted through observable behaviour: after each route, a fresh
+    // intervention of the same shape must latch again, and take a comparable
+    // time to do so.
+    const double dt = 0.02;
+
+    auto cycle_latch_frame = [&](int route) {
+        ManualDriveConfig cfg = MakeConfigWithFfb();
+        cfg.ffb.target_track.enabled         = true;
+        cfg.override_cfg.auto_return_timeout = (route == 1) ? 0.2 : 0.0;
+
+        OverrideManager m;
+        m.Configure(cfg);
+        ServoRig rig;
+
+        // Cycle 1: the driver grabs the wheel and holds it off the target.
+        RunFrames(m, 60, dt, [&](int) { return rig.StepHold(0.30, dt, 0.0); });
+        EXPECT_TRUE(m.IsLateralManual()) << "route " << route << ": first intervention";
+
+        // Return to AUTO by the route under test.
+        if (route == 0)
+        {
+            m.UpdateFfbSample(FfbInterventionSample{});
+            m.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::AUTO_RESUME), dt);
+        }
+        else if (route == 1)
+        {
+            m.UpdateFfbSample(FfbInterventionSample{});
+            for (int i = 0; i < 20 && m.IsAnyManual(); ++i) m.Update(QuietFrame(), dt);
+        }
+        else
+        {
+            m.RequestAutoMode();
+        }
+        EXPECT_FALSE(m.IsAnyManual()) << "route " << route << ": must be back in AUTO";
+
+        // Cycle 2: the same intervention again. How long until it is caught?
+        ServoRig rig2;
+        const RunResult r = RunFrames(m, 200, dt, [&](int) { return rig2.StepHold(0.30, dt, 0.0); });
+        return r.latch_frame;
+    };
+
+    const int button = cycle_latch_frame(0);
+    const int idle   = cycle_latch_frame(1);
+    const int api    = cycle_latch_frame(2);
+    std::cout << "[return routes] re-latch frame: button=" << button
+              << " idle_timeout=" << idle << " RequestAutoMode=" << api << "\n";
+
+    ASSERT_GE(button, 0) << "RESUME button: second intervention must be detected";
+    ASSERT_GE(idle,   0) << "auto_return_timeout: second intervention must be detected";
+    ASSERT_GE(api,    0) << "RequestAutoMode: second intervention must be detected";
+    EXPECT_EQ(idle, button) << "the idle route must leave the detector in the same "
+                               "state the button route does";
+    EXPECT_EQ(api,  button) << "the scenario-handover route must leave the detector in "
+                               "the same state the button route does";
+}
+
+// --- feature:F7 — the startup reference must not swallow a real driver ------
+
+TEST(OverrideManagerTest, DriverHoldingFromTheVeryFirstFrameIsCaughtByTheResidualPath)
+{
+    // POSITIVE FIXTURE for the startup axis reference (the audit's finding:
+    // the reference had no positive fixture at all, so nothing established
+    // that a genuine, persistent intervention survives it).
+    //
+    // The driver already has the wheel when the run starts, at -0.30 -- far
+    // outside the neutral band, so the reference IS armed and the direct-axis
+    // check is suppressed for as long as they hold that angle. The whole
+    // justification for that suppression is that the residual path can still
+    // tell a hand from a leftover angle, from physics rather than from a
+    // level. This test is that claim, stated as an assertion.
+    const double dt   = 0.02;
+    const double hold = -0.30;
+
+    OverrideManager m;
+    ManualDriveConfig cfg = MakeConfigWithFfb();
+    cfg.ffb.target_track.enabled = true;
+    m.Configure(cfg);
+
+    ServoRig rig(hold);
+    // AD wants the wheel near centre; the driver refuses to give it up.
+    const RunResult r = RunFrames(m, 200, dt, [&](int) {
+        return rig.StepHold(0.0, dt, hold);
+    });
+
+    std::cout << "[startup-hold] driver holding at " << hold
+              << " from frame 0, latch_frame=" << r.latch_frame
+              << " peak_residual=" << r.peak_residual << "\n";
+
+    ASSERT_GE(r.latch_frame, 0)
+        << "a driver holding the wheel from the very first frame must be detected. "
+           "If this fails, the startup axis reference has traded a real intervention "
+           "for the t=0 false latch instead of separating them";
+    EXPECT_TRUE(m.IsLateralManual());
 }
 
 // --- feature:F7 — a well-tracked moving wheel is not a driver ---------------

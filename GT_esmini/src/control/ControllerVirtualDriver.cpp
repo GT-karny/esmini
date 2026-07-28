@@ -208,6 +208,13 @@ void ControllerVirtualDriver::SetUpControlOutputs()
 {
     if (!object_) return;
 
+    // feature:F7 — arm the teardown guard HERE, at the top, not after the last
+    // line of setup. Everything below can throw or bail; a controller that got
+    // half way through bringing its outputs up still has outputs to release,
+    // and the failure mode we cannot accept is a servo left running because
+    // setup did not reach its own end.
+    control_outputs_released_ = false;
+
     PhysicsInitParams params = vd_config_.PhysicsParams();
     physics_backend_->Init(params, object_);
     physics_backend_->SetInitialState(
@@ -236,8 +243,62 @@ void ControllerVirtualDriver::SetUpControlOutputs()
     telemetry_.vd_active = true;
 }
 
+void ControllerVirtualDriver::DeactivateDomains(unsigned int domains)
+{
+    // feature:F7 — THE BYPASS THIS CLOSES.
+    //
+    // Deactivate() is not the only way this controller loses control. From
+    // OpenSCENARIO v1.3 onwards, an ActivateControllerAction that hands a
+    // domain to a DIFFERENT controller deactivates the incumbent PER DOMAIN:
+    // OSCPrivateAction.cpp calls controller_->DeactivateDomains(mask)
+    // directly, and never goes near Deactivate(). Leaving this virtual
+    // un-overridden meant that path skipped TearDownControlOutputs()
+    // entirely.
+    //
+    // The consequence is the worst failure this controller has. The FFB
+    // device holds the last commanded force as an INFINITE-DURATION constant
+    // effect, and ScenarioEngine only steps controllers that are still active
+    // -- so a controller that loses its domain this way stops running while
+    // its servo keeps pulling the physical wheel, with no code left executing
+    // that could ever release it. The driver is left fighting a wheel owned
+    // by nobody.
+    //
+    // Only a hand-over of the LATERAL domain releases the servo: the servo is
+    // a lateral output, and a scenario that takes only the longitudinal
+    // domain leaves us still steering. Losing the last active domain also
+    // tears down, so the "control handed back" telemetry and the intervention
+    // latch are correct even for a longitudinal-only controller.
+    const bool losing_lateral =
+        IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) &&
+        (domains & static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) != 0;
+    const bool goes_inactive = Active() && (GetActiveDomains() & ~domains) == 0;
+
+    if (losing_lateral || goes_inactive)
+    {
+        // Before the base clears the bitmask, matching Deactivate()'s order:
+        // outputs are released while we still know we owned them.
+        TearDownControlOutputs();
+    }
+
+    Controller::DeactivateDomains(domains);
+}
+
 void ControllerVirtualDriver::TearDownControlOutputs()
 {
+    // feature:F7 — idempotent by construction. There are now several routes
+    // into teardown (Deactivate(), Activate() on an ACTIVE->INACTIVE
+    // transition, DeactivateDomains() above), and they nest: the upstream
+    // Deactivate() we delegate to calls the VIRTUAL DeactivateDomains(ALL),
+    // which lands back here. Releasing twice is harmless in effect, but
+    // "harmless in effect" is an argument, not a guarantee -- a guard makes it
+    // one, and makes the double-release path testable rather than merely
+    // believed.
+    if (control_outputs_released_)
+    {
+        return;
+    }
+    control_outputs_released_ = true;
+
     // feature:F7 — set first, not last: everything below can early-return
     // (no FFB sink) or log, but "control handed back" must be recorded
     // unconditionally the instant teardown begins.

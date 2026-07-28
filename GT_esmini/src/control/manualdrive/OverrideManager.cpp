@@ -40,9 +40,15 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     // feature:F7 — startup axis reference (see the Update() site). Re-armed
     // here so a reconfigure begins a fresh session rather than carrying the
     // previous run's reference.
-    startup_axis_seen_           = false;
-    startup_axis_ref_active_     = false;
-    startup_axis_ref_            = 0.0;
+    axis_baseline_seen_           = false;
+    axis_baseline_active_     = false;
+    axis_baseline_            = 0.0;
+    idle_axis_ref_               = 0.0;
+    idle_axis_ref_valid_         = false;
+
+    // feature:F7 — is the residual detector available at all this run? The
+    // startup axis reference depends on the answer; see its site in Update().
+    ffb_target_track_enabled_  = config.ffb.target_track.enabled;
 
     // feature:F7 — FFB residual detector. Independent of the
     // steering_threshold_ used for the direct pedal_steer.steering path.
@@ -155,6 +161,45 @@ void OverrideManager::UpdateFreeShadowPlant(double f, double dt, double actual_n
     free_shadow_norm_ = std::clamp(free_shadow_norm_ + free_shadow_vel_ * dt, -1.0, 1.0);
 }
 
+void OverrideManager::ResetInterventionStateOnReturnToAuto()
+{
+    // feature:F7 — THE SHARED RETURN-TO-AUTO RESET.
+    //
+    // There are three ways this manager goes back to AUTO, and every one of
+    // them ends the intervention cycle:
+    //   1. the AUTO_RESUME button's rising edge,
+    //   2. auto_return_timeout expiring,
+    //   3. RequestAutoMode(), used by the scenario-driven handover.
+    // Until this was factored out, only (1) reset anything. (2) and (3)
+    // returned to AUTO carrying the shadow FROZEN wherever the pre-MANUAL
+    // servo push had left it -- because the residual block does not run at all
+    // while the sample is inactive -- and carrying a stale rate history across
+    // the whole MANUAL episode. The next intervention was then measured
+    // against a reference that meant nothing, which is exactly the failure
+    // (1)'s own comment describes and guards against.
+    //
+    // "Being able to override again after coming back" is a requirement the
+    // user checked on the real wheel, and it must not depend on WHICH of the
+    // three routes brought the system back.
+    ffb_sustain_accum_ = 0.0;
+    ffb_history_valid_ = false;
+    ffb_shadow_valid_  = false;
+    ffb_shadow_moving_ = false;
+    ffb_shadow_vel_    = 0.0;
+    ffb_force_history_.clear();
+    // feature:F7 re-anchor instrument — S5. Invalidate the free-running shadow
+    // at the same cycle boundary as the real one (spec §3), and tag the next
+    // S1 seed. The tag reads RESUME for all three routes: it names the reason
+    // the shadow was dropped ("we returned to AUTO"), not which button did it.
+    free_shadow_valid_       = false;
+    free_shadow_moving_      = false;
+    free_shadow_vel_         = 0.0;
+    reanchor_pending_source_ = FfbLatchDiagnostics::ReanchorSource::RESUME;
+
+    // The idle window is over either way.
+    idle_axis_ref_valid_ = false;
+}
+
 void OverrideManager::Update(const InputFrame& input, double dt)
 {
     just_transitioned_to_manual_ = false;
@@ -186,15 +231,38 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     if (input.pedal_steer && lat_configured_manual_)
     {
         const double axis = input.pedal_steer->steering;
-        if (!startup_axis_seen_)
+        if (!axis_baseline_seen_)
         {
-            startup_axis_seen_       = true;
-            startup_axis_ref_        = axis;
-            startup_axis_ref_active_ = std::abs(axis) > steering_threshold_;
+            axis_baseline_seen_ = true;
+            axis_baseline_  = axis;
+            // ONLY when the residual detector is there to take over.
+            //
+            // The reference exists because an axis LEVEL at t=0 cannot tell a
+            // leftover angle from a hand. Suppressing the direct-axis check is
+            // safe exactly as long as something else can still answer that
+            // question -- and the residual/shadow path can, from physics: the
+            // 6-cell probe's positive control (a wheel held off-centre with
+            // the servo running) latched via RESIDUAL_PATH_LATCH.
+            //
+            // With ffb_target_track disabled -- WHICH IS THE SHIPPED DEFAULT --
+            // there is no such backup. The FFB sample never goes active, the
+            // residual path never runs, and the direct-axis check is the only
+            // detector there is. Arming the reference there would not trade
+            // one detector for another, it would leave a driver who is holding
+            // the wheel from the start undetected for the whole run: they turn
+            // the wheel and nothing happens. That is a worse failure than the
+            // one the reference was introduced to fix, and it is the opposite
+            // of what this feature is for.
+            //
+            // So the reference is armed only where its fallback exists. Where
+            // it does not, the pre-existing behaviour stands unchanged: an
+            // off-centre wheel at t=0 latches.
+            axis_baseline_active_ =
+                ffb_target_track_enabled_ && std::abs(axis) > steering_threshold_;
         }
-        else if (startup_axis_ref_active_ && std::abs(axis) <= steering_threshold_)
+        else if (axis_baseline_active_ && std::abs(axis) <= steering_threshold_)
         {
-            startup_axis_ref_active_ = false;
+            axis_baseline_active_ = false;
         }
     }
 
@@ -230,21 +298,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // shadow would still be sitting wherever the pre-RESUME servo push
         // had driven it, so the SECOND intervention would be measured
         // against a meaningless reference.
-        ffb_sustain_accum_ = 0.0;
-        ffb_history_valid_ = false;
-        ffb_shadow_valid_  = false;
-        ffb_shadow_moving_ = false;
-        ffb_shadow_vel_    = 0.0;
-        ffb_force_history_.clear();
-        // feature:F7 re-anchor instrument — S5. Invalidate the free-running
-        // shadow at the same cycle boundary as the real one (spec §3:
-        // carrying it across a RESUME would measure the next intervention
-        // against a meaningless pre-RESUME reference); tag the next S1 seed
-        // as RESUME.
-        free_shadow_valid_       = false;
-        free_shadow_moving_      = false;
-        free_shadow_vel_         = 0.0;
-        reanchor_pending_source_ = FfbLatchDiagnostics::ReanchorSource::RESUME;
+        ResetInterventionStateOnReturnToAuto();
         if (was_any_manual)
             just_transitioned_to_auto_ = true;
         return;  // suppress same-frame intervention re-latch
@@ -320,8 +374,8 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             // stub/network input, ManualDrive-only run).
             if (!ffb_sample_.active)
             {
-                const double lat_signal = startup_axis_ref_active_
-                                              ? ps.steering - startup_axis_ref_
+                const double lat_signal = axis_baseline_active_
+                                              ? ps.steering - axis_baseline_
                                               : ps.steering;
                 lat_active = std::abs(lat_signal) > steering_threshold_;
             }
@@ -873,7 +927,56 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         just_transitioned_to_manual_ = true;
 
     // Idle timer for auto-return
-    bool any_active = lat_active || long_active;
+    //
+    // feature:F7 — the LATERAL contribution here is "is the driver still
+    // steering", which is not the same question as "is the wheel past the
+    // threshold". While latched MANUAL the servo is off, so lat_active above
+    // comes from the direct-axis LEVEL check -- and a wheel parked off-centre
+    // by the intervention that caused the latch stays past the threshold for
+    // as long as nobody moves it back. That re-armed this timer on every
+    // single frame, so with the shipped steering_threshold (0.05) the idle
+    // return could only ever fire if the wheel happened to be sitting inside
+    // the neutral band: precisely the situation in which nobody needed it.
+    //
+    // Measured while building vd_resume_false_latch_probe.py: an episode that
+    // entered MANUAL and then waited never returned to AUTO at all. The
+    // existing headless harnesses hid this by configuring
+    // steering_threshold: 1.0, which is not a value any user runs -- the test
+    // setup was papering over the production behaviour it was supposed to
+    // measure.
+    //
+    // So the idle test uses MOVEMENT rather than level: the driver is still
+    // steering if the wheel has travelled more than steering_threshold_ from
+    // where it was when this idle window opened. Same constant, no new knob;
+    // a hand resting on a static wheel produces no input, which is exactly
+    // what "no input for N seconds" is supposed to mean. When the FFB servo
+    // IS running, lat_active already comes from the residual detector, which
+    // is force/movement based, so it is used unchanged.
+    bool lat_idle_active = lat_active;
+    if (lat_active && !ffb_sample_.active && lat_configured_manual_ &&
+        lat_mode_ == Mode::MANUAL && input.pedal_steer)
+    {
+        const double axis = input.pedal_steer->steering;
+        if (!idle_axis_ref_valid_)
+        {
+            idle_axis_ref_       = axis;
+            idle_axis_ref_valid_ = true;
+        }
+        lat_idle_active = std::abs(axis - idle_axis_ref_) > steering_threshold_;
+        if (lat_idle_active)
+        {
+            // Fresh steering: this is the new reference to measure stillness
+            // from, so a slow continuous turn keeps re-arming the timer
+            // instead of counting as one single movement.
+            idle_axis_ref_ = axis;
+        }
+    }
+    else if (!lat_active)
+    {
+        idle_axis_ref_valid_ = false;
+    }
+
+    bool any_active = lat_idle_active || long_active;
     if (any_active)
     {
         idle_timer_ = 0.0;
@@ -888,6 +991,35 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                 if (lat_configured_manual_)  lat_mode_ = Mode::AUTO;
                 if (long_configured_manual_) long_mode_ = Mode::AUTO;
                 idle_timer_ = 0.0;
+                // Same reset as the RESUME button: this is a return to AUTO.
+                ResetInterventionStateOnReturnToAuto();
+
+                // ...and re-baseline the axis, or this return cannot take
+                // effect at all. The direct-axis check is a LEVEL test, so the
+                // wheel still parked past the threshold would re-latch on the
+                // very next frame and the auto-return would be a one-frame
+                // blip. The route itself establishes what the baseline means:
+                // we only got here because nothing moved for the whole
+                // timeout, so this position is by definition not fresh
+                // evidence -- only movement away from it is.
+                //
+                // Unlike the startup baseline this is NOT conditioned on the
+                // residual detector being available. There, the concern was a
+                // driver holding from t=0 whom nobody had yet observed; here,
+                // the system has just watched the wheel sit still for
+                // auto_return_timeout seconds. That silence IS the observation.
+                //
+                // The RESUME BUTTON deliberately does not do this: pressing it
+                // is an explicit hand-back, and a driver who is still holding
+                // the wheel when they press it means to re-latch immediately
+                // (see the rising-edge block above, and
+                // ResumeSuppressesSameFrameReintervention).
+                if (input.pedal_steer)
+                {
+                    axis_baseline_seen_   = true;
+                    axis_baseline_        = input.pedal_steer->steering;
+                    axis_baseline_active_ = std::abs(axis_baseline_) > steering_threshold_;
+                }
                 if (was_any_manual)
                     just_transitioned_to_auto_ = true;
             }
@@ -901,6 +1033,10 @@ void OverrideManager::RequestAutoMode()
     if (lat_configured_manual_)  lat_mode_ = Mode::AUTO;
     if (long_configured_manual_) long_mode_ = Mode::AUTO;
     idle_timer_ = 0.0;
+    // Same reset as the RESUME button: this is a return to AUTO. Reached from
+    // TearDownControlOutputs() on the scenario-driven handover, so the next
+    // activation must not inherit a shadow frozen from the previous one.
+    ResetInterventionStateOnReturnToAuto();
     if (was_any_manual)
         just_transitioned_to_auto_ = true;
 }

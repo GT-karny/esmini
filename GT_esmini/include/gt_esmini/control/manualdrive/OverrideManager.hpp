@@ -154,6 +154,10 @@ public:
     bool IsManualMode() const { return IsAnyManual(); }
 
 private:
+    // feature:F7 — shared by all three routes back to AUTO (RESUME button,
+    // auto_return_timeout, RequestAutoMode). See its definition.
+    void ResetInterventionStateOnReturnToAuto();
+
     bool   enabled_             = true;
     double steering_threshold_  = 0.05;
     double throttle_threshold_  = 0.1;
@@ -181,9 +185,18 @@ private:
     // direct-axis test measures CHANGE from it instead of absolute position;
     // it deactivates permanently the first time the wheel is seen inside the
     // neutral band, after which behavior is bit-identical to the plain test.
-    bool   startup_axis_seen_       = false;
-    bool   startup_axis_ref_active_ = false;
-    double startup_axis_ref_        = 0.0;
+    bool   axis_baseline_seen_       = false;
+    bool   axis_baseline_active_ = false;
+    double axis_baseline_        = 0.0;
+    // Is the residual detector available to back up a suppressed direct-axis
+    // check? The startup reference is only armed when it is.
+    bool   ffb_target_track_enabled_ = false;
+
+    // feature:F7 — auto-return idle test. Measures whether the driver is still
+    // STEERING (wheel travel) rather than whether the wheel is still past the
+    // threshold, which a parked wheel always is. See the idle block in Update().
+    double idle_axis_ref_       = 0.0;
+    bool   idle_axis_ref_valid_ = false;
 
     // feature:F7 — FFB residual-based intervention latch (see UpdateFfbSample
     // and ManualDriveConfig.ffb.target_track for the full design rationale).

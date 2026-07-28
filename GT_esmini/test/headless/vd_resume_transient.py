@@ -324,17 +324,21 @@ def run_ffb_arm(frozen_at: float, speed_mps: float, envelope_enabled: bool,
     """arm2 (best-effort): headless_ffb / SyntheticSink synthetic wheel.
 
     Structural notes (why this is NOT a clean A/B/C/D/E replay of arm1):
-      - HeadlessFfbInput::Poll() always returns pedal_steer.buttons=0 — there
-        is no channel to inject BTN_AUTO_RESUME under input_type=headless_ffb.
-        Worked around via the existing auto_return_timeout idle-return path
-        (OverrideManager.cpp): once torque-proxy latches MANUAL, the FFB
-        servo goes inactive (target_active=false, per ControllerVirtualDriver
-        Step: SetSteerTarget(..., active=!lat_manual)), which flips
-        OverrideManager back onto the raw-axis threshold check. Setting
-        steering_threshold above |frozen_at| suppresses that raw-axis
-        re-latch (same trick scripts/vd_ffb_headless_smoke.py Phase B/D use
-        for isolation), so lat_active stays false post-latch and the idle
-        timer accumulates -> auto_return_timeout fires auto_transition.
+      - This arm returns to AUTO through the auto_return_timeout idle path
+        rather than the RESUME button. (A button channel now exists —
+        HeadlessFfbInput::Poll() forwards the injection wire's buttons field
+        since 2026-07-28 — but this arm is kept on the idle path deliberately,
+        so the two routes stay separately exercised.)
+
+        THE steering_threshold OVERRIDE THAT USED TO LIVE HERE IS GONE.
+        It was set above |frozen_at| to stop the raw-axis check from
+        re-latching once the servo went inactive, because otherwise the idle
+        timer was re-armed every frame and auto-return never fired. That is
+        not a property of the test — it was the PRODUCTION behaviour, and
+        raising the threshold to 1.0 (a value no user runs) hid it. The idle
+        test now measures wheel MOVEMENT rather than wheel position
+        (OverrideManager.cpp), so auto-return works at the shipped 0.05 and
+        this arm runs the configuration a user actually has.
       - GT_HEADLESS_FFB_FROZEN_AT is read once in SyntheticSink::Configure()
         (called from HeadlessFfbInput::Init(), itself called once from
         ControllerVirtualDriver::Activate()) — there is no mid-run way to
@@ -351,7 +355,9 @@ def run_ffb_arm(frozen_at: float, speed_mps: float, envelope_enabled: bool,
 
     tmpdir = tempfile.mkdtemp(prefix="vd_resume_arm2_")
     cfg = {"input_type": "headless_ffb", "ffb_target_track_enabled": True,
-           "steering_threshold": max(1.0, abs(frozen_at) + 0.5),
+           # Shipped value. See the note above: overriding this was hiding the
+           # very behaviour the harness existed to observe.
+           "steering_threshold": 0.05,
            "auto_return_timeout": 1.0,
            "ad_steering_envelope_enabled": envelope_enabled}
     xosc = _make_variant(tmpdir, cfg, speed_mps)

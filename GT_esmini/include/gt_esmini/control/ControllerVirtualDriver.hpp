@@ -56,6 +56,11 @@ public:
     void Step(double timeStep) override;
     int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
     void Deactivate() override;
+    // feature:F7 — MUST stay overridden. From OSC v1.3 an ActivateControllerAction
+    // that hands a domain to another controller deactivates the incumbent through
+    // this call and never touches Deactivate(); leaving it to the base class lets
+    // the FFB servo keep pulling a wheel this controller no longer steers.
+    void DeactivateDomains(unsigned int domains) override;
 
     const char* GetTypeName() const override { return CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME; }
     scenarioengine::Controller::Type GetType() const override
@@ -112,6 +117,12 @@ private:
     // scenario_control_handoff_design.md.
     void SetUpControlOutputs();
     void TearDownControlOutputs();
+
+    // feature:F7 — guards TearDownControlOutputs() against a second release.
+    // Starts true: nothing has been set up yet, so there is nothing to release
+    // (a Deactivate() on a controller that was never activated must be a
+    // no-op, not a teardown against a null input source).
+    bool control_outputs_released_ = true;
 
     VirtualDriverConfig vd_config_;
     ManualDriveConfig   io_config_;  // built from vd_config_ for IInputSource + OverrideManager

@@ -263,11 +263,27 @@ def _lat_manual(f: dict) -> bool:
 
 
 def find_first_false_latch(frames: list[dict]) -> int | None:
-    """Index of the first frame in the post-return observation window where
-    lateral MANUAL appears. Nobody is touching the wheel there, so any such
-    frame is a false positive by construction."""
+    """Index of the first RE-latch in the observation window.
+
+    "Still MANUAL" is not the same event as "latched again", and conflating
+    them made this probe report a false latch that never happened: on the idle
+    (auto_return_timeout) arm the observation window opens while the ORIGINAL
+    latch is still held -- the timeout has not expired yet -- so the first
+    observe frames are legitimately MANUAL. Reporting those as a false
+    positive would blame the product for the harness starting to watch too
+    early.
+
+    A false latch is therefore only counted once the run has been seen back in
+    AUTO: from that point on, with nobody touching the wheel, any return to
+    MANUAL is a false positive by construction.
+    """
+    seen_auto = False
     for i, f in enumerate(frames):
-        if f["_phase"] == "observe" and _lat_manual(f):
+        if f["_phase"] != "observe":
+            continue
+        if not _lat_manual(f):
+            seen_auto = True
+        elif seen_auto:
             return i
     return None
 
@@ -396,7 +412,10 @@ def observe_stats(frames: list[dict]) -> dict:
         "peak_at_sim_time": obs[peak_i].get("sim_time"),
         "max_wheel_speed_per_s": max_wheel_speed,
         "max_shadow_speed_per_s": max_shadow_speed,
-        "latched": any(_lat_manual(f) for f in obs),
+        # Same distinction as find_first_false_latch: a RE-latch after the run
+        # has been seen back in AUTO, not the original latch still being held
+        # while the return path does its work.
+        "latched": find_first_false_latch(frames) is not None,
     }
 
 
