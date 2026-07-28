@@ -103,7 +103,13 @@ public:
 
     bool   IsBlipping() const { return state_.blip_timer_s > 0.0; }
 
+    /// DISPLAY RPM: base + idle-jitter overlay. For gauges and OSI only.
+    /// Never feed this into a force/torque calculation — the jitter is seeded
+    /// from std::random_device unless idle_jitter_seed is set, so any physics
+    /// term derived from it makes the whole simulation nondeterministic.
     double GetRPM() const     { return state_.rpm; }
+    /// PHYSICS RPM: jitter-free. This is the one a force calculation may read.
+    double GetBaseRPM() const { return state_.base_rpm; }
     double GetTorqueNm() const { return state_.torque_nm; }
     bool   IsRevLimited() const { return state_.rev_limited; }
 

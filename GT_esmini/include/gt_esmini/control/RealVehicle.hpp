@@ -132,7 +132,17 @@ namespace gt_esmini
         VehicleParams params_;
 
         // Extended physics state
+        //
+        // rpm_ is the DISPLAY value: base RPM plus the cosmetic idle-jitter
+        // overlay (EngineModel::GetRPM). It is what GetRPM() reports to gauges
+        // and OSI, and it must NEVER enter a force calculation — the jitter is
+        // seeded from std::random_device by default (idle_jitter_seed: 0), so
+        // anything downstream of it is nondeterministic across processes.
+        // base_rpm_ is the jitter-free engine speed and is the ONLY one physics
+        // may read. See UpdatePhysicsAT's engine-compression-braking term for
+        // the defect this split fixes.
         double rpm_;
+        double base_rpm_ = 0.0;
         double roll_; // New roll state
 
         // Rates for spring-damper model
