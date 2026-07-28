@@ -64,16 +64,21 @@ SPIKE_VENV_PY = (Path(__file__).resolve().parent / ".venv" / "Scripts" / "python
 RELEASE_TOOL  = (Path(__file__).resolve().parent / "haptic_release.py")
 
 
-def release_haptics_out_of_process() -> int:
+def release_haptics_out_of_process() -> tuple[int, str]:
     """強制終了の後始末: 別プロセスでデバイスを開き直し全エフェクトを止める。
 
     TerminateProcess は対象にコードを実行させないので、製品側の歯止めは一つも
     走らない。ここだけが最後の砦になる。pysdl2 が要るので ffb_spike の venv で
     起動する（無ければ失敗として報告する — 黙って諦めない）。
+
+    2026-07-29 是正: 戻り値だけでなく `HAPTIC_RELEASE result=...` 行も読み、
+    **「解放した」「解放する必要が無かった」「解放できなかった」を区別**して返す。
+    以前は解放ツール側が open 失敗でも 0 を返していたため、ここで `rel != 0` を
+    見ていても**この最も危険な失敗モードだけは素通り**していた。
     """
     if not SPIKE_VENV_PY.exists():
         print(f"[supervisor] ERROR: {SPIKE_VENV_PY} が無い。haptic を解放できない")
-        return 2
+        return 2, "CANNOT_RUN"
     try:
         r = subprocess.run([str(SPIKE_VENV_PY), str(RELEASE_TOOL)],
                            capture_output=True, text=True, timeout=60,
@@ -82,10 +87,20 @@ def release_haptics_out_of_process() -> int:
             print("   " + ln)
         for ln in (r.stderr or "").splitlines():
             print("   ! " + ln)
-        return r.returncode
+        name = "UNKNOWN"
+        for ln in (r.stdout or "").splitlines():
+            if ln.startswith("HAPTIC_RELEASE result="):
+                name = ln.split("result=", 1)[1].split()[0]
+        # 判定行が出ていないのに 0 を返してきたら、それ自体を失敗として扱う。
+        # 「判定を出さずに成功を名乗る」ことを許すと、今回是正した欠陥と同じ形が
+        # ここから再生する。
+        if name == "UNKNOWN" and r.returncode == 0:
+            print("[supervisor] ERROR: 解放ツールが判定行を返さなかった。成功と見なさない")
+            return 2, "NO_VERDICT"
+        return r.returncode, name
     except Exception as e:   # noqa: BLE001
         print(f"[supervisor] ERROR: haptic 解放ツールの実行に失敗: {e}")
-        return 2
+        return 2, "CANNOT_RUN"
 
 
 def main() -> int:
@@ -254,11 +269,20 @@ def main() -> int:
     if hard_killed or rc != 0:
         why = "強制終了経路" if hard_killed else f"子プロセスの異常終了 (rc={rc})"
         print(f"[supervisor] {why} — 別プロセスで haptic を解放する")
-        rel = release_haptics_out_of_process()
+        rel, rel_name = release_haptics_out_of_process()
         if rel != 0:
-            print("[supervisor] !! haptic の外部解放に失敗した。"
+            print(f"[supervisor] !! haptic の外部解放に失敗した (result={rel_name})。"
                   "ホイールに力が残っている可能性がある — 目視/電源で確認すること")
+            print("[supervisor] !! 無人実行はここで打ち切る。"
+                  "解放を確認できていない状態で次の走行に進んではならない")
             return 3
+        # 0 でも中身を区別して記録する。NOTHING_TO_RELEASE は「ホイールが見えなかった」
+        # であって「力を止めた」ではない — 無人実行の事後確認としては意味が違う。
+        if rel_name == "NOTHING_TO_RELEASE":
+            print("[supervisor] NOTE: haptic デバイスが 0 台だった。"
+                  "力を止めたのではなく、止める対象が見つからなかっただけである")
+        else:
+            print(f"[supervisor] haptic 解放を確認 (result={rel_name})")
 
     # --- 後始末の確認: プロセスが残っていないこと -------------------------
     exe_name = Path(exe_path).name
