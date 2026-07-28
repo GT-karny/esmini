@@ -53,13 +53,17 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from vd_resume_transient import (  # noqa: E402
-    DLL, MAGIC, WIRE, _load_lib, _make_variant,
+    DLL,
+    MAGIC,
+    WIRE,
+    _load_lib,
+    _make_variant,
 )
 
-BTN_OVERRIDE    = 1 << 0
+BTN_OVERRIDE = 1 << 0
 BTN_AUTO_RESUME = 1 << 7
 
-PUSHBACK_PORT = 9105          # HeadlessFfbInput GT_HEADLESS_FFB_PUSHBACK_PORT default
+PUSHBACK_PORT = 9105  # HeadlessFfbInput GT_HEADLESS_FFB_PUSHBACK_PORT default
 
 # Real-machine identification step. Every real-wheel number this program is
 # compared against was recorded at 0.010 s (the --fixed_timestep knob did not
@@ -79,19 +83,36 @@ def _apply_plant(plant: dict | None) -> None:
     tautology that can never show a model-error false positive, and the real
     wheel is not the model (the shipped shadow explains only part of the
     measured residual)."""
-    for key in ("BREAKAWAY", "KINETIC", "SLOPE", "VMAX", "NOISE_AMP", "SEED",
-                "DEAD_TIME", "VELOCITY_TAU"):
+    for key in (
+        "BREAKAWAY",
+        "KINETIC",
+        "SLOPE",
+        "VMAX",
+        "NOISE_AMP",
+        "SEED",
+        "DEAD_TIME",
+        "VELOCITY_TAU",
+    ):
         os.environ.pop(f"GT_HEADLESS_FFB_PLANT_{key}", None)
     for k, v in (plant or {}).items():
         os.environ[f"GT_HEADLESS_FFB_PLANT_{k}"] = str(v)
 
 
-def run_episode(*, return_path: str, steering_threshold: float,
-                envelope_enabled: bool = True, speed_mps: float = 8.0,
-                settle_s: float = 3.0, push_s: float = 1.2, release_s: float = 0.8,
-                observe_s: float = 4.0, plant_init_at: float = 0.0,
-                driver_force: float = 0.45, plant: dict | None = None,
-                observe_force: float = 0.0) -> list[dict]:
+def run_episode(
+    *,
+    return_path: str,
+    steering_threshold: float,
+    envelope_enabled: bool = True,
+    speed_mps: float = 8.0,
+    settle_s: float = 3.0,
+    push_s: float = 1.2,
+    release_s: float = 0.8,
+    observe_s: float = 4.0,
+    plant_init_at: float = 0.0,
+    driver_force: float = 0.45,
+    plant: dict | None = None,
+    observe_force: float = 0.0,
+) -> list[dict]:
     """One override -> steer away -> let go -> return-to-AUTO -> hands-off episode.
 
     The steer-away phase is what makes this a test of anything. A first version
@@ -232,7 +253,7 @@ def verify_time_alignment(frames: list[dict]) -> dict:
         a_prev_line = prev.get("target_norm", 0.0) - prev.get("position_error", 0.0)
         a_same_line = cur.get("target_norm", 0.0) - cur.get("position_error", 0.0)
         if abs(a_prev_line - a_same_line) < tol:
-            continue                       # stationary: the two agree, tells us nothing
+            continue  # stationary: the two agree, tells us nothing
         moving += 1
         if abs(a_gates - a_prev_line) < tol:
             shifted_hits += 1
@@ -245,9 +266,15 @@ def verify_time_alignment(frames: list[dict]) -> dict:
         "matches_previous_line": shifted_hits,
         "matches_same_line": same_line_hits,
         "worst_mismatch_vs_previous_line": worst_shifted,
-        "alignment": ("gates(N) == ffb(N-1)" if moving and shifted_hits == moving else
-                      "gates(N) == ffb(N)" if moving and same_line_hits == moving else
-                      "UNRESOLVED" if moving else "NOT TESTABLE (wheel never moved)"),
+        "alignment": (
+            "gates(N) == ffb(N-1)"
+            if moving and shifted_hits == moving
+            else (
+                "gates(N) == ffb(N)"
+                if moving and same_line_hits == moving
+                else "UNRESOLVED" if moving else "NOT TESTABLE (wheel never moved)"
+            )
+        ),
     }
 
 
@@ -299,7 +326,9 @@ def decompose(frames: list[dict], idx: int, window: int = 12) -> list[dict]:
     for i in range(lo, hi):
         f, p = frames[i], frames[i - 1]
         target = p.get("ffb", {}).get("target_norm", 0.0)
-        prev_target = frames[i - 2].get("ffb", {}).get("target_norm", 0.0) if i >= 2 else target
+        prev_target = (
+            frames[i - 2].get("ffb", {}).get("target_norm", 0.0) if i >= 2 else target
+        )
         row = {
             "i": i,
             "t": round(f.get("sim_time", 0.0), 4),
@@ -360,7 +389,9 @@ def attribute(frames: list[dict], idx: int) -> dict:
         act_move.append(_g(frames[i], "actual_norm") - _g(p, "actual_norm"))
         shd_move.append(_g(frames[i], "shadow_norm") - _g(p, "shadow_norm"))
         t_now = frames[i - 1].get("ffb", {}).get("target_norm", 0.0)
-        t_prev = frames[i - 2].get("ffb", {}).get("target_norm", 0.0) if i >= 2 else t_now
+        t_prev = (
+            frames[i - 2].get("ffb", {}).get("target_norm", 0.0) if i >= 2 else t_now
+        )
         tgt_move.append(t_now - t_prev)
     return {
         "path": path,
@@ -372,9 +403,15 @@ def attribute(frames: list[dict], idx: int) -> dict:
         "sum_d_actual": sum(act_move),
         "sum_d_shadow": sum(shd_move),
         "sum_d_target": sum(tgt_move),
-        "mean_abs_d_target_per_frame": statistics.fmean([abs(x) for x in tgt_move]) if tgt_move else 0.0,
-        "mean_abs_d_actual_per_frame": statistics.fmean([abs(x) for x in act_move]) if act_move else 0.0,
-        "mean_abs_d_shadow_per_frame": statistics.fmean([abs(x) for x in shd_move]) if shd_move else 0.0,
+        "mean_abs_d_target_per_frame": (
+            statistics.fmean([abs(x) for x in tgt_move]) if tgt_move else 0.0
+        ),
+        "mean_abs_d_actual_per_frame": (
+            statistics.fmean([abs(x) for x in act_move]) if act_move else 0.0
+        ),
+        "mean_abs_d_shadow_per_frame": (
+            statistics.fmean([abs(x) for x in shd_move]) if shd_move else 0.0
+        ),
         "free_residual_at_latch": _g(f, "free_residual"),
         "reanchor_source_at_latch": _g(f, "reanchor_source", ""),
     }
@@ -401,10 +438,14 @@ def observe_stats(frames: list[dict]) -> dict:
         if r > peak_res:
             peak_res, peak_i = r, i
         if i > 0:
-            max_wheel_speed = max(max_wheel_speed,
-                                  abs(_g(f, "actual_norm") - _g(obs[i - 1], "actual_norm")) / DT)
-            max_shadow_speed = max(max_shadow_speed,
-                                   abs(_g(f, "shadow_norm") - _g(obs[i - 1], "shadow_norm")) / DT)
+            max_wheel_speed = max(
+                max_wheel_speed,
+                abs(_g(f, "actual_norm") - _g(obs[i - 1], "actual_norm")) / DT,
+            )
+            max_shadow_speed = max(
+                max_shadow_speed,
+                abs(_g(f, "shadow_norm") - _g(obs[i - 1], "shadow_norm")) / DT,
+            )
     return {
         "peak_residual": peak_res,
         "residual_threshold": thresh,
@@ -420,34 +461,49 @@ def observe_stats(frames: list[dict]) -> dict:
 
 
 def _fmt_rows(rows: list[dict]) -> str:
-    hdr = (f"{'t':>7} {'phase':<14} {'target':>9} {'dtgt':>9} {'actual':>9} {'dact':>9} "
-           f"{'shadow':>9} {'dshd':>9} {'resid':>9} {'dres':>9} {'force':>8} "
-           f"{'sust':>6} {'act?':>5} {'MAN':>4} {'block':<12} {'reanchor':<12}")
+    hdr = (
+        f"{'t':>7} {'phase':<14} {'target':>9} {'dtgt':>9} {'actual':>9} {'dact':>9} "
+        f"{'shadow':>9} {'dshd':>9} {'resid':>9} {'dres':>9} {'force':>8} "
+        f"{'sust':>6} {'act?':>5} {'MAN':>4} {'block':<12} {'reanchor':<12}"
+    )
     out = [hdr, "-" * len(hdr)]
     for r in rows:
-        out.append(f"{r['t']:>7.3f} {r['phase']:<14} {r['target']:>9.5f} {r['d_target']:>9.5f} "
-                   f"{r['actual']:>9.5f} {r['d_actual']:>9.5f} {r['shadow']:>9.5f} {r['d_shadow']:>9.5f} "
-                   f"{r['residual']:>9.5f} {r['d_residual']:>9.5f} {r['force']:>8.4f} "
-                   f"{r['sustain']:>6.3f} {str(r['ffb_active']):>5} {str(r['lat_manual']):>4} "
-                   f"{str(r['block']):<12} {str(r['reanchor']):<12}")
+        out.append(
+            f"{r['t']:>7.3f} {r['phase']:<14} {r['target']:>9.5f} {r['d_target']:>9.5f} "
+            f"{r['actual']:>9.5f} {r['d_actual']:>9.5f} {r['shadow']:>9.5f} {r['d_shadow']:>9.5f} "
+            f"{r['residual']:>9.5f} {r['d_residual']:>9.5f} {r['force']:>8.4f} "
+            f"{r['sustain']:>6.3f} {str(r['ffb_active']):>5} {str(r['lat_manual']):>4} "
+            f"{str(r['block']):<12} {str(r['reanchor']):<12}"
+        )
     return "\n".join(out)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--return-path", choices=["button", "idle", "both"], default="both")
-    ap.add_argument("--steering-threshold", type=float, default=0.05,
-                    help="0.05 = the SHIPPED value. Older harnesses used 1.0 to "
-                         "suppress the direct-axis path; that also hid it.")
+    ap.add_argument(
+        "--steering-threshold",
+        type=float,
+        default=0.05,
+        help="0.05 = the SHIPPED value. Older harnesses used 1.0 to "
+        "suppress the direct-axis path; that also hid it.",
+    )
     ap.add_argument("--no-envelope", action="store_true")
     ap.add_argument("--out", default=None, help="write raw frames as jsonl")
-    ap.add_argument("--fleet", action="store_true",
-                    help="run a grid of plant variants x both fixture polarities and "
-                         "report the false-latch rate as an interval")
-    ap.add_argument("--sweep", action="store_true",
-                    help="sweep the departure magnitude and report the residual MARGIN "
-                         "for each, instead of one pass/fail episode")
+    ap.add_argument(
+        "--fleet",
+        action="store_true",
+        help="run a grid of plant variants x both fixture polarities and "
+        "report the false-latch rate as an interval",
+    )
+    ap.add_argument(
+        "--sweep",
+        action="store_true",
+        help="sweep the departure magnitude and report the residual MARGIN "
+        "for each, instead of one pass/fail episode",
+    )
     args = ap.parse_args()
 
     if args.fleet:
@@ -468,71 +524,107 @@ def main() -> int:
         for brk in (0.170, 0.210):
             for vmax in (0.8, 1.0, 1.3):
                 for seed in (12345, 777, 24680):
-                    plants.append({"BREAKAWAY": brk, "VMAX": vmax,
-                                   "NOISE_AMP": 0.002, "SEED": seed})
-        print(f"fleet: {len(plants)} plant variants x 2 polarities, "
-              f"steering_threshold={args.steering_threshold}, dt={DT}")
-        print(f"{'brk':>6} {'vmax':>6} {'seed':>7} | {'neg peak':>9} {'neg x_thr':>10} "
-              f"{'neg latch':>10} | {'pos latch':>10}")
+                    plants.append(
+                        {
+                            "BREAKAWAY": brk,
+                            "VMAX": vmax,
+                            "NOISE_AMP": 0.002,
+                            "SEED": seed,
+                        }
+                    )
+        print(
+            f"fleet: {len(plants)} plant variants x 2 polarities, "
+            f"steering_threshold={args.steering_threshold}, dt={DT}"
+        )
+        print(
+            f"{'brk':>6} {'vmax':>6} {'seed':>7} | {'neg peak':>9} {'neg x_thr':>10} "
+            f"{'neg latch':>10} | {'pos latch':>10}"
+        )
         neg_latched = pos_latched = 0
         neg_peaks = []
         for p in plants:
-            fneg = run_episode(return_path="button", steering_threshold=args.steering_threshold,
-                               envelope_enabled=not args.no_envelope, plant=p,
-                               observe_force=0.0)
+            fneg = run_episode(
+                return_path="button",
+                steering_threshold=args.steering_threshold,
+                envelope_enabled=not args.no_envelope,
+                plant=p,
+                observe_force=0.0,
+            )
             sneg = observe_stats(fneg)
-            fpos = run_episode(return_path="button", steering_threshold=args.steering_threshold,
-                               envelope_enabled=not args.no_envelope, plant=p,
-                               observe_force=0.55)
+            fpos = run_episode(
+                return_path="button",
+                steering_threshold=args.steering_threshold,
+                envelope_enabled=not args.no_envelope,
+                plant=p,
+                observe_force=0.55,
+            )
             spos = observe_stats(fpos)
             neg_latched += 1 if sneg.get("latched") else 0
             pos_latched += 1 if spos.get("latched") else 0
             neg_peaks.append(sneg.get("peak_over_threshold", float("nan")))
-            print(f"{p['BREAKAWAY']:>6.3f} {p['VMAX']:>6.2f} {p['SEED']:>7} | "
-                  f"{sneg.get('peak_residual', 0):>9.5f} {sneg.get('peak_over_threshold', 0):>10.3f} "
-                  f"{str(sneg.get('latched')):>10} | {str(spos.get('latched')):>10}")
+            print(
+                f"{p['BREAKAWAY']:>6.3f} {p['VMAX']:>6.2f} {p['SEED']:>7} | "
+                f"{sneg.get('peak_residual', 0):>9.5f} {sneg.get('peak_over_threshold', 0):>10.3f} "
+                f"{str(sneg.get('latched')):>10} | {str(spos.get('latched')):>10}"
+            )
         n = len(plants)
-        print(f"\nnegative fixture (hands off, must NOT latch): {neg_latched}/{n} latched")
+        print(
+            f"\nnegative fixture (hands off, must NOT latch): {neg_latched}/{n} latched"
+        )
         if neg_peaks:
             ordered = sorted(x for x in neg_peaks if x == x)
-            print(f"   peak residual as a fraction of the threshold: "
-                  f"min={ordered[0]:.3f} median={ordered[len(ordered)//2]:.3f} "
-                  f"max={ordered[-1]:.3f}")
-            print(f"   (a run that does not latch but sits at 0.95x is not a pass "
-                  f"in any useful sense -- the margin is the result)")
-        print(f"positive fixture (hand on the wheel, MUST latch): {pos_latched}/{n} latched")
+            print(
+                f"   peak residual as a fraction of the threshold: "
+                f"min={ordered[0]:.3f} median={ordered[len(ordered)//2]:.3f} "
+                f"max={ordered[-1]:.3f}"
+            )
+            print(
+                f"   (a run that does not latch but sits at 0.95x is not a pass "
+                f"in any useful sense -- the margin is the result)"
+            )
+        print(
+            f"positive fixture (hand on the wheel, MUST latch): {pos_latched}/{n} latched"
+        )
         if neg_latched == 0:
             # Clopper-Pearson upper bound at 95% for 0 successes: 1-0.05^(1/n)
             ub = 1.0 - 0.05 ** (1.0 / n)
-            print(f"   0/{n} bounds the false-latch rate at <= {ub*100:.1f}% (95% upper limit)")
+            print(
+                f"   0/{n} bounds the false-latch rate at <= {ub*100:.1f}% (95% upper limit)"
+            )
         # A harness that prints a red table and exits 0 is a harness nobody can
         # gate on. Both polarities are verdicts: a hands-off run that latched is
         # a false positive, and a hand-on-wheel run that did not latch is a
         # missed detection. Either one fails.
         if neg_latched or pos_latched != n:
-            print(f"
-RESULT: FAIL — false latches {neg_latched}/{n}, "
-                  f"missed detections {n - pos_latched}/{n}")
+            print(
+                f"\nRESULT: FAIL — false latches {neg_latched}/{n}, "
+                f"missed detections {n - pos_latched}/{n}"
+            )
             return 1
-        print(f"
-RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
+        print(f"\nRESULT: PASS — 0/{n} false latches, {n}/{n} detections")
         return 0
 
     if args.sweep:
-        print(f"{'driver_force':>12} {'peak_resid':>11} {'thresh':>8} {'x_thresh':>9} "
-              f"{'wheel_/s':>9} {'shadow_/s':>10} {'latched':>8}")
+        print(
+            f"{'driver_force':>12} {'peak_resid':>11} {'thresh':>8} {'x_thresh':>9} "
+            f"{'wheel_/s':>9} {'shadow_/s':>10} {'latched':>8}"
+        )
         for force in (0.25, 0.35, 0.45, 0.55, 0.65, 0.80, 1.00):
-            frames = run_episode(return_path="button",
-                                 steering_threshold=args.steering_threshold,
-                                 envelope_enabled=not args.no_envelope,
-                                 driver_force=force)
+            frames = run_episode(
+                return_path="button",
+                steering_threshold=args.steering_threshold,
+                envelope_enabled=not args.no_envelope,
+                driver_force=force,
+            )
             s = observe_stats(frames)
             if not s:
                 print(f"{force:>12.2f}  (no observation window)")
                 continue
-            print(f"{force:>12.2f} {s['peak_residual']:>11.5f} {s['residual_threshold']:>8.3f} "
-                  f"{s['peak_over_threshold']:>9.3f} {s['max_wheel_speed_per_s']:>9.4f} "
-                  f"{s['max_shadow_speed_per_s']:>10.4f} {str(s['latched']):>8}")
+            print(
+                f"{force:>12.2f} {s['peak_residual']:>11.5f} {s['residual_threshold']:>8.3f} "
+                f"{s['peak_over_threshold']:>9.3f} {s['max_wheel_speed_per_s']:>9.4f} "
+                f"{s['max_shadow_speed_per_s']:>10.4f} {str(s['latched']):>8}"
+            )
         return 0
 
     if not os.path.exists(DLL):
@@ -543,12 +635,16 @@ RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
     verdicts = {}
     for path in paths:
         print("=" * 100)
-        print(f"ARM: return_path={path}  steering_threshold={args.steering_threshold} "
-              f"envelope={'off' if args.no_envelope else 'on'}  dt={DT}")
+        print(
+            f"ARM: return_path={path}  steering_threshold={args.steering_threshold} "
+            f"envelope={'off' if args.no_envelope else 'on'}  dt={DT}"
+        )
         print("=" * 100)
-        frames = run_episode(return_path=path,
-                             steering_threshold=args.steering_threshold,
-                             envelope_enabled=not args.no_envelope)
+        frames = run_episode(
+            return_path=path,
+            steering_threshold=args.steering_threshold,
+            envelope_enabled=not args.no_envelope,
+        )
         if args.out:
             with open(f"{args.out}.{path}.jsonl", "w", encoding="utf-8") as fh:
                 for f in frames:
@@ -560,15 +656,26 @@ RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
             print(f"   {k}: {v}")
         if align["alignment"] not in ("gates(N) == ffb(N-1)",):
             print("   !! The pairing this probe assumes was NOT confirmed on this run.")
-            print("      Every number below that mixes 'target' with 'gates' is suspect.")
+            print(
+                "      Every number below that mixes 'target' with 'gates' is suspect."
+            )
 
-        entered_manual = any(_lat_manual(f) for f in frames
-                             if f["_phase"] in ("manual_push", "manual_release"))
-        returned_auto = any(not _lat_manual(f) for f in frames if f["_phase"] == "observe")
-        print(f"\n-- episode sanity --\n   entered MANUAL: {entered_manual}"
-              f"\n   returned to AUTO at least once in observe: {returned_auto}")
+        entered_manual = any(
+            _lat_manual(f)
+            for f in frames
+            if f["_phase"] in ("manual_push", "manual_release")
+        )
+        returned_auto = any(
+            not _lat_manual(f) for f in frames if f["_phase"] == "observe"
+        )
+        print(
+            f"\n-- episode sanity --\n   entered MANUAL: {entered_manual}"
+            f"\n   returned to AUTO at least once in observe: {returned_auto}"
+        )
         if not entered_manual:
-            print("   !! The override button never latched -- the episode did not test anything.")
+            print(
+                "   !! The override button never latched -- the episode did not test anything."
+            )
             verdicts[path] = {"valid": False}
             continue
         if not returned_auto:
@@ -583,15 +690,28 @@ RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
             continue
 
         att = attribute(frames, idx)
-        print(f"\n-- RESULT: FALSE LATCH at t={att['latch_sim_time']:.3f} "
-              f"via {att['path']} --")
+        print(
+            f"\n-- RESULT: FALSE LATCH at t={att['latch_sim_time']:.3f} "
+            f"via {att['path']} --"
+        )
         print("\n" + _fmt_rows(decompose(frames, idx)))
-        print("\n-- what the residual was made of over the frames that built the latch --")
-        for k in ("build_up_frames", "sum_d_residual", "sum_d_actual", "sum_d_shadow",
-                  "sum_d_target", "mean_abs_d_target_per_frame",
-                  "mean_abs_d_actual_per_frame", "mean_abs_d_shadow_per_frame",
-                  "residual_at_latch", "residual_threshold", "free_residual_at_latch",
-                  "reanchor_source_at_latch"):
+        print(
+            "\n-- what the residual was made of over the frames that built the latch --"
+        )
+        for k in (
+            "build_up_frames",
+            "sum_d_residual",
+            "sum_d_actual",
+            "sum_d_shadow",
+            "sum_d_target",
+            "mean_abs_d_target_per_frame",
+            "mean_abs_d_actual_per_frame",
+            "mean_abs_d_shadow_per_frame",
+            "residual_at_latch",
+            "residual_threshold",
+            "free_residual_at_latch",
+            "reanchor_source_at_latch",
+        ):
             print(f"   {k}: {att[k]}")
         verdicts[path] = {"valid": True, "false_latch": True, **att}
 
@@ -604,8 +724,10 @@ RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
         elif not v.get("false_latch"):
             print(f"  {path:<7}: no false latch")
         else:
-            print(f"  {path:<7}: FALSE LATCH via {v['path']} at t={v['latch_sim_time']:.3f}, "
-                  f"residual {v['residual_at_latch']:.4f} vs threshold {v['residual_threshold']:.4f}")
+            print(
+                f"  {path:<7}: FALSE LATCH via {v['path']} at t={v['latch_sim_time']:.3f}, "
+                f"residual {v['residual_at_latch']:.4f} vs threshold {v['residual_threshold']:.4f}"
+            )
 
     # Exit code, not just prose. An INVALID episode is not a pass either: it
     # means the scripted override or the return path did not happen, so nothing
@@ -613,15 +735,12 @@ RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
     invalid = [p for p, v in verdicts.items() if not v.get("valid")]
     latched = [p for p, v in verdicts.items() if v.get("false_latch")]
     if latched:
-        print(f"
-RESULT: FAIL — false latch on: {', '.join(latched)}")
+        print(f"\nRESULT: FAIL — false latch on: {', '.join(latched)}")
         return 1
     if invalid:
-        print(f"
-RESULT: NOT MEASURED — invalid episode(s): {', '.join(invalid)}")
+        print(f"\nRESULT: NOT MEASURED — invalid episode(s): {', '.join(invalid)}")
         return 2
-    print("
-RESULT: PASS — no false latch on any return path")
+    print("\nRESULT: PASS — no false latch on any return path")
     return 0
 
 

@@ -22,6 +22,7 @@ cap=0 は「無効」扱い（AdSteeringEnvelopeConfig: steer_jerk_max<=0 で無
 
     DriverScript\\.venv\\Scripts\\python.exe GT_esmini\\test\\headless\\f7_jerk_cap_binding_check.py
 """
+
 from __future__ import annotations
 
 import json
@@ -41,10 +42,18 @@ JERK_CAPS = (0.0, 10.0, 25.0, 50.0)
 
 SCENARIOS = {
     "basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "right_turn": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                  / "decelerate_for_right_turn.xosc",
-    "tljunction": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                  / "traffic_lights_junction.xosc",
+    "right_turn": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "decelerate_for_right_turn.xosc",
+    "tljunction": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "traffic_lights_junction.xosc",
 }
 
 OUT_ROOT = ROOT / "test_results" / "f7_jerk_cap_binding_check"
@@ -73,8 +82,10 @@ def run_one(name: str, xosc_path: Path, jerk_cap: float) -> Path:
 
 
 def main() -> int:
-    print(f"DLL: {DLL_PATH}  mtime={os.path.getmtime(DLL_PATH) if DLL_PATH.exists() else 'MISSING'}",
-          file=sys.stderr)
+    print(
+        f"DLL: {DLL_PATH}  mtime={os.path.getmtime(DLL_PATH) if DLL_PATH.exists() else 'MISSING'}",
+        file=sys.stderr,
+    )
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     paths = {}
     for name, xosc_path in SCENARIOS.items():
@@ -94,12 +105,17 @@ def main() -> int:
     expected = sum(1 for x in SCENARIOS.values() if x.exists()) * len(JERK_CAPS)
     missing = [k for k, v in paths.items() if not os.path.exists(v)]
     if expected == 0:
-        print("RESULT: NOT MEASURED — no scenario file was found; nothing was run.",
-              file=sys.stderr)
+        print(
+            "RESULT: NOT MEASURED — no scenario file was found; nothing was run.",
+            file=sys.stderr,
+        )
         return 2
     if missing or len(paths) != expected:
-        print(f"RESULT: FAIL — {len(paths)}/{expected} cells produced, "
-              f"{len(missing)} output file(s) missing: {missing[:5]}", file=sys.stderr)
+        print(
+            f"RESULT: FAIL — {len(paths)}/{expected} cells produced, "
+            f"{len(missing)} output file(s) missing: {missing[:5]}",
+            file=sys.stderr,
+        )
         return 1
     print(f"RESULT: PASS — {len(paths)}/{expected} cells produced.", file=sys.stderr)
     return 0

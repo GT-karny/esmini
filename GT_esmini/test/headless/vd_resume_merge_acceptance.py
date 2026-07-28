@@ -144,6 +144,7 @@ Usage (DriverScript venv -- never bare python):
 
 Output: printed to stdout AND written to test_results/f7_resume_merge_acceptance.txt
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -238,16 +239,24 @@ def _resolve_xodr_path(xosc_path: str) -> str:
     root = ET.parse(xosc_path).getroot()
     el = root.find(".//RoadNetwork/LogicFile")
     if el is None or not el.get("filepath"):
-        raise RuntimeError(f"{xosc_path}: no RoadNetwork/LogicFile -- cannot resolve xodr")
+        raise RuntimeError(
+            f"{xosc_path}: no RoadNetwork/LogicFile -- cannot resolve xodr"
+        )
     fp = el.get("filepath")
-    return fp if os.path.isabs(fp) else os.path.abspath(os.path.join(os.path.dirname(xosc_path), fp))
+    return (
+        fp
+        if os.path.isabs(fp)
+        else os.path.abspath(os.path.join(os.path.dirname(xosc_path), fp))
+    )
 
 
 def _parse_route(xosc_path: str) -> tuple[int, int]:
     root = ET.parse(xosc_path).getroot()
     wp = root.find(".//AssignRouteAction//Route/Waypoint/Position/LanePosition")
     if wp is None:
-        raise RuntimeError(f"{xosc_path}: no AssignRouteAction/.../LanePosition -- cannot determine route lane")
+        raise RuntimeError(
+            f"{xosc_path}: no AssignRouteAction/.../LanePosition -- cannot determine route lane"
+        )
     return int(wp.get("roadId")), int(wp.get("laneId"))
 
 
@@ -260,13 +269,20 @@ def _parse_xodr_lanes(xodr_path: str, road_id: int) -> dict:
     if not sections:
         raise RuntimeError(f"{xodr_path}: road {road_id} has no <laneSection>")
     if len(sections) > 1:
-        print(f"  NOTE: road {road_id} has {len(sections)} laneSections; using only the first "
-              f"(s={sections[0].get('s')}) -- this maneuver stays within a short s-range near the route origin.")
+        print(
+            f"  NOTE: road {road_id} has {len(sections)} laneSections; using only the first "
+            f"(s={sections[0].get('s')}) -- this maneuver stays within a short s-range near the route origin."
+        )
     lanes = []
     for lane in sections[0].findall(".//lane"):
         w_el = lane.find("width")
-        lanes.append({"id": int(lane.get("id")), "type": lane.get("type"),
-                      "width_m": float(w_el.get("a")) if w_el is not None else 0.0})
+        lanes.append(
+            {
+                "id": int(lane.get("id")),
+                "type": lane.get("type"),
+                "width_m": float(w_el.get("a")) if w_el is not None else 0.0,
+            }
+        )
     lanes.sort(key=lambda x: -x["id"])
     return {"road_id": road_id, "lanes": lanes}
 
@@ -287,9 +303,16 @@ def _lane_centers(lanes: list) -> dict:
     return centers
 
 
-def _compute_dev(ego: dict, route_track: int, route_lane: int, centers: dict) -> float | None:
+def _compute_dev(
+    ego: dict, route_track: int, route_lane: int, centers: dict
+) -> float | None:
     track, lane, off = ego.get("track"), ego.get("lane"), ego.get("offset")
-    if track != route_track or lane not in centers or route_lane not in centers or off is None:
+    if (
+        track != route_track
+        or lane not in centers
+        or route_lane not in centers
+        or off is None
+    ):
         return None
     return (centers[lane] - centers[route_lane]) + off
 
@@ -302,8 +325,14 @@ def _check_merge_block_present(speed_mps: float) -> tuple[bool, list]:
     cfg = {"input_type": "stub", "resume_merge_enabled": True}
     xosc = rrf._make_variant_speed_fixed(tmpdir, cfg, speed_mps)
     lib = vrt._load_lib()
-    argv_list = [b"vd_resume_merge_preflight", b"--osc", xosc.encode(), b"--headless",
-                 b"--fixed_timestep", b"0.01"]
+    argv_list = [
+        b"vd_resume_merge_preflight",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        b"0.01",
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -323,7 +352,9 @@ def _check_merge_block_present(speed_mps: float) -> tuple[bool, list]:
         except OSError:
             pass
     if raw is None:
-        raise RuntimeError("merge preflight: GT_GetVirtualDriverTelemetry never returned a frame")
+        raise RuntimeError(
+            "merge preflight: GT_GetVirtualDriverTelemetry never returned a frame"
+        )
     return ("resume_merge" in raw), sorted(raw.keys())
 
 
@@ -355,32 +386,59 @@ def _check_merge_block_present(speed_mps: float) -> tuple[bool, list]:
 # auto-derived "C_hold"/"C_release" telemetry phase tag (pulse cells pass
 # "C_pulse" so the frame dump is self-describing).
 # --------------------------------------------------------------------------
-def run_dev_lane_shift(dev_target_m: float, speed_mps: float, route_track: int, route_lane: int,
-                        centers: dict, merge_enabled: bool, initial_steer_hold: float = 0.0,
-                        settle_s: float | None = DEFAULT_SETTLE_S, hold_dur_s: float = 0.5,
-                        hold_phase_label: str | None = None) -> dict:
+def run_dev_lane_shift(
+    dev_target_m: float,
+    speed_mps: float,
+    route_track: int,
+    route_lane: int,
+    centers: dict,
+    merge_enabled: bool,
+    initial_steer_hold: float = 0.0,
+    settle_s: float | None = DEFAULT_SETTLE_S,
+    hold_dur_s: float = 0.5,
+    hold_phase_label: str | None = None,
+) -> dict:
     import socket
+
     cmd = {"steering": 0.0, "throttle": 0.0, "brake": 0.0, "buttons": 0, "send": False}
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def send_now():
         if cmd["send"]:
-            pkt = vrt.WIRE.pack(vrt.MAGIC, cmd["steering"], cmd["throttle"], cmd["brake"], 0.0, 0,
-                                 cmd["buttons"] & 0xFFFFFFFF)
+            pkt = vrt.WIRE.pack(
+                vrt.MAGIC,
+                cmd["steering"],
+                cmd["throttle"],
+                cmd["brake"],
+                0.0,
+                0,
+                cmd["buttons"] & 0xFFFFFFFF,
+            )
             try:
                 sock.sendto(pkt, ("127.0.0.1", vrt.INPUT_PORT))
             except OSError:
                 pass
 
     tmpdir = tempfile.mkdtemp(prefix="vd_resume_merge_accept_")
-    cfg = {"input_type": "network", "input_port": vrt.INPUT_PORT, "input_transport": "udp",
-           "ffb_target_track_enabled": False, "ad_steering_envelope_enabled": True,
-           "resume_merge_enabled": bool(merge_enabled)}
+    cfg = {
+        "input_type": "network",
+        "input_port": vrt.INPUT_PORT,
+        "input_transport": "udp",
+        "ffb_target_track_enabled": False,
+        "ad_steering_envelope_enabled": True,
+        "resume_merge_enabled": bool(merge_enabled),
+    }
     xosc = rrf._make_variant_speed_fixed(tmpdir, cfg, speed_mps)
 
     lib = vrt._load_lib()
-    argv_list = [b"vd_resume_merge_accept", b"--osc", xosc.encode(), b"--headless",
-                 b"--fixed_timestep", f"{DT:.6f}".encode()]
+    argv_list = [
+        b"vd_resume_merge_accept",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        f"{DT:.6f}".encode(),
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -426,20 +484,32 @@ def run_dev_lane_shift(dev_target_m: float, speed_mps: float, route_track: int, 
             lib.GT_Step(DT)
             continue
         dev_now = _compute_dev(raw.get("ego", {}), route_track, route_lane, centers)
-        dev_for_control = dev_now if dev_now is not None else (last_dev if last_dev is not None else 0.0)
+        dev_for_control = (
+            dev_now
+            if dev_now is not None
+            else (last_dev if last_dev is not None else 0.0)
+        )
         heading_dev = vrt._wrapped_diff(raw["ego"]["h"], h0)
         dev_error = dev_target_m - dev_for_control
-        desired_hdev = max(-rrf._LANE_SHIFT_MAX_DESIRED_HEADING,
-                            min(rrf._LANE_SHIFT_MAX_DESIRED_HEADING, rrf._LANE_SHIFT_KP * dev_error))
-        steer = (rrf._LANE_SHIFT_KH / rrf._LANE_SHIFT_C_STEER) * (heading_dev - desired_hdev)
+        desired_hdev = max(
+            -rrf._LANE_SHIFT_MAX_DESIRED_HEADING,
+            min(rrf._LANE_SHIFT_MAX_DESIRED_HEADING, rrf._LANE_SHIFT_KP * dev_error),
+        )
+        steer = (rrf._LANE_SHIFT_KH / rrf._LANE_SHIFT_C_STEER) * (
+            heading_dev - desired_hdev
+        )
         steer = max(-rrf._LANE_SHIFT_MAX_STEER, min(rrf._LANE_SHIFT_MAX_STEER, steer))
         cmd.update(steering=steer, throttle=0.0, brake=0.0, buttons=0, send=True)
         f2 = step_and_capture("B_dev_lane_shift")
         if f2 is not None:
             last_dev = f2.get("dev")
             last_hdev = vrt._wrapped_diff(f2["ego_h"], h0)
-        if last_dev is not None and last_hdev is not None and \
-           abs(last_dev - dev_target_m) <= DEV_TOL_M and abs(last_hdev) <= HEADING_TOL_RAD:
+        if (
+            last_dev is not None
+            and last_hdev is not None
+            and abs(last_dev - dev_target_m) <= DEV_TOL_M
+            and abs(last_hdev) <= HEADING_TOL_RAD
+        ):
             stable_count += 1
             if stable_count >= STABLE_FRAMES_NEEDED:
                 converged = True
@@ -447,12 +517,24 @@ def run_dev_lane_shift(dev_target_m: float, speed_mps: float, route_track: int, 
         else:
             stable_count = 0
 
-    maneuver_diag = {"converged": converged, "steps_used": steps_used, "final_dev_m": last_dev,
-                      "final_heading_dev_rad": last_hdev, "target_dev_m": dev_target_m,
-                      "dev_tol_m": DEV_TOL_M, "heading_tol_rad": HEADING_TOL_RAD}
+    maneuver_diag = {
+        "converged": converged,
+        "steps_used": steps_used,
+        "final_dev_m": last_dev,
+        "final_heading_dev_rad": last_hdev,
+        "target_dev_m": dev_target_m,
+        "dev_tol_m": DEV_TOL_M,
+        "heading_tol_rad": HEADING_TOL_RAD,
+    }
 
-    cmd.update(steering=initial_steer_hold, throttle=0.0, brake=0.0, buttons=0, send=True)
-    label = hold_phase_label if hold_phase_label is not None else ("C_hold" if initial_steer_hold else "C_release")
+    cmd.update(
+        steering=initial_steer_hold, throttle=0.0, brake=0.0, buttons=0, send=True
+    )
+    label = (
+        hold_phase_label
+        if hold_phase_label is not None
+        else ("C_hold" if initial_steer_hold else "C_release")
+    )
     for _ in range(int(round(hold_dur_s / DT))):
         step_and_capture(label)
 
@@ -468,7 +550,9 @@ def run_dev_lane_shift(dev_target_m: float, speed_mps: float, route_track: int, 
         # always-held defect-reproduction path, kept as its own
         # explicitly-labelled cell (see module docstring).
         for i in range(n_d):
-            cmd.update(steering=initial_steer_hold, buttons=vrt.BTN_AUTO_RESUME, send=True)
+            cmd.update(
+                steering=initial_steer_hold, buttons=vrt.BTN_AUTO_RESUME, send=True
+            )
             step_and_capture("D_resume_pulse")
         for i in range(n_e):
             cmd.update(steering=initial_steer_hold, buttons=0, send=True)
@@ -498,8 +582,13 @@ def run_dev_lane_shift(dev_target_m: float, speed_mps: float, route_track: int, 
         os.remove(xosc)
     except OSError:
         pass
-    return {"frames": frames, "maneuver_ok": converged, "maneuver_diag": maneuver_diag,
-            "merge_block_seen": merge_block_seen[0], "h0": h0}
+    return {
+        "frames": frames,
+        "maneuver_ok": converged,
+        "maneuver_diag": maneuver_diag,
+        "merge_block_seen": merge_block_seen[0],
+        "h0": h0,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -515,7 +604,7 @@ def _frames_latched_after_edge(frames: list, idx0: int) -> int:
     the edge (t=0.01s post-edge) and self-perpetuates -- the count then runs
     to (near) end-of-run."""
     n = 0
-    for f in frames[idx0 + 1:]:
+    for f in frames[idx0 + 1 :]:
         if f.get("override_lateral") is True:
             n += 1
         else:
@@ -539,16 +628,28 @@ def _edge_dynamics(frames: list, idx0: int, h0: float) -> dict:
     from h0, the pre-maneuver AUTO heading reference captured at the end of
     phase A in run_dev_lane_shift)."""
     if idx0 < 1:
-        return {"yaw_rate_at_edge": None, "a0_lat_at_edge": None, "heading_dev_at_edge": None}
+        return {
+            "yaw_rate_at_edge": None,
+            "a0_lat_at_edge": None,
+            "heading_dev_at_edge": None,
+        }
     f0, f1 = frames[idx0 - 1], frames[idx0]
     dt = (f1.get("sim_time") or 0.0) - (f0.get("sim_time") or 0.0)
     h_prev, h_edge, v_edge = f0.get("ego_h"), f1.get("ego_h"), f1.get("ego_speed")
     if dt <= 0 or h_prev is None or h_edge is None or v_edge is None:
-        return {"yaw_rate_at_edge": None, "a0_lat_at_edge": None, "heading_dev_at_edge": None}
+        return {
+            "yaw_rate_at_edge": None,
+            "a0_lat_at_edge": None,
+            "heading_dev_at_edge": None,
+        }
     yaw_rate = vrt._wrapped_diff(h_edge, h_prev) / dt
     a0_lat = yaw_rate * v_edge
     heading_dev = vrt._wrapped_diff(h_edge, h0)
-    return {"yaw_rate_at_edge": yaw_rate, "a0_lat_at_edge": a0_lat, "heading_dev_at_edge": heading_dev}
+    return {
+        "yaw_rate_at_edge": yaw_rate,
+        "a0_lat_at_edge": a0_lat,
+        "heading_dev_at_edge": heading_dev,
+    }
 
 
 def _lane_check_at_resume(frame: dict, width_by_id: dict, type_by_id: dict) -> dict:
@@ -557,18 +658,36 @@ def _lane_check_at_resume(frame: dict, width_by_id: dict, type_by_id: dict) -> d
         return {"ok": False, "reason": "missing ego_lane/ego_offset at resume edge"}
     width = width_by_id.get(lane)
     if width is None:
-        return {"ok": False, "reason": f"lane {lane} not found in the parsed lane table"}
+        return {
+            "ok": False,
+            "reason": f"lane {lane} not found in the parsed lane table",
+        }
     half = width / 2.0
     ok = abs(off) <= half + 1e-9
-    reason = "" if ok else (f"BEYOND lane {lane}'s edge by {abs(off) - half:.3f}m "
-                             f"(|offset|={abs(off):.3f} > half-width {half:.3f}, type={type_by_id.get(lane)})")
+    reason = (
+        ""
+        if ok
+        else (
+            f"BEYOND lane {lane}'s edge by {abs(off) - half:.3f}m "
+            f"(|offset|={abs(off):.3f} > half-width {half:.3f}, type={type_by_id.get(lane)})"
+        )
+    )
     return {"ok": ok, "lane": lane, "offset": off, "half_width": half, "reason": reason}
 
 
-def _dev_window_metrics(frames: list, idx0: int, window_s: float = METRIC_WINDOW_DEV_S,
-                         tol_m: float = DEV_TOL_M) -> dict:
+def _dev_window_metrics(
+    frames: list,
+    idx0: int,
+    window_s: float = METRIC_WINDOW_DEV_S,
+    tol_m: float = DEV_TOL_M,
+) -> dict:
     t0 = frames[idx0]["sim_time"]
-    auto = [f for f in frames[idx0:] if (f["sim_time"] - t0) <= window_s + 1e-9 and f.get("override_lateral") is False]
+    auto = [
+        f
+        for f in frames[idx0:]
+        if (f["sim_time"] - t0) <= window_s + 1e-9
+        and f.get("override_lateral") is False
+    ]
     dev_at_edge = frames[idx0].get("dev")
     conv_t, overshoot, traj, next_t = None, 0.0, [], 0.0
     sign0 = 1 if (dev_at_edge or 0.0) >= 0 else -1
@@ -583,8 +702,13 @@ def _dev_window_metrics(frames: list, idx0: int, window_s: float = METRIC_WINDOW
         if rel >= next_t - 1e-6:
             traj.append((round(rel, 2), round(d, 4)))
             next_t += 0.1
-    return {"dev_at_edge_m": dev_at_edge, "auto_owned_frames_10s": len(auto),
-            "dev_converge_s": conv_t, "dev_overshoot_m": overshoot, "dev_trajectory": traj}
+    return {
+        "dev_at_edge_m": dev_at_edge,
+        "auto_owned_frames_10s": len(auto),
+        "dev_converge_s": conv_t,
+        "dev_overshoot_m": overshoot,
+        "dev_trajectory": traj,
+    }
 
 
 def _frames_equal(a: list, b: list) -> tuple[bool, str]:
@@ -598,25 +722,44 @@ def _frames_equal(a: list, b: list) -> tuple[bool, str]:
     return True, ""
 
 
-def analyze_cell(frames: list, maneuver_ok: bool, maneuver_diag: dict, route_track: int,
-                  width_by_id: dict, type_by_id: dict, h0: float, claims_non_neutral: bool,
-                  neutral_a0_lat_ref: float | None, w) -> dict:
+def analyze_cell(
+    frames: list,
+    maneuver_ok: bool,
+    maneuver_diag: dict,
+    route_track: int,
+    width_by_id: dict,
+    type_by_id: dict,
+    h0: float,
+    claims_non_neutral: bool,
+    neutral_a0_lat_ref: float | None,
+    w,
+) -> dict:
     if not maneuver_ok:
-        w(f"  NOT MEASURED -- dev-lane-shift maneuver did not converge: {maneuver_diag}")
+        w(
+            f"  NOT MEASURED -- dev-lane-shift maneuver did not converge: {maneuver_diag}"
+        )
         return {"status": "NOT MEASURED", "reason": "maneuver did not converge"}
     route_check = rrf._route_departure_check(frames)
-    w(f"  route/lane-departure check (reused: resume_ride_feel._route_departure_check): {route_check}")
+    w(
+        f"  route/lane-departure check (reused: resume_ride_feel._route_departure_check): {route_check}"
+    )
     if route_check["departed"]:
         w("  NOT MEASURED -- route departure detected")
-        return {"status": "NOT MEASURED", "reason": "route departure", "route_check": route_check}
+        return {
+            "status": "NOT MEASURED",
+            "reason": "route departure",
+            "route_check": route_check,
+        }
     edge_idxs = [i for i, f in enumerate(frames) if f.get("auto_transition")]
     if not edge_idxs:
         w("  NOT MEASURED -- no auto_transition edge found")
         return {"status": "NOT MEASURED", "reason": "no auto_transition edge"}
     idx0 = edge_idxs[0]
     latched_after_edge = _frames_latched_after_edge(frames, idx0)
-    w(f"  frames override stayed latched (MANUAL) immediately after the resume edge (t={frames[idx0]['sim_time']:.2f}s): "
-      f"{latched_after_edge}")
+    w(
+        f"  frames override stayed latched (MANUAL) immediately after the resume edge (t={frames[idx0]['sim_time']:.2f}s): "
+        f"{latched_after_edge}"
+    )
 
     # defect fix (2026-07-27, evidence requirement): a0_lat_at_edge is the
     # EXACT quantity the resume-merge profile matches at its start boundary
@@ -624,11 +767,17 @@ def analyze_cell(frames: list, maneuver_ok: bool, maneuver_diag: dict, route_tra
     # cell that claims to be non-neutral actually is, rather than asserting
     # it via label alone.
     edge_dyn = _edge_dynamics(frames, idx0, h0)
-    yre, a0e, hde = edge_dyn["yaw_rate_at_edge"], edge_dyn["a0_lat_at_edge"], edge_dyn["heading_dev_at_edge"]
-    w(f"  edge dynamics (a0_lat_at_edge is the exact quantity the merge profile matches at its start "
-      f"boundary): yaw_rate_at_edge={'n/a' if yre is None else f'{yre:.4f}'} rad/s  "
-      f"a0_lat_at_edge={'n/a' if a0e is None else f'{a0e:.4f}'} m/s^2  "
-      f"heading_dev_at_edge={'n/a' if hde is None else f'{hde:.4f}'} rad")
+    yre, a0e, hde = (
+        edge_dyn["yaw_rate_at_edge"],
+        edge_dyn["a0_lat_at_edge"],
+        edge_dyn["heading_dev_at_edge"],
+    )
+    w(
+        f"  edge dynamics (a0_lat_at_edge is the exact quantity the merge profile matches at its start "
+        f"boundary): yaw_rate_at_edge={'n/a' if yre is None else f'{yre:.4f}'} rad/s  "
+        f"a0_lat_at_edge={'n/a' if a0e is None else f'{a0e:.4f}'} m/s^2  "
+        f"heading_dev_at_edge={'n/a' if hde is None else f'{hde:.4f}'} rad"
+    )
     # defect fix (2026-07-28, module docstring "DEFECT 3 CORRECTION" part 2 /
     # "the weak check"): the floor is RELATIVE to the neutral cell's own
     # measured |a0_lat_at_edge| for the same merge condition (passed in as
@@ -641,56 +790,90 @@ def analyze_cell(frames: list, maneuver_ok: bool, maneuver_diag: dict, route_tra
     non_neutral_confirmed = None
     if claims_non_neutral:
         if a0e is None:
-            w("  CANNOT VERIFY non-neutral claim -- a0_lat_at_edge is n/a for this cell (missing "
-              "telemetry at the edge frame), so it cannot be compared against the neutral reference.")
+            w(
+                "  CANNOT VERIFY non-neutral claim -- a0_lat_at_edge is n/a for this cell (missing "
+                "telemetry at the edge frame), so it cannot be compared against the neutral reference."
+            )
         elif neutral_a0_lat_ref is None:
-            w("  CANNOT VERIFY non-neutral claim -- the neutral cell's own |a0_lat_at_edge| for this "
-              "merge condition was not measured, so there is no reference to compare against (reporting "
-              f"this cell's own |a0_lat_at_edge|={abs(a0e):.4f} m/s^2 for the record, unjudged).")
+            w(
+                "  CANNOT VERIFY non-neutral claim -- the neutral cell's own |a0_lat_at_edge| for this "
+                "merge condition was not measured, so there is no reference to compare against (reporting "
+                f"this cell's own |a0_lat_at_edge|={abs(a0e):.4f} m/s^2 for the record, unjudged)."
+            )
         else:
-            a0_lat_ratio_vs_neutral = abs(a0e) / abs(neutral_a0_lat_ref) if neutral_a0_lat_ref != 0 else float("inf")
+            a0_lat_ratio_vs_neutral = (
+                abs(a0e) / abs(neutral_a0_lat_ref)
+                if neutral_a0_lat_ref != 0
+                else float("inf")
+            )
             required = A0_LAT_NON_NEUTRAL_RATIO * abs(neutral_a0_lat_ref)
             non_neutral_confirmed = abs(a0e) >= required
             if not non_neutral_confirmed:
-                w(f"  FAILED TO CREATE a distinct non-neutral condition -- |a0_lat_at_edge|={abs(a0e):.4f} "
-                  f"m/s^2 is only {a0_lat_ratio_vs_neutral:.2f}x the neutral cell's own |a0_lat_at_edge|="
-                  f"{abs(neutral_a0_lat_ref):.4f} m/s^2 (same merge condition), below the required "
-                  f"{A0_LAT_NON_NEUTRAL_RATIO:g}x ({required:.4f} m/s^2). This cell's steering sequence did "
-                  "not leave the vehicle in a state distinguishable from the neutral cell's own noise floor "
-                  "at the AUTO_RESUME edge, despite being labelled non_neutral -- the same class of error as "
-                  "the old |offset|=3.5 condition that never created the condition it claimed (see module "
-                  "docstring).")
+                w(
+                    f"  FAILED TO CREATE a distinct non-neutral condition -- |a0_lat_at_edge|={abs(a0e):.4f} "
+                    f"m/s^2 is only {a0_lat_ratio_vs_neutral:.2f}x the neutral cell's own |a0_lat_at_edge|="
+                    f"{abs(neutral_a0_lat_ref):.4f} m/s^2 (same merge condition), below the required "
+                    f"{A0_LAT_NON_NEUTRAL_RATIO:g}x ({required:.4f} m/s^2). This cell's steering sequence did "
+                    "not leave the vehicle in a state distinguishable from the neutral cell's own noise floor "
+                    "at the AUTO_RESUME edge, despite being labelled non_neutral -- the same class of error as "
+                    "the old |offset|=3.5 condition that never created the condition it claimed (see module "
+                    "docstring)."
+                )
             else:
-                w(f"  non-neutral condition CONFIRMED at the edge: |a0_lat_at_edge|={abs(a0e):.4f} m/s^2 is "
-                  f"{a0_lat_ratio_vs_neutral:.2f}x the neutral cell's own |a0_lat_at_edge|="
-                  f"{abs(neutral_a0_lat_ref):.4f} m/s^2 (same merge condition) -- clears the required "
-                  f"{A0_LAT_NON_NEUTRAL_RATIO:g}x.")
+                w(
+                    f"  non-neutral condition CONFIRMED at the edge: |a0_lat_at_edge|={abs(a0e):.4f} m/s^2 is "
+                    f"{a0_lat_ratio_vs_neutral:.2f}x the neutral cell's own |a0_lat_at_edge|="
+                    f"{abs(neutral_a0_lat_ref):.4f} m/s^2 (same merge condition) -- clears the required "
+                    f"{A0_LAT_NON_NEUTRAL_RATIO:g}x."
+                )
 
     lc = _lane_check_at_resume(frames[idx0], width_by_id, type_by_id)
     w(f"  resume-edge inside-driving-lane check: {lc}")
     if not lc["ok"]:
-        w("  NOT MEASURED -- ego is not inside a driving lane at the resume edge (this is the exact "
-          "failure the old |offset|=3.5 condition had)")
-        return {"status": "NOT MEASURED", "reason": "ego beyond lane edge at resume", "lane_check": lc,
-                "latched_after_edge": latched_after_edge,
-                "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral, "non_neutral_confirmed": non_neutral_confirmed,
-                **edge_dyn}
+        w(
+            "  NOT MEASURED -- ego is not inside a driving lane at the resume edge (this is the exact "
+            "failure the old |offset|=3.5 condition had)"
+        )
+        return {
+            "status": "NOT MEASURED",
+            "reason": "ego beyond lane edge at resume",
+            "lane_check": lc,
+            "latched_after_edge": latched_after_edge,
+            "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral,
+            "non_neutral_confirmed": non_neutral_confirmed,
+            **edge_dyn,
+        }
 
     m1s = rrf.analyze_resume_case(frames, window_s=METRIC_WINDOW_PEAKS_S)
     t0 = frames[idx0]["sim_time"]
-    n_auto_1s = sum(1 for f in frames[idx0:] if (f["sim_time"] - t0) <= METRIC_WINDOW_PEAKS_S + 1e-9
-                     and f.get("override_lateral") is False)
+    n_auto_1s = sum(
+        1
+        for f in frames[idx0:]
+        if (f["sim_time"] - t0) <= METRIC_WINDOW_PEAKS_S + 1e-9
+        and f.get("override_lateral") is False
+    )
     devm = _dev_window_metrics(frames, idx0)
-    w(f"  AUTO-owned frames: 1.0s peak-window={n_auto_1s}  10.0s dev-window={devm['auto_owned_frames_10s']}")
+    w(
+        f"  AUTO-owned frames: 1.0s peak-window={n_auto_1s}  10.0s dev-window={devm['auto_owned_frames_10s']}"
+    )
     if n_auto_1s == 0 or devm["auto_owned_frames_10s"] == 0:
-        w(f"  NOT MEASURED -- 0 AUTO-owned frames post-resume: override never returned to AUTO "
-          f"(self-perpetuating MANUAL re-latch -- override stayed latched for {latched_after_edge} frame(s) "
-          "after the edge -- exactly the reported non-neutral-steering defect if this is a non_neutral cell)")
-        return {"status": "NOT MEASURED", "reason": "0 AUTO-owned post-resume frames",
-                "lane_check": lc, "route_check": route_check, "latched_after_edge": latched_after_edge,
-                "n_auto_1s": n_auto_1s,
-                "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral, "non_neutral_confirmed": non_neutral_confirmed,
-                **edge_dyn, **devm}
+        w(
+            f"  NOT MEASURED -- 0 AUTO-owned frames post-resume: override never returned to AUTO "
+            f"(self-perpetuating MANUAL re-latch -- override stayed latched for {latched_after_edge} frame(s) "
+            "after the edge -- exactly the reported non-neutral-steering defect if this is a non_neutral cell)"
+        )
+        return {
+            "status": "NOT MEASURED",
+            "reason": "0 AUTO-owned post-resume frames",
+            "lane_check": lc,
+            "route_check": route_check,
+            "latched_after_edge": latched_after_edge,
+            "n_auto_1s": n_auto_1s,
+            "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral,
+            "non_neutral_confirmed": non_neutral_confirmed,
+            **edge_dyn,
+            **devm,
+        }
 
     # defect fix (thin-sample gate): a warned condition is never reported as
     # if it were a measurement. Below MIN_AUTO_FRAMES_PEAK_FLOOR AUTO-owned
@@ -701,41 +884,73 @@ def analyze_cell(frames: list, maneuver_ok: bool, maneuver_diag: dict, route_tra
     # the reader sees everything that happened.
     if n_auto_1s < MIN_AUTO_FRAMES_PEAK_FLOOR:
         if n_auto_1s < MIN_AUTO_FRAMES_FOR_DERIVATIVE:
-            w(f"  WARNING: only {n_auto_1s} AUTO-owned frame(s) in the 1.0s peak window -- fewer than "
-              f"{MIN_AUTO_FRAMES_FOR_DERIVATIVE}, so there is no second AUTO-owned sample to difference "
-              "against; derivative-based quantities (steer_rate, and transitively yaw_rate/a_lat) cannot "
-              "be computed from this window at all, let alone as a 'peak'.")
+            w(
+                f"  WARNING: only {n_auto_1s} AUTO-owned frame(s) in the 1.0s peak window -- fewer than "
+                f"{MIN_AUTO_FRAMES_FOR_DERIVATIVE}, so there is no second AUTO-owned sample to difference "
+                "against; derivative-based quantities (steer_rate, and transitively yaw_rate/a_lat) cannot "
+                "be computed from this window at all, let alone as a 'peak'."
+            )
         else:
-            w(f"  WARNING: only {n_auto_1s} AUTO-owned frames in the 1.0s peak window -- thin sample, "
-              "treat peak numbers with caution")
-        w(f"  NOT MEASURED -- {n_auto_1s} AUTO-owned frame(s) in the 1.0s peak window is below the "
-          f"measurement floor of {MIN_AUTO_FRAMES_PEAK_FLOOR} (0.1s @ dt=0.01 required for peak quantities "
-          "to count as measured); a warned condition is never reported as measured.")
-        w("  peak |a_lat|=NOT MEASURED  peak |yaw_rate|=NOT MEASURED  peak |steer_rate|=NOT MEASURED")
-        w(f"  onset_effective_jerk (handoff frame, ungated)={m1s['onset_effective_jerk']}")
-        w(f"  dev_at_edge={devm['dev_at_edge_m']}  dev_converge_s(<{DEV_TOL_M}m)={devm['dev_converge_s']}  "
-          f"dev_overshoot_past_zero_m={devm['dev_overshoot_m']:.4f}")
+            w(
+                f"  WARNING: only {n_auto_1s} AUTO-owned frames in the 1.0s peak window -- thin sample, "
+                "treat peak numbers with caution"
+            )
+        w(
+            f"  NOT MEASURED -- {n_auto_1s} AUTO-owned frame(s) in the 1.0s peak window is below the "
+            f"measurement floor of {MIN_AUTO_FRAMES_PEAK_FLOOR} (0.1s @ dt=0.01 required for peak quantities "
+            "to count as measured); a warned condition is never reported as measured."
+        )
+        w(
+            "  peak |a_lat|=NOT MEASURED  peak |yaw_rate|=NOT MEASURED  peak |steer_rate|=NOT MEASURED"
+        )
+        w(
+            f"  onset_effective_jerk (handoff frame, ungated)={m1s['onset_effective_jerk']}"
+        )
+        w(
+            f"  dev_at_edge={devm['dev_at_edge_m']}  dev_converge_s(<{DEV_TOL_M}m)={devm['dev_converge_s']}  "
+            f"dev_overshoot_past_zero_m={devm['dev_overshoot_m']:.4f}"
+        )
         w(f"  dev_trajectory (0.1s, AUTO-owned only): {devm['dev_trajectory']}")
-        return {"status": "NOT MEASURED",
-                "reason": f"only {n_auto_1s} AUTO-owned frame(s) in the 1.0s peak window "
-                          f"(< floor of {MIN_AUTO_FRAMES_PEAK_FLOOR})",
-                "lane_check": lc, "route_check": route_check, "latched_after_edge": latched_after_edge,
-                "n_auto_1s": n_auto_1s, "onset_effective_jerk": m1s["onset_effective_jerk"],
-                "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral, "non_neutral_confirmed": non_neutral_confirmed,
-                **edge_dyn, **devm}
+        return {
+            "status": "NOT MEASURED",
+            "reason": f"only {n_auto_1s} AUTO-owned frame(s) in the 1.0s peak window "
+            f"(< floor of {MIN_AUTO_FRAMES_PEAK_FLOOR})",
+            "lane_check": lc,
+            "route_check": route_check,
+            "latched_after_edge": latched_after_edge,
+            "n_auto_1s": n_auto_1s,
+            "onset_effective_jerk": m1s["onset_effective_jerk"],
+            "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral,
+            "non_neutral_confirmed": non_neutral_confirmed,
+            **edge_dyn,
+            **devm,
+        }
 
-    w(f"  peak |a_lat|={m1s['a_lat_peak']:.4f} m/s^2  peak |yaw_rate|={m1s['yaw_rate_peak']:.4f} rad/s  "
-      f"peak |steer_rate|={m1s['steer_rate_peak_env_out']:.4f} /s")
+    w(
+        f"  peak |a_lat|={m1s['a_lat_peak']:.4f} m/s^2  peak |yaw_rate|={m1s['yaw_rate_peak']:.4f} rad/s  "
+        f"peak |steer_rate|={m1s['steer_rate_peak_env_out']:.4f} /s"
+    )
     w(f"  onset_effective_jerk (handoff frame, ungated)={m1s['onset_effective_jerk']}")
-    w(f"  dev_at_edge={devm['dev_at_edge_m']}  dev_converge_s(<{DEV_TOL_M}m)={devm['dev_converge_s']}  "
-      f"dev_overshoot_past_zero_m={devm['dev_overshoot_m']:.4f}")
+    w(
+        f"  dev_at_edge={devm['dev_at_edge_m']}  dev_converge_s(<{DEV_TOL_M}m)={devm['dev_converge_s']}  "
+        f"dev_overshoot_past_zero_m={devm['dev_overshoot_m']:.4f}"
+    )
     w(f"  dev_trajectory (0.1s, AUTO-owned only): {devm['dev_trajectory']}")
-    return {"status": "MEASURED", "lane_check": lc, "route_check": route_check,
-            "a_lat_peak": m1s["a_lat_peak"], "yaw_rate_peak": m1s["yaw_rate_peak"],
-            "steer_rate_peak": m1s["steer_rate_peak_env_out"], "onset_effective_jerk": m1s["onset_effective_jerk"],
-            "n_auto_1s": n_auto_1s, "latched_after_edge": latched_after_edge,
-            "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral, "non_neutral_confirmed": non_neutral_confirmed,
-            **edge_dyn, **devm}
+    return {
+        "status": "MEASURED",
+        "lane_check": lc,
+        "route_check": route_check,
+        "a_lat_peak": m1s["a_lat_peak"],
+        "yaw_rate_peak": m1s["yaw_rate_peak"],
+        "steer_rate_peak": m1s["steer_rate_peak_env_out"],
+        "onset_effective_jerk": m1s["onset_effective_jerk"],
+        "n_auto_1s": n_auto_1s,
+        "latched_after_edge": latched_after_edge,
+        "a0_lat_ratio_vs_neutral": a0_lat_ratio_vs_neutral,
+        "non_neutral_confirmed": non_neutral_confirmed,
+        **edge_dyn,
+        **devm,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -754,6 +969,7 @@ def _check_exclusive_input_port() -> str:
     Fail loudly rather than measure quietly.
     """
     import socket as _s
+
     probe = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
     try:
         # Windows-only flag; on other platforms fall back to a plain bind probe.
@@ -761,11 +977,13 @@ def _check_exclusive_input_port() -> str:
             probe.setsockopt(_s.SOL_SOCKET, _s.SO_EXCLUSIVEADDRUSE, 1)
         probe.bind(("127.0.0.1", vrt.INPUT_PORT))
     except OSError as e:
-        return (f"FAIL: UDP port {vrt.INPUT_PORT} (vd_resume_transient.INPUT_PORT) is already in "
-                f"use ({e}). Something else is holding it -- another harness run, another worker, "
-                f"or a packaged GT_Sim the user is driving. Refusing to run: a shared input port "
-                f"silently misroutes steering datagrams and yields plausible-but-wrong numbers "
-                f"instead of an error. Stop the other process (or wait for it) and re-run.")
+        return (
+            f"FAIL: UDP port {vrt.INPUT_PORT} (vd_resume_transient.INPUT_PORT) is already in "
+            f"use ({e}). Something else is holding it -- another harness run, another worker, "
+            f"or a packaged GT_Sim the user is driving. Refusing to run: a shared input port "
+            f"silently misroutes steering datagrams and yields plausible-but-wrong numbers "
+            f"instead of an error. Stop the other process (or wait for it) and re-run."
+        )
     finally:
         probe.close()
     return ""
@@ -791,11 +1009,15 @@ def main() -> int:
     w(f"input-port exclusivity check: PASS (UDP {vrt.INPUT_PORT} free)")
 
     if not os.path.exists(vrt.DLL):
-        w(f"FAIL: DLL not found at {vrt.DLL} -- run /build first (not doing it automatically)")
+        w(
+            f"FAIL: DLL not found at {vrt.DLL} -- run /build first (not doing it automatically)"
+        )
         os.makedirs(OUT_DIR, exist_ok=True)
         open(OUT_TXT, "w", encoding="utf-8").write("\n".join(lines) + "\n")
         return 1
-    dll_mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(vrt.DLL)))
+    dll_mtime = time.strftime(
+        "%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(vrt.DLL))
+    )
     w(f"DLL under test : {vrt.DLL}  mtime={dll_mtime}")
     w(f"scenario base  : {vrt.BASE_XOSC}")
     w(f"config (SHIPPED, overlay-only, build/ never touched): {vrt.SHIPPED_CFG}")
@@ -814,43 +1036,74 @@ def main() -> int:
     centers = _lane_centers(xodr_info["lanes"])
     target_lane = route_lane - 1
     dev_target = centers[target_lane] - centers[route_lane]
-    w(f"\ntarget lane (one lane further from center, this maneuver's calibrated push direction) = {target_lane}")
-    w(f"dev_target = centers[{target_lane}] - centers[{route_lane}] = {dev_target:.4f}m "
-      f"(route-relative; this is what 'true adjacent-lane center' means here)")
+    w(
+        f"\ntarget lane (one lane further from center, this maneuver's calibrated push direction) = {target_lane}"
+    )
+    w(
+        f"dev_target = centers[{target_lane}] - centers[{route_lane}] = {dev_target:.4f}m "
+        f"(route-relative; this is what 'true adjacent-lane center' means here)"
+    )
 
     w("\n" + "=" * 78)
-    w("DETERMINISM GATE (neutral / merge OFF, run twice, frame series must be identical)")
+    w(
+        "DETERMINISM GATE (neutral / merge OFF, run twice, frame series must be identical)"
+    )
     w("=" * 78)
-    r1 = run_dev_lane_shift(dev_target, SPEED_MPS, route_track, route_lane, centers, merge_enabled=False,
-                             initial_steer_hold=0.0, settle_s=0.0)
-    r2 = run_dev_lane_shift(dev_target, SPEED_MPS, route_track, route_lane, centers, merge_enabled=False,
-                             initial_steer_hold=0.0, settle_s=0.0)
+    r1 = run_dev_lane_shift(
+        dev_target,
+        SPEED_MPS,
+        route_track,
+        route_lane,
+        centers,
+        merge_enabled=False,
+        initial_steer_hold=0.0,
+        settle_s=0.0,
+    )
+    r2 = run_dev_lane_shift(
+        dev_target,
+        SPEED_MPS,
+        route_track,
+        route_lane,
+        centers,
+        merge_enabled=False,
+        initial_steer_hold=0.0,
+        settle_s=0.0,
+    )
     ident, why = _frames_equal(r1["frames"], r2["frames"])
     w(f"identical={ident}  {why}")
     if not ident:
-        w("\nDETERMINISM GATE FAILED -- every downstream number is NOT MEASURED. Stopping.")
+        w(
+            "\nDETERMINISM GATE FAILED -- every downstream number is NOT MEASURED. Stopping."
+        )
         os.makedirs(OUT_DIR, exist_ok=True)
         open(OUT_TXT, "w", encoding="utf-8").write("\n".join(lines) + "\n")
         return 1
     w("PASS -- proceeding, run #1 reused as the neutral/merge-OFF result.")
 
     w("\n" + "=" * 78)
-    w("MERGE-SUPPORT PREFLIGHT (own throwaway init; checks for a 'resume_merge' block in RAW telemetry)")
+    w(
+        "MERGE-SUPPORT PREFLIGHT (own throwaway init; checks for a 'resume_merge' block in RAW telemetry)"
+    )
     w("=" * 78)
     try:
         merge_supported, raw_keys = _check_merge_block_present(SPEED_MPS)
     except RuntimeError as e:
         w(f"PREFLIGHT ERROR: {e}")
         merge_supported = False
-    w(f"resume_merge_enabled=true requested. top-level telemetry keys={raw_keys if not merge_supported else '(see below)'}"
-      if not merge_supported else f"resume_merge block PRESENT. top-level telemetry keys={raw_keys}")
+    w(
+        f"resume_merge_enabled=true requested. top-level telemetry keys={raw_keys if not merge_supported else '(see below)'}"
+        if not merge_supported
+        else f"resume_merge block PRESENT. top-level telemetry keys={raw_keys}"
+    )
     if not merge_supported:
-        w("MERGE NOT PRESENT IN THIS DLL: resume_merge_enabled=true was requested but the telemetry JSON "
-          "carries no 'resume_merge' block. This is expected -- the config keys are parsed "
-          "(VirtualDriverConfig::ResumeMergeCfg) but not yet wired into ControllerVirtualDriver::Step or "
-          "VirtualDriverTelemetryJson -- the implementation is landing in parallel. "
-          "ON-vs-OFF comparison is SKIPPED for both steering conditions below; this is reported explicitly, "
-          "never as a silent 'no effect' finding.")
+        w(
+            "MERGE NOT PRESENT IN THIS DLL: resume_merge_enabled=true was requested but the telemetry JSON "
+            "carries no 'resume_merge' block. This is expected -- the config keys are parsed "
+            "(VirtualDriverConfig::ResumeMergeCfg) but not yet wired into ControllerVirtualDriver::Step or "
+            "VirtualDriverTelemetryJson -- the implementation is landing in parallel. "
+            "ON-vs-OFF comparison is SKIPPED for both steering conditions below; this is reported explicitly, "
+            "never as a silent 'no effect' finding."
+        )
 
     # defect fix (2026-07-27, see module docstring "DEFECT 2 CORRECTION"):
     # non_neutral now runs as len(SETTLE_S_VALUES) explicitly-labelled
@@ -872,10 +1125,30 @@ def main() -> int:
     # CORRECTION") -- see PULSE_DUR_S/PULSE_MAG_VALUES.
     variants = [("neutral", 0.0, 0.0, False, None, None)]
     for settle_s in SETTLE_S_VALUES:
-        variants.append((f"non_neutral_settle{settle_s:g}", NON_NEUTRAL_STEER_HOLD, settle_s, True, None, None))
-    variants.append(("non_neutral_held", NON_NEUTRAL_STEER_HOLD, None, True, None, None))
+        variants.append(
+            (
+                f"non_neutral_settle{settle_s:g}",
+                NON_NEUTRAL_STEER_HOLD,
+                settle_s,
+                True,
+                None,
+                None,
+            )
+        )
+    variants.append(
+        ("non_neutral_held", NON_NEUTRAL_STEER_HOLD, None, True, None, None)
+    )
     for pulse_mag in PULSE_MAG_VALUES:
-        variants.append((f"non_neutral_pulse{pulse_mag:g}", pulse_mag, 0.0, True, pulse_mag, PULSE_DUR_S))
+        variants.append(
+            (
+                f"non_neutral_pulse{pulse_mag:g}",
+                pulse_mag,
+                0.0,
+                True,
+                pulse_mag,
+                PULSE_DUR_S,
+            )
+        )
 
     cells = [("neutral", 0.0, False, 0.0, False, None, None, r1)]
     for steer_label, steer_val, settle_s, claims_nn, pulse_mag, pulse_dur_s in variants:
@@ -883,9 +1156,22 @@ def main() -> int:
             if steer_label == "neutral" and not merge_on:
                 continue  # already have r1 from the determinism gate
             if merge_on and not merge_supported:
-                w(f"\n-- {steer_label}/{merge_label} -- SKIPPED (merge not present in this DLL)")
+                w(
+                    f"\n-- {steer_label}/{merge_label} -- SKIPPED (merge not present in this DLL)"
+                )
                 continue
-            cells.append((steer_label, steer_val, merge_on, settle_s, claims_nn, pulse_mag, pulse_dur_s, None))
+            cells.append(
+                (
+                    steer_label,
+                    steer_val,
+                    merge_on,
+                    settle_s,
+                    claims_nn,
+                    pulse_mag,
+                    pulse_dur_s,
+                    None,
+                )
+            )
 
     # defect fix (2026-07-28, module docstring "DEFECT 3 CORRECTION" part 2):
     # each merge condition's own neutral-cell |a0_lat_at_edge| is tracked here
@@ -903,35 +1189,75 @@ def main() -> int:
     neutral_a0_lat: dict[bool, float | None] = {}
 
     results = {}
-    for steer_label, steer_val, merge_on, settle_s, claims_nn, pulse_mag, pulse_dur_s, reuse in cells:
+    for (
+        steer_label,
+        steer_val,
+        merge_on,
+        settle_s,
+        claims_nn,
+        pulse_mag,
+        pulse_dur_s,
+        reuse,
+    ) in cells:
         merge_label = "merge_on" if merge_on else "merge_off"
         key = f"{steer_label}/{merge_label}"
         if pulse_mag is not None:
-            variant_desc = (f"PULSE: dev-lane-shift converges as usual (steps 1-2 unchanged), then "
-                             f"steering={pulse_mag:g} held for {pulse_dur_s:g}s (phase C_pulse), then "
-                             "released to 0 and AUTO_RESUME pressed in the SAME command packet (settle_s=0.0, "
-                             "i.e. settle ~0 -- see module docstring 'DEFECT 3 CORRECTION')")
+            variant_desc = (
+                f"PULSE: dev-lane-shift converges as usual (steps 1-2 unchanged), then "
+                f"steering={pulse_mag:g} held for {pulse_dur_s:g}s (phase C_pulse), then "
+                "released to 0 and AUTO_RESUME pressed in the SAME command packet (settle_s=0.0, "
+                "i.e. settle ~0 -- see module docstring 'DEFECT 3 CORRECTION')"
+            )
         elif settle_s is None:
-            variant_desc = f"settle_s=None (wheel held at {steer_val:g} forever after AUTO_RESUME)"
+            variant_desc = (
+                f"settle_s=None (wheel held at {steer_val:g} forever after AUTO_RESUME)"
+            )
         else:
-            variant_desc = (f"settle_s={settle_s:g}s (wheel held at {steer_val:g}, RELEASED to 0, then "
-                             f"AUTO_RESUME pressed {settle_s:g}s after the release)")
-        w(f"\n{'=' * 78}\nCELL {key}  (initial_steer_hold={steer_val:g}; steering variant: {variant_desc})\n{'=' * 78}")
-        run = reuse if reuse is not None else run_dev_lane_shift(
-            dev_target, SPEED_MPS, route_track, route_lane, centers, merge_enabled=merge_on,
-            initial_steer_hold=steer_val, settle_s=settle_s,
-            hold_dur_s=(pulse_dur_s if pulse_mag is not None else 0.5),
-            hold_phase_label=("C_pulse" if pulse_mag is not None else None))
+            variant_desc = (
+                f"settle_s={settle_s:g}s (wheel held at {steer_val:g}, RELEASED to 0, then "
+                f"AUTO_RESUME pressed {settle_s:g}s after the release)"
+            )
+        w(
+            f"\n{'=' * 78}\nCELL {key}  (initial_steer_hold={steer_val:g}; steering variant: {variant_desc})\n{'=' * 78}"
+        )
+        run = (
+            reuse
+            if reuse is not None
+            else run_dev_lane_shift(
+                dev_target,
+                SPEED_MPS,
+                route_track,
+                route_lane,
+                centers,
+                merge_enabled=merge_on,
+                initial_steer_hold=steer_val,
+                settle_s=settle_s,
+                hold_dur_s=(pulse_dur_s if pulse_mag is not None else 0.5),
+                hold_phase_label=("C_pulse" if pulse_mag is not None else None),
+            )
+        )
         if merge_on and not run["merge_block_seen"]:
-            w("  WARNING: preflight reported merge support, but this run's own telemetry never showed a "
-              "'resume_merge' block -- inconsistent DLL behavior, treat this cell's results with caution.")
+            w(
+                "  WARNING: preflight reported merge support, but this run's own telemetry never showed a "
+                "'resume_merge' block -- inconsistent DLL behavior, treat this cell's results with caution."
+            )
         neutral_ref = None
         if steer_label != "neutral":
             neutral_ref = neutral_a0_lat.get(merge_on)
             if neutral_ref is None:
                 neutral_ref = neutral_a0_lat.get(not merge_on)
-        results[key] = analyze_cell(run["frames"], run["maneuver_ok"], run["maneuver_diag"], route_track,
-                                     width_by_id, type_by_id, run["h0"], claims_nn, neutral_ref, w)
+        results[key] = analyze_cell(
+            run["frames"],
+            run["maneuver_ok"],
+            run["maneuver_diag"],
+            route_track,
+            width_by_id,
+            type_by_id,
+            run["h0"],
+            claims_nn,
+            neutral_ref,
+            w,
+        )
         if steer_label == "neutral":
             neutral_a0_lat[merge_on] = results[key].get("a0_lat_at_edge")
 
@@ -942,12 +1268,19 @@ def main() -> int:
         ratio = r.get("a0_lat_ratio_vs_neutral")
         ratio_str = "" if ratio is None else f"  ratio_vs_neutral={ratio:.2f}x"
         confirmed = r.get("non_neutral_confirmed")
-        confirmed_str = "" if confirmed is None else f"  non_neutral_confirmed={confirmed}"
-        w(f"  {key:<30} status={r['status']}  a0_lat_at_edge={a0_str}{ratio_str}{confirmed_str}" +
-          (f"  reason={r.get('reason')}" if r["status"] != "MEASURED" else
-           f"  a_lat_peak={r['a_lat_peak']:.3f} yaw_rate_peak={r['yaw_rate_peak']:.3f} "
-           f"steer_rate_peak={r['steer_rate_peak']:.3f} dev_converge_s={r['dev_converge_s']} "
-           f"dev_overshoot_m={r['dev_overshoot_m']:.3f}"))
+        confirmed_str = (
+            "" if confirmed is None else f"  non_neutral_confirmed={confirmed}"
+        )
+        w(
+            f"  {key:<30} status={r['status']}  a0_lat_at_edge={a0_str}{ratio_str}{confirmed_str}"
+            + (
+                f"  reason={r.get('reason')}"
+                if r["status"] != "MEASURED"
+                else f"  a_lat_peak={r['a_lat_peak']:.3f} yaw_rate_peak={r['yaw_rate_peak']:.3f} "
+                f"steer_rate_peak={r['steer_rate_peak']:.3f} dev_converge_s={r['dev_converge_s']} "
+                f"dev_overshoot_m={r['dev_overshoot_m']:.3f}"
+            )
+        )
 
     # --- VERDICT ---------------------------------------------------------
     #
@@ -967,24 +1300,34 @@ def main() -> int:
     # non-neutral but could not confirm it is measuring something other than
     # what its name says.
     unmeasured = [k for k, r in results.items() if r.get("status") != "MEASURED"]
-    unconfirmed = [k for k, r in results.items()
-                   if r.get("non_neutral_confirmed") is False]
+    unconfirmed = [
+        k for k, r in results.items() if r.get("non_neutral_confirmed") is False
+    ]
 
     w(f"\n{'=' * 78}\nVERDICT\n{'=' * 78}")
     if not results:
         w("  RESULT: NOT MEASURED — no cells ran at all.")
     elif unmeasured:
-        w(f"  RESULT: NOT MEASURED — {len(unmeasured)}/{len(results)} cell(s) produced no "
-          f"usable measurement: {', '.join(unmeasured)}")
+        w(
+            f"  RESULT: NOT MEASURED — {len(unmeasured)}/{len(results)} cell(s) produced no "
+            f"usable measurement: {', '.join(unmeasured)}"
+        )
         for k in unmeasured:
             w(f"      {k}: {results[k].get('reason')}")
     elif unconfirmed:
-        w(f"  RESULT: FAIL — {len(unconfirmed)} cell(s) claim a non-neutral wheel but "
-          f"could not confirm it: {', '.join(unconfirmed)}")
+        w(
+            f"  RESULT: FAIL — {len(unconfirmed)} cell(s) claim a non-neutral wheel but "
+            f"could not confirm it: {', '.join(unconfirmed)}"
+        )
     else:
-        w(f"  RESULT: PASS — {len(results)}/{len(results)} cells measured"
-          + (f"; non-neutral confirmed where claimed" if any(
-              r.get("non_neutral_confirmed") for r in results.values()) else ""))
+        w(
+            f"  RESULT: PASS — {len(results)}/{len(results)} cells measured"
+            + (
+                f"; non-neutral confirmed where claimed"
+                if any(r.get("non_neutral_confirmed") for r in results.values())
+                else ""
+            )
+        )
 
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(OUT_TXT, "w", encoding="utf-8") as fh:

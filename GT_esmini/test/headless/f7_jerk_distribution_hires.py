@@ -29,6 +29,7 @@ dt=0.01）から出した「p99=2.0 /s^2、単発max=290、二峰の谷」を根
 
     DriverScript\\.venv\\Scripts\\python.exe GT_esmini\\test\\headless\\f7_jerk_distribution_hires.py
 """
+
 from __future__ import annotations
 
 import json
@@ -47,10 +48,18 @@ MAX_TIME = 45.0
 
 SCENARIOS = {
     "basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "right_turn": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                  / "decelerate_for_right_turn.xosc",
-    "tljunction": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                  / "traffic_lights_junction.xosc",
+    "right_turn": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "decelerate_for_right_turn.xosc",
+    "tljunction": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "traffic_lights_junction.xosc",
 }
 
 OUT_ROOT = ROOT / "test_results" / "f7_jerk_distribution_hires"
