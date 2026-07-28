@@ -112,7 +112,15 @@ namespace gt_esmini
 // are a different language each and must be kept numerically in sync by hand
 // when this module is wired into VirtualDriverConfig (design doc section 6
 // edit point #2/#3 -- not part of this pure-logic module).
-constexpr bool   kResumeMergeDefaultEnabled       = false;  // master gate: shipped OFF -- existing behavior stays bit-identical (design doc section 3)
+// Shipped ON since 2026-07-28: the smoothness of the merge was confirmed on
+// the real wheel, and it was the top-priority request behind feature:F7. The
+// bit-identical guarantee of design doc section 3 is unchanged and still
+// tested -- it is a statement about what happens when this flag is false, not
+// about which way it ships. The maneuver only ever arms on an AUTO_RESUME that
+// finds the car more than min_offset_m from its route lane, so a run that
+// never overrides is unaffected either way (regression baselines: 22/22
+// scenarios, deviation 0, with this ON).
+constexpr bool   kResumeMergeDefaultEnabled       = true;
 constexpr double kResumeMergeDefaultALatComfort   = 1.5;    // [m/s^2] comfort ceiling on the ADDED maneuver (see a_bound doc above)
 constexpr double kResumeMergeDefaultDurationMinS  = 1.5;    // [s]
 constexpr double kResumeMergeDefaultDurationMaxS  = 6.0;    // [s]

@@ -33,9 +33,16 @@ ResumeMergeConfig MakeEnabledCfg()
 
 // --- 1: shipped default -----------------------------------------------------
 
-TEST(ResumeMergeProfileTest, ShippedDefaultLeavesResumeMergeDisabled)
+TEST(ResumeMergeProfileTest, ShippedDefaultEnablesResumeMerge)
 {
-    EXPECT_FALSE(ResumeMergeConfig{}.enabled);
+    // Shipped ON since 2026-07-28, after the merge's smoothness was confirmed
+    // on the real wheel. The test is kept (and renamed) rather than deleted:
+    // its job is to make the shipped default a deliberate, visible decision, so
+    // it has to move when the decision moves. kResumeMergeDefaultEnabled in
+    // ResumeMergeProfile.hpp is the C++-side single source of truth; the same
+    // value is mirrored by hand into config/virtual_driver.json and the web
+    // backend's DEFAULT_VIRTUAL_DRIVER_CONFIG.
+    EXPECT_TRUE(ResumeMergeConfig{}.enabled);
 }
 
 // --- 3: all six boundary conditions, including a0_lat != 0 ------------------
@@ -292,7 +299,11 @@ TEST(ResumeMergeProfileTest, DoesNotArmBelowMinOffset)
     EXPECT_TRUE(state.active);
 
     // Disabled refuses regardless of offset size.
-    ResumeMergeConfig disabled_cfg;  // enabled=false, shipped default
+    // Set explicitly rather than leaning on the default: this assertion is
+    // about the enabled=false path, and it silently stopped testing that the
+    // day the shipped default flipped to true (2026-07-28).
+    ResumeMergeConfig disabled_cfg;
+    disabled_cfg.enabled = false;
     EXPECT_FALSE(ArmResumeMerge(state, /*d0=*/10.0, 0.0, 0.0, disabled_cfg));
     EXPECT_FALSE(state.active);
 }
