@@ -21,7 +21,17 @@ Deliberately EXCLUDED from the known/editable keys: ``input_port``,
 ``input_transport``, ``vehicle_params_file`` — the runner
 (``_write_virtual_driver_config``) owns those at run time and a GUI edit must
 not fight it. GET still returns them (they live in the on-disk file, returned
-verbatim); PUT rejects them as unknown (422).
+verbatim).
+
+PUT (2026-07-28): an attempt to CHANGE one of these is still rejected (422), so
+the runner's ownership is intact. What changed is that an UNCHANGED echo is now
+accepted: GET returns them, so a client doing the obvious GET → edit one field →
+PUT was being 422'd on a key it never touched. That is not hypothetical — it is
+how the packaged-app verification failed when setting the wheel input over this
+very endpoint. Unknown keys that do not exist on disk (a typo) are still
+rejected. They are NOT silently dropped: turning a caller's mistake into a
+no-op is the "I configured it and nothing happened" failure this project spent
+2026-07-27 digging out of.
 """
 
 from __future__ import annotations
@@ -183,8 +193,10 @@ _NUMBER_KEYS = frozenset(
 # watchdog, default 0=disabled — see its "_comment_ffb_safety") but are
 # DELIBERATELY left out of _NUMBER_KEYS/KNOWN_KEYS: enabling them for an
 # interactive session would force-terminate the run mid-drive. GET still
-# returns them verbatim (on-disk truth); PUT rejects them as unknown (422).
-# Not exposed in the GUI either — see VirtualDriverPanel.tsx.
+# returns them verbatim (on-disk truth); PUT rejects any attempt to CHANGE
+# them (422), while tolerating an unchanged echo so a GET->edit->PUT round
+# trip works (see the module docstring). Not exposed in the GUI either — see
+# VirtualDriverPanel.tsx.
 # String enum keys: 'manual' (overridable) or 'scenario' (locked-auto).
 # ``input_type`` is the run's input source (see ControllerVirtualDriver.cpp's
 # input-source selection): "sdl2_wheel" only when GT_ENABLE_SDL2, "network"
@@ -523,15 +535,50 @@ async def update_config(patch: dict[str, Any]) -> dict[str, Any]:
       ignored (the server keeps its own), so a client cannot inject arbitrary
       text.
     """
-    for key in patch:
-        if key.startswith("_"):
-            continue
-        if key not in KNOWN_KEYS:
-            raise HTTPException(status_code=422, detail=f"Unknown key: '{key}'")
-
-    merged = _read_config()
+    # feature:F7 2026-07-28 -- GET/PUT round-trip asymmetry.
+    #
+    # GET returns the WHOLE on-disk config, including runner-owned keys this
+    # endpoint deliberately does not manage (vehicle_params_file being the one
+    # that surfaced). A client doing the obvious thing -- GET, change one
+    # field, PUT the object back -- was therefore rejected with 422 on a key it
+    # never touched and had only echoed back. Found while verifying the
+    # packaged app: setting the wheel input via the documented REST path failed
+    # outright.
+    #
+    # Unknown keys are still rejected when the caller tries to INTRODUCE or
+    # CHANGE them -- a typo'd key does not exist on disk and still 422s, so the
+    # protection that matters is intact. Only an unchanged echo of a key we
+    # already store is tolerated. Deliberately NOT silently dropping unknown
+    # keys: that would turn a caller's mistake into a no-op, which is the
+    # "configured it but nothing happened" failure this project spent
+    # 2026-07-27 digging out of.
+    stored = _read_config()
     for key, value in patch.items():
         if key.startswith("_"):
+            continue
+        if key in KNOWN_KEYS:
+            continue
+        if key in stored and stored[key] == value:
+            continue  # unchanged round-trip echo of a key we do not manage
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown key: '{key}'"
+                if key not in stored
+                else f"Key '{key}' is not editable through this endpoint "
+                     f"(it is owned by the run writer); send it unchanged or omit it"
+            ),
+        )
+
+    merged = stored
+    for key, value in patch.items():
+        if key.startswith("_"):
+            continue
+        # Only managed keys are coerced and written. An unmanaged key that got
+        # this far is an unchanged echo (the loop above rejected anything
+        # else), so it is already correct in `merged` -- and _coerce() would
+        # mis-classify it as a number key and 422 on a string it never owned.
+        if key not in KNOWN_KEYS:
             continue
         merged[key] = _coerce(key, value)
 
