@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 
 from GT_esmini.web.backend import config
 from GT_esmini.web.backend.api import manual_drive_api
@@ -227,3 +228,50 @@ def test_save_preset_preserves_unmodeled_ffb_keys(sandbox, settings_sandbox):
         mine["config"]["ffb"]["safety_max_saturation_seconds"]
         == real["ffb"]["safety_max_saturation_seconds"]
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /presets/{name} (feature:F7 audit #3: "PUT/POSTのみでDELETE未テスト"
+# パターンの実例 -- GET/POST presets had coverage above, DELETE had none).
+# ---------------------------------------------------------------------------
+
+
+def test_delete_preset_removes_a_saved_preset(sandbox, settings_sandbox):
+    _run(manual_drive_api.save_preset({"name": "ToDelete", "config": ManualDriveControllerConfig().model_dump()}))
+    assert any(p["name"] == "ToDelete" for p in _run(manual_drive_api.get_presets()))
+
+    result = _run(manual_drive_api.delete_preset("ToDelete"))
+
+    assert result == {"status": "deleted"}
+    remaining = _run(manual_drive_api.get_presets())
+    assert not any(p["name"] == "ToDelete" for p in remaining)
+
+
+def test_delete_preset_404_when_not_found(sandbox, settings_sandbox):
+    with pytest.raises(HTTPException) as exc_info:
+        _run(manual_drive_api.delete_preset("never-existed"))
+
+    assert exc_info.value.status_code == 404
+
+
+def test_delete_preset_does_not_touch_other_presets(sandbox, settings_sandbox):
+    cfg = ManualDriveControllerConfig().model_dump()
+    _run(manual_drive_api.save_preset({"name": "Keep", "config": cfg}))
+    _run(manual_drive_api.save_preset({"name": "Remove", "config": cfg}))
+
+    _run(manual_drive_api.delete_preset("Remove"))
+
+    remaining = {p["name"] for p in _run(manual_drive_api.get_presets()) if not p.get("builtin")}
+    assert remaining == {"Keep"}
+
+
+def test_delete_preset_cannot_remove_builtin_presets(sandbox, settings_sandbox):
+    builtin_name = manual_drive_api.BUILTIN_PRESETS[0]["name"]
+
+    with pytest.raises(HTTPException) as exc_info:
+        _run(manual_drive_api.delete_preset(builtin_name))
+
+    assert exc_info.value.status_code == 404
+    # still present afterward
+    names = {p["name"] for p in _run(manual_drive_api.get_presets())}
+    assert builtin_name in names
