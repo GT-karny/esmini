@@ -16,10 +16,22 @@ Interpreted precisely:
       be an OUTPUT path — the servo pushing the wheel must NEVER change what
       AD decides, plans, or drives. This script proves (2) headlessly by
       running each scenario against a stub baseline (config A) and against a
-      set of synthetic wheel fixtures (config B), then asserting per-frame ego
-      kinematic telemetry (x, y, speed, track_id, lane_id) matches within
-      tolerance. Fixtures come in two classes with DIFFERENT expectations —
-      see FOLLOWER_MODES below.
+      set of synthetic wheel fixtures (config B), then asserting the AD's
+      DECISION fields (driver.throttle/brake/steer, envelope.steer_in/
+      steer_out/kappa_cmd) are EXACTLY equal frame-by-frame — not a tolerance
+      on the resulting ego kinematic state (x/y/speed), which is a downstream
+      integrated CONSEQUENCE of the decision and can absorb a small genuine
+      leak inside a tolerance band. See _first_ad_decision_divergence's
+      docstring for why exact equality is a meaningful (not merely stricter)
+      standard here, and _check_self_determinism / the per-scenario
+      "determinism control" for why an A-vs-B exact-match claim is only
+      trustworthy once a same-config-twice control has been shown clean.
+      (Upgraded from tolerance-based ego-kinematic comparison to this
+      decision-field exact-match standard 2026-07-28, per an independent
+      audit that rated the underlying "no-touch parity" requirement
+      "unconfirmed" — neither passing nor failing, because nothing had
+      checked it against a strict standard.) Fixtures come in two classes
+      with DIFFERENT expectations — see FOLLOWER_MODES below.
 
 The sweep runs the force-coupled "plant" wheel at three points spanning the
 real calibration uncertainty (breakaway across the measured 0.170-0.210 band,
@@ -30,6 +42,25 @@ evidence about the wheel rather than a tautology about a shared model (see the
 INDEPENDENCE REQUIREMENT in ManualDriveConfig.hpp). Any AD-side divergence
 between A and B, in ANY variant, means the FFB pathway is bleeding back into
 AD decisions.
+
+NOT WIRED INTO run_regression_gate.ps1 / CI (deliberately, as of 2026-07-28).
+The self-determinism control this script now runs FIRST (same stub config,
+twice, in two fully separate processes) currently FAILS on 3 of the 6
+scenarios (virtual_driver_basic, decelerate_for_right_turn,
+traffic_lights_junction): the identical config produces a different
+driver.brake decision (~1e-9 relative, at the exact frame braking begins) that
+then propagates and amplifies through the closed control loop to ~1e-4 by the
+end of the run. This is a genuine, reproducible, PRE-EXISTING engine
+determinism gap unrelated to FFB (it reproduces with input_type=stub, no
+wheel/FFB device involved at all) -- see test_results/f7_web_progress.md for
+the full writeup and hand-off to the C++/control-layer owner. Wiring this in
+now, in any form, would either (a) as a hard gate, block merges for a reason
+that has nothing to do with what the gate claims to test, or (b) as a
+WARN-only gate that silently skips the 3 affected scenarios, create exactly
+the "looks like coverage but isn't" appearance this project's audit series has
+repeatedly flagged elsewhere. Wire this in once the determinism gap is fixed
+(or deliberately, knowingly quarantined) so ALL 6 scenarios can be evaluated,
+not just 3.
 
 Runs against each scenario in resources/xosc/verification/anticipation_driving_batch.yaml
 (covers straight/LC/curve/junction crossing/right-turn/traffic-lights).
@@ -42,6 +73,8 @@ import json
 import math
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -233,9 +266,15 @@ def _write_cfg(tmpdir: str, input_type: str, target_track_enabled: bool, tag: st
 REAL_MACHINE_DT = 0.01
 
 
-def _run_headless(dll_path: str, xosc_path: str, dt: float = REAL_MACHINE_DT,
-                  max_time_s: float = 40.0) -> list[dict]:
-    """Run one scenario headless and collect per-frame telemetry dicts."""
+def _run_headless_in_process(dll_path: str, xosc_path: str, dt: float,
+                              max_time_s: float) -> list[dict]:
+    """Run one scenario headless IN THE CALLING PROCESS and collect per-frame
+    telemetry dicts. Do not call this directly from the comparison harness —
+    see _run_headless below for why (ctypes.CDLL on Windows reuses an
+    already-loaded module rather than truly reloading it, so any static/
+    global state GT_esminiLib.dll does not fully reset between GT_Close()
+    and a subsequent GT_InitWithArgs() in the SAME process can leak between
+    "separate" in-process runs and masquerade as engine non-determinism)."""
     lib = ctypes.CDLL(dll_path)
     lib.GT_InitWithArgs.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_char_p)]
     lib.GT_InitWithArgs.restype  = ctypes.c_int
@@ -267,9 +306,172 @@ def _run_headless(dll_path: str, xosc_path: str, dt: float = REAL_MACHINE_DT,
     return frames
 
 
+def _worker_main() -> int:
+    """Entry point for the isolated subprocess spawned by _run_headless.
+    argv: --worker <dll_path> <xosc_path> <dt> <max_time_s> <out_json_path>.
+    Writes the frame list as one JSON array to out_json_path -- NOT stdout.
+    The engine writes its own console logging (fprintf/std::cout in the C++
+    runtime) to the SAME OS-level stdout file descriptor Python's sys.stdout
+    uses; the first version of this worker wrote JSON to stdout and it came
+    back with engine log lines interleaved into (and corrupting) the JSON
+    payload. A dedicated output file sidesteps shared-fd interleaving
+    entirely regardless of what the engine prints or when it flushes."""
+    dll_path, xosc_path, dt, max_time_s, out_path = (
+        sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
+    )
+    frames = _run_headless_in_process(dll_path, xosc_path, dt, max_time_s)
+    Path(out_path).write_text(json.dumps(frames), encoding="utf-8")
+    return 0
+
+
+def _run_headless(dll_path: str, xosc_path: str, dt: float = REAL_MACHINE_DT,
+                  max_time_s: float = 40.0) -> list[dict]:
+    """Run one scenario headless in a FRESH SUBPROCESS (not in-process) and
+    collect per-frame telemetry dicts.
+
+    WHY A SUBPROCESS, NOT JUST ctypes.CDLL PER CALL: the first version of this
+    harness's "determinism control" (run the identical stub config twice,
+    in-process, via two separate ctypes.CDLL(dll_path) calls) found ~1e-9
+    relative divergence in driver.brake on 3 of 6 scenarios. Before reporting
+    that as genuine engine non-determinism, it had to be ruled out as an
+    artifact of the test methodology itself: on Windows, loading the same DLL
+    path twice via ctypes.CDLL in one process does not reload it -- the OS
+    loader just bumps the reference count and hands back the SAME already-
+    mapped module, so any static/global state GT_esminiLib.dll does not fully
+    reset in GT_Close() would silently leak from one "run" into the "next"
+    within a single process, masquerading as engine non-determinism. A fresh
+    OS process per run has no such shared state (aside from ASLR, which is
+    itself re-randomized per process and worth knowing about if it turns out
+    to matter). The subprocess's own environment is inherited from this
+    process by default, so GT_HEADLESS_FFB_MODE / etc. still apply.
+    """
+    env_marker = os.environ.get("VD_FFB_PARITY_FORCE_IN_PROCESS")
+    if env_marker:  # escape hatch for debugging only, not used by main()
+        return _run_headless_in_process(dll_path, xosc_path, dt, max_time_s)
+
+    out_fd, out_path = tempfile.mkstemp(prefix="vd_ffb_worker_", suffix=".json")
+    os.close(out_fd)
+    try:
+        result = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "--worker",
+             dll_path, xosc_path, f"{dt!r}", f"{max_time_s!r}", out_path],
+            capture_output=True, text=True, timeout=max(120.0, max_time_s * 3),
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"worker subprocess failed (rc={result.returncode}) for {xosc_path}:\n"
+                f"stdout(tail)={result.stdout[-2000:]}\nstderr(tail)={result.stderr[-2000:]}"
+            )
+        try:
+            text = Path(out_path).read_text(encoding="utf-8")
+            return json.loads(text)
+        except (OSError, json.JSONDecodeError) as e:
+            raise RuntimeError(
+                f"worker subprocess produced no valid JSON output file for {xosc_path}: {e}\n"
+                f"stdout(tail)={result.stdout[-2000:]}\nstderr(tail)={result.stderr[-2000:]}"
+            ) from e
+    finally:
+        Path(out_path).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# feature:F7 AD-decision exact-match check (audit "requirement #3: FFB must be
+# output-only, never affect AD decisions" — rated "unconfirmed" by independent
+# audit, neither passing nor failing because nothing checked it).
+#
+# WHY THESE FIELDS, NOT ego x/y/speed: x/y/speed are the OUTCOME of applying
+# the AD's decision through vehicle physics over many frames. Comparing them
+# with a tolerance (the original _diff_frames below) answers "did the car end
+# up in about the same place", not "did the AD ever decide anything
+# different". A single-frame decision divergence too small to move the
+# tolerance-gated kinematic state would pass a position/speed check while
+# still being exactly the kind of FFB-into-AD leak requirement #3 forbids.
+# driver.{throttle,brake,steer} is the driver model's decision BEFORE
+# integration; envelope.{steer_in,steer_out,kappa_cmd} is the same decision
+# immediately before/after the safety-envelope clamp. Comparing these directly
+# is comparing the decision itself, not a downstream integrated proxy for it.
+#
+# WHY "EXACT" IS MEANINGFUL HERE (not just strict for its own sake): the
+# engine runs headless with --fixed_timestep (deterministic dt) and no
+# real-time pacing. If the AD's decision computation is a pure function of
+# scenario state + previous-frame vehicle state (i.e. truly independent of
+# input_type/FFB), then two runs that start from the same scenario and see
+# the same vehicle-state history must compute bit-for-bit the same decision,
+# every frame, forever — any divergence, however small, means SOME input to
+# that computation differed. This is only a valid standard if the engine is
+# itself deterministic run-to-run given IDENTICAL config (no ASLR-order
+# hash-map iteration affecting float summation order, no timing-based
+# jitter) — see _check_self_determinism, which is run FIRST as a control and
+# must itself show zero divergence before an A-vs-B divergence can be
+# attributed to FFB rather than to incidental engine non-determinism.
+#
+# Precision floor: VirtualDriverTelemetryJson.cpp serializes with
+# os.precision(9) specifically so quantization does not mask real
+# differences (see its own comment on the jerk quantum). Comparing the
+# JSON-round-tripped floats for exact equality is therefore "as exact as this
+# instrumentation can show us" — not a claim of true IEEE-754 bit-identity of
+# the underlying C++ doubles, which would require a binary export this
+# harness does not have (and does not need: a real FFB-into-AD leak would be
+# vastly larger than the 1e-9 floor this loses).
+_AD_DECISION_FIELDS = [
+    ("driver", "throttle"),
+    ("driver", "brake"),
+    ("driver", "steer"),
+    ("envelope", "steer_in"),
+    ("envelope", "steer_out"),
+    ("envelope", "kappa_cmd"),
+]
+
+
+def _ad_decision_tuple(frame: dict) -> tuple:
+    return tuple(frame.get(block, {}).get(key) for block, key in _AD_DECISION_FIELDS)
+
+
+def _first_ad_decision_divergence(a: list[dict], b: list[dict]) -> str | None:
+    """Compare AD-decision fields frame-by-frame for EXACT equality (not
+    tolerance). Returns a description of the FIRST divergent frame (index,
+    sim_time, field, both values), or None if every compared frame matches
+    exactly. Only compares over the overlapping frame range; a frame-count
+    mismatch is reported separately by the caller if no field ever diverged
+    within the overlap (a silent truncation is still a divergence, just a
+    structural one rather than a per-field one)."""
+    n = min(len(a), len(b))
+    for i in range(n):
+        ta, tb = _ad_decision_tuple(a[i]), _ad_decision_tuple(b[i])
+        if ta != tb:
+            field_diffs = [
+                f"{blk}.{key}: a={va!r} vs b={vb!r}"
+                for (blk, key), va, vb in zip(_AD_DECISION_FIELDS, ta, tb)
+                if va != vb
+            ]
+            return (f"frame {i} (t={a[i].get('sim_time')}): "
+                    + "; ".join(field_diffs))
+    if len(a) != len(b):
+        return f"frame count differs: a={len(a)} b={len(b)} (no field divergence within the overlapping {n} frames)"
+    return None
+
+
+def _check_self_determinism(dll: str, xosc_path: str) -> str | None:
+    """Control: run the SAME config twice and require exact AD-decision
+    parity between the two runs. If this control itself fails, a strict
+    equality standard against a DIFFERENT config is not meaningful — any
+    divergence found there could be incidental engine non-determinism
+    (unordered-container iteration order, timing jitter) rather than a
+    genuine FFB-into-AD leak. Must be run and shown clean before trusting any
+    A-vs-B result for the same scenario."""
+    frames_1 = _run_headless(DLL, xosc_path)
+    frames_2 = _run_headless(DLL, xosc_path)
+    return _first_ad_decision_divergence(frames_1, frames_2)
+
+
 def _diff_frames(a: list[dict], b: list[dict],
                  pos_tol: float = 0.05, speed_tol: float = 0.05) -> list[str]:
-    """Return list of human-readable divergence lines (empty = parity holds)."""
+    """Informational only (NOT the pass/fail gate — see _first_ad_decision_divergence
+    above for that). Reports the downstream kinematic CONSEQUENCE of a
+    decision divergence, i.e. "how far did this actually drift", which is
+    useful context once _first_ad_decision_divergence has already found a
+    problem. A tolerance check on ego x/y/speed cannot itself prove FFB never
+    touched an AD decision (see the WHY note above), so it no longer gates."""
     diffs = []
     if len(a) != len(b):
         diffs.append(f"frame count differs: stub={len(a)} ffb={len(b)}")
@@ -420,13 +622,17 @@ def _liveness_verdict(mode: str, cfg: dict,
     if latched != reachable:
         return False, "LIVENESS MISMATCH: " + detail
 
-    # Pre-latch AD parity. Compare only the frames before the takeover.
+    # Pre-latch AD parity: EXACT match on the AD's decision fields, not a
+    # tolerance on the resulting kinematic state (see _first_ad_decision_divergence).
     n = latch_i if latched else min(len(frames_stub), len(frames_ffb))
-    pre_diffs = _diff_frames(frames_stub[:n], frames_ffb[:n]) if n > 1 else []
-    if pre_diffs:
-        return False, ("pre-latch AD divergence (" + detail + "):\n      - "
-                       + "\n      - ".join(pre_diffs))
-    return True, detail + f"; pre-latch AD parity over {n} frames"
+    exact_diff = _first_ad_decision_divergence(frames_stub[:n], frames_ffb[:n]) if n > 1 else None
+    if exact_diff:
+        kinematic_context = _diff_frames(frames_stub[:n], frames_ffb[:n]) if n > 1 else []
+        extra = ("\n      kinematic consequence: " + "; ".join(kinematic_context)
+                 if kinematic_context else "\n      kinematic consequence: none observed at the default tolerance")
+        return False, (f"pre-latch AD DECISION divergence (" + detail + "):\n      - "
+                       + exact_diff + extra)
+    return True, detail + f"; pre-latch AD decision EXACT parity over {n} frames"
 
 
 def main() -> int:
@@ -456,12 +662,27 @@ def main() -> int:
         xosc_ffb  = _write_variant(scen, tmpdir, cfg_ffb,  "ffb")
 
         print(f"\n[scenario] {name}")
-        print("  running stub baseline …", end=" ")
-        # stub baseline is independent of FOLLOWER_MODES (no FFB sink).
+
+        # Control, run FIRST: same config (stub) twice. If this itself shows
+        # any AD-decision divergence, the engine is not deterministic enough
+        # for an exact A-vs-B comparison to mean anything for THIS scenario —
+        # fail loudly and distinctly rather than silently attributing noise
+        # to FFB (or worse, silently passing because tolerance absorbed it).
         os.environ["GT_HEADLESS_FFB_MODE"] = "follower"
         os.environ.pop("GT_HEADLESS_FFB_FROZEN_AT", None)
-        frames_stub = _run_headless(DLL, xosc_stub)
-        print(f"{len(frames_stub)} frames")
+        print("  running determinism control (stub x2) …", end=" ")
+        frames_stub   = _run_headless(DLL, xosc_stub)
+        frames_stub_2 = _run_headless(DLL, xosc_stub)
+        determinism_diff = _first_ad_decision_divergence(frames_stub, frames_stub_2)
+        if determinism_diff:
+            overall_ok = False
+            print("FAIL")
+            print(f"    DETERMINISM CONTROL FAILED for {name}: {determinism_diff}")
+            print("    (identical config produced different AD decisions across two runs — "
+                  "skipping this scenario's FFB comparisons, since an exact-match standard "
+                  "against a DIFFERENT config would be meaningless without a clean control)")
+            continue
+        print(f"clean ({len(frames_stub)} frames, {len(frames_stub_2)} frames)")
 
         for mode, fixture_class, extra_env in FOLLOWER_MODES:
             os.environ["GT_HEADLESS_FFB_MODE"] = mode
@@ -485,14 +706,21 @@ def main() -> int:
             print(f"{len(frames_ffb)} frames")
 
             if fixture_class == "parity":
-                diffs = _diff_frames(frames_stub, frames_ffb)
-                if not diffs:
-                    print(f"    {tag}[{label}]: PASS")
+                exact_diff = _first_ad_decision_divergence(frames_stub, frames_ffb)
+                if not exact_diff:
+                    print(f"    {tag}[{label}]: PASS  (AD decision EXACT parity over "
+                          f"{min(len(frames_stub), len(frames_ffb))} frames)")
                 else:
                     overall_ok = False
                     print(f"    {tag}[{label}]: FAIL")
-                    for d in diffs:
-                        print(f"      - {d}")
+                    print(f"      - AD DECISION divergence: {exact_diff}")
+                    kinematic_context = _diff_frames(frames_stub, frames_ffb)
+                    if kinematic_context:
+                        print("      - kinematic consequence: " + "; ".join(kinematic_context))
+                    else:
+                        print("      - kinematic consequence: none observed at the default "
+                              "tolerance (the decision differs but hasn't yet moved the car "
+                              "measurably -- still a real requirement #3 violation)")
             else:
                 ok, detail = _liveness_verdict(mode, base_cfg, frames_stub, frames_ffb)
                 if ok:
@@ -511,4 +739,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--worker":
+        raise SystemExit(_worker_main())
     raise SystemExit(main())
