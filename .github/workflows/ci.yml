@@ -19,6 +19,7 @@ on:
     branches:
       - master
       - dev
+      - 'dev_v*'   # see the push-trigger comment above: PRs also target dev_v0.<N> (e.g. PR #14 -> dev_v0.6)
 
   workflow_dispatch:
 
