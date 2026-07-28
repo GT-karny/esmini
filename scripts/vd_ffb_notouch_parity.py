@@ -43,24 +43,32 @@ INDEPENDENCE REQUIREMENT in ManualDriveConfig.hpp). Any AD-side divergence
 between A and B, in ANY variant, means the FFB pathway is bleeding back into
 AD decisions.
 
-NOT WIRED INTO run_regression_gate.ps1 / CI (deliberately, as of 2026-07-28).
-The self-determinism control this script now runs FIRST (same stub config,
-twice, in two fully separate processes) currently FAILS on 3 of the 6
-scenarios (virtual_driver_basic, decelerate_for_right_turn,
-traffic_lights_junction): the identical config produces a different
+WIRED INTO run_regression_gate.ps1 as an optional step (-NoTouchParity; Step 3,
+same opt-in-is-hard convention as -TelemetryGolden), as of 2026-07-28.
+
+History: at introduction (052c5782) the self-determinism control this script
+runs FIRST (same stub config, twice, in two fully separate processes) FAILED
+on 3 of the 6 scenarios (virtual_driver_basic, decelerate_for_right_turn,
+traffic_lights_junction) -- the identical config produced a different
 driver.brake decision (~1e-9 relative, at the exact frame braking begins) that
-then propagates and amplifies through the closed control loop to ~1e-4 by the
-end of the run. This is a genuine, reproducible, PRE-EXISTING engine
-determinism gap unrelated to FFB (it reproduces with input_type=stub, no
-wheel/FFB device involved at all) -- see test_results/f7_web_progress.md for
-the full writeup and hand-off to the C++/control-layer owner. Wiring this in
-now, in any form, would either (a) as a hard gate, block merges for a reason
-that has nothing to do with what the gate claims to test, or (b) as a
-WARN-only gate that silently skips the 3 affected scenarios, create exactly
-the "looks like coverage but isn't" appearance this project's audit series has
-repeatedly flagged elsewhere. Wire this in once the determinism gap is fixed
-(or deliberately, knowingly quarantined) so ALL 6 scenarios can be evaluated,
-not just 3.
+then propagated and amplified through the closed control loop to ~1e-4 by the
+end of the run. This was a genuine, reproducible engine determinism gap
+unrelated to FFB (it reproduced with input_type=stub, no wheel/FFB device
+involved at all). Wiring it in at that point, in any form, would have either
+(a) as a hard gate, blocked merges for a reason that had nothing to do with
+what the gate claims to test, or (b) as a WARN-only gate, silently skipped the
+3 affected scenarios -- exactly the "looks like coverage but isn't" appearance
+this project's audit series has repeatedly flagged elsewhere.
+
+e25e9c85 root-caused and removed it (IdleJitter's display-only RPM was leaking
+into RealVehicle's engine-drag physics term). Re-run after the fix: 6/6
+scenarios clean on the determinism control, 6/6 PASS, reproduced twice
+independently in this session and once more by an independent audit's own
+re-run. The premise that made wiring unsound (half the scenarios silently
+untestable) no longer holds, so this now follows -TelemetryGolden's own
+precedent exactly: off by default (zero effect on the standard gate), a hard
+failure once a caller explicitly asks for it via -NoTouchParity. See
+test_results/f7_web_progress.md for the full history and the wiring decision.
 
 Runs against each scenario in resources/xosc/verification/anticipation_driving_batch.yaml
 (covers straight/LC/curve/junction crossing/right-turn/traffic-lights).

@@ -126,6 +126,23 @@
     as a HARD gate failure. This is the continuous value-level motion-invariance
     check for VJ stages S4-S6.
 
+.PARAMETER NoTouchParity
+    OPTIONAL (feature:F7 requirement #3; default OFF, same opt-in-is-hard
+    convention as -TelemetryGolden). Runs scripts/vd_ffb_notouch_parity.py
+    (Step 3): for 6 scenarios, asserts a synthetic wheel connected but never
+    touched produces an AD decision EXACT match to the no-wheel baseline, and
+    that the same config run twice reproduces byte-identically first (a
+    determinism-control gate on the harness's own premise). Deferred at
+    introduction (052c5782) because the engine was not yet self-reproducible
+    (3/6 scenarios failed the determinism control, silently un-testable) and a
+    WARN-only wiring would have hidden that split. e25e9c85 root-caused and
+    removed the non-determinism (IdleJitter's display-only RPM leaking into
+    RealVehicle physics); re-run after the fix shows 6/6 clean determinism
+    control and 6/6 PASS, twice independently, and a separate audit confirmed
+    the same on its own re-run. The premise that made WARN-only unsound is
+    gone, so this follows -TelemetryGolden's precedent: off by default (zero
+    effect on the standard gate), a hard failure once explicitly requested.
+
 .PARAMETER Python
     Path to the Python interpreter for Step 2. Default: auto-detect
     DriverScript/.venv then GT_esmini/web/.venv.
@@ -155,6 +172,7 @@ param(
     [switch]$SkipBehavioral,
     [switch]$FailOnBehavioral,
     [switch]$TelemetryGolden,
+    [switch]$NoTouchParity,
     [string]$Python = "",
     [string]$Batch = "resources/xosc/verification/car_following_traffic_control_batch.yaml",
     [string]$OutDir = "test_results/regression/car_following_traffic_control",
@@ -775,6 +793,37 @@ if ($TelemetryGolden) {
             } else {
                 Write-Host "Step 2.5: PASS (label=$($tg.Label))" -ForegroundColor Green
             }
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 3 - FFB no-touch parity (optional, -NoTouchParity; feature:F7 requirement #3)
+# ----------------------------------------------------------------------------
+if ($NoTouchParity) {
+    Write-Host "==== Step 3: FFB no-touch parity (-NoTouchParity) ====" -ForegroundColor Cyan
+
+    $ntpPy = $Python
+    if ([string]::IsNullOrWhiteSpace($ntpPy)) {
+        foreach ($cand in @("DriverScript/.venv/Scripts/python.exe",
+                            "GT_esmini/web/.venv/Scripts/python.exe")) {
+            $full = Resolve-RepoPath $cand
+            if (Test-Path $full) { $ntpPy = $full; break }
+        }
+    }
+    $ntpScript = Resolve-RepoPath "scripts/vd_ffb_notouch_parity.py"
+
+    if ([string]::IsNullOrWhiteSpace($ntpPy) -or -not (Test-Path $ntpPy)) {
+        Write-Host "Step 3: FAIL - verification venv python not found (DriverScript/.venv or GT_esmini/web/.venv)" -ForegroundColor Red
+        $overallOk = $false
+    } else {
+        Write-Host "Step 3: $ntpPy $ntpScript" -ForegroundColor Cyan
+        & $ntpPy $ntpScript
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Step 3: FAIL (no-touch FFB parity -- either the determinism control failed, meaning the harness's own premise is untestable this run, or a real AD-decision divergence was found; see the script's own output above for which)" -ForegroundColor Red
+            $overallOk = $false
+        } else {
+            Write-Host "Step 3: PASS (6/6 scenarios: determinism control clean, AD decision EXACT parity no-touch vs no-wheel)" -ForegroundColor Green
         }
     }
 }

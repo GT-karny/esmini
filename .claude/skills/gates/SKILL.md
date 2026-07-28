@@ -28,7 +28,7 @@ pwsh scripts/run_gt_tests.ps1
 
 # ② プレマージ回帰ゲート（①含む: Step1=unit(hard) → Step1.5=ODR quick(hard) → Step2=挙動バッチ(WARN)）
 pwsh scripts/run_regression_gate.ps1
-#   -SkipOdr / -SkipBehavioral / -FailOnBehavioral / -TelemetryGolden あり
+#   -SkipOdr / -SkipBehavioral / -FailOnBehavioral / -TelemetryGolden / -NoTouchParity あり
 
 # ③ ODR適合フル（パーサ変更時。OSI層+ゴールデン込み）
 DriverScript/.venv/Scripts/python.exe scripts/run_odr_conformance.py --profile full --check-matrix
