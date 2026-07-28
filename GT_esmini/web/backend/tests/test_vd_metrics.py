@@ -267,6 +267,73 @@ def test_assert_skip_rolls_up_to_needs_review(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# feature:F7 — a scenario evaluated against NOTHING must not come back green.
+#
+# The verdict chain used to end in a literal "pass", reached whenever
+# n_pass == n_fail == n_skip == 0. Every way of ending up with no matchers hit
+# it, and each of them means "this scenario was never checked":
+#   * no `must:` key at all
+#   * `must:` misspelled, so .get("must") misses it
+#   * `must: []`
+#
+# Same defect class as the 2026-07-27 gate incident (22 scenarios dead on
+# WinError 10013, gate still printed PASS) -- fixed there at the batch level,
+# still live here per scenario until now.
+# ---------------------------------------------------------------------------
+
+
+def _run_assert_raw(tmp_path, frames, spec: dict):
+    """Like _run_assert but writes the expectations mapping verbatim, so a
+    MISSING or MISSPELLED `must:` key can be exercised."""
+    run_dir = tmp_path / "run"
+    _write_telemetry(run_dir, frames)
+    exp = tmp_path / "expectations.yaml"
+    import yaml
+
+    exp.write_text(yaml.dump(spec), encoding="utf-8")
+    return run_dir, assert_expectations(run_dir, exp)
+
+
+def test_assert_empty_must_list_is_not_a_pass(tmp_path):
+    _, verdict = _run_assert(tmp_path, [_frame(0.0, 15.0)], [])
+    assert verdict["overall"] == "needs-review", (
+        "an expectations file with no matchers checked nothing -- calling that a "
+        "pass is the 'zero evaluations = green' bug"
+    )
+    assert verdict["summary"] == {"pass": 0, "fail": 0, "skip": 0}
+
+
+def test_assert_missing_must_key_is_not_a_pass(tmp_path):
+    _, verdict = _run_assert_raw(tmp_path, [_frame(0.0, 15.0)], {"scenario": "synthetic"})
+    assert verdict["overall"] == "needs-review"
+
+
+def test_assert_misspelled_must_key_is_not_a_pass(tmp_path):
+    # The dangerous one: the file LOOKS like it asserts something, and a human
+    # reviewing it would read the matchers as active. .get("must") does not.
+    _, verdict = _run_assert_raw(
+        tmp_path,
+        [_frame(0.0, 1.0)],
+        {
+            "scenario": "synthetic",
+            "musts": [{"event": "speed_above", "threshold": 10.0}],
+        },
+    )
+    assert verdict["overall"] == "needs-review", (
+        "a misspelled `must:` key silently evaluates nothing; it must not be "
+        "reported as a pass"
+    )
+
+
+def test_assert_real_matcher_still_passes(tmp_path):
+    # Guard the guard: the fix must not turn genuine passes into needs-review.
+    _, verdict = _run_assert(
+        tmp_path, [_frame(0.0, 15.0)], [{"event": "speed_above", "threshold": 10.0}]
+    )
+    assert verdict["overall"] == "pass"
+
+
+# ---------------------------------------------------------------------------
 # compare (telemetry vs synthetic OSI baseline)
 # ---------------------------------------------------------------------------
 

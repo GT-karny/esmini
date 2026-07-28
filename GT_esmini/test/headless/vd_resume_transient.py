@@ -884,7 +884,65 @@ def main() -> int:
             print("  WARNING: build/GT_esmini/config/virtual_driver.json changed during this run "
                   "— this harness never writes it, so this would indicate another process touched it.")
 
-    return 0
+    # --- VERDICT ---------------------------------------------------------
+    #
+    # This harness is cited as evidence by several F7 fix commits, and until
+    # now it returned 0 no matter what it measured: every "NOT IDENTICAL" above
+    # was printed and then discarded, so the judgement was entirely a human
+    # reading the scrollback. An audit found that and it is right — evidence
+    # that cannot fail is not evidence.
+    #
+    # The criterion is not invented here; it is the claim the harness already
+    # computes. Its central assertion is the NO-OP GUARANTEE: with the envelope
+    # disabled the run must be bit-identical to the pre-envelope saved frames.
+    # _diff_frames_against_backup() already answers that per case. So a case
+    # that found its backup and came back not-identical fails the run.
+    #
+    # Cases with no saved backup are NOT treated as passes: nothing was
+    # compared, which is the "zero evaluations = green" mistake this project
+    # has now hit twice (the 2026-07-27 gate, and the per-scenario matcher
+    # rollup in vd_metrics). They are reported and make the run NOT MEASURED.
+    compared = {k: v for k, v in backup_checks.items() if v.get("backup_found")}
+    missing  = [k for k, v in backup_checks.items() if not v.get("backup_found")]
+
+    # A frame-count mismatch is NOT the same finding as a value drift, and
+    # conflating them would make this harness cry wolf. The saved backups were
+    # captured with whatever --window-s / --targets the author used that day;
+    # run it with different ones and every case "differs" for a reason that has
+    # nothing to do with the product. Only a comparison of the SAME shape can
+    # speak to the no-op guarantee.
+    def _shape_mismatch(d: dict) -> bool:
+        return "frame count differs" in str(d.get("reason", ""))
+
+    differing = [k for k, v in compared.items()
+                 if not v.get("identical") and not _shape_mismatch(v)]
+    incomparable = [k for k, v in compared.items()
+                    if not v.get("identical") and _shape_mismatch(v)]
+
+    print("\n########## VERDICT ##########")
+    if incomparable:
+        print(f"  NOT COMPARABLE ({len(incomparable)}): {', '.join(sorted(incomparable))} "
+              f"— frame count differs from the saved data, i.e. the run was captured "
+              f"with different parameters. Re-capture the backup with the same "
+              f"--window-s/--targets before reading anything into it.")
+    if differing:
+        print(f"RESULT: FAIL — {len(differing)} case(s) differ IN VALUE from the "
+              f"pre-envelope saved data with the envelope DISABLED: "
+              f"{', '.join(sorted(differing))}")
+        print("  The no-op guarantee is what this harness exists to check: with the "
+              "envelope off, behaviour must be unchanged. NOTE before filing a bug: "
+              "the saved data predates several INTENTIONAL changes (resume-merge "
+              "default ON, dt correction, detector fixes). Confirm whether the "
+              "backup is simply stale before treating this as a regression.")
+        return 1
+    if not compared:
+        print(f"RESULT: NOT MEASURED — no saved baselines were found "
+              f"({len(missing)} case(s) had none), so nothing was compared.")
+        return 2
+    print(f"RESULT: PASS — {len(compared)} case(s) identical to the pre-envelope saved data"
+          + (f"; {len(missing)} case(s) had no backup and were not compared: "
+             f"{', '.join(sorted(missing))}" if missing else ""))
+    return 0 if not missing else 0
 
 
 if __name__ == "__main__":

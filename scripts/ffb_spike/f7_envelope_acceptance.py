@@ -76,7 +76,21 @@ def series_from_phase2(name: str, path: Path) -> dict:
             "active": active, "sr_meta": sr_meta}
 
 
-def main() -> None:
+def main() -> int:
+    """Returns a PROCESS EXIT CODE, and that is the point.
+
+    This file is named "acceptance" and its whole job is to answer "do the
+    candidate envelope limits ever clip a frame across the evaluated set". It
+    used to be declared `-> None` and called bare from __main__, so it could
+    not report a verdict to anything: it printed a clip count and exited 0
+    whether that count was 0 or 4000. Every commit that cited it as evidence
+    was citing a program that is structurally incapable of failing.
+
+    Exit codes:
+      0 - no frame clipped any candidate limit
+      1 - at least one frame clipped (the answer this check exists to give)
+      2 - nothing was evaluated (no series found), which is not a pass either
+    """
     # Accepts one or more roots; each is searched recursively (rglob) for
     # telemetry.jsonl so both flat (phase2: root/<scenario>/telemetry.jsonl)
     # and nested (junction batches: root/<manifest>/<scenario>/telemetry.jsonl)
@@ -140,6 +154,21 @@ def main() -> None:
             seen.add(key)
             print(f"  {scen} t={t:.2f}s metric={m} value={v:.3f} v={spd:.2f}m/s steer_norm={steer:.4f}")
 
+    # --- verdict ---------------------------------------------------------
+    evaluated = sum(total_n.values())
+    if evaluated == 0:
+        print("\nRESULT: NOT EVALUATED — no series were found. "
+              "Zero frames checked is not an acceptance.")
+        return 2
+    clipped_total = sum(total_clips.values())
+    if clipped_total:
+        print(f"\nRESULT: FAIL — {clipped_total} frame-metric(s) exceeded a candidate "
+              f"limit across {evaluated} evaluated frame-metrics.")
+        return 1
+    print(f"\nRESULT: PASS — no frame exceeded any candidate limit "
+          f"({evaluated} frame-metrics evaluated).")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

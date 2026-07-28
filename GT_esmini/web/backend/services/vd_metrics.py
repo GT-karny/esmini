@@ -1395,11 +1395,37 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
     n_pass = sum(1 for r in results if r["status"] == "pass")
     n_fail = sum(1 for r in results if r["status"] == "fail")
     n_skip = sum(1 for r in results if r["status"] == "skip")
-    overall = (
-        "fail"
-        if n_fail
-        else ("pass" if n_pass and not n_skip else "needs-review" if n_skip else "pass")
-    )
+    # feature:F7 — NOTHING EVALUATED IS NOT A PASS.
+    #
+    # This chain used to end in a literal "pass", which is reached whenever
+    # n_pass == n_fail == n_skip == 0 -- i.e. whenever there were no matchers to
+    # run at all. Every one of these produces that state and used to come back
+    # green:
+    #   * the expectations file has no `must:` key,
+    #   * `must:` is misspelled (`musts:`, `Must:` ...), so .get("must") misses,
+    #   * `must: []`.
+    # In each case the scenario was never checked against anything, and the
+    # verdict said it passed.
+    #
+    # This is the same defect class as the 2026-07-27 gate incident, where all
+    # 22 scenarios died on WinError 10013 and the run still printed
+    # "REGRESSION GATE: PASS" -- fixed there at the batch level, still live here
+    # one level down, per scenario. A deviation check over zero matchers is
+    # exactly as meaningless as one over zero scenarios.
+    #
+    # needs-review rather than fail: an expectations file with no musts is not
+    # a product failure, it is an UNVERIFIED scenario, and that is what
+    # needs-review means. It still counts as "ran" for the gate's coverage
+    # accounting and still deviates from a baseline that recorded "pass", so
+    # the regression gate catches it either way.
+    if not results:
+        overall = "needs-review"
+    else:
+        overall = (
+            "fail"
+            if n_fail
+            else ("pass" if n_pass and not n_skip else "needs-review" if n_skip else "pass")
+        )
 
     verdict = {
         "run": str(run_dir),

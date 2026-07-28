@@ -505,6 +505,17 @@ def main() -> int:
             # Clopper-Pearson upper bound at 95% for 0 successes: 1-0.05^(1/n)
             ub = 1.0 - 0.05 ** (1.0 / n)
             print(f"   0/{n} bounds the false-latch rate at <= {ub*100:.1f}% (95% upper limit)")
+        # A harness that prints a red table and exits 0 is a harness nobody can
+        # gate on. Both polarities are verdicts: a hands-off run that latched is
+        # a false positive, and a hand-on-wheel run that did not latch is a
+        # missed detection. Either one fails.
+        if neg_latched or pos_latched != n:
+            print(f"
+RESULT: FAIL — false latches {neg_latched}/{n}, "
+                  f"missed detections {n - pos_latched}/{n}")
+            return 1
+        print(f"
+RESULT: PASS — 0/{n} false latches, {n}/{n} detections")
         return 0
 
     if args.sweep:
@@ -595,6 +606,22 @@ def main() -> int:
         else:
             print(f"  {path:<7}: FALSE LATCH via {v['path']} at t={v['latch_sim_time']:.3f}, "
                   f"residual {v['residual_at_latch']:.4f} vs threshold {v['residual_threshold']:.4f}")
+
+    # Exit code, not just prose. An INVALID episode is not a pass either: it
+    # means the scripted override or the return path did not happen, so nothing
+    # was observed.
+    invalid = [p for p, v in verdicts.items() if not v.get("valid")]
+    latched = [p for p, v in verdicts.items() if v.get("false_latch")]
+    if latched:
+        print(f"
+RESULT: FAIL — false latch on: {', '.join(latched)}")
+        return 1
+    if invalid:
+        print(f"
+RESULT: NOT MEASURED — invalid episode(s): {', '.join(invalid)}")
+        return 2
+    print("
+RESULT: PASS — no false latch on any return path")
     return 0
 
 
