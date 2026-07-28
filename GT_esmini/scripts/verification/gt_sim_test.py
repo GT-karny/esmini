@@ -64,122 +64,22 @@ from vd_metrics import (
 OSI_UDP_PORT = 48198
 OSI_BUFFER_SIZE = 8208  # max OSI UDP payload + 8-byte header (contract with esmini)
 
-# feature:F7 gate hardening -- port occupancy check, moved to the common path
-# that actually binds/sends on these ports (run()/batch() below), not just
-# run_regression_gate.ps1's own preflight. That .ps1 preflight only protects
-# invocations that go through the .ps1 itself; CI's workflow step, a skill, or
-# an ad-hoc terminal run all call this module's run()/batch() directly and
-# skip it entirely. Checking here instead means every caller is protected,
-# because every caller ends up here regardless of how it was launched.
-#
-# Two distinct hazards (see run_regression_gate.ps1 commit 8b006cff, which
-# first identified them for the .ps1-only preflight):
-#   collision     -- WE bind this port ourselves (_OsiCapture below, or the
-#                     DLL under input_type=network/headless_ffb). If it is
-#                     already taken, our own scenarios die with WinError
-#                     10013 (or the UDP equivalent), and "0 measured" can be
-#                     mistaken for "0 deviations".
-#   contamination -- WE send UDP here unconditionally with no suppression
-#                     switch (GT_HostVehicleReporter / GT_ScenarioVariablesReporter
-#                     / GT_VirtualDriverReporter all init regardless of
-#                     --headless). Neither side errors if someone -- a
-#                     packaged GT_Sim.exe the user left running, which is the
-#                     NORMAL state, not an edge case -- is already listening;
-#                     our frames land silently in THEIR telemetry.jsonl.
-_GATE_UDP_PORTS: dict[int, tuple[str, str]] = {
-    48198: ("OSI ground-truth (gt_sim_test binds this)", "collision"),
-    48199: ("HostVehicleData", "contamination"),
-    48200: ("ScenarioVariables", "contamination"),
-    48202: ("VirtualDriver telemetry", "contamination"),
-    9100: ("manual-drive / VD network input", "collision"),
-    9105: ("HeadlessFfbSink pushback", "collision"),
-}
-_GATE_TCP_LISTEN_PORTS: dict[int, tuple[str, str]] = {
-    8000: ("web backend (packaged GT_Sim / gt_sim_web)", "collision"),
-}
-
-
-class GatePortsBusyError(RuntimeError):
-    """Raised by check_gate_ports_free() when a port this run needs is
-    already occupied. Deliberately a distinct type (not a bare RuntimeError)
-    so main() can report it with the same "abort before measuring anything"
-    semantics as run_regression_gate.ps1's exit 2 -- distinct from exit 1
-    ("we measured, and it differs")."""
-
-
-def _udp_port_busy(port: int) -> bool:
-    """True if this process cannot bind ``port`` itself (collision) OR if
-    binding otherwise succeeds but immediately releasing it would race a
-    concurrent binder -- bind-then-close is the same technique
-    run_regression_gate.ps1's Get-NetUDPEndpoint check approximates from the
-    OS side, done here directly against the socket API so it needs no
-    Windows-specific tooling and works the same way the real bind (in
-    _OsiCapture, or inside the DLL) would fail."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.bind(("0.0.0.0", port))
-        return False
-    except OSError:
-        return True
-    finally:
-        s.close()
-
-
-def _tcp_port_listening(port: int) -> bool:
-    """True if something is already accepting connections on 127.0.0.1:port
-    (a bind-check would not detect this the way it does for UDP -- a second
-    process CAN bind a free port fine; the risk here is that our own
-    scenarios might try to reach an already-running server there, not that
-    we would fail to bind)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(0.25)
-    try:
-        s.connect(("127.0.0.1", port))
-        return True
-    except OSError:
-        return False
-    finally:
-        s.close()
-
-
-def check_gate_ports_free(
-    udp_ports: dict[int, tuple[str, str]] | None = None,
-    tcp_listen_ports: dict[int, tuple[str, str]] | None = None,
-) -> list[str]:
-    """Return human-readable problem strings for every busy port; empty list
-    means all clear. Defaults to the real _GATE_UDP_PORTS /
-    _GATE_TCP_LISTEN_PORTS tables; the parameters exist so tests can point
-    this at disposable high ports instead of the real 48198-and-friends
-    range (never touching real infrastructure, and immune to a coincidental
-    real occupant making a test flaky)."""
-    if udp_ports is None:
-        udp_ports = _GATE_UDP_PORTS
-    if tcp_listen_ports is None:
-        tcp_listen_ports = _GATE_TCP_LISTEN_PORTS
-    problems = []
-    for port, (what, why) in udp_ports.items():
-        if _udp_port_busy(port):
-            problems.append(f"port {port} ({what}) [{why}] already in use (UDP)")
-    for port, (what, why) in tcp_listen_ports.items():
-        if _tcp_port_listening(port):
-            problems.append(f"port {port} ({what}) [{why}] already listening (TCP)")
-    return problems
-
-
-def _require_gate_ports_free() -> None:
-    problems = check_gate_ports_free()
-    if not problems:
-        return
-    detail = "\n".join(f"  - {p}" for p in problems)
-    raise GatePortsBusyError(
-        "required ports are already in use -- refusing to run scenarios that "
-        "would either fail on our own bind or silently contaminate another "
-        "process's telemetry:\n"
-        f"{detail}\n"
-        "Stop whatever holds them (a packaged GT_Sim.exe left running is the "
-        "common case) and retry. There is deliberately no override: an "
-        "override is how a run that measured nothing gets reported as green."
-    )
+# feature:F7 gate hardening -- port occupancy check. Moved into vd_metrics.py
+# (2026-07-28, second round): an audit found that keeping this logic here,
+# even with run()/batch() as call sites, still missed the actual 2026-07-27
+# incident party -- services/vd_verify.py's generate_baseline(), a web
+# BACKEND production code path that never calls into this module at all.
+# vd_metrics.py is the one module both this CLI and the web backend already
+# share (see its own docstring), so the check now lives there, called from
+# capture_osi() itself -- the true common low-level bind site, not a caller
+# that has to remember to invoke a separate guard. Re-exported here under
+# their original names so run()/batch() below (which check the FULL table --
+# this CLI, unlike a production web-backend run, has no legitimate claim to
+# ANY of these ports) and this module's existing tests keep working
+# unchanged.
+check_gate_ports_free = _vd.check_gate_ports_free
+GatePortsBusyError = _vd.GatePortsBusyError
+_require_gate_ports_free = _vd.require_gate_ports_free
 
 # osi3 enum -> string maps (mirror of api/osi_stream.py, kept local on purpose).
 _TL_COLOR_MAP = {

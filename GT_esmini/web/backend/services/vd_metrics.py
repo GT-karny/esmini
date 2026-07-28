@@ -38,6 +38,138 @@ OSI_BUFFER_SIZE = 8208
 
 
 # ---------------------------------------------------------------------------
+# Port occupancy guard (feature:F7 gate hardening, moved here 2026-07-28)
+#
+# Originally lived only in GT_esmini/scripts/verification/gt_sim_test.py,
+# reached from its run()/batch(). An audit found that placement still missed
+# the ACTUAL 2026-07-27 incident party: services/vd_verify.py's
+# generate_baseline() (launches GT_Sim.exe as a subprocess and captures OSI
+# via capture_osi() below) never went anywhere near gt_sim_test.py, so it had
+# no port defense at all -- "run() is the common path every launch route
+# passes through" was false. This module (vd_metrics.py) is the one thing
+# BOTH the CLI (gt_sim_test.py) and the web backend (vd_verify.py) already
+# import as their shared verification core (see the module docstring above),
+# so the check lives here now, called from capture_osi() itself -- the
+# actual lowest layer that binds the port, not a caller that has to
+# remember to invoke a separate guard first. gt_sim_test.py re-exports these
+# names for its own run()/batch() (which also check the non-OSI ports; see
+# that module) and for backward compatibility with its existing tests.
+# ---------------------------------------------------------------------------
+class GatePortsBusyError(RuntimeError):
+    """Raised when a port an about-to-run operation needs is already
+    occupied. A distinct type (not a bare RuntimeError/OSError) so a caller
+    can give a clean "refused to run" message instead of a raw socket
+    traceback, and so main()-style CLI wrappers can map it to a distinct
+    "measured nothing" exit code."""
+
+
+def _udp_port_busy(port: int) -> bool:
+    """True if this process cannot bind ``port`` itself. bind-then-close is
+    the same technique run_regression_gate.ps1's Get-NetUDPEndpoint check
+    approximates from the OS side, done here directly against the socket API
+    so it needs no Windows-specific tooling and fails the same way the real
+    bind (capture_osi below, or the DLL) would."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind(("0.0.0.0", port))
+        return False
+    except OSError:
+        return True
+    finally:
+        s.close()
+
+
+def _tcp_port_listening(port: int) -> bool:
+    """True if something is already accepting connections on
+    127.0.0.1:port (a bind-check would not detect this -- a second process
+    CAN bind a free TCP port fine; the risk here is reaching an
+    already-running server there by accident, not failing to bind)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.25)
+    try:
+        s.connect(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def require_udp_port_free(port: int, what: str) -> None:
+    """Raise GatePortsBusyError if ``port`` is already bound by someone
+    else. Call this immediately before binding ``port`` yourself -- see
+    capture_osi() below for the canonical call site."""
+    if _udp_port_busy(port):
+        raise GatePortsBusyError(
+            f"port {port} ({what}) is already in use (UDP) -- refusing to "
+            "bind it ourselves. A packaged GT_Sim.exe, another verification "
+            "run, or another job already using this port is the common "
+            "cause. There is deliberately no override: an override is how "
+            "a run that measured nothing gets reported as a real result."
+        )
+
+
+# feature:F7 gate hardening -- the gt_sim_test.py-specific port table (the
+# full collision+contamination set a headless VERIFICATION run cares about;
+# see that module for why it, unlike a production web-backend run, has NO
+# legitimate claim to any of these ports). Kept here so it travels with the
+# rest of this shared module instead of living only in the CLI.
+GATE_UDP_PORTS: dict[int, tuple[str, str]] = {
+    48198: ("OSI ground-truth", "collision"),
+    48199: ("HostVehicleData", "contamination"),
+    48200: ("ScenarioVariables", "contamination"),
+    48202: ("VirtualDriver telemetry", "contamination"),
+    9100: ("manual-drive / VD network input", "collision"),
+    9105: ("HeadlessFfbSink pushback", "collision"),
+}
+GATE_TCP_LISTEN_PORTS: dict[int, tuple[str, str]] = {
+    8000: ("web backend (packaged GT_Sim / gt_sim_web)", "collision"),
+}
+
+
+def check_gate_ports_free(
+    udp_ports: dict[int, tuple[str, str]] | None = None,
+    tcp_listen_ports: dict[int, tuple[str, str]] | None = None,
+) -> list[str]:
+    """Return human-readable problem strings for every busy port; empty list
+    means all clear. Defaults to GATE_UDP_PORTS / GATE_TCP_LISTEN_PORTS; the
+    parameters exist so tests can point this at disposable high ports
+    instead of the real 48198-and-friends range."""
+    if udp_ports is None:
+        udp_ports = GATE_UDP_PORTS
+    if tcp_listen_ports is None:
+        tcp_listen_ports = GATE_TCP_LISTEN_PORTS
+    problems = []
+    for port, (what, why) in udp_ports.items():
+        if _udp_port_busy(port):
+            problems.append(f"port {port} ({what}) [{why}] already in use (UDP)")
+    for port, (what, why) in tcp_listen_ports.items():
+        if _tcp_port_listening(port):
+            problems.append(f"port {port} ({what}) [{why}] already listening (TCP)")
+    return problems
+
+
+def require_gate_ports_free() -> None:
+    """Full-table version of require_udp_port_free, for a caller (gt_sim_test.py's
+    run()/batch()) that -- unlike a production web-backend run -- has no
+    legitimate claim to ANY of GATE_UDP_PORTS/GATE_TCP_LISTEN_PORTS and
+    should refuse to start if any of them are occupied."""
+    problems = check_gate_ports_free()
+    if not problems:
+        return
+    detail = "\n".join(f"  - {p}" for p in problems)
+    raise GatePortsBusyError(
+        "required ports are already in use -- refusing to run scenarios that "
+        "would either fail on our own bind or silently contaminate another "
+        "process's telemetry:\n"
+        f"{detail}\n"
+        "Stop whatever holds them (a packaged GT_Sim.exe left running is the "
+        "common case) and retry. There is deliberately no override: an "
+        "override is how a run that measured nothing gets reported as green."
+    )
+
+
+# ---------------------------------------------------------------------------
 # OBB (oriented bounding box) separation — SAT
 # ---------------------------------------------------------------------------
 
@@ -1293,7 +1425,23 @@ def capture_osi(
 ) -> int:
     """Reassemble multi-packet GroundTruth frames from UDP into a length-delimited
     .osi file. Stops once the process has exited and the stream is idle.
-    Returns the number of complete frames written."""
+    Returns the number of complete frames written.
+
+    feature:F7 gate hardening -- checks ``port`` is free immediately before
+    binding it (require_udp_port_free). This is the ACTUAL lowest layer that
+    binds an OSI capture port for BOTH callers: gt_sim_test.py's own OSI
+    capture is a separate in-process implementation (_OsiCapture) with its
+    own equivalent check, but services/vd_verify.py's generate_baseline()
+    (launches GT_Sim.exe as a subprocess, the web backend's own VERIFY-panel
+    baseline generation) calls straight into THIS function with no
+    intermediate port check of its own -- an earlier port-hardening pass
+    protected gt_sim_test.py's run()/batch() and missed this call site
+    entirely, which is exactly backwards: this is closer to the real
+    2026-07-27 incident party (a production web-backend code path) than the
+    CLI gate script the fix originally targeted. Raising here means neither
+    caller needs to remember to check first.
+    """
+    require_udp_port_free(port, "OSI ground-truth (about to bind for capture)")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
     sock.bind(("127.0.0.1", port))

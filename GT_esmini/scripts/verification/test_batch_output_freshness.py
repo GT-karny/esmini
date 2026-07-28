@@ -41,8 +41,14 @@ def _no_real_port_checks(monkeypatch):
     centralization), which would otherwise make these tests depend on
     whatever happens to be listening on the real 48198-and-friends range on
     the machine running them. Neutralize it here so a busy port on the test
-    runner cannot make a freshness test fail for an unrelated reason."""
-    monkeypatch.setattr(gst, "check_gate_ports_free", lambda: [])
+    runner cannot make a freshness test fail for an unrelated reason.
+
+    Patches gst._vd (vd_metrics.py, the real home of the check as of the
+    2nd gate-hardening round) rather than the gst.check_gate_ports_free
+    alias -- _require_gate_ports_free() is ALSO defined in vd_metrics.py and
+    resolves check_gate_ports_free through THAT module's own globals, not
+    gt_sim_test's, so patching the alias here would silently not apply."""
+    monkeypatch.setattr(gst._vd, "check_gate_ports_free", lambda: [])
 
 
 def _seed_stale_verdict(out_root: Path) -> None:

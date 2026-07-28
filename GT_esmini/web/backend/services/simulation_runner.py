@@ -36,6 +36,7 @@ from GT_esmini.web.backend.services.log_extract import extract_failure
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
 from GT_esmini.web.backend.services import vd_recorder
+from GT_esmini.web.backend.services.vd_metrics import require_udp_port_free
 from GT_esmini.web.backend.services.xosc_paths import absolutize_scenario_paths
 
 # In-memory tracking of job_id -> Popen (registered at subprocess start to avoid race)
@@ -695,7 +696,42 @@ def _compose_error(cause: str, warnings: list[str]) -> str:
 
 
 def _start_subprocess(cmd: list[str], cwd: str, job_id: str) -> subprocess.Popen:
-    """Start subprocess and register in _running_procs atomically (called in thread)."""
+    """Start subprocess and register in _running_procs atomically (called in thread).
+
+    feature:F7 gate hardening, 2nd round -- this is the ONE function every
+    production simulation launch funnels through (the sole call site is
+    _run_simulation, via asyncio.to_thread). An audit found that the
+    port-occupancy defense built for the verification CLI (gt_sim_test.py)
+    never covered this path at all, even though this IS the code that
+    actually ran during the 2026-07-27 incident class (a user-facing "Run
+    Simulation" launch, not a gate script) -- "the production web-backend
+    execution path is undefended" was the literal finding.
+
+    Scope, stated honestly (do not read this as "every port is covered"):
+    only DEFAULT_VD_INPUT_PORT (9100, manual-drive/VD network input) is
+    checked, unconditionally, regardless of whether THIS run's controller
+    actually uses input_type="network" -- narrower context-aware checking
+    would need this function to know the resolved controller config, which
+    it does not receive today (only the built ``cmd`` argv). 9100 is
+    specifically the one port documented as a real, understood collision
+    (test_results/f7_audit_port_contention.md P-2: the shipped default in
+    BOTH config/manual_drive.json and config/virtual_driver.json, and
+    hardcoded in 10 headless verification harnesses that import
+    vd_resume_transient) with NO existing defense anywhere in this file.
+    48198/48199/48200/48202 are deliberately NOT checked here: this process
+    (the web backend) legitimately OWNS those as its own per-job OSI/SV
+    bridge listeners (osi_bridge.py/sv_bridge.py, started by _run_simulation
+    just before this function runs) for a run that requests them, so
+    checking "is 48199 already bound" from inside the very process that
+    binds it for itself would be checking a tautology, not a real hazard.
+    Port 8000 is this same process's own HTTP listen port -- same tautology.
+    A GatePortsBusyError raised here propagates out of _start_subprocess,
+    through the asyncio.to_thread() call in _run_simulation, and is caught
+    by that function's existing `except Exception` -- the job is marked
+    'failed' with this error's message, not silently mis-reported as
+    'completed'.
+    """
+    require_udp_port_free(DEFAULT_VD_INPUT_PORT, "manual-drive / VD network input")
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,

@@ -101,7 +101,7 @@ def test_tcp_port_free_when_nothing_is_listening():
 
 def test_require_raises_gate_ports_busy_error_with_all_problems_listed(monkeypatch):
     monkeypatch.setattr(
-        gst,
+        gst._vd,
         "check_gate_ports_free",
         lambda: ["port 1 (a) [collision] already in use (UDP)",
                  "port 2 (b) [contamination] already in use (UDP)"],
@@ -114,7 +114,14 @@ def test_require_raises_gate_ports_busy_error_with_all_problems_listed(monkeypat
 
 
 def test_require_is_a_noop_when_all_clear(monkeypatch):
-    monkeypatch.setattr(gst, "check_gate_ports_free", lambda: [])
+    # feature:F7 2nd hardening round: check_gate_ports_free now lives in
+    # vd_metrics.py (gst._vd); require_gate_ports_free() (aliased here as
+    # gst._require_gate_ports_free) is ALSO defined there and resolves
+    # check_gate_ports_free through vd_metrics's OWN module globals, not
+    # gt_sim_test's -- monkeypatching gst.check_gate_ports_free (the
+    # re-exported alias) does not affect that internal lookup. Patch the
+    # real source instead.
+    monkeypatch.setattr(gst._vd, "check_gate_ports_free", lambda: [])
     gst._require_gate_ports_free()  # must not raise
 
 
@@ -126,7 +133,7 @@ def test_run_refuses_to_start_when_a_port_is_busy(tmp_path, monkeypatch):
     first, this test would instead fail trying to load a (possibly absent)
     DLL, not with GatePortsBusyError."""
     monkeypatch.setattr(
-        gst, "check_gate_ports_free", lambda: ["port 9999 (x) [collision] already in use (UDP)"]
+        gst._vd, "check_gate_ports_free", lambda: ["port 9999 (x) [collision] already in use (UDP)"]
     )
     with pytest.raises(gst.GatePortsBusyError):
         gst.run(
@@ -147,7 +154,7 @@ def test_batch_refuses_to_start_when_a_port_is_busy_before_any_scenario_runs(
     would instead surface as a per-scenario 'error' -- still a FAIL overall,
     but noisier and not what this test pins)."""
     monkeypatch.setattr(
-        gst, "check_gate_ports_free", lambda: ["port 9999 (x) [collision] already in use (UDP)"]
+        gst._vd, "check_gate_ports_free", lambda: ["port 9999 (x) [collision] already in use (UDP)"]
     )
 
     def _must_not_be_called(*_args, **_kwargs):
