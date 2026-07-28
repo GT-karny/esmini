@@ -23,6 +23,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PolicyDetail.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AdasFunctionReport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ControllerVirtualDriverActivation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSideModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrForkPatches.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrLaneTypeSync.cpp
@@ -52,6 +53,16 @@ unittest(${UNIT_TEST_TARGET} "${UNIT_TEST_SOURCES}"
 
 target_include_directories(${UNIT_TEST_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini/include
+    # feature:F7 scenario-driven handover — test_ControllerVirtualDriverActivation.cpp
+    # includes upstream Controller.hpp directly (base-class Activate/Active
+    # semantics), which is only PRIVATE on ScenarioEngine/GT_esminiLib_static
+    # and so does not propagate via target_link_libraries. Same set GT_Sim's
+    # own target_include_directories uses (GT_esmini/CMakeLists.txt) minus the
+    # viewer/player paths this test target has no need of.
+    ${SCENARIO_ENGINE_PATH}/SourceFiles
+    ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
+    ${COMMON_MINI_PATH}
+    ${CONTROLLERS_PATH}
 )
 
 # [GT_ODR] test_OdrSideModel.cpp (inside the umbrella gate binary) reads a real repo control file

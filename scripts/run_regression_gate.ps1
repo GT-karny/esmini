@@ -167,6 +167,10 @@ param(
     [string]$AntBatch = "resources/xosc/verification/anticipation_driving_batch.yaml",
     [string]$AntOutDir = "test_results/regression/anticipation_driving",
     [string]$AntBaseline = "GT_esmini/test/regression_baseline/anticipation_driving_expected.yaml",
+    [switch]$SkipHandoff,
+    [string]$HandoffBatch = "resources/xosc/verification/scenario_handoff_batch.yaml",
+    [string]$HandoffOutDir = "test_results/regression/scenario_handoff",
+    [string]$HandoffBaseline = "GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -654,6 +658,47 @@ if ($SkipBehavioral) {
         foreach ($m in $antMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
     } else {
         if (-not (Invoke-BehavioralBatch -Label "Step 2.7" -BatchPath $antBatchPath -OutPath $antOutPath -BaselinePath (Resolve-RepoPath $AntBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.8 - Scenario-driven control handover batch (reported gate, skippable)
+#
+# Same recipe as Steps 2 / 2.6 / 2.7 (shared Invoke-BehavioralBatch) on a
+# SEPARATE manifest + baseline (design doc Fact M: this must not touch the
+# existing 3 pairs). Covers feature:F7 scenario-driven handover
+# (docs/virtualdriver/scenario_control_handoff_design.md): an
+# ActivateControllerAction lateral="false" longitudinal="false" mid-run must
+# make VirtualDriverController actually relinquish control (telemetry.vd_active
+# false) and never resume it on its own. No OSI capture needed (osi:false).
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.8: Scenario handoff batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipHandoff) {
+    Write-Host "==== Step 2.8: Scenario handoff batch - SKIPPED (-SkipHandoff) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.8: Scenario handoff batch (gt_sim_test) ====" -ForegroundColor Cyan
+
+    # Same prerequisites as Steps 2 / 2.6 / 2.7 (venv + Release DLL); reuse resolution.
+    $handoffBatchPath = Resolve-RepoPath $HandoffBatch
+    $handoffOutPath = Resolve-RepoPath $HandoffOutDir
+
+    $handoffMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $handoffMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $handoffMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $handoffBatchPath)) { $handoffMissing += "batch manifest $handoffBatchPath" }
+
+    if ($handoffMissing.Count -gt 0) {
+        Write-Host "Step 2.8: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $handoffMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.8" -BatchPath $handoffBatchPath -OutPath $handoffOutPath -BaselinePath (Resolve-RepoPath $HandoffBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
             $overallOk = $false
         }
     }

@@ -50,6 +50,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"manual_transition\":" << b(t.manual_transition)
        << ",\"auto_transition\":" << b(t.auto_transition)
        << ",\"resume_pressed\":" << b(t.resume_pressed) << "}"
+       // feature:F7 scenario-driven handover. Written directly from
+       // SetUpControlOutputs()/TearDownControlOutputs(), so unlike every other
+       // field in this record it is NOT frozen once the controller goes
+       // inactive — it is the field that reports the deactivation itself.
+       << ",\"vd_active\":" << b(t.vd_active)
        // feature:F7 (F7b) FFB target-track observability. Additive block;
        // consumers that predate it (existing overlay) simply ignore it.
        << ",\"ffb\":{\"target_active\":" << b(t.ffb_target_active)
@@ -78,7 +83,29 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"shadow_moving\":" << b(t.ffb_gate_shadow_moving)
        << ",\"sustain_accum\":" << t.ffb_gate_sustain_accum
        << ",\"sustain_time\":" << t.ffb_gate_sustain_time
-       << ",\"block_reason\":\"" << t.ffb_gate_block_reason << "\"}}"
+       << ",\"block_reason\":\"" << t.ffb_gate_block_reason << "\""
+       // feature:F7 — re-anchor instrument (observational; additive at the
+       // END of "gates" per the existing sustain_time precedent — consumers
+       // that predate it ignore it). See
+       // test_results/f7_reanchor_instrument_spec.md §2 (revised). free_residual
+       // is the field to read first: "what would the residual be if the
+       // detector's own shadow had never been forcibly re-synced?"
+       // hard/soft delta accumulators are kept SEPARATE on purpose — summing
+       // them would hide whether S3 (onset grace) or S4 (drift) is doing the
+       // erasing, which is exactly the question §3-1 needs answered.
+       << ",\"reanchor_hard_count\":" << t.ffb_gate_reanchor_hard_count
+       << ",\"reanchor_soft_count\":" << t.ffb_gate_reanchor_soft_count
+       << ",\"reanchor_delta\":" << t.ffb_gate_reanchor_delta
+       << ",\"reanchor_hard_delta_abs_accum\":" << t.ffb_gate_reanchor_hard_delta_abs_accum
+       << ",\"reanchor_soft_delta_abs_accum\":" << t.ffb_gate_reanchor_soft_delta_abs_accum
+       << ",\"reanchor_source\":\"" << t.ffb_gate_reanchor_source << "\""
+       << ",\"free_shadow_norm\":" << t.ffb_gate_free_shadow_norm
+       << ",\"free_residual\":" << t.ffb_gate_free_residual
+       // free_residual is NOT guaranteed >= residual on every frame (see the
+       // field comment in VirtualDriverTypes.hpp) — this counts how often it
+       // reads below instead of asserting it can't. Compare walk-level
+       // max(free_residual) vs max(residual), not this per-frame count's sign.
+       << ",\"free_below_real_count\":" << t.ffb_gate_free_below_real_count << "}}"
        // feature:F7 AD steering safety envelope observability. Additive block;
        // consumers that predate it simply ignore it. steer_in/steer_out let a
        // verifier see the envelope's actual effect: "driver":{"steer":...} below
@@ -91,6 +118,23 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"active\":" << b(t.ad_envelope_active)
        << ",\"steer_in\":" << t.ad_envelope_steer_in
        << ",\"steer_out\":" << t.ad_envelope_steer_out << "}"
+       // feature:F7 resume-merge observability (design doc
+       // resume_merge_trajectory_design.md section 8-6). Additive block;
+       // consumers that predate it simply ignore it. fallback_reason is the
+       // field to read first for "why did this frame fall back to the
+       // current-lane anchor instead of merging" ("" == normal).
+       << ",\"resume_merge\":{\"active\":" << b(t.resume_merge.active)
+       << ",\"d0\":" << t.resume_merge.d0
+       << ",\"v0_lat\":" << t.resume_merge.v0_lat
+       << ",\"a0_lat\":" << t.resume_merge.a0_lat
+       << ",\"a_bound\":" << t.resume_merge.a_bound
+       << ",\"comfort_unmet\":" << b(t.resume_merge.comfort_unmet)
+       << ",\"duration_s\":" << t.resume_merge.duration_s
+       << ",\"progress\":" << t.resume_merge.progress
+       << ",\"target_offset\":" << t.resume_merge.target_offset
+       << ",\"route_track\":" << t.resume_merge.route_track
+       << ",\"route_lane\":" << t.resume_merge.route_lane
+       << ",\"fallback_reason\":\"" << t.resume_merge.fallback_reason << "\"}"
        << ",\"driver\":{\"throttle\":" << t.driver.throttle << ",\"brake\":" << t.driver.brake
        << ",\"steer\":" << t.driver.steer << ",\"lateral_error\":" << t.driver.lateral_error
        << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error

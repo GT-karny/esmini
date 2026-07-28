@@ -105,6 +105,14 @@ private:
     // domain) and latched so it persists after the action completes.
     double ResolveTargetSpeed();
 
+    // feature:F7 scenario-driven handover -- paired setup/teardown for everything
+    // this controller drives outside itself (physics backend, input source, force
+    // feedback, intervention latch). Called from Activate() on the inactive<->active
+    // transition; teardown is also reached from Deactivate(). See design doc
+    // scenario_control_handoff_design.md.
+    void SetUpControlOutputs();
+    void TearDownControlOutputs();
+
     VirtualDriverConfig vd_config_;
     ManualDriveConfig   io_config_;  // built from vd_config_ for IInputSource + OverrideManager
 

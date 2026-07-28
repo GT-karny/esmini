@@ -1,0 +1,12 @@
+scenario: scenario_deactivate_vd
+category: 08_handoff
+# feature:F7 scenario-driven handover. Init activates VirtualDriverController
+# on both domains; a Story event fires ActivateControllerAction
+# lateral="false" longitudinal="false" at t=8.0s (see the xosc header for why
+# this exercises Activate()-with-OFF-modes, not Deactivate()). No baseline
+# comparison against Default -- judgment is purely from VirtualDriver
+# telemetry (vd_active), same convention as car_following_traffic_control.
+must:
+  - event: vd_control_relinquished
+    after: { sim_time: 7.5 }  # small margin under the scripted 8.0s trigger
+    reason: "ActivateControllerAction lateral=false longitudinal=falseでVDが制御を手放し、以後再アクティブ化しない"

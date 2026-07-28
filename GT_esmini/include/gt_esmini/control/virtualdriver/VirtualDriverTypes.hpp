@@ -138,6 +138,34 @@ struct IndicatorSnapshot
     bool right_on = false;
 };
 
+// feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md
+// section 8-6). Controller-owned merge state-machine snapshot -- deliberately
+// NOT part of ShortPlannerSnapshot above (that one is the cross-session
+// contract this feature must not touch; see this file's header comment).
+// All zero/false/empty while resume_merge_enabled is false (the shipped
+// default) or before the first arm. d0/v0_lat/a0_lat/a_bound/duration_s/
+// comfort_unmet retain their last-armed values across a disarm (mirrors
+// ResumeMergeState's own "harmless convenience" doc), so they stay readable
+// as "what the last merge was" one frame after it stops being active.
+struct ResumeMergeSnapshot
+{
+    bool   active        = false;  // merge in progress this frame
+    double d0            = 0.0;    // [m] captured initial lateral offset (route-relative, raw +t-axis)
+    double v0_lat        = 0.0;    // [m/s] captured initial lateral velocity
+    double a0_lat        = 0.0;    // [m/s^2] captured initial lateral acceleration (== initial curvature proxy)
+    double a_bound       = 0.0;    // [m/s^2] bound actually enforced this arm: max(a_lat_comfort, |a0_lat|)
+    bool   comfort_unmet = false;  // true if even duration_max_s could not bring max|d''| under a_bound
+    double duration_s    = 0.0;    // [s] selected T (fixed for the life of this arm)
+    double progress      = 0.0;    // elapsed_s / duration_s, clamped to [0,1]; 0 while inactive
+    double target_offset = 0.0;    // this frame's d(u) [m] -- the value applied to the preview anchor
+    int    route_track   = 0;      // resolved ROUTE track id (falls back to the current track when not merging)
+    int    route_lane    = 0;      // resolved ROUTE lane id (falls back to the current lane when not merging)
+    // "" = normal; non-empty = which route-resolution step failed this frame
+    // ("no_route" | "off_route" | "track_mismatch"). Surfaces the two silent
+    // failure modes design doc section 2-0-1 identifies in Route::SetTrackS.
+    std::string fallback_reason;
+};
+
 // Front-bumper road-frame localization (F5). The telemetry ego block localizes
 // the vehicle origin (≈ rear axle); this localizes the leading edge of the
 // bounding box, so a viewer/verifier can reason about where the car's nose sits
@@ -177,6 +205,18 @@ struct VirtualDriverTelemetry
     // Override status (per domain).
     bool override_lateral      = false;
     bool override_longitudinal = false;
+
+    // feature:F7 scenario-driven handover — mirrors Controller::Active() at the
+    // instant SetUpControlOutputs()/TearDownControlOutputs() ran (see
+    // ControllerVirtualDriver.cpp). Written directly from those two functions,
+    // NOT from Step() — Step() stops running the moment the controller goes
+    // inactive (ScenarioEngine only steps active controllers), so this is the
+    // ONLY telemetry field guaranteed to reflect a deactivation: every other
+    // field in this struct is frozen at its last-active-frame value once the
+    // controller is torn down. true only between a completed setup and the
+    // next teardown; false before the first activation and after any
+    // teardown. See docs/virtualdriver/scenario_control_handoff_design.md §5.1.4.
+    bool vd_active = false;
 
     // feature:F7 mode-transition edges. True only on the single frame the
     // AUTO<->MANUAL flip occurred, so the web overlay / logging pipeline can
@@ -244,6 +284,33 @@ struct VirtualDriverTelemetry
     double      ffb_gate_sustain_time          = 0.0;
     std::string ffb_gate_block_reason         = "none";
 
+    // feature:F7 — re-anchor instrument (test_results/f7_reanchor_instrument_spec.md,
+    // revised). Purely observational; mirrors OverrideManager::FfbLatchDiagnostics'
+    // reanchor_*/free_* fields. Zeroed the same way as the rest of the gate
+    // block while ffb_gate_block_reason=="inactive", EXCEPT the four
+    // cumulative counters (reanchor_hard_count/soft_count/
+    // reanchor_{hard,soft}_delta_abs_accum/free_below_real_count), which are
+    // "since run start" and survive that reset — see OverrideManager.cpp.
+    // hard = S1 (always) + S3 (only if it moved the shadow); soft = S4 only
+    // if it moved the shadow. Kept as SEPARATE accumulators (not summed) —
+    // that split is the whole point: §3-1 asks whether S3 or S4 is
+    // responsible for a given frame's erasure, which a combined total cannot
+    // answer.
+    int         ffb_gate_reanchor_hard_count           = 0;
+    int         ffb_gate_reanchor_soft_count           = 0;
+    double      ffb_gate_reanchor_delta                = 0.0;  // this frame's shadow displacement from a re-anchor; 0 if none
+    double      ffb_gate_reanchor_hard_delta_abs_accum = 0.0;  // cumulative |delta| from S1+S3 (hard) re-anchors
+    double      ffb_gate_reanchor_soft_delta_abs_accum = 0.0;  // cumulative |delta| from S4 (soft) drift correction
+    std::string ffb_gate_reanchor_source               = "none";  // none|seed|onset_grace|drift|resume|inactive_rearm
+    double      ffb_gate_free_shadow_norm         = 0.0;  // shadow integrated WITHOUT re-anchoring (S2 only)
+    double      ffb_gate_free_residual            = 0.0;  // |actual - free_shadow| — "what if nothing had been erased"
+    // NOT guaranteed to stay >= ffb_gate_residual on every frame (see
+    // OverrideManager::FfbLatchDiagnostics::free_residual comment for the
+    // counter-example) — this counts how often it reads below instead.
+    // The meaningful comparison is walk-level max(free_residual) vs
+    // max(residual) over the whole run, not this per-frame count's sign.
+    int         ffb_gate_free_below_real_count    = 0;
+
     // feature:F7 — AD steering safety envelope observability (AdSteeringEnvelope.hpp).
     // Which physical constraint(s) clamped this frame's AD-commanded steering
     // (or none). All false when the envelope is disabled or nothing clipped.
@@ -279,6 +346,7 @@ struct VirtualDriverTelemetry
     TrafficPolicySnapshot  policy;    // Phase 3+
     IndicatorSnapshot      indicator;
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
+    ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
 };
 
 }  // namespace gt_esmini

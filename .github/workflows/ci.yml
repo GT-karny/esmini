@@ -443,10 +443,12 @@ jobs:
   # compares the per-scenario / per-matcher verdict against a COMMITTED baseline with
   # scripts/check_regression_baseline.py, and uploads a Markdown report.
   #
-  # Two gates ride in this job, each with its own batch, baseline and artifact:
-  #   gate:vd-behavior-regression  car_following_traffic_control_batch.yaml (Step 2 locally)
-  #   gate:aeb-safety-regression   aeb_safety_batch.yaml                    (Step 2.6 locally)
-  # Both exercise VirtualDriver behaviour (AEB is a VD policy-layer safety function), so
+  # Four gates ride in this job, each with its own batch, baseline and artifact:
+  #   gate:vd-behavior-regression       car_following_traffic_control_batch.yaml (Step 2 locally)
+  #   gate:aeb-safety-regression        aeb_safety_batch.yaml                    (Step 2.6 locally)
+  #   gate:anticipation-driving-regression anticipation_driving_batch.yaml       (Step 2.7 locally)
+  #   gate:scenario-handoff-regression  scenario_handoff_batch.yaml              (Step 2.8 locally)
+  # All exercise VirtualDriver behaviour (AEB is a VD policy-layer safety function), so
   # the job name still describes its contents. See the AEB steps below for why they share
   # this job rather than getting a dedicated one.
   #
@@ -611,6 +613,42 @@ jobs:
             test_results/ci/anticipation_driving/regression_report.md
             test_results/ci/anticipation_driving/batch_verdict.json
             test_results/ci/anticipation_driving/batch_summary.md
+          if-no-files-found: warn
+
+      # gate:scenario-handoff-regression -- the local regression gate's Step 2.8,
+      # wired to CI. Rides in this job for the same reason as AEB/anticipation: the
+      # Release build above dominates the runtime, so a separate job would pay it
+      # twice. Separate step names + a separate artifact keep failure attribution.
+      #
+      # feature:F7 scenario-driven handover (docs/virtualdriver/
+      # scenario_control_handoff_design.md). Own manifest + own baseline (design
+      # doc Fact M) -- does not touch the other three batches' baselines. No OSI
+      # capture needed: the sole matcher (vd_control_relinquished) reads
+      # telemetry.vd_active only.
+      # NON-BLOCKING like the batches above: promote by dropping continue-on-error
+      # from the compare step once CI has shown the baseline stable across a few runs.
+      - name: Run scenario handoff batch
+        continue-on-error: true
+        shell: bash
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/scenario_handoff_batch.yaml --out test_results/ci/scenario_handoff
+
+      # --baseline is mandatory: check_regression_baseline.py defaults to the
+      # car_following baseline, so omitting it would silently compare the wrong one.
+      - name: Compare scenario handoff vs committed baseline (per-scenario)
+        id: scenario-handoff-regression
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/scenario_handoff --baseline GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml
+
+      - name: Upload scenario handoff regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-handoff-regression-report
+          path: |
+            test_results/ci/scenario_handoff/regression_report.md
+            test_results/ci/scenario_handoff/batch_verdict.json
+            test_results/ci/scenario_handoff/batch_summary.md
           if-no-files-found: warn
 
   release:

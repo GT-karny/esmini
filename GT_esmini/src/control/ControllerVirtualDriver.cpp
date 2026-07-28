@@ -16,6 +16,7 @@
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
@@ -120,6 +121,10 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     // Built once here; config is not hot-reloaded during a run.
     ad_envelope_cfg_ = vd_config_.AdEnvelopeConfig();
 
+    // feature:F7 resume-merge (see ResumeMergeProfile.hpp). Built once here,
+    // same convention as ad_envelope_cfg_ above; not hot-reloaded during a run.
+    resume_merge_cfg_ = vd_config_.ResumeMergeCfg();
+
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
     if (vd_config_.input_type == "sdl2_wheel")
@@ -199,37 +204,101 @@ void ControllerVirtualDriver::Init()
     Controller::Init();
 }
 
+void ControllerVirtualDriver::SetUpControlOutputs()
+{
+    if (!object_) return;
+
+    PhysicsInitParams params = vd_config_.PhysicsParams();
+    physics_backend_->Init(params, object_);
+    physics_backend_->SetInitialState(
+        object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
+        object_->pos_.GetH(), object_->GetSpeed());
+
+    input_source_->Init(io_config_);
+
+    // Register VehicleLightExtension (same pattern as ManualDrive / RealDriver).
+    if (auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_))
+    {
+        auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+        if (!ext)
+        {
+            ext = new VehicleLightExtension(vehicle);
+            VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+        }
+    }
+
+    LOG_INFO("VirtualDriverController: Activated for object {} at ({:.1f}, {:.1f})",
+             object_->GetId(), object_->pos_.GetX(), object_->pos_.GetY());
+
+    // feature:F7 — see VirtualDriverTypes.hpp: the only telemetry field written
+    // outside Step(), because it must survive the deactivation that stops Step()
+    // from running at all.
+    telemetry_.vd_active = true;
+}
+
+void ControllerVirtualDriver::TearDownControlOutputs()
+{
+    // feature:F7 — set first, not last: everything below can early-return
+    // (no FFB sink) or log, but "control handed back" must be recorded
+    // unconditionally the instant teardown begins.
+    telemetry_.vd_active = false;
+
+    // Force feedback must be released here and nowhere else: ScenarioEngine only
+    // steps active controllers, so the moment this controller goes inactive our
+    // Step() - and with it SDLFFBSink::Update() - stops being called. The device
+    // holds the last commanded force as an infinite-duration constant effect, so
+    // without this the wheel would keep pulling after the scenario took over.
+    if (IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr)
+    {
+        ffb->SetSteerTarget(0.0, false);
+        ffb->SetEnabled(false);
+    }
+
+    // Drop any latched manual-intervention state. Once the scenario has taken
+    // control away the latch describes nothing, and it cannot clear itself while
+    // inactive (the idle timer only advances from Step()), so it would otherwise
+    // be carried straight into the next activation.
+    override_mgr_.RequestAutoMode();
+
+    LOG_INFO("VirtualDriverController: control outputs released");
+}
+
 int ControllerVirtualDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
-    if (object_)
+    const bool was_active = Active();
+
+    // Apply the requested per-domain modes first, then react to the transition.
+    // VirtualDriver sets neither align_to_road_heading_on_activation_ nor
+    // ..._on_deactivation_, so the base call is pure bit manipulation and is safe
+    // to evaluate before deciding what to set up or tear down.
+    const int rc = Controller::Activate(mode);
+
+    const bool is_active = Active();
+
+    if (!was_active && is_active)
     {
-        PhysicsInitParams params = vd_config_.PhysicsParams();
-        physics_backend_->Init(params, object_);
-        physics_backend_->SetInitialState(
-            object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
-            object_->pos_.GetH(), object_->GetSpeed());
-
-        input_source_->Init(io_config_);
-
-        // Register VehicleLightExtension (same pattern as ManualDrive / RealDriver).
-        if (auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_))
-        {
-            auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (!ext)
-            {
-                ext = new VehicleLightExtension(vehicle);
-                VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-            }
-        }
-
-        LOG_INFO("VirtualDriverController: Activated for object {} at ({:.1f}, {:.1f})",
-                 object_->GetId(), object_->pos_.GetX(), object_->pos_.GetY());
+        SetUpControlOutputs();
     }
-    return Controller::Activate(mode);
+    else if (was_active && !is_active)
+    {
+        // An ActivateControllerAction that switches every domain off never reaches
+        // Deactivate() - upstream routes it through Activate() with OFF modes - so
+        // this is the only place the scenario-driven handover is observable.
+        TearDownControlOutputs();
+    }
+    // Staying active re-runs no initialisation: input_source_->Init() has no
+    // multiple-call guard and would re-open the joystick and orphan the existing
+    // haptic effects.
+
+    return rc;
 }
 
 void ControllerVirtualDriver::Deactivate()
 {
+    if (Active())
+    {
+        TearDownControlOutputs();
+    }
     LOG_INFO("VirtualDriverController: Deactivated");
     Controller::Deactivate();
 }
@@ -326,6 +395,127 @@ void ControllerVirtualDriver::Step(double timeStep)
             requested_cp = dist;
     }
 
+    // 2c. feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // Smooths a manual->AUTO_RESUME lateral hand-over by ramping a ROUTE-lane
+    // reference into the short planner instead of the raw per-frame
+    // current-lane snap (TrajectoryShortPlanner.cpp's anchor). Entirely gated
+    // behind resume_merge_cfg_.enabled (shipped default: false) -- when
+    // false, NOTHING below this guard executes, so merge_now_* keep the SAME
+    // values ShortPlanContext already defaults its merge_* fields to, and
+    // TrajectoryShortPlanner's pre-existing current-lane-anchor path runs
+    // with no new arithmetic (HARD INVARIANT: bit-identical to today when
+    // disabled).
+    bool         merge_now_active      = false;
+    unsigned int merge_now_track       = 0;
+    int          merge_now_lane        = 0;
+    double       merge_now_offset      = 0.0;
+    const char*  merge_fallback_reason = "";
+
+    if (resume_merge_cfg_.enabled)
+    {
+        // Route-lane resolution (design doc section 2-0-1), re-run every
+        // frame (not just at the arming instant) so a mid-merge route loss is
+        // caught by the disarm check below, and the planner always gets a
+        // FRESH target lane rather than one captured once at arm time.
+        unsigned int route_track = 0;
+        int          route_lane  = 0;
+        const char*  route_fail  = ResolveResumeMergeRouteLane(route_track, route_lane);
+        const bool   route_ok    = route_fail[0] == '\0';
+        merge_fallback_reason    = route_fail;
+
+        // A running storyboard lateral maneuver (LaneChange/LaneOffset) takes
+        // full ownership of the preview overlay in TrajectoryShortPlanner --
+        // same RUNNING + action-type filter that planner uses to build its
+        // own lat_actions, duplicated here because the CONTROLLER (not the
+        // planner) owns the merge state machine's disarm decision.
+        bool has_lateral_storyboard_action = false;
+        for (auto* action : object_->getPrivateActions())
+        {
+            if (action->GetCurrentState() != StoryBoardElement::State::RUNNING) continue;
+            if (action->action_type_ == OSCAction::ActionType::LAT_LANE_CHANGE ||
+                action->action_type_ == OSCAction::ActionType::LAT_LANE_OFFSET)
+            {
+                has_lateral_storyboard_action = true;
+                break;
+            }
+        }
+
+        // Disarm (design doc section 8-3): storyboard lateral action, manual
+        // re-latch, or route loss. Checked BEFORE a possible re-arm below so
+        // a stale armed state can never survive past its own trigger frame.
+        if (resume_merge_state_.active &&
+            (has_lateral_storyboard_action || lat_manual || !route_ok))
+        {
+            DisarmResumeMerge(resume_merge_state_);
+        }
+
+        // Arm on the manual->AUTO_RESUME edge. override_mgr_.Update() (above)
+        // already updated JustTransitionedToAuto() for this frame, so arming
+        // can fire on the SAME frame the edge occurs (handoff section 2-7: no
+        // one-frame lag; object_->pos_ is the true ego pose even under manual
+        // override, since physics owns it every frame -- state_applier_.Apply()
+        // below).
+        if (!has_lateral_storyboard_action && route_ok && override_mgr_.JustTransitionedToAuto())
+        {
+            // Placed at the SAME s used to resolve route_track/route_lane
+            // above (object_->pos_.GetS()), not the route's own internal
+            // local_s -- they can differ slightly (route-boundary / virtual-
+            // junction clamping), so guard this SetLanePos's return value too
+            // rather than trust a silent success: consistent with design doc
+            // section 2-0-1's overarching "never trust a silent SetLanePos
+            // outcome" discipline, even though its literal step 6 does not
+            // call this specific site out. On failure, route_center's X/Y
+            // would be a freshly-constructed Position's defaults, not a real
+            // road point -- skip arming rather than capture d0 from that.
+            roadmanager::Position route_center;
+            if (route_center.SetLanePos(route_track, route_lane, object_->pos_.GetS(), 0.0) !=
+                roadmanager::Position::ReturnCode::ERROR_GENERIC)
+            {
+                const double h_road = route_center.GetHRoad();
+
+                // Route-relative lateral deviation: project the ego -> route-
+                // lane-centre displacement onto the +t axis (design doc
+                // section 4-1 / handoff section 2-3). Deliberately NOT
+                // pos_.GetOffset() -- that is LANE-relative and
+                // re-references at lane boundaries (measured: -1.7482 ->
+                // +1.9425 in a single frame).
+                const double d0 = -(object_->pos_.GetX() - route_center.GetX()) * std::sin(h_road) +
+                                    (object_->pos_.GetY() - route_center.GetY()) * std::cos(h_road);
+
+                const double ego_h  = object_->pos_.GetH();
+                const double v0_lat = object_->GetSpeed() * std::sin(ego_h - h_road);
+
+                double a0_lat = 0.0;
+                if (prev_heading_valid_ && timeStep > 1e-9)
+                {
+                    const double yaw_rate = GetAngleInIntervalMinusPIPlusPI(ego_h - prev_heading_) / timeStep;
+                    a0_lat = yaw_rate * object_->GetSpeed();
+                }
+
+                ArmResumeMerge(resume_merge_state_, d0, v0_lat, a0_lat, resume_merge_cfg_);
+            }
+        }
+
+        if (resume_merge_state_.active)
+            AdvanceResumeMerge(resume_merge_state_, timeStep);
+
+        if (resume_merge_state_.active)
+        {
+            merge_now_active = true;
+            merge_now_track  = route_track;
+            merge_now_lane   = route_lane;
+            merge_now_offset = EvaluateResumeMergeOffset(resume_merge_state_, 0.0);
+        }
+
+        // Rolling one-frame-back heading, used ONLY to derive a0_lat at the
+        // NEXT arming instant (design doc section 8-3(a)). Updated every
+        // frame this feature is enabled (MANUAL or AUTO) so a hand-over
+        // always sees the true realized heading one frame back, not a stale
+        // AUTO-only sample.
+        prev_heading_       = object_->pos_.GetH();
+        prev_heading_valid_ = true;
+    }
+
     // 3. Auto pipeline: short planner -> driver model
     ShortPlanContext sctx;
     sctx.object               = object_;
@@ -335,6 +525,14 @@ void ControllerVirtualDriver::Step(double timeStep)
     sctx.v_target             = midsnap.valid ? &midsnap : nullptr;
     sctx.fallback_speed       = target_speed;
     sctx.control_point_offset = requested_cp;
+    // feature:F7 resume-merge: defaults (false/0/0/0.0/nullptr) preserve
+    // today's behavior when merge_now_active is false (disabled, never
+    // armed, or disarmed this frame) -- see the HARD INVARIANT note above.
+    sctx.merge_active     = merge_now_active;
+    sctx.merge_track_id   = merge_now_track;
+    sctx.merge_lane_id    = merge_now_lane;
+    sctx.merge_offset_now = merge_now_offset;
+    sctx.merge_state      = merge_now_active ? &resume_merge_state_ : nullptr;
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
 
     DriverState dstate;
@@ -557,6 +755,31 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.ffb_gate_sustain_accum        = diag.sustain_accum;
         telemetry_.ffb_gate_sustain_time         = diag.sustain_time;
         telemetry_.ffb_gate_block_reason         = reason_str;
+
+        // feature:F7 — re-anchor instrument (observational only; see
+        // test_results/f7_reanchor_instrument_spec.md and
+        // OverrideManager::FfbLatchDiagnostics::ReanchorSource).
+        using ReanchorSource = OverrideManager::FfbLatchDiagnostics::ReanchorSource;
+        const char* reanchor_reason_str = "none";
+        switch (diag.reanchor_source)
+        {
+            case ReanchorSource::NONE:            reanchor_reason_str = "none";            break;
+            case ReanchorSource::SEED:            reanchor_reason_str = "seed";            break;
+            case ReanchorSource::ONSET_GRACE:     reanchor_reason_str = "onset_grace";     break;
+            case ReanchorSource::DRIFT:           reanchor_reason_str = "drift";           break;
+            case ReanchorSource::RESUME:          reanchor_reason_str = "resume";          break;
+            case ReanchorSource::INACTIVE_REARM:  reanchor_reason_str = "inactive_rearm";  break;
+        }
+
+        telemetry_.ffb_gate_reanchor_hard_count           = diag.reanchor_hard_count;
+        telemetry_.ffb_gate_reanchor_soft_count           = diag.reanchor_soft_count;
+        telemetry_.ffb_gate_reanchor_delta                = diag.reanchor_delta;
+        telemetry_.ffb_gate_reanchor_hard_delta_abs_accum = diag.reanchor_hard_delta_abs_accum;
+        telemetry_.ffb_gate_reanchor_soft_delta_abs_accum = diag.reanchor_soft_delta_abs_accum;
+        telemetry_.ffb_gate_reanchor_source               = reanchor_reason_str;
+        telemetry_.ffb_gate_free_shadow_norm              = diag.free_shadow_norm;
+        telemetry_.ffb_gate_free_residual                 = diag.free_residual;
+        telemetry_.ffb_gate_free_below_real_count         = diag.free_below_real_count;
     }
     // feature:F7 — AD steering safety envelope observability (verification:
     // "normal driving never trips the envelope"). See AdSteeringEnvelope.hpp.
@@ -576,6 +799,35 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.policy                = policy_snap;
     telemetry_.driver                = dsnap;
     telemetry_.indicator             = ind;
+
+    // feature:F7 resume-merge telemetry (design doc
+    // resume_merge_trajectory_design.md section 8-6). Controller-owned merge
+    // state-machine snapshot; deliberately NOT part of ShortPlannerSnapshot
+    // (short_plan above), which stays a cross-session contract untouched by
+    // this feature. resume_merge_state_'s captured fields (d0/v0_lat/a0_lat/
+    // a_bound/duration_s/comfort_unmet) retain their last-armed values across
+    // a disarm (see DisarmResumeMerge's own doc), so they stay readable here
+    // as "what the last merge was" even the frame after it stops being active.
+    telemetry_.resume_merge.active        = merge_now_active;
+    telemetry_.resume_merge.d0            = resume_merge_state_.d0;
+    telemetry_.resume_merge.v0_lat        = resume_merge_state_.v0_lat;
+    telemetry_.resume_merge.a0_lat        = resume_merge_state_.a0_lat;
+    telemetry_.resume_merge.a_bound       = resume_merge_state_.a_bound;
+    telemetry_.resume_merge.comfort_unmet = resume_merge_state_.comfort_unmet;
+    telemetry_.resume_merge.duration_s    = resume_merge_state_.duration_s;
+    telemetry_.resume_merge.progress      = (resume_merge_state_.duration_s > 1e-9)
+                                                 ? std::min(1.0, resume_merge_state_.elapsed_s / resume_merge_state_.duration_s)
+                                                 : 0.0;
+    telemetry_.resume_merge.target_offset = merge_now_offset;
+    // "解決したルート車線（フォールバック時は現在車線と一致）" (design doc section
+    // 8-6): report the CURRENT lane whenever the merge is not actually
+    // steering the anchor this frame (disabled / not armed / disarmed /
+    // route unresolved), so this pair always shows "what anchor is actually
+    // in effect", not a stale or zeroed resolution attempt.
+    telemetry_.resume_merge.route_track   = merge_now_active ? static_cast<int>(merge_now_track)
+                                                               : static_cast<int>(object_->pos_.GetTrackId());
+    telemetry_.resume_merge.route_lane    = merge_now_active ? merge_now_lane : object_->pos_.GetLaneId();
+    telemetry_.resume_merge.fallback_reason = merge_fallback_reason;
 
     // 11b. Front-bumper (leading-edge) road localization (F5). Project the vehicle
     // origin forward by (length/2 + bbox center-x) along the heading — the same
@@ -765,6 +1017,39 @@ void ControllerVirtualDriver::ApplyLights(const PedalSteerCommand& cmd, const In
     set_light(VehicleLightType::REVERSING_LIGHTS, cmd.gear == -1);
     set_light(VehicleLightType::INDICATOR_LEFT,  ind.left_on);
     set_light(VehicleLightType::INDICATOR_RIGHT, ind.right_on);
+}
+
+const char* ControllerVirtualDriver::ResolveResumeMergeRouteLane(unsigned int& out_track, int& out_lane) const
+{
+    // feature:F7 resume-merge route-lane resolution (design doc
+    // resume_merge_trajectory_design.md section 2-0-1). Isolated route clone
+    // (pos.CopyRoute), same safe pattern JunctionTurn.hpp uses, so mutating
+    // it via SetTrackS below never touches the shared Route* any other code
+    // reads. BOTH OnRoute() and a track-id match against the ego's own
+    // current track are required: Route::SetTrackS silently swallows
+    // SetLanePos's ERROR_GENERIC (RoadManager.cpp:15514, return value
+    // unchecked) and, off-route, silently leaves currentPos_ (and therefore
+    // GetLaneId()) at its last-synced value (RoadManager.cpp:15419-15421,
+    // 15508-15546) -- OnRoute() alone does not catch either failure mode.
+    roadmanager::Position pos;
+    pos.Duplicate(object_->pos_);
+    pos.CopyRoute(object_->pos_);
+
+    roadmanager::Route* route = pos.GetRoute();
+    if (!route || !route->IsValid())
+        return "no_route";
+
+    const id_t ego_track = object_->pos_.GetTrackId();
+    route->SetTrackS(ego_track, object_->pos_.GetS());
+
+    if (!route->OnRoute())
+        return "off_route";
+    if (route->GetTrackId() != ego_track)
+        return "track_mismatch";
+
+    out_track = route->GetTrackId();
+    out_lane  = route->GetLaneId();
+    return "";
 }
 
 void ControllerVirtualDriver::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const

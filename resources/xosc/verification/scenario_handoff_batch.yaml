@@ -1,0 +1,20 @@
+name: scenario_handoff
+origin: feature:F7   # 由来（工程）はメタデータ。名前には焼き込まない — capability_model.md §7.1 規約2
+# feature:F7 scenario-driven control handover (docs/virtualdriver/
+# scenario_control_handoff_design.md). No OSI capture needed -- the sole
+# matcher (vd_control_relinquished) reads telemetry.vd_active only. No
+# `baseline:` -- judgment is from VirtualDriver telemetry, same convention as
+# car_following_traffic_control (which this manifest deliberately does NOT
+# touch: a separate manifest + separate baseline, per design doc Fact M).
+#
+# Run:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/scenario_handoff_batch.yaml --out test_results/regression/scenario_handoff
+defaults:
+  dt: 0.05
+  max_time: 20.0
+  snapshots: 3
+  osi: false
+scenarios:
+  - scenario: resources/xosc/verification/08_handoff/scenario_deactivate_vd.xosc
+    expectations: resources/xosc/verification/08_handoff/scenario_deactivate_vd.expectations.yaml

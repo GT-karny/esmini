@@ -640,6 +640,59 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
         return res("pass" if ok else "fail", detail, None if ok else offenders[0])
 
+    if kind == "vd_control_relinquished":
+        # feature:F7 scenario-driven handover (docs/virtualdriver/
+        # scenario_control_handoff_design.md §5.1). Asserts the ego's
+        # VirtualDriverController actually gave up control at some point in
+        # the run and never resumed it. Reads the top-level telemetry.vd_active
+        # field, which mirrors Controller::Active() at the instant
+        # SetUpControlOutputs()/TearDownControlOutputs() ran in
+        # ControllerVirtualDriver.cpp — the ONE telemetry field that is not
+        # frozen once the controller goes inactive. Every other field
+        # (sim_time included) holds its last-active-frame value forever after
+        # deactivation, since ScenarioEngine stops calling Step() on an
+        # inactive controller (design doc Fact D) — do not try to detect the
+        # handoff via a sim_time freeze or an ffb.target_active edge; both are
+        # heuristics this field replaces.
+        if not frames:
+            return res("skip", "no frames")
+        active_flags = [bool(fr.get("vd_active", False)) for fr in frames]
+        if not active_flags[0]:
+            return res("fail", "vd_active is already false on frame 0 (VD never activated)", 0)
+        drop_idx = next(
+            (i for i in range(1, len(active_flags)) if active_flags[i - 1] and not active_flags[i]),
+            None,
+        )
+        if drop_idx is None:
+            return res(
+                "fail",
+                "vd_active never transitioned to false during the run",
+                len(active_flags) - 1,
+            )
+        not_before = must.get("after", {}).get("sim_time")
+        drop_t = frames[drop_idx]["sim_time"]
+        if not_before is not None and drop_t < not_before:
+            return res(
+                "fail",
+                f"vd_active dropped at t={drop_t:.2f}, expected not before t={not_before}",
+                drop_idx,
+            )
+        reactivate_idx = next(
+            (i for i in range(drop_idx, len(active_flags)) if active_flags[i]), None
+        )
+        if reactivate_idx is not None:
+            return res(
+                "fail",
+                f"vd_active flipped back to true at frame {reactivate_idx} "
+                f"after dropping at frame {drop_idx} (t={drop_t:.2f})",
+                reactivate_idx,
+            )
+        return res(
+            "pass",
+            f"vd_active dropped to false at t={drop_t:.2f} (frame {drop_idx}) "
+            f"and stayed false through end of run ({len(active_flags)} frames)",
+        )
+
     # Lane events use the ego's road-coordinate anchor (road_id / lane). It is
     # resolved through _ego_state, which prefers the face-1 OSI scene: the
     # is_host object's lane_global_id joined against scene["lane_map"] (built
