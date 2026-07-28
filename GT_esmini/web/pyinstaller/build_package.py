@@ -35,10 +35,19 @@ SPEC_FILE = PYINSTALLER_DIR / "gt_sim_web.spec"
 # Files to copy from build/GT_esmini/Release/
 # GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it (co-located
 # in bin/) to pre-generate + cache the road model, so it MUST ship alongside GT_Sim.exe.
-BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd", "python312.zip"]
+BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd"]
 
-# Extra files from embedded Python distribution (runtime DLLs only, no standalone exe)
-EMBED_FILES = ["python312._pth"]
+# Extra files from the embedded Python distribution (thirdparty/python-embed/), not
+# build/GT_esmini/Release/: CMake links GT_esminiLib against Python3::Python when
+# GT_ENABLE_EMBEDDED_PYTHON=ON (distribution packages configure with it ON -- see
+# GT_esmini/CMakeLists.txt) but does not stage python312.dll anywhere, and BIN_GLOBS
+# above only globs build/GT_esmini/Release/, which never contains it either.
+# python312.dll is a hard (non-delay-load) import of GT_esminiLib.dll -- confirmed via
+# `dumpbin /dependents` -- so its absence is not "PythonDriverController scenarios fail",
+# it is STATUS_DLL_NOT_FOUND (0xC0000135) at process creation for EVERY bin/GT_Sim.exe
+# invocation, headless or not. python312.zip is required alongside it: python312._pth
+# (below) references it plus `.`/Lib/Lib/site-packages as the interpreter's sys.path.
+EMBED_FILES = ["python312._pth", "python312.dll", "python312.zip"]
 
 # Config mappings: (source relative to REPO_ROOT, dest relative to package)
 # Keep this list in sync with GT_esmini/config/*.json on disk.  The
@@ -94,6 +103,14 @@ def verify_prerequisites() -> None:
         errors.append(f"Frontend not built. Run 'npm run build' in {FRONTEND_DIR}.")
     if not EMBEDDED_PYTHON.is_dir():
         errors.append(f"Embedded Python not found at {EMBEDDED_PYTHON}.")
+    else:
+        # python312.dll/.zip are a hard GT_esminiLib.dll dependency when built with
+        # GT_ENABLE_EMBEDDED_PYTHON=ON (distribution default) -- their absence must
+        # fail the package build loudly, not ship a bin/GT_Sim.exe that cannot start
+        # (_copy_files() below silently skips a missing source file otherwise).
+        for fname in ("python312.dll", "python312.zip"):
+            if not (EMBEDDED_PYTHON / fname).exists():
+                errors.append(f"{fname} not found at {EMBEDDED_PYTHON}.")
 
     if errors:
         print("[FAIL] Prerequisites check failed:")
@@ -247,9 +264,11 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     count = _copy_glob(BUILD_RELEASE, bin_dir, BIN_GLOBS)
     log(f"bin/: {count} files from build output")
 
-    # 1b. bin/ — python312._pth from embedded Python
+    # 1b. bin/ — python312.dll/.zip/._pth from the embedded Python distribution
+    # (CMake does not stage these; see EMBED_FILES's comment for why they're
+    # mandatory, not just for the frozen PythonDriverController feature)
     _copy_files(EMBEDDED_PYTHON, bin_dir, EMBED_FILES)
-    log("bin/: added python312._pth")
+    log(f"bin/: added {', '.join(EMBED_FILES)} from embedded Python")
 
     # 2. server/ — PyInstaller output
     pyinstaller_output = PYINSTALLER_DIR / "dist" / "gt_sim_web"
