@@ -43,9 +43,25 @@ pysdl2 が要る（`scripts/ffb_spike/.venv` に入っている）。
 呼び出し側（`unattended_wheel_run.py`）は `rel != 0` で失敗を検知する作りだったが、
 この経路では永遠に 0 が返るので検知できなかった。
 
+## 実体のない列挙エントリ（phantom）— 2026-07-29 追加
+
+G29 は **物理 1 台なのに haptic として 3 つ列挙され、そのうち 1 つは常に open できない**
+（実測: joystick 1 台 / haptic [0]OK [1]FAILED [2]OK・全て同名。開く順序に依らず構造的）。
+これを素直に失敗とすると **S5 が毎回赤**になり、緑固定と同じくらい役に立たない。
+
+そこで **joystick がちょうど 1 台**で、**同名エントリを 1 つ以上開いて停止できている**
+場合に限り、開けなかったエントリを phantom として `RELEASED` にする。
+`StopAll`/`SetGain` はデバイス単位の操作なので、1 つでも開けていれば力は止まっている。
+
+**joystick 1 台に限定するのは推測を避けるため**: haptic API に GUID は無く名前しか無いので、
+**同型機 2 台**では「開けた方」と「開けなかった方」を区別できず、片方が本当に掴まれていても
+phantom と誤判定しうる。2 台以上のときは推測せず**従来どおり失敗**にする。
+1 つも開けていない場合も従来どおり失敗。**phantom は必ず stderr と `phantom=N` に出す**
+（黙って握り潰さない）。
+
 最終行は常に機械可読（`--quiet` でも抑制しない。これは診断ではなく**判定**）:
 
-    HAPTIC_RELEASE result=<...> devices=N released=N failed=N
+    HAPTIC_RELEASE result=<...> devices=N released=N failed=N phantom=N joysticks=N
 
 なお**本スクリプトの戻り値は最終確認手段ではない**。人が物理デバイスに触れる試験では
 **目視と電源断が最終手段**である（条件A手順書）。戻り値は「機械が確認できた範囲」を
@@ -68,11 +84,16 @@ def release_all(sdl2, say) -> dict:
 
     返り値: {"devices": N, "released": N, "failed": N, "failures": [str, ...]}
     """
-    result = {"devices": 0, "released": 0, "failed": 0, "failures": []}
+    result = {"devices": 0, "released": 0, "failed": 0, "failures": [],
+              "phantom": 0, "joysticks": 0, "released_names": set()}
     try:
+        # 物理デバイス数の直接証拠。haptic API に GUID は無いが、
+        # SDL_NumJoysticks() は「物理デバイスが何台か」を開かずに答える
+        # （デバイスを掴まないので、実機試験と衝突しない）。
+        result["joysticks"] = sdl2.SDL_NumJoysticks()
         n = sdl2.SDL_NumHaptics()
         result["devices"] = n
-        say(f"haptic デバイス {n} 台")
+        say(f"haptic エントリ {n} 個 / joystick {result['joysticks']} 台")
         for i in range(n):
             name = sdl2.SDL_HapticName(i)
             name = name.decode(errors="replace") if name else f"<device {i}>"
@@ -82,10 +103,10 @@ def release_all(sdl2, say) -> dict:
                 # ここを continue で読み飛ばして 0 を返していたのが是正前の欠陥。
                 # open できない＝他プロセスが掴んでいる＝力が残っているかもしれない、
                 # という**最も報告すべき状態**を握り潰していた。
-                msg = f"[{i}] {name}: open 失敗 ({err}) — 他プロセスが掴んだままの可能性"
+                msg = f"[{i}] {name}: open 失敗 ({err})"
                 say("  " + msg)
                 result["failed"] += 1
-                result["failures"].append(msg)
+                result["failures"].append((name, msg))
                 continue
             try:
                 # 停止 → 解放。開けている＝前の所有者は既に解放済みなので、
@@ -93,6 +114,7 @@ def release_all(sdl2, say) -> dict:
                 sdl2.SDL_HapticStopAll(h)
                 sdl2.SDL_HapticSetGain(h, 0)     # 念のため出力自体を 0 に
                 result["released"] += 1
+                result["released_names"].add(name)
                 say(f"  [{i}] {name}: 全エフェクト停止・ゲイン 0")
             except Exception as e:               # noqa: BLE001
                 # 開けたのに止められなかった。open 失敗より悪い（力が出ている
@@ -100,11 +122,38 @@ def release_all(sdl2, say) -> dict:
                 msg = f"[{i}] {name}: 停止に失敗: {e}"
                 say("  " + msg)
                 result["failed"] += 1
-                result["failures"].append(msg)
+                result["failures"].append((name, msg))
             finally:
                 sdl2.SDL_HapticClose(h)
     finally:
         sdl2.SDL_Quit()
+
+    # --- 実体のない列挙エントリの扱い（2026-07-29） -----------------------
+    #
+    # 実測（G29・ユーザーによる読み取り専用の列挙、GT_Sim/web 停止中）:
+    #   joystick   1 台 : G29 / guid 030048e66d04...  is_haptic=1
+    #   haptic     3 個 : [0] OPEN OK / [1] OPEN FAILED / [2] OPEN OK  ← 全て同名
+    # 物理デバイスは 1 台で、haptic 側だけが同名で 3 つに見えている。
+    # 私の独立観測（3回連続・開く順序を変えても index 1 が最初に失敗＝構造的）と一致。
+    #
+    # よって「開けなかったエントリ」は掴まれているのではなく**実体が無い**。
+    # 1 つ以上のエントリを開いて停止できていれば、その物理デバイスの力は止まっている
+    # （StopAll / SetGain はデバイス単位の操作で、ハンドル局所ではない）。
+    #
+    # **適用条件を joystick 1 台に限定する理由（ユーザー案への追加ガード）**:
+    # haptic API から取れるのは名前だけで GUID は無い。**同型機を 2 台**繋いだ場合、
+    # 名前は完全に同一になるので「開けた方」と「開けなかった方」を名前では区別できず、
+    # 片方が本当に掴まれていても phantom と誤判定しうる。joystick が 1 台であることを
+    # 要求すれば、その曖昧さは原理的に発生しない。2 台以上のときは**推測せず従来どおり
+    # 失敗**にする（安全側に倒す）。
+    single_device = (result["joysticks"] == 1)
+    if result["failed"] > 0 and result["released"] > 0 and single_device:
+        phantom = [(nm, m) for nm, m in result["failures"] if nm in result["released_names"]]
+        if len(phantom) == result["failed"]:
+            result["phantom"] = result["failed"]
+            result["failed"] = 0
+            # 握り潰さない。事実は必ず残す。
+            result["phantom_msgs"] = [m for _nm, m in phantom]
     return result
 
 
@@ -130,15 +179,23 @@ def _selftest() -> int:
         SDL_INIT_JOYSTICK = 1
         SDL_INIT_HAPTIC = 2
 
-        def __init__(self, n, open_ok=True, stop_raises=False):
+        def __init__(self, n, open_ok=True, stop_raises=False,
+                     fail_idx=None, joysticks=1, names=None):
             self._n, self._open_ok, self._stop_raises = n, open_ok, stop_raises
+            self._fail_idx = set() if fail_idx is None else set(fail_idx)
+            self._joysticks = joysticks
+            self._names = names
             self.closed = 0
             self.quit_called = False
 
+        def SDL_NumJoysticks(self):          return self._joysticks
         def SDL_NumHaptics(self):            return self._n
-        def SDL_HapticName(self, i):         return b"StubWheel"
-        def SDL_GetError(self):              return b"Device is already open"
-        def SDL_HapticOpen(self, i):         return object() if self._open_ok else None
+        def SDL_HapticName(self, i):
+            return (self._names[i] if self._names else b"StubWheel")
+        def SDL_GetError(self):              return b"Haptic error Resetting device"
+        def SDL_HapticOpen(self, i):
+            if i in self._fail_idx:          return None
+            return object() if self._open_ok else None
         def SDL_HapticStopAll(self, h):
             if self._stop_raises: raise RuntimeError("StopAll failed")
         def SDL_HapticSetGain(self, h, g):   return 0
@@ -149,17 +206,28 @@ def _selftest() -> int:
         ("デバイス1台・open 成功 → RELEASED/0",        _Stub(1),                       False, "RELEASED", 0),
         ("デバイス0台 → NOTHING_TO_RELEASE/0",         _Stub(0),                       False, "NOTHING_TO_RELEASE", 0),
         ("デバイス0台 + --require-device → FAILED/1",  _Stub(0),                       True,  "FAILED", 1),
-        ("**掴まれていて open 失敗 → FAILED/1**",      _Stub(1, open_ok=False),        False, "FAILED", 1),
-        ("2台中1台が open 失敗 → FAILED/1",            _Stub(2, open_ok=False),        False, "FAILED", 1),
+        ("**全エントリが open 失敗 → FAILED/1**",      _Stub(1, open_ok=False),        False, "FAILED", 1),
+        ("2エントリ全滅 → FAILED/1",                   _Stub(2, open_ok=False),        False, "FAILED", 1),
         ("open できたが停止で例外 → FAILED/1",         _Stub(1, stop_raises=True),     False, "FAILED", 1),
+        # --- 実機 G29 の形（joystick 1 台 / haptic 3 個 / index 1 が常に失敗）---
+        ("**実機G29形: 3個中1個失敗+joy1 → RELEASED/0(phantom=1)**",
+                                                       _Stub(3, fail_idx=[1], joysticks=1), False, "RELEASED", 0),
+        # --- ガード: 同型機2台では名前で区別できないので phantom 扱いしない ---
+        ("同型2台(joy=2)で1個失敗 → FAILED/1",         _Stub(3, fail_idx=[1], joysticks=2), False, "FAILED", 1),
+        # --- ガード: 1個も開けていないなら phantom 扱いしない ---
+        ("joy1 だが全滅 → FAILED/1",                   _Stub(2, fail_idx=[0, 1], joysticks=1), False, "FAILED", 1),
+        # --- ガード: 開けた側と名前が違うエントリは phantom 扱いしない ---
+        ("名前が違うエントリが失敗 → FAILED/1",
+             _Stub(2, fail_idx=[1], joysticks=1, names=[b"WheelA", b"WheelB"]), False, "FAILED", 1),
     ]
     bad = 0
     for desc, stub, req, want_name, want_code in cases:
         r = release_all(stub, lambda _m: None)
         name, code = verdict(r, req)
         ok = (name == want_name and code == want_code and stub.quit_called)
-        print(f"  [{'OK ' if ok else 'NG!'}] {desc:44s} -> {name}/{code} "
-              f"(devices={r['devices']} released={r['released']} failed={r['failed']})")
+        print(f"  [{'OK ' if ok else 'NG!'}] {desc:52s} -> {name}/{code} "
+              f"(dev={r['devices']} rel={r['released']} fail={r['failed']} "
+              f"phantom={r['phantom']})")
         if not ok:
             bad += 1
     # 開けたデバイスは必ず閉じること（掴んだまま抜けたら本末転倒）
@@ -208,14 +276,19 @@ def main() -> int:
 
     r = release_all(sdl2, say)
     name, code = verdict(r, args.require_device)
-    for f in r["failures"]:
+    # phantom は成功扱いだが、**必ず見えるところに出す**（黙って握り潰さない）。
+    for m in r.get("phantom_msgs", []):
+        print(f"[haptic_release] WARN: {m} — 同一デバイスの別エントリを停止済みのため"
+              "実体のない列挙として扱った（joystick 1 台を確認済み）", file=sys.stderr)
+    for _nm, f in r["failures"]:
         print(f"[haptic_release] !! {f}", file=sys.stderr)
     if name == "FAILED":
         print("[haptic_release] !! 解放できていない。ホイールに力が残っている可能性がある — "
               "目視で確認し、必要なら電源を切ること", file=sys.stderr)
     # 判定行は --quiet でも必ず出す（これは診断ではなく結論）
     print(f"HAPTIC_RELEASE result={name} devices={r['devices']} "
-          f"released={r['released']} failed={r['failed']}")
+          f"released={r['released']} failed={r['failed']} "
+          f"phantom={r['phantom']} joysticks={r['joysticks']}")
     return code
 
 
