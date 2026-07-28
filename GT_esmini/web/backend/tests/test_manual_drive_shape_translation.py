@@ -103,13 +103,17 @@ def test_get_drops_the_flat_source_keys(sandbox):
 
 
 def test_put_nested_lands_in_the_flat_keys_cpp_reads(sandbox):
-    _run(api.update_config({
-        "sdl2": {"button_mapping": {"upshift": 7, "auto_resume": 9}},
-        "input_network": {"port": 9500},
-        "physics_network": {"cmd_port": 9300},
-        "vehicle_params_file": "other.json",
-        "override_cfg": {"steering_threshold": 0.44},
-    }))
+    _run(
+        api.update_config(
+            {
+                "sdl2": {"button_mapping": {"upshift": 7, "auto_resume": 9}},
+                "input_network": {"port": 9500},
+                "physics_network": {"cmd_port": 9300},
+                "vehicle_params_file": "other.json",
+                "override_cfg": {"steering_threshold": 0.44},
+            }
+        )
+    )
     after = json.loads(sandbox.read_text(encoding="utf-8"))
     assert after["input"]["upshift_button"] == 7
     assert after["input"]["auto_resume_button"] == 9
@@ -136,14 +140,22 @@ def test_flat_to_wire_to_flat_is_lossless(sandbox):
     wire = api._flat_to_wire_shape(FLAT_ON_DISK)
     back = api._wire_to_flat_shape(wire)
     for section in ("input", "physics", "override"):
-        assert back[section] == FLAT_ON_DISK[section], f"{section} did not survive the round trip"
+        assert (
+            back[section] == FLAT_ON_DISK[section]
+        ), f"{section} did not survive the round trip"
     assert back["keyboard"] == FLAT_ON_DISK["keyboard"]
 
 
 def test_save_then_reload_prefills_the_same_values(sandbox):
     """End-to-end of the audit's finding: what the user saved must come back."""
-    _run(api.update_config({"sdl2": {"button_mapping": {"auto_resume": 9}},
-                            "override_cfg": {"steering_threshold": 0.44}}))
+    _run(
+        api.update_config(
+            {
+                "sdl2": {"button_mapping": {"auto_resume": 9}},
+                "override_cfg": {"steering_threshold": 0.44},
+            }
+        )
+    )
     got = _run(api.get_config())
     assert got["sdl2"]["button_mapping"]["auto_resume"] == 9
     assert got["override_cfg"]["steering_threshold"] == 0.44

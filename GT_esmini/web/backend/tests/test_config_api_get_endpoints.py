@@ -30,12 +30,20 @@ def store(monkeypatch) -> dict[str, Any]:
         "vehicle": {"mass": 1450, "drag": 0.0013},
         "thresholds": {"lat_err": 0.5},
     }
-    monkeypatch.setattr(config_api, "load_settings", lambda: copy.deepcopy(state["settings"]))
     monkeypatch.setattr(
-        config_api, "save_settings", lambda s: state.__setitem__("settings", copy.deepcopy(s))
+        config_api, "load_settings", lambda: copy.deepcopy(state["settings"])
     )
-    monkeypatch.setattr(config_api, "load_vehicle_params", lambda: dict(state["vehicle"]))
-    monkeypatch.setattr(config_api, "load_thresholds", lambda: dict(state["thresholds"]))
+    monkeypatch.setattr(
+        config_api,
+        "save_settings",
+        lambda s: state.__setitem__("settings", copy.deepcopy(s)),
+    )
+    monkeypatch.setattr(
+        config_api, "load_vehicle_params", lambda: dict(state["vehicle"])
+    )
+    monkeypatch.setattr(
+        config_api, "load_thresholds", lambda: dict(state["thresholds"])
+    )
 
     async def _noop_sync():
         state["sync_called"] = state.get("sync_called", 0) + 1
@@ -106,7 +114,9 @@ async def test_get_projects_root_reports_custom_when_set(store, tmp_path):
 
 async def test_set_projects_root_400_when_directory_does_not_exist(store):
     with pytest.raises(HTTPException) as exc_info:
-        await config_api.set_projects_root({"projects_root": "Z:/does/not/exist/at/all"})
+        await config_api.set_projects_root(
+            {"projects_root": "Z:/does/not/exist/at/all"}
+        )
 
     assert exc_info.value.status_code == 400
 

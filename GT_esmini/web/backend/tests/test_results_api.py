@@ -21,7 +21,9 @@ from GT_esmini.web.backend.services import result_service, simulation_runner
 
 
 def _sim(**overrides) -> SimulationStatus:
-    base = dict(job_id="job-1", scenario_id="scn-1", status="completed", output_dir=None)
+    base = dict(
+        job_id="job-1", scenario_id="scn-1", status="completed", output_dir=None
+    )
     base.update(overrides)
     return SimulationStatus(**base)
 
@@ -104,7 +106,9 @@ async def test_download_file_serves_file_within_output_dir(monkeypatch, tmp_path
 # ---------------------------------------------------------------------------
 
 
-async def test_get_metrics_returns_status_message_when_not_completed(monkeypatch, tmp_path):
+async def test_get_metrics_returns_status_message_when_not_completed(
+    monkeypatch, tmp_path
+):
     _patch_sim(monkeypatch, _sim(status="running", output_dir=str(tmp_path)))
 
     resp = await results.get_metrics("job-1")
@@ -148,7 +152,9 @@ async def test_get_metrics_404_when_no_data(monkeypatch, tmp_path):
 async def test_get_metrics_returns_computed_metrics(monkeypatch, tmp_path):
     _patch_sim(monkeypatch, _sim(status="completed", output_dir=str(tmp_path)))
     monkeypatch.setattr(
-        result_service, "compute_metrics", lambda output_dir: {"summary": {"num_frames": 3}}
+        result_service,
+        "compute_metrics",
+        lambda output_dir: {"summary": {"num_frames": 3}},
     )
 
     resp = await results.get_metrics("job-1")

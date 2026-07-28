@@ -168,7 +168,9 @@ async def test_out_of_order_fragment_resets_and_drops_the_partial_message():
     proto.datagram_received(_packet(1, b"AAA"), ("127.0.0.1", 1))
     proto.datagram_received(_packet(-3, b"CCC"), ("127.0.0.1", 1))  # skips index 2
 
-    assert queue.empty(), "a gap in the fragment sequence must not dispatch a corrupt message"
+    assert (
+        queue.empty()
+    ), "a gap in the fragment sequence must not dispatch a corrupt message"
     assert proto._next_index is None
 
     # recovers on the next fresh sequence
@@ -250,7 +252,9 @@ def _patch_datagram_endpoint(monkeypatch):
         return transport, protocol
 
     loop = asyncio.get_running_loop()
-    monkeypatch.setattr(loop, "create_datagram_endpoint", _fake_create_datagram_endpoint)
+    monkeypatch.setattr(
+        loop, "create_datagram_endpoint", _fake_create_datagram_endpoint
+    )
     return created
 
 

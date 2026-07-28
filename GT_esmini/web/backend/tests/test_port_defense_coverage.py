@@ -72,7 +72,9 @@ def test_capture_osi_refuses_when_the_guard_raises(monkeypatch, tmp_path):
             return 0
 
     with pytest.raises(vd_metrics.GatePortsBusyError):
-        vd_metrics.capture_osi(tmp_path / "out.osi", _FakeProc(), 48198, idle_timeout=0.0)
+        vd_metrics.capture_osi(
+            tmp_path / "out.osi", _FakeProc(), 48198, idle_timeout=0.0
+        )
 
 
 def test_start_subprocess_calls_the_guard_before_popen(monkeypatch):
@@ -93,9 +95,9 @@ def test_start_subprocess_calls_the_guard_before_popen(monkeypatch):
 
     simulation_runner._start_subprocess(["GT_Sim.exe"], ".", "job-1")
 
-    assert calls[0] == f"require:{simulation_runner.DEFAULT_VD_INPUT_PORT}", (
-        "require_udp_port_free must run BEFORE subprocess.Popen()"
-    )
+    assert (
+        calls[0] == f"require:{simulation_runner.DEFAULT_VD_INPUT_PORT}"
+    ), "require_udp_port_free must run BEFORE subprocess.Popen()"
     assert "popen" in calls
     # Clean up: _start_subprocess registers the fake proc in module state.
     with simulation_runner._running_procs_lock:
@@ -127,7 +129,9 @@ def test_generate_baseline_has_no_bind_of_its_own_between_popen_and_capture_osi(
     from GT_esmini.web.backend.services import vd_verify
 
     src = Path(vd_verify.__file__).read_text(encoding="utf-8")
-    assert "capture_osi(" in src, "generate_baseline must still route OSI capture through vd_metrics.capture_osi"
+    assert (
+        "capture_osi(" in src
+    ), "generate_baseline must still route OSI capture through vd_metrics.capture_osi"
     assert ".bind(" not in src, (
         "vd_verify.py must not bind a socket directly -- that would bypass "
         "capture_osi()'s guard and need its own require_udp_port_free() call"

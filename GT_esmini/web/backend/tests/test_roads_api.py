@@ -124,7 +124,9 @@ async def test_upload_road_400_on_bad_utf8():
 async def test_upload_road_returns_service_result(monkeypatch):
     req = _FakeRequest(b"<OpenDRIVE/>")
     monkeypatch.setattr(
-        road_service, "save_temp_road", lambda xml: {"road_id": "tmp_road_x", "road_path": "p"}
+        road_service,
+        "save_temp_road",
+        lambda xml: {"road_id": "tmp_road_x", "road_path": "p"},
     )
 
     result = await roads.upload_road(req)

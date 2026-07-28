@@ -79,7 +79,10 @@ def _write(sandbox, base: dict, controller: ControllerConfig | None = None) -> d
 def test_auto_resume_button_reaches_the_run(sandbox):
     """The original F7 request. Was absent entirely -> C++ default -1."""
     run = _write(sandbox, sandbox["base"])
-    assert run["input"]["auto_resume_button"] == sandbox["base"]["input"]["auto_resume_button"]
+    assert (
+        run["input"]["auto_resume_button"]
+        == sandbox["base"]["input"]["auto_resume_button"]
+    )
     assert run["input"]["auto_resume_button"] != -1
 
 

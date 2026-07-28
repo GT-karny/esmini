@@ -111,7 +111,9 @@ async def test_sync_projects_removes_stale_db_entry_when_folder_deleted(
 
 async def test_sync_projects_never_touches_builtin(tmp_db, projects_dir, monkeypatch):
     await _init(tmp_db)
-    monkeypatch.setattr(project_service, "RESOURCES_DIR", projects_dir.parent / "resources")
+    monkeypatch.setattr(
+        project_service, "RESOURCES_DIR", projects_dir.parent / "resources"
+    )
     (project_service.RESOURCES_DIR).mkdir(parents=True, exist_ok=True)
     await project_service.ensure_builtin_project()
 
@@ -158,7 +160,9 @@ async def test_update_project_changes_name_and_description(tmp_db, projects_dir)
 
 async def test_update_project_rejects_builtin(tmp_db, projects_dir, monkeypatch):
     await _init(tmp_db)
-    monkeypatch.setattr(project_service, "RESOURCES_DIR", projects_dir.parent / "resources")
+    monkeypatch.setattr(
+        project_service, "RESOURCES_DIR", projects_dir.parent / "resources"
+    )
     project_service.RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
     await project_service.ensure_builtin_project()
 
@@ -189,14 +193,19 @@ async def test_delete_project_removes_row_and_directory(tmp_db, projects_dir):
 
 async def test_delete_project_rejects_builtin(tmp_db, projects_dir, monkeypatch):
     await _init(tmp_db)
-    monkeypatch.setattr(project_service, "RESOURCES_DIR", projects_dir.parent / "resources")
+    monkeypatch.setattr(
+        project_service, "RESOURCES_DIR", projects_dir.parent / "resources"
+    )
     project_service.RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
     await project_service.ensure_builtin_project()
 
     ok = await project_service.delete_project(project_service.BUILTIN_PROJECT_ID)
 
     assert ok is False
-    assert await project_service.get_project(project_service.BUILTIN_PROJECT_ID) is not None
+    assert (
+        await project_service.get_project(project_service.BUILTIN_PROJECT_ID)
+        is not None
+    )
 
 
 async def test_delete_project_rejects_unknown_id(tmp_db):
@@ -256,7 +265,9 @@ async def test_create_project_from_zip_bad_zip_raises_and_cleans_up(
         await project_service.create_project_from_zip(b"not a zip", "Bad")
 
     after = set(projects_dir.iterdir())
-    assert after == before, "the half-created project directory must be removed on BadZipFile"
+    assert (
+        after == before
+    ), "the half-created project directory must be removed on BadZipFile"
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +331,9 @@ async def test_upload_file_rejects_path_traversal(tmp_db, projects_dir):
 
 async def test_upload_file_rejects_builtin(tmp_db, projects_dir, monkeypatch):
     await _init(tmp_db)
-    monkeypatch.setattr(project_service, "RESOURCES_DIR", projects_dir.parent / "resources")
+    monkeypatch.setattr(
+        project_service, "RESOURCES_DIR", projects_dir.parent / "resources"
+    )
     project_service.RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
     await project_service.ensure_builtin_project()
 
@@ -390,7 +403,9 @@ async def test_delete_file_returns_false_for_missing_file(tmp_db, projects_dir):
 
 async def test_delete_file_rejects_builtin(tmp_db, projects_dir, monkeypatch):
     await _init(tmp_db)
-    monkeypatch.setattr(project_service, "RESOURCES_DIR", projects_dir.parent / "resources")
+    monkeypatch.setattr(
+        project_service, "RESOURCES_DIR", projects_dir.parent / "resources"
+    )
     project_service.RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
     await project_service.ensure_builtin_project()
 
@@ -439,7 +454,10 @@ async def test_list_scenarios_parses_files_in_xosc_subdir(tmp_db, projects_dir):
 async def test_get_scenario_params_returns_none_for_missing_file(tmp_db, projects_dir):
     await _init(tmp_db)
     detail = await project_service.create_project(ProjectCreateRequest(name="P"))
-    assert await project_service.get_scenario_params(detail.project_id, "nope.xosc") is None
+    assert (
+        await project_service.get_scenario_params(detail.project_id, "nope.xosc")
+        is None
+    )
 
 
 async def test_get_scenario_params_extracts_declarations(tmp_db, projects_dir):
@@ -517,13 +535,13 @@ async def test_update_preset_rename_and_value_change(tmp_db, projects_dir):
 async def test_update_preset_returns_false_for_unknown_id(tmp_db, projects_dir):
     await _init(tmp_db)
     detail = await project_service.create_project(ProjectCreateRequest(name="Pr5"))
-    ok = await project_service.update_preset(detail.project_id, "s.xosc", "nope", name="x")
+    ok = await project_service.update_preset(
+        detail.project_id, "s.xosc", "nope", name="x"
+    )
     assert ok is False
 
 
-async def test_delete_preset_removes_file_when_last_entry_removed(
-    tmp_db, projects_dir
-):
+async def test_delete_preset_removes_file_when_last_entry_removed(tmp_db, projects_dir):
     await _init(tmp_db)
     detail = await project_service.create_project(ProjectCreateRequest(name="Pr6"))
     await project_service.create_preset(detail.project_id, "s.xosc", "only", {})
@@ -537,9 +555,7 @@ async def test_delete_preset_removes_file_when_last_entry_removed(
     assert not filepath.is_file()
 
 
-async def test_delete_preset_keeps_file_when_other_entries_remain(
-    tmp_db, projects_dir
-):
+async def test_delete_preset_keeps_file_when_other_entries_remain(tmp_db, projects_dir):
     await _init(tmp_db)
     detail = await project_service.create_project(ProjectCreateRequest(name="Pr7"))
     await project_service.create_preset(detail.project_id, "s.xosc", "keep", {})
@@ -555,7 +571,10 @@ async def test_delete_preset_keeps_file_when_other_entries_remain(
 async def test_delete_preset_returns_false_for_unknown_id(tmp_db, projects_dir):
     await _init(tmp_db)
     detail = await project_service.create_project(ProjectCreateRequest(name="Pr8"))
-    assert await project_service.delete_preset(detail.project_id, "s.xosc", "nope") is False
+    assert (
+        await project_service.delete_preset(detail.project_id, "s.xosc", "nope")
+        is False
+    )
 
 
 async def test_read_presets_file_raises_on_non_mapping_top_level(tmp_db, projects_dir):

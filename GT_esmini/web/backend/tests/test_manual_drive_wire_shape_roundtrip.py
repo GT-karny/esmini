@@ -75,7 +75,10 @@ def sandbox(tmp_path, monkeypatch):
 def test_flat_to_wire_exposes_the_nested_shape_the_frontend_reads():
     flat = json.loads(REAL_MANUAL_DRIVE_CONFIG.read_text(encoding="utf-8"))
     wire = manual_drive_api._flat_to_wire_shape(flat)
-    assert wire["sdl2"]["button_mapping"]["auto_resume"] == flat["input"]["auto_resume_button"]
+    assert (
+        wire["sdl2"]["button_mapping"]["auto_resume"]
+        == flat["input"]["auto_resume_button"]
+    )
     assert wire["sdl2"]["device_index"] == flat["input"]["device_index"]
     assert wire["input_network"]["port"] == flat["input"]["port"]
     assert wire["physics_network"]["host"] == flat["physics"]["host"]
@@ -88,13 +91,27 @@ def test_wire_to_flat_is_the_inverse_of_flat_to_wire():
     wire = manual_drive_api._flat_to_wire_shape(flat)
     back_to_flat = manual_drive_api._wire_to_flat_shape(wire)
     for cpp_key in (
-        "upshift_button", "downshift_button", "override_button",
-        "indicator_left_button", "indicator_right_button", "headlight_button",
-        "high_beam_button", "fog_light_button", "hazard_button", "auto_resume_button",
-        "device_index", "deadzone", "transport_type", "port", "level",
+        "upshift_button",
+        "downshift_button",
+        "override_button",
+        "indicator_left_button",
+        "indicator_right_button",
+        "headlight_button",
+        "high_beam_button",
+        "fog_light_button",
+        "hazard_button",
+        "auto_resume_button",
+        "device_index",
+        "deadzone",
+        "transport_type",
+        "port",
+        "level",
     ):
         assert back_to_flat["input"][cpp_key] == flat["input"][cpp_key], cpp_key
-    assert back_to_flat["physics"]["vehicle_params_file"] == flat["physics"]["vehicle_params_file"]
+    assert (
+        back_to_flat["physics"]["vehicle_params_file"]
+        == flat["physics"]["vehicle_params_file"]
+    )
     assert back_to_flat["physics"]["host"] == flat["physics"]["host"]
     assert back_to_flat["override"] == flat["override"]
 
@@ -148,7 +165,9 @@ def test_saved_reassignment_reaches_an_actual_launched_run(sandbox, tmp_path):
     assert run_config["input"]["upshift_button"] == 11
 
 
-def test_saved_override_threshold_and_vehicle_params_file_also_prefill(sandbox, tmp_path):
+def test_saved_override_threshold_and_vehicle_params_file_also_prefill(
+    sandbox, tmp_path
+):
     """Same shape bug, different fields -- the fix is general, not
     auto_resume-specific. Values deliberately differ from both the shipped
     config and the C++ compile-time defaults (a stock-value test cannot

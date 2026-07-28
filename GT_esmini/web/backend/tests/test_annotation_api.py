@@ -19,7 +19,6 @@ from GT_esmini.web.backend.api import annotation
 from GT_esmini.web.backend.api.annotation import AnnotationIn, MatchIn
 from GT_esmini.web.backend.services import annotation_store
 
-
 # ---------------------------------------------------------------------------
 # list_runs2 / run_detail / get_annotation
 # ---------------------------------------------------------------------------
@@ -29,15 +28,24 @@ async def test_list_runs2_wraps_result_and_forwards_filters(monkeypatch):
     captured = {}
 
     async def _fake_list_runs(status=None, batch_id=None, labeled=None, source=None):
-        captured.update(status=status, batch_id=batch_id, labeled=labeled, source=source)
+        captured.update(
+            status=status, batch_id=batch_id, labeled=labeled, source=source
+        )
         return [{"run_id": "r1"}]
 
     monkeypatch.setattr(annotation_store, "list_runs", _fake_list_runs)
 
-    resp = await annotation.list_runs2(status="pass", batch_id="b1", labeled=True, source="gui")
+    resp = await annotation.list_runs2(
+        status="pass", batch_id="b1", labeled=True, source="gui"
+    )
 
     assert resp == {"runs": [{"run_id": "r1"}]}
-    assert captured == {"status": "pass", "batch_id": "b1", "labeled": True, "source": "gui"}
+    assert captured == {
+        "status": "pass",
+        "batch_id": "b1",
+        "labeled": True,
+        "source": "gui",
+    }
 
 
 async def test_run_detail_404_when_unknown(monkeypatch):
@@ -129,9 +137,11 @@ async def test_set_annotation_retries_after_forced_scan_when_run_unknown(monkeyp
     )
 
     assert result == {"run_id": "fresh_run", "label": "fail"}
-    assert order == ["set:1", "scan:force=True", "set:2"], (
-        "must scan (forced) BETWEEN the failed attempt and the retry, not before/instead"
-    )
+    assert order == [
+        "set:1",
+        "scan:force=True",
+        "set:2",
+    ], "must scan (forced) BETWEEN the failed attempt and the retry, not before/instead"
 
 
 async def test_set_annotation_404_when_still_unknown_after_rescan(monkeypatch):

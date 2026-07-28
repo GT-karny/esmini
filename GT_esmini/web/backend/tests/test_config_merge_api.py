@@ -60,17 +60,29 @@ def store(monkeypatch) -> dict[str, Any]:
         "thresholds": {"lat_err": 0.5, "lon_err": 1.0, "heading_err": 0.05},
     }
     for mod in (config_api, controller_config):
-        monkeypatch.setattr(mod, "load_settings", lambda: copy.deepcopy(state["settings"]))
         monkeypatch.setattr(
-            mod, "save_settings", lambda s: state.__setitem__("settings", copy.deepcopy(s))
+            mod, "load_settings", lambda: copy.deepcopy(state["settings"])
         )
-    monkeypatch.setattr(config_api, "load_vehicle_params", lambda: dict(state["vehicle"]))
+        monkeypatch.setattr(
+            mod,
+            "save_settings",
+            lambda s: state.__setitem__("settings", copy.deepcopy(s)),
+        )
     monkeypatch.setattr(
-        config_api, "save_vehicle_params", lambda d: state.__setitem__("vehicle", dict(d))
+        config_api, "load_vehicle_params", lambda: dict(state["vehicle"])
     )
-    monkeypatch.setattr(config_api, "load_thresholds", lambda: dict(state["thresholds"]))
     monkeypatch.setattr(
-        config_api, "save_thresholds", lambda d: state.__setitem__("thresholds", dict(d))
+        config_api,
+        "save_vehicle_params",
+        lambda d: state.__setitem__("vehicle", dict(d)),
+    )
+    monkeypatch.setattr(
+        config_api, "load_thresholds", lambda: dict(state["thresholds"])
+    )
+    monkeypatch.setattr(
+        config_api,
+        "save_thresholds",
+        lambda d: state.__setitem__("thresholds", dict(d)),
     )
     return state
 
@@ -107,7 +119,11 @@ def test_execution_defaults_does_not_alias_module_default(store):
     """Fallback path must not hand out the module constant's sub-dicts."""
     store["settings"] = {}  # nothing stored yet
     before = copy.deepcopy(DEFAULT_EXECUTION_PARAMS)
-    _run(config_api.update_execution_defaults({"osi": {"enabled": False, "ip": "10.0.0.1"}}))
+    _run(
+        config_api.update_execution_defaults(
+            {"osi": {"enabled": False, "ip": "10.0.0.1"}}
+        )
+    )
     assert DEFAULT_EXECUTION_PARAMS == before, "module default was mutated"
 
 

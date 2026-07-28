@@ -103,8 +103,10 @@ def test_require_raises_gate_ports_busy_error_with_all_problems_listed(monkeypat
     monkeypatch.setattr(
         gst._vd,
         "check_gate_ports_free",
-        lambda: ["port 1 (a) [collision] already in use (UDP)",
-                 "port 2 (b) [contamination] already in use (UDP)"],
+        lambda: [
+            "port 1 (a) [collision] already in use (UDP)",
+            "port 2 (b) [contamination] already in use (UDP)",
+        ],
     )
     with pytest.raises(gst.GatePortsBusyError) as exc_info:
         gst._require_gate_ports_free()
@@ -133,7 +135,9 @@ def test_run_refuses_to_start_when_a_port_is_busy(tmp_path, monkeypatch):
     first, this test would instead fail trying to load a (possibly absent)
     DLL, not with GatePortsBusyError."""
     monkeypatch.setattr(
-        gst._vd, "check_gate_ports_free", lambda: ["port 9999 (x) [collision] already in use (UDP)"]
+        gst._vd,
+        "check_gate_ports_free",
+        lambda: ["port 9999 (x) [collision] already in use (UDP)"],
     )
     with pytest.raises(gst.GatePortsBusyError):
         gst.run(
@@ -154,11 +158,15 @@ def test_batch_refuses_to_start_when_a_port_is_busy_before_any_scenario_runs(
     would instead surface as a per-scenario 'error' -- still a FAIL overall,
     but noisier and not what this test pins)."""
     monkeypatch.setattr(
-        gst._vd, "check_gate_ports_free", lambda: ["port 9999 (x) [collision] already in use (UDP)"]
+        gst._vd,
+        "check_gate_ports_free",
+        lambda: ["port 9999 (x) [collision] already in use (UDP)"],
     )
 
     def _must_not_be_called(*_args, **_kwargs):
-        raise AssertionError("run() must not be reached when the early port check fails")
+        raise AssertionError(
+            "run() must not be reached when the early port check fails"
+        )
 
     monkeypatch.setattr(gst, "run", _must_not_be_called)
 

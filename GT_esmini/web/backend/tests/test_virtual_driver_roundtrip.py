@@ -39,7 +39,9 @@ from fastapi import HTTPException
 from GT_esmini.web.backend.api import virtual_driver_api as vd
 from GT_esmini.web.backend import config as backend_config
 
-REAL_VD_CONFIG = Path(backend_config.REPO_ROOT) / "GT_esmini" / "config" / "virtual_driver.json"
+REAL_VD_CONFIG = (
+    Path(backend_config.REPO_ROOT) / "GT_esmini" / "config" / "virtual_driver.json"
+)
 
 
 def _run(coro):
@@ -104,7 +106,9 @@ def test_unknown_keys_are_never_silently_dropped(sandbox):
 
 def test_partial_put_still_works(sandbox):
     """Minimal payloads (what the packaged-app check fell back to) keep working."""
-    _run(vd.update_config({"input_type": "sdl2_wheel", "ffb_target_track_enabled": True}))
+    _run(
+        vd.update_config({"input_type": "sdl2_wheel", "ffb_target_track_enabled": True})
+    )
     after = json.loads(sandbox.read_text(encoding="utf-8"))
     assert after["input_type"] == "sdl2_wheel"
     assert after["ffb_target_track_enabled"] is True
@@ -163,10 +167,14 @@ def test_unchanged_echo_of_every_unmanaged_key_is_accepted(key, sandbox_full):
     once for whichever single key a test author happened to pick."""
     current = _run(vd.get_config())
     assert key in current  # sandbox_full must actually carry this key
-    current["ffb_target_track_enabled"] = not current["ffb_target_track_enabled"]  # touch something else
+    current["ffb_target_track_enabled"] = not current[
+        "ffb_target_track_enabled"
+    ]  # touch something else
     _run(vd.update_config(current))
     after = json.loads(sandbox_full.read_text(encoding="utf-8"))
-    assert after[key] == _REAL_CONFIG_ON_DISK[key], f"{key} must survive an unchanged echo"
+    assert (
+        after[key] == _REAL_CONFIG_ON_DISK[key]
+    ), f"{key} must survive an unchanged echo"
 
 
 @pytest.mark.parametrize("key", UNMANAGED_KEYS_ON_DISK)
@@ -180,4 +188,6 @@ def test_changing_every_unmanaged_key_is_still_rejected(key, sandbox_full):
         _run(vd.update_config(current))
     assert e.value.status_code == 422
     after = json.loads(sandbox_full.read_text(encoding="utf-8"))
-    assert after[key] == original, f"{key} must not change even though the request 422'd"
+    assert (
+        after[key] == original
+    ), f"{key} must not change even though the request 422'd"

@@ -566,7 +566,7 @@ async def update_config(patch: dict[str, Any]) -> dict[str, Any]:
                 f"Unknown key: '{key}'"
                 if key not in stored
                 else f"Key '{key}' is not editable through this endpoint "
-                     f"(it is owned by the run writer); send it unchanged or omit it"
+                f"(it is owned by the run writer); send it unchanged or omit it"
             ),
         )
 

@@ -67,7 +67,9 @@ async def test_get_road_geometry_404_when_scenario_missing(monkeypatch):
 
 
 async def test_get_road_geometry_404_when_no_road_file(monkeypatch):
-    monkeypatch.setattr(scenario_service, "get_scenario_detail", lambda sid: _detail(None))
+    monkeypatch.setattr(
+        scenario_service, "get_scenario_detail", lambda sid: _detail(None)
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await scenarios.get_road_geometry("scene")
@@ -78,7 +80,9 @@ async def test_get_road_geometry_404_when_no_road_file(monkeypatch):
 
 async def test_get_road_geometry_404_when_road_file_not_on_disk(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        scenario_service, "get_scenario_detail", lambda sid: _detail("xodr/missing.xodr")
+        scenario_service,
+        "get_scenario_detail",
+        lambda sid: _detail("xodr/missing.xodr"),
     )
     monkeypatch.setattr(scenarios, "SCENARIOS_DIR", tmp_path)
 
@@ -156,7 +160,12 @@ async def test_upload_scenario_returns_service_result_on_success(monkeypatch):
     monkeypatch.setattr(
         scenario_service,
         "save_temp_scenario",
-        lambda xml: {"scenario_id": "tmp_x", "entities": [], "road_file": None, "expires_at": "t"},
+        lambda xml: {
+            "scenario_id": "tmp_x",
+            "entities": [],
+            "road_file": None,
+            "expires_at": "t",
+        },
     )
 
     result = await scenarios.upload_scenario(req)

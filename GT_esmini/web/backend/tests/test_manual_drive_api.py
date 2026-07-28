@@ -90,9 +90,9 @@ def test_real_config_put_roundtrip_loses_no_keys(sandbox):
     it back through the API with an edit unrelated to FFB (a button mapping
     tweak), and confirm every original key -- including ffb.target_track_* /
     ffb.safety_* -- survives. Before the fix this dropped ~30-59 keys."""
-    assert REAL_MANUAL_DRIVE_CONFIG.is_file(), (
-        f"{REAL_MANUAL_DRIVE_CONFIG} missing from checkout"
-    )
+    assert (
+        REAL_MANUAL_DRIVE_CONFIG.is_file()
+    ), f"{REAL_MANUAL_DRIVE_CONFIG} missing from checkout"
     shutil.copy2(REAL_MANUAL_DRIVE_CONFIG, sandbox)
 
     before = json.loads(sandbox.read_text(encoding="utf-8"))
@@ -115,9 +115,10 @@ def test_real_config_put_roundtrip_loses_no_keys(sandbox):
     assert _flat_keys(on_disk) == before_keys
     assert on_disk["input"]["upshift_button"] == 99
     # Spot-check a couple of the specific keys the bug report named.
-    assert on_disk["ffb"]["target_track_override_residual_threshold"] == before["ffb"][
-        "target_track_override_residual_threshold"
-    ]
+    assert (
+        on_disk["ffb"]["target_track_override_residual_threshold"]
+        == before["ffb"]["target_track_override_residual_threshold"]
+    )
     assert (
         on_disk["ffb"]["safety_max_saturation_seconds"]
         == before["ffb"]["safety_max_saturation_seconds"]
@@ -214,9 +215,7 @@ def test_get_config_missing_returns_defaults(sandbox):
 
 def test_save_preset_preserves_unmodeled_ffb_keys(sandbox, settings_sandbox):
     real = json.loads(REAL_MANUAL_DRIVE_CONFIG.read_text(encoding="utf-8"))
-    saved = _run(
-        manual_drive_api.save_preset({"name": "My Tuning", "config": real})
-    )
+    saved = _run(manual_drive_api.save_preset({"name": "My Tuning", "config": real}))
     assert (
         saved["config"]["ffb"]["target_track_override_residual_threshold"]
         == real["ffb"]["target_track_override_residual_threshold"]
@@ -237,7 +236,11 @@ def test_save_preset_preserves_unmodeled_ffb_keys(sandbox, settings_sandbox):
 
 
 def test_delete_preset_removes_a_saved_preset(sandbox, settings_sandbox):
-    _run(manual_drive_api.save_preset({"name": "ToDelete", "config": ManualDriveControllerConfig().model_dump()}))
+    _run(
+        manual_drive_api.save_preset(
+            {"name": "ToDelete", "config": ManualDriveControllerConfig().model_dump()}
+        )
+    )
     assert any(p["name"] == "ToDelete" for p in _run(manual_drive_api.get_presets()))
 
     result = _run(manual_drive_api.delete_preset("ToDelete"))
@@ -261,7 +264,9 @@ def test_delete_preset_does_not_touch_other_presets(sandbox, settings_sandbox):
 
     _run(manual_drive_api.delete_preset("Remove"))
 
-    remaining = {p["name"] for p in _run(manual_drive_api.get_presets()) if not p.get("builtin")}
+    remaining = {
+        p["name"] for p in _run(manual_drive_api.get_presets()) if not p.get("builtin")
+    }
     assert remaining == {"Keep"}
 
 

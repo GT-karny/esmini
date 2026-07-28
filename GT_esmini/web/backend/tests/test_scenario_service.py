@@ -84,7 +84,9 @@ def test_get_scenario_detail_none_when_missing(dirs):
 
 def test_get_scenario_detail_parses_road_and_controller(dirs):
     scenarios_dir, _ = dirs
-    (scenarios_dir / "scene.xosc").write_text(_XOSC_WITH_ROAD_AND_CONTROLLER, encoding="utf-8")
+    (scenarios_dir / "scene.xosc").write_text(
+        _XOSC_WITH_ROAD_AND_CONTROLLER, encoding="utf-8"
+    )
 
     detail = scenario_service.get_scenario_detail("scene")
 
