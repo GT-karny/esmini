@@ -112,9 +112,23 @@ namespace gt_esmini
 // are a different language each and must be kept numerically in sync by hand
 // when this module is wired into VirtualDriverConfig (design doc section 6
 // edit point #2/#3 -- not part of this pure-logic module).
-// Shipped ON since 2026-07-28: the smoothness of the merge was confirmed on
-// the real wheel, and it was the top-priority request behind feature:F7. The
-// bit-identical guarantee of design doc section 3 is unchanged and still
+// Shipped ON since 2026-07-28. It was the top-priority request behind
+// feature:F7. Real-hardware confirmation: the user (GT-karny) test-drove the
+// merge on a real wheel on 2026-07-28 and reports it feels smooth -- this is
+// the user's own account communicated directly in-session, not a separately
+// logged/instrumented real-machine test run (no recorded date/vehicle/speed
+// beyond "today, this wheel"). Headless measurement independently confirms
+// the qualitative shape (GT_esmini/docs/virtualdriver/resume_merge_user_check.md
+// sec 4): with this flag off the car can simply stay parked in the adjacent
+// lane after AUTO_RESUME; with it on, a repeatable headless probe returns to
+// the route lane in ~3.7s with zero overshoot. See that doc for the current
+// jerk/lateral-accel/steer-rate numbers and their measurement method -- do
+// not restate specific figures here without re-deriving them, since an
+// earlier draft of this comment stated "confirmed on the real wheel" with no
+// attribution at all, while resume_merge_user_check.md said in the same
+// breath that real-hardware feel was NOT yet measured -- a direct
+// contradiction an independent audit flagged. Attribute or don't claim it.
+// The bit-identical guarantee of design doc section 3 is unchanged and still
 // tested -- it is a statement about what happens when this flag is false, not
 // about which way it ships. The maneuver only ever arms on an AUTO_RESUME that
 // finds the car more than min_offset_m from its route lane, so a run that
