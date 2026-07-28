@@ -127,7 +127,9 @@ def test_build_cmd_minimal_defaults(tmp_path):
 
 
 def test_build_cmd_headless_suppresses_window_flag(tmp_path):
-    cmd = runner._build_cmd(tmp_path / "scn.xosc", _exec_config(headless=True), tmp_path)
+    cmd = runner._build_cmd(
+        tmp_path / "scn.xosc", _exec_config(headless=True), tmp_path
+    )
     assert "--headless" in cmd
     assert "--window" not in cmd
 
@@ -183,7 +185,9 @@ def test_build_cmd_autolight_flags_are_independent(tmp_path):
 def test_build_cmd_route_drive_mode_adds_timing_and_gap(tmp_path):
     cmd = runner._build_cmd(
         tmp_path / "scn.xosc",
-        _exec_config(route_drive_mode=True, route_drive_timing="early", route_drive_gap="tight"),
+        _exec_config(
+            route_drive_mode=True, route_drive_timing="early", route_drive_gap="tight"
+        ),
         tmp_path,
     )
     assert "--route-drive-mode" in cmd
@@ -194,8 +198,12 @@ def test_build_cmd_route_drive_mode_adds_timing_and_gap(tmp_path):
 
 
 def test_build_cmd_drive_mode_sport_is_emitted_comfort_is_not(tmp_path):
-    comfort = runner._build_cmd(tmp_path / "scn.xosc", _exec_config(drive_mode="comfort"), tmp_path)
-    sport = runner._build_cmd(tmp_path / "scn.xosc", _exec_config(drive_mode="sport"), tmp_path)
+    comfort = runner._build_cmd(
+        tmp_path / "scn.xosc", _exec_config(drive_mode="comfort"), tmp_path
+    )
+    sport = runner._build_cmd(
+        tmp_path / "scn.xosc", _exec_config(drive_mode="sport"), tmp_path
+    )
     assert "--drive_mode" not in comfort
     si = sport.index("--drive_mode")
     assert sport[si + 1] == "sport"
@@ -220,7 +228,9 @@ def test_build_cmd_param_overrides_encoded_as_name_comma_value(tmp_path):
 
 
 def test_build_cmd_registers_control_pipe_when_job_id_given(tmp_path):
-    cmd = runner._build_cmd(tmp_path / "scn.xosc", _exec_config(), tmp_path, job_id="job-abc")
+    cmd = runner._build_cmd(
+        tmp_path / "scn.xosc", _exec_config(), tmp_path, job_id="job-abc"
+    )
     assert "--control_pipe" in cmd
     i = cmd.index("--control_pipe")
     assert cmd[i + 1] == "gt_sim_job-abc"
@@ -237,7 +247,9 @@ def test_build_cmd_no_control_pipe_without_job_id(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_generate_manual_variant_replaces_controller_and_activates_both_domains(tmp_path):
+def test_generate_manual_variant_replaces_controller_and_activates_both_domains(
+    tmp_path,
+):
     baseline = tmp_path / "base.xosc"
     baseline.write_text(_MINIMAL_XOSC, encoding="utf-8")
     out = tmp_path / "run" / "base_manual.xosc"
@@ -251,9 +263,7 @@ def test_generate_manual_variant_replaces_controller_and_activates_both_domains(
     ctrl = oc.find("Controller")
     assert ctrl.get("name") == "ManualDriveController"
 
-    props = {
-        p.get("name"): p.get("value") for p in ctrl.findall("Properties/Property")
-    }
+    props = {p.get("name"): p.get("value") for p in ctrl.findall("Properties/Property")}
     assert props["esminiController"] == "ManualDriveController"
     assert Path(props["ConfigFile"]).name == "manual_drive.json"
     assert Path(props["ConfigFile"]).is_absolute()
@@ -490,7 +500,9 @@ async def test_cancel_simulation_kills_live_popen_and_marks_cancelled(
 
     db = await database.get_db()
     try:
-        cur = await db.execute("SELECT status, pid FROM simulations WHERE job_id='live-job'")
+        cur = await db.execute(
+            "SELECT status, pid FROM simulations WHERE job_id='live-job'"
+        )
         row = await cur.fetchone()
         assert row["status"] == "cancelled"
         assert row["pid"] is None

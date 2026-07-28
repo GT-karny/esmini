@@ -23,6 +23,7 @@
 
 exit code: 0 = 誤ラッチ無し / 1 = 誤ラッチ検出 / 2 = 走らせられなかった
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,12 +40,20 @@ sys.path.insert(0, str(HERE))
 ROOT = HERE.parents[2]
 
 from vd_resume_transient import (  # noqa: E402
-    BTN_AUTO_RESUME, DLL, DT, INPUT_PORT, MAGIC, WIRE, _load_lib, _make_variant,
+    BTN_AUTO_RESUME,
+    DLL,
+    DT,
+    INPUT_PORT,
+    MAGIC,
+    WIRE,
+    _load_lib,
+    _make_variant,
 )
 
 
-def run_grab_release_resume(envelope_enabled: bool, speed_mps: float,
-                             grab_force: float = 0.6) -> list[dict]:
+def run_grab_release_resume(
+    envelope_enabled: bool, speed_mps: float, grab_force: float = 0.6
+) -> list[dict]:
     """The fixture the bug actually lives in: hands-off -> GRAB -> release ->
     RESUME -> hands-off.
 
@@ -80,23 +89,35 @@ def run_grab_release_resume(envelope_enabled: bool, speed_mps: float,
     PLANT_PORT = int(os.environ.get("GT_HEADLESS_FFB_PUSHBACK_PORT", "9105"))
 
     def send_now():
-        pkt = WIRE.pack(MAGIC, cmd["steering"], 0.0, 0.0, 0.0, 0,
-                        cmd["buttons"] & 0xFFFFFFFF)
+        pkt = WIRE.pack(
+            MAGIC, cmd["steering"], 0.0, 0.0, 0.0, 0, cmd["buttons"] & 0xFFFFFFFF
+        )
         try:
             sock.sendto(pkt, ("127.0.0.1", PLANT_PORT))
         except OSError:
             pass
 
     tmpdir = tempfile.mkdtemp(prefix="vd_falselatch_cycle_")
-    cfg = {"input_type": "headless_ffb", "ffb_target_track_enabled": True,
-           "input_port": INPUT_PORT, "input_transport": "udp",
-           "steering_threshold": 0.05, "auto_return_timeout": 1e9,  # only the button returns
-           "ad_steering_envelope_enabled": envelope_enabled}
+    cfg = {
+        "input_type": "headless_ffb",
+        "ffb_target_track_enabled": True,
+        "input_port": INPUT_PORT,
+        "input_transport": "udp",
+        "steering_threshold": 0.05,
+        "auto_return_timeout": 1e9,  # only the button returns
+        "ad_steering_envelope_enabled": envelope_enabled,
+    }
     xosc = _make_variant(tmpdir, cfg, speed_mps)
 
     lib = _load_lib()
-    argv_list = [b"vd_falselatch_cycle", b"--osc", xosc.encode(), b"--headless",
-                 b"--fixed_timestep", f"{DT:.3f}".encode()]
+    argv_list = [
+        b"vd_falselatch_cycle",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        f"{DT:.3f}".encode(),
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -134,8 +155,13 @@ def run_grab_release_resume(envelope_enabled: bool, speed_mps: float,
     return frames
 
 
-def run_notouch(mode: str, envelope_enabled: bool, speed_mps: float,
-                total_s: float, target_track: bool = True) -> list[dict]:
+def run_notouch(
+    mode: str,
+    envelope_enabled: bool,
+    speed_mps: float,
+    total_s: float,
+    target_track: bool = True,
+) -> list[dict]:
     """No-hand run. The synthetic wheel only ever moves because the servo moved
     it, so ANY latch here is a false positive by construction."""
     os.environ["GT_HEADLESS_FFB_MODE"] = mode
@@ -143,16 +169,24 @@ def run_notouch(mode: str, envelope_enabled: bool, speed_mps: float,
         os.environ.pop(k, None)
 
     tmpdir = tempfile.mkdtemp(prefix="vd_falselatch_")
-    cfg = {"input_type": "headless_ffb",
-           "ffb_target_track_enabled": target_track,
-           "steering_threshold": 0.05,          # shipped
-           "auto_return_timeout": 1.0,
-           "ad_steering_envelope_enabled": envelope_enabled}
+    cfg = {
+        "input_type": "headless_ffb",
+        "ffb_target_track_enabled": target_track,
+        "steering_threshold": 0.05,  # shipped
+        "auto_return_timeout": 1.0,
+        "ad_steering_envelope_enabled": envelope_enabled,
+    }
     xosc = _make_variant(tmpdir, cfg, speed_mps)
 
     lib = _load_lib()
-    argv_list = [b"vd_falselatch", b"--osc", xosc.encode(), b"--headless",
-                 b"--fixed_timestep", f"{DT:.3f}".encode()]
+    argv_list = [
+        b"vd_falselatch",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        f"{DT:.3f}".encode(),
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -194,7 +228,11 @@ def check_alignment(frames: list[dict]) -> dict:
         worst_prev = max(worst_prev, abs(a - rec_prev))
         worst_same = max(worst_same, abs(a - rec_same))
         n_checked += 1
-    return {"n": n_checked, "worst_vs_prev_frame": worst_prev, "worst_vs_same_frame": worst_same}
+    return {
+        "n": n_checked,
+        "worst_vs_prev_frame": worst_prev,
+        "worst_vs_same_frame": worst_same,
+    }
 
 
 def main() -> int:
@@ -204,9 +242,14 @@ def main() -> int:
     ap.add_argument("--speed", type=float, default=8.0)
     ap.add_argument("--no-envelope", action="store_true")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--context", type=int, default=6, help="frames printed around the latch")
-    ap.add_argument("--cycle", action="store_true",
-                    help="hands-off -> GRAB -> release -> RESUME -> hands-off (the defect fixture)")
+    ap.add_argument(
+        "--context", type=int, default=6, help="frames printed around the latch"
+    )
+    ap.add_argument(
+        "--cycle",
+        action="store_true",
+        help="hands-off -> GRAB -> release -> RESUME -> hands-off (the defect fixture)",
+    )
     args = ap.parse_args()
 
     if not os.path.exists(DLL):
@@ -221,48 +264,77 @@ def main() -> int:
         print("NOT RUN — no telemetry frames")
         return 2
     if args.out:
-        p = Path(args.out); p.mkdir(parents=True, exist_ok=True)
+        p = Path(args.out)
+        p.mkdir(parents=True, exist_ok=True)
         (p / f"falselatch_{args.mode}.jsonl").write_text(
-            "\n".join(json.dumps(f) for f in frames) + "\n", encoding="utf-8")
+            "\n".join(json.dumps(f) for f in frames) + "\n", encoding="utf-8"
+        )
 
     # --- STEP 1: instrument time alignment -------------------------------
     al = check_alignment(frames)
     print(f"=== 時刻の同一性（機序の議論より先）  n={al['n']} active frames ===")
-    print(f"  gates.actual_norm(N) vs (target-pos_err)(N-1): worst |Δ| = {al['worst_vs_prev_frame']:.3e}")
-    print(f"  gates.actual_norm(N) vs (target-pos_err)(N)  : worst |Δ| = {al['worst_vs_same_frame']:.3e}")
+    print(
+        f"  gates.actual_norm(N) vs (target-pos_err)(N-1): worst |Δ| = {al['worst_vs_prev_frame']:.3e}"
+    )
+    print(
+        f"  gates.actual_norm(N) vs (target-pos_err)(N)  : worst |Δ| = {al['worst_vs_same_frame']:.3e}"
+    )
     if al["n"] == 0:
-        print("  → サーボが一度も active にならなかった。この構成では機序を観測できない。")
+        print(
+            "  → サーボが一度も active にならなかった。この構成では機序を観測できない。"
+        )
         return 2
     # どちらの対応づけが小さいかで決める。絶対しきい値で判定すると、
     # 「1 量子ぶん（1e-9）ずれた正しい対応づけ」を不一致と読んでしまう
     # ——実際この判定で一度取り違えた。比較すべきは 2 つの候補の相対関係。
     aligned_prev = al["worst_vs_prev_frame"] < al["worst_vs_same_frame"]
-    ratio = (al["worst_vs_same_frame"] / al["worst_vs_prev_frame"]
-             if al["worst_vs_prev_frame"] > 0 else float("inf"))
-    print(f"  → gates.* は {'前フレーム' if aligned_prev else '同一フレーム'} の ffb サンプル由来"
-          f"（分離比 {ratio:.3g}倍）")
+    ratio = (
+        al["worst_vs_same_frame"] / al["worst_vs_prev_frame"]
+        if al["worst_vs_prev_frame"] > 0
+        else float("inf")
+    )
+    print(
+        f"  → gates.* は {'前フレーム' if aligned_prev else '同一フレーム'} の ffb サンプル由来"
+        f"（分離比 {ratio:.3g}倍）"
+    )
     if aligned_prev:
-        print("     文書（VirtualDriverTelemetryJson.cpp 冒頭）どおり。以降の残差の議論は")
-        print("     gates.* 同士で閉じており、ffb.*(N) と gates.*(N) を混ぜてはならない。")
+        print(
+            "     文書（VirtualDriverTelemetryJson.cpp 冒頭）どおり。以降の残差の議論は"
+        )
+        print(
+            "     gates.* 同士で閉じており、ffb.*(N) と gates.*(N) を混ぜてはならない。"
+        )
 
     # --- STEP 2: did the no-touch run latch? -----------------------------
     if args.cycle:
         # Phase B's latch is CORRECT (a hand really was on the wheel) — the
         # defect is a latch in phase E, after the hand is gone and AUTO resumed.
-        latch_idx = next((i for i, f in enumerate(frames)
-                          if f["_phase"] == "E_hands_off_post"
-                          and f.get("override", {}).get("lateral")), None)
-        b_latched = any(f["_phase"] == "B_grab" and f.get("override", {}).get("lateral")
-                        for f in frames)
+        latch_idx = next(
+            (
+                i
+                for i, f in enumerate(frames)
+                if f["_phase"] == "E_hands_off_post"
+                and f.get("override", {}).get("lateral")
+            ),
+            None,
+        )
+        b_latched = any(
+            f["_phase"] == "B_grab" and f.get("override", {}).get("lateral")
+            for f in frames
+        )
         e_frames = sum(1 for f in frames if f["_phase"] == "E_hands_off_post")
         print(f"  [positive control] phase B (hand on wheel) latched: {b_latched}")
         print(f"  [negative under test] phase E frames: {e_frames}")
         if not b_latched:
-            print("  !! 陽性対照が発火していない — この fixture では検出器を評価できない")
+            print(
+                "  !! 陽性対照が発火していない — この fixture では検出器を評価できない"
+            )
             return 2
     else:
-        latch_idx = next((i for i, f in enumerate(frames)
-                          if f.get("override", {}).get("lateral")), None)
+        latch_idx = next(
+            (i for i, f in enumerate(frames) if f.get("override", {}).get("lateral")),
+            None,
+        )
     print()
     print(f"=== 誤ラッチ（誰も触っていない run） total_frames={len(frames)} ===")
     if latch_idx is None:
@@ -272,22 +344,27 @@ def main() -> int:
     f0 = frames[latch_idx]
     print(f"  **LATCH** frame={latch_idx} t={f0['sim_time']:.3f}")
     print()
-    hdr = (f"{'frame':>6s} {'t':>7s} {'tgt_norm':>10s} {'pos_err':>10s} "
-           f"{'g.actual':>10s} {'g.shadow':>10s} {'residual':>10s} {'tgt_rate':>10s} "
-           f"{'eff_force':>10s} {'sustain':>8s} {'lat':>4s}")
+    hdr = (
+        f"{'frame':>6s} {'t':>7s} {'tgt_norm':>10s} {'pos_err':>10s} "
+        f"{'g.actual':>10s} {'g.shadow':>10s} {'residual':>10s} {'tgt_rate':>10s} "
+        f"{'eff_force':>10s} {'sustain':>8s} {'lat':>4s}"
+    )
     print(hdr)
     lo = max(0, latch_idx - args.context)
     hi = min(len(frames), latch_idx + 3)
     prev_actual = None
     for i in range(lo, hi):
         f = frames[i]
-        ffb = f.get("ffb", {}); g = ffb.get("gates", {})
-        print(f"{i:6d} {f['sim_time']:7.3f} {ffb.get('target_norm', 0):10.6f} "
-              f"{ffb.get('position_error', 0):10.6f} {g.get('actual_norm', 0):10.6f} "
-              f"{g.get('shadow_norm', 0):10.6f} {g.get('residual', 0):10.6f} "
-              f"{g.get('target_rate', 0):10.4f} {g.get('effective_force', 0):10.4f} "
-              f"{g.get('sustain_accum', 0):8.3f} "
-              f"{'M' if f.get('override', {}).get('lateral') else 'A':>4s}")
+        ffb = f.get("ffb", {})
+        g = ffb.get("gates", {})
+        print(
+            f"{i:6d} {f['sim_time']:7.3f} {ffb.get('target_norm', 0):10.6f} "
+            f"{ffb.get('position_error', 0):10.6f} {g.get('actual_norm', 0):10.6f} "
+            f"{g.get('shadow_norm', 0):10.6f} {g.get('residual', 0):10.6f} "
+            f"{g.get('target_rate', 0):10.4f} {g.get('effective_force', 0):10.4f} "
+            f"{g.get('sustain_accum', 0):8.3f} "
+            f"{'M' if f.get('override', {}).get('lateral') else 'A':>4s}"
+        )
 
     # --- STEP 3: what is the residual actually measuring? ----------------
     print()
@@ -297,16 +374,28 @@ def main() -> int:
     gp = frames[i - 1]["ffb"]["gates"] if i > 0 else {}
     d_actual = g.get("actual_norm", 0.0) - gp.get("actual_norm", 0.0)
     d_shadow = g.get("shadow_norm", 0.0) - gp.get("shadow_norm", 0.0)
-    print(f"  実測ホイールの1フレーム移動量  Δactual = {d_actual:+.6f}  (= {d_actual/DT:+.3f} /s)")
-    print(f"  影モデルの1フレーム移動量      Δshadow = {d_shadow:+.6f}  (= {d_shadow/DT:+.3f} /s)")
+    print(
+        f"  実測ホイールの1フレーム移動量  Δactual = {d_actual:+.6f}  (= {d_actual/DT:+.3f} /s)"
+    )
+    print(
+        f"  影モデルの1フレーム移動量      Δshadow = {d_shadow:+.6f}  (= {d_shadow/DT:+.3f} /s)"
+    )
     print(f"  差                                       = {d_actual - d_shadow:+.6f}")
-    print(f"  AD目標のレート  gates.target_rate        = {g.get('target_rate', 0.0):+.3f} /s")
-    print(f"  residual                                 = {g.get('residual', 0.0):.6f}"
-          f"  (threshold {g.get('residual_threshold', 0.0):.3f})")
-    print(f"  effective_force                          = {g.get('effective_force', 0.0):+.4f}")
+    print(
+        f"  AD目標のレート  gates.target_rate        = {g.get('target_rate', 0.0):+.3f} /s"
+    )
+    print(
+        f"  residual                                 = {g.get('residual', 0.0):.6f}"
+        f"  (threshold {g.get('residual_threshold', 0.0):.3f})"
+    )
+    print(
+        f"  effective_force                          = {g.get('effective_force', 0.0):+.4f}"
+    )
     print()
     print("  読み方: 誰も触っていないので Δactual は**サーボが動かした量**である。")
-    print("  影モデルがその速度を出せない（v_max で頭打ち）なら、差がそのまま残差になり、")
+    print(
+        "  影モデルがその速度を出せない（v_max で頭打ち）なら、差がそのまま残差になり、"
+    )
     print("  検出器は『サーボが運んだ動き』を『運転者の抵抗』として計上している。")
     return 1
 

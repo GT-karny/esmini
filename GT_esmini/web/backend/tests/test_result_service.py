@@ -18,7 +18,6 @@ import pytest
 
 from GT_esmini.web.backend.services import result_service
 
-
 # ---------------------------------------------------------------------------
 # _dat_major_version
 # ---------------------------------------------------------------------------

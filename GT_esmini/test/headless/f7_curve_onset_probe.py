@@ -88,6 +88,7 @@ see f7_curve_onset_repro.md Sec.0 for the exclusivity check before running):
     DriverScript\\.venv\\Scripts\\python.exe GT_esmini\\test\\headless\\f7_curve_onset_probe.py --list
     DriverScript\\.venv\\Scripts\\python.exe GT_esmini\\test\\headless\\f7_curve_onset_probe.py --mode sweep --scenarios curve_onset_30deg basic
 """
+
 from __future__ import annotations
 
 import argparse
@@ -104,8 +105,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 from vd_ffb_notouch_parity import (  # noqa: E402
-    DLL, BASE_CFG, FOLLOWER_MODES, REAL_MACHINE_DT, _write_cfg, _write_variant, _run_headless,
+    DLL,
+    BASE_CFG,
+    FOLLOWER_MODES,
+    REAL_MACHINE_DT,
+    _write_cfg,
+    _write_variant,
+    _run_headless,
 )
+
 # --- PM redesign (2026-07-27, 3rd message): a0 must be VERIFIED from the
 # DLL's own log, not just asserted from the env var this script set. Reuses
 # the established leveled-log-relay wrapper (GtLib / GT_SetLogCallback,
@@ -153,15 +161,15 @@ PLANT_VARIANTS = [(m, extra) for m, cls, extra in FOLLOWER_MODES if m == "plant"
 _ANT = ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
 SCENARIOS: dict[str, Path] = {
     # --- straight-start controls (existing F7 asset family; unmodified) ----
-    "basic":              ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "right_turn":         _ANT / "decelerate_for_right_turn.xosc",
-    "tljunction":         _ANT / "traffic_lights_junction.xosc",
+    "basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
+    "right_turn": _ANT / "decelerate_for_right_turn.xosc",
+    "tljunction": _ANT / "traffic_lights_junction.xosc",
     # --- new curve-onset family (task 1; resources/xodr/f7_curve_onset.xodr) ---
-    "curve_onset_00deg":  _ANT / "f7_curve_onset_00deg.xosc",
-    "curve_onset_10deg":  _ANT / "f7_curve_onset_10deg.xosc",
-    "curve_onset_20deg":  _ANT / "f7_curve_onset_20deg.xosc",
-    "curve_onset_30deg":  _ANT / "f7_curve_onset_30deg.xosc",
-    "curve_onset_45deg":  _ANT / "f7_curve_onset_45deg.xosc",
+    "curve_onset_00deg": _ANT / "f7_curve_onset_00deg.xosc",
+    "curve_onset_10deg": _ANT / "f7_curve_onset_10deg.xosc",
+    "curve_onset_20deg": _ANT / "f7_curve_onset_20deg.xosc",
+    "curve_onset_30deg": _ANT / "f7_curve_onset_30deg.xosc",
+    "curve_onset_45deg": _ANT / "f7_curve_onset_45deg.xosc",
     # --- REAL shipped scenario named by the user as reproducing the bug ------
     # PM 2026-07-27: the user reports the curve-onset failure on
     # highway_merge. This is the SHIPPED copy (resources/, soderleden.xodr,
@@ -181,7 +189,7 @@ SCENARIOS: dict[str, Path] = {
     # (same directory -> all relative paths unchanged) whose ONLY difference
     # is the VirtualDriverController block on Ego; diff vs shipped is
     # +14 / -0 lines. The shipped file itself is left untouched (R3).
-    "highway_merge":      ROOT / "resources" / "xosc" / "f7_highway_merge_vd.xosc",
+    "highway_merge": ROOT / "resources" / "xosc" / "f7_highway_merge_vd.xosc",
 }
 
 # Expected steering-WHEEL-degree onset for the new family only (by
@@ -191,14 +199,21 @@ SCENARIOS: dict[str, Path] = {
 # t=0), so within this script's short capture window they are plain
 # straight-start controls, same as curve_onset_00deg.
 EXPECTED_WHEEL_DEG: dict[str, float | None] = {
-    "basic": None, "right_turn": None, "tljunction": None,
-    "curve_onset_00deg": 0.0, "curve_onset_10deg": 10.0,
-    "curve_onset_20deg": 20.0, "curve_onset_30deg": 30.0, "curve_onset_45deg": 45.0,
+    "basic": None,
+    "right_turn": None,
+    "tljunction": None,
+    "curve_onset_00deg": 0.0,
+    "curve_onset_10deg": 10.0,
+    "curve_onset_20deg": 20.0,
+    "curve_onset_30deg": 30.0,
+    "curve_onset_45deg": 45.0,
 }
 
 WHEEL_DEG_FULL_LOCK = 450.0  # scripts/ffb_spike/wheel_session_report.py:287 convention
-LEAD_EPS = 1e-4              # axis-frac noise floor for the "shadow leads" comparison
-RESIDUAL_SLOPE_EPS = 1e-3    # axis-frac/s; below this, call the trend "flat" not "growing"
+LEAD_EPS = 1e-4  # axis-frac noise floor for the "shadow leads" comparison
+RESIDUAL_SLOPE_EPS = (
+    1e-3  # axis-frac/s; below this, call the trend "flat" not "growing"
+)
 
 # --- PM redesign (2026-07-27, 2nd message): direct-axis 2x2 constants -------
 # steering_threshold shipped default, ManualDriveConfig.hpp:484. NOT exposed
@@ -226,7 +241,9 @@ PRIMED_AXIS_A0_NEUTRAL = 0.0
 # median). If GT_HEADLESS_FFB_FROZEN_AT is silently ignored, BOTH
 # straight_nonneutral and straight_nonneutral_sub would run neutral and
 # produce IDENTICAL (NO_LATCH) signatures -- a visible, log-free tell.
-PRIMED_AXIS_A0_NONNEUTRAL_SUBTHRESHOLD = -0.0339  # axis-frac (< 0.05 threshold; must NOT latch)
+PRIMED_AXIS_A0_NONNEUTRAL_SUBTHRESHOLD = (
+    -0.0339
+)  # axis-frac (< 0.05 threshold; must NOT latch)
 
 
 def _plant_tag(extra: dict) -> str:
@@ -251,10 +268,15 @@ def _set_wheel_env(mode: str, extra: dict) -> None:
       cell (positive control -- must genuinely latch via the residual path).
     """
     os.environ["GT_HEADLESS_FFB_MODE"] = mode
-    for var in ("GT_HEADLESS_FFB_FROZEN_AT", "GT_HEADLESS_FFB_LAG_TAU",
-                "GT_HEADLESS_FFB_PLANT_BREAKAWAY", "GT_HEADLESS_FFB_PLANT_SLOPE",
-                "GT_HEADLESS_FFB_PLANT_DEAD_TIME", "GT_HEADLESS_FFB_PLANT_VELOCITY_TAU",
-                "GT_HEADLESS_FFB_PLANT_INIT_AT"):
+    for var in (
+        "GT_HEADLESS_FFB_FROZEN_AT",
+        "GT_HEADLESS_FFB_LAG_TAU",
+        "GT_HEADLESS_FFB_PLANT_BREAKAWAY",
+        "GT_HEADLESS_FFB_PLANT_SLOPE",
+        "GT_HEADLESS_FFB_PLANT_DEAD_TIME",
+        "GT_HEADLESS_FFB_PLANT_VELOCITY_TAU",
+        "GT_HEADLESS_FFB_PLANT_INIT_AT",
+    ):
         os.environ.pop(var, None)
     os.environ.update(extra)
 
@@ -316,7 +338,11 @@ def analyze(rows: list[dict], onset_window_s: float) -> dict:
     INCONCLUSIVE -- too few valid onset samples, or direction is mixed, or
                   residual is flat/declining.
     """
-    onset = [r for r in rows if r["sim_time"] is not None and 0.0 < r["sim_time"] <= onset_window_s]
+    onset = [
+        r
+        for r in rows
+        if r["sim_time"] is not None and 0.0 < r["sim_time"] <= onset_window_s
+    ]
     valid = []
     for r in onset:
         if r["block_reason"] == "bootstrap":
@@ -329,7 +355,9 @@ def analyze(rows: list[dict], onset_window_s: float) -> dict:
             direction = 1.0 if (t - a) > 0 else -1.0
         if direction == 0.0:
             continue
-        lead_amount = abs(t - a) - abs(t - s)  # >0: shadow closer to target than actual (overtakes)
+        lead_amount = abs(t - a) - abs(
+            t - s
+        )  # >0: shadow closer to target than actual (overtakes)
         valid.append({**r, "lead_amount": lead_amount})
 
     n_valid = len(valid)
@@ -339,7 +367,9 @@ def analyze(rows: list[dict], onset_window_s: float) -> dict:
     frac_lags = (n_lags / n_valid) if n_valid else None
 
     # Residual slope up to the first latch (or end of onset window if none).
-    latch_idx = next((i for i, r in enumerate(onset) if r.get("override_lateral")), None)
+    latch_idx = next(
+        (i for i, r in enumerate(onset) if r.get("override_lateral")), None
+    )
     span = onset[: latch_idx + 1] if latch_idx is not None else onset
     span = [r for r in span if r["residual"] is not None and r["sim_time"] is not None]
     slope = None
@@ -348,26 +378,39 @@ def analyze(rows: list[dict], onset_window_s: float) -> dict:
         if t1 > t0:
             slope = (span[-1]["residual"] - span[0]["residual"]) / (t1 - t0)
 
-    max_target_onset = max((abs(r["target_norm"]) for r in onset if r["target_norm"] is not None), default=0.0)
-    max_residual_onset = max((r["residual"] for r in onset if r["residual"] is not None), default=0.0)
-    residual_threshold = next((r["residual_threshold"] for r in onset if r["residual_threshold"]), None)
+    max_target_onset = max(
+        (abs(r["target_norm"]) for r in onset if r["target_norm"] is not None),
+        default=0.0,
+    )
+    max_residual_onset = max(
+        (r["residual"] for r in onset if r["residual"] is not None), default=0.0
+    )
+    residual_threshold = next(
+        (r["residual_threshold"] for r in onset if r["residual_threshold"]), None
+    )
     bootstrap_frames = sum(1 for r in onset if r["block_reason"] == "bootstrap")
 
     if n_valid < 3 or frac_leads is None:
         verdict = "INCONCLUSIVE (fewer than 3 valid onset samples -- target never moved off actual)"
     elif frac_leads >= 0.7 and slope is not None and slope > RESIDUAL_SLOPE_EPS:
-        verdict = ("SUPPORTED: shadow overtakes actual toward target "
-                   f"({n_leads}/{n_valid} onset frames) and residual grows "
-                   f"(slope={slope:.5f} axis-frac/s)")
+        verdict = (
+            "SUPPORTED: shadow overtakes actual toward target "
+            f"({n_leads}/{n_valid} onset frames) and residual grows "
+            f"(slope={slope:.5f} axis-frac/s)"
+        )
     elif frac_lags >= 0.7 and slope is not None and slope > RESIDUAL_SLOPE_EPS:
-        verdict = ("REFUTED (different mechanism -- team-lead falsification rule): "
-                   f"shadow LAGS actual instead of overtaking it "
-                   f"({n_lags}/{n_valid} onset frames), residual still grows "
-                   f"(slope={slope:.5f} axis-frac/s)")
+        verdict = (
+            "REFUTED (different mechanism -- team-lead falsification rule): "
+            f"shadow LAGS actual instead of overtaking it "
+            f"({n_lags}/{n_valid} onset frames), residual still grows "
+            f"(slope={slope:.5f} axis-frac/s)"
+        )
     else:
         slope_str = "n/a" if slope is None else f"{slope:.5f}"
-        verdict = (f"INCONCLUSIVE: mixed direction (leads={n_leads}/{n_valid} "
-                   f"lags={n_lags}/{n_valid}) or flat/declining residual (slope={slope_str})")
+        verdict = (
+            f"INCONCLUSIVE: mixed direction (leads={n_leads}/{n_valid} "
+            f"lags={n_lags}/{n_valid}) or flat/declining residual (slope={slope_str})"
+        )
 
     return {
         "n_onset_frames": len(onset),
@@ -376,19 +419,28 @@ def analyze(rows: list[dict], onset_window_s: float) -> dict:
         "n_lags": n_lags,
         "frac_leads": frac_leads,
         "residual_slope_axisfrac_per_s": slope,
-        "latch_sim_time": onset[latch_idx]["sim_time"] if latch_idx is not None else None,
+        "latch_sim_time": (
+            onset[latch_idx]["sim_time"] if latch_idx is not None else None
+        ),
         "max_abs_target_norm_onset": max_target_onset,
         "max_abs_target_wheel_deg_onset": max_target_onset * WHEEL_DEG_FULL_LOCK,
         "max_residual_onset": max_residual_onset,
         "residual_threshold": residual_threshold,
         "bootstrap_frames_onset": bootstrap_frames,
-        "bootstrap_frames_ok": bootstrap_frames <= 1,  # OverrideManager.cpp:232 -- suppression is 1 frame only
+        "bootstrap_frames_ok": bootstrap_frames
+        <= 1,  # OverrideManager.cpp:232 -- suppression is 1 frame only
         "verdict": verdict,
     }
 
 
-def run_one(scenario_name: str, scenario_path: Path, plant_extra: dict, duration_s: float,
-            onset_window_s: float, dt: float) -> tuple[list[dict], dict]:
+def run_one(
+    scenario_name: str,
+    scenario_path: Path,
+    plant_extra: dict,
+    duration_s: float,
+    onset_window_s: float,
+    dt: float,
+) -> tuple[list[dict], dict]:
     tmpdir = tempfile.mkdtemp(prefix=f"f7_curve_onset_{scenario_name}_")
     cfg_path = _write_cfg(tmpdir, "headless_ffb", True, "ffb")
     xosc_path = _write_variant(str(scenario_path), tmpdir, cfg_path, "ffb")
@@ -458,20 +510,60 @@ def _write_csv(rows: list[dict], path: Path) -> None:
 # scenario (no new asset needed).
 CELLS: list[tuple[str, str, str, str, dict]] = [
     # (cell_id, scenario_name, wheel_condition, mode, extra)
-    ("straight_neutral",        "basic",             "neutral",           "plant",  {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NEUTRAL:.5f}"}),
-    ("straight_nonneutral_sub", "basic",             "nonneutral_sub",    "plant",  {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL_SUBTHRESHOLD:.5f}"}),
-    ("straight_nonneutral",     "basic",             "nonneutral",        "plant",  {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL:.5f}"}),
+    (
+        "straight_neutral",
+        "basic",
+        "neutral",
+        "plant",
+        {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NEUTRAL:.5f}"},
+    ),
+    (
+        "straight_nonneutral_sub",
+        "basic",
+        "nonneutral_sub",
+        "plant",
+        {
+            "GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL_SUBTHRESHOLD:.5f}"
+        },
+    ),
+    (
+        "straight_nonneutral",
+        "basic",
+        "nonneutral",
+        "plant",
+        {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL:.5f}"},
+    ),
     # Positive control (PM 5th message, NEW): a HELD wheel (frozen, i.e. a
     # genuine intervention) at the SAME sub-threshold magnitude as the
     # negative control above. Must latch via the RESIDUAL path (direct-axis
     # is structurally out of reach at this magnitude) -- proves the residual
     # detector can fire at all, so straight_nonneutral_sub's NO_LATCH means
     # "not an intervention", not "the detector is deaf".
-    ("straight_held",           "basic",             "held",              "frozen", {"GT_HEADLESS_FFB_FROZEN_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL_SUBTHRESHOLD:.5f}"}),
-    ("curve_neutral",           "curve_onset_30deg", "neutral",           "plant",  {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NEUTRAL:.5f}"}),
-    ("curve_nonneutral",        "curve_onset_30deg", "nonneutral",        "plant",  {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL:.5f}"}),
+    (
+        "straight_held",
+        "basic",
+        "held",
+        "frozen",
+        {"GT_HEADLESS_FFB_FROZEN_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL_SUBTHRESHOLD:.5f}"},
+    ),
+    (
+        "curve_neutral",
+        "curve_onset_30deg",
+        "neutral",
+        "plant",
+        {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NEUTRAL:.5f}"},
+    ),
+    (
+        "curve_nonneutral",
+        "curve_onset_30deg",
+        "nonneutral",
+        "plant",
+        {"GT_HEADLESS_FFB_PLANT_INIT_AT": f"{PRIMED_AXIS_A0_NONNEUTRAL:.5f}"},
+    ),
 ]
-_NOMINAL_PLANT_EXTRA = PLANT_VARIANTS[1][1]  # brk=0.19/slope=3.35/dead_time=0.041/tau=0.018 (shadow's own nominal constants)
+_NOMINAL_PLANT_EXTRA = PLANT_VARIANTS[1][
+    1
+]  # brk=0.19/slope=3.35/dead_time=0.041/tau=0.018 (shadow's own nominal constants)
 
 
 class _LineCapture(logging.Handler):
@@ -489,8 +581,9 @@ class _LineCapture(logging.Handler):
         self.lines.append(record.getMessage())
 
 
-def _run_headless_with_log(dll_path: str, xosc_path: str, dt: float,
-                            max_time_s: float) -> tuple[list[dict], list[str]]:
+def _run_headless_with_log(
+    dll_path: str, xosc_path: str, dt: float, max_time_s: float
+) -> tuple[list[dict], list[str]]:
     """Same frame-collection contract as vd_ffb_notouch_parity._run_headless
     (same step count `int(max_time_s/dt)+20`, same "decode or skip" per-frame
     handling), but via GtLib (gt_lib.py) instead of a bare ctypes.CDLL so the
@@ -499,13 +592,19 @@ def _run_headless_with_log(dll_path: str, xosc_path: str, dt: float,
     dll_logger = logging.getLogger("gt_esmini.dll")
     capture = _LineCapture()
     dll_logger.addHandler(capture)
-    dll_logger.setLevel(logging.DEBUG)  # HeadlessFfbSink's Configure() line logs at INFO (level=2)
+    dll_logger.setLevel(
+        logging.DEBUG
+    )  # HeadlessFfbSink's Configure() line logs at INFO (level=2)
     frames: list[dict] = []
     try:
         with GtLib(dll_path) as lib:
-            rc = lib.init_with_args(["--osc", xosc_path, "--headless", "--fixed_timestep", f"{dt:.3f}"])
+            rc = lib.init_with_args(
+                ["--osc", xosc_path, "--headless", "--fixed_timestep", f"{dt:.3f}"]
+            )
             if rc != 0:
-                raise RuntimeError(f"GT_InitWithArgs rc={rc} on {xosc_path}: {lib.get_last_error()}")
+                raise RuntimeError(
+                    f"GT_InitWithArgs rc={rc} on {xosc_path}: {lib.get_last_error()}"
+                )
             for _ in range(int(max_time_s / dt) + 20):
                 lib.step(dt)
                 tel = lib.get_vd_telemetry(-1)
@@ -542,8 +641,12 @@ def _verify_a0(log_lines: list[str], mode: str, a0_configured: float) -> dict:
     found = parsed_mode is not None
     mode_ok = found and parsed_mode == mode
     parsed_a0 = parsed_frozen_at if mode == "frozen" else parsed_plant_init_at
-    a0_ok = found and mode_ok and parsed_a0 is not None and \
-        abs(parsed_a0 - a0_configured) <= A0_LOG_ROUND_TRIP_TOLERANCE
+    a0_ok = (
+        found
+        and mode_ok
+        and parsed_a0 is not None
+        and abs(parsed_a0 - a0_configured) <= A0_LOG_ROUND_TRIP_TOLERANCE
+    )
     a0_verified = parsed_a0 if found else None
     return {
         "log_line_found": found,
@@ -556,8 +659,15 @@ def _verify_a0(log_lines: list[str], mode: str, a0_configured: float) -> dict:
     }
 
 
-def run_cell(cell_id: str, scenario_name: str, mode: str, extra: dict, duration_s: float,
-             onset_window_s: float, dt: float) -> tuple[list[dict], dict]:
+def run_cell(
+    cell_id: str,
+    scenario_name: str,
+    mode: str,
+    extra: dict,
+    duration_s: float,
+    onset_window_s: float,
+    dt: float,
+) -> tuple[list[dict], dict]:
     scenario_path = SCENARIOS[scenario_name]
     tmpdir = tempfile.mkdtemp(prefix=f"f7_2x2_{cell_id}_")
     cfg_path = _write_cfg(tmpdir, "headless_ffb", True, "ffb")
@@ -573,10 +683,16 @@ def run_cell(cell_id: str, scenario_name: str, mode: str, extra: dict, duration_
     # messages: both "frozen" (GT_HEADLESS_FFB_FROZEN_AT) and "plant"
     # (GT_HEADLESS_FFB_PLANT_INIT_AT) now have a real configured value to
     # verify -- plant is no longer a hardcoded-0.0 special case).
-    a0_env_key = "GT_HEADLESS_FFB_FROZEN_AT" if mode == "frozen" else "GT_HEADLESS_FFB_PLANT_INIT_AT"
+    a0_env_key = (
+        "GT_HEADLESS_FFB_FROZEN_AT"
+        if mode == "frozen"
+        else "GT_HEADLESS_FFB_PLANT_INIT_AT"
+    )
     a0_configured = float(wheel_extra.get(a0_env_key, 0.0))
 
-    frames, log_lines = _run_headless_with_log(DLL, xosc_path, dt=dt, max_time_s=duration_s)
+    frames, log_lines = _run_headless_with_log(
+        DLL, xosc_path, dt=dt, max_time_s=duration_s
+    )
     verification = _verify_a0(log_lines, mode, a0_configured)
     rows = [r for r in (_row_from_frame(f) for f in frames) if r is not None]
 
@@ -585,7 +701,11 @@ def run_cell(cell_id: str, scenario_name: str, mode: str, extra: dict, duration_
     # verification itself is impossible (log line never seen at all) so
     # classify_cell() still has SOME number to work with -- but that case is
     # exactly what cell_valid=False below exists to flag loudly.
-    a0_for_classification = verification["a0_verified"] if verification["a0_verified"] is not None else a0_configured
+    a0_for_classification = (
+        verification["a0_verified"]
+        if verification["a0_verified"] is not None
+        else a0_configured
+    )
     result = classify_cell(rows, a0_for_classification, STEERING_THRESHOLD_DEFAULT)
     result["cell_id"] = cell_id
     result["scenario"] = scenario_name
@@ -636,13 +756,15 @@ def classify_cell(rows: list[dict], a0: float, steering_threshold: float) -> dic
     # false) -- frame 1 must ALWAYS take the inactive branch regardless of
     # cell. If this is ever False, something upstream of this script changed
     # and every other conclusion here is suspect.
-    frame1_block_reason_is_inactive = (frame1_block_reason == "inactive")
+    frame1_block_reason_is_inactive = frame1_block_reason == "inactive"
 
     direct_axis_predicted = abs(a0) > steering_threshold
 
     latch_idx = next((i for i, r in enumerate(rows) if r.get("override_lateral")), None)
     latch_sim_time = rows[latch_idx]["sim_time"] if latch_idx is not None else None
-    latch_block_reason_at_latch = rows[latch_idx]["block_reason"] if latch_idx is not None else None
+    latch_block_reason_at_latch = (
+        rows[latch_idx]["block_reason"] if latch_idx is not None else None
+    )
 
     if latch_idx == 0 and frame1_block_reason == "inactive":
         signature = "DIRECT_AXIS_LATCH_FRAME1"
@@ -663,7 +785,14 @@ def classify_cell(rows: list[dict], a0: float, steering_threshold: float) -> dic
     self_perpetuating = None
     if signature == "DIRECT_AXIS_LATCH_FRAME1":
         tail = rows[1:]
-        self_perpetuating = all(r["block_reason"] == "inactive" and r.get("override_lateral") for r in tail) if tail else True
+        self_perpetuating = (
+            all(
+                r["block_reason"] == "inactive" and r.get("override_lateral")
+                for r in tail
+            )
+            if tail
+            else True
+        )
 
     return {
         "primed_axis_a0": a0,
@@ -684,28 +813,44 @@ def print_2x2_report(cell_results: list[dict]) -> None:
     by_id = {r["cell_id"]: r for r in cell_results}
     print("\n=== 2x2 direct-axis vs shadow-path classification ===")
     for r in cell_results:
-        print(f"-- {r['cell_id']} (scenario={r['scenario']}, wheel_mode={r['wheel_mode']}) --")
-        print(f"   a0 CONFIGURED (env var this script set): {r['a0_configured']:.5f} axis-frac")
-        print(f"   a0 VERIFIED (parsed from DLL's own HeadlessFfbSink Configure() log line): "
-              f"log_line_found={r['log_line_found']} parsed_mode={r['parsed_mode']!r} "
-              f"parsed_frozen_at={r['parsed_frozen_at']} parsed_plant_init_at={r['parsed_plant_init_at']} "
-              f"-> a0_verification_ok={r['a0_verification_ok']} CELL_VALID={r['cell_valid']}")
+        print(
+            f"-- {r['cell_id']} (scenario={r['scenario']}, wheel_mode={r['wheel_mode']}) --"
+        )
+        print(
+            f"   a0 CONFIGURED (env var this script set): {r['a0_configured']:.5f} axis-frac"
+        )
+        print(
+            f"   a0 VERIFIED (parsed from DLL's own HeadlessFfbSink Configure() log line): "
+            f"log_line_found={r['log_line_found']} parsed_mode={r['parsed_mode']!r} "
+            f"parsed_frozen_at={r['parsed_frozen_at']} parsed_plant_init_at={r['parsed_plant_init_at']} "
+            f"-> a0_verification_ok={r['a0_verification_ok']} CELL_VALID={r['cell_valid']}"
+        )
         for w in r["warnings"]:
             print(f"   !! WARNING: {w}")
-        print(f"   classified against: a0={r['primed_axis_a0']:.5f} axis-frac ({r['primed_axis_a0_wheel_deg']:.1f} deg wheel-equiv), "
-              f"steering_threshold={r['steering_threshold_configured']:.3f} axis-frac, "
-              f"direct_axis_predicted_to_fire={r['direct_axis_predicted_to_fire']}")
-        print(f"   frame1: block_reason={r['frame1_block_reason']} (inactive as expected: {r['frame1_block_reason_is_inactive']}) "
-              f"latched={r['frame1_latched']}")
-        print(f"   signature={r['signature']}  latch_sim_time={r['latch_sim_time']}  "
-              f"self_perpetuating={r['self_perpetuating']}")
+        print(
+            f"   classified against: a0={r['primed_axis_a0']:.5f} axis-frac ({r['primed_axis_a0_wheel_deg']:.1f} deg wheel-equiv), "
+            f"steering_threshold={r['steering_threshold_configured']:.3f} axis-frac, "
+            f"direct_axis_predicted_to_fire={r['direct_axis_predicted_to_fire']}"
+        )
+        print(
+            f"   frame1: block_reason={r['frame1_block_reason']} (inactive as expected: {r['frame1_block_reason_is_inactive']}) "
+            f"latched={r['frame1_latched']}"
+        )
+        print(
+            f"   signature={r['signature']}  latch_sim_time={r['latch_sim_time']}  "
+            f"self_perpetuating={r['self_perpetuating']}"
+        )
         if r["cell_id"] == "curve_neutral":
-            print(f"   shadow-path analysis (original Sec.5-4 hypothesis): {r['shadow_path_analysis']['verdict']}")
+            print(
+                f"   shadow-path analysis (original Sec.5-4 hypothesis): {r['shadow_path_analysis']['verdict']}"
+            )
 
     invalid = [r for r in cell_results if not r["cell_valid"]]
     if invalid:
-        print(f"\n!! {len(invalid)}/{len(cell_results)} CELL(S) INVALID (a0 verification failed) -- "
-              f"{[r['cell_id'] for r in invalid]}. Any conclusion drawn from these below is UNRELIABLE.")
+        print(
+            f"\n!! {len(invalid)}/{len(cell_results)} CELL(S) INVALID (a0 verification failed) -- "
+            f"{[r['cell_id'] for r in invalid]}. Any conclusion drawn from these below is UNRELIABLE."
+        )
 
     # Combined verdict -- PM 5th message: THREE named conditions, ALL must
     # hold before curve_neutral is adopted. Supersedes the 4th message's
@@ -717,15 +862,22 @@ def print_2x2_report(cell_results: list[dict]) -> None:
     straight_held = by_id.get("straight_held")
 
     if curve_n and not curve_n["cell_valid"]:
-        print("  curve x neutral: SKIPPED -- a0 verification failed for this cell (see WARNING above). "
-              "No conclusion drawn; fix the env-var wiring and re-run before trusting anything else here.")
+        print(
+            "  curve x neutral: SKIPPED -- a0 verification failed for this cell (see WARNING above). "
+            "No conclusion drawn; fix the env-var wiring and re-run before trusting anything else here."
+        )
         curve_n = None
-    for label, cell in (("straight_nonneutral", straight_nn), ("straight_nonneutral_sub", straight_sub),
-                        ("straight_held", straight_held)):
+    for label, cell in (
+        ("straight_nonneutral", straight_nn),
+        ("straight_nonneutral_sub", straight_sub),
+        ("straight_held", straight_held),
+    ):
         if cell and not cell["cell_valid"]:
-            print(f"  {label}: SKIPPED -- a0 verification failed for this cell (see WARNING above). "
-                  "The acceptance conditions cannot be evaluated, so curve_neutral cannot be trusted "
-                  "either even if it individually looked valid.")
+            print(
+                f"  {label}: SKIPPED -- a0 verification failed for this cell (see WARNING above). "
+                "The acceptance conditions cannot be evaluated, so curve_neutral cannot be trusted "
+                "either even if it individually looked valid."
+            )
 
     # PM 5th message's 3 named acceptance conditions. Each is checked and
     # reported BY NAME (not just an aggregate pass/fail) so a failure points
@@ -752,30 +904,62 @@ def print_2x2_report(cell_results: list[dict]) -> None:
     #   t=0.01, self_perpetuating=True.
     conditions = []
     if straight_nn is None or not straight_nn["cell_valid"]:
-        conditions.append(("1: straight_nonneutral == NO_LATCH (a leftover t=0 wheel angle is not an intervention)",
-                            False, "cell missing or a0-verification failed"))
+        conditions.append(
+            (
+                "1: straight_nonneutral == NO_LATCH (a leftover t=0 wheel angle is not an intervention)",
+                False,
+                "cell missing or a0-verification failed",
+            )
+        )
     else:
         ok = straight_nn["signature"] == "NO_LATCH"
         detail = f"got signature={straight_nn['signature']!r}"
         if straight_nn["signature"] == "DIRECT_AXIS_LATCH_FRAME1":
-            detail += (" -- this is the pre-2026-07-28 defect reappearing: the startup axis"
-                       " reference in OverrideManager::Update() is not taking effect")
-        conditions.append(("1: straight_nonneutral == NO_LATCH (a leftover t=0 wheel angle is not an intervention)",
-                            ok, detail))
+            detail += (
+                " -- this is the pre-2026-07-28 defect reappearing: the startup axis"
+                " reference in OverrideManager::Update() is not taking effect"
+            )
+        conditions.append(
+            (
+                "1: straight_nonneutral == NO_LATCH (a leftover t=0 wheel angle is not an intervention)",
+                ok,
+                detail,
+            )
+        )
     if straight_sub is None or not straight_sub["cell_valid"]:
-        conditions.append(("2: straight_nonneutral_sub == NO_LATCH (reproduces real -1.1k band, 9/9 no-latch; not over-sensitive)",
-                            False, "cell missing or a0-verification failed"))
+        conditions.append(
+            (
+                "2: straight_nonneutral_sub == NO_LATCH (reproduces real -1.1k band, 9/9 no-latch; not over-sensitive)",
+                False,
+                "cell missing or a0-verification failed",
+            )
+        )
     else:
         ok = straight_sub["signature"] == "NO_LATCH"
-        conditions.append(("2: straight_nonneutral_sub == NO_LATCH (reproduces real -1.1k band, 9/9 no-latch; not over-sensitive)",
-                            ok, f"got signature={straight_sub['signature']!r}"))
+        conditions.append(
+            (
+                "2: straight_nonneutral_sub == NO_LATCH (reproduces real -1.1k band, 9/9 no-latch; not over-sensitive)",
+                ok,
+                f"got signature={straight_sub['signature']!r}",
+            )
+        )
     if straight_held is None or not straight_held["cell_valid"]:
-        conditions.append(("3: straight_held == RESIDUAL_PATH_LATCH (a genuine held-wheel intervention IS caught; not deaf)",
-                            False, "cell missing or a0-verification failed"))
+        conditions.append(
+            (
+                "3: straight_held == RESIDUAL_PATH_LATCH (a genuine held-wheel intervention IS caught; not deaf)",
+                False,
+                "cell missing or a0-verification failed",
+            )
+        )
     else:
         ok = straight_held["signature"] == "RESIDUAL_PATH_LATCH"
-        conditions.append(("3: straight_held == RESIDUAL_PATH_LATCH (a genuine held-wheel intervention IS caught; not deaf)",
-                            ok, f"got signature={straight_held['signature']!r}"))
+        conditions.append(
+            (
+                "3: straight_held == RESIDUAL_PATH_LATCH (a genuine held-wheel intervention IS caught; not deaf)",
+                ok,
+                f"got signature={straight_held['signature']!r}",
+            )
+        )
 
     all_ok = all(ok for _, ok, _ in conditions)
     for name, ok, detail in conditions:
@@ -786,28 +970,40 @@ def print_2x2_report(cell_results: list[dict]) -> None:
         print("  All 3 acceptance conditions PASS: curve_neutral is TRUSTED.")
     else:
         failed = [name.split(":")[0] for name, ok, _ in conditions if not ok]
-        print(f"  !! {len(failed)}/3 acceptance condition(s) FAILED ({', '.join(failed)}): "
-              "curve_neutral is NOT adopted. Investigate the named condition(s) above before trusting "
-              "anything drawn from curve_neutral.")
+        print(
+            f"  !! {len(failed)}/3 acceptance condition(s) FAILED ({', '.join(failed)}): "
+            "curve_neutral is NOT adopted. Investigate the named condition(s) above before trusting "
+            "anything drawn from curve_neutral."
+        )
 
     if curve_n and all_ok:
         if curve_n["signature"] == "RESIDUAL_PATH_LATCH":
-            print("  curve x neutral LATCHED via the shadow/residual path: Sec.5-4 is a genuine, "
-                  "INDEPENDENT defect (not just Sec.5-5 in disguise). Shadow-path verdict: "
-                  f"{curve_n['shadow_path_analysis']['verdict']}")
+            print(
+                "  curve x neutral LATCHED via the shadow/residual path: Sec.5-4 is a genuine, "
+                "INDEPENDENT defect (not just Sec.5-5 in disguise). Shadow-path verdict: "
+                f"{curve_n['shadow_path_analysis']['verdict']}"
+            )
         elif curve_n["signature"] == "NO_LATCH":
-            print("  curve x neutral did NOT latch: Sec.5-4's real-machine symptom is NOT reproduced by "
-                  "curvature alone. Consistent with 'Sec.5-4 == Sec.5-5 in disguise' (the curve is "
-                  "incidental; a non-neutral t=0 wheel is the actual cause).")
+            print(
+                "  curve x neutral did NOT latch: Sec.5-4's real-machine symptom is NOT reproduced by "
+                "curvature alone. Consistent with 'Sec.5-4 == Sec.5-5 in disguise' (the curve is "
+                "incidental; a non-neutral t=0 wheel is the actual cause)."
+            )
         elif curve_n["signature"] == "DIRECT_AXIS_LATCH_FRAME1":
-            print("  UNEXPECTED: curve x neutral latched via the DIRECT-AXIS path on frame 1 despite "
-                  "a0=0 (<= steering_threshold). This contradicts the source-code reading in this "
-                  "module's docstring -- investigate before trusting anything else here.")
+            print(
+                "  UNEXPECTED: curve x neutral latched via the DIRECT-AXIS path on frame 1 despite "
+                "a0=0 (<= steering_threshold). This contradicts the source-code reading in this "
+                "module's docstring -- investigate before trusting anything else here."
+            )
         else:
-            print(f"  curve x neutral: unclassified signature {curve_n['signature']!r} -- inspect raw CSV.")
+            print(
+                f"  curve x neutral: unclassified signature {curve_n['signature']!r} -- inspect raw CSV."
+            )
     elif curve_n and not all_ok:
-        print(f"  curve x neutral raw result (NOT adopted -- see failed condition(s) above): "
-              f"signature={curve_n['signature']!r}")
+        print(
+            f"  curve x neutral raw result (NOT adopted -- see failed condition(s) above): "
+            f"signature={curve_n['signature']!r}"
+        )
 
 
 def main_2x2(args) -> int:
@@ -818,8 +1014,10 @@ def main_2x2(args) -> int:
     as a positive control -- see CELLS' own comments for the full history and
     current 6-cell table. No --scenarios subset selection."""
     if not os.path.exists(DLL):
-        print(f"FAIL: DLL not found at {DLL} -- run /build first (not doing it automatically). "
-              "This script does NOT run headless simulation without it; nothing was executed.")
+        print(
+            f"FAIL: DLL not found at {DLL} -- run /build first (not doing it automatically). "
+            "This script does NOT run headless simulation without it; nothing was executed."
+        )
         return 1
     needed_scenarios = {scenario_name for _, scenario_name, _, _, _ in CELLS}
     for name in needed_scenarios:
@@ -831,16 +1029,30 @@ def main_2x2(args) -> int:
     cell_results = []
     for cell_id, scenario_name, wheel_condition, mode, extra in CELLS:
         print(f"== {cell_id} (scenario={scenario_name}, wheel={wheel_condition}) ==")
-        rows, result = run_cell(cell_id, scenario_name, mode, extra, args.duration, args.onset_window, args.dt)
+        rows, result = run_cell(
+            cell_id,
+            scenario_name,
+            mode,
+            extra,
+            args.duration,
+            args.onset_window,
+            args.dt,
+        )
         _write_csv(rows, OUT_DIR / f"{cell_id}.csv")
         cell_results.append(result)
-        print(f"  frames={result['n_frames_total']} a0={result['primed_axis_a0']:.5f} "
-              f"({result['primed_axis_a0_wheel_deg']:.1f} deg) "
-              f"direct_axis_predicted={result['direct_axis_predicted_to_fire']}")
-        print(f"  frame1_block_reason={result['frame1_block_reason']} "
-              f"(inactive_as_expected={result['frame1_block_reason_is_inactive']})")
-        print(f"  signature={result['signature']} latch_t={result['latch_sim_time']} "
-              f"self_perpetuating={result['self_perpetuating']}")
+        print(
+            f"  frames={result['n_frames_total']} a0={result['primed_axis_a0']:.5f} "
+            f"({result['primed_axis_a0_wheel_deg']:.1f} deg) "
+            f"direct_axis_predicted={result['direct_axis_predicted_to_fire']}"
+        )
+        print(
+            f"  frame1_block_reason={result['frame1_block_reason']} "
+            f"(inactive_as_expected={result['frame1_block_reason_is_inactive']})"
+        )
+        print(
+            f"  signature={result['signature']} latch_t={result['latch_sim_time']} "
+            f"self_perpetuating={result['self_perpetuating']}"
+        )
 
     summary_path = OUT_DIR / "summary_2x2.json"
     with open(summary_path, "w", encoding="utf-8") as fh:
@@ -860,12 +1072,18 @@ def main_sweep(args) -> int:
     matrix = [(name, variant) for name in args.scenarios for variant in PLANT_VARIANTS]
 
     if args.list:
-        print(f"{len(args.scenarios)} scenarios x {len(PLANT_VARIANTS)} plant variants = {len(matrix)} runs")
+        print(
+            f"{len(args.scenarios)} scenarios x {len(PLANT_VARIANTS)} plant variants = {len(matrix)} runs"
+        )
         for name in args.scenarios:
             p = SCENARIOS[name]
             exists = "OK" if p.exists() else "MISSING"
             exp = EXPECTED_WHEEL_DEG.get(name)
-            exp_str = "control (~0 deg expected)" if exp in (None, 0.0) else f"expected ~{exp:g} deg wheel-rotation onset"
+            exp_str = (
+                "control (~0 deg expected)"
+                if exp in (None, 0.0)
+                else f"expected ~{exp:g} deg wheel-rotation onset"
+            )
             print(f"  [{exists}] {name}: {p}  ({exp_str})")
         for m, extra in PLANT_VARIANTS:
             print(f"  plant variant: {_plant_tag(extra)} -> {extra}")
@@ -873,8 +1091,10 @@ def main_sweep(args) -> int:
         return 0
 
     if not os.path.exists(DLL):
-        print(f"FAIL: DLL not found at {DLL} -- run /build first (not doing it automatically). "
-              "This script does NOT run headless simulation without it; nothing was executed.")
+        print(
+            f"FAIL: DLL not found at {DLL} -- run /build first (not doing it automatically). "
+            "This script does NOT run headless simulation without it; nothing was executed."
+        )
         return 1
     for name in args.scenarios:
         if not SCENARIOS[name].exists():
@@ -886,17 +1106,25 @@ def main_sweep(args) -> int:
     for name, (mode, extra) in matrix:
         tag = _plant_tag(extra)
         print(f"== {name} / plant({tag}) ==")
-        rows, verdict = run_one(name, SCENARIOS[name], extra, args.duration, args.onset_window, args.dt)
+        rows, verdict = run_one(
+            name, SCENARIOS[name], extra, args.duration, args.onset_window, args.dt
+        )
         _write_csv(rows, OUT_DIR / f"{name}__{tag}.csv")
         all_verdicts.append(verdict)
-        print(f"  frames={verdict['n_frames_total']} "
-              f"max|target| onset={verdict['max_abs_target_norm_onset']:.5f} axis-frac "
-              f"({verdict['max_abs_target_wheel_deg_onset']:.2f} deg wheel-equiv, "
-              f"expected ~{verdict['expected_wheel_deg']!r} deg)")
-        print(f"  max residual onset={verdict['max_residual_onset']:.5f} "
-              f"(threshold={verdict['residual_threshold']}) latch_t={verdict['latch_sim_time']}")
-        print(f"  bootstrap_frames_onset={verdict['bootstrap_frames_onset']} "
-              f"(ok<=1: {verdict['bootstrap_frames_ok']})")
+        print(
+            f"  frames={verdict['n_frames_total']} "
+            f"max|target| onset={verdict['max_abs_target_norm_onset']:.5f} axis-frac "
+            f"({verdict['max_abs_target_wheel_deg_onset']:.2f} deg wheel-equiv, "
+            f"expected ~{verdict['expected_wheel_deg']!r} deg)"
+        )
+        print(
+            f"  max residual onset={verdict['max_residual_onset']:.5f} "
+            f"(threshold={verdict['residual_threshold']}) latch_t={verdict['latch_sim_time']}"
+        )
+        print(
+            f"  bootstrap_frames_onset={verdict['bootstrap_frames_onset']} "
+            f"(ok<=1: {verdict['bootstrap_frames_ok']})"
+        )
         print(f"  VERDICT: {verdict['verdict']}")
 
     summary_path = OUT_DIR / "summary.json"
@@ -911,30 +1139,58 @@ def main_sweep(args) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=["2x2", "sweep"], default="2x2",
-                     help="'2x2' (default, PM's current primary design): 6 fixed cells, see CELLS. "
-                          "'sweep': original 8-scenario x 3-plant-variant curvature sweep.")
-    ap.add_argument("--scenarios", nargs="+", choices=sorted(SCENARIOS), default=sorted(SCENARIOS),
-                     help="(--mode sweep only) Subset of scenarios to run (default: all 8).")
-    ap.add_argument("--duration", type=float, default=4.0, help="Capture window [s] (default 4.0).")
-    ap.add_argument("--onset-window", type=float, default=1.0,
-                     help="Onset analysis window [s] from t=0 (default 1.0, per team-lead spec).")
-    ap.add_argument("--dt", type=float, default=REAL_MACHINE_DT,
-                     help=f"Fixed timestep [s] (default {REAL_MACHINE_DT}, matches real-machine dt=0.01).")
-    ap.add_argument("--list", action="store_true",
-                     help="(--mode sweep only) Print the scenario x plant-variant matrix and exit "
-                          "WITHOUT touching the DLL/simulator.")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--mode",
+        choices=["2x2", "sweep"],
+        default="2x2",
+        help="'2x2' (default, PM's current primary design): 6 fixed cells, see CELLS. "
+        "'sweep': original 8-scenario x 3-plant-variant curvature sweep.",
+    )
+    ap.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=sorted(SCENARIOS),
+        default=sorted(SCENARIOS),
+        help="(--mode sweep only) Subset of scenarios to run (default: all 8).",
+    )
+    ap.add_argument(
+        "--duration", type=float, default=4.0, help="Capture window [s] (default 4.0)."
+    )
+    ap.add_argument(
+        "--onset-window",
+        type=float,
+        default=1.0,
+        help="Onset analysis window [s] from t=0 (default 1.0, per team-lead spec).",
+    )
+    ap.add_argument(
+        "--dt",
+        type=float,
+        default=REAL_MACHINE_DT,
+        help=f"Fixed timestep [s] (default {REAL_MACHINE_DT}, matches real-machine dt=0.01).",
+    )
+    ap.add_argument(
+        "--list",
+        action="store_true",
+        help="(--mode sweep only) Print the scenario x plant-variant matrix and exit "
+        "WITHOUT touching the DLL/simulator.",
+    )
     args = ap.parse_args()
 
     if args.mode == "2x2":
         if args.list:
-            print(f"2x2 mode: {len(CELLS)} fixed cells (no --scenarios subset selection)")
+            print(
+                f"2x2 mode: {len(CELLS)} fixed cells (no --scenarios subset selection)"
+            )
             for cell_id, scenario_name, wheel_condition, mode, extra in CELLS:
                 p = SCENARIOS[scenario_name]
                 exists = "OK" if p.exists() else "MISSING"
-                print(f"  [{exists}] {cell_id}: scenario={scenario_name} wheel={wheel_condition} "
-                      f"mode={mode} extra={extra} -> {p}")
+                print(
+                    f"  [{exists}] {cell_id}: scenario={scenario_name} wheel={wheel_condition} "
+                    f"mode={mode} extra={extra} -> {p}"
+                )
             print(f"\nDLL: {DLL} ({'OK' if os.path.exists(DLL) else 'MISSING'})")
             return 0
         return main_2x2(args)
