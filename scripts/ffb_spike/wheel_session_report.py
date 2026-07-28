@@ -59,9 +59,15 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _shipped_config  # noqa: E402
+
 # 未検出帯の真値: kp*x + friction_ff*tanh(x/eps) = shadow_breakaway を満たす x。
-# 出荷値 (4.0 / 0.15 / 0.010 / 0.21) で 0.01729 axis-frac ≈ 7.8 deg。
-UNDETECTABLE_BAND = 0.01729
+# config/virtual_driver.json のkp/friction_ff/eps/breakawayから毎回解く —
+# 出荷値(4.0/0.15/0.010/0.21)なら0.01729 axis-frac ≈ 7.8 degになるが、較正で
+# これらが変わっても追随する(feature:F7 wheel autocal要件 sec 6-1/7-5、
+# ハードコードした導出結果を再宣言しない)。
+UNDETECTABLE_BAND = _shipped_config.undetectable_band()
 
 
 def load(path: Path) -> list[dict]:

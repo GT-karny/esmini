@@ -44,16 +44,22 @@ import math
 import sys
 from pathlib import Path
 
-# OverrideManager の出荷値（GT_esmini/config/virtual_driver.json）。
-# ここはシャドウの「モデル」ではなく、レジーム分類のための境界値として使う。
-KINETIC = 0.16
-BRK_HI = 0.21
-BRK_LEFT = 0.170
-BRK_RIGHT = 0.190
-SLOPE = 3.35
-VMAX = 1.0
-MAX_FORCE = 0.60
-HARD_STOP_ZONE = 0.85
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _shipped_config  # noqa: E402
+
+# OverrideManager の出荷値（GT_esmini/config/virtual_driver.json から読む —
+# 較正でconfigが変わっても追随するよう、ここでは再宣言しない。feature:F7
+# wheel autocal要件 sec 6-1/7-5）。ここはシャドウの「モデル」ではなく、
+# レジーム分類のための境界値として使う。
+_sc = _shipped_config.load()
+KINETIC = _sc.kinetic
+BRK_HI = _sc.brk_hi
+BRK_LEFT = _sc.brk_left
+BRK_RIGHT = _sc.brk_right
+SLOPE = _sc.slope
+VMAX = _sc.vmax
+MAX_FORCE = _sc.max_force
+HARD_STOP_ZONE = _sc.hard_stop_zone
 
 
 def load(path: Path) -> list[dict]:

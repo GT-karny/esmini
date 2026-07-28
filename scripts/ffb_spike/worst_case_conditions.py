@@ -47,13 +47,19 @@ import math
 import sys
 from pathlib import Path
 
-# シャドウの出荷値（GT_esmini/config/virtual_driver.json）。レジーム境界としてのみ使う。
-KINETIC = 0.16
-BRK_HI = 0.21
-BRK_LEFT = 0.170   # force >= 0 側（ホイールを左へ押す）の breakaway 帯下端
-BRK_RIGHT = 0.190  # force <  0 側（ホイールを右へ押す）の breakaway 帯下端
-SLOPE = 3.35
-VMAX = 1.0
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _shipped_config  # noqa: E402
+
+# シャドウの出荷値（GT_esmini/config/virtual_driver.json から読む — 較正で
+# configが変わっても追随するよう、ここでは再宣言しない。feature:F7 wheel
+# autocal要件 sec 6-1/7-5）。レジーム境界としてのみ使う。
+_sc = _shipped_config.load()
+KINETIC = _sc.kinetic
+BRK_HI = _sc.brk_hi
+BRK_LEFT = _sc.brk_left    # force >= 0 側（ホイールを左へ押す）の breakaway 帯下端
+BRK_RIGHT = _sc.brk_right  # force <  0 側（ホイールを右へ押す）の breakaway 帯下端
+SLOPE = _sc.slope
+VMAX = _sc.vmax
 
 RATE_SIGN_EPS = 0.02
 FORCE_SIGN_EPS = 0.01
