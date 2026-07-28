@@ -23,6 +23,8 @@
 
 #include "Controller.hpp"
 #include "OSCProperties.hpp"
+#include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
+#include "gt_esmini/control/manualdrive/OverrideManager.hpp"
 
 namespace gt_esmini
 {
@@ -385,6 +387,132 @@ TEST(ControllerVirtualDriverTeardownTest, ReactivationRearmsTheRelease)
     as_base.DeactivateDomains(kLat);
 
     EXPECT_EQ(spy.teardown_count, 2);
+}
+
+// --- feature:F7 — the bypass route must also hand the latch back to AUTO ----
+//
+// The tests above prove that DeactivateDomains() reaches teardown. They do NOT
+// prove what teardown then does to the intervention latch, and that coupling
+// was resting on code reading alone: TearDownControlOutputs() calls
+// OverrideManager::RequestAutoMode(), which is one of the three routes back to
+// AUTO that share ResetInterventionStateOnReturnToAuto(). Two separately
+// correct halves do not make a correct whole -- that assumption is exactly
+// what the un-overridden virtual cost us in the first place.
+//
+// So the spy below drives a REAL OverrideManager the way the controller does,
+// and the assertion is behavioural: after the bypass route fires, the driver
+// must be able to override AGAIN.
+
+namespace
+{
+
+class TeardownWithLatchSpy : public Controller
+{
+public:
+    TeardownWithLatchSpy() : Controller(MakeArgs())
+    {
+        ManualDriveConfig cfg;
+        cfg.override_cfg.enabled            = true;
+        cfg.override_cfg.steering_threshold = 0.05;
+        cfg.override_cfg.throttle_threshold = 0.10;
+        cfg.override_cfg.brake_threshold    = 0.10;
+        cfg.domain.lateral                  = "manual";
+        cfg.domain.longitudinal             = "manual";
+        mgr_.Configure(cfg);
+    }
+
+    OverrideManager& Manager() { return mgr_; }
+
+    void Steer(double axis, double dt = 0.02)
+    {
+        InputFrame f;
+        PedalSteerCommand ps;
+        ps.steering = axis;
+        f.pedal_steer = ps;
+        f.connected   = true;
+        mgr_.Update(f, dt);
+    }
+
+    void DeactivateDomains(unsigned int domains) override
+    {
+        const bool losing_lateral =
+            IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) &&
+            (domains & static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) != 0;
+        const bool goes_inactive = Active() && (GetActiveDomains() & ~domains) == 0;
+        if ((losing_lateral || goes_inactive) && !released_)
+        {
+            released_ = true;
+            // Mirrors TearDownControlOutputs(): stop the servo, then hand the
+            // latch back to AUTO.
+            mgr_.RequestAutoMode();
+        }
+        Controller::DeactivateDomains(domains);
+    }
+
+    void Arm() { released_ = false; }
+
+private:
+    OverrideManager mgr_;
+    bool            released_ = false;
+
+    static InitArgs* MakeArgs()
+    {
+        static scenarioengine::OSCProperties props;
+        static InitArgs                      args{"latch_spy", "test", &props, nullptr, nullptr};
+        return &args;
+    }
+};
+
+}  // namespace
+
+TEST(ControllerVirtualDriverTeardownTest, BypassRouteReturnsTheInterventionLatchToAuto)
+{
+    TeardownWithLatchSpy spy;
+    ActivateBoth(spy);
+    spy.Arm();
+
+    // A driver overrides: centred start, then steers.
+    spy.Steer(0.0);
+    spy.Steer(0.30);
+    ASSERT_TRUE(spy.Manager().IsLateralManual()) << "setup: the override must latch";
+
+    // The scenario hands the lateral domain to another controller — the route
+    // that skipped teardown entirely before 7678bb99.
+    Controller& as_base = spy;
+    as_base.DeactivateDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT));
+
+    EXPECT_FALSE(spy.Manager().IsLateralManual())
+        << "control was taken away, so a latch describing a driver who no longer has "
+           "the wheel must not survive it";
+    EXPECT_FALSE(spy.Manager().IsAnyManual());
+}
+
+TEST(ControllerVirtualDriverTeardownTest, DriverCanOverrideAgainAfterTheBypassRoute)
+{
+    // The consequence that matters to the user, and the reason the reset has to
+    // be the SAME one the RESUME button performs: carrying stale detector state
+    // across the hand-back is what "I came back and then could not override
+    // again" was made of.
+    TeardownWithLatchSpy spy;
+    ActivateBoth(spy);
+    spy.Arm();
+
+    spy.Steer(0.0);
+    spy.Steer(0.30);
+    ASSERT_TRUE(spy.Manager().IsLateralManual());
+
+    Controller& as_base = spy;
+    as_base.DeactivateDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT));
+    ASSERT_FALSE(spy.Manager().IsAnyManual());
+
+    // Second intervention, same shape as the first. The wheel is still sitting
+    // where the driver left it, so the return re-baselined the axis; a fresh
+    // movement past the threshold must latch again.
+    spy.Steer(0.30);
+    spy.Steer(0.40);
+    EXPECT_TRUE(spy.Manager().IsLateralManual())
+        << "after the scenario took control away and gave it back, the driver must be "
+           "able to override again";
 }
 
 TEST(ControllerVirtualDriverTeardownTest, SetupThatBailsPartWayThroughStillReleases)

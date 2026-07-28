@@ -1,0 +1,18 @@
+scenario: scenario_domain_takeover_vd
+category: 08_handoff
+# feature:F7 per-domain takeover (OpenSCENARIO v1.3). Another controller taking
+# a domain is implemented upstream as Controller::DeactivateDomains(mask) on
+# the incumbent -- a route that never touches Deactivate() and that, before
+# 7678bb99, skipped TearDownControlOutputs() and left the FFB servo running.
+#
+# vd_active IS observable here, contrary to a first reading that assumed the
+# teardown and the re-activation cancel out within one frame. They do not:
+# after DeactivateDomains(LAT) the following Activate() is classified
+# ACTIVE->ACTIVE (the controller still holds a domain), which is a deliberate
+# no-op -- so SetUpControlOutputs() never runs and vd_active stays false.
+# Measured on this scenario: vd_active True until t=8.100, false for the whole
+# remainder of the run.
+must:
+  - event: vd_control_relinquished
+    after: { sim_time: 7.5 }  # margin under the scripted 8.0s takeover
+    reason: "別コントローラが横方向を奪う v1.3 経路(DeactivateDomains)でも、VDがサーボを停止して制御を手放すこと"

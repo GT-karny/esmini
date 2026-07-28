@@ -4,12 +4,17 @@ note: Committed regression baseline for the VirtualDriver behavioral batch. Comp
   the check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
   committing.
 expected_summary:
-  pass: 1
+  pass: 2
   fail: 0
   needs-review: 0
   error: 0
 scenarios:
   scenario_deactivate_vd:
+    status: pass
+    matchers:
+    - event: vd_control_relinquished
+      status: pass
+  scenario_domain_takeover_vd:
     status: pass
     matchers:
     - event: vd_control_relinquished

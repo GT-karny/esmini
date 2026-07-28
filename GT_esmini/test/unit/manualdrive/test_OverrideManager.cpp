@@ -1156,29 +1156,64 @@ TEST(OverrideManagerTest, DriverHoldingFromTheVeryFirstFrameIsCaughtByTheResidua
     // justification for that suppression is that the residual path can still
     // tell a hand from a leftover angle, from physics rather than from a
     // level. This test is that claim, stated as an assertion.
+    // THE FIXTURE MUST ACTUALLY ARM THE BASELINE, and the first version of it
+    // did not. It drove the manager through RunFrames(), which passes
+    // QuietFrame() -- steering 0.0 -- as the InputFrame. The physical wheel
+    // was at -0.30 in the servo rig, but the direct-axis path was being shown
+    // a centred wheel, so the baseline never armed and nothing was ever
+    // suppressed. The test passed, but not for the reason its own comment
+    // gave: the residual path would have fired identically with no baseline
+    // in the picture at all. A positive fixture that never enters the state
+    // it claims to cover is worth less than no fixture, because it reads as
+    // coverage. The loop below is written out so the InputFrame carries the
+    // REAL axis.
     const double dt   = 0.02;
     const double hold = -0.30;
 
-    OverrideManager m;
-    ManualDriveConfig cfg = MakeConfigWithFfb();
-    cfg.ffb.target_track.enabled = true;
-    m.Configure(cfg);
+    auto run = [&](bool servo_available) {
+        OverrideManager m;
+        ManualDriveConfig cfg = MakeConfigWithFfb();
+        cfg.ffb.target_track.enabled = servo_available;
+        m.Configure(cfg);
 
-    ServoRig rig(hold);
-    // AD wants the wheel near centre; the driver refuses to give it up.
-    const RunResult r = RunFrames(m, 200, dt, [&](int) {
-        return rig.StepHold(0.0, dt, hold);
-    });
+        ServoRig rig(hold);
+        int latch_frame = -1;
+        for (int i = 0; i < 200; ++i)
+        {
+            const FfbInterventionSample s = rig.StepHold(0.0, dt, hold);
+            // The servo only reports samples when it is running. With
+            // target_track off there is no servo and hence no residual path.
+            m.UpdateFfbSample(servo_available ? s : FfbInterventionSample{});
+            // The axis the direct-axis path sees IS the physical wheel.
+            m.Update(MakeFrame(rig.Axis()), dt);
+            if (latch_frame < 0 && m.IsLateralManual()) latch_frame = i;
+        }
+        return latch_frame;
+    };
 
-    std::cout << "[startup-hold] driver holding at " << hold
-              << " from frame 0, latch_frame=" << r.latch_frame
-              << " peak_residual=" << r.peak_residual << "\n";
+    const int with_servo    = run(true);
+    const int without_servo = run(false);
+    std::cout << "[startup-hold] driver holding at " << hold << " from frame 0: "
+              << "with servo latch_frame=" << with_servo
+              << " | no servo (counterfactual) latch_frame=" << without_servo << "\n";
 
-    ASSERT_GE(r.latch_frame, 0)
+    ASSERT_GE(with_servo, 0)
         << "a driver holding the wheel from the very first frame must be detected. "
-           "If this fails, the startup axis reference has traded a real intervention "
+           "If this fails, the startup axis baseline has traded a real intervention "
            "for the t=0 false latch instead of separating them";
-    EXPECT_TRUE(m.IsLateralManual());
+
+    // THE COUNTERFACTUAL, which is what makes the assertion above mean
+    // something. Same axis feed, same held wheel, but with no residual path
+    // available: nothing latches. That can only be true if the baseline really
+    // did arm and really did suppress the direct-axis check -- |−0.30| is six
+    // times the 0.05 threshold, so an unarmed baseline would latch on frame 0.
+    // So the two lines together pin BOTH halves: the baseline is armed (or the
+    // second run would latch) and the residual path is what still catches the
+    // driver (or the first would not).
+    EXPECT_EQ(without_servo, -1)
+        << "the baseline is not actually arming -- the direct-axis path latched on a "
+           "wheel that was off-centre from frame 0, so the 'with servo' result above "
+           "proves nothing about suppression";
 }
 
 // --- feature:F7 — a well-tracked moving wheel is not a driver ---------------
