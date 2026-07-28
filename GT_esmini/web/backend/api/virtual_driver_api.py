@@ -58,6 +58,9 @@ _BOOL_KEYS = frozenset(
         "ffb_target_track_enabled",
         # feature:F7 — AD steering safety envelope master gate (default ON).
         "ad_steering_envelope_enabled",
+        # feature:F7 — AD resume-merge trajectory master gate (default ON
+        # since 2026-07-28).
+        "resume_merge_enabled",
     }
 )
 _NUMBER_KEYS = frozenset(
@@ -88,6 +91,13 @@ _NUMBER_KEYS = frozenset(
         "steer_rate_max",
         "envelope_v_floor",
         "ad_steering_envelope_steer_jerk_max",
+        # feature:F7 — AD resume-merge trajectory tuning. See
+        # GT_esmini/config/virtual_driver.json "_resume_merge" and
+        # ResumeMergeProfile.hpp for kResumeMergeDefault*.
+        "resume_merge_a_lat_comfort",
+        "resume_merge_duration_min_s",
+        "resume_merge_duration_max_s",
+        "resume_merge_min_offset_m",
         "control_point_offset",
         "control_point_min_speed",
         "indicator_lead_time",
@@ -280,6 +290,25 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "steer_rate_max": 1.5,
     "envelope_v_floor": 1.0,
     "ad_steering_envelope_steer_jerk_max": 0.0,
+    "_resume_merge": (
+        "feature:F7 AD resume-merge trajectory. On AUTO_RESUME, generates a "
+        "smooth lane-change-like merge back to the ROUTE lane over "
+        "resume_merge_duration_min_s..resume_merge_duration_max_s seconds "
+        "instead of steering back by the shortest path. "
+        "resume_merge_a_lat_comfort shapes the maneuver's comfort target; the "
+        "AD steering safety envelope above remains the hard cap regardless of "
+        "this feature's state. resume_merge_min_offset_m is the minimum "
+        "lateral offset from the route lane required to arm the maneuver. "
+        "Default ON since 2026-07-28 (smoothness confirmed on the real "
+        "wheel); setting it false restores the previous behavior exactly. "
+        "See ResumeMergeProfile.hpp for "
+        "kResumeMergeDefault* (single source of truth on the C++ side)."
+    ),
+    "resume_merge_enabled": True,
+    "resume_merge_a_lat_comfort": 1.5,
+    "resume_merge_duration_min_s": 1.5,
+    "resume_merge_duration_max_s": 6.0,
+    "resume_merge_min_offset_m": 0.5,
     "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
     "control_point_offset": 0.0,
     "control_point_min_speed": 1.0,
