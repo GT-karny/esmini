@@ -53,6 +53,7 @@ exit code:
   1 - 少なくとも 1 シナリオで分岐を再現した（分岐点を出力済み）
   2 - 走らせられなかった（DLL 欠落・シナリオ欠落など）。一致ではない。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -73,17 +74,37 @@ DEFAULT_DLL = ROOT / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 SCENARIOS = {
     # 非決定と報告された側
     "virtual_driver_basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "decelerate_for_right_turn": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                                 / "decelerate_for_right_turn.xosc",
-    "traffic_lights_junction": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                               / "traffic_lights_junction.xosc",
+    "decelerate_for_right_turn": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "decelerate_for_right_turn.xosc",
+    "traffic_lights_junction": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "traffic_lights_junction.xosc",
     # 決定的と報告された側（陰性対照）
-    "decelerate_for_curve": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                            / "decelerate_for_curve.xosc",
-    "cross_straight_junction": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                               / "cross_straight_junction.xosc",
-    "speed_limit_change": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                          / "speed_limit_change.xosc",
+    "decelerate_for_curve": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "decelerate_for_curve.xosc",
+    "cross_straight_junction": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "cross_straight_junction.xosc",
+    "speed_limit_change": ROOT
+    / "resources"
+    / "xosc"
+    / "verification"
+    / "05_anticipation"
+    / "speed_limit_change.xosc",
 }
 
 
@@ -92,7 +113,12 @@ SCENARIOS = {
 # ---------------------------------------------------------------------------
 def _worker_main() -> int:
     dll_path, xosc_path, dt, max_time_s, out_path = (
-        sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]), sys.argv[6])
+        sys.argv[2],
+        sys.argv[3],
+        float(sys.argv[4]),
+        float(sys.argv[5]),
+        sys.argv[6],
+    )
     cfg_path = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] != "-" else None
 
     lib = ctypes.CDLL(dll_path)
@@ -100,7 +126,11 @@ def _worker_main() -> int:
     lib.GT_InitWithArgs.restype = ctypes.c_int
     lib.GT_Step.argtypes = [ctypes.c_double]
     lib.GT_Close.argtypes = []
-    lib.GT_GetVirtualDriverTelemetry.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    lib.GT_GetVirtualDriverTelemetry.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+    ]
     lib.GT_GetVirtualDriverTelemetry.restype = ctypes.c_int
 
     # NOTE: VirtualDriver の config は CLI ではなく xosc の Controller property
@@ -108,8 +138,14 @@ def _worker_main() -> int:
     # ときは呼び出し側が xosc variant を書いて --scenario で渡すこと。
     # 車両物理（IdleJitter を含む）は config/real_vehicle_params.json 側。
     assert cfg_path is None or cfg_path == "-", "config 差し替えは xosc variant で行う"
-    argv_list = [b"determinism", b"--osc", xosc_path.encode(), b"--headless",
-                 b"--fixed_timestep", f"{dt:.3f}".encode()]
+    argv_list = [
+        b"determinism",
+        b"--osc",
+        xosc_path.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        f"{dt:.3f}".encode(),
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -129,20 +165,40 @@ def _worker_main() -> int:
     return 0
 
 
-def run_once(dll: str, xosc: str, dt: float, max_time_s: float,
-             cfg: str | None, extra_env: dict) -> list[str]:
+def run_once(
+    dll: str, xosc: str, dt: float, max_time_s: float, cfg: str | None, extra_env: dict
+) -> list[str]:
     fd, out_path = tempfile.mkstemp(prefix="vd_det_", suffix=".jsonl")
     os.close(fd)
     env = dict(os.environ)
     env.update(extra_env)
     try:
         r = subprocess.run(
-            [sys.executable, os.path.abspath(__file__), "--worker", dll, xosc,
-             repr(dt), repr(max_time_s), out_path, cfg or "-"],
-            capture_output=True, text=True, timeout=max(180.0, max_time_s * 4), env=env)
+            [
+                sys.executable,
+                os.path.abspath(__file__),
+                "--worker",
+                dll,
+                xosc,
+                repr(dt),
+                repr(max_time_s),
+                out_path,
+                cfg or "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=max(180.0, max_time_s * 4),
+            env=env,
+        )
         if r.returncode != 0:
-            raise RuntimeError(f"worker rc={r.returncode}\n{r.stdout[-1500:]}\n{r.stderr[-1500:]}")
-        return [l for l in Path(out_path).read_text(encoding="utf-8").splitlines() if l.strip()]
+            raise RuntimeError(
+                f"worker rc={r.returncode}\n{r.stdout[-1500:]}\n{r.stderr[-1500:]}"
+            )
+        return [
+            l
+            for l in Path(out_path).read_text(encoding="utf-8").splitlines()
+            if l.strip()
+        ]
     finally:
         Path(out_path).unlink(missing_ok=True)
 
@@ -187,23 +243,37 @@ def compare_runs(runs: list[list[str]]) -> dict:
         return res
     i, j = first
     fa, fb = json.loads(runs[0][i]), json.loads(runs[j][i])
-    res.update({"frame_index": i, "run_b": j,
-                "sim_time": fa.get("sim_time"),
-                "diffs": leaf_diffs(fa, fb)})
+    res.update(
+        {
+            "frame_index": i,
+            "run_b": j,
+            "sim_time": fa.get("sim_time"),
+            "diffs": leaf_diffs(fa, fb),
+        }
+    )
     return res
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--dll", default=str(DEFAULT_DLL))
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--dt", type=float, default=0.01)
     ap.add_argument("--max-time", type=float, default=40.0)
-    ap.add_argument("--scenario", action="append", default=None,
-                    help="SCENARIOS の名前、または .xosc パス。複数可。既定は全 6 件")
-    ap.add_argument("--config", default=None, help="VirtualDriver config JSON（A/B 用）")
-    ap.add_argument("--env", action="append", default=[], help="KEY=VALUE（worker に渡す）")
+    ap.add_argument(
+        "--scenario",
+        action="append",
+        default=None,
+        help="SCENARIOS の名前、または .xosc パス。複数可。既定は全 6 件",
+    )
+    ap.add_argument(
+        "--config", default=None, help="VirtualDriver config JSON（A/B 用）"
+    )
+    ap.add_argument(
+        "--env", action="append", default=[], help="KEY=VALUE（worker に渡す）"
+    )
     args = ap.parse_args()
 
     if not Path(args.dll).exists():
@@ -216,7 +286,7 @@ def main() -> int:
         extra_env[k] = v
 
     targets = []
-    for s in (args.scenario or list(SCENARIOS)):
+    for s in args.scenario or list(SCENARIOS):
         p = SCENARIOS.get(s, Path(s))
         if not Path(p).exists():
             print(f"NOT RUN — シナリオが無い: {s} -> {p}")
@@ -226,23 +296,33 @@ def main() -> int:
     print(f"DLL      : {args.dll}")
     print(f"config   : {args.config or '(既定)'}")
     print(f"env      : {extra_env or '(なし)'}")
-    print(f"runs     : {args.runs}（各 run = 独立プロセス）  dt={args.dt}  max_time={args.max_time}")
+    print(
+        f"runs     : {args.runs}（各 run = 独立プロセス）  dt={args.dt}  max_time={args.max_time}"
+    )
     print()
 
     diverged = []
     for name, path in targets:
-        runs = [run_once(args.dll, str(path), args.dt, args.max_time, args.config, extra_env)
-                for _ in range(args.runs)]
+        runs = [
+            run_once(
+                args.dll, str(path), args.dt, args.max_time, args.config, extra_env
+            )
+            for _ in range(args.runs)
+        ]
         res = compare_runs(runs)
         if res.get("identical"):
-            print(f"[一致]   {name:28s} frames={res['n_frames'][0]} × {args.runs} run 完全一致")
+            print(
+                f"[一致]   {name:28s} frames={res['n_frames'][0]} × {args.runs} run 完全一致"
+            )
             continue
         if "frame_index" not in res:
             print(f"[?]      {name:28s} {res.get('note')}")
             continue
         diverged.append(name)
-        print(f"[分岐]   {name:28s} frame={res['frame_index']} "
-              f"t={res['sim_time']} (run0 vs run{res['run_b']})  frames={res['n_frames']}")
+        print(
+            f"[分岐]   {name:28s} frame={res['frame_index']} "
+            f"t={res['sim_time']} (run0 vs run{res['run_b']})  frames={res['n_frames']}"
+        )
         for k, va, vb in res["diffs"]:
             extra = ""
             if isinstance(va, (int, float)) and isinstance(vb, (int, float)) and va:
@@ -251,9 +331,13 @@ def main() -> int:
         print()
 
     if diverged:
-        print(f"RESULT: 非決定性を再現した — {len(diverged)}/{len(targets)}: {diverged}")
+        print(
+            f"RESULT: 非決定性を再現した — {len(diverged)}/{len(targets)}: {diverged}"
+        )
         return 1
-    print(f"RESULT: 全 {len(targets)} シナリオ × {args.runs} run が完全一致（この条件では再現せず）")
+    print(
+        f"RESULT: 全 {len(targets)} シナリオ × {args.runs} run が完全一致（この条件では再現せず）"
+    )
     return 0
 
 
