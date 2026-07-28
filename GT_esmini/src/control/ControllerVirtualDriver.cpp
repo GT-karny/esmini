@@ -399,7 +399,8 @@ void ControllerVirtualDriver::Step(double timeStep)
     // Smooths a manual->AUTO_RESUME lateral hand-over by ramping a ROUTE-lane
     // reference into the short planner instead of the raw per-frame
     // current-lane snap (TrajectoryShortPlanner.cpp's anchor). Entirely gated
-    // behind resume_merge_cfg_.enabled (shipped default: false) -- when
+    // behind resume_merge_cfg_.enabled (shipped default: TRUE since
+    // 2026-07-28; it was false while the feature was being validated) -- when
     // false, NOTHING below this guard executes, so merge_now_* keep the SAME
     // values ShortPlanContext already defaults its merge_* fields to, and
     // TrajectoryShortPlanner's pre-existing current-lane-anchor path runs
@@ -769,6 +770,7 @@ void ControllerVirtualDriver::Step(double timeStep)
             case ReanchorSource::DRIFT:           reanchor_reason_str = "drift";           break;
             case ReanchorSource::RESUME:          reanchor_reason_str = "resume";          break;
             case ReanchorSource::INACTIVE_REARM:  reanchor_reason_str = "inactive_rearm";  break;
+            case ReanchorSource::SERVO_TRACKING:  reanchor_reason_str = "servo_tracking";  break;
         }
 
         telemetry_.ffb_gate_reanchor_hard_count           = diag.reanchor_hard_count;

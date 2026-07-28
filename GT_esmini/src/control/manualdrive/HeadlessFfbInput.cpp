@@ -76,7 +76,24 @@ public:
         // test_results/f7_force_coupled_plant_spec.md). Real-measured
         // defaults (CHARACTERIZATION.md); see HeadlessFfbInput.hpp for the
         // per-var citations. No-op unless mode_=="plant".
-        plant_position_ = 0.0;
+        //
+        // Initial axis position [-1,+1] axis-frac. Default 0.0 = current
+        // behavior (starts centered), unchanged unless the env var is set —
+        // this is a verification-harness-only knob, not a shipped default
+        // change. Needed to model "resting off-center but still free to
+        // move under force" (the real -1k-band control cells from the
+        // threshold sweep, §5-6/f7_manual_carryover_analysis.md §1-8),
+        // which "frozen" cannot: frozen never moves even when pushed, i.e.
+        // it models a driver actively holding the wheel, not a wheel merely
+        // resting off-center. Same read pattern as GT_HEADLESS_FFB_FROZEN_AT
+        // above (parse-or-default, no clamp — matches that precedent
+        // exactly rather than inventing a new convention).
+        double plant_init_at = 0.0;
+        if (const char* v = std::getenv("GT_HEADLESS_FFB_PLANT_INIT_AT"))
+        {
+            try { plant_init_at = std::stod(v); } catch (...) { plant_init_at = 0.0; }
+        }
+        plant_position_ = plant_init_at;
         plant_velocity_ = 0.0;
         plant_moving_   = false;
         driver_force_norm_ = 0.0;
@@ -133,10 +150,11 @@ public:
         LOG_INFO("HeadlessFfbSink: mode={} frozen_at={:.3f} lag_tau={:.3f}s "
                  "target_track_enabled={} kp={:.2f} kd={:.2f} max_force={:.2f} "
                  "plant_breakaway={:.3f} plant_kinetic={:.3f} plant_slope={:.3f} plant_vmax={:.3f} "
-                 "plant_noise_amp={:.4f} plant_seed={}",
+                 "plant_noise_amp={:.4f} plant_seed={} plant_init_at={:.3f}",
                  mode_, frozen_at_, lag_tau_, target_track_enabled_,
                  servo_cfg_.kp, servo_cfg_.kd, servo_cfg_.max_force,
-                 plant_breakaway_, plant_kinetic_, plant_slope_, plant_vmax_, plant_noise_amp_, plant_seed);
+                 plant_breakaway_, plant_kinetic_, plant_slope_, plant_vmax_, plant_noise_amp_, plant_seed,
+                 plant_init_at);
     }
 
     const std::string& Mode() const { return mode_; }
@@ -470,6 +488,17 @@ InputFrame HeadlessFfbInput::Poll(double /*dt*/)
             std::memcpy(&magic, buf, 4);
             if (magic != MAGIC_PEDAL_STEER) continue;
             std::memcpy(&latest_value, buf + 4, 8);  // "steering" field
+            // feature:F7 — also take the wire's "buttons" field (offset 40:
+            // magic 4 + 4 doubles 32 + gear 4; same layout NetworkInputBridge
+            // parses). Without this the buttons were hardcoded to 0 below, so
+            // AUTO_RESUME had NO channel under input_type=headless_ffb and
+            // every headless "resume" test had to fake it with the
+            // auto_return_timeout idle path instead. Those are NOT the same
+            // code path -- the RESUME rising edge resets the shadow/history
+            // state and the idle path does not (OverrideManager::Update) --
+            // so the harness was systematically exercising a different
+            // mechanism from the one a user's RESUME button takes.
+            std::memcpy(&latest_buttons_, buf + 40, 4);
             got_new = true;
         }
         if (got_new)
@@ -487,7 +516,10 @@ InputFrame HeadlessFfbInput::Poll(double /*dt*/)
     ps.steering = sink_ ? sink_->CurrentAxis() : 0.0;
     ps.throttle = 0.0;
     ps.brake    = 0.0;
-    ps.buttons  = 0;
+    // Hold-last-value, same as the steering field above: the harness sends a
+    // packet every frame, so a button appears set for exactly the frames it
+    // was sent set, which is what a rising-edge detector needs.
+    ps.buttons  = latest_buttons_;
     f.pedal_steer = ps;
     return f;
 }

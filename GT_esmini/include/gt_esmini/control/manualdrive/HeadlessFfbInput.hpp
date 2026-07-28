@@ -156,6 +156,9 @@ private:
     class SyntheticSink;
     std::unique_ptr<SyntheticSink> sink_;
     ITransport* pushback_transport_ = nullptr;  // only opened for mode=="pushback" or "plant"
+    // feature:F7 — buttons from the same injection packet, so a headless run
+    // can press AUTO_RESUME (see Poll()). Hold-last-value.
+    uint32_t    latest_buttons_     = 0;
 };
 
 } // namespace gt_esmini

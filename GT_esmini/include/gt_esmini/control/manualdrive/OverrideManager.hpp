@@ -87,6 +87,9 @@ public:
             DRIFT,           // S4 — slow drift correction toward the measured axis
             RESUME,          // S1 fired because AUTO_RESUME (S5) invalidated the shadow
             INACTIVE_REARM,  // S1 fired because the FFB sample went inactive (S6) invalidated the shadow
+            SERVO_TRACKING,  // S7 — the wheel is moving WITH the AD target under a force too
+                             // small to move the shadow, and the tracking error is not growing.
+                             // Servo-carried motion, not a hand (OverrideManager.cpp).
         };
 
         // Both counters and both accumulators only count an event that

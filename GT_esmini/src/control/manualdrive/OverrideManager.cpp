@@ -393,6 +393,37 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // so the measured axis is recoverable from the sample.
         const double actual_norm = ffb_sample_.target_norm - ffb_sample_.position_error;
 
+        // feature:F7 — the PREVIOUS sample's measured axis and tracking error,
+        // captured HERE because ffb_prev_target_norm_/ffb_prev_pos_error_ are
+        // overwritten with this frame's values a few lines below.
+        //
+        // This is not a tidy-up. The onset-grace block further down used to
+        // recompute `prev_actual` from those two members AFTER the overwrite,
+        // so it was subtracting the current sample from itself: its
+        // `observed_moving` was identically false on every frame of every run.
+        // The test it guards -- "the shadow says moving but the measurement
+        // says still, or vice versa" -- therefore collapsed to "the shadow
+        // says moving", which is only one of the two directions. The direction
+        // that was silently missing (measurement moving while the shadow
+        // stands still) is exactly the false-latch case below, so the
+        // protection never fired where it was needed, while it kept firing --
+        // and erasing real evidence -- where it was not.
+        const double prev_actual_measured = ffb_prev_target_norm_ - ffb_prev_pos_error_;
+        const double prev_abs_pos_error   = std::abs(ffb_prev_pos_error_);
+
+        // Is the MEASURED wheel moving? (The shadow's own opinion is
+        // ffb_shadow_moving_; these two disagreeing is the whole subject of
+        // the onset grace and of S7 below.)
+        const bool observed_moving_measured =
+            !suppress &&
+            std::abs((actual_norm - prev_actual_measured) / dt) > ffb_shadow_motion_rate_eps_;
+
+        // Is the servo LOSING the wheel? Every override direction makes this
+        // true; a wheel merely carried along by the servo does not. Compared
+        // strictly, so no tuning constant enters the decision.
+        const bool tracking_error_growing =
+            std::abs(ffb_sample_.position_error) > prev_abs_pos_error;
+
         // feature:F7 re-anchor instrument — per-frame accumulator/tag (spec
         // §2). At most one of {S1 seed} or {S3 onset-grace [+S4 same frame]}
         // can fire in a given frame (S1 only runs while suppress is true,
@@ -581,9 +612,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // transition could plausibly take. A driver's disagreement persists.
         if (!suppress && ffb_shadow_onset_grace_ > 0.0)
         {
-            const double prev_actual = ffb_prev_target_norm_ - ffb_prev_pos_error_;
-            const bool observed_moving =
-                std::abs((actual_norm - prev_actual) / dt) > ffb_shadow_motion_rate_eps_;
+            const bool observed_moving = observed_moving_measured;
             if (observed_moving != ffb_shadow_moving_)
             {
                 ffb_disagree_elapsed_ = ffb_disagree_active_ ? ffb_disagree_elapsed_ + dt : 0.0;
@@ -615,6 +644,73 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             {
                 ffb_disagree_active_  = false;
                 ffb_disagree_elapsed_ = 0.0;
+            }
+        }
+
+        // --- S7: motion the servo is responsible for is not a hand ---------
+        //
+        // MEASURED (audit_handsoff_runs/run17 + run35, hands off from start to
+        // finish): the wheel moved exactly as much as the AD target every
+        // frame, the servo reported effective_force 0.00000 and
+        // position_error 0.00000, and the residual still climbed to 0.106 and
+        // latched MANUAL.
+        //
+        // The cause is structural. The shadow answers "where would the wheel
+        // be under this force with no hand on it", and a PD servo's force goes
+        // to zero exactly when it is tracking well. A force below the
+        // breakaway band cannot move the shadow at all -- so the BETTER the
+        // servo tracks a moving target, the more completely the shadow stands
+        // still while the wheel travels with the target, and the whole of that
+        // travel is booked as evidence of a driver. The residual ends up
+        // measuring how fast the AD target is moving.
+        //
+        // The discriminator is the tracking error, not a new threshold. Every
+        // override direction the detector must catch -- pressing against the
+        // AD command, steering past it, counter-steering, or gripping the
+        // wheel to a stop -- makes |position_error| GROW, because the servo
+        // can no longer put the wheel where it asked. A wheel merely being
+        // carried along has a small, NON-growing error. So when all three of
+        //   - the measurement says the wheel is moving,
+        //   - the shadow says the force is too small to move it, and
+        //   - the tracking error is not growing
+        // hold at once, the model is simply wrong about the wheel's state of
+        // motion, and the honest correction is to update the model rather than
+        // to bank the disagreement as driver evidence.
+        //
+        // Deliberately NOT time-boxed, unlike the onset grace above. The grace
+        // is bounded because a driver's disagreement persists while a
+        // breakaway transient does not; but a well-tracked wheel on a long
+        // steering correction disagrees for as long as the correction lasts,
+        // and it is not evidence at ten seconds any more than at ten
+        // milliseconds. Bounding it would only postpone the false latch.
+        //
+        // Deliberately NOT conditioned on the shadow's own state of motion
+        // either. The same argument covers the case where BOTH are moving but
+        // at different speeds: a plant whose breakaway/slope differ from the
+        // shadow's constants drifts away from it on every long steering
+        // correction, and that drift is model error, not a hand. (Until this
+        // was fixed the drift was being hidden instead: the onset grace's
+        // `observed_moving` was identically false -- see the capture of
+        // prev_actual_measured above -- which made the grace fire on every
+        // frame the shadow was moving and blanket-erase the disagreement.
+        // Removing that accident without putting a principled test in its
+        // place would have turned FalsePositive4's hands-off plants red.)
+        if (!suppress && observed_moving_measured && !tracking_error_growing)
+        {
+            const double before = ffb_shadow_norm_;
+            ffb_shadow_norm_        = actual_norm;
+            ffb_shadow_vel_         = 0.0;
+            ffb_shadow_rest_anchor_ = actual_norm;
+            const double delta = actual_norm - before;
+            if (std::abs(delta) > kReanchorDeltaEps)
+            {
+                reanchor_hard_count_++;
+                reanchor_hard_delta_abs_accum_ += std::abs(delta);
+                reanchor_frame_delta           += delta;
+                // Hard sources win over the soft drift tag, and this is a hard
+                // assignment; it is reported under its own name so the erasure
+                // instrument can tell it apart from the onset grace.
+                reanchor_frame_source = FfbLatchDiagnostics::ReanchorSource::SERVO_TRACKING;
             }
         }
 

@@ -548,8 +548,22 @@ public:
     FfbInterventionSample StepStuck(double target, double dt)
     { return Step(target, dt, Driver::STUCK, 0.0); }
 
+    // Nobody is touching the wheel and the servo is tracking it PERFECTLY:
+    // the wheel sits exactly on the AD target every frame, so the position
+    // error -- and therefore the servo force -- is ~zero while the wheel
+    // moves. This is the asymptote of a well-tuned servo, and it is what the
+    // "follower" headless wheel mode reproduces. It matters because the
+    // shadow is driven by that force: a force of zero cannot break the shadow
+    // away from rest, so the shadow stands still while the wheel visibly
+    // moves. Measured in the wild on audit_handsoff_runs/run17 and run35,
+    // where d_actual equalled d_target to 1e-6 for every frame of the
+    // build-up, effective_force was 0.00000, and the residual nevertheless
+    // climbed past the threshold with nobody touching anything.
+    FfbInterventionSample StepTracked(double target, double dt)
+    { return Step(target, dt, Driver::TRACKED, 0.0); }
+
 private:
-    enum class Driver { NONE, HOLD, RATE, STUCK };
+    enum class Driver { NONE, HOLD, RATE, STUCK, TRACKED };
 
     FfbInterventionSample Step(double target, double dt, Driver d, double arg)
     {
@@ -562,6 +576,7 @@ private:
             case Driver::RATE:  plant_.pos = std::clamp(plant_.pos + arg * dt, -1.0, 1.0);
                                 plant_.moving = true; break;
             case Driver::STUCK: break;
+            case Driver::TRACKED: plant_.pos = target; plant_.moving = true; break;
         }
         FfbInterventionSample s;
         s.active                 = true;
@@ -600,6 +615,7 @@ struct RunResult
     double final_residual = 0.0;
     double final_shadow  = 0.0;
     double final_actual  = 0.0;
+    int    reanchor_hard = 0;   // how often observation had to correct the model
 };
 
 template <typename StepFn>
@@ -615,6 +631,7 @@ RunResult RunFrames(OverrideManager& m, int frames, double dt, StepFn step)
         r.final_residual = d.residual;
         r.final_shadow   = d.shadow_norm;
         r.final_actual   = d.actual_norm;
+        r.reanchor_hard  = static_cast<int>(d.reanchor_hard_count);
         if (r.latch_frame < 0 && m.IsLateralManual()) r.latch_frame = i;
     }
     return r;
@@ -917,6 +934,100 @@ TEST(OverrideManagerTest, MovingAdTargetDoesNotBlockDetection)
               << " rate_gate_tripped_at_latch=" << gated_when_latched << "\n";
 }
 
+// --- feature:F7 — a well-tracked moving wheel is not a driver ---------------
+//
+// MEASURED (audit_handsoff_runs/run17 + run35, hands off throughout): the
+// wheel moved exactly as much as the AD target every frame (d_actual ==
+// d_target to 1e-6), the servo reported effective_force 0.00000 and
+// position_error 0.00000 -- and the residual still climbed to 0.106 and
+// latched MANUAL. Nobody was touching anything.
+//
+// The mechanism is structural, not a tuning accident. The shadow answers
+// "where would the wheel be under this force if no hand were on it", and a PD
+// servo's force falls towards zero exactly when it is tracking well. A force
+// below the breakaway band cannot move the shadow at all, so the better the
+// servo tracks a MOVING target, the more completely the shadow stands still
+// while the wheel travels with the target -- and the whole of that travel is
+// then booked as evidence of a hand. The residual ends up measuring how fast
+// the AD target is moving.
+//
+// The four override directions the detector must keep catching all separate
+// cleanly from this case by the TRACKING ERROR: press against, overshoot,
+// counter-steer and grip-to-stop each make |position_error| GROW, because the
+// servo can no longer put the wheel where it asked. A wheel being carried
+// along by the servo has a small, non-growing error. That is the discriminator
+// used, and it is a statement about physics rather than a tuning constant --
+// no detection threshold moves.
+
+TEST(OverrideManagerTest, WellTrackedMovingWheelIsNotAnIntervention)
+{
+    // AD sweeps its target steadily; the servo keeps the wheel exactly on it.
+    // 0.39 axis-frac/s is the rate measured on run35's build-up.
+    const double dt   = 0.01;
+    const double rate = 0.39;
+
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfb());
+
+    ServoRig rig;
+    double target = 0.0;
+    double max_abs_err = 0.0;
+    const RunResult r = RunFrames(m, 300, dt, [&](int) {
+        target -= rate * dt;                       // a long, steady AD correction
+        const FfbInterventionSample s = rig.StepTracked(target, dt);
+        max_abs_err = std::max(max_abs_err, std::abs(s.position_error));
+        return s;
+    });
+
+    std::cout << "[tracked] swept " << (rate * 300 * dt) << " axis-frac over 3.0s, "
+              << "max|position_error|=" << max_abs_err
+              << " peak_residual=" << r.peak_residual
+              << " latch_frame=" << r.latch_frame << "\n";
+
+    EXPECT_LT(max_abs_err, 1e-9)
+        << "this fixture must keep the wheel ON the target -- otherwise it is "
+           "testing a tracking failure, not a well-tracked wheel";
+    EXPECT_EQ(r.latch_frame, -1)
+        << "latched MANUAL on a wheel nobody is touching, purely because the AD "
+           "target was moving (residual " << r.peak_residual << ")";
+    // Positive control for the mechanism, not just the outcome: the quiet must
+    // come from S7 recognising servo-carried motion, not from the fixture
+    // happening to produce no residual at all.
+    EXPECT_GT(r.reanchor_hard, 0)
+        << "expected the servo-tracking re-sync to be what kept this quiet";
+}
+
+TEST(OverrideManagerTest, WellTrackedWheelStillDetectsAHandThatDepartsFromTheTarget)
+{
+    // The other side of the same coin: the exclusion above must not become a
+    // blanket amnesty for a moving wheel. Same steady sweep, but partway
+    // through, a hand takes the wheel and holds it -- the target walks away
+    // from the wheel, the error grows, and that MUST still latch.
+    const double dt   = 0.01;
+    const double rate = 0.39;
+
+    OverrideManager m;
+    m.Configure(MakeConfigWithFfb());
+
+    ServoRig rig;
+    double target = 0.0;
+    double grabbed_at = 0.0;
+    const RunResult r = RunFrames(m, 300, dt, [&](int i) {
+        target -= rate * dt;
+        if (i < 100) return rig.StepTracked(target, dt);
+        if (i == 100) grabbed_at = rig.Axis();
+        return rig.StepHold(target, dt, grabbed_at);   // hand clamps the wheel
+    });
+
+    std::cout << "[tracked+grab] grabbed at axis=" << grabbed_at
+              << " latch_frame=" << r.latch_frame
+              << " peak_residual=" << r.peak_residual << "\n";
+
+    ASSERT_GE(r.latch_frame, 0) << "a hand that stops the wheel while AD keeps "
+                                   "steering must still be detected";
+    EXPECT_GE(r.latch_frame, 100) << "must not latch before the hand arrives";
+}
+
 // --- Acceptance matrix §3.4: the re-anchor blind spot -----------------------
 
 TEST(OverrideManagerTest, Acceptance34_MinimumDetectableDriverRampRate)
@@ -1201,20 +1312,45 @@ TEST(OverrideManagerTest, FeedingFeedbackOnlyForceToTheShadowFalseLatches)
     // rounding difference against a 0.17-0.21 breakaway: it decides whether
     // the shadow moves AT ALL.
     //
-    // Same hands-off scenario, run twice. With the EFFECTIVE force the
-    // detector is quiet; with the FEEDBACK-ONLY force it false-latches,
-    // because the shadow is told the wheel cannot move while the real wheel
-    // tracks the ramp. This trap is invisible to call-graph review — only a
-    // prediction-vs-measurement comparison exposes it.
-    const double dt = 0.02;
+    // Same hands-off scenario, run twice. This trap is invisible to
+    // call-graph review — only a prediction-vs-measurement comparison
+    // exposes it.
+    //
+    // WHAT THIS GUARD WATCHES CHANGED ON 2026-07-28, and the reason is worth
+    // keeping. It used to assert that the feedback-only force FALSE-LATCHES.
+    // It no longer does: S7 (servo-tracking re-sync) recognises a wheel that
+    // is moving with its target as servo-carried motion regardless of what
+    // force the shadow was handed, so the units error can no longer produce
+    // that particular false positive. Asserting the old symptom would now be
+    // asserting that a fixed bug is still there.
+    //
+    // The units still matter, and they show up where it counts: on a REAL
+    // intervention. The scenario is therefore a held wheel rather than a
+    // hands-off ramp. S7 does not apply here (a hand makes the tracking error
+    // grow), so the shadow's own motion is what produces the residual — and
+    // the shadow moves only as fast as the force it is handed. Fed the
+    // feedback-only force it is short by the Coulomb feed-forward, predicts
+    // less motion, accumulates residual more slowly, and takes measurably
+    // LONGER to catch the driver. Detection latency is the safety-relevant
+    // consequence of the units error, so that is what is asserted.
+    // The ramp is deliberately gentle and the hold starts at the target. A big
+    // tracking error drives the servo into its 0.6 clamp, where the two force
+    // definitions are numerically identical and the trap is invisible; the
+    // feed-forward only decides anything while the feedback term is small.
+    // That is also the regime where the difference is most dangerous: 0.15 of
+    // feed-forward against a 0.17-0.21 breakaway decides whether the shadow
+    // moves AT ALL, and therefore whether a real driver is caught early, late,
+    // or not at all.
+    const double dt   = 0.02;
+    const double hold = 0.0;      // the driver holds the wheel still
     auto run = [&](bool feedback_only) {
         OverrideManager m;
         m.Configure(MakeConfigWithFfb());
-        ServoRig rig(0.0);
+        ServoRig rig(hold);
         rig.ReportFeedbackOnlyAsEffective(feedback_only);
         const RunResult r = RunFrames(m, 400, dt, [&](int i) {   // 8 s
-            const double target = std::min(0.30, 0.10 * (i * dt));   // gentle 0.10/s ramp
-            return rig.StepHandsOff(target, dt);
+            const double target = 0.01 * (i * dt);               // AD eases away at 0.01/s
+            return rig.StepHold(target, dt, hold);
         });
         return r;
     };
@@ -1223,13 +1359,18 @@ TEST(OverrideManagerTest, FeedingFeedbackOnlyForceToTheShadowFalseLatches)
     const RunResult trapped = run(true);
     std::cout << "[units trap] effective: peak_residual=" << correct.peak_residual
               << " latch_frame=" << correct.latch_frame
+              << " reanchor_hard=" << correct.reanchor_hard
               << " | feedback-only: peak_residual=" << trapped.peak_residual
-              << " latch_frame=" << trapped.latch_frame << "\n";
+              << " latch_frame=" << trapped.latch_frame
+              << " reanchor_hard=" << trapped.reanchor_hard << "\n";
 
-    EXPECT_LT(correct.latch_frame, 0) << "effective force: hands-off must stay quiet";
-    EXPECT_GE(trapped.latch_frame, 0)
-        << "feedback-only force must visibly break the detector — if this stops "
-           "failing, the two forces have converged and the guard is dead";
+    ASSERT_GE(correct.latch_frame, 0)
+        << "effective force: a held wheel must be detected at all";
+    EXPECT_GT(trapped.latch_frame, correct.latch_frame)
+        << "feedback-only force must still be visibly the wrong input — it is short "
+           "by the Coulomb feed-forward, so the shadow under-predicts the motion and "
+           "the driver is caught LATER. If this stops separating, the two force "
+           "definitions have converged and the guard is dead";
 }
 
 // --- Latch / release semantics ---------------------------------------------
