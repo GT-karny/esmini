@@ -71,6 +71,55 @@ public:
         double sustain_accum          = 0.0;    // seconds accumulated toward sustain_time (is it growing?)
         double sustain_time           = 0.0;    // configured sustain_time, for context
         BlockReason block_reason      = BlockReason::NONE;
+
+        // feature:F7 — re-anchor instrument (test_results/f7_reanchor_instrument_spec.md).
+        // Purely observational: mirrors how often and how much the detector's
+        // OWN shadow gets forcibly re-synced to the measured axis (which erases
+        // residual outside of the normal plant integration), plus a
+        // never-re-anchored "free-running" shadow that shows what the residual
+        // would have been if none of that erasure had happened. None of this
+        // feeds back into block_reason/residual/sustain_accum above.
+        enum class ReanchorSource
+        {
+            NONE,            // no re-anchor event this frame
+            SEED,            // S1 — shadow (re-)seeded with no preceding RESUME/inactive re-arm
+            ONSET_GRACE,     // S3 — onset-grace re-sync (see OverrideManager.cpp :397 comment)
+            DRIFT,           // S4 — slow drift correction toward the measured axis
+            RESUME,          // S1 fired because AUTO_RESUME (S5) invalidated the shadow
+            INACTIVE_REARM,  // S1 fired because the FFB sample went inactive (S6) invalidated the shadow
+        };
+
+        // Both counters and both accumulators only count an event that
+        // actually MOVED the shadow (|delta| above floating-point noise),
+        // with one exception: S1 (seed) always counts, delta or not — an
+        // arm/re-arm is itself the thing worth counting, not just the
+        // displacement it happens to produce. Without this, S4 (which
+        // re-evaluates every frame residual<=threshold) would inflate
+        // reanchor_soft_count into a near-frame-count rather than "how many
+        // times did drift correction actually nudge the shadow".
+        int    reanchor_hard_count           = 0;  // cumulative S1 (always) + S3 (only if it moved the shadow)
+        int    reanchor_soft_count           = 0;  // cumulative S4 firings that actually moved the shadow
+        double reanchor_delta                = 0.0;  // this frame's shadow displacement from a re-anchor event; 0 if none
+        // Split per spec §1-1 / §2 (revised): §3-1's question — "is S3 or S4
+        // responsible for the 1-frame erasure?" — cannot be answered if the
+        // two are summed into one accumulator. hard = S1+S3 (what §3-1
+        // measures), soft = S4 (drift leak). Never add to the wrong one.
+        double reanchor_hard_delta_abs_accum = 0.0;  // cumulative |delta| from S1+S3 (hard) re-anchors
+        double reanchor_soft_delta_abs_accum = 0.0;  // cumulative |delta| from S4 (soft) drift correction
+        ReanchorSource reanchor_source  = ReanchorSource::NONE;  // which path fired this frame (hard wins if both)
+        double free_shadow_norm         = 0.0;  // shadow integrated (S2 only) WITHOUT S3/S4 re-anchoring
+        double free_residual            = 0.0;  // |actual_norm - free_shadow_norm| — the "what if nothing had
+                                                 // been erased" residual.
+        // NOT guaranteed to be >= residual on any given frame (an earlier
+        // draft of this spec claimed it was; retracted — see
+        // OverrideManager.cpp for the counter-example: S3 zeroes only the
+        // real shadow's velocity, so the two shadows can briefly integrate
+        // from mismatched hysteresis state and free can transiently read
+        // closer to actual than the real, erased shadow). free_below_real_count
+        // OBSERVES how often that happens instead of asserting it can't. The
+        // comparison that actually matters is walk-level max(free_residual)
+        // vs max(residual) over the whole run, not per-frame ordering.
+        int    free_below_real_count    = 0;    // cumulative frames where free_residual < residual, since run start
     };
     const FfbLatchDiagnostics& GetFfbLatchDiagnostics() const { return ffb_diag_; }
 
@@ -121,6 +170,17 @@ private:
     bool   just_transitioned_to_auto_   = false;
     bool   prev_resume_pressed_         = false;  // feature:F7 rising-edge detector
     bool   resume_edge_                 = false;  // this frame's rising edge (observability)
+
+    // feature:F7 — startup axis reference for the direct-axis lateral check.
+    // A physical wheel keeps the angle the PREVIOUS session left it at, so the
+    // axis level on frame 1 is not evidence of a driver. See the Update() site
+    // for the measurement this comes from. While the reference is active the
+    // direct-axis test measures CHANGE from it instead of absolute position;
+    // it deactivates permanently the first time the wheel is seen inside the
+    // neutral band, after which behavior is bit-identical to the plain test.
+    bool   startup_axis_seen_       = false;
+    bool   startup_axis_ref_active_ = false;
+    double startup_axis_ref_        = 0.0;
 
     // feature:F7 — FFB residual-based intervention latch (see UpdateFfbSample
     // and ManualDriveConfig.ffb.target_track for the full design rationale).
@@ -177,6 +237,46 @@ private:
     struct ForceSample { double force; double dt; };
     std::deque<ForceSample> ffb_force_history_;
     FfbLatchDiagnostics   ffb_diag_;
+
+    // --- feature:F7 re-anchor instrument (observational only) --------------
+    // See test_results/f7_reanchor_instrument_spec.md. These counters live
+    // OUTSIDE ffb_diag_ because they are cumulative "since run start" values
+    // and must survive the `ffb_diag_ = {}` reset in the inactive branch of
+    // Update() (OverrideManager.cpp) — they are copied into ffb_diag_ each
+    // frame instead.
+    int    reanchor_hard_count_           = 0;
+    int    reanchor_soft_count_           = 0;
+    double reanchor_hard_delta_abs_accum_ = 0.0;  // S1+S3 only — see FfbLatchDiagnostics field comment
+    double reanchor_soft_delta_abs_accum_ = 0.0;  // S4 only
+    // Observed (not asserted — see FfbLatchDiagnostics::free_residual comment)
+    // count of frames where the never-erased free shadow's residual reads
+    // BELOW the real, erased detector's residual.
+    int    free_below_real_count_    = 0;
+    // Which re-arm path most recently invalidated the shadow (S5 RESUME /
+    // S6 inactive), consumed and tagged onto the NEXT S1 seed event (S1
+    // itself carries no information about why it is seeding). Defaults to
+    // SEED so the very first seed of a run — with no preceding RESUME or
+    // inactive re-arm — is tagged as a plain genesis seed.
+    FfbLatchDiagnostics::ReanchorSource reanchor_pending_source_ =
+        FfbLatchDiagnostics::ReanchorSource::SEED;
+
+    // Free-running shadow: the SAME 1-D stick-slip plant as ffb_shadow_*
+    // above (S2 integration only), but as a fully separate instance that is
+    // NEVER touched by onset-grace (S3) or drift (S4) re-anchoring — only by
+    // S1 (seed) / S5 / S6 (re-arm via invalidation), kept in lockstep with
+    // ffb_shadow_valid_'s arm/re-arm cycle. This is what free_residual is
+    // computed from. Deliberately not merged with ffb_shadow_* state: see
+    // spec §3 for why sharing would mix the two shadows' behavior.
+    double free_shadow_norm_        = 0.0;
+    bool   free_shadow_moving_      = false;
+    bool   free_shadow_valid_       = false;
+    double free_shadow_vel_         = 0.0;
+    double free_shadow_rest_anchor_ = 0.0;
+
+    // S2-only plant integration for the free-running shadow (mirrors the
+    // ffb_shadow_* integration block in Update() verbatim, on free_shadow_*
+    // state). Defined in OverrideManager.cpp.
+    void UpdateFreeShadowPlant(double f, double dt, double actual_norm);
 };
 
 } // namespace gt_esmini

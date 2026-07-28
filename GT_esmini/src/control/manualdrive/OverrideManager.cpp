@@ -8,6 +8,14 @@
 namespace gt_esmini
 {
 
+// feature:F7 re-anchor instrument — floating-point noise floor for "did a
+// re-anchor event actually move the shadow". S3/S4 only count/accumulate
+// when |delta| exceeds this; S1 (seed) is the deliberate exception and
+// always counts (see its call site). Axis-frac deltas here are O(1e-2) to
+// O(1), so 1e-9 is many orders below any real event and comfortably above
+// double round-off on subtractions of numbers in that range.
+constexpr double kReanchorDeltaEps = 1e-9;
+
 void OverrideManager::Configure(const ManualDriveConfig& config)
 {
     enabled_             = config.override_cfg.enabled;
@@ -28,6 +36,13 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     just_transitioned_to_auto_   = false;
     prev_resume_pressed_         = false;
     resume_edge_                 = false;
+
+    // feature:F7 — startup axis reference (see the Update() site). Re-armed
+    // here so a reconfigure begins a fresh session rather than carrying the
+    // previous run's reference.
+    startup_axis_seen_           = false;
+    startup_axis_ref_active_     = false;
+    startup_axis_ref_            = 0.0;
 
     // feature:F7 — FFB residual detector. Independent of the
     // steering_threshold_ used for the direct pedal_steer.steering path.
@@ -64,11 +79,80 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     ffb_force_history_.clear();
     ffb_sample_                = {};
     ffb_diag_                  = {};
+
+    // feature:F7 re-anchor instrument (observational only; see
+    // test_results/f7_reanchor_instrument_spec.md and OverrideManager.hpp).
+    reanchor_hard_count_            = 0;
+    reanchor_soft_count_            = 0;
+    reanchor_hard_delta_abs_accum_  = 0.0;
+    reanchor_soft_delta_abs_accum_  = 0.0;
+    free_below_real_count_          = 0;
+    reanchor_pending_source_   = FfbLatchDiagnostics::ReanchorSource::SEED;
+    free_shadow_norm_          = 0.0;
+    free_shadow_rest_anchor_   = 0.0;
+    free_shadow_moving_        = false;
+    free_shadow_valid_         = false;
+    free_shadow_vel_           = 0.0;
 }
 
 void OverrideManager::UpdateFfbSample(const FfbInterventionSample& sample)
 {
     ffb_sample_ = sample;
+}
+
+// feature:F7 re-anchor instrument — S2 (plant integration) ONLY, applied to
+// the free-running shadow's own state (free_shadow_*). This deliberately
+// duplicates the ffb_shadow_* stick-slip/velocity-lag math in Update() below
+// verbatim (same physical force `f`, same measured-plant config constants)
+// rather than sharing a helper with it: the two shadows must stay fully
+// separate instances start to finish (spec §3), and factoring the existing,
+// tested detector math into a shared helper would risk changing its
+// behavior by 1 bit — which is explicitly forbidden. No onset-grace (S3) or
+// drift (S4) re-anchoring is ever applied here; that omission is the entire
+// point of this shadow (test_results/f7_reanchor_instrument_spec.md §3).
+void OverrideManager::UpdateFreeShadowPlant(double f, double dt, double actual_norm)
+{
+    if (!free_shadow_moving_)
+    {
+        // Mirrors the breakaway-band logic at the ffb_shadow_ integration
+        // site, but keyed off free_shadow_rest_anchor_ (this instance's own
+        // "demonstrably moving" anchor), never ffb_shadow_rest_anchor_.
+        const double band_bottom = (f >= 0.0) ? ffb_shadow_breakaway_left_
+                                              : ffb_shadow_breakaway_right_;
+        const bool observed_moving =
+            std::abs(actual_norm - free_shadow_rest_anchor_) > ffb_shadow_motion_eps_;
+        if (std::abs(f) >= ffb_shadow_breakaway_ ||
+            (std::abs(f) >= band_bottom && observed_moving))
+        {
+            free_shadow_moving_ = true;
+        }
+    }
+    double shadow_vel = 0.0;
+    if (free_shadow_moving_)
+    {
+        const double excess = std::abs(f) - ffb_shadow_kinetic_;
+        if (excess <= 0.0)
+        {
+            free_shadow_moving_      = false;
+            free_shadow_rest_anchor_ = actual_norm;
+            free_shadow_vel_         = 0.0;
+        }
+        else
+        {
+            const double speed = std::min(ffb_shadow_force_to_vel_ * excess, ffb_shadow_v_max_);
+            shadow_vel = (f >= 0.0) ? -speed : speed;
+        }
+    }
+    if (ffb_shadow_velocity_tau_ > 1e-9)
+    {
+        const double alpha = 1.0 - std::exp(-dt / ffb_shadow_velocity_tau_);
+        free_shadow_vel_ += alpha * (shadow_vel - free_shadow_vel_);
+    }
+    else
+    {
+        free_shadow_vel_ = shadow_vel;
+    }
+    free_shadow_norm_ = std::clamp(free_shadow_norm_ + free_shadow_vel_ * dt, -1.0, 1.0);
 }
 
 void OverrideManager::Update(const InputFrame& input, double dt)
@@ -90,6 +174,29 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     }
 
     const bool was_any_manual = IsAnyManual();
+
+    // feature:F7 — STARTUP AXIS REFERENCE (bookkeeping half; the detector half
+    // is at the direct-axis check below, which carries the full rationale).
+    //
+    // This sits AHEAD of the RESUME early-return on purpose. The reference is
+    // "the axis this session started at", which has nothing to do with which
+    // buttons were held: if a run begins with RESUME already pressed, the
+    // early-return below would otherwise skip this and the SECOND frame would
+    // be taken for the first. (Caught by ResumeRequiresRisingEdge.)
+    if (input.pedal_steer && lat_configured_manual_)
+    {
+        const double axis = input.pedal_steer->steering;
+        if (!startup_axis_seen_)
+        {
+            startup_axis_seen_       = true;
+            startup_axis_ref_        = axis;
+            startup_axis_ref_active_ = std::abs(axis) > steering_threshold_;
+        }
+        else if (startup_axis_ref_active_ && std::abs(axis) <= steering_threshold_)
+        {
+            startup_axis_ref_active_ = false;
+        }
+    }
 
     // feature:F7 — AUTO_RESUME rising-edge detection.
     // A rising edge (this frame pressed, previous frame not) requests a hard
@@ -129,6 +236,15 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         ffb_shadow_moving_ = false;
         ffb_shadow_vel_    = 0.0;
         ffb_force_history_.clear();
+        // feature:F7 re-anchor instrument — S5. Invalidate the free-running
+        // shadow at the same cycle boundary as the real one (spec §3:
+        // carrying it across a RESUME would measure the next intervention
+        // against a meaningless pre-RESUME reference); tag the next S1 seed
+        // as RESUME.
+        free_shadow_valid_       = false;
+        free_shadow_moving_      = false;
+        free_shadow_vel_         = 0.0;
+        reanchor_pending_source_ = FfbLatchDiagnostics::ReanchorSource::RESUME;
         if (was_any_manual)
             just_transitioned_to_auto_ = true;
         return;  // suppress same-frame intervention re-latch
@@ -143,6 +259,45 @@ void OverrideManager::Update(const InputFrame& input, double dt)
 
         if (lat_configured_manual_)
         {
+            // feature:F7 — STARTUP AXIS REFERENCE.
+            //
+            // MEASURED (test_results/f7_2x2_final.log, 6-cell probe with the
+            // initial axis cross-checked against the DLL's own Configure()
+            // log line): a run that begins with the wheel at -0.137 axis-frac
+            // (-61.7 deg) latches MANUAL at t=0.01 -- frame 1 -- through this
+            // direct-axis check, and self-perpetuates (the latch is one-way,
+            // so AD never drives for the rest of the session). The same probe
+            // showed a curved start with a centred wheel does NOT latch, so
+            // curvature was incidental; the trigger is purely the axis level
+            // at t=0.
+            //
+            // WHY THE LEVEL IS NOT EVIDENCE. The wheel is a physical object
+            // that stays wherever the previous session left it, with the servo
+            // not yet running to centre it. "Axis is off-centre on frame 1"
+            // therefore says nothing about whether a hand is on it -- and the
+            // failure is badly asymmetric: a false latch costs the user the
+            // entire run, while a missed one costs the few frames it takes the
+            // driver to move the wheel a little.
+            //
+            // So while the wheel starts outside the neutral band, the direct
+            // axis path measures CHANGE from where it started rather than the
+            // absolute angle. The reference is dropped for good the first time
+            // the wheel is observed inside the band, because from then on the
+            // "left over from last time" explanation no longer applies.
+            //
+            // A run that starts with the wheel already in the band never arms
+            // the reference at all, so every existing scenario, batch and test
+            // that starts centred behaves bit-identically.
+            //
+            // WHAT STILL CATCHES A GENUINELY HELD WHEEL. The residual/shadow
+            // path below, which decides from physics rather than from a level:
+            // the same probe's positive control (a wheel held off-centre at
+            // -0.034 with the servo running) latched via RESIDUAL_PATH_LATCH.
+            // Deferring the ambiguous startup case to that detector routes it
+            // to the one that can actually tell a hand from a leftover angle.
+            // (The reference itself is armed and dropped above, ahead of the
+            // RESUME early-return.)
+
             // feature:F7 (F7b) closed-loop feedback protection.
             // While the target-track servo is active, the physical wheel is
             // being DRIVEN by the servo (SDLFFBSink CONSTANT force). The next
@@ -165,7 +320,10 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             // stub/network input, ManualDrive-only run).
             if (!ffb_sample_.active)
             {
-                lat_active = std::abs(ps.steering) > steering_threshold_;
+                const double lat_signal = startup_axis_ref_active_
+                                              ? ps.steering - startup_axis_ref_
+                                              : ps.steering;
+                lat_active = std::abs(lat_signal) > steering_threshold_;
             }
         }
 
@@ -235,6 +393,15 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // so the measured axis is recoverable from the sample.
         const double actual_norm = ffb_sample_.target_norm - ffb_sample_.position_error;
 
+        // feature:F7 re-anchor instrument — per-frame accumulator/tag (spec
+        // §2). At most one of {S1 seed} or {S3 onset-grace [+S4 same frame]}
+        // can fire in a given frame (S1 only runs while suppress is true,
+        // S3/S4 only while suppress is false), so "hard wins over soft" only
+        // ever has to arbitrate S3 vs S4 co-firing (see the S4 site below).
+        double reanchor_frame_delta = 0.0;
+        FfbLatchDiagnostics::ReanchorSource reanchor_frame_source =
+            FfbLatchDiagnostics::ReanchorSource::NONE;
+
         double target_rate = 0.0;
         double derror_rate = 0.0;
         if (!suppress)
@@ -259,11 +426,34 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         // real wheel is, so the detector can never fire on a stale reference.
         if (!ffb_shadow_valid_)
         {
+            const double reanchor_shadow_before = ffb_shadow_norm_;
             ffb_shadow_norm_        = actual_norm;
             ffb_shadow_rest_anchor_ = actual_norm;
             ffb_shadow_moving_      = false;
             ffb_shadow_vel_         = 0.0;
             ffb_shadow_valid_       = true;
+
+            // feature:F7 re-anchor instrument — S1 (seed). Tagged with
+            // whatever re-arm reason (S5 RESUME / S6 inactive) most recently
+            // invalidated the shadow, or SEED if this is a genesis seed with
+            // no preceding re-arm (see reanchor_pending_source_ comment).
+            // Unlike S3/S4 below, S1 counts UNCONDITIONALLY (delta or not):
+            // an arm/re-arm is itself the countable event, not just whatever
+            // displacement it happens to produce (spec, revised).
+            reanchor_hard_count_++;
+            reanchor_hard_delta_abs_accum_ += std::abs(actual_norm - reanchor_shadow_before);
+            reanchor_frame_delta           += actual_norm - reanchor_shadow_before;
+            reanchor_frame_source           = reanchor_pending_source_;
+
+            // The free-running shadow re-seeds in lockstep — S1 IS applied
+            // there too (spec §3): without a seed it has no reference to
+            // integrate from. This is arm/re-arm bookkeeping, not an
+            // "erasure" being measured against the real detector.
+            free_shadow_norm_        = actual_norm;
+            free_shadow_rest_anchor_ = actual_norm;
+            free_shadow_moving_      = false;
+            free_shadow_vel_         = 0.0;
+            free_shadow_valid_       = true;
         }
 
         // --- Transport delay (dead time) -------------------------------
@@ -376,6 +566,12 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                 ffb_shadow_vel_ = shadow_vel;
             }
             ffb_shadow_norm_ = std::clamp(ffb_shadow_norm_ + ffb_shadow_vel_ * dt, -1.0, 1.0);
+
+            // feature:F7 re-anchor instrument — S2 only, free-running shadow.
+            // Must run inside this same `!suppress` guard: skip it exactly
+            // when the real shadow also skips integration (bootstrap frame),
+            // otherwise the two shadows would desync on frame 1.
+            UpdateFreeShadowPlant(f, dt, actual_norm);
         }
 
         // --- Onset grace (see ManualDriveConfig) --------------------------
@@ -394,8 +590,25 @@ void OverrideManager::Update(const InputFrame& input, double dt)
                 ffb_disagree_active_  = true;
                 if (ffb_disagree_elapsed_ <= ffb_shadow_onset_grace_)
                 {
+                    // feature:F7 re-anchor instrument — S3 (onset grace).
+                    // Identified by the spec as the dominant erasure
+                    // mechanism: no residual gate, hard assignment, and can
+                    // repeat every frame the disagreement chatters (no upper
+                    // bound on ffb_disagree_elapsed_ resets). Only counted
+                    // when it actually moves the shadow (unlike S1, this is
+                    // NOT an arm/re-arm event in its own right — see
+                    // kReanchorDeltaEps comment).
+                    const double reanchor_shadow_before = ffb_shadow_norm_;
                     ffb_shadow_norm_ = actual_norm;
                     if (!observed_moving) ffb_shadow_vel_ = 0.0;
+                    const double reanchor_hard_delta = actual_norm - reanchor_shadow_before;
+                    if (std::abs(reanchor_hard_delta) > kReanchorDeltaEps)
+                    {
+                        reanchor_hard_count_++;
+                        reanchor_hard_delta_abs_accum_ += std::abs(reanchor_hard_delta);
+                        reanchor_frame_delta           += reanchor_hard_delta;
+                        reanchor_frame_source           = FfbLatchDiagnostics::ReanchorSource::ONSET_GRACE;
+                    }
                 }
             }
             else
@@ -439,7 +652,22 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             const double alpha = (ffb_residual_reanchor_tau_ > 1e-6)
                                      ? (1.0 - std::exp(-dt / ffb_residual_reanchor_tau_))
                                      : 1.0;
+            // feature:F7 re-anchor instrument — S4 (soft drift correction).
+            // This branch runs on EVERY frame with residual<=threshold (most
+            // of a run, once converged), so it must only count/accumulate
+            // when it actually moved the shadow — otherwise reanchor_soft_count
+            // degenerates into a frame counter (review finding).
+            const double reanchor_shadow_before = ffb_shadow_norm_;
             ffb_shadow_norm_ += alpha * (actual_norm - ffb_shadow_norm_);
+            const double reanchor_soft_delta = ffb_shadow_norm_ - reanchor_shadow_before;
+            if (std::abs(reanchor_soft_delta) > kReanchorDeltaEps)
+            {
+                reanchor_soft_count_++;
+                reanchor_soft_delta_abs_accum_ += std::abs(reanchor_soft_delta);
+                reanchor_frame_delta           += reanchor_soft_delta;
+                if (reanchor_frame_source == FfbLatchDiagnostics::ReanchorSource::NONE)
+                    reanchor_frame_source = FfbLatchDiagnostics::ReanchorSource::DRIFT;  // hard (S1/S3) wins if already set
+            }
         }
 
         // feature:F7 — real-machine "why didn't it latch" diagnostics.
@@ -475,6 +703,30 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         ffb_diag_.sustain_accum        = ffb_sustain_accum_;
         ffb_diag_.sustain_time         = ffb_sustain_time_;
         ffb_diag_.block_reason         = block_reason;
+
+        // feature:F7 re-anchor instrument (observational only — nothing
+        // above this point or below reads these fields back into the latch;
+        // see test_results/f7_reanchor_instrument_spec.md §2/§4).
+        ffb_diag_.reanchor_hard_count           = reanchor_hard_count_;
+        ffb_diag_.reanchor_soft_count           = reanchor_soft_count_;
+        ffb_diag_.reanchor_delta                = reanchor_frame_delta;
+        ffb_diag_.reanchor_hard_delta_abs_accum = reanchor_hard_delta_abs_accum_;
+        ffb_diag_.reanchor_soft_delta_abs_accum = reanchor_soft_delta_abs_accum_;
+        ffb_diag_.reanchor_source               = reanchor_frame_source;
+        ffb_diag_.free_shadow_norm              = free_shadow_norm_;
+        ffb_diag_.free_residual                 = std::abs(actual_norm - free_shadow_norm_);
+
+        // NOT an invariant — an earlier draft asserted free_residual >=
+        // residual and PM retracted it: S3 (above) zeroes only the real
+        // shadow's velocity, so right after an onset-grace re-sync the two
+        // shadows integrate from mismatched hysteresis state and free can
+        // transiently read CLOSER to actual than the real, erased shadow.
+        // Observe how often that happens instead of asserting it can't. The
+        // comparison that actually matters is walk-level max(free_residual)
+        // vs max(residual) over the whole run, not per-frame ordering.
+        if (ffb_diag_.free_residual < ffb_diag_.residual)
+            free_below_real_count_++;
+        ffb_diag_.free_below_real_count = free_below_real_count_;
     }
     else
     {
@@ -487,8 +739,26 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         ffb_shadow_moving_ = false;
         ffb_shadow_vel_    = 0.0;
         ffb_force_history_.clear();
+        // feature:F7 re-anchor instrument — S6. Invalidate the free-running
+        // shadow in lockstep with the real one; tag the next S1 seed as
+        // INACTIVE_REARM (there is no continuity across a servo-off gap).
+        free_shadow_valid_       = false;
+        free_shadow_moving_      = false;
+        free_shadow_vel_         = 0.0;
+        reanchor_pending_source_ = FfbLatchDiagnostics::ReanchorSource::INACTIVE_REARM;
         ffb_diag_          = {};
         ffb_diag_.block_reason = FfbLatchDiagnostics::BlockReason::INACTIVE;
+        // The cumulative counters are "since run start", not "this frame" —
+        // they must survive the {} reset above. reanchor_delta/source and
+        // free_shadow_norm/free_residual correctly stay at their {} defaults
+        // (no re-anchor event happens, and no shadow position is defined,
+        // while inactive), matching the existing actual_norm/shadow_norm/
+        // residual zero-on-inactive convention.
+        ffb_diag_.reanchor_hard_count           = reanchor_hard_count_;
+        ffb_diag_.reanchor_soft_count           = reanchor_soft_count_;
+        ffb_diag_.reanchor_hard_delta_abs_accum = reanchor_hard_delta_abs_accum_;
+        ffb_diag_.reanchor_soft_delta_abs_accum = reanchor_soft_delta_abs_accum_;
+        ffb_diag_.free_below_real_count         = free_below_real_count_;
     }
 
 #ifdef GT_ENABLE_OSI_MOTION_REQUEST

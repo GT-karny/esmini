@@ -73,6 +73,12 @@ TEST(OverrideManagerTest, SteeringOverThresholdLatchesLateralManual)
     OverrideManager m;
     m.Configure(MakeConfig());
 
+    // Start centred. Since feature:F7's startup axis reference, a session that
+    // BEGINS with the wheel off-centre is treated as a leftover angle rather
+    // than a driver (see StartupAxisReference* tests below); this test is about
+    // a driver turning the wheel mid-session, so it starts from neutral.
+    m.Update(MakeFrame(0.0), 0.02);
+
     // Above threshold -> latch to MANUAL, transition edge fires.
     m.Update(MakeFrame(0.20), 0.02);
     EXPECT_TRUE(m.IsLateralManual());
@@ -139,7 +145,9 @@ TEST(OverrideManagerTest, ResumeButtonEdgeReturnsToAutoBothDomains)
     OverrideManager m;
     m.Configure(MakeConfig());
 
-    // Latch to MANUAL via steering.
+    // Latch to MANUAL via steering (from a centred start — see the startup
+    // axis reference note in SteeringOverThresholdLatchesLateralManual).
+    m.Update(MakeFrame(0.0), 0.02);
     m.Update(MakeFrame(0.30), 0.02);
     ASSERT_TRUE(m.IsLateralManual());
 
@@ -164,7 +172,8 @@ TEST(OverrideManagerTest, ResumeSuppressesSameFrameReintervention)
     OverrideManager m;
     m.Configure(MakeConfig());
 
-    // Latch MANUAL.
+    // Latch MANUAL (centred start; see startup axis reference note above).
+    m.Update(MakeFrame(0.0), 0.02);
     m.Update(MakeFrame(0.30), 0.02);
     ASSERT_TRUE(m.IsLateralManual());
 
@@ -193,12 +202,90 @@ TEST(OverrideManagerTest, ResumeIsNoOpWhenAlreadyAuto)
     EXPECT_FALSE(m.JustTransitionedToAuto());
 }
 
+// --- feature:F7 scenario-driven handover — RequestAutoMode() direct API ----
+// (docs/virtualdriver/scenario_control_handoff_design.md R-2). Unlike the
+// RESUME button path above (driven through Update() on a rising edge),
+// ControllerVirtualDriver::TearDownControlOutputs() calls this API directly,
+// once, outside of any Update() call — since Step()/Update() do not run at
+// all while the controller is inactive (design doc Fact D).
+
+TEST(OverrideManagerTest, RequestAutoModeReturnsBothDomainsToAutoAndFiresTransitionEdge)
+{
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    // Latch MANUAL via steering (lateral only), from a centred start.
+    m.Update(MakeFrame(0.0), 0.02);
+    m.Update(MakeFrame(0.30), 0.02);
+    ASSERT_TRUE(m.IsLateralManual());
+    ASSERT_FALSE(m.IsLongitudinalManual());
+
+    m.RequestAutoMode();
+    EXPECT_FALSE(m.IsAnyManual());
+    EXPECT_TRUE(m.JustTransitionedToAuto());
+}
+
+TEST(OverrideManagerTest, RequestAutoModeIsNoOpWhenAlreadyAuto)
+{
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    ASSERT_FALSE(m.IsAnyManual());
+    m.RequestAutoMode();
+    EXPECT_FALSE(m.IsAnyManual());
+    EXPECT_FALSE(m.JustTransitionedToAuto());
+}
+
+TEST(OverrideManagerTest, RequestAutoModeDoesNotResurrectALatchOnTheNextActiveFrame)
+{
+    // The scenario-handover motivation (R-2): once teardown calls
+    // RequestAutoMode(), the NEXT active frame (after reactivation) must not
+    // immediately re-observe the old MANUAL condition. RequestAutoMode()
+    // itself carries no memory of *why* it was called; Update() on the
+    // following frame with a neutral frame must simply stay AUTO.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(0.0), 0.02);
+    m.Update(MakeFrame(0.30), 0.02);
+    ASSERT_TRUE(m.IsLateralManual());
+
+    m.RequestAutoMode();
+    ASSERT_FALSE(m.IsAnyManual());
+
+    // Simulates the first Step() after ControllerVirtualDriver reactivates:
+    // a neutral frame must not re-latch.
+    m.Update(MakeFrame(0.0), 0.02);
+    EXPECT_FALSE(m.IsAnyManual());
+}
+
+TEST(OverrideManagerTest, RequestAutoModeOnlyTouchesConfiguredManualDomains)
+{
+    // A "scenario" domain is never MANUAL in the first place; RequestAutoMode()
+    // must not spuriously fire a transition edge for a domain that was never
+    // latched (only lat is configured "manual" here; long stays scenario-owned
+    // regardless of this call).
+    OverrideManager m;
+    m.Configure(MakeConfig(true, "manual", "scenario"));
+
+    m.Update(MakeFrame(0.0), 0.02);
+    m.Update(MakeFrame(0.30), 0.02);
+    ASSERT_TRUE(m.IsLateralManual());
+    ASSERT_FALSE(m.IsLongitudinalManual());
+
+    m.RequestAutoMode();
+    EXPECT_FALSE(m.IsLateralManual());
+    EXPECT_FALSE(m.IsLongitudinalManual());
+    EXPECT_TRUE(m.JustTransitionedToAuto());
+}
+
 TEST(OverrideManagerTest, ResumeRequiresRisingEdge)
 {
     OverrideManager m;
     m.Configure(MakeConfig());
 
-    // Latch MANUAL.
+    // Latch MANUAL (centred start; see startup axis reference note above).
+    m.Update(MakeFrame(0.0), 0.02);
     m.Update(MakeFrame(0.30), 0.02);
     ASSERT_TRUE(m.IsLateralManual());
 
@@ -217,6 +304,136 @@ TEST(OverrideManagerTest, ResumeRequiresRisingEdge)
     m.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::AUTO_RESUME), 0.02);  // fresh press
     EXPECT_FALSE(m.IsAnyManual());
     EXPECT_TRUE(m.JustTransitionedToAuto());
+}
+
+// --- feature:F7 — startup axis reference (direct-axis path) -----------------
+//
+// MEASURED DEFECT (test_results/f7_2x2_final.log, 6-cell probe, initial axis
+// cross-checked against the DLL's own Configure() log): a run beginning with
+// the wheel at -0.137 axis-frac latched MANUAL at t=0.01 -- frame 1 -- and
+// self-perpetuated, so AD never drove for the rest of the session. The same
+// probe showed that a CURVED start with a centred wheel does not latch, so
+// curvature was incidental: the trigger is the axis level at t=0 alone.
+//
+// A physical wheel keeps whatever angle the previous session left it at, so
+// that level is not evidence of a driver. The direct-axis path therefore
+// measures CHANGE from the startup angle until the wheel is first seen inside
+// the neutral band, after which the plain absolute test resumes.
+
+TEST(OverrideManagerTest, StartupAxisReferenceDoesNotLatchOnALeftOverWheelAngle)
+{
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    // The regression, exactly: -0.137 axis-frac on the very first frame, far
+    // above the 0.05 threshold, with nobody touching the wheel.
+    m.Update(MakeFrame(-0.137), 0.01);
+    EXPECT_FALSE(m.IsLateralManual());
+    EXPECT_FALSE(m.JustTransitionedToManual());
+
+    // It stays there, because a wheel nobody is holding does not move. No
+    // amount of sitting still may turn into an intervention.
+    for (int i = 0; i < 200; ++i) m.Update(MakeFrame(-0.137), 0.01);
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, StartupAxisReferenceStillCatchesADriverTurningFromThatAngle)
+{
+    // The reference must not make the detector deaf: a driver who takes a
+    // wheel that STARTED off-centre and turns it further is still an override.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(-0.137), 0.01);
+    ASSERT_FALSE(m.IsLateralManual());
+
+    // Within the threshold of the startup angle -> still not evidence.
+    m.Update(MakeFrame(-0.180), 0.01);
+    EXPECT_FALSE(m.IsLateralManual());
+
+    // Beyond it -> a real change, so a real intervention.
+    m.Update(MakeFrame(-0.200), 0.01);
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
+}
+
+TEST(OverrideManagerTest, StartupAxisReferenceIsDroppedOnceTheWheelIsSeenCentred)
+{
+    // Once the wheel has been observed inside the neutral band, "left over
+    // from last time" no longer explains anything, so the absolute test comes
+    // back -- including for an angle that was previously the reference.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(-0.137), 0.01);
+    ASSERT_FALSE(m.IsLateralManual());
+
+    // Wheel returns to centre (spring, or the driver lets go).
+    m.Update(MakeFrame(0.0), 0.01);
+    ASSERT_FALSE(m.IsLateralManual());
+
+    // Back out to the SAME angle that was ignored at startup: now it latches,
+    // because getting there required movement.
+    m.Update(MakeFrame(-0.137), 0.01);
+    EXPECT_TRUE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, StartupAxisReferenceNeverArmsForACentredStart)
+{
+    // The behaviour-preservation claim: every scenario, batch and harness that
+    // starts with a centred wheel must be bit-identical to before the fix.
+    // A start inside the band must not arm the reference at all, so the very
+    // next frame above threshold latches immediately, as it always did.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(0.04), 0.01);   // inside the 0.05 band
+    ASSERT_FALSE(m.IsLateralManual());
+
+    // 0.09 is only 0.05 away from the start, so an armed reference would NOT
+    // have fired here. The absolute test does.
+    m.Update(MakeFrame(0.09), 0.01);
+    EXPECT_TRUE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, StartupAxisReferenceIsTakenFromTheFirstFrameEvenWithResumeHeld)
+{
+    // The RESUME rising edge returns from Update() early, before the direct
+    // axis check. If the reference were armed at that check instead of ahead
+    // of the early return, a run that begins with RESUME already held would
+    // take its SECOND frame for its first -- and then the leftover angle on
+    // frame 1 would be forgotten and latch anyway. Found by
+    // ResumeRequiresRisingEdge failing against the first version of this fix.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    // Frame 1: leftover angle AND a RESUME press (rising edge -> early return).
+    m.Update(MakeFrame(-0.137, 0.0, 0.0, ButtonBits::AUTO_RESUME), 0.01);
+    EXPECT_FALSE(m.IsLateralManual());
+
+    // Frame 2: same leftover angle, RESUME still held. The reference was taken
+    // from frame 1, so this is no change and must not latch.
+    m.Update(MakeFrame(-0.137, 0.0, 0.0, ButtonBits::AUTO_RESUME), 0.01);
+    EXPECT_FALSE(m.IsLateralManual());
+}
+
+TEST(OverrideManagerTest, StartupAxisReferenceIsRearmedByReconfigure)
+{
+    // Configure() starts a fresh session; a reference left over from the
+    // previous one would measure the new run against a meaningless angle.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(-0.137), 0.01);
+    ASSERT_FALSE(m.IsLateralManual());
+    m.Update(MakeFrame(0.0), 0.01);     // reference dropped
+    m.Update(MakeFrame(-0.137), 0.01);
+    ASSERT_TRUE(m.IsLateralManual());
+
+    m.Configure(MakeConfig());
+    EXPECT_FALSE(m.IsLateralManual());
+    m.Update(MakeFrame(-0.137), 0.01);  // new session, leftover angle again
+    EXPECT_FALSE(m.IsLateralManual());
 }
 
 // --- feature:F7 — FFB RESIDUAL intervention detector ------------------------
@@ -497,6 +714,10 @@ TEST(OverrideManagerTest, FfbInactiveKeepsDirectSteeringThreshold)
     s.active = false;
 
     m.UpdateFfbSample(s);
+    // Centred start, so the feature:F7 startup axis reference never arms and
+    // the direct-axis path behaves exactly as it did pre-F7b (that reference
+    // is about a leftover angle at t=0, not about the servo being off).
+    m.Update(MakeFrame(/*steering=*/0.0), 0.02);
     m.Update(MakeFrame(/*steering=*/0.10), 0.02);   // 0.10 > 0.05 threshold
     EXPECT_TRUE(m.IsLateralManual());
     EXPECT_TRUE(m.JustTransitionedToManual());

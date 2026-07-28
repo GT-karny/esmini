@@ -1,0 +1,347 @@
+<?xml version="1.0" ?>
+<!-- GT_esmini verification asset (feature:F7, curve-onset repro, 2026-07-27).
+     Five INDEPENDENT single-lane "town" roads (no junctions: each road is its
+     own dead end), matching curve_2lane_r300.xodr's "no link" precedent for a
+     self-contained test road; §B1 of the opendrive-authoring skill says a
+     junction is only needed when a connection is AMBIGUOUS, and there is no
+     other road here to connect to).
+
+     Road id=0 is a straight control (0 deg). Roads id=1..4 are a 30 m straight
+     lead-in followed by a 150 m constant-radius RIGHT arc (curvature < 0),
+     radius chosen so the wheel EGO is teleported onto (see the companion
+     f7_curve_onset_*deg.xosc scenarios) demands a specific steering-WHEEL
+     rotation at the moment of the "sudden onset" teleport:
+
+       target wheel rotation [deg] = axis_frac * 450  (scripts/ffb_spike/
+         wheel_session_report.py:287 "peak*450": the established F7 axis-
+         fraction -> physical-G29-degrees convention; this is the SAME 450
+         deg/axis-frac used to derive "36.0 deg" from residual_threshold=0.08
+         in test_results/f7_residual_handoff_C.md Sec.5-6, and is what the
+         user's real-machine "30 deg" report (Sec.5-4/Sec.6-3, ==0.0667
+         axis-frac) is stated in).
+       axis_frac = wheel_deg / 450
+       tire delta = axis_frac * max_steer_angle(0.61 rad, GT_esmini/config/
+         virtual_driver.json:22)                       [bicycle-model steer,
+         vd_resume_transient.py kinematic_window_metrics: delta = sn*MAX_STEER_ANGLE]
+       kappa = tan(delta) / wheel_base(3.0 m = car_white bbox length 5.0 in
+         decelerate_for_right_turn.xosc * 0.6, ControllerVirtualDriver.cpp:312)
+       R = 1 / kappa
+
+     Table (see f7_curve_onset_repro.md for the full derivation):
+       road id=1  wheel_deg=10  axis_frac=0.02222  tire_delta=0.777 deg  R=221.298 m
+       road id=2  wheel_deg=20  axis_frac=0.04444  tire_delta=1.553 deg  R=110.629 m
+       road id=3  wheel_deg=30  axis_frac=0.06667  tire_delta=2.330 deg  R=73.730  m
+       road id=4  wheel_deg=45  axis_frac=0.10000  tire_delta=3.495 deg  R=49.119  m
+
+     NOTE ON THE fabriksgatan_traffic_lights.xodr JUNCTION TURNS (road 13, R~9.25 m,
+     used unmodified by decelerate_for_right_turn.xosc / traffic_lights_junction.xosc):
+     those correspond to wheel_deg ~= 231 (axis_frac ~= 0.514) by this SAME formula,
+     a much more extreme demand than the user's cited "30 deg". They remain useful as
+     a large-signal sanity check but must NOT be labeled against the 0/10/20/30/45 deg
+     scale without the conversion above (tire-angle-normalized vs wheel-rotation-
+     normalized axis fractions are NOT the same number: see the ratio-confusion
+     precedent this project already hit once on OSI HVD steering_angle, ~12.9x).
+
+     Lane layout copied from fabriksgatan_traffic_lights.xodr road id=3 (town street,
+     single driving lane each way + border + sidewalk) for a "gentle everyday road"
+     flavor consistent with the user's real-machine bug report (not a tight junction). -->
+<OpenDRIVE>
+	<header revMajor="1" revMinor="4" name="f7_curve_onset" version="1.00" date="2026-07-27" north="0.0" south="0.0" east="0.0" west="0.0"/>
+	<road name="f7_curve_onset_0deg" length="1.8000000000000000e+02" id="0" junction="-1">
+		<link/>
+		<type s="0.0" type="town"/>
+		<planView>
+			<geometry s="0.0000000000000000e+00" x="0.0000000000000000e+00" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="1.8000000000000000e+02">
+				<line/>
+			</geometry>
+		</planView>
+		<elevationProfile>
+			<elevation s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+		</elevationProfile>
+		<lateralProfile/>
+		<lanes>
+			<laneOffset s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+			<laneSection s="0.0000000000000000e+00">
+				<left>
+					<lane id="3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</left>
+				<center>
+					<lane id="0" type="none" level="false">
+						<link/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</center>
+				<right>
+					<lane id="-1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+					<lane id="-2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="-3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+				</right>
+			</laneSection>
+		</lanes>
+		<objects/>
+		<signals/>
+		<surface/>
+	</road>
+	<road name="f7_curve_onset_10deg" length="1.8000000000000000e+02" id="1" junction="-1">
+		<link/>
+		<type s="0.0" type="town"/>
+		<planView>
+			<geometry s="0.0000000000000000e+00" x="0.0000000000000000e+00" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="3.0000000000000000e+01">
+				<line/>
+			</geometry>
+			<geometry s="3.0000000000000000e+01" x="3.0000000000000000e+01" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="1.5000000000000000e+02">
+				<arc curvature="-4.5187919463087251e-03"/>
+			</geometry>
+		</planView>
+		<elevationProfile>
+			<elevation s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+		</elevationProfile>
+		<lateralProfile/>
+		<lanes>
+			<laneOffset s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+			<laneSection s="0.0000000000000000e+00">
+				<left>
+					<lane id="3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</left>
+				<center>
+					<lane id="0" type="none" level="false">
+						<link/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</center>
+				<right>
+					<lane id="-1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+					<lane id="-2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="-3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+				</right>
+			</laneSection>
+		</lanes>
+		<objects/>
+		<signals/>
+		<surface/>
+	</road>
+	<road name="f7_curve_onset_20deg" length="1.8000000000000000e+02" id="2" junction="-1">
+		<link/>
+		<type s="0.0" type="town"/>
+		<planView>
+			<geometry s="0.0000000000000000e+00" x="0.0000000000000000e+00" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="3.0000000000000000e+01">
+				<line/>
+			</geometry>
+			<geometry s="3.0000000000000000e+01" x="3.0000000000000000e+01" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="1.5000000000000000e+02">
+				<arc curvature="-9.0393186257311828e-03"/>
+			</geometry>
+		</planView>
+		<elevationProfile>
+			<elevation s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+		</elevationProfile>
+		<lateralProfile/>
+		<lanes>
+			<laneOffset s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+			<laneSection s="0.0000000000000000e+00">
+				<left>
+					<lane id="3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</left>
+				<center>
+					<lane id="0" type="none" level="false">
+						<link/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</center>
+				<right>
+					<lane id="-1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+					<lane id="-2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="-3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+				</right>
+			</laneSection>
+		</lanes>
+		<objects/>
+		<signals/>
+		<surface/>
+	</road>
+	<road name="f7_curve_onset_30deg" length="1.8000000000000000e+02" id="3" junction="-1">
+		<link/>
+		<type s="0.0" type="town"/>
+		<planView>
+			<geometry s="0.0000000000000000e+00" x="0.0000000000000000e+00" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="3.0000000000000000e+01">
+				<line/>
+			</geometry>
+			<geometry s="3.0000000000000000e+01" x="3.0000000000000000e+01" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="1.5000000000000000e+02">
+				<arc curvature="-1.3563025210084072e-02"/>
+			</geometry>
+		</planView>
+		<elevationProfile>
+			<elevation s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+		</elevationProfile>
+		<lateralProfile/>
+		<lanes>
+			<laneOffset s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+			<laneSection s="0.0000000000000000e+00">
+				<left>
+					<lane id="3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</left>
+				<center>
+					<lane id="0" type="none" level="false">
+						<link/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</center>
+				<right>
+					<lane id="-1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+					<lane id="-2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="-3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+				</right>
+			</laneSection>
+		</lanes>
+		<objects/>
+		<signals/>
+		<surface/>
+	</road>
+	<road name="f7_curve_onset_45deg" length="1.8000000000000000e+02" id="4" junction="-1">
+		<link/>
+		<type s="0.0" type="town"/>
+		<planView>
+			<geometry s="0.0000000000000000e+00" x="0.0000000000000000e+00" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="3.0000000000000000e+01">
+				<line/>
+			</geometry>
+			<geometry s="3.0000000000000000e+01" x="3.0000000000000000e+01" y="0.0000000000000000e+00" hdg="0.0000000000000000e+00" length="1.5000000000000000e+02">
+				<arc curvature="-2.0358645297854295e-02"/>
+			</geometry>
+		</planView>
+		<elevationProfile>
+			<elevation s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+		</elevationProfile>
+		<lateralProfile/>
+		<lanes>
+			<laneOffset s="0.0000000000000000e+00" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
+			<laneSection s="0.0000000000000000e+00">
+				<left>
+					<lane id="3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</left>
+				<center>
+					<lane id="0" type="none" level="false">
+						<link/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+				</center>
+				<right>
+					<lane id="-1" type="driving" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.5000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+						<roadMark sOffset="0.0" type="broken" weight="standard" color="standard" width="1.2000000000000000e-01" laneChange="both"/>
+					</lane>
+					<lane id="-2" type="border" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="3.0000000000000000e-01" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+					<lane id="-3" type="sidewalk" level="false">
+						<link/>
+						<width sOffset="0.0000000000000000e+00" a="2.0000000000000000e+00" b="0.0" c="0.0" d="0.0"/>
+					</lane>
+				</right>
+			</laneSection>
+		</lanes>
+		<objects/>
+		<signals/>
+		<surface/>
+	</road>
+</OpenDRIVE>
