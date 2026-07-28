@@ -113,7 +113,25 @@ def series_from_phase2(name: str, path: Path) -> dict:
 
     deltas = [_steer_out(r) * MAX_STEER_ANGLE for r in active]
     deltas_req = [_steer_in(r) * MAX_STEER_ANGLE for r in active]
-    speeds = [r["ego"]["speed"] for r in active]
+    # feature:F7 — WHICH SPEED THE ENVELOPE ACTUALLY SAW.
+    #
+    # The clamp is kappa <= a_lat_max / max(v, v_floor)^2, evaluated inside the
+    # controller step BEFORE the vehicle is integrated. `ego.speed` in a
+    # telemetry row is the POST-step value. Pairing a row's steer_out with that
+    # row's speed therefore over-states v by one frame of acceleration, and
+    # because a_lat goes as v^2 the error is doubled.
+    #
+    # Measured, on the two frames that used to come out above the limit
+    # (green_no_stop t=11.95/12.05): the envelope clamped to exactly 4.3 using
+    # v=13.992, the row records v=14.005 (+0.013 m/s = one frame at the
+    # observed 0.26 m/s^2), and recomputing with the row's speed yields 4.3095
+    # -- 0.22% over a limit that was in fact respected. That was the whole of
+    # the UNDETERMINED residue once the wheelbase term was accounted for.
+    #
+    # So each frame is paired with the PREVIOUS row's speed. The first frame
+    # keeps its own (no earlier sample exists); it is a settling frame at
+    # ~0 m/s where a_lat is ~0 either way.
+    speeds = [active[max(0, i - 1)]["ego"]["speed"] for i in range(len(active))]
     kappas = [math.tan(d) / PHASE2_WB for d in deltas]
     a_lat = [abs(v * v * k) for v, k in zip(speeds, kappas)]
     yaw = [abs(v * k) for v, k in zip(speeds, kappas)]
@@ -225,18 +243,24 @@ def main() -> int:
     #                         it. That is an unambiguous safety defect and it
     #                         fails the run.
     #   clamp engaged      -> the envelope acted and held the command at ITS
-    #                         computed ceiling, while this file's offline
-    #                         recomputation lands slightly above. Measured:
-    #                         4.338 vs the 4.3 ceiling, 0.88% over, on the two
-    #                         frames of green_no_stop where the clamp was
-    #                         active. Candidate causes are a speed-sample
-    #                         difference (a_lat goes as v^2, so 0.4% in v is
-    #                         0.9% here) or a wheelbase difference between this
-    #                         script's PHASE2_WB and the vehicle's parameter.
-    #                         UNDETERMINED, and reported as such rather than
-    #                         being rounded away -- narrowing it needs the
-    #                         envelope's own speed source, which is not in the
-    #                         telemetry.
+    #                         computed ceiling while this recomputation lands
+    #                         above it. Kept as a distinct outcome because it
+    #                         is a disagreement between two calculations of the
+    #                         same quantity, not evidence that anything unsafe
+    #                         reached the vehicle.
+    #
+    # THAT OUTCOME WAS ONCE REACHED, AND WAS TRACKED DOWN RATHER THAN LEFT
+    # OPEN. green_no_stop t=11.95/12.05 recomputed to 4.3095 against the 4.3
+    # ceiling (0.22% over) with the clamp demonstrably active. The cause was
+    # this file, in two parts, both now fixed:
+    #   * wheelbase -- the product derives it as boundingbox.length * 0.6
+    #     (ControllerVirtualDriver.cpp), i.e. 3.00 for these 5.0 m vehicles;
+    #     an ad-hoc check against 2.98 inflated the gap to 0.89%.
+    #   * speed sample -- the clamp runs BEFORE the vehicle is integrated, so
+    #     it used v=13.992 while the row records the post-step v=14.005. One
+    #     frame of acceleration, doubled by the v^2.
+    # With the pairing corrected the same data reports 0 clips out of 11,149.
+    # The envelope had been correct the whole time.
     evaluated = sum(total_n.values())
     if evaluated == 0:
         print("\nRESULT: NOT EVALUATED — no series were found. "
