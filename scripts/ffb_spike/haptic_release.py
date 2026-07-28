@@ -273,6 +273,15 @@ def main() -> int:
     if name == "FAILED":
         print("[haptic_release] !! 解放できていない。ホイールに力が残っている可能性がある — "
               "目視で確認し、必要なら電源を切ること", file=sys.stderr)
+        # 2026-07-29 実機で確定した既知事象。exit code は変えない（開けなかったものは
+        # 開けなかったと報告し続ける）が、運用者が毎回同じ調査をしないよう文言で伝える。
+        if r["released"] > 0 and r["joysticks"] == 1:
+            print("[haptic_release] 既知: G29 は haptic として複数列挙され、一部エントリは"
+                  "構造的に open できない。上で 1 つ以上のエントリを停止できていれば、"
+                  "実体の解放はそちらで完了している。", file=sys.stderr)
+            print("[haptic_release] 感触の見分け方: **一定方向に押される**なら我々の残留"
+                  "（CONSTANT）。**センターに戻る**なら G29 ドライバ既定のセンタリングばねで、"
+                  "我々の残留ではない（素の状態でも同じ）。", file=sys.stderr)
     # 判定行は --quiet でも必ず出す（これは診断ではなく結論）
     print(f"HAPTIC_RELEASE result={name} devices={r['devices']} "
           f"released={r['released']} failed={r['failed']} "
