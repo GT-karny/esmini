@@ -344,6 +344,26 @@ def main() -> int:
             print(f"    {scen} t={t}: |kappa_out|={k_out:.6f} > kappa_limit={k_lim:.6f}")
         return 1
 
+    # When the capture carries the envelope's own cap, THAT is the answer, and
+    # the derived a_lat path is not allowed to overrule it. The derived path
+    # has to assume a wheelbase and a speed sample; the direct comparison
+    # assumes neither. Letting a known-inferior instrument turn a clean direct
+    # result into UNDETERMINED would be reporting our own approximation error
+    # as a product finding -- which is exactly what this file did for a whole
+    # investigation before the cause was tracked down.
+    have_direct = any(
+        any("kappa_limit" in ((r.get("envelope") or {})) for r in s_.get("active", []))
+        for s_ in all_series.values()
+    )
+    if have_direct and not kappa_breaches:
+        straddle = sum(total_clips.values())
+        print(f"\nRESULT: PASS — no frame applied a curvature above the envelope's own "
+              f"cap (direct comparison, no wheelbase/speed assumption).")
+        if straddle:
+            print(f"  ({straddle} frame-metric(s) straddle the derived a_lat limit; that "
+                  f"path assumes a wheelbase and a speed sample and is superseded here.)")
+        return 0
+
     if certain_over:
         print(f"\nRESULT: FAIL — {len(certain_over)} applied frame-metric(s) exceed a "
               f"limit under EVERY admissible speed sample, so the exceedance cannot be "
