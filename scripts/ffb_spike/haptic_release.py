@@ -75,7 +75,7 @@ import ctypes
 import sys
 
 
-def release_all(sdl2, say) -> dict:
+def release_all(sdl2, say, allow_phantom: bool = False) -> dict:
     """全 haptic デバイスを停止・解放し、**何台成功し何台失敗したか**を返す。
 
     `sdl2` を引数で受けるのは selftest から差し替えるため（実機なしで
@@ -151,9 +151,16 @@ def release_all(sdl2, say) -> dict:
         phantom = [(nm, m) for nm, m in result["failures"] if nm in result["released_names"]]
         if len(phantom) == result["failed"]:
             result["phantom"] = result["failed"]
-            result["failed"] = 0
-            # 握り潰さない。事実は必ず残す。
             result["phantom_msgs"] = [m for _nm, m in phantom]
+            # 2026-07-29 実機で反証されうる観測が出たため **既定で降格しない**。
+            # S3 実走(条件A)で result=FAILED が出た直後、ユーザーが手で確認したところ
+            # **ホイールに力が残っていた（重いまま）**。この規則を既定で有効にしていたら
+            # その実行は RELEASED と報告していた ——「力が残っているのに解放成功」で、
+            # まさに今日ずっと潰してきた型そのものになる。
+            # 「開けない index 1 こそが実物の FFB インタフェースだった」可能性が
+            # 排除できるまで、降格は --allow-phantom を明示したときだけにする。
+            if allow_phantom:
+                result["failed"] = 0
     return result
 
 
@@ -222,7 +229,7 @@ def _selftest() -> int:
     ]
     bad = 0
     for desc, stub, req, want_name, want_code in cases:
-        r = release_all(stub, lambda _m: None)
+        r = release_all(stub, lambda _m: None, allow_phantom=True)
         name, code = verdict(r, req)
         ok = (name == want_name and code == want_code and stub.quit_called)
         print(f"  [{'OK ' if ok else 'NG!'}] {desc:52s} -> {name}/{code} "
@@ -248,6 +255,9 @@ def main() -> int:
                     help="診断行を抑制する（最終行の判定は抑制しない）")
     ap.add_argument("--require-device", action="store_true",
                     help="haptic デバイスが0台なら失敗にする（無人実行用）")
+    ap.add_argument("--allow-phantom", action="store_true",
+                    help="開けない列挙エントリを phantom として成功扱いにする"
+                         "（2026-07-29 の実機観測により既定 OFF。下の警告を読むこと）")
     ap.add_argument("--selftest", action="store_true",
                     help="実機なしで3分岐を検証する（open 失敗が非0を返すこと）")
     args = ap.parse_args()
@@ -274,7 +284,7 @@ def main() -> int:
         print("HAPTIC_RELEASE result=CANNOT_RUN devices=0 released=0 failed=0")
         return 2
 
-    r = release_all(sdl2, say)
+    r = release_all(sdl2, say, allow_phantom=args.allow_phantom)
     name, code = verdict(r, args.require_device)
     # phantom は成功扱いだが、**必ず見えるところに出す**（黙って握り潰さない）。
     for m in r.get("phantom_msgs", []):
