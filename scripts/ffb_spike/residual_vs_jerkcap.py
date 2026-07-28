@@ -259,10 +259,57 @@ def main() -> int:
                 print(f"    cap={cap:g}: {vals}")
         print()
 
+        # --- VERDICT -----------------------------------------------------
+        #
+        # feature:F7 — this swept the jerk cap against the residual detector
+        # and returned 0 whatever it found, including a hands-off run that
+        # LATCHED. The whole question it exists to answer is whether raising
+        # the steering-jerk cap pushes the residual into the latch, so a latch
+        # here is the finding, not a footnote.
+        #
+        # Every run in this sweep is hands-off (no driver is injected), so any
+        # latch is a false positive by construction. Margin is reported too:
+        # a cap that does not latch but leaves margin < 1.0 has already lost,
+        # it just has not been caught yet.
+        latched_cells = []
+        thin_margin = []
+        evaluated = 0
+        for sname in SCENARIOS:
+            for cap in JERK_CAPS:
+                per_variant = results.get(sname, {}).get(cap)
+                if not per_variant:
+                    continue
+                evaluated += 1
+                worst_residual = max(r["residual_peak"] for r in per_variant)
+                thr = per_variant[0]["residual_threshold"]
+                margin = thr / worst_residual if worst_residual > 0 else float("inf")
+                if any(r["latched"] for r in per_variant):
+                    latched_cells.append((sname, cap))
+                elif margin < 1.0:
+                    thin_margin.append((sname, cap, margin))
+
+        print("=== VERDICT ===")
+        if evaluated == 0:
+            print("RESULT: NOT MEASURED — no cells produced results.")
+            rc = 2
+        elif latched_cells:
+            print(f"RESULT: FAIL — {len(latched_cells)} hands-off cell(s) latched MANUAL "
+                  f"(false positive by construction): "
+                  + ", ".join(f"{s}@cap={c:g}" for s, c in latched_cells))
+            rc = 1
+        elif thin_margin:
+            print(f"RESULT: FAIL — {len(thin_margin)} cell(s) did not latch but sit at or "
+                  f"past the threshold: "
+                  + ", ".join(f"{s}@cap={c:g} margin={m:.3f}" for s, c, m in thin_margin))
+            rc = 1
+        else:
+            print(f"RESULT: PASS — {evaluated} cell(s), no hands-off latch, all margins >= 1.0")
+            rc = 0
+
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

@@ -238,12 +238,35 @@ struct ManualDriveConfig
 
             // Axis-fraction the real wheel must diverge from the shadow
             // prediction before the sustain clock runs. 0.08 ≈ 36° of a G29's
-            // 900° range. Sized well above the plant model's own error floor
-            // (SDL2 quantisation ~0.001, mechanical jitter ~0.005) and above
-            // the residual drift the re-anchor below leaves standing, yet
-            // small enough that a deliberate hand crosses it in well under
-            // sustain time (a held wheel under a saturated 0.6 servo force
-            // diverges at ~1.0 axis-frac/s → 0.08 in 80 ms).
+            // 900° range.
+            //
+            // WHAT THE ARGUMENT BELOW ACTUALLY ESTABLISHES — stated honestly,
+            // because an earlier version of this comment read as though it
+            // derived the number:
+            //
+            //   LOWER BOUND (must be above the noise): SDL2 quantisation
+            //   ~0.001 and mechanical jitter ~0.005, plus the residual drift
+            //   the re-anchor leaves standing. That puts the floor around
+            //   0.01-0.02.
+            //   UPPER BOUND (must be crossed by a real hand inside
+            //   override_sustain_time = 0.10 s): a held wheel under a
+            //   saturated 0.6 servo force diverges at ~1.0 axis-frac/s, so
+            //   anything up to ~0.10 is crossed in time.
+            //
+            // So the physics bounds the value to roughly 0.02..0.10. It does
+            // NOT single out 0.08. Within that band 0.08 was chosen to sit
+            // near the permissive end, trading detection latency for immunity
+            // to plant-model error — the residual is |measurement - model|,
+            // and the model is a G29 fit whose error on any other wheel is
+            // unknown (see override_shadow_v_max's provenance note).
+            //
+            // The threshold sweep that once appeared to justify a specific
+            // level is formally RETRACTED and must not be cited: its driver
+            // script is not in the repository, so it cannot be reproduced, and
+            // a third of its latches came from an unrelated path
+            // (docs/virtualdriver/f7_measurement_plan.md, 2026-07-28 note).
+            // If a point value ever needs defending, it needs a reproducible
+            // sweep — not this comment.
             double override_residual_threshold          = 0.08;  // axis-fraction
 
             // Shadow drift control. The shadow is an INTEGRATOR, so any
@@ -362,6 +385,29 @@ struct ManualDriveConfig
             // force above `kinetic` (CHARACTERIZATION.md §3b, linear to |f|≈0.40).
             double override_shadow_force_to_velocity    = 3.35;
             // Velocity saturation beyond the linear region (|f| >= 0.40).
+            // PROVENANCE — SINGLE SESSION, NO INDEPENDENT VERIFICATION.
+            //
+            // This value and the breakaway/kinetic hysteresis band above all
+            // come from ONE measurement session: CHARACTERIZATION.md, dated
+            // 2026-07-25, one Logitech G29, one afternoon, produced by
+            // 07_friction_map.py. Nothing in scripts/ffb_spike/ re-measures
+            // them, and every downstream number consumes them without ever
+            // re-deriving them. They are core constants of the intervention
+            // detector -- the residual IS |measurement - this model| -- so a
+            // systematic error here shows up as a false latch or a missed
+            // driver, and there is currently no second measurement that would
+            // reveal it.
+            //
+            // v_max is additionally an EXTRAPOLATION, not a reading: the
+            // measured force/velocity table stops at 0.954 axis-frac/s at
+            // f=0.58 (the servo's own force ceiling is 0.6), and 1.0 is the
+            // saturation asymptote fitted to it. No sample in the session ever
+            // reached 1.0.
+            //
+            // Re-measuring needs the physical wheel, so it is on
+            // test_results/f7_realmachine_checklist.md (R-1), not fixable
+            // here. Until then, treat any conclusion that leans on these
+            // constants as resting on one session's data.
             double override_shadow_v_max                = 1.0;   // axis-frac / s
 
             // ---- Transient behaviour (the steady-state map is not enough) --
