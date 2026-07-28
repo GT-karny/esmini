@@ -122,6 +122,25 @@ class GtLib:
         # harness depends on. Core SE_OpenOSISocket is vanilla (audit BND-2/R5-U1).
         self.lib.GT_OpenOSISocket.argtypes = [ctypes.c_char_p]
         self.lib.GT_OpenOSISocket.restype = ctypes.c_int
+        # In-process OSI GroundTruth retrieval (feature:F7 gate hardening,
+        # 2026-07-28): gt_sim_test.py used to open the UDP socket above and
+        # reassemble GT_Step's wire-format emission from a loopback socket
+        # (_OsiCapture). Under loopback UDP buffer pressure that silently
+        # dropped frames (confirmed: normal_following captured only 403/440
+        # frames in one run) with no distinction from "the world really was
+        # empty this frame". SE_SetOSIFrequency + SE_GetOSIGroundTruth are
+        # vanilla upstream esminiLib exports (confirmed present in
+        # GT_esminiLib.dll) that serialize and return the SAME internal
+        # GroundTruth object synchronously, in-process -- no socket, nothing
+        # to drop packets. GetOSIGroundTruth's own C++ side only does the
+        # (re-)serialization work when neither UDP nor file logging already
+        # did it this frame (GT_OSIReporter_Api.cpp), so as long as
+        # open_osi_socket() is never called, every call here is guaranteed
+        # fresh for the frame just stepped.
+        self.lib.SE_SetOSIFrequency.argtypes = [ctypes.c_int]
+        self.lib.SE_SetOSIFrequency.restype = ctypes.c_int
+        self.lib.SE_GetOSIGroundTruth.argtypes = [ctypes.POINTER(ctypes.c_int)]
+        self.lib.SE_GetOSIGroundTruth.restype = ctypes.c_void_p
 
         self._buf = ctypes.create_string_buffer(buf_size)
         self._open = False
@@ -221,6 +240,32 @@ class GtLib:
         Uses GT_OpenOSISocket (the GT-flavored variant) so the OSI frequency is
         auto-set to 1 (every frame) when unset — core SE_OpenOSISocket is vanilla."""
         return self.lib.GT_OpenOSISocket(ip.encode("utf-8"))
+
+    def set_osi_frequency(self, freq: int = 1) -> int:
+        """Enable per-frame OSI GroundTruth updates (SE_SetOSIFrequency) WITHOUT
+        opening any socket. Call once after init_with_args, before the first
+        get_osi_ground_truth(). Returns 0 on success."""
+        return self.lib.SE_SetOSIFrequency(freq)
+
+    def get_osi_ground_truth(self) -> bytes | None:
+        """In-process retrieval of this frame's serialized OSI GroundTruth
+        (SE_GetOSIGroundTruth) — no socket, no transport to drop packets over.
+        Call after step(); requires set_osi_frequency() to have been called
+        first (otherwise the DLL never refreshes the internal GroundTruth
+        object and this returns the same stale/empty buffer every call).
+        Returns None if the DLL reports zero bytes (nothing to distinguish
+        from a genuinely empty capture — the caller must treat this as a
+        capture failure, not an empty-but-valid scene).
+
+        restype is c_void_p (not c_char_p): the payload is a serialized
+        protobuf message that can contain embedded NUL bytes, which c_char_p
+        would silently truncate at. ctypes.string_at(ptr, size) copies
+        exactly `size` bytes regardless of content."""
+        size = ctypes.c_int(0)
+        ptr = self.lib.SE_GetOSIGroundTruth(ctypes.byref(size))
+        if not ptr or size.value <= 0:
+            return None
+        return ctypes.string_at(ptr, size.value)
 
     def init_with_args(self, args: list[str]) -> int:
         """args: everything after argv[0], e.g. ['--osc', path, '--headless', ...].

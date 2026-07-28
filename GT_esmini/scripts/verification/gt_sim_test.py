@@ -30,8 +30,6 @@ import argparse
 import json
 import math
 import shutil
-import socket
-import struct
 import subprocess
 import sys
 import time
@@ -56,13 +54,17 @@ from vd_metrics import (
     _speed_accel_jerk,
 )  # noqa: E402
 
-# OSI groundtruth capture (opt-in). GT_Sim/GT_esminiLib emit OSI over UDP with
-# --osi (default port 48198), reassembled with the same counter/size framing as
-# udp_osi_common.OSIReceiver. We capture in-process (loopback) so lead-vehicle
-# distance (THW) and live signal phase are available to the matchers without a
-# new C-API. Kept self-contained (no backend import) so the packaged build works.
-OSI_UDP_PORT = 48198
-OSI_BUFFER_SIZE = 8208  # max OSI UDP payload + 8-byte header (contract with esmini)
+# OSI groundtruth capture (opt-in), so lead-vehicle distance (THW) and live
+# signal phase are available to the matchers. feature:F7 gate hardening,
+# 2026-07-28: this used to open a UDP socket and reassemble GT_Step's
+# wire-format emission from a loopback socket (_OsiCapture), which silently
+# dropped frames under loopback UDP buffer pressure (confirmed:
+# normal_following captured only 403/440 frames in one run) and papered over
+# the loss with a fabricated empty-but-truthy scene dict indistinguishable
+# from "confirmed empty world" -- a measurement failure disguised as a real
+# observation (test_results/f7_foundation_progress.md). Now retrieved
+# in-process via SE_GetOSIGroundTruth (GtLib.get_osi_ground_truth) -- no
+# socket, nothing to drop packets over. See run()'s capture_osi branch.
 
 # feature:F7 gate hardening -- port occupancy check. Moved into vd_metrics.py
 # (2026-07-28, second round): an audit found that keeping this logic here,
@@ -164,66 +166,6 @@ def _git_commit() -> str:
         return out.stdout.strip() if out.returncode == 0 else ""
     except Exception:
         return ""
-
-
-class _OsiCapture:
-    """In-process OSI GroundTruth receiver. Binds the UDP port before init, then
-    `drain()` is called once per step to reassemble all buffered packets and
-    return *every* complete GroundTruth frame, oldest first (empty list if none
-    completed).
-
-    Returning every frame rather than only the newest matters for the static
-    GroundTruth: in the default static-report mode only the very first emitted
-    frame carries traffic_sign / stationary_object / lane content
-    (GT_OSIReporter.cpp:277-330), so if two frames ever land in the socket buffer
-    between drains, keeping only the latest would silently discard the one and
-    only copy of every static object.
-
-    The DLL sends OSI synchronously inside GT_Step on the same thread (loopback),
-    so by the time GT_Step returns, that frame's packets are already in the OS
-    socket buffer and a non-blocking drain yields complete frames."""
-
-    def __init__(self, port: int = OSI_UDP_PORT):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
-        self.sock.bind(("127.0.0.1", port))
-        self.sock.setblocking(False)
-        self._complete = b""
-        self._next_index = 1
-
-    def drain(self) -> list[bytes]:
-        complete: list[bytes] = []
-        while True:
-            try:
-                msg, _ = self.sock.recvfrom(OSI_BUFFER_SIZE)
-            except (BlockingIOError, socket.timeout):
-                break
-            except OSError:
-                break
-            if len(msg) < 8:
-                continue
-            counter, _size = struct.unpack("iI", msg[:8])
-            frame = msg[8:]
-            if counter == 1:  # new message
-                self._complete = b""
-                self._next_index = 1
-            if counter == 1 or abs(counter) == self._next_index:
-                self._complete += frame
-                self._next_index += 1
-                if counter < 0:  # negative counter = final packet
-                    complete.append(self._complete)
-                    self._complete = b""
-                    self._next_index = 1
-            else:
-                self._next_index = 1  # out of sync, reset
-        return complete
-
-    def close(self) -> None:
-        try:
-            self.sock.close()
-        except OSError:
-            pass
 
 
 def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
@@ -473,7 +415,6 @@ def run(
     snapshots: int,
     dll: Path | None,
     capture_osi: bool = False,
-    osi_port: int = OSI_UDP_PORT,
 ) -> dict:
     # feature:F7 gate hardening -- the actual common choke point (see
     # _require_gate_ports_free's module-level comment): every invocation path
@@ -485,10 +426,6 @@ def run(
     jsonl_path = out_dir / "telemetry.jsonl"
 
     args = ["--osc", str(scenario), "--headless", "--fixed_timestep", str(dt)]
-    osi_cap: _OsiCapture | None = None
-    if capture_osi:
-        # Bind before init so the very first emitted frame isn't lost.
-        osi_cap = _OsiCapture(osi_port)
     lib = GtLib(dll) if dll else GtLib()
 
     frames: list[dict] = []
@@ -501,57 +438,77 @@ def run(
     # the frame count for data that never changes.
     static_scene: dict = {}
     static_emitted = False
+    # feature:F7 gate hardening, 2026-07-28: every step where capture_osi is on
+    # and SE_GetOSIGroundTruth() came back empty/unparseable is a genuine
+    # capture failure now (no UDP transport left to blame it on) -- counted
+    # and raised at the end instead of silently reused/fabricated (see the
+    # module-level comment above and gt_lib.get_osi_ground_truth's docstring).
+    osi_misses = 0
+    osi_steps = 0
 
-    try:
-        with lib, open(jsonl_path, "w", encoding="utf-8") as f:
-            rc = lib.init_with_args(args)
-            if rc != 0:
-                cause = lib.get_last_error()
-                raise RuntimeError(
-                    f"GT_InitWithArgs failed (rc={rc}) for {scenario}"
-                    + (f": {cause}" if cause else "")
-                )
-            if osi_cap is not None:
-                # GT_InitWithArgs doesn't open the OSI socket (only GT_Sim.exe does);
-                # open it now so GT_Step emits groundtruth to 127.0.0.1:48198.
-                lib.open_osi_socket("127.0.0.1")
+    with lib, open(jsonl_path, "w", encoding="utf-8") as f:
+        rc = lib.init_with_args(args)
+        if rc != 0:
+            cause = lib.get_last_error()
+            raise RuntimeError(
+                f"GT_InitWithArgs failed (rc={rc}) for {scenario}"
+                + (f": {cause}" if cause else "")
+            )
+        if capture_osi:
+            # GT_InitWithArgs doesn't turn on per-frame OSI updates by itself;
+            # this must land before the first step() so frame 1 isn't missed.
+            lib.set_osi_frequency(1)
 
-            n_steps = int(round(max_time / dt))
-            for _ in range(n_steps):
-                lib.step(dt)
-                if osi_cap is not None:
-                    raws = osi_cap.drain()
+        n_steps = int(round(max_time / dt))
+        for _ in range(n_steps):
+            lib.step(dt)
+            if capture_osi:
+                osi_steps += 1
+                raw = lib.get_osi_ground_truth()
+                scene = _gt_to_scene(raw) if raw is not None else None
+                if scene is None:
+                    osi_misses += 1
+                else:
                     # Static content (signs, stationary objects) rides on the
-                    # first emitted frame only. Scan the older frames of this
-                    # drain for it until we have it, then keep the newest frame
-                    # for the dynamic state and re-attach the static block once.
-                    for raw in raws:
-                        scene = _gt_to_scene(raw)
-                        if scene is None:
-                            continue
-                        found = {k: scene[k] for k in _STATIC_SCENE_KEYS if k in scene}
-                        if found and not static_scene:
-                            static_scene = found
-                        last_scene = scene
-                    if last_scene is not None and static_scene and not static_emitted:
-                        last_scene.update(static_scene)
-                        static_emitted = True
-                tel = lib.get_vd_telemetry(-1)
-                if tel is None:
-                    if seen_valid:
-                        grace += 1
-                        if grace >= GRACE_MAX:
-                            break  # controller deactivated -> scenario ended
-                    continue
-                seen_valid = True
-                grace = 0
-                if osi_cap is not None:
-                    tel["scene"] = last_scene or {"objects": [], "traffic_lights": []}
-                f.write(json.dumps(tel, separators=(",", ":")) + "\n")
-                frames.append(tel)
-    finally:
-        if osi_cap is not None:
-            osi_cap.close()
+                    # first emitted frame only; keep it once it shows up and
+                    # re-attach it to every later (dynamic-only) scene.
+                    found = {k: scene[k] for k in _STATIC_SCENE_KEYS if k in scene}
+                    if found and not static_scene:
+                        static_scene = found
+                    last_scene = scene
+                if last_scene is not None and static_scene and not static_emitted:
+                    last_scene.update(static_scene)
+                    static_emitted = True
+            tel = lib.get_vd_telemetry(-1)
+            if tel is None:
+                if seen_valid:
+                    grace += 1
+                    if grace >= GRACE_MAX:
+                        break  # controller deactivated -> scenario ended
+                continue
+            seen_valid = True
+            grace = 0
+            if capture_osi:
+                # last_scene is None only when NOTHING has ever been captured
+                # yet (e.g. this frame or an early one missed). Do not
+                # fabricate {"objects": [], ...}: that dict is truthy, so
+                # matchers' `if not scene: continue` guard would never catch
+                # it and would read a capture failure as "confirmed empty
+                # world" (test_results/f7_foundation_progress.md). None is
+                # falsy and takes the existing skip path correctly.
+                tel["scene"] = last_scene
+            f.write(json.dumps(tel, separators=(",", ":")) + "\n")
+            frames.append(tel)
+
+    if capture_osi and osi_misses:
+        raise RuntimeError(
+            f"OSI ground-truth capture failed on {osi_misses}/{osi_steps} step(s) "
+            f"for {scenario}: SE_GetOSIGroundTruth returned no/unparseable data "
+            "despite capture_osi=True. This used to be silently papered over as "
+            "an empty scene (feature:F7 gate hardening, 2026-07-28); it now "
+            "fails loudly because a scene-dependent matcher's result would "
+            "otherwise be silently corrupted."
+        )
 
     duration = frames[-1]["sim_time"] if frames else 0.0
     meta = {
@@ -937,7 +894,6 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     max_time = float(defaults.get("max_time", 60.0))
     snapshots = int(defaults.get("snapshots", 3))
     default_osi = bool(defaults.get("osi", False))
-    osi_port = int(defaults.get("osi_port", OSI_UDP_PORT))
 
     scen_results: list[dict] = []
     for entry in spec.get("scenarios", []):
@@ -970,7 +926,6 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
                 snapshots,
                 dll,
                 capture_osi=capture_osi,
-                osi_port=osi_port,
             )
             rec["frames"] = meta["frames"]
             if meta["frames"] == 0:
@@ -1116,9 +1071,6 @@ def main(argv: list[str] | None = None) -> int:
         help="capture OSI groundtruth (objects + signal phase) into telemetry.scene",
     )
     pr.add_argument(
-        "--osi-port", type=int, default=OSI_UDP_PORT, help="OSI UDP port to bind"
-    )
-    pr.add_argument(
         "--policy",
         default=None,
         help="comma list of traffic policies to enable "
@@ -1187,7 +1139,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.snapshots,
                 args.dll,
                 capture_osi=args.osi,
-                osi_port=args.osi_port,
             )
         except GatePortsBusyError as e:
             # feature:F7 gate hardening -- distinct exit code 2, same meaning
