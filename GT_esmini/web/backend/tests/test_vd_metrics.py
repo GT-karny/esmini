@@ -304,7 +304,9 @@ def test_assert_empty_must_list_is_not_a_pass(tmp_path):
 
 
 def test_assert_missing_must_key_is_not_a_pass(tmp_path):
-    _, verdict = _run_assert_raw(tmp_path, [_frame(0.0, 15.0)], {"scenario": "synthetic"})
+    _, verdict = _run_assert_raw(
+        tmp_path, [_frame(0.0, 15.0)], {"scenario": "synthetic"}
+    )
     assert verdict["overall"] == "needs-review"
 
 

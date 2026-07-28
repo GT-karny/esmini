@@ -101,7 +101,13 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
 # session: GET returned flat, the frontend only ever reads
 # config.sdl2.button_mapping.* / config.input_network.* / etc, found them
 # undefined, and silently fell back to DEFAULT_MANUAL_CONFIG every time).
-_WIRE_TO_FLAT_TOP_KEYS = ("sdl2", "input_network", "physics_network", "vehicle_params_file", "override_cfg")
+_WIRE_TO_FLAT_TOP_KEYS = (
+    "sdl2",
+    "input_network",
+    "physics_network",
+    "vehicle_params_file",
+    "override_cfg",
+)
 
 
 def _wire_to_flat_shape(wire: dict[str, Any]) -> dict[str, Any]:
@@ -119,7 +125,9 @@ def _wire_to_flat_shape(wire: dict[str, Any]) -> dict[str, Any]:
     """
     out = {k: v for k, v in wire.items() if k not in _WIRE_TO_FLAT_TOP_KEYS}
 
-    input_block: dict[str, Any] = dict(out["input"]) if isinstance(out.get("input"), dict) else {}
+    input_block: dict[str, Any] = (
+        dict(out["input"]) if isinstance(out.get("input"), dict) else {}
+    )
     sdl2 = wire.get("sdl2")
     if isinstance(sdl2, dict):
         mapping = sdl2.get("button_mapping")
@@ -139,7 +147,9 @@ def _wire_to_flat_shape(wire: dict[str, Any]) -> dict[str, Any]:
     if input_block:
         out["input"] = input_block
 
-    physics_block: dict[str, Any] = dict(out["physics"]) if isinstance(out.get("physics"), dict) else {}
+    physics_block: dict[str, Any] = (
+        dict(out["physics"]) if isinstance(out.get("physics"), dict) else {}
+    )
     if "vehicle_params_file" in wire:
         physics_block.setdefault("vehicle_params_file", wire["vehicle_params_file"])
     physics_network = wire.get("physics_network")
@@ -152,7 +162,9 @@ def _wire_to_flat_shape(wire: dict[str, Any]) -> dict[str, Any]:
 
     override_cfg = wire.get("override_cfg")
     if isinstance(override_cfg, dict):
-        merged_override = dict(out["override"]) if isinstance(out.get("override"), dict) else {}
+        merged_override = (
+            dict(out["override"]) if isinstance(out.get("override"), dict) else {}
+        )
         for k, v in override_cfg.items():
             merged_override.setdefault(k, v)
         out["override"] = merged_override
@@ -204,7 +216,11 @@ def _flat_to_wire_shape(flat: dict[str, Any]) -> dict[str, Any]:
         if sdl2:
             out["sdl2"] = sdl2
 
-        input_network = {k: input_block[k] for k in ("transport_type", "port", "level") if k in input_block}
+        input_network = {
+            k: input_block[k]
+            for k in ("transport_type", "port", "level")
+            if k in input_block
+        }
         if input_network:
             out["input_network"] = input_network
 
@@ -213,7 +229,9 @@ def _flat_to_wire_shape(flat: dict[str, Any]) -> dict[str, Any]:
         if "vehicle_params_file" in physics_block:
             out["vehicle_params_file"] = physics_block["vehicle_params_file"]
         physics_network = {
-            k: physics_block[k] for k in ("transport_type", "host", "cmd_port", "state_port") if k in physics_block
+            k: physics_block[k]
+            for k in ("transport_type", "host", "cmd_port", "state_port")
+            if k in physics_block
         }
         if physics_network:
             out["physics_network"] = physics_network

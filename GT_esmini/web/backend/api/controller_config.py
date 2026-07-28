@@ -65,7 +65,11 @@ async def update_current_config(config: dict[str, Any]) -> dict[str, Any]:
     # default. The stored branch needs no deepcopy: load_settings() re-parses
     # the file (json.loads) on every call, so its sub-dicts are already fresh
     # and owned by nobody else.
-    merged = dict(stored) if isinstance(stored, dict) else copy.deepcopy(DEFAULT_CONTROLLER_CONFIG)
+    merged = (
+        dict(stored)
+        if isinstance(stored, dict)
+        else copy.deepcopy(DEFAULT_CONTROLLER_CONFIG)
+    )
     for key, value in config.items():
         existing = merged.get(key)
         if isinstance(value, dict) and isinstance(existing, dict):

@@ -790,9 +790,15 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             return res("skip", "no frames")
         active_flags = [bool(fr.get("vd_active", False)) for fr in frames]
         if not active_flags[0]:
-            return res("fail", "vd_active is already false on frame 0 (VD never activated)", 0)
+            return res(
+                "fail", "vd_active is already false on frame 0 (VD never activated)", 0
+            )
         drop_idx = next(
-            (i for i in range(1, len(active_flags)) if active_flags[i - 1] and not active_flags[i]),
+            (
+                i
+                for i in range(1, len(active_flags))
+                if active_flags[i - 1] and not active_flags[i]
+            ),
             None,
         )
         if drop_idx is None:
@@ -1424,7 +1430,11 @@ def assert_expectations(run_dir: Path, expectations: Path) -> dict:
         overall = (
             "fail"
             if n_fail
-            else ("pass" if n_pass and not n_skip else "needs-review" if n_skip else "pass")
+            else (
+                "pass"
+                if n_pass and not n_skip
+                else "needs-review" if n_skip else "pass"
+            )
         )
 
     verdict = {

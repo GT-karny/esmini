@@ -64,7 +64,11 @@ async def update_execution_defaults(params: dict[str, Any]) -> dict[str, Any]:
     # deepcopy on the fallback only -- DEFAULT_EXECUTION_PARAMS is a module
     # constant whose "osi"/"window" sub-dicts a shallow dict() would alias.
     # The stored branch is already fresh (load_settings re-parses the file).
-    merged = dict(stored) if isinstance(stored, dict) else copy.deepcopy(DEFAULT_EXECUTION_PARAMS)
+    merged = (
+        dict(stored)
+        if isinstance(stored, dict)
+        else copy.deepcopy(DEFAULT_EXECUTION_PARAMS)
+    )
     merged.update(params)
     settings["execution_defaults"] = merged
     save_settings(settings)
