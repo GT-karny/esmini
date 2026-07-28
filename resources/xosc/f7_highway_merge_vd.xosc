@@ -10,7 +10,7 @@
      directory so all relative paths resolve unchanged. -->
 <OpenSCENARIO>
    <FileHeader revMajor="1"
-               revMinor="0"
+               revMinor="1"
                date="2017-11-27T10:00:00"
                description="A basic lane merge scenario"
                author="SimS"/>

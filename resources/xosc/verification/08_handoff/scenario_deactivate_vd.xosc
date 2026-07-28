@@ -8,7 +8,7 @@
   ActivateControllerAction lateral="false" longitudinal="false" at t=8.0s,
   which upstream OSCPrivateAction.cpp routes through
   ControllerVirtualDriver::Activate() with OFF modes rather than
-  Controller::Deactivate() (design doc Fact A) -- this scenario exercises
+  Controller::Deactivate() (design doc Fact A). This scenario exercises
   exactly that path, not the Deactivate() one.
 
   No lead vehicle / traffic policy under test here: the sole assertion is that
