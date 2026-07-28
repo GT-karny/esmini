@@ -142,8 +142,12 @@ struct IndicatorSnapshot
 // section 8-6). Controller-owned merge state-machine snapshot -- deliberately
 // NOT part of ShortPlannerSnapshot above (that one is the cross-session
 // contract this feature must not touch; see this file's header comment).
-// All zero/false/empty while resume_merge_enabled is false (the shipped
-// default) or before the first arm. d0/v0_lat/a0_lat/a_bound/duration_s/
+// All zero/false/empty while resume_merge_enabled is false or before the
+// first arm. (resume_merge_enabled became the shipped DEFAULT on 2026-07-28
+// -- kResumeMergeDefaultEnabled=true, config/virtual_driver.json true -- after
+// the real-machine check and a regression gate showing deviation=0 on all
+// three behavioural batches. This comment used to call false "the shipped
+// default"; that is no longer true.) d0/v0_lat/a0_lat/a_bound/duration_s/
 // comfort_unmet retain their last-armed values across a disarm (mirrors
 // ResumeMergeState's own "harmless convenience" doc), so they stay readable
 // as "what the last merge was" one frame after it stops being active.
@@ -325,6 +329,16 @@ struct VirtualDriverTelemetry
     // transition case is checked here, on real runs, instead.
     bool ad_envelope_steer_jerk_active    = false;
     bool ad_envelope_active               = false;  // OR of the four
+    // feature:F7 — the envelope's OWN curvature numbers. Emitted because an
+    // offline check that recomputes a_lat from steer_out has to guess two
+    // things the envelope knew exactly: the wheelbase (product derives it as
+    // boundingbox.length*0.6) and WHICH speed sample was used (the clamp runs
+    // before the vehicle is integrated, telemetry records after). Both guesses
+    // produced a spurious ~0.9% 'overshoot' that took a full investigation to
+    // attribute. Publishing the cap removes the guessing: a verifier compares
+    // kappa_cmd/kappa_limit directly, in the envelope's own units.
+    double ad_envelope_kappa_cmd          = 0.0;   // curvature implied by the raw command [1/m]
+    double ad_envelope_kappa_limit        = 0.0;   // effective curvature cap this frame [1/m]
     // Normalized steering [-1,1] the envelope actually saw/produced this
     // frame. driver.steer (DriverModelSnapshot below) is the raw AD proposal
     // BEFORE the envelope — it is intentionally left untouched by the

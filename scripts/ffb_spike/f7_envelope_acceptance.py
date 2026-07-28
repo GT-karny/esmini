@@ -163,6 +163,26 @@ def series_from_phase2(name: str, path: Path) -> dict:
     # whether the corresponding clamp stage was engaged. The flags are what
     # separate "the clamp never ran" (a real defect) from "the clamp ran and an
     # offline recomputation disagrees slightly" (a measurement mismatch).
+    # feature:F7 — THE DIRECT CHECK, when the capture carries it.
+    #
+    # Everything else in this function re-derives a_lat from steer_out, and to
+    # do that it has to guess the wheelbase and which speed sample the clamp
+    # used. Both guesses were wrong once and produced a ~0.9% phantom overshoot
+    # that took a full investigation to attribute. Since 2026-07-28 the
+    # envelope publishes its OWN numbers, so the honest comparison is
+    # kappa_cmd vs kappa_limit in the envelope's own units -- no wheelbase, no
+    # speed, no timing assumption. Frames from older captures have neither and
+    # fall back to the derived path.
+    kappa_over = []
+    for r in active:
+        env = r.get("envelope") or {}
+        if "kappa_limit" in env and env.get("kappa_limit", 0.0) > 0.0:
+            k_out = math.tan(_steer_out(r) * MAX_STEER_ANGLE) / PHASE2_WB
+            # Applied curvature must not exceed the cap the envelope itself
+            # computed. Compared with a relative epsilon for float noise only.
+            if abs(k_out) > env["kappa_limit"] * (1.0 + 1e-9):
+                kappa_over.append((r.get("sim_time"), abs(k_out), env["kappa_limit"]))
+
     kappas_req = [math.tan(d) / PHASE2_WB for d in deltas_req]
     a_lat_req = [abs(v * v * k) for v, k in zip(speeds, kappas_req)]
     clamp_on = [
@@ -309,6 +329,19 @@ def main() -> int:
               f"through above the lateral-accel limit WITHOUT engaging:")
         for scen, a in unclamped_breaches[:5]:
             print(f"    {scen}: a_lat={a:.3f} (limit {LIMITS['a_lat']})")
+        return 1
+
+    # The authoritative check, when the capture carries the envelope's own cap.
+    # No wheelbase, no speed sample, no timing assumption enters it.
+    kappa_breaches = []
+    for scen, s_ in all_series.items():
+        for t, k_out, k_lim in s_.get("kappa_over", []):
+            kappa_breaches.append((scen, t, k_out, k_lim))
+    if kappa_breaches:
+        print(f"\nRESULT: FAIL — {len(kappa_breaches)} frame(s) applied a curvature above "
+              f"the envelope's OWN cap:")
+        for scen, t, k_out, k_lim in kappa_breaches[:5]:
+            print(f"    {scen} t={t}: |kappa_out|={k_out:.6f} > kappa_limit={k_lim:.6f}")
         return 1
 
     if certain_over:

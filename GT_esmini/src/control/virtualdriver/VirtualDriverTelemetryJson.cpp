@@ -117,7 +117,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"steer_jerk_active\":" << b(t.ad_envelope_steer_jerk_active)
        << ",\"active\":" << b(t.ad_envelope_active)
        << ",\"steer_in\":" << t.ad_envelope_steer_in
-       << ",\"steer_out\":" << t.ad_envelope_steer_out << "}"
+       << ",\"steer_out\":" << t.ad_envelope_steer_out
+       // feature:F7 — the envelope's own curvature cap, so a verifier need not
+       // re-derive it from speed and wheelbase (see VirtualDriverTypes.hpp).
+       << ",\"kappa_cmd\":" << t.ad_envelope_kappa_cmd
+       << ",\"kappa_limit\":" << t.ad_envelope_kappa_limit << "}"
        // feature:F7 resume-merge observability (design doc
        // resume_merge_trajectory_design.md section 8-6). Additive block;
        // consumers that predate it simply ignore it. fallback_reason is the

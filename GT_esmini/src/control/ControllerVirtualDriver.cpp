@@ -857,6 +857,12 @@ void ControllerVirtualDriver::Step(double timeStep)
     // envelope change anything this frame" is observable from telemetry alone.
     telemetry_.ad_envelope_steer_in  = envelope_snap.steer_norm_in;
     telemetry_.ad_envelope_steer_out = envelope_snap.steer_norm_out;
+    // feature:F7 — publish the envelope's own curvature numbers (see
+    // VirtualDriverTypes.hpp): a verifier can then check the applied command
+    // against the cap the envelope actually used, instead of re-deriving it
+    // from speed and wheelbase and inheriting both guesses' error.
+    telemetry_.ad_envelope_kappa_cmd   = envelope_snap.kappa_cmd;
+    telemetry_.ad_envelope_kappa_limit = envelope_snap.kappa_limit;
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
     telemetry_.policy                = policy_snap;
