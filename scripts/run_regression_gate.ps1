@@ -220,6 +220,22 @@ $script:BehavioralMeasured = $false # at least one batch yielded parseable count
 # 9100 is the manual-drive / VirtualDriver network input port, bound by the DLL
 # under input_type=network and by 10 headless harnesses as a probe socket
 # (same audit, P-2).
+#
+# LAYERING (feature:F7 gate hardening, 2026-07-28): this check only protects
+# invocations that go through THIS .ps1. CI's workflow step, a skill, or an
+# ad-hoc terminal run all call gt_sim_test.py's run()/batch() directly and
+# never reach this function -- that was a second, independent hole (the audit
+# that found it: those paths had NO port defence at all). The authoritative
+# check has since moved to gt_sim_test.py itself
+# (check_gate_ports_free()/_require_gate_ports_free(), called from run()/
+# batch() -- the actual common choke point every invocation path funnels
+# through regardless of launcher). This .ps1 copy is now belt-and-suspenders:
+# it fails faster and with a nicer human-readable message for the .ps1 path
+# specifically, but is no longer the only line of defence, and removing it
+# would not reopen the hole -- gt_sim_test.py aborting still leaves no
+# batch_verdict.json, which the existing "no verdict file = FAIL" hardening
+# below (commit 8b006cff) already treats as NOT MEASURED. Keep the two port
+# tables in sync if either changes.
 # ----------------------------------------------------------------------------
 function Test-GatePortsFree {
     $ports = @(

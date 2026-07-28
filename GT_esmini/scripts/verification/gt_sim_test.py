@@ -29,11 +29,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 import socket
 import struct
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -61,6 +63,123 @@ from vd_metrics import (
 # new C-API. Kept self-contained (no backend import) so the packaged build works.
 OSI_UDP_PORT = 48198
 OSI_BUFFER_SIZE = 8208  # max OSI UDP payload + 8-byte header (contract with esmini)
+
+# feature:F7 gate hardening -- port occupancy check, moved to the common path
+# that actually binds/sends on these ports (run()/batch() below), not just
+# run_regression_gate.ps1's own preflight. That .ps1 preflight only protects
+# invocations that go through the .ps1 itself; CI's workflow step, a skill, or
+# an ad-hoc terminal run all call this module's run()/batch() directly and
+# skip it entirely. Checking here instead means every caller is protected,
+# because every caller ends up here regardless of how it was launched.
+#
+# Two distinct hazards (see run_regression_gate.ps1 commit 8b006cff, which
+# first identified them for the .ps1-only preflight):
+#   collision     -- WE bind this port ourselves (_OsiCapture below, or the
+#                     DLL under input_type=network/headless_ffb). If it is
+#                     already taken, our own scenarios die with WinError
+#                     10013 (or the UDP equivalent), and "0 measured" can be
+#                     mistaken for "0 deviations".
+#   contamination -- WE send UDP here unconditionally with no suppression
+#                     switch (GT_HostVehicleReporter / GT_ScenarioVariablesReporter
+#                     / GT_VirtualDriverReporter all init regardless of
+#                     --headless). Neither side errors if someone -- a
+#                     packaged GT_Sim.exe the user left running, which is the
+#                     NORMAL state, not an edge case -- is already listening;
+#                     our frames land silently in THEIR telemetry.jsonl.
+_GATE_UDP_PORTS: dict[int, tuple[str, str]] = {
+    48198: ("OSI ground-truth (gt_sim_test binds this)", "collision"),
+    48199: ("HostVehicleData", "contamination"),
+    48200: ("ScenarioVariables", "contamination"),
+    48202: ("VirtualDriver telemetry", "contamination"),
+    9100: ("manual-drive / VD network input", "collision"),
+    9105: ("HeadlessFfbSink pushback", "collision"),
+}
+_GATE_TCP_LISTEN_PORTS: dict[int, tuple[str, str]] = {
+    8000: ("web backend (packaged GT_Sim / gt_sim_web)", "collision"),
+}
+
+
+class GatePortsBusyError(RuntimeError):
+    """Raised by check_gate_ports_free() when a port this run needs is
+    already occupied. Deliberately a distinct type (not a bare RuntimeError)
+    so main() can report it with the same "abort before measuring anything"
+    semantics as run_regression_gate.ps1's exit 2 -- distinct from exit 1
+    ("we measured, and it differs")."""
+
+
+def _udp_port_busy(port: int) -> bool:
+    """True if this process cannot bind ``port`` itself (collision) OR if
+    binding otherwise succeeds but immediately releasing it would race a
+    concurrent binder -- bind-then-close is the same technique
+    run_regression_gate.ps1's Get-NetUDPEndpoint check approximates from the
+    OS side, done here directly against the socket API so it needs no
+    Windows-specific tooling and works the same way the real bind (in
+    _OsiCapture, or inside the DLL) would fail."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind(("0.0.0.0", port))
+        return False
+    except OSError:
+        return True
+    finally:
+        s.close()
+
+
+def _tcp_port_listening(port: int) -> bool:
+    """True if something is already accepting connections on 127.0.0.1:port
+    (a bind-check would not detect this the way it does for UDP -- a second
+    process CAN bind a free port fine; the risk here is that our own
+    scenarios might try to reach an already-running server there, not that
+    we would fail to bind)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.25)
+    try:
+        s.connect(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def check_gate_ports_free(
+    udp_ports: dict[int, tuple[str, str]] | None = None,
+    tcp_listen_ports: dict[int, tuple[str, str]] | None = None,
+) -> list[str]:
+    """Return human-readable problem strings for every busy port; empty list
+    means all clear. Defaults to the real _GATE_UDP_PORTS /
+    _GATE_TCP_LISTEN_PORTS tables; the parameters exist so tests can point
+    this at disposable high ports instead of the real 48198-and-friends
+    range (never touching real infrastructure, and immune to a coincidental
+    real occupant making a test flaky)."""
+    if udp_ports is None:
+        udp_ports = _GATE_UDP_PORTS
+    if tcp_listen_ports is None:
+        tcp_listen_ports = _GATE_TCP_LISTEN_PORTS
+    problems = []
+    for port, (what, why) in udp_ports.items():
+        if _udp_port_busy(port):
+            problems.append(f"port {port} ({what}) [{why}] already in use (UDP)")
+    for port, (what, why) in tcp_listen_ports.items():
+        if _tcp_port_listening(port):
+            problems.append(f"port {port} ({what}) [{why}] already listening (TCP)")
+    return problems
+
+
+def _require_gate_ports_free() -> None:
+    problems = check_gate_ports_free()
+    if not problems:
+        return
+    detail = "\n".join(f"  - {p}" for p in problems)
+    raise GatePortsBusyError(
+        "required ports are already in use -- refusing to run scenarios that "
+        "would either fail on our own bind or silently contaminate another "
+        "process's telemetry:\n"
+        f"{detail}\n"
+        "Stop whatever holds them (a packaged GT_Sim.exe left running is the "
+        "common case) and retry. There is deliberately no override: an "
+        "override is how a run that measured nothing gets reported as green."
+    )
 
 # osi3 enum -> string maps (mirror of api/osi_stream.py, kept local on purpose).
 _TL_COLOR_MAP = {
@@ -456,6 +575,12 @@ def run(
     capture_osi: bool = False,
     osi_port: int = OSI_UDP_PORT,
 ) -> dict:
+    # feature:F7 gate hardening -- the actual common choke point (see
+    # _require_gate_ports_free's module-level comment): every invocation path
+    # (batch(), the CLI `run` subcommand, a skill calling this directly)
+    # reaches this exact line before touching the DLL or any socket below.
+    _require_gate_ports_free()
+
     out_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = out_dir / "telemetry.jsonl"
 
@@ -853,13 +978,58 @@ def _prepare_policy_xosc(scenario: Path, run_dir: Path, config_path: Path) -> Pa
     return out
 
 
+def _reset_batch_output_dir(out_root: Path) -> None:
+    """feature:F7 gate hardening -- clear out_root before a batch run.
+
+    Sibling hole to run_regression_gate.ps1's port preflight (commit
+    8b006cff): that commit made "0 scenarios measured" a hard FAIL, but a
+    process that dies AFTER writing per-scenario error records into
+    batch_verdict.json is not the only way to measure nothing -- a process
+    that dies BEFORE ever reaching that write (a native crash in the DLL, the
+    process getting killed, Ctrl+C mid-batch) leaves batch() never touching
+    out_root at all. Every prior invocation's batch_verdict.json (quite
+    possibly overall=pass) is then still sitting there, indistinguishable
+    from a fresh result to any caller that only checks "does the file exist
+    and parse". check_regression_baseline.py / run_regression_gate.ps1 would
+    read yesterday's green and report it as today's.
+
+    rmtree + mkdir, not just deleting the two known top-level files: a
+    per-scenario run_dir (telemetry.jsonl / snapshots/ / verdict.json) must
+    not survive either, or a scenario that errors out on THIS run could be
+    masked by a stale verdict.json a PREVIOUS run of the same manifest left
+    behind at the same path (batch_summary.md's per-scenario "first failing
+    event" column reads that file).
+
+    Called as the FIRST action in batch(), before even the manifest is
+    parsed, so a manifest-parse failure cannot leave a stale verdict in place
+    either.
+    """
+    if out_root.exists():
+        shutil.rmtree(out_root)
+    out_root.mkdir(parents=True, exist_ok=True)
+
+
 def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     """Run a manifest of scenarios: for each, run() -> (compare if baseline) ->
     assert (+ optional decel report). Per-scenario failures are recorded as
     'error' and do not abort the batch. Writes batch_verdict.json + a
-    Claude-readable batch_summary.md."""
+    Claude-readable batch_summary.md.
+
+    See _reset_batch_output_dir for why out_root is wiped before anything
+    else: a stale (e.g. previous-run, overall=pass) batch_verdict.json must
+    never survive to be misread as this run's result.
+
+    Port occupancy is also checked here, OUTSIDE the per-scenario try/except
+    below, so a busy port aborts the WHOLE batch immediately with one clear
+    GatePortsBusyError instead of N identical per-scenario error records (one
+    per scenario, since run() -- called inside that try/except -- checks
+    again itself; see _require_gate_ports_free's module comment for why the
+    check lives there too and is not redundant to remove).
+    """
     import yaml
 
+    _reset_batch_output_dir(out_root)
+    _require_gate_ports_free()
     spec = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     name = spec.get("name", manifest.stem)
     defaults = spec.get("defaults", {}) or {}
@@ -868,7 +1038,6 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     snapshots = int(defaults.get("snapshots", 3))
     default_osi = bool(defaults.get("osi", False))
     osi_port = int(defaults.get("osi_port", OSI_UDP_PORT))
-    out_root.mkdir(parents=True, exist_ok=True)
 
     scen_results: list[dict] = []
     for entry in spec.get("scenarios", []):
@@ -957,6 +1126,15 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
         "name": name,
         "manifest": str(manifest),
         "commit": _git_commit(),
+        # feature:F7 gate hardening -- generation timestamp, for a human/CI
+        # skimming batch_verdict.json to sanity-check "is this actually from
+        # just now" without cross-referencing file mtimes. The mechanical
+        # freshness guarantee itself is _reset_batch_output_dir() above, not
+        # this field -- a timestamp alone cannot be trusted (nothing stops a
+        # stale file's mtime/embedded clock from looking recent by
+        # coincidence); the guarantee is that a stale file cannot physically
+        # be present at all by the time this dict is written.
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "scenarios": scen_results,
         "summary": counts,
         "overall": overall,
@@ -1100,16 +1278,23 @@ def main(argv: list[str] | None = None) -> int:
             policies = [p.strip() for p in args.policy.split(",") if p.strip()]
             cfg = _write_policy_config(policies, out_dir / "virtual_driver.run.json")
             scen = _prepare_policy_xosc(scen, out_dir, cfg)
-        meta = run(
-            scen,
-            out_dir,
-            args.dt,
-            args.max_time,
-            args.snapshots,
-            args.dll,
-            capture_osi=args.osi,
-            osi_port=args.osi_port,
-        )
+        try:
+            meta = run(
+                scen,
+                out_dir,
+                args.dt,
+                args.max_time,
+                args.snapshots,
+                args.dll,
+                capture_osi=args.osi,
+                osi_port=args.osi_port,
+            )
+        except GatePortsBusyError as e:
+            # feature:F7 gate hardening -- distinct exit code 2, same meaning
+            # as run_regression_gate.ps1's port preflight: refused to run
+            # (measured nothing), not "ran and found a real problem" (that's 1).
+            print(f"[run] ABORTED: {e}", file=sys.stderr)
+            return 2
         return 0 if meta["frames"] > 0 else 1
 
     if args.cmd == "compare":
@@ -1140,7 +1325,14 @@ def main(argv: list[str] | None = None) -> int:
         if not args.manifest.is_file():
             print(f"ERROR: manifest not found: {args.manifest}", file=sys.stderr)
             return 2
-        agg = batch(args.manifest.resolve(), args.out.resolve(), args.dll)
+        try:
+            agg = batch(args.manifest.resolve(), args.out.resolve(), args.dll)
+        except GatePortsBusyError as e:
+            # feature:F7 gate hardening -- same exit-code convention as the
+            # `run` subcommand above: 2 = refused to measure, not "measured
+            # and found a difference" (1).
+            print(f"[batch] ABORTED: {e}", file=sys.stderr)
+            return 2
         return 0 if agg["overall"] in ("pass", "needs-review") else 1
 
     if args.cmd == "report":
