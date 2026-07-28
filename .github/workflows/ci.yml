@@ -528,11 +528,18 @@ jobs:
         shell: bash
         run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/car_following_traffic_control_batch.yaml --out test_results/ci/car_following_traffic_control
 
+      # --max-age-seconds is explicit (not left to the script's default) on all
+      # four compare steps in this job: check_regression_baseline.py runs as its
+      # own process/step, separate from the batch step above it, so it cannot
+      # tell on its own whether --batch-out is this run's output or a leftover
+      # from something else (a restored cache, a re-run, a hand-pointed local
+      # dir per the script's own --batch-out usage docstring). generated_at
+      # older than this fails the compare with exit 2 (NOT MEASURED).
       - name: Compare vs committed baseline (per-scenario)
         id: regression
         continue-on-error: true
         shell: bash
-        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/car_following_traffic_control --baseline GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/car_following_traffic_control --baseline GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml --max-age-seconds 1800
 
       - name: Upload regression report
         if: always()
@@ -568,7 +575,7 @@ jobs:
         id: aeb-regression
         continue-on-error: true
         shell: bash
-        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/aeb_safety --baseline GT_esmini/test/regression_baseline/aeb_safety_expected.yaml
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/aeb_safety --baseline GT_esmini/test/regression_baseline/aeb_safety_expected.yaml --max-age-seconds 1800
 
       - name: Upload AEB regression report
         if: always()
@@ -603,7 +610,7 @@ jobs:
         id: anticipation-regression
         continue-on-error: true
         shell: bash
-        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/anticipation_driving --baseline GT_esmini/test/regression_baseline/anticipation_driving_expected.yaml
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/anticipation_driving --baseline GT_esmini/test/regression_baseline/anticipation_driving_expected.yaml --max-age-seconds 1800
 
       - name: Upload anticipation regression report
         if: always()
@@ -639,7 +646,7 @@ jobs:
         id: scenario-handoff-regression
         continue-on-error: true
         shell: bash
-        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/scenario_handoff --baseline GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/scenario_handoff --baseline GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml --max-age-seconds 1800
 
       - name: Upload scenario handoff regression report
         if: always()

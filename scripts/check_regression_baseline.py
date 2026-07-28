@@ -38,8 +38,22 @@ USAGE
   # override baseline / report location
   check_regression_baseline.py --batch-out <dir> --baseline <yaml> --report <md>
 
+  # override the freshness threshold (default: 1800s / 30 min, see FRESHNESS below)
+  check_regression_baseline.py --batch-out <dir> --max-age-seconds 900
+
 The last stdout line is machine-parseable:
   REGRESSION_BASELINE result=PASS|FAIL deviations=N scenarios=N baseline=<path>
+
+FRESHNESS
+---------
+This script runs as its own process, separate from the `gt_sim_test.py batch`
+step that produced --batch-out (two CI steps / two invocations from
+run_regression_gate.ps1). batch_verdict.json's `generated_at` (UTC ISO8601) is
+checked against wall-clock "now"; older than --max-age-seconds (or missing
+entirely) fails with exit 2 (NOT MEASURED) before any comparison happens. This
+guards the standalone-invocation case above: a restored CI cache, a batch step
+skipped or failed under continue-on-error, or a hand-pointed stale --batch-out
+dir would otherwise be compared as if it were a fresh result.
 
 Runs on stdlib + pyyaml only (no osi3 / no DLL): it reads the JSON the batch
 already wrote. Run under DriverScript/.venv (pyyaml). The batch itself must have
@@ -50,6 +64,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -112,11 +127,25 @@ def read_batch_output(batch_out: Path) -> dict:
     return {
         "manifest": bv.get("manifest", DEFAULT_MANIFEST),
         "commit": bv.get("commit", ""),
+        "generated_at": bv.get("generated_at", ""),
         "overall": bv.get("overall"),
         "summary": bv.get("summary", {}),
         "order": order,
         "scenarios": scenarios,
     }
+
+
+def batch_age_seconds(generated_at: str) -> float:
+    """Seconds elapsed between `generated_at` (UTC ISO8601, as written by
+    gt_sim_test.py's batch()) and now. Raises ValueError if `generated_at` is
+    missing/unparseable -- treat that the same as "too stale to trust", not as
+    "skip the check"."""
+    if not generated_at:
+        raise ValueError("generated_at is missing from batch_verdict.json")
+    ts = datetime.fromisoformat(generated_at)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds()
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +379,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="regenerate the baseline from the batch output (intentional changes)")
     ap.add_argument("--manifest", default=None,
                     help="manifest path recorded in a freshly written baseline")
+    ap.add_argument("--max-age-seconds", type=float, default=1800.0,
+                    help="reject --batch-out if batch_verdict.json's generated_at is "
+                         "older than this many wall-clock seconds (default: 1800 = "
+                         "30 min). See the freshness-gate comment in main() for why "
+                         "this is wall-clock, not a commit-hash comparison.")
     args = ap.parse_args(argv)
 
     batch_out = args.batch_out.resolve()
@@ -357,6 +391,42 @@ def main(argv: list[str] | None = None) -> int:
         batch = read_batch_output(batch_out)
     except FileNotFoundError as e:
         print(f"[check_regression_baseline] ERROR: {e}", file=sys.stderr)
+        return 2
+
+    # Freshness gate (feature:F7). read_batch_output() only proves
+    # batch_verdict.json parses -- it says nothing about WHEN it was written.
+    # This script runs as its own process, separate from the `gt_sim_test.py
+    # batch` step that produced --batch-out (two CI steps / two invocations
+    # from run_regression_gate.ps1). _reset_batch_output_dir()'s guarantee
+    # (no PRIOR run's batch_verdict.json can survive a NEW batch() call) only
+    # covers the case where batch() actually runs again -- a restored CI
+    # cache, a skipped/failed batch step masked by continue-on-error, or a
+    # stale local test_results/ dir would otherwise be read here as if it
+    # were this run's result and silently report "no deviations".
+    #
+    # Commit-hash matching was considered and rejected: the committed
+    # baseline intentionally freezes an old commit (refreshed only via
+    # --update on an intentional behavior change), so "batch commit differs
+    # from baseline commit" is the NORMAL state on every run, not a
+    # staleness signal -- gating on it would be tautological (it never
+    # actually distinguishes a fresh batch from a stale one). Wall-clock age
+    # against "now" directly answers the question that matters: did the
+    # batch step run immediately before this compare step, as the gate
+    # ladder assumes.
+    try:
+        age = batch_age_seconds(batch.get("generated_at", ""))
+    except ValueError as e:
+        print(f"[check_regression_baseline] ERROR: cannot verify batch freshness ({e}) "
+              f"in {_rel(batch_out)}/batch_verdict.json -- re-run "
+              f"`gt_sim_test.py batch ... --out {_rel(batch_out)}` before comparing.",
+              file=sys.stderr)
+        return 2
+    if age > args.max_age_seconds:
+        print(f"[check_regression_baseline] ERROR: batch output is STALE: "
+              f"generated_at is {age:.0f}s old (max allowed {args.max_age_seconds:.0f}s). "
+              f"{_rel(batch_out)}/batch_verdict.json was not produced by a batch step "
+              f"that just ran -- re-run `gt_sim_test.py batch ... --out "
+              f"{_rel(batch_out)}` before comparing.", file=sys.stderr)
         return 2
 
     report_path = args.report or (batch_out / "regression_report.md")

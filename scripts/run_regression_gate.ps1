@@ -386,9 +386,14 @@ function Invoke-BehavioralBatch {
     }
 
     # Exit 0 = no deviation, 1 = deviation(s), 2 = setup error (baseline or
-    # batch output missing). Writes <OutPath>/regression_report.md.
+    # batch output missing, or a stale --batch-out -- see check_regression_
+    # baseline.py's freshness gate). --max-age-seconds is explicit here rather
+    # than left to the script's default: the batch just ran a few lines above
+    # in this same function, so the threshold never binds locally, but pinning
+    # it keeps the value visible next to ci.yml's matching call sites instead
+    # of only living inside the script.
     $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
-    $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath)
+    $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath, "--max-age-seconds", "1800")
     Write-Host "${Label}: $PyExe $($regArgs -join ' ')" -ForegroundColor Cyan
     & $PyExe @regArgs
     $reg = $LASTEXITCODE
