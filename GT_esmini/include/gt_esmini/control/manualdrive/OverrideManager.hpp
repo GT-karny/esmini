@@ -188,9 +188,6 @@ private:
     bool   axis_baseline_seen_       = false;
     bool   axis_baseline_active_ = false;
     double axis_baseline_        = 0.0;
-    // Is the residual detector available to back up a suppressed direct-axis
-    // check? The startup reference is only armed when it is.
-    bool   ffb_target_track_enabled_ = false;
 
     // feature:F7 — auto-return idle test. Measures whether the driver is still
     // STEERING (wheel travel) rather than whether the wheel is still past the

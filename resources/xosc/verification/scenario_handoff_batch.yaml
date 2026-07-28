@@ -18,3 +18,15 @@ defaults:
 scenarios:
   - scenario: resources/xosc/verification/08_handoff/scenario_deactivate_vd.xosc
     expectations: resources/xosc/verification/08_handoff/scenario_deactivate_vd.expectations.yaml
+  # feature:F7 — scenario_domain_takeover_vd.xosc covers the OTHER route out of
+  # control (upstream's v1.3 per-domain DeactivateDomains) and is deliberately
+  # NOT listed here. It is run manually; see its header and
+  # test_results/f7_domain_takeover_evidence.log.
+  #
+  # Why it cannot be a batch entry yet: on that route the teardown and the
+  # re-activation both happen inside ONE frame, so the telemetry this batch
+  # matches on (vd_active, sampled per frame) never shows the dip. The proof
+  # that the servo was released is the "control outputs released" log line, and
+  # there is no matcher for log lines. Adding it with a vd_active expectation
+  # would produce a red that means "the matcher cannot see it", not "the
+  # product is wrong" -- and a permanently red check is one nobody reads.

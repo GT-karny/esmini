@@ -46,10 +46,6 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     idle_axis_ref_               = 0.0;
     idle_axis_ref_valid_         = false;
 
-    // feature:F7 — is the residual detector available at all this run? The
-    // startup axis reference depends on the answer; see its site in Update().
-    ffb_target_track_enabled_  = config.ffb.target_track.enabled;
-
     // feature:F7 — FFB residual detector. Independent of the
     // steering_threshold_ used for the direct pedal_steer.steering path.
     ffb_sustain_time_          = config.ffb.target_track.override_sustain_time;
@@ -235,30 +231,36 @@ void OverrideManager::Update(const InputFrame& input, double dt)
         {
             axis_baseline_seen_ = true;
             axis_baseline_  = axis;
-            // ONLY when the residual detector is there to take over.
+            // Armed in BOTH worlds -- with the FFB servo and without it.
             //
-            // The reference exists because an axis LEVEL at t=0 cannot tell a
-            // leftover angle from a hand. Suppressing the direct-axis check is
-            // safe exactly as long as something else can still answer that
-            // question -- and the residual/shadow path can, from physics: the
-            // 6-cell probe's positive control (a wheel held off-centre with
-            // the servo running) latched via RESIDUAL_PATH_LATCH.
+            // An earlier version armed it only when ffb_target_track was
+            // enabled, reasoning that suppressing the direct-axis check is
+            // safe only while the residual path can still tell a hand from a
+            // leftover angle. That left the t=0 false latch standing for
+            // sdl2_wheel + target_track OFF, a configuration a user can
+            // actually run.
             //
-            // With ffb_target_track disabled -- WHICH IS THE SHIPPED DEFAULT --
-            // there is no such backup. The FFB sample never goes active, the
-            // residual path never runs, and the direct-axis check is the only
-            // detector there is. Arming the reference there would not trade
-            // one detector for another, it would leave a driver who is holding
-            // the wheel from the start undetected for the whole run: they turn
-            // the wheel and nothing happens. That is a worse failure than the
-            // one the reference was introduced to fix, and it is the opposite
-            // of what this feature is for.
+            // The premise does not survive asking what "an intervention" can
+            // mean with the servo off. Three of the four override directions
+            // -- pressing against the AD command, steering past it, gripping
+            // the wheel to a stop -- are all defined RELATIVE TO A
+            // SERVO-DRIVEN WHEEL. With target_track disabled nothing drives
+            // the wheel at all: there is no command to press against and no
+            // motion that could be stopped, so a wheel sitting still produces
+            // no steering input in that world whether a hand is on it or not.
+            // The one driver action that stays observable is MOVING the wheel,
+            // and that is exactly what this baseline keeps detecting, from the
+            // first movement past the threshold.
             //
-            // So the reference is armed only where its fallback exists. Where
-            // it does not, the pre-existing behaviour stands unchanged: an
-            // off-centre wheel at t=0 latches.
-            axis_baseline_active_ =
-                ffb_target_track_enabled_ && std::abs(axis) > steering_threshold_;
+            // So arming it everywhere costs no detectable intervention and
+            // removes a false latch that otherwise killed every run started
+            // with a turned wheel. The cost is ergonomic, and is stated
+            // plainly rather than hidden: a driver who takes the wheel before
+            // the run starts and holds it PERFECTLY still has to move it once
+            // to take control. Whether a real hand is ever that still is a
+            // question about hardware, not about this code — see
+            // test_results/f7_realmachine_checklist.md.
+            axis_baseline_active_ = std::abs(axis) > steering_threshold_;
         }
         else if (axis_baseline_active_ && std::abs(axis) <= steering_threshold_)
         {

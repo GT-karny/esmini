@@ -438,29 +438,47 @@ TEST(OverrideManagerTest, StartupAxisReferenceIsTakenFromTheFirstFrameEvenWithRe
     EXPECT_FALSE(m.IsLateralManual());
 }
 
-TEST(OverrideManagerTest, StartupAxisReferenceIsNotArmedWithoutTheResidualDetector)
+TEST(OverrideManagerTest, LeftOverWheelDoesNotLatchEvenWithNoServoAvailable)
 {
-    // POSITIVE FIXTURE (the one the audit found missing): ffb_target_track is
-    // DISABLED -- the shipped default -- so the FFB sample never goes active
-    // and the residual path never runs. The direct-axis check is then the only
-    // detector in the system, and a driver who is already holding the wheel
-    // when the run starts must still be caught.
+    // ffb_target_track DISABLED -- the shipped default -- so there is no servo
+    // and no residual path. This used to latch at t=0 on the leftover angle
+    // (the baseline was armed only where the residual path could take over),
+    // which killed every run started with a turned wheel in the one
+    // configuration a user is most likely to have.
     //
-    // This is the case where suppressing the check costs a real intervention
-    // rather than trading it for another detector, so the reference is not
-    // armed here at all and the pre-existing behaviour stands.
+    // Nothing detectable is given up by not latching here: with no servo
+    // driving the wheel, a wheel sitting still exerts no steering input, so
+    // there is no intervention in flight to miss. See the companion test
+    // below for what IS still caught.
     OverrideManager m;
     m.Configure(MakeConfig());          // no target_track -> no residual path
 
     m.Update(MakeFrame(-0.30), 0.01);
-    EXPECT_TRUE(m.IsLateralManual())
-        << "with no residual detector available, a wheel held off-centre from the "
-           "first frame must still latch -- otherwise the driver gets no control at all";
-    EXPECT_TRUE(m.JustTransitionedToManual());
+    EXPECT_FALSE(m.IsLateralManual())
+        << "a wheel left turned by the previous session is not a driver";
 
-    // And it must keep holding: the driver is still there.
     for (int i = 0; i < 200; ++i) m.Update(MakeFrame(-0.30), 0.01);
+    EXPECT_FALSE(m.IsLateralManual()) << "and it does not become one by sitting there";
+}
+
+TEST(OverrideManagerTest, WithNoServoTheFirstRealSteeringInputStillLatches)
+{
+    // The other half of the decision above, and the reason it costs no
+    // detection: with the servo off the only observable driver action is
+    // MOVING the wheel, and the first movement past the threshold -- from
+    // wherever the wheel happened to be sitting -- latches immediately.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(-0.30), 0.01);   // leftover angle, ignored
+    ASSERT_FALSE(m.IsLateralManual());
+
+    m.Update(MakeFrame(-0.34), 0.01);   // still inside the threshold of it
+    EXPECT_FALSE(m.IsLateralManual());
+
+    m.Update(MakeFrame(-0.36), 0.01);   // past it -> a driver is steering
     EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
 }
 
 TEST(OverrideManagerTest, StartupAxisReferenceIsRearmedByReconfigure)
