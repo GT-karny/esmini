@@ -747,14 +747,17 @@ if ($TelemetryGolden) {
         Write-Host "Step 2.5: FAIL - verification venv python not found (DriverScript/.venv or GT_esmini/web/.venv)" -ForegroundColor Red
         $overallOk = $false
     } else {
-        # Tolerances = measured same-build noise floor with margin (see
-        # telemetry_golden.py docstring): the sim is NOT bit-reproducible across
-        # process runs (~<=1e-3 position, one-frame speed transients up to a*dt).
-        # Position stays the tight discriminator; a real VJ regression moves x/y
-        # far beyond 5 mm.
-        $tgTol = @("--tol-pos", "5e-3", "--tol-h", "1e-3", "--tol-v", "5e-2")
+        # feature:F7 gate hardening, 2026-07-28: the loosened tolerances below
+        # (5e-3/1e-3/5e-2) compensated for a "same-build noise floor" measured
+        # 2026-07-04 that turned out to be IdleJitter's display-only RPM
+        # leaking into RealVehicle's engine-drag physics term (root-caused and
+        # removed in e25e9c85, GT_esmini/src/core/IdleJitter.cpp). Re-measured
+        # post-fix on this same channel: max|delta|=0.000e+00 across t/x/y/h/
+        # speed, repeated diffs, both wired labels (car_following_traffic_
+        # control: 12/12, catalog: 56/56) -- see telemetry_golden.py's own
+        # strict defaults (1e-6), which this no longer needs to override.
         $tgTargets = @(
-            @{ Label = "phase3"; Batch = (Resolve-RepoPath $Batch) }
+            @{ Label = "car_following_traffic_control"; Batch = (Resolve-RepoPath $Batch) }
         )
         $catalogBatch = Resolve-RepoPath "resources/scenario_authoring/scenario_templates/generated/catalog_batch.yaml"
         $catalogGoldens = Resolve-RepoPath "GT_esmini/test/telemetry_goldens/catalog"
@@ -762,7 +765,7 @@ if ($TelemetryGolden) {
             $tgTargets += @{ Label = "catalog"; Batch = $catalogBatch }
         }
         foreach ($tg in $tgTargets) {
-            $tgArgs = @($tgScript, "diff", "--batch", $tg.Batch, "--label", $tg.Label) + $tgTol
+            $tgArgs = @($tgScript, "diff", "--batch", $tg.Batch, "--label", $tg.Label)
             if (-not [string]::IsNullOrWhiteSpace($Dll)) { $tgArgs += @("--dll", (Resolve-RepoPath $Dll)) }
             Write-Host "Step 2.5: $tgPy $($tgArgs -join ' ')" -ForegroundColor Cyan
             & $tgPy @tgArgs

@@ -31,21 +31,27 @@ USAGE
            defaults are tight. Exit nonzero on any FAIL or missing golden.
 
   Default --label is derived from the batch file stem with a trailing '_batch' stripped
-  (car_following_traffic_control_batch.yaml -> phase3, catalog_batch.yaml -> catalog).
+  (car_following_traffic_control_batch.yaml -> car_following_traffic_control,
+  catalog_batch.yaml -> catalog).
 
-SAME-BUILD NOISE FLOOR (measured 2026-07-04, post-P5 Release build)
--------------------------------------------------------------------
-The simulation is NOT bit-reproducible across process runs: same build + same
-scenario + --fixed_timestep re-runs deviate by up to ~1e-3 m in x/y and, at
-stop/brake transition frames, up to ~a*dt in speed (a one-frame offset in a
-discrete controller decision; observed 0.0098 m/s). esmini's --seed does NOT
-remove it (verified). Frame counts and t match exactly. The strict 1e-6 defaults
-therefore only PASS on byte-identical telemetry; for gate / stage-exit usage run
-with the noise floor + margin, which run_regression_gate.ps1 -TelemetryGolden uses:
-  --tol-pos 5e-3 --tol-h 1e-3 --tol-v 5e-2
-Position stays the tight discriminator (observed same-build max 8e-4 m; a real
-regression moves the trajectory far beyond 5 mm). Prefer these tolerances over
-the "nondeterministic": true escape hatch, which drops a scenario entirely.
+SAME-BUILD NOISE FLOOR -- RESOLVED (feature:F7 gate hardening, 2026-07-28)
+---------------------------------------------------------------------------
+A same-build, cross-process deviation was measured 2026-07-04 (up to ~1e-3 m
+in x/y, ~a*dt in speed at stop/brake transitions) and worked around here by
+loosening run_regression_gate.ps1 -TelemetryGolden's tolerances to --tol-pos
+5e-3 --tol-h 1e-3 --tol-v 5e-2 without root-causing it. It was NOT irreducible
+physics noise: the root cause was IdleJitter's display-only RPM leaking into
+RealVehicle's engine-drag physics term (only the display value was supposed
+to carry the jitter), fixed in e25e9c85
+(GT_esmini/src/core/IdleJitter.cpp / RealVehicle.cpp). Re-measured on this
+exact channel post-fix: 3 independent `diff` runs against freshly captured
+goldens, car_following_traffic_control (12/12) and catalog (56/56), all show
+max|delta|=0.000e+00 across t/x/y/h/speed. The strict 1e-6 defaults are the
+right defaults for gate/stage-exit usage now; run_regression_gate.ps1 no
+longer overrides them. If a genuine noise floor resurfaces, re-measure and
+re-document it here with a demonstrated repro -- do not silently re-widen the
+tolerance as a first move (see test_results/f7_audit_nondeterminism_2026-07-28.md
+sec 4, which flagged exactly that failure mode across several scripts).
 
 Run under DriverScript/.venv (pyyaml; the batch itself needs osi3 + matplotlib and a
 completed Release build: build/GT_esmini/Release/GT_esminiLib.dll). Stage-exit usage is
@@ -97,9 +103,17 @@ def _scenario_stems(batch: Path) -> list[str]:
 
 
 def _run_batch(batch: Path, out_dir: Path, dll: str | None) -> None:
-    """Run gt_sim_test batch as a subprocess (the DLL floods stdout; keep it in a log)."""
+    """Run gt_sim_test batch as a subprocess (the DLL floods stdout; keep it in a log).
+
+    The log MUST live outside out_dir: gt_sim_test.py's own batch() wipes
+    out_dir via _reset_batch_output_dir (shutil.rmtree) before writing
+    telemetry, and on Windows an rmtree on a directory containing a file this
+    process still has open for writing (the log itself, opened below) raises
+    PermissionError -- deterministically, every time, since the log handle is
+    held for this call's entire duration. A sibling file avoids the conflict
+    outright rather than papering over the exact PermissionError message."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    log_path = out_dir / "batch_stdout.log"
+    log_path = out_dir.parent / f"{out_dir.name}_stdout.log"
     cmd = [sys.executable, str(GT_SIM_TEST), "batch", str(batch), "--out", str(out_dir)]
     if dll:
         cmd += ["--dll", dll]
