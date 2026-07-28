@@ -79,63 +79,161 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
-def _normalize_sdl2_to_cpp_shape(config: dict[str, Any]) -> dict[str, Any]:
-    """Translate the GUI's nested ``sdl2`` block into the flat shape C++ reads.
+# feature:F7 -- the wire (GET response / PUT request) shape for this endpoint
+# is the NESTED ManualDriveControllerConfig shape (pydantic model / the
+# frontend's ManualDriveConfig TS type): sdl2.{device_index,deadzone,
+# button_mapping.*}, input_network.{transport_type,port,level},
+# physics_network.{host,cmd_port,state_port}, top-level vehicle_params_file,
+# override_cfg.*. The ON-DISK file (config/manual_drive.json,
+# ManualDriveConfig.cpp's flat line-scanning parser) is FLAT:
+# input.{device_index,deadzone,*_button,transport_type,port,level},
+# physics.{vehicle_params_file,host,cmd_port,state_port}, override.*.
+#
+# _wire_to_flat_shape / _flat_to_wire_shape are exact inverses and are the
+# ONLY place this translation happens; PUT must call the former before
+# writing and GET must call the latter before returning, or the two
+# endpoints silently disagree about which shape is truth (see the audit that
+# found this: PUT had gap #2's sdl2-only translation but GET had none at
+# all, so the "Save" button in ManualDrivePanel.tsx wrote sdl2 correctly but
+# every OTHER nested field -- input_network / physics_network /
+# vehicle_params_file / override_cfg -- landed as orphan top-level keys C++
+# never reads, AND nothing the user saved ever pre-filled on the next
+# session: GET returned flat, the frontend only ever reads
+# config.sdl2.button_mapping.* / config.input_network.* / etc, found them
+# undefined, and silently fell back to DEFAULT_MANUAL_CONFIG every time).
+_WIRE_TO_FLAT_TOP_KEYS = ("sdl2", "input_network", "physics_network", "vehicle_params_file", "override_cfg")
 
-    feature:F7 gap #2. The frontend sends ``sdl2.button_mapping.upshift``;
-    ManualDriveConfig.cpp reads ``upshift_button`` and does so with a line-wise
-    substring scan that has no notion of JSON nesting. Deep-merging the nested
-    request straight onto the flat on-disk file therefore did two bad things:
 
-      - the remapped button never reached C++ (the shipped symptom: "I
-        reassigned it in the GUI and nothing changed"); and
-      - ``"button_mapping": {"upshift": 4}`` collides with
-        ManualDriveKeyboardConfig's identically-named ``upshift``. Because the
-        scan takes the LAST matching line in the file and the appended block
-        sorts after ``keyboard``, the keyboard binding was overwritten with a
-        number -- an invalid SDL scancode name. Eight bindings were exposed
-        this way (upshift, downshift, indicator_left/right, headlight,
-        high_beam, fog_light, hazard).
+def _wire_to_flat_shape(wire: dict[str, Any]) -> dict[str, Any]:
+    """Translate an incoming PUT body (nested wire shape) into the flat shape
+    the on-disk file needs. Mirrors simulation_runner._write_manual_drive_config,
+    which independently reconstructs the same flat shape for the per-run
+    config for the same reason (that function cannot reuse this one: it
+    builds a whole new file from a full request + base fallback per field,
+    this one translates an arbitrary -- possibly partial -- PUT body).
 
-    Translating here keeps the persisted file in exactly the shape C++ expects
-    and keeps the nested block out of it entirely, so neither failure can
-    occur. Values already sent in flat form win over the nested ones (an
-    explicit ``input.upshift_button`` is more specific than a translated one).
+    Flat values already present under "input"/"physics"/"override" win over
+    their nested-shape counterparts (an explicit ``input.upshift_button`` is
+    more specific than a translated ``sdl2.button_mapping.upshift``) --
+    same precedence rule gap #2's original sdl2-only version used.
     """
-    sdl2 = config.get("sdl2")
-    if not isinstance(sdl2, dict):
-        return config
+    out = {k: v for k, v in wire.items() if k not in _WIRE_TO_FLAT_TOP_KEYS}
 
-    translated: dict[str, Any] = {}
-    mapping = sdl2.get("button_mapping")
-    if isinstance(mapping, dict):
-        for field, value in mapping.items():
-            cpp_key = SDL2_BUTTON_KEY_MAP.get(field)
-            if cpp_key is not None:
-                translated[cpp_key] = value
-    for passthrough in ("device_index", "deadzone"):
-        if passthrough in sdl2:
-            translated[passthrough] = sdl2[passthrough]
+    input_block: dict[str, Any] = dict(out["input"]) if isinstance(out.get("input"), dict) else {}
+    sdl2 = wire.get("sdl2")
+    if isinstance(sdl2, dict):
+        mapping = sdl2.get("button_mapping")
+        if isinstance(mapping, dict):
+            for field, value in mapping.items():
+                cpp_key = SDL2_BUTTON_KEY_MAP.get(field)
+                if cpp_key is not None:
+                    input_block.setdefault(cpp_key, value)
+        for passthrough in ("device_index", "deadzone"):
+            if passthrough in sdl2:
+                input_block.setdefault(passthrough, sdl2[passthrough])
+    input_network = wire.get("input_network")
+    if isinstance(input_network, dict):
+        for k in ("transport_type", "port", "level"):
+            if k in input_network:
+                input_block.setdefault(k, input_network[k])
+    if input_block:
+        out["input"] = input_block
 
-    if not translated:
-        return config
+    physics_block: dict[str, Any] = dict(out["physics"]) if isinstance(out.get("physics"), dict) else {}
+    if "vehicle_params_file" in wire:
+        physics_block.setdefault("vehicle_params_file", wire["vehicle_params_file"])
+    physics_network = wire.get("physics_network")
+    if isinstance(physics_network, dict):
+        for k in ("transport_type", "host", "cmd_port", "state_port"):
+            if k in physics_network:
+                physics_block.setdefault(k, physics_network[k])
+    if physics_block:
+        out["physics"] = physics_block
 
-    out = {k: v for k, v in config.items() if k != "sdl2"}
-    existing_input = out.get("input")
-    merged_input = dict(existing_input) if isinstance(existing_input, dict) else {}
-    # Flat wins: only fill keys the caller did not already state flatly.
-    for k, v in translated.items():
-        merged_input.setdefault(k, v)
-    out["input"] = merged_input
+    override_cfg = wire.get("override_cfg")
+    if isinstance(override_cfg, dict):
+        merged_override = dict(out["override"]) if isinstance(out.get("override"), dict) else {}
+        for k, v in override_cfg.items():
+            merged_override.setdefault(k, v)
+        out["override"] = merged_override
+
+    return out
+
+
+def _flat_to_wire_shape(flat: dict[str, Any]) -> dict[str, Any]:
+    """Inverse of _wire_to_flat_shape: translate the on-disk flat config into
+    the nested wire shape GET returns.
+
+    The source blocks ("input" / "physics" / "override") are DROPPED from the
+    output once translated, not kept alongside the nested result. Earlier
+    drafts kept both "for safety" -- that was itself a bug: a client that
+    GETs, edits ONLY the nested copy, and PUTs the object back would carry
+    the untouched flat copy along too, and _wire_to_flat_shape's "explicit
+    flat wins over translated-from-nested" precedence (deliberate, so a
+    request that states a flat key by hand is never silently overridden by
+    an unrelated nested default) would then make the stale flat value win
+    over the caller's actual edit. Dropping the source blocks here removes
+    the only way that staleness could arise from an ordinary GET->edit->PUT
+    round trip.
+
+    Every key currently in "input"/"physics"/"override" is covered by the
+    translation below (device_index/deadzone/10 buttons/transport_type/port/
+    level for "input"; vehicle_params_file/host/cmd_port/state_port for
+    "physics"; all 6 override keys copied verbatim). If a key is EVER added
+    to one of those on-disk blocks that isn't one of the names below, add it
+    to the matching translation here too -- silently dropping it from the
+    wire shape would be exactly the "saved but the GUI can't see it" failure
+    this function exists to prevent, just moved one level over.
+    """
+    out = {k: v for k, v in flat.items() if k not in ("input", "physics", "override")}
+
+    input_block = flat.get("input")
+    if isinstance(input_block, dict):
+        sdl2: dict[str, Any] = {}
+        if "device_index" in input_block:
+            sdl2["device_index"] = input_block["device_index"]
+        if "deadzone" in input_block:
+            sdl2["deadzone"] = input_block["deadzone"]
+        button_mapping = {
+            field: input_block[cpp_key]
+            for field, cpp_key in SDL2_BUTTON_KEY_MAP.items()
+            if cpp_key in input_block
+        }
+        if button_mapping:
+            sdl2["button_mapping"] = button_mapping
+        if sdl2:
+            out["sdl2"] = sdl2
+
+        input_network = {k: input_block[k] for k in ("transport_type", "port", "level") if k in input_block}
+        if input_network:
+            out["input_network"] = input_network
+
+    physics_block = flat.get("physics")
+    if isinstance(physics_block, dict):
+        if "vehicle_params_file" in physics_block:
+            out["vehicle_params_file"] = physics_block["vehicle_params_file"]
+        physics_network = {
+            k: physics_block[k] for k in ("transport_type", "host", "cmd_port", "state_port") if k in physics_block
+        }
+        if physics_network:
+            out["physics_network"] = physics_network
+
+    override_block = flat.get("override")
+    if isinstance(override_block, dict):
+        out["override_cfg"] = dict(override_block)
+
     return out
 
 
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
-    """Read current manual_drive.json configuration."""
+    """Read current manual_drive.json configuration, translated to the
+    nested wire shape (see _flat_to_wire_shape) so a value the user saved
+    actually pre-fills the GUI on the next session instead of silently
+    falling back to hardcoded defaults."""
     path = _config_path()
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        return _flat_to_wire_shape(json.loads(path.read_text(encoding="utf-8")))
     return ManualDriveControllerConfig().model_dump()
 
 
@@ -143,15 +241,22 @@ async def get_config() -> dict[str, Any]:
 async def update_config(config: dict[str, Any]) -> dict[str, Any]:
     """Write manual_drive.json configuration.
 
-    Shape/type-validated via pydantic, but persisted by deep-merging the raw
-    request onto the existing on-disk file (or schema defaults if none exists
-    yet) rather than replacing the file with ``validated.model_dump()``
-    wholesale. Two reasons this matters, both belt-and-suspenders with the
-    models' own ``extra="allow"`` (models/simulation.py):
+    Shape/type-validated via pydantic, then translated to the flat on-disk
+    shape (_wire_to_flat_shape) and persisted by deep-merging onto the
+    existing on-disk file (or schema defaults if none exists yet) rather
+    than replacing the file wholesale. Two reasons the merge matters, both
+    belt-and-suspenders with the models' own ``extra="allow"``
+    (models/simulation.py):
       - a request that itself omits some on-disk keys (e.g. applying a
         built-in preset, or an older frontend build) must not delete them;
       - the FFB/target-track keys are numerous and evolve independently of
         this endpoint, so "unknown to the model" must never mean "discarded".
+
+    Returns the flat on-disk shape that was actually written (not
+    translated back to wire shape) -- callers that want the wire shape back
+    should GET again; this keeps the return value an exact reflection of
+    what is now on disk, which is what a caller debugging a
+    "did my write actually happen" question needs.
     """
     ManualDriveControllerConfig(**config)  # shape/type validation; raises on bad input
     path = _config_path()
@@ -160,9 +265,7 @@ async def update_config(config: dict[str, Any]) -> dict[str, Any]:
         if path.exists()
         else ManualDriveControllerConfig().model_dump()
     )
-    # feature:F7 gap #2 -- normalize BEFORE merging, so the nested sdl2 block
-    # never lands in the file C++ parses. See _normalize_sdl2_to_cpp_shape.
-    merged = _deep_merge(base, _normalize_sdl2_to_cpp_shape(config))
+    merged = _deep_merge(base, _wire_to_flat_shape(config))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(merged, indent=4, ensure_ascii=False),
