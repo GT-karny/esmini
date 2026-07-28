@@ -34,6 +34,30 @@ public:
 
 private:
     void UpdateConstantEffect(double force);
+
+    // feature:F7 — DEAD-MAN SWITCH against a hard-killed process.
+    //
+    // THE PROBLEM THIS SOLVES. Every haptic effect used to be created with
+    // SDL_HAPTIC_INFINITY, so the wheel keeps pulling until this application
+    // explicitly stops it. That is fine for a normal exit and for a crash
+    // (atexit / signal / SEH handlers release the device), but a hard kill --
+    // TerminateProcess, which is what `taskkill /F /T` issues and what the web
+    // backend escalates to when a graceful stop times out -- runs NO user-mode
+    // code whatsoever. No handler of ours can possibly fire. The OS closes the
+    // handles and the driver receives IRP_MJ_CLEANUP, but whether the G29's
+    // (closed-source) driver stops a running effect there is not documented
+    // and could not be established from any primary source. So the wheel could
+    // be left holding force with no software path left to release it.
+    //
+    // THE FIX, and why it does not depend on that unknown: effects are created
+    // and refreshed with a FINITE length and re-armed every cycle. If this
+    // process stops refreshing -- for any reason, including being killed
+    // outright -- the effect expires by itself within one window. The driver's
+    // cleanup behaviour stops mattering.
+    //
+    // Returns the window in milliseconds, sized from the measured refresh
+    // interval (see the definition).
+    Uint32 DeadManLengthMs() const;
     void UpdateSpringEffect(double coefficient);
     void UpdateDamperEffect(double coefficient);
     void UpdateCombinedConstantForce(double lat_accel, double speed,
@@ -127,6 +151,9 @@ private:
     double safety_max_runtime_s_    = 0.0;   // 0 = disabled
     double safety_saturation_ratio_ = 0.95;  // |f| >= ratio * max_force counts as saturated
     double safety_saturation_accum_ = 0.0;
+    // feature:F7 dead-man switch — decaying maximum of the observed refresh
+    // interval, used to size the effect window (see DeadManLengthMs).
+    double observed_update_interval_s_ = 0.0;
     double safety_runtime_accum_    = 0.0;
     bool   safety_tripped_          = false; // latched; never re-arms within a run
 

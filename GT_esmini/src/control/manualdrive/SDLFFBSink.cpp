@@ -138,7 +138,7 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         effect.type = SDL_HAPTIC_CONSTANT;
         effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
         effect.constant.direction.dir[0] = 1;  // X-axis (steering)
-        effect.constant.length = SDL_HAPTIC_INFINITY;
+        effect.constant.length = DeadManLengthMs();   // feature:F7 dead-man switch (see header)
         effect.constant.level = 0;
         effect.constant.attack_length = 0;
         effect.constant.fade_length = 0;
@@ -188,7 +188,7 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         // intended behaviour on hardware that DOES support SPRING natively.
         effect.condition.direction.type   = SDL_HAPTIC_CARTESIAN;
         effect.condition.direction.dir[0] = 1;
-        effect.condition.length = SDL_HAPTIC_INFINITY;
+        effect.condition.length = DeadManLengthMs();  // feature:F7 dead-man switch (see header)
         effect.condition.right_coeff[0] = 0;
         effect.condition.left_coeff[0] = 0;
         effect.condition.right_sat[0] = 0x7FFF;
@@ -212,7 +212,7 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
         effect.type = SDL_HAPTIC_DAMPER;
         effect.condition.direction.type   = SDL_HAPTIC_CARTESIAN;   // spike §3b, see SPRING above
         effect.condition.direction.dir[0] = 1;
-        effect.condition.length = SDL_HAPTIC_INFINITY;
+        effect.condition.length = DeadManLengthMs();  // feature:F7 dead-man switch (see header)
         effect.condition.right_coeff[0] = 0;
         effect.condition.left_coeff[0] = 0;
         effect.condition.right_sat[0] = 0x7FFF;
@@ -254,6 +254,17 @@ void SDLFFBSink::Update(const osi3::HostVehicleData& hvd, double dt)
     if (!haptic_ || !enabled_)
     {
         return;
+    }
+
+    // feature:F7 dead-man switch — track how often we are actually refreshed,
+    // so the effect window can be sized from reality instead of an assumption
+    // about the loop rate. Held as a decaying MAXIMUM rather than a mean: the
+    // window must cover the worst recent gap, and an average would size it for
+    // the good frames and tear on the bad ones. The decay lets it come back
+    // down after a one-off stall instead of staying pessimistic forever.
+    if (dt > 0.0)
+    {
+        observed_update_interval_s_ = std::max(dt, observed_update_interval_s_ * 0.995);
     }
 
     // Extract vehicle state from HVD
@@ -628,6 +639,31 @@ void SDLFFBSink::Close()
     }
 }
 
+Uint32 SDLFFBSink::DeadManLengthMs() const
+{
+    // feature:F7 — DEAD-MAN SWITCH. See the header for why this exists.
+    //
+    // The window has to outlast the gap between refreshes or the force drops
+    // out between them, and it has to be short enough that a dead process
+    // stops pulling the wheel quickly. Both ends are set from the MEASURED
+    // refresh interval rather than a constant, because the refresh rate is not
+    // fixed: Update() is driven by the controller step, so it follows --hz
+    // (100 Hz default, but a run at 50 Hz is legal and would tear a window
+    // tuned for 10 ms).
+    //
+    // kRefreshFactor = 3 means two consecutive refreshes can be missed before
+    // the force lapses -- enough to ride out a scheduling hiccup, while still
+    // bounding the worst-case hold after a kill to 3 frames.
+    constexpr double kRefreshFactor = 3.0;
+    constexpr Uint32 kFloorMs       = 20;   // never shorter than this
+    constexpr Uint32 kCeilMs        = 250;  // never hold longer than this after a kill
+    const double     interval_ms    = std::max(observed_update_interval_s_, 0.0) * 1000.0;
+    const double     want           = interval_ms * kRefreshFactor;
+    if (want <= static_cast<double>(kFloorMs)) return kFloorMs;
+    if (want >= static_cast<double>(kCeilMs))  return kCeilMs;
+    return static_cast<Uint32>(want + 0.5);
+}
+
 void SDLFFBSink::UpdateConstantEffect(double force)
 {
     // force: -1.0 ~ 1.0
@@ -637,10 +673,23 @@ void SDLFFBSink::UpdateConstantEffect(double force)
     effect.type = SDL_HAPTIC_CONSTANT;
     effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
     effect.constant.direction.dir[0] = 1;
-    effect.constant.length = SDL_HAPTIC_INFINITY;
+    // feature:F7 — FINITE, not SDL_HAPTIC_INFINITY. This is the whole
+    // dead-man mechanism: an infinite effect keeps pulling the wheel forever
+    // once the process that would have stopped it is gone, and a hard kill
+    // (TerminateProcess / taskkill /F) runs no user-mode code at all, so
+    // atexit and signal handlers cannot help. A finite window that this
+    // function re-arms every cycle expires on its own, without depending on
+    // what the (closed-source) wheel driver does on IRP_MJ_CLEANUP.
+    effect.constant.length = DeadManLengthMs();
     effect.constant.level = level;
 
     SDL_HapticUpdateEffect(haptic_, constant_effect_id_, &effect);
+    // Re-arm. SDL_HapticUpdateEffect changes the parameters of an effect but
+    // does not restart its clock, so a finite effect would run out and stay
+    // out. Running it again restarts the window with the new level -- that
+    // re-arming IS the dead man's grip, and the moment it stops happening the
+    // force lapses.
+    SDL_HapticRunEffect(haptic_, constant_effect_id_, 1);
 }
 
 void SDLFFBSink::UpdateSpringEffect(double coefficient)
@@ -650,13 +699,14 @@ void SDLFFBSink::UpdateSpringEffect(double coefficient)
 
     SDL_HapticEffect effect = {};
     effect.type = SDL_HAPTIC_SPRING;
-    effect.condition.length = SDL_HAPTIC_INFINITY;
+    effect.condition.length = DeadManLengthMs();  // feature:F7 dead-man switch (see header)
     effect.condition.right_coeff[0] = coeff;
     effect.condition.left_coeff[0]  = coeff;
     effect.condition.right_sat[0]   = 0x7FFF;
     effect.condition.left_sat[0]    = 0x7FFF;
 
     SDL_HapticUpdateEffect(haptic_, spring_effect_id_, &effect);
+    SDL_HapticRunEffect(haptic_, spring_effect_id_, 1);   // feature:F7 re-arm the dead-man window
 }
 
 void SDLFFBSink::UpdateDamperEffect(double coefficient)
@@ -665,13 +715,14 @@ void SDLFFBSink::UpdateDamperEffect(double coefficient)
 
     SDL_HapticEffect effect = {};
     effect.type = SDL_HAPTIC_DAMPER;
-    effect.condition.length = SDL_HAPTIC_INFINITY;
+    effect.condition.length = DeadManLengthMs();  // feature:F7 dead-man switch (see header)
     effect.condition.right_coeff[0] = coeff;
     effect.condition.left_coeff[0]  = coeff;
     effect.condition.right_sat[0]   = 0x7FFF;
     effect.condition.left_sat[0]    = 0x7FFF;
 
     SDL_HapticUpdateEffect(haptic_, damper_effect_id_, &effect);
+    SDL_HapticRunEffect(haptic_, damper_effect_id_, 1);   // feature:F7 re-arm the dead-man window
 }
 
 void SDLFFBSink::UpdateCombinedConstantForce(double lat_accel, double speed,
