@@ -47,6 +47,17 @@
                INTENTIONAL behavior change, refresh the baseline with:
                  check_regression_baseline.py --batch-out <OutDir> --update
 
+               WARN covers exactly one thing: "measured, and it differs".
+               NOT MEASURED is always a HARD failure and -FailOnBehavioral has
+               no say in it -- a scenario that errored, a batch that wrote no
+               readable verdict, and a whole gate run that drove zero scenarios
+               are all failures. This is not theoretical: on 2026-07-27 the
+               packaged app held the listener ports, all 22 scenarios died on
+               WinError 10013, and the gate printed PASS. A port preflight now
+               refuses to start in that situation, and the summary refuses to
+               call a zero-scenario run green whatever the cause (held ports,
+               missing build, empty manifest).
+
       Step 2.6 - AEB safety batch (reported gate, skippable)
                Same recipe as Step 2 (shared Invoke-BehavioralBatch) on a
                SEPARATE manifest and baseline:
@@ -168,6 +179,95 @@ function Resolve-RepoPath([string]$p) {
 }
 
 $overallOk = $true
+# Coverage accounting for the behavioural steps (2 / 2.6 / 2.7). These ACCUMULATE
+# across every batch: an earlier version assigned instead of adding, so the final
+# summary line reported only the LAST batch (5/5) while 22 scenarios had run --
+# the same class of under-reporting as the bug this whole block exists to prevent.
+$script:BehavioralRan      = 0      # scenarios that produced a verdict
+$script:BehavioralTotal    = 0      # scenarios attempted (ran + errored)
+$script:BehavioralMeasured = $false # at least one batch yielded parseable counts
+
+# ----------------------------------------------------------------------------
+# Port preflight -- refuse to run rather than produce a fake result
+#
+# 2026-07-27: the packaged app was left running while this gate was started.
+# Its gt_sim_web held the listener ports, all 22 scenarios died on WinError
+# 10013, and the gate printed PASS. The user-facing workflow now EXPECTS the
+# packaged app to be running while gates are executed, so this collision is
+# routine rather than exceptional.
+#
+# Two distinct hazards are checked here, and BOTH are hard aborts:
+#
+#   (a) COLLISION -- the gate itself binds the port. gt_sim_test.py binds UDP
+#       48198 as its in-process OSI receiver (gt_sim_test.py:167-171); that is
+#       the exact socket that raised WinError 10013 on 2026-07-27.
+#
+#   (b) CONTAMINATION -- the gate SENDS to the port unconditionally and someone
+#       else is listening. GT_VirtualDriverReporter is initialised with no
+#       condition even under --headless (GT_esminiLib.cpp:1391-1393) and there
+#       is no switch to suppress the send, so a packaged app listening on 48202
+#       records OUR frames into the USER's telemetry.jsonl. Neither side errors.
+#       Refusing to start is currently the only defence (audit
+#       test_results/f7_audit_port_contention.md P-1); note that occupancy
+#       detection does NOT make UDP sending safe in general -- a send succeeds
+#       with no listener at all -- it only covers the case where the collision
+#       is observable up front.
+#
+# 9100 is the manual-drive / VirtualDriver network input port, bound by the DLL
+# under input_type=network and by 10 headless harnesses as a probe socket
+# (same audit, P-2).
+# ----------------------------------------------------------------------------
+function Test-GatePortsFree {
+    $ports = @(
+        @{ Port = 8000;  What = 'web backend (packaged GT_Sim / gt_sim_web)'; Why = 'collision' },
+        @{ Port = 48198; What = 'OSI ground-truth (gt_sim_test binds this)';  Why = 'collision' },
+        @{ Port = 48199; What = 'HostVehicleData';                            Why = 'contamination' },
+        @{ Port = 48200; What = 'ScenarioVariables';                          Why = 'contamination' },
+        @{ Port = 48202; What = 'VirtualDriver telemetry';                    Why = 'contamination' },
+        @{ Port = 9100;  What = 'manual-drive / VD network input';            Why = 'collision' },
+        @{ Port = 9105;  What = 'HeadlessFfbSink pushback';                   Why = 'collision' }
+    )
+    $busy = @()
+    foreach ($p in $ports) {
+        $inUse = $false
+        try {
+            if (Get-NetTCPConnection -State Listen -LocalPort $p.Port -ErrorAction SilentlyContinue) { $inUse = $true }
+        } catch { }
+        try {
+            $udp = Get-NetUDPEndpoint -LocalPort $p.Port -ErrorAction SilentlyContinue
+            if ($udp) { $inUse = $true }
+        } catch { }
+        if ($inUse) { $busy += $p }
+    }
+    if ($busy.Count -eq 0) { return $true }
+
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host "REGRESSION GATE: ABORTED -- required ports are already in use" -ForegroundColor Red
+    foreach ($b in $busy) {
+        Write-Host ("  port {0,-6} {1,-45} [{2}]" -f $b.Port, $b.What, $b.Why) -ForegroundColor Red
+    }
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  collision    -- this gate binds the port; scenarios die with WinError 10013" -ForegroundColor Red
+    Write-Host "                  and the deviation check then finds zero deviations over zero" -ForegroundColor Red
+    Write-Host "                  runs. A green gate here would be a lie." -ForegroundColor Red
+    Write-Host "  contamination-- this gate SENDS to the port unconditionally. Whoever is" -ForegroundColor Red
+    Write-Host "                  listening records our frames as if they were theirs, with no" -ForegroundColor Red
+    Write-Host "                  error on either side." -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  Stop the packaged app (or whatever holds these ports) and re-run." -ForegroundColor Red
+    Write-Host "  To see what holds them:" -ForegroundColor Red
+    Write-Host "    Get-Process | Where-Object { `$_.ProcessName -match 'GT_Sim|gt_sim_web' }" -ForegroundColor Red
+    Write-Host "  There is deliberately NO override switch: an override is how a run that" -ForegroundColor Red
+    Write-Host "  could not measure anything gets reported as green." -ForegroundColor Red
+    Write-Host "============================================================" -ForegroundColor Red
+    return $false
+}
+
+# Only the behavioural steps touch these sockets, so -SkipBehavioral (unit +
+# ODR only) must not be blocked by a running packaged app.
+if (-not $SkipBehavioral) {
+    if (-not (Test-GatePortsFree)) { exit 2 }
+}
 
 # ----------------------------------------------------------------------------
 # Shared behavioral-batch runner (Steps 2 and 2.6)
@@ -198,12 +298,71 @@ function Invoke-BehavioralBatch {
 
     $verdictFile = Join-Path $OutPath "batch_verdict.json"
     $verdictText = "(no batch_verdict.json)"
+    $ranCount = $null; $errCount = $null; $totalCount = $null
     if (Test-Path $verdictFile) {
         try {
             $v = Get-Content $verdictFile -Raw | ConvertFrom-Json
             $s = $v.summary
             $verdictText = "overall=$($v.overall) (pass=$($s.pass) fail=$($s.fail) needs-review=$($s.'needs-review') error=$($s.error))"
+            $ranCount   = [int]$s.pass + [int]$s.fail + [int]$s.'needs-review'
+            $errCount   = [int]$s.error
+            $totalCount = $ranCount + $errCount
         } catch { $verdictText = "(could not parse batch_verdict.json)" }
+    }
+
+    # Accumulate coverage BEFORE any verdict is reached, and on every path, so
+    # the counts the summary prints are what actually happened -- including for
+    # a batch that goes on to fail or warn.
+    if ($null -ne $totalCount) {
+        $script:BehavioralRan      += $ranCount
+        $script:BehavioralTotal    += $totalCount
+        $script:BehavioralMeasured = $true
+    }
+
+    # No verdict file at all, or an unparseable one, means the batch did not get
+    # far enough to say anything. That is "not measured", not "no deviation" --
+    # and check_regression_baseline.py's own exit 2 for this case is only a WARN
+    # by default, which would let it through. Fail here instead.
+    if ($null -eq $totalCount) {
+        Write-Host "${Label}: FAIL -- NOT MEASURED: $verdictText" -ForegroundColor Red
+        Write-Host "    The batch produced no readable verdict, so nothing was compared." -ForegroundColor Red
+        Write-Host "    Expected: $verdictFile" -ForegroundColor Red
+        return $false
+    }
+    # A verdict that reports zero scenarios is equally unmeasured (empty or
+    # mis-pathed manifest).
+    if ($totalCount -eq 0) {
+        Write-Host "${Label}: FAIL -- NOT MEASURED: the batch reported 0 scenarios. $verdictText" -ForegroundColor Red
+        Write-Host "    Check the manifest path: $BatchPath" -ForegroundColor Red
+        return $false
+    }
+
+    # ------------------------------------------------------------------
+    # "Did not run" is NOT "no deviation". 2026-07-27: the packaged app was
+    # left running, every one of 22 scenarios died on the same WinError 10013
+    # (socket access denied) giving pass=0 error=22 -- and because the
+    # behavioural step is WARN-by-default, the gate still printed
+    # "REGRESSION GATE: PASS". Nothing had executed. The gate, which is the
+    # last thing protecting everything else, was reporting a failure as a
+    # success.
+    #
+    # A deviation check over zero executed scenarios trivially finds zero
+    # deviations, so check_regression_baseline.py's exit 0 cannot be trusted
+    # on its own. These two conditions are therefore HARD failures: they are
+    # not "within tolerance" (the thing WARN exists to express), they are
+    # "not measured", and -FailOnBehavioral must not be able to downgrade them.
+    # ------------------------------------------------------------------
+    if ($ranCount -eq 0) {
+        Write-Host "${Label}: FAIL -- NOT MEASURED: 0 of $totalCount scenarios executed ($errCount errored). $verdictText" -ForegroundColor Red
+        Write-Host "    A deviation check over zero runs proves nothing. This is not a WARN." -ForegroundColor Red
+        Write-Host "    Most likely cause: something else is holding the UDP/TCP listener ports" -ForegroundColor Red
+        Write-Host "    (the packaged GT_Sim / gt_sim_web). See the port preflight at the top of this script." -ForegroundColor Red
+        return $false
+    }
+    if ($errCount -gt 0) {
+        Write-Host "${Label}: FAIL -- $errCount of $totalCount scenarios errored (could not be measured). $verdictText" -ForegroundColor Red
+        Write-Host "    Errored scenarios are unmeasured, not passing. Fix the errors, then re-run." -ForegroundColor Red
+        return $false
     }
 
     # Exit 0 = no deviation, 1 = deviation(s), 2 = setup error (baseline or
@@ -215,7 +374,9 @@ function Invoke-BehavioralBatch {
     $reg = $LASTEXITCODE
 
     if ($reg -eq 0) {
-        Write-Host "${Label}: PASS (no per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Green
+        # Always state how many actually ran. "PASS" alone is what let a
+        # 0-of-22 run read as green at a glance.
+        Write-Host "${Label}: PASS ($ranCount/$totalCount scenarios ran, no per-scenario deviation vs baseline)  $verdictText" -ForegroundColor Green
         return $true
     }
 
@@ -392,6 +553,8 @@ if ($SkipBehavioral) {
         Write-Host "Step 2: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
         foreach ($m in $missing) { Write-Host "    - $m" -ForegroundColor Yellow }
         Write-Host "    (build Release, or pass -SkipBehavioral / -Python / -Dll)" -ForegroundColor Yellow
+        Write-Host "    NOTE: skipping here is not a pass. If no behavioral scenario runs at all," -ForegroundColor Yellow
+        Write-Host "          the gate fails at the summary. Use -SkipBehavioral to say so on purpose." -ForegroundColor Yellow
     } else {
         # Steps 2 and 2.6 run the identical batch -> baseline-compare recipe on
         # different manifests, so it lives in one function (Invoke-BehavioralBatch,
@@ -551,10 +714,36 @@ if ($TelemetryGolden) {
 # Summary
 # ----------------------------------------------------------------------------
 Write-Host "============================================================"
+# The final line must carry how much actually executed. "REGRESSION GATE: PASS"
+# on its own is precisely what let a 0-of-22 run pass for green on 2026-07-27;
+# the per-scenario counts were available but only in a line above it, and the
+# gate relied on a human reading further. It should not.
+#
+# This block is also the LAST-RESORT structural guarantee: a gate run that
+# executed zero scenarios cannot report PASS, no matter which per-step check
+# did or did not catch it, and regardless of -FailOnBehavioral. The invariant
+# is deliberately stated once, at the end, where nothing can bypass it.
+$coverage = ""
+if ($SkipBehavioral) {
+    $coverage = "  [behavioral: SKIPPED (-SkipBehavioral)]"
+} elseif ($script:BehavioralMeasured -and $script:BehavioralRan -gt 0) {
+    $coverage = "  [behavioral: $($script:BehavioralRan)/$($script:BehavioralTotal) scenarios executed]"
+} else {
+    $coverage = "  [behavioral: NOT MEASURED - 0 scenarios executed]"
+    if ($overallOk) {
+        Write-Host "NOT MEASURED: the behavioral batches executed 0 scenarios." -ForegroundColor Red
+        Write-Host "  Every other step may have passed, but nothing was actually driven, so" -ForegroundColor Red
+        Write-Host "  this run proves nothing about behaviour. Forcing FAIL." -ForegroundColor Red
+        Write-Host "  Causes seen in practice: ports held by the packaged app (see the preflight)," -ForegroundColor Red
+        Write-Host "  and missing prerequisites (no Release build) reported as 'SKIPPED' above." -ForegroundColor Red
+        Write-Host "  If you meant to run without them, say so explicitly: -SkipBehavioral." -ForegroundColor Red
+        $overallOk = $false
+    }
+}
 if ($overallOk) {
-    Write-Host "REGRESSION GATE: PASS" -ForegroundColor Green
+    Write-Host "REGRESSION GATE: PASS$coverage" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "REGRESSION GATE: FAIL" -ForegroundColor Red
+    Write-Host "REGRESSION GATE: FAIL$coverage" -ForegroundColor Red
     exit 1
 }
