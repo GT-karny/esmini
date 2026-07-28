@@ -75,7 +75,7 @@ import ctypes
 import sys
 
 
-def release_all(sdl2, say, allow_phantom: bool = False) -> dict:
+def release_all(sdl2, say) -> dict:
     """全 haptic デバイスを停止・解放し、**何台成功し何台失敗したか**を返す。
 
     `sdl2` を引数で受けるのは selftest から差し替えるため（実機なしで
@@ -128,39 +128,23 @@ def release_all(sdl2, say, allow_phantom: bool = False) -> dict:
     finally:
         sdl2.SDL_Quit()
 
-    # --- 実体のない列挙エントリの扱い（2026-07-29） -----------------------
+    # --- 「実体のない列挙エントリ」規則は撤回した（2026-07-29） -------------
     #
-    # 実測（G29・ユーザーによる読み取り専用の列挙、GT_Sim/web 停止中）:
-    #   joystick   1 台 : G29 / guid 030048e66d04...  is_haptic=1
-    #   haptic     3 個 : [0] OPEN OK / [1] OPEN FAILED / [2] OPEN OK  ← 全て同名
-    # 物理デバイスは 1 台で、haptic 側だけが同名で 3 つに見えている。
-    # 私の独立観測（3回連続・開く順序を変えても index 1 が最初に失敗＝構造的）と一致。
+    # 一度は「joystick が 1 台なら、開けない haptic エントリは実体が無いので
+    # 成功扱いにしてよい」という規則を入れた（78194323）。**実機で反証された。**
     #
-    # よって「開けなかったエントリ」は掴まれているのではなく**実体が無い**。
-    # 1 つ以上のエントリを開いて停止できていれば、その物理デバイスの力は止まっている
-    # （StopAll / SetGain はデバイス単位の操作で、ハンドル局所ではない）。
+    #   実行: HAPTIC_RELEASE result=FAILED devices=3 released=2 failed=1
+    #         phantom=1 joysticks=1
+    #         WARN「同一デバイスの別エントリを停止済みのため実体のない列挙として扱った」
+    #   直後: **ユーザーが手で確認 → ホイールは重いまま＝力が残っていた**
     #
-    # **適用条件を joystick 1 台に限定する理由（ユーザー案への追加ガード）**:
-    # haptic API から取れるのは名前だけで GUID は無い。**同型機を 2 台**繋いだ場合、
-    # 名前は完全に同一になるので「開けた方」と「開けなかった方」を名前では区別できず、
-    # 片方が本当に掴まれていても phantom と誤判定しうる。joystick が 1 台であることを
-    # 要求すれば、その曖昧さは原理的に発生しない。2 台以上のときは**推測せず従来どおり
-    # 失敗**にする（安全側に倒す）。
-    single_device = (result["joysticks"] == 1)
-    if result["failed"] > 0 and result["released"] > 0 and single_device:
-        phantom = [(nm, m) for nm, m in result["failures"] if nm in result["released_names"]]
-        if len(phantom) == result["failed"]:
-            result["phantom"] = result["failed"]
-            result["phantom_msgs"] = [m for _nm, m in phantom]
-            # 2026-07-29 実機で反証されうる観測が出たため **既定で降格しない**。
-            # S3 実走(条件A)で result=FAILED が出た直後、ユーザーが手で確認したところ
-            # **ホイールに力が残っていた（重いまま）**。この規則を既定で有効にしていたら
-            # その実行は RELEASED と報告していた ——「力が残っているのに解放成功」で、
-            # まさに今日ずっと潰してきた型そのものになる。
-            # 「開けない index 1 こそが実物の FFB インタフェースだった」可能性が
-            # 排除できるまで、降格は --allow-phantom を明示したときだけにする。
-            if allow_phantom:
-                result["failed"] = 0
+    # つまり「joystick が 1 台」は「開けないエントリが力を出していない」ことの
+    # 証拠にならない。むしろ**開けない index 1 こそが実物の FFB インタフェースを
+    # 握っている**可能性が高い（製品は SDL_HapticOpenFromJoystick で開くので
+    # index を指定しておらず、開けた [0]/[2] が実体側だという保証がどこにも無い）。
+    #
+    # 規則は削除する。フラグで残すこともしない —— 「明示すれば使える」形で置くと、
+    # いつか誰かが緑にするために使う。反証された規則は消すのが正しい。
     return result
 
 
@@ -217,8 +201,8 @@ def _selftest() -> int:
         ("2エントリ全滅 → FAILED/1",                   _Stub(2, open_ok=False),        False, "FAILED", 1),
         ("open できたが停止で例外 → FAILED/1",         _Stub(1, stop_raises=True),     False, "FAILED", 1),
         # --- 実機 G29 の形（joystick 1 台 / haptic 3 個 / index 1 が常に失敗）---
-        ("**実機G29形: 3個中1個失敗+joy1 → RELEASED/0(phantom=1)**",
-                                                       _Stub(3, fail_idx=[1], joysticks=1), False, "RELEASED", 0),
+        ("**実機G29形: 3個中1個失敗+joy1 → FAILED/1（規則撤回後）**",
+                                                       _Stub(3, fail_idx=[1], joysticks=1), False, "FAILED", 1),
         # --- ガード: 同型機2台では名前で区別できないので phantom 扱いしない ---
         ("同型2台(joy=2)で1個失敗 → FAILED/1",         _Stub(3, fail_idx=[1], joysticks=2), False, "FAILED", 1),
         # --- ガード: 1個も開けていないなら phantom 扱いしない ---
@@ -229,7 +213,7 @@ def _selftest() -> int:
     ]
     bad = 0
     for desc, stub, req, want_name, want_code in cases:
-        r = release_all(stub, lambda _m: None, allow_phantom=True)
+        r = release_all(stub, lambda _m: None)
         name, code = verdict(r, req)
         ok = (name == want_name and code == want_code and stub.quit_called)
         print(f"  [{'OK ' if ok else 'NG!'}] {desc:52s} -> {name}/{code} "
@@ -255,9 +239,6 @@ def main() -> int:
                     help="診断行を抑制する（最終行の判定は抑制しない）")
     ap.add_argument("--require-device", action="store_true",
                     help="haptic デバイスが0台なら失敗にする（無人実行用）")
-    ap.add_argument("--allow-phantom", action="store_true",
-                    help="開けない列挙エントリを phantom として成功扱いにする"
-                         "（2026-07-29 の実機観測により既定 OFF。下の警告を読むこと）")
     ap.add_argument("--selftest", action="store_true",
                     help="実機なしで3分岐を検証する（open 失敗が非0を返すこと）")
     args = ap.parse_args()
@@ -284,12 +265,9 @@ def main() -> int:
         print("HAPTIC_RELEASE result=CANNOT_RUN devices=0 released=0 failed=0")
         return 2
 
-    r = release_all(sdl2, say, allow_phantom=args.allow_phantom)
+    r = release_all(sdl2, say)
     name, code = verdict(r, args.require_device)
     # phantom は成功扱いだが、**必ず見えるところに出す**（黙って握り潰さない）。
-    for m in r.get("phantom_msgs", []):
-        print(f"[haptic_release] WARN: {m} — 同一デバイスの別エントリを停止済みのため"
-              "実体のない列挙として扱った（joystick 1 台を確認済み）", file=sys.stderr)
     for _nm, f in r["failures"]:
         print(f"[haptic_release] !! {f}", file=sys.stderr)
     if name == "FAILED":
