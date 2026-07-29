@@ -35,6 +35,7 @@ DOES something:
 Usage (venv interpreter, absolute path):
   DriverScript/.venv/Scripts/python.exe GT_esmini/test/headless/f7_reverse_split_latch_probe.py
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -47,7 +48,11 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from vd_domain_split_probe import REPO_ROOT, make_variant, assert_config_loaded  # noqa: E402
+from vd_domain_split_probe import (
+    REPO_ROOT,
+    make_variant,
+    assert_config_loaded,
+)  # noqa: E402
 
 DLL = REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 SCENARIO = (
@@ -60,10 +65,14 @@ SCENARIO = (
 )
 MD_CONFIG = "manual_drive_realwheel_reverse_headless.json"  # build/GT_esmini/config/, headless_ffb variant
 
-DT = 0.01  # match real-machine dt (see REAL_MACHINE_DT note in vd_ffb_notouch_parity.py)
+DT = (
+    0.01  # match real-machine dt (see REAL_MACHINE_DT note in vd_ffb_notouch_parity.py)
+)
 PUSHBACK_PORT = 9105
 MAGIC_PSTC = 0x50535443
-WIRE = struct.Struct("<I4diI")  # magic, steering(=pushback offset here), throttle, brake, clutch, gear, buttons
+WIRE = struct.Struct(
+    "<I4diI"
+)  # magic, steering(=pushback offset here), throttle, brake, clutch, gear, buttons
 BTN_AUTO_RESUME = 1 << 7  # ButtonBits::AUTO_RESUME, VehicleCommand.hpp
 
 
@@ -73,14 +82,24 @@ def _load_lib():
     lib.GT_InitWithArgs.restype = ctypes.c_int
     lib.GT_Step.argtypes = [ctypes.c_double]
     lib.GT_Close.argtypes = []
-    lib.GT_GetVirtualDriverTelemetry.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    lib.GT_GetVirtualDriverTelemetry.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+    ]
     lib.GT_GetVirtualDriverTelemetry.restype = ctypes.c_int
     return lib
 
 
-def run(outdir: Path, pushback_offset: float = 0.35, push_from_s: float = 3.0,
-        push_until_s: float = 6.0, resume_at_s: float = 8.0,
-        resume_hold_s: float = 0.05, duration_s: float = 14.0) -> list[dict]:
+def run(
+    outdir: Path,
+    pushback_offset: float = 0.35,
+    push_from_s: float = 3.0,
+    push_until_s: float = 6.0,
+    resume_at_s: float = 8.0,
+    resume_hold_s: float = 0.05,
+    duration_s: float = 14.0,
+) -> list[dict]:
     outdir.mkdir(parents=True, exist_ok=True)
     variant = make_variant(SCENARIO, outdir / "reverse_latch.xosc", md_config=MD_CONFIG)
     # Shorten the committed 180s StopTrigger -- this probe only needs enough
@@ -100,8 +119,14 @@ def run(outdir: Path, pushback_offset: float = 0.35, push_from_s: float = 3.0,
         tel_path.unlink()
 
     lib = _load_lib()
-    argv_list = [b"reverselatch", b"--osc", str(variant).encode(), b"--headless",
-                 b"--fixed_timestep", str(DT).encode()]
+    argv_list = [
+        b"reverselatch",
+        b"--osc",
+        str(variant).encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        str(DT).encode(),
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -149,15 +174,27 @@ def verdict(frames: list[dict]) -> list[tuple[str, bool, str]]:
     checks = []
 
     manual_edges = [f for f in frames if f.get("override", {}).get("manual_transition")]
-    checks.append((
-        "ラッチが発火した（manual_transition が1回だけ立つ）",
-        len(manual_edges) == 1,
-        f"manual_transition 回数={len(manual_edges)}, at t={[round(f['sim_time'],3) for f in manual_edges]}",
-    ))
+    checks.append(
+        (
+            "ラッチが発火した（manual_transition が1回だけ立つ）",
+            len(manual_edges) == 1,
+            f"manual_transition 回数={len(manual_edges)}, at t={[round(f['sim_time'],3) for f in manual_edges]}",
+        )
+    )
     if not manual_edges:
-        block_reasons = {f.get("ffb", {}).get("gates", {}).get("block_reason")
-                          for f in frames if f.get("ffb", {}).get("gates", {}).get("block_reason") not in (None, "none")}
-        checks.append(("(発火しなかったので) block_reason", False, f"observed: {block_reasons or '<none>'}"))
+        block_reasons = {
+            f.get("ffb", {}).get("gates", {}).get("block_reason")
+            for f in frames
+            if f.get("ffb", {}).get("gates", {}).get("block_reason")
+            not in (None, "none")
+        }
+        checks.append(
+            (
+                "(発火しなかったので) block_reason",
+                False,
+                f"observed: {block_reasons or '<none>'}",
+            )
+        )
         return checks
 
     t_latch = manual_edges[0]["sim_time"]
@@ -169,18 +206,24 @@ def verdict(frames: list[dict]) -> list[tuple[str, bool, str]]:
     # task 6, not a violation of it. Bound the window if a resume edge exists.
     auto_edges_all = [f for f in frames if f.get("override", {}).get("auto_transition")]
     t_resume_bound = auto_edges_all[0]["sim_time"] if auto_edges_all else None
-    until_resume = [f for f in after if t_resume_bound is None or f["sim_time"] < t_resume_bound]
+    until_resume = [
+        f for f in after if t_resume_bound is None or f["sim_time"] < t_resume_bound
+    ]
 
-    checks.append((
-        "発火前は override.lateral=false",
-        all(not f.get("override", {}).get("lateral") for f in before),
-        f"発火前フレーム中 lateral=true の件数={sum(1 for f in before if f.get('override',{}).get('lateral'))}",
-    ))
-    checks.append((
-        "発火後・AUTO_RESUME前は override.lateral=true を維持（自己永続）",
-        all(f.get("override", {}).get("lateral") for f in until_resume),
-        f"該当フレーム中 lateral=false の件数={sum(1 for f in until_resume if not f.get('override',{}).get('lateral'))}",
-    ))
+    checks.append(
+        (
+            "発火前は override.lateral=false",
+            all(not f.get("override", {}).get("lateral") for f in before),
+            f"発火前フレーム中 lateral=true の件数={sum(1 for f in before if f.get('override',{}).get('lateral'))}",
+        )
+    )
+    checks.append(
+        (
+            "発火後・AUTO_RESUME前は override.lateral=true を維持（自己永続）",
+            all(f.get("override", {}).get("lateral") for f in until_resume),
+            f"該当フレーム中 lateral=false の件数={sum(1 for f in until_resume if not f.get('override',{}).get('lateral'))}",
+        )
+    )
 
     # servo release: once latched, ffb.target_active must go (and stay) false
     # even while push_until_s has not yet been reached (release is driven by
@@ -193,11 +236,16 @@ def verdict(frames: list[dict]) -> list[tuple[str, bool, str]]:
     # (same shape as 1fa408b9's own "1 frame off, 0 once shifted" finding).
     still_pushing_after_latch = [f for f in after if t_latch < f["sim_time"] < 6.0]
     if still_pushing_after_latch:
-        checks.append((
-            "ラッチ後はサーボが不活性化する（ffb.target_active=false）— 修正Aの確認",
-            all(not f.get("ffb", {}).get("target_active", True) for f in still_pushing_after_latch),
-            f"target_active=true の残存フレーム数={sum(1 for f in still_pushing_after_latch if f.get('ffb',{}).get('target_active'))}",
-        ))
+        checks.append(
+            (
+                "ラッチ後はサーボが不活性化する（ffb.target_active=false）— 修正Aの確認",
+                all(
+                    not f.get("ffb", {}).get("target_active", True)
+                    for f in still_pushing_after_latch
+                ),
+                f"target_active=true の残存フレーム数={sum(1 for f in still_pushing_after_latch if f.get('ffb',{}).get('target_active'))}",
+            )
+        )
 
     # vehicle steering follow: driver.steer must NOT collapse to ~0 right at
     # the latch edge -- it should track something close to the pushed axis
@@ -206,37 +254,45 @@ def verdict(frames: list[dict]) -> list[tuple[str, bool, str]]:
     # before.
     steer_before = before[-1]["driver"]["steer"] if before else None
     steer_after_latch = after[0]["driver"]["steer"] if after else None
-    checks.append((
-        "ラッチ直後も driver.steer が 0 に張り付かない（修正Bの確認）",
-        steer_after_latch is not None and abs(steer_after_latch) > 0.05,
-        f"直前={steer_before}, 直後={steer_after_latch}",
-    ))
+    checks.append(
+        (
+            "ラッチ直後も driver.steer が 0 に張り付かない（修正Bの確認）",
+            steer_after_latch is not None and abs(steer_after_latch) > 0.05,
+            f"直前={steer_before}, 直後={steer_after_latch}",
+        )
+    )
 
     # --- round trip: AUTO_RESUME must actually bring VD back (修正C/task 6) ---
     auto_edges = [f for f in frames if f.get("override", {}).get("auto_transition")]
-    checks.append((
-        "AUTO_RESUME でラッチが解ける（auto_transition が1回だけ立つ）",
-        len(auto_edges) == 1,
-        f"auto_transition 回数={len(auto_edges)}, at t={[round(f['sim_time'],3) for f in auto_edges]}",
-    ))
+    checks.append(
+        (
+            "AUTO_RESUME でラッチが解ける（auto_transition が1回だけ立つ）",
+            len(auto_edges) == 1,
+            f"auto_transition 回数={len(auto_edges)}, at t={[round(f['sim_time'],3) for f in auto_edges]}",
+        )
+    )
     if auto_edges:
         t_resume = auto_edges[0]["sim_time"]
         post_resume = [f for f in frames if f["sim_time"] >= t_resume]
-        checks.append((
-            "復帰後は override.lateral=false を維持",
-            all(not f.get("override", {}).get("lateral") for f in post_resume),
-            f"復帰後フレーム中 lateral=true の件数={sum(1 for f in post_resume if f.get('override',{}).get('lateral'))}",
-        ))
+        checks.append(
+            (
+                "復帰後は override.lateral=false を維持",
+                all(not f.get("override", {}).get("lateral") for f in post_resume),
+                f"復帰後フレーム中 lateral=true の件数={sum(1 for f in post_resume if f.get('override',{}).get('lateral'))}",
+            )
+        )
         # servo re-arms: once resumed, ffb.target_active must go true again
         # (VD is lateral owner + lat_manual=false -> active=!lat_manual=true
         # at the source; and 6a's active=!owner_manual on the consume side).
         settled = [f for f in post_resume if f["sim_time"] >= t_resume + 0.5]
         if settled:
-            checks.append((
-                "復帰後はサーボが再アクティブ化する（ffb.target_active=true）",
-                all(f.get("ffb", {}).get("target_active") for f in settled),
-                f"target_active=false の残存フレーム数={sum(1 for f in settled if not f.get('ffb',{}).get('target_active'))}",
-            ))
+            checks.append(
+                (
+                    "復帰後はサーボが再アクティブ化する（ffb.target_active=true）",
+                    all(f.get("ffb", {}).get("target_active") for f in settled),
+                    f"target_active=false の残存フレーム数={sum(1 for f in settled if not f.get('ffb',{}).get('target_active'))}",
+                )
+            )
 
     return checks
 
