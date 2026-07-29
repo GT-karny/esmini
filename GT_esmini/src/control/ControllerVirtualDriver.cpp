@@ -6,6 +6,7 @@
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
+#include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
 #include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
 #include "gt_esmini/control/manualdrive/StubInputSource.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
@@ -281,6 +282,13 @@ void ControllerVirtualDriver::DeactivateDomains(unsigned int domains)
     }
 
     Controller::DeactivateDomains(domains);
+
+    if (object_)
+    {
+        // Claim() gives up only what this controller still owns, so a domain
+        // already reassigned to a peer is not clawed back (see the ledger header).
+        DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
+    }
 }
 
 void ControllerVirtualDriver::TearDownControlOutputs()
@@ -351,6 +359,15 @@ int ControllerVirtualDriver::Activate(const ControlActivationMode (&mode)[static
     // multiple-call guard and would re-open the joystick and orphan the existing
     // haptic effects.
 
+    // feature:F7 — record the claim against the bitmask the base actually
+    // granted, not against the requested mode (see ControllerManualDrive).
+    if (object_)
+    {
+        DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
+        LOG_INFO("VirtualDriverController[{}]: ownership after activate — {}",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+    }
+
     return rc;
 }
 
@@ -360,6 +377,10 @@ void ControllerVirtualDriver::Deactivate()
     {
         TearDownControlOutputs();
     }
+    if (object_)
+    {
+        DomainOwnershipLedger::Instance().ReleaseAll(object_->GetId(), this);
+    }
     LOG_INFO("VirtualDriverController: Deactivated");
     Controller::Deactivate();
 }
@@ -367,6 +388,14 @@ void ControllerVirtualDriver::Deactivate()
 void ControllerVirtualDriver::Step(double timeStep)
 {
     if (!object_) return;
+
+    // feature:F7 — per-frame ownership trace; see ControllerManualDrive::Step for
+    // why the self-reported mask is printed alongside the arbitrated ledger.
+    LOG_DEBUG("VirtualDriverController[{}]: ownership {} (self active_mask=0x{:x})",
+              GetName(),
+              DomainOwnershipLedger::Instance().Describe(object_->GetId()),
+              GetActiveDomains());
+
     sim_time_ += timeStep;
 
     // Teleport: re-sync physics to the new pose (fresh dynamic state).

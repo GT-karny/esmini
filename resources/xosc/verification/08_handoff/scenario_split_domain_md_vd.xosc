@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — 横=ManualDrive / 縦=VirtualDriver の per-domain 分担が
+  「成立しない」ことの再現アセット。
+
+  ============================================================================
+  このファイルは「動く構成」ではない。動かないことの証拠である。
+  ============================================================================
+
+  シナリオ層では狙いどおりに書けている。実行すると必ずこの2行が出る:
+
+      Controller MD active on domains: Lateral (mask=0x2)
+      Controller VD active on domains: Longitudinal (mask=0x1)
+
+  (mask は CommonMini.hpp:131 の DOMAIN_MASK_LONG=0x1 / DOMAIN_MASK_LAT=0x2。
+   すなわち MD は横だけ、VD は縦だけを保持している。)
+
+  ところが走行結果は分担にならない。両コントローラとも Step() で
+  active_domains_ を一切参照せず、それぞれが自前の RealVehicleBackend を
+  積んで object の姿勢・速度を丸ごと書き戻すため、
+  **同一フレーム内で後にStepした方が全ドメインを総取りする**。
+
+  実測(2026-07-29, resources/xodr/f7_curve_onset.xodr, 8s, fixed_timestep 0.05):
+
+    宣言順 MD→VD (このファイル): 見えている操舵は VD のもの。
+        UDP で MD に定常操舵 0.35 を入れても車輪角は VD 由来の値のまま
+        (-0.126/-0.121/-0.096 deg)、MD 単独時の -0.213 deg にはならない。
+        つまり「横を持っている」MD の横入力が路面に届かない。
+
+    宣言順 VD→MD (2ブロックを入れ替えただけ): csv_logger 803行が
+        「MD を lateral+longitudinal 両方で有効化した run」と完全一致。
+        VD の縦有効化の寄与はゼロ。
+
+  どちらの順でも片方が両ドメインを総取りし、混合は起きない。順序を選んで
+  も救えない: 総取りする側が変わるだけである。
+
+  ============================================================================
+  「動いたように見える」罠 — 一番危険なので先に潰しておく
+  ============================================================================
+  ManualDrive の config には OSC とは別系統のドメイン切替
+  ("domain": {"longitudinal": "scenario"}) がある。これを使い、かつ MD を
+  後に宣言すると、車輪角は MD 由来、速度フィールドは VD 由来になり、
+  一見「横=MD / 縦=VD が成立した」ように読める。
+
+  成立していない。速度フィールドが VD の値になっただけで、車体を実際に
+  動かしているのは MD の物理のままである。World_Position の変化率と
+  Current_Speed を突き合わせると:
+
+      横=MD/縦=VD(に見える構成): 報告 9.93 m/s / 実移動 13.15 m/s (比 1.32)
+      MD 単独 / VD 単独 / MD両ドメイン: いずれも比 0.98-1.00
+
+  つまり報告速度より 3 割速く走る個体ができる。OSI にもこの速度が出る。
+  config の block_speed 経路は「縦をシナリオ既定挙動に返す」ためのもので、
+  自前で姿勢を積分する別コントローラに縦を渡す仕組みではない。
+  csv の速度列だけを見て合否を決めると、この不整合は見えない。
+
+  ============================================================================
+  ついでにこのファイルが固定している非自明な事実
+  ============================================================================
+  1. revMinor=3 では controllerRef は読まれない。ScenarioReader.cpp:2671 が
+     v1.3 以上で ctrl_name_ を objectControllerRef で上書きするため、
+     controllerRef だけ書くと名前が空になり controllers_.back() が
+     黙って選ばれる(警告は出るがエラーにはならない)。
+     revMinor<=2 では逆に controllerRef だけが読まれる。
+     → v1.3 でドメイン分割を書くなら objectControllerRef 必須。
+
+  2. 2つの ObjectController は両方保持される。後の割り当てが前を置き換える
+     ことはなく、名前で個別に活性化できる。
+
+  3. AssignControllerAction 側の activateLateral / activateLongitudinal は
+     使ってはならない。OSCPrivateAction.cpp:754 が
+     Activate({lat, long, light, anim}) と brace-init しており、
+     ControlDomains は LONG=0 / LAT=1 の順なので横縦が入れ替わる。
+     stock esmini.exe でも同様に activateLateral="true" が mask=0x1
+     (=Longitudinal) を返す。ActivateControllerAction 側は添字指定なので正しい。
+
+  ============================================================================
+  実行方法 (ヘッドレス)
+  ============================================================================
+  build/GT_esmini/Release/GT_Sim.exe に、通常どおり2本ハイフンを付けた
+  オプションを渡す (XMLコメント内に2本ハイフンは書けないのでここでは省く):
+
+      osc <このファイル> / headless / fixed_timestep 0.05 / csv_logger out.csv
+
+  GT_esminiLib.dll が SDL2.dll と python312.dll を要求するので、
+  PATH に build/GT_esmini/Release と
+  thirdparty/python-embed/python-3.12.10-embed-amd64 を通すこと。
+
+  ManualDrive は config/manual_drive_headless_stub.json を参照する
+  (input=stub, FFB無効)。実機ホイールには触れない。
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-29T00:00:00"
+               description="VirtualDriver verification: lateral=ManualDrive / longitudinal=VirtualDriver split does NOT hold (repro)"
+               author="GT_esmini"/>
+   <ParameterDeclarations/>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/f7_curve_onset.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- 宣言順が結果を決める。ここでは MD が先、VD が後なので毎フレーム
+              VD が後にStepし、VD が横も縦も総取りする。2ブロックを入れ替えると
+              総取りする側が MD に変わる。どちらでも分担にはならない。 -->
+         <ObjectController>
+            <Controller name="MD">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+         <ObjectController>
+            <Controller name="VD">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <!-- VD の軌道プランナは経路を要求する。road 4 は半径約49mの
+                    定曲率アーク(f7_curve_onset.xodr ヘッダ参照)なので、
+                    「操舵ゼロなら車線を外れる / 正しく操舵すれば追従する」が
+                    そのまま横制御の帰属テストになる。 -->
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="50"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="170"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="13.889"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <!-- objectControllerRef であること。revMinor=3 で controllerRef と
+                    書くと無視され、両方の活性化が controllers_.back() (=VD) に
+                    向かってしまい、分割そのものが成立しなくなる。 -->
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="MD" lateral="true" longitudinal="false"/>
+                  </ControllerAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="VD" lateral="false" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="SplitDomainStory">
+         <Act name="SplitDomainAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="8" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

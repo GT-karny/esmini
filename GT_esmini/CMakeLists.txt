@@ -130,6 +130,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/ConflictPointResolver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/CrosswalkPedestrianAware.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/AebSafety.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/DomainOwnershipLedger.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ModuleDirectory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp

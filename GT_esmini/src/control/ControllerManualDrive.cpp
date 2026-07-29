@@ -13,6 +13,7 @@
 #include "gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp"
 #endif
 #include "gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp"
+#include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "CommonMini.hpp"
@@ -123,7 +124,31 @@ ControllerManualDrive::~ControllerManualDrive()
 
 void ControllerManualDrive::Step(double timeStep)
 {
+    // feature:F7 — per-frame ownership trace. active_mask is what this controller
+    // believes about itself; the ledger is what GT has arbitrated. The two
+    // disagreeing is the visible symptom of upstream's per-domain deactivation
+    // defect, so both are printed side by side rather than just the verdict.
+    if (object_)
+    {
+        LOG_DEBUG("ManualDriveController[{}]: ownership {} (self active_mask=0x{:x})",
+                  GetName(),
+                  DomainOwnershipLedger::Instance().Describe(object_->GetId()),
+                  GetActiveDomains());
+    }
+
     coordinator_->RunFrame(*this, timeStep);
+}
+
+void ControllerManualDrive::DeactivateDomains(unsigned int domains)
+{
+    Controller::DeactivateDomains(domains);
+    if (object_)
+    {
+        // Re-assert against whatever the base left us holding. Claim() releases a
+        // domain only when this controller is its recorded owner, so a domain that
+        // upstream took from us and handed to a peer is not clawed back here.
+        DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
+    }
 }
 
 void ControllerManualDrive::Deactivate()
@@ -134,6 +159,11 @@ void ControllerManualDrive::Deactivate()
     if (ffb)
     {
         ffb->SetEnabled(false);
+    }
+
+    if (object_)
+    {
+        DomainOwnershipLedger::Instance().ReleaseAll(object_->GetId(), this);
     }
 
     LOG_INFO("ManualDriveController: Deactivated — FFB released");
@@ -182,7 +212,21 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
                  object_->GetId(), object_->pos_.GetX(), object_->pos_.GetY());
     }
 
-    return Controller::Activate(mode);
+    const int rc = Controller::Activate(mode);
+
+    // feature:F7 — record the claim only after the base has resolved `mode` into
+    // the actual bitmask. Reading the requested mode instead would mis-record any
+    // domain the base refused (a domain outside operating_domains_ is silently
+    // not granted), and the ledger must describe what was granted, not what was
+    // asked for.
+    if (object_)
+    {
+        DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
+        LOG_INFO("ManualDriveController[{}]: ownership after activate — {}",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+    }
+
+    return rc;
 }
 
 void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const

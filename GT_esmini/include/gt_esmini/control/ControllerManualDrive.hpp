@@ -27,6 +27,12 @@ public:
     void Step(double timeStep) override;
     int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
     void Deactivate() override;
+    // feature:F7 — overridden solely to keep the GT ownership ledger in step with
+    // the base class's domain bitmask. From OSC v1.3 a domain can be taken away
+    // through this call without Deactivate() ever running, so a ledger updated
+    // only from Activate()/Deactivate() would keep asserting ownership of a
+    // domain this controller no longer holds.
+    void DeactivateDomains(unsigned int domains) override;
 
     const char* GetTypeName() const override { return CONTROLLER_MANUAL_DRIVE_TYPE_NAME; }
 
