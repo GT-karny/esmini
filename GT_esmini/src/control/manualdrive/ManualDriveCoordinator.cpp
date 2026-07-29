@@ -47,6 +47,48 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             cmd.brake = 0.0;
         }
     }
+    // 3-bus. feature:F7 S3 — publish owned channels, then consume the unowned
+    // ones if this controller is the integrator. See the bus contract in
+    // DomainOwnershipLedger.hpp for why the merge is at the command stage.
+    // Publishing precedes the output gate below so a ManualDrive that owns only
+    // the lateral domain still supplies steering every frame despite not
+    // integrating.
+    if (c.object_)
+    {
+        auto&     ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = c.object_->GetId();
+
+        if (ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
+        {
+            ledger.PublishLateral(obj_id, &c, cmd.steering);
+        }
+        if (ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL))
+        {
+            ledger.PublishLongitudinal(obj_id, &c, cmd.throttle, cmd.brake);
+        }
+
+        if (ledger.IsIntegrator(obj_id, &c))
+        {
+            if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
+            {
+                double owner_steering = 0.0;
+                if (ledger.ConsumeLateral(obj_id, owner_steering))
+                {
+                    cmd.steering = owner_steering;
+                }
+            }
+            if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL))
+            {
+                double owner_throttle = 0.0, owner_brake = 0.0;
+                if (ledger.ConsumeLongitudinal(obj_id, owner_throttle, owner_brake))
+                {
+                    cmd.throttle = owner_throttle;
+                    cmd.brake    = owner_brake;
+                }
+            }
+        }
+    }
+
     c.last_cmd_ = cmd;
 
     // 3a. feature:F7 S2 — output gate. Only the object's designated integrator

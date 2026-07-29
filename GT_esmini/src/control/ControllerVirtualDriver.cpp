@@ -686,6 +686,47 @@ void ControllerVirtualDriver::Step(double timeStep)
         cmd.paddle_up_pressed   = m.paddle_up_pressed;
         cmd.paddle_down_pressed = m.paddle_down_pressed;
     }
+    // 4-bus. feature:F7 S3 — publish the channels this controller owns, then, if
+    // it is the integrator, take the channels it does NOT own from their owners.
+    // Merging here (command stage) and integrating once is what keeps reported
+    // speed and travelled distance consistent; see the bus contract in
+    // DomainOwnershipLedger.hpp. Publishing happens before the output gate below
+    // so a non-integrating owner still supplies its domain every frame.
+    {
+        auto&     ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = object_->GetId();
+
+        if (ledger.IsOwner(obj_id, this, OwnedDomain::LATERAL))
+        {
+            ledger.PublishLateral(obj_id, this, cmd.steering);
+        }
+        if (ledger.IsOwner(obj_id, this, OwnedDomain::LONGITUDINAL))
+        {
+            ledger.PublishLongitudinal(obj_id, this, cmd.throttle, cmd.brake);
+        }
+
+        if (ledger.IsIntegrator(obj_id, this))
+        {
+            if (!ledger.IsOwner(obj_id, this, OwnedDomain::LATERAL))
+            {
+                double owner_steering = 0.0;
+                if (ledger.ConsumeLateral(obj_id, owner_steering))
+                {
+                    cmd.steering = owner_steering;
+                }
+            }
+            if (!ledger.IsOwner(obj_id, this, OwnedDomain::LONGITUDINAL))
+            {
+                double owner_throttle = 0.0, owner_brake = 0.0;
+                if (ledger.ConsumeLongitudinal(obj_id, owner_throttle, owner_brake))
+                {
+                    cmd.throttle = owner_throttle;
+                    cmd.brake    = owner_brake;
+                }
+            }
+        }
+    }
+
     last_cmd_ = cmd;
 
     // 4a. feature:F7 — persist WHATEVER steering command was actually realized

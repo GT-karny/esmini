@@ -98,6 +98,41 @@ public:
     const void* IntegratorOf(int object_id) const;
     bool        IsIntegrator(int object_id, const void* controller) const;
 
+    // ---- feature:F7 S3: the command bus -------------------------------------
+    //
+    // The merge happens HERE, at the command stage, and the integrator then runs
+    // ONE physics step over the merged command. The alternative — letting each
+    // controller integrate its own body and merging the resulting states (A's
+    // pose, B's speed) — produces a vehicle whose reported speed and actual
+    // ground speed disagree by 32%, with the wrong number published to OSI, and
+    // it looks entirely healthy in the speed column. That failure is the reason
+    // this bus exists rather than a state-stage merge.
+    //
+    // Each domain owner publishes the channel it owns; the integrator consumes
+    // the channels it does NOT own and supplies its own for the rest. Publishing
+    // is refused from a non-owner, so a controller that upstream defect A left
+    // spuriously Active() cannot inject commands.
+    //
+    // FRAME ALIGNMENT: controllers Step in declaration order, so the integrator
+    // reads a channel published either earlier in this same frame (owner steps
+    // first) or in the previous one (owner steps second) — at most one timestep
+    // of lag, and which one depends on declaration order. The lag is bounded and
+    // does not change the steady state; the committed matrix asserts both orders
+    // pass, rather than assuming order does not matter.
+
+    /// Publish this frame's steering. Ignored unless `controller` owns LATERAL.
+    void PublishLateral(int object_id, const void* controller, double steering);
+
+    /// Publish this frame's throttle/brake. Ignored unless `controller` owns
+    /// LONGITUDINAL.
+    void PublishLongitudinal(int object_id, const void* controller, double throttle, double brake);
+
+    /// Read the owner-published channel. Returns false when the domain has no
+    /// owner, or has one that has not published yet — in which case the caller
+    /// keeps its own value rather than steering/accelerating by a stale command.
+    bool ConsumeLateral(int object_id, double& steering) const;
+    bool ConsumeLongitudinal(int object_id, double& throttle, double& brake) const;
+
     /// Human-readable one-liner, e.g. `obj=0 lat=MD lon=VD`. Used for the
     /// per-frame debug trace; unowned domains render as `<none>`.
     std::string Describe(int object_id) const;
@@ -115,6 +150,14 @@ private:
     {
         const void* owner = nullptr;
         std::string name;
+
+        // S3 command bus. `published` is cleared whenever the domain changes
+        // hands, so the new owner's first frame can never be driven by the
+        // previous owner's last command.
+        bool   published = false;
+        double steering  = 0.0;
+        double throttle  = 0.0;
+        double brake     = 0.0;
     };
     struct ObjectSlots
     {

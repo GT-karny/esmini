@@ -42,6 +42,10 @@ void DomainOwnershipLedger::Claim(int object_id, const void* controller, const s
         {
             // Last claimer wins — this is the eviction that upstream's
             // per-domain deactivation fails to perform (see header).
+            if (slot.owner != controller)
+            {
+                slot.published = false;  // never drive a new owner's first frame from the old one's command
+            }
             slot.owner = controller;
             slot.name  = controller_name;
         }
@@ -49,7 +53,8 @@ void DomainOwnershipLedger::Claim(int object_id, const void* controller, const s
         {
             // Give up only what we hold. Omitting a domain never evicts a peer,
             // which is what makes the outcome independent of activation order.
-            slot.owner = nullptr;
+            slot.owner     = nullptr;
+            slot.published = false;
             slot.name.clear();
         }
     }
@@ -68,7 +73,8 @@ void DomainOwnershipLedger::ReleaseAll(int object_id, const void* controller)
         Slot& slot = it->second.slot[i];
         if (slot.owner == controller)
         {
-            slot.owner = nullptr;
+            slot.owner     = nullptr;
+            slot.published = false;
             slot.name.clear();
         }
     }
@@ -106,6 +112,62 @@ std::string DomainOwnershipLedger::OwnerName(int object_id, OwnedDomain domain) 
 {
     const Slot* slot = Find(object_id, domain);
     return (slot && slot->owner) ? slot->name : std::string();
+}
+
+void DomainOwnershipLedger::PublishLateral(int object_id, const void* controller, double steering)
+{
+    auto it = objects_.find(object_id);
+    if (it == objects_.end())
+    {
+        return;
+    }
+    Slot& slot = it->second.slot[static_cast<unsigned int>(OwnedDomain::LATERAL)];
+    if (slot.owner != controller)
+    {
+        return;  // only the owner may drive the domain
+    }
+    slot.steering  = steering;
+    slot.published = true;
+}
+
+void DomainOwnershipLedger::PublishLongitudinal(int object_id, const void* controller, double throttle, double brake)
+{
+    auto it = objects_.find(object_id);
+    if (it == objects_.end())
+    {
+        return;
+    }
+    Slot& slot = it->second.slot[static_cast<unsigned int>(OwnedDomain::LONGITUDINAL)];
+    if (slot.owner != controller)
+    {
+        return;
+    }
+    slot.throttle  = throttle;
+    slot.brake     = brake;
+    slot.published = true;
+}
+
+bool DomainOwnershipLedger::ConsumeLateral(int object_id, double& steering) const
+{
+    const Slot* slot = Find(object_id, OwnedDomain::LATERAL);
+    if (!slot || !slot->owner || !slot->published)
+    {
+        return false;
+    }
+    steering = slot->steering;
+    return true;
+}
+
+bool DomainOwnershipLedger::ConsumeLongitudinal(int object_id, double& throttle, double& brake) const
+{
+    const Slot* slot = Find(object_id, OwnedDomain::LONGITUDINAL);
+    if (!slot || !slot->owner || !slot->published)
+    {
+        return false;
+    }
+    throttle = slot->throttle;
+    brake    = slot->brake;
+    return true;
 }
 
 const void* DomainOwnershipLedger::IntegratorOf(int object_id) const
