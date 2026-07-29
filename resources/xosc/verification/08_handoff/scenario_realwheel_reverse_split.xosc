@@ -42,14 +42,25 @@
   ============================================================================
   力（FFB）について
   ============================================================================
-  **サーボは OFF。ハンドルに力は出ない。**
+  **サーボは ON。起動直後からハンドルが AI の操舵に合わせて動く（それが正常）。**
 
   逆構成では AI が横を持つので、target_track を有効にするとサーボが実物の
-  ホイールを AI の指令舵角へ駆動する。停止時の舵振れ不具合が万一残っていた
-  場合、**ホイールが全舵角まで手の中で振り回される**ことになる。
-  「修正が効いているかを確かめる試験」で「修正が効いている前提の設定」を
-  使うのは順序が逆なので、まず力ゼロで挙動だけを見る。
-  サーボ ON は舵の保持が確認できてから別の回に回す。
+  ホイールを AI の指令舵角へ駆動する。**それがこの構成の本題**であり、
+  切ってしまうと「AI の操舵を手で感じる」という使い方を何も確認できない。
+
+  リスク（停止時に舵が全舵角へ張り付くと手の中で振り回される）は議論ではなく
+  手当てで潰してある:
+    - 停止時の舵振れ不具合は修正済み (e72e6394) で、ヘッドレスで保持を確認済み
+    - 安全ウォッチドッグ S1 を明示有効化。target_track 有効時の reachable cap は
+      min(ffb.max_force=1.0, target_track_max_force=0.6)=0.6 なので
+      **trips at |force| >= 0.570**。2.0 秒継続で走行を強制終了し力を落とす。
+
+  この設定は manual_drive_realwheel_reverse.json 側にある。
+  **_split.json（順構成用）はサーボ OFF なので、取り違えるとサーボが効かない。**
+  実際に 2026-07-30 の初回テストでこれを取り違え、
+  「FFB が入っているのに AD 挙動が反映されない」状態で1回走らせてしまった。
+  **起動したらログで `manual_drive_realwheel_reverse.json` が読まれていること、
+  `target_track enabled=true`、`max_saturation=2.0s` が出ていることを確認すること。**
 
   ============================================================================
   起動
@@ -92,7 +103,7 @@
             <Controller name="ManualDriveController">
                <Properties>
                   <Property name="esminiController" value="ManualDriveController"/>
-                  <Property name="ConfigFile" value="manual_drive_realwheel_split.json"/>
+                  <Property name="ConfigFile" value="manual_drive_realwheel_reverse.json"/>
                </Properties>
             </Controller>
          </ObjectController>
