@@ -68,6 +68,24 @@ CONFIG_FILES = [
     ),
     # auto_light.json: F6 environment-driven headlights, resolved beside the exe (v0.13)
     ("GT_esmini/config/auto_light.json", "config/auto_light.json"),
+    # feature:F7 per-domain split (lateral=ManualDrive / longitudinal=VirtualDriver).
+    # Three ManualDrive variants selected per-scenario via the ConfigFile property,
+    # so none of them replaces manual_drive.json: _stub has no input device and no
+    # sockets (the CI-safe regression asset), _udp takes a steering signature over
+    # port 9100 (developer harness only — it would contend for the port), and
+    # _realwheel_split drives the lateral half from a physical G29.
+    (
+        "GT_esmini/config/manual_drive_headless_stub.json",
+        "config/manual_drive_headless_stub.json",
+    ),
+    (
+        "GT_esmini/config/manual_drive_headless_udp.json",
+        "config/manual_drive_headless_udp.json",
+    ),
+    (
+        "GT_esmini/config/manual_drive_realwheel_split.json",
+        "config/manual_drive_realwheel_split.json",
+    ),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 

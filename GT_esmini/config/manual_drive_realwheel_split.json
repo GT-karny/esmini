@@ -1,0 +1,32 @@
+{
+    "_purpose": "feature:F7 — ManualDrive driven by a PHYSICAL wheel (G29) for the lateral half of a per-domain split: lateral=ManualDrive (human) / longitudinal=VirtualDriver (AD). Referenced by resources/xosc/verification/08_handoff/scenario_realwheel_split_md_vd.xosc via its ConfigFile property, so it does NOT replace config/manual_drive.json — nothing pre-existing has to be edited or restored to run the demo.",
+
+    "_why_override_disabled": "override.enabled=false pins both domains permanently MANUAL (OverrideManager.cpp). This is REQUIRED here, not cosmetic: ManualDriveCoordinator::RunFrame returns early when IsAnyManual() is false, before it publishes anything to the domain command bus. With the override machinery enabled, ManualDrive would start in AUTO and the physical wheel would do NOTHING until an override latch happened to fire. Pinning MANUAL makes the wheel live from the first frame, which is what the demo needs.",
+
+    "_why_target_track_off": "ffb.target_track drives the wheel TOWARD the AD's commanded steering angle. It exists for takeover DETECTION (feel the AD steering, push back to take over). In this scenario the human already owns lateral, so a servo chasing the AD's angle would be a motor fighting the driver's hands for a domain the driver already holds. It must stay off here. Turning it on is not a tuning knob for this scenario — it changes who is steering.",
+
+    "_ffb_enabled_is_inert": "NOTE for whoever reads this next: the top-level ffb_enabled key is PARSED (ManualDriveConfig.cpp) but never read by any consumer. It does NOT disable force feedback. It is left false to state intent, but the actual guarantee that no force reaches the wheel in this scenario comes from two other places: (1) VirtualDriver runs input_type=stub, whose GetFFBSink() returns nullptr, so VD has no sink on the device at all; (2) ManualDrive is the NON-integrator in this split, so ManualDriveCoordinator's integrator falling-edge calls SetSteerTarget(0,false)+SetEnabled(false) on frame 1 and SDLFFBSink::Update() early-returns from then on. Do not add force here by flipping ffb_enabled and assuming it is wired.",
+
+    "input_type": "sdl2_wheel",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": false,
+    "input": {
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer",
+        "deadzone": 0.02
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json"
+    },
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "override": {
+        "enabled": false
+    },
+    "ffb": {
+        "target_track_enabled": false
+    }
+}
