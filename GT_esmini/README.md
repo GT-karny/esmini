@@ -111,8 +111,8 @@ ADAS/AD開発向けに、OSI出力を強化しています。
 ### 検証工場 (Verification Factory)
 VirtualDriver の挙動を機械的に検証する基盤です。コントローラを xosc に埋め込んだシナリオを `GT_esminiLib.dll` 経由で in-process 実行し、テレメトリを回帰照合します。
 
-- **バッチ実行**: `GT_esmini/scripts/verification/gt_sim_test.py batch <manifest.yaml>` で複数シナリオを一括実行。Phase 別のマニフェスト（`resources/xosc/verification/phase3_batch.yaml` ほか `phase3d_batch.yaml` / `phase3d_crosswalk_batch.yaml` / `phase3e_batch.yaml`）。
-- **per-scenario 回帰ゲート**: `scripts/check_phase3_regression.py` がバッチ結果を committed ベースライン `GT_esmini/test/regression_baseline/phase3_expected.yaml` と per-scenario / per-matcher で照合。回帰ゲート Step 2 と CI（Windows・非ブロッキング）で実行。
+- **バッチ実行**: `GT_esmini/scripts/verification/gt_sim_test.py batch <manifest.yaml>` で複数シナリオを一括実行。内容別のマニフェスト（`resources/xosc/verification/car_following_traffic_control_batch.yaml` ほか `junction_conflict_batch.yaml` / `crosswalk_pedestrian_batch.yaml` / `junction_priority_batch.yaml`）。
+- **per-scenario 回帰ゲート**: `scripts/check_regression_baseline.py` がバッチ結果を committed ベースライン `GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml` と per-scenario / per-matcher で照合。回帰ゲート Step 2 と CI（Windows・非ブロッキング）で実行。
 - **注釈 UI**: バッチ実行結果は Web バックエンドの注釈レジストリに自動登録され、人間が verdict ラベル（`natural` / `too_aggressive` 等）を付与可能。類似度による自動判定は構想段階（[docs/virtualdriver/F4_annotation_similarity_design.md](docs/virtualdriver/F4_annotation_similarity_design.md)、未実装）。
 - **OpenDRIVE 適合ハーネス**: `scripts/run_odr_conformance.py` が ODR 1.6–1.9 のスキーマ + esminiRMLib RM + OSI レイヤを検証（`--profile quick` は回帰ゲート Step 1.5）。
 - **シナリオ/道路カタログ**: `resources/scenario_authoring/validate_catalog.py` が生成道路/シナリオを esmini headless + gt_sim_test で検証（詳細は [resources/scenario_authoring/README.md](../resources/scenario_authoring/README.md)）。

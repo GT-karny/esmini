@@ -54,6 +54,7 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
     high_beam_button_       = config.sdl2.high_beam_button;
     fog_light_button_       = config.sdl2.fog_light_button;
     hazard_button_          = config.sdl2.hazard_button;
+    auto_resume_button_     = config.sdl2.auto_resume_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -86,6 +87,62 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
              SDL_JoystickNumButtons(joystick_),
              SDL_JoystickNumHats(joystick_));
 
+    // Prime axis state after open. On Windows/DirectInput a fresh JoystickOpen
+    // returns raw=0 for every axis until the device sends its first HID report;
+    // that means an untouched G29 pedal (whose released convention is raw=+32767)
+    // reads back as NormalizePedal(0) = 0.5 = "half-throttle phantom" for the
+    // first N frames → OverrideManager's throttle_threshold (0.1) trips →
+    // longitudinal locks to MANUAL immediately → AD-driven SpeedActions ramping
+    // ego from rest (e.g. virtual_driver_basic AccelAction 0→15 m/s) are frozen
+    // at 0. Scenarios that InitAction-set a nonzero starting speed hide this
+    // (e.g. anticipation batch's EgoSpeed=13.889) — the intermittency is what
+    // makes the class of bug easy to miss in unit tests.
+    //
+    // Retry loop: Update + short delay, checking whether ANY axis has reported
+    // a non-zero value. Bail as soon as we see one, otherwise keep pumping up
+    // to a hard timeout. G29 typically reports within ~50 ms on cold open but
+    // successive rapid re-opens can take 300-500 ms (observed variance in
+    // real-machine testing this session). Timeout without a report → per-axis
+    // "seen a non-zero" latch below treats still-zero axes as "released"
+    // (raw = 32767 equivalent for pedals) instead of phantom half-pressed.
+    const int n_axes = SDL_JoystickNumAxes(joystick_);
+    const int max_settle_ms = 500;
+    const int step_ms = 25;
+    int total_ms = 0;
+    bool any_axis_reported = false;
+    while (total_ms < max_settle_ms && !any_axis_reported)
+    {
+        SDL_JoystickUpdate();
+        for (int i = 0; i < n_axes; ++i)
+        {
+            if (SDL_JoystickGetAxis(joystick_, i) != 0)
+            {
+                any_axis_reported = true;
+                break;
+            }
+        }
+        if (any_axis_reported) break;
+        SDL_Delay(step_ms);
+        total_ms += step_ms;
+    }
+    SDL_JoystickUpdate();
+    std::string axis_state;
+    for (int i = 0; i < n_axes; ++i)
+    {
+        if (i > 0) axis_state += " ";
+        axis_state += "a" + std::to_string(i) + "=" +
+                      std::to_string(SDL_JoystickGetAxis(joystick_, i));
+    }
+    LOG_INFO("SDL2WheelInput: primed axis state (settled after {} ms, any_reported={}): {}",
+             total_ms, any_axis_reported, axis_state);
+    // Latch which axes have been "seen live" (non-zero). Pedals that never
+    // reported are treated as "released" (raw override to 32767) in Poll —
+    // this is the anti-phantom-half-throttle guard.
+    axis_seen_live_.assign(n_axes, false);
+    for (int i = 0; i < n_axes; ++i)
+        if (SDL_JoystickGetAxis(joystick_, i) != 0)
+            axis_seen_live_[i] = true;
+
     // Initialize FFB
     if (!ffb_sink_.Init(joystick_, config))
     {
@@ -107,24 +164,40 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
 
     SDL_JoystickUpdate();
 
+    // Anti-phantom-half-throttle guard: if a pedal axis has NEVER reported a
+    // non-zero value since open, the driver has not yet sent its initial HID
+    // report and raw=0 does NOT mean "half-pressed" — it means "unknown". For
+    // pedals whose released convention is raw=+32767, treat still-uninitialized
+    // axes as released. Once ANY frame reports a real (non-zero) value, latch
+    // that axis as live for the rest of the session. Steering axis (0) is not
+    // pedal-inverted so this guard is confined to axes 1/2/3.
+    auto raw_axis_pedal = [&](int idx) -> int {
+        int raw = SDL_JoystickGetAxis(joystick_, idx);
+        if (raw != 0 && idx < (int)axis_seen_live_.size()) axis_seen_live_[idx] = true;
+        if (raw == 0 && idx < (int)axis_seen_live_.size() && !axis_seen_live_[idx])
+            return 32767;   // "released" sentinel
+        return raw;
+    };
+
     PedalSteerCommand cmd;
 
-    // Axis 0: Steering (-32768 ~ 32767)
+    // Axis 0: Steering (-32768 ~ 32767). Guard-less: raw=0 is a legitimate
+    // "wheel at center" reading.
     int raw_steer = SDL_JoystickGetAxis(joystick_, 0);
     cmd.steering = NormalizeAxis(raw_steer);
 
     // Axis 1: Throttle (G29: 32767=released, -32768=fully pressed — inverted)
-    int raw_throttle = SDL_JoystickGetAxis(joystick_, 1);
+    int raw_throttle = raw_axis_pedal(1);
     cmd.throttle = NormalizePedal(raw_throttle);
 
     // Axis 2: Brake (same inversion as throttle)
-    int raw_brake = SDL_JoystickGetAxis(joystick_, 2);
+    int raw_brake = raw_axis_pedal(2);
     cmd.brake = NormalizePedal(raw_brake);
 
     // Axis 3: Clutch (same inversion)
     if (SDL_JoystickNumAxes(joystick_) > 3)
     {
-        int raw_clutch = SDL_JoystickGetAxis(joystick_, 3);
+        int raw_clutch = raw_axis_pedal(3);
         cmd.clutch = NormalizePedal(raw_clutch);
     }
 
@@ -163,6 +236,7 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
     read_btn(high_beam_button_,       ButtonBits::HIGH_BEAM);
     read_btn(fog_light_button_,       ButtonBits::FOG_LIGHT);
     read_btn(hazard_button_,          ButtonBits::HAZARD);
+    read_btn(auto_resume_button_,     ButtonBits::AUTO_RESUME);
 
     frame.pedal_steer = cmd;
     return frame;

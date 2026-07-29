@@ -37,6 +37,10 @@ public:
             TrafficPolicySnapshot s = p->Evaluate(ctx);
             for (auto& c : s.constraints)
                 snap.constraints.push_back(c);
+            // Diagnostics (W3) concatenate too. Keys are namespaced per policy
+            // (gt.<policy>.*), so no collision between policies.
+            for (auto& kv : s.detail)
+                snap.detail.push_back(kv);
         }
         snap.valid = !snap.constraints.empty();
         return snap;

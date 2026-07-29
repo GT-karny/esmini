@@ -90,11 +90,25 @@ int OSIReporter::UpdateStaticTrafficSignals()
                 else
                 {
                     osi3::TrafficSign *trafficSign = obj_osi_internal.static_gt->add_traffic_sign();
-                    trafficSign->mutable_id()->set_value(static_cast<unsigned int>(signal->GetId()));
+                    // [fork-sync #37 G2] upstream 752dcaa0..77028d83 (#747-line) switched traffic_sign.id
+                    // from the local per-road signal id to the process-wide global id (matches every other
+                    // OSI entity: stationary_object, lane, lane_boundary, ...). Local GetId() collides across
+                    // roads and is not what OSILaneParing.Signs (and any consumer keyed on OSI id) expects.
+                    trafficSign->mutable_id()->set_value(signal->GetGlobalId());
                     trafficSign->mutable_main_sign()->mutable_classification()->mutable_value()->set_value(signal->GetValue());
                     trafficSign->mutable_main_sign()->mutable_classification()->mutable_value()->set_text(signal->GetText());
+                    // GT-fix (bug ①): GetOSIType() may hold the protobuf sentinel
+                    // (TrafficSign_MainSign_Classification_Type_INT_MAX_SENTINEL_DO_NOT_USE_, left over
+                    // when GT_RoadManager parses an OSI type string it doesn't recognize) or any other
+                    // out-of-range int. Passing that straight into set_type() trips the generated enum
+                    // IsValid() assertion (fatal under the OSI 3.7.0 debug protobuf runtime). Clamp any
+                    // value the schema doesn't define to TYPE_OTHER so the sign still surfaces in the
+                    // ground truth instead of aborting the reporter.
+                    const int osi_type_raw = signal->GetOSIType();
                     trafficSign->mutable_main_sign()->mutable_classification()->set_type(
-                        static_cast<osi3::TrafficSign_MainSign_Classification_Type>(signal->GetOSIType()));
+                        osi3::TrafficSign_MainSign_Classification_Type_IsValid(osi_type_raw)
+                            ? static_cast<osi3::TrafficSign_MainSign_Classification_Type>(osi_type_raw)
+                            : osi3::TrafficSign_MainSign_Classification_Type_TYPE_OTHER);
                     trafficSign->mutable_main_sign()->mutable_classification()->set_country(signal->GetCountry());
 
                     if (std::strcmp(signal->GetUnit().c_str(), "") == 0)

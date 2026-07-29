@@ -1,0 +1,56 @@
+name: crosswalk_pedestrian
+origin: vd-phase:Phase3d
+# Phase 3d extension (F2) CrosswalkPedestrianAware verification batch.
+# VirtualDriver yields to pedestrians at OpenDRIVE crosswalk objects
+# (straight_crosswalk__mid, footprint s 248..252) — discriminator subset of the
+# 09_crosswalk_pedestrian catalog (20 variants; the rest run via the annotation
+# catalog batch):
+#   p005 crossing/conflict  -> STOP  (full stop 0.00@t14.55, OBB sep 1.54 m)
+#   p013 waiting/no signal  -> STOP-and-hold (yield_to_waiting, JP default)
+#   p015 no ped             -> NO STOP (cruise 13.9 held; bare-footprint guard)
+#   p016 already crossed    -> NO STOP (trough 5.90 tolerated — see file)
+#   p017 RED  + waiting     -> NO STOP (THE ped-signal discriminator vs p013/p019)
+#   p018 RED  + jaywalk     -> YIELD  (crossing rule is never signal-gated)
+#   p019 GREEN + waiting    -> STOP-and-hold (signal polarity vs p017)
+#
+# Anti-collision gate = min_obb_separation_above (SAT on real OSI dims; the
+# inline pedestrian entity reports true 0.6x0.5 extents — a dims-fallback would
+# downgrade pass->skip). Needs the captured OSI scene -> osi: true (also feeds
+# the p017/p019 signal-lamp evidence: 1000002 lamps map to two OSI lights,
+# "on;off"=red constant / "off;on"=green constant).
+#
+# policies:[crosswalk] enables CrosswalkPedestrianAware via a per-run
+# absolute-path ConfigFile (base config + policy_crosswalk_enabled=true),
+# injected by gt_sim_test. All windows/thresholds in the expectations were
+# measured on the policy-ON DLL (2026-07-02).
+#
+# Run:
+#   py GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/crosswalk_pedestrian_batch.yaml --out test_results/web/phase3d_crosswalk
+defaults:
+  dt: 0.05
+  max_time: 40.0
+  snapshots: 3
+  osi: true
+scenarios:
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p005.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p005_crossing_stop.expectations.yaml
+    policies: [crosswalk]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p013.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p013_waiting_stop.expectations.yaml
+    policies: [crosswalk]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p015.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p015_no_ped_no_stop.expectations.yaml
+    policies: [crosswalk]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p016.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p016_already_crossed_no_stop.expectations.yaml
+    policies: [crosswalk]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p017.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p017_red_waiting_no_stop.expectations.yaml
+    policies: [crosswalk]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p018.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p018_red_jaywalk_stop.expectations.yaml
+    policies: [crosswalk]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/09_crosswalk_pedestrian__p019.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/p019_green_waiting_stop.expectations.yaml
+    policies: [crosswalk]

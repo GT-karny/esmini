@@ -24,7 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Source paths
 BUILD_RELEASE = REPO_ROOT / "build" / "GT_esmini" / "Release"
-EMBEDDED_PYTHON = REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+EMBEDDED_PYTHON = (
+    REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+)
 FRONTEND_DIR = REPO_ROOT / "GT_esmini" / "web" / "frontend"
 FRONTEND_DIST = FRONTEND_DIR / "dist"
 PYINSTALLER_DIR = Path(__file__).resolve().parent
@@ -33,10 +35,19 @@ SPEC_FILE = PYINSTALLER_DIR / "gt_sim_web.spec"
 # Files to copy from build/GT_esmini/Release/
 # GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it (co-located
 # in bin/) to pre-generate + cache the road model, so it MUST ship alongside GT_Sim.exe.
-BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd", "python312.zip"]
+BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd"]
 
-# Extra files from embedded Python distribution (runtime DLLs only, no standalone exe)
-EMBED_FILES = ["python312._pth"]
+# Extra files from the embedded Python distribution (thirdparty/python-embed/), not
+# build/GT_esmini/Release/: CMake links GT_esminiLib against Python3::Python when
+# GT_ENABLE_EMBEDDED_PYTHON=ON (distribution packages configure with it ON -- see
+# GT_esmini/CMakeLists.txt) but does not stage python312.dll anywhere, and BIN_GLOBS
+# above only globs build/GT_esmini/Release/, which never contains it either.
+# python312.dll is a hard (non-delay-load) import of GT_esminiLib.dll -- confirmed via
+# `dumpbin /dependents` -- so its absence is not "PythonDriverController scenarios fail",
+# it is STATUS_DLL_NOT_FOUND (0xC0000135) at process creation for EVERY bin/GT_Sim.exe
+# invocation, headless or not. python312.zip is required alongside it: python312._pth
+# (below) references it plus `.`/Lib/Lib/site-packages as the interpreter's sys.path.
+EMBED_FILES = ["python312._pth", "python312.dll", "python312.zip"]
 
 # Config mappings: (source relative to REPO_ROOT, dest relative to package)
 # Keep this list in sync with GT_esmini/config/*.json on disk.  The
@@ -51,14 +62,22 @@ CONFIG_FILES = [
     # virtual_driver.json: loaded by simulation_runner.py; missing → silent {} fallback
     ("GT_esmini/config/virtual_driver.json", "config/virtual_driver.json"),
     # route_drive_controller.json: resolved beside the exe by GT_esminiLib.cpp
-    ("GT_esmini/config/route_drive_controller.json", "config/route_drive_controller.json"),
+    (
+        "GT_esmini/config/route_drive_controller.json",
+        "config/route_drive_controller.json",
+    ),
     # auto_light.json: F6 environment-driven headlights, resolved beside the exe (v0.13)
     ("GT_esmini/config/auto_light.json", "config/auto_light.json"),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
 IGNORE_PATTERNS = shutil.ignore_patterns(
-    "__pycache__", "*.pyc", "*.pyo", "*.proto", "*.temp.xosc", ".git",
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.proto",
+    "*.temp.xosc",
+    ".git",
 )
 
 
@@ -71,15 +90,27 @@ def verify_prerequisites() -> None:
     errors: list[str] = []
 
     if not (BUILD_RELEASE / "GT_Sim.exe").exists():
-        errors.append(f"GT_Sim.exe not found at {BUILD_RELEASE}. Run CMake build first.")
+        errors.append(
+            f"GT_Sim.exe not found at {BUILD_RELEASE}. Run CMake build first."
+        )
     if not (BUILD_RELEASE / "GT_esminiLib.dll").exists():
         errors.append(f"GT_esminiLib.dll not found at {BUILD_RELEASE}.")
     if not (BUILD_RELEASE / "GT_RoadGen.exe").exists():
-        errors.append(f"GT_RoadGen.exe not found at {BUILD_RELEASE} (parallel road-mesh generator). Run CMake build first.")
+        errors.append(
+            f"GT_RoadGen.exe not found at {BUILD_RELEASE} (parallel road-mesh generator). Run CMake build first."
+        )
     if not FRONTEND_DIST.is_dir() or not (FRONTEND_DIST / "index.html").exists():
         errors.append(f"Frontend not built. Run 'npm run build' in {FRONTEND_DIR}.")
     if not EMBEDDED_PYTHON.is_dir():
         errors.append(f"Embedded Python not found at {EMBEDDED_PYTHON}.")
+    else:
+        # python312.dll/.zip are a hard GT_esminiLib.dll dependency when built with
+        # GT_ENABLE_EMBEDDED_PYTHON=ON (distribution default) -- their absence must
+        # fail the package build loudly, not ship a bin/GT_Sim.exe that cannot start
+        # (_copy_files() below silently skips a missing source file otherwise).
+        for fname in ("python312.dll", "python312.zip"):
+            if not (EMBEDDED_PYTHON / fname).exists():
+                errors.append(f"{fname} not found at {EMBEDDED_PYTHON}.")
 
     if errors:
         print("[FAIL] Prerequisites check failed:")
@@ -136,12 +167,16 @@ def run_pyinstaller() -> None:
     """Execute PyInstaller with the spec file."""
     print("[BUILD] Running PyInstaller...")
     cmd = [
-        sys.executable, "-m", "PyInstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--clean",
         "--noconfirm",
         str(SPEC_FILE),
-        "--distpath", str(PYINSTALLER_DIR / "dist"),
-        "--workpath", str(PYINSTALLER_DIR / "build_temp"),
+        "--distpath",
+        str(PYINSTALLER_DIR / "dist"),
+        "--workpath",
+        str(PYINSTALLER_DIR / "build_temp"),
     ]
     result = subprocess.run(cmd, cwd=str(REPO_ROOT))
     if result.returncode != 0:
@@ -229,9 +264,11 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     count = _copy_glob(BUILD_RELEASE, bin_dir, BIN_GLOBS)
     log(f"bin/: {count} files from build output")
 
-    # 1b. bin/ — python312._pth from embedded Python
+    # 1b. bin/ — python312.dll/.zip/._pth from the embedded Python distribution
+    # (CMake does not stage these; see EMBED_FILES's comment for why they're
+    # mandatory, not just for the frozen PythonDriverController feature)
     _copy_files(EMBEDDED_PYTHON, bin_dir, EMBED_FILES)
-    log("bin/: added python312._pth")
+    log(f"bin/: added {', '.join(EMBED_FILES)} from embedded Python")
 
     # 2. server/ — PyInstaller output
     pyinstaller_output = PYINSTALLER_DIR / "dist" / "gt_sim_web"
@@ -271,7 +308,9 @@ def assemble_package(version: str, output_dir: Path) -> Path:
     # which looks under PACKAGE_ROOT/GT_esmini/scripts/verification/, so ship it there.
     vdir = pkg_dir / "GT_esmini" / "scripts" / "verification"
     vdir.mkdir(parents=True, exist_ok=True)
-    am_src = REPO_ROOT / "GT_esmini" / "scripts" / "verification" / "annotation_match.py"
+    am_src = (
+        REPO_ROOT / "GT_esmini" / "scripts" / "verification" / "annotation_match.py"
+    )
     if am_src.exists():
         shutil.copy2(am_src, vdir / "annotation_match.py")
         log("GT_esmini/scripts/verification/: annotation_match.py (match API)")
@@ -327,11 +366,21 @@ def create_archive(pkg_dir: Path) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build GT_Sim Web distributable package")
-    parser.add_argument("--version", default="0.1.0", help="Version string (default: 0.1.0)")
-    parser.add_argument("--output", default=str(REPO_ROOT / "dist"), help="Output directory")
-    parser.add_argument("--skip-pyinstaller", action="store_true", help="Skip PyInstaller step")
-    parser.add_argument("--skip-frontend", action="store_true", help="Skip frontend build")
+    parser = argparse.ArgumentParser(
+        description="Build GT_Sim Web distributable package"
+    )
+    parser.add_argument(
+        "--version", default="0.1.0", help="Version string (default: 0.1.0)"
+    )
+    parser.add_argument(
+        "--output", default=str(REPO_ROOT / "dist"), help="Output directory"
+    )
+    parser.add_argument(
+        "--skip-pyinstaller", action="store_true", help="Skip PyInstaller step"
+    )
+    parser.add_argument(
+        "--skip-frontend", action="store_true", help="Skip frontend build"
+    )
     parser.add_argument("--no-zip", action="store_true", help="Skip zip creation")
     args = parser.parse_args()
 

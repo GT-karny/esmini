@@ -33,8 +33,12 @@ async def test_init_db_creates_schema(tmp_db):
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         tables = {row[0] for row in await cur.fetchall()}
-    assert {"simulations", "projects",
-            "verification_runs", "verification_annotations"} <= tables
+    assert {
+        "simulations",
+        "projects",
+        "verification_runs",
+        "verification_annotations",
+    } <= tables
 
 
 async def test_init_db_is_idempotent(tmp_db):
@@ -47,8 +51,7 @@ async def test_init_db_migrates_legacy_simulations_table(tmp_db):
     # param_overrides), as older deployments shipped it.
     tmp_db.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(tmp_db)) as db:
-        await db.execute(
-            """CREATE TABLE simulations (
+        await db.execute("""CREATE TABLE simulations (
                    job_id TEXT PRIMARY KEY,
                    scenario_id TEXT NOT NULL,
                    status TEXT NOT NULL DEFAULT 'queued',
@@ -61,8 +64,7 @@ async def test_init_db_migrates_legacy_simulations_table(tmp_db):
                    completed_at TEXT,
                    error_message TEXT,
                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-               )"""
-        )
+               )""")
         await db.execute(
             "INSERT INTO simulations (job_id, scenario_id) VALUES ('j1', 's1')"
         )
@@ -115,7 +117,9 @@ async def test_get_db_row_factory_and_crud(tmp_db):
             ("job-42", "scn-1", "queued", '{"hz": 60}'),
         )
         await db.commit()
-        cur = await db.execute("SELECT * FROM simulations WHERE job_id = ?", ("job-42",))
+        cur = await db.execute(
+            "SELECT * FROM simulations WHERE job_id = ?", ("job-42",)
+        )
         row = await cur.fetchone()
         # get_db must hand back key-addressable rows (aiosqlite.Row)
         assert row["scenario_id"] == "scn-1"
@@ -126,7 +130,9 @@ async def test_get_db_row_factory_and_crud(tmp_db):
             "UPDATE simulations SET status='running', pid=999 WHERE job_id='job-42'"
         )
         await db.commit()
-        cur = await db.execute("SELECT status, pid FROM simulations WHERE job_id='job-42'")
+        cur = await db.execute(
+            "SELECT status, pid FROM simulations WHERE job_id='job-42'"
+        )
         row = await cur.fetchone()
         assert (row["status"], row["pid"]) == ("running", 999)
 
@@ -151,10 +157,8 @@ async def test_verification_runs_upsert_and_index(tmp_db):
             "VALUES ('vd_basic', 'pass', 'vd_basic')"
         )
         await db.commit()
-        cur = await db.execute(
-            """SELECT r.run_id, a.label FROM verification_runs r
-               JOIN verification_annotations a USING (run_id)"""
-        )
+        cur = await db.execute("""SELECT r.run_id, a.label FROM verification_runs r
+               JOIN verification_annotations a USING (run_id)""")
         row = await cur.fetchone()
         assert (row["run_id"], row["label"]) == ("vd_basic", "pass")
     finally:

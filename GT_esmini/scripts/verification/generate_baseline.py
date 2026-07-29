@@ -23,6 +23,7 @@ Run via the project venv (system Python is not allowed)::
         GT_esmini/scripts/verification/generate_baseline.py \
         resources/xosc/verification/01_vehicle_model/straight_constant_speed.xosc
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,7 +39,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 DEFAULT_EXE = REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_Sim.exe"
-DEFAULT_PY_EMBED = REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+DEFAULT_PY_EMBED = (
+    REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+)
 DEFAULT_OUT_ROOT = REPO_ROOT / "results" / "baselines"
 OSI_UDP_PORT = 48198
 OSI_BUFFER_SIZE = 8208  # max OSI UDP payload + 8-byte header (contract with esmini)
@@ -48,7 +51,10 @@ def _git_commit() -> str:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=10,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return out.stdout.strip() if out.returncode == 0 else ""
     except Exception:
@@ -66,7 +72,9 @@ def _build_env(py_embed: Path) -> dict:
     return env
 
 
-def _capture_osi(out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout: float) -> int:
+def _capture_osi(
+    out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout: float
+) -> int:
     """Reassemble multi-packet GroundTruth frames from UDP and write them to a
     length-delimited .osi file. Stops once GT_Sim has exited and the stream has
     been idle for ``idle_timeout`` seconds."""
@@ -86,7 +94,10 @@ def _capture_osi(out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout:
                 try:
                     msg, _ = sock.recvfrom(OSI_BUFFER_SIZE)
                 except socket.timeout:
-                    if proc.poll() is not None and (time.time() - last_data) > idle_timeout:
+                    if (
+                        proc.poll() is not None
+                        and (time.time() - last_data) > idle_timeout
+                    ):
                         break
                     continue
 
@@ -117,17 +128,28 @@ def _capture_osi(out_osi: Path, proc: subprocess.Popen, port: int, idle_timeout:
     return frames
 
 
-def generate(xosc: Path, out_dir: Path, exe: Path, py_embed: Path,
-             hz: float, fast: bool, port: int, timeout: float) -> dict:
+def generate(
+    xosc: Path,
+    out_dir: Path,
+    exe: Path,
+    py_embed: Path,
+    hz: float,
+    fast: bool,
+    port: int,
+    timeout: float,
+) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_osi = out_dir / "groundtruth.osi"
 
     cmd = [
         str(exe),
-        "--osc", str(xosc),
+        "--osc",
+        str(xosc),
         "--headless",
-        "--osi", "127.0.0.1",
-        "--hz", str(hz),
+        "--osi",
+        "127.0.0.1",
+        "--hz",
+        str(hz),
     ]
     if fast:
         cmd.append("--no_realtime")
@@ -143,15 +165,20 @@ def generate(xosc: Path, out_dir: Path, exe: Path, py_embed: Path,
     start = time.time()
     with open(stdout_path, "w") as so, open(stderr_path, "w") as se:
         proc = subprocess.Popen(
-            cmd, cwd=str(REPO_ROOT), env=_build_env(py_embed),
-            stdout=so, stderr=se,
+            cmd,
+            cwd=str(REPO_ROOT),
+            env=_build_env(py_embed),
+            stdout=so,
+            stderr=se,
         )
         frames = _capture_osi(out_osi, proc, port, timeout)
         exit_code = proc.wait()
     duration = time.time() - start
 
     meta = {
-        "scenario": str(xosc.relative_to(REPO_ROOT)) if xosc.is_absolute() else str(xosc),
+        "scenario": (
+            str(xosc.relative_to(REPO_ROOT)) if xosc.is_absolute() else str(xosc)
+        ),
         "controller": "Default",
         "exe": str(exe),
         "hz": hz,
@@ -167,26 +194,47 @@ def generate(xosc: Path, out_dir: Path, exe: Path, py_embed: Path,
     print(f"[baseline] frames   : {frames}")
     print(f"[baseline] exit     : {exit_code}  ({duration:.1f}s)")
     if frames == 0:
-        print("[baseline] WARNING: no OSI frames captured - check the --osi port "
-              "and that GT_Sim emitted OSI.", file=sys.stderr)
+        print(
+            "[baseline] WARNING: no OSI frames captured - check the --osi port "
+            "and that GT_Sim emitted OSI.",
+            file=sys.stderr,
+        )
     return meta
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("scenario", type=Path, help="path to the .xosc scenario")
-    p.add_argument("--out", type=Path, default=None,
-                   help="output dir (default: results/baselines/<scenario-stem>/)")
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output dir (default: results/baselines/<scenario-stem>/)",
+    )
     p.add_argument("--exe", type=Path, default=DEFAULT_EXE, help="GT_Sim.exe path")
-    p.add_argument("--py-embed", type=Path, default=DEFAULT_PY_EMBED,
-                   help="embedded python dir (for python312.dll on PATH)")
+    p.add_argument(
+        "--py-embed",
+        type=Path,
+        default=DEFAULT_PY_EMBED,
+        help="embedded python dir (for python312.dll on PATH)",
+    )
     p.add_argument("--hz", type=float, default=100.0, help="simulation frequency")
-    p.add_argument("--fast", action="store_true",
-                   help="run with --no_realtime (faster, but may drop UDP frames)")
-    p.add_argument("--port", type=int, default=OSI_UDP_PORT, help="OSI UDP port to bind")
-    p.add_argument("--timeout", type=float, default=3.0,
-                   help="idle seconds after GT_Sim exit before stopping capture")
+    p.add_argument(
+        "--fast",
+        action="store_true",
+        help="run with --no_realtime (faster, but may drop UDP frames)",
+    )
+    p.add_argument(
+        "--port", type=int, default=OSI_UDP_PORT, help="OSI UDP port to bind"
+    )
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=3.0,
+        help="idle seconds after GT_Sim exit before stopping capture",
+    )
     args = p.parse_args(argv)
 
     xosc = args.scenario.resolve()
@@ -194,13 +242,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: scenario not found: {xosc}", file=sys.stderr)
         return 2
     if not args.exe.is_file():
-        print(f"ERROR: GT_Sim.exe not found: {args.exe} (build Protocol A first)",
-              file=sys.stderr)
+        print(
+            f"ERROR: GT_Sim.exe not found: {args.exe} (build Protocol A first)",
+            file=sys.stderr,
+        )
         return 2
 
     out_dir = args.out or (DEFAULT_OUT_ROOT / xosc.stem)
-    meta = generate(xosc, out_dir.resolve(), args.exe.resolve(), args.py_embed.resolve(),
-                    args.hz, args.fast, args.port, args.timeout)
+    meta = generate(
+        xosc,
+        out_dir.resolve(),
+        args.exe.resolve(),
+        args.py_embed.resolve(),
+        args.hz,
+        args.fast,
+        args.port,
+        args.timeout,
+    )
     return 0 if meta["frames"] > 0 and meta["exit_code"] == 0 else 1
 
 

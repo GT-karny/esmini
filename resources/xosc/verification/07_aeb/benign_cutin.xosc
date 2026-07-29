@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 07_aeb / benign_cutin  (REQ-AD-013, negative)
+
+  The strongest SOTIF misfire test in this batch: a car cuts into Ego's lane using
+  the EXACT SAME LaneChangeAction geometry as 07_aeb/cutin_hard_brake.xosc
+  (CutInTime=1.6s, CutInDur=1.4s, sinusoidal, RelativeTargetLane value=0) - so
+  AebSafety's lateral-encroachment CUE fires and admits the candidate (same debounced
+  |dt|-shrink detection, same ~1.6-1.7s admission window as the positive test) - but
+  there is NO hard brake and the longitudinal gap is huge ($LeadStartS=140 vs
+  cutin_hard_brake's 78), so the collision-course GATE
+  (TTC < aeb_ttc_threshold=2.5s AND a_req > aeb_min_a_req=3.0 m/s^2) must correctly
+  REJECT it. This isolates the gate from the detector: if this test ever goes RED,
+  the encroachment cue is over-triggering the emergency path on a geometry that
+  should only ever be comfort-followed.
+
+  v_close = EgoSpeed(25) - LeadSpeed(23) = 2.0 m/s (gentle, constant - no braking, so
+  the gate math genuinely runs every admitted frame instead of hitting the
+  v_close<=0 bypass). bumper gap0 = (140-30) - 5.0 = 105 m. Even under the pessimistic
+  assumption that NO controller ever reacts (pure constant-speed kinematics), worst
+  case at the t=14s StopTrigger is gap=77 m, TTC=38.5 s (15.4x the 2.5s gate),
+  a_req=0.026 m/s^2 (115x under the 3.0 m/s^2 gate); the true (unbounded) time to
+  close the full 105 m gap at 2.0 m/s is 52.5 s, far beyond this scenario's runtime.
+  Matcher: no_emergency_without_conflict (must PASS); also sanity-checked with
+  min_obb_separation_above (must stay far above contact).
+
+  Requires OSI capture (batch osi:true).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="1" date="2026-07-17T11:00:00"
+               description="VirtualDriver verification: benign cut-in (large gap, no brake), AEB gate must reject (REQ-AD-013)" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed"   parameterType="double" value="25.0"/>  <!-- 90 km/h -->
+      <ParameterDeclaration name="LeadSpeed"  parameterType="double" value="23.0"/>  <!-- 82.8 km/h; v_close=2.0 m/s -->
+      <ParameterDeclaration name="LeadStartS" parameterType="double" value="140.0"/> <!-- ~105 m bumper gap; ego closes at only 2 m/s -->
+      <ParameterDeclaration name="CutInTime"  parameterType="double" value="1.6"/>
+      <ParameterDeclaration name="CutInDur"   parameterType="double" value="1.4"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="Lead">
+         <Vehicle name="car_red" vehicleCategory="car" model3d="../../../models/car_red.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="1" laneId="-1" offset="0" s="480"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="Lead">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-2" offset="0" s="$LeadStartS"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$LeadSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="BenignCutInStory">
+         <Act name="BenignCutInAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition><SimulationTimeCondition value="0.0" rule="greaterThan"/></ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <ManeuverGroup maximumExecutionCount="1" name="LeadSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Lead"/></Actors>
+               <Maneuver name="CutInManeuver">
+                  <Event name="CutIn" priority="overwrite">
+                     <Action name="CutInAction">
+                        <PrivateAction>
+                           <LateralAction>
+                              <LaneChangeAction>
+                                 <LaneChangeActionDynamics dynamicsShape="sinusoidal" value="$CutInDur" dynamicsDimension="time"/>
+                                 <LaneChangeTarget><RelativeTargetLane entityRef="Ego" value="0"/></LaneChangeTarget>
+                              </LaneChangeAction>
+                           </LateralAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CutInTrigger" delay="0" conditionEdge="none">
+                              <ByValueCondition><SimulationTimeCondition value="$CutInTime" rule="greaterThan"/></ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+               <!-- Deliberately NO brake maneuver: the whole point of REQ-AD-013 here
+                    is a cut-in with no accompanying hard brake and a huge gap, so the
+                    collision-course gate (not the encroachment cue) is what must
+                    reject the emergency path. -->
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="14" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

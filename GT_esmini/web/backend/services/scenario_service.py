@@ -8,14 +8,22 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from GT_esmini.web.backend.config import REPO_ROOT, SCENARIOS_DIR, TEMP_FILE_TTL_SECONDS, TEMP_SCENARIOS_DIR
+from GT_esmini.web.backend.config import (
+    REPO_ROOT,
+    SCENARIOS_DIR,
+    TEMP_FILE_TTL_SECONDS,
+    TEMP_SCENARIOS_DIR,
+)
 from GT_esmini.web.backend.services.xosc_paths import absolutize_scenario_paths
 from GT_esmini.web.backend.models.scenario import (
     ScenarioDetail,
     ScenarioEntity,
     ScenarioListItem,
 )
-from GT_esmini.web.backend.services.xosc_parser import parse_xosc, parse_xosc_from_element
+from GT_esmini.web.backend.services.xosc_parser import (
+    parse_xosc,
+    parse_xosc_from_element,
+)
 
 
 def list_scenarios(search: str | None = None) -> list[ScenarioListItem]:
@@ -33,7 +41,9 @@ def list_scenarios(search: str | None = None) -> list[ScenarioListItem]:
                 id=xosc.stem,
                 filename=xosc.name,
                 path=str(xosc.relative_to(REPO_ROOT)),
-                modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                modified=datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).isoformat(),
                 size=stat.st_size,
             )
         )
@@ -104,7 +114,9 @@ def save_temp_scenario(xml_content: str) -> dict:
     tree.write(str(xosc_path), encoding="unicode", xml_declaration=True)
 
     entities = [{"name": e.name, "model": e.vehicle_or_model} for e in result.entities]
-    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=TEMP_FILE_TTL_SECONDS)).isoformat()
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(seconds=TEMP_FILE_TTL_SECONDS)
+    ).isoformat()
 
     return {
         "scenario_id": scenario_id,

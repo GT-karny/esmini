@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 07_aeb / parallel_overtake  (REQ-AD-013, negative)
+
+  An adjacent-lane car overtakes Ego (starts behind, faster, passes, continues ahead)
+  but NEVER changes lanes - it stays in lane -2 for the entire run while Ego stays in
+  lane -1. This is the "not encroaching -> never admitted" case: AebSafety's candidate
+  loop (AebSafety.cpp) requires |dLaneId|<=1 AND (in_path==true (dLaneId==0) OR
+  encroaching==true (cumulative |dt| shrink over AebDtHistory::kDepth=3 frames >
+  kEncroachMove=0.03 m)). Overtaker's dLaneId stays -1 the whole run (in_path always
+  false) and its lateral offset dt is the constant lane spacing (~3.07 m on this
+  straight road, bit-exact per-frame - the same "straight road has zero dt jitter"
+  property the AEB source comments rely on) - no lane change means no dt shrink at
+  all, so the debounced encroachment cue never fires either. So the candidate is
+  never even selected as "best": AebSafety::Evaluate's `if (!best) return snap;`
+  fires every single frame regardless of closing speed or how close the pass is -
+  the collision-course gate (TTC/a_req) is never even reached, unlike benign_cutin.xosc
+  where the gate genuinely runs and rejects. Matcher: no_emergency_without_conflict
+  (must PASS).
+
+  Overtaker starts $OvertakerStartS=10 (behind Ego's s=30) at $OvertakerSpeed=30 m/s,
+  passes Ego around t=(30-10)/(30-22)=2.5s, and continues ahead in lane -2 to the end
+  of the run - "lead" (LeadVehicleAware, dLaneId==0-only) never picks it up either.
+  Requires OSI capture (batch osi:true).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="1" date="2026-07-17T11:00:00"
+               description="VirtualDriver verification: adjacent-lane overtake, never cuts in, AEB must not admit it (REQ-AD-013)" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed"        parameterType="double" value="22.0"/>  <!-- 79.2 km/h -->
+      <ParameterDeclaration name="OvertakerSpeed"  parameterType="double" value="30.0"/>  <!-- 108 km/h -->
+      <ParameterDeclaration name="OvertakerStartS" parameterType="double" value="10.0"/>  <!-- 20 m behind Ego's s=30 -->
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="Overtaker">
+         <Vehicle name="car_red" vehicleCategory="car" model3d="../../../models/car_red.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="1" laneId="-1" offset="0" s="480"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="Overtaker">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-2" offset="0" s="$OvertakerStartS"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$OvertakerSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="OvertakeStory">
+         <Act name="OvertakeAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition><SimulationTimeCondition value="0.0" rule="greaterThan"/></ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="13" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

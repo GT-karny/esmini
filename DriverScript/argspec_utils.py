@@ -37,7 +37,10 @@ def build_argspec(
             continue
         if not action.option_strings:
             continue
-        name = next((opt for opt in action.option_strings if opt.startswith("--")), action.option_strings[0])
+        name = next(
+            (opt for opt in action.option_strings if opt.startswith("--")),
+            action.option_strings[0],
+        )
         if name in exclude or name == "--dump-argspec":
             continue
 

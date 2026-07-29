@@ -14,6 +14,7 @@
    <ParameterDeclarations>
       <ParameterDeclaration name="EgoSpeed" parameterType="double" value="15"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/straight_500m.xodr"/>
       <SceneGraphFile filepath="../../../models/straight_500m.osgb"/>

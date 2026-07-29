@@ -1,0 +1,10 @@
+scenario: cutin_hard_brake_curve
+category: 07_aeb
+# REQ-AD-001 (curve geometry). Same collision-free acceptance as the straight
+# variant, on an R=300 m curve. RED until the AEB safety layer lands.
+# Requires OSI capture (batch osi:true).
+must:
+  - event: min_obb_separation_above
+    threshold: 0.5              # bumper-to-bumper safety gap [m]; overlap=0 -> FAIL
+    after: { sim_time: 2.0 }
+    reason: "カーブ上でもカットイン+急制動する先行車に追突しない(OBB分離を安全床上に保つ)"

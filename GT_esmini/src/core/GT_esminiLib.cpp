@@ -62,6 +62,61 @@
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
 
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
+#include "gt_esmini/control/ControllerRealDriverUtils.hpp"
+
+// ============ Pin the fixed 24-slot ADAS table to the real OSI enum ============
+// `control` must not depend on `osi` (GT_esmini/CLAUDE.md §2), so
+// ControllerRealDriverUtils.hpp mirrors the OSI Name values as plain ints. This
+// translation unit is the one place that sees both, so the mirror is verified
+// here: if OSI renumbers the enum, the build breaks instead of the stream being
+// silently mislabeled. Same technique as the VD-side osi_adas pin below.
+namespace
+{
+using GtOsiAdasName = osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name;
+
+constexpr bool AdasSlotTableMatchesOsi()
+{
+    constexpr GtOsiAdasName kOsiOrder[] = {
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_BLIND_SPOT_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_FORWARD_COLLISION_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_LANE_DEPARTURE_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_PARKING_COLLISION_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_REAR_CROSS_TRAFFIC_WARNING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_EMERGENCY_BRAKING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_EMERGENCY_STEERING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_REVERSE_AUTOMATIC_EMERGENCY_BRAKING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ADAPTIVE_CRUISE_CONTROL,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_LANE_KEEPING_ASSIST,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ACTIVE_DRIVING_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_BACKUP_CAMERA,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_SURROUND_VIEW_CAMERA,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_NIGHT_VISION,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_HEAD_UP_DISPLAY,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ACTIVE_PARKING_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_REMOTE_PARKING_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_TRAILER_ASSISTANCE,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_HIGH_BEAMS,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_DRIVER_MONITORING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_URBAN_DRIVING,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_HIGHWAY_AUTOPILOT,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_CRUISE_CONTROL,
+        osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_SPEED_LIMIT_CONTROL,
+    };
+    static_assert(sizeof(kOsiOrder) / sizeof(kOsiOrder[0]) == gt_esmini::realdetail::kAdasFunctionCount,
+                  "ADAS slot table size drifted from the OSI name list");
+
+    for (std::size_t i = 0; i < gt_esmini::realdetail::kAdasFunctionCount; ++i)
+    {
+        if (gt_esmini::realdetail::kAdasSlots[i].osi_name != static_cast<int>(kOsiOrder[i]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(AdasSlotTableMatchesOsi(),
+              "OSI Name enum drift: kAdasSlots no longer matches osi_hostvehicledata.proto");
+}  // namespace
 
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
@@ -1348,6 +1403,9 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     return 0;
 }
 
+// feature:F7 — forward decl; definition (and the rationale) is below.
+static void GT_CaptureVirtualDriverTelemetryFrame(void* player_ptr);
+
 GT_ESMINI_API void GT_Step(double dt)
 {
     // Call standard step
@@ -1456,38 +1514,22 @@ GT_ESMINI_API void GT_Step(double dt)
                         std::vector<int> adasStates;
                         concreteCtrl->GetADASStates(adasStates);
 
-                        static const char* adasNames[] = {
-                            "BLIND_SPOT_WARNING",                  // 0
-                            "FORWARD_COLLISION_WARNING",           // 1
-                            "LANE_DEPARTURE_WARNING",              // 2
-                            "PARKING_COLLISION_WARNING",           // 3
-                            "REAR_CROSS_TRAFFIC_WARNING",          // 4
-                            "AUTOMATIC_EMERGENCY_BRAKING",         // 5
-                            "AUTOMATIC_EMERGENCY_STEERING",        // 6
-                            "REVERSE_AUTOMATIC_EMERGENCY_BRAKING", // 7
-                            "ADAPTIVE_CRUISE_CONTROL",             // 8
-                            "LANE_KEEPING_ASSIST",                 // 9
-                            "ACTIVE_DRIVING_ASSISTANCE",           // 10
-                            "BACKUP_CAMERA",                       // 11
-                            "SURROUND_VIEW_CAMERA",                // 12
-                            "NIGHT_VISION",                        // 13
-                            "HEAD_UP_DISPLAY",                     // 14
-                            "ACTIVE_PARKING_ASSISTANCE",           // 15
-                            "REMOTE_PARKING_ASSISTANCE",           // 16
-                            "TRAILER_ASSISTANCE",                  // 17
-                            "AUTOMATIC_HIGH_BEAMS",                // 18
-                            "DRIVER_MONITORING",                   // 19
-                            "URBAN_DRIVING",                       // 20
-                            "HIGHWAY_AUTOPILOT",                   // 21
-                            "CRUISE_CONTROL",                      // 22
-                            "SPEED_LIMIT_CONTROL",                 // 23
-                        };
-
-                        if (adasStates.size() >= 24)
+                        // Labels and their OSI Name values come from the single slot
+                        // table in ControllerRealDriverUtils.hpp, which is also what the
+                        // inbound custom_name -> index mapping uses. Keeping one table
+                        // is the point: the outbound copy that used to live here had
+                        // drifted from the OSI enum around NIGHT_VISION / HEAD_UP_DISPLAY
+                        // (capability_model §2.2a residual debt).
+                        if (adasStates.size() >= gt_esmini::realdetail::kAdasFunctionCount)
                         {
-                            for (int i = 0; i < 24; i++)
+                            for (std::size_t i = 0; i < gt_esmini::realdetail::kAdasFunctionCount; i++)
                             {
-                                hvReporter.AddADASFunction(vehicleId, adasNames[i], adasStates[i]);
+                                const auto& slot = gt_esmini::realdetail::kAdasSlots[i];
+                                hvReporter.AddADASFunctionEx(vehicleId,
+                                                             slot.osi_name,
+                                                             std::string(slot.label),
+                                                             adasStates[i],
+                                                             {});
                             }
                         }
                     };
@@ -1509,6 +1551,55 @@ GT_ESMINI_API void GT_Step(double dt)
                     else if (auto* virtualDriver = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
                     {
                         pushControllerState(virtualDriver);
+
+                        // W1: VirtualDriver reports its AD functions through the
+                        // Name-enum path instead of the fixed 24-slot label array
+                        // above (which its GetADASStates() intentionally leaves
+                        // empty). Without this, AEB — implemented and green —
+                        // produced no observable OSI evidence at all.
+                        //
+                        // The mirrored enum values in AdasFunctionReport.hpp
+                        // (which must stay OSI-free: control must not depend on
+                        // osi) are pinned to the real .proto here, at the one
+                        // place that sees both.
+                        using OsiName  = osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name;
+                        using OsiState = osi3::HostVehicleData_VehicleAutomatedDrivingFunction_State;
+                        static_assert(gt_esmini::osi_adas::NAME_OTHER ==
+                                          static_cast<int>(OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_OTHER),
+                                      "OSI Name enum drift: NAME_OTHER");
+                        static_assert(
+                            gt_esmini::osi_adas::NAME_AUTOMATIC_EMERGENCY_BRAKING ==
+                                static_cast<int>(
+                                    OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_AUTOMATIC_EMERGENCY_BRAKING),
+                            "OSI Name enum drift: NAME_AUTOMATIC_EMERGENCY_BRAKING");
+                        static_assert(
+                            gt_esmini::osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL ==
+                                static_cast<int>(
+                                    OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_ADAPTIVE_CRUISE_CONTROL),
+                            "OSI Name enum drift: NAME_ADAPTIVE_CRUISE_CONTROL");
+                        static_assert(gt_esmini::osi_adas::NAME_URBAN_DRIVING ==
+                                          static_cast<int>(
+                                              OsiName::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_URBAN_DRIVING),
+                                      "OSI Name enum drift: NAME_URBAN_DRIVING");
+                        static_assert(gt_esmini::osi_adas::STATE_ACTIVE ==
+                                          static_cast<int>(
+                                              OsiState::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_ACTIVE),
+                                      "OSI State enum drift: STATE_ACTIVE");
+                        static_assert(gt_esmini::osi_adas::STATE_STANDBY ==
+                                          static_cast<int>(
+                                              OsiState::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_STANDBY),
+                                      "OSI State enum drift: STATE_STANDBY");
+                        static_assert(gt_esmini::osi_adas::STATE_UNAVAILABLE ==
+                                          static_cast<int>(
+                                              OsiState::HostVehicleData_VehicleAutomatedDrivingFunction_State_STATE_UNAVAILABLE),
+                                      "OSI State enum drift: STATE_UNAVAILABLE");
+
+                        std::vector<gt_esmini::AdasFunctionState> adasFunctions;
+                        virtualDriver->GetADASFunctions(adasFunctions);
+                        for (const auto& f : adasFunctions)
+                        {
+                            hvReporter.AddADASFunctionEx(vehicleId, f.name, f.custom_name, f.state, f.detail);
+                        }
                     }
                 }
                 else
@@ -1558,6 +1649,60 @@ GT_ESMINI_API void GT_Step(double dt)
             gt_esmini::GT_VirtualDriverReporter::Instance().Send(gt_esmini::ToJson(vd->GetTelemetry()));
         }
     }
+    GT_CaptureVirtualDriverTelemetryFrame(player);
+}
+
+// feature:F7 — per-frame telemetry capture to a file (JSON Lines).
+//
+// WHY THIS EXISTS. Validating the override detector's shadow model needs the
+// force actually applied and the physical wheel position at EVERY frame. The
+// SDLFFBSink log line is emitted once per 50 frames and carries no physical
+// axis at all, so it cannot describe a trajectory.
+//
+// The telemetry block already carries everything required —
+// ffb.gates.{effective_force, actual_norm, shadow_norm, residual}, ffb.target_norm,
+// sim_time — because those are the SHIPPED detector's own inputs and outputs.
+// Capturing them is therefore not a second model: a replay against this file is
+// a replay against the product. That is the whole point; anything that
+// re-implemented the shadow offline would be validating a copy.
+//
+// Opt-in via GT_VD_TELEMETRY_JSONL=<path>; a no-op otherwise, so no gate,
+// package, or interactive run changes behaviour. Append mode, flushed per
+// frame, so an external supervisor can tail it as a live safety signal and a
+// hard kill still leaves every frame written up to that point.
+static void GT_CaptureVirtualDriverTelemetryFrame(void* player_ptr)
+{
+    static bool  resolved = false;
+    static FILE* fp       = nullptr;
+    if (!resolved)
+    {
+        resolved = true;
+        if (const char* path = std::getenv("GT_VD_TELEMETRY_JSONL"))
+        {
+            if (path[0] != '\0')
+            {
+                fp = std::fopen(path, "w");
+                if (!fp)
+                    LOG_WARN("GT_VD_TELEMETRY_JSONL: cannot open '{}' for writing", path);
+                else
+                    LOG_INFO("GT_VD_TELEMETRY_JSONL: capturing per-frame telemetry to '{}'", path);
+            }
+        }
+    }
+    if (!fp) return;
+
+    auto* player = static_cast<ScenarioPlayer*>(player_ptr);
+    if (!player || !player->scenarioEngine || player->scenarioEngine->entities_.object_.empty()) return;
+    scenarioengine::Object* egoObj = player->scenarioEngine->entities_.object_[0];
+    scenarioengine::Controller* ctrl =
+        egoObj ? egoObj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME) : nullptr;
+    auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl);
+    if (!vd) return;
+
+    const std::string line = gt_esmini::ToJson(vd->GetTelemetry());
+    std::fwrite(line.data(), 1, line.size(), fp);
+    std::fputc('\n', fp);
+    std::fflush(fp);
 }
 
 GT_ESMINI_API void GT_EnableVehiclePhysics()

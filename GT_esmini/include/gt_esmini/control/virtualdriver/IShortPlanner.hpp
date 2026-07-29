@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 
 namespace scenarioengine
 {
@@ -27,6 +28,30 @@ struct ShortPlanContext
     // a storyboard lateral maneuver is active and echoes the value it used back in
     // ShortPlannerSnapshot::control_point_offset. 0 = anchor at the origin (P2 issue 2).
     double                        control_point_offset = 0.0;
+
+    // feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // The CONTROLLER resolves the ROUTE lane and drives the ResumeMergeProfile
+    // state machine (ArmResumeMerge/AdvanceResumeMerge/DisarmResumeMerge); this
+    // planner only CONSUMES the result -- no route/lane resolution or state
+    // machine here (design doc section 4: "コントローラがルート車線解決・状態機械・
+    // テレメトリを持つ。プランナーは解決済みアンカーとオフセット列を消費するだけ").
+    // All defaults below preserve today's behavior: merge_active=false means
+    // TrajectoryShortPlanner's pre-existing current-lane-anchor path runs
+    // completely unchanged (HARD INVARIANT when resume_merge_enabled=false).
+    bool         merge_active   = false;  // true while a resume-merge is in progress this frame
+    unsigned int merge_track_id = 0;      // resolved ROUTE track id this frame (id_t's underlying type; only meaningful when merge_active)
+    int          merge_lane_id  = 0;      // resolved ROUTE lane id this frame (only meaningful when merge_active)
+    // This frame's merge offset target AT "now" (t_ahead=0) -- the controller
+    // computes EvaluateResumeMergeOffset(*merge_state, 0.0) AFTER advancing
+    // merge_state for this frame, and hands it here for the FIRST preview
+    // point (index 0). Later preview points (i>=1) are evaluated fresh from
+    // merge_state at t_ahead = i*dt -- both are the same function applied at
+    // different look-ahead times (see EvaluateResumeMergeOffset's doc).
+    double       merge_offset_now = 0.0;
+    // Captured hand-over state + selected trajectory (design doc section 8-3).
+    // Non-null only when merge_active is true; owned by the controller
+    // (resume_merge_state_ member) and only READ here.
+    const ResumeMergeState* merge_state = nullptr;
 };
 
 // Short-horizon trajectory planner.

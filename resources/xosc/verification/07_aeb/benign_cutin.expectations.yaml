@@ -1,0 +1,24 @@
+scenario: benign_cutin
+category: 07_aeb
+# REQ-AD-013 (safety, negative / SOTIF): AebSafety の「検知（横侵入キュー）」と「発火ゲート
+# （TTC/a_req）」を分離して検証する、このバッチ最強のテスト。cutin_hard_brake.xosc と全く
+# 同じカットイン幾何（CutInTime=1.6s, CutInDur=1.4s, sinusoidal）を使うため、横方向の侵入
+# キュー（encroachment cue, |dt| の累積収縮 > kEncroachMove）は正当に発火し候補として採用
+# される（検知は正しく動く）。しかし急制動が無く縦方向ギャップが巨大（LeadStartS=140,
+# v_close=EgoSpeed-LeadSpeed=2.0 m/s のみ）なため、衝突コースゲート（TTC<2.5s かつ
+# a_req>3.0 m/s²）は正しく非発火のまま: 無制御（constant speed, 最悪ケース想定）でも
+# t=14s(StopTrigger)時点で TTC=38.5s（閾値の15.4倍）、a_req=0.026 m/s²（閾値の1/115.5）。
+# このテストがRED化したら、侵入キューが緊急経路を過剰発火させている（＝ゲートが機能して
+# いない）ことを意味する。
+#
+# no_emergency_without_conflict = 主張。min_obb_separation_above は接触に一切近づかない
+# （常に大きく分離している）ことの補助的なサニティチェック。
+# Requires OSI capture (batch osi:true)。
+must:
+  - event: no_emergency_without_conflict
+    after: { sim_time: 0.5 }
+    reason: "大ギャップ・無制動のカットインでAEBの衝突コースゲートが正しく非発火のままであること(REQ-AD-013)"
+  - event: min_obb_separation_above
+    threshold: 20.0             # 計算上の最小分離(~77m)に対し十分な安全マージンを残したサニティ閾値 [m]
+    after: { sim_time: 0.5 }
+    reason: "カットイン検知が正当でも実際には接触へ近づかないことの補助確認"

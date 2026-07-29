@@ -1,0 +1,80 @@
+[
+  {
+    "rule_name": "road.object.skeleton.points_boundary_inside_box",
+    "category": "road.object.skeleton",
+    "version": "1.9.0",
+    "description": "The boundary, defined by either width and height or radius, of each point of an object&#8217;s skeleton shall at least partially be located inside the bounding volume."
+  },
+  {
+    "rule_name": "road.object.skeleton.points_inside_box",
+    "category": "road.object.skeleton",
+    "version": "1.8.0",
+    "description": "All points of the &lt;polyline&gt; element must be located inside the bounding volume."
+  },
+  {
+    "rule_name": "road.object.skeleton.points_requirements",
+    "category": "road.object.skeleton",
+    "version": "1.8.0",
+    "description": "All points of the &lt;polyline&gt; element are connected with a straight line between the &lt;vertexRoad&gt; or &lt;vertexLocal&gt; elements and the specified @radius or @width and @height attributes of each point are perpendicular to this line."
+  },
+  {
+    "rule_name": "road.object.skeleton.polyline_followed_by_vertex",
+    "category": "road.object.skeleton",
+    "version": "1.8.0",
+    "description": "A &lt;polyline&gt; element shall be followed by either two or more &lt;vertexRoad&gt; elements or by two or more &lt;vertexLocal&gt; elements."
+  },
+  {
+    "rule_name": "road.object.skeleton.use_radius_or_width_length",
+    "category": "road.object.skeleton",
+    "version": "1.8.0",
+    "description": "Each &lt;polyline&gt; element shall either use @radius or @width and @length attributes for all of its vertex elements."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_local.element_min_amount",
+    "category": "road.object.skeleton.vertex_local",
+    "version": "1.8.0",
+    "description": "There shall be at least two &lt;vertexLocal&gt; elements inside an &lt;polyline&gt; element."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_local.linear_interpolation",
+    "category": "road.object.skeleton.vertex_local",
+    "version": "1.8.0",
+    "description": "Values of @radius or @width and @length attributes will be interpolated linearly between two &lt;vertexLocal&gt; points."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_local.no_mixing_road_local",
+    "category": "road.object.skeleton.vertex_local",
+    "version": "1.9.0",
+    "description": "There shall be no &lt;vertexRoad&gt; element next to a &lt;vertexLocal&gt; element inside the same &lt;polyline&gt; element."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_local.vertex_local_elements",
+    "category": "road.object.skeleton.vertex_local",
+    "version": "1.8.0",
+    "description": "&lt;vertexLocal&gt; elements shall not use @radius together with @width and @length attributes in one &lt;polyline&gt; element."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_road.element_min_amount",
+    "category": "road.object.skeleton.vertex_road",
+    "version": "1.8.0",
+    "description": "There shall be at least two &lt;vertexRoad&gt; elements inside a &lt;polyline&gt; element."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_road.linear_interpolation",
+    "category": "road.object.skeleton.vertex_road",
+    "version": "1.9.0",
+    "description": "Values of @radius or @width and @length attributes shall be interpolated linearly between two &lt;vertexRoad&gt; points."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_road.no_radius_with_width_length",
+    "category": "road.object.skeleton.vertex_road",
+    "version": "1.8.0",
+    "description": "&lt;vertexRoad&gt; elements shall not use @radius together with @width and @length attributes in one &lt;polyline&gt; element."
+  },
+  {
+    "rule_name": "road.object.skeleton.vertex_road.polyline_elements",
+    "category": "road.object.skeleton.vertex_road",
+    "version": "1.8.0",
+    "description": "There shall be no &lt;vertexLocal&gt; element next to a &lt;vertexRoad&gt; element inside the same &lt;polyline&gt; element."
+  }
+]

@@ -1,3 +1,26 @@
+/**
+ * ============================================================================
+ * FROZEN CONTRACT — unified UI migration (2026-07-13)
+ * ============================================================================
+ * This file is the SINGLE SOURCE OF TRUTH for the REST type contract that the
+ * GT-OpenSCENARIOEditor port consumes. The editor's `packages/esmini` public
+ * types are being derived from the request/response types and endpoint paths
+ * declared here.
+ *
+ * While the frontend feature freeze is in effect:
+ *   - Do NOT change types, function signatures, or endpoint paths here except
+ *     to fix an outright bug.
+ *   - If a contract change is genuinely required, it MUST be synchronized with
+ *     the editor-side contract types in `packages/esmini` (the port depends on
+ *     these staying in lockstep); coordinate the change on both sides in the
+ *     same review — never diverge them silently.
+ *
+ * See GT-monorepo/unified-ui-migration-plan-2026-07-13.md for the migration
+ * plan and the contract-freeze rationale (fork frontend = frozen, editor
+ * `packages/esmini` = the ongoing home of this contract).
+ * ============================================================================
+ */
+
 const BASE = '';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -193,6 +216,12 @@ export interface ManualDriveConfig {
       high_beam: number;
       fog_light: number;
       hazard: number;
+      // feature:F7 gap #6 -- AUTO_RESUME (hand back to AD after a manual
+      // takeover). Shipped as button 3 but had no GUI control, which is the
+      // half of the user's original F7 request ("let the button assignment be
+      // changeable from settings later") that stayed unfulfilled even after
+      // gap #5 fixed the backend path.
+      auto_resume: number;
     };
   };
   keyboard: {
@@ -218,6 +247,20 @@ export interface ManualDriveConfig {
   input_network: { transport_type: string; port: number; level: string };
   physics_network: { transport_type: string; host: string; cmd_port: number; state_port: number };
   ffb: { spring_coefficient: number; damper_coefficient: number; constant_gain: number; max_force: number };
+  // feature:F7 gap #6 -- previously reachable only by hand-editing
+  // config/manual_drive.json. Optional on purpose: undefined means "this
+  // request does not state it", and the per-run writer then keeps the value
+  // already on disk. Sending a concrete value makes it win for that run.
+  override_cfg?: {
+    enabled: boolean;
+    steering_threshold: number;
+    throttle_threshold: number;
+    brake_threshold: number;
+    auto_return_timeout: number;
+    button_override: boolean;
+  };
+  indicator_cancel_angle?: number;
+  vehicle_params_file?: string;
 }
 
 export interface ManualDrivePreset {
@@ -245,6 +288,173 @@ export interface AutoLightConfig {
   highbeam_corridor_half_width_m: number;
   highbeam_on_delay_s: number;
   highbeam_off_delay_s: number;
+}
+
+// VirtualDriver (Phase 1-3) runtime config — mirrors config/virtual_driver.json's
+// editable keys (issue #33). All fields optional to tolerate partial payloads,
+// matching how the shared file is read (GET returns the on-disk file verbatim,
+// including "_..." comment keys and runner-owned input_* fields not listed here).
+export interface VirtualDriverConfig {
+  // Phase 3 traffic policies
+  policy_lead_enabled?: boolean;
+  policy_traffic_light_enabled?: boolean;
+  policy_stop_yield_enabled?: boolean;
+  policy_conflict_enabled?: boolean;
+  policy_crosswalk_enabled?: boolean;
+  policy_junction_priority_enabled?: boolean;
+  policy_aeb_enabled?: boolean;
+  // Planner
+  horizon_s?: number;
+  short_dt?: number;
+  max_lateral_accel?: number;
+  comfort_decel?: number;
+  emergency_decel?: number;
+  comfort_jerk?: number;
+  scan_distance?: number;
+  scan_step?: number;
+  turn_speed?: number;
+  min_turn_speed?: number;
+  stop_band?: number;
+  respect_speed_limit?: boolean;
+  // Driver model (PID + Pure Pursuit)
+  lookahead_gain?: number;
+  min_lookahead?: number;
+  max_lookahead?: number;
+  max_steer_angle?: number;
+  steering_sign?: number;
+  speed_kp?: number;
+  speed_ki?: number;
+  speed_kd?: number;
+  // feature:F7 — AD steering safety envelope (clamps AD's commanded steering;
+  // never the manual input). Default ON (safety feature). Limits are FINAL
+  // (fixed from a real-vehicle measurement pool).
+  ad_steering_envelope_enabled?: boolean;
+  a_lat_max_steer?: number;
+  yaw_rate_max?: number;
+  steer_rate_max?: number;
+  envelope_v_floor?: number;
+  ad_steering_envelope_steer_jerk_max?: number;
+  // feature:F7 — AD resume-merge trajectory (additive; editor-side sync).
+  // On AUTO_RESUME, generates a smooth lane-change-like merge back to the
+  // ROUTE lane instead of steering back by the shortest path. Default ON
+  // since 2026-07-28 (smoothness confirmed on the real wheel; see
+  // ResumeMergeProfile.hpp kResumeMergeDefaultEnabled).
+  resume_merge_enabled?: boolean;
+  resume_merge_a_lat_comfort?: number;
+  resume_merge_duration_min_s?: number;
+  resume_merge_duration_max_s?: number;
+  resume_merge_min_offset_m?: number;
+  control_point_offset?: number;
+  control_point_min_speed?: number;
+  // Input source for the run. "network" (default when never configured — see
+  // simulation_runner.py's _write_virtual_driver_config) feeds NetworkInputBridge,
+  // which is what the web override panel (/ws/input) drives; "sdl2_wheel" hands
+  // input to a physical wheel instead, and the web override panel then has
+  // nothing to drive; "stub" means no manual input source at all.
+  input_type?: 'stub' | 'network' | 'sdl2_wheel';
+  // Indicator
+  indicator_lead_time?: number;
+  indicator_min_on_time?: number;
+  // 3a lead-vehicle IDM follow
+  idm_time_headway?: number;
+  idm_min_gap?: number;
+  idm_max_accel?: number;
+  idm_comfort_decel?: number;
+  idm_desired_speed?: number;
+  idm_lookahead?: number;
+  idm_lateral_tol?: number;
+  idm_target_horizon?: number;
+  // 3b traffic light
+  tl_lookahead?: number;
+  tl_yellow_decel?: number;
+  tl_stop_margin?: number;
+  // 3c stop / yield sign
+  sign_lookahead?: number;
+  stop_hold_time?: number;
+  stop_detect_speed?: number;
+  stop_line_tol?: number;
+  creep_speed?: number;
+  creep_advance?: number;
+  yield_creep_speed?: number;
+  sign_stop_margin?: number;
+  // 3d conflict-corridor resolver
+  conflict_lookahead?: number;
+  conflict_step?: number;
+  conflict_lane_margin?: number;
+  conflict_standoff?: number;
+  conflict_release_buffer?: number;
+  conflict_pet?: number;
+  conflict_nominal_speed?: number;
+  conflict_min_cross_angle_deg?: number;
+  conflict_other_min_speed?: number;
+  conflict_area_eps?: number;
+  // 3d ext crosswalk pedestrian yield
+  crosswalk_lookahead?: number;
+  crosswalk_step?: number;
+  crosswalk_standoff?: number;
+  crosswalk_wait_margin?: number;
+  crosswalk_yield_to_waiting?: boolean;
+  crosswalk_ped_signal_aware?: boolean;
+  crosswalk_signal_link_radius?: number;
+  crosswalk_release_lateral_margin?: number;
+  // AEB (autonomous emergency braking) — forward-collision guardian
+  aeb_ttc_threshold?: number;
+  aeb_lateral_tol?: number;
+  aeb_min_a_req?: number;
+  aeb_stop_margin?: number;
+  // Manual override (reuses ManualDrive OverrideManager)
+  override_enabled?: boolean;
+  override_button?: boolean;
+  steering_threshold?: number;
+  throttle_threshold?: number;
+  brake_threshold?: number;
+  auto_return_timeout?: number;
+  override_lateral?: 'manual' | 'scenario';
+  override_longitudinal?: 'manual' | 'scenario';
+
+  // SDL2 wheel button bindings (integer joystick button IDs; -1 = unassigned).
+  // Only consumed when input_type=="sdl2_wheel"; sdl2_auto_resume_button is
+  // feature:F7's manual->auto RESUME.
+  sdl2_override_button?: number;
+  sdl2_indicator_left_button?: number;
+  sdl2_indicator_right_button?: number;
+  sdl2_upshift_button?: number;
+  sdl2_downshift_button?: number;
+  sdl2_headlight_button?: number;
+  sdl2_high_beam_button?: number;
+  sdl2_fog_light_button?: number;
+  sdl2_hazard_button?: number;
+  sdl2_auto_resume_button?: number;
+
+  // feature:F7 (F7b) — FFB target-tracking (AD wheel following + torque-proxy
+  // override detection). SDL2 wheel only. Default disabled so existing VD
+  // behavior is bit-identical. Units NORMALIZED axis-fraction (spike-calibrated).
+  ffb_target_track_enabled?: boolean;
+  ffb_target_track_kp?: number;
+  ffb_target_track_kd?: number;
+  ffb_target_track_max_force?: number;
+  ffb_target_track_hard_stop_zone?: number;
+  ffb_target_track_friction_ff?: number;
+  ffb_target_track_friction_ff_eps?: number;
+  ffb_target_track_feel_ratio?: number;
+  ffb_target_track_override_steer_force_threshold?: number;
+  ffb_target_track_override_steer_dev_threshold?: number;
+  ffb_target_track_override_sustain_time?: number;
+  ffb_target_track_override_target_rate_gate?: number;
+  ffb_target_track_override_position_error_rate_gate?: number;
+  ffb_target_track_override_residual_threshold?: number;
+  ffb_target_track_override_residual_reanchor_tau?: number;
+  ffb_target_track_override_shadow_breakaway?: number;
+  ffb_target_track_override_shadow_breakaway_left?: number;
+  ffb_target_track_override_shadow_breakaway_right?: number;
+  ffb_target_track_override_shadow_motion_epsilon?: number;
+  ffb_target_track_override_shadow_kinetic?: number;
+  ffb_target_track_override_shadow_force_to_velocity?: number;
+  ffb_target_track_override_shadow_v_max?: number;
+  ffb_target_track_override_shadow_onset_grace?: number;
+  ffb_target_track_override_shadow_dead_time?: number;
+  ffb_target_track_override_shadow_velocity_tau?: number;
+  ffb_target_track_override_shadow_motion_rate_eps?: number;
 }
 
 export interface ControllerConfig {
@@ -428,16 +638,64 @@ export interface MidLongProfile {
 export type PolicyConstraintKind =
   | 'none' | 'stop_at_s' | 'max_speed' | 'max_speed_to_s' | 'yield' | 'wait_until';
 
+/** Arbitration tier (AEB phase 1). Only AebSafety emits 'safety'; every other
+ * policy leaves it at 'comfort'. Optional because telemetry recorded before the
+ * field was serialized (W2) has no `tier`. */
+export type PolicyConstraintTier = 'comfort' | 'courtesy' | 'compliance' | 'safety';
+
 export interface PolicyConstraint {
   kind: PolicyConstraintKind;
   s: number;        // route s ahead of the ego the constraint applies at/until [m]
   value: number;    // speed [m/s] or time [s] depending on kind
   source: string;   // "lead_vehicle" | "traffic_light" | "stop_sign" | "yield_sign" | ...
+  tier?: PolicyConstraintTier;
 }
 
 export interface TrafficPolicySnapshot {
   valid: boolean;
   constraints: PolicyConstraint[];
+}
+
+/* feature:F7 (F7b) FFB target-track observability + override-latch gate
+ * diagnostics. Mirrors OverrideManager::FfbLatchDiagnostics via
+ * VirtualDriverTelemetryJson.cpp's `ffb`/`ffb.gates` blocks. Optional on the
+ * frame: telemetry recorded before this block was serialized has no `ffb`
+ * field, and the panel consuming it (FfbMarginPanel) degrades gracefully.
+ *
+ * All `gates` fields are zeroed and `block_reason` is "inactive" whenever the
+ * FFB target-track servo isn't running this frame (feature disabled, no AD
+ * lateral, or lateral not manual-capable) — see OverrideManager.cpp
+ * (`ffb_diag_ = {}`). `residual_threshold` and `sustain_time` are zeroed in
+ * that same state, so a consumer must check `block_reason` before treating
+ * `residual` as a live value (0 there means "no detector running", not
+ * "wheel perfectly tracked"). */
+export type FfbBlockReason = 'none' | 'inactive' | 'bootstrap' | 'below_residual';
+
+export interface FfbGateDiagnostics {
+  over_force: boolean;
+  over_dev: boolean;
+  moving_target: boolean;
+  tracking_transient: boolean;
+  target_rate: number;
+  derror_rate: number;
+  actual_norm: number;
+  shadow_norm: number;
+  residual: number;              // |actual_norm - shadow_norm| — the detection signal
+  residual_threshold: number;    // configured threshold; 0 while block_reason=="inactive"
+  effective_force: number;
+  shadow_moving: boolean;
+  sustain_accum: number;         // seconds accumulated toward sustain_time
+  sustain_time: number;          // configured sustain_time; 0 while block_reason=="inactive"
+  block_reason: FfbBlockReason;
+}
+
+export interface FfbTelemetry {
+  target_active: boolean;
+  commanded_force: number;
+  position_error: number;
+  target_norm: number;
+  sample_effective_force: number;
+  gates: FfbGateDiagnostics;
 }
 
 export interface VdTelemetryFrame {
@@ -446,7 +704,15 @@ export interface VdTelemetryFrame {
     x: number; y: number; z: number; h: number; speed: number;
     track?: number; lane?: number; offset?: number; s?: number;
   };
-  override: { lateral: boolean; longitudinal: boolean };
+  // feature:F7 — manual_transition / auto_transition are the single-frame
+  // edges of the AUTO<->MANUAL flip. Optional so older telemetry sources still
+  // deserialize; the panel only uses them when present.
+  override: {
+    lateral: boolean;
+    longitudinal: boolean;
+    manual_transition?: boolean;
+    auto_transition?: boolean;
+  };
   driver: {
     throttle: number; brake: number; steer: number;
     lateral_error: number; heading_error: number; speed_error: number;
@@ -456,6 +722,7 @@ export interface VdTelemetryFrame {
   preview: { dt: number; valid: boolean; points: VdPreviewPoint[] };
   midlong?: MidLongProfile;  // Phase 2+ (optional; see MidLongProfile)
   policy?: TrafficPolicySnapshot;  // Phase 3+ (optional; see TrafficPolicySnapshot)
+  ffb?: FfbTelemetry;  // feature:F7 (F7b), optional; see FfbTelemetry
 }
 
 export interface VerificationRun {
@@ -827,6 +1094,19 @@ export const api = {
 
   getAutoLightDefaults: () =>
     request<AutoLightConfig>('/api/auto-light/defaults'),
+
+  // Virtual Driver config
+  getVirtualDriverConfig: () =>
+    request<VirtualDriverConfig>('/api/virtual-driver/config'),
+
+  updateVirtualDriverConfig: (config: Partial<VirtualDriverConfig>) =>
+    request<VirtualDriverConfig>('/api/virtual-driver/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  getVirtualDriverDefaults: () =>
+    request<VirtualDriverConfig>('/api/virtual-driver/defaults'),
 
   // Projects root
   getProjectsRoot: () =>

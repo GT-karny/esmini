@@ -1,0 +1,19 @@
+scenario: normal_following
+category: 07_aeb
+# REQ-AD-013 (safety, negative / SOTIF): 衝突コースが存在しない通常追従では、AEBの緊急制動
+# （STOP_AT_S, source:"aeb"）が絶対に発火してはならない（誤作動抑止）。07_aeb の正例
+# （cutin_hard_brake* / REQ-AD-001）の裏返し=SOTIFミラー。
+#
+# Ego(25 m/s) は同一レーン(-1)を先行する Lead(23 m/s, ~50m前方, bumper gap0=50m) に接近
+# するが、カットインも急制動も無い。LeadVehicleAware（lead policy）が通常のコンフォート
+# 追従で処理し、AebSafety のゲート（TTC<aeb_ttc_threshold=2.5s かつ a_req>aeb_min_a_req=
+# 3.0 m/s²）は無制御（constant speed, 最悪ケース想定）でも t=13s(StopTrigger)時点で
+# TTC=12.0s（閾値の4.8倍）、a_req=0.083 m/s²（閾値の1/36）と、発火域から大きく安全側。
+#
+# matcher no_emergency_without_conflict は全フレームで policy.constraints に
+# source:"aeb" が一切現れないことを確認する（誤発火があれば最早フレームで FAIL）。
+# Requires OSI capture (batch osi:true)。
+must:
+  - event: no_emergency_without_conflict
+    after: { sim_time: 0.5 }   # let the sim settle past teleport/init transients
+    reason: "衝突コースの無い通常追従でAEBの緊急制動が誤発火しないこと(REQ-AD-013)"

@@ -38,25 +38,26 @@ class ACCConfig:
     Adjust these values to tune the ACC behavior.
     Based on ControllerACC.cpp parameters.
     """
+
     # ACC-specific parameters (from ControllerACC.cpp)
-    time_gap: float = 1.5              # Target headway time (seconds)
-    lateral_dist: float = 5.0          # Lateral tolerance for lead detection (m)
-    min_dist: float = 3.0              # Minimum following distance (m)
-    acceleration_factor: float = 0.7   # Free-flow acceleration factor
+    time_gap: float = 1.5  # Target headway time (seconds)
+    lateral_dist: float = 5.0  # Lateral tolerance for lead detection (m)
+    min_dist: float = 3.0  # Minimum following distance (m)
+    acceleration_factor: float = 0.7  # Free-flow acceleration factor
 
     # Speed/acceleration limits
-    max_acceleration: float = 3.0      # m/s^2
-    max_deceleration: float = 5.0      # m/s^2
+    max_acceleration: float = 3.0  # m/s^2
+    max_deceleration: float = 5.0  # m/s^2
 
     # Lead vehicle detection
-    lookahead_dist: float = 100.0      # Maximum lookahead distance (m)
+    lookahead_dist: float = 100.0  # Maximum lookahead distance (m)
 
     # Output conversion (acceleration -> throttle/brake)
     acc_to_throttle_gain: float = 0.3  # Scale positive acc to throttle [0,1]
-    acc_to_brake_gain: float = 0.2     # Scale negative acc to brake [0,1]
+    acc_to_brake_gain: float = 0.2  # Scale negative acc to brake [0,1]
 
     # Vehicle dimensions
-    ego_half_length: float = 2.5       # Default vehicle half-length (m)
+    ego_half_length: float = 2.5  # Default vehicle half-length (m)
 
 
 DEFAULT_ACC_CONFIG = ACCConfig()
@@ -65,12 +66,13 @@ DEFAULT_ACC_CONFIG = ACCConfig()
 @dataclass
 class LeadVehicleInfo:
     """Information about detected lead vehicle."""
-    obj_id: int                   # Lead vehicle object ID
-    gap_distance: float           # Gap between bounding boxes (m)
-    relative_speed: float         # lead_speed - ego_speed (m/s), positive = lead faster
-    lead_speed: float             # Absolute speed of lead vehicle (m/s)
-    longitudinal_dist: float      # Raw longitudinal distance (before bbox adjustment)
-    lateral_offset: float         # Lateral offset from ego centerline (m)
+
+    obj_id: int  # Lead vehicle object ID
+    gap_distance: float  # Gap between bounding boxes (m)
+    relative_speed: float  # lead_speed - ego_speed (m/s), positive = lead faster
+    lead_speed: float  # Absolute speed of lead vehicle (m/s)
+    longitudinal_dist: float  # Raw longitudinal distance (before bbox adjustment)
+    lateral_offset: float  # Lateral offset from ego centerline (m)
 
 
 class ACCController:
@@ -99,7 +101,7 @@ class ACCController:
         self,
         ego_id: int = 0,
         config: Optional[ACCConfig] = None,
-        rm_lib: Optional['EsminiRMLib'] = None
+        rm_lib: Optional["EsminiRMLib"] = None,
     ):
         """
         Initialize ACC controller.
@@ -214,8 +216,10 @@ class ACCController:
             self._log_counter += 1
             if self._log_counter % 20 == 0:
                 lead_str = f"gap={lead_info.gap_distance:.1f}m" if lead_info else "none"
-                print(f"[DEBUG_ACC] target={self._target_speed:.1f}, "
-                      f"current={state.speed:.2f}, acc={acc:.2f}, lead={lead_str}")
+                print(
+                    f"[DEBUG_ACC] target={self._target_speed:.1f}, "
+                    f"current={state.speed:.2f}, acc={acc:.2f}, lead={lead_str}"
+                )
 
         # Convert to throttle/brake
         return self._acc_to_output(acc)
@@ -263,8 +267,7 @@ class ACCController:
     # =========================================================================
 
     def _transform_to_ego_frame(
-        self, ego_x: float, ego_y: float, ego_h: float,
-        target_x: float, target_y: float
+        self, ego_x: float, ego_y: float, ego_h: float, target_x: float, target_y: float
     ) -> Tuple[float, float]:
         """
         Transform target position to ego's local coordinate frame.
@@ -314,7 +317,7 @@ class ACCController:
         ego_id = self._state_extractor.ego_id
         ego_x, ego_y, ego_h = ego_state.x, ego_state.y, ego_state.h
 
-        min_gap = float('inf')
+        min_gap = float("inf")
         lead_info = None
 
         for obj in ground_truth.moving_object:
@@ -343,7 +346,9 @@ class ACCController:
             # Calculate gap (adjust for bounding boxes)
             # Similar to ControllerACC.cpp logic
             heading_diff = abs(self._normalize_angle(ego_h - target_ori.yaw))
-            target_half_length = target_dim.length / 2.0 if target_dim.length > 0 else 2.0
+            target_half_length = (
+                target_dim.length / 2.0 if target_dim.length > 0 else 2.0
+            )
 
             if heading_diff < math.pi / 2:
                 # Same direction: subtract front of ego to rear of target
@@ -362,7 +367,7 @@ class ACCController:
                     relative_speed=target_speed - ego_state.speed,
                     lead_speed=target_speed,
                     longitudinal_dist=ds,
-                    lateral_offset=dt
+                    lateral_offset=dt,
                 )
 
         return lead_info
@@ -391,7 +396,7 @@ class ACCController:
         if self._target_pos_handle < 0:
             self._target_pos_handle = rm_lib.CreatePosition()
 
-        min_gap = float('inf')
+        min_gap = float("inf")
         lead_info = None
 
         for obj in ground_truth.moving_object:
@@ -406,8 +411,10 @@ class ACCController:
             # Set target position in RoadManager
             rm_lib.SetWorldXYZHPosition(
                 self._target_pos_handle,
-                target_pos.x, target_pos.y, target_pos.z,
-                target_ori.yaw
+                target_pos.x,
+                target_pos.y,
+                target_pos.z,
+                target_ori.yaw,
             )
 
             # Get target road position
@@ -419,8 +426,7 @@ class ACCController:
             if ego_enriched.road_id != target_road_data.roadId:
                 # Could be on connected road - fall back to coordinate check
                 ds, dt = self._transform_to_ego_frame(
-                    ego_state.x, ego_state.y, ego_state.h,
-                    target_pos.x, target_pos.y
+                    ego_state.x, ego_state.y, ego_state.h, target_pos.x, target_pos.y
                 )
                 if ds <= 0 or abs(dt) > cfg.lateral_dist:
                     continue
@@ -429,7 +435,7 @@ class ACCController:
                 # Same road: use road coordinates
                 ds = target_road_data.s - ego_enriched.s
                 dt = target_road_data.laneOffset - ego_enriched.lane_offset
-                same_lane = (ego_enriched.lane_id == target_road_data.laneId)
+                same_lane = ego_enriched.lane_id == target_road_data.laneId
 
                 # Must be ahead
                 if ds <= 0:
@@ -444,7 +450,9 @@ class ACCController:
                 continue
 
             # Calculate gap
-            target_half_length = target_dim.length / 2.0 if target_dim.length > 0 else 2.0
+            target_half_length = (
+                target_dim.length / 2.0 if target_dim.length > 0 else 2.0
+            )
             gap = ds - self._ego_half_length - target_half_length
 
             if gap > 0 and gap < min_gap:
@@ -456,7 +464,7 @@ class ACCController:
                     relative_speed=target_speed - ego_state.speed,
                     lead_speed=target_speed,
                     longitudinal_dist=ds,
-                    lateral_offset=dt
+                    lateral_offset=dt,
                 )
 
         return lead_info
@@ -526,10 +534,17 @@ class ACCController:
         cfg = self.config
 
         # acc = (setSpeed - currentSpeed) * accelerationFactor * maxAcceleration
-        acc = (self._target_speed - ego_speed) * cfg.acceleration_factor * cfg.max_acceleration
+        acc = (
+            (self._target_speed - ego_speed)
+            * cfg.acceleration_factor
+            * cfg.max_acceleration
+        )
 
         # Clamp: asymmetric limits
-        acc = max(-cfg.max_deceleration, min(cfg.acceleration_factor * cfg.max_acceleration, acc))
+        acc = max(
+            -cfg.max_deceleration,
+            min(cfg.acceleration_factor * cfg.max_acceleration, acc),
+        )
 
         return acc
 

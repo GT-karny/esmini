@@ -33,6 +33,10 @@ repos:
             | test/
             | \.venv/
             | globals\.py
+            | thirdparty/
+            | archive/
+            | DriverScript/osi3/
+            | GT_esmini/web/backend/grpc_gen/
           )
 
       - id: cppcheck
@@ -67,6 +71,7 @@ repos:
           - --suppress=noExplicitConstructor
           - --suppress=noValidConfiguration
           # Following warnings are from cppcheck 2.17 — will be picked up when esmini team decides.
+          - --suppress=useStlAlgorithm # 2026-07-21 GT: style提案(raw loop -> find_if/any_of)。GT vjパッチ2箇所が該当。上の低優先棚上げ群と同類
           - --suppress=constVariablePointer
           - --suppress=normalCheckLevelMaxBranches
           - --suppress=duplicateAssignExpression

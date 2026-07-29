@@ -45,6 +45,7 @@ const DoubleField kDoubleFields[] = {
     {"short_dt", &VirtualDriverConfig::short_dt},
     {"max_lateral_accel", &VirtualDriverConfig::max_lateral_accel},
     {"comfort_decel", &VirtualDriverConfig::comfort_decel},
+    {"emergency_decel", &VirtualDriverConfig::emergency_decel},
     {"comfort_jerk", &VirtualDriverConfig::comfort_jerk},
     {"scan_distance", &VirtualDriverConfig::scan_distance},
     {"scan_step", &VirtualDriverConfig::scan_step},
@@ -59,6 +60,17 @@ const DoubleField kDoubleFields[] = {
     {"speed_kp", &VirtualDriverConfig::speed_kp},
     {"speed_ki", &VirtualDriverConfig::speed_ki},
     {"speed_kd", &VirtualDriverConfig::speed_kd},
+    // AD steering safety envelope (feature:F7).
+    {"a_lat_max_steer", &VirtualDriverConfig::a_lat_max_steer},
+    {"yaw_rate_max", &VirtualDriverConfig::yaw_rate_max},
+    {"steer_rate_max", &VirtualDriverConfig::steer_rate_max},
+    {"envelope_v_floor", &VirtualDriverConfig::envelope_v_floor},
+    {"ad_steering_envelope_steer_jerk_max", &VirtualDriverConfig::ad_steering_envelope_steer_jerk_max},
+    // AD resume-merge trajectory (feature:F7).
+    {"resume_merge_a_lat_comfort", &VirtualDriverConfig::resume_merge_a_lat_comfort},
+    {"resume_merge_duration_min_s", &VirtualDriverConfig::resume_merge_duration_min_s},
+    {"resume_merge_duration_max_s", &VirtualDriverConfig::resume_merge_duration_max_s},
+    {"resume_merge_min_offset_m", &VirtualDriverConfig::resume_merge_min_offset_m},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
@@ -98,10 +110,43 @@ const DoubleField kDoubleFields[] = {
     {"crosswalk_wait_margin", &VirtualDriverConfig::crosswalk_wait_margin},
     {"crosswalk_signal_link_radius", &VirtualDriverConfig::crosswalk_signal_link_radius},
     {"crosswalk_release_lateral_margin", &VirtualDriverConfig::crosswalk_release_lateral_margin},
+    {"aeb_ttc_threshold", &VirtualDriverConfig::aeb_ttc_threshold},
+    {"aeb_lateral_tol", &VirtualDriverConfig::aeb_lateral_tol},
+    {"aeb_min_a_req", &VirtualDriverConfig::aeb_min_a_req},
+    {"aeb_stop_margin", &VirtualDriverConfig::aeb_stop_margin},
     {"steering_threshold", &VirtualDriverConfig::steering_threshold},
     {"throttle_threshold", &VirtualDriverConfig::throttle_threshold},
     {"brake_threshold", &VirtualDriverConfig::brake_threshold},
     {"auto_return_timeout", &VirtualDriverConfig::auto_return_timeout},
+    // F7b FFB target-track (flat keys; propagated into io_config_.ffb.target_track in the controller).
+    {"ffb_target_track_kp",                              &VirtualDriverConfig::ffb_target_track_kp},
+    {"ffb_target_track_kd",                              &VirtualDriverConfig::ffb_target_track_kd},
+    {"ffb_target_track_max_force",                       &VirtualDriverConfig::ffb_target_track_max_force},
+    {"ffb_target_track_hard_stop_zone",                  &VirtualDriverConfig::ffb_target_track_hard_stop_zone},
+    {"ffb_target_track_friction_ff",                     &VirtualDriverConfig::ffb_target_track_friction_ff},
+    {"ffb_target_track_friction_ff_eps",                 &VirtualDriverConfig::ffb_target_track_friction_ff_eps},
+    {"ffb_target_track_feel_ratio",                      &VirtualDriverConfig::ffb_target_track_feel_ratio},
+    {"ffb_target_track_override_steer_force_threshold",  &VirtualDriverConfig::ffb_target_track_override_steer_force_threshold},
+    {"ffb_target_track_override_steer_dev_threshold",    &VirtualDriverConfig::ffb_target_track_override_steer_dev_threshold},
+    {"ffb_target_track_override_sustain_time",           &VirtualDriverConfig::ffb_target_track_override_sustain_time},
+    {"ffb_target_track_override_target_rate_gate",       &VirtualDriverConfig::ffb_target_track_override_target_rate_gate},
+    {"ffb_target_track_override_position_error_rate_gate", &VirtualDriverConfig::ffb_target_track_override_position_error_rate_gate},
+    {"ffb_target_track_override_residual_threshold",       &VirtualDriverConfig::ffb_target_track_override_residual_threshold},
+    {"ffb_target_track_override_residual_reanchor_tau",    &VirtualDriverConfig::ffb_target_track_override_residual_reanchor_tau},
+    {"ffb_target_track_override_shadow_breakaway",         &VirtualDriverConfig::ffb_target_track_override_shadow_breakaway},
+    {"ffb_target_track_override_shadow_breakaway_left",     &VirtualDriverConfig::ffb_target_track_override_shadow_breakaway_left},
+    {"ffb_target_track_override_shadow_breakaway_right",    &VirtualDriverConfig::ffb_target_track_override_shadow_breakaway_right},
+    {"ffb_target_track_override_shadow_motion_epsilon",    &VirtualDriverConfig::ffb_target_track_override_shadow_motion_epsilon},
+    {"ffb_target_track_override_shadow_kinetic",           &VirtualDriverConfig::ffb_target_track_override_shadow_kinetic},
+    {"ffb_target_track_override_shadow_force_to_velocity", &VirtualDriverConfig::ffb_target_track_override_shadow_force_to_velocity},
+    {"ffb_target_track_override_shadow_v_max",             &VirtualDriverConfig::ffb_target_track_override_shadow_v_max},
+    {"ffb_target_track_override_shadow_velocity_tau",      &VirtualDriverConfig::ffb_target_track_override_shadow_velocity_tau},
+    {"ffb_target_track_override_shadow_dead_time",         &VirtualDriverConfig::ffb_target_track_override_shadow_dead_time},
+    {"ffb_target_track_override_shadow_onset_grace",       &VirtualDriverConfig::ffb_target_track_override_shadow_onset_grace},
+    {"ffb_target_track_override_shadow_motion_rate_eps",   &VirtualDriverConfig::ffb_target_track_override_shadow_motion_rate_eps},
+    {"ffb_safety_max_saturation_seconds",                  &VirtualDriverConfig::ffb_safety_max_saturation_seconds},
+    {"ffb_safety_max_runtime_seconds",                     &VirtualDriverConfig::ffb_safety_max_runtime_seconds},
+    {"ffb_safety_saturation_ratio",                        &VirtualDriverConfig::ffb_safety_saturation_ratio},
 };
 
 const BoolField kBoolFields[] = {
@@ -112,14 +157,29 @@ const BoolField kBoolFields[] = {
     {"policy_conflict_enabled", &VirtualDriverConfig::policy_conflict_enabled},
     {"policy_crosswalk_enabled", &VirtualDriverConfig::policy_crosswalk_enabled},
     {"policy_junction_priority_enabled", &VirtualDriverConfig::policy_junction_priority_enabled},
+    {"policy_aeb_enabled", &VirtualDriverConfig::policy_aeb_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
     {"override_button", &VirtualDriverConfig::override_button},
+    {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
+    {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
+    {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7
 };
 
 const IntField kIntFields[] = {
     {"input_port", &VirtualDriverConfig::input_port},
+    // SDL2 wheel button bindings (only used when input_type == "sdl2_wheel").
+    {"sdl2_override_button",        &VirtualDriverConfig::sdl2_override_button},
+    {"sdl2_indicator_left_button",  &VirtualDriverConfig::sdl2_indicator_left_button},
+    {"sdl2_indicator_right_button", &VirtualDriverConfig::sdl2_indicator_right_button},
+    {"sdl2_upshift_button",         &VirtualDriverConfig::sdl2_upshift_button},
+    {"sdl2_downshift_button",       &VirtualDriverConfig::sdl2_downshift_button},
+    {"sdl2_headlight_button",       &VirtualDriverConfig::sdl2_headlight_button},
+    {"sdl2_high_beam_button",       &VirtualDriverConfig::sdl2_high_beam_button},
+    {"sdl2_fog_light_button",       &VirtualDriverConfig::sdl2_fog_light_button},
+    {"sdl2_hazard_button",          &VirtualDriverConfig::sdl2_hazard_button},
+    {"sdl2_auto_resume_button",     &VirtualDriverConfig::sdl2_auto_resume_button},  // feature:F7
 };
 
 void WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)
@@ -174,6 +234,16 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
 
     LOG_INFO("VirtualDriverConfig: planner(horizon={:.1f}s dt={:.2f}) driver(la_gain={:.2f} kp={:.2f}) input={}",
              horizon_s, short_dt, lookahead_gain, speed_kp, input_type);
+    // Observable for feature:F7 GUI/runtime-reload verification: the parsed
+    // SDL2 wheel button IDs. Only meaningful when input_type=="sdl2_wheel",
+    // but always logged so a config edit can be confirmed to have taken
+    // effect on the next scenario load without a rebuild.
+    LOG_INFO("VirtualDriverConfig: sdl2 buttons: override={} resume={} indL={} indR={} up={} down={} hl={} hb={} fog={} hzd={}",
+             sdl2_override_button, sdl2_auto_resume_button,
+             sdl2_indicator_left_button, sdl2_indicator_right_button,
+             sdl2_upshift_button, sdl2_downshift_button,
+             sdl2_headlight_button, sdl2_high_beam_button,
+             sdl2_fog_light_button, sdl2_hazard_button);
     return true;
 }
 
@@ -194,6 +264,7 @@ ManeuverAwareSpeedPlannerConfig VirtualDriverConfig::MidLongConfig() const
     ManeuverAwareSpeedPlannerConfig c;
     c.max_lateral_accel   = max_lateral_accel;
     c.comfort_decel       = comfort_decel;
+    c.emergency_decel     = emergency_decel;
     c.comfort_jerk        = comfort_jerk;
     c.scan_step           = scan_step;
     c.min_speed           = min_turn_speed;
@@ -214,6 +285,29 @@ PIDPurePursuitConfig VirtualDriverConfig::DriverConfig() const
     c.kp = speed_kp;
     c.ki = speed_ki;
     c.kd = speed_kd;
+    return c;
+}
+
+AdSteeringEnvelopeConfig VirtualDriverConfig::AdEnvelopeConfig() const
+{
+    AdSteeringEnvelopeConfig c;
+    c.enabled         = ad_steering_envelope_enabled;
+    c.a_lat_max_steer = a_lat_max_steer;
+    c.yaw_rate_max    = yaw_rate_max;
+    c.steer_rate_max  = steer_rate_max;
+    c.v_floor         = envelope_v_floor;
+    c.steer_jerk_max  = ad_steering_envelope_steer_jerk_max;
+    return c;
+}
+
+ResumeMergeConfig VirtualDriverConfig::ResumeMergeCfg() const
+{
+    ResumeMergeConfig c;
+    c.enabled        = resume_merge_enabled;
+    c.a_lat_comfort  = resume_merge_a_lat_comfort;
+    c.duration_min_s = resume_merge_duration_min_s;
+    c.duration_max_s = resume_merge_duration_max_s;
+    c.min_offset_m   = resume_merge_min_offset_m;
     return c;
 }
 
@@ -290,6 +384,16 @@ CrosswalkPedestrianAwareConfig VirtualDriverConfig::CrosswalkConfig() const
     c.ped_signal_aware       = crosswalk_ped_signal_aware;
     c.signal_link_radius     = crosswalk_signal_link_radius;
     c.release_lateral_margin = crosswalk_release_lateral_margin;
+    return c;
+}
+
+AebSafetyConfig VirtualDriverConfig::AebConfig() const
+{
+    AebSafetyConfig c;
+    c.ttc_threshold = aeb_ttc_threshold;
+    c.lateral_tol   = aeb_lateral_tol;
+    c.min_a_req     = aeb_min_a_req;
+    c.stop_margin   = aeb_stop_margin;
     return c;
 }
 

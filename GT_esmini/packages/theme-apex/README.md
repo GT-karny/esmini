@@ -1,5 +1,18 @@
 # @osce/theme-apex
 
+> ## ⚠️ Temporary copy — scheduled for removal (2026-07-13)
+>
+> This `theme-apex` **0.1.0** copy lives in the GT_esmini fork only to serve the
+> frozen `web/frontend`. It is **scheduled for deletion once the unified UI
+> migration completes (WP8)**.
+>
+> `GlassPanel` (and any other component here not yet present upstream) is being
+> ported into the canonical package at **`GT-OpenSCENARIOEditor/packages/theme-apex`
+> (0.5.0)**, which is the long-term home of the APEX theme. Do not build new work
+> on this copy — treat it as read-only pending removal.
+>
+> See `GT-monorepo/unified-ui-migration-plan-2026-07-13.md`.
+
 APEX design identity theme — dark glass-morphism UI with cursor-reactive light effects.
 
 Built for **React 19 + Tailwind CSS v4 + Vite**.

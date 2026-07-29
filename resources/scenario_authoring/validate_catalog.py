@@ -37,6 +37,7 @@ run; NOT committed — see root .gitignore).
 
 Exits non-zero if any check fails.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -79,7 +80,13 @@ from GT_esmini.web.backend.services.log_extract import extract_failure  # noqa: 
 
 _DEFAULT_DLL = _REPO / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 _DEFAULT_ESMINI = (
-    _REPO / "build" / "EnvironmentSimulator" / "Applications" / "esmini" / "Release" / "esmini.exe"
+    _REPO
+    / "build"
+    / "EnvironmentSimulator"
+    / "Applications"
+    / "esmini"
+    / "Release"
+    / "esmini.exe"
 )
 _GT_SIM_TEST = _REPO / "GT_esmini" / "scripts" / "verification" / "gt_sim_test.py"
 _VENV_PY = _REPO / "DriverScript" / ".venv" / "Scripts" / "python.exe"
@@ -97,6 +104,7 @@ _SCEN_RUN_TIMEOUT = 240
 # Cleanup
 # ---------------------------------------------------------------------------
 
+
 def _delete_temp_xosc(root: Path) -> list[Path]:
     """Delete *.temp.xosc files under *root* (esmini sanitizer droppings)."""
     removed: list[Path] = []
@@ -109,6 +117,7 @@ def _delete_temp_xosc(root: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 # Static per-artifact checks
 # ---------------------------------------------------------------------------
+
 
 def _check_xml_wellformed(path: Path) -> tuple[bool, str]:
     try:
@@ -146,6 +155,7 @@ def _check_id_matches_stem(meta: dict[str, Any], stem: str) -> tuple[bool, str]:
 # Execution checks (M-D)
 # ---------------------------------------------------------------------------
 
+
 def _write_road_probe(xodr_path: Path, tmp_dir: Path) -> Path:
     """Write a minimal Default-controller probe xosc for *xodr_path*.
 
@@ -157,19 +167,33 @@ def _write_road_probe(xodr_path: Path, tmp_dir: Path) -> Path:
     entities.add_scenario_object("Ego", make_ego_vehicle())  # no controller -> Default
 
     init = xosc.Init()
-    step = xosc.TransitionDynamics(xosc.DynamicsShapes.step, xosc.DynamicsDimension.time, 0.0)
-    init.add_init_action("Ego", xosc.TeleportAction(xosc.LanePosition(10.0, 0.0, "-1", "0")))
+    step = xosc.TransitionDynamics(
+        xosc.DynamicsShapes.step, xosc.DynamicsDimension.time, 0.0
+    )
+    init.add_init_action(
+        "Ego", xosc.TeleportAction(xosc.LanePosition(10.0, 0.0, "-1", "0"))
+    )
     init.add_init_action("Ego", xosc.AbsoluteSpeedAction(10.0, step))
 
     stop = xosc.ValueTrigger(
-        "stop", 0.0, xosc.ConditionEdge.rising,
-        xosc.SimulationTimeCondition(5.0, xosc.Rule.greaterThan), triggeringpoint="stop",
+        "stop",
+        0.0,
+        xosc.ConditionEdge.rising,
+        xosc.SimulationTimeCondition(5.0, xosc.Rule.greaterThan),
+        triggeringpoint="stop",
     )
     sb = xosc.StoryBoard(init, stop)
     rn = xosc.RoadNetwork(roadfile=str(xodr_path.resolve()))
     sc = xosc.Scenario(
-        f"probe_{xodr_path.stem}", "GT_esmini-validate", xosc.ParameterDeclarations(),
-        entities, sb, rn, xosc.Catalog(), osc_minor_version=1, creation_date=PINNED_XOSC_DATE,
+        f"probe_{xodr_path.stem}",
+        "GT_esmini-validate",
+        xosc.ParameterDeclarations(),
+        entities,
+        sb,
+        rn,
+        xosc.Catalog(),
+        osc_minor_version=1,
+        creation_date=PINNED_XOSC_DATE,
     )
     out = tmp_dir / f"probe_{xodr_path.stem}.xosc"
     sc.write_xml(str(out))
@@ -189,11 +213,21 @@ def _run_road(xodr_path: Path, esmini: Path) -> tuple[bool, str]:
         # Per-run --logfile_path: with --disable_stdout the cause only ever
         # lands in the file log (audit CORE-5 / PY-3).
         log_txt = tmp / "log.txt"
-        cmd = [str(esmini), "--osc", str(probe), "--headless",
-               "--fixed_timestep", "0.05", "--disable_stdout",
-               "--logfile_path", str(log_txt)]
+        cmd = [
+            str(esmini),
+            "--osc",
+            str(probe),
+            "--headless",
+            "--fixed_timestep",
+            "0.05",
+            "--disable_stdout",
+            "--logfile_path",
+            str(log_txt),
+        ]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_ROAD_RUN_TIMEOUT)
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_ROAD_RUN_TIMEOUT
+            )
         except subprocess.TimeoutExpired:
             return False, f"esmini timed out (> {_ROAD_RUN_TIMEOUT}s)"
         # Clean any sanitizer dropping the run may have written next to the probe.
@@ -215,12 +249,25 @@ def _run_scenario(xosc_path: Path, dll: Path) -> tuple[bool, str]:
         return False, f"venv python not found: {_VENV_PY}"
     with tempfile.TemporaryDirectory(prefix="gtcat_scen_") as td:
         cmd = [
-            str(_VENV_PY), str(_GT_SIM_TEST), "run", str(xosc_path),
-            "--out", str(Path(td) / "run"), "--dt", "0.05", "--max-time", "35",
-            "--snapshots", "0", "--dll", str(dll),
+            str(_VENV_PY),
+            str(_GT_SIM_TEST),
+            "run",
+            str(xosc_path),
+            "--out",
+            str(Path(td) / "run"),
+            "--dt",
+            "0.05",
+            "--max-time",
+            "35",
+            "--snapshots",
+            "0",
+            "--dll",
+            str(dll),
         ]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_SCEN_RUN_TIMEOUT)
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_SCEN_RUN_TIMEOUT
+            )
         except subprocess.TimeoutExpired:
             return False, f"gt_sim_test timed out (> {_SCEN_RUN_TIMEOUT}s)"
         if proc.returncode == 0:
@@ -232,8 +279,14 @@ def _run_scenario(xosc_path: Path, dll: Path) -> tuple[bool, str]:
         stdout_txt.write_text(proc.stdout or "", encoding="utf-8")
         cause = extract_failure(None, stdout_txt, exit_code=proc.returncode)
         stderr_lines = (proc.stderr or "").strip().splitlines()
-        parts = [p for p in (stderr_lines[-1] if stderr_lines else "",
-                             cause.summary if cause.error_lines else "") if p]
+        parts = [
+            p
+            for p in (
+                stderr_lines[-1] if stderr_lines else "",
+                cause.summary if cause.error_lines else "",
+            )
+            if p
+        ]
         detail = " | ".join(parts) or cause.summary
         return False, f"gt_sim_test exit={proc.returncode}: {detail}"
 
@@ -241,6 +294,7 @@ def _run_scenario(xosc_path: Path, dll: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Validate one artifact
 # ---------------------------------------------------------------------------
+
 
 def validate_road(xodr_path: Path, esmini: Path | None) -> dict[str, Any]:
     results: dict[str, Any] = {"artifact": xodr_path.name, "checks": {}, "pass": True}
@@ -317,12 +371,19 @@ def validate_scenario(xosc_path: Path, dll: Path | None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _CHECK_COLUMNS = [
-    "xml_wellformed", "meta_exists", "meta_fields", "id_matches_stem",
-    "annotation_required", "esmini_run", "scenario_run",
+    "xml_wellformed",
+    "meta_exists",
+    "meta_fields",
+    "id_matches_stem",
+    "annotation_required",
+    "esmini_run",
+    "scenario_run",
 ]
 
 
-def write_report(all_results: list[dict[str, Any]], removed_temps: list[Path], skip_run: bool) -> None:
+def write_report(
+    all_results: list[dict[str, Any]], removed_temps: list[Path], skip_run: bool
+) -> None:
     lines: list[str] = ["# Catalog Validation Report", ""]
     lines.append(f"_Execution checks: {'SKIPPED (--skip-run)' if skip_run else 'ON'}_")
     lines.append("")
@@ -344,11 +405,13 @@ def write_report(all_results: list[dict[str, Any]], removed_temps: list[Path], s
         lines.append("| Artifact | " + " | ".join(used) + " | PASS/FAIL |")
         lines.append("|---|" + "|".join(["---"] * len(used)) + "|---|")
         for r in all_results:
+
             def cell(key: str) -> str:
                 c = r["checks"].get(key)
                 if c is None:
                     return "—"
                 return f"{'OK' if c['ok'] else 'FAIL'}: {c['detail']}"
+
             row = " | ".join(cell(c) for c in used)
             status = "**PASS**" if r["pass"] else "**FAIL**"
             lines.append(f"| `{r['artifact']}` | {row} | {status} |")
@@ -357,7 +420,9 @@ def write_report(all_results: list[dict[str, Any]], removed_temps: list[Path], s
     n_pass = sum(1 for r in all_results if r["pass"])
     n_fail = len(all_results) - n_pass
     overall = all(r["pass"] for r in all_results) if all_results else True
-    lines.append(f"**Overall: {'PASS' if overall else 'FAIL'}**  ({n_pass} pass / {n_fail} fail)")
+    lines.append(
+        f"**Overall: {'PASS' if overall else 'FAIL'}**  ({n_pass} pass / {n_fail} fail)"
+    )
     lines.append("")
 
     _REPORT.write_text("\n".join(lines), encoding="utf-8")
@@ -368,14 +433,26 @@ def write_report(all_results: list[dict[str, Any]], removed_temps: list[Path], s
 # Main
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Validate the scenario-authoring catalog.")
-    p.add_argument("--dll", type=Path, default=_DEFAULT_DLL,
-                   help=f"GT_esminiLib.dll for scenario runs (default {_DEFAULT_DLL}).")
-    p.add_argument("--esmini", type=Path, default=_DEFAULT_ESMINI,
-                   help=f"esmini.exe for road probes (default {_DEFAULT_ESMINI}).")
-    p.add_argument("--skip-run", action="store_true",
-                   help="Static checks only (no esmini / DLL execution).")
+    p.add_argument(
+        "--dll",
+        type=Path,
+        default=_DEFAULT_DLL,
+        help=f"GT_esminiLib.dll for scenario runs (default {_DEFAULT_DLL}).",
+    )
+    p.add_argument(
+        "--esmini",
+        type=Path,
+        default=_DEFAULT_ESMINI,
+        help=f"esmini.exe for road probes (default {_DEFAULT_ESMINI}).",
+    )
+    p.add_argument(
+        "--skip-run",
+        action="store_true",
+        help="Static checks only (no esmini / DLL execution).",
+    )
     return p.parse_args()
 
 
@@ -396,7 +473,9 @@ def main() -> int:
         all_results.append(result)
         print(f"[{'PASS' if result['pass'] else 'FAIL'}] {xodr_path.name}")
 
-    scen_paths = (p for p in _SCENE_GEN.glob("*.xosc") if not p.name.endswith(".temp.xosc"))
+    scen_paths = (
+        p for p in _SCENE_GEN.glob("*.xosc") if not p.name.endswith(".temp.xosc")
+    )
     for xosc_path in sorted(scen_paths):
         result = validate_scenario(xosc_path, dll)
         all_results.append(result)
@@ -410,7 +489,10 @@ def main() -> int:
 
     overall_ok = all(r["pass"] for r in all_results) if all_results else True
     if not overall_ok:
-        print("[ERROR] Validation failed — see validate_report.md for details.", file=sys.stderr)
+        print(
+            "[ERROR] Validation failed — see validate_report.md for details.",
+            file=sys.stderr,
+        )
         return 1
 
     print("[OK] All artifacts passed validation.")

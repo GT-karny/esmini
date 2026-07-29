@@ -30,6 +30,7 @@ from realdriver import (
     LKASController,
     LongitudinalProfileReceiver,
 )
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -44,22 +45,31 @@ def main():
     parser = argparse.ArgumentParser(
         description="ACC + LKAS Example (Simple) - 先行車追従 + 車線維持"
     )
-    parser.add_argument("--ip", type=str, default="127.0.0.1",
-                        help="esmini Host IP")
-    parser.add_argument("--port", type=int, default=53995,
-                        help="RealDriver Base Port")
-    parser.add_argument("--osi_port", type=int, default=48198,
-                        help="OSI Port")
-    parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="UDP port for receiving target speed from GT_Sim")
-    parser.add_argument("--id", type=int, default=0,
-                        help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default=default_lib_path,
-                        help="Path to esminiRMLib.dll")
-    parser.add_argument("--xodr_path", type=str, required=True,
-                        help="Path to OpenDRIVE map file (.xodr)")
-    parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s (used until UDP overrides)")
+    parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
+    parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
+    parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
+    parser.add_argument(
+        "--target_speed_port",
+        type=int,
+        default=54995,
+        help="UDP port for receiving target speed from GT_Sim",
+    )
+    parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
+    parser.add_argument(
+        "--lib_path", type=str, default=default_lib_path, help="Path to esminiRMLib.dll"
+    )
+    parser.add_argument(
+        "--xodr_path",
+        type=str,
+        required=True,
+        help="Path to OpenDRIVE map file (.xodr)",
+    )
+    parser.add_argument(
+        "--target_speed",
+        type=float,
+        default=10.0,
+        help="Default target speed in m/s (used until UDP overrides)",
+    )
     add_dump_argspec_option(parser)
 
     args = parser.parse_args()
@@ -90,7 +100,9 @@ def main():
             lib_path=args.lib_path,
             xodr_path=args.xodr_path,
             ego_id=args.id,
-            kp=0.5, ki=0.01, kd=0.1,
+            kp=0.5,
+            ki=0.01,
+            kd=0.1,
         )
     except Exception as e:
         print(f"Failed to initialize LKAS Controller: {e}")
@@ -148,14 +160,19 @@ def main():
                 # --- Print status ---
                 if frame_number % 20 == 0:
                     lead = acc.lead_vehicle
-                    lead_str = (f"lead: gap={lead.gap_distance:.1f}m, "
-                                f"spd={lead.lead_speed:.1f}m/s"
-                                if lead else "lead: none")
-                    print(f"Speed: {acc.last_speed:.2f}/{acc.target_speed:.2f} m/s | "
-                          f"Steer: {steering:.3f} | "
-                          f"Thr: {lon_output.throttle:.2f} | "
-                          f"Brk: {lon_output.brake:.2f} | "
-                          f"{lead_str}")
+                    lead_str = (
+                        f"lead: gap={lead.gap_distance:.1f}m, "
+                        f"spd={lead.lead_speed:.1f}m/s"
+                        if lead
+                        else "lead: none"
+                    )
+                    print(
+                        f"Speed: {acc.last_speed:.2f}/{acc.target_speed:.2f} m/s | "
+                        f"Steer: {steering:.3f} | "
+                        f"Thr: {lon_output.throttle:.2f} | "
+                        f"Brk: {lon_output.brake:.2f} | "
+                        f"{lead_str}"
+                    )
 
                 # --- Send Controls ---
                 # esmini steering convention: negative = turn left

@@ -6,6 +6,7 @@ the /api/verification prefix with verification.py (replay endpoints stay there,
 untouched); these endpoints use distinct path segments + {run_id:path} so the
 composite batch ids never collide with /runs/{run_id}/telemetry.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/verification", tags=["verification"])
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class AnnotationIn(BaseModel):
     label: Literal["pass", "fail", "needs-discussion"]
@@ -68,6 +70,7 @@ class MatchIn(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.get("/runs2")
 async def list_runs2(
     status: str | None = Query(default=None, description="filter by verdict_overall"),
@@ -79,7 +82,8 @@ async def list_runs2(
 
     Separate from the replay page's GET /runs (which is intentionally untouched)."""
     runs = await annotation_store.list_runs(
-        status=status, batch_id=batch_id, labeled=labeled, source=source)
+        status=status, batch_id=batch_id, labeled=labeled, source=source
+    )
     return {"runs": runs}
 
 
@@ -103,13 +107,15 @@ async def get_annotation(run_id: str):
 async def set_annotation(run_id: str, body: AnnotationIn):
     try:
         rec = await annotation_store.set_annotation(
-            run_id, body.label, body.comment, body.labeler or "local")
+            run_id, body.label, body.comment, body.labeler or "local"
+        )
     except KeyError:
         # Run not yet in the registry — force a scan once, then retry.
         await annotation_store.scan_registry(force=True)
         try:
             rec = await annotation_store.set_annotation(
-                run_id, body.label, body.comment, body.labeler or "local")
+                run_id, body.label, body.comment, body.labeler or "local"
+            )
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown run '{run_id}'")
     except ValueError as e:

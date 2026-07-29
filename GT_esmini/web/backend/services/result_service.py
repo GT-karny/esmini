@@ -66,6 +66,7 @@ def _ensure_csv(output_dir: Path) -> Path | None:
 
     try:
         from dat import DATFile
+
         dat = DATFile(str(dat_path), extended=True)
         dat.save_csv(extended=True, include_file_refs=True)
         dat.close()
@@ -79,7 +80,9 @@ def _ensure_csv(output_dir: Path) -> Path | None:
             "the file may be a newer DAT format."
         ) from exc
     except Exception as exc:
-        logger.warning("DAT→CSV conversion failed for %s: %s", dat_path, exc, exc_info=True)
+        logger.warning(
+            "DAT→CSV conversion failed for %s: %s", dat_path, exc, exc_info=True
+        )
         return None
 
 

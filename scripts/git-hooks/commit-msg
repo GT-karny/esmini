@@ -1,0 +1,36 @@
+#!/bin/sh
+# Knowledge-graph workflow (CLAUDE.md R4) — commit-msg advisory hook.
+#
+# WARNS (never blocks) when a commit message cites no knowledge-graph ID,
+# so manual commits get the same nudge as Claude-driven ones (which are
+# checked by .claude/hooks/gt_guard.ps1 Rule 4 before execution).
+#
+# Install (per clone; .git/hooks also carries Git LFS hooks, so we install
+# this file individually instead of switching core.hooksPath):
+#   cp scripts/git-hooks/commit-msg .git/hooks/commit-msg
+#
+# The ID grammar is NOT hardcoded here. It is generated from
+# GT_esmini/docs/knowledge/namespaces.yaml by scripts/check_commit_kg_ids.py,
+# which gt_guard.ps1 Rule 4 shares so the two sides can never drift.
+# (Until 2026-07-20 both duplicated a hardcoded allow-list that failed to
+#  recognise the mandated `<slug>:<id>` form and blessed bare ordinals such
+#  as `Phase3` — i.e. it warned exactly when the convention was followed.)
+#
+# Extraction of commit->ID edges: check_knowledge_graph.py --extract-commits
+
+msg_file="$1"
+[ -r "$msg_file" ] || exit 0
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+checker="$repo_root/scripts/check_commit_kg_ids.py"
+[ -r "$checker" ] || exit 0
+
+# Project venv only (root CLAUDE.md §4: never the system interpreter).
+py="$repo_root/DriverScript/.venv/Scripts/python.exe"
+[ -x "$py" ] || py="$repo_root/DriverScript/.venv/bin/python"
+[ -x "$py" ] || exit 0   # venv unavailable -> stay silent; this hook is advisory
+
+"$py" "$checker" "$msg_file"
+
+# Advisory only: warnings are printed, the commit always proceeds.
+exit 0

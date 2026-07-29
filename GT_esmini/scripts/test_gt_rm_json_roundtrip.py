@@ -28,7 +28,9 @@ import tempfile
 # repo_root = .../<repo>/GT_esmini/scripts/test_gt_rm_json_roundtrip.py -> up 3
 _THIS = os.path.abspath(__file__)
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(_THIS), "..", ".."))
-DEFAULT_DLL = os.path.join(REPO_ROOT, "build", "GT_esmini", "Release", "GT_esminiLib.dll")
+DEFAULT_DLL = os.path.join(
+    REPO_ROOT, "build", "GT_esmini", "Release", "GT_esminiLib.dll"
+)
 
 # scripts dir on sys.path so the child can import rm_lib.
 SCRIPTS_DIR = os.path.dirname(_THIS)
@@ -97,10 +99,15 @@ def _spawn(dll_path, xodr_path, do_truncation=False):
     os.close(fd)
     try:
         cmd = [
-            sys.executable, _THIS, "--child",
-            "--dll", dll_path,
-            "--xodr", xodr_path,
-            "--result", result_path,
+            sys.executable,
+            _THIS,
+            "--child",
+            "--dll",
+            dll_path,
+            "--xodr",
+            xodr_path,
+            "--result",
+            result_path,
         ]
         if do_truncation:
             cmd.append("--truncation")
@@ -114,7 +121,9 @@ def _spawn(dll_path, xodr_path, do_truncation=False):
                 f"stderr tail: {proc.stderr[-400:]!r}"
             )
         if not data.get("ok"):
-            raise ProbeFailure(data.get("error") or f"child failed (exit={proc.returncode})")
+            raise ProbeFailure(
+                data.get("error") or f"child failed (exit={proc.returncode})"
+            )
         return data
     finally:
         try:
@@ -141,25 +150,36 @@ def probe_railway_switch(data):
     s12 = next((s for s in switches if s["id"] == "12"), None)
     _expect(s12 is not None, "switch id '12' not found")
     _expect(s12["road_id"] == "1", f"switch 12 road_id != '1' ({s12['road_id']!r})")
-    _expect(s12["position"] == "dynamic", f"switch 12 position != 'dynamic' ({s12['position']!r})")
+    _expect(
+        s12["position"] == "dynamic",
+        f"switch 12 position != 'dynamic' ({s12['position']!r})",
+    )
 
     mt = s12["main_track"]
-    _expect(mt is not None and mt["id"] == "1", f"switch 12 main_track.id != '1' ({mt})")
+    _expect(
+        mt is not None and mt["id"] == "1", f"switch 12 main_track.id != '1' ({mt})"
+    )
     _expect(_fclose(mt["s"], 10.0), f"switch 12 main_track.s != 10.0 ({mt['s']})")
     _expect(mt["dir"] == "+", f"switch 12 main_track.dir != '+' ({mt['dir']!r})")
 
     st = s12["side_track"]
-    _expect(st is not None and st["id"] == "2", f"switch 12 side_track.id != '2' ({st})")
+    _expect(
+        st is not None and st["id"] == "2", f"switch 12 side_track.id != '2' ({st})"
+    )
     _expect(_fclose(st["s"], 0.0), f"switch 12 side_track.s != 0.0 ({st['s']})")
     _expect(st["dir"] == "+", f"switch 12 side_track.dir != '+' ({st['dir']!r})")
 
     pr = s12["partner"]
-    _expect(pr is not None and pr["name"] == "Switch32" and pr["id"] == "32",
-            f"switch 12 partner mismatch ({pr})")
+    _expect(
+        pr is not None and pr["name"] == "Switch32" and pr["id"] == "32",
+        f"switch 12 partner mismatch ({pr})",
+    )
 
     # audit entries empty (fixture is fully supported), userData non-empty (viPartListRailML).
     audit = data["audit"]
-    _expect(audit.get("entries") == [], f"audit entries not empty ({audit.get('entries')})")
+    _expect(
+        audit.get("entries") == [], f"audit entries not empty ({audit.get('entries')})"
+    )
     ud = data["user_data"].get("user_data", [])
     _expect(len(ud) > 0, "expected non-empty user_data (viPartListRailML)")
 
@@ -170,7 +190,9 @@ def probe_railway_station(data):
     ids = sorted(s["id"] for s in stations)
     _expect(ids == ["12", "13"], f"station ids != ['12','13'] ({ids})")
     for s in stations:
-        _expect(s["type"] == "small", f"station {s['id']} type != 'small' ({s['type']!r})")
+        _expect(
+            s["type"] == "small", f"station {s['id']} type != 'small' ({s['type']!r})"
+        )
 
     s12 = next(s for s in stations if s["id"] == "12")
     plats = s12["platforms"]
@@ -181,18 +203,24 @@ def probe_railway_station(data):
     _expect(len(segs) == 1, f"station 12 platform expected 1 segment, got {len(segs)}")
     seg = segs[0]
     _expect(seg["road_id"] == "2", f"segment road_id != '2' ({seg['road_id']!r})")
-    _expect(_fclose(seg["s_start"], 16.5), f"segment s_start != 16.5 ({seg['s_start']})")
+    _expect(
+        _fclose(seg["s_start"], 16.5), f"segment s_start != 16.5 ({seg['s_start']})"
+    )
     _expect(_fclose(seg["s_end"], 51.0), f"segment s_end != 51.0 ({seg['s_end']})")
     _expect(seg["side"] == "right", f"segment side != 'right' ({seg['side']!r})")
 
 
 def probe_semantics(data):
     signals = data["signals"].get("signals", [])
-    sig = next((s for s in signals if s["road_id"] == "1" and s["signal_id"] == "2001"), None)
+    sig = next(
+        (s for s in signals if s["road_id"] == "1" and s["signal_id"] == "2001"), None
+    )
     _expect(sig is not None, "signal (road '1', id '2001') not found")
     _expect(sig["has_semantics"] is True, "signal 2001 has_semantics != True")
     speeds = sig["semantics"]["speeds"]
-    _expect(len(speeds) == 1, f"signal 2001 expected 1 speed semantic, got {len(speeds)}")
+    _expect(
+        len(speeds) == 1, f"signal 2001 expected 1 speed semantic, got {len(speeds)}"
+    )
     sp = speeds[0]
     _expect(sp["type"] == "maximum", f"speed type != 'maximum' ({sp['type']!r})")
     _expect(_fclose(sp["value"], 80.0), f"speed value != 80.0 ({sp['value']})")
@@ -205,23 +233,35 @@ def probe_junction(data):
     _expect(j900 is not None, "junction '900' not found in priorities")
     prios = j900["priorities"]
     _expect(len(prios) == 1, f"junction 900 expected 1 priority, got {len(prios)}")
-    _expect(prios[0]["high"] == "1" and prios[0]["low"] == "2",
-            f"junction 900 priority != high '1' low '2' ({prios[0]})")
+    _expect(
+        prios[0]["high"] == "1" and prios[0]["low"] == "2",
+        f"junction 900 priority != high '1' low '2' ({prios[0]})",
+    )
 
     cps = data["cross_paths"].get("cross_paths", [])
     cp = next((c for c in cps if c["junction_id"] == "900" and c["id"] == "0"), None)
     _expect(cp is not None, "crossPath (junction '900', id '0') not found")
-    _expect(cp["crossing_road"] == "2", f"crossPath crossing_road != '2' ({cp['crossing_road']!r})")
-    _expect(cp["road_at_start"] == "1", f"crossPath road_at_start != '1' ({cp['road_at_start']!r})")
-    _expect(cp["road_at_end"] == "1", f"crossPath road_at_end != '1' ({cp['road_at_end']!r})")
+    _expect(
+        cp["crossing_road"] == "2",
+        f"crossPath crossing_road != '2' ({cp['crossing_road']!r})",
+    )
+    _expect(
+        cp["road_at_start"] == "1",
+        f"crossPath road_at_start != '1' ({cp['road_at_start']!r})",
+    )
+    _expect(
+        cp["road_at_end"] == "1",
+        f"crossPath road_at_end != '1' ({cp['road_at_end']!r})",
+    )
 
 
 def probe_truncation(data):
     _expect("trunc_full_len" in data, "truncation probe did not run")
     full = data["trunc_full_len"]
     reported = data["trunc_reported_len"]
-    _expect(reported == full,
-            f"truncated call reported len {reported} != full len {full}")
+    _expect(
+        reported == full, f"truncated call reported len {reported} != full len {full}"
+    )
     _expect(full > 4, f"expected railroad JSON longer than tiny buffer (full={full})")
 
 

@@ -98,7 +98,12 @@ std::vector<ScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig&
                            BindingKind(on_junction, v_curve, v_limit, previous_limit)});
         previous_limit = v_limit;
 
-        const int ret = static_cast<int>(pos.MoveAlongS(step));
+        // [Issue #31] straight-most (0.0), not the -1.0 convenience overload that randomizes
+        // the connecting road when the prediction is off-route -> the junction speed scan would
+        // flicker between the straight connector and a turn connector (spurious turn/curve decel).
+        // A valid on-route route still wins in MoveToConnectingRoad. See RouteCrosswalkScan.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret < 0) break;
         s_ahead += step;
     }
@@ -141,7 +146,14 @@ std::vector<MidLongConstraint> ApplyPolicyConstraints(std::vector<ScanSample>& s
                 }
                 else
                 {
-                    const double ramp = std::sqrt(2.0 * cfg.comfort_decel * (zero_from - samples[i].s_ahead));
+                    // AEB phase 1: a SAFETY-tier constraint (AebSafety) shapes its
+                    // approach at emergency_decel instead of comfort_decel — the
+                    // whole point of the tier is to brake harder than comfort
+                    // policies when a collision-course gate has fired. Every
+                    // pre-existing emitter defaults to COMFORT (bit-identical).
+                    const double decel = (constraint.tier == PolicyConstraint::Tier::SAFETY) ? cfg.emergency_decel
+                                                                                              : cfg.comfort_decel;
+                    const double ramp = std::sqrt(2.0 * decel * (zero_from - samples[i].s_ahead));
                     samples[i].v = std::min(samples[i].v, ramp);
                 }
             }

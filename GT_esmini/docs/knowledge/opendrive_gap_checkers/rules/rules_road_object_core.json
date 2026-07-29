@@ -1,0 +1,104 @@
+[
+  {
+    "rule_name": "road.object.circular_vs_angular",
+    "category": "road.object",
+    "version": "1.7.0",
+    "description": "Objects may be of circular or angular shape. The possibilities are mutually exclusive. The shape is defined by the used attributes."
+  },
+  {
+    "rule_name": "road.object.orientation",
+    "category": "road.object",
+    "version": "1.7.0",
+    "description": "The direction for which objects are valid shall be specified."
+  },
+  {
+    "rule_name": "road.object.s_t_coords",
+    "category": "road.object",
+    "version": "1.7.0",
+    "description": "The origin position of the object shall be described with s- and t-coordinates along the road surface."
+  },
+  {
+    "rule_name": "road.object.type_attr",
+    "category": "road.object",
+    "version": "1.7.0",
+    "description": "The type of an object shall be given by the @type attribute."
+  },
+  {
+    "rule_name": "road.object.borders.different_outlineids",
+    "category": "road.object.borders",
+    "version": "1.9.0",
+    "description": "All &lt;outline&gt; elements of an &lt;outlines&gt; element shall have different @outlineId values."
+  },
+  {
+    "rule_name": "road.object.borders.useCompleteOutline_true",
+    "category": "road.object.borders",
+    "version": "1.7.0",
+    "description": "If @useCompleteOutline is true, the &lt;cornerReference&gt; element shall not be defined."
+  },
+  {
+    "rule_name": "road.object.bridges.define_type",
+    "category": "road.object.bridges",
+    "version": "1.7.0",
+    "description": "Bridges may be restricted to certain lanes, using the &lt;laneValidity&gt; element."
+  },
+  {
+    "rule_name": "road.object.bridges.from_lower_equal_to",
+    "category": "road.object.bridges",
+    "version": "1.7.0",
+    "description": "The value of the @fromLane attribute shall be lower than or equal to the value of the @toLane attribute."
+  },
+  {
+    "rule_name": "road.object.bridges.type_definition",
+    "category": "road.object.bridges",
+    "version": "1.7.0",
+    "description": "The @type of the bridges shall be specified."
+  },
+  {
+    "rule_name": "road.object.material.materials_may_differ",
+    "category": "road.object.material",
+    "version": "1.7.0",
+    "description": "The material of objects may differ from the surrounding road."
+  },
+  {
+    "rule_name": "road.object.reference.from_lower_equal_to",
+    "category": "road.object.reference",
+    "version": "1.7.0",
+    "description": "The value of the @fromLane attribute shall be lower than or equal to the value of the @toLane attribute."
+  },
+  {
+    "rule_name": "road.object.tunnels.from_lower_equal_to",
+    "category": "road.object.tunnels",
+    "version": "1.7.0",
+    "description": "The value of the @fromLane attribute shall be lower than or equal to the value of the @toLane attribute."
+  },
+  {
+    "rule_name": "road.object.tunnels.type_definition",
+    "category": "road.object.tunnels",
+    "version": "1.7.0",
+    "description": "The @type of the tunnel shall be specified."
+  },
+  {
+    "rule_name": "road.object.validty.check_parent_orientation",
+    "category": "road.object.validty",
+    "version": "1.7.0",
+    "description": "The range given by all &lt;validity&gt; elements shall be a subset of the parent&#8217;s @orientation attribute:"
+  },
+  {
+    "rule_name": "road.object.validty.from_lower_equal_to",
+    "category": "road.object.validty",
+    "version": "1.7.0",
+    "description": "The value of the @fromLane attribute shall be lower than or equal to the value of the @toLane attribute."
+  },
+  {
+    "rule_name": "road.object.validty.left_hand_traffic_lane_ids",
+    "category": "road.object.validty",
+    "version": "1.7.0",
+    "description": "For left-hand-traffic, @orientation=\"-\" implies that the &lt;validity&gt; element shall only span negative lane ids, while @orientation=\"+\" implies that the &lt;validity&gt; element shall only span positive lane ids. If the given &lt;validity&gt; elements span both, positive and negative lane ids, @orientation=\"none\" shall be used."
+  },
+  {
+    "rule_name": "road.object.validty.right_hand_traffic_lane_ids",
+    "category": "road.object.validty",
+    "version": "1.7.0",
+    "description": "For right-hand traffic, @orientation=\"+\" implies that the &lt;validity&gt; element shall only span negative lane ids, while @orientation=\"-\" implies that the &lt;validity&gt; element shall only span positive lane ids. If the given &lt;validity&gt; elements span both, positive and negative lane ids, @orientation=\"none\" shall be used."
+  }
+]

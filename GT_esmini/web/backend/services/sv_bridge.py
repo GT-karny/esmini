@@ -4,7 +4,11 @@ from __future__ import annotations
 import logging
 import socket
 
-from GT_esmini.web.backend.config import SV_LISTEN_PORT, SV_MULTICAST_GROUP, SV_MULTICAST_PORT
+from GT_esmini.web.backend.config import (
+    SV_LISTEN_PORT,
+    SV_MULTICAST_GROUP,
+    SV_MULTICAST_PORT,
+)
 from GT_esmini.web.backend.services.framed_udp_bridge import (
     BridgeRegistry,
     FramedUdpFanoutBridge,

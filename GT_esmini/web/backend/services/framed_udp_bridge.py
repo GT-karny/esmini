@@ -48,11 +48,18 @@ class _FramedUdpProtocol(asyncio.DatagramProtocol):
             # A header-size/truncation mismatch drops the frame; without a log this
             # looks like a healthy connection delivering zero frames. Warn (rate-limited).
             self._mismatch_count += 1
-            if self._mismatch_count == 1 or self._mismatch_count % self._MISMATCH_LOG_EVERY == 0:
+            if (
+                self._mismatch_count == 1
+                or self._mismatch_count % self._MISMATCH_LOG_EVERY == 0
+            ):
                 logger.warning(
                     "%s dropped framed datagram: payload len=%d != header size=%d "
                     "(total=%d, mismatches so far=%d)",
-                    self._label, len(payload), size, len(data), self._mismatch_count,
+                    self._label,
+                    len(payload),
+                    size,
+                    len(data),
+                    self._mismatch_count,
                 )
             return
 
@@ -122,7 +129,9 @@ class FramedUdpFanoutBridge:
         self._running = False
         logger.info("%s Bridge stopped", self._label)
 
-    def subscribe(self, subscriber_id: str | None = None) -> tuple[str, asyncio.Queue[bytes]]:
+    def subscribe(
+        self, subscriber_id: str | None = None
+    ) -> tuple[str, asyncio.Queue[bytes]]:
         sid = subscriber_id or uuid.uuid4().hex[:8]
         queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=self._max_queue_size)
         self._subs.subscribers[sid] = queue
@@ -141,7 +150,12 @@ class FramedUdpFanoutBridge:
         pass
 
     def _log_started(self) -> None:
-        logger.info("%s Bridge started (listen=%s:%d)", self._label, self._bind_ip, self._listen_port)
+        logger.info(
+            "%s Bridge started (listen=%s:%d)",
+            self._label,
+            self._bind_ip,
+            self._listen_port,
+        )
 
     def _handle_payload(self, payload: bytes) -> None:
         self._relay_payload(payload)
@@ -227,7 +241,9 @@ class BridgeRegistry(Generic[TBridge]):
                     await bridge.stop()
                     count += 1
                 except Exception as e:
-                    logger.warning("Error stopping %s bridge for %s: %s", self._label, job_id, e)
+                    logger.warning(
+                        "Error stopping %s bridge for %s: %s", self._label, job_id, e
+                    )
 
         await self.stop_global()
         if self._global_bridge is None:

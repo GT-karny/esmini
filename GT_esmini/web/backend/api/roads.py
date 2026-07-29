@@ -34,7 +34,9 @@ async def upload_road(request: Request):
 async def delete_uploaded_road(road_id: str):
     """Delete a previously uploaded temporary road file."""
     if not road_id.startswith("tmp_road_"):
-        raise HTTPException(status_code=400, detail="Can only delete temporary road files")
+        raise HTTPException(
+            status_code=400, detail="Can only delete temporary road files"
+        )
     success = road_service.delete_temp_road(road_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Temp road '{road_id}' not found")

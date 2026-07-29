@@ -1,0 +1,86 @@
+[
+  {
+    "rule_name": "road.crg.attach_vs_friction",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "@mode=attached shall not be used together with @purpose=friction ."
+  },
+  {
+    "rule_name": "road.crg.friction_no_z_offset_scale",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "@zOffset and @zScale shall not be set for friction values."
+  },
+  {
+    "rule_name": "road.crg.h_offset_only_genuine_global",
+    "category": "road.crg",
+    "version": "1.9.0",
+    "description": "@hOffset shall not be used for modes other than @mode=genuine and @mode=global."
+  },
+  {
+    "rule_name": "road.crg.junction",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "If a &lt;junction&gt; element contains a &lt;CRG&gt; element, none of the connecting roads that belong to this junction shall have a &lt;CRG&gt; element."
+  },
+  {
+    "rule_name": "road.crg.no_opposite",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "@orientation=opposite shall not be used for modes other than @mode=attached and @mode=attached0."
+  },
+  {
+    "rule_name": "road.crg.only_on_per_s",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "In the future, multiple CRG files at one position may be combined. For compatibility with future versions, each road or junction should only contain one CRG file per s -position and @purpose."
+  },
+  {
+    "rule_name": "road.crg.s_t_offset_no_global",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "@sOffset and @tOffset shall not be used with @mode=global."
+  },
+  {
+    "rule_name": "road.crg.use_last_entry",
+    "category": "road.crg",
+    "version": "1.7.0",
+    "description": "If more than one CRG entry is given for the same physical property (attribute purpose) at a given location, then the last entry in the sequence of occurrence in the ASAM OpenDRIVE file shall be the relevant one. All others are ignored (but see the note )."
+  },
+  {
+    "rule_name": "road.cross_section_surface.height",
+    "category": "road.cross_section_surface",
+    "version": "1.8.0",
+    "description": "The value of @height at &lt;lane&gt; elements is added to the cross section surface in z-direction."
+  },
+  {
+    "rule_name": "road.cross_section_surface.lane_def_valid",
+    "category": "road.cross_section_surface",
+    "version": "1.8.0",
+    "description": "A cross section surface is only valid within the lane definition of the road."
+  },
+  {
+    "rule_name": "road.cross_section_surface.no_shape_superelevation",
+    "category": "road.cross_section_surface",
+    "version": "1.8.0",
+    "description": "A cross section surface shall not be used in combination with road shape or superelevation."
+  },
+  {
+    "rule_name": "road.cross_section_surface.start_end_match_with_refline",
+    "category": "road.cross_section_surface",
+    "version": "1.8.0",
+    "description": "A cross section surface shall start and end at the start and end of the road reference line."
+  },
+  {
+    "rule_name": "road.cross_section_surface.use_strip",
+    "category": "road.cross_section_surface",
+    "version": "1.8.0",
+    "description": "If on a side only one strip is used, it is defined in a &lt;strip&gt; element with @id=\"1\" or @id=\"-1\" and a width shall not be specified."
+  },
+  {
+    "rule_name": "road.cross_section_surface.use_width",
+    "category": "road.cross_section_surface",
+    "version": "1.8.0",
+    "description": "If on a side two strips are specified, a width for the inner strip shall be specified."
+  }
+]

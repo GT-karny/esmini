@@ -30,7 +30,7 @@
 > 成果: 新 `ConflictPointResolver`(ITrafficPolicy)。自経路と他車経路を XY ポリライン化(MoveAlongS、RouteSignalScan 流儀)→ 最近接の真の交差(交差角ゲートで同方向追従は除外=LeadVehicleAware の領分)→ 到達時刻比較で **STOP_AT_S 発行(待つ)/ 無制約(進入)**。LHT/RHT は ego road `GetRule()` から自動推定(F2 決定方式。F1 道路は `rule="RHT"` 保持)。優先順位ラッパー温存方針は F3 へ。
 > **罠と是正(週4)**: (1) ビューワーゲート injection で新規 `<Private>` を作ると `activateObject` 二重活性化 → 全 VD シナリオ init 失敗(U3 で既存 Init Private へ append に修正済)。(2) `t_ego = s/v_ego` が v→0 で発散 → YIELD/PROCEED の毎フレーム発振(STOP/GO リミットサイクル)。**ego 速度を `conflict_nominal_speed` で下限クランプ + 解除マージン広めの yield ラッチ**で単一停止エピソード化(発振解消)。
 > **非自明な学び**: F1 07 の `first_gap` ラベルは「ego 等速 13.9 で交差点通過」前提だが、VD は旋回で ~4.9 m/s に減速するため実交差は ~9-10s。実際の yield/proceed 弁別は **対向車速度**(14m/s=競合→待つ / 8m/s=間に合わず→進入)。代表ペアは p017(yield)/ p007(proceed)。
-> 検証: ALL ビルド緑 / ctest(ConflictGeom/ConflictGap 単体追加)緑 / `phase3d_batch` 代表ペア機械判定 **2/2 pass**(p017 speed_below 2.76≤3.0 → speed_above 12 / p007 min_speed_above 4.88≥3.5 → speed_above 12)/ 回帰ゲート phase3 3a-c **per-scenario 不変**(8 pass/2 fail)/ カタログ 36 **per-scenario 不変**(08+非代表 07)。
+> 検証: ALL ビルド緑 / ctest(ConflictGeom/ConflictGap 単体追加)緑 / `junction_conflict_batch` 代表ペア機械判定 **2/2 pass**(p017 speed_below 2.76≤3.0 → speed_above 12 / p007 min_speed_above 4.88≥3.5 → speed_above 12)/ 回帰ゲート phase3 3a-c **per-scenario 不変**(8 pass/2 fail)/ カタログ 36 **per-scenario 不変**(08+非代表 07)。
 > 残(継続課題): 24 バリアント全域の閾値チューニング(特に 14m/s 広ギャップの保留=現状は保守的に待つ)、p017 の yield ウィンドウが狭い件、F3(優先権抽出)。
 >
 > **更新 2026-06-23(同日・再設計＝交点(点)モデル→フットプリント・コリドー空間時間/OBB)**: 目視確認で初版に致命欠陥が判明 — p017 で**対向到達の瞬間(t8.95)に STOP 制約が消えて ego が再加速し衝突**(OBB重なり、中心間 2.16m)。真因は解除が TTC `blocking` 依存で、対向接近時に t_enter/t_exit が崩壊し「クリア」と誤判定すること。加えて**ブレーキランプ点滅**(`ApplyLights` が `cmd.brake>0.05` 直結で速度PIDの微小パルス〜0.15s周期に反応、1走行46回)。初版の `speed_below` マッチャは「一瞬の減速」を見るだけの**偽陽性**だった(中心間距離も、非保護左折は隣接レーンを反平行ですれ違うため ~2.8m が下限で衝突判定に使えない)。
@@ -169,7 +169,7 @@ P0表の8件 + 追加衛生:
 - `esmini_fmu`: GT_esminiLib_static へのリンクに切替(ソースリスト二重管理廃止)。当面は `EXCLUDE_FROM_ALL` で ALL_BUILD を即時回復 [BLD-1]
 - パッケージング単一化: SKILL.md を `scripts/build_package.ps1 -Version` の薄いラッパーに。`-DUSE_SDL2`(実在しない)全削除、CLAUDE.md のスキルパス修正 [BLD-2]
 - CI に GT テスト追加: `ctest -R '(test_|GT_esmini_)'` を run_tests.sh または新規ジョブへ [TST-1]
-- **gt_sim_test batch を回帰ゲート化(V4の前倒し)**: phase3_batch.yaml を CI/コミット前フックで実行 — 以降の全リファクタの安全網 [TST-8]
+- **gt_sim_test batch を回帰ゲート化(V4の前倒し)**: car_following_traffic_control_batch.yaml を CI/コミット前フックで実行 — 以降の全リファクタの安全網 [TST-8]
 - gt_* 未使用静的ライブラリ5個の削除(コンパイル3重→1重)[BLD-4]
 - 配布ZIPへ LICENSE + 3rd_party_terms_and_licenses/ 同梱 [Critic-1]
 
@@ -260,6 +260,24 @@ P0表の8件 + 追加衛生:
 - 出力は既存の `LightSource` 優先度 **AUTO** に乗せる(SCENARIO/MANUALが常に勝つ既存設計を維持)
 - 受入: 夜Environment+トンネル入りxodr+先行車シナリオで ON→OFF→ハイビーム→減光 の遷移をビューワー目視+dat記録で確認。判定純ロジック(照度しきい値/トンネル区間/前方クリア判定)はctest単体テスト追加
 - 参考: upstream `auto_light.xosc` はシナリオ駆動のデモであり本件とは別物(GTはセンサー的環境判定を実装する)
+
+### F7: 運転主体テイクオーバー — AD⇄手動 双方向切替(ユーザー発案 2026-07-24、凍結例外承認で追番)
+
+VirtualDriver **内**のモード切替として実装する(コントローラ実行時交換はしない = esmini コアのライフサイクル無改変、R1 維持)。既存の閾値ベース手動オーバーライド基盤(Web パネル→UDP→NetworkInputBridge)を「ラッチ型」へ拡張する。
+
+1. **自動→手動(オーバーライド)**: 操作介入で手動へ**ラッチ**(入力を離しても手動のまま)。ペダルは閾値超えで即。ステアは可能なら「一定トルク以上」で判定 — 市販ホイールにトルクセンサは無いため、FFB 目標角との**位置偏差をトルク代理**とする方式の実現性評価を含む。明示的な手動化ボタンも用意する。
+2. **手動→自動(復帰)**: 入力プロトコル(PSTC buttons)に**専用ビットを新設**した復帰ボタン。入力源非依存(Web パネル/ホイール/ゲームパッドのボタンマッピングのどれからでも同一経路)。
+3. **(可能なら) AD 中のホイール追従**: 自動運転中、ハンコンのステアリングを VD の操舵どおりに FFB(スプリング目標追従)で動かす。1. のトルク代理検知と同じ機構の裏表。
+4. モード状態(auto/manual、ドメイン別)はテレメトリ JSON に出し、Web で可視化する。
+
+- 関連: proposal:P17/P18(DiL/TOR 実験装置 — 本機能はその土台)、vd-func:FUNC-075(手動中の ADAS 並行稼働 = 別スコープ、混同しない)
+- 受入: オーバーライド→ラッチ→ボタン復帰→AD が現在位置から計画再開、のサイクルを smoke + unit で実証。既存 override 挙動("never"/"deadzone" 等)の非回帰。
+
+> **F7b Day-1 スパイク完了(2026-07-25)** — commit `5e620e8e`、所見の真実源 = `scripts/ffb_spike/README.md`。結論: **CONSTANT 力 PID サーボ @250Hz が実用解**（G29 ネイティブ SPRING は既定ゲインで追従不可・正弦 |err|mean 0.361 vs PID 0.166）。トルク代理は medium 押しでノイズ比 ~4× と分離可、閾値候補 `|u|>0.20 / |dev|>0.04 の 100ms 持続 → 既存ラッチへ供給`（解除は AUTO_RESUME のみ＝解放過渡に免疫）。**既存バグ発見**: `SDLFFBSink::Init` の SPRING/DAMPER 生成が CARTESIAN direction 省略で G29 では無言フォールバック（2行修正、F7b とセット予定）。F7b 見積り ~2.5 日 + G29 閾値校正。未実施: SPRING モードのトルク代理計測（40秒・任意）/ SPRING の SetGain(100) 再測 / 長時間安定試験。
+>
+> **状態(2026-07-25): コア完了・実機確認済み** — commit `91c9fed7`(コア) + `ec1e6053`(VD側 SDL2 ボタン config 配線 + Web GUI 露出) + `b9636032`(実機観測 companion `scripts/vd_override_observer.py`)。ButtonBits::AUTO_RESUME(bit7) + OverrideManager 復帰パス(立ち上がりエッジ・同フレーム抑制) + telemetry manual/auto_transition + Web「Resume Auto」+ sdl2_auto_resume_button(既定3=△)。実測: unit 傘バイナリに OverrideManagerTest 10ケース(green)、smoke フルサイクル 19/19 PASS(PM 再実行でも PASS)、回帰ゲート Step1/1.5/2/2.6/2.7 deviation ゼロ。**G29 実機確認 OK(2026-07-25 ユーザー)**: ホイール介入→MANUAL ラッチ→手放し保持→△で AUTO 復帰。**実機で判明した罠**: ConfigLoader は `exe_dir/../config/`＝`build/GT_esmini/config/` を読む → ソース側 `GT_esmini/config/virtual_driver.json` 編集は無反映(ステージ側へコピー要)。GT_Sim は viewer に `--window` 明示必須。embedded-python ビルドは python-embed を PATH 追加。注: 受入基準に書いた "never/deadzone" 等の4値 enum は実在しない設計メモ語彙だった(実体は bool+閾値群) — 非回帰は既定 config 挙動同一性で担保。
+>
+> **F7 実装フェーズ2(F7b)完了(2026-07-25): FFB 目標角追従＋トルク代理** — commit `1c2939a0`(未 push・master 次ウェーブ候補)。spike 設計図(scripts/ffb_spike/README.md §3)どおり: `FfbTargetServo.{hpp,cpp}`(CONSTANT 力 PID 純ロジック、既定 Kp=4.0/Kd=0.35/max_force=0.6) → `SDLFFBSink` の constant-force エミュレーション経路へ統合、`OverrideManager` に FFB 介入検知パス(`|u|>0.20` または `|dev|>0.04rad` の 100ms 持続 → 既存ラッチへ供給、**解除は AUTO_RESUME のみ**＝解放過渡に免疫)、**SPRING/DAMPER の CARTESIAN direction バグ修正同梱**(G29 で native SPRING 経路が復活)、config/Web GUI フル露出("AD Wheel Following (FFB)" セクション: ToggleSwitch + 7 NumberInput)、telemetry 3 フィールド(ffb_target_active/ffb_commanded_force/ffb_position_error)。既定 OFF(`ffb_target_track_enabled=false`)で非回帰。実測(PM 独立再走): unit FfbTargetServoTest 12 + OverrideManagerTest 19 = **31本 PASS**、Protocol A ビルド green、**回帰ゲート全 Step deviation=0**。**残=G29 実機ベンチ**(手順書 `test_results/f7b_g29_bench_manual.md`・gitignore圏): Kp/Kd/閾値の実機校正、SPRING native 化の副次挙動確認。要判断(PM 送り): ManualDrivePanel の target_track UI 露出は ffb schema が stale のため今回パス(VD 側のみ露出)、将来 partial-AD で ManualDrive+target_track が要れば追加配線。telemetry 3 signal は挙動 matcher 作成時に signal_catalog へ起こす(on-demand)。
 
 ### 推奨順序(リファクタと統合)
 

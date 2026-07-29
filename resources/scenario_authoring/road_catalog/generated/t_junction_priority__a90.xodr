@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <OpenDRIVE>
-    <header name="t_junction" revMajor="1" revMinor="5" date="2026-06-13 00:00:00.000000" north="0.0" south="0.0" east="0.0" west="0.0"/>
+    <header name="t_junction" revMajor="1" revMinor="6" date="2026-06-13 00:00:00.000000" north="0.0" south="0.0" east="0.0" west="0.0"/>
     <road rule="RHT" id="0" junction="-1" length="100.0">
         <link>
             <successor elementType="junction" elementId="100"/>
@@ -10,7 +10,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -45,7 +47,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -80,7 +84,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -106,7 +112,7 @@
             </laneSection>
         </lanes>
         <signals>
-            <signal id="0" s="92.0" t="-3.57" subtype="-1" dynamic="no" zOffset="1.7" pitch="0" roll="0" name="yield_minor" type="205" orientation="+" country="DE" hOffset="0"/>
+            <signal id="0" s="92.0" t="-3.57" subtype="-1" dynamic="no" zOffset="1.7" pitch="0" roll="0" width="0.6" height="0.9" name="yield_minor" type="205" orientation="+" country="DE" hOffset="0"/>
         </signals>
     </road>
     <road rule="RHT" id="100" junction="100" length="40">
@@ -119,7 +125,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -167,7 +175,9 @@
                 <spiral curvStart="-0.06909484644623466" curvEnd="9.999999994736442e-10"/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -215,7 +225,9 @@
                 <spiral curvStart="0.0690948457876379" curvEnd="9.999999994736442e-10"/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">

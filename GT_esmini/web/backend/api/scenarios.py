@@ -32,7 +32,9 @@ async def get_scenario(scenario_id: str):
     """Get scenario details with parsed XOSC info."""
     detail = scenario_service.get_scenario_detail(scenario_id)
     if detail is None:
-        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Scenario '{scenario_id}' not found"
+        )
     return detail
 
 
@@ -41,7 +43,9 @@ async def get_road_geometry(scenario_id: str):
     """Extract lane boundary polylines from the scenario's OpenDRIVE file."""
     detail = scenario_service.get_scenario_detail(scenario_id)
     if detail is None:
-        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Scenario '{scenario_id}' not found"
+        )
     if not detail.road_file:
         raise HTTPException(status_code=404, detail="Scenario has no road file")
 
@@ -50,9 +54,12 @@ async def get_road_geometry(scenario_id: str):
     if not road_path.is_absolute():
         road_path = (SCENARIOS_DIR / detail.road_file).resolve()
     if not road_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Road file not found: {detail.road_file}")
+        raise HTTPException(
+            status_code=404, detail=f"Road file not found: {detail.road_file}"
+        )
 
     import asyncio
+
     geometry = await asyncio.to_thread(
         road_geometry_service.extract_road_geometry, road_path
     )
@@ -87,8 +94,12 @@ async def upload_scenario(request: Request):
 async def delete_uploaded_scenario(scenario_id: str):
     """Delete a previously uploaded temporary scenario."""
     if not scenario_id.startswith("tmp_"):
-        raise HTTPException(status_code=400, detail="Can only delete temporary scenarios")
+        raise HTTPException(
+            status_code=400, detail="Can only delete temporary scenarios"
+        )
     success = scenario_service.delete_temp_scenario(scenario_id)
     if not success:
-        raise HTTPException(status_code=404, detail=f"Temp scenario '{scenario_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Temp scenario '{scenario_id}' not found"
+        )
     return {"deleted": scenario_id}

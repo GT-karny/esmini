@@ -11,6 +11,7 @@ import argparse
 import socket
 
 from realdriver import RealDriverClient, LKASController, OSIReceiverWrapper
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -18,13 +19,25 @@ except ImportError:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test script for ALKS LKAS Module with RealDriver & OSI")
+    parser = argparse.ArgumentParser(
+        description="Test script for ALKS LKAS Module with RealDriver & OSI"
+    )
     parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
     parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
     parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
     parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default="./bin/esminiRMLib.dll", help="Path to esminiRMLib.dll")
-    parser.add_argument("--xodr_path", type=str, required=True, help="Path to OpenDRIVE map file (.xodr)")
+    parser.add_argument(
+        "--lib_path",
+        type=str,
+        default="./bin/esminiRMLib.dll",
+        help="Path to esminiRMLib.dll",
+    )
+    parser.add_argument(
+        "--xodr_path",
+        type=str,
+        required=True,
+        help="Path to OpenDRIVE map file (.xodr)",
+    )
     add_dump_argspec_option(parser)
 
     args = parser.parse_args()
@@ -39,7 +52,9 @@ def main():
         return 0
 
     # 1. Initialize RealDriverClient (OSI HostVehicleData + LightMask protocol)
-    print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port} for Object ID {args.id}")
+    print(
+        f"Connecting to RealDriver via UDP at {args.ip}:{args.port} for Object ID {args.id}"
+    )
     client = RealDriverClient(args.ip, args.port)
 
     # 2. Initialize OSI Receiver
@@ -54,8 +69,10 @@ def main():
             lib_path=args.lib_path,
             xodr_path=args.xodr_path,
             ego_id=args.id,
-            model_type='ReferenceDriver',
-            kp=1.5, ki=0.01, kd=0.1
+            model_type="ReferenceDriver",
+            kp=1.5,
+            ki=0.01,
+            kd=0.1,
         )
     except Exception as e:
         print(f"Failed to initialize LKAS: {e}")
@@ -110,7 +127,9 @@ def main():
 
                     # Print status
                     if frame_number % 20 == 0:
-                        print(f"Speed: {speed:.2f} m/s | Steer: {steering_angle:.3f} rad | Thr: {throttle:.2f} | Brk: {brake:.2f}")
+                        print(
+                            f"Speed: {speed:.2f} m/s | Steer: {steering_angle:.3f} rad | Thr: {throttle:.2f} | Brk: {brake:.2f}"
+                        )
 
                 except ValueError as e:
                     print(f"LKAS Error: {e}")
@@ -138,7 +157,7 @@ def main():
         print("Closing connections...")
         osi_rx.close()
         # Note: lkas destructor will call rm_lib.Close() automatically
-        if 'client' in locals():
+        if "client" in locals():
             client.close()
         print("Done.")
 

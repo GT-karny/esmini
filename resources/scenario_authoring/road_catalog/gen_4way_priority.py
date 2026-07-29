@@ -37,6 +37,7 @@ the yield signs):
       governing lane -1), orientation "+", zOffset 1.7, on the approach leg a
       short distance before the junction stop line.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,10 +49,13 @@ from pathlib import Path
 _AUTHORING_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_AUTHORING_ROOT))
 
-from authoring_common import git_short_hash, normalize_header_date, write_meta_yaml  # noqa: E402
+from authoring_common import (
+    git_short_hash,
+    normalize_header_date,
+    write_meta_yaml,
+)  # noqa: E402
 from priority_injector import inject_priority  # noqa: E402
 from scenariogeneration import xodr  # noqa: E402
-
 
 # Pinned OpenDRIVE header date (scenariogeneration stamps datetime.now()).
 # Frozen so regeneration is byte-reproducible (see normalize_header_date).
@@ -62,17 +66,18 @@ _LEG_DIR = {0: "E", 1: "N", 2: "W", 3: "S"}
 _THROUGH_PAIRS = {"ns": (1, 3), "ew": (0, 2)}
 
 # Signage conventions mirrored from straight_yield_sign.xodr / straight_stop_sign.xodr.
-_YIELD_TYPE = "205"       # de: TYPE_GIVE_WAY
-_PRIORITY_TYPE = "306"    # de: TYPE_RIGHT_OF_WAY_BEGIN (priority road)
+_YIELD_TYPE = "205"  # de: TYPE_GIVE_WAY
+_PRIORITY_TYPE = "306"  # de: TYPE_RIGHT_OF_WAY_BEGIN (priority road)
 _SIGN_COUNTRY = "de"
-_SIGN_T = -3.57           # right of centreline, governs lane -1
+_SIGN_T = -3.57  # right of centreline, governs lane -1
 _SIGN_ZOFFSET = 1.7
-_SIGN_SETBACK = 8.0       # metres before the junction (leg end) the sign sits
+_SIGN_SETBACK = 8.0  # metres before the junction (leg end) the sign sits
 
 
 # ---------------------------------------------------------------------------
 # Road network builder
 # ---------------------------------------------------------------------------
+
 
 def make_4way_road(
     main: str,
@@ -90,7 +95,9 @@ def make_4way_road(
     minor_legs = list(_THROUGH_PAIRS["ew" if main == "ns" else "ns"])
 
     roads = [
-        xodr.create_road(xodr.Line(leg_length), id=i, left_lanes=lanes, right_lanes=lanes)
+        xodr.create_road(
+            xodr.Line(leg_length), id=i, left_lanes=lanes, right_lanes=lanes
+        )
         for i in range(4)
     ]
 
@@ -103,46 +110,69 @@ def make_4way_road(
     # Through-movements for both pairs + every crossing movement.
     main_a, main_b = main_legs
     minor_a, minor_b = minor_legs
-    junction_creator.add_connection(road_one_id=main_a, road_two_id=main_b)    # priority through
-    junction_creator.add_connection(road_one_id=minor_a, road_two_id=minor_b)  # minor through
+    junction_creator.add_connection(
+        road_one_id=main_a, road_two_id=main_b
+    )  # priority through
+    junction_creator.add_connection(
+        road_one_id=minor_a, road_two_id=minor_b
+    )  # minor through
     # Crossing connections (each main leg <-> each minor leg).
     for m in main_legs:
         for n in minor_legs:
             junction_creator.add_connection(road_one_id=m, road_two_id=n)
 
-    odr = xodr.OpenDrive("4way_priority")
+    # DE (ISO 3166-1 alpha-2) signal country codes are only valid from OpenDRIVE
+    # 1.6 onward (the 1.5 e_countryCode enum accepts only full names / alpha-3),
+    # so a signed catalog must declare >=1.6. Unsigned variants stay 1.5.
+    odr = xodr.OpenDrive("4way_priority", revMinor="6" if add_signage else "5")
     for r in roads:
         odr.add_road(r)
     odr.add_junction_creator(junction_creator)
     odr.adjust_roads_and_lanes()
 
+    # OpenDRIVE 1.5 (this catalog's declared version) requires >=1 <elevation>
+    # child inside every <elevationProfile>. scenariogeneration seeds an empty
+    # profile per road (incl. junction-generated connecting roads); add a flat
+    # (level) elevation record to any road that still lacks one.
+    for _r in odr.roads.values():
+        if not _r.elevationprofile.elevations:
+            _r.add_elevation(0, 0, 0, 0, 0)
+
     if add_signage:
         # Priority-road sign on both main approaches.
         for leg in main_legs:
-            roads[leg].add_signal(xodr.Signal(
-                s=leg_length - _SIGN_SETBACK,
-                t=_SIGN_T,
-                country=_SIGN_COUNTRY,
-                Type=_PRIORITY_TYPE,
-                subtype="-1",
-                name=f"priority_road_{_LEG_DIR[leg]}",
-                dynamic=xodr.Dynamic.no,
-                orientation=xodr.Orientation.positive,
-                zOffset=_SIGN_ZOFFSET,
-            ))
+            roads[leg].add_signal(
+                xodr.Signal(
+                    s=leg_length - _SIGN_SETBACK,
+                    t=_SIGN_T,
+                    country=_SIGN_COUNTRY,
+                    Type=_PRIORITY_TYPE,
+                    subtype="-1",
+                    name=f"priority_road_{_LEG_DIR[leg]}",
+                    dynamic=xodr.Dynamic.no,
+                    orientation=xodr.Orientation.positive,
+                    zOffset=_SIGN_ZOFFSET,
+                    width=0.6,
+                    height=0.9,
+                )
+            )
         # YIELD sign on both minor approaches.
         for leg in minor_legs:
-            roads[leg].add_signal(xodr.Signal(
-                s=leg_length - _SIGN_SETBACK,
-                t=_SIGN_T,
-                country=_SIGN_COUNTRY,
-                Type=_YIELD_TYPE,
-                subtype="-1",
-                name=f"yield_{_LEG_DIR[leg]}",
-                dynamic=xodr.Dynamic.no,
-                orientation=xodr.Orientation.positive,
-                zOffset=_SIGN_ZOFFSET,
-            ))
+            roads[leg].add_signal(
+                xodr.Signal(
+                    s=leg_length - _SIGN_SETBACK,
+                    t=_SIGN_T,
+                    country=_SIGN_COUNTRY,
+                    Type=_YIELD_TYPE,
+                    subtype="-1",
+                    name=f"yield_{_LEG_DIR[leg]}",
+                    dynamic=xodr.Dynamic.no,
+                    orientation=xodr.Orientation.positive,
+                    zOffset=_SIGN_ZOFFSET,
+                    width=0.6,
+                    height=0.9,
+                )
+            )
 
     return odr, main_legs, minor_legs
 
@@ -150,6 +180,7 @@ def make_4way_road(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -201,8 +232,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    out_dir: Path = args.out_dir if args.out_dir is not None else (
-        Path(__file__).resolve().parent / "generated"
+    out_dir: Path = (
+        args.out_dir
+        if args.out_dir is not None
+        else (Path(__file__).resolve().parent / "generated")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 

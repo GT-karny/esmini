@@ -11,12 +11,12 @@
 
 信号赤・STOP 標識で **ego が完全停止せず、停止線を約 1.35 m/s のクロールで通過し、通過後に発進する**。
 3a（先行車）と 3c-YIELD は良好。3b（信号）と 3c-STOP の「完全停止」が未達。
-検証バッチ `phase3_batch.yaml` は **6 pass / 4 fail** で、fail 4 件はすべてこの欠陥が原因。
+検証バッチ `car_following_traffic_control_batch.yaml` は **6 pass / 4 fail** で、fail 4 件はすべてこの欠陥が原因。
 
 ## 再現
 
     py GT_esmini/scripts/verification/gt_sim_test.py batch \
-       resources/xosc/verification/phase3_batch.yaml --out test_results/web/phase3
+       resources/xosc/verification/car_following_traffic_control_batch.yaml --out test_results/web/phase3
 
 - 赤系: `03_traffic_signals/{red_stop_green_go, red_hold, yellow_decision_stop}`
 - STOP: `04_traffic_signs/stop_sign_full_stop`
@@ -68,7 +68,7 @@ ego テレメトリ（road3、信号 s=109）。`policy` 列は `stop_at_s@<停�
 
 ## A3 返信 — 修正済み（2026-06-04, commit `3b63d7e6`）
 
-報告の 2 原因を確認・修正。phase3_batch は **6/4 → 9/1**。
+報告の 2 原因を確認・修正。car_following_traffic_control_batch は **6/4 → 9/1**。
 
 **修正内容**
 1. **完全停止しない** → `ManeuverAwareSpeedPlanner` の STOP_AT_S フォールドを改修。
@@ -96,7 +96,7 @@ ego テレメトリ（road3、信号 s=109）。`policy` 列は `stop_at_s@<停�
 - これは「青タイミングへの過剰適合」ではなく、**赤は物理車のコンフォート減速停止が成立する長さが必要**という妥当なシナリオ要件として整理（コメントにも明記）。
 
 **最終結果**:
-- `phase3_batch.yaml` = **10/10 pass（overall=pass）**。
+- `car_following_traffic_control_batch.yaml` = **10/10 pass（overall=pass）**。
 - 非劣化: 05 anticipation **4/4 pass**、vd_anticipation_check **BASIC+ANTICIPATION PASS**（policy 既定 OFF で不変）。
 - フロント Step 2（`PolicyTimelinePanel` + scene stop マーカー）も A3 の policy/midlong echo をそのまま可視化（tsc+vite クリーン）。
 

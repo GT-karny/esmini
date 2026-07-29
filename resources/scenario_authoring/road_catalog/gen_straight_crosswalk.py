@@ -39,6 +39,7 @@ Usage:
     DriverScript/.venv/Scripts/python.exe \
         resources/scenario_authoring/road_catalog/gen_straight_crosswalk.py --ped-signal
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,9 +50,12 @@ from pathlib import Path
 _AUTHORING_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_AUTHORING_ROOT))
 
-from authoring_common import git_short_hash, normalize_header_date, write_meta_yaml  # noqa: E402
+from authoring_common import (
+    git_short_hash,
+    normalize_header_date,
+    write_meta_yaml,
+)  # noqa: E402
 from scenariogeneration import xodr  # noqa: E402
-
 
 # Pinned OpenDRIVE header date (scenariogeneration stamps datetime.now(); see
 # normalize_header_date). Frozen so regeneration is byte-reproducible. A single
@@ -61,10 +65,10 @@ _PINNED_DATE = "2026-06-13 00:00:00.000000"
 # --- geometry constants ----------------------------------------------------
 ROAD_ID = 0
 ROAD_LEN = 500.0
-DRIVE_W = 3.5           # one driving lane per direction
-SIDEWALK_W = 2.0        # sidewalk lane per side (pedestrian standing area)
+DRIVE_W = 3.5  # one driving lane per direction
+SIDEWALK_W = 2.0  # sidewalk lane per side (pedestrian standing area)
 
-CROSSWALK_S = 250.0     # crosswalk centre s
+CROSSWALK_S = 250.0  # crosswalk centre s
 CROSSWALK_HALF_S = 2.0  # footprint 248..252 along travel (4 m)
 CROSSWALK_HALF_T = 4.0  # spans t -4..+4 (full driving width + margin)
 
@@ -84,6 +88,7 @@ PEDSIG_COUNTRY = "OpenDRIVE"
 # ---------------------------------------------------------------------------
 # Road network builder
 # ---------------------------------------------------------------------------
+
 
 def make_straight_crosswalk_road(add_ped_signal: bool) -> xodr.OpenDrive:
     """Return an OpenDrive straight road with a mid-span crosswalk (and,
@@ -115,12 +120,27 @@ def make_straight_crosswalk_road(add_ped_signal: bool) -> xodr.OpenDrive:
 
     # --- native crosswalk object -------------------------------------------
     obj = xodr.Object(
-        s=CROSSWALK_S, t=0.0, Type=xodr.ObjectType.crosswalk, id="1",
-        name="crosswalk_mid", subtype="-1", zOffset=0.0,
-        orientation=xodr.Orientation.none, hdg=0.0,
-        length=2.0 * CROSSWALK_HALF_S, width=2.0 * CROSSWALK_HALF_T,
+        s=CROSSWALK_S,
+        t=0.0,
+        Type=xodr.ObjectType.crosswalk,
+        id="1",
+        name="crosswalk_mid",
+        subtype="-1",
+        zOffset=0.0,
+        orientation=xodr.Orientation.none,
+        hdg=0.0,
+        length=2.0 * CROSSWALK_HALF_S,
+        width=2.0 * CROSSWALK_HALF_T,
+        height=0.0,
+        validLength=0.0,
     )
-    outline = xodr.Outline(closed=True, id=0)
+    outline = xodr.Outline(
+        closed=True,
+        id=0,
+        fill_type=xodr.FillType.pavement,
+        lane_type=xodr.LaneType.sidewalk,
+        outer=True,
+    )
     corners = [
         (CROSSWALK_S - CROSSWALK_HALF_S, -CROSSWALK_HALF_T),
         (CROSSWALK_S + CROSSWALK_HALF_S, -CROSSWALK_HALF_T),
@@ -135,10 +155,19 @@ def make_straight_crosswalk_road(add_ped_signal: bool) -> xodr.OpenDrive:
     # --- optional dynamic pedestrian signal --------------------------------
     if add_ped_signal:
         sig = xodr.Signal(
-            s=PEDSIG_S, t=PEDSIG_T, country=PEDSIG_COUNTRY, Type=PEDSIG_TYPE,
-            subtype="-1", id=PEDSIG_ID, name="ped_signal",
-            dynamic=xodr.Dynamic.yes, orientation=xodr.Orientation.negative,
-            zOffset=2.5, hOffset=1.57, height=0.55, width=0.4,
+            s=PEDSIG_S,
+            t=PEDSIG_T,
+            country=PEDSIG_COUNTRY,
+            Type=PEDSIG_TYPE,
+            subtype="-1",
+            id=PEDSIG_ID,
+            name="ped_signal",
+            dynamic=xodr.Dynamic.yes,
+            orientation=xodr.Orientation.negative,
+            zOffset=2.5,
+            hOffset=1.57,
+            height=0.55,
+            width=0.4,
         )
         # NB: deliberately NO add_validity() — no validity record over the ego
         # driving lanes, so the signal never governs the ego lane.
@@ -147,12 +176,22 @@ def make_straight_crosswalk_road(add_ped_signal: bool) -> xodr.OpenDrive:
     odr = xodr.OpenDrive("straight_crosswalk")
     odr.add_road(road)
     odr.adjust_roads_and_lanes()
+
+    # OpenDRIVE 1.5 (this catalog's declared version) requires >=1 <elevation>
+    # child inside every <elevationProfile>. scenariogeneration seeds an empty
+    # profile per road; add a flat (level) elevation record to any road that
+    # still lacks one.
+    for _r in odr.roads.values():
+        if not _r.elevationprofile.elevations:
+            _r.add_elevation(0, 0, 0, 0, 0)
+
     return odr
 
 
 # ---------------------------------------------------------------------------
 # catalog_id builder
 # ---------------------------------------------------------------------------
+
 
 def build_catalog_id(ped_signal: bool) -> str:
     """catalog_id: straight_crosswalk[_pedsig]__mid."""
@@ -164,17 +203,24 @@ def build_catalog_id(ped_signal: bool) -> str:
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a straight-road-with-crosswalk xodr + road.meta.yaml."
     )
     parser.add_argument(
-        "--ped-signal", dest="ped_signal", action="store_true", default=False,
+        "--ped-signal",
+        dest="ped_signal",
+        action="store_true",
+        default=False,
         help="Add a dynamic pedestrian signal (type 1000002) near the crosswalk. "
-             "Changes catalog_id to straight_crosswalk_pedsig__mid.",
+        "Changes catalog_id to straight_crosswalk_pedsig__mid.",
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=None, metavar="DIR",
+        "--out-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
         help="Output directory. Default: <this file's dir>/generated.",
     )
     return parser.parse_args()
@@ -187,8 +233,20 @@ def _build_and_write(ped_signal: bool, out_dir: Path) -> None:
     xodr_path = out_dir / f"{catalog_id}.xodr"
     odr.write_xml(str(xodr_path))
     normalize_header_date(xodr_path, _PINNED_DATE)
-    print(f"[xodr] -> {xodr_path}  ({len(odr.roads)} road, "
-          f"{'ped-signal' if ped_signal else 'no-signal'})")
+    if ped_signal:
+        # scenariogeneration force-uppercases <signal country> (Signal.get_attributes
+        # does str(country).upper()), turning the generic "OpenDRIVE" country into
+        # "OPENDRIVE", which is not a valid OpenDRIVE e_countryCode enum value
+        # (the enum is the mixed-case "OpenDRIVE"). Restore the canonical case.
+        _text = xodr_path.read_text(encoding="utf-8")
+        xodr_path.write_text(
+            _text.replace('country="OPENDRIVE"', 'country="OpenDRIVE"'),
+            encoding="utf-8",
+        )
+    print(
+        f"[xodr] -> {xodr_path}  ({len(odr.roads)} road, "
+        f"{'ped-signal' if ped_signal else 'no-signal'})"
+    )
 
     meta: dict = {
         "catalog_id": catalog_id,
@@ -218,8 +276,10 @@ def _build_and_write(ped_signal: bool, out_dir: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    out_dir: Path = args.out_dir if args.out_dir is not None else (
-        Path(__file__).resolve().parent / "generated"
+    out_dir: Path = (
+        args.out_dir
+        if args.out_dir is not None
+        else (Path(__file__).resolve().parent / "generated")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     _build_and_write(args.ped_signal, out_dir)

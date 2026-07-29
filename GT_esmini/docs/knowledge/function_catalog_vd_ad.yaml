@@ -1,0 +1,171 @@
+# VirtualDriver ADAS/AD 機能カタログ（namespace: vd-func）
+#
+# status: DRAFT (機能軸フェーズ0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md、
+# 縦軸（検証スパイン）と3面アーキテクチャは GT_esmini/docs/knowledge/capability_model.md。
+# VD にありうる機能を網羅列挙したスーパーセット（剪定前）。
+# GT_esmini(OSI GroundTruth・人間ドライバ無し)で意味を持つかは status/oos_reason で示す。
+#
+# フィールド:
+#   id        : FUNC-NNN (namespaces.yaml id_pattern FUNC-[0-9]{3})
+#   tier      : safety(安全) | comfort(快適) | compliance(法規遵守) | courtesy(譲り合い) | '-'
+#               ＝**動機層**。「与えられた走行タスクを *どう* 遂行するか」を修飾する動機。
+#               '-' は動機層に属さない機能＝(a)タスク達成そのもの(mission中核) (b)下支え能力(enabler)。
+#               ※ tier に mission を足さないのは意図的（tier=動機 という定義を壊さないため。
+#                 mission性は layer=strategic ＋ tier='-' の組で表現する）。
+#   layer     : strategic | tactical | operational | '-'   ★2026-07-20 追加の直交軸
+#               ＝**計画階層**（Michon / OpenX ActivityByLevel）。tier と直交。
+#               strategic  : どこへ・どの道/レーンを通るか（ミッション・経路・走行側）
+#               tactical   : いつ何のマニューバを発起/抑止/交渉するか（離散判断）
+#               operational: 決まったマニューバをどう出すか（連続制御・直接介入）
+#               '-'        : 階層に属さない横断的能力
+#   kind      : behavior(観測可能な運転挙動) | enabler(挙動を下支えする内部能力：予測・監視・不確実性)
+#               ★2026-07-20 追加。enabler は単体では OSI に挙動として現れない＝検証スパインの
+#               ④観測/⑤判定の当て方が behavior と異なる（capability_model.md §2 参照）。
+#   agent     : AD(連続計画・交渉) | ADAS(離散ガーディアン/アシスト)
+#   dim       : lon(縦) | lat(横) | both(複合) | none
+#   status    : built(既存) | partial(部分・プランナ/ドライバ層) | none(未実装＝ロードマップ) | oos(対象外)
+#   verify    : kind=enabler のとき **必須**（★2026-07-20 決定, capability_model.md §2.2）。
+#               enabler は単体では挙動として OSI に現れないため、④観測の当て方を明示する。語彙:
+#               osi-adf           : OSI 正規欄 HostVehicleData.vehicle_automated_driving_function
+#                                   （Name列挙＋State）に作動状態を出す。規格ネイティブ・第一選択
+#               osi-custom-detail : 同 custom_detail (KeyValuePair 文字列) に数値内部量を出す。
+#                                   汎用スロットだが文字列型＝キー命名規約とセットで使う
+#               indirect          : OSI に受け皿が無く、挙動側から間接検証する。生データは
+#                                   telemetry に置くが exposure=debug ＝ **verdict には使わない**
+#               ※ 他車の軌道予測を GroundTruth の MovingObject.future_trajectory に流すのは禁止。
+#                 規格が「被検体に見せるべきでない」と明示しており、SUTの予測を「世界の真実」として
+#                 記録することになる＝面3→面2 結合負債の再生産（capability_model.md §0.3 / §2.2）。
+#   oos_reason: status=oos のとき **必須**。語彙:
+#               no-human-driver  : 人間ドライバ不在のため警報/HMI機能が意味を持たない
+#               perception-ideal : 知覚が完全(GroundTruth)のため前提が成立しない
+#               physics-layer    : 車両ダイナミクス層(VehiclePhysicsManager)の領分＝VD行動層外
+#               face1-scope      : 面1シミュレータ(センサ/世界モデル)の領分＝面2 VD の領分外
+#               road-data-missing: OpenDRIVE に必要情報が構造的に無い
+#               ※ 「前提が揃えば着手する」ものは oos ではなく **none**（＝分母に残す）。
+#   by        : 実装元（policy:slug / planner / driver / road）。graph.yaml の realizes 辺が真実源。
+#   note      : 補足・GT_esmini適性・道路データ依存等
+#
+# 知識グラフ辺（真実源=graph.yaml）:
+#   policy -> realizes -> vd-func（実装が機能を実現）
+#   vd-func -> realizes -> req-vd-ad（機能が要求を充足）
+#   matcher -> verifies -> req-vd-ad（検証）
+#
+# 横断的スコープ注意（剪定の観点）:
+#   - 人間ドライバ不在: 警報(FCW/BSW)はVDでは"挙動(介入)"に翻訳。純警報は優先度低。
+#   - 知覚は現状完全(GroundTruth): 死角/センサ制限前提の機能は知覚劣化モデル導入まで意味薄。
+#   - 車両ダイナミクス系(ESC/横転/ABS)は VehiclePhysicsManager の領分=VD行動層スコープ外。
+#   - 道路依存: 踏切/一方通行/専用レーン/スクールゾーン等は OpenDRIVE に情報がある事が前提。
+#   - 1機能が複数層にまたがる場合は主たる層で分類し note にクロスを記す。
+#
+# ★layer 軸導入で見えた構造（2026-07-20）: 初版48機能は operational/tactical にほぼ全振りで
+#   **strategic が実質空**だった。これが「目的地到達（ルーティング・障害物回避しつつルート維持・
+#   イレギュラー対応）」軸の欠落＝B1-B6 ギャップの正体。FUNC-049..074 がその補完。
+
+functions:
+  # ===== 安全機能 safety（override層・ADAS寄り＝最後の砦） =====
+  - { id: FUNC-001, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lon,  status: built, by: 'policy:aeb', note: "前方AEB。先行車カットイン+急制動の回避/緩和。安全層の初号機（policy:aeb=AebSafety, 早期横侵入検知+TTC/a_reqゲート+SAFETY-tier STOP_AT_S→emergency_decel。issue #34 / REQ-AD-001, 07_aeb緑: 直進=緩和/カーブ=回避, 負REQ-AD-013緑）" }
+  - { id: FUNC-002, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lon,  status: none, by: '', note: "VRU向けAEB。歩行者・自転車への緊急制動" }
+  - { id: FUNC-003, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lon,  status: none, by: '', note: "交差点AEB。出会い頭/右左折時の横断車への緊急制動" }
+  - { id: FUNC-004, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lon,  status: none, by: '', note: "後方衝突警報/被追突緩和。後方接近車への予防（前進/点滅など限定的）" }
+  - { id: FUNC-005, tier: safety, layer: tactical,    kind: behavior, agent: ADAS, dim: none, status: oos,  oos_reason: no-human-driver, by: '', note: "FCW前方衝突警報。AEB前段。人間不在のためVDでは介入(AEB=FUNC-001)に統合済＝純警報として独立させる意味が無い" }
+  - { id: FUNC-006, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lat,  status: none, by: '', note: "緊急回避操舵(ESA)。制動で間に合わない時の回避ステア" }
+  - { id: FUNC-007, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lat,  status: none, by: '', note: "緊急レーンキープ(ELK)。対向/路外への逸脱を強制阻止" }
+  - { id: FUNC-008, tier: safety, layer: tactical,    kind: behavior, agent: ADAS, dim: lat,  status: none, by: '', note: "ブラインドスポット介入。死角車がいる時のLC阻止。知覚劣化モデル(FUNC-071)導入で本格化＝oosでなく前提待ちのnone" }
+  - { id: FUNC-009, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lat,  status: none, by: '', note: "対向はみ出し衝突回避。追い越し/センターはみ出しの横回避" }
+  - { id: FUNC-010, tier: safety, layer: tactical,    kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "MRM(最小リスク停止)。故障・ODD逸脱時の安全側停止。B4縮退の中核（FUNC-064..066と組）" }
+  - { id: FUNC-011, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lon,  status: none, by: '', note: "車間安全下限。快適追従でも割り込めない絶対最小車間/TTC" }
+  - { id: FUNC-012, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lon,  status: none, by: '', note: "速度安全上限。物理/視界に対する緊急速度制限" }
+
+  # ===== 快適機能 comfort（soft最適化・AD寄り） =====
+  - { id: FUNC-013, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:lead', note: "ACC定常追従。IDM車間維持（REQ-AD-002）" }
+  - { id: FUNC-014, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "Stop&Go/渋滞追従。低速で停止→再発進（発進判断は FUNC-058）" }
+  - { id: FUNC-015, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner', note: "予見的カーブ減速。ManeuverAwareSpeedPlanner の曲率速度" }
+  - { id: FUNC-016, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner', note: "ISA的快適巡航。respect_speed_limit で制限速度に追従" }
+  - { id: FUNC-017, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner', note: "滑らかな加減速/ジャーク制限。comfort_jerk" }
+  - { id: FUNC-018, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "予見的勾配速度。坂道での速度調整。道路縦断勾配データ依存" }
+  - { id: FUNC-019, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'driver', note: "レーンセンタリング(LCC)。PIDPurePursuitDriver の経路追従" }
+  - { id: FUNC-020, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'driver', note: "滑らかなレーンチェンジ *実行*。storyboard由来のLCを快適化。**発起は別機能 FUNC-055**（この分離が layer 軸導入の効用）" }
+  - { id: FUNC-021, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "Traffic Jam Assist。低速でACC+センタリング統合" }
+  - { id: FUNC-022, tier: comfort, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "ハイウェイパイロット快適挙動。追い越し判断(FUNC-056)込みの巡航＝上位統合機能" }
+
+  # ===== 法規遵守機能 compliance（hard制約・AD） =====
+  - { id: FUNC-023, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:traffic_light',     note: "信号遵守。赤/黄で停止（REQ-AD-003）" }
+  - { id: FUNC-024, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:stop_yield',        note: "一時停止標識遵守。STOPで停止線手前停止（REQ-AD-004）" }
+  - { id: FUNC-025, tier: compliance, layer: tactical,    kind: behavior, agent: AD, dim: lon,  status: partial, by: 'policy:stop_yield',        note: "譲れ標識遵守。YIELDで減速・譲る（法規+譲り合いのクロス）" }
+  - { id: FUNC-026, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner',                  note: "ISA(速度制限遵守)。法定速度厳守。快適巡航FUNC-016と同機構、法規側の硬い下限扱い" }
+  - { id: FUNC-027, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:crosswalk',         note: "横断歩道の歩行者優先。横断中は無条件停止（REQ-AD-005）" }
+  - { id: FUNC-028, tier: compliance, layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: partial, by: 'road',                     note: "通行区分(LHT/RHT)遵守。どちら側を走るか＝strategic。道路遷移/indicatorで一部実現" }
+  - { id: FUNC-029, tier: compliance, layer: tactical,    kind: behavior, agent: AD, dim: both, status: partial, by: 'policy:junction_priority', note: "交差点優先権規則。非制御交差点の法的優先" }
+  - { id: FUNC-030, tier: compliance, layer: tactical,    kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "追い越し禁止/実線遵守。no-overtakingゾーン＝FUNC-056発起の抑止条件。道路標示データ依存" }
+  - { id: FUNC-031, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "踏切一時停止。鉄道横断の停止義務。OdrRailroad(道路)有・VD挙動未" }
+  - { id: FUNC-032, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "スクールゾーン/速度ゾーン遵守。区域データ依存" }
+  - { id: FUNC-033, tier: compliance, layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "進入禁止/一方通行遵守。経路計画(FUNC-049)の制約として効く。道路属性依存" }
+  - { id: FUNC-034, tier: compliance, layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "右左折禁止(turn restriction)遵守。同上＝経路探索の制約" }
+  - { id: FUNC-035, tier: compliance, layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "バス/専用レーン遵守。レーンレベル経路計画(FUNC-050)の制約" }
+  - { id: FUNC-036, tier: compliance, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "緊急車両への道譲り(法的義務)。サイレン車に進路譲り（譲り合いFUNC-046のクロス）" }
+  - { id: FUNC-037, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'policy:crosswalk',         note: "歩行者信号遵守。walk/don't-walk連動(crosswalk signal-aware)" }
+
+  # ===== 譲り合い機能 courtesy（soft・AD＝法規を超えた協調） =====
+  - { id: FUNC-038, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: both, status: built,   by: 'policy:conflict',  note: "非制御交差点の譲り。誰が先に行くかの交渉（REQ-AD-006）" }
+  - { id: FUNC-039, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "協調合流(ファスナー)。合流の車間生成・受容（自車側の合流発起は FUNC-059）" }
+  - { id: FUNC-040, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "オンランプ流入車への譲り。本線側の譲歩" }
+  - { id: FUNC-041, tier: courtesy, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:crosswalk', note: "待ち歩行者への譲り。法的義務を超えた停止(crosswalk waiting rule)" }
+  - { id: FUNC-042, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "割り込み車の受容。カットインを安全に通す車間提供。AEB(FUNC-001)と協調" }
+  - { id: FUNC-043, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "ラウンドアバウト交渉。環状交差点の進入/譲り" }
+  - { id: FUNC-044, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "追い越し車への進路譲り。move-over/遅い車の左寄せ" }
+  - { id: FUNC-045, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "狭路すれ違い交渉。どちらが待避/バックか" }
+  - { id: FUNC-046, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "緊急車両への協調(義務超え)。積極的な進路確保（法規FUNC-036のクロス）" }
+  - { id: FUNC-047, tier: courtesy, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "協調減速(渋滞緩和)。string stability維持" }
+  - { id: FUNC-048, tier: courtesy, layer: tactical,    kind: behavior, agent: AD, dim: none, status: none,    by: '', note: "意図伝達(合図)の総論。パッシング等の意思表示。B3の親項目＝具体は FUNC-061..063。sim制約大" }
+
+  # ============================================================================
+  # ★2026-07-20 追加: B1-B6 ミッション/航法ピラー（layer 軸で炙り出した strategic 空白）
+  # 初版48機能は「所与の経路上での挙動調停」だけを深掘りしていた。以下は
+  # 「どこへ向かうか・いつマニューバを起こすか・意図をどう伝えるか・イレギュラーに
+  #  どう耐えるか・他者をどう読むか」＝運転タスクの残り半分。
+  # ============================================================================
+
+  # ----- B1 Mission / 経路計画（strategic・"目的地到達"軸の本体） -----
+  - { id: FUNC-049, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: partial, by: 'road', note: "目的地ルーティング。起点→目的地の road/lane 列を生成し保持する。RoadPath による経路探索が基盤だが **issue #31 で右折レーン接続に失敗しルートが truncate**＝B1の最重要既知欠陥。tier='-'＝動機でなくタスク達成そのもの" }
+  - { id: FUNC-050, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "レーンレベル経路計画。次のマニューバ(右左折/分岐/専用レーン)に必要なレーンを事前に選び、余裕を持って寄せる。FUNC-034/035 が制約として効く" }
+  - { id: FUNC-051, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "動的リルート。閉塞・通行不能・工事を検知して経路を再計画。イレギュラー対応の strategic 側" }
+  - { id: FUNC-052, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "ルート維持・逸脱復帰。off-route を検知し復帰経路を立てる。issue #31 の予測walkerが off-route に落ちる件と同根の欠落" }
+  - { id: FUNC-053, tier: safety, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "経路上の静止障害物回避。停止車・落下物・路上作業を避けつつルートへ復帰する（避けた先で FUNC-052 に戻る）。**発端の「障害物回避してルート維持」軸の本体**。動機は safety だが階層は tactical" }
+  - { id: FUNC-054, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "到達判定・ミッション終了。目的地/退出点の認識と安全な停車。シナリオ終端条件と VD 内部状態の整合" }
+
+  # ----- B2 進行マニューバ発起（tactical・"自ら起こす"層） -----
+  - { id: FUNC-055, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "自発的レーンチェンジ *発起*。遅い先行車/経路要求/専用レーン回避から自ら LC を決断する。**現状 LC は storyboard 由来のみ**(FUNC-020は実行側)＝VDは発起できない" }
+  - { id: FUNC-056, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "追い越しの発起・完遂。gap評価→LC→加速→復帰の一連。FUNC-030(禁止区間)・FUNC-044(譲り)と相互作用" }
+  - { id: FUNC-057, tier: '-',        layer: tactical, kind: behavior, agent: AD, dim: both, status: partial, by: 'road', note: "交差点マニューバ発起。経路(FUNC-049)に従い右左折を自発実行。現状は storyboard trajectory 依存が強く、issue #31 の交互挙動もここに現れる" }
+  - { id: FUNC-058, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "停止からの発進判断。信号青・先行車発進・譲り解消を検知して再発進。Stop&Go(FUNC-014)/信号(FUNC-023)/交渉(FUNC-038)の出口" }
+  - { id: FUNC-059, tier: '-',        layer: tactical, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "合流発起。gap acceptance で本線へ入る（自車が入る側）。相手側の譲りは FUNC-039" }
+  - { id: FUNC-060, tier: comfort,    layer: operational, kind: behavior, agent: AD, dim: lat, status: none,  by: '', note: "車線内位置取り。大型車/路駐/自転車に対し車線内でオフセットして側方余裕を作る。LCまで至らない微調整" }
+
+  # ----- B3 意図伝達（tactical・自車の意図を外へ出す） -----
+  - { id: FUNC-061, tier: compliance, layer: tactical, kind: behavior, agent: AD, dim: none, status: partial, by: 'driver', note: "方向指示器の自発操作。マニューバ発起(FUNC-055..059)に同期して法定タイミングで合図。AutoIndicator/IndicatorFSM が基盤(単体テスト有)だが **発起側が無いため storyboard LC にしか同期していない**" }
+  - { id: FUNC-062, tier: courtesy,   layer: tactical, kind: behavior, agent: AD, dim: none, status: none,    by: '', note: "制動灯/ハザードによる後続への伝達。急減速・停止時の予告。OSI vehicle_lights に出る＝観測可能" }
+  - { id: FUNC-063, tier: courtesy,   layer: tactical, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "挙動による意図伝達。クリープ前進で優先主張、早めの減速で譲る意思表示。合図灯を持たない交渉の実体" }
+
+  # ----- B4 縮退 / ODD（イレギュラー耐性） -----
+  - { id: FUNC-064, tier: safety, layer: strategic, kind: enabler,  agent: ADAS, dim: none, status: none, verify: osi-adf, by: '', note: "ODD境界の監視・検知。速度域/道路種別/天候/自車状態が走行可能条件を外れたかの判定。enabler＝単体では挙動として現れず、FUNC-065/010 を起動する。検証: ADFunction.State を UNAVAILABLE/ERRORED に落とすことで外から観測可能にする" }
+  - { id: FUNC-065, tier: safety, layer: tactical,  kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "ODD逸脱時の縮退挙動。速度制限・機能停止・要求引き渡し相当の安全側縮退。MRM(FUNC-010)手前の段階的縮退" }
+  - { id: FUNC-066, tier: safety, layer: tactical,  kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "センサ/入力喪失時のフォールバック。参照喪失・経路喪失・自己位置喪失時の既定挙動。#31 のような内部不整合時の受け皿でもある" }
+
+  # ----- B5 意図予測（enabler・他者を読む） -----
+  - { id: FUNC-067, tier: '-',    layer: tactical, kind: enabler, agent: AD, dim: both, status: partial, verify: indirect, by: 'policy:conflict', note: "他車軌道予測。ConflictPointResolver が経路ベースの予測walkerを持つ（e01ed4f2 で angle=0 堅牢化）。ただし予測は交差点調停専用で汎用予測層になっていない。中間結果(コリドー/衝突領域ポリゴン/到達時間窓/優先関係)は全て関数ローカルで外に出ない＝検証は挙動経由の indirect" }
+  - { id: FUNC-068, tier: '-',    layer: tactical, kind: enabler, agent: AD, dim: both, status: none,    verify: indirect, by: '', note: "他車意図推定。合図灯・横位置・減速から進行意図(右折する/譲る/割り込む)を推定。OSI に indicator 状態が来る＝入力は在る" }
+  - { id: FUNC-069, tier: '-',    layer: tactical, kind: enabler, agent: AD, dim: both, status: none,    verify: indirect, by: '', note: "VRU意図予測。歩行者の横断意図・自転車の進路。現状 crosswalk policy は「横断中か」の観測のみで意図は読まない" }
+  - { id: FUNC-070, tier: '-',    layer: tactical, kind: enabler, agent: AD, dim: both, status: none,    verify: indirect, by: '', note: "相互作用を考慮した予測。自車の行動が他車の反応を変える前提での予測（非独立予測）。交渉系(FUNC-038/039/045)の質を決める" }
+
+  # ----- B6 SOTIF（意図された機能の安全性・横断） -----
+  - { id: FUNC-071, tier: '-',    layer: '-',       kind: enabler, agent: AD, dim: none, status: oos, oos_reason: face1-scope, verify: indirect, by: '', note: "知覚劣化モデル（遮蔽・検知漏れ・誤検知・遅延の注入）。**面2 VD ではなく面1シミュレータのセンサモデルの領分**＝ここでは oos。ただし FUNC-008/069/072 の前提であり、面1側の課題として capability_model.md に残す" }
+  - { id: FUNC-072, tier: safety, layer: tactical,  kind: enabler, agent: AD, dim: both, status: none, verify: osi-custom-detail, by: '', note: "不確実性を考慮した意思決定。予測(FUNC-067..070)の不確実性に応じて車間/余裕/速度を上げる。完全知覚下でも「予測の不確実性」は残るため perception-ideal でも意味を持つ。検証: 取った余裕とその根拠を custom_detail に数値で出す" }
+  - { id: FUNC-073, tier: safety, layer: tactical,  kind: behavior, agent: AD, dim: both, status: none, by: '', note: "未知シナリオでの安全側デフォルト挙動。想定外の幾何/状況で「止まる・徐行する」既定則。SOTIF の unknown-unsafe 対策の実体" }
+  - { id: FUNC-074, tier: safety, layer: '-',       kind: enabler, agent: AD, dim: none, status: none, verify: osi-adf, by: '', note: "機能限界の自己認識と外部通知。自信度/限界を OSI 側に出す＝検証環境(面3)が「VDが無理だと分かっていたか」を観測できるようにする。④観測配線と直結する enabler。検証: ADFunction.State ＋ DriverOverride。**既存の空スタブ GetADASStates(W1) を埋めるのがそのまま第一歩**" }
+
+  # ----- 2026-07-24 追加: 運転主体横断の ADAS 稼働（spine-work:vertical-wiring） -----
+  # ★凍結例外（ユーザー判断 2026-07-24）: vd-func は OPAQUE_LEGACY 凍結（§7.1 規約1(a)
+  # 「既存体系に新 ID を足さない」）だが、本カタログは機能台帳そのものであり完全凍結では
+  # 台帳が育たない。網羅性の穴（ManualDrive 中の ADAS 全停止）を分母に載せるため
+  # FUNC-075 を例外的に追加する（体系の内容 slug 移行時に他 FUNC と一緒に移行する）。
+  - { id: FUNC-075, tier: safety, layer: '-', kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "運転主体によらない ADAS 並行稼働。実車では手動運転中も AEB は監視し続け、LKA/ACC と手動操作は共存する。本 repo では未実装4点の重なりで ManualDrive 中は ADAS 全停止（① GetADASStates 恒久スタブ ControllerManualDrive.hpp:36 ② AebSafety は ITrafficPolicy として VD 専属生成 ③「横だけ自動」の実体は ManualDriveCoordinator の素の OSC 追従 ④ OSI DriverOverride 未populate。詳細 signal:manualdrive_adas_states / capability_model.md §7 derived-report-lint 積み残し(b)）。規模は AebSafety の VD からの切り出し＋ドメイン別スタック拡張＝別プログラム。layer='-'（コントローラ横断）" }

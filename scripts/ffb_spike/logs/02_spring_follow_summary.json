@@ -1,0 +1,46 @@
+{
+  "profiles": [
+    {
+      "profile": "step",
+      "duration_s": 12.0,
+      "loop_hz_target": 250.0,
+      "coeff_frac": 0.55,
+      "sat_frac": 0.9,
+      "max_amplitude_frac": 0.45,
+      "samples": 3000,
+      "real_loop_hz": 250.08,
+      "err_mean_abs_frac": 0.14478,
+      "err_rms_frac": 0.21097,
+      "err_max_abs_frac": 0.47523,
+      "csv": "02_spring_follow_step.csv"
+    },
+    {
+      "profile": "sine",
+      "duration_s": 10.0,
+      "loop_hz_target": 250.0,
+      "coeff_frac": 0.55,
+      "sat_frac": 0.9,
+      "max_amplitude_frac": 0.45,
+      "samples": 2500,
+      "real_loop_hz": 250.09,
+      "err_mean_abs_frac": 0.36067,
+      "err_rms_frac": 0.4003,
+      "err_max_abs_frac": 0.56883,
+      "csv": "02_spring_follow_sine.csv"
+    },
+    {
+      "profile": "chirp",
+      "duration_s": 15.0,
+      "loop_hz_target": 250.0,
+      "coeff_frac": 0.55,
+      "sat_frac": 0.9,
+      "max_amplitude_frac": 0.45,
+      "samples": 3750,
+      "real_loop_hz": 250.06,
+      "err_mean_abs_frac": 0.29536,
+      "err_rms_frac": 0.33928,
+      "err_max_abs_frac": 0.67476,
+      "csv": "02_spring_follow_chirp.csv"
+    }
+  ]
+}

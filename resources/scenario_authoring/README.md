@@ -123,7 +123,7 @@ DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/scenario_temp
 ### Build the batch manifest (generated/*.xosc -> catalog_batch.yaml)
 
 Globs the generated scenarios + meta and writes `scenario_templates/generated/catalog_batch.yaml`
-in the `phase3_batch.yaml` format that `gt_sim_test batch` consumes. Deterministic ordering
+in the `car_following_traffic_control_batch.yaml` format that `gt_sim_test batch` consumes. Deterministic ordering
 (sorted by catalog_id). DO NOT hand-edit the manifest — regenerate it instead. It IS committed.
 
 ```powershell

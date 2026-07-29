@@ -29,8 +29,12 @@ from GT_esmini.web.backend.services.vd_metrics import (
 assert_run = assert_expectations
 
 
-def generate_baseline(scenario_path: Path, baseline_dir: Path,
-                      hz: float = 100.0, idle_timeout: float = 3.0) -> dict:
+def generate_baseline(
+    scenario_path: Path,
+    baseline_dir: Path,
+    hz: float = 100.0,
+    idle_timeout: float = 3.0,
+) -> dict:
     """Run the (controller-less) scenario with the Default controller and record
     its OSI GroundTruth to baseline_dir/groundtruth.osi. Blocking — call via
     asyncio.to_thread. Launches GT_Sim like simulation_runner (cwd=REPO_ROOT)."""
@@ -38,14 +42,23 @@ def generate_baseline(scenario_path: Path, baseline_dir: Path,
     out_osi = baseline_dir / "groundtruth.osi"
 
     cmd = [
-        str(GT_SIM_EXE), "--osc", str(scenario_path),
-        "--headless", "--osi", "127.0.0.1", "--hz", str(hz), "--no_realtime",
+        str(GT_SIM_EXE),
+        "--osc",
+        str(scenario_path),
+        "--headless",
+        "--osi",
+        "127.0.0.1",
+        "--hz",
+        str(hz),
+        "--no_realtime",
     ]
     # Inherit env; ensure the exe's own dir is on PATH so its sibling DLLs resolve.
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([str(Path(GT_SIM_EXE).parent), env.get("PATH", "")])
 
-    with open(baseline_dir / "stdout.txt", "w") as so, open(baseline_dir / "stderr.txt", "w") as se:
+    with open(baseline_dir / "stdout.txt", "w") as so, open(
+        baseline_dir / "stderr.txt", "w"
+    ) as se:
         proc = subprocess.Popen(cmd, cwd=str(REPO_ROOT), env=env, stdout=so, stderr=se)
         frames = capture_osi(out_osi, proc, OSI_GT_PORT, idle_timeout)
         proc.wait()

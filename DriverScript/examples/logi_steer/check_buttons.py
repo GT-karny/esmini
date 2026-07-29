@@ -37,7 +37,7 @@ def main():
 
     try:
         last_print_time = 0
-        
+
         while True:
             # Update SDK state
             # Note: IsButtonPressed calls _ensure_update() internally,
@@ -45,7 +45,7 @@ def main():
             # Here we just use the API.
 
             active_buttons = []
-            
+
             # Check all 128 possible buttons
             for i in range(128):
                 if logi_steer.IsButtonPressed(i):
@@ -53,19 +53,19 @@ def main():
 
             # Check POV
             pov = logi_steer.GetPOV(0)
-            
+
             # Check Pedals and Steering for completeness
             steer = logi_steer.GetSteerAngle()
             throttle, brake = logi_steer.GetPedalValue()
 
             # Compile output string
             status_parts = []
-            
+
             if active_buttons:
                 status_parts.append(f"Buttons: {active_buttons}")
             else:
                 status_parts.append("Buttons: None")
-            
+
             if pov == 4294967295 or pov == 65535 or pov == -1:
                 status_parts.append("POV: Center")
             else:

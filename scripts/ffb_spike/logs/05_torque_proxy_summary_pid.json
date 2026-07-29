@@ -1,0 +1,90 @@
+{
+  "mode": "pid",
+  "config": {
+    "spring_coeff": 0.95,
+    "kp": 4.0,
+    "kd": 0.35,
+    "max_force": 0.6,
+    "gain": 100
+  },
+  "phases": {
+    "idle_1": {
+      "samples": 875,
+      "dev_mean_frac": -0.01587,
+      "dev_std_frac": 0.0,
+      "dev_max_abs_frac": 0.01587,
+      "dev_p50_abs_frac": 0.01587,
+      "dev_p95_abs_frac": 0.01587,
+      "u_mean": -0.0635,
+      "u_std": 0.0,
+      "u_max_abs": 0.0635
+    },
+    "rest": {
+      "samples": 1125,
+      "dev_mean_frac": -0.01337,
+      "dev_std_frac": 0.00023,
+      "dev_max_abs_frac": 0.01559,
+      "dev_p50_abs_frac": 0.01334,
+      "dev_p95_abs_frac": 0.01334,
+      "u_mean": -0.0533,
+      "u_std": 0.0009,
+      "u_max_abs": 0.0624
+    },
+    "light": {
+      "samples": 1125,
+      "dev_mean_frac": -0.02211,
+      "dev_std_frac": 0.00279,
+      "dev_max_abs_frac": 0.02683,
+      "dev_p50_abs_frac": 0.02255,
+      "dev_p95_abs_frac": 0.02683,
+      "u_mean": -0.0892,
+      "u_std": 0.0115,
+      "u_max_abs": 0.1189
+    },
+    "medium": {
+      "samples": 1125,
+      "dev_mean_frac": -0.05631,
+      "dev_std_frac": 0.0056,
+      "dev_max_abs_frac": 0.06687,
+      "dev_p50_abs_frac": 0.05472,
+      "dev_p95_abs_frac": 0.06549,
+      "u_mean": -0.227,
+      "u_std": 0.0225,
+      "u_max_abs": 0.2769
+    },
+    "firm": {
+      "samples": 1125,
+      "dev_mean_frac": -0.1189,
+      "dev_std_frac": 0.02617,
+      "dev_max_abs_frac": 0.16913,
+      "dev_p50_abs_frac": 0.11917,
+      "dev_p95_abs_frac": 0.15949,
+      "u_mean": -0.4761,
+      "u_std": 0.0964,
+      "u_max_abs": 0.6
+    },
+    "idle_2": {
+      "samples": 875,
+      "dev_mean_frac": -0.00721,
+      "dev_std_frac": 0.04221,
+      "dev_max_abs_frac": 0.22608,
+      "dev_p50_abs_frac": 0.00534,
+      "dev_p95_abs_frac": 0.11148,
+      "u_mean": -0.0039,
+      "u_std": 0.1068,
+      "u_max_abs": 0.6
+    }
+  },
+  "csv": {
+    "idle_1": "05_torque_proxy_pid_idle_1.csv",
+    "rest": "05_torque_proxy_pid_rest.csv",
+    "light": "05_torque_proxy_pid_light.csv",
+    "medium": "05_torque_proxy_pid_medium.csv",
+    "firm": "05_torque_proxy_pid_firm.csv",
+    "idle_2": "05_torque_proxy_pid_idle_2.csv"
+  },
+  "threshold_candidates_frac": {
+    "above_rest_p95": 0.02,
+    "above_light_p95": 0.0402
+  }
+}

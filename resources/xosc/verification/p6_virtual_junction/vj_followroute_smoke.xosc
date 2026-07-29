@@ -9,7 +9,7 @@
 
   Run headless (record + verify from the .dat that the ego reached road 3):
     build/EnvironmentSimulator/Applications/esmini/Release/esmini.exe \
-      --headless --osc <this file> --fixed_timestep 0.05 --record <dat>
+      flags: headless, osc <this file>, fixed_timestep 0.05, record <dat>
 -->
 <OpenSCENARIO>
     <FileHeader description="P6 VJ FollowRoute smoke across a virtual junction" author="GT_esmini"

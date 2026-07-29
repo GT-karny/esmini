@@ -1,0 +1,18 @@
+{
+ "label": "curve_fix",
+ "scenario": "resources/xosc/verification/05_anticipation/decelerate_for_curve.xosc",
+ "frames": 800,
+ "sim_s": 28.05,
+ "wall_s": 28.13,
+ "realtime_ratio": 1.003,
+ "servo_active_frames": 800,
+ "wheel_ever_moved": true,
+ "frac_time_moved": 0.595,
+ "peak_abs_target": 0.1339,
+ "peak_abs_axis": 0.1237,
+ "follow_pct": 92.4,
+ "err_mean_while_steering": 0.00994,
+ "override_lateral_ever": false,
+ "max_commanded_force": 0.1312,
+ "frac_force_over_020": 0.0
+}

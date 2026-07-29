@@ -28,7 +28,7 @@ pwsh scripts/run_gt_tests.ps1
 
 # ② プレマージ回帰ゲート（①含む: Step1=unit(hard) → Step1.5=ODR quick(hard) → Step2=挙動バッチ(WARN)）
 pwsh scripts/run_regression_gate.ps1
-#   -SkipOdr / -SkipBehavioral / -FailOnBehavioral / -TelemetryGolden あり
+#   -SkipOdr / -SkipBehavioral / -FailOnBehavioral / -TelemetryGolden / -NoTouchParity あり
 
 # ③ ODR適合フル（パーサ変更時。OSI層+ゴールデン込み）
 DriverScript/.venv/Scripts/python.exe scripts/run_odr_conformance.py --profile full --check-matrix
@@ -39,8 +39,8 @@ DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/validate_cata
 
 ## 結果の解釈（重要）
 
-- **挙動バッチ（Step 2）は per-scenario ベースライン照合**（`scripts/check_phase3_regression.py` +
-  `GT_esmini/test/regression_baseline/phase3_expected.yaml`）。既知ベースラインFAIL = `red_stop_green_go` の1件のみ
+- **挙動バッチ（Step 2）は per-scenario ベースライン照合**（`scripts/check_regression_baseline.py` +
+  `GT_esmini/test/regression_baseline/car_following_traffic_control_expected.yaml`）。既知ベースラインFAIL = `red_stop_green_go` の1件のみ
   （VD信号ポリシー未成熟=ラッチ解除欠如）。`green_no_stop` は F5 の module-dir 修正で in-process 実行が
   実 config（real_vehicle_params 等）を読むようになり意図挙動側に倒れて PASS 化（2026-07-11 baseline更新済み）。
   **照合で deviation が1件でも出たら停止して原因調査**（自分の変更が原因。両方向=新規fail/fail→pass とも検知される）。

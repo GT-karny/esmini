@@ -1,0 +1,48 @@
+{
+  "rest_axis": 0.0,
+  "kp": 4.0,
+  "kd": 0.35,
+  "max_force": 0.6,
+  "opposing": 0.057,
+  "fstat": 0.15,
+  "ff_eps": 0.01,
+  "runs": [
+    {
+      "target_rel": 0.03,
+      "first_move_s": 0.216,
+      "reach_s": 0.216,
+      "final_disp": 0.02158,
+      "peak_disp": 0.02158,
+      "tail_abs_err": 0.00842,
+      "u_max": 0.543,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    },
+    {
+      "target_rel": 0.06,
+      "first_move_s": 0.072,
+      "reach_s": null,
+      "final_disp": 0.03989,
+      "peak_disp": 0.03989,
+      "tail_abs_err": 0.02011,
+      "u_max": 0.333,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    },
+    {
+      "target_rel": 0.15,
+      "first_move_s": 0.054,
+      "reach_s": 0.297,
+      "final_disp": 0.14524,
+      "peak_disp": 0.14524,
+      "tail_abs_err": 0.00476,
+      "u_max": 0.543,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    }
+  ],
+  "csv": "06_servo_kp400_mf60_opp57.csv"
+}

@@ -26,11 +26,12 @@ class VehicleState:
     Contains both world coordinates (x, y, z, h) and road coordinates
     (road_id, lane_id, s, lane_offset) when enriched with RoadManager data.
     """
+
     x: float
     y: float
     z: float
-    h: float              # heading (yaw) in radians
-    speed: float          # m/s
+    h: float  # heading (yaw) in radians
+    speed: float  # m/s
 
     # Road coordinates (populated by enrich_with_road_data)
     road_id: int = -1
@@ -39,11 +40,11 @@ class VehicleState:
     lane_offset: float = 0.0
     h_relative: float = 0.0  # heading relative to road
 
-    def distance_to(self, other: 'VehicleState') -> float:
+    def distance_to(self, other: "VehicleState") -> float:
         """Calculate Euclidean distance to another state."""
-        return math.sqrt((self.x - other.x)**2 + (self.y - other.y)**2)
+        return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
 
-    def heading_to(self, other: 'VehicleState') -> float:
+    def heading_to(self, other: "VehicleState") -> float:
         """Calculate heading angle to another state."""
         return math.atan2(other.y - self.y, other.x - self.x)
 
@@ -89,7 +90,7 @@ class VehicleStateExtractor:
                 break
 
         # 2. Fallback to host_vehicle_id if available.
-        if ego_obj is None and ground_truth.HasField('host_vehicle_id'):
+        if ego_obj is None and ground_truth.HasField("host_vehicle_id"):
             host_id = ground_truth.host_vehicle_id.value
             for obj in ground_truth.moving_object:
                 if obj.id.value == host_id:
@@ -110,16 +111,11 @@ class VehicleStateExtractor:
 
         speed = math.sqrt(vel.x**2 + vel.y**2)
 
-        return VehicleState(
-            x=pos.x,
-            y=pos.y,
-            z=pos.z,
-            h=ori.yaw,
-            speed=speed
-        )
+        return VehicleState(x=pos.x, y=pos.y, z=pos.z, h=ori.yaw, speed=speed)
 
-    def enrich_with_road_data(self, state: VehicleState,
-                               rm_lib: 'EsminiRMLib') -> VehicleState:
+    def enrich_with_road_data(
+        self, state: VehicleState, rm_lib: "EsminiRMLib"
+    ) -> VehicleState:
         """
         Add road coordinate data to vehicle state using RoadManager.
 
@@ -158,5 +154,5 @@ class VehicleStateExtractor:
             lane_id=pos_data.laneId,
             s=pos_data.s,
             lane_offset=pos_data.laneOffset,
-            h_relative=pos_data.hRelative
+            h_relative=pos_data.hRelative,
         )

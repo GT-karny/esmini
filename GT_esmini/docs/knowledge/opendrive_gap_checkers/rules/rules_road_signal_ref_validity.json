@@ -1,0 +1,50 @@
+[
+  {
+    "rule_name": "road.signal.reference.from_lower_equal_to",
+    "category": "road.signal.reference",
+    "version": "1.7.0",
+    "description": "The value of the @fromLane attribute shall be lower than or equal to the value of the @toLane attribute."
+  },
+  {
+    "rule_name": "road.signal.reference.left_hand_traffic_lane_ids",
+    "category": "road.signal.reference",
+    "version": "1.7.0",
+    "description": "For left-hand-traffic, @orientation=\"-\" implies that the &lt;validity&gt; element shall only span negative lane ids, while @orientation=\"+\" implies that the &lt;validity&gt; element shall only span positive lane ids. If the given &lt;validity&gt; elements span both, positive and negative lane ids, @orientation=\"none\" shall be used."
+  },
+  {
+    "rule_name": "road.signal.reference.right_hand_traffic_lane_ids",
+    "category": "road.signal.reference",
+    "version": "1.7.0",
+    "description": "For right-hand traffic, @orientation=\"+\" implies that the &lt;validity&gt; element shall only span negative lane ids, while @orientation=\"-\" implies that the &lt;validity&gt; element shall only span positive lane ids. If the given &lt;validity&gt; elements span both, positive and negative lane ids, @orientation=\"none\" shall be used"
+  },
+  {
+    "rule_name": "road.signal.reference.specify_direction",
+    "category": "road.signal.reference",
+    "version": "1.7.0",
+    "description": "The direction on the road for which the referenced signal is valid shall be specified for every &lt;signalReference&gt; element using the @orientation attribute."
+  },
+  {
+    "rule_name": "road.signal.reference.used_for_signals_only",
+    "category": "road.signal.reference",
+    "version": "1.7.0",
+    "description": "Signal reference shall be used for signals only."
+  },
+  {
+    "rule_name": "road.signal.semantics.no_semantics_without_category",
+    "category": "road.signal.semantics",
+    "version": "1.9.0",
+    "description": "Signal semantics shall not be specified for signs if no category for the desired traffic behavior exists."
+  },
+  {
+    "rule_name": "road.signal.validity.left_hand_traffic_lane_ids",
+    "category": "road.signal.validity",
+    "version": "1.7.0",
+    "description": "For left-hand-traffic, @orientation=\"-\" implies that the &lt;validity&gt; element shall only span negative lane ids, while @orientation=\"+\" implies that the &lt;validity&gt; element shall only span positive lane ids. If the given &lt;validity&gt; elements span both, positive and negative lane ids, @orientation=\"none\" shall be used."
+  },
+  {
+    "rule_name": "road.signal.validity.right_hand_traffic_lane_ids",
+    "category": "road.signal.validity",
+    "version": "1.7.0",
+    "description": "For right-hand traffic, @orientation=\"+\" implies that the &lt;validity&gt; element shall only span negative lane ids, while @orientation=\"-\" implies that the &lt;validity&gt; element shall only span positive lane ids. If the given &lt;validity&gt; elements span both, positive and negative lane ids, @orientation=\"none\" shall be used."
+  }
+]

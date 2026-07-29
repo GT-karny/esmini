@@ -62,6 +62,20 @@ if (-not (Test-Path $buildPath)) {
     exit 1
 }
 
+# Step 0: knowledge-graph structural lint (CLAUDE.md R4). Cheap, deterministic
+# file check mirroring the CI hard gate, so local unit-gate runs catch stale
+# views / dangling refs before push. Skipped with a warning if the venv is absent.
+$venvPython = Join-Path $repoRoot "DriverScript/.venv/Scripts/python.exe"
+if (Test-Path $venvPython) {
+    & $venvPython (Join-Path $repoRoot "scripts/check_knowledge_graph.py")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "GT TESTS: FAIL - knowledge graph lint (fix graph files or run --render)" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "GT TESTS: WARN - DriverScript/.venv not found, skipping knowledge-graph lint" -ForegroundColor Yellow
+}
+
 # GT test name pattern, verified against the CMake sources (see .DESCRIPTION).
 $parts = @("test_ScenarioReaderParsing")
 if ($IncludeIntegration) { $parts += "GT_esmini_Integration_" }

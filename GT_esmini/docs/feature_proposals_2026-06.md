@@ -139,7 +139,7 @@
 - **誰が**: V&V責任者。シナリオ作者がexpectationsを書き忘れても落ちない安全網
 - **何が欠けている**: must[]はシナリオ個別記述のみで全run常時適用の安全要件の概念が無い。**衝突検出そのものが検証判定経路に存在しない**
 - **設計**: config/global_invariants.yaml(collision_free/road_departure_free+既存must語彙)を全entryへ自動マージ、verdict.jsonにinvariantsセクション分離。collision_freeはscene.jsonlのOBB交差判定(分離軸テスト)。run_regression_gate.ps1に-FailOnInvariant追加(behavioral WARN運用のまま不変条件違反だけ硬いfailに格上げ)
-- **注意**: phase3_batchは「ポリシー未実装段階で意図的にFAIL」する設計のため、invariantは物理的絶対条件(衝突等)に限定し快適性系閾値は通常mustへ — 線引きの文書化が必要
+- **注意**: car_following_traffic_control_batchは「ポリシー未実装段階で意図的にFAIL」する設計のため、invariantは物理的絶対条件(衝突等)に限定し快適性系閾値は通常mustへ — 線引きの文書化が必要
 
 ## 5. 推奨バンドル(出荷単位)
 

@@ -1,0 +1,8 @@
+{
+  "junctions.virtual.main_road_only": {
+    "status": "implemented_gt",
+    "reason": "Implements the referential-integrity sub-case (PARTIAL_DETERMINISTIC): for every @type=\"virtual\" junction, @mainRoad (mandatory on t_junction_virtual) must resolve to an actually-defined <road id=...> in the document; flag if it does not. Residual left uncovered, per assignment scope: the participation-link check (does some <connection> actually attach to @mainRoad, either via @incomingRoad or via the connectingRoad's own <link> back-reference) and the exclusivity judgment (\"branches off the main road ONLY\" -- distinguishing a legitimate branch/sub-branch road from an unrelated through-road that should have used a common junction requires real-world road-classification/topological-intent reasoning the spec does not reduce to an attribute test) are not implemented here. Validated: 0 exceptions over the full 208-file corpus, 0 flags in the official ASAM set, 0 flags anywhere in the wider corpus (genuinely traced -- every GT-authored virtual-junction fixture declares a @mainRoad that resolves to a defined road). Positive/negative throwaway-fixture detection confirmed: fires when @mainRoad references an undefined road id, correctly suppressed when @mainRoad resolves to a defined road.",
+    "group": "junctions_elev_virtual",
+    "function": "run_checks"
+  }
+}

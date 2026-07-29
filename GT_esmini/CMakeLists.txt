@@ -117,8 +117,11 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/TrajectoryShortPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/PIDPurePursuitDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdSteeringEnvelope.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/ResumeMergeProfile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdasFunctionReport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteSignalScan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteCrosswalkScan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/LeadVehicleAware.cpp
@@ -126,11 +129,14 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/StopYieldSignAware.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/ConflictPointResolver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/CrosswalkPedestrianAware.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/AebSafety.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ModuleDirectory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/FfbTargetServo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HeadlessFfbInput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/EngineModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AutoTransmission.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
@@ -165,6 +171,8 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/StubInputSource.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveConfig.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/OverrideManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/FfbTargetServo.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HeadlessFfbInput.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/EngineModel.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AutoTransmission.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/common/ShiftLogic.hpp
@@ -181,10 +189,14 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IDriverModel.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IMidLongPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ITrafficPolicy.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/PolicyDetail.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AdasFunctionReport.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/IIndicatorPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/RouteSignalScan.hpp
@@ -194,6 +206,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/AebSafety.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp
@@ -240,6 +253,26 @@ set(GT_OSI_HEADERS
 # were removed (audit BLD-4): nothing consumed them and every GT source was compiled
 # three times (gt_* + GT_esminiLib + GT_esminiLib_static). The module split lives on in
 # the GT_*_SOURCES variables.
+
+# GT-only: GT extension targets are Windows-only AND require the full external stack. GT is coupled to
+# the MSVC-vendored OSI 3.7.0 package (externals/osi/v11); on Linux/macOS the toolchain resolves the
+# older downloaded OSI 3.5.0 (GT_HostVehicleReporter uses OSI 3.7.0 vehicle_motion) and the frozen
+# embedded-Python stack pulls <windows.h>. Cross-platform GT support is tracked in issue #36.
+#
+# The external-module guard matters for the slim test-no-external-modules CI job (USE_OSG/OSI/SUMO=OFF):
+# on Windows that job would otherwise try to build GT (GT_OSIReporter needs OSI, GT_RoadGen needs OSG,
+# GT_esminiLib_static links transitive core/SUMO) and fail. Gating here (and the matching GT_OSMP_FMU
+# guard in the root CMakeLists) keeps that slim job upstream-only on every OS. The configure logic above
+# (options, the "Embedded Python ... DISABLED" line the embedded-python CI job asserts) still runs
+# everywhere; only the target creation below is gated.
+if(NOT WIN32
+   OR NOT USE_OSI
+   OR NOT USE_OSG
+   OR NOT USE_SUMO)
+    message(STATUS "GT_esmini: GT extension targets skipped (need Windows + USE_OSI/OSG/SUMO; issue #36); upstream targets still build")
+    return()
+endif()
+
 add_library(${TARGET_SHARED} SHARED)
 add_library(${TARGET_STATIC} STATIC)
 

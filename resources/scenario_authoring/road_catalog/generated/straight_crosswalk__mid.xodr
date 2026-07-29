@@ -8,7 +8,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -46,9 +48,9 @@
             </laneSection>
         </lanes>
         <objects>
-            <object id="1" s="250.0" t="0.0" subtype="-1" dynamic="no" zOffset="0.0" pitch="0" roll="0" width="8.0" name="crosswalk_mid" type="crosswalk" orientation="none" hdg="0.0" length="4.0">
+            <object id="1" s="250.0" t="0.0" subtype="-1" dynamic="no" zOffset="0.0" pitch="0" roll="0" width="8.0" height="0.0" name="crosswalk_mid" type="crosswalk" orientation="none" validLength="0.0" hdg="0.0" length="4.0">
                 <outlines>
-                    <outline closed="true" id="0">
+                    <outline closed="true" outer="true" fillType="pavement" laneType="sidewalk" id="0">
                         <cornerRoad s="248.0" t="-4.0" dz="0.0" height="0.0" id="0"/>
                         <cornerRoad s="252.0" t="-4.0" dz="0.0" height="0.0" id="1"/>
                         <cornerRoad s="252.0" t="4.0" dz="0.0" height="0.0" id="2"/>

@@ -42,7 +42,7 @@
 
 | 17 | `[GT_ODR:junc-connroad]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、link 節) | ~:4019-4023 | 5 | **誤警告修正(1.8 意味論追従漏れ、upstream バグ)**: 「connecting road {} in junction {} lacks successor/predesessor」WARN が `road/@junction != -1` だけを条件にしていた。ODR 1.6 では @junction は「**connecting road として**所属する junction の ID」だったが、**1.8 で「例えば connecting road、cross path、junction boundary road が所属する junction の ID」に緩められた**(1.9 `OpenDRIVE_Road.xsd` @junction の documentation)。crossPath road は `<crossPath><startLaneLink>/<endLaneLink>` で接続され(1.9 `OpenDRIVE_Junction.xsd` `t_junction_crossPath`: "the cross path itself is a separate road")、`<link>` successor/predecessor を**規格上持たなくてよい**ため、正当な 1.8 資産に誤警告が出ていた。条件を `gt_esmini::odr::IsConnectingRoad(node, rid_str)`(`<junction><connection @connectingRoad>` の DOM プリスキャン、実装は予算外の `odr_side/OdrJunctionExtras.cpp`)で肯定判定に置換。1.6 形式資産では「@junction != -1 の road は必ずどこかの @connectingRoad」のため**既存挙動はビット同一**。junction boundary road / direct junction にも同時に効く。再現資産: `test/odr_fixtures/handauthored/01_crossing_junction_18.xodr` | **PR-5**(高、明白な upstream バグ) |
 
-- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 22**(hook×2 / country-rev×1 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×2 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 76**(古典 22 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 76`(ctest `MarkerCount` が本値をパース)。
+- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 24**(hook×2 / country-rev×2 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×3 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 78(2026-07-21 +2: 明示マーカー化)**(古典 22 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 76`(ctest `MarkerCount` が本値をパース)。
 - **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 92 / 150**(include 1 + country-rev 2 + junc-abort 3 + junc-connroad 5 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2 + 2026-07-13 bugfix 5、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 99`(古典 87 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 93`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
 - 事前承認済みコンティンジェンシー残(未使用): **lane-border フォールバック ~8 は P2 で不使用のまま温存** — border→width 正規化は公開 `Lane::AddLaneWidth` 経由で GT 側(`odr_side/OdrLaneExtras.cpp` の `ApplyBorderWidths`)に実装。既存フック呼び出し `BuildSideModel(doc, this)` が P2 新設の型付きオーバーロード(`roadmanager::OpenDrive*`)へ **exact match で自動束縛**されるため、フォーク改変ゼロで実現。/ P6 分割ヘルパー ~25 / lane @direction ~25
 
@@ -101,8 +101,8 @@
 
 ### 6.4 検証
 
-- 挙動フィクスチャ(受入 ii): `resources/xodr/straight_semantic_stop_sign.xodr`(`@type=9001`=de カタログ非在 + `<priority type="stopLine"/>`)+ `semantic_stop_sign_full_stop.xosc/.expectations.yaml`。**red→green**: T1 実装前は VD が停止せず `stopped_at_stop_sign` = 0.00s で FAIL、実装後は 4.35s(カタログ版 `stop_sign_full_stop` と同値)で PASS。`phase3_batch.yaml` に 1 エントリ追加。
-- 不変性: `phase3_batch`(既存 10 件すべて verdict 一致 + 新規 1 件 PASS)/ `phase3d_crosswalk_batch`(scene 09 歩行者信号ゲート = 7 件すべて一致)。L3 正例: 新フィクスチャの OSI `traffic_sign` が `type=17`(STOP)を出力(GT_esminiLib SE_GetOSIGroundTruth 直接プローブで確認)。semantics 無しのカタログ未分類標識は `type=0` のまま(pre-P4 と一致)。
+- 挙動フィクスチャ(受入 ii): `resources/xodr/straight_semantic_stop_sign.xodr`(`@type=9001`=de カタログ非在 + `<priority type="stopLine"/>`)+ `semantic_stop_sign_full_stop.xosc/.expectations.yaml`。**red→green**: T1 実装前は VD が停止せず `stopped_at_stop_sign` = 0.00s で FAIL、実装後は 4.35s(カタログ版 `stop_sign_full_stop` と同値)で PASS。`car_following_traffic_control_batch.yaml` に 1 エントリ追加。
+- 不変性: `car_following_traffic_control_batch`(既存 10 件すべて verdict 一致 + 新規 1 件 PASS)/ `crosswalk_pedestrian_batch`(scene 09 歩行者信号ゲート = 7 件すべて一致)。L3 正例: 新フィクスチャの OSI `traffic_sign` が `type=17`(STOP)を出力(GT_esminiLib SE_GetOSIGroundTruth 直接プローブで確認)。semantics 無しのカタログ未分類標識は `type=0` のまま(pre-P4 と一致)。
 - ゲート: `test_ScenarioReaderParsing` 緑 / `check_fork_drift.py --expect-odr-lines 62` 緑 / conformance `--profile full` = 214P/13XF/0F/0XPASS(OSI ゴールデン変化 0)。
 
 ## 7. 第2種(in-place core edits)マニフェスト — P6 virtual junction
@@ -118,7 +118,7 @@
 version: 1
 baseline_upstream_tag: v3.4.1            # re-recorded at the v3.4.1 resync (2026-07-08, merge d7d7e20d); snapshots written byte-exact from `git cat-file blob v3.4.1:<path>` (RoadManager.cpp + OSIReporter.cpp changed; other 4 blobs identical to v3.4.0)
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 76           # literal "[GT_ODR:" count in the fork. S2: +12; S3: +9; S4: +25 mirrored;
+fork_odr_marker_total: 78           # literal "[GT_ODR:" count in the fork. 2026-07-21 +2 (clang-format-15 準拠化で diff hunk が分離した行への明示マーカー: country-rev if行 + curvelocal for行). S2: +12; S3: +9; S4: +25 mirrored;
                                     # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
                                     # P6-reconcile: +4 = P7 curvelocal(×2)+repeat-cubics(×1) + P8 lane-layers(×1)
                                     # merged from dev_v0.12 (measured literal count = 75).
@@ -154,18 +154,20 @@ budget_groups:
 # --- 2nd-class file set (user-approved 2026-07-04; ScenarioEngine excluded) ---
 second_class_files:
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.hpp
-    upstream_blob_sha: 8dbd661856ced5d7b120901a4c82dfe1fe9b6838
-    budget_nonblank: 75
+    upstream_blob_sha: 55cce73cb817f5a72f4965f4d8845329e3b3f9a9   # upstream @4f33b3be (CheckAndAddOSIPoint +x_last_ok/y_last_ok; cherry-port 2026-07-23, §10.2)
+    budget_nonblank: 77
     additive_only: true
-    marker_census: {vj-model: 73, vj-synth: 1}  # S1 data model + S3 EstablishVirtualJunctionConnections() decl (1 line, hpp 74/75)
+    marker_census: {vj-model: 76, vj-synth: 1}  # S1 data model + S3 decl。2026-07-21 clang-format-15 準拠化: anchor メンバを upstream 桁揃えグループの外へ移設（グループ中央挿入だと clang-format が upstream 行を再整形し additive_only が破れる）+ 配置注意コメント3行 = 73→76, budget 75→77
     marker_occurrences: 16               # literal "[GT_ODR:" comment count (ctest SecondClassCensus)
     pr_slice: "PR-A..D"
     status: active-S5              # hpp FROZEN at 74/75 through S5 (no data-model change; S5 is cpp-only)
   - path: EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp
-    upstream_blob_sha: 0f46c9438473ce0393577e76633b8f71c526b3a0   # v3.4.1 (curb lane type joined upstream)
+    upstream_blob_sha: 23ceb307081892f812a4faf7c285d4261eccefca   # upstream @0403645c (v3.4.1 + OSI point fixes 4f33b3be/0403645c; cherry-port 2026-07-23, §10.2)
     budget_nonblank: 550
     additive_only: false
-    marker_census: {vj-parse-link: 26, vj-parse-junction: 84, vj-synth: 133, vj-membership: 4, vj-osi-class: 6, vj-path: 84, vj-connect: 81, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
+    marker_census: {vj-parse-link: 31, vj-parse-junction: 87, vj-synth: 134, vj-membership: 4, vj-osi-class: 6, vj-path: 83, vj-connect: 83, vj-route: 16, vj-lanes: 15, vj-enter: 32, vj-move: 49}
+                        # 2026-07-21 clang-format-15 準拠化: GT 行の再折返しのみ（ctor 初期化リスト 1→6行 等）。
+                        # 意味変更ゼロ（空白除去トークン列一致で機械検証済み）。cpp total 530→540/550。
                         # S2 parse (RoadLink elementS/elementDir + 6-arg ctor + operator== | junction VIRTUAL
                         # dispatch/span attrs + connection anchors/kind-2 + Connection 5-arg ctor).
                         # S3 vj-synth 133 = EstablishVirtualJunctionConnections + 2 registry accessors block 116
@@ -189,7 +191,7 @@ second_class_files:
     budget_nonblank: 220                 # combined router budget (cpp+hpp) -- enforced via budget_group
     budget_group: router
     additive_only: false
-    marker_census: {vj-router: 122}
+    marker_census: {vj-router: 123}  # 2026-07-21 clang-format-15 準拠化 +1（折返しのみ・意味変更ゼロ）
                         # S6 [GT_ODR:vj-router] (PRISTINE-ONLY, PR-C): LaneIndependentRouter across a virtual
                         # junction. Block-form InjectVirtualJunctionAnchorNodes static helper (49) seeds/expands one
                         # child per registry anchor (partial main-road weight, anchor link identity = dedup key);
@@ -440,3 +442,12 @@ exclusions: []
 - **census 再基準化**: baseline_upstream_tag v3.4.0→v3.4.1。スナップショット 2 本追記(RoadManager.cpp@0f46c9438473 / OSIReporter.cpp@752dcaa0f3db、`git cat-file blob` バイト厳密 — record-baselines は HEAD blob 方式のため GT パッチ混入回避で不使用)。legacy_sites 行スパン +3 シフト(country-rev 4931→4934 / curvelocal 5290-5291→5293-5294)。実測: fork_odr_expect_lines 100→**99** / fork_odr_drift_expect_lines 94→**93** / マーカーリテラル 75 不変。
 - **R1 CMake 例外**: [GT_ODR:cmake]×2 / [GT_ODR:osi-path] とも upstream 未接触で生存。
 - **ゴールデン**: 再基準化**ゼロ**(`--update-golden` 不使用)。conformance full --check-matrix = PASS 350 / FAIL 0 / XFAIL 13 / XPASS 0(既存ゴールデン全一致 — curb は GT が先行対応済みだったため RM レーン型出力も不変)。unit ctest + upstream RoadManager_test(フォークビルド)緑、wasm 再ビルド+ブラウザスモーク PASS。
+
+### 10.2 OSI point 修正 2 件の cherry-port(2026-07-23、issue #37 Group A)
+
+- **対象**: upstream `4f33b3be` "Fix wrong pivot pos for osi point calculation"(CheckAndAddOSIPoint に x_last_ok/y_last_ok 追加・pivot 更新を last-OK 位置基準へ是正、呼び出し元 SetLaneOSIPoints / SetLaneBoundaryPoints / SetRoadMarkOSIPoints 3 箇所)+ `0403645c` "Fix wrong s-value of tunnel OSI points"(CreateTunnelOSIPointsAndObjects の OutlineCornerRoad 2 箇所で center_s=tunnel->s_)。
+- **適用**: フォーク `GT_RoadManager.cpp` と pristine `RoadManager.cpp` に**逐語ミラー**(各 +39/−12、変更行集合の一致を機械検証)。pristine 側は swap-build により非コンパイルのため挙動影響なし — census 二面チェックの基準整合のためのミラー。`RoadManager.hpp` はシグネチャ +2 行の第2種同期。
+- **census 再基準化**: snapshot 2 本前進 — RoadManager.cpp@23ceb3070818(upstream @0403645c blob)/ RoadManager.hpp@55cce73cb817(upstream @4f33b3be blob)、いずれも `git cat-file blob` バイト厳密(hash-object 一致実測、v3.4.1 時と同じ record-baselines 不使用方式)。マーカー census・予算・legacy_sites・fork_odr_* 全指標**不変**(実測: census OK / fork-drift 98/150 OK)。
+- **companion テスト期待値**: upstream `01dbcf12` "Update testcases for updates OSI point calculations" の Unittest 3 ファイル+ test/smoke_test.py ハンクを逐語適用(無関係な新規 create_curb_parking.py は除外)。実測値が upstream 新期待値と完全一致(例: MixedRoadsFixture.OSIPointTest Point(4).x 17.6344)= port が upstream と同一挙動である証拠。
+- **skip 解除**: `OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve` を run_tests.sh の SCENARIOPLAYER_SKIP から除去(当初 CI 失敗は同一バイナリ内の先行 OSI outline テストクラッシュ汚染の可能性が高く、単独では port 前後とも PASS — run_tests.sh コメント参照)。
+- **ゴールデン**: conformance quick = PASS 190 / FAIL 0 / XFAIL 3 / XPASS 0(再基準化ゼロ — RM probe/motion ゴールデンは OSI point pivot 修正の影響外)。

@@ -1,0 +1,18 @@
+{
+ "label": "right_turn_fix",
+ "scenario": "resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc",
+ "frames": 800,
+ "sim_s": 25.05,
+ "wall_s": 25.22,
+ "realtime_ratio": 1.007,
+ "servo_active_frames": 800,
+ "wheel_ever_moved": true,
+ "frac_time_moved": 0.7388,
+ "peak_abs_target": 0.8312,
+ "peak_abs_axis": 0.8263,
+ "follow_pct": 99.4,
+ "err_mean_while_steering": 0.01691,
+ "override_lateral_ever": false,
+ "max_commanded_force": 0.6,
+ "frac_force_over_020": 0.0138
+}

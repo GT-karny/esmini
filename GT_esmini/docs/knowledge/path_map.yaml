@@ -1,0 +1,92 @@
+# Path -> knowledge-graph ID map (the "where does the why live" table).
+#
+# Consumed by scripts/check_knowledge_graph.py --suggest, which classifies a
+# changeset three ways (the unified commit workflow, CLAUDE.md R4):
+#   mapped  : touched paths imply candidate IDs -> cite them in the commit
+#   exempt  : every touched path is in a self-evident class -> no ID needed,
+#             guard-hook Rule 4 stays silent
+#   unknown : neither -> the committing agent judges ("will future-you search
+#             for this change's why?"); humans are never asked
+#
+# Suggestions are advisory: they are NEVER auto-inserted into messages —
+# a wrong edge costs more than a missing one (precision over recall).
+# Globs use Python fnmatch semantics ('*' crosses directory separators).
+# IDs must be registered namespaced refs (lint-validated).
+
+mappings:
+  # control / features
+  - glob: "GT_esmini/src/control/AutoLight*"
+    ids: [feature:F6]
+  - glob: "GT_esmini/include/gt_esmini/control/AutoLight*"
+    ids: [feature:F6]
+  - glob: "GT_esmini/config/auto_light.json"
+    ids: [feature:F6]
+  - glob: "*manualdrive/OverrideManager*"
+    ids: [feature:F7]
+  - glob: "*manualdrive/FfbTargetServo*"
+    ids: [feature:F7]
+  - glob: "*manualdrive/SDLFFBSink*"
+    ids: [feature:F7]
+  - glob: "*verification/VdManualOverridePanel*"
+    ids: [feature:F7]
+  - glob: "scripts/vd_override_smoke.py"
+    ids: [feature:F7]
+  - glob: "scripts/ffb_spike/*"
+    ids: [feature:F7]
+  # VirtualDriver policies
+  - glob: "*virtualdriver/policies/LeadVehicleAware*"
+    ids: [policy:lead]
+  - glob: "*virtualdriver/policies/TrafficLightAware*"
+    ids: [policy:traffic_light]
+  - glob: "*virtualdriver/policies/StopYieldSignAware*"
+    ids: [policy:stop_yield]
+  - glob: "*virtualdriver/policies/ConflictPointResolver*"
+    ids: [policy:conflict]
+  - glob: "*virtualdriver/policies/CrosswalkPedestrianAware*"
+    ids: [policy:crosswalk]
+  # fork lineages (Clean Core governance)
+  - glob: "GT_esmini/src/road/GT_RoadManager.cpp"
+    ids: [lineage:gt_roadmanager]
+  - glob: "GT_esmini/src/osi/GT_OSIReporter*"
+    ids: [lineage:gt_osireporter]
+  - glob: "GT_esmini/src/road/roadgen/*"
+    ids: [lineage:roadgen]
+  # LHT test assets
+  - glob: "GT_esmini/test/odr_fixtures/lht/*"
+    ids: [fork-marker:GT_LHT]
+  - glob: "GT_esmini/test/unit/road/test_OdrLht*"
+    ids: [fork-marker:GT_LHT]
+  # scenario authoring foundation (F1)
+  - glob: "resources/scenario_authoring/*"
+    ids: [feature:F1]
+  # verification scenario categories -> policies
+  - glob: "resources/xosc/verification/03_traffic_signals/*"
+    ids: [policy:traffic_light]
+  - glob: "resources/xosc/verification/04_traffic_signs/*"
+    ids: [policy:stop_yield]
+  - glob: "resources/xosc/verification/06_lead_vehicle/*"
+    ids: [policy:lead]
+  - glob: "resources/xosc/verification/07_*"
+    ids: [policy:conflict]
+  - glob: "resources/xosc/verification/09_crosswalk_pedestrian/*"
+    ids: [policy:crosswalk]
+  # the knowledge graph itself
+  - glob: "GT_esmini/docs/knowledge/*"
+    ids: [directive:R4]
+  - glob: "scripts/check_knowledge_graph.py"
+    ids: [directive:R4]
+  - glob: "scripts/git-hooks/*"
+    ids: [directive:R4]
+  - glob: ".claude/skills/kg/*"
+    ids: [directive:R4]
+
+exempt:
+  # self-evident from the diff; no ID, no ask
+  - glob: "*.md"
+    unless: "GT_esmini/docs/knowledge/*"
+  - glob: ".gitattributes"
+  - glob: ".gitignore"
+  - glob: "*.png"
+  - glob: "*.jpg"
+  - glob: "*.svg"
+  - glob: "LICENSE*"

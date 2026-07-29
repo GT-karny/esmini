@@ -40,7 +40,9 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         if self._trace_enabled:
             out_dir = trace_dir or "."
             os.makedirs(out_dir, exist_ok=True)
-            self._trace_file = open(os.path.join(out_dir, "python_trace.jsonl"), "w", encoding="utf-8")
+            self._trace_file = open(
+                os.path.join(out_dir, "python_trace.jsonl"), "w", encoding="utf-8"
+            )
 
         bin_dir = os.path.normpath(os.path.join(script_dir, "..", "..", "bin"))
         lib_path = os.path.join(bin_dir, "esminiRMLib.dll")
@@ -57,7 +59,9 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         )
         self._acc = ACCController(ego_id=self.ego_id, rm_lib=self._scenario.rm_lib)
 
-    def _resolve_target_speed(self, lon_profile: List[Dict[str, float]], fallback: float) -> float:
+    def _resolve_target_speed(
+        self, lon_profile: List[Dict[str, float]], fallback: float
+    ) -> float:
         if lon_profile:
             # Use the final profile point (= C++ smoothed target speed).
             # LonProfilePlanner is stateful and ramps smoothed_target_ using
@@ -119,7 +123,9 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         self._scenario._embedded_frame_data = effective_frame_data
 
         actions = frame_data.get("actions", {}) or {}
-        use_acc = bool(actions.get("longitudinal_distance")) or bool(actions.get("synchronize"))
+        use_acc = bool(actions.get("longitudinal_distance")) or bool(
+            actions.get("synchronize")
+        )
 
         target_speed = self._resolve_target_speed(frame.lon_profile, frame.set_speed)
         self._scenario.set_target_speed(target_speed)
@@ -144,7 +150,9 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
         if self._scenario.waypoint_mgr is not None:
             self._last_waypoint_index = int(self._scenario.waypoint_mgr.current_index)
         else:
-            self._last_waypoint_index = int(effective_frame_data.get("waypoint_index", 0))
+            self._last_waypoint_index = int(
+                effective_frame_data.get("waypoint_index", 0)
+            )
         self._last_wp_generation_version = generation_version
 
         self._frame_count += 1
@@ -170,7 +178,9 @@ class ScenarioDriveEmbedded(EmbeddedControllerBase):
                             "gt_bytes_len": len(frame.ground_truth_bytes or b""),
                             "waypoint_count": len(frame.waypoints),
                             "waypoint_index": int(frame_data.get("waypoint_index", 0)),
-                            "waypoint_index_effective": int(effective_frame_data.get("waypoint_index", 0)),
+                            "waypoint_index_effective": int(
+                                effective_frame_data.get("waypoint_index", 0)
+                            ),
                             "waypoint_generation": self._last_wp_generation_version,
                             "lon_profile_count": len(frame.lon_profile),
                             "set_speed": frame.set_speed,

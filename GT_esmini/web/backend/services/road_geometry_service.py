@@ -40,9 +40,14 @@ _LANE_TYPE_CONNECTING_RAMP = 1 << 22
 # BIDIRECTIONAL/CONNECTING_RAMP cover ODR "shared"/"slipLane" lanes, which the
 # [GT_ODR:lane-types] fork patch maps onto these enums (plan P2).
 _DRIVABLE_MASK = (
-    _LANE_TYPE_DRIVING | _LANE_TYPE_STOP | _LANE_TYPE_SHOULDER
-    | _LANE_TYPE_BIKING | _LANE_TYPE_RESTRICTED | _LANE_TYPE_PARKING
-    | _LANE_TYPE_BIDIRECTIONAL | _LANE_TYPE_CONNECTING_RAMP
+    _LANE_TYPE_DRIVING
+    | _LANE_TYPE_STOP
+    | _LANE_TYPE_SHOULDER
+    | _LANE_TYPE_BIKING
+    | _LANE_TYPE_RESTRICTED
+    | _LANE_TYPE_PARKING
+    | _LANE_TYPE_BIDIRECTIONAL
+    | _LANE_TYPE_CONNECTING_RAMP
 )
 
 # Sampling step in meters along the road
@@ -153,7 +158,10 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
     _cache[cache_key] = result
     logger.info(
         "Extracted %d boundaries, %d signs, %d stop lines from %s",
-        len(boundaries), len(signs), len(stop_lines), xodr_path.name,
+        len(boundaries),
+        len(signs),
+        len(stop_lines),
+        xodr_path.name,
     )
     return result
 
@@ -169,13 +177,15 @@ def _flush_segment(
         if len(points) < 2:
             continue
         side, rank = key
-        out_boundaries.append({
-            "road_id": road_id,
-            "side": side,
-            "rank": rank,
-            "type": boundary_types.get(key, "lane_divider"),
-            "points": points,
-        })
+        out_boundaries.append(
+            {
+                "road_id": road_id,
+                "side": side,
+                "rank": rank,
+                "type": boundary_types.get(key, "lane_divider"),
+                "points": points,
+            }
+        )
     boundary_points.clear()
     boundary_types.clear()
 
@@ -223,10 +233,8 @@ def _extract_road_boundaries(
         right_lanes = sorted([l for l in lane_ids if l < 0], reverse=True)
 
         # Detect lane topology change → flush current segment
-        if (len(left_lanes) != prev_left_count
-                or len(right_lanes) != prev_right_count):
-            _flush_segment(boundary_points, boundary_types, road_id,
-                           out_boundaries)
+        if len(left_lanes) != prev_left_count or len(right_lanes) != prev_right_count:
+            _flush_segment(boundary_points, boundary_types, road_id, out_boundaries)
         prev_left_count = len(left_lanes)
         prev_right_count = len(right_lanes)
 
@@ -244,9 +252,7 @@ def _extract_road_boundaries(
         # For each left lane, place at outer edge: lane center + width/2
         for rank, lid in enumerate(left_lanes):
             _, w = rm.GetLaneWidthByRoadId(road_id, lid, s_val)
-            rm.SetLanePosition(
-                pos_handle, road_id, lid, w / 2.0, s_val, True
-            )
+            rm.SetLanePosition(pos_handle, road_id, lid, w / 2.0, s_val, True)
             res, data = rm.GetPositionData(pos_handle)
             if res != 0:
                 continue
@@ -274,9 +280,7 @@ def _extract_road_boundaries(
         # For each right lane, place at outer edge: lane center - width/2
         for rank, lid in enumerate(right_lanes):
             _, w = rm.GetLaneWidthByRoadId(road_id, lid, s_val)
-            rm.SetLanePosition(
-                pos_handle, road_id, lid, -(w / 2.0), s_val, True
-            )
+            rm.SetLanePosition(pos_handle, road_id, lid, -(w / 2.0), s_val, True)
             res, data = rm.GetPositionData(pos_handle)
             if res != 0:
                 continue
@@ -331,20 +335,22 @@ def _extract_road_signs(
                 continue
 
             name = sign.name.decode("utf-8", "replace") if sign.name else ""
-            out_signs.append({
-                "id": sign.id,
-                "road_id": road_id,
-                "x": round(sign.x, 2),
-                "y": round(sign.y, 2),
-                "z": round(sign.z, 2),
-                "h": round(sign.h, 4),
-                "s": round(sign.s, 2),
-                "t": round(sign.t, 2),
-                "name": name,
-                "orientation": sign.orientation,
-                "height": round(sign.height, 2),
-                "width": round(sign.width, 2),
-            })
+            out_signs.append(
+                {
+                    "id": sign.id,
+                    "road_id": road_id,
+                    "x": round(sign.x, 2),
+                    "y": round(sign.y, 2),
+                    "z": round(sign.z, 2),
+                    "h": round(sign.h, 4),
+                    "s": round(sign.s, 2),
+                    "t": round(sign.t, 2),
+                    "name": name,
+                    "orientation": sign.orientation,
+                    "height": round(sign.height, 2),
+                    "width": round(sign.width, 2),
+                }
+            )
 
             # Valid lanes from validity records (fallback: lanes on the sign's side).
             valid: set[int] = set()
@@ -364,13 +370,17 @@ def _extract_road_signs(
                 rm, pos_handle, road_id, sign.s, valid or None, side
             )
             if pts:
-                out_stop_lines.append({
-                    "road_id": road_id,
-                    "sign_id": sign.id,
-                    "points": pts,
-                })
+                out_stop_lines.append(
+                    {
+                        "road_id": road_id,
+                        "sign_id": sign.id,
+                        "points": pts,
+                    }
+                )
         except Exception:
-            logger.debug("sign extraction failed (road=%s idx=%s)", road_id, i, exc_info=True)
+            logger.debug(
+                "sign extraction failed (road=%s idx=%s)", road_id, i, exc_info=True
+            )
             continue
 
 

@@ -15,6 +15,7 @@ namespace ButtonBits
     constexpr uint32_t HIGH_BEAM       = 1u << 4;
     constexpr uint32_t FOG_LIGHT       = 1u << 5;
     constexpr uint32_t HAZARD          = 1u << 6;  // WARNING_LIGHTS toggle
+    constexpr uint32_t AUTO_RESUME     = 1u << 7;  // feature:F7 — manual->auto return (edge-triggered)
 }
 
 // Normalized pedal/steer command — the lingua franca between a driver

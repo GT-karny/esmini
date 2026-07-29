@@ -16,10 +16,10 @@ from typing import Any
 
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Mode detection
 # ---------------------------------------------------------------------------
+
 
 def _is_packaged() -> bool:
     """Detect if running from a PyInstaller package."""
@@ -37,8 +37,12 @@ def _find_package_root() -> Path:
 
 def _find_repo_root() -> Path:
     """Locate the repository root (contains EnvironmentSimulator/ and GT_esmini/)."""
-    candidate = Path(__file__).resolve().parents[3]  # web/backend/ -> GT_esmini/ -> esmini/
-    if (candidate / "GT_esmini").is_dir() and (candidate / "EnvironmentSimulator").is_dir():
+    candidate = (
+        Path(__file__).resolve().parents[3]
+    )  # web/backend/ -> GT_esmini/ -> esmini/
+    if (candidate / "GT_esmini").is_dir() and (
+        candidate / "EnvironmentSimulator"
+    ).is_dir():
         return candidate
     raise RuntimeError(f"Cannot locate repository root from {__file__}")
 
@@ -123,6 +127,7 @@ def get_projects_dir() -> Path:
             return p
     return PROJECTS_DIR
 
+
 # Server ports (overridable via environment variables)
 GRPC_PORT = int(os.environ.get("GT_SIM_GRPC_PORT", "50051"))
 OSI_GT_PORT = int(os.environ.get("GT_SIM_OSI_GT_PORT", "48198"))
@@ -175,6 +180,7 @@ DEFAULT_CONTROLLER_CONFIG: dict[str, Any] = {
 # Settings persistence
 # ---------------------------------------------------------------------------
 
+
 def _settings_path() -> Path:
     if PACKAGED:
         return PACKAGE_ROOT / "data" / "settings.json"
@@ -196,7 +202,9 @@ def save_settings(settings: dict[str, Any]) -> None:
     """Persist settings to disk."""
     path = _settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def load_vehicle_params() -> dict[str, Any]:

@@ -57,17 +57,13 @@ class EmbeddedController:
             if os.path.exists(lib_path) and xodr_path:
                 self.rm_lib = EsminiRMLib(lib_path)
                 self.rm_lib.Init(xodr_path)
-                self.lateral = LateralController(
-                    rm_lib=self.rm_lib, ego_id=self.ego_id
-                )
+                self.lateral = LateralController(rm_lib=self.rm_lib, ego_id=self.ego_id)
                 print(f"[EmbeddedController] RoadManager loaded: {xodr_path}")
         except Exception as e:
             print(f"[EmbeddedController] RoadManager not available: {e}")
 
         self._frame_count = 0
-        print(
-            f"[EmbeddedController] Initialized (ego_id={self.ego_id}, dt={self.dt})"
-        )
+        print(f"[EmbeddedController] Initialized (ego_id={self.ego_id}, dt={self.dt})")
 
     def step(self, frame_data):
         """Process one simulation frame.

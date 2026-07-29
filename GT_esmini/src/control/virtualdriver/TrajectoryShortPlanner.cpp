@@ -1,5 +1,6 @@
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/common/TransitionDynamics.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 
 #include "Entities.hpp"
 #include "OSCPrivateAction.hpp"
@@ -119,13 +120,15 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     double cp_applied = 0.0;
     if (lat_actions.empty() && ctx.control_point_offset > 1e-6)
     {
-        if (pos.MoveAlongS(ctx.control_point_offset) !=
+        // [Issue #31] straight-most deterministic overload (same rationale as the preview walk below).
+        if (pos.MoveAlongS(ctx.control_point_offset, 0.0, 0.0, true,
+                           roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true) !=
             roadmanager::Position::ReturnCode::ERROR_GENERIC)
             cp_applied = ctx.control_point_offset;
     }
     snap.control_point_offset = cp_applied;
 
-    // Anchor the preview to the routed lane CENTER (offset 0) ONLY when no
+    // Anchor the preview to the CURRENT lane center (offset 0) ONLY when no
     // deliberate lateral maneuver is active. This removes an *unintended*
     // cross-track error (e.g. drift after a fast junction turn) so the driver,
     // which has no separate lane-centering term, steers back instead of tracking
@@ -134,12 +137,59 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     // relative to the current position; zeroing the offset there would drop that
     // baseline and send the lateral target haywire. Recovery resumes once the
     // maneuver completes (lat_actions empties).
+    //
+    // CORRECTED COMMENT (feature:F7, resume_merge_trajectory_design.md section
+    // 2-2): this anchors to pos.GetTrackId()/pos.GetLaneId(), which is the
+    // CURRENT (physically occupied) lane, NOT "the routed lane" an earlier
+    // version of this comment claimed -- pos.GetLaneId() tracks physical
+    // occupancy (HVDStateApplier -> SetInertiaPos -> XYZ2TrackPos -> Track2Lane),
+    // it never consults object->pos_.GetRoute(). The one exception is the
+    // resume-merge feature below (ctx.merge_active, shipped default OFF):
+    // while a merge is in progress, the anchor uses the CONTROLLER-resolved
+    // ROUTE track/lane instead, so the preview centers on the lane the merge
+    // is returning to, not whatever lane the vehicle happens to be occupying
+    // mid-recovery. See AdSteeringEnvelope.hpp's own (likewise corrected)
+    // quote of this comment.
     if (lat_actions.empty())
-        pos.SetLanePos(pos.GetTrackId(), pos.GetLaneId(), pos.GetS(), 0.0);
+    {
+        if (ctx.merge_active)
+            pos.SetLanePos(ctx.merge_track_id, ctx.merge_lane_id, pos.GetS(), 0.0);
+        else
+            pos.SetLanePos(pos.GetTrackId(), pos.GetLaneId(), pos.GetS(), 0.0);
+    }
 
     // First preview point = lane center (no maneuver) or the car's pos (maneuver),
     // giving the driver a real cross-track error to null out in the former case.
-    snap.preview.push_back({pos.GetX(), pos.GetY(), v0, 0.0});
+    //
+    // feature:F7 resume-merge: apply this frame's merge offset
+    // (ctx.merge_offset_now) to THIS point too. MoveAlongS preserves a set
+    // offset (RoadManager.cpp:10973), so an offset applied ONLY at the anchor
+    // above would turn the ENTIRE preview into a constant parallel-offset path
+    // -- the exact "parallel and off-center forever" failure this function's
+    // own comment warns about above -- instead of a converging merge.
+    // lane_sign is NOT applied: ctx.merge_offset_now is already in the raw
+    // +t-axis space Position::GetOffset()/SetLanePos's offset argument use
+    // (design doc section 2-4/2-5); that is a DIFFERENT signed space from the
+    // lane_sign correction the lat_actions overlay below needs (undoing
+    // OSCPrivateAction's lane-sign-agnostic storage), and multiplying by
+    // lane_sign here would invert the merge on one side of the road.
+    double p0x = pos.GetX();
+    double p0y = pos.GetY();
+    if (ctx.merge_active && lat_actions.empty())
+    {
+        const double road_h = pos.GetHRoad();
+        const double tx = -std::sin(road_h);
+        const double ty =  std::cos(road_h);
+        p0x += ctx.merge_offset_now * tx;
+        p0y += ctx.merge_offset_now * ty;
+    }
+    snap.preview.push_back({p0x, p0y, v0, 0.0});
+
+    // feature:F7 resume-merge: once the preview walk (below) leaves the
+    // resolved route track, the merge target is no longer meaningful there --
+    // sticky for the rest of this preview (design doc section 2 / handoff
+    // item 2, "歩行中にpos.GetTrackId() != merge_track_idになったら以降は0.0").
+    bool merge_left_route = false;
 
     double acc_dist = 0.0;
     for (int i = 1; i <= n_steps; ++i)
@@ -147,7 +197,13 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
         double v_here = SampleTargetSpeed(ctx, acc_dist);
         double ds     = std::max(cfg_.min_step, std::fabs(v_here) * dt);
 
-        int ret = static_cast<int>(pos.MoveAlongS(ds));
+        // [Issue #31] straight-most (0.0), not the -1.0 convenience overload. When the
+        // isolated prediction is off-route the -1.0 path RANDOMIZES the connecting road, so the
+        // driver-preview trajectory (snap.preview) flickers between the straight and turning
+        // connectors frame-to-frame -- the reported "straight Traj / left Traj" alternation. A
+        // valid on-route route still steers inside MoveToConnectingRoad.
+        int ret = static_cast<int>(pos.MoveAlongS(ds, 0.0, 0.0, true,
+                                                  roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC))
             break;
         acc_dist += ds;
@@ -169,6 +225,30 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
                 double delta_t = (future_off - la.current_off) * la.lane_sign;
                 px += delta_t * tx;
                 py += delta_t * ty;
+            }
+        }
+        else if (ctx.merge_active && ctx.merge_state != nullptr)
+        {
+            // feature:F7 resume-merge: ABSOLUTE per-point offset (design doc
+            // section 2-5), not the relative delta_t/lane_sign pattern above
+            // -- that pattern is for the car-anchored lat_actions overlay;
+            // this branch is for the lane-center-anchored path (mirrors the
+            // anchor SetLanePos above), where the target is the merge
+            // trajectory's absolute offset from the ROUTE lane center.
+            // lane_sign is NOT applied here (ResumeMergeProfile.hpp's SIGN
+            // CONVENTION doc / design doc section 2-4: merge_state's d(t) is
+            // already in the raw +t-axis space, like Position::GetOffset()).
+            if (pos.GetTrackId() != ctx.merge_track_id)
+                merge_left_route = true;
+
+            if (!merge_left_route)
+            {
+                const double road_h = pos.GetHRoad();
+                const double tx = -std::sin(road_h);
+                const double ty =  std::cos(road_h);
+                const double d_i = EvaluateResumeMergeOffset(*ctx.merge_state, i * dt);
+                px += d_i * tx;
+                py += d_i * ty;
             }
         }
 

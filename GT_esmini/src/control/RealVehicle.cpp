@@ -93,6 +93,7 @@ RealVehicle::RealVehicle() : vehicle::Vehicle()
     idle_rpm_ = 700.0;
     max_rpm_ = 6500.0;
     rpm_ = idle_rpm_;
+    base_rpm_ = idle_rpm_;
     gear_ratio_ = 3.5; // Legacy single-ratio fallback
 
     // Physics State
@@ -133,6 +134,7 @@ void RealVehicle::ConfigureATAndEngine()
     engine_.SetParams(ep);
     engine_.Reset();
     rpm_ = idle_rpm_;
+    base_rpm_ = idle_rpm_;
     at_seeded_ = false;
     at_manual_mode_ = false;
     engine_torque_nm_ = 0.0;
@@ -593,7 +595,8 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
     // 4. Engine: throttle + target RPM -> torque & rpm
     EngineModel::VehicleContext engine_vctx{abs_speed, slip_factor};
     engine_.Step(throttle, target_rpm, clutch_locked, engine_vctx, dt);
-    rpm_ = engine_.GetRPM();
+    rpm_ = engine_.GetRPM();            // display only (gauges/OSI) — carries idle jitter
+    base_rpm_ = engine_.GetBaseRPM();   // jitter-free — the only one physics may read
     engine_torque_nm_ = engine_.GetTorqueNm();
 
     // Torque cut during shift event: hydraulic overlap / clutch slip means
@@ -653,11 +656,34 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
     // gives a real ~5x range between 1st and top gear, instead of the legacy
     // empirical scaler. Applied when off-throttle and converter is mostly
     // locked (otherwise drag wouldn't propagate back through the TC).
+    // base_rpm_, NOT rpm_. rpm_ carries the cosmetic idle-jitter overlay, which
+    // is seeded from std::random_device whenever idle_jitter_seed is 0 (the
+    // shipped default). Reading it here made the ENTIRE simulation
+    // nondeterministic: two identical runs of the same scenario in separate
+    // processes diverged in ego.speed and then amplified through the AD
+    // closed loop. Reproduced on 3 of 6 VirtualDriver scenarios
+    // (virtual_driver_basic / decelerate_for_right_turn /
+    // traffic_lights_junction) and localized to this line — pinning the seed
+    // made all three bit-identical, and this split makes them bit-identical
+    // with the seed left free.
+    //
+    // The window is narrow, which is why it went unnoticed: the jitter is
+    // scaled by (1 - slip_factor) so it is zero above v_lockup (8 m/s), and
+    // this term only applies while slip_factor > 0.5 (v > 4 m/s) and
+    // off-throttle. So it leaks only when coasting/braking through the
+    // 4-8 m/s band — the divergences were observed at v = 7.93 and 7.92, i.e.
+    // the first frames after crossing v_lockup downward. Magnitude matches:
+    // (1-slip) ~ 2e-4 at v=7.93, x 20 RPM sigma, x 10 Nm/krpm -> ~1e-9 m/s per
+    // frame, which is exactly the observed step.
+    //
+    // Physically this is also the correct signal: compression braking is set
+    // by actual engine speed, not by a display-layer noise overlay that models
+    // idle combustion variation.
     double engine_brake_acc = 0.0;
     if (throttle < 0.05 && at_out.range != AutoTransmission::Range::NEUTRAL && slip_factor > 0.5)
     {
         double drag_nm = params_.engine_drag_base_nm
-                       + params_.engine_drag_per_krpm * (rpm_ / 1000.0);
+                       + params_.engine_drag_per_krpm * (base_rpm_ / 1000.0);
         engine_brake_acc = drag_nm * std::abs(total_ratio) * eta / r / mass;
     }
 

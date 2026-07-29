@@ -14,9 +14,41 @@
 #include "OSIReporter.hpp"
 #include "GT_OSIReporter_Internals.hpp"
 #include <array>
+#include <cctype>
+#include <cstdlib>
 #include <map>
 
 constexpr const char *SOURCE_REF_TYPE_OSC = "net.asam.openscenario";
+
+// [GT_MOD #37 G4] Env gate for the GT-only future_trajectory (Shadow Simulation) output.
+// Default ON (GT behavior unchanged): the gate only disables when GT_OSI_FUTURE_TRAJECTORY is
+// explicitly set to a falsy value (0/false/off/no). Unset or any other value -> enabled.
+// Rationale: the projected trajectory inflates/reshapes the OSI MovingObject message relative to
+// pristine upstream, which is intentional GT surface -- but upstream unit tests
+// (GroundTruthTests.check_* exact serialized sizes, GetOSIRoadLaneTest.lane_no_obj) assert
+// byte-exact upstream layouts. Those test binaries cannot call GT config APIs, so an env var
+// (read once, same lazy-init idiom as GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY in OdrJunctionGeom)
+// lets run_tests.sh turn the field off for the upstream suites only.
+static bool FutureTrajectoryEnabled()
+{
+    static int cached = -1;  // -1 = uninitialized, 0 = disabled, 1 = enabled
+    if (cached < 0)
+    {
+        bool        disabled = false;
+        const char *v        = std::getenv("GT_OSI_FUTURE_TRAJECTORY");
+        if (v != nullptr && v[0] != '\0')
+        {
+            std::string s(v);
+            for (char &c : s)
+            {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            disabled = (s == "0" || s == "false" || s == "off" || s == "no");
+        }
+        cached = disabled ? 0 : 1;
+    }
+    return cached == 1;
+}
 
 static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, id_t roadId)
 {
@@ -35,6 +67,62 @@ static int GetTargetLaneIdFromRoute(const roadmanager::Route* route, id_t roadId
     }
 
     return 0; // Not found in route, default to lane 0
+}
+
+// [GT_MOD] Resolve the OSI assigned_lane_id (lane global id) for a moving object.
+//
+// osi_object.proto defines assigned_lane_id as the lane(s) the object is *assigned*
+// to (semantic membership), not merely a lane the body geometrically overlaps.
+// Position::GetLaneGlobalId() re-derives the lane from (s_, t_) on every call via
+// GetClosestLaneIdx(..., LANE_TYPE_ANY), so a driving vehicle whose lateral offset
+// drifts outward (e.g. VirtualDriver writing back world coordinates with an
+// intentional lateral lag) gets reported as assigned to a border/sidewalk lane
+// (-2 / -3) even while the object's own cached driving lane (Position::GetLaneId(),
+// snapped with LANE_TYPE_ANY_DRIVING) stays -1. That contradicts the object's own
+// reported track/lane and the "assigned" semantics of the field.
+//
+// This helper mirrors GetLaneGlobalId()'s junction handling but, for the plain lane
+// case, returns the global id of the cached driving lane instead of re-searching all
+// lane types. It falls back to GetLaneGlobalId() whenever the road / lane section is
+// unavailable or the cached lane id has no global id in the current section, so the
+// output never regresses relative to the previous behaviour. Scope is intentionally
+// limited to the moving-object assigned_lane_id: GetLaneGlobalId() itself is left
+// untouched for its other callers (adjacency scan, RouteSignalScan, HVD) that
+// legitimately want "any lane the position sits on".
+static id_t ResolveMovingObjectAssignedLaneGlobalId(const roadmanager::Position &pos)
+{
+    using namespace roadmanager;
+
+    Road *road = pos.GetRoadById(pos.GetTrackId());
+    if (road == nullptr)
+    {
+        return pos.GetLaneGlobalId();  // no road: defer to the canonical resolver
+    }
+
+    // Parity with GetLaneGlobalId(): an object on an OSI-intersection connecting
+    // road is assigned to the intersection itself.
+    if (road->GetJunction() != ID_UNDEFINED)
+    {
+        Junction *junction = Position::GetOpenDrive()->GetJunctionById(road->GetJunction());
+        if (junction != nullptr && junction->IsOsiIntersection())
+        {
+            return junction->GetGlobalId();
+        }
+    }
+
+    LaneSection *lane_section = road->GetLaneSectionByS(pos.GetS());
+    if (lane_section == nullptr)
+    {
+        return pos.GetLaneGlobalId();
+    }
+
+    id_t global_id = lane_section->GetLaneGlobalIdById(pos.GetLaneId());
+    if (global_id == ID_UNDEFINED)
+    {
+        return pos.GetLaneGlobalId();
+    }
+
+    return global_id;
 }
 
 // [GT_MOD] Helper to generate projected trajectory based on road geometry and active actions (Shadow Simulation)
@@ -513,7 +601,11 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
         }
 
         // [New] Generate Future Trajectory
-        if (this->scenario_engine_)
+        // [GT_MOD #37 G4] env-gated (GT_OSI_FUTURE_TRAJECTORY=0 disables; default ON). This single
+        // block is the only producer of osi3 future_trajectory points: the ghost trail_ sampling
+        // below and both GenerateProjectedTrajectory call sites (whose add_future_trajectory lives
+        // inside that helper) are all reached exclusively from here.
+        if (this->scenario_engine_ && FutureTrajectoryEnabled())
         {
             int id = objectState.id_;
             scenarioengine::Object* targetObj = this->scenario_engine_->entities_.GetObjectById(id);
@@ -774,7 +866,16 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
     obj_osi_internal.mobj->mutable_base()->mutable_acceleration()->set_z(objectState.pos_.GetAccZ());
 
     // Set ego lane
-    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(objectState.pos_.GetLaneGlobalId());
+    // [GT_MOD] Use the cached driving-lane global id (see ResolveMovingObjectAssignedLaneGlobalId)
+    // so a laterally-drifting driving vehicle is not reported as assigned to a border/sidewalk lane.
+    // Dual emit during the deprecation transition: MovingObject.assigned_lane_id (field 4) is
+    // deprecated in OSI 3.7.0 in favour of MovingObjectClassification.assigned_lane_id, but the
+    // deprecated field is still what replayer's osi_receiver and the upstream UDP samples read —
+    // those are core-side consumers GT cannot patch (R1). GT-side consumers prefer the
+    // classification field and fall back to the deprecated one (gt_sim_test._gt_to_scene).
+    const id_t assigned_lane_gid = ResolveMovingObjectAssignedLaneGlobalId(objectState.pos_);
+    obj_osi_internal.mobj->add_assigned_lane_id()->set_value(assigned_lane_gid);
+    obj_osi_internal.mobj->mutable_moving_object_classification()->add_assigned_lane_id()->set_value(assigned_lane_gid);
 
     // simplified wheel info, set nr wheels based on object type
     // can be improved by considering axels and actual wheel configuration
@@ -817,8 +918,9 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
         }
     }
 
-    // Set 3D model file as OSI model reference
-    obj_osi_internal.mobj->set_model_reference(objectState.GetModel3DFilename());
+    // [fork-sync #37 G3] Set 3D model file as OSI model reference. Upstream 752dcaa0..77028d83 switched
+    // this from the bare filename (GetModel3DFilename) to the full resolved path (GetModel3DFullPath).
+    obj_osi_internal.mobj->set_model_reference(objectState.GetModel3DFullPath());
 
     // SOURCE REFERENCE
     auto source_reference = obj_osi_internal.mobj->add_source_reference();
@@ -828,6 +930,16 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
     source_reference->add_identifier(fmt::format("entity_type:{}", entity_type));
     source_reference->add_identifier(fmt::format("entity_name:{}", objectState.name_));
 
+    // [fork-sync #37 G3] Color (ported from upstream): report the authored <Color> (if any) as an OSI
+    // color_description RGB triplet.
+    if (!objectState.GetColorStr().empty())
+    {
+        auto rgb = objectState.GetColorRgb();
+        obj_osi_internal.mobj->mutable_color_description()->mutable_rgb()->set_red(rgb.r);
+        obj_osi_internal.mobj->mutable_color_description()->mutable_rgb()->set_green(rgb.g);
+        obj_osi_internal.mobj->mutable_color_description()->mutable_rgb()->set_blue(rgb.b);
+    }
+
     // Set source reference if available
     if (!objectState.GetSourceReference().empty())
     {
@@ -835,6 +947,14 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
         {
             source_reference->add_identifier(ref);
         }
+    }
+
+    // [fork-sync #37 G3] Set outline if available (ported from upstream): obj.outline_2d_ -> base_polygon.
+    for (const auto &p : objectState.outline_2d_)
+    {
+        osi3::Vector2d *vec = obj_osi_internal.mobj->mutable_base()->add_base_polygon();
+        vec->set_x(p.x);
+        vec->set_y(p.y);
     }
 
     return 0;

@@ -1,0 +1,74 @@
+[
+  {
+    "rule_name": "road.object.marking.colour",
+    "category": "road.object.marking",
+    "version": "1.7.0",
+    "description": "The color of the marking shall be defined."
+  },
+  {
+    "rule_name": "road.object.marking.complete_or_partial_on_outline",
+    "category": "road.object.marking",
+    "version": "1.9.0",
+    "description": "The marking of an object with an &lt;outlines&gt; element shall either completely or partially be defined on one of its outlines."
+  },
+  {
+    "rule_name": "road.object.marking.markings_with_outline",
+    "category": "road.object.marking",
+    "version": "1.9.0",
+    "description": "If an outline is used, any &lt;markings&gt; element shall be inside an &lt;outline&gt; element."
+  },
+  {
+    "rule_name": "road.object.marking.markings_without_outline",
+    "category": "road.object.marking",
+    "version": "1.9.0",
+    "description": "If no outline is used, the &lt;markings&gt; element shall be inside the &lt;object&gt; element."
+  },
+  {
+    "rule_name": "road.object.marking.no_cornerreference_if_no_outline",
+    "category": "road.object.marking",
+    "version": "1.7.0",
+    "description": "If no outline is used, the &lt;cornerReference&gt; element cannot be used."
+  },
+  {
+    "rule_name": "road.object.marking.no_outline_side_attr",
+    "category": "road.object.marking",
+    "version": "1.7.0",
+    "description": "If no outline is used, the @side attribute is mandatory."
+  },
+  {
+    "rule_name": "road.object.marking.outline_corner_reference_count",
+    "category": "road.object.marking",
+    "version": "1.7.0",
+    "description": "If an outline is used, at least two &lt;cornerReference&gt; elements are mandatory."
+  },
+  {
+    "rule_name": "road.object.object_marking.colour",
+    "category": "road.object.object_marking",
+    "version": "1.9.0",
+    "description": "The color of the marking shall be defined."
+  },
+  {
+    "rule_name": "road.object.object_marking.enclosed_outline_marking",
+    "category": "road.object.object_marking",
+    "version": "1.9.0",
+    "description": "To specify a marking that fully encloses an object on a closed outline, the &lt;marking&gt; shall have two &lt;cornerReference&gt; elements with the same @id."
+  },
+  {
+    "rule_name": "road.object.object_marking.include_points_between_cornerReferences",
+    "category": "road.object.object_marking",
+    "version": "1.9.0",
+    "description": "For &lt;marking&gt; elements with &lt;cornerReference&gt; elements that are not directly subsequent on the outline, all points in between shall be included as well."
+  },
+  {
+    "rule_name": "road.object.object_marking.keep_id_ordered",
+    "category": "road.object.object_marking",
+    "version": "1.9.0",
+    "description": "&lt;cornerReference&gt; elements shall use the same order of @id attributes as the points of the outline they belong to."
+  },
+  {
+    "rule_name": "road.object.object_marking.outline_corner_reference_count",
+    "category": "road.object.object_marking",
+    "version": "1.9.0",
+    "description": "If an outline is used, at least two &lt;cornerRoad&gt; elements or at least two &lt;cornerLocal&gt; elements or at least one &lt;curveLocal&gt; element shall be referenced via &lt;cornerReference&gt; elements."
+  }
+]

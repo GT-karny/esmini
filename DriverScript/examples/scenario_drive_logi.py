@@ -22,8 +22,9 @@ from realdriver import (
     RealDriverClient,
     ScenarioDriveController,
     Waypoint,
-    OSIReceiverWrapper
+    OSIReceiverWrapper,
 )
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -35,7 +36,9 @@ try:
 except ImportError:
     # Fallback if running from examples directory without package installed
     # Add parent drive to path
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+    sys.path.append(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    )
     from DriverScript.realdriver import logi_steer
 
 
@@ -60,31 +63,53 @@ def main():
     parser = argparse.ArgumentParser(
         description="ScenarioDrive + LogiSteer Controller Example"
     )
-    parser.add_argument("--ip", type=str, default="127.0.0.1",
-                        help="esmini Host IP")
-    parser.add_argument("--port", type=int, default=53995,
-                        help="RealDriver Base Port")
-    parser.add_argument("--osi_port", type=int, default=48198,
-                        help="OSI Port")
-    parser.add_argument("--target_speed_port", type=int, default=54995,
-                        help="Deprecated: ignored by embedded-only ScenarioDriveController")
-    parser.add_argument("--id", type=int, default=0,
-                        help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default=default_lib_path,
-                        help="Path to esminiRMLib.dll")
-    parser.add_argument("--gt_lib_path", type=str, default=default_gt_lib_path,
-                        help="Path to GT_esminiLib.dll (for routing)")
-    parser.add_argument("--xodr_path", type=str, required=True,
-                        help="Path to OpenDRIVE map file (.xodr)")
-    parser.add_argument("--target_speed", type=float, default=10.0,
-                        help="Default target speed in m/s")
-    parser.add_argument("--mode", type=str, default="waypoints",
-                        choices=["waypoints", "target"],
-                        help="Control mode: waypoints=explicit, target=auto-route")
-    parser.add_argument("--target_x", type=float, default=300.0,
-                        help="Target X coordinate (for target mode)")
-    parser.add_argument("--target_y", type=float, default=0.0,
-                        help="Target Y coordinate (for target mode)")
+    parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
+    parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
+    parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
+    parser.add_argument(
+        "--target_speed_port",
+        type=int,
+        default=54995,
+        help="Deprecated: ignored by embedded-only ScenarioDriveController",
+    )
+    parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
+    parser.add_argument(
+        "--lib_path", type=str, default=default_lib_path, help="Path to esminiRMLib.dll"
+    )
+    parser.add_argument(
+        "--gt_lib_path",
+        type=str,
+        default=default_gt_lib_path,
+        help="Path to GT_esminiLib.dll (for routing)",
+    )
+    parser.add_argument(
+        "--xodr_path",
+        type=str,
+        required=True,
+        help="Path to OpenDRIVE map file (.xodr)",
+    )
+    parser.add_argument(
+        "--target_speed", type=float, default=10.0, help="Default target speed in m/s"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="waypoints",
+        choices=["waypoints", "target"],
+        help="Control mode: waypoints=explicit, target=auto-route",
+    )
+    parser.add_argument(
+        "--target_x",
+        type=float,
+        default=300.0,
+        help="Target X coordinate (for target mode)",
+    )
+    parser.add_argument(
+        "--target_y",
+        type=float,
+        default=0.0,
+        help="Target Y coordinate (for target mode)",
+    )
     add_dump_argspec_option(parser)
 
     args = parser.parse_args()
@@ -99,7 +124,6 @@ def main():
     ):
         return 0
 
-
     # 0. Initialize LogiSteer
     print("Initializing Logitech Steering Wheel...")
     if not logi_steer.Init():
@@ -110,7 +134,7 @@ def main():
         # User requested specific function so we should probably warn strongly or exit.
         # Let's try to proceed but warn.
         print("        Proceeding without Force Feedback/Input (Simulation Only).")
-    
+
     # 1. Initialize RealDriverClient
     print(f"Connecting to RealDriver via UDP at {args.ip}:{args.port}")
     client = RealDriverClient(args.ip, args.port)
@@ -132,7 +156,7 @@ def main():
             steering_pid=(1.5, 0.01, 0.1),
             speed_pid=(0.3, 0.01, 0.0),
             lane_change_time=5.0,
-            lookahead_distance=10.0
+            lookahead_distance=10.0,
         )
     except Exception as e:
         print(f"Failed to initialize ScenarioDrive Controller: {e}")
@@ -184,12 +208,14 @@ def main():
             auto_steering = 0.0
             throttle = 0.0
             brake = 0.0
-            
+
             if ground_truth is not None:
                 try:
                     # auto_steering is the Calculated Ideal Steering from PID
-                    auto_steering_opt, throttle_opt, brake_opt = controller.update(ground_truth, dt)
-                    
+                    auto_steering_opt, throttle_opt, brake_opt = controller.update(
+                        ground_truth, dt
+                    )
+
                     if auto_steering_opt is None:
                         # No route
                         if not no_route_warning_shown:
@@ -197,13 +223,13 @@ def main():
                             no_route_warning_shown = True
                         auto_steering = 0.0
                         throttle = 0.0
-                        brake = 0.0 # Or keep previous? Safe to stop.
+                        brake = 0.0  # Or keep previous? Safe to stop.
                     else:
                         no_route_warning_shown = False
                         auto_steering = auto_steering_opt
                         throttle = throttle_opt
                         brake = brake_opt
-                        
+
                 except Exception as e:
                     print(f"Controller Error: {e}")
                     auto_steering = 0.0
@@ -224,21 +250,21 @@ def main():
             except Exception as e:
                 # Safety if LogiSteer fails
                 is_reset = False
-            
+
             if is_reset:
-                 # Override Auto Steering force to 0 (Center)
-                 auto_steering = 0.0
-                 # Force simulation input to 0 (Virtual Center)
-                 actual_steer = 0.0
-                 print(f" [RESET ACTIVE] Button Pressed. Steering centered.")
+                # Override Auto Steering force to 0 (Center)
+                auto_steering = 0.0
+                # Force simulation input to 0 (Virtual Center)
+                actual_steer = 0.0
+                print(f" [RESET ACTIVE] Button Pressed. Steering centered.")
             else:
-                 # B. Get Actual Physical Steering Angle
-                 actual_steer = logi_steer.GetSteerAngle()
+                # B. Get Actual Physical Steering Angle
+                actual_steer = logi_steer.GetSteerAngle()
 
             # A. Set Force Feedback (Target Angle)
             # auto_steering is Positive-Left. LogiSteer accepts Positive-Left.
             logi_steer.SetSteerAngle(auto_steering)
-            
+
             # --- 4. Send Controls via RealDriverClient ---
             # RealDriver expects Positive-Left
             # actual_steer is Positive-Left (or 0.0 if reset)
@@ -251,11 +277,13 @@ def main():
                 speed = controller._last_speed
                 target_spd = controller.target_speed
                 reset_str = " [RESET]" if is_reset else ""
-                print(f"Speed: {speed:.2f}/{target_spd:.2f} | "
-                      f"AutoSteer: {auto_steering:.3f} | "
-                      f"PhysSteer: {actual_steer:.3f} | "
-                      f"Thr: {throttle:.2f}{reset_str}")
-            
+                print(
+                    f"Speed: {speed:.2f}/{target_spd:.2f} | "
+                    f"AutoSteer: {auto_steering:.3f} | "
+                    f"PhysSteer: {actual_steer:.3f} | "
+                    f"Thr: {throttle:.2f}{reset_str}"
+                )
+
             frame_number += 1
 
     except KeyboardInterrupt:
@@ -264,7 +292,7 @@ def main():
         print("Closing connections...")
         # Shutdown Logi
         logi_steer.Shutdown()
-        
+
         controller.close()
         osi_rx.close()
         client.close()

@@ -3320,7 +3320,7 @@ namespace roadmanager
         ContactPointType                contact_point_;
         std::vector<JunctionLaneLink *> lane_link_;
         double                          incoming_contact_s_ = -1.0, outgoing_contact_s_ = -1.0;  // [GT_ODR:vj-model] main-road anchor s
-        bool                            is_virtual_         = false;  // kind-2 topological connection (no connecting road)
+        bool                            is_virtual_ = false;                                     // kind-2 topological connection (no connecting road)
     };
 
     typedef struct
@@ -3607,6 +3607,8 @@ namespace roadmanager
                                  std::vector<double>      &y0,
                                  std::vector<double>      &x1,
                                  std::vector<double>      &y1,
+                                 std::vector<double>      &x_last_ok,
+                                 std::vector<double>      &y_last_ok,
                                  double                   &step,
                                  bool                     &osi_requirement,
                                  std::vector<PointStruct> &osi_point,
@@ -3821,12 +3823,13 @@ namespace roadmanager
         std::vector<std::pair<id_t, std::string>> road_ids_;
         std::vector<std::pair<id_t, std::string>> junction_ids_;
         std::vector<Signal *>                     dynamic_signals_;
-
-        std::map<id_t, std::vector<VirtualJunctionAnchor>> virtual_junction_anchors_;  // [GT_ODR:vj-model] per-main-road anchor registry
-
         id_t                                      LookupIdFromStr(std::vector<std::pair<id_t, std::string>> &ids, std::string id_str);
         bool                                      ParseOpenDriveXML(const pugi::xml_document &doc);
 
+        // [GT_ODR:vj-model] per-main-road anchor registry。upstream の桁揃えグループ
+        // （dynamic_signals_..ParseOpenDriveXML）の**外**に置くこと: グループ中央に挿入すると
+        // clang-format が upstream 行ごと再整形し census の additive_only が破れる（2026-07-21）。
+        std::map<id_t, std::vector<VirtualJunctionAnchor>> virtual_junction_anchors_;
         void EstablishVirtualJunctionConnections();  // [GT_ODR:vj-synth] anchor binding + counter-connection synthesis + registry (S3)
     };
 

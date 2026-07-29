@@ -32,6 +32,27 @@ SCHEMA_MAPPINGS = {
     },
 }
 
+# Files that are intentionally authored to a spec version this validator has no
+# vendored XSD for, so they cannot be schema-checked here. These are NOT defects:
+# they are legitimate OpenDRIVE 1.9 verification assets from the GT ODR 1.6-1.9
+# program (see GT_esmini/docs/knowledge/opendrive_annexf_rules_v1.9.0.md). No
+# OpenDRIVE 1.9 schema is bundled under resources/schema/ (SCHEMA_MAPPINGS stops
+# at "8"), so this gate would spuriously fail them on "minor version 9 found".
+# Their conformance is covered instead by the 1.9 layer of run_odr_conformance.py.
+# Matched by normalized path suffix; kept SKIP-and-logged so the exemption stays
+# visible in gate output. Remove an entry here once a 1.9 XSD is vendored.
+KNOWN_VALIDATOR_GAPS = {
+    "resources/xodr/straight_invalidated_stop_sign.xodr",
+    "resources/xodr/straight_semantic_stop_sign.xodr",
+}
+
+
+def is_validator_gap(file_path):
+    """True if *file_path* matches a KNOWN_VALIDATOR_GAPS entry (path-suffix,
+    OS-separator agnostic)."""
+    norm = file_path.replace(os.sep, "/")
+    return any(norm == gap or norm.endswith("/" + gap) for gap in KNOWN_VALIDATOR_GAPS)
+
 
 class XmlValidation:
     def __init__(self):
@@ -41,6 +62,7 @@ class XmlValidation:
         self.errors = []
         self.count_of_files_validated = 0
         self.count_of_files_failed = 0
+        self.skipped_files = []
 
     def get_count_of_files_validated(self):
         return self.count_of_files_validated
@@ -66,6 +88,14 @@ class XmlValidation:
         self.increase_files_failed_to_validate()
 
     def print_errors(self):
+        if self.skipped_files:
+            print(
+                "{} file(s) SKIPPED (known validator gap, no vendored schema):".format(
+                    len(self.skipped_files)
+                )
+            )
+            for item in self.skipped_files:
+                print(f"  [SKIP] {item}")
         if self.get_count_of_files_failed_to_validate() > 0:
             print(f"Issues:")
             for item in self.errors:
@@ -217,6 +247,13 @@ class XmlValidation:
         self.validate_argument(paths)
         self.set_xml_files_to_validate(paths)
         for file in self.get_xml_files_to_validate():
+            if is_validator_gap(file):
+                # Known validator gap (e.g. OpenDRIVE 1.9, no vendored XSD):
+                # skip-and-log instead of failing. Conformance is covered by
+                # run_odr_conformance.py's 1.9 layer.
+                print(f"[SKIP] {file} (known validator gap)", flush=True)
+                self.skipped_files.append(file)
+                continue
             if self.open_file(file):
                 revMinor = self.get_xml_header_minor_revision(file)
                 if revMinor is not None:

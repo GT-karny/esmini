@@ -6,7 +6,7 @@
   virtual-junction span [95,105] but STILL on road 1. This exercises the T2
   pass-through invariant at VD level: the VD must drive straight THROUGH the
   anchor (s=100) and never depart onto the branch road 2. The route never leaves
-  road 1, so its single leg is the whole main road -- a waypoint beyond the anchor
+  road 1, so its single leg is the whole main road - a waypoint beyond the anchor
   on road 1 is legal (it is positions beyond a LEG'S anchor that S4's SetTrackS
   clamp rejects; here there is no branch leg).
 
@@ -28,6 +28,7 @@
    <ParameterDeclarations>
       <ParameterDeclaration name="EgoSpeed" parameterType="double" value="9.0"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/virtual_junction_23.xodr"/>
    </RoadNetwork>

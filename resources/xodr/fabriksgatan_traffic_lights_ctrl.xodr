@@ -1096,6 +1096,11 @@
         <surface>
         </surface>
     </road>
+    <controller id="100" name="IntersectionCtrl" sequence="0">
+        <control signalId="1" type=""/>
+        <control signalId="2" type=""/>
+        <control signalId="3" type=""/>
+    </controller>
     <junction name="" id="4">
         <connection id="0" incomingRoad="0" connectingRoad="8" contactPoint="start">
             <laneLink from="1" to="-1"/>
@@ -1142,9 +1147,4 @@
             <laneLink from="-1" to="-1"/>
         </connection>
     </junction>
-    <controller id="100" name="IntersectionCtrl" sequence="0">
-        <control signalId="1" type=""/>
-        <control signalId="2" type=""/>
-        <control signalId="3" type=""/>
-    </controller>
 </OpenDRIVE>

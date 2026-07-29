@@ -10,7 +10,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -45,7 +47,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -80,7 +84,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -116,7 +122,9 @@
                 <line/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -164,7 +172,9 @@
                 <spiral curvStart="-0.06909484644623466" curvEnd="9.999999994736442e-10"/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">
@@ -212,7 +222,9 @@
                 <spiral curvStart="0.0690948457876379" curvEnd="9.999999994736442e-10"/>
             </geometry>
         </planView>
-        <elevationProfile/>
+        <elevationProfile>
+            <elevation s="0" a="0" b="0" c="0" d="0"/>
+        </elevationProfile>
         <lateralProfile/>
         <lanes>
             <laneSection s="0">

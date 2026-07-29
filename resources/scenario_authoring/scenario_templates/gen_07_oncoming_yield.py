@@ -76,6 +76,7 @@ Usage:
     DriverScript/.venv/Scripts/python.exe \
         resources/scenario_authoring/scenario_templates/gen_07_oncoming_yield.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -102,7 +103,6 @@ from authoring_common import (  # noqa: E402
 )
 from scenariogeneration import xosc  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Road / geometry constants (t_junction__a90.xodr) — see module docstring.
 # ---------------------------------------------------------------------------
@@ -110,16 +110,16 @@ ROAD_REF = "t_junction__a90"
 ROADFILE_REL = f"../../road_catalog/generated/{ROAD_REF}.xodr"
 PHASE = "3d"
 
-LEG_LEN = 100.0          # each approach leg length (s of junction entry)
-EGO_ROAD = 1             # east main leg
-EGO_EXIT_ROAD = 2        # south minor leg
-EGO_EXIT_LANE = 1        # lane +1 on road 2 = driving south, away from junction
-ONC_ROAD = 0             # west main leg
-ONC_EXIT_ROAD = 1        # straight through onto the east leg
-DRIVE_LANE = -1          # RHT right-hand lane toward the junction
+LEG_LEN = 100.0  # each approach leg length (s of junction entry)
+EGO_ROAD = 1  # east main leg
+EGO_EXIT_ROAD = 2  # south minor leg
+EGO_EXIT_LANE = 1  # lane +1 on road 2 = driving south, away from junction
+ONC_ROAD = 0  # west main leg
+ONC_EXIT_ROAD = 1  # straight through onto the east leg
+DRIVE_LANE = -1  # RHT right-hand lane toward the junction
 
-EGO_TELEPORT_S = 20.0    # 80 m back from the junction entry (ego "settles")
-EGO_SPEED = 13.9         # ~50 km/h cruise
+EGO_TELEPORT_S = 20.0  # 80 m back from the junction entry (ego "settles")
+EGO_SPEED = 13.9  # ~50 km/h cruise
 
 # Half-junction distances to the conflict point (junction centre ~ x=120).
 # Ego: road1 entry at s=100 (x=140) then ~16.6 m along conn road 102 to centre.
@@ -133,7 +133,7 @@ ONC_TELEPORT_S = 2.0
 ONC_JUNCTION_OFFSET = 20.0
 ONC_DIST_TO_CONFLICT = (LEG_LEN - ONC_TELEPORT_S) + ONC_JUNCTION_OFFSET  # 118 m
 
-INTER_GAP_S = 2.0        # fixed inter-vehicle gap when oncoming_count == 3
+INTER_GAP_S = 2.0  # fixed inter-vehicle gap when oncoming_count == 3
 STOP_TIME_S = 35.0
 
 # Param-sweep axes (order defines the p### index).
@@ -145,6 +145,7 @@ ONCOMING_COUNTS = [1, 3]
 # ---------------------------------------------------------------------------
 # tests_for distribution-slice description (doc section 9-2)
 # ---------------------------------------------------------------------------
+
 
 def _gap_slice(first_gap_s: float) -> str:
     """Where in the accept/reject decision distribution this gap probes."""
@@ -158,7 +159,11 @@ def _gap_slice(first_gap_s: float) -> str:
 
 
 def _tests_for(oncoming_speed: float, first_gap_s: float, oncoming_count: int) -> str:
-    stream = "single oncoming car" if oncoming_count == 1 else f"{oncoming_count}-car oncoming platoon"
+    stream = (
+        "single oncoming car"
+        if oncoming_count == 1
+        else f"{oncoming_count}-car oncoming platoon"
+    )
     return (
         f"left-turn-across-traffic gap judgement vs a {stream} at "
         f"{oncoming_speed:g} m/s; probes the {_gap_slice(first_gap_s)} "
@@ -170,6 +175,7 @@ def _tests_for(oncoming_speed: float, first_gap_s: float, oncoming_count: int) -
 # One variant
 # ---------------------------------------------------------------------------
 
+
 def build_variant(
     idx: int, oncoming_speed: float, first_gap_s: float, oncoming_count: int
 ) -> tuple[xosc.Scenario, dict, dict, str]:
@@ -177,12 +183,16 @@ def build_variant(
 
     # --- entities -------------------------------------------------------
     entities = xosc.Entities()
-    entities.add_scenario_object("Ego", make_ego_vehicle(), make_virtual_driver_controller())
+    entities.add_scenario_object(
+        "Ego", make_ego_vehicle(), make_virtual_driver_controller()
+    )
     onc_names = [f"Onc{k}" for k in range(oncoming_count)]
     for k, name in enumerate(onc_names):
         # Stagger the standing oncoming cars along the leg so they don't overlap
         # before launch (later cars sit slightly further back).
-        entities.add_scenario_object(name, make_npc_vehicle(model_id="1", name="car_red"))
+        entities.add_scenario_object(
+            name, make_npc_vehicle(model_id="1", name="car_red")
+        )
 
     # --- init -----------------------------------------------------------
     init = xosc.Init()
@@ -196,9 +206,15 @@ def build_variant(
         ],
     )
     add_routed_actor_init(
-        init, "Ego", lane_pos(EGO_ROAD, DRIVE_LANE, EGO_TELEPORT_S), ego_route, EGO_SPEED
+        init,
+        "Ego",
+        lane_pos(EGO_ROAD, DRIVE_LANE, EGO_TELEPORT_S),
+        ego_route,
+        EGO_SPEED,
     )
-    init.add_init_action("Ego", xosc.ActivateControllerAction(lateral=True, longitudinal=True))
+    init.add_init_action(
+        "Ego", xosc.ActivateControllerAction(lateral=True, longitudinal=True)
+    )
 
     # Oncoming cars: teleported AT REST near the west-leg start, straight-through
     # route, launched later (see make_launch_act). Standing positions are spaced
@@ -292,12 +308,16 @@ def build_variant(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate the Phase 3d oncoming-yield scenario grid (24 variants)."
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=None, metavar="DIR",
+        "--out-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
         help="Output directory. Default: <this file's dir>/generated.",
     )
     return parser.parse_args()
@@ -305,8 +325,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    out_dir: Path = args.out_dir if args.out_dir is not None else (
-        Path(__file__).resolve().parent / "generated"
+    out_dir: Path = (
+        args.out_dir
+        if args.out_dir is not None
+        else (Path(__file__).resolve().parent / "generated")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 

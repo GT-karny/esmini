@@ -1,0 +1,32 @@
+name: scenario_handoff
+origin: feature:F7   # 由来（工程）はメタデータ。名前には焼き込まない — capability_model.md §7.1 規約2
+# feature:F7 scenario-driven control handover (docs/virtualdriver/
+# scenario_control_handoff_design.md). No OSI capture needed -- the sole
+# matcher (vd_control_relinquished) reads telemetry.vd_active only. No
+# `baseline:` -- judgment is from VirtualDriver telemetry, same convention as
+# car_following_traffic_control (which this manifest deliberately does NOT
+# touch: a separate manifest + separate baseline, per design doc Fact M).
+#
+# Run:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/scenario_handoff_batch.yaml --out test_results/regression/scenario_handoff
+defaults:
+  dt: 0.05
+  max_time: 20.0
+  snapshots: 3
+  osi: false
+scenarios:
+  - scenario: resources/xosc/verification/08_handoff/scenario_deactivate_vd.xosc
+    expectations: resources/xosc/verification/08_handoff/scenario_deactivate_vd.expectations.yaml
+  # feature:F7 — the OTHER route out of control. The scenario above hands back
+  # via Activate()-with-OFF-modes; this one has a domain taken away, which
+  # upstream implements as DeactivateDomains() on the incumbent. Two different
+  # code paths to the same obligation (release the servo), so both are gated.
+  #
+  # This was briefly left out on the reasoning that teardown and re-activation
+  # cancel within one frame and so could not be seen in per-frame telemetry.
+  # That was wrong, and measuring settled it: after the per-domain teardown the
+  # following Activate() is ACTIVE->ACTIVE, which deliberately does NOT re-run
+  # SetUpControlOutputs(), so vd_active stays false for the rest of the run.
+  - scenario: resources/xosc/verification/08_handoff/scenario_domain_takeover_vd.xosc
+    expectations: resources/xosc/verification/08_handoff/scenario_domain_takeover_vd.expectations.yaml

@@ -2,6 +2,7 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"  // F3: GetJunctionPriorities (P5 side model)
 
 #include <algorithm>
@@ -272,7 +273,14 @@ std::vector<PathPoint> PredictPath(Object* obj, double lookahead, double step)
     double traveled = 0.0;
     while (traveled < lookahead)
     {
-        const int ret = static_cast<int>(pos.MoveAlongS(step));
+        // [Issue #31] junctionSelectorAngle = 0.0 (straight-most, deterministic), NOT the
+        // convenience overload's -1.0 which RANDOMIZES the connecting road whenever the
+        // isolated prediction is off-route (on_route_ == false). Random selection makes the
+        // ego corridor flicker between the straight and turning connectors frame-to-frame
+        // (Issue #31 "straight/left Traj alternation"). A valid on-route route still wins
+        // inside MoveToConnectingRoad. Mirrors RouteCrosswalkScan / FindUpcomingConnectingRoad.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret < 0) break;  // end of route / off-route
         traveled += step;
         out.push_back({pos.GetX(), pos.GetY(), traveled});
@@ -541,13 +549,14 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
     }
 
     // ── Per-frame scan: find the nearest governing space-time conflict. ────────
-    bool   gov_found    = false;
-    double gov_se_in    = 0.0;  // ego region entry arc-length of the governing conflict
-    double gov_exit_x   = 0.0;  // governing other's region-exit world point (release ref)
-    double gov_exit_y   = 0.0;
-    double gov_exit_tx  = 1.0;  // other's path tangent at the exit (fixed release axis)
-    double gov_exit_ty  = 0.0;
-    int    gov_other_id = -1;
+    bool   gov_found          = false;
+    double gov_se_in          = 0.0;  // ego region entry arc-length of the governing conflict
+    double gov_exit_x         = 0.0;  // governing other's region-exit world point (release ref)
+    double gov_exit_y         = 0.0;
+    double gov_exit_tx        = 1.0;  // other's path tangent at the exit (fixed release axis)
+    double gov_exit_ty        = 0.0;
+    int    gov_other_id       = -1;
+    int    pruned_by_priority = 0;  // conflicts dropped because the ego out-ranked them (F3)
 
     // Cache of the scan pass keyed on the CURRENTLY-latched governing id, so the
     // latch block below reuses this frame's PredictPath/region instead of redoing
@@ -603,6 +612,7 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
                 junction_priority::Resolve(ego_conn, oth_conn, ego_priorities) ==
                     junction_priority::Relation::EGO_PRIORITY)
             {
+                ++pruned_by_priority;
                 continue;
             }
         }
@@ -769,7 +779,15 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         committed_exit_ty_  = gov_exit_ty;
     }
 
+    // Negative diagnosis (W3 pattern): a right-of-way pass-through must stay
+    // distinguishable from "saw no conflict at all" — this count is the only
+    // externally visible trace that F3 priority actively dropped candidates.
+    if (have_ego_priority) AddDetail(snap.detail, "gt.conflict_point.priority_pruned", pruned_by_priority);
+
     if (!committed_) return snap;  // free to proceed — no constraint
+
+    AddDetail(snap.detail, "gt.conflict_point.other_id", committed_other_id_);
+    AddDetail(snap.detail, "gt.conflict_point.stop_s_m", committed_stop_s_);
 
     PolicyConstraint c;
     c.kind   = PolicyConstraint::Kind::STOP_AT_S;

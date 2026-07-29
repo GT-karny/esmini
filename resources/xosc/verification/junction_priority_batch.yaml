@@ -1,0 +1,40 @@
+name: junction_priority
+origin: vd-phase:Phase3e
+# Phase 3e (F3) unsignalised-junction right-of-way verification batch.
+# The JunctionPriority layer inside ConflictPointResolver consumes the OpenDRIVE
+# <junction><priority high low> list (P5 side model, GetJunctionPriorities) to
+# decide whether the ego yields at an unsignalised crossing:
+#   * ego on the HIGH connecting road  -> PROCEED (does not yield to the LOW crosser)
+#   * ego on the LOW  connecting road  -> YIELD   (base conflict behaviour stands)
+# Junctions without <priority> data, or an unrelated connecting-road pair, fall back
+# to the base yield (documented-safe default).
+#
+# Discriminator PAIR (matched geometry, identical cross-first timing @11 m/s, only
+# the priority side swapped) on the 4way_priority__main_ns junction:
+#   p001  ego on the N-S PRIORITY road (conn 100 HIGH)  -> PROCEED, min speed 10.97
+#   p004  ego on the E-W MINOR    road (conn 101 LOW)   -> YIELD,   trough 1.75
+#
+# Feature is load-bearing, not timing: the SAME p001 scenario with the flag OFF
+# (policies:[conflict]) makes the priority ego YIELD to a 1.35 m/s crawl; adding
+# junction_priority lifts the trough to 10.91. See the two expectations files.
+#
+# policies:[conflict, junction_priority] — the F3 gate lives INSIDE the conflict
+# resolver, so both flags must be on. gt_sim_test injects a per-run absolute-path
+# ConfigFile (base config + both enable flags). osi:true feeds the
+# min_obb_separation_above anti-collision gate from the captured OSI scene.
+#
+# Run:
+#   py GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/junction_priority_batch.yaml --out test_results/web/phase3e
+defaults:
+  dt: 0.05
+  max_time: 35.0
+  snapshots: 3
+  osi: true
+scenarios:
+  - scenario: resources/scenario_authoring/scenario_templates/generated/08_unsignalized_junction__p001.xosc
+    expectations: resources/xosc/verification/08_unsignalized_junction/p001_priority_proceed.expectations.yaml
+    policies: [conflict, junction_priority]
+  - scenario: resources/scenario_authoring/scenario_templates/generated/08_unsignalized_junction__p004.xosc
+    expectations: resources/xosc/verification/08_unsignalized_junction/p004_nonpriority_yield.expectations.yaml
+    policies: [conflict, junction_priority]

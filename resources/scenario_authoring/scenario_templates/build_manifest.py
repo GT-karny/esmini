@@ -2,7 +2,7 @@
 """build_manifest.py — emit a gt_sim_test batch manifest from the generated catalog.
 
 Globs scenario_templates/generated/*.xosc + their *.meta.yaml and writes
-scenario_templates/generated/catalog_batch.yaml in EXACTLY the phase3_batch.yaml
+scenario_templates/generated/catalog_batch.yaml in EXACTLY the car_following_traffic_control_batch.yaml
 format that gt_sim_test.batch() consumes:
 
     name: scenario_authoring_catalog
@@ -21,6 +21,7 @@ Regenerate with:
     DriverScript/.venv/Scripts/python.exe \
         resources/scenario_authoring/scenario_templates/build_manifest.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -38,7 +39,7 @@ _GEN = Path(__file__).resolve().parent / "generated"
 _MANIFEST = _GEN / "catalog_batch.yaml"
 _REPO = repo_root()
 
-# Batch defaults — mirror phase3_batch.yaml; max_time 40 so the 35 s stop trigger
+# Batch defaults — mirror car_following_traffic_control_batch.yaml; max_time 40 so the 35 s stop trigger
 # always fires within the cap. osi true so annotators get the captured scene.
 _DEFAULTS = {"dt": 0.05, "max_time": 40.0, "snapshots": 3, "osi": True}
 
@@ -49,7 +50,7 @@ _HEADER = (
     "#   DriverScript/.venv/Scripts/python.exe \\\n"
     "#       resources/scenario_authoring/scenario_templates/build_manifest.py\n"
     "#\n"
-    "# Format = the phase3_batch.yaml schema consumed by gt_sim_test.batch().\n"
+    "# Format = the car_following_traffic_control_batch.yaml schema consumed by gt_sim_test.batch().\n"
     "# evaluation is annotation (human), so NO expectations/baseline are emitted:\n"
     "# the batch yields telemetry + snapshots; verdict is null/absent by design.\n"
 )
@@ -83,7 +84,9 @@ def build() -> dict:
 
 def main() -> int:
     manifest = build()
-    body = yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    body = yaml.safe_dump(
+        manifest, sort_keys=False, allow_unicode=True, default_flow_style=False
+    )
     _MANIFEST.write_text(_HEADER + body, encoding="utf-8")
     print(f"[manifest] {len(manifest['scenarios'])} scenarios -> {_MANIFEST}")
     return 0

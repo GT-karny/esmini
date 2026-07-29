@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — scenario-driven PER-DOMAIN takeover (OpenSCENARIO v1.3 path).
+
+  WHY THIS EXISTS, and why scenario_deactivate_vd.xosc does not cover it.
+
+  That scenario hands control back with ActivateControllerAction
+  lateral="false" longitudinal="false", which upstream routes through
+  Controller::Activate() with OFF modes. This one exercises a DIFFERENT and
+  previously untested route: from OSC v1.3 onwards, activating ANOTHER
+  controller on a domain deactivates the incumbent PER DOMAIN, and
+  OSCPrivateAction.cpp does that by calling
+
+      controller_->DeactivateDomains(mask)
+
+  directly on the incumbent — Deactivate() is never reached. Until 7678bb99
+  that virtual was not overridden by ControllerVirtualDriver, so this route
+  skipped TearDownControlOutputs() entirely and the FFB servo was left
+  running: the device holds the last commanded force as an infinite-duration
+  constant effect, and ScenarioEngine stops stepping a controller that is no
+  longer active, so nothing was left executing that could release the wheel.
+
+  revMinor MUST stay 3. At 1.2 or lower upstream takes the pre-1.3 branch
+  (ctrl->Deactivate(); break) and this scenario silently tests the route that
+  was already covered.
+
+  ExternalController is used as the incoming controller because it needs no
+  ghost, no route and no viewer — it simply takes the domain. What is being
+  measured is the INCUMBENT's teardown, not anything the newcomer does.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-28T12:00:00"
+               description="VirtualDriver verification: per-domain takeover by another controller (v1.3 DeactivateDomains path)"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+      <ParameterDeclaration name="TakeoverAt" parameterType="double" value="8.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_plain.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- ORDER MATTERS, and not for a reason the standard would suggest.
+              This esmini does not honour ActivateControllerAction's
+              controllerRef: parseActivateControllerAction() reads the
+              attribute, but every activation still logs "No controller name
+              given for activation ... pick most recently assigned" and takes
+              object_->controllers_.back(). Verified against BOTH the GT build
+              and stock esmini.exe on this same file, so it is not GT's
+              scenario sanitizer. With the ref inert, the only way to choose
+              which controller an action addresses is to be the LAST assigned
+              one — hence VirtualDriverController last. -->
+         <ObjectController>
+            <Controller name="TakeoverController">
+               <Properties>
+                  <Property name="esminiController" value="ExternalController"/>
+                  <Property name="useGhost" value="false"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="1" laneId="-1" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction controllerRef="VirtualDriverController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="TakeoverStory">
+         <Act name="TakeoverAct">
+            <ManeuverGroup maximumExecutionCount="1" name="TakeoverSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="TakeoverManeuver">
+                  <Event name="TakeoverEvent" priority="overwrite">
+                     <Action name="TakeoverAction">
+                        <PrivateAction>
+                           <ControllerAction>
+                              <!-- Takes the LATERAL domain only. The incumbent
+                                   keeps the longitudinal one, so this also
+                                   pins that a partial takeover releases the
+                                   servo (a lateral output) without tearing
+                                   down what is still ours. -->
+                              <ActivateControllerAction controllerRef="TakeoverController" lateral="true" longitudinal="false"/>
+                           </ControllerAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TakeoverStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="$TakeoverAt" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="14" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

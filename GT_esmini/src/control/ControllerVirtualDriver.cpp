@@ -2,9 +2,11 @@
 #include "gt_esmini/control/common/JunctionTurn.hpp"
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/common/TransitionDynamics.hpp"
+#include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
+#include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
 #include "gt_esmini/control/manualdrive/StubInputSource.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #ifdef GT_ENABLE_SDL2
@@ -13,6 +15,8 @@
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
+#include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
@@ -20,6 +24,7 @@
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/AebSafety.hpp"
 #include "gt_esmini/core/ConfigLoader.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
@@ -67,6 +72,58 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.override_cfg.auto_return_timeout = vd_config_.auto_return_timeout;
     io_config_.domain.lateral      = vd_config_.override_lateral;
     io_config_.domain.longitudinal = vd_config_.override_longitudinal;
+    // SDL2 wheel button bindings (only consumed when input_type=="sdl2_wheel").
+    io_config_.sdl2.override_button        = vd_config_.sdl2_override_button;
+    io_config_.sdl2.indicator_left_button  = vd_config_.sdl2_indicator_left_button;
+    io_config_.sdl2.indicator_right_button = vd_config_.sdl2_indicator_right_button;
+    io_config_.sdl2.upshift_button         = vd_config_.sdl2_upshift_button;
+    io_config_.sdl2.downshift_button       = vd_config_.sdl2_downshift_button;
+    io_config_.sdl2.headlight_button       = vd_config_.sdl2_headlight_button;
+    io_config_.sdl2.high_beam_button       = vd_config_.sdl2_high_beam_button;
+    io_config_.sdl2.fog_light_button       = vd_config_.sdl2_fog_light_button;
+    io_config_.sdl2.hazard_button          = vd_config_.sdl2_hazard_button;
+    io_config_.sdl2.auto_resume_button     = vd_config_.sdl2_auto_resume_button;  // feature:F7
+
+    // feature:F7 (F7b) — FFB target-track config propagates from VD flat keys
+    // into the shared ManualDriveConfig struct that SDLFFBSink + OverrideManager
+    // both read. Default enabled=false → existing VD behavior unchanged.
+    io_config_.ffb.target_track.enabled                        = vd_config_.ffb_target_track_enabled;
+    io_config_.ffb.target_track.kp                             = vd_config_.ffb_target_track_kp;
+    io_config_.ffb.target_track.kd                             = vd_config_.ffb_target_track_kd;
+    io_config_.ffb.target_track.max_force                      = vd_config_.ffb_target_track_max_force;
+    io_config_.ffb.target_track.hard_stop_zone                 = vd_config_.ffb_target_track_hard_stop_zone;
+    io_config_.ffb.target_track.friction_ff                    = vd_config_.ffb_target_track_friction_ff;
+    io_config_.ffb.target_track.friction_ff_eps                = vd_config_.ffb_target_track_friction_ff_eps;
+    io_config_.ffb.target_track.feel_ratio                     = vd_config_.ffb_target_track_feel_ratio;
+    io_config_.ffb.target_track.override_steer_force_threshold = vd_config_.ffb_target_track_override_steer_force_threshold;
+    io_config_.ffb.target_track.override_steer_dev_threshold   = vd_config_.ffb_target_track_override_steer_dev_threshold;
+    io_config_.ffb.target_track.override_sustain_time          = vd_config_.ffb_target_track_override_sustain_time;
+    io_config_.ffb.target_track.override_target_rate_gate         = vd_config_.ffb_target_track_override_target_rate_gate;
+    io_config_.ffb.target_track.override_position_error_rate_gate = vd_config_.ffb_target_track_override_position_error_rate_gate;
+    io_config_.ffb.target_track.override_residual_threshold        = vd_config_.ffb_target_track_override_residual_threshold;
+    io_config_.ffb.target_track.override_residual_reanchor_tau     = vd_config_.ffb_target_track_override_residual_reanchor_tau;
+    io_config_.ffb.target_track.override_shadow_breakaway          = vd_config_.ffb_target_track_override_shadow_breakaway;
+    io_config_.ffb.target_track.override_shadow_breakaway_left     = vd_config_.ffb_target_track_override_shadow_breakaway_left;
+    io_config_.ffb.target_track.override_shadow_breakaway_right    = vd_config_.ffb_target_track_override_shadow_breakaway_right;
+    io_config_.ffb.target_track.override_shadow_motion_epsilon     = vd_config_.ffb_target_track_override_shadow_motion_epsilon;
+    io_config_.ffb.target_track.override_shadow_kinetic            = vd_config_.ffb_target_track_override_shadow_kinetic;
+    io_config_.ffb.target_track.override_shadow_force_to_velocity  = vd_config_.ffb_target_track_override_shadow_force_to_velocity;
+    io_config_.ffb.target_track.override_shadow_v_max              = vd_config_.ffb_target_track_override_shadow_v_max;
+    io_config_.ffb.target_track.override_shadow_velocity_tau       = vd_config_.ffb_target_track_override_shadow_velocity_tau;
+    io_config_.ffb.target_track.override_shadow_dead_time          = vd_config_.ffb_target_track_override_shadow_dead_time;
+    io_config_.ffb.target_track.override_shadow_onset_grace        = vd_config_.ffb_target_track_override_shadow_onset_grace;
+    io_config_.ffb.target_track.override_shadow_motion_rate_eps    = vd_config_.ffb_target_track_override_shadow_motion_rate_eps;
+    io_config_.ffb.safety.max_saturation_seconds                   = vd_config_.ffb_safety_max_saturation_seconds;
+    io_config_.ffb.safety.max_runtime_seconds                      = vd_config_.ffb_safety_max_runtime_seconds;
+    io_config_.ffb.safety.saturation_ratio                         = vd_config_.ffb_safety_saturation_ratio;
+
+    // feature:F7 — AD steering safety envelope (see AdSteeringEnvelope.hpp).
+    // Built once here; config is not hot-reloaded during a run.
+    ad_envelope_cfg_ = vd_config_.AdEnvelopeConfig();
+
+    // feature:F7 resume-merge (see ResumeMergeProfile.hpp). Built once here,
+    // same convention as ad_envelope_cfg_ above; not hot-reloaded during a run.
+    resume_merge_cfg_ = vd_config_.ResumeMergeCfg();
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
@@ -76,6 +133,12 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
 #endif
     if (vd_config_.input_type == "network")
         input_source_ = new NetworkInputBridge();
+    else if (vd_config_.input_type == "headless_ffb")
+        // feature:F7 (F7b) — synthetic-wheel + synthetic-FFB source for the
+        // headless closed-loop regression smoke (vd_ffb_headless_smoke.py).
+        // Exists ONLY to exercise the servo-to-override-manager wiring on CI
+        // where no SDL2 wheel is plugged in. Not intended for scenario runs.
+        input_source_ = new HeadlessFfbInput();
     else
         input_source_ = new StubInputSource();
 
@@ -98,6 +161,8 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
         traffic_policy_mgr_->Add(std::make_unique<ConflictPointResolver>(vd_config_.ConflictConfig()));
     if (vd_config_.policy_crosswalk_enabled)
         traffic_policy_mgr_->Add(std::make_unique<CrosswalkPedestrianAware>(vd_config_.CrosswalkConfig()));
+    if (vd_config_.policy_aeb_enabled)
+        traffic_policy_mgr_->Add(std::make_unique<AebSafety>(vd_config_.AebConfig()));
 
     override_mgr_.Configure(io_config_);
 
@@ -139,37 +204,162 @@ void ControllerVirtualDriver::Init()
     Controller::Init();
 }
 
+void ControllerVirtualDriver::SetUpControlOutputs()
+{
+    if (!object_) return;
+
+    // feature:F7 — arm the teardown guard HERE, at the top, not after the last
+    // line of setup. Everything below can throw or bail; a controller that got
+    // half way through bringing its outputs up still has outputs to release,
+    // and the failure mode we cannot accept is a servo left running because
+    // setup did not reach its own end.
+    control_outputs_released_ = false;
+
+    PhysicsInitParams params = vd_config_.PhysicsParams();
+    physics_backend_->Init(params, object_);
+    physics_backend_->SetInitialState(
+        object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
+        object_->pos_.GetH(), object_->GetSpeed());
+
+    input_source_->Init(io_config_);
+
+    // Register VehicleLightExtension (same pattern as ManualDrive / RealDriver).
+    if (auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_))
+    {
+        auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
+        if (!ext)
+        {
+            ext = new VehicleLightExtension(vehicle);
+            VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
+        }
+    }
+
+    LOG_INFO("VirtualDriverController: Activated for object {} at ({:.1f}, {:.1f})",
+             object_->GetId(), object_->pos_.GetX(), object_->pos_.GetY());
+
+    // feature:F7 — see VirtualDriverTypes.hpp: the only telemetry field written
+    // outside Step(), because it must survive the deactivation that stops Step()
+    // from running at all.
+    telemetry_.vd_active = true;
+}
+
+void ControllerVirtualDriver::DeactivateDomains(unsigned int domains)
+{
+    // feature:F7 — THE BYPASS THIS CLOSES.
+    //
+    // Deactivate() is not the only way this controller loses control. From
+    // OpenSCENARIO v1.3 onwards, an ActivateControllerAction that hands a
+    // domain to a DIFFERENT controller deactivates the incumbent PER DOMAIN:
+    // OSCPrivateAction.cpp calls controller_->DeactivateDomains(mask)
+    // directly, and never goes near Deactivate(). Leaving this virtual
+    // un-overridden meant that path skipped TearDownControlOutputs()
+    // entirely.
+    //
+    // The consequence is the worst failure this controller has. The FFB
+    // device holds the last commanded force as an INFINITE-DURATION constant
+    // effect, and ScenarioEngine only steps controllers that are still active
+    // -- so a controller that loses its domain this way stops running while
+    // its servo keeps pulling the physical wheel, with no code left executing
+    // that could ever release it. The driver is left fighting a wheel owned
+    // by nobody.
+    //
+    // Only a hand-over of the LATERAL domain releases the servo: the servo is
+    // a lateral output, and a scenario that takes only the longitudinal
+    // domain leaves us still steering. Losing the last active domain also
+    // tears down, so the "control handed back" telemetry and the intervention
+    // latch are correct even for a longitudinal-only controller.
+    const bool losing_lateral =
+        IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) &&
+        (domains & static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) != 0;
+    const bool goes_inactive = Active() && (GetActiveDomains() & ~domains) == 0;
+
+    if (losing_lateral || goes_inactive)
+    {
+        // Before the base clears the bitmask, matching Deactivate()'s order:
+        // outputs are released while we still know we owned them.
+        TearDownControlOutputs();
+    }
+
+    Controller::DeactivateDomains(domains);
+}
+
+void ControllerVirtualDriver::TearDownControlOutputs()
+{
+    // feature:F7 — idempotent by construction. There are now several routes
+    // into teardown (Deactivate(), Activate() on an ACTIVE->INACTIVE
+    // transition, DeactivateDomains() above), and they nest: the upstream
+    // Deactivate() we delegate to calls the VIRTUAL DeactivateDomains(ALL),
+    // which lands back here. Releasing twice is harmless in effect, but
+    // "harmless in effect" is an argument, not a guarantee -- a guard makes it
+    // one, and makes the double-release path testable rather than merely
+    // believed.
+    if (control_outputs_released_)
+    {
+        return;
+    }
+    control_outputs_released_ = true;
+
+    // feature:F7 — set first, not last: everything below can early-return
+    // (no FFB sink) or log, but "control handed back" must be recorded
+    // unconditionally the instant teardown begins.
+    telemetry_.vd_active = false;
+
+    // Force feedback must be released here and nowhere else: ScenarioEngine only
+    // steps active controllers, so the moment this controller goes inactive our
+    // Step() - and with it SDLFFBSink::Update() - stops being called. The device
+    // holds the last commanded force as an infinite-duration constant effect, so
+    // without this the wheel would keep pulling after the scenario took over.
+    if (IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr)
+    {
+        ffb->SetSteerTarget(0.0, false);
+        ffb->SetEnabled(false);
+    }
+
+    // Drop any latched manual-intervention state. Once the scenario has taken
+    // control away the latch describes nothing, and it cannot clear itself while
+    // inactive (the idle timer only advances from Step()), so it would otherwise
+    // be carried straight into the next activation.
+    override_mgr_.RequestAutoMode();
+
+    LOG_INFO("VirtualDriverController: control outputs released");
+}
+
 int ControllerVirtualDriver::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
-    if (object_)
+    const bool was_active = Active();
+
+    // Apply the requested per-domain modes first, then react to the transition.
+    // VirtualDriver sets neither align_to_road_heading_on_activation_ nor
+    // ..._on_deactivation_, so the base call is pure bit manipulation and is safe
+    // to evaluate before deciding what to set up or tear down.
+    const int rc = Controller::Activate(mode);
+
+    const bool is_active = Active();
+
+    if (!was_active && is_active)
     {
-        PhysicsInitParams params = vd_config_.PhysicsParams();
-        physics_backend_->Init(params, object_);
-        physics_backend_->SetInitialState(
-            object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
-            object_->pos_.GetH(), object_->GetSpeed());
-
-        input_source_->Init(io_config_);
-
-        // Register VehicleLightExtension (same pattern as ManualDrive / RealDriver).
-        if (auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_))
-        {
-            auto* ext = VehicleExtensionManager::Instance().GetExtension(vehicle);
-            if (!ext)
-            {
-                ext = new VehicleLightExtension(vehicle);
-                VehicleExtensionManager::Instance().RegisterExtension(vehicle, ext);
-            }
-        }
-
-        LOG_INFO("VirtualDriverController: Activated for object {} at ({:.1f}, {:.1f})",
-                 object_->GetId(), object_->pos_.GetX(), object_->pos_.GetY());
+        SetUpControlOutputs();
     }
-    return Controller::Activate(mode);
+    else if (was_active && !is_active)
+    {
+        // An ActivateControllerAction that switches every domain off never reaches
+        // Deactivate() - upstream routes it through Activate() with OFF modes - so
+        // this is the only place the scenario-driven handover is observable.
+        TearDownControlOutputs();
+    }
+    // Staying active re-runs no initialisation: input_source_->Init() has no
+    // multiple-call guard and would re-open the joystick and orphan the existing
+    // haptic effects.
+
+    return rc;
 }
 
 void ControllerVirtualDriver::Deactivate()
 {
+    if (Active())
+    {
+        TearDownControlOutputs();
+    }
     LOG_INFO("VirtualDriverController: Deactivated");
     Controller::Deactivate();
 }
@@ -189,6 +379,17 @@ void ControllerVirtualDriver::Step(double timeStep)
 
     // 1. Poll input + override decision
     InputFrame frame = input_source_->Poll(timeStep);
+
+    // 1a. feature:F7 (F7b) FFB torque-proxy: feed OverrideManager last frame's
+    // servo sample so the driver push-back can latch to MANUAL. Sample is
+    // inert (active=false) unless the target-track servo is running (config
+    // gate ffb.target_track.enabled + AD lateral, wired below in step 6).
+    IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr;
+    if (ffb)
+    {
+        override_mgr_.UpdateFfbSample(ffb->GetInterventionSample());
+    }
+
     override_mgr_.Update(frame, timeStep);
     const bool lat_manual = override_mgr_.IsLateralManual();
     const bool lon_manual = override_mgr_.IsLongitudinalManual();
@@ -255,6 +456,128 @@ void ControllerVirtualDriver::Step(double timeStep)
             requested_cp = dist;
     }
 
+    // 2c. feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // Smooths a manual->AUTO_RESUME lateral hand-over by ramping a ROUTE-lane
+    // reference into the short planner instead of the raw per-frame
+    // current-lane snap (TrajectoryShortPlanner.cpp's anchor). Entirely gated
+    // behind resume_merge_cfg_.enabled (shipped default: TRUE since
+    // 2026-07-28; it was false while the feature was being validated) -- when
+    // false, NOTHING below this guard executes, so merge_now_* keep the SAME
+    // values ShortPlanContext already defaults its merge_* fields to, and
+    // TrajectoryShortPlanner's pre-existing current-lane-anchor path runs
+    // with no new arithmetic (HARD INVARIANT: bit-identical to today when
+    // disabled).
+    bool         merge_now_active      = false;
+    unsigned int merge_now_track       = 0;
+    int          merge_now_lane        = 0;
+    double       merge_now_offset      = 0.0;
+    const char*  merge_fallback_reason = "";
+
+    if (resume_merge_cfg_.enabled)
+    {
+        // Route-lane resolution (design doc section 2-0-1), re-run every
+        // frame (not just at the arming instant) so a mid-merge route loss is
+        // caught by the disarm check below, and the planner always gets a
+        // FRESH target lane rather than one captured once at arm time.
+        unsigned int route_track = 0;
+        int          route_lane  = 0;
+        const char*  route_fail  = ResolveResumeMergeRouteLane(route_track, route_lane);
+        const bool   route_ok    = route_fail[0] == '\0';
+        merge_fallback_reason    = route_fail;
+
+        // A running storyboard lateral maneuver (LaneChange/LaneOffset) takes
+        // full ownership of the preview overlay in TrajectoryShortPlanner --
+        // same RUNNING + action-type filter that planner uses to build its
+        // own lat_actions, duplicated here because the CONTROLLER (not the
+        // planner) owns the merge state machine's disarm decision.
+        bool has_lateral_storyboard_action = false;
+        for (auto* action : object_->getPrivateActions())
+        {
+            if (action->GetCurrentState() != StoryBoardElement::State::RUNNING) continue;
+            if (action->action_type_ == OSCAction::ActionType::LAT_LANE_CHANGE ||
+                action->action_type_ == OSCAction::ActionType::LAT_LANE_OFFSET)
+            {
+                has_lateral_storyboard_action = true;
+                break;
+            }
+        }
+
+        // Disarm (design doc section 8-3): storyboard lateral action, manual
+        // re-latch, or route loss. Checked BEFORE a possible re-arm below so
+        // a stale armed state can never survive past its own trigger frame.
+        if (resume_merge_state_.active &&
+            (has_lateral_storyboard_action || lat_manual || !route_ok))
+        {
+            DisarmResumeMerge(resume_merge_state_);
+        }
+
+        // Arm on the manual->AUTO_RESUME edge. override_mgr_.Update() (above)
+        // already updated JustTransitionedToAuto() for this frame, so arming
+        // can fire on the SAME frame the edge occurs (handoff section 2-7: no
+        // one-frame lag; object_->pos_ is the true ego pose even under manual
+        // override, since physics owns it every frame -- state_applier_.Apply()
+        // below).
+        if (!has_lateral_storyboard_action && route_ok && override_mgr_.JustTransitionedToAuto())
+        {
+            // Placed at the SAME s used to resolve route_track/route_lane
+            // above (object_->pos_.GetS()), not the route's own internal
+            // local_s -- they can differ slightly (route-boundary / virtual-
+            // junction clamping), so guard this SetLanePos's return value too
+            // rather than trust a silent success: consistent with design doc
+            // section 2-0-1's overarching "never trust a silent SetLanePos
+            // outcome" discipline, even though its literal step 6 does not
+            // call this specific site out. On failure, route_center's X/Y
+            // would be a freshly-constructed Position's defaults, not a real
+            // road point -- skip arming rather than capture d0 from that.
+            roadmanager::Position route_center;
+            if (route_center.SetLanePos(route_track, route_lane, object_->pos_.GetS(), 0.0) !=
+                roadmanager::Position::ReturnCode::ERROR_GENERIC)
+            {
+                const double h_road = route_center.GetHRoad();
+
+                // Route-relative lateral deviation: project the ego -> route-
+                // lane-centre displacement onto the +t axis (design doc
+                // section 4-1 / handoff section 2-3). Deliberately NOT
+                // pos_.GetOffset() -- that is LANE-relative and
+                // re-references at lane boundaries (measured: -1.7482 ->
+                // +1.9425 in a single frame).
+                const double d0 = -(object_->pos_.GetX() - route_center.GetX()) * std::sin(h_road) +
+                                    (object_->pos_.GetY() - route_center.GetY()) * std::cos(h_road);
+
+                const double ego_h  = object_->pos_.GetH();
+                const double v0_lat = object_->GetSpeed() * std::sin(ego_h - h_road);
+
+                double a0_lat = 0.0;
+                if (prev_heading_valid_ && timeStep > 1e-9)
+                {
+                    const double yaw_rate = GetAngleInIntervalMinusPIPlusPI(ego_h - prev_heading_) / timeStep;
+                    a0_lat = yaw_rate * object_->GetSpeed();
+                }
+
+                ArmResumeMerge(resume_merge_state_, d0, v0_lat, a0_lat, resume_merge_cfg_);
+            }
+        }
+
+        if (resume_merge_state_.active)
+            AdvanceResumeMerge(resume_merge_state_, timeStep);
+
+        if (resume_merge_state_.active)
+        {
+            merge_now_active = true;
+            merge_now_track  = route_track;
+            merge_now_lane   = route_lane;
+            merge_now_offset = EvaluateResumeMergeOffset(resume_merge_state_, 0.0);
+        }
+
+        // Rolling one-frame-back heading, used ONLY to derive a0_lat at the
+        // NEXT arming instant (design doc section 8-3(a)). Updated every
+        // frame this feature is enabled (MANUAL or AUTO) so a hand-over
+        // always sees the true realized heading one frame back, not a stale
+        // AUTO-only sample.
+        prev_heading_       = object_->pos_.GetH();
+        prev_heading_valid_ = true;
+    }
+
     // 3. Auto pipeline: short planner -> driver model
     ShortPlanContext sctx;
     sctx.object               = object_;
@@ -264,6 +587,14 @@ void ControllerVirtualDriver::Step(double timeStep)
     sctx.v_target             = midsnap.valid ? &midsnap : nullptr;
     sctx.fallback_speed       = target_speed;
     sctx.control_point_offset = requested_cp;
+    // feature:F7 resume-merge: defaults (false/0/0/0.0/nullptr) preserve
+    // today's behavior when merge_now_active is false (disabled, never
+    // armed, or disarmed this frame) -- see the HARD INVARIANT note above.
+    sctx.merge_active     = merge_now_active;
+    sctx.merge_track_id   = merge_now_track;
+    sctx.merge_lane_id    = merge_now_lane;
+    sctx.merge_offset_now = merge_now_offset;
+    sctx.merge_state      = merge_now_active ? &resume_merge_state_ : nullptr;
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
 
     DriverState dstate;
@@ -294,6 +625,21 @@ void ControllerVirtualDriver::Step(double timeStep)
     DriverModelSnapshot dsnap;
     PedalSteerCommand   auto_cmd = driver_model_->Compute(plan, dstate, timeStep, &dsnap);
 
+    // 3a. feature:F7 AD steering safety envelope — clamp AD's raw command to
+    // physical lateral-accel / yaw-rate / steering-rate limits BEFORE it
+    // reaches the manual-override merge below or the FFB target servo (5a).
+    // Pure Pursuit + TrajectoryShortPlanner's per-frame lane-center snap have
+    // no lateral-deviation/rate/amplitude limit of their own — see
+    // AdSteeringEnvelope.hpp. Independent of max_lateral_accel (that value
+    // already shapes curve speed, so reusing it here would clamp during
+    // ordinary curve driving). Overwriting auto_cmd.steering in place means
+    // both the merge below and the FFB target at 5a see the clamped value
+    // for free, with no further change needed at either site.
+    AdSteeringEnvelopeSnapshot envelope_snap;
+    auto_cmd.steering = ComputeAdSteeringEnvelope(
+        auto_cmd.steering, dstate.speed, dstate.wheel_base, vd_config_.max_steer_angle,
+        timeStep, ad_envelope_state_, ad_envelope_cfg_, &envelope_snap);
+
     // 4. Merge manual override per domain
     PedalSteerCommand cmd = auto_cmd;
     if (frame.pedal_steer)
@@ -307,6 +653,16 @@ void ControllerVirtualDriver::Step(double timeStep)
         cmd.paddle_down_pressed = m.paddle_down_pressed;
     }
     last_cmd_ = cmd;
+
+    // 4a. feature:F7 — persist WHATEVER steering command was actually realized
+    // this frame (the envelope's own clamped AD output while AUTO, or the raw
+    // manual input while MANUAL) as next frame's rate-limit anchor, AND the
+    // realized rate this produced as next frame's jerk-limit anchor. This is
+    // what lets a manual->AUTO_RESUME transition ramp smoothly from the
+    // physical wheel angle (and its realized rate) instead of a stale AD
+    // proposal, with no dedicated "resume ramp" state machine
+    // (AdSteeringEnvelope.hpp).
+    UpdateAdSteeringEnvelopeState(ad_envelope_state_, cmd.steering, timeStep);
 
     // 4b. Manual indicator (turn-signal) control from input-source buttons,
     // via ManualDrive's auto-cancel FSM. When the human arms an indicator this
@@ -322,6 +678,21 @@ void ControllerVirtualDriver::Step(double timeStep)
 
     // 5. Physics step
     osi3::HostVehicleData hvd = physics_backend_->StepPedalSteer(cmd, timeStep);
+
+    // 5a. feature:F7 (F7b) FFB target-track servo update. AD's commanded wheel
+    // angle (auto_cmd.steering, normalized [-1..1] — already passed through the
+    // steering envelope at 3a, so the servo never chases a pathological
+    // target and err = target - actual stays small) is handed to the servo so
+    // it drives the physical wheel to follow. active=true only when AD owns
+    // lateral (lat_manual=false); the config master gate ffb.target_track.enabled
+    // lives inside SDLFFBSink::SetSteerTarget so it always wins over active.
+    // Order matters: SetSteerTarget BEFORE ffb->Update so the servo evaluates
+    // against the fresh target this frame.
+    if (ffb)
+    {
+        ffb->SetSteerTarget(auto_cmd.steering, /*active=*/!lat_manual);
+        ffb->Update(hvd, timeStep);
+    }
 
     // 6. Extract resolved vehicle state from HVD
     double pos_x = 0.0, pos_y = 0.0, pos_z = 0.0, heading = 0.0, speed = 0.0, wheel_angle = 0.0;
@@ -381,11 +752,156 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.s                     = object_->pos_.GetS();
     telemetry_.override_lateral      = lat_manual;
     telemetry_.override_longitudinal = lon_manual;
+    telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
+    telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+    telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
+    // feature:F7 (F7b) FFB target-track observability. Sample this frame's
+    // servo state (populated by ffb->Update above; inert when servo is off).
+    if (ffb)
+    {
+        const FfbInterventionSample s   = ffb->GetInterventionSample();
+        telemetry_.ffb_target_active    = s.active;
+        telemetry_.ffb_commanded_force  = s.commanded_force;
+        telemetry_.ffb_position_error   = s.position_error;
+        telemetry_.ffb_target_norm      = s.target_norm;
+        // The RAW sink force, recorded alongside the rest of this frame's
+        // sample. gates.effective_force below is NOT a substitute: that is
+        // OverrideManager's own diagnostic, so it is (a) one frame behind this
+        // block and (b) the DEAD-TIME-DELAYED force the detector actually
+        // consumed. The two coincide only while dead_time is 0, which is what
+        // the pre-2026-07-26 recordings happen to have. Anything recorded
+        // under the shipped defaults (dead_time=0.041) has a gates force that
+        // is genuinely not this one, so a replay reconstructing the detector's
+        // input from gates would silently feed it an already-delayed force and
+        // delay it a second time. GT_esmini/test/tools/ffb_override_replay.cpp
+        // prefers this field and falls back to the shifted gates force only
+        // for the older fixtures that predate it.
+        telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+    }
+    else
+    {
+        telemetry_.ffb_target_active    = false;
+        telemetry_.ffb_commanded_force  = 0.0;
+        telemetry_.ffb_position_error   = 0.0;
+        telemetry_.ffb_target_norm      = 0.0;
+        telemetry_.ffb_sample_effective_force = 0.0;
+    }
+    // feature:F7 — override-latch diagnostics. Real-machine "why didn't it
+    // fire" observability: without this, diagnosing a missed latch required
+    // re-instrumenting the code on-site. The residual/shadow pair is the part
+    // to read first. See OverrideManager::FfbLatchDiagnostics.
+    {
+        using BlockReason = OverrideManager::FfbLatchDiagnostics::BlockReason;
+        const auto& diag = override_mgr_.GetFfbLatchDiagnostics();
+        const char* reason_str = "none";
+        switch (diag.block_reason)
+        {
+            case BlockReason::NONE:            reason_str = "none";            break;
+            case BlockReason::INACTIVE:        reason_str = "inactive";        break;
+            case BlockReason::BOOTSTRAP:       reason_str = "bootstrap";       break;
+            case BlockReason::BELOW_RESIDUAL:  reason_str = "below_residual";  break;
+        }
+
+        telemetry_.ffb_gate_over_force           = diag.over_force;
+        telemetry_.ffb_gate_over_dev             = diag.over_dev;
+        telemetry_.ffb_gate_moving_target        = diag.moving_target;
+        telemetry_.ffb_gate_tracking_transient   = diag.tracking_transient;
+        telemetry_.ffb_gate_target_rate          = diag.target_rate;
+        telemetry_.ffb_gate_derror_rate          = diag.derror_rate;
+        telemetry_.ffb_gate_actual_norm          = diag.actual_norm;
+        telemetry_.ffb_gate_shadow_norm          = diag.shadow_norm;
+        telemetry_.ffb_gate_residual             = diag.residual;
+        telemetry_.ffb_gate_residual_threshold   = diag.residual_threshold;
+        telemetry_.ffb_gate_effective_force      = diag.effective_force;
+        telemetry_.ffb_gate_shadow_moving        = diag.shadow_moving;
+        telemetry_.ffb_gate_sustain_accum        = diag.sustain_accum;
+        telemetry_.ffb_gate_sustain_time         = diag.sustain_time;
+        telemetry_.ffb_gate_block_reason         = reason_str;
+
+        // feature:F7 — re-anchor instrument (observational only; see
+        // test_results/f7_reanchor_instrument_spec.md and
+        // OverrideManager::FfbLatchDiagnostics::ReanchorSource).
+        using ReanchorSource = OverrideManager::FfbLatchDiagnostics::ReanchorSource;
+        const char* reanchor_reason_str = "none";
+        switch (diag.reanchor_source)
+        {
+            case ReanchorSource::NONE:            reanchor_reason_str = "none";            break;
+            case ReanchorSource::SEED:            reanchor_reason_str = "seed";            break;
+            case ReanchorSource::ONSET_GRACE:     reanchor_reason_str = "onset_grace";     break;
+            case ReanchorSource::DRIFT:           reanchor_reason_str = "drift";           break;
+            case ReanchorSource::RESUME:          reanchor_reason_str = "resume";          break;
+            case ReanchorSource::INACTIVE_REARM:  reanchor_reason_str = "inactive_rearm";  break;
+            case ReanchorSource::SERVO_TRACKING:  reanchor_reason_str = "servo_tracking";  break;
+        }
+
+        telemetry_.ffb_gate_reanchor_hard_count           = diag.reanchor_hard_count;
+        telemetry_.ffb_gate_reanchor_soft_count           = diag.reanchor_soft_count;
+        telemetry_.ffb_gate_reanchor_delta                = diag.reanchor_delta;
+        telemetry_.ffb_gate_reanchor_hard_delta_abs_accum = diag.reanchor_hard_delta_abs_accum;
+        telemetry_.ffb_gate_reanchor_soft_delta_abs_accum = diag.reanchor_soft_delta_abs_accum;
+        telemetry_.ffb_gate_reanchor_source               = reanchor_reason_str;
+        telemetry_.ffb_gate_free_shadow_norm              = diag.free_shadow_norm;
+        telemetry_.ffb_gate_free_residual                 = diag.free_residual;
+        telemetry_.ffb_gate_free_below_real_count         = diag.free_below_real_count;
+    }
+    // feature:F7 — AD steering safety envelope observability (verification:
+    // "normal driving never trips the envelope"). See AdSteeringEnvelope.hpp.
+    telemetry_.ad_envelope_lateral_accel_active = envelope_snap.lateral_accel_active;
+    telemetry_.ad_envelope_yaw_rate_active      = envelope_snap.yaw_rate_active;
+    telemetry_.ad_envelope_steer_rate_active    = envelope_snap.steer_rate_active;
+    telemetry_.ad_envelope_steer_jerk_active    = envelope_snap.steer_jerk_active;
+    telemetry_.ad_envelope_active               = envelope_snap.any_active;
+    // dsnap.steer (telemetry_.driver.steer, set via telemetry_.driver = dsnap
+    // below) stays the RAW pre-envelope AD proposal — deliberately untouched.
+    // These two are what the envelope actually saw/produced, so "did the
+    // envelope change anything this frame" is observable from telemetry alone.
+    telemetry_.ad_envelope_steer_in  = envelope_snap.steer_norm_in;
+    telemetry_.ad_envelope_steer_out = envelope_snap.steer_norm_out;
+    // feature:F7 — publish the envelope's own curvature numbers (see
+    // VirtualDriverTypes.hpp): a verifier can then check the applied command
+    // against the cap the envelope actually used, instead of re-deriving it
+    // from speed and wheelbase and inheriting both guesses' error.
+    telemetry_.ad_envelope_kappa_cmd   = envelope_snap.kappa_cmd;
+    telemetry_.ad_envelope_kappa_limit = envelope_snap.kappa_limit;
+    // The APPLIED curvature — the left-hand side of that comparison. Without
+    // it a verifier still had to reconstruct the applied curvature from
+    // steer_out and a guessed wheelbase, which is the half of the original
+    // double-mistake that publishing kappa_limit alone did not remove.
+    telemetry_.ad_envelope_kappa_out   = envelope_snap.kappa_out;
     telemetry_.short_plan            = plan;
     telemetry_.midlong               = midsnap;
     telemetry_.policy                = policy_snap;
     telemetry_.driver                = dsnap;
     telemetry_.indicator             = ind;
+
+    // feature:F7 resume-merge telemetry (design doc
+    // resume_merge_trajectory_design.md section 8-6). Controller-owned merge
+    // state-machine snapshot; deliberately NOT part of ShortPlannerSnapshot
+    // (short_plan above), which stays a cross-session contract untouched by
+    // this feature. resume_merge_state_'s captured fields (d0/v0_lat/a0_lat/
+    // a_bound/duration_s/comfort_unmet) retain their last-armed values across
+    // a disarm (see DisarmResumeMerge's own doc), so they stay readable here
+    // as "what the last merge was" even the frame after it stops being active.
+    telemetry_.resume_merge.active        = merge_now_active;
+    telemetry_.resume_merge.d0            = resume_merge_state_.d0;
+    telemetry_.resume_merge.v0_lat        = resume_merge_state_.v0_lat;
+    telemetry_.resume_merge.a0_lat        = resume_merge_state_.a0_lat;
+    telemetry_.resume_merge.a_bound       = resume_merge_state_.a_bound;
+    telemetry_.resume_merge.comfort_unmet = resume_merge_state_.comfort_unmet;
+    telemetry_.resume_merge.duration_s    = resume_merge_state_.duration_s;
+    telemetry_.resume_merge.progress      = (resume_merge_state_.duration_s > 1e-9)
+                                                 ? std::min(1.0, resume_merge_state_.elapsed_s / resume_merge_state_.duration_s)
+                                                 : 0.0;
+    telemetry_.resume_merge.target_offset = merge_now_offset;
+    // "解決したルート車線（フォールバック時は現在車線と一致）" (design doc section
+    // 8-6): report the CURRENT lane whenever the merge is not actually
+    // steering the anchor this frame (disabled / not armed / disarmed /
+    // route unresolved), so this pair always shows "what anchor is actually
+    // in effect", not a stale or zeroed resolution attempt.
+    telemetry_.resume_merge.route_track   = merge_now_active ? static_cast<int>(merge_now_track)
+                                                               : static_cast<int>(object_->pos_.GetTrackId());
+    telemetry_.resume_merge.route_lane    = merge_now_active ? merge_now_lane : object_->pos_.GetLaneId();
+    telemetry_.resume_merge.fallback_reason = merge_fallback_reason;
 
     // 11b. Front-bumper (leading-edge) road localization (F5). Project the vehicle
     // origin forward by (length/2 + bbox center-x) along the heading — the same
@@ -577,6 +1093,39 @@ void ControllerVirtualDriver::ApplyLights(const PedalSteerCommand& cmd, const In
     set_light(VehicleLightType::INDICATOR_RIGHT, ind.right_on);
 }
 
+const char* ControllerVirtualDriver::ResolveResumeMergeRouteLane(unsigned int& out_track, int& out_lane) const
+{
+    // feature:F7 resume-merge route-lane resolution (design doc
+    // resume_merge_trajectory_design.md section 2-0-1). Isolated route clone
+    // (pos.CopyRoute), same safe pattern JunctionTurn.hpp uses, so mutating
+    // it via SetTrackS below never touches the shared Route* any other code
+    // reads. BOTH OnRoute() and a track-id match against the ego's own
+    // current track are required: Route::SetTrackS silently swallows
+    // SetLanePos's ERROR_GENERIC (RoadManager.cpp:15514, return value
+    // unchecked) and, off-route, silently leaves currentPos_ (and therefore
+    // GetLaneId()) at its last-synced value (RoadManager.cpp:15419-15421,
+    // 15508-15546) -- OnRoute() alone does not catch either failure mode.
+    roadmanager::Position pos;
+    pos.Duplicate(object_->pos_);
+    pos.CopyRoute(object_->pos_);
+
+    roadmanager::Route* route = pos.GetRoute();
+    if (!route || !route->IsValid())
+        return "no_route";
+
+    const id_t ego_track = object_->pos_.GetTrackId();
+    route->SetTrackS(ego_track, object_->pos_.GetS());
+
+    if (!route->OnRoute())
+        return "off_route";
+    if (route->GetTrackId() != ego_track)
+        return "track_mismatch";
+
+    out_track = route->GetTrackId();
+    out_lane  = route->GetLaneId();
+    return "";
+}
+
 void ControllerVirtualDriver::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const
 {
     throttle = last_cmd_.throttle;
@@ -590,6 +1139,23 @@ void ControllerVirtualDriver::GetInputsForOSI(double& throttle, double& brake, d
     else
         gear = last_cmd_.gear;
     lightMask = BuildLightMaskFromExtension();
+}
+
+void ControllerVirtualDriver::GetADASFunctions(std::vector<AdasFunctionState>& functions) const
+{
+    // The enable flags come from config (which policies were instantiated at
+    // all) and the per-frame states from the last evaluated policy snapshot, so
+    // "disabled" stays distinguishable from "armed but quiet" — see
+    // BuildAdasFunctionReport().
+    VdPolicyEnableFlags flags;
+    flags.lead          = vd_config_.policy_lead_enabled;
+    flags.traffic_light = vd_config_.policy_traffic_light_enabled;
+    flags.stop_yield    = vd_config_.policy_stop_yield_enabled;
+    flags.conflict      = vd_config_.policy_conflict_enabled;
+    flags.crosswalk     = vd_config_.policy_crosswalk_enabled;
+    flags.aeb           = vd_config_.policy_aeb_enabled;
+
+    functions = BuildAdasFunctionReport(flags, telemetry_.policy);
 }
 
 void ControllerVirtualDriver::GetPowertrainForOSI(double& rpm, double& torque) const

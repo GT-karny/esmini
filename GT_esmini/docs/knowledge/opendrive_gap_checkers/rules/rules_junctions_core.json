@@ -1,0 +1,80 @@
+[
+  {
+    "rule_name": "junctions.no_overlap",
+    "category": "junctions",
+    "version": "1.4.0",
+    "description": "No junctions of any type shall overlap each other."
+  },
+  {
+    "rule_name": "junctions.type_default_no_linked_road",
+    "category": "junctions",
+    "version": "1.7.0",
+    "description": "The &lt;connection&gt; element of a junction of @type=\"default\" or @type=\"virtual\" shall not have the @linkedRoad attribute."
+  },
+  {
+    "rule_name": "junctions.type_direct_no_conn_road",
+    "category": "junctions",
+    "version": "1.7.0",
+    "description": "The &lt;connection&gt; element of a junction of @type=\"direct\" shall not have the @connectingRoad attribute."
+  },
+  {
+    "rule_name": "junctions.boundary.close_gap_with_new_roads",
+    "category": "junctions.boundary",
+    "version": "1.8.0",
+    "description": "If the existing roads are not sufficient to define a closed junction boundary, additional roads shall be defined for the missing segments."
+  },
+  {
+    "rule_name": "junctions.boundary.only_for_common_junctions",
+    "category": "junctions.boundary",
+    "version": "1.8.0",
+    "description": "Junction boundaries are currently only valid for common junctions."
+  },
+  {
+    "rule_name": "junctions.boundary.segments_close_boundry",
+    "category": "junctions.boundary",
+    "version": "1.8.0",
+    "description": "Segments shall close the entire junction boundary."
+  },
+  {
+    "rule_name": "junctions.boundary.segments_counter_clockwise_order",
+    "category": "junctions.boundary",
+    "version": "1.8.0",
+    "description": "Segments shall be ordered counter clockwise."
+  },
+  {
+    "rule_name": "junctions.boundary.segments_for_each_conn_road",
+    "category": "junctions.boundary",
+    "version": "1.8.0",
+    "description": "Segments shall be defined to reach the start or end of all roads connected to the junction."
+  },
+  {
+    "rule_name": "junctions.common.direct_junction_attributes",
+    "category": "junctions.common",
+    "version": "1.8.0",
+    "description": "The @overlapZone attribute shall only be specified for direct junctions."
+  },
+  {
+    "rule_name": "junctions.common.junctions_no_pred_succ",
+    "category": "junctions.common",
+    "version": "1.4.0",
+    "description": "Unlike roads, junctions do not have a predecessor or successor."
+  },
+  {
+    "rule_name": "junctions.common.not_only_two",
+    "category": "junctions.common",
+    "version": "1.9.0",
+    "description": "Junctions should not be used when only two roads meet."
+  },
+  {
+    "rule_name": "junctions.common.virtual_junction_attributes",
+    "category": "junctions.common",
+    "version": "1.5.0",
+    "description": "The @mainRoad, @orientation, @sStart and @sEnd attributes shall only be specified for virtual junctions."
+  },
+  {
+    "rule_name": "junctions.common.when_to_use",
+    "category": "junctions.common",
+    "version": "1.4.0",
+    "description": "Junctions shall only be used when roads cannot be linked directly. They clarify ambiguities for the linking. Ambiguities are caused when a road has two or more possible predecessor or successor roads."
+  }
+]

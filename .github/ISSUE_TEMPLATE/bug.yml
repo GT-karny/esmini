@@ -1,0 +1,40 @@
+name: バグ報告
+description: GT_esmini拡張のバグ報告（vanilla esminiでも再現するものはupstream由来の可能性を切り分けてから）
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 症状
+      description: 何が起きるか。期待挙動との差分がわかる形で。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 再現手順
+      description: シナリオ（xosc/xodr）、コントローラ、操作手順、発生頻度。未再現なら「未再現」と明記し、観測した状況を書く。
+  - type: input
+    id: related
+    attributes:
+      label: 関連ID（名前空間付き）
+      description: "知識グラフのIDをスペース区切りで。例: feature:F2 policy:conflict audit-debt:CTL-3（GT_esmini/docs/knowledge/namespaces.yaml 参照）"
+  - type: input
+    id: openx
+    attributes:
+      label: OpenX概念（任意）
+      description: "どの走行状況・道路要素・環境条件のバグか。例: openx:Domain#Junction openx:Domain#PedestrianCrossing（GT_esmini/docs/knowledge/concept_vocabulary.yaml 参照）"
+  - type: dropdown
+    id: gate
+    attributes:
+      label: 検出できるはずのゲート
+      description: このバグを本来検出すべき検証ゲート（scripts/run_regression_gate.ps1 の段）
+      options:
+        - unit (ctest)
+        - regression (behavioral batch)
+        - odr-conformance
+        - catalog (F1)
+        - integration (GT_Loader)
+        - なし/不明（目視・実走行のみ）
+    validations:
+      required: true

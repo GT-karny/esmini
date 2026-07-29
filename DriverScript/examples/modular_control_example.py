@@ -40,6 +40,7 @@ from realdriver import (
     # Road Manager
     EsminiRMLib,
 )
+
 try:
     from DriverScript.argspec_utils import add_dump_argspec_option, maybe_dump_argspec
 except ImportError:
@@ -148,13 +149,25 @@ def main():
     parser.add_argument("--ip", type=str, default="127.0.0.1", help="esmini Host IP")
     parser.add_argument("--port", type=int, default=53995, help="RealDriver Base Port")
     parser.add_argument("--osi_port", type=int, default=48198, help="OSI Port")
-    parser.add_argument("--target_speed_port", type=int, default=54995, help="Target speed UDP port")
-    parser.add_argument("--waypoint_port", type=int, default=54996, help="Waypoint UDP port")
+    parser.add_argument(
+        "--target_speed_port", type=int, default=54995, help="Target speed UDP port"
+    )
+    parser.add_argument(
+        "--waypoint_port", type=int, default=54996, help="Waypoint UDP port"
+    )
     parser.add_argument("--id", type=int, default=0, help="Object ID (Ego)")
-    parser.add_argument("--lib_path", type=str, default=None, help="Path to esminiRMLib.dll")
-    parser.add_argument("--xodr_path", type=str, default=None, help="Path to OpenDRIVE map file")
-    parser.add_argument("--target_speed", type=float, default=10.0, help="Target speed in m/s")
-    parser.add_argument("--demo", action="store_true", help="Run demonstration without connecting")
+    parser.add_argument(
+        "--lib_path", type=str, default=None, help="Path to esminiRMLib.dll"
+    )
+    parser.add_argument(
+        "--xodr_path", type=str, default=None, help="Path to OpenDRIVE map file"
+    )
+    parser.add_argument(
+        "--target_speed", type=float, default=10.0, help="Target speed in m/s"
+    )
+    parser.add_argument(
+        "--demo", action="store_true", help="Run demonstration without connecting"
+    )
     add_dump_argspec_option(parser)
     args = parser.parse_args()
     if maybe_dump_argspec(
@@ -254,9 +267,11 @@ def main():
 
                 # Print status (use last_speed from controller)
                 if frame_number % 20 == 0:
-                    print(f"Speed: {longitudinal.last_speed:.2f}/{longitudinal.target_speed:.2f} m/s | "
-                          f"Steer: {steering:.3f} | "
-                          f"Thr: {lon_out.throttle:.2f} | Brk: {lon_out.brake:.2f}")
+                    print(
+                        f"Speed: {longitudinal.last_speed:.2f}/{longitudinal.target_speed:.2f} m/s | "
+                        f"Steer: {steering:.3f} | "
+                        f"Thr: {lon_out.throttle:.2f} | Brk: {lon_out.brake:.2f}"
+                    )
 
                 # Send controls
                 client.set_controls(lon_out.throttle, lon_out.brake, -steering)

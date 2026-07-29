@@ -11,14 +11,14 @@ using namespace roadmanager;
 // per-anchor pointer) onto the branch; its anchorS records the main-road s where it left so the weight and the
 // emitted waypoint land at the branch-off, exactly like RoadPath::CheckRoad's anchor expansion. Node identity is
 // the anchor link pointer, so an anchor node never conflates with an end-contact node on the same road.
-static void InjectVirtualJunctionAnchorNodes(OpenDrive                                                        *odr,
-                                             Node                                                             *fromNode,
-                                             double                                                            entryS,
-                                             bool                                                              travelToEnd,
-                                             std::priority_queue<Node *, std::vector<Node *>, WeightCompare>  &pushTo,
-                                             const std::vector<Node *>                                        &visited,
-                                             RoadCalculations                                                 &roadCalc,
-                                             Position::RouteStrategy                                           routeStrategy)
+static void InjectVirtualJunctionAnchorNodes(OpenDrive                                                       *odr,
+                                             Node                                                            *fromNode,
+                                             double                                                           entryS,
+                                             bool                                                             travelToEnd,
+                                             std::priority_queue<Node *, std::vector<Node *>, WeightCompare> &pushTo,
+                                             const std::vector<Node *>                                       &visited,
+                                             RoadCalculations                                                &roadCalc,
+                                             Position::RouteStrategy                                          routeStrategy)
 {
     Road *road = fromNode->road;
     for (const OpenDrive::VirtualJunctionAnchor &anchor : odr->GetVirtualJunctionAnchors(road->GetId()))
@@ -28,7 +28,8 @@ static void InjectVirtualJunctionAnchorNodes(OpenDrive                          
             continue;  // anchor is behind the travel direction from this entry
         }
         // dedup on the registry anchor link identity (visited set + fromNode's own chain)
-        bool alreadySeen = std::find_if(visited.begin(), visited.end(), [&anchor](const Node *n) { return n->link == anchor.link_; }) != visited.end();
+        bool alreadySeen =
+            std::find_if(visited.begin(), visited.end(), [&anchor](const Node *n) { return n->link == anchor.link_; }) != visited.end();
         for (Node *p = fromNode; !alreadySeen && p != nullptr; p = p->previous)
         {
             alreadySeen = p->link == anchor.link_;

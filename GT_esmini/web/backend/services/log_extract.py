@@ -42,7 +42,9 @@ _GENERIC_MARKERS = (
 # ints depending on the shell (audit §5): the process never started, so log.txt
 # is empty. Translate the code into an actionable cause.
 _DLL_MISSING_CODES = (0xC0000135, -1073741515, 3221225781)
-_DLL_MISSING_MSG = "DLL ステージング不足の可能性 (exit 0xC0000135 / STATUS_DLL_NOT_FOUND)"
+_DLL_MISSING_MSG = (
+    "DLL ステージング不足の可能性 (exit 0xC0000135 / STATUS_DLL_NOT_FOUND)"
+)
 
 _NO_CAUSE_MSG = "原因不明 (log.txt に [error]/Exception 行なし)"
 
@@ -54,7 +56,7 @@ _PARSE_MARKER = "Error parsing"
 class LogExtract:
     """Result of mining a run's log for its failure cause."""
 
-    summary: str            # single best-guess final cause
+    summary: str  # single best-guess final cause
     error_lines: list[str]  # deduped candidate messages, chronological order
 
     def as_message(self, limit: int = 2000) -> str:
@@ -108,11 +110,11 @@ def _clean(line: str) -> str:
     s = line.strip()
     positions = [s.rfind(tag) + len(tag) for tag in _SEVERITY_TAGS if tag in s]
     if positions:
-        s = s[max(positions):].strip()
+        s = s[max(positions) :].strip()
     if s.startswith("[]"):
         s = s[2:].strip()
     if s.startswith(_EXCEPTION_PREFIX):
-        s = s[len(_EXCEPTION_PREFIX):].strip()
+        s = s[len(_EXCEPTION_PREFIX) :].strip()
     return s
 
 

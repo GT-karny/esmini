@@ -2,7 +2,6 @@ from dataclasses import dataclass
 import struct
 from typing import List
 
-
 LON_PROFILE_PACKET_TYPE = 3
 LON_PROFILE_POINT_FORMAT = "<dddd"
 LON_PROFILE_POINT_SIZE = struct.calcsize(LON_PROFILE_POINT_FORMAT)
@@ -22,7 +21,9 @@ def parse_lon_profile_packet(data: bytes) -> List[LonProfilePoint]:
 
     packet_type = data[0]
     if packet_type != LON_PROFILE_PACKET_TYPE:
-        raise ValueError(f"Invalid packet type: {packet_type}, expected {LON_PROFILE_PACKET_TYPE}")
+        raise ValueError(
+            f"Invalid packet type: {packet_type}, expected {LON_PROFILE_PACKET_TYPE}"
+        )
 
     count = struct.unpack("<I", data[1:5])[0]
     expected = 5 + count * LON_PROFILE_POINT_SIZE
@@ -34,9 +35,13 @@ def parse_lon_profile_packet(data: bytes) -> List[LonProfilePoint]:
     for _ in range(count):
         t_offset, v_target, a_max, j_max = struct.unpack(
             LON_PROFILE_POINT_FORMAT,
-            data[offset:offset + LON_PROFILE_POINT_SIZE],
+            data[offset : offset + LON_PROFILE_POINT_SIZE],
         )
-        points.append(LonProfilePoint(t_offset=t_offset, v_target=v_target, a_max=a_max, j_max=j_max))
+        points.append(
+            LonProfilePoint(
+                t_offset=t_offset, v_target=v_target, a_max=a_max, j_max=j_max
+            )
+        )
         offset += LON_PROFILE_POINT_SIZE
 
     return points

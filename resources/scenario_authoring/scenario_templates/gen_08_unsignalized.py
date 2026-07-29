@@ -55,6 +55,7 @@ Usage:
     DriverScript/.venv/Scripts/python.exe \
         resources/scenario_authoring/scenario_templates/gen_08_unsignalized.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -81,12 +82,11 @@ from authoring_common import (  # noqa: E402
 )
 from scenariogeneration import xosc  # noqa: E402
 
-
 PHASE = "3e"
 STOP_TIME_S = 35.0
-SPEED = 11.0             # ~40 km/h, both ego and cross
-EGO_TELEPORT_S = 20.0    # 80 m back from the junction entry
-CROSS_TELEPORT_S = 2.0   # cross vehicle waits near its leg start, launched late
+SPEED = 11.0  # ~40 km/h, both ego and cross
+EGO_TELEPORT_S = 20.0  # 80 m back from the junction entry
+CROSS_TELEPORT_S = 2.0  # cross vehicle waits near its leg start, launched late
 LEG_LEN = 100.0
 
 # Distances to the conflict point (junction centre). Approach legs are 100 m;
@@ -116,29 +116,37 @@ _TPRIO = "t_junction_priority__a90"
 #                      ego_role, cross_role  (for documentation / expected_behavior).
 _TOPOLOGY: dict[tuple[str, bool], dict] = {
     (_4WAY, True): {
-        "ego_entry": (1, -1), "ego_exit": (3, -1),     # N -> S straight (priority)
-        "cross_entry": (0, -1), "cross_exit": (2, -1),  # E -> W straight (minor)
+        "ego_entry": (1, -1),
+        "ego_exit": (3, -1),  # N -> S straight (priority)
+        "cross_entry": (0, -1),
+        "cross_exit": (2, -1),  # E -> W straight (minor)
         "ego_move": "straight through on the N-S priority road",
         "cross_move": "straight through on the E-W minor road",
         "ego_has_row": True,
     },
     (_4WAY, False): {
-        "ego_entry": (0, -1), "ego_exit": (2, -1),     # E -> W straight (minor)
-        "cross_entry": (1, -1), "cross_exit": (3, -1),  # N -> S straight (priority)
+        "ego_entry": (0, -1),
+        "ego_exit": (2, -1),  # E -> W straight (minor)
+        "cross_entry": (1, -1),
+        "cross_exit": (3, -1),  # N -> S straight (priority)
         "ego_move": "straight through on the E-W minor road",
         "cross_move": "straight through on the N-S priority road",
         "ego_has_row": False,
     },
     (_TPRIO, True): {
-        "ego_entry": (0, -1), "ego_exit": (1, -1),     # W -> E straight on main
-        "cross_entry": (2, -1), "cross_exit": (1, 1),   # S minor -> turn onto main
+        "ego_entry": (0, -1),
+        "ego_exit": (1, -1),  # W -> E straight on main
+        "cross_entry": (2, -1),
+        "cross_exit": (1, 1),  # S minor -> turn onto main
         "ego_move": "straight through on the main road",
         "cross_move": "turning off the minor (yield) leg onto the main road",
         "ego_has_row": True,
     },
     (_TPRIO, False): {
-        "ego_entry": (2, -1), "ego_exit": (1, 1),      # S minor -> turn onto main
-        "cross_entry": (0, -1), "cross_exit": (1, -1),  # W -> E straight on main
+        "ego_entry": (2, -1),
+        "ego_exit": (1, 1),  # S minor -> turn onto main
+        "cross_entry": (0, -1),
+        "cross_exit": (1, -1),  # W -> E straight on main
         "ego_move": "turning off the minor (yield) leg onto the main road",
         "cross_move": "straight through on the main road",
         "ego_has_row": False,
@@ -162,6 +170,7 @@ def _offset_slice(offset: float) -> str:
 # One variant
 # ---------------------------------------------------------------------------
 
+
 def build_variant(
     idx: int, junction: str, ego_on_priority: bool, cross_offset: float
 ) -> tuple[xosc.Scenario, dict, dict, str]:
@@ -171,8 +180,12 @@ def build_variant(
 
     # --- entities -------------------------------------------------------
     entities = xosc.Entities()
-    entities.add_scenario_object("Ego", make_ego_vehicle(), make_virtual_driver_controller())
-    entities.add_scenario_object("Cross", make_npc_vehicle(model_id="1", name="car_red"))
+    entities.add_scenario_object(
+        "Ego", make_ego_vehicle(), make_virtual_driver_controller()
+    )
+    entities.add_scenario_object(
+        "Cross", make_npc_vehicle(model_id="1", name="car_red")
+    )
 
     # --- init -----------------------------------------------------------
     init = xosc.Init()
@@ -186,13 +199,18 @@ def build_variant(
     add_routed_actor_init(
         init, "Ego", lane_pos(ego_er, ego_el, EGO_TELEPORT_S), ego_route, SPEED
     )
-    init.add_init_action("Ego", xosc.ActivateControllerAction(lateral=True, longitudinal=True))
+    init.add_init_action(
+        "Ego", xosc.ActivateControllerAction(lateral=True, longitudinal=True)
+    )
 
     cross_er, cross_el = topo["cross_entry"]
     cross_xr, cross_xl = topo["cross_exit"]
     cross_route = make_route(
         "cross_route",
-        [lane_pos(cross_er, cross_el, CROSS_TELEPORT_S), lane_pos(cross_xr, cross_xl, 80.0)],
+        [
+            lane_pos(cross_er, cross_el, CROSS_TELEPORT_S),
+            lane_pos(cross_xr, cross_xl, 80.0),
+        ],
     )
     # Teleport the cross vehicle at rest; launch it late via the Story Act.
     add_routed_actor_init(
@@ -283,12 +301,16 @@ def build_variant(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate the Phase 3e unsignalized-junction scenario grid (12 variants)."
     )
     parser.add_argument(
-        "--out-dir", type=Path, default=None, metavar="DIR",
+        "--out-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
         help="Output directory. Default: <this file's dir>/generated.",
     )
     return parser.parse_args()
@@ -296,15 +318,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    out_dir: Path = args.out_dir if args.out_dir is not None else (
-        Path(__file__).resolve().parent / "generated"
+    out_dir: Path = (
+        args.out_dir
+        if args.out_dir is not None
+        else (Path(__file__).resolve().parent / "generated")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Grid order: junction (outer) x ego_on_priority x cross_offset (inner).
     grid = list(itertools.product(JUNCTIONS, EGO_ON_PRIORITY, CROSS_OFFSETS))
     for i, (junction, ego_prio, offset) in enumerate(grid, start=1):
-        scenario, meta, annotation, catalog_id = build_variant(i, junction, ego_prio, offset)
+        scenario, meta, annotation, catalog_id = build_variant(
+            i, junction, ego_prio, offset
+        )
         write_scenario(scenario, out_dir / f"{catalog_id}.xosc")
         write_meta_yaml(out_dir / f"{catalog_id}.meta.yaml", meta)
         write_meta_yaml(out_dir / f"{catalog_id}.annotation_required.yaml", annotation)

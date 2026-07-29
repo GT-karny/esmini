@@ -24,9 +24,18 @@ def main():
     from GT_esmini.web.backend.config import HTTP_PORT
 
     parser = argparse.ArgumentParser(description="GT_Sim Web API Server")
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=HTTP_PORT, help=f"Port to bind (default: {HTTP_PORT})")
-    parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=HTTP_PORT,
+        help=f"Port to bind (default: {HTTP_PORT})",
+    )
+    parser.add_argument(
+        "--reload", action="store_true", help="Enable auto-reload for development"
+    )
     args = parser.parse_args()
 
     import uvicorn
@@ -44,6 +53,7 @@ def main():
     # Convert SIGBREAK (Windows CTRL_CLOSE_EVENT) to SIGINT
     # so uvicorn's graceful shutdown path is triggered.
     if hasattr(signal, "SIGBREAK"):
+
         def _on_sigbreak(signum, frame):
             os.kill(os.getpid(), signal.SIGINT)
 
@@ -52,7 +62,9 @@ def main():
     # atexit fallback: kill orphaned subprocesses if lifespan didn't complete
     def _atexit_cleanup():
         try:
-            from GT_esmini.web.backend.services.simulation_runner import kill_all_running
+            from GT_esmini.web.backend.services.simulation_runner import (
+                kill_all_running,
+            )
 
             killed = kill_all_running()
             if killed:
@@ -63,6 +75,7 @@ def main():
     atexit.register(_atexit_cleanup)
 
     from GT_esmini.web.backend.logging_config import setup_logging
+
     log_config = setup_logging()
 
     uvicorn.run(

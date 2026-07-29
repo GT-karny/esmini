@@ -1,5 +1,7 @@
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 
+#include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
+
 #include "Entities.hpp"
 #include "RoadManager.hpp"
 
@@ -87,6 +89,13 @@ TrafficPolicySnapshot LeadVehicleAware::Evaluate(const TrafficPolicyContext& ctx
     const double v_lead = lead->GetSpeed();
     const double sstar  = lead_idm::DesiredGap(cfg_.idm, v_ego, v_lead);
 
+    // W3-style diagnostics, negative case included: with a lead in scope but no
+    // constraint emitted, gap vs the IDM desired gap sstar is what explains the
+    // silence ("comfortably far" is recomputable offline from these three).
+    AddDetail(snap.detail, "gt.lead_vehicle.gap_m", gap);
+    AddDetail(snap.detail, "gt.lead_vehicle.v_lead_mps", v_lead);
+    AddDetail(snap.detail, "gt.lead_vehicle.sstar_m", sstar);
+
     // Comfortably far behind a moving lead -> no constraint (free acceleration).
     if (v_lead > cfg_.stop_speed_eps && gap > cfg_.follow_margin * sstar)
         return snap;
@@ -107,6 +116,8 @@ TrafficPolicySnapshot LeadVehicleAware::Evaluate(const TrafficPolicyContext& ctx
     // Following regime: cap the speed at the IDM target for this frame.
     const double a_idm  = lead_idm::DesiredAccel(cfg_.idm, v_ego, v_lead, gap);
     const double target = std::max(0.0, v_ego + a_idm * cfg_.target_horizon);
+
+    AddDetail(snap.detail, "gt.lead_vehicle.v_target_mps", target);
 
     PolicyConstraint c;
     c.kind   = PolicyConstraint::Kind::MAX_SPEED;

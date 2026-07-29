@@ -5,12 +5,15 @@
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
+#include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
+#include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/AebSafety.hpp"
 #include "gt_esmini/control/common/PhysicsInitParams.hpp"
 
 namespace gt_esmini
@@ -33,6 +36,10 @@ struct VirtualDriverConfig
     // --- Mid/long planner (Phase 2: ManeuverAwareSpeedPlanner) ---
     double max_lateral_accel = 2.0;   // [m/s^2] curve speed = sqrt(a_lat/|kappa|)
     double comfort_decel     = 2.0;   // [m/s^2] backward-pass deceleration
+    // AEB phase 1: deceleration used instead of comfort_decel to shape the
+    // approach to a SAFETY-tier constraint (see PolicyConstraint::Tier). Only
+    // takes effect when policy_aeb_enabled fires AebSafety.
+    double emergency_decel   = 8.0;   // [m/s^2]
     double comfort_jerk      = 1.5;   // [m/s^3] jerk-limited profile smoothing
     double scan_distance     = 300.0; // [m] route look-ahead for v_target(s)
     double scan_step         = 2.0;   // [m] forward scan resolution
@@ -50,6 +57,35 @@ struct VirtualDriverConfig
     double speed_kp = 0.6;
     double speed_ki = 0.2;
     double speed_kd = 0.0;
+
+    // --- AD steering safety envelope (feature:F7) ---
+    // Clamps AD's COMMANDED steering (never the manual input) to physical
+    // lateral-accel / yaw-rate / steering-rate limits — see AdSteeringEnvelope.hpp
+    // for the defect this fixes and why it is independent of max_lateral_accel
+    // above. Default ON (safety feature). Limits are FINAL (fixed from a
+    // real-vehicle measurement pool; see AdSteeringEnvelope.hpp for the
+    // rationale); defaults mirror AdSteeringEnvelopeConfig's own (single
+    // C++-side source of truth: gt_esmini::kAdEnvelopeDefault*).
+    bool   ad_steering_envelope_enabled = true;
+    double a_lat_max_steer  = kAdEnvelopeDefaultALatMaxSteer;
+    double yaw_rate_max     = kAdEnvelopeDefaultYawRateMax;
+    double steer_rate_max   = kAdEnvelopeDefaultSteerRateMax;
+    double envelope_v_floor = kAdEnvelopeDefaultVFloor;
+    double ad_steering_envelope_steer_jerk_max = kAdEnvelopeDefaultSteerJerkMax;  // [1/s^2] normalized; <=0 disables
+
+    // --- AD resume-merge trajectory (feature:F7) ---
+    // On AUTO_RESUME, generates a smooth lane-change-like merge back to the
+    // ROUTE lane over a few seconds instead of steering back by the shortest
+    // path. Pure-logic profile lives in ResumeMergeProfile.hpp; defaults
+    // mirror its own kResumeMergeDefault* constants (single C++-side source
+    // of truth, same convention as the AD steering envelope above). The AD
+    // steering safety envelope remains the hard cap regardless of this
+    // maneuver's comfort target. Default OFF.
+    bool   resume_merge_enabled        = kResumeMergeDefaultEnabled;
+    double resume_merge_a_lat_comfort  = kResumeMergeDefaultALatComfort;   // [m/s^2]
+    double resume_merge_duration_min_s = kResumeMergeDefaultDurationMinS; // [s]
+    double resume_merge_duration_max_s = kResumeMergeDefaultDurationMaxS; // [s]
+    double resume_merge_min_offset_m   = kResumeMergeDefaultMinOffsetM;   // [m]
 
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
@@ -81,6 +117,12 @@ struct VirtualDriverConfig
     // junctions keep the base yield. Requires policy_conflict_enabled (the gate
     // lives inside ConflictPointResolver). Default OFF -> no behaviour change.
     bool   policy_junction_priority_enabled = false;
+    // AEB (phase 1) — forward-collision emergency braking guardian. Longitudinal
+    // only (no steering); fires a SAFETY-tier STOP_AT_S on a collision-course
+    // gate (TTC + required-decel), independent of policy_lead_enabled so it
+    // composes with (and can catch what) the comfort-tier lead follow misses.
+    // Default OFF -> no behaviour change.
+    bool   policy_aeb_enabled           = false;
     // 3a — lead-vehicle IDM follow.
     double idm_time_headway   = 1.5;   // [s]
     double idm_min_gap        = 2.0;   // [m]
@@ -126,6 +168,15 @@ struct VirtualDriverConfig
     double crosswalk_signal_link_radius     = 10.0;  // [m]   |signal_s - crosswalk_s| on the same road
     double crosswalk_release_lateral_margin = 0.5;   // [m]   passage band = ego half-width + this
 
+    // AEB (phase 1) — forward-collision safety gate (see AebSafety). Longitudinal
+    // guardian only. Fires a SAFETY-tier STOP_AT_S (approached at
+    // emergency_decel, above) when v_close>0 && gap>0 && TTC<aeb_ttc_threshold
+    // && a_req>aeb_min_a_req against the nearest admitted candidate ahead.
+    double aeb_ttc_threshold  = 2.5;  // [s]     fire when predicted time-to-collision drops below this
+    double aeb_lateral_tol    = 3.5;  // [m]     widened admission window (sees an in-progress cut-in, not just dLaneId==0)
+    double aeb_min_a_req      = 3.0;  // [m/s^2] fire only when the required deceleration exceeds this
+    double aeb_stop_margin    = 2.0;  // [m]     extra standoff behind the bumper-to-bumper gap for the emitted stop point
+
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
     bool        override_button        = true;
@@ -136,10 +187,71 @@ struct VirtualDriverConfig
     std::string override_lateral       = "manual";    // "manual" (overridable) | "scenario" (locked auto)
     std::string override_longitudinal  = "manual";
 
+    // --- FFB target-track (F7b) — copied into io_config_.ffb.target_track ---
+    // Flat keys (VD config style; the equivalent lives under ffb.target_track in
+    // ManualDriveConfig). Defaults match scripts/ffb_spike/README.md §1e/§2e —
+    // NORMALIZED axis-fraction units (not radians). enabled=false so existing
+    // VD behavior is bit-identical unless opt-in.
+    bool   ffb_target_track_enabled                              = false;
+    double ffb_target_track_kp                                   = 4.0;
+    double ffb_target_track_kd                                   = 0.35;
+    double ffb_target_track_max_force                            = 0.6;
+    double ffb_target_track_hard_stop_zone                       = 0.85;
+    // Coulomb friction feed-forward (< min breakaway 0.170) + road-feel
+    // authority while the servo is active. CHARACTERIZATION.md §4/§6/§7.
+    double ffb_target_track_friction_ff                          = 0.15;
+    double ffb_target_track_friction_ff_eps                      = 0.01;
+    double ffb_target_track_feel_ratio                           = 0.0;
+    double ffb_target_track_override_steer_force_threshold       = 0.20;
+    double ffb_target_track_override_steer_dev_threshold         = 0.04;
+    double ffb_target_track_override_sustain_time                = 0.10;   // seconds
+    double ffb_target_track_override_target_rate_gate            = 0.30;   // axis-frac / s
+    double ffb_target_track_override_position_error_rate_gate    = 0.10;   // axis-frac / s
+    // feature:F7 — residual intervention detector + shadow-plant constants.
+    // See ManualDriveConfig.ffb.target_track for the design rationale and the
+    // real-G29 measurements the defaults come from.
+    double ffb_target_track_override_residual_threshold          = 0.08;   // axis-fraction
+    double ffb_target_track_override_residual_reanchor_tau       = 1.5;    // seconds
+    double ffb_target_track_override_shadow_breakaway            = 0.21;   // force (unconditional)
+    double ffb_target_track_override_shadow_breakaway_left       = 0.170;  // force > 0, with observed motion
+    double ffb_target_track_override_shadow_breakaway_right      = 0.190;  // force < 0, with observed motion
+    double ffb_target_track_override_shadow_motion_epsilon       = 0.01;   // axis-fraction
+    double ffb_target_track_override_shadow_kinetic              = 0.16;   // force
+    double ffb_target_track_override_shadow_force_to_velocity    = 3.35;   // (axis-frac/s) / force
+    double ffb_target_track_override_shadow_v_max                = 1.0;    // axis-frac / s
+    double ffb_target_track_override_shadow_velocity_tau         = 0.018;  // s (measured)
+    double ffb_target_track_override_shadow_dead_time            = 0.041;  // s (measured)
+    double ffb_target_track_override_shadow_onset_grace          = 0.05;   // s
+    double ffb_target_track_override_shadow_motion_rate_eps      = 0.02;   // axis-frac/s
+    // feature:F7 unattended-run safety watchdog. 0 = disabled (default), so
+    // supervised runs and every existing gate are unaffected. The unattended
+    // runbook turns these on. See ManualDriveConfig.ffb.safety.
+    double ffb_safety_max_saturation_seconds                     = 0.0;    // s; 0 = off
+    double ffb_safety_max_runtime_seconds                        = 0.0;    // s; 0 = off
+    double ffb_safety_saturation_ratio                           = 0.95;
+
     // --- Input source (reuses ManualDrive IInputSource) ---
     std::string input_type = "stub";  // "stub" | "network" | "sdl2_wheel"
     int         input_port = 9100;
     std::string input_transport = "udp";
+
+    // SDL2 wheel button IDs (only used when input_type=="sdl2_wheel"). Every
+    // key ends up in io_config_.sdl2.* and drives SDL2WheelInput.Poll button
+    // reads. Prefixed sdl2_* to avoid clashing with the bool `override_button`
+    // above (which enables/disables the OVERRIDE bit dispatch, not a wheel
+    // binding). Defaults mirror ManualDriveConfig::sdl2 so the wheel behaves
+    // identically under VD without any JSON present. -1 = unassigned.
+    // feature:F7 — sdl2_auto_resume_button is the new manual->auto RESUME.
+    int         sdl2_override_button        = 0;
+    int         sdl2_indicator_left_button  = 7;
+    int         sdl2_indicator_right_button = 6;
+    int         sdl2_upshift_button         = 4;
+    int         sdl2_downshift_button       = 5;
+    int         sdl2_headlight_button       = -1;
+    int         sdl2_high_beam_button       = -1;
+    int         sdl2_fog_light_button       = -1;
+    int         sdl2_hazard_button          = -1;
+    int         sdl2_auto_resume_button     = -1;
 
     bool LoadFromFile(const std::string& filepath);
 
@@ -148,12 +260,15 @@ struct VirtualDriverConfig
     TrajectoryShortPlannerConfig   ShortPlannerConfig() const;
     ManeuverAwareSpeedPlannerConfig MidLongConfig() const;
     PIDPurePursuitConfig           DriverConfig() const;
+    AdSteeringEnvelopeConfig        AdEnvelopeConfig() const;
+    ResumeMergeConfig              ResumeMergeCfg() const;
     AutoIndicatorConfig            IndicatorConfig() const;
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;
     StopYieldSignAwareConfig       StopYieldConfig() const;
     ConflictPointResolverConfig    ConflictConfig() const;
     CrosswalkPedestrianAwareConfig CrosswalkConfig() const;
+    AebSafetyConfig                AebConfig() const;
 };
 
 }  // namespace gt_esmini

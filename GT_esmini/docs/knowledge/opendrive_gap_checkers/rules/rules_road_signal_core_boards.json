@@ -1,0 +1,74 @@
+[
+  {
+    "rule_name": "road.signal.priority",
+    "category": "road.signal",
+    "version": "1.7.0",
+    "description": "If present, signals shall be used in priority to other traffic rules."
+  },
+  {
+    "rule_name": "road.signal.signal_type",
+    "category": "road.signal",
+    "version": "1.7.0",
+    "description": "Signals shall have a specific type and subtype."
+  },
+  {
+    "rule_name": "road.signal.use_country_code",
+    "category": "road.signal",
+    "version": "1.7.0",
+    "description": "A country code shall be added to refer to country-specific rules using the @country attribute."
+  },
+  {
+    "rule_name": "road.signal.boards.multi_board_have_sub_boards",
+    "category": "road.signal.boards",
+    "version": "1.8.0",
+    "description": "A multi board shall have at least one static signal board and at least one variable message board."
+  },
+  {
+    "rule_name": "road.signal.boards.multi_board_use_correct_type",
+    "category": "road.signal.boards",
+    "version": "1.8.0",
+    "description": "Multi boards shall be specified to be @type=\"multiBoard\"."
+  },
+  {
+    "rule_name": "road.signal.boards.multi_board_use_dynamic_true",
+    "category": "road.signal.boards",
+    "version": "1.8.0",
+    "description": "Multi boards shall be specified to be @dynamic=\"true\"."
+  },
+  {
+    "rule_name": "road.signal.boards.static_board_use_correct_type",
+    "category": "road.signal.boards",
+    "version": "1.8.0",
+    "description": "Static signal boards shall be specified to be @type=\"staticBoard\"."
+  },
+  {
+    "rule_name": "road.signal.boards.static_boards_no_single_signal",
+    "category": "road.signal.boards",
+    "version": "1.9.0",
+    "description": "Static boards shall not be used for single signals, for example, a stop sign on a single sheet of metal."
+  },
+  {
+    "rule_name": "road.signal.controller.valid_for_signals",
+    "category": "road.signal.controller",
+    "version": "1.7.0",
+    "description": "Controllers shall be valid for one or more signals."
+  },
+  {
+    "rule_name": "road.signal.dependency.multiple_dependency",
+    "category": "road.signal.dependency",
+    "version": "1.7.0",
+    "description": "A signal may have multiple dependencies."
+  },
+  {
+    "rule_name": "road.signal.gantry.all_variable_boards_same_gantry",
+    "category": "road.signal.gantry",
+    "version": "1.9.0",
+    "description": "All variable message boards within a &lt;vmsGroup&gt; element shall belong to the same gantry."
+  },
+  {
+    "rule_name": "road.signal.gantry.vmsgroup_at_least_one_reference",
+    "category": "road.signal.gantry",
+    "version": "1.9.0",
+    "description": "Each gantry shall have one &lt;vmsGroup&gt; element with at least one &lt;vmsBoardReference&gt; element."
+  }
+]

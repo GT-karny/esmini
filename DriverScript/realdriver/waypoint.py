@@ -14,6 +14,7 @@ import math
 
 class WaypointStatus(Enum):
     """Status of a waypoint relative to current vehicle position."""
+
     NOT_REACHED = 0
     PASSED = 1
     MISSED = 2
@@ -33,6 +34,7 @@ class Waypoint:
         lane_id: Lane ID (negative = right side, positive = left side)
         lane_offset: Offset from lane center (meters, positive = left)
     """
+
     x: float
     y: float
     h: float = 0.0
@@ -41,26 +43,33 @@ class Waypoint:
     lane_id: int = 0
     lane_offset: float = 0.0
 
-    def distance_to(self, other: 'Waypoint') -> float:
+    def distance_to(self, other: "Waypoint") -> float:
         """Calculate Euclidean distance to another waypoint."""
         dx = self.x - other.x
         dy = self.y - other.y
         return math.sqrt(dx * dx + dy * dy)
 
-    def heading_to(self, other: 'Waypoint') -> float:
+    def heading_to(self, other: "Waypoint") -> float:
         """Calculate heading angle to another waypoint (radians)."""
         dx = other.x - self.x
         dy = other.y - self.y
         return math.atan2(dy, dx)
 
     @classmethod
-    def from_world_coords(cls, x: float, y: float, h: float = 0.0) -> 'Waypoint':
+    def from_world_coords(cls, x: float, y: float, h: float = 0.0) -> "Waypoint":
         """Create a waypoint from world coordinates only."""
         return cls(x=x, y=y, h=h, road_id=-1, s=0.0, lane_id=0)
 
     @classmethod
-    def from_road_coords(cls, road_id: int, s: float, lane_id: int,
-                         x: float = 0.0, y: float = 0.0, h: float = 0.0) -> 'Waypoint':
+    def from_road_coords(
+        cls,
+        road_id: int,
+        s: float,
+        lane_id: int,
+        x: float = 0.0,
+        y: float = 0.0,
+        h: float = 0.0,
+    ) -> "Waypoint":
         """Create a waypoint from road coordinates (with optional world coords)."""
         return cls(x=x, y=y, h=h, road_id=road_id, s=s, lane_id=lane_id)
 
@@ -70,8 +79,11 @@ class Waypoint:
 # Each waypoint: [x: double][y: double][h: double][roadId: uint32][PADDING: 4b][s: double][laneId: int32][PADDING: 4b][laneOffset: double]
 # Note: C++ struct alignment inserts padding before doubles if previous members are 4-byte aligned.
 WAYPOINT_PACKET_TYPE = 2
-WAYPOINT_STRUCT_FORMAT = '<dddI4xdi4xd'  # x, y, h, roadId, pad, s, laneId, pad, laneOffset
+WAYPOINT_STRUCT_FORMAT = (
+    "<dddI4xdi4xd"  # x, y, h, roadId, pad, s, laneId, pad, laneOffset
+)
 WAYPOINT_STRUCT_SIZE = 56  # 48 + 8 bytes padding
+
 
 def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
     """
@@ -91,13 +103,17 @@ def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
 
     packet_type = data[0]
     if packet_type != WAYPOINT_PACKET_TYPE:
-        raise ValueError(f"Invalid packet type: {packet_type}, expected {WAYPOINT_PACKET_TYPE}")
+        raise ValueError(
+            f"Invalid packet type: {packet_type}, expected {WAYPOINT_PACKET_TYPE}"
+        )
 
-    current_index, count = struct.unpack('<II', data[1:9])
+    current_index, count = struct.unpack("<II", data[1:9])
 
     expected_size = 9 + count * WAYPOINT_STRUCT_SIZE
     if len(data) < expected_size:
-        raise ValueError(f"Packet size mismatch: got {len(data)}, expected {expected_size}")
+        raise ValueError(
+            f"Packet size mismatch: got {len(data)}, expected {expected_size}"
+        )
 
     waypoints = []
     offset = 9
@@ -105,15 +121,21 @@ def parse_waypoints_from_udp(data: bytes) -> Tuple[int, List[Waypoint]]:
         # Only unpack the fields we need, ignore padding
         # Note: struct.unpack with 'x' skips bytes
         x, y, h, road_id, s, lane_id, lane_offset = struct.unpack(
-            WAYPOINT_STRUCT_FORMAT,
-            data[offset:offset + WAYPOINT_STRUCT_SIZE]
+            WAYPOINT_STRUCT_FORMAT, data[offset : offset + WAYPOINT_STRUCT_SIZE]
         )
-        waypoints.append(Waypoint(
-            x=x, y=y, h=h,
-            road_id=road_id, s=s, lane_id=lane_id, lane_offset=lane_offset
-        ))
+        waypoints.append(
+            Waypoint(
+                x=x,
+                y=y,
+                h=h,
+                road_id=road_id,
+                s=s,
+                lane_id=lane_id,
+                lane_offset=lane_offset,
+            )
+        )
         if abs(lane_offset) > 0.01 and len(waypoints) < 5:
-             print(f"[DEBUG_UDP] WP[{len(waypoints)-1}] lane_offset={lane_offset:.3f}")
+            print(f"[DEBUG_UDP] WP[{len(waypoints)-1}] lane_offset={lane_offset:.3f}")
         offset += WAYPOINT_STRUCT_SIZE
 
     return current_index, waypoints
@@ -134,7 +156,7 @@ class WaypointManager:
         self._calculated_waypoints: List[Waypoint] = []
         self._udp_waypoints: List[Waypoint] = []
         self._current_index: int = 0
-        self._source: str = 'none'
+        self._source: str = "none"
 
     def set_waypoints(self, waypoints: List[Waypoint]) -> None:
         """
@@ -145,7 +167,7 @@ class WaypointManager:
         """
         self._user_waypoints = list(waypoints)
         self._current_index = 0
-        self._source = 'user'
+        self._source = "user"
 
     def set_calculated_waypoints(self, waypoints: List[Waypoint]) -> None:
         """
@@ -157,7 +179,7 @@ class WaypointManager:
         self._calculated_waypoints = list(waypoints)
         if not self._user_waypoints:
             self._current_index = 0
-            self._source = 'calculated'
+            self._source = "calculated"
 
     def receive_from_udp(self, data: bytes) -> bool:
         """
@@ -174,14 +196,18 @@ class WaypointManager:
             self._udp_waypoints = waypoints
             if not self._user_waypoints and not self._calculated_waypoints:
                 self._current_index = index
-                self._source = 'udp'
+                self._source = "udp"
 
             # Debug: Log received waypoints (first time only)
-            if not hasattr(self, '_udp_logged') or not self._udp_logged:
-                print(f"[UDP] Received {len(waypoints)} waypoints, currentIndex={index}")
+            if not hasattr(self, "_udp_logged") or not self._udp_logged:
+                print(
+                    f"[UDP] Received {len(waypoints)} waypoints, currentIndex={index}"
+                )
                 for i, wp in enumerate(waypoints):
                     marker = ">>>" if i == index else "   "
-                    print(f"  {marker}WP[{i}]: x={wp.x:.2f}, y={wp.y:.2f}, road={wp.road_id}, lane={wp.lane_id}")
+                    print(
+                        f"  {marker}WP[{i}]: x={wp.x:.2f}, y={wp.y:.2f}, road={wp.road_id}, lane={wp.lane_id}"
+                    )
                 self._udp_logged = True
 
             return True
@@ -195,17 +221,17 @@ class WaypointManager:
         self._calculated_waypoints = []
         self._udp_waypoints = []
         self._current_index = 0
-        self._source = 'none'
+        self._source = "none"
 
     def clear_user_waypoints(self) -> None:
         """Clear user-specified waypoints only."""
         self._user_waypoints = []
         if self._calculated_waypoints:
-            self._source = 'calculated'
+            self._source = "calculated"
         elif self._udp_waypoints:
-            self._source = 'udp'
+            self._source = "udp"
         else:
-            self._source = 'none'
+            self._source = "none"
 
     @property
     def waypoints(self) -> List[Waypoint]:
@@ -270,8 +296,9 @@ class WaypointManager:
         wps = self.waypoints
         return not wps or self._current_index >= len(wps) - 1
 
-    def get_waypoint_status(self, current_pos: Waypoint, waypoint: Waypoint,
-                            driving_direction: int = 1) -> WaypointStatus:
+    def get_waypoint_status(
+        self, current_pos: Waypoint, waypoint: Waypoint, driving_direction: int = 1
+    ) -> WaypointStatus:
         """
         Check if a waypoint has been passed, missed, or not reached.
 
@@ -287,34 +314,36 @@ class WaypointManager:
         dist = current_pos.distance_to(waypoint)
 
         # Debug logging (periodic)
-        if not hasattr(self, '_wp_status_log_counter'):
+        if not hasattr(self, "_wp_status_log_counter"):
             self._wp_status_log_counter = 0
         self._wp_status_log_counter += 1
-        log_now = (self._wp_status_log_counter % 100 == 0)
-        
+        log_now = self._wp_status_log_counter % 100 == 0
+
         if log_now:
-            print(f"[DEBUG_WP_STATUS] cur_road={current_pos.road_id}, wp_road={waypoint.road_id}, "
-                  f"cur_s={current_pos.s:.1f}, wp_s={waypoint.s:.1f}, "
-                  f"cur_lane={current_pos.lane_id}, wp_lane={waypoint.lane_id}, dist={dist:.1f}")
+            print(
+                f"[DEBUG_WP_STATUS] cur_road={current_pos.road_id}, wp_road={waypoint.road_id}, "
+                f"cur_s={current_pos.s:.1f}, wp_s={waypoint.s:.1f}, "
+                f"cur_lane={current_pos.lane_id}, wp_lane={waypoint.lane_id}, dist={dist:.1f}"
+            )
 
         # Check if on same road
         if current_pos.road_id != waypoint.road_id or current_pos.road_id < 0:
             # Different road or unknown
-            
+
             # [FIX] Track minimum distance to detect when we've passed the waypoint
             # This is crucial for junction transitions where road IDs differ
-            if not hasattr(self, '_min_dist_to_wp'):
+            if not hasattr(self, "_min_dist_to_wp"):
                 self._min_dist_to_wp = {}
-            
+
             wp_key = (waypoint.x, waypoint.y)  # Use position as key
-            
+
             if wp_key not in self._min_dist_to_wp:
                 self._min_dist_to_wp[wp_key] = dist
             else:
                 # Update minimum distance
                 if dist < self._min_dist_to_wp[wp_key]:
                     self._min_dist_to_wp[wp_key] = dist
-            
+
             # Check if we've passed the waypoint by monitoring distance increase
             # If we got close and are now moving away, we've passed it
             min_dist = self._min_dist_to_wp.get(wp_key, dist)
@@ -323,7 +352,7 @@ class WaypointManager:
                 # We got within 10m and are now moving away by 3m - consider it passed
                 del self._min_dist_to_wp[wp_key]  # Clean up
                 return WaypointStatus.PASSED
-            
+
             # [FIX] Also check if waypoint is clearly behind us based on heading
             # Calculate angle from car to waypoint
             dx = waypoint.x - current_pos.x
@@ -335,15 +364,17 @@ class WaypointManager:
                 angle_diff -= 2 * math.pi
             while angle_diff < -math.pi:
                 angle_diff += 2 * math.pi
-            
+
             # If waypoint is more than 90 degrees behind us and we're more than 5m away, skip it
             if abs(angle_diff) > math.pi / 2 and dist > 5.0:
                 if wp_key in self._min_dist_to_wp:
                     del self._min_dist_to_wp[wp_key]
                 return WaypointStatus.PASSED
-            
+
             # Original close proximity check
-            if dist < 1.5:  # [FIX] Tighter threshold for Dense Route (1m spacing) matches
+            if (
+                dist < 1.5
+            ):  # [FIX] Tighter threshold for Dense Route (1m spacing) matches
                 # Check lane
                 if current_pos.lane_id == waypoint.lane_id or waypoint.lane_id == 0:
                     return WaypointStatus.PASSED

@@ -2,7 +2,9 @@ name: Sanitize
 
 on:
   schedule:
-    # This will run the sanitize job Nightly at 2:37AM every day for the dev branch
+    # This will run the sanitize job Nightly at 2:37AM every day for the GT fork's
+    # current dev_v0.<N> integration branch (upstream's 'dev' branch does not exist
+    # here -- see the "Resolve integration branch" step below).
     # * is a special character in YAML so you have to quote this string
     - cron: '37 2 * * *'
 
@@ -25,23 +27,38 @@ jobs:
           submodules: true
           fetch-depth: 0  # Fetch all history for proper branch switching
 
+      - name: Resolve integration branch
+        id: target
+        run: |
+          # GT fork: no 'dev' branch exists (branch model is master -> dev_v0.<N> ->
+          # feature/*, see repo CLAUDE.md §7). Resolve the latest dev_v* branch instead
+          # of a hardcoded name -- a hardcoded 'dev_v0.14' would go stale on the next
+          # version bump and repeat the exact bug this replaces (git checkout dev,
+          # which fails outright since that branch was never created in this fork).
+          BRANCH=$(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/dev_v*' | sed 's#^origin/##' | sort -V | tail -1)
+          if [ -z "$BRANCH" ]; then
+            echo "::error::No origin/dev_v* branch found"
+            exit 1
+          fi
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
       - name: Conditional Checkout
         run: |
           if [ "${{ github.ref }}" == "refs/heads/master" ]; then
-            git checkout dev
+            git checkout ${{ steps.target.outputs.branch }}
           fi
 
       - name: Check recent commits
         id: changes
         run: |
-          COUNT=$(git rev-list --count --since="24 hours ago" origin/dev)
-          echo "$COUNT commits over the last 24 hours found on dev"
+          COUNT=$(git rev-list --count --since="24 hours ago" origin/${{ steps.target.outputs.branch }})
+          echo "$COUNT commits over the last 24 hours found on ${{ steps.target.outputs.branch }}"
           echo "commit_count=$COUNT" >> $GITHUB_OUTPUT
 
       - name: Skip job
         if: steps.changes.outputs.commit_count == '0'
         run: |
-          echo "No new commits on dev. Skipping."
+          echo "No new commits on ${{ steps.target.outputs.branch }}. Skipping."
           exit 0
 
       - uses: ./.github/actions/setup_tools_shared

@@ -14,7 +14,7 @@
     road 3  starts (121.2,-21.2) hdg=-45deg length 50     -> ends ~(156.6,-56.6)
 
   HARD RULE (design sec6 S7b): NO assertion anywhere on road 1's span asserts a
-  junction id/membership -- v1 reports false/-1 there (interpretive, surfaced
+  junction id/membership - v1 reports false/-1 there (interpretive, surfaced
   upstream #592). Reaching road 3 is asserted by position, not junction id.
 
   Modest init speed (~9 m/s ~= 32 km/h) so the -45deg turn is drivable.
@@ -29,6 +29,7 @@
    <ParameterDeclarations>
       <ParameterDeclaration name="EgoSpeed" parameterType="double" value="9.0"/>
    </ParameterDeclarations>
+   <CatalogLocations/>
    <RoadNetwork>
       <LogicFile filepath="../../../xodr/virtual_junction_23.xodr"/>
    </RoadNetwork>

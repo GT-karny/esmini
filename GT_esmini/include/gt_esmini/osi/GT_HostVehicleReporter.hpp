@@ -85,12 +85,26 @@ public:
     void SetPowertrain(int vehicle_id, double rpm, double torque);
 
     /**
-     * Add or update ADAS function state
-     * @param vehicle_id Vehicle ID
-     * @param function_name OSI function name (e.g., "ADAPTIVE_CRUISE_CONTROL")
-     * @param state OSI function state (0-6)
+     * Add or update one ADAS function using the OSI Name enum (W1).
+     *
+     * Carries the real OSI `Name` enum value plus the custom_detail KVs, which
+     * is what makes the function machine-identifiable to any OSI consumer
+     * instead of merely human-readable. The label-only AddADASFunction()
+     * predecessor (always NAME_OTHER, no detail) was removed once every caller
+     * — including the fixed-24-slot ControllerRealDriver / PythonDriver path —
+     * had migrated here; NAME_OTHER rows are still expressible via osi_name.
+     *
+     * @param vehicle_id  Vehicle ID
+     * @param osi_name    osi3 ...VehicleAutomatedDrivingFunction_Name value
+     * @param custom_name Label (always set; the only identity for NAME_OTHER)
+     * @param state       osi3 ...VehicleAutomatedDrivingFunction_State value
+     * @param detail      custom_detail key/value pairs (see PolicyDetail.hpp)
      */
-    void AddADASFunction(int vehicle_id, const std::string& function_name, int state);
+    void AddADASFunctionEx(int                                                     vehicle_id,
+                           int                                                     osi_name,
+                           const std::string&                                      custom_name,
+                           int                                                     state,
+                           const std::vector<std::pair<std::string, std::string>>& detail);
 
     /**
      * Clear all ADAS functions for a vehicle (call before updating each frame)
@@ -172,6 +186,10 @@ private:
         {
             std::string name;
             int state;
+            // W1: -1 means "no OSI Name known" -> emitted as NAME_OTHER
+            // (defensive default; AddADASFunctionEx always sets a real value).
+            int osi_name = -1;
+            std::vector<std::pair<std::string, std::string>> detail;  // -> custom_detail
         };
         std::vector<ADASFunction> adas_functions;
 

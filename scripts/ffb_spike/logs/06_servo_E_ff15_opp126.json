@@ -1,0 +1,60 @@
+{
+  "rest_axis": 0.0,
+  "kp": 4.0,
+  "kd": 0.35,
+  "max_force": 0.6,
+  "opposing": 0.126,
+  "fstat": 0.15,
+  "ff_eps": 0.01,
+  "runs": [
+    {
+      "target_rel": 0.0,
+      "first_move_s": null,
+      "reach_s": 0.0,
+      "final_disp": 0.0,
+      "peak_disp": 0.0,
+      "tail_abs_err": 0.0,
+      "u_max": 0.126,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    },
+    {
+      "target_rel": 0.03,
+      "first_move_s": null,
+      "reach_s": null,
+      "final_disp": 0.0,
+      "peak_disp": 0.0,
+      "tail_abs_err": 0.03,
+      "u_max": 0.1433,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    },
+    {
+      "target_rel": 0.06,
+      "first_move_s": 0.126,
+      "reach_s": null,
+      "final_disp": 0.03793,
+      "peak_disp": 0.03793,
+      "tail_abs_err": 0.02207,
+      "u_max": 0.474,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    },
+    {
+      "target_rel": 0.15,
+      "first_move_s": 0.049,
+      "reach_s": null,
+      "final_disp": 0.1279,
+      "peak_disp": 0.1279,
+      "tail_abs_err": 0.0221,
+      "u_max": 0.474,
+      "tail_u_std": 0.0,
+      "tail_axis_std": 0.0,
+      "tail_axis_ptp": 0.0
+    }
+  ],
+  "csv": "06_servo_kp400_mf60_opp126.csv"
+}

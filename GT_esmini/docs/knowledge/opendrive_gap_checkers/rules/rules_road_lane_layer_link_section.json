@@ -1,0 +1,116 @@
+[
+  {
+    "rule_name": "road.lane.layer.center_lane_permanent",
+    "category": "road.lane.layer",
+    "version": "1.9.0",
+    "description": "Each lane section in the permanent layer shall have a center lane."
+  },
+  {
+    "rule_name": "road.lane.layer.lane_group_width_temporary",
+    "category": "road.lane.layer",
+    "version": "1.9.0",
+    "description": "For each lane group, the sum of all lane widths and lane offsets on the temporary lane layer shall not be greater than the sum of lane widths and lane offsets on the permanent lane layer."
+  },
+  {
+    "rule_name": "road.lane.layer.lane_phys_attr_temporary",
+    "category": "road.lane.layer",
+    "version": "1.9.0",
+    "description": "Lanes in the \"temporary\" layer shall not contain &lt;height&gt; or &lt;material&gt; elements. The height and material is instead determined by the permanent layer."
+  },
+  {
+    "rule_name": "road.lane.layer.layer_limits",
+    "category": "road.lane.layer",
+    "version": "1.9.0",
+    "description": "Each road shall have exactly one \"permanent\" and up to one \"temporary\" lane layer."
+  },
+  {
+    "rule_name": "road.lane.layer.layer_mandatory_permanent",
+    "category": "road.lane.layer",
+    "version": "1.9.0",
+    "description": "There shall be at least one lane in the \"permanent\" layer at each s-coordinate of the road."
+  },
+  {
+    "rule_name": "road.lane.layer.length_only_temporary",
+    "category": "road.lane.layer",
+    "version": "1.9.0",
+    "description": "Lanes in the permanent lane layer shall not use the attribute @length."
+  },
+  {
+    "rule_name": "road.lane.link.multiple_connections",
+    "category": "road.lane.link",
+    "version": "1.4.0",
+    "description": "Multiple predecessors and successors shall be used if a lane is split abruptly or several lanes are merged abruptly. All lanes that are connected shall have a non-zero width at the connection point."
+  },
+  {
+    "rule_name": "road.lane.link.no_link",
+    "category": "road.lane.link",
+    "version": "1.4.0",
+    "description": "The &lt;link&gt; element shall be omitted if the lane starts or ends in a junction or has no link."
+  },
+  {
+    "rule_name": "road.lane.link.temporary_layer_section_link_permanent",
+    "category": "road.lane.link",
+    "version": "1.9.0",
+    "description": "At the start and at the end of a temporary lane layer section, all drivable lanes with non-zero width on the temporary lane layer shall be linked to lanes on the permanent lane layer."
+  },
+  {
+    "rule_name": "road.lane.link.use_junctions",
+    "category": "road.lane.link",
+    "version": "1.4.0",
+    "description": "Two lanes shall only be linked if their linkage is clear. If the relationship to a predecessor or successor is ambiguous, junctions shall be used."
+  },
+  {
+    "rule_name": "road.lane_section.elem_asc_order",
+    "category": "road.lane_section",
+    "version": "1.4.0",
+    "description": "&lt;laneSection&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lane_section.lane_long_zero_width",
+    "category": "road.lane_section",
+    "version": "1.9.0",
+    "description": "Using lanes with a width of 0 for long distances should be avoided."
+  },
+  {
+    "rule_name": "road.lane_section.lane_sect_req",
+    "category": "road.lane_section",
+    "version": "1.4.0",
+    "description": "Each road shall have at least one lane section."
+  },
+  {
+    "rule_name": "road.lane_section.lanesec_length_limit_road",
+    "category": "road.lane_section",
+    "version": "1.9.0",
+    "description": "A lane section with @length shall not extend beyond the end of the road."
+  },
+  {
+    "rule_name": "road.lane_section.lanesec_usage_lane_num",
+    "category": "road.lane_section",
+    "version": "1.4.0",
+    "description": "A new lane section shall be defined each time the number of lanes change."
+  },
+  {
+    "rule_name": "road.lane_section.new_lanesec_link_temp_to_perm",
+    "category": "road.lane_section",
+    "version": "1.9.0",
+    "description": "A new lane section on the permanent lane layer shall be defined each time lanes on the permanent layer are linked to lanes on the temporary layer."
+  },
+  {
+    "rule_name": "road.lane_section.valid_length",
+    "category": "road.lane_section",
+    "version": "1.4.0",
+    "description": "The length of lane sections shall be greater than zero."
+  },
+  {
+    "rule_name": "road.lanes.lane_offset.elem_asc_order",
+    "category": "road.lanes.lane_offset",
+    "version": "1.4.0",
+    "description": "&lt;laneOffset&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.lanes.lane_offset.no_offset_if_border_defined",
+    "category": "road.lanes.lane_offset",
+    "version": "1.4.0",
+    "description": "There shall be no &lt;laneOffset&gt; if border definitions are present."
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "rule_name": "road.elevation.elem_asc_order",
+    "category": "road.elevation",
+    "version": "1.4.0",
+    "description": "&lt;elevation&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.elevation.elev_along_ref_line",
+    "category": "road.elevation",
+    "version": "1.4.0",
+    "description": "Roads shall be elevated along their road reference line."
+  },
+  {
+    "rule_name": "road.superelevation.elem_asc_order",
+    "category": "road.superelevation",
+    "version": "1.4.0",
+    "description": "&lt;superelevation&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.shape.elem_asc_order",
+    "category": "road.shape",
+    "version": "1.4.0",
+    "description": "&lt;shape&gt; elements shall be defined in ascending order, firstly according to the s-coordinate and secondly according to the t-coordinate."
+  },
+  {
+    "rule_name": "road.shape.t_definition_coverage",
+    "category": "road.shape",
+    "version": "1.4.0",
+    "description": "At all s-positions the t-definition has to cover the maximum road width of the entire road."
+  },
+  {
+    "rule_name": "road.type.create_new_type_in_parent",
+    "category": "road.type",
+    "version": "1.4.0",
+    "description": "When the type of road changes, a new &lt;type&gt; element shall be created within the parent &lt;road&gt; element."
+  },
+  {
+    "rule_name": "road.type.elem_asc_order",
+    "category": "road.type",
+    "version": "1.4.0",
+    "description": "&lt;type&gt; elements shall be defined in ascending order according to the s-coordinate."
+  },
+  {
+    "rule_name": "road.type.lane_type_may_differ_from_parent",
+    "category": "road.type",
+    "version": "1.4.0",
+    "description": "Single lanes may have another type than the road they belong to. Road type and lane type represent different properties and are both valid if specified."
+  },
+  {
+    "rule_name": "road.type.only_alpha_2_country_codes",
+    "category": "road.type",
+    "version": "1.7.0",
+    "description": "There shall only be ALPHA-2 country codes in use, no ALPHA-3 country codes, because only ALPHA-2 country codes support state identifiers."
+  },
+  {
+    "rule_name": "road.use_cases.shape_elements_start_right",
+    "category": "road.use_cases",
+    "version": "1.9.0",
+    "description": "To model road shapes, shape elements shall start at the right side of the road, that is in positive t-direction. That means the elements start with negative t-values."
+  }
+]

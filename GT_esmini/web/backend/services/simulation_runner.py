@@ -17,9 +17,16 @@ from pathlib import Path
 
 import aiosqlite
 
-from GT_esmini.web.backend.config import CONFIG_DIR, DEFAULT_VD_INPUT_PORT, GT_SIM_EXE, REPO_ROOT, RESULTS_DIR
+from GT_esmini.web.backend.config import (
+    CONFIG_DIR,
+    DEFAULT_VD_INPUT_PORT,
+    GT_SIM_EXE,
+    REPO_ROOT,
+    RESULTS_DIR,
+)
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
+    SDL2_BUTTON_KEY_MAP,
     ControllerConfig,
     ExecutionConfig,
     SimulationRequest,
@@ -29,6 +36,7 @@ from GT_esmini.web.backend.services.log_extract import extract_failure
 from GT_esmini.web.backend.services.osi_bridge import start_bridge, stop_bridge
 from GT_esmini.web.backend.services.sv_bridge import start_sv_bridge, stop_sv_bridge
 from GT_esmini.web.backend.services import vd_recorder
+from GT_esmini.web.backend.services.vd_metrics import require_udp_port_free
 from GT_esmini.web.backend.services.xosc_paths import absolutize_scenario_paths
 
 # In-memory tracking of job_id -> Popen (registered at subprocess start to avoid race)
@@ -53,6 +61,7 @@ def _build_output_dir(job_id: str) -> Path:
 def _absolutize_xosc(variant_path: Path, source_dir: str) -> None:
     """Absolutize relative paths in XOSC so it works from any CWD."""
     import xml.etree.ElementTree as ET
+
     tree = ET.parse(variant_path)
     root = tree.getroot()
     absolutize_scenario_paths(root, source_dir)
@@ -163,10 +172,13 @@ def _generate_virtual_driver_variant(
     (full-physics virtual driver) and activates it on both domains.
 
     When ``enable_override`` is set (default), a per-run virtual_driver.json is
-    written next to the variant with ``input_type=network`` and the controller's
-    ``ConfigFile`` property points at it, so the web manual-override panel can
-    inject pedal/steer/indicator commands over UDP at any time. With no input the
-    NetworkInputBridge stays empty and the auto pipeline drives normally.
+    written next to the variant (see ``_write_virtual_driver_config`` for how
+    input_type is chosen) and the controller's ``ConfigFile`` property points
+    at it. With the default "network" input_type the web manual-override
+    panel can inject pedal/steer/indicator commands over UDP at any time; with
+    no input the NetworkInputBridge stays empty and the auto pipeline drives
+    normally. Choosing "sdl2_wheel" instead hands input over to a physical
+    wheel and the web override panel has nothing to drive.
     """
     import xml.etree.ElementTree as ET
 
@@ -190,7 +202,9 @@ def _generate_virtual_driver_variant(
     if existing_oc is not None:
         for prop in existing_oc.findall("./Controller/Properties/Property"):
             if prop.get("name") == "policies":
-                requested_policies = [p.strip() for p in (prop.get("value") or "").split(",") if p.strip()]
+                requested_policies = [
+                    p.strip() for p in (prop.get("value") or "").split(",") if p.strip()
+                ]
         entity.remove(existing_oc)
 
     ctrl = ET.Element("Controller")
@@ -201,7 +215,9 @@ def _generate_virtual_driver_variant(
     p1.set("value", "VirtualDriverController")
 
     if enable_override:
-        run_config = _write_virtual_driver_config(output_path.parent, requested_policies)
+        run_config = _write_virtual_driver_config(
+            output_path.parent, requested_policies
+        )
         p2 = ET.SubElement(props, "Property")
         p2.set("name", "ConfigFile")
         p2.set("value", str(run_config))
@@ -247,16 +263,33 @@ _VD_POLICY_FLAG = {
     "stop_yield": "policy_stop_yield_enabled",
     "conflict": "policy_conflict_enabled",
     "crosswalk": "policy_crosswalk_enabled",
+    "junction_priority": "policy_junction_priority_enabled",
+    "aeb": "policy_aeb_enabled",
 }
 
 
-def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = None) -> Path:
-    """Write a per-run virtual_driver.json that enables network manual input.
+def _write_virtual_driver_config(
+    output_dir: Path, policies: list[str] | None = None
+) -> Path:
+    """Write a per-run virtual_driver.json, respecting the user's input_type.
 
-    Starts from the shipped config/virtual_driver.json (preserving tuned gains)
-    and forces input_type=network so the web override panel (/ws/input) can drive
-    the ego. ``policies`` enables the listed Phase-3 traffic policies (opt-in per
-    scenario; default none). Returns the absolute path for the ConfigFile property.
+    Starts from the shipped config/virtual_driver.json (preserving tuned gains
+    AND the input_type the user chose via PUT /api/virtual-driver/config —
+    see virtual_driver_api.py's _STRING_ENUM_KEYS). We only default a base
+    input_type of "stub" (the shipped, never-configured default) up to
+    "network", so the web override panel (/ws/input) keeps driving the ego out
+    of the box for anyone who has never touched the setting. An explicit
+    "network" or "sdl2_wheel" choice passes through unmodified.
+
+    Note: choosing "sdl2_wheel" means NetworkInputBridge is never constructed
+    for the run (see ControllerVirtualDriver.cpp's input-source selection), so
+    the /ws/input manual-override panel has nothing to drive — a physical
+    SDL2 wheel owns lateral/longitudinal input instead. This is surfaced to
+    the user in VirtualDriverPanel.tsx next to the input-source selector.
+
+    ``policies`` enables the listed Phase-3 traffic policies (opt-in per
+    scenario; default none). Returns the absolute path for the ConfigFile
+    property.
     """
     base_config_path = CONFIG_DIR / "virtual_driver.json"
     base: dict = {}
@@ -266,11 +299,12 @@ def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = 
         except (json.JSONDecodeError, OSError):
             base = {}
 
-    base["input_type"] = "network"
+    if base.get("input_type", "stub") == "stub":
+        base["input_type"] = "network"
     base.setdefault("input_port", DEFAULT_VD_INPUT_PORT)
     base.setdefault("input_transport", "udp")
 
-    for p in (policies or []):
+    for p in policies or []:
         flag = _VD_POLICY_FLAG.get(p)
         if flag:
             base[flag] = True
@@ -279,6 +313,45 @@ def _write_virtual_driver_config(output_dir: Path, policies: list[str] | None = 
     out_path = (output_dir / "virtual_driver.json").resolve()
     out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
     return out_path
+
+
+def _sdl2_button_entries(mapping: Any, base: dict) -> dict[str, int]:
+    """Build the flat C++ ``input.*_button`` entries from the shared table.
+
+    feature:F7 gap #2/#5. Per button, in order of precedence:
+      1. the request's own value, when the pydantic model carries that field;
+      2. the existing on-disk config, for buttons the model does not model yet
+         (``auto_resume`` today -- gap #6);
+      3. -1 (C++'s "unassigned"), so a brand-new button can never silently
+         inherit a stale value.
+
+    Deriving this from SDL2_BUTTON_KEY_MAP is the whole point: the previous
+    hand-written block is how auto_resume went missing on every GUI-launched
+    manual run without anything failing.
+    """
+    base_input = base.get("input", {}) if isinstance(base.get("input"), dict) else {}
+    entries: dict[str, int] = {}
+    for field, cpp_key in SDL2_BUTTON_KEY_MAP.items():
+        if hasattr(mapping, field):
+            entries[cpp_key] = getattr(mapping, field)
+        else:
+            entries[cpp_key] = base_input.get(cpp_key, -1)
+    return entries
+
+
+# feature:F7 gap #4 -- mirrors ManualDriveConfig.hpp:483-488 (the C++
+# compile-time defaults). Keep in sync with that struct: these are what a
+# per-run config falls back to when the base config has no "override" section,
+# and they are chosen so that behaviour is unchanged from the previous
+# hardcoded {"enabled": True} whenever the base is silent.
+_OVERRIDE_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "steering_threshold": 0.05,
+    "throttle_threshold": 0.1,
+    "brake_threshold": 0.1,
+    "auto_return_timeout": 0.0,
+    "button_override": True,
+}
 
 
 def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -> None:
@@ -306,29 +379,73 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
         "input": {
             "device_index": md.sdl2.device_index,
             "deadzone": md.sdl2.deadzone,
-            "upshift_button": md.sdl2.button_mapping.upshift,
-            "downshift_button": md.sdl2.button_mapping.downshift,
-            "override_button": md.sdl2.button_mapping.override,
-            "indicator_left_button": md.sdl2.button_mapping.indicator_left,
-            "indicator_right_button": md.sdl2.button_mapping.indicator_right,
-            "headlight_button": md.sdl2.button_mapping.headlight,
-            "high_beam_button": md.sdl2.button_mapping.high_beam,
-            "fog_light_button": md.sdl2.button_mapping.fog_light,
-            "hazard_button": md.sdl2.button_mapping.hazard,
+            # feature:F7 gap #2 -- these nine lines used to be written out by
+            # hand, which is the second of the two mapping tables that drifted
+            # apart (see SDL2_BUTTON_KEY_MAP). Derived from the shared table
+            # now, so adding a button in one place propagates here.
+            # Includes auto_resume_button (gap #5). The first fix for #5 was a
+            # standalone `"auto_resume_button": base.get(...)` line placed
+            # AFTER this spread, which silently won over the table -- the same
+            # last-writer-wins shape as the C++ config scanner that caused #2.
+            # It was removed once gap #6 made auto_resume a typed field, so the
+            # user's GUI edit now reaches the run instead of being overwritten
+            # by the on-disk value.
+            **_sdl2_button_entries(md.sdl2.button_mapping, base),
             "transport_type": md.input_network.transport_type,
             "port": md.input_network.port,
             "level": md.input_network.level,
         },
         "keyboard": md.keyboard.model_dump(),
         "physics": {
-            "vehicle_params_file": "real_vehicle_params.json",
+            # feature:F7 gap #3 -- was hardcoded "real_vehicle_params.json",
+            # so a user who pointed config/manual_drive.json at a different
+            # vehicle parameter file had it silently replaced on every
+            # GUI-launched manual run. Invisible until now only because the
+            # hardcoded string happens to equal the shipped value; a
+            # default-vs-default test cannot see this bug at all.
+            # gap #6: a GUI-stated value wins; None means "not stated" and
+            # falls back to the on-disk config (gap #3's fix).
+            "vehicle_params_file": (
+                md.vehicle_params_file
+                if md.vehicle_params_file is not None
+                else base.get("physics", {}).get(
+                    "vehicle_params_file", "real_vehicle_params.json"
+                )
+            ),
             "host": md.physics_network.host,
             "cmd_port": md.physics_network.cmd_port,
             "state_port": md.physics_network.state_port,
         },
-        "indicator_cancel_angle": base.get("indicator_cancel_angle", 0.06),
+        "indicator_cancel_angle": (
+            md.indicator_cancel_angle
+            if md.indicator_cancel_angle is not None
+            else base.get("indicator_cancel_angle", 0.06)
+        ),
+        # NOTE: ffb still takes the on-disk value over the request, unlike the
+        # gap #6 fields above and unlike the button mapping. That asymmetry
+        # predates this work and changing it would alter behaviour beyond
+        # gap #6's scope -- flagged as a follow-up rather than silently
+        # rewritten here.
         "ffb": base.get("ffb", md.ffb.model_dump()),
-        "override": {"enabled": True},
+        # feature:F7 gap #4 -- was {"enabled": True}, which dropped the other
+        # five override settings entirely AND ignored the user's own
+        # `enabled`. C++ then fell back to its compile-time defaults
+        # (ManualDriveConfig.hpp:483-488), which coincide with the shipped
+        # JSON values -- so the loss was invisible with a stock config and
+        # would have surfaced the moment gap #6 exposed these in the GUI.
+        #
+        # Defaults below mirror those C++ compile-time values, so a base with
+        # no "override" section produces exactly the previous behaviour. Base
+        # wins per key. Nothing in the request model carries these yet (that
+        # is gap #6), so the request deliberately contributes nothing here.
+        # Precedence: C++ defaults < on-disk config < this request (gap #6).
+        # The request layer is omitted entirely when override_cfg is None, so
+        # a frontend that does not send it behaves exactly as before.
+        "override": {
+            **_OVERRIDE_DEFAULTS,
+            **(base.get("override") if isinstance(base.get("override"), dict) else {}),
+            **(md.override_cfg.model_dump() if md.override_cfg is not None else {}),
+        },
     }
     config_path = output_dir / "manual_drive.json"
     config_path.write_text(
@@ -488,12 +605,17 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     output_dir = _build_output_dir(job_id)
 
     # Prepare XOSC variant
-    xosc_path = _prepare_xosc(scenario_path, req.controller, output_dir, req.param_overrides)
+    xosc_path = _prepare_xosc(
+        scenario_path, req.controller, output_dir, req.param_overrides
+    )
 
     # Build command
     cmd = _build_cmd(
-        xosc_path, req.execution, output_dir,
-        job_id=job_id, param_overrides=req.param_overrides,
+        xosc_path,
+        req.execution,
+        output_dir,
+        job_id=job_id,
+        param_overrides=req.param_overrides,
     )
 
     # Store job in DB
@@ -518,7 +640,11 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
                 json.dumps(options, ensure_ascii=False),
                 str(output_dir),
                 _now_iso(),
-                json.dumps(req.param_overrides, ensure_ascii=False) if req.param_overrides else None,
+                (
+                    json.dumps(req.param_overrides, ensure_ascii=False)
+                    if req.param_overrides
+                    else None
+                ),
             ),
         )
         await db.commit()
@@ -530,20 +656,29 @@ async def submit_simulation(req: SimulationRequest, scenario_path: Path) -> str:
     # results/<job_id>/telemetry.jsonl so the run shows up as a replayable
     # "past run" with the same shape as an offline gt_sim_test recording.
     record_vd = req.controller.controller_type == "virtual_driver"
-    record_meta = {
-        "scenario": req.scenario_id,
-        "scenario_path": str(scenario_path),
-        "project_id": req.project_id,
-        "scenario_file": req.scenario_id,
-    } if record_vd else None
+    record_meta = (
+        {
+            "scenario": req.scenario_id,
+            "scenario_path": str(scenario_path),
+            "project_id": req.project_id,
+            "scenario_file": req.scenario_id,
+        }
+        if record_vd
+        else None
+    )
     # Record the OSI scene (other traffic + signal phases) only when OSI streams.
     record_scene = record_vd and req.execution.osi.enabled
 
     asyncio.create_task(
         _run_simulation(
-            job_id, cmd, output_dir, req.execution.timeout,
+            job_id,
+            cmd,
+            output_dir,
+            req.execution.timeout,
             osi_enabled=req.execution.osi.enabled,
-            record_vd=record_vd, record_meta=record_meta, record_scene=record_scene,
+            record_vd=record_vd,
+            record_meta=record_meta,
+            record_scene=record_scene,
         )
     )
 
@@ -561,7 +696,42 @@ def _compose_error(cause: str, warnings: list[str]) -> str:
 
 
 def _start_subprocess(cmd: list[str], cwd: str, job_id: str) -> subprocess.Popen:
-    """Start subprocess and register in _running_procs atomically (called in thread)."""
+    """Start subprocess and register in _running_procs atomically (called in thread).
+
+    feature:F7 gate hardening, 2nd round -- this is the ONE function every
+    production simulation launch funnels through (the sole call site is
+    _run_simulation, via asyncio.to_thread). An audit found that the
+    port-occupancy defense built for the verification CLI (gt_sim_test.py)
+    never covered this path at all, even though this IS the code that
+    actually ran during the 2026-07-27 incident class (a user-facing "Run
+    Simulation" launch, not a gate script) -- "the production web-backend
+    execution path is undefended" was the literal finding.
+
+    Scope, stated honestly (do not read this as "every port is covered"):
+    only DEFAULT_VD_INPUT_PORT (9100, manual-drive/VD network input) is
+    checked, unconditionally, regardless of whether THIS run's controller
+    actually uses input_type="network" -- narrower context-aware checking
+    would need this function to know the resolved controller config, which
+    it does not receive today (only the built ``cmd`` argv). 9100 is
+    specifically the one port documented as a real, understood collision
+    (test_results/f7_audit_port_contention.md P-2: the shipped default in
+    BOTH config/manual_drive.json and config/virtual_driver.json, and
+    hardcoded in 10 headless verification harnesses that import
+    vd_resume_transient) with NO existing defense anywhere in this file.
+    48198/48199/48200/48202 are deliberately NOT checked here: this process
+    (the web backend) legitimately OWNS those as its own per-job OSI/SV
+    bridge listeners (osi_bridge.py/sv_bridge.py, started by _run_simulation
+    just before this function runs) for a run that requests them, so
+    checking "is 48199 already bound" from inside the very process that
+    binds it for itself would be checking a tautology, not a real hazard.
+    Port 8000 is this same process's own HTTP listen port -- same tautology.
+    A GatePortsBusyError raised here propagates out of _start_subprocess,
+    through the asyncio.to_thread() call in _run_simulation, and is caught
+    by that function's existing `except Exception` -- the job is marked
+    'failed' with this error's message, not silently mis-reported as
+    'completed'.
+    """
+    require_udp_port_free(DEFAULT_VD_INPUT_PORT, "manual-drive / VD network input")
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -652,7 +822,9 @@ async def _run_simulation(
 
         # Phase 2: Wait for completion (blocking, runs in thread)
         pid, exit_code, stdout_data, stderr_data, timeout_msg = await asyncio.to_thread(
-            _wait_subprocess, proc, timeout,
+            _wait_subprocess,
+            proc,
+            timeout,
         )
 
         # Save output
@@ -675,7 +847,9 @@ async def _run_simulation(
     except Exception as e:
         status = "failed"
         exit_code = -1
-        error_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
+        error_msg = (
+            f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)"
+        )
         _logger.error("Simulation %s failed: %s", job_id, error_msg, exc_info=True)
     finally:
         with _running_procs_lock:
@@ -686,7 +860,9 @@ async def _run_simulation(
             except Exception as e:
                 _logger.warning("VD recorder failed to stop for %s: %s", job_id, e)
                 if status == "failed" and error_msg:
-                    error_msg = _compose_error(error_msg, [f"VD recorder stop failed: {e}"])
+                    error_msg = _compose_error(
+                        error_msg, [f"VD recorder stop failed: {e}"]
+                    )
 
     # Stop OSI bridge
     if osi_enabled:
@@ -707,7 +883,11 @@ async def _run_simulation(
             (status, exit_code, _now_iso(), error_msg, job_id),
         )
         if cursor.rowcount == 0:
-            _logger.info("Simulation %s: skipped update to '%s' (already cancelled)", job_id, status)
+            _logger.info(
+                "Simulation %s: skipped update to '%s' (already cancelled)",
+                job_id,
+                status,
+            )
         else:
             _logger.info("Simulation %s finished with status '%s'", job_id, status)
         await db.commit()
@@ -769,9 +949,7 @@ async def list_simulations(
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        cursor = await db.execute(
-            f"SELECT COUNT(*) FROM simulations {where}", params
-        )
+        cursor = await db.execute(f"SELECT COUNT(*) FROM simulations {where}", params)
         total_row = await cursor.fetchone()
         total = total_row[0] if total_row else 0
 
@@ -829,7 +1007,9 @@ async def cancel_simulation(job_id: str) -> bool:
                 with open(pipe_path, "wb") as pf:
                     pf.write(b"QUIT\n")
                     pf.flush()
-                _logger.info("Sent QUIT to simulation %s via pipe %s", job_id, pipe_name)
+                _logger.info(
+                    "Sent QUIT to simulation %s via pipe %s", job_id, pipe_name
+                )
                 # Give GT_Sim time to run GT_Close() and release FFB
                 await asyncio.sleep(1.0)
             except OSError as exc:
@@ -847,12 +1027,15 @@ async def cancel_simulation(job_id: str) -> bool:
             result = await asyncio.to_thread(
                 subprocess.run,
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 _logger.debug(
                     "taskkill tree cleanup for %s (PID %d): %s",
-                    job_id, pid, result.stderr.strip(),
+                    job_id,
+                    pid,
+                    result.stderr.strip(),
                 )
     elif sim.pid:
         # Fallback: kill via PID from DB
@@ -863,20 +1046,29 @@ async def cancel_simulation(job_id: str) -> bool:
                 result = await asyncio.to_thread(
                     subprocess.run,
                     ["taskkill", "/F", "/T", "/PID", str(pid)],
-                    capture_output=True, text=True,
+                    capture_output=True,
+                    text=True,
                 )
                 if result.returncode != 0:
                     _logger.warning(
                         "taskkill fallback failed for %s (PID %d): %s",
-                        job_id, pid, result.stderr.strip(),
+                        job_id,
+                        pid,
+                        result.stderr.strip(),
                     )
                 else:
-                    _logger.info("Killed simulation %s (PID %d) via taskkill fallback", job_id, pid)
+                    _logger.info(
+                        "Killed simulation %s (PID %d) via taskkill fallback",
+                        job_id,
+                        pid,
+                    )
             else:
                 os.kill(pid, signal.SIGTERM)
                 _logger.info("Sent SIGTERM to simulation %s (PID %d)", job_id, pid)
         except (OSError, ProcessLookupError) as exc:
-            _logger.warning("Failed to kill simulation %s (PID %d): %s", job_id, pid, exc)
+            _logger.warning(
+                "Failed to kill simulation %s (PID %d): %s", job_id, pid, exc
+            )
     else:
         _logger.error("No PID available to kill simulation %s", job_id)
 
@@ -909,7 +1101,9 @@ def kill_all_running() -> int:
         pid = proc.pid
         try:
             proc.kill()
-            _logger.info("Killed GT_Sim subprocess %s (PID %d) via proc.kill()", job_id, pid)
+            _logger.info(
+                "Killed GT_Sim subprocess %s (PID %d) via proc.kill()", job_id, pid
+            )
             killed += 1
         except OSError as exc:
             _logger.warning("proc.kill() failed for %s (PID %d): %s", job_id, pid, exc)

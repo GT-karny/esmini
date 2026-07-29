@@ -14,9 +14,16 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_LonProfilePlanner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_LonProfilePlannerModule.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_ControllerRealDriverUtilsModule.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/realdriver/test_AdasSlotTable.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PIDPurePursuitDriver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AdSteeringEnvelope.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ResumeMergeProfile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_TrafficPolicies.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_VirtualDriverTelemetryJson.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PolicyDetail.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AdasFunctionReport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ControllerVirtualDriverActivation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSideModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrForkPatches.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrLaneTypeSync.cpp
@@ -30,6 +37,9 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrRailroad.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrResyncGuards.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrLhtRoadTransitions.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_OverrideManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_FfbTargetServo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_EngineModel.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
@@ -44,6 +54,16 @@ unittest(${UNIT_TEST_TARGET} "${UNIT_TEST_SOURCES}"
 
 target_include_directories(${UNIT_TEST_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini/include
+    # feature:F7 scenario-driven handover — test_ControllerVirtualDriverActivation.cpp
+    # includes upstream Controller.hpp directly (base-class Activate/Active
+    # semantics), which is only PRIVATE on ScenarioEngine/GT_esminiLib_static
+    # and so does not propagate via target_link_libraries. Same set GT_Sim's
+    # own target_include_directories uses (GT_esmini/CMakeLists.txt) minus the
+    # viewer/player paths this test target has no need of.
+    ${SCENARIO_ENGINE_PATH}/SourceFiles
+    ${SCENARIO_ENGINE_PATH}/OSCTypeDefs
+    ${COMMON_MINI_PATH}
+    ${CONTROLLERS_PATH}
 )
 
 # [GT_ODR] test_OdrSideModel.cpp (inside the umbrella gate binary) reads a real repo control file
@@ -147,6 +167,37 @@ if(WIN32 AND GT_ENABLE_SDL2 AND EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/SDL2/lib/
         COMMENT "Staging SDL2.dll beside GT test binaries"
     )
 endif()
+
+# --- FFB Override Replay Harness (feature:F7, permanent diagnostic tool) ---
+#
+# Standalone CLI, NOT a ctest/gtest target -- like GT_Loader above, a plain
+# add_executable() beside (not inside) the unittest() umbrella binary, because
+# it is a manually-invoked measurement tool (multiple --jsonl runs x multiple
+# detector configs, printed as a table) rather than a pass/fail assertion
+# suite. See the tool's own file header for the full rationale.
+#
+# Unlike GT_Loader (which drives the public C API and links ${TARGET_SHARED}),
+# this tool reaches into gt_esmini::OverrideManager directly -- an internal
+# class never exported from GT_esminiLib.dll -- so it links ${TARGET_STATIC}
+# instead. ${TARGET_STATIC}'s own link libraries (ScenarioEngine, CommonMini,
+# RoadManager, OSI, ...), even the PRIVATE ones, propagate automatically to
+# any executable that links a STATIC library target in CMake (this is exactly
+# what lets GT_OSMP_FMU/CMakeLists.txt link the same static lib alone -- see
+# this repo's CLAUDE.md Protocol B note), so no other GT_esmini/upstream
+# library needs to be named again here. EXTERNALS_OSI_INCLUDES IS added
+# explicitly below regardless: IFFBSink.hpp (pulled in via OverrideManager.hpp)
+# includes an OSI proto header, and unlike the unittest() macro above, a plain
+# add_executable() does not supply that include path on its own.
+set(FFB_REPLAY_TARGET ffb_override_replay)
+add_executable(${FFB_REPLAY_TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/tools/ffb_override_replay.cpp)
+target_link_libraries(${FFB_REPLAY_TARGET} PRIVATE ${TARGET_STATIC})
+target_include_directories(${FFB_REPLAY_TARGET} PRIVATE
+    ${CMAKE_SOURCE_DIR}/GT_esmini/include
+)
+target_include_directories(${FFB_REPLAY_TARGET} SYSTEM PRIVATE
+    ${EXTERNALS_OSI_INCLUDES}
+)
+message(STATUS "GT_esmini: Added ${FFB_REPLAY_TARGET} (feature:F7 FFB override replay tool)")
 
 # Register Integration Tests (audit R3/TST re-authoring)
 #

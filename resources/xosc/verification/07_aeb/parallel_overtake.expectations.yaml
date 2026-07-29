@@ -1,0 +1,18 @@
+scenario: parallel_overtake
+category: 07_aeb
+# REQ-AD-013 (safety, negative / SOTIF): 隣接レーンを追い越す（一度もカットインしない）車両
+# は AebSafety の候補にすら採用されないこと。Overtaker はレーン-2に留まったまま Ego を
+# 追い越すが、dLaneId は常に -1（in_path=false）、dt（横方向オフセット）は直線路上では
+# レーン幅分でほぼ一定（~3.07m, ジッターなし）のため、デバウンスされた侵入キュー
+# （cumulative |dt| shrink over AebDtHistory::kDepth=3 frames > kEncroachMove=0.03m）も
+# 一度も発火しない。よって AebSafety::Evaluate の候補ループは毎フレーム「!best」で
+# return し、衝突コースゲート（TTC/a_req）にすら到達しない（benign_cutin.xosc とは対照的
+# に、ゲートではなく候補採用の入口で弾かれるケース）。
+#
+# matcher no_emergency_without_conflict は全フレームで policy.constraints に
+# source:"aeb" が一切現れないことを確認する。
+# Requires OSI capture (batch osi:true)。
+must:
+  - event: no_emergency_without_conflict
+    after: { sim_time: 0.5 }
+    reason: "一度もカットインしない隣接レーンの追い越し車両がAEBの候補に採用されず、緊急制動も出ないこと(REQ-AD-013)"

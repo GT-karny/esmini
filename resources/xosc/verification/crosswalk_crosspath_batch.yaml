@@ -1,0 +1,31 @@
+name: crosswalk_crosspath
+origin: vd-phase:Phase3d
+# P5 acceptance (ii): crossPath-synthesized-crosswalk variant of the phase3d crossing-stop case.
+# This is the ZERO-POLICY-DIFF proof that CrosswalkPedestrianAware picks up a crosswalk that was
+# SYNTHESIZED from a <crossPath> (OdrJunctionExtras.cpp) exactly like an authored <object
+# type="crosswalk">. The road (straight_crosswalk_crosspath__mid.xodr) has NO authored crosswalk
+# object -- road 0 is the catalog straight minus that object, plus a pedestrian crossing road and a
+# virtual junction carrying the crossPath; the GT synthesis reconstructs a 4-corner CROSSWALK
+# RMObject straddling road 0 at s=250 (footprint s in [248,252], matching the original object).
+#
+# The VD MUST stop for the pedestrian at the synthesized crosswalk (speed_below/min_obb_separation
+# green). If it does not, debug the SYNTHESIS (footprint/pose), never the policy.
+#
+# This is a SEPARATE batch from crosswalk_pedestrian_batch.yaml (the object-encoded invariance control);
+# do NOT fold this scenario into that batch.
+#
+# osi: true + policies:[crosswalk] mirror the control batch (anti-collision gate needs the captured
+# OSI scene; policy enabled via per-run absolute-path ConfigFile injected by gt_sim_test).
+#
+# Run:
+#   py GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/crosswalk_crosspath_batch.yaml --out test_results/web/p5_crosspath
+defaults:
+  dt: 0.05
+  max_time: 40.0
+  snapshots: 3
+  osi: true
+scenarios:
+  - scenario: resources/xosc/verification/09_crosswalk_pedestrian/09_crosswalk_crosspath__p005.xosc
+    expectations: resources/xosc/verification/09_crosswalk_pedestrian/09_crosswalk_crosspath__p005.expectations.yaml
+    policies: [crosswalk]

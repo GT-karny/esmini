@@ -93,7 +93,11 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
 
     while (traveled < lookahead)
     {
-        const int ret = static_cast<int>(pos.MoveAlongS(step));
+        // [Issue #31] straight-most (0.0), not the randomizing -1.0 convenience overload:
+        // an off-route prediction would otherwise re-roll the connecting road each frame and
+        // flicker upcoming signals in and out of the scan. On-route routes still win.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
         if (ret < 0) break;  // end of route / off-route
         traveled += step;
 

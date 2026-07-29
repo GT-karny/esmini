@@ -1,0 +1,34 @@
+{
+  "joysticks": [
+    {
+      "index": 0,
+      "name": "G29 Driving Force Racing Wheel",
+      "is_haptic": true,
+      "num_axes": 4,
+      "num_buttons": 25,
+      "num_hats": 1,
+      "haptic_caps": {
+        "constant": true,
+        "sine": true,
+        "triangle": true,
+        "sawtoothup": true,
+        "sawtoothdown": true,
+        "ramp": true,
+        "spring": true,
+        "damper": true,
+        "inertia": true,
+        "friction": true,
+        "custom": true,
+        "gain": true,
+        "autocenter": false,
+        "status": true,
+        "pause": true,
+        "raw_hex": "0xdffb"
+      },
+      "haptic_num_effects": 128,
+      "haptic_num_playing": 128,
+      "haptic_max_effects": 128
+    }
+  ],
+  "haptic_num": 3
+}

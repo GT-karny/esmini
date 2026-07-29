@@ -1,0 +1,45 @@
+name: anticipation_driving
+# Permanent regression gate for the mid/long ANTICIPATION matchers: a driver
+# that reads the road ahead and acts early — decelerates smoothly for a curve /
+# turn / speed-limit drop, has slowed to target by the landmark, keeps its lane
+# through the manoeuvre, does not saturate steering, and raises no spurious
+# junction constraint on a straight pass-through.
+#
+# Consolidates the two former manual-only 05_anticipation manifests
+# (anticipation_batch.yaml = 4 scenarios + traffic_lights_regression.yaml = 1)
+# into one content-slugged gate, the same move AEB made
+# (07_aeb_batch + 07_aeb_negative_batch -> aeb_safety_batch.yaml).
+origin:
+  vd-phase: Phase3            # mid/long anticipation matchers (verification V2)
+  consolidates:
+    - resources/xosc/verification/05_anticipation/anticipation_batch.yaml
+    - resources/xosc/verification/05_anticipation/traffic_lights_regression.yaml
+  wired-by: spine-work:anticipation-gate-wiring
+#
+# osi:true -> gt_sim_test captures the OSI GroundTruth into telemetry.scene, so
+# the host anchor resolves through the FACE-1 path: deceleration_profile_smooth
+# reads the OSI longitudinal acceleration (a=osi, not the telemetry central-
+# difference fallback) and lane_keep resolves road_id via the scene lane_map.
+# The baseline below is therefore taken AFTER the ego-anchor-face1 migration
+# (spine-work:ego-anchor-face1-migration) — that ordering is why E follows D.
+defaults:
+  dt: 0.05
+  max_time: 40.0
+  snapshots: 3
+  osi: true
+scenarios:
+  - scenario: resources/xosc/verification/05_anticipation/decelerate_for_curve.xosc
+    expectations: resources/xosc/verification/05_anticipation/decelerate_for_curve.expectations.yaml
+    report: anticipation
+  - scenario: resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc
+    expectations: resources/xosc/verification/05_anticipation/decelerate_for_right_turn.expectations.yaml
+    report: anticipation
+  - scenario: resources/xosc/verification/05_anticipation/cross_straight_junction.xosc
+    expectations: resources/xosc/verification/05_anticipation/cross_straight_junction.expectations.yaml
+    report: anticipation
+  - scenario: resources/xosc/verification/05_anticipation/speed_limit_change.xosc
+    expectations: resources/xosc/verification/05_anticipation/speed_limit_change.expectations.yaml
+    report: anticipation
+  - scenario: resources/xosc/verification/05_anticipation/traffic_lights_junction.xosc
+    expectations: resources/xosc/verification/05_anticipation/traffic_lights_junction.expectations.yaml
+    report: anticipation

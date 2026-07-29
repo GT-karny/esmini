@@ -27,23 +27,27 @@ AUTO_LIGHT_CONFIG_FILE = "auto_light.json"
 # Known editable keys, split by expected JSON type. ``bool`` is validated before
 # ``number`` because in Python ``bool`` is a subclass of ``int`` — a boolean must
 # never satisfy a numeric field, nor vice versa.
-_BOOL_KEYS = frozenset({
-    "headlight_enabled",
-    "headlight_use_time_of_day",
-    "headlight_tunnel_enabled",
-    "highbeam_enabled",
-})
-_NUMBER_KEYS = frozenset({
-    "headlight_illuminance_lux_threshold",
-    "headlight_sun_elevation_deg",
-    "headlight_dusk_hour",
-    "headlight_dawn_hour",
-    "highbeam_range_m",
-    "highbeam_range_hysteresis_m",
-    "highbeam_corridor_half_width_m",
-    "highbeam_on_delay_s",
-    "highbeam_off_delay_s",
-})
+_BOOL_KEYS = frozenset(
+    {
+        "headlight_enabled",
+        "headlight_use_time_of_day",
+        "headlight_tunnel_enabled",
+        "highbeam_enabled",
+    }
+)
+_NUMBER_KEYS = frozenset(
+    {
+        "headlight_illuminance_lux_threshold",
+        "headlight_sun_elevation_deg",
+        "headlight_dusk_hour",
+        "headlight_dawn_hour",
+        "highbeam_range_m",
+        "highbeam_range_hysteresis_m",
+        "highbeam_corridor_half_width_m",
+        "highbeam_on_delay_s",
+        "highbeam_off_delay_s",
+    }
+)
 KNOWN_KEYS = _BOOL_KEYS | _NUMBER_KEYS
 
 # Shipping defaults — mirror GT_esmini/config/auto_light.json, comment ("// ")

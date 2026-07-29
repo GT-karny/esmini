@@ -15,6 +15,7 @@ The DLL depends on python312.dll (embedded Python) and the Release-dir DLLs, so
 the loader adds those directories to the search path first (see common-pitfalls:
 missing python-embed on PATH -> 0xC0000135). Run via DriverScript/.venv.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -29,12 +30,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RELEASE = REPO_ROOT / "build" / "GT_esmini" / "Release"
 DEFAULT_DLL = DEFAULT_RELEASE / "GT_esminiLib.dll"
-DEFAULT_PY_EMBED = REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+DEFAULT_PY_EMBED = (
+    REPO_ROOT / "thirdparty" / "python-embed" / "python-3.12.10-embed-amd64"
+)
 
 _LOG = logging.getLogger("gt_esmini.dll")
 
 # GT_LogCallbackFn: void (*)(int level, const char* message, void* user_data)
-_GT_LOG_CALLBACK_TYPE = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p)
+_GT_LOG_CALLBACK_TYPE = ctypes.CFUNCTYPE(
+    None, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p
+)
 
 # DLL level (0=unknown, 1=debug, 2=info, 3=warn, 4=error) -> Python logging level
 _LEVEL_MAP = {
@@ -74,10 +79,13 @@ def _offset_to_line_col(path: Path, offset: int) -> tuple[int, int] | None:
 class GtLib:
     """Thin ctypes binding around the subset of the GT C-API the harness needs."""
 
-    def __init__(self, dll_path: str | Path = DEFAULT_DLL,
-                 release_dir: str | Path = DEFAULT_RELEASE,
-                 py_embed: str | Path = DEFAULT_PY_EMBED,
-                 buf_size: int = 1 << 16):
+    def __init__(
+        self,
+        dll_path: str | Path = DEFAULT_DLL,
+        release_dir: str | Path = DEFAULT_RELEASE,
+        py_embed: str | Path = DEFAULT_PY_EMBED,
+        buf_size: int = 1 << 16,
+    ):
         dll_path = Path(dll_path)
         if not dll_path.is_file():
             raise FileNotFoundError(
@@ -92,11 +100,18 @@ class GtLib:
 
         self.lib = ctypes.CDLL(str(dll_path))
 
-        self.lib.GT_InitWithArgs.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_char_p)]
+        self.lib.GT_InitWithArgs.argtypes = [
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_char_p),
+        ]
         self.lib.GT_InitWithArgs.restype = ctypes.c_int
         self.lib.GT_Step.argtypes = [ctypes.c_double]
         self.lib.GT_Close.argtypes = []
-        self.lib.GT_GetVirtualDriverTelemetry.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+        self.lib.GT_GetVirtualDriverTelemetry.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+        ]
         self.lib.GT_GetVirtualDriverTelemetry.restype = ctypes.c_int
         # esmini OSI UDP streaming. GT_InitWithArgs parses --osi but (unlike
         # GT_Sim.exe) never opens the groundtruth socket, so the harness opens it
@@ -107,6 +122,25 @@ class GtLib:
         # harness depends on. Core SE_OpenOSISocket is vanilla (audit BND-2/R5-U1).
         self.lib.GT_OpenOSISocket.argtypes = [ctypes.c_char_p]
         self.lib.GT_OpenOSISocket.restype = ctypes.c_int
+        # In-process OSI GroundTruth retrieval (feature:F7 gate hardening,
+        # 2026-07-28): gt_sim_test.py used to open the UDP socket above and
+        # reassemble GT_Step's wire-format emission from a loopback socket
+        # (_OsiCapture). Under loopback UDP buffer pressure that silently
+        # dropped frames (confirmed: normal_following captured only 403/440
+        # frames in one run) with no distinction from "the world really was
+        # empty this frame". SE_SetOSIFrequency + SE_GetOSIGroundTruth are
+        # vanilla upstream esminiLib exports (confirmed present in
+        # GT_esminiLib.dll) that serialize and return the SAME internal
+        # GroundTruth object synchronously, in-process -- no socket, nothing
+        # to drop packets. GetOSIGroundTruth's own C++ side only does the
+        # (re-)serialization work when neither UDP nor file logging already
+        # did it this frame (GT_OSIReporter_Api.cpp), so as long as
+        # open_osi_socket() is never called, every call here is guaranteed
+        # fresh for the frame just stepped.
+        self.lib.SE_SetOSIFrequency.argtypes = [ctypes.c_int]
+        self.lib.SE_SetOSIFrequency.restype = ctypes.c_int
+        self.lib.SE_GetOSIGroundTruth.argtypes = [ctypes.POINTER(ctypes.c_int)]
+        self.lib.SE_GetOSIGroundTruth.restype = ctypes.c_void_p
 
         self._buf = ctypes.create_string_buffer(buf_size)
         self._open = False
@@ -117,7 +151,10 @@ class GtLib:
         self._log_cb = None
         self._has_log_api = False
         try:
-            self.lib.GT_SetLogCallback.argtypes = [_GT_LOG_CALLBACK_TYPE, ctypes.c_void_p]
+            self.lib.GT_SetLogCallback.argtypes = [
+                _GT_LOG_CALLBACK_TYPE,
+                ctypes.c_void_p,
+            ]
             self.lib.GT_SetLogCallback.restype = None
             self.lib.GT_GetLastError.argtypes = [ctypes.c_char_p, ctypes.c_int]
             self.lib.GT_GetLastError.restype = ctypes.c_int
@@ -149,7 +186,9 @@ class GtLib:
         if not m:
             return text
         offset = int(m.group(1))
-        candidates = [p for p in self._xml_candidates if p.name in text] or self._xml_candidates
+        candidates = [
+            p for p in self._xml_candidates if p.name in text
+        ] or self._xml_candidates
         for p in candidates:
             lc = _offset_to_line_col(p, offset)
             if lc is not None:
@@ -171,8 +210,10 @@ class GtLib:
             return
         self._xml_candidates.append(scen)
         try:
-            m = re.search(r'LogicFile[^>]*\bfilepath="([^"]+)"',
-                          scen.read_text(encoding="utf-8", errors="replace"))
+            m = re.search(
+                r'LogicFile[^>]*\bfilepath="([^"]+)"',
+                scen.read_text(encoding="utf-8", errors="replace"),
+            )
         except OSError:
             return
         if m:
@@ -199,6 +240,32 @@ class GtLib:
         Uses GT_OpenOSISocket (the GT-flavored variant) so the OSI frequency is
         auto-set to 1 (every frame) when unset — core SE_OpenOSISocket is vanilla."""
         return self.lib.GT_OpenOSISocket(ip.encode("utf-8"))
+
+    def set_osi_frequency(self, freq: int = 1) -> int:
+        """Enable per-frame OSI GroundTruth updates (SE_SetOSIFrequency) WITHOUT
+        opening any socket. Call once after init_with_args, before the first
+        get_osi_ground_truth(). Returns 0 on success."""
+        return self.lib.SE_SetOSIFrequency(freq)
+
+    def get_osi_ground_truth(self) -> bytes | None:
+        """In-process retrieval of this frame's serialized OSI GroundTruth
+        (SE_GetOSIGroundTruth) — no socket, no transport to drop packets over.
+        Call after step(); requires set_osi_frequency() to have been called
+        first (otherwise the DLL never refreshes the internal GroundTruth
+        object and this returns the same stale/empty buffer every call).
+        Returns None if the DLL reports zero bytes (nothing to distinguish
+        from a genuinely empty capture — the caller must treat this as a
+        capture failure, not an empty-but-valid scene).
+
+        restype is c_void_p (not c_char_p): the payload is a serialized
+        protobuf message that can contain embedded NUL bytes, which c_char_p
+        would silently truncate at. ctypes.string_at(ptr, size) copies
+        exactly `size` bytes regardless of content."""
+        size = ctypes.c_int(0)
+        ptr = self.lib.SE_GetOSIGroundTruth(ctypes.byref(size))
+        if not ptr or size.value <= 0:
+            return None
+        return ctypes.string_at(ptr, size.value)
 
     def init_with_args(self, args: list[str]) -> int:
         """args: everything after argv[0], e.g. ['--osc', path, '--headless', ...].

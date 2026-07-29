@@ -114,6 +114,7 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_int("high_beam_button", sdl2.high_beam_button);
         parse_int("fog_light_button", sdl2.fog_light_button);
         parse_int("hazard_button", sdl2.hazard_button);
+        parse_int("auto_resume_button", sdl2.auto_resume_button);
 
         // SDL2 keyboard input (key names are SDL scancode names)
         parse_string("steer_left",      keyboard.steer_left);
@@ -165,6 +166,39 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("max_force", ffb.max_force);
         parse_bool("disable_non_realtime", ffb.disable_non_realtime);
 
+        // FFB target-tracking (F7b). Flat unique keys under ffb; the JSON
+        // groups them into an "ffb.target_track" object purely for humans.
+        parse_bool  ("target_track_enabled",                         ffb.target_track.enabled);
+        parse_double("target_track_kp",                              ffb.target_track.kp);
+        parse_double("target_track_kd",                              ffb.target_track.kd);
+        parse_double("target_track_max_force",                       ffb.target_track.max_force);
+        parse_double("target_track_hard_stop_zone",                  ffb.target_track.hard_stop_zone);
+        parse_double("target_track_friction_ff",                     ffb.target_track.friction_ff);
+        parse_double("target_track_friction_ff_eps",                 ffb.target_track.friction_ff_eps);
+        parse_double("target_track_feel_ratio",                      ffb.target_track.feel_ratio);
+        parse_double("target_track_override_steer_force_threshold",  ffb.target_track.override_steer_force_threshold);
+        parse_double("target_track_override_steer_dev_threshold",    ffb.target_track.override_steer_dev_threshold);
+        parse_double("target_track_override_sustain_time",           ffb.target_track.override_sustain_time);
+        parse_double("target_track_override_target_rate_gate",         ffb.target_track.override_target_rate_gate);
+        parse_double("target_track_override_position_error_rate_gate", ffb.target_track.override_position_error_rate_gate);
+        parse_double("target_track_override_residual_threshold",       ffb.target_track.override_residual_threshold);
+        parse_double("target_track_override_residual_reanchor_tau",    ffb.target_track.override_residual_reanchor_tau);
+        parse_double("target_track_override_shadow_breakaway",         ffb.target_track.override_shadow_breakaway);
+        parse_double("target_track_override_shadow_breakaway_left",     ffb.target_track.override_shadow_breakaway_left);
+        parse_double("target_track_override_shadow_breakaway_right",    ffb.target_track.override_shadow_breakaway_right);
+        parse_double("target_track_override_shadow_motion_epsilon",    ffb.target_track.override_shadow_motion_epsilon);
+        parse_double("target_track_override_shadow_kinetic",           ffb.target_track.override_shadow_kinetic);
+        parse_double("target_track_override_shadow_force_to_velocity", ffb.target_track.override_shadow_force_to_velocity);
+        parse_double("target_track_override_shadow_v_max",             ffb.target_track.override_shadow_v_max);
+        parse_double("target_track_override_shadow_velocity_tau",      ffb.target_track.override_shadow_velocity_tau);
+        parse_double("target_track_override_shadow_dead_time",         ffb.target_track.override_shadow_dead_time);
+        parse_double("target_track_override_shadow_onset_grace",       ffb.target_track.override_shadow_onset_grace);
+        parse_double("target_track_override_shadow_motion_rate_eps",   ffb.target_track.override_shadow_motion_rate_eps);
+        // feature:F7 unattended-run safety watchdog (0 = disabled).
+        parse_double("safety_max_saturation_seconds", ffb.safety.max_saturation_seconds);
+        parse_double("safety_max_runtime_seconds",    ffb.safety.max_runtime_seconds);
+        parse_double("safety_saturation_ratio",       ffb.safety.saturation_ratio);
+
         // Domain assignment
         parse_string("lateral", domain.lateral);
         parse_string("longitudinal", domain.longitudinal);
@@ -182,6 +216,11 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
              "assist_lo={:.2f} assist_hi={:.2f} max_force={:.2f}",
              ffb.sat_gain, ffb.sat_centering_gain, ffb.friction_base,
              ffb.assist_low_speed, ffb.assist_high_speed, ffb.max_force);
+    LOG_INFO("ManualDriveConfig: FFB target_track enabled={} kp={:.2f} kd={:.2f} max_force={:.2f} "
+             "force_thr={:.3f} dev_thr={:.3f} sustain={:.3f}s",
+             ffb.target_track.enabled, ffb.target_track.kp, ffb.target_track.kd,
+             ffb.target_track.max_force, ffb.target_track.override_steer_force_threshold,
+             ffb.target_track.override_steer_dev_threshold, ffb.target_track.override_sustain_time);
 
     return true;
 }

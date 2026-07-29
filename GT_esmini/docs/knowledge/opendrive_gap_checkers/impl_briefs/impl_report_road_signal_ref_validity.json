@@ -1,0 +1,26 @@
+{
+  "road.signal.validity.left_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "Deterministic wrong-sign-only sub-case implemented: for a <signal> on an @rule='LHT' road with @orientation in ('+','-'), aggregate has_pos/has_neg across its own <validity> children (lane id 0 neutral) and flag only when the combined validity references real lane ids of ONLY the wrong sign (LHT mapping: '+' expects positive-only, '-' expects negative-only) with the correct sign entirely absent. Zero hits on the 208-file corpus (no real LHT road in the corpus carries a <signal><validity> at all, matching the impl brief's own empirical note), but synthetically self-tested (throwaway fixture, orientation='+' + negative-only validity on an LHT road) and confirmed to fire correctly, mirror the RHT case, and stay silent on a matching correct-sign case. The 'spans both signs while orientation != none' sub-case is intentionally left uncovered as a documented ambiguous residual (see module docstring / DO_NOT_IMPLEMENT in the impl brief) -- real corpus signals (official UC_Simple-X-Junction-TrafficLights.xodr, UC_2Lane-RoundAbout-3Arms.xodr; GT fabriksgatan_traffic_lights.xodr, straight_500m_signs.xodr) legitimately span both signs for whole-cross-section sign semantics that Annex F gives no attribute to distinguish from a literal per-lane restriction.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks"
+  },
+  "road.signal.validity.right_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "Deterministic wrong-sign-only sub-case implemented: for a <signal> on an @rule='RHT' (or absent, default RHT) road with @orientation in ('+','-'), aggregate has_pos/has_neg across its own <validity> children (lane id 0 neutral) and flag only when the combined validity references real lane ids of ONLY the wrong sign (RHT mapping: '+' expects negative-only, '-' expects positive-only) with the correct sign entirely absent. Fires 40 times across the official ASAM calibration set (UC_5Road_Junction, UC_T_Junction, UC_X_Junction, UC_Motorway-Exit-Entry(-DirectJunction)) -- each traced concretely by inspecting the underlying XML (e.g. road 75 signal id=27 'SgRMHoldingline-1Lane' @orientation='+' with <validity fromLane=1 toLane=1> on a lane-1 'walking' lane -- positive-only, no negative lane present -- a genuine literal violation of the rule text, not an artifact of this checker: the sign convention itself was cross-validated against the already-shipped, official-clean road.object.validty.*_hand_traffic_lane_ids in check_road_object_core.py, which uses the identical RHT/LHT polarity mapping). None of these 40 are the excluded 'spans-both' idiom (confirmed: the known spans-both official files UC_Simple-X-Junction-TrafficLights.xodr / UC_2Lane-RoundAbout-3Arms.xodr do not appear among the flags) -- that sub-case remains the documented ambiguous residual, deliberately left unflagged. No other (pre-existing) rule in this module changed count versus the pre-edit baseline.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks"
+  },
+  "road.signal.reference.left_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "Deterministic wrong-sign-only sub-case implemented: identical algorithm to the .validity LHT variant but scoped to <signalReference> (its own @orientation and its own <validity> children, on the road that physically hosts the <signalReference> element). Zero hits on the 208-file corpus (the one real signalReference/validity example in the corpus, handauthored/19_signal_reference_18.xodr, is RHT not LHT), but synthetically self-tested (throwaway fixture, LHT road, signalReference orientation='-' + positive-only validity) and confirmed to fire correctly, and stay silent on a matching correct-sign case. Same documented ambiguous 'spans-both' residual intentionally left uncovered as the .validity variants (see module docstring).",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks"
+  },
+  "road.signal.reference.right_hand_traffic_lane_ids": {
+    "status": "implemented_gt",
+    "reason": "Deterministic wrong-sign-only sub-case implemented: identical algorithm to the .validity RHT variant but scoped to <signalReference>. Zero hits on the 208-file corpus (the single real corpus example, handauthored/19_signal_reference_18.xodr road id=2 signalReference id=1 orientation='+' validity=(-1,-1), is fully compliant -- negative-only, matching expected='neg' -- so it corroborates but does not stress-test the violating branch), synthetically self-tested (throwaway fixture, RHT road, signalReference orientation='+' + positive-only validity) and confirmed to fire correctly, and stay silent on a matching correct-sign case. Same documented ambiguous 'spans-both' residual intentionally left uncovered as the .validity variants (see module docstring). No pre-existing rule in this module (from_lower_equal_to / specify_direction / used_for_signals_only / semantics.no_semantics_without_category) regressed.",
+    "group": "road_signal_ref_validity",
+    "function": "run_checks"
+  }
+}

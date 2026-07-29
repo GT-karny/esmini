@@ -1,0 +1,222 @@
+# VirtualDriver 自動運転 / ADAS 対応シーン要求（namespace: req-vd-ad）
+#
+# status: DRAFT (phase 0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md を参照。
+# 各要求は「動機層(tier) × 主体(agent)」の交点に置く。
+#   tier  : safety(安全機能) | compliance(法規遵守機能) | courtesy(譲り合い機能) | comfort(快適機能)
+#   agent : AD(連続計画・交渉) | ADAS(離散ガーディアン/アシスト)
+#
+# ID書式: REQ-AD-NNN (namespaces.yaml の id_pattern REQ-AD-[0-9]{3})。
+# 知識グラフの辺は graph.yaml 側に持つ（policy -> realizes -> 要求 / matcher -> verifies -> 要求）。
+# realized_by / verified_by / related は可読性のための冗長コピー（真実源は graph.yaml）。
+
+tiers:
+  safety:     { ja: 安全機能,     arbitration: override,         note: 快適・法規の上限を破ってよい唯一の層（emergency_decel） }
+  compliance: { ja: 法規遵守機能, arbitration: hard-constraint,  note: 破れない下限。安全にのみ譲る }
+  courtesy:   { ja: 譲り合い機能, arbitration: soft,             note: 法規を超えた協調・譲歩。快適とトレードオフ }
+  comfort:    { ja: 快適機能,     arbitration: soft,             note: 走行品質（車間・滑らかさ） }
+
+agents:
+  AD:   連続的な計画・交渉レイヤ（経路追従＋ルール遵守＋協調）
+  ADAS: 離散的なガーディアン/アシスト機能（特定トリガで介入する保険。AD計画の上に override 層として乗る）
+
+kinds:
+  positive:    介入必須（〜すべき）。ぶつかりそうなら止まる等
+  negative:    誤作動抑止（〜すべきでない）。ぶつからない時に緊急制動しない等（SOTIF対）
+  arbitration: 層間調停。快適で回避可能なら緊急介入しない等
+  regulatory:  規制フロア（UN R152等の最低作動域・応答）
+
+# 拡張スキーマ（AEBファミリ以降の要求で使用。NCAP/R152セルから逆算・詳細は aeb_requirements.md）:
+#   kind        : positive | negative | arbitration | regulatory
+#   statement   : EARS構文（トリガ時=WHEN / 状態時=WHILE / 異常時=IF ＋ 〜すること）
+#   scenario    : 前提シーン（target種別・接近形態）
+#   trigger     : 作動条件（TTC/必要減速度が閾値超過 等）
+#   parameters  : 試験行列（ego速度域・target速度/減速・overlap）。値は要校正
+#   response    : 要求される応答（定量。emergency_decel/警報リード 等）
+#   acceptance  : 合否（低速=完全回避 / 高速=衝突速度低減≥Δv）＋測定量
+#   source      : 出典標準（翻案元。Euro NCAP コード / UN R152）
+# realized_by / verified_by / related は可読性のための冗長コピー（真実源は graph.yaml）。
+
+requirements:
+  # ===== AEB 機能ファミリ（vd-func:FUNC-001 前方AEB / FUNC-002 VRU-AEB を落とす） =====
+  # 詳細と出典は GT_esmini/docs/virtualdriver/aeb_requirements.md。数値は要校正。
+  - id: REQ-AD-001
+    title: 先行車がカットイン後に急制動しても追突しない（複合・本命）
+    tier: safety
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHEN 隣接レーンの車両が自レーンへ割り込み（cut-in）、その後に減速して、
+      快適減速では接触回避が不可能な TTC/必要減速度になったとき、VD は
+      emergency_decel までの緊急制動を発生させ接触を回避（不能域では衝突速度を低減）すること。
+    scenario: >-
+      acc-test.xosc = Cut-in 幾何（3.5m 横移動・TTC同期）+ CCRb 減速（先行車が制動）の複合。
+      Ego 120km/h、Target が t=7 でEgoレーンへカットイン→t=11 で -4m/s² 制動。
+    trigger: TTC < 閾値 かつ 必要減速度 a_req > comfort_decel（要校正）
+    parameters:
+      ego_speed_kmh: [50, 130]            # Cut-in protocol 域（acc-test は 120）
+      target_speed_kmh: [10, 70]
+      target_decel_ms2: [-2, -6]          # CCRb
+      cut_in_lateral_m: 3.5
+    response: emergency_decel まで（例 ≤8 m/s²、要校正）。緊急制動の ≥0.8s 前に警報相当フラグ（R152）
+    acceptance: >-
+      閉じ速度が作動域下限（〜60km/h相当）以下は ego-target OBB 分離>0（完全回避）。
+      それ以上は衝突速度を Δv 以上低減（NCAP カラーバンド相当）。
+    source: "Euro NCAP Assisted Driving Cut-in + AEB C2C CCRb v4.3.1 / UN R152（複合・単一コード無し）"
+    red_asset: >-
+      resources/xosc/verification/07_aeb/cutin_hard_brake.xosc（parametric, road straight_500m_2lane）。
+      aeb_safety_batch.yaml policies:[lead]。現状=RED実証済み（OBB分離0.00m/overlap、gt_sim_test）。
+      本質はカットインの遅い検知（LeadVehicleAwareは同一レーンのみ）。avoid/mitigate最終校正はAEB実装と同時。
+    realized_by: [vd-func:FUNC-001]       # 前方AEB（未実装。フェーズ1で policy を追加）
+    verified_by: [matcher:min_obb_separation_above, matcher:impact_speed_below]  # impact_speed_below=衝突速度低減(緩和域, 07_aeb直進)
+    related: [issue:34, proposal:P11, proposal:P12]
+    status: draft
+
+  - id: REQ-AD-010
+    title: 停止先行車に追突しない（CCRs）
+    tier: safety
+    agent: ADAS
+    kind: positive
+    statement: WHEN 自レーン前方に停止車両があり接触が予測されるとき、VD は緊急制動で接触を回避すること。
+    scenario: 直進で停止 GVT に接近（Euro NCAP CCRs）
+    parameters: { ego_speed_kmh: [10, 50], target: stationary, overlap_pct: [-50, 50] }
+    response: emergency_decel まで（要校正）
+    acceptance: 作動域内は完全回避（OBB分離>0）、上限超は衝突速度低減
+    source: "Euro NCAP AEB C2C CCRs v4.3.1 / UN R152 stationary"
+    realized_by: [vd-func:FUNC-001]
+    verified_by: [matcher:min_obb_separation_above]
+    related: [proposal:P11, proposal:P12]
+    status: draft
+
+  - id: REQ-AD-011
+    title: 等速/制動先行車に追突しない（CCRm/CCRb）
+    tier: safety
+    agent: ADAS
+    kind: positive
+    statement: WHEN 自レーン前方の先行車が等速走行または急制動し接触が予測されるとき、VD は緊急制動で接触を回避すること。
+    scenario: 等速 GVT（CCRm）／制動 GVT（CCRb, -2/-6 m/s², 車間 12/40m）に追従接近
+    parameters: { ego_speed_kmh: [30, 80], target_decel_ms2: [-2, -6], headway_m: [12, 40] }
+    response: emergency_decel まで（要校正）
+    acceptance: 作動域内は完全回避、上限超は衝突速度低減
+    source: "Euro NCAP AEB C2C CCRm/CCRb v4.3.1"
+    realized_by: [vd-func:FUNC-001]
+    verified_by: [matcher:min_obb_separation_above]
+    related: [proposal:P11, proposal:P12]
+    status: draft
+
+  - id: REQ-AD-012
+    title: 横断する歩行者/自転車に衝突しない（VRU-AEB）
+    tier: safety
+    agent: ADAS
+    kind: positive
+    statement: WHEN 自経路を横断する歩行者/自転車があり接触が予測されるとき、VD は緊急制動で接触を回避すること。
+    scenario: 近側/遠側からの横断（Euro NCAP CPNA/CPFA/CBNA）。遮蔽変種は静止遮蔽物を追加
+    parameters: { ego_speed_kmh: [10, 60], ped_speed_kmh: 5, cyclist_speed_kmh: [15, 20] }
+    response: emergency_decel まで。低速歩行者（3km/h）も検知
+    acceptance: ≤40km/h は速度低減率で評価、>40km/h は速度低減 ≥20km/h（NCAP VRU）
+    source: "Euro NCAP AEB VRU v4.4 / UN R152 pedestrian"
+    realized_by: [vd-func:FUNC-002]       # VRU向けAEB（未実装）
+    verified_by: [matcher:min_obb_separation_above]
+    related: [proposal:P11, proposal:P12]
+    status: draft
+
+  - id: REQ-AD-013
+    title: 衝突コース不在時に緊急制動を出さない（誤作動抑止）
+    tier: safety
+    agent: ADAS
+    kind: negative
+    statement: >-
+      WHILE 自経路上に衝突コースの物体が存在しないとき、VD は comfort_decel を超える減速
+      （emergency_decel）を発生させないこと。
+    scenario: 通常追従・レーンチェンジ・隣接レーン併走など非衝突シーン（R152 Annex3 誤作動群のうちGT再現可なもの）
+    response: emergency_decel の発火 0 回
+    acceptance: 非衝突シナリオ群で誤発火ゼロ
+    source: "UN R152 誤作動最小化（Annex3 App2 のうち ground-truth 再現可な範囲）"
+    realized_by: [vd-func:FUNC-001]
+    verified_by: [matcher:no_emergency_without_conflict]  # 衝突コース不在で緊急制動不発火（07_aeb負3本）
+    related: [proposal:P11]
+    status: draft
+
+  - id: REQ-AD-014
+    title: 快適減速で回避可能なら緊急制動を使わない（層調停）
+    tier: safety
+    agent: ADAS
+    kind: arbitration
+    statement: >-
+      WHERE 快適減速（comfort_decel 以内）で余裕をもって接触回避が可能なとき、VD は
+      emergency_decel を用いず快適減速を優先すること。
+    scenario: 緩やかな先行車減速など、快適域で収まるケース
+    response: 安全 override は a_req が comfort_decel を超える時のみ発火
+    acceptance: 快適域ケースで emergency_decel 不発火かつ接触ゼロ、減速プロファイルが滑らか
+    source: "設計方針（adas_axis.md 調停ヒエラルキー）"
+    realized_by: [vd-func:FUNC-001]
+    verified_by: [matcher:deceleration_profile_smooth]
+    related: []
+    status: draft
+
+  - id: REQ-AD-015
+    title: AEB作動包絡線と応答フロア（規制フロア）
+    tier: safety
+    agent: ADAS
+    kind: regulatory
+    statement: >-
+      WHERE AEB が有効なとき、VD は Car-to-Car 10–60 km/h（対歩行者 20–60 km/h）で作動し、
+      緊急制動開始の ≥0.8s 前に警報相当を発し、サービス制動 ≥5.0 m/s² を要求すること。
+    scenario: UN R152 の作動域・警報・制動フロア
+    parameters: { active_c2c_kmh: [10, 60], active_ped_kmh: [20, 60], warn_lead_s: 0.8, min_decel_ms2: 5.0 }
+    response: 上記フロアを満たす
+    acceptance: 作動域・警報リード・要求減速度が R152 フロア以上
+    source: "UN R152 Rev.2"
+    realized_by: [vd-func:FUNC-001]
+    verified_by: []                       # aeb_activation_envelope matcher（要新規）
+    related: []
+    status: draft
+
+  - id: REQ-AD-002
+    title: 先行車定常追従で車間(THW)が規定範囲かつ加減速が滑らか
+    tier: comfort
+    agent: AD
+    rationale: LeadVehicleAware(IDM)による快適な車間維持。ACC相当。
+    realized_by: [vd-func:FUNC-013]        # ACC (policy:lead)
+    verified_by: [matcher:maintained_following_distance]
+    related: []
+    status: draft
+
+  - id: REQ-AD-003
+    title: 赤信号で停止線手前に停止する
+    tier: compliance
+    agent: AD
+    rationale: 信号法規の遵守（黄色は制動距離マージンで判断）。
+    realized_by: [vd-func:FUNC-023]        # 信号遵守 (policy:traffic_light)
+    verified_by: [matcher:stopped_at_signal]
+    related: []
+    status: draft
+
+  - id: REQ-AD-004
+    title: 一時停止標識で停止線手前に停止する
+    tier: compliance
+    agent: AD
+    rationale: STOP標識の遵守（dwell+creep FSM）。
+    realized_by: [vd-func:FUNC-024]        # 一時停止 (policy:stop_yield)
+    verified_by: [matcher:stopped_at_stop_sign]
+    related: []
+    status: draft
+
+  - id: REQ-AD-005
+    title: 横断中の歩行者を優先し衝突しない
+    tier: compliance
+    agent: AD
+    rationale: 歩行者優先（横断中は無条件回避、待ち歩行者は譲り合い層）。
+    realized_by: [vd-func:FUNC-027]        # 横断歩道歩行者優先 (policy:crosswalk)
+    verified_by: [matcher:min_obb_separation_above]
+    related: []
+    status: draft
+
+  - id: REQ-AD-006
+    title: 非優先の交差点で対向直進車に譲る
+    tier: courtesy
+    agent: AD
+    rationale: コリドー衝突判定で優先権を評価し、非優先側は STOP_AT_S で待つ。
+    realized_by: [vd-func:FUNC-038, vd-func:FUNC-029]  # 非制御交差点譲り+交差点優先権
+    verified_by: []                       # 交差点譲りの専用matcherは未整備（TODO）
+    related: []
+    status: draft

@@ -14,6 +14,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
 import { ManualDrivePanel } from './simulation/ManualDrivePanel';
+import { VirtualDriverPanel } from './simulation/VirtualDriverPanel';
 import { QuickOptionsBar } from './simulation/QuickOptionsBar';
 import { ParameterOverrides } from './simulation/ParameterOverrides';
 import { AdvancedSettings } from './simulation/AdvancedSettings';
@@ -23,7 +24,11 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
   physics_type: 'real_vehicle',
   ffb_enabled: true,
   domain: { lateral: 'manual', longitudinal: 'manual' },
-  sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1 } },
+  // feature:F7 gap #6 -- auto_resume defaults to 3 (the shipped
+  // config/manual_drive.json value), NOT -1. This literal is written straight
+  // into the run request, and -1 means "unassigned" to C++, which is exactly
+  // the gap #5 symptom the exposure work is meant to end.
+  sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 } },
   keyboard: {
     steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
     upshift: 'E', downshift: 'Q', override_key: 'O',
@@ -110,6 +115,7 @@ function valuesReducer(state: FormValues, action: ValuesAction): FormValues {
 
 interface UiState {
   showManualPanel: boolean;
+  showVdPanel: boolean;
   showAdvanced: boolean;
   showPresetSave: boolean;
   presetName: string;
@@ -196,11 +202,12 @@ export function SimulationRunForm({
   // UI helpers (panels / advanced toggle / preset-save input) — grouped reducer.
   const [ui, dispatchUi] = useReducer(uiReducer, undefined, () => ({
     showManualPanel: false,
+    showVdPanel: false,
     showAdvanced: !compact,
     showPresetSave: false,
     presetName: '',
   }));
-  const { showManualPanel, showAdvanced, showPresetSave, presetName } = ui;
+  const { showManualPanel, showVdPanel, showAdvanced, showPresetSave, presetName } = ui;
   const patchUi = (patch: Partial<UiState>) => dispatchUi({ type: 'patch', patch });
 
   // Parameter overrides — kept as useState (uses functional updates + the
@@ -426,6 +433,7 @@ export function SimulationRunForm({
         controllerType={controllerType}
         setControllerType={(v) => patchValues({ controllerType: v })}
         onOpenManualSettings={() => patchUi({ showManualPanel: true })}
+        onOpenVirtualDriverSettings={() => patchUi({ showVdPanel: true })}
         driveMode={driveMode}
         setDriveMode={(v) => patchValues({ driveMode: v })}
         routeDriveMode={routeDriveMode}
@@ -440,6 +448,11 @@ export function SimulationRunForm({
         onClose={() => patchUi({ showManualPanel: false })}
         config={manualDriveConfig}
         onChange={(v) => patchValues({ manualDriveConfig: v })}
+      />
+
+      <VirtualDriverPanel
+        open={showVdPanel}
+        onClose={() => patchUi({ showVdPanel: false })}
       />
 
       <div className="border-b border-glass-edge my-3" />

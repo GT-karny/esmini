@@ -1,0 +1,570 @@
+# 観測可能量カタログ（signal:<name> の単一真実源）
+#
+# 検証スパイン④観測（capability_model.md §1 / §4）の一級市民。
+#
+# canonical は **OSI .proto 面（GroundTruth / HostVehicleData）**。`vd_metrics.py` の
+# telemetry frame はその派生投影の一つに過ぎない。frame契約を canonical に置くと
+# 「OSIにemit済みだが frame未投影」（pitch/roll 型）を「真の観測不能」と同じ ✕ に
+# 潰してしまう — 両者は打ち手が全く違う（配線 vs センサ/物理拡張）ため区別する。
+#
+# **on-demand 原則**: OSI .proto の bulk import はしない（openx 346概念の轍を踏まない）。
+# 主張 / matcher が実際に参照した signal だけを起こす。
+#
+# フィールド:
+#   id        signal:<id> のローカルID（snake_case、下線を1つ以上含む）
+#   title     日本語の短い説明
+#   exposure  どの面に届いているか（複数可）
+#               osi     OSI GroundTruth に emit
+#               hvd     OSI HostVehicleData に emit
+#               frame   vd_metrics.py の telemetry frame に投影済み
+#               derived 生emitは無く消費側で導出（近似含む）
+#               debug   観測はできるが **verdict-trust の対象外**
+#                       ＝面2内部を覗くデバッグ経路。判定に使うと面3→面2直結の
+#                         結合負債になる（capability_model.md §2.2）。実装側の規約は
+#                         `gt.dbg.*` 接頭辞（GT_esmini の PolicyDetail.hpp に常駐）。
+#                         将来 lint が verdict 経路から機械的に除外する目印。
+#   state     capability_model.md §2.3 の判定記号をそのまま持ち込む
+#               "●"   充足（emit され消費面まで届いている）
+#               "(a)"  未emit（真の観測不能）
+#               "(b)"  emit済みだが未配線（frame/matcher/gate に届いていない）
+#               "(b')" 誤配線（届くが値が壊れている＝(b)より悪い。verdict を汚す）
+#               "(-)"  非該当（OSI以外の正当な観測面を持つ。例: RM ctypes プローブ）
+#   emit      emit 箇所（file:line。§2.3 で実確認したもの）
+#   note      判定の根拠 / 既知の欠陥
+#
+# 消費側との接続（matcher -> observes -> signal）は graph.yaml に curated辺として置く
+# （関係の単一置き場。本ファイルには重複記載しない）。
+
+meta:
+  derived_from: GT_esmini/docs/knowledge/capability_model.md  # §2.3 棚卸し / §4 seed表
+  canonical_surface: OSI GroundTruth / HostVehicleData (.proto)
+  seeded: 2026-07-20
+  principle: on-demand（OSI .proto の bulk import はしない）
+
+signals:
+  # ---- D1 VD 自動運転挙動 ----
+  - id: ego_pose
+    title: 自車の位置・方位（x/y/h/s）
+    exposure: [osi, hvd, frame]
+    state: "●"
+    emit: OSI Moving base ／ GT_HostVehicleReporter.cpp:260-289
+    note: frame `ego.*` 経由で多数の matcher が読む。縦串の通った数少ない例。
+
+  - id: ego_speed
+    title: 自車速度
+    exposure: [osi, hvd, frame]
+    state: "●"
+    emit: OSI Moving base ／ GT_HostVehicleReporter.cpp:260-289
+    note: 全 speed 系 matcher の基礎量。
+
+  - id: ego_orientation
+    title: 自車姿勢（roll / pitch / yaw）
+    exposure: [osi, hvd]
+    state: "●"
+    emit: GT_HostVehicleReporter.cpp:255-256,267-268,276-277,285-286 ／ RealVehicle.cpp:410-430 → OSI GT_OSIReporter_Moving.cpp:812-813
+    note: >-
+      yaw（方位 h）は配線済み（2026-07-21, spine-work:ego-anchor-face1-migration）。
+      vd_metrics._ego_state が is_host の `h`（OSI orientation.yaw）を取り、
+      matcher:maintained_following_distance の前方投影（cos/sin h）に使う（scene 優先・
+      telemetry fallback）。roll/pitch は依然 matcher 未消費だが、yaw が正規IF経由で verdict に
+      効いたため純 (b) は解消。かつて frame契約だけ見て「観測不能(a)」と誤分類しかけた対象
+      （capability_model.md §3-2）。
+
+  - id: ego_lane
+    title: 自車の車線（OpenDRIVE road_id / lane_id）
+    exposure: [osi, frame]
+    state: "●"
+    emit: GT_OSIReporter_Moving.cpp:877-878（assigned_lane_id dual emit）／ GT_OSIReporter_Geometry.cpp:1335-1344（Lane.source_reference）
+    note: >-
+      2026-07-24 面1化（spine-work:ego-anchor-face1-migration が意図的に telemetry へ
+      残置した最後の自車状態量の follow-on）。vd_metrics._ego_state が is_host の
+      assigned_lane_id（classification 優先・deprecated field4 fallback）を
+      scene.lane_map（OSI Lane.source_reference 由来 str(global_id)→{road_id,lane_id}）で
+      解決し、lane_keep / lane_change_count の判定車線とする（scene 優先・telemetry
+      fallback・使用面は _lane_source として verdict の ego_source に記録）。解禁根拠は
+      spine-work:osi-assigned-lane-driving の走行レーン由来化（red_stop_green_go で
+      1200/1200 一致）。切替時の実測: 回帰3バッチ22シナリオ deviation 0、フレーム
+      レベルでも join 解決 15629 フレームで telemetry lane と完全一致。既知の join 欠け:
+      junction 内は OSI が接続路レーンを個別 emit せず TYPE_INTERSECTION 1本へ併合する
+      （GT_OSIReporter_Geometry.cpp:224-229、id=junction global id）ため assigned_lane_id
+      （接続路レーンの global id）が lane_map に無い（実測 171/15800 フレーム、全て
+      junction 通過中）→ telemetry fallback が受ける。
+
+  - id: ego_accel_long
+    title: 自車の縦加速度
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_Moving.cpp:828-830
+    note: >-
+      配線済み（2026-07-21, spine-work:ego-anchor-face1-migration）。vd_metrics._speed_accel_jerk
+      が _gt_to_scene の `ax,ay`（OSI base.acceleration）を is_host から取り、方位で縦方向に
+      投影して matcher:deceleration_profile_smooth の加速度・ジャークに使う（scene が有れば
+      OSI 直読 a=osi、無ければ従来の speed 中心差分 a=telemetry に fallback、verdict の
+      detail に a_source を明記）。かつての「speed 中心差分で自前推定」（旧 §2.3a 最有力候補）は
+      解消。実挙動: decelerate_for_curve で a=osi・max decel 2.19/jerk 4.71 の PASS を確認。
+
+  - id: ego_jerk
+    title: 自車ジャーク
+    exposure: [derived]
+    state: "(a)"
+    emit: null  # OSI に jerk 概念そのものが無い
+    note: vd_metrics.py:274-285 が speed の二階微分で近似。derived 由来であることを消費側が忘れやすい。
+
+  - id: front_bumper_localization
+    title: フロントバンパー基準の局所化（F5）
+    exposure: [frame]
+    state: "(b)"
+    emit: VirtualDriverTelemetryJson.cpp:20-24
+    note: frame までは到達しているが `vd_metrics.py` の参照が0件＝誰も読まないフィールド。
+
+  - id: lead_vehicle_gap
+    title: 先行車との車間
+    exposure: [frame]
+    state: "(b)"
+    emit: LeadVehicleAware.cpp:97-99（STOP_AT_S 枝のみ `c.s` に載る）
+    note: 追従継続枝は `c.s=0` 固定（:113）で距離を捨てる＝停止時しか frame に届かない部分欠。
+
+  - id: obb_separation
+    title: OBB（有向境界箱）分離距離
+    exposure: [osi, frame]
+    state: "●"
+    emit: OSI Moving object 寸法・姿勢 → gt_sim_test.py `_gt_to_scene` → Python SAT
+    note: >-
+      正規IF側の数少ない実働例（matcher:min_obb_separation_above / impact_speed_below）。
+      ただし `--osi` / batch `osi: true` が無いと scene が None になり matcher は skip
+      （vd_metrics.py:611-613,660-662）＝**条件付きでしか効かない**。
+
+  - id: object_poses
+    title: 他エンティティの位置・寸法・方位
+    exposure: [osi, frame]
+    state: "●"
+    emit: OSI GroundTruth moving_object
+    note: scene.objects[] として4つの OSI 系 matcher の共通基盤。
+
+  - id: pedestrian_velocity_vector
+    title: 歩行者の速度ベクトル
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_Moving.cpp:823-825
+    note: >-
+      2026-07-21 配線。旧: `_gt_to_scene` が sqrt(vx²+vy²+vz²) のスカラーに潰し
+      **「離れつつあるか」の符号情報が消えていた**（損失は emit ではなく scene 変換層）。
+      現: scene.objects[] に vx,vy,vz を**追加**（`speed` は意味を変えず残置＝後方互換）し、
+      matcher:impact_speed_below の `_closing_speed` が第一候補として読む。
+      これにより自機 heading と逆向きに動く物体（後退車・後ずさる歩行者）の接近速度の符号が
+      正しくなる。旧テレメトリは heading 再構成 fallback で従来どおり評価される。
+
+  - id: traffic_light_state
+    title: 信号の現示（色・phase）
+    exposure: [osi, frame]
+    state: "●"
+    emit: GT_OSIReporter_Traffic.cpp:282（毎フレーム）
+    note: matcher:stopped_at_signal の require_red サブチェックが読む唯一の OSI 経路。
+
+  - id: traffic_light_assigned_lane
+    title: 信号の assigned_lane_id
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_Traffic.cpp:286-288
+    note: >-
+      2026-07-21 配線。旧: `_gt_to_scene` の辞書に含まれず（gt_sim_test.py:185-192）
+      「どのレーンの信号か」が落ちて多灯交差点で正しい信号を選べなかった。
+      現: scene.traffic_lights[].assigned_lane_ids（OSI 側が repeated＝1灯が複数レーンを
+      支配しうるのでリストのまま保持）＋ icon（歩行者頭の識別子）を追加し、
+      matcher:stopped_at_signal の require_red が must の `lane_id` 指定時に絞り込む。
+      既存 expectations は lane_id 未使用のため現行判定は不変（回帰ゲート deviation 0 で実証）。
+
+  - id: traffic_sign_classification
+    title: 標識の id と分類（stop / yield 等）
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_Traffic.cpp:56-235（静的GT 初回フレームのみ）／P4 意味論 fallback :187-220
+    note: >-
+      2026-07-21 配線（検証面のみ）。旧: **正規IFを捨てている実例**で `_gt_to_scene` は
+      traffic_sign を一切パースしなかった。現: scene.traffic_signs[] に id/type/value/
+      value_unit/位置を載せ、matcher:stopped_at_stop_sign の require_sign が読む。
+      **配信経路の罠**: 静的GTは既定モードでは初回フレームにしか乗らない
+      （GT_OSIReporter.cpp:277-330）。そのため (1) `_OsiCapture.drain` を最新1フレームだけ
+      返す実装から**全完了フレーム返却**に変更（2フレーム同時到着で唯一の静的コピーを
+      捨てるのを防ぐ）、(2) 静的ブロックは捕捉フレームに1回だけ書き
+      `vd_metrics.load_telemetry` が前方補完する（毎フレーム複製すると telemetry.jsonl が
+      フレーム数倍に膨らむため）。type 名は protobuf descriptor から引く（StVO 分類は巨大で
+      手写しは陳腐化する）。カタログ未分類は "unmapped:<n>" 番兵にし OSI の TYPE_UNKNOWN(0)
+      と区別する。実測: stop_sign_full_stop と semantic_stop_sign_full_stop（P4 意味論
+      fallback 経路）の両方が type="stop" で確認できた。
+      **未解消**: Web の road_geometry_service.py:84-93 は依然 OSI を迂回して xodr を
+      再パースしている（「遅延購読者が初回フレームを見逃す」ため）。これは面1配信設計の
+      課題であり本配線の射程外。
+
+  - id: crosswalk_footprint
+    title: 横断歩道のフットプリント
+    exposure: [osi]
+    state: "(b)"
+    emit: GT_OSIReporter.cpp:829-850（StationaryObject.base_polygon）＋ :875-879（odr_type identifier）
+    note: >-
+      **emit 側種別も解消（2026-07-24）。state は (b) のまま**＝これを読む matcher がまだ無いため。
+      scene.stationary_objects[] への配線（id/type/寸法/odr_object_id/polygon、traffic_sign と
+      同じ静的GT経路・前方補完に相乗り）は 2026-07-21 完了済み（polygon は **object-local 座標**＝
+      Outline::GetPosLocal 由来、world にするには h 回転＋x,y 平行移動が要る）。
+      2026-07-24 に残っていた emit 側の欠を閉じた: classification.type は TYPE_OTHER 固定
+      （:791-796、OSI 列挙に crosswalk が無い以上ここは正当）だが、source_reference の
+      3本目 identifier `odr_type:<ODR object type文字列>`（RMObject::GetTypeStr、upstream と
+      同じ key:value 流儀の GT 拡張）を**全 ODR stationary オブジェクト**に emit し、
+      crosswalk/railing/patch/... を in-band で判別可能にした。authored
+      <object type="crosswalk"> も P5 合成 crossPath（ObjectType::CROSSWALK）も同じ
+      "odr_type:crosswalk" になる。消費側 `_gt_to_scene` は scene に `odr_type` を追加し、
+      `is_crosswalk` は odr_type を第一根拠・予約 id 範囲（>= 900000000,
+      kCrosswalkSynthIdBase）は**旧DLL採取テレメトリ向け fallback** に降格。
+      意味論根拠: osi_object.proto StationaryObject.source_reference は identifier の詳細を
+      実装定義とし（[0]="object"/[1]=id が規定、追加は非破壊）、ExternalReference.identifier は
+      repeated string で拡張前提。xosc MiscObject 経路（UpdateOSIStationaryObject）は
+      source_reference 自体を出さない別経路＝本作業の射程外。
+      **env ゲート（2026-07-24 CI赤で追加）**: `GT_OSI_ODR_OBJECT_TYPE=0` で無効化（default ON、
+      GT_OSI_FUTURE_TRAJECTORY と同 idiom）。upstream の OSI.TestStationaryObjects が
+      identifier().size()==3 を ASSERT し、その早期 abort が共有 obj_osi_internal を汚して
+      後続 fixture（TestOSIBrokenRoadmarkCurve）まで連鎖赤にするため、run_tests.sh の
+      ScenarioPlayer_test 呼び出しのみ OFF（連鎖はバッチ失敗単独再確認で切り分け済み）。
+      **残る欠は⑤のみ**: stationary_objects を読む matcher が無い（matcher 追加は別作業）。
+
+  - id: junction_priority
+    title: 交差点の `<priority>` 関係
+    exposure: [derived]
+    state: "(a)"
+    emit: null  # OSI に受け皿が無い
+    note: ConflictPointResolver.cpp:336-346 が OdrSideModel 経由で xodr を直読み。面1経由でない導出。
+
+  - id: conflict_prediction_span
+    title: 交差点調停の予測 region span / governing other_id
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # ConflictPointResolver.cpp:551-672 の内部のみ
+    note: >-
+      **verdict-trust 対象外（意図的）**。OSI に他車予測の受け皿は無く、
+      `MovingObject.future_trajectory` は規格コメントが「被検体に見せるべきでない」と
+      明示する GT 側の欄＝流用は GroundTruth の意味を壊す（§2.2）。生の予測は debug に留め、
+      予測の当否は挙動から間接検証する。
+
+  - id: conflict_pet
+    title: 交差点調停の PET（post-encroachment time）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # ConflictPointResolver.cpp:647-656 の内部のみ
+    note: 同上。verdict には使わない。
+
+  - id: stop_fsm_phase
+    title: 一時停止FSMの段階（APPROACH / HOLD / CREEP）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # StopYieldSignAware.cpp:38-82 の内部のみ
+    note: 面2内部状態。「なぜ止まった/止まらなかった」の切り分け用。
+
+  - id: aeb_trigger_flag
+    title: AEB 作動フラグ（constraint source）
+    exposure: [frame]
+    state: "●"
+    emit: AebSafety.cpp:120-128（PolicyConstraint.source）
+    note: matcher:no_emergency_without_conflict が読む（vd_metrics.py:811-846）。
+
+  - id: aeb_ttc
+    title: AEB の TTC
+    exposure: [osi, frame]
+    state: "(b)"
+    emit: AebSafety.cpp（EvaluateGate）→ PolicyDetail `gt.aeb.ttc_s` → HVD custom_detail
+    note: >-
+      **W3 で 2026-07-20 に emit 済み**（§4 seed表の (a) は W3 着地前の値）。
+      作動しなかったフレームでも出る＝負の判断の診断が可能に。ただし
+      **これを読む matcher は現状0件**＝(b)。`gt.aeb.*` は `gt.dbg.*` ではないので
+      verdict-trust の対象**内**（命名規約は PolicyDetail.hpp）。
+
+  - id: aeb_a_req
+    title: AEB の必要減速度 a_req
+    exposure: [osi, frame]
+    state: "(b)"
+    emit: AebSafety.cpp（EvaluateGate）→ PolicyDetail `gt.aeb.a_req_mps2` → HVD custom_detail
+    note: 同上（W3 で emit 済み・matcher 未着手）。実測 a_req=13.611 m/s² 等が custom_detail に載る。
+
+  - id: policy_constraint_tier
+    title: ポリシー制約の tier（SAFETY/COMPLIANCE/COURTESY/COMFORT）
+    exposure: [frame]
+    state: "(b)"
+    emit: VirtualDriverTelemetryJson.cpp（`policy.constraints[].tier`）
+    note: >-
+      **W2 で 2026-07-20 に emit 済み**（§4 seed表の (a) は W2 着地前）。
+      tier調停の結果が frame に出るようになったが、**読む matcher は無い**＝(b)。
+      「AEB が安全層として効いたのか」の検証はまだ書けていない。
+
+  - id: adas_states
+    title: AD/ADAS 機能の作動状態（vehicle_automated_driving_function[]）
+    exposure: [hvd]
+    state: "(b)"
+    emit: BuildAdasFunctionReport → GT_HostVehicleReporter::AddADASFunctionEx()
+    note: >-
+      **W1 で 2026-07-20 に emit 済み**（§4 seed表の (a) は W1 着地前）。実測で
+      name=AUTOMATIC_EMERGENCY_BRAKING が ACTIVE 20フレーム（cutin_hard_brake.xosc）。
+      OSI規格の正規欄を使うため他ADスタックと比較可能。**ただし matcher/gate は未着手**＝(b)。
+      ManualDrive 側の空 ADAS states は別途 (a)＝W1 同型の未実装（下記 manualdrive_adas_states、
+      2026-07-21 に「設計上の非該当」説を撤回済み）。
+
+  # ---- D2/D3/D4 ManualDrive・Kinematic・RealVehicle 物理 ----
+  - id: hvd_steering_angle
+    title: HVD の操舵角
+    exposure: [hvd]
+    state: "(b)"
+    emit: GT_HostVehicleReporter.cpp:141（タイヤ舵角 rad × steering_input_to_wheel_ratio=12.9 → ハンドル角 rad）
+    note: >-
+      **★2026-07-20 訂正: 当初の「12.9倍破壊＝(b′)」は誤診だった**。OSI
+      `osi_common.proto` の `VehicleSteeringWheel.angle` は「**ハンドル角(rad)**」であって
+      タイヤ舵角ではない。ゆえに ratio=12.9 は**ステアリングギア比**
+      （RealVehicle.hpp:71 も "Corolla steering ratio"）で、タイヤ角→ハンドル角の変換は
+      **OSI規定どおり正当**。ManualDrive / VirtualDriver / Kinematic は正しく出ている
+      （0.61rad → 451°＝ロック2.5回転で実車的。HvdGaugePanel.tsx:55 の ±540° clamp とも整合）。
+      **実際に壊れていたのは ControllerRealDriver 経路のみ**（正規化 -1.0〜1.0 をそのまま渡すため
+      739°。真値451°、1.64倍=1/steer_gain のずれ）→ **abd55140 で修正済み**（他3経路と同じ
+      `real_vehicle_.wheelAngle_` を渡す1行。外部UDP契約[-1,1]は不変）。
+      **実測で決着**: RealDriver に正規化 steering=1.0 を送り HVD UDP 1500フレーム復号 →
+      ハンドル角ピーク **450.9°**（予測 0.61×12.9=451°と一致。旧実装なら739°）。
+      → 本 signal の欠は誤配線ではなく
+      **読む matcher が無いこと(b)**（⑤の穴）。消費は Web HvdGaugePanel のみ。
+      教訓は memory `verification_semantics_lesson`（意味論の取り違え型は経路追跡では検証できない）。
+
+  - id: hvd_acceleration
+    title: HVD の加速度
+    exposure: [hvd]
+    state: "(b)"
+    emit: GT_HostVehicleReporter.cpp（location=グローバル / vehicle_motion=車体系）＋ RealVehicleBackend::BuildHVD
+    note: >-
+      **★2026-07-24 実測で (b′) の実体を訂正し、同日修正済み**。当初の「RealVehicle の値が
+      egoState 上書きで失われる」は VD/ManualDrive 経路では**値のずれゼロ**だった（実測440
+      フレーム diff=0.000。RealVehicle が Euler 積分 v_new=v_old+a·dt するため egoState の
+      有限差分 (v_new−v_old)/dt は同じ a に厳密一致する）。**真の欠陥は座標系の取り違え**:
+      OSI 規定は vehicle_motion.acceleration/velocity=車両座標系・location(BaseMoving)=
+      グローバルだが、旧実装は両フィールドとも逆のフレームを書いていた（規格を信じる外部
+      消費者は yaw 分回った値を誤読する）。修正: (1) BuildHVD は location をグローバルへ
+      回転し、車体系実測値は正規の家 vehicle_motion へ (2) レポーターは location.acceleration
+      もグローバル egoState 値で統一上書きし、vehicle_motion の velocity/acceleration は
+      **base 実測値があれば温存**（ControllerRealDriver 外部実機の実測が捨てられていた問題も
+      同時解消）・無ければ yaw で車体系へ投影 (3) 消費者 SDLFFBSink は vehicle_motion 優先＋
+      location fallback は旧ピア（NetworkPhysicsBridge 外部プロデューサ）互換で車体系解釈を
+      維持。Web は速度の大きさのみ読む＝回転不変で無変更。カーブ路実測で
+      R(−yaw)·location ≒ vehicle_motion（rmse 縦0.008/横0.086 m/s²、残差はモデル瞬時値 vs
+      有限差分の離散化差）。残る欠は**読む matcher が無いこと**＝(b)。
+      教訓は steering 12.9 倍と同型: 意味論（フレーム規定）は .proto 直読まで確定しない。
+
+  - id: hvd_inputs
+    title: HVD の運転入力（throttle / brake / gear）
+    exposure: [hvd]
+    state: "●"
+    emit: ControllerManualDrive.cpp:188-247
+    note: HvdGaugePanel.tsx まで到達。
+
+  - id: hvd_powertrain
+    title: HVD のパワートレイン量（rpm / torque）
+    exposure: [hvd]
+    state: "●"
+    emit: ControllerManualDrive.cpp:188-247
+    note: 同上。
+
+  - id: ffb_internal_state
+    title: FFB 内部量（steering_pos / vel / lat_accel）
+    exposure: [debug]
+    state: "●"
+    emit: RealVehicleBackend.cpp:121-134 ／ SDLFFBSink.cpp:158-176
+    note: >-
+      **自己完結ループで完結しており外部配信は不要**＝FFB 用途としては充足。
+      verdict には使わない（debug）。「①主張が希薄」（FFB忠実度を要求化していない）ため
+      matcher も存在しない。
+
+  - id: manualdrive_adas_states
+    title: ManualDrive の ADAS states
+    exposure: [hvd]
+    state: "(a)"
+    emit: null  # ControllerManualDrive.hpp:36 で恒久的に空
+    note: >-
+      **★2026-07-21 訂正: 当初の「設計上の非該当＝人間が運転するので AD機能状態が無い」は誤り**。
+      実車では手動運転中も AEB は稼働し、ペダル手動のまま LKA・ACC のままステア操作もあり得る。
+      実装を当たると非該当ではなく**未実装4点の重なり**: ① `GetADASStates` が {} の恒久スタブ
+      （ControllerManualDrive.hpp:36）＝**W1 と完全に同型**（GT_esminiLib.cpp:1512 が空のまま返り
+      `size()>=24` ガードで素通り、AddADASFunctionEx 不到達）② AebSafety は ITrafficPolicy 実装で
+      ControllerVirtualDriver.cpp:103 でのみ生成＝ManualDrive からの到達連鎖が無い ③「横だけ自動」の
+      実体は ManualDriveCoordinator.cpp:21-26 の素の OSC private action 追従（VD/Kinematic/AEB 非介在）
+      ④ OSI DriverOverride（W4）は populate 箇所ゼロ。GT_esminiLib.cpp:1312-1315 で ManualDrive
+      搭載車は自動スタックから明示除外。→ **派生レポートが (a) に挙げるのは誤検出ではなく真の検出**。
+      (-) に寄せると穴が消える。機能ギャップ（ManualDrive 中の ADAS 全停止）は別プログラム規模。
+
+  - id: override_domain_state
+    title: 操作権限ドメイン（lat/lon が manual か scenario か）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # OSI/HVD に相当欄なし
+    note: 「誰が操作していたフレームか」が外から分からない＝ManualDrive の verdict 前提が立たない。
+
+  - id: kinematic_curvature
+    title: Kinematic の曲率 κ
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # ControllerKinematic.cpp:380-394 の内部のみ（debug_log 止まり）
+    note: 意図的な中間量。
+
+  - id: lane_id_indicator_nonvd
+    title: lane_id / 方向指示器（Kinematic・RouteDrive）
+    exposure: [osi]
+    state: "(b)"
+    emit: GT_OSIReporter_Moving.cpp:835（lane_id）／:568（indicator）
+    note: >-
+      OSI には汎用経路で出ているが、**telemetry frame を作るのは VD だけ**なので
+      frame/matcher に一切届かない。面3が面2テレメトリに依存している構造的帰結
+      （§0.3 の結合負債が「VD以外を検証できない」形で表面化した例）。
+      lane_id の emit 実体は 2026-07-21（spine-work:osi-assigned-lane-driving）以降
+      キャッシュ走行レーン（`Position::GetLaneId` 由来、`ResolveMovingObjectAssignedLaneGlobalId`）
+      ＝旧 `GetLaneGlobalId()` の (s,t) 再探索を廃し border/sidewalk へのドリフトを解消。
+      2026-07-24 から **deprecated field 移行の dual emit**: MovingObject 直下 field4
+      （OSI 3.7.0 で deprecated）と後継 `MovingObjectClassification.assigned_lane_id` の
+      両方に同値を出す。旧 field を残す理由は replayer `osi_receiver.cpp` と upstream UDP
+      サンプル群が field4 直読みで R1 により GT から修正不可のため。GT 自前消費者
+      （gt_sim_test `lane_global_id`）は classification 優先＋旧 field fallback に移行済み。
+      片寄せ（旧 field 廃止）は upstream/OSI 4.0 の動きに合わせて別途判断。
+      自車側の消費（lane_keep / lane_change_count が OSI 車線で判定）は 2026-07-24 に
+      面1化済み＝ signal:ego_lane を参照。本 signal の (b) は「非VD車のレーンが
+      frame に届かない」構造問題として残る。
+
+  - id: traffic_vehicle_pitch_roll
+    title: 交通車の動的 pitch/roll
+    exposure: [osi, hvd]
+    state: "(b)"
+    emit: VehiclePhysicsManager.cpp:107-108（ライブラリ既定 `enabled_=false` だが Web UI は既定ON）
+    note: >-
+      **★2026-07-21 訂正: 当初の (a)「opt-in 無しではそもそも計算されない＝通常運用では未emit」は
+      事実誤認**。Web UI は既定ON（models/simulation.py:137 と config.py:152 が両方 True、
+      導入コミット d6c5f10c が意図的にそう設定）＝**主要な運用面では emit されている**。
+      OFF なのはライブラリ既定・生CLI・**検証ハーネス**（gt_sim_test.py は vehicle_physics を
+      一度も参照しない＝grep 0件）。→ 欠は emit でなく**検証パスへの配線**: 打ち手は
+      「検証ハーネスにフラグを通して matcher を作る」＝(b)。
+      語彙の教訓: (a)/(b) に収まらない第3の状態に見えたら、まず**打ち手を書き下す**。
+      打ち手が既存分類のどれかと一致するなら、それは新語彙ではなく分類の誤り。
+
+  # ---- D5/D6 AutoLight・TrafficSignalController ----
+  - id: vehicle_lights
+    title: 車両灯火（brake / indicator / low_beam）
+    exposure: [osi, frame]
+    state: "●"
+    emit: AutoLightController.cpp:231-374,411-862 → GT_OSIReporter_Moving.cpp:433-512
+    note: WS osi_stream.py:75-77 まで到達。
+
+  - id: vehicle_lights_reversing
+    title: 後退灯
+    exposure: [osi]
+    state: "(b)"
+    emit: GT_OSIReporter_Moving.cpp:443-445
+    note: WS の `_extract_lights()`（osi_stream.py:65-83）が抽出していない。collect_osi_light_metrics.py 経由でのみ観測可。
+
+  - id: vehicle_lights_high_beam
+    title: ハイビーム
+    exposure: [osi]
+    state: "(b)"
+    emit: GT_OSIReporter_Moving.cpp:485-487
+    note: 同上（WS 未抽出）。F6 自動ハイビームの主張を裏付ける観測経路が細い。
+
+  - id: environmental_conditions
+    title: 環境条件（照度・天候）
+    exposure: [osi]
+    state: "(b)"
+    emit: GT_OSIReporter_Environment.cpp:38-86（毎フレーム）
+    note: WS `_gt_to_json` が抽出せず gRPC のみ到達。F6 の②環境刺激を裏で支える量。
+
+  - id: light_source_ownership
+    title: 灯火の所有権（AUTO / MANUAL / SCENARIO）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # ExtraEntities.hpp:100-126 の LightSource。OSI に概念が無い
+    note: AutoLight 所有権バグの再発検知に必要だが OSI に受け皿が無い。
+
+  - id: tunnel_occupancy
+    title: トンネル内判定
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # AutoLightController.cpp:177-198（RoadManager 直読み）
+    note: F6 トンネル点灯の主張の前提条件そのものが観測できない。
+
+  - id: traffic_light_lamp_detail
+    title: 信号ランプの mode / color / icon
+    exposure: [osi, frame]
+    state: "●"
+    emit: GT_OSIReporter_Traffic.cpp:281-283（毎フレーム、GT_OSIReporter.cpp:723）
+    note: WS osi_stream.py:139-152。OSI 配信の厚い領域。
+
+  - id: signal_resolution_failure
+    title: 信号 phase 解決失敗（signalId未解決 / controller参照不明）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # TrafficSignalController.cpp:39-83,102-192 は LOG_WARN 止まり
+    note: 失敗件数を機械可読に出さないため、静かに壊れても gate が気付けない。
+
+  - id: light_state_unset_vs_off
+    title: light_state の「未設定」と「OFF」の区別
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_Moving.cpp:402-412（has_lightstate_action_ ラッチ）
+    note: >-
+      emit は成立（一度も変更が無いとフィールドごと出ず、消費側は HasField で整合）。
+      **この区別を突くテストが無い**＝④は充足だが⑤が欠。state は emit 基準なので ● のまま。
+
+  # ---- D7 OSI-GT 出力の自己観測（中核主張・全て未emit） ----
+  - id: gt_timestamp_monotonicity
+    title: GT タイムスタンプの単調性
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # emit 側に保証・検査コードなし
+    note: >-
+      **中核主張の自己観測が3つとも(a)**（本セッション最大の再採点）。「観測層そのものだから
+      ④=●」は循環論法で、GT が*正しい*ことを言う観測量は emit 側にも消費側にも存在しない。
+      count_osi_messages.py はメッセージ**数**を数えるのみで内容非検査。
+      ※exposure=debug は §4 seed表の値を踏襲したもの。emit された暁には面1の自己観測＝
+      verdict に使うべき量であり、`debug`（verdict-trust対象外）のままにしてはいけない
+      — 実装時に exposure を osi/derived へ改める前提の暫定値。
+
+  - id: gt_frame_loss_rate
+    title: フレーム欠落率（UDP 再構成失敗）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # osi_bridge.py:45-78 に _reset() はあるがカウンタ化して外に出さない
+    note: 同上（exposure は暫定・実装時に見直す）。失敗が黙って進行する。
+
+  - id: gt_entity_count_consistency
+    title: 動的オブジェクト数の整合（entity数 vs GT moving_object数）
+    exposure: [debug]
+    state: "(a)"
+    emit: null  # 突合コードなし
+    note: >-
+      WS osi_stream.py:157 の `object_count` は表示用で期待値比較をしない。
+      同上（exposure は暫定・実装時に見直す）。
+
+  # ---- D9 ODR（別面に正当な観測経路を持つ列） ----
+  - id: odr_rm_probe
+    title: RoadManager 解決結果（RM_Init / RM_PositionMoveForward プローブ）
+    exposure: [derived]
+    state: "(-)"
+    emit: null  # OSI 非経由。esminiRMLib を ctypes で直接叩く
+    note: >-
+      **非該当(–)＝OSI以外の正当な観測面**（run_odr_conformance.py:230-470, rm_lib.py:181-208）。
+      (–) を導入したことで ODR 行を不当に減点せずに済む。ただし golden は
+      *回帰* であって真偽ではない（§1.1）。
+
+  - id: odr_osi_layer_probe
+    title: ODR 適合 OSI層プローブ（SE_GetOSIGroundTruth 実デコード）
+    exposure: [osi]
+    state: "(b)"
+    emit: run_odr_conformance.py:472-561
+    note: >-
+      実装済みだが `--profile full` の**手動実行のみ**でゲート未配線
+      （gate:odr-conformance-full 参照）。ODR列で唯一の (b)。
+
+  - id: driver_override_state
+    title: 運転主体オーバーライド状態（override.lateral/longitudinal + manual/auto_transition 単発エッジ）
+    exposure: [frame]
+    state: "(b)"
+    emit: VirtualDriverTelemetryJson.cpp:25-28（transition エッジは feature:F7 commit 91c9fed7 で追加）
+    note: >-
+      gt_lib.py が毎フレーム GT_GetVirtualDriverTelemetry を telemetry.jsonl へ取り込むため
+      frame 面には既に届いている（PM 直読 2026-07-25）が、読む matcher が無い＝未配線。
+      配線候補: テイクオーバー系 matcher（例: resumed_to_auto_within）を起こすときに observes 辺で結線。
+      OSI 側 DriverOverride は未populate（vd-func:FUNC-075 の④と同根）。

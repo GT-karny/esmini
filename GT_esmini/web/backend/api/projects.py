@@ -81,8 +81,13 @@ async def download_project_template():
         # Copy catalog files from resources
         catalogs_src = config.RESOURCES_DIR / "xosc" / "Catalogs"
         catalog_subdirs = [
-            "Vehicles", "Controllers", "Environments",
-            "Maneuvers", "MiscObjects", "Pedestrians", "Routes",
+            "Vehicles",
+            "Controllers",
+            "Environments",
+            "Maneuvers",
+            "MiscObjects",
+            "Pedestrians",
+            "Routes",
         ]
         for subdir in catalog_subdirs:
             src_dir = catalogs_src / subdir
@@ -105,6 +110,7 @@ async def download_project_template():
 # ---------------------------------------------------------------------------
 # Project CRUD
 # ---------------------------------------------------------------------------
+
 
 @router.get("", response_model=list[ProjectListItem])
 async def list_projects():
@@ -150,7 +156,9 @@ async def upload_project(
 @router.put("/{project_id}", response_model=dict)
 async def update_project(project_id: str, req: ProjectUpdateRequest):
     """Update project metadata (name, description)."""
-    success = await project_service.update_project(project_id, req.name, req.description)
+    success = await project_service.update_project(
+        project_id, req.name, req.description
+    )
     if not success:
         raise HTTPException(
             status_code=403,
@@ -198,6 +206,7 @@ async def open_project_folder(project_id: str):
 # ---------------------------------------------------------------------------
 # File management
 # ---------------------------------------------------------------------------
+
 
 @router.get("/{project_id}/files", response_model=list[ProjectFile])
 async def list_files(project_id: str):
@@ -251,6 +260,7 @@ async def delete_file(project_id: str, file_path: str):
 # Scenarios
 # ---------------------------------------------------------------------------
 
+
 @router.get("/{project_id}/scenarios", response_model=list[ScenarioInfo])
 async def list_scenarios(project_id: str):
     """List all xosc scenarios in a project with parsed details."""
@@ -275,10 +285,13 @@ async def get_road_geometry(project_id: str, scenario_file: str):
     root = Path(proj.root_path)
     xosc_path = root / scenario_file
     if not xosc_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_file}")
+        raise HTTPException(
+            status_code=404, detail=f"Scenario file not found: {scenario_file}"
+        )
 
     # Parse xosc to find the road file reference
     import xml.etree.ElementTree as ET
+
     try:
         tree = ET.parse(xosc_path)
     except ET.ParseError:
@@ -297,7 +310,9 @@ async def get_road_geometry(project_id: str, scenario_file: str):
     if not road_path.is_absolute():
         road_path = (xosc_path.parent / road_filepath).resolve()
     if not road_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Road file not found: {road_filepath}")
+        raise HTTPException(
+            status_code=404, detail=f"Road file not found: {road_filepath}"
+        )
 
     geometry = await asyncio.to_thread(
         road_geometry_service.extract_road_geometry, road_path
@@ -321,7 +336,9 @@ async def _resolve_scenario_xodr(project_id: str, scenario_file: str):
     root = Path(proj.root_path)
     xosc_path = root / scenario_file
     if not xosc_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_file}")
+        raise HTTPException(
+            status_code=404, detail=f"Scenario file not found: {scenario_file}"
+        )
 
     try:
         tree = ET.parse(xosc_path)
@@ -340,7 +357,9 @@ async def _resolve_scenario_xodr(project_id: str, scenario_file: str):
     if not road_path.is_absolute():
         road_path = (xosc_path.parent / road_filepath).resolve()
     if not road_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Road file not found: {road_filepath}")
+        raise HTTPException(
+            status_code=404, detail=f"Road file not found: {road_filepath}"
+        )
 
     return road_path
 
@@ -390,7 +409,10 @@ async def get_scenario_docs(project_id: str, scenario_file: str):
     return Response(content=content, media_type="text/markdown")
 
 
-@router.get("/{project_id}/scenarios/{scenario_file:path}/params", response_model=list[ScenarioParam])
+@router.get(
+    "/{project_id}/scenarios/{scenario_file:path}/params",
+    response_model=list[ScenarioParam],
+)
 async def get_scenario_params(project_id: str, scenario_file: str):
     """Get ParameterDeclarations from a scenario file."""
     params = await project_service.get_scenario_params(project_id, scenario_file)
@@ -402,6 +424,7 @@ async def get_scenario_params(project_id: str, scenario_file: str):
 # ---------------------------------------------------------------------------
 # Parameter presets
 # ---------------------------------------------------------------------------
+
 
 def _corrupt_to_http(e: project_service.PresetFileCorruptedError) -> HTTPException:
     payload = {
@@ -416,7 +439,10 @@ def _corrupt_to_http(e: project_service.PresetFileCorruptedError) -> HTTPExcepti
     return HTTPException(status_code=409, detail=payload)
 
 
-@router.get("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=list[ParameterPreset])
+@router.get(
+    "/{project_id}/scenarios/{scenario_file:path}/presets",
+    response_model=list[ParameterPreset],
+)
 async def list_presets(project_id: str, scenario_file: str):
     """List parameter presets for a scenario."""
     try:
@@ -425,24 +451,40 @@ async def list_presets(project_id: str, scenario_file: str):
         raise _corrupt_to_http(e)
 
 
-@router.post("/{project_id}/scenarios/{scenario_file:path}/presets", response_model=ParameterPreset, status_code=201)
+@router.post(
+    "/{project_id}/scenarios/{scenario_file:path}/presets",
+    response_model=ParameterPreset,
+    status_code=201,
+)
 async def create_preset(project_id: str, scenario_file: str, req: PresetCreateRequest):
     """Create a parameter preset for a scenario."""
     try:
         return await project_service.create_preset(
-            project_id, scenario_file, req.name, req.values,
+            project_id,
+            scenario_file,
+            req.name,
+            req.values,
             description=req.description,
         )
     except project_service.PresetFileCorruptedError as e:
         raise _corrupt_to_http(e)
 
 
-@router.put("/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}", response_model=dict)
-async def update_preset(project_id: str, scenario_file: str, preset_id: str, req: PresetUpdateRequest):
+@router.put(
+    "/{project_id}/scenarios/{scenario_file:path}/presets/{preset_id}",
+    response_model=dict,
+)
+async def update_preset(
+    project_id: str, scenario_file: str, preset_id: str, req: PresetUpdateRequest
+):
     """Update a parameter preset."""
     try:
         success = await project_service.update_preset(
-            project_id, scenario_file, preset_id, req.name, req.values,
+            project_id,
+            scenario_file,
+            preset_id,
+            req.name,
+            req.values,
             description=req.description,
         )
     except project_service.PresetFileCorruptedError as e:
@@ -461,7 +503,9 @@ async def update_preset(project_id: str, scenario_file: str, preset_id: str, req
 async def delete_preset(project_id: str, scenario_file: str, preset_id: str):
     """Delete a parameter preset."""
     try:
-        success = await project_service.delete_preset(project_id, scenario_file, preset_id)
+        success = await project_service.delete_preset(
+            project_id, scenario_file, preset_id
+        )
     except project_service.PresetFileCorruptedError as e:
         raise _corrupt_to_http(e)
     if not success:

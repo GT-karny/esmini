@@ -33,11 +33,12 @@ if TYPE_CHECKING:
 
 class LaneChangeState(Enum):
     """Lane change state machine states."""
-    IDLE = 0        # Waiting, control delegated to other controllers
-    CHECKING = 1    # Safety check in progress
-    EXECUTING = 2   # Lane change executing
-    COMPLETED = 3   # Lane change completed
-    ABORTED = 4     # Lane change aborted (safety reason)
+
+    IDLE = 0  # Waiting, control delegated to other controllers
+    CHECKING = 1  # Safety check in progress
+    EXECUTING = 2  # Lane change executing
+    COMPLETED = 3  # Lane change completed
+    ABORTED = 4  # Lane change aborted (safety reason)
 
 
 @dataclass
@@ -47,30 +48,31 @@ class LaneChangeConfig:
 
     Adjust these values to tune the lane change behavior.
     """
+
     # === Safety check parameters ===
-    ttc_threshold: float = 3.0           # TTC threshold (seconds) - abort if lower
-    min_gap_front: float = 15.0          # Minimum safe distance to front vehicle (m)
-    min_gap_rear: float = 10.0           # Minimum safe distance to rear vehicle (m)
+    ttc_threshold: float = 3.0  # TTC threshold (seconds) - abort if lower
+    min_gap_front: float = 15.0  # Minimum safe distance to front vehicle (m)
+    min_gap_rear: float = 10.0  # Minimum safe distance to rear vehicle (m)
 
     # === Lane change execution parameters ===
-    lane_change_duration: float = 4.0    # Time to complete lane change (seconds)
-    steering_gain: float = 0.3           # Steering gain (max amplitude)
-    wp_time_step: float = 0.1            # Time step for waypoint generation [s]
-    wp_horizon_sec: float = 5.0          # Generation horizon [s]
-    wp_lookahead: float = 10.0           # Lookahead distance for waypoint tracking [m]
-    wp_complete_dist: float = 2.0        # Distance threshold to consider waypoint reached [m]
+    lane_change_duration: float = 4.0  # Time to complete lane change (seconds)
+    steering_gain: float = 0.3  # Steering gain (max amplitude)
+    wp_time_step: float = 0.1  # Time step for waypoint generation [s]
+    wp_horizon_sec: float = 5.0  # Generation horizon [s]
+    wp_lookahead: float = 10.0  # Lookahead distance for waypoint tracking [m]
+    wp_complete_dist: float = 2.0  # Distance threshold to consider waypoint reached [m]
 
     # === Detection parameters ===
-    detection_range_front: float = 100.0 # Front detection range (m)
-    detection_range_rear: float = 50.0   # Rear detection range (m)
-    lateral_tolerance: float = 2.0       # Lateral tolerance for adjacent lane detection (m)
+    detection_range_front: float = 100.0  # Front detection range (m)
+    detection_range_rear: float = 50.0  # Rear detection range (m)
+    lateral_tolerance: float = 2.0  # Lateral tolerance for adjacent lane detection (m)
 
     # === Longitudinal control ===
-    speed_reduction_factor: float = 0.95 # Speed reduction during lane change
-    min_speed_for_lc: float = 3.0        # Minimum speed to allow lane change (m/s)
+    speed_reduction_factor: float = 0.95  # Speed reduction during lane change
+    min_speed_for_lc: float = 3.0  # Minimum speed to allow lane change (m/s)
 
     # === Vehicle dimensions ===
-    ego_half_length: float = 2.5         # Ego vehicle half length (m)
+    ego_half_length: float = 2.5  # Ego vehicle half length (m)
 
     # === PID parameters for speed control ===
     pid_kp: float = 0.6
@@ -84,13 +86,14 @@ DEFAULT_LANE_CHANGE_CONFIG = LaneChangeConfig()
 @dataclass
 class LaneChangeOutput:
     """Output from lane change controller."""
-    throttle: float       # [0.0, 1.0]
-    brake: float          # [0.0, 1.0]
-    steering: float       # [-1.0, 1.0]
-    is_active: bool       # Whether controller is actively controlling
-    completed: bool       # Whether lane change just completed
-    aborted: bool         # Whether lane change was aborted
-    indicator: int        # Turn indicator: 0=off, 1=left, 2=right
+
+    throttle: float  # [0.0, 1.0]
+    brake: float  # [0.0, 1.0]
+    steering: float  # [-1.0, 1.0]
+    is_active: bool  # Whether controller is actively controlling
+    completed: bool  # Whether lane change just completed
+    aborted: bool  # Whether lane change was aborted
+    indicator: int  # Turn indicator: 0=off, 1=left, 2=right
     state: LaneChangeState
 
     @property
@@ -106,26 +109,28 @@ class LaneChangeOutput:
 @dataclass
 class AdjacentVehicleInfo:
     """Information about a vehicle in adjacent lane."""
+
     obj_id: int
     longitudinal_dist: float  # Positive = front, negative = rear (m)
-    lateral_dist: float       # Lateral offset (m)
-    speed: float              # Absolute speed (m/s)
-    relative_speed: float     # target_speed - ego_speed (m/s)
-    ttc: float                # Time to collision (seconds), inf if no collision
-    lane_id: int              # Lane ID
+    lateral_dist: float  # Lateral offset (m)
+    speed: float  # Absolute speed (m/s)
+    relative_speed: float  # target_speed - ego_speed (m/s)
+    ttc: float  # Time to collision (seconds), inf if no collision
+    lane_id: int  # Lane ID
 
 
 @dataclass
 class SafetyCheckResult:
     """Result of lane change safety check."""
-    is_safe: bool                                     # Whether lane change is safe
-    reason: str                                       # Reason string ("OK" or error description)
+
+    is_safe: bool  # Whether lane change is safe
+    reason: str  # Reason string ("OK" or error description)
     front_vehicles: List[AdjacentVehicleInfo] = field(default_factory=list)
     rear_vehicles: List[AdjacentVehicleInfo] = field(default_factory=list)
-    min_ttc_front: float = float('inf')              # Minimum TTC to front vehicles
-    min_ttc_rear: float = float('inf')               # Minimum TTC to rear vehicles
-    min_gap_front: float = float('inf')              # Minimum gap to front vehicles
-    min_gap_rear: float = float('inf')               # Minimum gap to rear vehicles
+    min_ttc_front: float = float("inf")  # Minimum TTC to front vehicles
+    min_ttc_rear: float = float("inf")  # Minimum TTC to rear vehicles
+    min_gap_front: float = float("inf")  # Minimum gap to front vehicles
+    min_gap_rear: float = float("inf")  # Minimum gap to rear vehicles
 
 
 class LaneChangeController:
@@ -156,9 +161,9 @@ class LaneChangeController:
 
     def __init__(
         self,
-        rm_lib: 'EsminiRMLib',
+        rm_lib: "EsminiRMLib",
         ego_id: int = 0,
-        config: Optional[LaneChangeConfig] = None
+        config: Optional[LaneChangeConfig] = None,
     ):
         """
         Initialize lane change controller.
@@ -172,7 +177,9 @@ class LaneChangeController:
             ValueError: If rm_lib is None
         """
         if rm_lib is None:
-            raise ValueError("RoadManager (rm_lib) is required for LaneChangeController")
+            raise ValueError(
+                "RoadManager (rm_lib) is required for LaneChangeController"
+            )
 
         self.rm_lib = rm_lib
         self.config = config or DEFAULT_LANE_CHANGE_CONFIG
@@ -205,7 +212,7 @@ class LaneChangeController:
             ki=self.config.pid_ki,
             kd=self.config.pid_kd,
             output_limits=(-1.0, 1.0),
-            integral_limits=(-0.3, 0.3)
+            integral_limits=(-0.3, 0.3),
         )
         self._base_target_speed: float = 0.0
 
@@ -232,8 +239,7 @@ class LaneChangeController:
         ego_state = self._state_extractor.extract(ground_truth)
         if ego_state is None:
             return SafetyCheckResult(
-                is_safe=False,
-                reason="Failed to extract ego state from GroundTruth"
+                is_safe=False, reason="Failed to extract ego state from GroundTruth"
             )
 
         # Enrich with road data
@@ -245,7 +251,7 @@ class LaneChangeController:
         if target_lane is None:
             return SafetyCheckResult(
                 is_safe=False,
-                reason=f"No adjacent lane found for direction '{direction}'"
+                reason=f"No adjacent lane found for direction '{direction}'",
             )
 
         # Detect adjacent vehicles
@@ -256,10 +262,14 @@ class LaneChangeController:
         rear_vehicles = [v for v in adjacent if v.longitudinal_dist <= 0]
 
         # Calculate minimums
-        min_ttc_front = min((v.ttc for v in front_vehicles), default=float('inf'))
-        min_ttc_rear = min((v.ttc for v in rear_vehicles), default=float('inf'))
-        min_gap_front = min((v.longitudinal_dist for v in front_vehicles), default=float('inf'))
-        min_gap_rear = min((abs(v.longitudinal_dist) for v in rear_vehicles), default=float('inf'))
+        min_ttc_front = min((v.ttc for v in front_vehicles), default=float("inf"))
+        min_ttc_rear = min((v.ttc for v in rear_vehicles), default=float("inf"))
+        min_gap_front = min(
+            (v.longitudinal_dist for v in front_vehicles), default=float("inf")
+        )
+        min_gap_rear = min(
+            (abs(v.longitudinal_dist) for v in rear_vehicles), default=float("inf")
+        )
 
         # Check safety conditions
         cfg = self.config
@@ -269,7 +279,9 @@ class LaneChangeController:
         # Speed check
         if ego_state.speed < cfg.min_speed_for_lc:
             is_safe = False
-            reason = f"Speed too low: {ego_state.speed:.1f} < {cfg.min_speed_for_lc} m/s"
+            reason = (
+                f"Speed too low: {ego_state.speed:.1f} < {cfg.min_speed_for_lc} m/s"
+            )
 
         # Front vehicle checks
         elif min_gap_front < cfg.min_gap_front:
@@ -295,12 +307,14 @@ class LaneChangeController:
             min_ttc_front=min_ttc_front,
             min_ttc_rear=min_ttc_rear,
             min_gap_front=min_gap_front,
-            min_gap_rear=min_gap_rear
+            min_gap_rear=min_gap_rear,
         )
         self._last_safety_check = result
         return result
 
-    def get_adjacent_vehicles(self, ground_truth, direction: str) -> List[AdjacentVehicleInfo]:
+    def get_adjacent_vehicles(
+        self, ground_truth, direction: str
+    ) -> List[AdjacentVehicleInfo]:
         """
         Get list of vehicles in the adjacent lane.
 
@@ -332,10 +346,14 @@ class LaneChangeController:
         Returns:
             True if accepted, False if rejected (already in progress or invalid direction)
         """
-        if direction not in ('left', 'right'):
+        if direction not in ("left", "right"):
             return False
 
-        if self._state not in (LaneChangeState.IDLE, LaneChangeState.COMPLETED, LaneChangeState.ABORTED):
+        if self._state not in (
+            LaneChangeState.IDLE,
+            LaneChangeState.COMPLETED,
+            LaneChangeState.ABORTED,
+        ):
             return False
 
         self._direction = direction
@@ -380,7 +398,7 @@ class LaneChangeController:
             completed=False,
             aborted=False,
             indicator=0,
-            state=self._state
+            state=self._state,
         )
 
         if dt <= 0:
@@ -390,17 +408,27 @@ class LaneChangeController:
         if self._state == LaneChangeState.COMPLETED:
             self._state = LaneChangeState.IDLE
             return LaneChangeOutput(
-                throttle=0.0, brake=0.0, steering=0.0,
-                is_active=False, completed=True, aborted=False,
-                indicator=0, state=LaneChangeState.COMPLETED
+                throttle=0.0,
+                brake=0.0,
+                steering=0.0,
+                is_active=False,
+                completed=True,
+                aborted=False,
+                indicator=0,
+                state=LaneChangeState.COMPLETED,
             )
 
         if self._state == LaneChangeState.ABORTED:
             self._state = LaneChangeState.IDLE
             return LaneChangeOutput(
-                throttle=0.0, brake=0.0, steering=0.0,
-                is_active=False, completed=False, aborted=True,
-                indicator=0, state=LaneChangeState.ABORTED
+                throttle=0.0,
+                brake=0.0,
+                steering=0.0,
+                is_active=False,
+                completed=False,
+                aborted=True,
+                indicator=0,
+                state=LaneChangeState.ABORTED,
             )
 
         # IDLE state - no control
@@ -416,7 +444,7 @@ class LaneChangeController:
         self._last_ego_state = ego_state
 
         # Get indicator
-        indicator = 1 if self._direction == 'left' else 2
+        indicator = 1 if self._direction == "left" else 2
 
         # CHECKING state - perform safety check
         if self._state == LaneChangeState.CHECKING:
@@ -425,9 +453,14 @@ class LaneChangeController:
             if target_lane is None:
                 self._state = LaneChangeState.ABORTED
                 return LaneChangeOutput(
-                    throttle=0.0, brake=0.0, steering=0.0,
-                    is_active=False, completed=False, aborted=True,
-                    indicator=0, state=LaneChangeState.ABORTED
+                    throttle=0.0,
+                    brake=0.0,
+                    steering=0.0,
+                    is_active=False,
+                    completed=False,
+                    aborted=True,
+                    indicator=0,
+                    state=LaneChangeState.ABORTED,
                 )
 
             self._target_lane_id = target_lane
@@ -439,24 +472,36 @@ class LaneChangeController:
                     print(f"[DEBUG_LC] Safety check failed: {safety.reason}")
                 self._state = LaneChangeState.ABORTED
                 return LaneChangeOutput(
-                    throttle=0.0, brake=0.0, steering=0.0,
-                    is_active=False, completed=False, aborted=True,
-                    indicator=indicator, state=LaneChangeState.ABORTED
+                    throttle=0.0,
+                    brake=0.0,
+                    steering=0.0,
+                    is_active=False,
+                    completed=False,
+                    aborted=True,
+                    indicator=indicator,
+                    state=LaneChangeState.ABORTED,
                 )
 
             # Safety OK - start executing
             if not self._generate_lane_change_waypoints(ego_state, target_lane):
                 self._state = LaneChangeState.ABORTED
                 return LaneChangeOutput(
-                    throttle=0.0, brake=0.0, steering=0.0,
-                    is_active=False, completed=False, aborted=True,
-                    indicator=indicator, state=LaneChangeState.ABORTED
+                    throttle=0.0,
+                    brake=0.0,
+                    steering=0.0,
+                    is_active=False,
+                    completed=False,
+                    aborted=True,
+                    indicator=indicator,
+                    state=LaneChangeState.ABORTED,
                 )
             self._state = LaneChangeState.EXECUTING
             self._progress = 0.0
             self._execution_time = 0.0
             if self._debug_enabled:
-                print(f"[DEBUG_LC] Lane change started: {self._direction}, target_lane={target_lane}, wp={len(self._lc_waypoints)}")
+                print(
+                    f"[DEBUG_LC] Lane change started: {self._direction}, target_lane={target_lane}, wp={len(self._lc_waypoints)}"
+                )
 
         # EXECUTING state - perform lane change
         if self._state == LaneChangeState.EXECUTING:
@@ -472,12 +517,19 @@ class LaneChangeController:
             for veh in self._adjacent_vehicles:
                 if veh.ttc < cfg.ttc_threshold * 0.5:  # Stricter during execution
                     if self._debug_enabled:
-                        print(f"[DEBUG_LC] Danger detected during execution: TTC={veh.ttc:.1f}s")
+                        print(
+                            f"[DEBUG_LC] Danger detected during execution: TTC={veh.ttc:.1f}s"
+                        )
                     self._state = LaneChangeState.ABORTED
                     return LaneChangeOutput(
-                        throttle=0.0, brake=0.0, steering=0.0,
-                        is_active=False, completed=False, aborted=True,
-                        indicator=indicator, state=LaneChangeState.ABORTED
+                        throttle=0.0,
+                        brake=0.0,
+                        steering=0.0,
+                        is_active=False,
+                        completed=False,
+                        aborted=True,
+                        indicator=indicator,
+                        state=LaneChangeState.ABORTED,
                     )
 
             # Calculate steering by following generated target-lane waypoints.
@@ -487,7 +539,10 @@ class LaneChangeController:
             throttle, brake = self._calculate_longitudinal(ego_state, dt)
 
             # Check completion: reached end of waypoint plan and in target lane.
-            if self._lc_wp_index >= len(self._lc_waypoints) and ego_state.lane_id == self._target_lane_id:
+            if (
+                self._lc_wp_index >= len(self._lc_waypoints)
+                and ego_state.lane_id == self._target_lane_id
+            ):
                 self._state = LaneChangeState.COMPLETED
                 if self._debug_enabled:
                     print(f"[DEBUG_LC] Lane change completed")
@@ -495,17 +550,24 @@ class LaneChangeController:
                 # Fail-safe timeout if path following cannot complete.
                 self._state = LaneChangeState.ABORTED
                 return LaneChangeOutput(
-                    throttle=0.0, brake=0.0, steering=0.0,
-                    is_active=False, completed=False, aborted=True,
-                    indicator=indicator, state=LaneChangeState.ABORTED
+                    throttle=0.0,
+                    brake=0.0,
+                    steering=0.0,
+                    is_active=False,
+                    completed=False,
+                    aborted=True,
+                    indicator=indicator,
+                    state=LaneChangeState.ABORTED,
                 )
 
             # Debug logging
             if self._debug_enabled:
                 self._log_counter += 1
                 if self._log_counter % 20 == 0:
-                    print(f"[DEBUG_LC] Progress={self._progress:.2f}, Steer={steering:.3f}, "
-                          f"Lane={ego_state.lane_id}, Target={self._target_lane_id}, WpIdx={self._lc_wp_index}/{len(self._lc_waypoints)}")
+                    print(
+                        f"[DEBUG_LC] Progress={self._progress:.2f}, Steer={steering:.3f}, "
+                        f"Lane={ego_state.lane_id}, Target={self._target_lane_id}, WpIdx={self._lc_wp_index}/{len(self._lc_waypoints)}"
+                    )
 
             return LaneChangeOutput(
                 throttle=throttle,
@@ -515,7 +577,7 @@ class LaneChangeController:
                 completed=False,
                 aborted=False,
                 indicator=indicator,
-                state=self._state
+                state=self._state,
             )
 
         return idle_output
@@ -586,7 +648,9 @@ class LaneChangeController:
     # Internal Methods
     # =========================================================================
 
-    def _get_adjacent_lane_id(self, current_lane_id: int, direction: str) -> Optional[int]:
+    def _get_adjacent_lane_id(
+        self, current_lane_id: int, direction: str
+    ) -> Optional[int]:
         """
         Get the lane ID of the adjacent lane.
 
@@ -602,7 +666,7 @@ class LaneChangeController:
         Returns:
             Adjacent lane ID, or None if not available
         """
-        if direction == 'left':
+        if direction == "left":
             # Moving left = increasing lane ID (towards positive)
             if current_lane_id < 0:
                 return current_lane_id + 1  # e.g., -2 -> -1
@@ -616,10 +680,7 @@ class LaneChangeController:
                 return current_lane_id - 1  # e.g., -1 -> -2
 
     def _detect_adjacent_vehicles(
-        self,
-        ground_truth,
-        ego_state: VehicleState,
-        target_lane_id: int
+        self, ground_truth, ego_state: VehicleState, target_lane_id: int
     ) -> List[AdjacentVehicleInfo]:
         """
         Detect vehicles in the target lane.
@@ -646,7 +707,7 @@ class LaneChangeController:
                 ego_id = configured_ego_id
                 break
 
-        if ego_id is None and ground_truth.HasField('host_vehicle_id'):
+        if ego_id is None and ground_truth.HasField("host_vehicle_id"):
             host_id = ground_truth.host_vehicle_id.value
             for obj in ground_truth.moving_object:
                 if obj.id.value == host_id:
@@ -669,8 +730,10 @@ class LaneChangeController:
 
             self.rm_lib.SetWorldXYZHPosition(
                 self._target_pos_handle,
-                target_pos.x, target_pos.y, target_pos.z,
-                target_ori.yaw
+                target_pos.x,
+                target_pos.y,
+                target_pos.z,
+                target_ori.yaw,
             )
             result, pos_data = self.rm_lib.GetPositionData(self._target_pos_handle)
 
@@ -704,23 +767,22 @@ class LaneChangeController:
             # Calculate TTC
             ttc = self._calculate_ttc(ego_state.speed, ds, relative_speed)
 
-            adjacent.append(AdjacentVehicleInfo(
-                obj_id=obj.id.value,
-                longitudinal_dist=ds,
-                lateral_dist=pos_data.laneOffset,
-                speed=target_speed,
-                relative_speed=relative_speed,
-                ttc=ttc,
-                lane_id=pos_data.laneId
-            ))
+            adjacent.append(
+                AdjacentVehicleInfo(
+                    obj_id=obj.id.value,
+                    longitudinal_dist=ds,
+                    lateral_dist=pos_data.laneOffset,
+                    speed=target_speed,
+                    relative_speed=relative_speed,
+                    ttc=ttc,
+                    lane_id=pos_data.laneId,
+                )
+            )
 
         return adjacent
 
     def _calculate_ttc(
-        self,
-        ego_speed: float,
-        target_dist: float,
-        relative_speed: float
+        self, ego_speed: float, target_dist: float, relative_speed: float
     ) -> float:
         """
         Calculate Time-To-Collision.
@@ -740,7 +802,7 @@ class LaneChangeController:
             if closing_speed > 0.1:  # Small threshold to avoid division issues
                 return target_dist / closing_speed
             else:
-                return float('inf')
+                return float("inf")
 
         # Rear vehicle
         else:
@@ -748,9 +810,11 @@ class LaneChangeController:
             if relative_speed > 0.1:  # Rear vehicle faster
                 return abs(target_dist) / relative_speed
             else:
-                return float('inf')
+                return float("inf")
 
-    def _generate_lane_change_waypoints(self, ego_state: VehicleState, target_lane_id: int) -> bool:
+    def _generate_lane_change_waypoints(
+        self, ego_state: VehicleState, target_lane_id: int
+    ) -> bool:
         """
         Generate a short lane-change waypoint path.
 
@@ -786,7 +850,7 @@ class LaneChangeController:
                 ego_state.lane_id,
                 0.0,
                 s,
-                True
+                True,
             )
             if res_cur < 0:
                 break
@@ -796,12 +860,7 @@ class LaneChangeController:
                 break
 
             res_tgt = self.rm_lib.SetLanePosition(
-                self._path_pos_handle,
-                ego_state.road_id,
-                target_lane_id,
-                0.0,
-                s,
-                True
+                self._path_pos_handle, ego_state.road_id, target_lane_id, 0.0, s, True
             )
             if res_tgt < 0:
                 break
@@ -844,7 +903,9 @@ class LaneChangeController:
 
         self._progress = min(1.0, self._lc_wp_index / max(1, len(self._lc_waypoints)))
 
-    def _select_lookahead_waypoint(self, ego_state: VehicleState) -> Optional[Tuple[float, float]]:
+    def _select_lookahead_waypoint(
+        self, ego_state: VehicleState
+    ) -> Optional[Tuple[float, float]]:
         if self._lc_wp_index >= len(self._lc_waypoints):
             return None
 
@@ -886,9 +947,7 @@ class LaneChangeController:
         return max(-1.0, min(1.0, steer))
 
     def _calculate_longitudinal(
-        self,
-        ego_state: VehicleState,
-        dt: float
+        self, ego_state: VehicleState, dt: float
     ) -> Tuple[float, float]:
         """
         Calculate longitudinal control (throttle/brake).

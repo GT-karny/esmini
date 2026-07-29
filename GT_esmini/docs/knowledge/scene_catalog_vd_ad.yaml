@@ -1,0 +1,193 @@
+# VD自動運転 対応シーンカタログ（scene:SCN-<nnn> の単一真実源）
+#
+# 第1段（シーン列挙）の成果物。導出元: scene_survey_openx.md §5（ファミリA-R）。
+# 各シーンは「ベースシーン = 道路コンテキスト × インタラクション」の粒度で採番し、
+# 環境・路面・通行方向などは `modifiers` の共有軸としてシーンに直積で掛ける
+# （シーンノードには焼き込まない — 採番爆発の防止、survey §4 参照）。
+#
+# OpenX概念へのリンク（scene -> concerns -> openx:Domain#*）は graph.yaml に
+# curated辺として置く（関係の単一置き場。本ファイルには重複記載しない）。
+#
+# coverage: covered(検証資産あり) / partial(資産はあるが検証未整備) / none(未着手)
+# layer:    scenario_authoring_foundation.md §2.3 のカバレッジ層に対応（1=必須最小）
+
+meta:
+  derived_from: GT_esmini/docs/knowledge/scene_survey_openx.md
+  ontology: ASAM OpenX Ontology 1.0.0-PR1-43-g0248cfe
+  decided: 2026-07-17  # 大項目粒度（ファミリ=シーンノード）で確定
+
+scenes:
+  - id: SCN-001
+    family: A
+    title: 単路走行
+    summary: 直線巡航・単一/連続カーブ・勾配×曲率・速度制限変化点の車線維持走行
+    coverage: partial
+    coverage_note: G1/G2・検証01/02は整備済。連続カーブG3・速度制限G15・勾配×曲率G16は資産のみ
+    layer: 1
+
+  - id: SCN-002
+    family: B
+    title: 車線変更・追越し
+    summary: 車線変更（左/右）、追越し、被カットイン/カットアウトへの応答
+    coverage: partial
+    coverage_note: S1(LC)はxosc資産あり、割込み対応S7は層2未着手
+    layer: 1
+
+  - id: SCN-003
+    family: C
+    title: 先行車追従
+    summary: 定速追従・減速停止・急停止対応（車間維持）
+    coverage: covered
+    coverage_note: 検証06・S2、lead policyとmaintained_following_distance matcherで検証済
+    layer: 1
+
+  - id: SCN-004
+    family: D
+    title: 信号交差点
+    summary: 赤保持/赤→青/黄判断/青通過 × 直進/左折/右折
+    coverage: covered
+    coverage_note: 検証03・G10、traffic_light policy
+    layer: 1
+
+  - id: SCN-005
+    family: E
+    title: 無信号交差点（標識・優先判断）
+    summary: STOP/YIELD/priority標識 × 自車優先/非優先 × 交差車到達タイミング
+    coverage: covered
+    coverage_note: 検証04/08・G4/G5/G11-G13、stop_yield/junction_priority policy。Y字G6・多枝G7は未生成
+    layer: 1
+
+  - id: SCN-006
+    family: F
+    title: 対向車ギャップ判断
+    summary: 右折（RHTでは左折）時の対向車待ち・ギャップ受容
+    coverage: covered
+    coverage_note: 検証07（vd-phase:Phase3d 本丸）、conflict policy（コリドー+OBB）
+    layer: 1
+
+  - id: SCN-007
+    family: G
+    title: ラウンドアバウト
+    summary: 進入譲り・周回・退出
+    coverage: none
+    coverage_note: G8=層3。道路資産も生成器も無し
+    layer: 3
+
+  - id: SCN-008
+    family: H
+    title: 高速道路 合流・分岐
+    summary: 本線合流、分岐、車線減少、合流車への譲り
+    coverage: partial
+    coverage_note: G9資産（highway_example_with_merge_and_split等）あり、検証未整備
+    layer: 2
+
+  - id: SCN-009
+    family: I
+    title: 横断歩道・歩行者
+    summary: 歩行者の横断/待機/飛び出し、信号付き横断歩道、スクールゾーン
+    coverage: covered
+    coverage_note: 検証09・crosswalk policy（crosswalk_pedestrian / crosswalk_crosspath バッチ）。飛び出しはS7層3
+    layer: 1
+
+  - id: SCN-010
+    family: J
+    title: 自転車・二輪
+    summary: 自転車並走・追越し側方間隔、二輪すり抜け、自転車レーン横断
+    coverage: none
+    layer: 2
+
+  - id: SCN-011
+    family: K
+    title: 特殊構造通過
+    summary: トンネル出入り（照明遷移）、橋梁、踏切一時停止、料金所
+    coverage: partial
+    coverage_note: トンネルはF6（自動ヘッドライト）で照明面のみ着手。踏切・料金所は未着手
+    layer: 3
+
+  - id: SCN-012
+    family: L
+    title: 道路工事・一時的障害
+    summary: 工事帯回避、落下物回避、コーン・車線規制通過
+    coverage: none
+    layer: 2
+
+  - id: SCN-013
+    family: M
+    title: 緊急・特殊車両対応
+    summary: 緊急車両接近時の譲路、バス停発進車への譲り
+    coverage: none
+    layer: 3
+
+  - id: SCN-014
+    family: N
+    title: 駐停車・後退
+    summary: 路上駐車車両の回避、駐車場走行、後退、路肩停車からの合流
+    coverage: none
+    layer: 2
+
+  - id: SCN-015
+    family: O
+    title: 共存空間・特殊ゾーン
+    summary: 歩車共存路（SharedSpace）の徐行、歩行者ゾーン、スクールゾーン通過
+    coverage: none
+    layer: 3
+
+  - id: SCN-016
+    family: P
+    title: LHT/RHT 両建て
+    summary: 全シーンファミリの通行方向横断バリアント（左側/右側通行）
+    coverage: partial
+    coverage_note: G14・LHT遷移バグ修正済（lht_road_transition）。全ファミリへの系統展開は未
+    layer: 2
+
+  - id: SCN-017
+    family: Q
+    title: 車両間コミュニケーション
+    summary: 方向指示器・ハザード・パッシング・ホーンの提示と認知
+    coverage: partial
+    coverage_note: 出力側は実装済（AutoIndicator/F6）。他車の意思表示の認知側は未着手
+    layer: 2
+
+  - id: SCN-018
+    family: R
+    title: 動物・想定外参加者
+    summary: 動物の飛び出し・路上滞留への応答
+    coverage: none
+    layer: 3
+
+# 共有モディファイア軸（シーンノードに焼き込まない直積軸。ODD台帳=P13の軸と同一基盤）
+modifiers:
+  - axis: precipitation
+    openx: [Domain#RainfallCondition, Domain#SnowfallCondition]
+    values: 降雨5段階（Light..Cloudburst）/ 降雪3段階
+    coverage: none
+  - axis: visibility
+    openx: [Domain#FoggyCondition]
+    values: 霧・視程（連続値）
+    coverage: none
+  - axis: illumination
+    openx: [Domain#IlluminationCondition, Domain#NightLightingCondition, Domain#VehicleLighting]
+    values: 昼/夜/薄暮/逆光（sunAzimuth・sunElevation）/街路灯
+    coverage: partial   # F6で夜間・トンネル・自動ハイビームのみ
+  - axis: road_surface
+    openx: [Domain#inducedRoadSurfaceCondition]
+    values: wet/icy/snowy/flooded + 摩擦係数（roadFrictionScaleFactor）
+    coverage: none
+  - axis: wind
+    openx: [Domain#WindCondition]
+    values: ボーフォート12段階（横風外乱）
+    coverage: none
+  - axis: driving_direction
+    openx: [Domain#drivingDirection]
+    values: LHT / RHT
+    coverage: covered
+  - axis: signal_phase
+    openx: [Domain#DynamicTrafficSign]
+    values: 赤保持/赤→青/黄判断/青通過
+    coverage: covered
+
+# スコープ外（カバレッジ台帳で「対象外/表現不能」と明記する概念 — survey §6）
+out_of_scope:
+  - {group: connectivity, reason: OSI GroundTruthシミュレータの守備範囲外（V2X・測位）}
+  - {group: road_defects, reason: Potholes/Cracks等はesminiの路面モデルで表現不能}
+  - {group: exotic_env, reason: Marine/Sand/SmokeAndDust — 描画・センサモデル無し}

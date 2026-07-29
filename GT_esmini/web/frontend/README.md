@@ -1,5 +1,18 @@
 # GT_Sim Web Frontend
 
+> ## ⚠️ Feature freeze (2026-07-13)
+>
+> **This frontend is frozen as of 2026-07-13 — bug fixes only, no new features.**
+>
+> The GT_Sim web UI is being ported into the GT-OpenSCENARIOEditor as its
+> **execution mode** (`apps/web/src/features/gt-sim/`). Once the port is
+> complete, this `web/frontend` package and the `web/electron` shell will be
+> **retired and removed**.
+>
+> During the freeze, land only bug fixes here; do not add features, routes, or
+> UI surfaces. For the migration scope, milestones, and target architecture see
+> **`GT-monorepo/unified-ui-migration-plan-2026-07-13.md`**.
+
 React SPA for the GT_esmini web UI: project/scenario browsing, simulation
 launching, live 2D monitoring (OSI GroundTruth / VirtualDriver telemetry /
 scenario variables over WebSocket), and the VirtualDriver verification

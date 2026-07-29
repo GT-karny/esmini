@@ -1,0 +1,8 @@
+{
+  "junctions.common.not_only_two": {
+    "status": "implemented_gt",
+    "reason": "Implements the clear-cut structural sub-case (PARTIAL_DETERMINISTIC): for @type absent/\"default\" junctions with exactly 2 participating roads (union of connection/@incomingRoad + @connectingRoad), not exempted via <junctionGroup> membership or >=1 <crossPath> child, flag as an advisory review item. @type=\"direct\"/\"virtual\" junctions are excluded from the rule entirely (separate Annex F sub-namespaces, 2-road direct junctions are the canonical ramp shape). Residual left uncovered: the exemption list is not declared exhaustive by the spec text -- other legitimate reasons for a 2-road common junction (elevationGrid/boundary hosting, a deliberate lane-count/width transition needing laneLink flexibility) are conceivable and not enumerated, so a flag remains a human-review candidate, not a guaranteed violation. Validated: 0 exceptions over the full 208-file corpus, 0 flags in the official ASAM calibration set (re-verified per-file: UC_2Lane-RoundAbout-3Arms junctions 42/43/44 have 5 participating roads under this exact definition, not 2, so are out of scope on road-count alone; UC_Motorway-Exit-Entry-DirectJunction junctions 1/5 do have exactly 2 participating roads but are @type=\"direct\", excluded by scope), 0 flags anywhere in the wider GT-authored corpus either (genuinely traced -- no un-exempted 2-road default junction currently exists in the corpus). Positive/negative throwaway-fixture detection confirmed: fires on a bare 2-road default junction, correctly suppressed by crossPath exemption, junctionGroup exemption, a 3rd participating road, and @type=\"direct\"/\"virtual\".",
+    "group": "junctions_core",
+    "function": "run_checks"
+  }
+}

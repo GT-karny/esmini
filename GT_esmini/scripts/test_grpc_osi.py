@@ -68,7 +68,9 @@ def format_hvd_frame(hvd) -> str:
             lines.append(f"    pos=({pos.x:.2f}, {pos.y:.2f}, {pos.z:.2f})")
         if loc.HasField("orientation"):
             ori = loc.orientation
-            lines.append(f"    ori=(yaw={ori.yaw:.4f}, pitch={ori.pitch:.4f}, roll={ori.roll:.4f})")
+            lines.append(
+                f"    ori=(yaw={ori.yaw:.4f}, pitch={ori.pitch:.4f}, roll={ori.roll:.4f})"
+            )
     if hvd.HasField("location_rmse"):
         lines.append("    location_rmse present")
     return "\n".join(lines) if lines else "    (no location data)"
@@ -191,9 +193,18 @@ async def run(args):
 def main():
     parser = argparse.ArgumentParser(description="gRPC OSI server test client")
     parser.add_argument("--port", type=int, default=50051, help="gRPC server port")
-    parser.add_argument("--max-frames", type=int, default=100, help="Max frames to receive (0=unlimited)")
-    parser.add_argument("--timeout", type=float, default=30.0, help="Connection timeout in seconds")
-    parser.add_argument("--hvd", action="store_true", help="Also stream HostVehicleData (concurrent)")
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=100,
+        help="Max frames to receive (0=unlimited)",
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=30.0, help="Connection timeout in seconds"
+    )
+    parser.add_argument(
+        "--hvd", action="store_true", help="Also stream HostVehicleData (concurrent)"
+    )
     args = parser.parse_args()
 
     asyncio.run(run(args))
