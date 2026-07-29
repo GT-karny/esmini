@@ -122,7 +122,13 @@ public:
     // pass, rather than assuming order does not matter.
 
     /// Publish this frame's steering. Ignored unless `controller` owns LATERAL.
-    void PublishLateral(int object_id, const void* controller, double steering);
+    /// `manual` is the publisher's own override_mgr_.IsLateralManual() —
+    /// carried alongside the value so a device holder that is NOT the lateral
+    /// owner (reverse split) can tell whether the servo should actively track
+    /// this command or release the wheel (see ConsumeLateral / the servo-target
+    /// call site in ManualDriveCoordinator). Meaningless for a LONGITUDINAL-only
+    /// publisher; ignored there.
+    void PublishLateral(int object_id, const void* controller, double steering, bool manual);
 
     /// Publish this frame's throttle/brake. Ignored unless `controller` owns
     /// LONGITUDINAL.
@@ -131,8 +137,31 @@ public:
     /// Read the owner-published channel. Returns false when the domain has no
     /// owner, or has one that has not published yet — in which case the caller
     /// keeps its own value rather than steering/accelerating by a stale command.
-    bool ConsumeLateral(int object_id, double& steering) const;
+    /// `manual` mirrors the publisher's own lateral-manual state (see
+    /// PublishLateral); undefined when the call returns false.
+    bool ConsumeLateral(int object_id, double& steering, bool& manual) const;
     bool ConsumeLongitudinal(int object_id, double& throttle, double& brake) const;
+
+    // ---- RETURN PATH: raw device axis ----------------------------------------
+    //
+    // Separate from PublishInterventionSample below: that struct is zeroed to
+    // {} the instant the FFB servo goes inactive (by design — see
+    // FfbInterventionSample's "active" semantics), so it cannot answer "where
+    // is the wheel right now" once the servo has released it — which is
+    // exactly the moment a reverse-split lateral owner with no device of its
+    // own (VirtualDriver, input_type=stub) needs that answer: once its own
+    // OverrideManager latches MANUAL, it must keep publishing the DRIVER's
+    // real wheel position on the lateral bus (so ManualDriveCoordinator's
+    // physics step actually follows the driver), not its own stale/zero local
+    // input frame. This channel carries that raw position unconditionally,
+    // straight from the device holder's InputFrame.pedal_steer.steering —
+    // valid whether or not the FFB servo is currently tracking anything.
+    //
+    // Not gated on ownership, same reasoning as PublishInterventionSample: the
+    // publisher is whoever physically holds the device, a different question
+    // from who owns a control domain.
+    void PublishDeviceAxis(int object_id, double axis);
+    bool ConsumeDeviceAxis(int object_id, double& axis) const;
 
     // ---- RETURN PATH: force-feedback intervention sample ---------------------
     //
@@ -181,6 +210,7 @@ private:
         double steering  = 0.0;
         double throttle  = 0.0;
         double brake     = 0.0;
+        bool   manual    = false;  // LATERAL only; see PublishLateral
     };
     struct ObjectSlots
     {
@@ -189,6 +219,10 @@ private:
         // Return path. Per-object, not per-domain: there is one physical wheel.
         FfbInterventionSample ffb_sample;
         bool                  ffb_sample_published = false;
+
+        // Return path: raw device axis (see PublishDeviceAxis).
+        double device_axis           = 0.0;
+        bool   device_axis_published = false;
     };
 
     const Slot* Find(int object_id, OwnedDomain domain) const;

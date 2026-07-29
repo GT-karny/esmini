@@ -751,7 +751,38 @@ void ControllerVirtualDriver::Step(double timeStep)
     if (frame.pedal_steer)
     {
         const PedalSteerCommand& m = *frame.pedal_steer;
-        if (lat_manual) cmd.steering = m.steering;
+        if (lat_manual)
+        {
+            // feature:F7 RETURN PATH. `m` is THIS controller's own local
+            // input frame (input_source_->Poll()) — under the shipped
+            // reverse-split config that is stub, always steering=0. Using it
+            // directly here means the instant this controller's own
+            // OverrideManager latches MANUAL (via the bus-fed FFB residual,
+            // since the direct-axis path can never fire on a stub frame
+            // either), the lateral command this controller publishes to the
+            // bus below would snap to 0 — not the driver's actual wheel
+            // position — and ManualDriveCoordinator's physics step would
+            // follow that 0, not the driver. The driver would feel the wheel
+            // released (5a/servo-active fix, ManualDriveCoordinator.cpp) but
+            // the CAR would stop responding to them.
+            //
+            // ffb is non-null only when this controller itself holds the
+            // device (e.g. VD configured as its own device holder) — in that
+            // case `m.steering` IS the driver's real axis and behaviour is
+            // unchanged, bit for bit. When ffb is null (this controller has
+            // no device of its own), pull the driver's real axis from the
+            // device holder's raw-axis publish instead. Falls back to
+            // m.steering (0) if nothing has published yet (e.g. first frame).
+            cmd.steering = m.steering;
+            if (!ffb)
+            {
+                double device_axis = 0.0;
+                if (DomainOwnershipLedger::Instance().ConsumeDeviceAxis(object_->GetId(), device_axis))
+                {
+                    cmd.steering = device_axis;
+                }
+            }
+        }
         if (lon_manual) { cmd.throttle = m.throttle; cmd.brake = m.brake; }
         cmd.buttons             = m.buttons;
         cmd.gear                = m.gear;
@@ -770,7 +801,7 @@ void ControllerVirtualDriver::Step(double timeStep)
 
         if (ledger.IsOwner(obj_id, this, OwnedDomain::LATERAL))
         {
-            ledger.PublishLateral(obj_id, this, cmd.steering);
+            ledger.PublishLateral(obj_id, this, cmd.steering, lat_manual);
         }
         if (ledger.IsOwner(obj_id, this, OwnedDomain::LONGITUDINAL))
         {
@@ -782,7 +813,8 @@ void ControllerVirtualDriver::Step(double timeStep)
             if (!ledger.IsOwner(obj_id, this, OwnedDomain::LATERAL))
             {
                 double owner_steering = 0.0;
-                if (ledger.ConsumeLateral(obj_id, owner_steering))
+                bool   owner_manual   = false;
+                if (ledger.ConsumeLateral(obj_id, owner_steering, owner_manual))
                 {
                     cmd.steering = owner_steering;
                 }

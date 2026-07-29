@@ -8,6 +8,7 @@
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
+#include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
 #include "gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp"
@@ -70,6 +71,14 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     if (config_.input_type == "network")
     {
         input_source_ = new NetworkInputBridge();
+    }
+    else if (config_.input_type == "headless_ffb")
+    {
+        // feature:F7 (F7b) — same synthetic-wheel + synthetic-FFB source
+        // ControllerVirtualDriver uses (see its constructor). Lets a
+        // reverse-split (lateral=VD / longitudinal=ManualDrive) run exercise
+        // the real device-holder FFB path headlessly, with no G29 plugged in.
+        input_source_ = new HeadlessFfbInput();
     }
     else
     {

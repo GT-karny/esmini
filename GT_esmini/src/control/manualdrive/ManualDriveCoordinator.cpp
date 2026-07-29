@@ -82,11 +82,21 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
 
         if (ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
         {
-            ledger.PublishLateral(obj_id, &c, cmd.steering);
+            ledger.PublishLateral(obj_id, &c, cmd.steering, c.override_mgr_.IsLateralManual());
         }
         if (ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL))
         {
             ledger.PublishLongitudinal(obj_id, &c, cmd.throttle, cmd.brake);
+        }
+
+        // feature:F7 RETURN PATH — raw device axis. Published unconditionally
+        // whenever this controller polled a real input frame this step, so a
+        // lateral owner with no device of its own (VirtualDriver, reverse
+        // split) can find out where the driver's wheel actually is even once
+        // the FFB servo has released it (see DomainOwnershipLedger.hpp).
+        if (frame.pedal_steer)
+        {
+            ledger.PublishDeviceAxis(obj_id, frame.pedal_steer->steering);
         }
 
         if (ledger.IsIntegrator(obj_id, &c))
@@ -94,7 +104,8 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
             {
                 double owner_steering = 0.0;
-                if (ledger.ConsumeLateral(obj_id, owner_steering))
+                bool   owner_manual   = false;
+                if (ledger.ConsumeLateral(obj_id, owner_steering, owner_manual))
                 {
                     cmd.steering = owner_steering;
                 }
@@ -223,13 +234,27 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
         {
             double owner_steering = 0.0;
-            if (ledger.ConsumeLateral(obj_id, owner_steering))
+            bool   owner_manual   = false;
+            if (ledger.ConsumeLateral(obj_id, owner_steering, owner_manual))
             {
-                ffb->SetSteerTarget(owner_steering, true);
-                LOG_DEBUG("ManualDriveController[{}]: servo target <- lateral owner {} = {:.5f}",
+                // feature:F7 RETURN PATH — the servo must release the wheel
+                // once the lateral owner has latched MANUAL, exactly like the
+                // single-controller case gates on !lat_manual (see
+                // ControllerVirtualDriver.cpp 5a). Before this, active was
+                // hardcoded true regardless of owner_manual: the servo never
+                // went inert in the split, so it kept commanding force toward
+                // whatever the owner published (0 while its own frame was
+                // stub) instead of releasing — fighting the driver at the
+                // exact moment they took over, and never letting the latch
+                // self-perpetuate the way OverrideManager's design assumes
+                // (GetInterventionSample().active must go false to stop
+                // feeding the detector).
+                ffb->SetSteerTarget(owner_steering, /*active=*/!owner_manual);
+                LOG_DEBUG("ManualDriveController[{}]: servo target <- lateral owner {} = {:.5f} (manual={})",
                           c.GetName(),
                           ledger.OwnerName(obj_id, OwnedDomain::LATERAL),
-                          owner_steering);
+                          owner_steering,
+                          owner_manual);
             }
         }
     }

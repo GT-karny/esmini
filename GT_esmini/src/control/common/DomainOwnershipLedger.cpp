@@ -114,7 +114,7 @@ std::string DomainOwnershipLedger::OwnerName(int object_id, OwnedDomain domain) 
     return (slot && slot->owner) ? slot->name : std::string();
 }
 
-void DomainOwnershipLedger::PublishLateral(int object_id, const void* controller, double steering)
+void DomainOwnershipLedger::PublishLateral(int object_id, const void* controller, double steering, bool manual)
 {
     auto it = objects_.find(object_id);
     if (it == objects_.end())
@@ -127,6 +127,7 @@ void DomainOwnershipLedger::PublishLateral(int object_id, const void* controller
         return;  // only the owner may drive the domain
     }
     slot.steering  = steering;
+    slot.manual    = manual;
     slot.published = true;
 }
 
@@ -147,7 +148,7 @@ void DomainOwnershipLedger::PublishLongitudinal(int object_id, const void* contr
     slot.published = true;
 }
 
-bool DomainOwnershipLedger::ConsumeLateral(int object_id, double& steering) const
+bool DomainOwnershipLedger::ConsumeLateral(int object_id, double& steering, bool& manual) const
 {
     const Slot* slot = Find(object_id, OwnedDomain::LATERAL);
     if (!slot || !slot->owner || !slot->published)
@@ -155,6 +156,7 @@ bool DomainOwnershipLedger::ConsumeLateral(int object_id, double& steering) cons
         return false;
     }
     steering = slot->steering;
+    manual   = slot->manual;
     return true;
 }
 
@@ -185,6 +187,24 @@ bool DomainOwnershipLedger::ConsumeInterventionSample(int object_id, FfbInterven
         return false;
     }
     out = it->second.ffb_sample;
+    return true;
+}
+
+void DomainOwnershipLedger::PublishDeviceAxis(int object_id, double axis)
+{
+    ObjectSlots& slots         = objects_[object_id];
+    slots.device_axis          = axis;
+    slots.device_axis_published = true;
+}
+
+bool DomainOwnershipLedger::ConsumeDeviceAxis(int object_id, double& axis) const
+{
+    auto it = objects_.find(object_id);
+    if (it == objects_.end() || !it->second.device_axis_published)
+    {
+        return false;
+    }
+    axis = it->second.device_axis;
     return true;
 }
 
