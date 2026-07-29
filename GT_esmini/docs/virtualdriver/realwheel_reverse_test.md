@@ -75,7 +75,7 @@ AI がどう切っているかを感じてください。**軽く添えている
 パッケージを展開したフォルダで **PowerShell** を開き、そのまま貼り付けてください。
 
 ```powershell
-cd <展開先>\GT_Sim_v0.14.1-dev-split01
+cd <展開先>\GT_Sim_v0.14.1
 $env:ELECTRON_RUN_AS_NODE = $null
 .\bin\GT_Sim.exe --osc .\resources\xosc\verification\08_handoff\scenario_realwheel_reverse_split.xosc --window 60 60 1280 720
 ```
@@ -83,8 +83,8 @@ $env:ELECTRON_RUN_AS_NODE = $null
 `--window 60 60 1280 720` は必ず付けてください。省くとウィンドウが出ないことがあります。
 出ない場合は `--window 0 0 1024 600` に変えて再実行してください。
 
-> **注意**: このシナリオは**まだパッケージに入っていません。**
-> パッケージの作り直しはあなたの指示待ちです。指示をもらってから作り直します。
+> **`GT_Sim_v0.14.1`**（2026-07-30 未明ビルド、HEAD `e78bde41` 相当）にこのシナリオと
+> 設定一式が入っています。展開先はこのバージョン名に読み替えてください。
 
 ---
 
