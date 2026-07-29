@@ -195,7 +195,15 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     for (int i = 1; i <= n_steps; ++i)
     {
         double v_here = SampleTargetSpeed(ctx, acc_dist);
-        double ds     = std::max(cfg_.min_step, std::fabs(v_here) * dt);
+        // Two floors, not one. min_step keeps a single sample from degenerating;
+        // span_floor keeps the WHOLE preview from becoming shorter than the
+        // driver's lookahead as the vehicle stops. Without the second one the
+        // preview collapses to n_steps*min_step (1.5 m) while the lookahead
+        // stays clamped at 4.0 m, and pure pursuit ends up amplifying the
+        // standing cross-track error into a full-lock command — see
+        // TrajectoryShortPlannerConfig::min_preview_span for the measurement.
+        const double span_floor = cfg_.min_preview_span / static_cast<double>(n_steps);
+        double       ds         = std::max({cfg_.min_step, span_floor, std::fabs(v_here) * dt});
 
         // [Issue #31] straight-most (0.0), not the -1.0 convenience overload. When the
         // isolated prediction is off-route the -1.0 path RANDOMIZES the connecting road, so the

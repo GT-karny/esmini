@@ -479,14 +479,31 @@ void ControllerVirtualDriver::Step(double timeStep)
     //   > 0  explicit distance [m] ahead of the origin
     //   = 0  AUTO — the front-axle distance (wheel_base); enabled by default
     //   < 0  disabled — keep the origin (≈ rear) reference (Phase 1 behavior)
-    // Only while moving forward (stop/reverse keep the origin). The short planner
-    // applies it to the preview anchor (and clamps it to 0 during a lateral
-    // maneuver), then echoes the value it used so the driver state shifts to match.
+    // Applied unless REVERSING. The short planner applies it to the preview
+    // anchor (and clamps it to 0 during a lateral maneuver), then echoes the
+    // value it used so the driver state shifts to match.
+    //
+    // The gate used to be `ego_speed > control_point_min_speed` (1.0 m/s), which
+    // dropped the reference from the front axle back to the origin the moment
+    // the vehicle slowed below walking pace. That is a ~3 m step change in the
+    // lateral reference at a fixed speed, and it is the second half of the
+    // standstill steering defect: with the reference at the origin, a stopped
+    // car on a curve computes a steer of the WRONG SIGN (measured -0.106 rad
+    // while cornering -> +0.029 rad once stopped, i.e. through neutral). Real
+    // vehicles hold their steer when stopped, so passing through neutral is not
+    // defensible. Only reverse genuinely needs the origin reference — a
+    // front-axle reference inverts the control sign when travelling backwards —
+    // so the gate now keys on direction, not on speed magnitude.
+    //
+    // NOTE: this couples to TrajectoryShortPlannerConfig::min_preview_span,
+    // which must stay above (this offset + the driver's min_lookahead): the
+    // driver measures the lookahead FROM the shifted reference, so the preview
+    // has to reach past it.
     double requested_cp = 0.0;
     {
         const double cp = vd_config_.control_point_offset;
         const double dist = (cp < 0.0) ? 0.0 : (cp == 0.0 ? wheel_base : cp);
-        if (ego_speed > vd_config_.control_point_min_speed)
+        if (ego_speed > -vd_config_.control_point_min_speed)
             requested_cp = dist;
     }
 

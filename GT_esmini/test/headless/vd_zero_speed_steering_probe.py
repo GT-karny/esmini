@@ -223,21 +223,150 @@ def report(name, frames, every=10):
         )
 
 
+def _csv_rows(path):
+    """Minimal csv_logger reader: (t, speed, wheel_angle, lane_offset) per frame.
+
+    wheel_angle is RADIANS despite the column being labelled "[deg]" — esmini
+    passes obj->wheel_angle_ through unconverted and that field is radians
+    upstream (vehicle.cpp clamps it to MAX_WHEEL_ANGLE = 60*pi/180).
+    """
+    lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    hdr_i = next(i for i, ln in enumerate(lines) if ln.startswith("Index"))
+    cols = [c.strip() for c in lines[hdr_i].split(",")]
+    out = []
+    for ln in lines[hdr_i + 1 :]:
+        if not ln.strip():
+            continue
+        rec = dict(zip(cols, [v.strip() for v in ln.split(",")]))
+
+        def num(k, d=float("nan")):
+            try:
+                return float(rec.get(k, ""))
+            except (TypeError, ValueError):
+                return d
+
+        out.append(
+            (
+                num("TimeStamp [s]"),
+                num("#1 Current_Speed [m/s]"),
+                num("#1 Wheel_Angle [deg]"),
+                num("#1 lane_offset[m]", num("#1 lane_offset [m]")),
+            )
+        )
+    return out
+
+
+def verdict_from_csv(name, path):
+    """Machine-check the three things the fix has to achieve.
+
+    Written to be run against BOTH the pre-fix and post-fix csv, so the
+    negative control is a measurement rather than a claim: the curve cases must
+    FAIL before the fix and PASS after it, and the straight case must pass in
+    both (proving the fix did not disturb behaviour that was already correct).
+    """
+    rows = [r for r in _csv_rows(path) if not math.isnan(r[0])]
+    checks = []
+
+    corner = [w for (t, v, w, _) in rows if 3.0 <= t <= 5.0]
+    stopped = [w for (t, v, w, _) in rows if v < 0.10 and t > 6.0]
+
+    if "straight" in name:
+        worst = max((abs(w) for (_, _, w, _) in rows), default=0.0)
+        checks.append(
+            (
+                "straight stays straight (|wheel| <= 0.02 rad)",
+                worst <= 0.02,
+                f"max |wheel| = {worst:.4f} rad",
+            )
+        )
+    else:
+        if corner and stopped:
+            c = sum(corner) / len(corner)
+            s = sum(stopped) / len(stopped)
+            # 1. must not cross neutral: a stopped car may not reverse its steer
+            checks.append(
+                (
+                    "stopped steer keeps the cornering sign",
+                    (c * s) > 0,
+                    f"cornering {c:+.4f} rad -> stopped {s:+.4f} rad",
+                )
+            )
+            # 2. must not blow up: full lock is the observed failure
+            ratio = abs(s) / max(abs(c), 1e-6)
+            checks.append(
+                (
+                    "stopped steer stays within 2x of cornering",
+                    ratio <= 2.0,
+                    f"|stopped|/|cornering| = {ratio:.2f}",
+                )
+            )
+        else:
+            checks.append(
+                ("vehicle reached a standstill", False, "no frames with speed < 0.10")
+            )
+
+    if "resume" in name:
+        worst_off = max(
+            (abs(o) for (_, _, _, o) in rows if not math.isnan(o)), default=0.0
+        )
+        checks.append(
+            (
+                "stays in lane through stop and resume (|offset| <= 1.75 m)",
+                worst_off <= 1.75,
+                f"max |lane_offset| = {worst_off:.3f} m",
+            )
+        )
+    return checks
+
+
+def print_verdict(name, path):
+    print(f"\n----- verdict: {name} -----")
+    ok_all = True
+    for label, ok, detail in verdict_from_csv(name, path):
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label} — {detail}")
+        ok_all = ok_all and ok
+    return ok_all
+
+
+CASES = [
+    # name,                road, shape,    rate, resume_at, dur
+    ("curve_decel_stop", 4, "linear", 3.0, 0.0, 16),
+    ("straight_decel_stop", 0, "linear", 3.0, 0.0, 16),
+    ("curve_stop_resume", 4, "linear", 3.0, 11.0, 22),
+]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--outdir", required=True)
+    ap.add_argument(
+        "--check-only",
+        action="store_true",
+        help="skip the runs and just re-judge csv already in --outdir",
+    )
+    ap.add_argument(
+        "--quiet", action="store_true", help="verdicts only, no time series"
+    )
     args = ap.parse_args()
 
-    cases = [
-        # name,                road, shape,   rate
-        ("curve_decel_stop", 4, "linear", 3.0),  # R~49m arc, braked to a stop
-        ("straight_decel_stop", 0, "linear", 3.0),  # straight road, same stop
-        ("curve_step_stop", 4, "step", 0.0),  # instant SpeedAction 0
-    ]
-    for name, road, shape, rate in cases:
-        frames = run_case(args.outdir, name, road, shape=shape, rate=rate)
-        report(name, frames)
-    return 0
+    all_ok = True
+    for name, road, shape, rate, resume_at, dur in CASES:
+        if not args.check_only:
+            frames = run_case(
+                args.outdir,
+                name,
+                road,
+                shape=shape,
+                rate=rate,
+                resume_at=resume_at,
+                dur=dur,
+            )
+            if not args.quiet:
+                report(name, frames)
+        all_ok = print_verdict(name, Path(args.outdir) / f"{name}.csv") and all_ok
+
+    print(f"\n==== OVERALL: {'PASS' if all_ok else 'FAIL'} ====")
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":
