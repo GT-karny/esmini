@@ -77,7 +77,32 @@ void GT_VirtualDriverReporter::Send(const std::string& json)
     unsigned int payload_size = static_cast<unsigned int>(json.size());
     if (payload_size > MAX_UDP_DATA_SIZE)
     {
-        LOG_WARN("GT_VirtualDriverReporter: JSON too large ({} bytes), skipping", payload_size);
+        // feature:F7 2026-07-27: this used to LOG_WARN and return. The warning
+        // goes to the log, but the CONSUMER just saw a missing frame with no
+        // in-band marker -- indistinguishable from "nothing happened". That is
+        // the same failure shape as the instrumentation bugs found the same
+        // day, so emit an explicit marker frame instead of a silent gap.
+        // A consumer that counts frames still gets a frame; one that reads
+        // fields finds telemetry_overflow=true and knows the run is degraded.
+        ++overflow_count_;
+        LOG_WARN(
+            "GT_VirtualDriverReporter: telemetry frame {} bytes exceeds MAX_UDP_DATA_SIZE {} "
+            "-- payload REPLACED by an overflow marker (total dropped this run: {}). "
+            "Measurements from this run are incomplete.",
+            payload_size,
+            MAX_UDP_DATA_SIZE,
+            overflow_count_);
+
+        const std::string marker = "{\"telemetry_overflow\":true,\"dropped_bytes\":" +
+                                   std::to_string(payload_size) + ",\"dropped_total\":" +
+                                   std::to_string(overflow_count_) + "}";
+        // The marker is a fixed, tiny object; it cannot itself overflow.
+        udp_buf_.counter  = 0;
+        udp_buf_.datasize = static_cast<unsigned int>(marker.size());
+        std::memcpy(udp_buf_.data, marker.data(), marker.size());
+        udp_client_->Send(reinterpret_cast<char*>(&udp_buf_),
+                          sizeof(udp_buf_.counter) + sizeof(udp_buf_.datasize) +
+                              static_cast<int>(marker.size()));
         return;
     }
 

@@ -70,6 +70,14 @@ struct GtSimOptions
 
     // Timing
     double frequency = 100.0;
+    // feature:F7 2026-07-27 -- see the --fixed_timestep branch in the parser.
+    // hz_explicit records whether --hz was actually given, so --fixed_timestep
+    // can supply the GT_Step dt without silently overriding an explicit --hz.
+    // fixed_timestep_hz keeps what --fixed_timestep implied, so a run that
+    // passes BOTH and means different things is reported instead of one of
+    // them being dropped without a word.
+    bool   hz_explicit       = false;
+    double fixed_timestep_hz = 0.0;
     bool no_realtime = false;
 
     // Video capture
@@ -103,6 +111,10 @@ static void PrintUsage()
     printf("  --heading-correction Enable nose-leading heading correction for traffic vehicles\n");
     printf("  --osi <ip>           Enable OSI output to specified IP\n");
     printf("  --hz <freq>          Simulation frequency used for GT_Step dt (default: 100)\n");
+    printf("  --fixed_timestep <s> Also sets GT_Step dt (= 1/s) unless --hz is given.\n");
+    printf("                       Forwarded to esmini as well. Before 2026-07-27 this\n");
+    printf("                       option did NOT affect GT_Step dt: runs launched with\n");
+    printf("                       --fixed_timestep 0.05 actually stepped at 0.010 s.\n");
     printf("  --no_realtime        Disable real-time pacing (run as fast as possible)\n");
     printf("  --video_capture      Enable direct frame capture in GT_Sim\n");
     printf("  --video_window <w h> Capture window size (default: 1280 720)\n");
@@ -353,6 +365,48 @@ int main(int argc, const char* argv[])
                 std::cerr << "GT_Sim Warning: Invalid --hz value, using default 100 Hz" << std::endl;
                 opts.frequency = 100.0;
             }
+            opts.hz_explicit = true;
+        }
+        // feature:F7 2026-07-27 -- `--fixed_timestep` used to fall through to
+        // the "everything else is forwarded to esmini" branch below. It set
+        // the PLAYER's internal timestep but never touched opts.frequency,
+        // and it is opts.frequency that produces the dt handed to GT_Step()
+        // (`dt = 1.0 / opts.frequency`, default 100 Hz = 0.010 s). So every
+        // run launched with `--fixed_timestep 0.05` actually stepped the
+        // detector at 0.010 s -- a 5x discrepancy that survived unnoticed
+        // because BOTH knobs look like they do the same thing and neither
+        // side complained. Audited 2026-07-27: every supervised real-machine
+        // run passed 0.05 and recorded 0.010.
+        //
+        // Now `--fixed_timestep` also drives opts.frequency, and it is STILL
+        // forwarded to esmini so the player's own behaviour is unchanged.
+        // Any dt-dependent quantity (rates, jerk, integrals, sustain-time
+        // accumulation) measured before this fix was taken at 0.010 s
+        // regardless of what the command line said.
+        else if (arg == "--fixed_timestep" && i + 1 < argc)
+        {
+            const std::string ts_str = argv[++i];
+            forwardArgs.emplace_back(arg);       // esmini still gets it
+            forwardArgs.emplace_back(ts_str);
+            try
+            {
+                const double ts = std::stod(ts_str);
+                if (ts > 0.0)
+                {
+                    opts.fixed_timestep_hz = 1.0 / ts;
+                    if (!opts.hz_explicit) opts.frequency = opts.fixed_timestep_hz;
+                }
+                else
+                {
+                    std::cerr << "GT_Sim Warning: --fixed_timestep must be > 0, ignoring for GT_Step dt"
+                              << std::endl;
+                }
+            }
+            catch (...)
+            {
+                std::cerr << "GT_Sim Warning: Invalid --fixed_timestep value, "
+                             "GT_Step dt keeps using --hz" << std::endl;
+            }
         }
         else if (arg == "--no_realtime")
         {
@@ -594,6 +648,26 @@ int main(int argc, const char* argv[])
     }
 
     double dt = 1.0 / opts.frequency;
+    // feature:F7 2026-07-27 -- always state the dt actually handed to
+    // GT_Step(). The 5x --fixed_timestep/--hz discrepancy went unnoticed for
+    // weeks partly because nothing ever printed the effective value: the log
+    // showed the REQUESTED player options and the telemetry showed sim_time,
+    // and nobody reconciled them. Print it, and refuse to let a contradiction
+    // pass silently.
+    const double hz_gap = opts.fixed_timestep_hz - opts.frequency;
+    if (opts.hz_explicit && opts.fixed_timestep_hz > 0.0 &&
+        (hz_gap > 1e-9 || hz_gap < -1e-9))
+    {
+        std::cerr << "GT_Sim Warning: --hz (" << opts.frequency << " Hz, dt="
+                  << (1.0 / opts.frequency) << "s) and --fixed_timestep (dt="
+                  << (1.0 / opts.fixed_timestep_hz) << "s) disagree. --hz wins for GT_Step dt. "
+                  << "Any dt-dependent measurement from this run is taken at dt="
+                  << dt << "s." << std::endl;
+    }
+    std::cout << "GT_Sim: GT_Step dt = " << dt << " s (" << opts.frequency << " Hz) ["
+              << (opts.hz_explicit ? "--hz"
+                                   : (opts.fixed_timestep_hz > 0.0 ? "--fixed_timestep" : "default"))
+              << "]" << std::endl;
     using Clock = std::chrono::steady_clock;
     auto next_target_time = Clock::now();
 
