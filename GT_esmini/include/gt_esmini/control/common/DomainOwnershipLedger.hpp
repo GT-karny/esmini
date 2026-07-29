@@ -34,6 +34,7 @@
 // does with the answer; see each controller's Step().
 
 #include "CommonMini.hpp"
+#include "gt_esmini/control/manualdrive/IFFBSink.hpp"  // FfbInterventionSample (return path)
 
 #include <string>
 #include <unordered_map>
@@ -133,6 +134,28 @@ public:
     bool ConsumeLateral(int object_id, double& steering) const;
     bool ConsumeLongitudinal(int object_id, double& throttle, double& brake) const;
 
+    // ---- RETURN PATH: force-feedback intervention sample ---------------------
+    //
+    // The command bus above carries commands OUTWARD (owner -> integrator). This
+    // carries the servo's intervention sample BACK (device holder -> lateral
+    // owner), and it is needed for exactly the same reason: under a split, the
+    // controller that owns the steering domain is not the one holding the wheel.
+    //
+    // VirtualDriver runs input_type=stub, so its own GetFFBSink() is nullptr and
+    // its `if (ffb)` guard drops the sample before OverrideManager ever sees it.
+    // Without this hop the residual-based takeover detector has NO INPUT: the
+    // shadow model predicts where an unloaded wheel would be given the force the
+    // servo applied, so with no force sample there is no prediction, no residual,
+    // and the latch can never fire. Measured on the real G29 in the reverse
+    // split: target_track enabled=true in the log, |tt| = 0.0000 all run, and
+    // turning the wheel by hand produced no override.
+    //
+    // Not gated on ownership: the publisher is whoever physically holds the
+    // device, which is a different question from who owns a control domain.
+    // The consumer side is where the lateral-owner check belongs.
+    void PublishInterventionSample(int object_id, const FfbInterventionSample& sample);
+    bool ConsumeInterventionSample(int object_id, FfbInterventionSample& out) const;
+
     /// Human-readable one-liner, e.g. `obj=0 lat=MD lon=VD`. Used for the
     /// per-frame debug trace; unowned domains render as `<none>`.
     std::string Describe(int object_id) const;
@@ -162,6 +185,10 @@ private:
     struct ObjectSlots
     {
         Slot slot[static_cast<unsigned int>(OwnedDomain::COUNT)];
+
+        // Return path. Per-object, not per-domain: there is one physical wheel.
+        FfbInterventionSample ffb_sample;
+        bool                  ffb_sample_published = false;
     };
 
     const Slot* Find(int object_id, OwnedDomain domain) const;

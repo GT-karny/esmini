@@ -457,6 +457,27 @@ void ControllerVirtualDriver::Step(double timeStep)
     {
         override_mgr_.UpdateFfbSample(ffb->GetInterventionSample());
     }
+    else
+    {
+        // feature:F7 RETURN PATH. This controller has no sink of its own — under
+        // the shipped config it runs input_type=stub, so GetFFBSink() is nullptr
+        // and the branch above never ran. That silently starved the residual
+        // takeover detector: the shadow model needs the force that was actually
+        // applied, and with no sample there is no prediction and no residual, so
+        // the latch could never fire no matter how hard the driver pushed.
+        //
+        // Take the sample from the bus instead, published by whoever holds the
+        // device (ManualDriveCoordinator step 6b). Only meaningful when this
+        // controller owns the steering domain: the detector's question is "is
+        // someone taking LATERAL away from me", so a controller that does not
+        // hold lateral has nothing to be taken.
+        FfbInterventionSample bus_sample;
+        if (DomainOwnershipLedger::Instance().IsOwner(object_->GetId(), this, OwnedDomain::LATERAL) &&
+            DomainOwnershipLedger::Instance().ConsumeInterventionSample(object_->GetId(), bus_sample))
+        {
+            override_mgr_.UpdateFfbSample(bus_sample);
+        }
+    }
 
     override_mgr_.Update(frame, timeStep);
     const bool lat_manual = override_mgr_.IsLateralManual();
@@ -848,6 +869,22 @@ void ControllerVirtualDriver::Step(double timeStep)
         // "inactive" rather than "active but not integrating".
         telemetry_.sim_time = sim_time_;
         telemetry_.domain_integrator = false;
+
+        // feature:F7 — a NON-integrator still computes and publishes a command,
+        // and under a split that command is what actually steers the car. The
+        // full telemetry block lives after this early return, so without these
+        // lines driver.steer stayed frozen at 0 while the bus carried 0.173 —
+        // i.e. the lateral owner's own telemetry did not show the command it was
+        // issuing. That is the field a reviewer reads to attribute steering, and
+        // the one the FFB sign chain has to be checked against, so it cannot be
+        // allowed to lie. Measured: 127 of 161 frames disagreed before this.
+        telemetry_.driver       = dsnap;
+        telemetry_.driver.steer = cmd.steering;  // the REALIZED command (post-envelope/bus)
+        telemetry_.override_lateral      = lat_manual;
+        telemetry_.override_longitudinal = lon_manual;
+        telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
+        telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+
         scenarioengine::Controller::Step(timeStep);
         return;
     }

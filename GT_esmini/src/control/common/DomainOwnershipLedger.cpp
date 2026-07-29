@@ -170,6 +170,24 @@ bool DomainOwnershipLedger::ConsumeLongitudinal(int object_id, double& throttle,
     return true;
 }
 
+void DomainOwnershipLedger::PublishInterventionSample(int object_id, const FfbInterventionSample& sample)
+{
+    ObjectSlots& slots        = objects_[object_id];
+    slots.ffb_sample          = sample;
+    slots.ffb_sample_published = true;
+}
+
+bool DomainOwnershipLedger::ConsumeInterventionSample(int object_id, FfbInterventionSample& out) const
+{
+    auto it = objects_.find(object_id);
+    if (it == objects_.end() || !it->second.ffb_sample_published)
+    {
+        return false;
+    }
+    out = it->second.ffb_sample;
+    return true;
+}
+
 const void* DomainOwnershipLedger::IntegratorOf(int object_id) const
 {
     if (const Slot* lon = Find(object_id, OwnedDomain::LONGITUDINAL); lon && lon->owner)

@@ -20,8 +20,30 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     // 2. Override judgment (domain-aware)
     c.override_mgr_.Update(frame, dt);
 
+    // feature:F7 — is a per-domain SPLIT in effect, i.e. do the two domains of
+    // this object belong to two different controllers? Under a split this
+    // controller must keep running even while fully AUTO, because the domain it
+    // owns has no other source: the early return below skips the command build
+    // AND the publish, so the peer integrator would find nothing on the bus.
+    // With override.enabled=true (required for takeover to exist at all) both
+    // domains start AUTO, so without this the reverse split loses its pedals on
+    // frame 1.
+    //
+    // Deliberately narrow: a ManualDrive-only scenario has both domains on ONE
+    // controller, so split_active is false and the AUTO-delegates-to-scenario
+    // behaviour below is untouched.
+    bool split_active = false;
+    if (c.object_)
+    {
+        const auto& ledger = DomainOwnershipLedger::Instance();
+        const int   id     = c.object_->GetId();
+        const void* lat    = ledger.OwnerOf(id, OwnedDomain::LATERAL);
+        const void* lon    = ledger.OwnerOf(id, OwnedDomain::LONGITUDINAL);
+        split_active       = lat && lon && lat != lon;
+    }
+
     // If neither domain is manual, delegate entirely to scenario
-    if (!c.override_mgr_.IsAnyManual())
+    if (!c.override_mgr_.IsAnyManual() && !split_active)
     {
         c.scenarioengine::Controller::Step(dt);
         return;
@@ -164,9 +186,67 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     // 6. FFB update
     IFFBSink* ffb = c.input_source_->GetFFBSink();
     if (!ffb) ffb = c.ffb_sink_;
+
+    // 6a. feature:F7 — route the AD's steering to the servo when SOMEONE ELSE
+    // owns the lateral domain.
+    //
+    // The servo must track the LATERAL OWNER's command. Who physically holds the
+    // device is a separate question, and in the split configurations the two are
+    // different: VirtualDriver owns lateral but runs input_type=stub, whose
+    // GetFFBSink() is nullptr, so VD has no sink to drive. ManualDrive is the one
+    // holding the wheel. Without this hop the target is simply never set —
+    // measured on the real G29: target_track enabled=true in the log, and the
+    // target-track force component |tt| = 0.0000 for the entire run.
+    //
+    // Two independent reasons it was dead, both of which this fixes by routing
+    // through the DEVICE HOLDER instead of the lateral owner:
+    //   1. VD is the non-integrator in that configuration, so its Step returns
+    //      before it would set the target at all (S2 output gate); worse, the
+    //      falling edge actively sets SetSteerTarget(0.0, false) and nothing
+    //      ever sets it again.
+    //   2. Even reaching that line, VD's ffb is nullptr (stub input).
+    // Fixing only the gate would therefore NOT have fixed this.
+    //
+    // NOTE this is why the forward split never showed the problem: not because
+    // the lateral owner and the device holder coincided there (they did not —
+    // VD was still sinkless), but because that configuration ships the servo
+    // DISABLED, so nobody was looking at it.
+    //
+    // Deliberately additive: the branch where ManualDrive DOES own lateral is
+    // left untouched, so single-controller ManualDrive scenarios (where the
+    // human steers and target-track drives the takeover detector) keep their
+    // existing behaviour bit for bit.
+    if (ffb && c.object_)
+    {
+        auto&     ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = c.object_->GetId();
+        if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
+        {
+            double owner_steering = 0.0;
+            if (ledger.ConsumeLateral(obj_id, owner_steering))
+            {
+                ffb->SetSteerTarget(owner_steering, true);
+                LOG_DEBUG("ManualDriveController[{}]: servo target <- lateral owner {} = {:.5f}",
+                          c.GetName(),
+                          ledger.OwnerName(obj_id, OwnedDomain::LATERAL),
+                          owner_steering);
+            }
+        }
+    }
+
     if (ffb)
     {
         ffb->Update(hvd, dt);
+
+        // 6b. feature:F7 RETURN PATH — publish the servo's intervention sample
+        // for the lateral owner's detector. Published AFTER Update() so it is
+        // this frame's force, not last frame's. The lateral owner cannot read it
+        // itself: it has no sink (see DomainOwnershipLedger's return-path note).
+        if (c.object_)
+        {
+            DomainOwnershipLedger::Instance().PublishInterventionSample(
+                c.object_->GetId(), ffb->GetInterventionSample());
+        }
     }
 
     // 7. Extract vehicle state from HVD
