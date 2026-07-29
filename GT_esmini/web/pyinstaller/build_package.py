@@ -86,6 +86,15 @@ CONFIG_FILES = [
         "GT_esmini/config/manual_drive_realwheel_split.json",
         "config/manual_drive_realwheel_split.json",
     ),
+    # _realwheel_reverse: the reverse split (steering is the AD's, pedals are the
+    # human's). Separate from _realwheel_split because the FFB target-track servo
+    # is ON here — with the AD steering, driving the physical wheel to the AD's
+    # commanded angle is the whole point, whereas in the forward split it would
+    # fight the driver for a domain the driver already holds.
+    (
+        "GT_esmini/config/manual_drive_realwheel_reverse.json",
+        "config/manual_drive_realwheel_reverse.json",
+    ),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 

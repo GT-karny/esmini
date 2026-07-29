@@ -411,6 +411,40 @@ void ControllerVirtualDriver::Step(double timeStep)
             object_->pos_.GetH(), object_->GetSpeed());
     }
 
+    // feature:F7 S3 — resolved ONCE per frame, up here, because it decides two
+    // separate things far apart in this function: whether the backend has to be
+    // re-synced (immediately below) and whether this controller may advance the
+    // body (the output gate further down).
+    const bool is_integrator =
+        DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
+
+    // A NON-integrator's own backend is never stepped, so it would otherwise
+    // stay frozen at the pose it was initialised with while somebody else drives
+    // the car. That matters because this controller SELF-LOCALIZES from the
+    // backend (see the long comment at the GetPose call below), so a frozen
+    // backend means the planner and driver model reason about a vehicle that is
+    // standing at the start line — and the steering command they publish to the
+    // bus is computed for that phantom.
+    //
+    // Measured before this sync existed, in the lateral=VirtualDriver /
+    // longitudinal=ManualDrive configuration: VD published ~0 steering for the
+    // whole run (-0.0001 rad) and the car left the lane by 1658 m while the
+    // ledger correctly reported lat=VD. The arbitration was right; the input to
+    // the planner was not.
+    //
+    // Safe to take object_->pos_ here precisely BECAUSE we are not integrating:
+    // the double-count hazard documented in ManualDriveCoordinator applies to an
+    // integrator that would then advance on top of an already-advanced pose. We
+    // only observe.
+    if (!is_integrator)
+    {
+        physics_backend_->SyncState(object_->pos_.GetX(),
+                                    object_->pos_.GetY(),
+                                    object_->pos_.GetZ(),
+                                    object_->pos_.GetH(),
+                                    object_->GetSpeed());
+    }
+
     // 1. Poll input + override decision
     InputFrame frame = input_source_->Poll(timeStep);
 
@@ -772,10 +806,10 @@ void ControllerVirtualDriver::Step(double timeStep)
     // advances the body; see DomainOwnershipLedger::IntegratorOf for the rule and
     // for why it is read from the ledger rather than inferred from Step order.
     // Everything above this point (planning, override, indicator FSM) still runs
-    // for a non-integrator, because its own commands are what S3 will merge in.
-    const bool is_integrator =
-        DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
-
+    // for a non-integrator, because its own commands are what the bus merges in.
+    // `is_integrator` was resolved at the top of Step (it also gates the backend
+    // re-sync there); do not recompute it here — one frame must not see two
+    // different answers.
     if (is_integrator && !was_domain_integrator_)
     {
         // Taking over integration. The backend has been frozen while another

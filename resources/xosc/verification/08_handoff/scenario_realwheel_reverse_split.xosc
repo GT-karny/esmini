@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — 実機ハンドル用（逆構成）: 横=VirtualDriver(AI) / 縦=ManualDrive(人)
+
+  ============================================================================
+  scenario_realwheel_split_md_vd.xosc の逆
+  ============================================================================
+      あちら: 横=人（ハンドル）      / 縦=AI（速度維持）
+      これ  : 横=AI（AI が操舵）     / 縦=人（アクセル・ブレーキ）
+
+  人はペダルだけを操作する。**ハンドルを回しても曲がらない**（それが正しい）。
+  AI が R≈49m のアークに沿って操舵し続ける。
+
+  台帳の帰結（宣言順に依存しない）:
+      lat=VirtualDriverController / lon=ManualDriveController
+      integrator=ManualDriveController   ← 縦の所有者が積分器になる規則
+
+  したがって前回とは**積分器が逆**になる。前回は VD が積分し MD の操舵を
+  バスから取り込んだ。今回は MD が積分し VD の操舵をバスから取り込む。
+  コマンドバスの両方向を通す構成である。
+
+  ============================================================================
+  このシナリオで同時に見る2つのこと
+  ============================================================================
+  (1) 逆構成そのものが成立するか
+        AI がカーブに追従して車線内を走り、人のペダルで加減速できる。
+        ハンドルを回しても進路が変わらない。
+
+  (2) カーブ途中で止めたときに舵が保持されるか（不具合修正の確認）
+        修正前は、停止すると舵が中立を通過して**反対側の全舵角**まで振れた
+        (実測 -0.1059 rad → +0.6058 rad)。修正後は保持される (→ -0.1038 rad)。
+        **カーブの途中でブレーキを踏んで完全に停止し、前輪の向きを見る。**
+
+  ============================================================================
+  縦は完全に人に渡してある
+  ============================================================================
+  VD は longitudinal を持たないので、VD の速度指令はバスに publish されず
+  破棄される。したがって AI の速度維持と人のブレーキが競合することはない。
+  Init の SpeedAction は**開始速度を与えるためだけ**のもの（30km/h から始まる）で、
+  以後の速度は完全に人のペダルで決まる。
+
+  ============================================================================
+  力（FFB）について
+  ============================================================================
+  **サーボは OFF。ハンドルに力は出ない。**
+
+  逆構成では AI が横を持つので、target_track を有効にするとサーボが実物の
+  ホイールを AI の指令舵角へ駆動する。停止時の舵振れ不具合が万一残っていた
+  場合、**ホイールが全舵角まで手の中で振り回される**ことになる。
+  「修正が効いているかを確かめる試験」で「修正が効いている前提の設定」を
+  使うのは順序が逆なので、まず力ゼロで挙動だけを見る。
+  サーボ ON は舵の保持が確認できてから別の回に回す。
+
+  ============================================================================
+  起動
+  ============================================================================
+  配布パッケージの手順書 REALWHEEL_REVERSE_TEST.md を参照。
+  ウィンドウ位置指定 (window 60 60 1280 720) を必ず付けること。
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-30T00:00:00"
+               description="feature:F7 real-wheel reverse demo: lateral=VirtualDriver / longitudinal=ManualDrive (physical G29 pedals)"
+               author="GT_esmini"/>
+   <ParameterDeclarations/>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/f7_curve_onset.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- 名前がクラス名そのものなのは必須。GT_GetVirtualDriverTelemetry は
+              Object::GetController() で「型ではなく名前」の一致で引くので、
+              別名を付けるとテレメトリが黙ってゼロ件になる。 -->
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_realwheel_split.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="4" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="10"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="175"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <!-- 開始速度を与えるだけ。VD は longitudinal を持たないので
+                    以後の速度は完全に人のペダルで決まる。 -->
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="8.333"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <!-- 前回と横縦が入れ替わっている点に注意。
+                    objectControllerRef であること（revMinor=3 では controllerRef は
+                    読まれない）。AssignControllerAction 側の activateLateral /
+                    activateLongitudinal は upstream の brace-init バグで横縦が
+                    入れ替わるので使用禁止。 -->
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="false" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="VirtualDriverController" lateral="true" longitudinal="false"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="ReverseSplitStory">
+         <Act name="ReverseSplitAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <!-- 180秒。止めて眺めて再発進する時間を確保する。 -->
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="180" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

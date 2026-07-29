@@ -1,0 +1,38 @@
+{
+    "_purpose": "feature:F7 — 逆構成の実機テスト用: 横=VirtualDriver(AI が操舵) / 縦=ManualDrive(人がペダル)。scenario_realwheel_reverse_split.xosc が ConfigFile プロパティで名指しするので、config/manual_drive.json も manual_drive_realwheel_split.json も書き換えない。前者(順構成)と分けてあるのは target_track の扱いが逆だから — 順構成では人が横を持つのでサーボは切るが、逆構成では AI が横を持つので**サーボこそが本題**（AI が切っている舵を実物のハンドルで感じる）。",
+
+    "_why_servo_on": "ffb.target_track_enabled=true。逆構成では VirtualDriver が横を持つので、サーボが実物のホイールを AI の指令舵角へ駆動する。これを切ると『AI の操舵を手で感じる』という本構成の目的そのものが確かめられない。起動直後からホイールが AI の舵に追従して動くのが**正常**であり、順構成(サーボ OFF)とは正常/異常の判定基準が逆になる点に注意。",
+
+    "_why_watchdog_on": "ffb.safety_* を明示的に有効化した。サーボが実物のホイールを駆動する構成なので、万一 AD 側の指令が飽和したときにホイールが全舵角まで手の中で駆動され続けることを機構で止める。target_track が有効なとき reachable cap は min(ffb.max_force=1.0, target_track_max_force=0.6) = 0.6 になるので、trips at |force| >= 0.6*0.95 = 0.570。実効力が 0.570 以上で 2.0 秒continuous続いたら走行を強制終了し力を落とす。2026-07-29 にユーザー本人の実機試験で発火を確認済みの機構。max_runtime_seconds=120 は無人放置に対する上限。",
+
+    "_ffb_enabled_is_inert": "NOTE: 最上位の ffb_enabled キーは parse されるが消費箇所がコードに存在せず、FFB を無効化しない。ここでは true にしてあるが、それは意図の表明であって機構ではない。力の有無を決めているのは target_track_enabled と、そもそもデバイスを開くのが ManualDrive の1つだけであるという構成上の事実。",
+
+    "input_type": "sdl2_wheel",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": true,
+    "input": {
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer",
+        "deadzone": 0.02
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json"
+    },
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "override": {
+        "enabled": false
+    },
+    "ffb": {
+        "target_track_enabled": true,
+        "target_track_kp": 4.0,
+        "target_track_kd": 0.35,
+        "target_track_max_force": 0.6,
+        "safety_max_saturation_seconds": 2.0,
+        "safety_max_runtime_seconds": 120.0,
+        "safety_saturation_ratio": 0.95
+    }
+}
