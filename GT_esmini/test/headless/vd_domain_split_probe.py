@@ -23,9 +23,15 @@ WHY A NON-ZERO STEERING SIGNATURE
 ---------------------------------
 With zero input you cannot tell "ManualDrive's steering never reached the road"
 apart from "it did, and it was zero". A constant 0.35 normalized steering into
-ManualDrive settles the wheel angle at about -0.213 deg; VirtualDriver driving
-the same road settles near -0.10 deg. The two are far enough apart to attribute
-lateral control from the wheel-angle column alone.
+ManualDrive settles the wheel angle at about -0.213; VirtualDriver driving the
+same road settles near -0.10. The two are far enough apart to attribute lateral
+control from the wheel-angle column alone.
+
+UNITS: those numbers are RADIANS, even though the csv column is labelled
+"[deg]". esmini passes obj->wheel_angle_ to the logger unconverted
+(playerbase.cpp) and that field is radians upstream (vehicle.cpp clamps it to
+MAX_WHEEL_ANGLE = 60*pi/180). Reading the column as degrees understates the
+angle by 57.3x: -0.213 rad is -12.2 deg.
 
 Usage (venv interpreter, absolute path):
   DriverScript/.venv/Scripts/python.exe GT_esmini/test/headless/vd_domain_split_probe.py \

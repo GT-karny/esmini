@@ -37,8 +37,13 @@ HANDOVER = HANDOFF_DIR / "scenario_full_handover_vd_to_md.xosc"
 
 # Wheel-angle signatures measured on f7_curve_onset.xodr road 4 (R~49 m arc).
 # Used to attribute lateral control, not as a pass/fail threshold on their own.
-MD_STEER_SIGNATURE_DEG = -0.213
-VD_STEER_SIGNATURE_DEG = -0.10
+# UNITS: RADIANS, despite the csv column being labelled "[deg]". esmini writes
+# obj->wheel_angle_ straight into that column with no conversion
+# (playerbase.cpp), and that field is radians upstream — vehicle.cpp clamps it
+# to MAX_WHEEL_ANGLE = 60*pi/180. Reading the column as degrees understates the
+# angle by 57.3x. -0.213 rad is -12.2 deg, not -0.213 deg.
+MD_STEER_SIGNATURE_RAD = -0.213
+VD_STEER_SIGNATURE_RAD = -0.10
 
 
 def case(outdir, name, source, swap, md_config=None, udp_steer=None):
@@ -118,8 +123,8 @@ def main():
             f"{r['lane_offset_tail_mean']:>14}{str(r['ratio_within_tolerance']):>10}"
         )
     print(
-        f"\nsignature reference: ManualDrive@0.35 = {MD_STEER_SIGNATURE_DEG} deg, "
-        f"VirtualDriver = {VD_STEER_SIGNATURE_DEG} deg"
+        f"\nsignature reference: ManualDrive@0.35 = {MD_STEER_SIGNATURE_RAD} rad, "
+        f"VirtualDriver = {VD_STEER_SIGNATURE_RAD} rad"
     )
     print(f"matrix written to {outdir / 'matrix.json'}")
     return 0

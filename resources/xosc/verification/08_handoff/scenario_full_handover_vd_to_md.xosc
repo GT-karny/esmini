@@ -22,7 +22,7 @@
     1アクション + MD を先に宣言 : 引き渡し失敗。ログは
         "Controller MD active on domains: Lateral & Longitudinal (mask=0x3)"
         と成功を告げるのに、車輪角は VD の -0.106 deg のまま MD の
-        -0.213 deg にならず、車はレーン追従を続ける。エラーは一切出ない。
+        -0.213（rad。csv 列名 [deg] は誤ラベル）にならず、車はレーン追従を続ける。エラーは一切出ない。
     1アクション + MD を後に宣言 : 挙動は切り替わる。ただし VD は active の
         まま残り control outputs も解放されない。FFB サーボが持ち主不在で
         回り続ける (この危険の詳細は scenario_domain_takeover_vd.xosc)。
