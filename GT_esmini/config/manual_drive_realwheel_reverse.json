@@ -7,9 +7,12 @@
 
     "_ffb_enabled_is_inert": "NOTE: 最上位の ffb_enabled キーは parse されるが消費箇所がコードに存在せず、FFB を無効化しない。ここでは true にしてあるが、それは意図の表明であって機構ではない。力の有無を決めているのは target_track_enabled と、そもそもデバイスを開くのが ManualDrive の1つだけであるという構成上の事実。",
 
+    "_auto_resume_button": "feature:F7 タスク(6)以降: 逆構成でも AUTO_RESUME（MANUAL→AUTO 復帰）をこの物理ボタンから読む。台帳のボタンバス（74814b61）はここが -1（未割り当て）だと機能しない — SDL2WheelInput::Poll の read_btn は btn_id>=0 のときしか ButtonBits::AUTO_RESUME を立てない。3 は manual_drive.json / virtual_driver.json の sdl2_auto_resume_button と同じ既定値（G29既定配置）。",
+
     "input_type": "sdl2_wheel",
     "physics_type": "real_vehicle",
     "ffb_enabled": true,
+    "auto_resume_button": 3,
     "input": {
         "transport_type": "udp",
         "port": 9100,
