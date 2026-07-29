@@ -772,6 +772,143 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
         return res("pass" if ok else "fail", detail, None if ok else offenders[0])
 
+    if kind == "domain_split_holds":
+        # feature:F7 S4 — asserts a per-domain split is actually holding:
+        # lateral driven by one controller, longitudinal by the other, with a
+        # single physics integrator underneath
+        # (docs/virtualdriver/domain_split_ownership.md).
+        #
+        # Three checks, and all three are needed. The first two attribute the
+        # two domains in OPPOSITE directions, so neither controller can satisfy
+        # both by taking everything — which is exactly the failure mode this
+        # scenario used to exhibit. The third is the guard against the
+        # "looks like it works" trap.
+        #
+        #   1. the reporting VirtualDriver is the integrator
+        #      (telemetry.domain_integrator)
+        #   2. LONGITUDINAL is VD's: speed RISES by at least `min_speed_gain`
+        #      after its minimum. Deliberately not "speed holds a target": VD's
+        #      mid/long planner is supposed to slow for the curve, so asserting a
+        #      constant target would assert something false about VD and fail a
+        #      correct run. What ManualDrive cannot do is the thing tested here —
+        #      it commands zero throttle under the stub config, so it can only
+        #      ever coast DOWN. Any sustained re-acceleration is therefore
+        #      powered, and only VD can be commanding it.
+        #   3. LATERAL is NOT VD's: |lane_offset| grows past `min_lane_departure`.
+        #      The road is a constant-radius arc, so a VD that owned lateral
+        #      would track the lane; departing proves the wheel is following the
+        #      other controller's command (zero, under the socket-free stub
+        #      config) rather than VD's lane-keeping.
+        #   4. reported speed and travelled path agree within `ratio_band`.
+        #      A state-stage merge (A writes the pose, B writes the speed field)
+        #      passes checks 1-3 and still produces a vehicle travelling 32%
+        #      faster than it reports, publishing the wrong speed to OSI. The
+        #      speed column alone cannot see it; this ratio can. Distance is the
+        #      SUM of per-frame segments (path length) — an endpoint-to-endpoint
+        #      chord reads low by sin(x)/x on a curve and would fail a healthy
+        #      run.
+        if not frames:
+            return res("skip", "no frames")
+
+        min_speed_gain = float(must.get("min_speed_gain", 2.0))
+        min_departure = float(must.get("min_lane_departure", 1.0))
+        band = must.get("ratio_band", [0.98, 1.02])
+        ratio_lo, ratio_hi = float(band[0]), float(band[1])
+
+        # Drop the frozen tail before anything else. Once the scenario's
+        # StopTrigger fires, ScenarioEngine stops stepping the controller but
+        # GT_GetVirtualDriverTelemetry keeps returning the LAST value, so the
+        # capture loop records hundreds of identical frames with a frozen
+        # sim_time. Those are not samples: left in, they dilute the speed and
+        # ratio statistics with one repeated instant. Keeping only the first
+        # frame of any repeated sim_time leaves exactly the live run.
+        seen_t: set[float] = set()
+        live = []
+        for i in range(len(frames)):
+            t = frames[i]["sim_time"]
+            if t in seen_t:
+                continue
+            seen_t.add(t)
+            live.append(i)
+
+        gated = [i for i in live if time_window_ok(frames[i]["sim_time"], must)]
+        if len(gated) < 2:
+            return res("skip", "fewer than 2 frames in time window")
+
+        # 1. integrator
+        non_integrator = [
+            i for i in gated if not bool(frames[i].get("domain_integrator", False))
+        ]
+        if non_integrator:
+            return res(
+                "fail",
+                f"domain_integrator false on {len(non_integrator)}/{len(gated)} gated frames "
+                "(the reporting VirtualDriver is not advancing the body)",
+                non_integrator[0],
+            )
+
+        # 2. longitudinal attribution
+        # ego state is nested under frame["ego"] in the VD telemetry record
+        speeds = [float(frames[i]["ego"]["speed"]) for i in gated]
+        k_min = min(range(len(speeds)), key=lambda k: speeds[k])
+        speed_min = speeds[k_min]
+        speed_gain = max(speeds[k_min:]) - speed_min  # recovery must come AFTER the dip
+        if speed_gain < min_speed_gain:
+            return res(
+                "fail",
+                f"speed rose only {speed_gain:.3f} m/s after its minimum "
+                f"{speed_min:.3f} m/s (need >= {min_speed_gain}); with ManualDrive "
+                "commanding zero throttle this looks like a coast-down, i.e. nobody "
+                "is driving the longitudinal domain",
+                gated[k_min],
+            )
+
+        # 3. lateral attribution — must NOT be VD's lane keeping
+        departures = [abs(float(frames[i]["ego"]["offset"])) for i in gated]
+        max_departure = max(departures)
+        if max_departure < min_departure:
+            return res(
+                "fail",
+                f"max |lane_offset| {max_departure:.3f} < {min_departure} — the vehicle is "
+                "still tracking the lane, so lateral is being driven by VirtualDriver, "
+                "not by the lateral owner",
+                gated[0],
+            )
+
+        # 4. reported speed vs travelled path
+        path = 0.0
+        for a, b in zip(gated, gated[1:]):
+            path += math.hypot(
+                float(frames[b]["ego"]["x"]) - float(frames[a]["ego"]["x"]),
+                float(frames[b]["ego"]["y"]) - float(frames[a]["ego"]["y"]),
+            )
+        span = float(frames[gated[-1]]["sim_time"]) - float(
+            frames[gated[0]]["sim_time"]
+        )
+        mean_reported = sum(speeds) / len(speeds)
+        if span <= 0 or mean_reported <= 0.5:
+            return res("skip", "window too short or vehicle not moving")
+        ratio = (path / span) / mean_reported
+        if not (ratio_lo <= ratio <= ratio_hi):
+            return res(
+                "fail",
+                f"travelled/reported speed ratio {ratio:.4f} outside [{ratio_lo}, {ratio_hi}] "
+                f"(travelled {path / span:.3f} m/s vs reported {mean_reported:.3f} m/s) — "
+                "the body and the speed field are not coming from one integrator",
+                gated[0],
+            )
+
+        return res(
+            "pass",
+            f"split holds over {len(gated)} live frames "
+            f"(t={frames[gated[0]]['sim_time']:.2f}..{frames[gated[-1]]['sim_time']:.2f}): "
+            f"integrator=VD; longitudinal=VD (speed re-accelerated {speed_gain:.3f} m/s "
+            f"after its {speed_min:.3f} m/s minimum, >= {min_speed_gain}); "
+            f"lateral!=VD (max |lane_offset| {max_departure:.3f} m >= {min_departure}); "
+            f"single integrator (travelled/reported ratio {ratio:.4f} in "
+            f"[{ratio_lo}, {ratio_hi}])",
+        )
+
     if kind == "vd_control_relinquished":
         # feature:F7 scenario-driven handover (docs/virtualdriver/
         # scenario_control_handoff_design.md §5.1). Asserts the ego's

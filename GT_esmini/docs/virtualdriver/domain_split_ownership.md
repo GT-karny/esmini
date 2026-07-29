@@ -2,7 +2,14 @@
 
 **対象**: `DomainOwnershipLedger`（`GT_esmini/{include,src}/gt_esmini/control/common/`）と、それを読む
 `ControllerManualDrive` / `ControllerVirtualDriver`。
-**状態**: S1 実装済み（所有権の記録と可視化のみ／挙動不変）。S2 以降はこの文書に追記する。
+**状態**: S1〜S4 実装済み。**横=ManualDrive / 縦=VirtualDriver は成立している。**
+
+| 段階 | 内容 | コミット |
+|---|---|---|
+| S1 | 所有台帳（記録と可視化のみ・挙動不変） | `6a593ee5` |
+| S2 | 出力ゲート（積分器を1つに絞り宣言順依存を消す） | `0b687381` |
+| S3 | コマンドバス（合流はコマンド段・積分は1回） | `5171c945` |
+| S4 | シナリオ資産を検証側に転換＋matcher＋回帰搭載 | 本コミット |
 
 ---
 
@@ -169,6 +176,30 @@ S1 で**入れていない**もの: 出力ゲート。この段階では台帳�
 
 ---
 
+## 4.1 積み残し（次に触る人へ）
+
+1. **`GT_GetVirtualDriverTelemetry` は型ではなく名前で引く。**
+   `Object::GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME)` は
+   `ctrl->GetName() == "VirtualDriverController"` の一致で探すので、シナリオが
+   VD コントローラに別名（例 `"VD"`）を付けると**テレメトリが黙ってゼロ件になる**。
+   バッチは `no VirtualDriver telemetry captured` で落ちるだけで、原因が名前だとは
+   わからない。実際 S4 でこれを踏み、資産側をクラス名に改名して回避した。
+   **本筋の修正は `obj->controllers_` を dynamic_cast で走査して型で引くこと。**
+   GT 側（`GT_esminiLib.cpp`）だけで閉じるので R1 に抵触しない。未実施。
+
+2. **活性化を伴わない実行中の積分器交代**（`ManualDriveCoordinator.cpp` の
+   KNOWN LIMITATION）。引き継ぎ辺で `object_->pos_` から再同期するが、その時点の
+   `object_->pos_` にはそのフレーム分のシナリオ側の前進が既に入っていることがあり、
+   二重計上になりうる（S2 で実測した比 1.05 と同型）。静的な分割では積分器が
+   走行中に替わらないので現行資産では到達しない。
+
+3. **FFB の実機確認。** 非積分に転じる辺で FFB を解放しているが、ヘッドレスでは
+   `SDLFFBSink` がそもそもコンパイルされない（`GT_ENABLE_SDL2` 既定 OFF）ため、
+   恒久テストが担保するのは**制御フローがそこに到達したこと**までである。
+   「実機ホイールのトルクがゼロになった」は主張できない。一次証拠は実機で1回取る。
+
+---
+
 ## 5. 検証のしかた
 
 ```powershell
@@ -192,3 +223,42 @@ VirtualDriver の **≈ -0.10 deg** の差で横の帰属を読む。
 
 **宣言順を入れ替えた対を必ず両方走らせる。** 片方だけ緑なのは偶然であり、
 実装が順序に依存している証拠である。
+
+### 5.1 恒久ゲート（S4）
+
+`scenario_split_domain_md_vd.xosc` は `scenario_handoff_batch.yaml` に載っており、
+`run_regression_gate.ps1` の Step 2.8 で毎回走る（回帰ゲート 25/25 のうちの1本）。
+matcher は `domain_split_holds`（`web/backend/services/vd_metrics.py`）。
+
+matcher は **2つのドメインを逆方向に帰属させる**ので、どちらか一方が両ドメインを
+総取りした状態では通らない:
+
+| 検査 | 主張 | 実測 |
+|---|---|---|
+| `domain_integrator` | 報告元 VD が積分している | 全フレーム true |
+| 縦=VD | ゼロスロットルでは不可能な再加速 | 最小 9.762 → +4.409 m/s |
+| 横≠VD | 定曲率アークから逸脱 | max abs(lane_offset) 12.492 m |
+| 単一積分器 | 実移動/報告速度 の比 | 1.0013（帯 0.98-1.02） |
+
+**縦の判定に「目標速度を維持」を使ってはならない。** VD の mid/long プランナは
+カーブ手前で減速するのが正しい挙動なので、目標維持を要求すると VD について
+偽の主張をすることになり、正しい run が落ちる。ManualDrive にできないのは
+**再加速**（stub 構成ではスロットル 0 なので惰行して下がる一方）であり、
+そこを突くのが正しい判別。
+
+**負の対照を取ってある**（計器が対象を代表することの確認）:
+
+```
+scenario_split_domain_md_vd   PASS
+scenario_deactivate_vd        FAIL  max abs(lane_offset) 0.000 < 1.0 （VD が横を持ち車線追従）
+scenario_domain_takeover_vd   FAIL  再加速 0.102 m/s < 2.0
+```
+
+同じ matcher が分割していないシナリオでは**それぞれ正しい理由で落ちる**。
+
+### 5.2 テレメトリの凍結フレーム（罠）
+
+StopTrigger 後も `GT_GetVirtualDriverTelemetry` は最後の値を返し続けるため、
+capture ループは**同一 sim_time の凍結フレームを数百件記録する**（400 frames 中
+約 240 件）。統計に混ぜると1瞬間の値で希釈される。matcher は sim_time の重複を
+落として live 区間だけを見る（加えて expectations 側で `before: 8.0` を張っている）。
