@@ -97,6 +97,10 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         if (frame.pedal_steer)
         {
             ledger.PublishDeviceAxis(obj_id, frame.pedal_steer->steering);
+            // feature:F7 RETURN PATH — AUTO_RESUME. Same "device holder
+            // publishes unconditionally" reasoning as the axis above; see
+            // DomainOwnershipLedger.hpp.
+            ledger.PublishDeviceButtons(obj_id, frame.pedal_steer->buttons);
         }
 
         if (ledger.IsIntegrator(obj_id, &c))

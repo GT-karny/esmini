@@ -163,6 +163,21 @@ public:
     void PublishDeviceAxis(int object_id, double axis);
     bool ConsumeDeviceAxis(int object_id, double& axis) const;
 
+    // ---- RETURN PATH: raw device buttons (feature:F7 AUTO_RESUME) ------------
+    //
+    // Same reasoning and same shape as PublishDeviceAxis, for the same reason:
+    // OverrideManager::Update() reads its AUTO_RESUME rising edge from
+    // input.pedal_steer->buttons, which is THIS controller's own Poll()
+    // result. A lateral owner with no device of its own (VirtualDriver,
+    // input_type=stub) never sees the physical AUTO_RESUME button — MANUAL is
+    // then a one-way trip: the latch fires (residual crosses the bus fine) but
+    // nothing can ever request a return to AUTO. Published unconditionally
+    // (level state each frame, not an edge — rising-edge detection stays
+    // entirely inside OverrideManager, unchanged) by whoever physically holds
+    // the device.
+    void PublishDeviceButtons(int object_id, unsigned int buttons);
+    bool ConsumeDeviceButtons(int object_id, unsigned int& buttons) const;
+
     // ---- RETURN PATH: force-feedback intervention sample ---------------------
     //
     // The command bus above carries commands OUTWARD (owner -> integrator). This
@@ -223,6 +238,10 @@ private:
         // Return path: raw device axis (see PublishDeviceAxis).
         double device_axis           = 0.0;
         bool   device_axis_published = false;
+
+        // Return path: raw device buttons (see PublishDeviceButtons).
+        unsigned int device_buttons           = 0;
+        bool         device_buttons_published = false;
     };
 
     const Slot* Find(int object_id, OwnedDomain domain) const;

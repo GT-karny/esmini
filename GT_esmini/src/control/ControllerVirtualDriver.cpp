@@ -479,6 +479,25 @@ void ControllerVirtualDriver::Step(double timeStep)
         }
     }
 
+    // 1b. feature:F7 RETURN PATH — AUTO_RESUME button. override_mgr_.Update()
+    // (immediately below) reads its AUTO_RESUME rising edge from
+    // frame.pedal_steer->buttons — THIS controller's own Poll() result. Under
+    // the shipped stub config that is always 0, so the driver's physical
+    // AUTO_RESUME press (read by ManualDrive, the device holder) never
+    // reached here: MANUAL was a one-way trip in the reverse split — the
+    // residual latch could fire (1a fixes that) but nothing could ever
+    // request AUTO back. Merge in the device holder's raw button state before
+    // Update() sees it; rising-edge detection stays entirely inside
+    // OverrideManager, unchanged.
+    if (!ffb && frame.pedal_steer)
+    {
+        unsigned int device_buttons = 0;
+        if (DomainOwnershipLedger::Instance().ConsumeDeviceButtons(object_->GetId(), device_buttons))
+        {
+            frame.pedal_steer->buttons |= device_buttons;
+        }
+    }
+
     override_mgr_.Update(frame, timeStep);
     const bool lat_manual = override_mgr_.IsLateralManual();
     const bool lon_manual = override_mgr_.IsLongitudinalManual();
@@ -917,6 +936,48 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
         telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
 
+        // feature:F7 RETURN PATH — same reason driver.steer needed its own
+        // line above: THIS is the branch a non-integrating lateral owner
+        // (VirtualDriver in the reverse split) actually takes every frame —
+        // the ffb.* population 60-odd lines below (after "5. Physics step")
+        // is genuinely unreachable here. Without this, ffb.target_active sat
+        // frozen at its default (false) for the WHOLE run regardless of
+        // whether the device holder's servo was really active — a reviewer
+        // watching this telemetry in the field (exactly what the real-machine
+        // debug session was for) would see target_active=false forever, with
+        // no way to distinguish "the servo genuinely released" from "this
+        // field never updates here". Same bus, same guard as 1a/1b.
+        if (ffb)
+        {
+            const FfbInterventionSample s   = ffb->GetInterventionSample();
+            telemetry_.ffb_target_active    = s.active;
+            telemetry_.ffb_commanded_force  = s.commanded_force;
+            telemetry_.ffb_position_error   = s.position_error;
+            telemetry_.ffb_target_norm      = s.target_norm;
+            telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+        }
+        else
+        {
+            FfbInterventionSample s;
+            if (DomainOwnershipLedger::Instance().IsOwner(object_->GetId(), this, OwnedDomain::LATERAL) &&
+                DomainOwnershipLedger::Instance().ConsumeInterventionSample(object_->GetId(), s))
+            {
+                telemetry_.ffb_target_active          = s.active;
+                telemetry_.ffb_commanded_force        = s.commanded_force;
+                telemetry_.ffb_position_error         = s.position_error;
+                telemetry_.ffb_target_norm            = s.target_norm;
+                telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+            }
+            else
+            {
+                telemetry_.ffb_target_active    = false;
+                telemetry_.ffb_commanded_force  = 0.0;
+                telemetry_.ffb_position_error   = 0.0;
+                telemetry_.ffb_target_norm      = 0.0;
+                telemetry_.ffb_sample_effective_force = 0.0;
+            }
+        }
+
         scenarioengine::Controller::Step(timeStep);
         return;
     }
@@ -1026,11 +1087,37 @@ void ControllerVirtualDriver::Step(double timeStep)
     }
     else
     {
-        telemetry_.ffb_target_active    = false;
-        telemetry_.ffb_commanded_force  = 0.0;
-        telemetry_.ffb_position_error   = 0.0;
-        telemetry_.ffb_target_norm      = 0.0;
-        telemetry_.ffb_sample_effective_force = 0.0;
+        // feature:F7 RETURN PATH. This controller has no sink of its own
+        // (input_type=stub in the reverse split) — before this, ffb.* was
+        // UNCONDITIONALLY zeroed here, which made ffb.target_active
+        // structurally incapable of ever reading true for this controller,
+        // regardless of whether the servo on the device holder's end was
+        // actually active. A reviewer reading this telemetry in the field
+        // (this is exactly what the real-machine debug session was meant to
+        // watch) would see target_active=false forever and have no way to
+        // tell "the servo genuinely released" from "this field never worked
+        // here" — the same shape of telemetry gap 1a fixes for the detector's
+        // OWN input and the earlier non-integrator driver.steer fix closed.
+        // Same bus, same guard as 1a: only meaningful while this controller
+        // owns lateral (same reasoning as there).
+        FfbInterventionSample s;
+        if (DomainOwnershipLedger::Instance().IsOwner(object_->GetId(), this, OwnedDomain::LATERAL) &&
+            DomainOwnershipLedger::Instance().ConsumeInterventionSample(object_->GetId(), s))
+        {
+            telemetry_.ffb_target_active          = s.active;
+            telemetry_.ffb_commanded_force        = s.commanded_force;
+            telemetry_.ffb_position_error         = s.position_error;
+            telemetry_.ffb_target_norm            = s.target_norm;
+            telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+        }
+        else
+        {
+            telemetry_.ffb_target_active    = false;
+            telemetry_.ffb_commanded_force  = 0.0;
+            telemetry_.ffb_position_error   = 0.0;
+            telemetry_.ffb_target_norm      = 0.0;
+            telemetry_.ffb_sample_effective_force = 0.0;
+        }
     }
     // feature:F7 — override-latch diagnostics. Real-machine "why didn't it
     // fire" observability: without this, diagnosing a missed latch required

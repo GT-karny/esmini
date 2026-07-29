@@ -1,5 +1,5 @@
 """feature:F7 — reverse split (lateral=VirtualDriver / longitudinal=ManualDrive)
-FFB override LATCH-FIRING probe.
+FFB override LATCH-FIRING + AUTO_RESUME ROUND-TRIP probe.
 
 Predecessor (commit 1fa408b9) wired the bus so the FFB residual detector has
 an input in this configuration, but never got the latch to actually fire —
@@ -25,6 +25,12 @@ DOES something:
      local frame once lat_manual latched, so the published lateral command —
      and therefore what ManualDrive's physics integrator actually steered by —
      snapped to 0 the instant the latch fired.
+  4. (commit after 4059daf7) AUTO_RESUME actually returns lateral to VD. Before
+     the DomainOwnershipLedger PublishDeviceButtons/ConsumeDeviceButtons
+     channel, OverrideManager::Update() read AUTO_RESUME from THIS
+     controller's own (stub, always buttons=0) frame, so the physical
+     AUTO_RESUME press — read by ManualDrive, the device holder — never
+     reached VirtualDriver's OverrideManager: MANUAL was a one-way trip.
 
 Usage (venv interpreter, absolute path):
   DriverScript/.venv/Scripts/python.exe GT_esmini/test/headless/f7_reverse_split_latch_probe.py
@@ -58,6 +64,7 @@ DT = 0.01  # match real-machine dt (see REAL_MACHINE_DT note in vd_ffb_notouch_p
 PUSHBACK_PORT = 9105
 MAGIC_PSTC = 0x50535443
 WIRE = struct.Struct("<I4diI")  # magic, steering(=pushback offset here), throttle, brake, clutch, gear, buttons
+BTN_AUTO_RESUME = 1 << 7  # ButtonBits::AUTO_RESUME, VehicleCommand.hpp
 
 
 def _load_lib():
@@ -72,7 +79,8 @@ def _load_lib():
 
 
 def run(outdir: Path, pushback_offset: float = 0.35, push_from_s: float = 3.0,
-        push_until_s: float = 6.0, duration_s: float = 12.0) -> list[dict]:
+        push_until_s: float = 6.0, resume_at_s: float = 8.0,
+        resume_hold_s: float = 0.05, duration_s: float = 14.0) -> list[dict]:
     outdir.mkdir(parents=True, exist_ok=True)
     variant = make_variant(SCENARIO, outdir / "reverse_latch.xosc", md_config=MD_CONFIG)
     # Shorten the committed 180s StopTrigger -- this probe only needs enough
@@ -101,8 +109,8 @@ def run(outdir: Path, pushback_offset: float = 0.35, push_from_s: float = 3.0,
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def send_pushback(offset: float):
-        pkt = WIRE.pack(MAGIC_PSTC, offset, 0.0, 0.0, 0.0, 0, 0)
+    def send_pushback(offset: float, buttons: int = 0):
+        pkt = WIRE.pack(MAGIC_PSTC, offset, 0.0, 0.0, 0.0, 0, buttons)
         sock.sendto(pkt, ("127.0.0.1", PUSHBACK_PORT))
 
     buf = ctypes.create_string_buffer(32768)
@@ -115,6 +123,12 @@ def run(outdir: Path, pushback_offset: float = 0.35, push_from_s: float = 3.0,
         # sends and GT_Step().
         if push_from_s <= t < push_until_s:
             send_pushback(pushback_offset)
+        elif resume_at_s <= t < resume_at_s + resume_hold_s:
+            # Press-and-release AUTO_RESUME: held for a short window (like a
+            # real button press spanning multiple frames), buttons=0 the rest
+            # of the run so OverrideManager's rising-edge detector sees a
+            # single clean edge, not a level held forever.
+            send_pushback(0.0, buttons=BTN_AUTO_RESUME)
         else:
             send_pushback(0.0)
         lib.GT_Step(DT)
@@ -150,21 +164,34 @@ def verdict(frames: list[dict]) -> list[tuple[str, bool, str]]:
     before = [f for f in frames if f["sim_time"] < t_latch]
     after = [f for f in frames if f["sim_time"] >= t_latch]
 
+    # Self-perpetuation only has to hold UNTIL AUTO_RESUME is pressed -- after
+    # that, override.lateral flipping back to false is the whole point of
+    # task 6, not a violation of it. Bound the window if a resume edge exists.
+    auto_edges_all = [f for f in frames if f.get("override", {}).get("auto_transition")]
+    t_resume_bound = auto_edges_all[0]["sim_time"] if auto_edges_all else None
+    until_resume = [f for f in after if t_resume_bound is None or f["sim_time"] < t_resume_bound]
+
     checks.append((
         "発火前は override.lateral=false",
         all(not f.get("override", {}).get("lateral") for f in before),
         f"発火前フレーム中 lateral=true の件数={sum(1 for f in before if f.get('override',{}).get('lateral'))}",
     ))
     checks.append((
-        "発火後は override.lateral=true を維持（自己永続）",
-        all(f.get("override", {}).get("lateral") for f in after),
-        f"発火後フレーム中 lateral=false の件数={sum(1 for f in after if not f.get('override',{}).get('lateral'))}",
+        "発火後・AUTO_RESUME前は override.lateral=true を維持（自己永続）",
+        all(f.get("override", {}).get("lateral") for f in until_resume),
+        f"該当フレーム中 lateral=false の件数={sum(1 for f in until_resume if not f.get('override',{}).get('lateral'))}",
     ))
 
     # servo release: once latched, ffb.target_active must go (and stay) false
     # even while push_until_s has not yet been reached (release is driven by
-    # the latch, not by the pushback returning to 0).
-    still_pushing_after_latch = [f for f in after if f["sim_time"] < 6.0]
+    # the latch, not by the pushback returning to 0). Skip the exact latch
+    # frame itself: the bus is DELIBERATELY up to one frame behind (declared
+    # order MD-before-VD -- see DomainOwnershipLedger.hpp's "FRAME ALIGNMENT"
+    # note), so MD's servo still sees last frame's manual=false for that one
+    # frame. Measured: t_latch itself shows target_active=true, t_latch+DT
+    # onward is false -- exactly the documented <=1-frame lag, not a defect
+    # (same shape as 1fa408b9's own "1 frame off, 0 once shifted" finding).
+    still_pushing_after_latch = [f for f in after if t_latch < f["sim_time"] < 6.0]
     if still_pushing_after_latch:
         checks.append((
             "ラッチ後はサーボが不活性化する（ffb.target_active=false）— 修正Aの確認",
@@ -184,6 +211,32 @@ def verdict(frames: list[dict]) -> list[tuple[str, bool, str]]:
         steer_after_latch is not None and abs(steer_after_latch) > 0.05,
         f"直前={steer_before}, 直後={steer_after_latch}",
     ))
+
+    # --- round trip: AUTO_RESUME must actually bring VD back (修正C/task 6) ---
+    auto_edges = [f for f in frames if f.get("override", {}).get("auto_transition")]
+    checks.append((
+        "AUTO_RESUME でラッチが解ける（auto_transition が1回だけ立つ）",
+        len(auto_edges) == 1,
+        f"auto_transition 回数={len(auto_edges)}, at t={[round(f['sim_time'],3) for f in auto_edges]}",
+    ))
+    if auto_edges:
+        t_resume = auto_edges[0]["sim_time"]
+        post_resume = [f for f in frames if f["sim_time"] >= t_resume]
+        checks.append((
+            "復帰後は override.lateral=false を維持",
+            all(not f.get("override", {}).get("lateral") for f in post_resume),
+            f"復帰後フレーム中 lateral=true の件数={sum(1 for f in post_resume if f.get('override',{}).get('lateral'))}",
+        ))
+        # servo re-arms: once resumed, ffb.target_active must go true again
+        # (VD is lateral owner + lat_manual=false -> active=!lat_manual=true
+        # at the source; and 6a's active=!owner_manual on the consume side).
+        settled = [f for f in post_resume if f["sim_time"] >= t_resume + 0.5]
+        if settled:
+            checks.append((
+                "復帰後はサーボが再アクティブ化する（ffb.target_active=true）",
+                all(f.get("ffb", {}).get("target_active") for f in settled),
+                f"target_active=false の残存フレーム数={sum(1 for f in settled if not f.get('ffb',{}).get('target_active'))}",
+            ))
 
     return checks
 

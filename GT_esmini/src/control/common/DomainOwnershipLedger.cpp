@@ -208,6 +208,24 @@ bool DomainOwnershipLedger::ConsumeDeviceAxis(int object_id, double& axis) const
     return true;
 }
 
+void DomainOwnershipLedger::PublishDeviceButtons(int object_id, unsigned int buttons)
+{
+    ObjectSlots& slots               = objects_[object_id];
+    slots.device_buttons             = buttons;
+    slots.device_buttons_published   = true;
+}
+
+bool DomainOwnershipLedger::ConsumeDeviceButtons(int object_id, unsigned int& buttons) const
+{
+    auto it = objects_.find(object_id);
+    if (it == objects_.end() || !it->second.device_buttons_published)
+    {
+        return false;
+    }
+    buttons = it->second.device_buttons;
+    return true;
+}
+
 const void* DomainOwnershipLedger::IntegratorOf(int object_id) const
 {
     if (const Slot* lon = Find(object_id, OwnedDomain::LONGITUDINAL); lon && lon->owner)
