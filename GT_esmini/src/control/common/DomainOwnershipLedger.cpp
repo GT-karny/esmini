@@ -108,6 +108,24 @@ std::string DomainOwnershipLedger::OwnerName(int object_id, OwnedDomain domain) 
     return (slot && slot->owner) ? slot->name : std::string();
 }
 
+const void* DomainOwnershipLedger::IntegratorOf(int object_id) const
+{
+    if (const Slot* lon = Find(object_id, OwnedDomain::LONGITUDINAL); lon && lon->owner)
+    {
+        return lon->owner;
+    }
+    if (const Slot* lat = Find(object_id, OwnedDomain::LATERAL); lat && lat->owner)
+    {
+        return lat->owner;
+    }
+    return nullptr;
+}
+
+bool DomainOwnershipLedger::IsIntegrator(int object_id, const void* controller) const
+{
+    return controller != nullptr && IntegratorOf(object_id) == controller;
+}
+
 std::string DomainOwnershipLedger::Describe(int object_id) const
 {
     auto name_or_none = [&](OwnedDomain domain) {
@@ -115,8 +133,19 @@ std::string DomainOwnershipLedger::Describe(int object_id) const
         return n.empty() ? std::string("<none>") : n;
     };
 
+    const void* integrator = IntegratorOf(object_id);
+    std::string integrator_name = "<none>";
+    if (integrator)
+    {
+        integrator_name = OwnerName(object_id, OwnedDomain::LONGITUDINAL);
+        if (integrator_name.empty() || OwnerOf(object_id, OwnedDomain::LONGITUDINAL) != integrator)
+        {
+            integrator_name = OwnerName(object_id, OwnedDomain::LATERAL);
+        }
+    }
+
     return "obj=" + std::to_string(object_id) + " lat=" + name_or_none(OwnedDomain::LATERAL) +
-           " lon=" + name_or_none(OwnedDomain::LONGITUDINAL);
+           " lon=" + name_or_none(OwnedDomain::LONGITUDINAL) + " integrator=" + integrator_name;
 }
 
 void DomainOwnershipLedger::Clear()

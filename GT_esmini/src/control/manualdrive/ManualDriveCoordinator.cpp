@@ -3,9 +3,11 @@
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
+#include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "Entities.hpp"
+#include "logger.hpp"
 
 namespace gt_esmini
 {
@@ -46,6 +48,61 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         }
     }
     c.last_cmd_ = cmd;
+
+    // 3a. feature:F7 S2 — output gate. Only the object's designated integrator
+    // advances the body; see DomainOwnershipLedger::IntegratorOf for the rule.
+    // The input poll, override judgment and command build above still run for a
+    // non-integrator: those are the commands S3 will merge into the integrator.
+    const bool is_integrator =
+        c.object_ && DomainOwnershipLedger::Instance().IsIntegrator(c.object_->GetId(), &c);
+
+    if (is_integrator && !c.was_domain_integrator_)
+    {
+        // Taking over integration from another controller mid-run, WITHOUT this
+        // controller having just been activated (Activate() seeds the edge, so
+        // that case never lands here). The backend has been frozen while the car
+        // moved, so resume from the object's pose rather than teleporting it
+        // back to where we last left off.
+        //
+        // KNOWN LIMITATION: object_->pos_ may already carry the scenario's own
+        // advance for this frame, in which case that advance is absorbed here and
+        // integrated a second time. Not reachable from the S2 scenarios — the
+        // integrator is fixed for the whole run under a static split, and the
+        // handover case is covered by the Activate() seeding — but it is the same
+        // double-count that produced the measured 1.05 ratio before that seeding
+        // existed. S3 removes the need for this path entirely.
+        c.physics_backend_->SyncState(c.object_->pos_.GetX(),
+                                      c.object_->pos_.GetY(),
+                                      c.object_->pos_.GetZ(),
+                                      c.object_->pos_.GetH(),
+                                      c.object_->GetSpeed());
+        LOG_INFO("ManualDriveController[{}]: took over integration ({})",
+                 c.GetName(),
+                 DomainOwnershipLedger::Instance().Describe(c.object_->GetId()));
+    }
+    else if (!is_integrator && c.was_domain_integrator_)
+    {
+        // Handing integration over. Release force feedback for the same reason
+        // Deactivate() does: the device holds the last commanded force as an
+        // infinite-duration effect and we are about to stop feeding it.
+        IFFBSink* released = c.input_source_->GetFFBSink();
+        if (!released) released = c.ffb_sink_;
+        if (released)
+        {
+            released->SetSteerTarget(0.0, false);
+            released->SetEnabled(false);
+        }
+        LOG_INFO("ManualDriveController[{}]: no longer integrating ({})",
+                 c.GetName(),
+                 DomainOwnershipLedger::Instance().Describe(c.object_->GetId()));
+    }
+    c.was_domain_integrator_ = is_integrator;
+
+    if (!is_integrator)
+    {
+        c.scenarioengine::Controller::Step(dt);
+        return;
+    }
 
     // 4. Resync physics backend on AUTO→MANUAL transition to prevent coordinate jump
     if (c.override_mgr_.JustTransitionedToManual() && c.object_)

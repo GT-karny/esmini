@@ -74,6 +74,30 @@ public:
     const void* OwnerOf(int object_id, OwnedDomain domain) const;
     std::string OwnerName(int object_id, OwnedDomain domain) const;
 
+    /// The one controller allowed to advance this object's body this frame.
+    ///
+    /// Every GT controller carries its own physics backend, so "both may write"
+    /// means two independently integrated bodies race to stamp object->pos_ and
+    /// the last one to Step() wins the whole vehicle. Exactly one integrator has
+    /// to be picked, and picking it from the ledger (rather than from Step order)
+    /// is what makes the outcome independent of declaration order.
+    ///
+    /// Rule, in order:
+    ///   1. the LONGITUDINAL owner, if any;
+    ///   2. otherwise the LATERAL owner, if any;
+    ///   3. otherwise nobody.
+    ///
+    /// Longitudinal wins because pose advance is dominated by speed and because
+    /// HVDStateApplier writes pose and speed together: keeping both from one body
+    /// is what holds reported speed and travelled distance consistent. Splitting
+    /// them is the documented 1.32-ratio failure this whole design exists to
+    /// avoid.
+    ///
+    /// A controller that is Active() but owns nothing — which upstream defect A
+    /// makes reachable — is not the integrator and must not write.
+    const void* IntegratorOf(int object_id) const;
+    bool        IsIntegrator(int object_id, const void* controller) const;
+
     /// Human-readable one-liner, e.g. `obj=0 lat=MD lon=VD`. Used for the
     /// per-frame debug trace; unowned domains render as `<none>`.
     std::string Describe(int object_id) const;

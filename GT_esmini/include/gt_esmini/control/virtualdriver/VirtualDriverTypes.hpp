@@ -222,6 +222,15 @@ struct VirtualDriverTelemetry
     // teardown. See docs/virtualdriver/scenario_control_handoff_design.md §5.1.4.
     bool vd_active = false;
 
+    // feature:F7 S2 — true while this controller is the object's designated
+    // physics integrator (DomainOwnershipLedger::IntegratorOf). Distinct from
+    // vd_active: under a per-domain split a controller is legitimately active,
+    // planning every frame, and still not the one advancing the body. Without
+    // this field that state is indistinguishable from "driving normally" in the
+    // telemetry, which is precisely the confusion the split-domain work exists
+    // to remove.
+    bool domain_integrator = false;
+
     // feature:F7 mode-transition edges. True only on the single frame the
     // AUTO<->MANUAL flip occurred, so the web overlay / logging pipeline can
     // record a "human took over" or "resumed AD" event without diffing the

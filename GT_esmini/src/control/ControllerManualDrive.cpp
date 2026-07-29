@@ -224,6 +224,15 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
         DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
         LOG_INFO("ManualDriveController[{}]: ownership after activate — {}",
                  GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+
+        // feature:F7 S2 — seed the integrator edge here so Step() does NOT treat
+        // the first frame after activation as a take-over. SetInitialState above
+        // has already seeded the backend from the object pose; letting Step()
+        // resync as well would read object_->pos_ a second time, and by then the
+        // scenario may have advanced it for this frame — which the backend would
+        // then integrate on top of, moving the vehicle twice in one frame.
+        // (Measured: a clean 2x position step at the handover instant, ratio 1.05.)
+        was_domain_integrator_ = DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
     }
 
     return rc;

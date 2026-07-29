@@ -366,6 +366,11 @@ int ControllerVirtualDriver::Activate(const ControlActivationMode (&mode)[static
         DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
         LOG_INFO("VirtualDriverController[{}]: ownership after activate — {}",
                  GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+
+        // feature:F7 S2 — see ControllerManualDrive::Activate: seeding the edge
+        // here stops Step() from resyncing off an object pose the scenario may
+        // already have advanced this frame, which would integrate it twice.
+        was_domain_integrator_ = DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
     }
 
     return rc;
@@ -704,6 +709,57 @@ void ControllerVirtualDriver::Step(double timeStep)
         in_buttons, prev_buttons_, in_steering, prev_steering_, kIndicatorCancelAngle, hazard_on);
     prev_buttons_  = in_buttons;
     prev_steering_ = in_steering;
+
+    // 4c. feature:F7 S2 — output gate. Only the object's designated integrator
+    // advances the body; see DomainOwnershipLedger::IntegratorOf for the rule and
+    // for why it is read from the ledger rather than inferred from Step order.
+    // Everything above this point (planning, override, indicator FSM) still runs
+    // for a non-integrator, because its own commands are what S3 will merge in.
+    const bool is_integrator =
+        DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
+
+    if (is_integrator && !was_domain_integrator_)
+    {
+        // Taking over integration. The backend has been frozen while another
+        // controller moved the car, so it would otherwise resume from a stale
+        // pose and teleport the vehicle back.
+        physics_backend_->SyncState(object_->pos_.GetX(),
+                                    object_->pos_.GetY(),
+                                    object_->pos_.GetZ(),
+                                    object_->pos_.GetH(),
+                                    object_->GetSpeed());
+        LOG_INFO("VirtualDriverController[{}]: took over integration ({})",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+    }
+    else if (!is_integrator && was_domain_integrator_)
+    {
+        // Handing integration over. Release force feedback for the same reason
+        // TearDownControlOutputs() does: the device holds the last commanded
+        // force as an infinite-duration effect, and we are about to stop feeding
+        // it, so without this the wheel keeps pulling with nobody driving it.
+        if (ffb)
+        {
+            ffb->SetSteerTarget(0.0, false);
+            ffb->SetEnabled(false);
+        }
+        LOG_INFO("VirtualDriverController[{}]: no longer integrating ({})",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+    }
+    was_domain_integrator_ = is_integrator;
+
+    if (!is_integrator)
+    {
+        // Do not touch the body, the HVD stream, or force feedback — those belong
+        // to the integrator this frame. The base Step still runs so the
+        // controller remains a well-behaved scenario participant, and the
+        // telemetry clock keeps advancing so a frozen sim_time still means
+        // "inactive" rather than "active but not integrating".
+        telemetry_.sim_time = sim_time_;
+        telemetry_.domain_integrator = false;
+        scenarioengine::Controller::Step(timeStep);
+        return;
+    }
+    telemetry_.domain_integrator = true;
 
     // 5. Physics step
     osi3::HostVehicleData hvd = physics_backend_->StepPedalSteer(cmd, timeStep);
