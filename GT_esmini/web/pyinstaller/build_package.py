@@ -95,6 +95,23 @@ CONFIG_FILES = [
         "GT_esmini/config/manual_drive_realwheel_reverse.json",
         "config/manual_drive_realwheel_reverse.json",
     ),
+    # _headless_udp_override: the reverse split's headless counterpart. Feeds a
+    # synthesized push-back and the AUTO_RESUME/TAKE_MANUAL buttons over UDP so
+    # the latch and the return path can be exercised without a physical wheel.
+    # Developer harness, same standing as manual_drive_headless_udp.json above.
+    (
+        "GT_esmini/config/manual_drive_headless_udp_override.json",
+        "config/manual_drive_headless_udp_override.json",
+    ),
+    # virtual_driver_realwheel.json: the FORWARD real-wheel configuration, where
+    # VirtualDriver itself opens the G29 and the target-track servo drives the
+    # wheel to the AD-commanded angle. This is the config the physical override
+    # and the AUTO<->MANUAL toggle button are actually driven from, so shipping
+    # virtual_driver.json alone leaves the real-wheel feature unreachable.
+    (
+        "GT_esmini/config/virtual_driver_realwheel.json",
+        "config/virtual_driver_realwheel.json",
+    ),
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
