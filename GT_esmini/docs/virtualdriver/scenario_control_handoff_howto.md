@@ -10,8 +10,15 @@
 ## 0. 先に結論（3行）
 
 * `ActivateControllerAction lateral="false" longitudinal="false"` を Story の Event で撃つと VD が降りる。
-* **`controllerRef` は効かない。** どの Controller に効くかは「**最後に Assign したもの**」で決まる。
+* **コントローラは名前で狙える。** ただし**版で属性名が違う**:
+  `revMinor >= 3` なら `objectControllerRef`、`revMinor <= 2` なら `controllerRef`。
+  **どちらも書かなければ**「最後に Assign したもの」になる（§5-1）。
 * 降りた瞬間に FFB は止まり、介入ラッチは捨てられる。**再 Activate できる。**
+
+> **2026-07-30 訂正**: 本文書は当初「`controllerRef` は効かない／活性化は常に
+> `controllers_.back()` を採る」と書いていた。**これは誤りだった。**
+> 誤った理由と正しい仕組みは §5-1 に、当時そう読んでしまった構造は
+> そこの「なぜ誤ったか」に残してある。
 
 ---
 
@@ -73,7 +80,8 @@
 | `lateral` | **使う** | 横方向（操舵） |
 | `animation` | 使わない | VD は解釈しない |
 | `lighting` | 使わない | VD は解釈しない。灯火は `LightStateAction` / AutoLight 側 |
-| `controllerRef` | **書いても効かない** | §5-1 を必ず読むこと |
+| `objectControllerRef` | **revMinor >= 3 ではこれを使う** | 名前でコントローラを狙う。§5-1 |
+| `controllerRef` | **revMinor <= 2 ではこれを使う** | v1.3 以上では読まれた直後に上書きされる。§5-1 |
 
 ---
 
@@ -92,11 +100,12 @@
 残した側は VD が出し続ける。**VD 自体は Active のままなので Step() は回り続け、
 テレメトリも出続ける**（`vd_active` は全ドメインを手放したときに false になる）。
 
-> ⚠ **未確認**: 「lateral だけ false・longitudinal は true」という**片側構成そのものを
-> 実機／ゲートで走らせた記録は無い**。回帰ゲートが実行しているのは
-> **両方 false**（`scenario_deactivate_vd`）と、**別コントローラによるドメイン奪取**
-> （`scenario_domain_takeover_vd`）の 2 通りである。実装上は可能だが、
-> **片側構成を使うなら自分のシナリオで確認すること。**
+> **2026-07-30 更新**: 当初ここには「片側構成を実機／ゲートで走らせた記録は無い」と
+> 書いていたが、**現在は回帰ゲートに載っている。** Step 2.8 が実行するのは 3 本:
+> **両方 false**（`scenario_deactivate_vd`）、**別コントローラによるドメイン奪取**
+> （`scenario_domain_takeover_vd`）、そして **2 つのコントローラが 1 ドメインずつを
+> 保持し続ける片側構成**（`scenario_split_domain_md_vd`、付録A）。
+> 片側構成は実機でも 1 回確認済み（付録A）。
 
 ---
 
@@ -153,34 +162,73 @@ FFB の目標値（0 から再開）、`control_outputs_released_` フラグ（�
 
 ## 5. よくある間違い
 
-### 5-1. 【最重要】`controllerRef` を書けば効く、と思う → **効かない**
+### 5-1. 【最重要】版に合わない属性名で狙う → **名前が空になり `back()` に落ちる**
 
-このバージョンの esmini は `ActivateControllerAction` の `controllerRef` を**解釈しない**。
-`parseActivateControllerAction()` は属性を読むが、活性化は毎回
-`No controller name given for activation ... pick most recently assigned` をログに出し、
-`object_->controllers_.back()` を採る。**GT ビルドと素の esmini.exe の両方で確認済み**
-（GT のシナリオ sanitizer のせいではない）。
+コントローラは**名前で狙える**。ただし**属性名が版で変わる**。
 
-**⇒ 動く書き方**: 狙いたいコントローラを **`ObjectController` の並びで最後**に置く。
+`ScenarioReader.cpp` はまず `controllerRef` を読む（:2628）。そのあと
+**`revMinor >= 3` なら `objectControllerRef` で無条件に上書きする**（:2671）。
+つまり v1.3 以上のファイルに `controllerRef` **だけ**書くと、直後に空文字で
+上書きされて**名前が消える**。
+
+`OSCPrivateAction.cpp` の `ActivateControllerAction::Start`（:792）はこう分岐する:
+
+```cpp
+if (ctrl_name_.empty())
+{
+    controller_ = object_->controllers_.back();
+    LOG_WARN("... No controller name given for activation ... pick most recently assigned");
+}
+else
+{
+    controller_ = object_->GetController(ctrl_name_);   // ← 名前があれば名前で引く
+}
+```
+
+`controllers_.back()` は**名前を指定しなかったときのフォールバック**であって、
+「名前が効かない」という意味ではない。
+
+**⇒ 動く書き方**（版に合わせる）:
 
 ```xml
-<!-- 動く: VD を最後に Assign する -->
-<ObjectController>
-   <Controller name="TakeoverController"> ... </Controller>
-</ObjectController>
-<ObjectController>
-   <Controller name="VirtualDriverController"> ... </Controller>   <!-- ← 最後 -->
-</ObjectController>
+<!-- revMinor="3" の場合 -->
+<ActivateControllerAction objectControllerRef="VirtualDriverController"
+                          lateral="false" longitudinal="false"/>
 ```
 
 ```xml
-<!-- 動かない: ref で狙ったつもりになる -->
+<!-- revMinor="2" 以下の場合 -->
 <ActivateControllerAction controllerRef="VirtualDriverController"
                           lateral="false" longitudinal="false"/>
 ```
 
+```xml
+<!-- 落とし穴: revMinor="3" なのに controllerRef だけ書く
+     → 名前が空になり、最後に Assign したコントローラが黙って選ばれる -->
+<ActivateControllerAction controllerRef="VirtualDriverController" .../>
+```
+
 **症状**: 意図と別のコントローラが降りる／降ろしたつもりの VD が走り続ける。
 ログに `pick most recently assigned` が出ていたらこれ。
+**エラーにはならない**（警告のみ）ので気づきにくい。
+
+> #### なぜ当初「controllerRef は効かない」と書いてしまったか（歴史）
+>
+> 本文書は 2026-07-29 時点で「`controllerRef` は解釈されない。活性化は毎回
+> `controllers_.back()` を採る。GT ビルドと素の esmini.exe の両方で確認済み」と
+> 断定していた。**観測は正しく、結論が誤っていた。**
+>
+> 観測されたのは「v1.3 のシナリオに `controllerRef` を書いたら
+> `pick most recently assigned` が出て `back()` が選ばれた」という事実である。
+> ここから「`controllerRef` という属性は実装されていない」と一般化してしまった。
+> 実際には **:2671 の上書きによって名前が空になっていた**だけで、
+> `Start()` の `else` 側（名前で引く経路）は最初から存在していた。
+>
+> **誤読の構造**: `controllers_.back()` を採るコードパスを見て、それが
+> **唯一の**経路だと読んだ。同じ関数内の `else` 側を見ていない。
+> 「フォールバックを見て仕様だと結論する」は再発しやすい形なので記録しておく。
+> 版によって属性名が変わる仕様（:2628 と :2671 の二段読み）が、
+> この誤読を起こしやすくしている。
 
 ### 5-2. Init だけ書いて Story に Event を書かない
 
@@ -212,14 +260,15 @@ VD はこの 2 属性を解釈しない。灯火は `LightStateAction` と AutoL
 | ファイル | 何を通しているか |
 | :--- | :--- |
 | `resources/xosc/verification/08_handoff/scenario_deactivate_vd.xosc` | `lateral=false longitudinal=false` による**両ドメイン降格**。§1 の断片の出典 |
-| `resources/xosc/verification/08_handoff/scenario_domain_takeover_vd.xosc` | **別コントローラによるドメイン奪取**（OSC v1.3 の per-domain 降格経路）。§5-1 の `controllerRef` 注記の出典 |
-| `resources/xosc/verification/scenario_handoff_batch.yaml` | 上記 2 本のバッチ定義 |
+| `resources/xosc/verification/08_handoff/scenario_domain_takeover_vd.xosc` | **別コントローラによるドメイン奪取**（OSC v1.3 の per-domain 降格経路） |
+| `resources/xosc/verification/08_handoff/scenario_split_domain_md_vd.xosc` | **横=ManualDrive / 縦=VD の分担**（付録A）。§5-1 の版別属性名の実例でもある |
+| `resources/xosc/verification/scenario_handoff_batch.yaml` | 上記 3 本のバッチ定義 |
 | `GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml` | 期待値ベースライン |
 
 回帰ゲート **Step 2.8**（`scripts/run_regression_gate.ps1`）がこのバッチを実行し、
 ベースラインと突き合わせている。**読者はこの 2 ファイルを開けば動く実例が手に入る。**
 
-> **私が本文書のために自分で実行したもの**: **無い。**
+> **原著時点（2026-07-29 09:05）に本文書のために実行したもの**: 無い。以降の追記（付録A、§5-1 の訂正）は実行に基づく。
 > リリース前の最終ゲートが別担当により実行中で、ヘッドレス実行は
 > OSI の UDP ポート（48198 ほか）で衝突しうるため、**意図的に走らせていない。**
 > 代わりに (a) 断片をゲート実行対象ファイルからの逐語抜粋に限定し、
@@ -231,6 +280,9 @@ VD はこの 2 属性を解釈しない。灯火は `LightStateAction` と AutoL
 
 ## 7. 関連
 
+* **ドメイン別分担（横=人/縦=AI など）の正典**:
+  [`domain_split_ownership.md`](domain_split_ownership.md)
+  — 所有台帳・積分器の選び方・コマンドバス・upstream 欠陥の扱い。付録A はここへ委譲する。
 * 設計の記録: [`scenario_control_handoff_design.md`](scenario_control_handoff_design.md)
 * 実装: `GT_esmini/src/control/ControllerVirtualDriver.cpp`
   （`Activate` / `Deactivate` / `DeactivateDomains` / `TearDownControlOutputs`）
@@ -238,32 +290,92 @@ VD はこの 2 属性を解釈しない。灯火は `LightStateAction` と AutoL
 
 ---
 
-# 付録A. 【次バージョンの宿題】横=ManualDrive / 縦=VD は成立するか
+# 付録A. 横=ManualDrive / 縦=VD — **成立する**（2026-07-30 更新）
 
 **ユーザーからの設計質問**: 「横制御だけ ManualDriveController、縦制御だけ VD にしたら、
 反力制御はバグらないか」。
 
-## 結論を先に: **今の実装では、この構成はそもそもシナリオから作れない**
+## 結論: **成立する。実装済み・回帰搭載済み・実機確認済み。**
 
-反力がバグるかどうか以前の問題がある。**2 つのコントローラを別ドメインへ割り当てる
-指示が書けない。**
+> **この付録は当初「今の実装では、この構成はそもそもシナリオから作れない」と
+> 結論していた。それは誤りだった。** 誤りの根は §5-1 の
+> 「`controllerRef` は効かない」という誤読で、そこから
+> 「シナリオから活性化できるコントローラは実質 1 つだけ」を導いていた。
+> 実際には版に合った属性名（v1.3 なら `objectControllerRef`）を使えば
+> 2 つのコントローラを別ドメインへ個別に割り当てられる。
+> 当時の分析（下の「仮に割り当てられたとして」以降）は、**前提が外れただけで
+> 中身は今も有効**なので歴史として残す。
 
-§5-1 のとおり、この esmini は `ActivateControllerAction` の `controllerRef` を
-**解釈しない**。活性化は毎回 `object_->controllers_.back()`（＝最後に Assign した 1 つ）を
-採る。したがって:
+**設計の詳細は
+[`domain_split_ownership.md`](domain_split_ownership.md) が正典である。**
+本付録は経緯と使い方だけを扱う。
 
-* 「ManualDrive を lateral に、VD を longitudinal に」と 2 回撃っても、
-  **両方とも同じ 1 つのコントローラ**（最後に Assign したもの）に当たる。
-* シナリオから活性化できるコントローラは**実質 1 つだけ**である。
+### 動く書き方（`resources/xosc/verification/08_handoff/scenario_split_domain_md_vd.xosc` からの逐語抜粋）
 
-⇒ **この構成は現状「成立しない」。** 動くように書かない。
+```xml
+<!-- 2 つの ObjectController は両方保持される。並び順は結果を変えない。 -->
+<ObjectController>
+   <Controller name="ManualDriveController">
+      <Properties>
+         <Property name="esminiController" value="ManualDriveController"/>
+         <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+      </Properties>
+   </Controller>
+</ObjectController>
+<ObjectController>
+   <Controller name="VirtualDriverController">
+      <Properties>
+         <Property name="esminiController" value="VirtualDriverController"/>
+      </Properties>
+   </Controller>
+</ObjectController>
+```
 
-> ⚠ **未確認（重要な例外可能性）**: 上は**シナリオ経路**の話である。
-> ManualDrive は Web GUI / config からも選ばれる。**シナリオ以外の経路で
-> ManualDrive が活性化され、同時に VD がシナリオ活性化される**組み合わせが
-> 成立しうるかは**確認していない**。成立するなら以下の (2) 以降が現実の問題になる。
+```xml
+<!-- Init の中で、名前を指定して別々のドメインへ割り当てる（revMinor="3"） -->
+<PrivateAction>
+   <ControllerAction>
+      <ActivateControllerAction objectControllerRef="ManualDriveController"
+                                lateral="true" longitudinal="false"/>
+   </ControllerAction>
+</PrivateAction>
+<PrivateAction>
+   <ControllerAction>
+      <ActivateControllerAction objectControllerRef="VirtualDriverController"
+                                lateral="false" longitudinal="true"/>
+   </ControllerAction>
+</PrivateAction>
+```
 
-## 仮に割り当てられたとして、何が起きるか
+**コントローラ名をクラス名そのものにしてあるのは必須**である。
+`GT_GetVirtualDriverTelemetry` は `Object::GetController()` を**型ではなく名前**の
+一致で引くので、`"VD"` のような別名を付けるとテレメトリが黙ってゼロ件になる。
+
+> ⚠ **`AssignControllerAction` 側の `activateLateral` / `activateLongitudinal` は
+> 使ってはならない。** 横縦が入れ替わる。活性化は必ず `ActivateControllerAction` で行う。
+> 理由は `domain_split_ownership.md` の欠陥B。
+
+### 確認済みの範囲
+
+* **回帰ゲート Step 2.8** が `scenario_split_domain_md_vd.xosc` を毎回実行し、
+  `domain_split_holds` matcher が「縦=VD（ゼロスロットルでは不可能な再加速）」
+  「横≠VD（車線逸脱）」「単一積分器（実移動/報告速度 比 0.98-1.02）」を検査している。
+* **実機（G29）で確認済み**: 2026-07-29 23:40、横=ManualDrive / 縦=VirtualDriver。
+  ハンドルを切れば曲がり、手を離せば車線を外れ、その間も速度は AI が保った。
+  ログ `test_results/realwheel/realwheel_split_md_vd_20260729_2340.log`。
+  **ただし 1 シナリオ・G29 1 個体・31.6 秒の 1 走行**である。
+
+> ⚠ **未検証**: **逆構成（横=VD / 縦=ManualDrive）は実機で試していない。**
+> ヘッドレスでは成立を確認済み（`vd_reverse_split_probe.py`）だが、実機は未了。
+> 逆構成では VD が横を持つため、**停止時の舵の挙動がこの構成に当たる**
+> （その不具合自体は修正済みで、ヘッドレスでは保持を確認している）。
+
+---
+
+## 【歴史】以下は「割り当てられない」と考えていた時点の分析
+
+**前提（割り当てられない）は外れたが、中身の危険の指摘は今も有効である。**
+実際にどう解決したかは各節の末尾に追記した。
 
 ### (1) ドメイン部分解除そのものは**正しく設計されている**
 
@@ -316,22 +428,59 @@ ref_count を増やして同じハンドルを返す）。`SDL2WheelInput::Shutd
 どちらも**未確認**。特に「昨夜の個体で open が繊細だった」ことを踏まえると、
 **2 人目の open が失敗する可能性は排除できない**。
 
-## 成立させるなら — 設計の選択肢
+## 【歴史】当時挙げた設計の選択肢 — と、実際に採った道
 
-| 案 | 中身 | 評価 |
+| 案 | 中身 | 当時の評価 |
 | :--- | :--- | :--- |
-| **A. 入力ソースを共有する** | `SDL2WheelInput` を両コントローラの外に出し、1 インスタンスを共有（所有はプロセス側） | **本命。** デバイスも FFB シンクも 1 つになり、上の 1〜3 が原理的に消える。ただし所有権とライフタイムの再設計が要る |
-| **B. 所有権を明示的に移譲する** | 横のハンドオーバー時に、VD が持つ入力ソースを ManualDrive へ渡す | 変更は小さいが、**移譲の瞬間**に誰が FFB を持つかの取り決めが要る。移譲漏れが即「力が残る」になる |
-| **C. FFB シンクだけ共有する** | 入力は各自、FFB シンクのみ単一化 | 1 は消えるが 2（検出の二重化）が残る |
-| **D. 併存を禁止する** | 同一エンティティに VD と ManualDrive を同時 active にできないよう明示的に弾く | **最も安全で最も安い。** 成立しないものを成立しないと宣言する。上の質問への当面の答えとしてはこれで足りる |
+| **A. 入力ソースを共有する** | `SDL2WheelInput` を両コントローラの外に出し、1 インスタンスを共有 | 本命。デバイスも FFB シンクも 1 つになる。所有権とライフタイムの再設計が要る |
+| **B. 所有権を明示的に移譲する** | 横のハンドオーバー時に入力ソースを渡す | 変更は小さいが移譲漏れが即「力が残る」になる |
+| **C. FFB シンクだけ共有する** | 入力は各自、FFB シンクのみ単一化 | 1 は消えるが 2 が残る |
+| **D. 併存を禁止する** | 同一エンティティに VD と ManualDrive を同時 active にできないよう弾く | 最も安全で最も安い |
 
-**推奨**: 次バージョンで本当に「横=人・縦=AD」を提供したいなら **A**。
-そうでないなら **D** を入れて、今の「書けないが弾かれもしない」曖昧な状態を解消する。
+### 実際に採ったのは A〜D のどれでもない — **別解**
+
+実装は **(i) GT 側のドメイン所有台帳** + **(ii) 出力ゲートによる単一積分器** +
+**(iii) コマンド段での合流バス** という構成になった（S1〜S4、`domain_split_ownership.md`）。
+
+**なぜ A（入力ソース共有）に行かなかったか**: 危険の本体は「デバイスの二重オープン」
+ではなく「**2 つの独立した物理積分器が同じ車体を奪い合うこと**」だと分かったため。
+入力を共有しても、各コントローラが自前の `RealVehicleBackend` で姿勢を書き戻す限り
+「最後に Step した方が全ドメインを総取りする」構造は残る。
+積分器を 1 つに絞る方が根が深いところで効く。
+
+**D（併存禁止）を採らなくてよかった理由**: 併存は成立する。禁止していたら
+今回の機能そのものが作れなかった。
+
+**上の (1)〜(3) で挙げた危険がどうなったか**:
+
+| 当時の指摘 | 現在 |
+| :--- | :--- |
+| (1) 2 つの `SDLFFBSink` が同じホイールに力を出す窓 | **構成で消えている。** 実機構成では VD が `input_type=stub`（`GetFFBSink()` が nullptr）でデバイスに触れず、開くのは ManualDrive の 1 つだけ。さらに非積分側は S2 のフォーリングエッジで sim_time 0.000 に `SetEnabled(false)` される。**ただし担保できるのは制御フロー到達までで、実機トルクが物理的にゼロになったことは測っていない**（`SDLFFBSink::Update()` は周期ログを出さないので「ログが無い＝力が無い」は証拠にならない） |
+| (2) 2 つの `OverrideManager` が同じ軸を読む | 実機構成では VD 側が stub 入力なので二重に読まない。**両方が実デバイスを読む構成は未検証** |
+| (3) 軸プライミングの二重実行 | 同上。実機構成では発生しない |
 
 ## この付録で確かめたこと / 確かめていないこと
 
+* **確かめた（実行）**: per-domain 分担の成立（回帰 Step 2.8 が毎回検査）、
+  実機 1 走行での成立、逆構成のヘッドレス成立、停止時の舵保持（ヘッドレス）。
 * **確かめた（コード読解）**: ドメイン部分解除の分岐、teardown がデバイスを閉じないこと、
-  両コントローラが独立に入力ソースを生成すること、`controllerRef` が無視されること。
-* **確かめていない**: 実機での二重オープンの挙動、順序依存、
-  シナリオ以外の経路（GUI/config）で ManualDrive と VD が同時 active になれるか。
-  **いずれも実機デバイスを掴む検証が要るため、リリース作業中は実施していない。**
+  両コントローラが独立に入力ソースを生成すること、名前によるコントローラ解決（§5-1）。
+* **確かめていない**: **逆構成の実機**。**両方が実デバイスを掴む構成**（実機構成では
+  VD が stub なので発生しない）。シナリオ以外の経路（GUI/config）で
+  ManualDrive と VD が同時 active になれるか。実機トルクが物理的にゼロであること。
+
+## upstream の per-domain 解放について（未検証・断定しない）
+
+`OSCPrivateAction.cpp` の `>= osc v1.3` 分岐は、現職コントローラ `ctrl` を
+`GetControllerActiveOnDomainMask()` で**探し当てておきながら**、
+`DeactivateDomains()` は新参側の `controller_` に対して呼んでいるように読める。
+`ctrl` はその後どこでも読まれていない。
+
+**そう読めるが、GT 側でこの分岐の効果を実測してはいない。**
+今回の分担シナリオは 2 つのコントローラが別ドメインを取るため競合が起きず、
+この分岐を通らない。「upstream のバグである」と断定するには、
+この分岐を確実に通す構成での実測が要る（別途調査中）。
+
+GT 側は**この分岐の挙動に依存しない**設計になっている
+（所有台帳が last claimer wins で調停するため、現職が降りようが降りまいが結論は同じ）。
+したがって仮にこの読みが誤っていても、分担の成立には影響しない。

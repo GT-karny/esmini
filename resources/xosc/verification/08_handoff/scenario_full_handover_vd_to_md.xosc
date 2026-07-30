@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — VirtualDriver から ManualDrive への「丸ごと」引き渡し
+  (両ドメイン同時)。こちらは成立する。
+
+  同じディレクトリの scenario_split_domain_md_vd.xosc が
+  「横=MD / 縦=VD の分担は成立しない」ことの再現であるのに対し、
+  このファイルは成立するパターンの最小形を固定する。
+
+  ============================================================================
+  なぜ「VD を明示的に解放してから MD を活性化」の2アクションなのか
+  ============================================================================
+  1アクション (MD を lateral+longitudinal で活性化するだけ) でも書けるが、
+  OSC v1.3 以降ではそれだと現職 VD が降りない。
+  OSCPrivateAction.cpp:838 の per-domain 解放が、現職 ctrl ではなく
+  新参 controller_ に対して DeactivateDomains を呼んでいるためである
+  (stock esmini.exe + upstream コントローラ2つでも同一に再現)。
+
+  結果、両者が active のまま残り、毎フレーム後に Step した方が
+  姿勢を総取りする。実測 (f7_curve_onset.xodr, 8s, t=4 で引き渡し):
+
+    1アクション + MD を先に宣言 : 引き渡し失敗。ログは
+        "Controller MD active on domains: Lateral & Longitudinal (mask=0x3)"
+        と成功を告げるのに、車輪角は VD の -0.106 deg のまま MD の
+        -0.213（rad。csv 列名 [deg] は誤ラベル）にならず、車はレーン追従を続ける。エラーは一切出ない。
+    1アクション + MD を後に宣言 : 挙動は切り替わる。ただし VD は active の
+        まま残り control outputs も解放されない。FFB サーボが持ち主不在で
+        回り続ける (この危険の詳細は scenario_domain_takeover_vd.xosc)。
+    このファイルの2アクション : 宣言順に依存せず切り替わり、
+        VD の "control outputs released" が引き渡し時刻に出る。
+
+  下2つの走行結果は csv 803 行が完全一致する。つまり2アクション版は
+  「宣言順に頼らずに」同じ正しい挙動を得ている。
+
+  revMinor=2 + controllerRef の1アクションでも正しく切り替わる
+  (pre-1.3 分岐が現職を全ドメイン Deactivate するため) が、
+  objectControllerRef も per-domain 指定も使えなくなるので勧めない。
+
+  ============================================================================
+  観測のしかた
+  ============================================================================
+  ManualDrive は config/manual_drive_headless_stub.json (入力ゼロ) を使う。
+  つまり引き渡し後は「操舵ゼロ・スロットルゼロ」になる。road 4 は
+  半径約49mのアークなので、引き渡しが起きていれば車は t=4 以降まっすぐ
+  進んで車線を外れ、速度も惰行で落ちる。起きていなければレーン追従を
+  続ける。どちらかは lane_offset を見れば一目でわかる。
+
+  実行は build/GT_esmini/Release/GT_Sim.exe に通常どおり2本ハイフンの
+  オプションを渡す (XMLコメントに2本ハイフンは書けないのでここでは省く):
+
+      osc <このファイル> / headless / fixed_timestep 0.05 / csv_logger out.csv
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-29T00:00:00"
+               description="VirtualDriver verification: full (both-domain) handover VD to ManualDrive"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="HandoverAt" parameterType="double" value="4.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/f7_curve_onset.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- MD を先に宣言してある。1アクション版ならこの順で引き渡しが
+              失敗する配置であり、2アクション版が順序非依存であることを
+              このファイル自身が示している。 -->
+         <ObjectController>
+            <Controller name="MD">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+         <ObjectController>
+            <Controller name="VD">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="50"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="170"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="13.889"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="VD" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="HandoverStory">
+         <Act name="HandoverAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="HandoverManeuver">
+                  <!-- 順序が意味を持つ。先に現職を解放しないと、v1.3 では
+                       現職が降りないまま新参が乗る。 -->
+                  <Event name="ReleaseVD" priority="override">
+                     <Action name="ReleaseVDAction">
+                        <PrivateAction>
+                           <ControllerAction>
+                              <ActivateControllerAction objectControllerRef="VD" lateral="false" longitudinal="false"/>
+                           </ControllerAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="ReleaseAt" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="$HandoverAt" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="TakeMD" priority="override">
+                     <Action name="TakeMDAction">
+                        <PrivateAction>
+                           <ControllerAction>
+                              <ActivateControllerAction objectControllerRef="MD" lateral="true" longitudinal="true"/>
+                           </ControllerAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TakeAt" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="$HandoverAt" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="8" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

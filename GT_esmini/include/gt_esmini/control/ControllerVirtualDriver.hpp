@@ -118,6 +118,16 @@ private:
     void SetUpControlOutputs();
     void TearDownControlOutputs();
 
+    // feature:F7 S2 — true while this controller is the object's designated
+    // physics integrator (DomainOwnershipLedger::IsIntegrator). Only the
+    // integrator advances the body and writes object->pos_; a non-integrator
+    // that also integrated would race the real owner and hand the whole vehicle
+    // to whichever controller happened to Step() last. Kept as state so the
+    // transition can be handled: the backend is re-synced from the object pose
+    // when this controller takes over integration, since it has been standing
+    // still while someone else moved the car.
+    bool was_domain_integrator_ = false;
+
     // feature:F7 — guards TearDownControlOutputs() against a second release.
     // Starts true: nothing has been set up yet, so there is nothing to release
     // (a Deactivate() on a controller that was never activated must be a

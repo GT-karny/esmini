@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — 実機ハンドル用: 横=ManualDrive(人) / 縦=VirtualDriver(AD)
+
+  ============================================================================
+  これは目視デモ用のシナリオである（CI には載せない）
+  ============================================================================
+  ヘッドレス版 scenario_split_domain_md_vd.xosc と中身は同じで、
+  違いは ManualDrive の ConfigFile だけ:
+
+      ヘッドレス : manual_drive_headless_stub.json (入力ゼロ・デバイス無し)
+      これ       : manual_drive_realwheel_split.json (input_type=sdl2_wheel)
+
+  CI 用アセットと同じ構造のまま入力源だけ実機に差し替えてあるので、
+  ここで見えるものはヘッドレスで毎回検査しているものと同じ現象である。
+
+  ============================================================================
+  何が起きるか（目視の判定基準）
+  ============================================================================
+  road 4 は半径約49mの定曲率アーク（f7_curve_onset.xodr）。したがって:
+
+    ハンドルを切り続ける → 車はカーブに追従する      ＝ 横は人が握っている
+    ハンドルから手を離す → 車は直進して車線を外れる  ＝ 横は AD ではない
+    その間ずっと          → 速度は 30km/h 付近に保たれる ＝ 縦は AD が握っている
+
+  3つが同時に観測できれば「横=人 / 縦=AD」が成立している。
+  **1つでも欠けたら成立していない。** 特に「手を離しても車線に戻る」場合は
+  AD が横を握っており分割が壊れている。
+
+  速度を 30km/h (8.333 m/s) に落としてあるのは、13.889 m/s だと road 4 を
+  12秒で走り切ってしまい観察する時間が無いため。この速度なら約20秒。
+
+  ============================================================================
+  力（FFB）について — 触る前に読むこと
+  ============================================================================
+  **このシナリオではハンドルに力は出ない。意図的にそうしてある。**
+
+  理由は2つ:
+    1. VirtualDriver は input_type=stub で動く（config/virtual_driver.json）。
+       StubInputSource::GetFFBSink() は nullptr を返すので、VD は
+       デバイスに触れる経路を一切持たない。
+    2. ManualDrive はこの分割では非積分側になるので、
+       ManualDriveCoordinator の積分器フォーリングエッジが初回フレームで
+       SetSteerTarget(0,false) + SetEnabled(false) を呼び、以後
+       SDLFFBSink::Update() は早期リターンする。
+
+  つまり**デバイスを開くプロセス内ハンドルは ManualDrive の1つだけで、
+  その力出力は初回フレームで落ちる。** 両者が同時に力を出す窓は無い。
+
+  ただしヘッドレスで確認できるのは「そこまで制御フローが到達したこと」までで、
+  **実機のトルクが実際にゼロになったことは確認できていない**（SDLFFBSink は
+  デバイスが無いと何も起きない）。実機で最初に見る項目はここである。
+
+  ============================================================================
+  起動（PowerShell、2本ハイフンはXMLコメントに書けないので省略している）
+  ============================================================================
+  配布パッケージの手順書 REALWHEEL_TEST.md を参照。
+  ウィンドウ位置指定 (window 60 60 1280 720) を必ず付けること。
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-29T00:00:00"
+               description="feature:F7 real-wheel demo: lateral=ManualDrive (physical G29) / longitudinal=VirtualDriver"
+               author="GT_esmini"/>
+   <ParameterDeclarations/>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/f7_curve_onset.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- 名前がクラス名そのものなのは必須。GT_GetVirtualDriverTelemetry は
+              Object::GetController() で「型ではなく名前」の一致で引くので、
+              別名を付けるとテレメトリが黙ってゼロ件になる。 -->
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_realwheel_split.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="4" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="10"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="4" laneId="-1" offset="0" s="175"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <!-- 30 km/h。road 4 は 180m なので約20秒の観察時間になる。 -->
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="8.333"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <!-- objectControllerRef であること。revMinor=3 では controllerRef は
+                    読まれず、両方の活性化が controllers_.back() に向かってしまう。
+                    AssignControllerAction 側の activateLateral/Longitudinal は
+                    upstream の brace-init バグで横縦が入れ替わるので使用禁止。 -->
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="false"/>
+                  </ControllerAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="VirtualDriverController" lateral="false" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="RealWheelSplitStory">
+         <Act name="RealWheelSplitAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <!-- 120秒。車線を外れてゆっくり走っても勝手に終わらないだけの余裕。
+           途中でやめるときはビューワーを閉じるか Esc。 -->
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="120" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

@@ -1,0 +1,49 @@
+scenario: scenario_split_domain_md_vd
+category: 08_handoff
+# feature:F7 per-domain split: lateral=ManualDrive / longitudinal=VirtualDriver
+# (docs/virtualdriver/domain_split_ownership.md). Init activates MD on lateral
+# only and VD on longitudinal only, via ActivateControllerAction with
+# objectControllerRef (revMinor=3 ignores controllerRef -- see the xosc header).
+#
+# The single matcher below attributes the two domains in OPPOSITE directions so
+# that no controller can satisfy it by taking everything, which is precisely
+# what this scenario used to do before S1-S3:
+#   * longitudinal is VD's  -> speed HOLDS the SpeedAction target even though
+#                              ManualDrive commands zero throttle
+#   * lateral is NOT VD's   -> the vehicle DEPARTS the lane on a constant-radius
+#                              arc, which a lane-keeping VD would track
+# plus the travelled/reported speed ratio, which is the only check that can see
+# a state-stage merge (that failure mode reports 9.93 m/s while travelling
+# 13.15 m/s and looks perfectly healthy in the speed column).
+#
+# ManualDrive uses config/manual_drive_headless_stub.json: no input device, no
+# sockets, FFB disabled. So its steering command is a constant zero -- the
+# vehicle going straight IS ManualDrive's command reaching the road. The
+# non-zero steering signature (-0.213 deg under a UDP-fed 0.35) needs a UDP
+# feeder and therefore lives in the developer harness
+# (GT_esmini/test/headless/vd_domain_split_matrix.py), not in a CI asset that
+# would contend for port 9100.
+#
+# No baseline comparison against Default -- judgment is purely from VirtualDriver
+# telemetry, same convention as scenario_deactivate_vd.
+must:
+  - event: domain_split_holds
+    # Window: skip the first 1 s (the vehicle starts at the SpeedAction target on
+    # the lane centre, so nothing is discriminating yet) and stop at the
+    # scenario's own 8 s StopTrigger. The upper bound matters: after the trigger
+    # ScenarioEngine stops stepping the controller while
+    # GT_GetVirtualDriverTelemetry keeps returning the last value, so the capture
+    # records hundreds of frozen duplicate frames. The matcher also de-duplicates
+    # repeated sim_time itself, so this bound is belt-and-braces.
+    after: { sim_time: 1.0 }
+    before: { sim_time: 8.0 }
+    # Measured: speed dips to 9.76 m/s as VD slows for the R~49 m arc, then VD
+    # re-accelerates to 14.1 -- a gain of ~4.3 m/s. ManualDrive commands zero
+    # throttle here, so it could only ever coast DOWN; any sustained gain is
+    # powered and therefore VD's. 2.0 leaves wide margin without being fitted.
+    min_speed_gain: 2.0
+    # Measured max |lane_offset| ~5.9 m inside the window (the lane is ~3.5 m
+    # wide). A VirtualDriver owning lateral tracks the arc at |offset| < 0.5.
+    min_lane_departure: 1.0
+    ratio_band: [0.98, 1.02]
+    reason: "横=ManualDrive / 縦=VirtualDriver の分担が成立している（縦=ゼロスロットルでは不可能な再加速・横=車線逸脱・比0.98-1.02で単一積分器）"

@@ -136,7 +136,7 @@ jobs:
             externals/sumo
             externals/implot
             resources/models
-          key: ${{ runner.os }}-external-resources
+          key: ${{ runner.os }}-external-resources-v2-lfs
 
       # GT-only (tentative): trial compiler-cache for the `test` job's Windows build, the
       # single dominant step in this job (~10min of ~15min job time, all other steps <2min
@@ -306,6 +306,18 @@ jobs:
       # Generate build number based on offset from former AppVeyor CI machine
       - uses: ./.github/actions/generate_offset_run_number
 
+      # GT-only 2026-07-30: this job's cache key is DELIBERATELY separate from the
+      # full-build jobs' `-external-resources-v2-lfs`. This job checks out WITHOUT
+      # `lfs: true` (it builds slim, USE_OSI=OFF, so it never links OSI) -- which means
+      # externals/osi/v11/lib/*.lib are Git LFS POINTER FILES (~133 bytes) here, not
+      # libraries. Sharing one key let this job bake those pointers into the cache; the
+      # `test` and `vd-behavioral-regression` jobs then restored them OVER their properly
+      # hydrated files and every link died with
+      #   open_simulation_interface_pic.lib : fatal error LNK1107: invalid or corrupt
+      #   file: cannot read at 0x85          (0x85 = 133 = the pointer file's size)
+      # This job stayed green throughout -- it does not link OSI -- so it silently killed
+      # the jobs that do. Keep the keys separate, or drop externals/osi from this path
+      # list. Do NOT re-unify them without adding `lfs: true` here first.
       - name: Cache
         uses: actions/cache@v5
         with:
@@ -316,7 +328,7 @@ jobs:
             externals/sumo
             externals/implot
             resources/models
-          key: ${{ runner.os }}-external-resources
+          key: ${{ runner.os }}-external-resources-slim-v2
 
       # run xml validation only here.
       # 1. Only needs to run once
@@ -499,7 +511,7 @@ jobs:
             externals/sumo
             externals/implot
             resources/models
-          key: ${{ runner.os }}-external-resources
+          key: ${{ runner.os }}-external-resources-v2-lfs
 
       - name: Install Python
         uses: actions/setup-python@v6

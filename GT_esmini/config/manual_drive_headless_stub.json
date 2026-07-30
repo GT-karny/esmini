@@ -1,0 +1,22 @@
+{
+    "_purpose": "ManualDriveController with NO physical input device. input_type=stub returns an all-zero PedalSteerCommand every frame and ffb_enabled=false keeps SDL2 out of the picture entirely, so a scenario referencing this config runs headless, in CI, and alongside other processes without touching the G29 or contending for its device index. override.enabled=false pins both domains permanently MANUAL (OverrideManager.cpp:208-214), which is what makes 'ManualDrive is writing every frame' a property of the config rather than of what a driver happened to do.",
+    "input_type": "stub",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": false,
+    "input": {
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer",
+        "deadzone": 0.0
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json"
+    },
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "override": {
+        "enabled": false
+    }
+}

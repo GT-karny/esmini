@@ -59,6 +59,7 @@
 #include "gt_esmini/io/GT_VirtualDriverReporter.hpp"
 #include "gt_esmini/scenario/TrafficSignalController.hpp"
 #include "gt_esmini/control/VehiclePhysicsManager.hpp"
+#include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
 #include "gt_esmini/control/HeadingCorrectionManager.hpp"
 
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
@@ -1744,6 +1745,11 @@ GT_ESMINI_API void GT_Close()
     gt_esmini::VehiclePhysicsManager::Instance().Close();
     gt_esmini::HeadingCorrectionManager::Instance().Close();
     gt_esmini::TrafficSignalControllerManager::Instance().Clear();
+    // feature:F7 — the ledger is keyed by (object id, controller address), and a
+    // host process runs many scenarios in a row (web backend, gt_sim_test batch).
+    // Both keys get reused, so a surviving entry could make the next run's
+    // controller look like it already owns — or has already lost — a domain.
+    gt_esmini::DomainOwnershipLedger::Instance().Clear();
     gt_esmini::GT_HostVehicleReporter::Instance().Close();
     gt_esmini::GT_ScenarioVariablesReporter::Instance().Close();
     gt_esmini::GT_VirtualDriverReporter::Instance().Close();

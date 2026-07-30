@@ -1,0 +1,22 @@
+{
+    "_purpose": "feature:F7 — ManualDriveController driven over UDP instead of a physical wheel. Companion to manual_drive_headless_stub.json: same headless, FFB-free, permanently-MANUAL setup, but input_type=network so a test harness can inject a KNOWN steering value (PedalSteerCommand wire format, magic 'PSTC', 44 bytes) on port 9100. That matters because with zero input you cannot distinguish 'ManualDrive's steering never reached the road' from 'it did, and it was zero' — attributing lateral control needs a signature, not silence. A constant steering of 0.35 settles the wheel angle near -0.213 deg, well clear of VirtualDriver's ~-0.10 deg on the same road. NOT for committed regression assets: it binds a UDP socket, so parallel runs on one host would contend for the port. Those use the stub config instead.",
+    "input_type": "network",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": false,
+    "input": {
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer",
+        "deadzone": 0.0
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json"
+    },
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "override": {
+        "enabled": false
+    }
+}

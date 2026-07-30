@@ -27,6 +27,12 @@ public:
     void Step(double timeStep) override;
     int  Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)]) override;
     void Deactivate() override;
+    // feature:F7 — overridden solely to keep the GT ownership ledger in step with
+    // the base class's domain bitmask. From OSC v1.3 a domain can be taken away
+    // through this call without Deactivate() ever running, so a ledger updated
+    // only from Activate()/Deactivate() would keep asserting ownership of a
+    // domain this controller no longer holds.
+    void DeactivateDomains(unsigned int domains) override;
 
     const char* GetTypeName() const override { return CONTROLLER_MANUAL_DRIVE_TYPE_NAME; }
 
@@ -64,6 +70,14 @@ private:
 
     // Accumulated sim time for the GT light blink ticker (R5-U3).
     double       light_sim_clock_ = 0.0;
+
+    // feature:F7 S2 — true while this controller is the object's designated
+    // physics integrator (DomainOwnershipLedger::IsIntegrator). Only the
+    // integrator advances the body; see the ledger header for why exactly one
+    // is picked and why it is picked there rather than from Step order. Kept as
+    // state so the backend can be re-synced when integration is taken over,
+    // since it stood still while another controller moved the car.
+    bool         was_domain_integrator_ = false;
 };
 
 scenarioengine::Controller* InstantiateControllerManualDrive(void* args);

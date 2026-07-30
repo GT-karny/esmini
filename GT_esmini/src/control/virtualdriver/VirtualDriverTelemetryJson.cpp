@@ -55,6 +55,9 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        // field in this record it is NOT frozen once the controller goes
        // inactive — it is the field that reports the deactivation itself.
        << ",\"vd_active\":" << b(t.vd_active)
+       // feature:F7 S2 per-domain split: active but not integrating is a real,
+       // correct state, so it needs its own field rather than being inferred.
+       << ",\"domain_integrator\":" << b(t.domain_integrator)
        // feature:F7 (F7b) FFB target-track observability. Additive block;
        // consumers that predate it (existing overlay) simply ignore it.
        << ",\"ffb\":{\"target_active\":" << b(t.ffb_target_active)

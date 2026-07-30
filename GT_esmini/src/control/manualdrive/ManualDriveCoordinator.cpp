@@ -3,9 +3,11 @@
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
+#include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "Entities.hpp"
+#include "logger.hpp"
 
 namespace gt_esmini
 {
@@ -18,8 +20,30 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     // 2. Override judgment (domain-aware)
     c.override_mgr_.Update(frame, dt);
 
+    // feature:F7 — is a per-domain SPLIT in effect, i.e. do the two domains of
+    // this object belong to two different controllers? Under a split this
+    // controller must keep running even while fully AUTO, because the domain it
+    // owns has no other source: the early return below skips the command build
+    // AND the publish, so the peer integrator would find nothing on the bus.
+    // With override.enabled=true (required for takeover to exist at all) both
+    // domains start AUTO, so without this the reverse split loses its pedals on
+    // frame 1.
+    //
+    // Deliberately narrow: a ManualDrive-only scenario has both domains on ONE
+    // controller, so split_active is false and the AUTO-delegates-to-scenario
+    // behaviour below is untouched.
+    bool split_active = false;
+    if (c.object_)
+    {
+        const auto& ledger = DomainOwnershipLedger::Instance();
+        const int   id     = c.object_->GetId();
+        const void* lat    = ledger.OwnerOf(id, OwnedDomain::LATERAL);
+        const void* lon    = ledger.OwnerOf(id, OwnedDomain::LONGITUDINAL);
+        split_active       = lat && lon && lat != lon;
+    }
+
     // If neither domain is manual, delegate entirely to scenario
-    if (!c.override_mgr_.IsAnyManual())
+    if (!c.override_mgr_.IsAnyManual() && !split_active)
     {
         c.scenarioengine::Controller::Step(dt);
         return;
@@ -45,7 +69,119 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             cmd.brake = 0.0;
         }
     }
+    // 3-bus. feature:F7 S3 — publish owned channels, then consume the unowned
+    // ones if this controller is the integrator. See the bus contract in
+    // DomainOwnershipLedger.hpp for why the merge is at the command stage.
+    // Publishing precedes the output gate below so a ManualDrive that owns only
+    // the lateral domain still supplies steering every frame despite not
+    // integrating.
+    if (c.object_)
+    {
+        auto&     ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = c.object_->GetId();
+
+        if (ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
+        {
+            ledger.PublishLateral(obj_id, &c, cmd.steering, c.override_mgr_.IsLateralManual());
+        }
+        if (ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL))
+        {
+            ledger.PublishLongitudinal(obj_id, &c, cmd.throttle, cmd.brake);
+        }
+
+        // feature:F7 RETURN PATH — raw device axis. Published unconditionally
+        // whenever this controller polled a real input frame this step, so a
+        // lateral owner with no device of its own (VirtualDriver, reverse
+        // split) can find out where the driver's wheel actually is even once
+        // the FFB servo has released it (see DomainOwnershipLedger.hpp).
+        if (frame.pedal_steer)
+        {
+            ledger.PublishDeviceAxis(obj_id, frame.pedal_steer->steering);
+            // feature:F7 RETURN PATH — AUTO_RESUME. Same "device holder
+            // publishes unconditionally" reasoning as the axis above; see
+            // DomainOwnershipLedger.hpp.
+            ledger.PublishDeviceButtons(obj_id, frame.pedal_steer->buttons);
+        }
+
+        if (ledger.IsIntegrator(obj_id, &c))
+        {
+            if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
+            {
+                double owner_steering = 0.0;
+                bool   owner_manual   = false;
+                if (ledger.ConsumeLateral(obj_id, owner_steering, owner_manual))
+                {
+                    cmd.steering = owner_steering;
+                }
+            }
+            if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL))
+            {
+                double owner_throttle = 0.0, owner_brake = 0.0;
+                if (ledger.ConsumeLongitudinal(obj_id, owner_throttle, owner_brake))
+                {
+                    cmd.throttle = owner_throttle;
+                    cmd.brake    = owner_brake;
+                }
+            }
+        }
+    }
+
     c.last_cmd_ = cmd;
+
+    // 3a. feature:F7 S2 — output gate. Only the object's designated integrator
+    // advances the body; see DomainOwnershipLedger::IntegratorOf for the rule.
+    // The input poll, override judgment and command build above still run for a
+    // non-integrator: those are the commands S3 will merge into the integrator.
+    const bool is_integrator =
+        c.object_ && DomainOwnershipLedger::Instance().IsIntegrator(c.object_->GetId(), &c);
+
+    if (is_integrator && !c.was_domain_integrator_)
+    {
+        // Taking over integration from another controller mid-run, WITHOUT this
+        // controller having just been activated (Activate() seeds the edge, so
+        // that case never lands here). The backend has been frozen while the car
+        // moved, so resume from the object's pose rather than teleporting it
+        // back to where we last left off.
+        //
+        // KNOWN LIMITATION: object_->pos_ may already carry the scenario's own
+        // advance for this frame, in which case that advance is absorbed here and
+        // integrated a second time. Not reachable from the S2 scenarios — the
+        // integrator is fixed for the whole run under a static split, and the
+        // handover case is covered by the Activate() seeding — but it is the same
+        // double-count that produced the measured 1.05 ratio before that seeding
+        // existed. S3 removes the need for this path entirely.
+        c.physics_backend_->SyncState(c.object_->pos_.GetX(),
+                                      c.object_->pos_.GetY(),
+                                      c.object_->pos_.GetZ(),
+                                      c.object_->pos_.GetH(),
+                                      c.object_->GetSpeed());
+        LOG_INFO("ManualDriveController[{}]: took over integration ({})",
+                 c.GetName(),
+                 DomainOwnershipLedger::Instance().Describe(c.object_->GetId()));
+    }
+    else if (!is_integrator && c.was_domain_integrator_)
+    {
+        // Handing integration over. Release force feedback for the same reason
+        // Deactivate() does: the device holds the last commanded force as an
+        // infinite-duration effect and we are about to stop feeding it.
+        IFFBSink* released = c.input_source_->GetFFBSink();
+        if (!released) released = c.ffb_sink_;
+        if (released)
+        {
+            released->SetSteerTarget(0.0, false);
+            released->SetEnabled(false);
+        }
+        LOG_INFO("ManualDriveController[{}]: no longer integrating ({})",
+                 c.GetName(),
+                 DomainOwnershipLedger::Instance().Describe(c.object_->GetId()));
+    }
+    c.was_domain_integrator_ = is_integrator;
+
+    if (!is_integrator)
+    {
+        c.scenarioengine::Controller::Step(dt);
+        return;
+    }
 
     // 4. Resync physics backend on AUTO→MANUAL transition to prevent coordinate jump
     if (c.override_mgr_.JustTransitionedToManual() && c.object_)
@@ -65,9 +201,81 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     // 6. FFB update
     IFFBSink* ffb = c.input_source_->GetFFBSink();
     if (!ffb) ffb = c.ffb_sink_;
+
+    // 6a. feature:F7 — route the AD's steering to the servo when SOMEONE ELSE
+    // owns the lateral domain.
+    //
+    // The servo must track the LATERAL OWNER's command. Who physically holds the
+    // device is a separate question, and in the split configurations the two are
+    // different: VirtualDriver owns lateral but runs input_type=stub, whose
+    // GetFFBSink() is nullptr, so VD has no sink to drive. ManualDrive is the one
+    // holding the wheel. Without this hop the target is simply never set —
+    // measured on the real G29: target_track enabled=true in the log, and the
+    // target-track force component |tt| = 0.0000 for the entire run.
+    //
+    // Two independent reasons it was dead, both of which this fixes by routing
+    // through the DEVICE HOLDER instead of the lateral owner:
+    //   1. VD is the non-integrator in that configuration, so its Step returns
+    //      before it would set the target at all (S2 output gate); worse, the
+    //      falling edge actively sets SetSteerTarget(0.0, false) and nothing
+    //      ever sets it again.
+    //   2. Even reaching that line, VD's ffb is nullptr (stub input).
+    // Fixing only the gate would therefore NOT have fixed this.
+    //
+    // NOTE this is why the forward split never showed the problem: not because
+    // the lateral owner and the device holder coincided there (they did not —
+    // VD was still sinkless), but because that configuration ships the servo
+    // DISABLED, so nobody was looking at it.
+    //
+    // Deliberately additive: the branch where ManualDrive DOES own lateral is
+    // left untouched, so single-controller ManualDrive scenarios (where the
+    // human steers and target-track drives the takeover detector) keep their
+    // existing behaviour bit for bit.
+    if (ffb && c.object_)
+    {
+        auto&     ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = c.object_->GetId();
+        if (!ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL))
+        {
+            double owner_steering = 0.0;
+            bool   owner_manual   = false;
+            if (ledger.ConsumeLateral(obj_id, owner_steering, owner_manual))
+            {
+                // feature:F7 RETURN PATH — the servo must release the wheel
+                // once the lateral owner has latched MANUAL, exactly like the
+                // single-controller case gates on !lat_manual (see
+                // ControllerVirtualDriver.cpp 5a). Before this, active was
+                // hardcoded true regardless of owner_manual: the servo never
+                // went inert in the split, so it kept commanding force toward
+                // whatever the owner published (0 while its own frame was
+                // stub) instead of releasing — fighting the driver at the
+                // exact moment they took over, and never letting the latch
+                // self-perpetuate the way OverrideManager's design assumes
+                // (GetInterventionSample().active must go false to stop
+                // feeding the detector).
+                ffb->SetSteerTarget(owner_steering, /*active=*/!owner_manual);
+                LOG_DEBUG("ManualDriveController[{}]: servo target <- lateral owner {} = {:.5f} (manual={})",
+                          c.GetName(),
+                          ledger.OwnerName(obj_id, OwnedDomain::LATERAL),
+                          owner_steering,
+                          owner_manual);
+            }
+        }
+    }
+
     if (ffb)
     {
         ffb->Update(hvd, dt);
+
+        // 6b. feature:F7 RETURN PATH — publish the servo's intervention sample
+        // for the lateral owner's detector. Published AFTER Update() so it is
+        // this frame's force, not last frame's. The lateral owner cannot read it
+        // itself: it has no sink (see DomainOwnershipLedger's return-path note).
+        if (c.object_)
+        {
+            DomainOwnershipLedger::Instance().PublishInterventionSample(
+                c.object_->GetId(), ffb->GetInterventionSample());
+        }
     }
 
     // 7. Extract vehicle state from HVD

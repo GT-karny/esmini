@@ -6,6 +6,7 @@
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/common/RealVehicleBackend.hpp"
+#include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
 #include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
 #include "gt_esmini/control/manualdrive/StubInputSource.hpp"
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
@@ -281,6 +282,13 @@ void ControllerVirtualDriver::DeactivateDomains(unsigned int domains)
     }
 
     Controller::DeactivateDomains(domains);
+
+    if (object_)
+    {
+        // Claim() gives up only what this controller still owns, so a domain
+        // already reassigned to a peer is not clawed back (see the ledger header).
+        DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
+    }
 }
 
 void ControllerVirtualDriver::TearDownControlOutputs()
@@ -351,6 +359,20 @@ int ControllerVirtualDriver::Activate(const ControlActivationMode (&mode)[static
     // multiple-call guard and would re-open the joystick and orphan the existing
     // haptic effects.
 
+    // feature:F7 — record the claim against the bitmask the base actually
+    // granted, not against the requested mode (see ControllerManualDrive).
+    if (object_)
+    {
+        DomainOwnershipLedger::Instance().Claim(object_->GetId(), this, GetName(), GetActiveDomains());
+        LOG_INFO("VirtualDriverController[{}]: ownership after activate — {}",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+
+        // feature:F7 S2 — see ControllerManualDrive::Activate: seeding the edge
+        // here stops Step() from resyncing off an object pose the scenario may
+        // already have advanced this frame, which would integrate it twice.
+        was_domain_integrator_ = DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
+    }
+
     return rc;
 }
 
@@ -360,6 +382,10 @@ void ControllerVirtualDriver::Deactivate()
     {
         TearDownControlOutputs();
     }
+    if (object_)
+    {
+        DomainOwnershipLedger::Instance().ReleaseAll(object_->GetId(), this);
+    }
     LOG_INFO("VirtualDriverController: Deactivated");
     Controller::Deactivate();
 }
@@ -367,6 +393,14 @@ void ControllerVirtualDriver::Deactivate()
 void ControllerVirtualDriver::Step(double timeStep)
 {
     if (!object_) return;
+
+    // feature:F7 — per-frame ownership trace; see ControllerManualDrive::Step for
+    // why the self-reported mask is printed alongside the arbitrated ledger.
+    LOG_DEBUG("VirtualDriverController[{}]: ownership {} (self active_mask=0x{:x})",
+              GetName(),
+              DomainOwnershipLedger::Instance().Describe(object_->GetId()),
+              GetActiveDomains());
+
     sim_time_ += timeStep;
 
     // Teleport: re-sync physics to the new pose (fresh dynamic state).
@@ -375,6 +409,40 @@ void ControllerVirtualDriver::Step(double timeStep)
         physics_backend_->SetInitialState(
             object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
             object_->pos_.GetH(), object_->GetSpeed());
+    }
+
+    // feature:F7 S3 — resolved ONCE per frame, up here, because it decides two
+    // separate things far apart in this function: whether the backend has to be
+    // re-synced (immediately below) and whether this controller may advance the
+    // body (the output gate further down).
+    const bool is_integrator =
+        DomainOwnershipLedger::Instance().IsIntegrator(object_->GetId(), this);
+
+    // A NON-integrator's own backend is never stepped, so it would otherwise
+    // stay frozen at the pose it was initialised with while somebody else drives
+    // the car. That matters because this controller SELF-LOCALIZES from the
+    // backend (see the long comment at the GetPose call below), so a frozen
+    // backend means the planner and driver model reason about a vehicle that is
+    // standing at the start line — and the steering command they publish to the
+    // bus is computed for that phantom.
+    //
+    // Measured before this sync existed, in the lateral=VirtualDriver /
+    // longitudinal=ManualDrive configuration: VD published ~0 steering for the
+    // whole run (-0.0001 rad) and the car left the lane by 1658 m while the
+    // ledger correctly reported lat=VD. The arbitration was right; the input to
+    // the planner was not.
+    //
+    // Safe to take object_->pos_ here precisely BECAUSE we are not integrating:
+    // the double-count hazard documented in ManualDriveCoordinator applies to an
+    // integrator that would then advance on top of an already-advanced pose. We
+    // only observe.
+    if (!is_integrator)
+    {
+        physics_backend_->SyncState(object_->pos_.GetX(),
+                                    object_->pos_.GetY(),
+                                    object_->pos_.GetZ(),
+                                    object_->pos_.GetH(),
+                                    object_->GetSpeed());
     }
 
     // 1. Poll input + override decision
@@ -388,6 +456,46 @@ void ControllerVirtualDriver::Step(double timeStep)
     if (ffb)
     {
         override_mgr_.UpdateFfbSample(ffb->GetInterventionSample());
+    }
+    else
+    {
+        // feature:F7 RETURN PATH. This controller has no sink of its own — under
+        // the shipped config it runs input_type=stub, so GetFFBSink() is nullptr
+        // and the branch above never ran. That silently starved the residual
+        // takeover detector: the shadow model needs the force that was actually
+        // applied, and with no sample there is no prediction and no residual, so
+        // the latch could never fire no matter how hard the driver pushed.
+        //
+        // Take the sample from the bus instead, published by whoever holds the
+        // device (ManualDriveCoordinator step 6b). Only meaningful when this
+        // controller owns the steering domain: the detector's question is "is
+        // someone taking LATERAL away from me", so a controller that does not
+        // hold lateral has nothing to be taken.
+        FfbInterventionSample bus_sample;
+        if (DomainOwnershipLedger::Instance().IsOwner(object_->GetId(), this, OwnedDomain::LATERAL) &&
+            DomainOwnershipLedger::Instance().ConsumeInterventionSample(object_->GetId(), bus_sample))
+        {
+            override_mgr_.UpdateFfbSample(bus_sample);
+        }
+    }
+
+    // 1b. feature:F7 RETURN PATH — AUTO_RESUME button. override_mgr_.Update()
+    // (immediately below) reads its AUTO_RESUME rising edge from
+    // frame.pedal_steer->buttons — THIS controller's own Poll() result. Under
+    // the shipped stub config that is always 0, so the driver's physical
+    // AUTO_RESUME press (read by ManualDrive, the device holder) never
+    // reached here: MANUAL was a one-way trip in the reverse split — the
+    // residual latch could fire (1a fixes that) but nothing could ever
+    // request AUTO back. Merge in the device holder's raw button state before
+    // Update() sees it; rising-edge detection stays entirely inside
+    // OverrideManager, unchanged.
+    if (!ffb && frame.pedal_steer)
+    {
+        unsigned int device_buttons = 0;
+        if (DomainOwnershipLedger::Instance().ConsumeDeviceButtons(object_->GetId(), device_buttons))
+        {
+            frame.pedal_steer->buttons |= device_buttons;
+        }
     }
 
     override_mgr_.Update(frame, timeStep);
@@ -445,14 +553,31 @@ void ControllerVirtualDriver::Step(double timeStep)
     //   > 0  explicit distance [m] ahead of the origin
     //   = 0  AUTO — the front-axle distance (wheel_base); enabled by default
     //   < 0  disabled — keep the origin (≈ rear) reference (Phase 1 behavior)
-    // Only while moving forward (stop/reverse keep the origin). The short planner
-    // applies it to the preview anchor (and clamps it to 0 during a lateral
-    // maneuver), then echoes the value it used so the driver state shifts to match.
+    // Applied unless REVERSING. The short planner applies it to the preview
+    // anchor (and clamps it to 0 during a lateral maneuver), then echoes the
+    // value it used so the driver state shifts to match.
+    //
+    // The gate used to be `ego_speed > control_point_min_speed` (1.0 m/s), which
+    // dropped the reference from the front axle back to the origin the moment
+    // the vehicle slowed below walking pace. That is a ~3 m step change in the
+    // lateral reference at a fixed speed, and it is the second half of the
+    // standstill steering defect: with the reference at the origin, a stopped
+    // car on a curve computes a steer of the WRONG SIGN (measured -0.106 rad
+    // while cornering -> +0.029 rad once stopped, i.e. through neutral). Real
+    // vehicles hold their steer when stopped, so passing through neutral is not
+    // defensible. Only reverse genuinely needs the origin reference — a
+    // front-axle reference inverts the control sign when travelling backwards —
+    // so the gate now keys on direction, not on speed magnitude.
+    //
+    // NOTE: this couples to TrajectoryShortPlannerConfig::min_preview_span,
+    // which must stay above (this offset + the driver's min_lookahead): the
+    // driver measures the lookahead FROM the shifted reference, so the preview
+    // has to reach past it.
     double requested_cp = 0.0;
     {
         const double cp = vd_config_.control_point_offset;
         const double dist = (cp < 0.0) ? 0.0 : (cp == 0.0 ? wheel_base : cp);
-        if (ego_speed > vd_config_.control_point_min_speed)
+        if (ego_speed > -vd_config_.control_point_min_speed)
             requested_cp = dist;
     }
 
@@ -645,13 +770,86 @@ void ControllerVirtualDriver::Step(double timeStep)
     if (frame.pedal_steer)
     {
         const PedalSteerCommand& m = *frame.pedal_steer;
-        if (lat_manual) cmd.steering = m.steering;
+        if (lat_manual)
+        {
+            // feature:F7 RETURN PATH. `m` is THIS controller's own local
+            // input frame (input_source_->Poll()) — under the shipped
+            // reverse-split config that is stub, always steering=0. Using it
+            // directly here means the instant this controller's own
+            // OverrideManager latches MANUAL (via the bus-fed FFB residual,
+            // since the direct-axis path can never fire on a stub frame
+            // either), the lateral command this controller publishes to the
+            // bus below would snap to 0 — not the driver's actual wheel
+            // position — and ManualDriveCoordinator's physics step would
+            // follow that 0, not the driver. The driver would feel the wheel
+            // released (5a/servo-active fix, ManualDriveCoordinator.cpp) but
+            // the CAR would stop responding to them.
+            //
+            // ffb is non-null only when this controller itself holds the
+            // device (e.g. VD configured as its own device holder) — in that
+            // case `m.steering` IS the driver's real axis and behaviour is
+            // unchanged, bit for bit. When ffb is null (this controller has
+            // no device of its own), pull the driver's real axis from the
+            // device holder's raw-axis publish instead. Falls back to
+            // m.steering (0) if nothing has published yet (e.g. first frame).
+            cmd.steering = m.steering;
+            if (!ffb)
+            {
+                double device_axis = 0.0;
+                if (DomainOwnershipLedger::Instance().ConsumeDeviceAxis(object_->GetId(), device_axis))
+                {
+                    cmd.steering = device_axis;
+                }
+            }
+        }
         if (lon_manual) { cmd.throttle = m.throttle; cmd.brake = m.brake; }
         cmd.buttons             = m.buttons;
         cmd.gear                = m.gear;
         cmd.paddle_up_pressed   = m.paddle_up_pressed;
         cmd.paddle_down_pressed = m.paddle_down_pressed;
     }
+    // 4-bus. feature:F7 S3 — publish the channels this controller owns, then, if
+    // it is the integrator, take the channels it does NOT own from their owners.
+    // Merging here (command stage) and integrating once is what keeps reported
+    // speed and travelled distance consistent; see the bus contract in
+    // DomainOwnershipLedger.hpp. Publishing happens before the output gate below
+    // so a non-integrating owner still supplies its domain every frame.
+    {
+        auto&     ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = object_->GetId();
+
+        if (ledger.IsOwner(obj_id, this, OwnedDomain::LATERAL))
+        {
+            ledger.PublishLateral(obj_id, this, cmd.steering, lat_manual);
+        }
+        if (ledger.IsOwner(obj_id, this, OwnedDomain::LONGITUDINAL))
+        {
+            ledger.PublishLongitudinal(obj_id, this, cmd.throttle, cmd.brake);
+        }
+
+        if (ledger.IsIntegrator(obj_id, this))
+        {
+            if (!ledger.IsOwner(obj_id, this, OwnedDomain::LATERAL))
+            {
+                double owner_steering = 0.0;
+                bool   owner_manual   = false;
+                if (ledger.ConsumeLateral(obj_id, owner_steering, owner_manual))
+                {
+                    cmd.steering = owner_steering;
+                }
+            }
+            if (!ledger.IsOwner(obj_id, this, OwnedDomain::LONGITUDINAL))
+            {
+                double owner_throttle = 0.0, owner_brake = 0.0;
+                if (ledger.ConsumeLongitudinal(obj_id, owner_throttle, owner_brake))
+                {
+                    cmd.throttle = owner_throttle;
+                    cmd.brake    = owner_brake;
+                }
+            }
+        }
+    }
+
     last_cmd_ = cmd;
 
     // 4a. feature:F7 — persist WHATEVER steering command was actually realized
@@ -675,6 +873,115 @@ void ControllerVirtualDriver::Step(double timeStep)
         in_buttons, prev_buttons_, in_steering, prev_steering_, kIndicatorCancelAngle, hazard_on);
     prev_buttons_  = in_buttons;
     prev_steering_ = in_steering;
+
+    // 4c. feature:F7 S2 — output gate. Only the object's designated integrator
+    // advances the body; see DomainOwnershipLedger::IntegratorOf for the rule and
+    // for why it is read from the ledger rather than inferred from Step order.
+    // Everything above this point (planning, override, indicator FSM) still runs
+    // for a non-integrator, because its own commands are what the bus merges in.
+    // `is_integrator` was resolved at the top of Step (it also gates the backend
+    // re-sync there); do not recompute it here — one frame must not see two
+    // different answers.
+    if (is_integrator && !was_domain_integrator_)
+    {
+        // Taking over integration. The backend has been frozen while another
+        // controller moved the car, so it would otherwise resume from a stale
+        // pose and teleport the vehicle back.
+        physics_backend_->SyncState(object_->pos_.GetX(),
+                                    object_->pos_.GetY(),
+                                    object_->pos_.GetZ(),
+                                    object_->pos_.GetH(),
+                                    object_->GetSpeed());
+        LOG_INFO("VirtualDriverController[{}]: took over integration ({})",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+    }
+    else if (!is_integrator && was_domain_integrator_)
+    {
+        // Handing integration over. Release force feedback for the same reason
+        // TearDownControlOutputs() does: the device holds the last commanded
+        // force as an infinite-duration effect, and we are about to stop feeding
+        // it, so without this the wheel keeps pulling with nobody driving it.
+        if (ffb)
+        {
+            ffb->SetSteerTarget(0.0, false);
+            ffb->SetEnabled(false);
+        }
+        LOG_INFO("VirtualDriverController[{}]: no longer integrating ({})",
+                 GetName(), DomainOwnershipLedger::Instance().Describe(object_->GetId()));
+    }
+    was_domain_integrator_ = is_integrator;
+
+    if (!is_integrator)
+    {
+        // Do not touch the body, the HVD stream, or force feedback — those belong
+        // to the integrator this frame. The base Step still runs so the
+        // controller remains a well-behaved scenario participant, and the
+        // telemetry clock keeps advancing so a frozen sim_time still means
+        // "inactive" rather than "active but not integrating".
+        telemetry_.sim_time = sim_time_;
+        telemetry_.domain_integrator = false;
+
+        // feature:F7 — a NON-integrator still computes and publishes a command,
+        // and under a split that command is what actually steers the car. The
+        // full telemetry block lives after this early return, so without these
+        // lines driver.steer stayed frozen at 0 while the bus carried 0.173 —
+        // i.e. the lateral owner's own telemetry did not show the command it was
+        // issuing. That is the field a reviewer reads to attribute steering, and
+        // the one the FFB sign chain has to be checked against, so it cannot be
+        // allowed to lie. Measured: 127 of 161 frames disagreed before this.
+        telemetry_.driver       = dsnap;
+        telemetry_.driver.steer = cmd.steering;  // the REALIZED command (post-envelope/bus)
+        telemetry_.override_lateral      = lat_manual;
+        telemetry_.override_longitudinal = lon_manual;
+        telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
+        telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+
+        // feature:F7 RETURN PATH — same reason driver.steer needed its own
+        // line above: THIS is the branch a non-integrating lateral owner
+        // (VirtualDriver in the reverse split) actually takes every frame —
+        // the ffb.* population 60-odd lines below (after "5. Physics step")
+        // is genuinely unreachable here. Without this, ffb.target_active sat
+        // frozen at its default (false) for the WHOLE run regardless of
+        // whether the device holder's servo was really active — a reviewer
+        // watching this telemetry in the field (exactly what the real-machine
+        // debug session was for) would see target_active=false forever, with
+        // no way to distinguish "the servo genuinely released" from "this
+        // field never updates here". Same bus, same guard as 1a/1b.
+        if (ffb)
+        {
+            const FfbInterventionSample s   = ffb->GetInterventionSample();
+            telemetry_.ffb_target_active    = s.active;
+            telemetry_.ffb_commanded_force  = s.commanded_force;
+            telemetry_.ffb_position_error   = s.position_error;
+            telemetry_.ffb_target_norm      = s.target_norm;
+            telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+        }
+        else
+        {
+            FfbInterventionSample s;
+            if (DomainOwnershipLedger::Instance().IsOwner(object_->GetId(), this, OwnedDomain::LATERAL) &&
+                DomainOwnershipLedger::Instance().ConsumeInterventionSample(object_->GetId(), s))
+            {
+                telemetry_.ffb_target_active          = s.active;
+                telemetry_.ffb_commanded_force        = s.commanded_force;
+                telemetry_.ffb_position_error         = s.position_error;
+                telemetry_.ffb_target_norm            = s.target_norm;
+                telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+            }
+            else
+            {
+                telemetry_.ffb_target_active    = false;
+                telemetry_.ffb_commanded_force  = 0.0;
+                telemetry_.ffb_position_error   = 0.0;
+                telemetry_.ffb_target_norm      = 0.0;
+                telemetry_.ffb_sample_effective_force = 0.0;
+            }
+        }
+
+        scenarioengine::Controller::Step(timeStep);
+        return;
+    }
+    telemetry_.domain_integrator = true;
 
     // 5. Physics step
     osi3::HostVehicleData hvd = physics_backend_->StepPedalSteer(cmd, timeStep);
@@ -780,11 +1087,37 @@ void ControllerVirtualDriver::Step(double timeStep)
     }
     else
     {
-        telemetry_.ffb_target_active    = false;
-        telemetry_.ffb_commanded_force  = 0.0;
-        telemetry_.ffb_position_error   = 0.0;
-        telemetry_.ffb_target_norm      = 0.0;
-        telemetry_.ffb_sample_effective_force = 0.0;
+        // feature:F7 RETURN PATH. This controller has no sink of its own
+        // (input_type=stub in the reverse split) — before this, ffb.* was
+        // UNCONDITIONALLY zeroed here, which made ffb.target_active
+        // structurally incapable of ever reading true for this controller,
+        // regardless of whether the servo on the device holder's end was
+        // actually active. A reviewer reading this telemetry in the field
+        // (this is exactly what the real-machine debug session was meant to
+        // watch) would see target_active=false forever and have no way to
+        // tell "the servo genuinely released" from "this field never worked
+        // here" — the same shape of telemetry gap 1a fixes for the detector's
+        // OWN input and the earlier non-integrator driver.steer fix closed.
+        // Same bus, same guard as 1a: only meaningful while this controller
+        // owns lateral (same reasoning as there).
+        FfbInterventionSample s;
+        if (DomainOwnershipLedger::Instance().IsOwner(object_->GetId(), this, OwnedDomain::LATERAL) &&
+            DomainOwnershipLedger::Instance().ConsumeInterventionSample(object_->GetId(), s))
+        {
+            telemetry_.ffb_target_active          = s.active;
+            telemetry_.ffb_commanded_force        = s.commanded_force;
+            telemetry_.ffb_position_error         = s.position_error;
+            telemetry_.ffb_target_norm            = s.target_norm;
+            telemetry_.ffb_sample_effective_force = s.effective_force_signed;
+        }
+        else
+        {
+            telemetry_.ffb_target_active    = false;
+            telemetry_.ffb_commanded_force  = 0.0;
+            telemetry_.ffb_position_error   = 0.0;
+            telemetry_.ffb_target_norm      = 0.0;
+            telemetry_.ffb_sample_effective_force = 0.0;
+        }
     }
     // feature:F7 — override-latch diagnostics. Real-machine "why didn't it
     // fire" observability: without this, diagnosing a missed latch required

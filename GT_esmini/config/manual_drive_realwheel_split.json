@@ -1,0 +1,34 @@
+{
+    "_purpose": "feature:F7 — ManualDrive driven by a PHYSICAL wheel (G29) for the FORWARD split ONLY: lateral is the human's, longitudinal is the AD's (scenario_realwheel_split_md_vd.xosc). The FFB target-track servo is OFF here because the human already owns steering, so a servo chasing the AD's angle would fight the driver's hands. The REVERSE split (steering is the AD's) needs the servo ON and uses manual_drive_realwheel_reverse.json instead — do NOT point the reverse scenario at this file. Referenced via the ConfigFile property, so it does NOT replace config/manual_drive.json.",
+
+    "_history": "This file briefly claimed to serve BOTH directions. That was written while the plan was one shared config, and it was left stale when the reverse case was given its own servo-ON config. The reverse scenario's ConfigFile was left pointing here as a result, and a real-wheel test on 2026-07-30 ran with the servo OFF while the report claimed it was ON. Existence of the right file is not the same as something referencing it.",
+
+    "_why_override_disabled": "override.enabled=false pins both domains permanently MANUAL (OverrideManager.cpp). This is REQUIRED here, not cosmetic: ManualDriveCoordinator::RunFrame returns early when IsAnyManual() is false, before it publishes anything to the domain command bus. With the override machinery enabled, ManualDrive would start in AUTO and the physical wheel would do NOTHING until an override latch happened to fire. Pinning MANUAL makes the wheel live from the first frame, which is what the demo needs.",
+
+    "_why_target_track_off": "ffb.target_track drives the wheel TOWARD the AD's commanded steering angle. It exists for takeover DETECTION (feel the AD steering, push back to take over). In this scenario the human already owns lateral, so a servo chasing the AD's angle would be a motor fighting the driver's hands for a domain the driver already holds. It must stay off here. Turning it on is not a tuning knob for this scenario — it changes who is steering.",
+
+    "_ffb_enabled_is_inert": "NOTE for whoever reads this next: the top-level ffb_enabled key is PARSED (ManualDriveConfig.cpp) but never read by any consumer. It does NOT disable force feedback. It is left false to state intent, but the actual guarantee that no force reaches the wheel in this scenario comes from two other places: (1) VirtualDriver runs input_type=stub, whose GetFFBSink() returns nullptr, so VD has no sink on the device at all; (2) ManualDrive is the NON-integrator in this split, so ManualDriveCoordinator's integrator falling-edge calls SetSteerTarget(0,false)+SetEnabled(false) on frame 1 and SDLFFBSink::Update() early-returns from then on. Do not add force here by flipping ffb_enabled and assuming it is wired.",
+
+    "input_type": "sdl2_wheel",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": false,
+    "input": {
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer",
+        "deadzone": 0.02
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json"
+    },
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "override": {
+        "enabled": false
+    },
+    "ffb": {
+        "target_track_enabled": false
+    }
+}
