@@ -65,6 +65,7 @@ const DEFAULT_OVERRIDE_CFG = {
   brake_threshold: 0.1,
   auto_return_timeout: 0.0,
   button_override: true,
+  button_takeover: false,
 };
 
 const OVERRIDE_NUMBER_FIELDS: { key: 'steering_threshold' | 'throttle_threshold' | 'brake_threshold' | 'auto_return_timeout'; label: string; step: number }[] = [
@@ -74,9 +75,10 @@ const OVERRIDE_NUMBER_FIELDS: { key: 'steering_threshold' | 'throttle_threshold'
   { key: 'auto_return_timeout', label: 'Auto-return (s)', step: 0.1 },
 ];
 
-const OVERRIDE_BOOL_FIELDS: { key: 'enabled' | 'button_override'; label: string }[] = [
+const OVERRIDE_BOOL_FIELDS: { key: 'enabled' | 'button_override' | 'button_takeover'; label: string }[] = [
   { key: 'enabled',         label: 'Override enabled' },
   { key: 'button_override', label: 'Button override' },
+  { key: 'button_takeover', label: 'Triangle button takeover' },
 ];
 
 const KEYBOARD_BINDINGS: { key: string; label: string }[] = [

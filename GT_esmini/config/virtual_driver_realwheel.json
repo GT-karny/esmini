@@ -102,6 +102,7 @@
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": true,
     "override_button": true,
+    "override_button_takeover": true,
     "steering_threshold": 0.05,
     "throttle_threshold": 0.1,
     "brake_threshold": 0.1,

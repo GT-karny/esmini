@@ -149,6 +149,10 @@ public:
     // off. See scripts/ffb_spike/wheel_session_report.py.
     bool JustPressedResume() const { return resume_edge_; }
 
+    // Physical-wheel AUTO->MANUAL request rising edge. This stays separate
+    // from JustTransitionedToManual() so ignored takeover attempts are visible.
+    bool JustPressedTakeManual() const { return take_manual_edge_; }
+
     // Transition detection: true only on the frame the AUTO→MANUAL or
     // MANUAL→AUTO transition occurred. feature:F7 telemetry consumer.
     bool JustTransitionedToManual() const { return just_transitioned_to_manual_; }
@@ -168,6 +172,7 @@ private:
     double brake_threshold_     = 0.1;
     double auto_return_timeout_ = 0.0;
     bool   button_override_     = true;
+    bool   button_takeover_     = false;
 
     // Domain configuration: which domains can be manually controlled
     bool lat_configured_manual_  = true;
@@ -181,6 +186,9 @@ private:
     bool   just_transitioned_to_auto_   = false;
     bool   prev_resume_pressed_         = false;  // feature:F7 rising-edge detector
     bool   resume_edge_                 = false;  // this frame's rising edge (observability)
+    bool   prev_take_manual_pressed_    = false;
+    bool   take_manual_edge_            = false;
+    bool   manual_explicit_             = false;  // explicit button/scenario handover; no idle return
 
     // feature:F7 — startup axis reference for the direct-axis lateral check.
     // A physical wheel keeps the angle the PREVIOUS session left it at, so the

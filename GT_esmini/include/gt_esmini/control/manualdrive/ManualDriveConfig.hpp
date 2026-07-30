@@ -532,6 +532,7 @@ struct ManualDriveConfig
         double brake_threshold     = 0.1;
         double auto_return_timeout = 0.0;  // 0 = no timeout
         bool   button_override     = true;
+        bool   button_takeover     = false;  // physical toggle: AUTO -> MANUAL
     } override_cfg;
 
     bool LoadFromFile(const std::string& filepath);

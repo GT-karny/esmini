@@ -67,6 +67,7 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.input_network.port         = vd_config_.input_port;
     io_config_.override_cfg.enabled        = vd_config_.override_enabled;
     io_config_.override_cfg.button_override = vd_config_.override_button;
+    io_config_.override_cfg.button_takeover = vd_config_.override_button_takeover;
     io_config_.override_cfg.steering_threshold = vd_config_.steering_threshold;
     io_config_.override_cfg.throttle_threshold = vd_config_.throttle_threshold;
     io_config_.override_cfg.brake_threshold    = vd_config_.brake_threshold;
@@ -953,6 +954,8 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.override_longitudinal = lon_manual;
         telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
         telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+        telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
+        telemetry_.takeover_pressed      = override_mgr_.JustPressedTakeManual();
 
         // feature:F7 RETURN PATH — same reason driver.steer needed its own
         // line above: THIS is the branch a non-integrating lateral owner
@@ -1080,6 +1083,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
     telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
     telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
+    telemetry_.takeover_pressed      = override_mgr_.JustPressedTakeManual();
     // feature:F7 (F7b) FFB target-track observability. Sample this frame's
     // servo state (populated by ffb->Update above; inert when servo is off).
     if (ffb)

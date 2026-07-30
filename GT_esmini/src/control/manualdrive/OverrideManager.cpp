@@ -1,5 +1,6 @@
 #include "gt_esmini/control/manualdrive/OverrideManager.hpp"
 #include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
+#include "logger.hpp"
 #include "gt_esmini/control/common/VehicleCommand.hpp"
 
 #include <algorithm>
@@ -24,6 +25,7 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     brake_threshold_     = config.override_cfg.brake_threshold;
     auto_return_timeout_ = config.override_cfg.auto_return_timeout;
     button_override_     = config.override_cfg.button_override;
+    button_takeover_     = config.override_cfg.button_takeover;
 
     // Domain configuration
     lat_configured_manual_  = (config.domain.lateral == "manual");
@@ -36,6 +38,9 @@ void OverrideManager::Configure(const ManualDriveConfig& config)
     just_transitioned_to_auto_   = false;
     prev_resume_pressed_         = false;
     resume_edge_                 = false;
+    prev_take_manual_pressed_    = false;
+    take_manual_edge_            = false;
+    manual_explicit_             = false;
 
     // feature:F7 — startup axis reference (see the Update() site). Re-armed
     // here so a reconfigure begins a fresh session rather than carrying the
@@ -194,6 +199,7 @@ void OverrideManager::ResetInterventionStateOnReturnToAuto()
 
     // The idle window is over either way.
     idle_axis_ref_valid_ = false;
+    manual_explicit_ = false;
 }
 
 void OverrideManager::Update(const InputFrame& input, double dt)
@@ -201,6 +207,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     just_transitioned_to_manual_ = false;
     just_transitioned_to_auto_   = false;
     resume_edge_                 = false;
+    take_manual_edge_            = false;
 
     // Domains configured as "scenario" are always AUTO
     if (!lat_configured_manual_)  lat_mode_ = Mode::AUTO;
@@ -278,11 +285,15 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     // real-world "driver still holding the wheel" case.
     const uint32_t buttons = input.pedal_steer ? input.pedal_steer->buttons : 0u;
     const bool resume_pressed = (buttons & ButtonBits::AUTO_RESUME) != 0;
+    const bool take_manual_pressed = (buttons & ButtonBits::TAKE_MANUAL) != 0;
     const bool resume_edge    = resume_pressed && !prev_resume_pressed_;
+    const bool take_manual_edge = take_manual_pressed && !prev_take_manual_pressed_;
     prev_resume_pressed_ = resume_pressed;
+    prev_take_manual_pressed_ = take_manual_pressed;
     resume_edge_         = resume_edge;   // observability; see JustPressedResume()
+    take_manual_edge_    = take_manual_edge;
 
-    if (resume_edge)
+    if (resume_edge && was_any_manual)
     {
         if (lat_configured_manual_)  lat_mode_ = Mode::AUTO;
         if (long_configured_manual_) long_mode_ = Mode::AUTO;
@@ -305,6 +316,25 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             just_transitioned_to_auto_ = true;
         return;  // suppress same-frame intervention re-latch
     }
+
+    if (take_manual_edge && !was_any_manual && button_takeover_)
+    {
+        if (lat_configured_manual_)  lat_mode_ = Mode::MANUAL;
+        if (long_configured_manual_) long_mode_ = Mode::MANUAL;
+        manual_explicit_ = true;
+        idle_timer_ = 0.0;
+        idle_axis_ref_valid_ = false;
+        if (IsAnyManual())
+        {
+            just_transitioned_to_manual_ = true;
+            LOG_INFO("OverrideManager: physical button requested MANUAL control");
+        }
+        return;  // suppress threshold evaluation on the toggle frame
+    }
+
+    // Preserve Web/UDP Resume's existing AUTO-only no-op semantics.
+    if (resume_edge)
+        return;
 
     bool lat_active  = false;
     bool long_active = false;
@@ -985,7 +1015,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
     }
     else if (IsAnyManual())
     {
-        if (auto_return_timeout_ > 0.0)
+        if (auto_return_timeout_ > 0.0 && !manual_explicit_)
         {
             idle_timer_ += dt;
             if (idle_timer_ >= auto_return_timeout_)
@@ -1049,6 +1079,7 @@ void OverrideManager::RequestManualMode()
     if (lat_configured_manual_)  lat_mode_ = Mode::MANUAL;
     if (long_configured_manual_) long_mode_ = Mode::MANUAL;
     idle_timer_ = 0.0;
+    manual_explicit_ = true;
 
     if (!was_any_manual && IsAnyManual())
         just_transitioned_to_manual_ = true;

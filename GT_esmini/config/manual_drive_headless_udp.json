@@ -17,6 +17,7 @@
         "longitudinal": "manual"
     },
     "override": {
-        "enabled": false
+        "enabled": false,
+        "button_takeover": false
     }
 }

@@ -180,6 +180,7 @@ struct VirtualDriverConfig
     // --- Override (maps to OverrideManager) ---
     bool        override_enabled       = true;
     bool        override_button        = true;
+    bool        override_button_takeover = true;
     double      steering_threshold     = 0.05;
     double      throttle_threshold     = 0.1;
     double      brake_threshold        = 0.1;

@@ -25,6 +25,7 @@
         "throttle_threshold": 0.1,
         "brake_threshold": 0.1,
         "auto_return_timeout": 0.0,
-        "button_override": true
+        "button_override": true,
+        "button_takeover": false
     }
 }

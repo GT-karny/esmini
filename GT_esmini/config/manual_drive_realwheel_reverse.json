@@ -27,7 +27,8 @@
         "longitudinal": "manual"
     },
     "override": {
-        "enabled": true
+        "enabled": true,
+        "button_takeover": false
     },
     "ffb": {
         "target_track_enabled": true,

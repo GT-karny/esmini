@@ -167,6 +167,7 @@ class ManualDriveOverrideConfig(BaseModel):
     brake_threshold: float = 0.1
     auto_return_timeout: float = 0.0
     button_override: bool = True
+    button_takeover: bool = False
 
     model_config = {"extra": "allow"}
 
