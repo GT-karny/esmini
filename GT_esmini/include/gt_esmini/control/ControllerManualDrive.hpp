@@ -45,6 +45,8 @@ private:
     friend class ManualDriveCoordinator;
 
     int BuildLightMaskFromExtension() const;
+    bool ResumeVirtualDriverControl();
+    void ReleaseFfbOutputs();
 
     ManualDriveConfig       config_;
     IInputSource*           input_source_;
@@ -78,6 +80,7 @@ private:
     // state so the backend can be re-synced when integration is taken over,
     // since it stood still while another controller moved the car.
     bool         was_domain_integrator_ = false;
+    bool         input_source_initialized_ = false;
 };
 
 scenarioengine::Controller* InstantiateControllerManualDrive(void* args);

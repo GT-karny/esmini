@@ -134,6 +134,14 @@ private:
     // no-op, not a teardown against a null input source).
     bool control_outputs_released_ = true;
 
+    // feature:F7 — IInputSource::Init() has no repeat-call guard. On the
+    // sdl2_wheel path a second call re-opens the joystick, orphans the haptic
+    // effect IDs the previous open created, and re-runs the 500 ms axis-settle
+    // loop mid-frame. A scenario handover that later hands control back makes
+    // that a normal occurrence, not an edge case, so the device is opened once
+    // and kept alive across deactivation (matching ControllerManualDrive).
+    bool input_source_initialized_ = false;
+
     VirtualDriverConfig vd_config_;
     ManualDriveConfig   io_config_;  // built from vd_config_ for IInputSource + OverrideManager
 

@@ -222,7 +222,25 @@ void ControllerVirtualDriver::SetUpControlOutputs()
         object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
         object_->pos_.GetH(), object_->GetSpeed());
 
-    input_source_->Init(io_config_);
+    if (!input_source_initialized_)
+    {
+        input_source_->Init(io_config_);
+        input_source_initialized_ = true;
+    }
+
+    // feature:F7 — RE-ARM the servo. TearDownControlOutputs() latches the sink
+    // off with SetEnabled(false), and SDLFFBSink::Update() early-returns on
+    // !enabled_. Nothing else in the tree ever sets it back, so without this a
+    // controller that is deactivated once and reactivated later comes back with
+    // its force output dead for the rest of the process — the wheel goes limp
+    // and stays limp. That is invisible in any headless gate (SDLFFBSink is not
+    // compiled without GT_ENABLE_SDL2) and only shows up on a real device, so
+    // the pairing with teardown is asserted here rather than assumed.
+    if (IFFBSink* ffb = input_source_->GetFFBSink())
+    {
+        ffb->SetSteerTarget(0.0, /*active=*/false);  // Step() sets the real target this frame
+        ffb->SetEnabled(true);
+    }
 
     // Register VehicleLightExtension (same pattern as ManualDrive / RealDriver).
     if (auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_))

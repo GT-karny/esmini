@@ -291,6 +291,22 @@ TEST(OverrideManagerTest, RequestAutoModeOnlyTouchesConfiguredManualDomains)
     EXPECT_TRUE(m.JustTransitionedToAuto());
 }
 
+TEST(OverrideManagerTest, RequestManualModeClaimsBothConfiguredDomainsAfterScenarioHandover)
+{
+    // A scenario-directed VD -> MD handover is distinct from a driver
+    // override: once MD becomes the sole owner, it must start integrating even
+    // before the driver moves a pedal or the wheel.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+    ASSERT_FALSE(m.IsAnyManual());
+
+    m.RequestManualMode();
+
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.IsLongitudinalManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
+}
+
 TEST(OverrideManagerTest, ResumeRequiresRisingEdge)
 {
     OverrideManager m;

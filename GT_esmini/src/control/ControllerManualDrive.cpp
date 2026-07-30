@@ -1,4 +1,5 @@
 #include "gt_esmini/control/ControllerManualDrive.hpp"
+#include "gt_esmini/control/ControllerVirtualDriver.hpp"
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
@@ -19,6 +20,7 @@
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "CommonMini.hpp"
 #include "Entities.hpp"
+#include "ScenarioEngine.hpp"
 
 namespace gt_esmini
 {
@@ -148,8 +150,41 @@ void ControllerManualDrive::Step(double timeStep)
     coordinator_->RunFrame(*this, timeStep);
 }
 
+void ControllerManualDrive::ReleaseFfbOutputs()
+{
+    IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr;
+    if (!ffb) ffb = ffb_sink_;
+    if (ffb)
+    {
+        ffb->SetSteerTarget(0.0, /*active=*/false);
+        ffb->SetEnabled(false);
+    }
+}
+
 void ControllerManualDrive::DeactivateDomains(unsigned int domains)
 {
+    // feature:F7 — the same bypass ControllerVirtualDriver::DeactivateDomains
+    // closes, on this side. Losing a domain per-domain never reaches
+    // Deactivate(), so the FFB release lived only on a path this controller
+    // does not take when a peer (or AUTO_RESUME handing control back to
+    // VirtualDriver) takes the domains away. ScenarioEngine then stops
+    // stepping us while the device still holds our last spring/damper effect
+    // as an infinite-duration effect, with no code left running that could
+    // release it — and the peer's servo re-arms into that residual force.
+    // Only losing LATERAL (or going fully inactive) releases: the sink is a
+    // lateral output, and a scenario taking only the longitudinal domain
+    // leaves us still steering.
+    const bool losing_lateral =
+        IsActiveOnDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) &&
+        (domains & static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT)) != 0;
+    const bool goes_inactive = Active() && (GetActiveDomains() & ~domains) == 0;
+
+    if (losing_lateral || goes_inactive)
+    {
+        ReleaseFfbOutputs();
+        LOG_INFO("ManualDriveController[{}]: domains released — FFB released", GetName());
+    }
+
     Controller::DeactivateDomains(domains);
     if (object_)
     {
@@ -163,12 +198,7 @@ void ControllerManualDrive::DeactivateDomains(unsigned int domains)
 void ControllerManualDrive::Deactivate()
 {
     // Release FFB before scenario teardown so the wheel isn't left under torque
-    IFFBSink* ffb = input_source_ ? input_source_->GetFFBSink() : nullptr;
-    if (!ffb) ffb = ffb_sink_;
-    if (ffb)
-    {
-        ffb->SetEnabled(false);
-    }
+    ReleaseFfbOutputs();
 
     if (object_)
     {
@@ -182,6 +212,9 @@ void ControllerManualDrive::Deactivate()
 int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_cast<unsigned int>(ControlDomains::COUNT)])
 {
     LOG_INFO("ManualDriveController::Activate() called");
+    const bool was_active = Active();
+    const bool taking_over_from_peer = !was_active && scenario_engine_ &&
+        scenario_engine_->getSimulationTime() > 0.0;
 
     if (object_)
     {
@@ -202,8 +235,25 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
             object_->pos_.GetH(),
             object_->GetSpeed());
 
-        // Initialize input source
-        input_source_->Init(config_);
+        // SDL input has no repeat-Init guard: reopening it leaks haptic
+        // effects. Keep the device alive through a scenario handover and only
+        // initialise it on the controller's first activation.
+        if (!input_source_initialized_)
+        {
+            input_source_->Init(config_);
+            input_source_initialized_ = true;
+        }
+
+        // feature:F7 — pair with Deactivate()'s SetEnabled(false). That call
+        // latches SDLFFBSink::enabled_ off and Update() early-returns on it;
+        // nothing else restores it, so a controller reactivated after a
+        // handover would come back with dead force output. Mirrors
+        // ControllerVirtualDriver::SetUpControlOutputs().
+        {
+            IFFBSink* ffb = input_source_->GetFFBSink();
+            if (!ffb) ffb = ffb_sink_;
+            if (ffb) ffb->SetEnabled(true);
+        }
 
         // Register VehicleLightExtension (same pattern as RealDriverController)
         auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_);
@@ -222,6 +272,17 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
     }
 
     const int rc = Controller::Activate(mode);
+
+    // A post-start INACTIVE -> ACTIVE transition is a scenario-directed
+    // handover, not an ordinary start-up. It must make MD the driver
+    // immediately; waiting for an axis threshold leaves only the upstream
+    // default controller moving the vehicle. Init-time activation keeps the
+    // existing AUTO-at-start behaviour for conventional ManualDrive scenarios.
+    if (taking_over_from_peer && Active())
+    {
+        override_mgr_.RequestManualMode();
+        LOG_INFO("ManualDriveController: scenario handover starts in MANUAL mode");
+    }
 
     // feature:F7 — record the claim only after the base has resolved `mode` into
     // the actual bitmask. Reading the requested mode instead would mis-record any
@@ -245,6 +306,38 @@ int ControllerManualDrive::Activate(const ControlActivationMode (&mode)[static_c
     }
 
     return rc;
+}
+
+bool ControllerManualDrive::ResumeVirtualDriverControl()
+{
+    if (!object_)
+        return false;
+
+    auto* vd = static_cast<ControllerVirtualDriver*>(nullptr);
+    for (auto* controller : object_->controllers_)
+    {
+        if (auto* candidate = dynamic_cast<ControllerVirtualDriver*>(controller))
+        {
+            vd = candidate;
+            break;
+        }
+    }
+    if (!vd)
+        return false;
+
+    ControlActivationMode modes[static_cast<unsigned int>(ControlDomains::COUNT)];
+    for (auto& mode : modes) mode = ControlActivationMode::UNDEFINED;
+    modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LONG)] = ControlActivationMode::ON;
+    modes[static_cast<unsigned int>(ControlDomains::DOMAIN_LAT)]  = ControlActivationMode::ON;
+    vd->Activate(modes);
+
+    // Do not rely on upstream per-domain conflict resolution: it may leave the
+    // incumbent active. Releasing after VD claims preserves the ledger's
+    // last-claimer rule and prevents MD writing later in this frame.
+    DeactivateDomains(static_cast<unsigned int>(ControlDomainMasks::DOMAIN_MASK_LAT_AND_LONG));
+    LOG_INFO("ManualDriveController[{}]: AUTO_RESUME returned control to VirtualDriverController[{}]",
+             GetName(), vd->GetName());
+    return true;
 }
 
 void ControllerManualDrive::GetInputsForOSI(double& throttle, double& brake, double& steering, int& gear, int& lightMask) const

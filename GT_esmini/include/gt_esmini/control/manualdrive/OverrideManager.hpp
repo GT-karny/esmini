@@ -22,6 +22,10 @@ public:
     void Configure(const ManualDriveConfig& config);
     void Update(const InputFrame& input, double dt);
     void RequestAutoMode();
+    // Scenario-directed handover is an explicit transfer of both driving
+    // domains. Unlike a pedal/wheel threshold, it must not wait for a first
+    // human input before ManualDrive starts integrating.
+    void RequestManualMode();
 
     // feature:F7 — stash the latest FFB servo sample. Called by the controller
     // BEFORE Update() each frame; consumed inside Update() only when the servo

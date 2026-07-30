@@ -1043,4 +1043,15 @@ void OverrideManager::RequestAutoMode()
         just_transitioned_to_auto_ = true;
 }
 
+void OverrideManager::RequestManualMode()
+{
+    const bool was_any_manual = IsAnyManual();
+    if (lat_configured_manual_)  lat_mode_ = Mode::MANUAL;
+    if (long_configured_manual_) long_mode_ = Mode::MANUAL;
+    idle_timer_ = 0.0;
+
+    if (!was_any_manual && IsAnyManual())
+        just_transitioned_to_manual_ = true;
+}
+
 } // namespace gt_esmini

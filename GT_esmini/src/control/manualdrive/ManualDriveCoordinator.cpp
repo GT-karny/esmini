@@ -20,6 +20,25 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     // 2. Override judgment (domain-aware)
     c.override_mgr_.Update(frame, dt);
 
+    // Publish raw controls before any AUTO delegation. A handover begins in
+    // AUTO until ControllerManualDrive::Activate promotes it to MANUAL, and a
+    // RESUME press must still be observable in either state.
+    if (c.object_ && frame.pedal_steer)
+    {
+        auto& ledger = DomainOwnershipLedger::Instance();
+        const int obj_id = c.object_->GetId();
+        ledger.PublishDeviceAxis(obj_id, frame.pedal_steer->steering);
+        ledger.PublishDeviceButtons(obj_id, frame.pedal_steer->buttons);
+    }
+
+    if (c.override_mgr_.JustPressedResume() && c.ResumeVirtualDriverControl())
+    {
+        // VD now owns the ledger. Returning here is essential: otherwise MD
+        // can still integrate once after the ownership transfer.
+        c.scenarioengine::Controller::Step(dt);
+        return;
+    }
+
     // feature:F7 — is a per-domain SPLIT in effect, i.e. do the two domains of
     // this object belong to two different controllers? Under a split this
     // controller must keep running even while fully AUTO, because the domain it
@@ -87,20 +106,6 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         if (ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL))
         {
             ledger.PublishLongitudinal(obj_id, &c, cmd.throttle, cmd.brake);
-        }
-
-        // feature:F7 RETURN PATH — raw device axis. Published unconditionally
-        // whenever this controller polled a real input frame this step, so a
-        // lateral owner with no device of its own (VirtualDriver, reverse
-        // split) can find out where the driver's wheel actually is even once
-        // the FFB servo has released it (see DomainOwnershipLedger.hpp).
-        if (frame.pedal_steer)
-        {
-            ledger.PublishDeviceAxis(obj_id, frame.pedal_steer->steering);
-            // feature:F7 RETURN PATH — AUTO_RESUME. Same "device holder
-            // publishes unconditionally" reasoning as the axis above; see
-            // DomainOwnershipLedger.hpp.
-            ledger.PublishDeviceButtons(obj_id, frame.pedal_steer->buttons);
         }
 
         if (ledger.IsIntegrator(obj_id, &c))
