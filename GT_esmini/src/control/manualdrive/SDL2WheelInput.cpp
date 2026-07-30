@@ -236,7 +236,9 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
     read_btn(high_beam_button_,       ButtonBits::HIGH_BEAM);
     read_btn(fog_light_button_,       ButtonBits::FOG_LIGHT);
     read_btn(hazard_button_,          ButtonBits::HAZARD);
-    read_btn(auto_resume_button_,     ButtonBits::AUTO_RESUME);
+    // The physical toggle carries both directions. Web/UDP Resume injection
+    // sets AUTO_RESUME alone and therefore remains a return-to-AUTO command.
+    read_btn(auto_resume_button_,     ButtonBits::AUTO_RESUME | ButtonBits::TAKE_MANUAL);
 
     frame.pedal_steer = cmd;
     return frame;

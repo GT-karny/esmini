@@ -65,6 +65,52 @@
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
 #include "gt_esmini/control/ControllerRealDriverUtils.hpp"
 
+namespace
+{
+template <typename ControllerT>
+ControllerT* GT_FindControllerOfType(scenarioengine::Object* object)
+{
+    if (!object) return nullptr;
+    for (auto* controller : object->controllers_)
+    {
+        if (auto* typed = dynamic_cast<ControllerT*>(controller))
+            return typed;
+    }
+    return nullptr;
+}
+
+scenarioengine::Controller* GT_FindControllerByIdentity(scenarioengine::Object* object, const void* identity)
+{
+    if (!object || !identity) return nullptr;
+    for (auto* controller : object->controllers_)
+    {
+        if (controller == identity)
+            return controller;
+    }
+    return nullptr;
+}
+
+scenarioengine::Controller* GT_FindHvdSource(scenarioengine::Object* object)
+{
+    if (!object) return nullptr;
+
+    // The ledger identifies the sole controller permitted to integrate this
+    // object. Prefer it over controller names or declaration order.
+    if (auto* integrator = GT_FindControllerByIdentity(
+            object, gt_esmini::DomainOwnershipLedger::Instance().IntegratorOf(object->GetId())))
+        return integrator;
+
+    // No GT ownership entry: retain the old feature coverage, but resolve by
+    // concrete type so an XOSC Controller name cannot silence the telemetry.
+    if (auto* ctrl = GT_FindControllerOfType<gt_esmini::ControllerRealDriver>(object)) return ctrl;
+#ifdef GT_ENABLE_EMBEDDED_PYTHON
+    if (auto* ctrl = GT_FindControllerOfType<gt_esmini::ControllerPythonDriver>(object)) return ctrl;
+#endif
+    if (auto* ctrl = GT_FindControllerOfType<gt_esmini::ControllerManualDrive>(object)) return ctrl;
+    return GT_FindControllerOfType<gt_esmini::ControllerVirtualDriver>(object);
+}
+} // namespace
+
 // ============ Pin the fixed 24-slot ADAS table to the real OSI enum ============
 // `control` must not depend on `osi` (GT_esmini/CLAUDE.md §2), so
 // ControllerRealDriverUtils.hpp mirrors the OSI Name values as plain ints. This
@@ -1478,21 +1524,7 @@ GT_ESMINI_API void GT_Step(double dt)
             Object* egoObject = player->scenarioEngine->entities_.GetObjectById(vehicleId);
             if (egoObject)
             {
-                Controller* ctrl = egoObject->GetController(CONTROLLER_REAL_DRIVER_TYPE_NAME);
-#ifdef GT_ENABLE_EMBEDDED_PYTHON
-                if (!ctrl)
-                {
-                    ctrl = egoObject->GetController(CONTROLLER_PYTHON_DRIVER_TYPE_NAME);
-                }
-#endif
-                if (!ctrl)
-                {
-                    ctrl = egoObject->GetController(CONTROLLER_MANUAL_DRIVE_TYPE_NAME);
-                }
-                if (!ctrl)
-                {
-                    ctrl = egoObject->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME);
-                }
+                Controller* ctrl = GT_FindHvdSource(egoObject);
                 if (ctrl)
                 {
                     auto pushControllerState = [&](auto* concreteCtrl) {
@@ -1643,9 +1675,7 @@ GT_ESMINI_API void GT_Step(double dt)
         player && player->scenarioEngine && !player->scenarioEngine->entities_.object_.empty())
     {
         scenarioengine::Object* egoObj = player->scenarioEngine->entities_.object_[0];
-        scenarioengine::Controller* ctrl =
-            egoObj ? egoObj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME) : nullptr;
-        if (auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
+        if (auto* vd = GT_FindControllerOfType<gt_esmini::ControllerVirtualDriver>(egoObj))
         {
             gt_esmini::GT_VirtualDriverReporter::Instance().Send(gt_esmini::ToJson(vd->GetTelemetry()));
         }
@@ -1695,9 +1725,7 @@ static void GT_CaptureVirtualDriverTelemetryFrame(void* player_ptr)
     auto* player = static_cast<ScenarioPlayer*>(player_ptr);
     if (!player || !player->scenarioEngine || player->scenarioEngine->entities_.object_.empty()) return;
     scenarioengine::Object* egoObj = player->scenarioEngine->entities_.object_[0];
-    scenarioengine::Controller* ctrl =
-        egoObj ? egoObj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME) : nullptr;
-    auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl);
+    auto* vd = GT_FindControllerOfType<gt_esmini::ControllerVirtualDriver>(egoObj);
     if (!vd) return;
 
     const std::string line = gt_esmini::ToJson(vd->GetTelemetry());
@@ -1941,8 +1969,7 @@ GT_ESMINI_API int GT_GetVirtualDriverTelemetry(int vehicle_id, char* out_json, i
     scenarioengine::Object* obj = player->scenarioEngine->entities_.GetObjectById(actual_id);
     if (!obj) return -1;
 
-    scenarioengine::Controller* ctrl = obj->GetController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME);
-    auto* vd = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl);
+    auto* vd = GT_FindControllerOfType<gt_esmini::ControllerVirtualDriver>(obj);
     if (!vd) return -1;
 
     const gt_esmini::VirtualDriverTelemetry& t = vd->GetTelemetry();
@@ -2065,4 +2092,3 @@ GT_ESMINI_API int GT_GetLastError(char* buffer, int buffer_size)
     buffer[n] = '\0';
     return n;
 }
-

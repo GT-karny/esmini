@@ -243,6 +243,7 @@ struct VirtualDriverTelemetry
     // domain to have been manual), so a session cannot be segmented into
     // attempts. See OverrideManager::JustPressedResume().
     bool resume_pressed    = false;
+    bool takeover_pressed  = false;  // physical AUTO->MANUAL button edge
 
     // feature:F7 (F7b) — FFB target-tracking servo state. Populated only when
     // the SDLFFBSink servo is running (ffb.target_track.enabled + AD lateral):

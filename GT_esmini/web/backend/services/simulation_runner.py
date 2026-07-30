@@ -351,6 +351,7 @@ _OVERRIDE_DEFAULTS: dict[str, Any] = {
     "brake_threshold": 0.1,
     "auto_return_timeout": 0.0,
     "button_override": True,
+    "button_takeover": False,
 }
 
 

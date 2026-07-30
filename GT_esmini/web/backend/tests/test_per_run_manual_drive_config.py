@@ -128,6 +128,7 @@ def test_override_block_carries_all_user_values(sandbox):
         "brake_threshold": 0.55,
         "auto_return_timeout": 9.5,
         "button_override": False,
+        "button_takeover": True,
     }
     run = _write(sandbox, base)
     assert run["override"] == base["override"]

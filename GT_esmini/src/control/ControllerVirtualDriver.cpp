@@ -67,6 +67,7 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.input_network.port         = vd_config_.input_port;
     io_config_.override_cfg.enabled        = vd_config_.override_enabled;
     io_config_.override_cfg.button_override = vd_config_.override_button;
+    io_config_.override_cfg.button_takeover = vd_config_.override_button_takeover;
     io_config_.override_cfg.steering_threshold = vd_config_.steering_threshold;
     io_config_.override_cfg.throttle_threshold = vd_config_.throttle_threshold;
     io_config_.override_cfg.brake_threshold    = vd_config_.brake_threshold;
@@ -222,7 +223,25 @@ void ControllerVirtualDriver::SetUpControlOutputs()
         object_->pos_.GetX(), object_->pos_.GetY(), object_->pos_.GetZ(),
         object_->pos_.GetH(), object_->GetSpeed());
 
-    input_source_->Init(io_config_);
+    if (!input_source_initialized_)
+    {
+        input_source_->Init(io_config_);
+        input_source_initialized_ = true;
+    }
+
+    // feature:F7 — RE-ARM the servo. TearDownControlOutputs() latches the sink
+    // off with SetEnabled(false), and SDLFFBSink::Update() early-returns on
+    // !enabled_. Nothing else in the tree ever sets it back, so without this a
+    // controller that is deactivated once and reactivated later comes back with
+    // its force output dead for the rest of the process — the wheel goes limp
+    // and stays limp. That is invisible in any headless gate (SDLFFBSink is not
+    // compiled without GT_ENABLE_SDL2) and only shows up on a real device, so
+    // the pairing with teardown is asserted here rather than assumed.
+    if (IFFBSink* ffb = input_source_->GetFFBSink())
+    {
+        ffb->SetSteerTarget(0.0, /*active=*/false);  // Step() sets the real target this frame
+        ffb->SetEnabled(true);
+    }
 
     // Register VehicleLightExtension (same pattern as ManualDrive / RealDriver).
     if (auto* vehicle = dynamic_cast<scenarioengine::Vehicle*>(object_))
@@ -935,6 +954,8 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.override_longitudinal = lon_manual;
         telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
         telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
+        telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
+        telemetry_.takeover_pressed      = override_mgr_.JustPressedTakeManual();
 
         // feature:F7 RETURN PATH — same reason driver.steer needed its own
         // line above: THIS is the branch a non-integrating lateral owner
@@ -1062,6 +1083,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.manual_transition     = override_mgr_.JustTransitionedToManual();
     telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
     telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
+    telemetry_.takeover_pressed      = override_mgr_.JustPressedTakeManual();
     // feature:F7 (F7b) FFB target-track observability. Sample this frame's
     // servo state (populated by ffb->Update above; inert when servo is off).
     if (ffb)

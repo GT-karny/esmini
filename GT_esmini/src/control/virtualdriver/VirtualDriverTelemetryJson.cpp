@@ -49,7 +49,8 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"longitudinal\":" << b(t.override_longitudinal)
        << ",\"manual_transition\":" << b(t.manual_transition)
        << ",\"auto_transition\":" << b(t.auto_transition)
-       << ",\"resume_pressed\":" << b(t.resume_pressed) << "}"
+       << ",\"resume_pressed\":" << b(t.resume_pressed)
+       << ",\"takeover_pressed\":" << b(t.takeover_pressed) << "}"
        // feature:F7 scenario-driven handover. Written directly from
        // SetUpControlOutputs()/TearDownControlOutputs(), so unlike every other
        // field in this record it is NOT frozen once the controller goes

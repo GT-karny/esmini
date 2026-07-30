@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — ケース1: 実機ハンドルで「VD が操舵し、その力を手で感じ、奪い、返す」
+
+  ============================================================================
+  この構成が何をするか
+  ============================================================================
+  VirtualDriver が縦横とも持つ。ManualDrive は**居ない**。
+  デバイス(G29)を開くのも力を出すのも VD ひとつなので、二重オープンも
+  力の取り合いも起こらない。override も AUTO_RESUME も VD の Step 内で完結し、
+  ドメインの再活性を必要としない（＝今回の新規コードを通らない純粋な F7b 経路）。
+
+  確認する3点:
+    (1) 力の発生 — 起動直後からホイールが AI の指令舵角へ駆動される
+    (2) 力の解除 — 押し返して MANUAL にラッチした瞬間にサーボが解放される
+    (3) AUTO_RESUME — ボタンで AI へ戻り、サーボが再武装する
+
+  ============================================================================
+  【安全】起動直後にホイールが動くのが正常
+  ============================================================================
+  **この構成はサーボ ON である。** 起動した瞬間からホイールが AI の舵に
+  追従して動く。順構成の split シナリオ（サーボ OFF）とは正常/異常の判定が
+  逆になる点に注意すること。
+
+  異常時は**ウィンドウを閉じれば止まる。**
+  ウォッチドッグ: |force| >= 0.570 が 2.0 秒continuous続いたら走行を強制終了して
+  力を落とす（virtual_driver_realwheel.json の ffb_safety_*）。
+
+  ============================================================================
+  道路と速度の選定理由
+  ============================================================================
+  e6mini road0 lane-3。VD の既存検証資産（virtual_driver_basic.xosc）と同じ道で、
+  1464m ある。8.333 m/s (30km/h) で約165秒＝StopTrigger と釣り合う。
+
+  緩いカーブの道をあえて選んでいる。舵角が大きく振れる道だと
+  「AD 目標の移動速度」が残差に乗って**誰も触っていないのにラッチする**既知の
+  機序（f7_override_detector_findings §4）と切り分けにくい。まず素直な条件で
+  (1)(2)(3) を通すこと。
+
+  ============================================================================
+  起動
+  ============================================================================
+  手順は REALWHEEL_VD_FFB_TEST の節（handover_control_ownership_defects.md）を見ること。
+  起動オプションに window 60 60 1280 720 を必ず付けること（先頭にハイフン2つ。
+  XML のコメント内にハイフン2つは書けないため、ここでは外している）。
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-31T00:00:00"
+               description="feature:F7 real-wheel case 1: VirtualDriver owns both domains and drives the G29 FFB servo"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="8.333"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/e6mini.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- 名前はクラス名に揃えてある。テレメトリの引き当ては型ベースに直った
+              (GT_FindControllerOfType) が、資産側の規約はそのまま守る。 -->
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+                  <!-- 既定の virtual_driver.json は input_type=stub / サーボ OFF。
+                       取り違えると「力が出ない」状態で走ることになる。
+                       起動ログで realwheel 版が読まれていることを必ず確認。 -->
+                  <Property name="ConfigFile" value="virtual_driver_realwheel.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-3" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="0" laneId="-3" offset="0" s="20"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="0" laneId="-3" offset="0" s="1400"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <!-- 開始速度。VD の目標速度ラッチはこれを読まない（Init の
+                    SpeedAction は getPrivateActions に出ない）ので、巡航目標は
+                    下の Story Event 側で与える。 -->
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="VirtualDriverController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="VdFfbStory">
+         <Act name="CruiseAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <!-- VD が目標速度を読めるのは Story Event 由来の SpeedAction だけ。
+                       これを消すと VD は目標速度を持たず惰行する。 -->
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <!-- 180秒。奪う→返すを何往復か試す時間を確保する。 -->
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="180" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

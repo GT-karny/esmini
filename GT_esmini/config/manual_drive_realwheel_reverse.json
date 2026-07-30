@@ -17,7 +17,7 @@
         "transport_type": "udp",
         "port": 9100,
         "level": "pedal_steer",
-        "deadzone": 0.02
+        "deadzone": 0.0
     },
     "physics": {
         "vehicle_params_file": "real_vehicle_params.json"
@@ -27,7 +27,8 @@
         "longitudinal": "manual"
     },
     "override": {
-        "enabled": true
+        "enabled": true,
+        "button_takeover": false
     },
     "ffb": {
         "target_track_enabled": true,

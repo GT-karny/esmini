@@ -38,6 +38,7 @@ ManualDriveConfig MakeConfig(bool enabled = true,
     cfg.override_cfg.throttle_threshold  = 0.10;
     cfg.override_cfg.brake_threshold     = 0.10;
     cfg.override_cfg.auto_return_timeout = 0.0;
+    cfg.override_cfg.button_takeover     = true;
     cfg.domain.lateral                   = lat;
     cfg.domain.longitudinal              = lon;
     return cfg;
@@ -289,6 +290,86 @@ TEST(OverrideManagerTest, RequestAutoModeOnlyTouchesConfiguredManualDomains)
     EXPECT_FALSE(m.IsLateralManual());
     EXPECT_FALSE(m.IsLongitudinalManual());
     EXPECT_TRUE(m.JustTransitionedToAuto());
+}
+
+// --- Triangle-button toggle: AUTO -> MANUAL through TAKE_MANUAL ------------
+
+TEST(OverrideManagerTest, TakeManualButtonEdgeClaimsConfiguredDomains)
+{
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::TAKE_MANUAL), 0.02);
+
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.IsLongitudinalManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
+    EXPECT_TRUE(m.JustPressedTakeManual());
+}
+
+TEST(OverrideManagerTest, PhysicalToggleReturnsToAutoFromManual)
+{
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    const uint32_t toggle = ButtonBits::AUTO_RESUME | ButtonBits::TAKE_MANUAL;
+    m.Update(MakeFrame(0.0, 0.0, 0.0, toggle), 0.02);
+    ASSERT_TRUE(m.IsAnyManual());
+
+    m.Update(MakeFrame(), 0.02);  // release before the next rising edge
+    m.Update(MakeFrame(0.0, 0.0, 0.0, toggle), 0.02);
+
+    EXPECT_FALSE(m.IsAnyManual());
+    EXPECT_TRUE(m.JustTransitionedToAuto());
+    EXPECT_TRUE(m.JustPressedTakeManual());
+}
+
+TEST(OverrideManagerTest, TakeManualRequiresReleaseBeforeItCanFireAgain)
+{
+    OverrideManager m;
+    m.Configure(MakeConfig());
+
+    m.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::TAKE_MANUAL), 0.02);
+    ASSERT_TRUE(m.IsAnyManual());
+    for (int i = 0; i < 100; ++i)
+    {
+        m.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::TAKE_MANUAL), 0.02);
+        EXPECT_TRUE(m.IsAnyManual());
+        EXPECT_FALSE(m.JustTransitionedToManual());
+        EXPECT_FALSE(m.JustPressedTakeManual());
+    }
+}
+
+TEST(OverrideManagerTest, TakeManualRespectsKillSwitchAndScenarioDomain)
+{
+    ManualDriveConfig disabled = MakeConfig();
+    disabled.override_cfg.button_takeover = false;
+    OverrideManager disabled_manager;
+    disabled_manager.Configure(disabled);
+    disabled_manager.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::TAKE_MANUAL), 0.02);
+    EXPECT_FALSE(disabled_manager.IsAnyManual());
+
+    OverrideManager split_manager;
+    split_manager.Configure(MakeConfig(true, "scenario", "manual"));
+    split_manager.Update(MakeFrame(0.0, 0.0, 0.0, ButtonBits::TAKE_MANUAL), 0.02);
+    EXPECT_FALSE(split_manager.IsLateralManual());
+    EXPECT_TRUE(split_manager.IsLongitudinalManual());
+}
+
+TEST(OverrideManagerTest, RequestManualModeClaimsBothConfiguredDomainsAfterScenarioHandover)
+{
+    // A scenario-directed VD -> MD handover is distinct from a driver
+    // override: once MD becomes the sole owner, it must start integrating even
+    // before the driver moves a pedal or the wheel.
+    OverrideManager m;
+    m.Configure(MakeConfig());
+    ASSERT_FALSE(m.IsAnyManual());
+
+    m.RequestManualMode();
+
+    EXPECT_TRUE(m.IsLateralManual());
+    EXPECT_TRUE(m.IsLongitudinalManual());
+    EXPECT_TRUE(m.JustTransitionedToManual());
 }
 
 TEST(OverrideManagerTest, ResumeRequiresRisingEdge)

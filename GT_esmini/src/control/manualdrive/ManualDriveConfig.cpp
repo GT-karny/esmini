@@ -210,6 +210,7 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("brake_threshold", override_cfg.brake_threshold);
         parse_double("auto_return_timeout", override_cfg.auto_return_timeout);
         parse_bool("button_override", override_cfg.button_override);
+        parse_bool("button_takeover", override_cfg.button_takeover);
     }
 
     LOG_INFO("ManualDriveConfig: Parsed FFB — sat_gain={:.3f} centering={:.3f} fric_base={:.3f} "

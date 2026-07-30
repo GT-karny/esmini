@@ -258,6 +258,7 @@ export interface ManualDriveConfig {
     brake_threshold: number;
     auto_return_timeout: number;
     button_override: boolean;
+    button_takeover: boolean;
   };
   indicator_cancel_angle?: number;
   vehicle_params_file?: string;
@@ -405,6 +406,7 @@ export interface VirtualDriverConfig {
   // Manual override (reuses ManualDrive OverrideManager)
   override_enabled?: boolean;
   override_button?: boolean;
+  override_button_takeover?: boolean;
   steering_threshold?: number;
   throttle_threshold?: number;
   brake_threshold?: number;

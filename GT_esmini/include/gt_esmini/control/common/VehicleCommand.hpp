@@ -16,6 +16,9 @@ namespace ButtonBits
     constexpr uint32_t FOG_LIGHT       = 1u << 5;
     constexpr uint32_t HAZARD          = 1u << 6;  // WARNING_LIGHTS toggle
     constexpr uint32_t AUTO_RESUME     = 1u << 7;  // feature:F7 — manual->auto return (edge-triggered)
+    // Physical wheel toggle's AUTO->MANUAL direction. Web and network Resume
+    // requests deliberately set AUTO_RESUME only, preserving their old meaning.
+    constexpr uint32_t TAKE_MANUAL     = 1u << 8;
 }
 
 // Normalized pedal/steer command — the lingua franca between a driver

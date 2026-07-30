@@ -162,6 +162,7 @@ const BoolField kBoolFields[] = {
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
     {"override_button", &VirtualDriverConfig::override_button},
+    {"override_button_takeover", &VirtualDriverConfig::override_button_takeover},
     {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
     {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
     {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7

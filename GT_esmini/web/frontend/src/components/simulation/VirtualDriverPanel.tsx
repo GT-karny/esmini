@@ -45,7 +45,7 @@ const EDITABLE_KEYS = [
   'crosswalk_yield_to_waiting', 'crosswalk_ped_signal_aware', 'crosswalk_signal_link_radius',
   'crosswalk_release_lateral_margin',
   'aeb_ttc_threshold', 'aeb_lateral_tol', 'aeb_min_a_req', 'aeb_stop_margin',
-  'override_enabled', 'override_button', 'steering_threshold', 'throttle_threshold',
+  'override_enabled', 'override_button', 'override_button_takeover', 'steering_threshold', 'throttle_threshold',
   'brake_threshold', 'auto_return_timeout', 'override_lateral', 'override_longitudinal',
   // SDL2 wheel bindings (feature:F7 + related). Only consumed under sdl2_wheel input.
   'sdl2_override_button', 'sdl2_indicator_left_button', 'sdl2_indicator_right_button',
@@ -379,6 +379,11 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
                   label="Override button"
                   checked={Boolean(cfg.override_button)}
                   onChange={(v) => set('override_button', v)}
+                />
+                <ToggleSwitch
+                  label="Triangle button takeover"
+                  checked={Boolean(cfg.override_button_takeover)}
+                  onChange={(v) => set('override_button_takeover', v)}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">

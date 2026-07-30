@@ -64,6 +64,7 @@ _BOOL_KEYS = frozenset(
         "crosswalk_ped_signal_aware",
         "override_enabled",
         "override_button",
+        "override_button_takeover",
         # feature:F7 (F7b) — FFB target-tracking master gate.
         "ffb_target_track_enabled",
         # feature:F7 — AD steering safety envelope master gate (default ON).
@@ -386,6 +387,7 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "_override": "Manual override (reuses ManualDrive OverrideManager). mode mapping: never=override_enabled:false, deadzone/mix=thresholds, always=thresholds:0. lateral/longitudinal: 'manual' overridable, 'scenario' locked-auto.",
     "override_enabled": True,
     "override_button": True,
+    "override_button_takeover": True,
     "steering_threshold": 0.05,
     "throttle_threshold": 0.1,
     "brake_threshold": 0.1,

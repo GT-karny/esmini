@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  feature:F7 — ケース2: VD → MD → VD の全ドメイン移管（実機ハンドル）
+
+  ============================================================================
+  この構成が何を確かめるか
+  ============================================================================
+  シナリオアクションが VD を降ろして ManualDrive へ丸ごと渡す。運転者が
+  AUTO_RESUME ボタンを押すと制御が VD へ戻る。今回の修正3点すべてを通る:
+
+    (1) 移管直後の MD 積分 — 人が何も触らなくても MD が運転を始めるか
+        （従来は AUTO のまま早期 return し、upstream の defaultController が
+          等速で滑らせていた＝エンブレがかからない状態）
+    (2) 復帰 — AUTO_RESUME で VD がドメインを取り戻すか
+        （従来は VD が非活性で Step されず、ボタンを見ている主体がゼロだった）
+    (3) HVD / テレメトリ — 出力が「実際に運転している方」から出るか
+        （従来は名前引きの優先順で常に MD が選ばれ、休眠中の MD の空データが
+          OSI HostVehicleData に載っていた）
+
+  ============================================================================
+  これは実機を一切触らないヘッドレス版である
+  ============================================================================
+  scenario_realwheel_handover_vd_md_vd.xosc と**同一構成**で、MD の入力だけを
+  物理デバイス(G29)から UDP 9100 に差し替えてある。物理デバイスを開かないので
+  力も出ない。実機テストの前にビルドと移管経路が生きていることを確かめる用途。
+
+  **UDP 9100 を bind するので、他のヘッドレス実行と並列に走らせないこと。**
+
+  ============================================================================
+  無入力で走らせるだけで症状(1)が判定できる
+  ============================================================================
+    t=0..15s   VD が巡航（8.333 m/s）
+    t=15s      移管。以後は誰も入力を送らない ＝ throttle=brake=0
+               → **速度が惰行で落ちていけば (1) 合格**（MD が積分している）
+               → **完全に一定のままなら (1) 不合格**
+                 （upstream の defaultController が等速で滑らせている）
+
+  復帰(2)まで見るには PSTC パケット（magic 'PSTC', 44 bytes）の buttons に
+  bit7 (1<<7 = AUTO_RESUME) を立てて 9100 へ送る。
+
+  ============================================================================
+  移管が2アクション形なのはなぜか
+  ============================================================================
+  1アクション形（新参を活性化するだけ）では upstream の per-domain 解放が
+  現職ではなく新参に DeactivateDomains を呼ぶため、**現職 VD が降りない**。
+  先に VD を解放し、次に MD を活性化する。宣言順が意味を持つ。
+  AssignControllerAction の activateLateral / activateLongitudinal は
+  brace-init バグで横縦が入れ替わるので使用禁止。
+
+  ============================================================================
+  起動
+  ============================================================================
+  起動オプションに window 60 60 1280 720 を必ず付けること（先頭にハイフン2つ。
+  XML のコメント内にハイフン2つは書けないため、ここでは外している）。
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="3"
+               date="2026-07-31T00:00:00"
+               description="feature:F7 headless case 2: scenario hands all domains VD -> ManualDrive, AUTO_RESUME hands them back"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="8.333"/>
+      <ParameterDeclaration name="HandoverAt" parameterType="double" value="15.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/e6mini.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <!-- **override.enabled=true** であることがこの資産の全て。
+              既存の headless 系 config（headless_stub / realwheel_split）は
+              override.enabled=false で両ドメイン恒久 MANUAL のため、
+              「AUTO で始まり早期 return する」＝症状(1)の経路を踏まない。
+              差し替えると検証にならない。 -->
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_udp_override.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+                  <!-- 既定 = input_type stub / サーボ OFF。§変種 参照。 -->
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-3" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="0" laneId="-3" offset="0" s="20"/></Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position><LanePosition roadId="0" laneId="-3" offset="0" s="1400"/></Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <!-- MD は Init では活性化しない。移管時が MD にとって最初の
+                    INACTIVE->ACTIVE 遷移であることが、新コードの
+                    「引き渡しは MANUAL で始める」判定の入口になる。 -->
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="VirtualDriverController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="HandoverStory">
+         <Act name="CruiseAct">
+            <ManeuverGroup maximumExecutionCount="1" name="CruiseSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <!-- VD の目標速度。Story Event 由来でないと VD は読めない。 -->
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+         <Act name="HandoverAct">
+            <ManeuverGroup maximumExecutionCount="1" name="HandoverSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="HandoverManeuver">
+                  <!-- 順序が意味を持つ。先に現職を解放しないと、v1.3 では
+                       現職が降りないまま新参が乗る。 -->
+                  <Event name="ReleaseVD" priority="override">
+                     <Action name="ReleaseVDAction">
+                        <PrivateAction>
+                           <ControllerAction>
+                              <ActivateControllerAction objectControllerRef="VirtualDriverController" lateral="false" longitudinal="false"/>
+                           </ControllerAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="ReleaseAt" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="$HandoverAt" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+                  <Event name="TakeMD" priority="override">
+                     <Action name="TakeMDAction">
+                        <PrivateAction>
+                           <ControllerAction>
+                              <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                           </ControllerAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="TakeAt" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="$HandoverAt" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <!-- 180秒。移管を見て、運転して、ボタンで返す時間を確保する。 -->
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="QuitCondition" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="180" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

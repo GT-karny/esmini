@@ -75,7 +75,7 @@ class ManualDriveButtonMapping(BaseModel):
 
 class ManualDriveSDL2Config(BaseModel):
     device_index: int = 0
-    deadzone: float = 0.05
+    deadzone: float = 0.0
     button_mapping: ManualDriveButtonMapping = ManualDriveButtonMapping()
 
     model_config = {"extra": "allow"}
@@ -167,6 +167,7 @@ class ManualDriveOverrideConfig(BaseModel):
     brake_threshold: float = 0.1
     auto_return_timeout: float = 0.0
     button_override: bool = True
+    button_takeover: bool = False
 
     model_config = {"extra": "allow"}
 
