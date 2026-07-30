@@ -1,0 +1,30 @@
+{
+    "_purpose": "feature:F7 — 引き渡し検証用の ManualDrive config。manual_drive_headless_udp.json との唯一の違いは **override.enabled=true** であること。既存の headless 系 config はすべて override.enabled=false で両ドメインを恒久 MANUAL に固定しており、『AUTO で始まり早期 return する』という実機既定(manual_drive.json)の経路を一度も踏まない。丸ごと引き渡し後に MD が積分を始めるかどうかはその経路の中でしか判定できないので、ヘッドレスで見るにはこの config が要る。",
+    "_why_no_device": "input_type=network。物理デバイスを一切開かない。FFB も出ない（デバイスが無いので sink が作られない）。UDP ポート 9100 を bind するため、**並列実行するとポートを取り合う**。恒久回帰資産にするなら stub 版と同様にポート衝突の扱いを決めてから載せること。",
+    "_how_to_drive": "PedalSteerCommand ワイヤ形式（magic 'PSTC', 44 bytes）を UDP 9100 へ送る。buttons の bit7 (1<<7) が AUTO_RESUME。無入力なら throttle=brake=steering=0 のまま＝惰行し、これが『MD が積分しているか』の判定信号になる（積分していなければ upstream defaultController が等速で滑らせるので速度が一切落ちない）。",
+    "input_type": "network",
+    "physics_type": "real_vehicle",
+    "ffb_enabled": false,
+    "input": {
+        "transport_type": "udp",
+        "port": 9100,
+        "level": "pedal_steer",
+        "deadzone": 0.0,
+        "auto_resume_button": 3
+    },
+    "physics": {
+        "vehicle_params_file": "real_vehicle_params.json"
+    },
+    "domain": {
+        "lateral": "manual",
+        "longitudinal": "manual"
+    },
+    "override": {
+        "enabled": true,
+        "steering_threshold": 0.05,
+        "throttle_threshold": 0.1,
+        "brake_threshold": 0.1,
+        "auto_return_timeout": 0.0,
+        "button_override": true
+    }
+}
