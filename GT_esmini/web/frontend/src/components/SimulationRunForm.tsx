@@ -28,7 +28,7 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
   // config/manual_drive.json value), NOT -1. This literal is written straight
   // into the run request, and -1 means "unassigned" to C++, which is exactly
   // the gap #5 symptom the exposure work is meant to end.
-  sdl2: { device_index: 0, deadzone: 0.05, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 } },
+  sdl2: { device_index: 0, deadzone: 0, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 } },
   keyboard: {
     steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
     upshift: 'E', downshift: 'Q', override_key: 'O',

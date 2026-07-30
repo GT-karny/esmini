@@ -16,7 +16,11 @@ struct ManualDriveConfig
     struct
     {
         int    device_index          = 0;
-        double deadzone              = 0.05;
+        // 0 = no deadzone. VirtualDriver has no deadzone key of its own, so for
+        // the VD-holds-the-wheel configuration this default IS the effective
+        // value. ManualDrive's config/manual_drive*.json set it explicitly and
+        // therefore override this.
+        double deadzone              = 0.0;
         int    upshift_button        = 4;
         int    downshift_button      = 5;
         int    override_button       = 0;

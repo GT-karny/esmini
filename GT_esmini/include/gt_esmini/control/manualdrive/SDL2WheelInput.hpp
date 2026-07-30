@@ -40,7 +40,7 @@ private:
 
     SDL_Joystick* joystick_  = nullptr;
     int           device_idx_             = 0;
-    double        deadzone_               = 0.05;
+    double        deadzone_               = 0.0;
     int           upshift_button_         = 4;
     int           downshift_button_       = 5;
     int           override_button_        = 0;

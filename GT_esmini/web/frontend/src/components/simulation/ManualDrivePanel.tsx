@@ -21,7 +21,7 @@ const DEFAULT_CONFIG: ManualDriveConfig = {
   domain: { lateral: 'manual', longitudinal: 'manual' },
   sdl2: {
     device_index: 0,
-    deadzone: 0.05,
+    deadzone: 0,
     // auto_resume defaults to 3, matching config/manual_drive.json and the
     // pydantic model. NOT -1: an omitted/defaulted value is written straight
     // into the per-run config, so -1 here would hand C++ "unassigned" and
