@@ -410,9 +410,9 @@ namespaces:
     id_pattern: "FUNC-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
     status: active
-    count: 48
+    count: 75
     notes: >-
-      機能軸カタログ DRAFT の網羅列挙スーパーセット（FUNC-001..048、剪定前）。tier/agent/status
+      機能軸カタログ DRAFT の網羅列挙スーパーセット（FUNC-001..075、剪定前）。tier/agent/status
       は catalog 側のフィールド（ID書式には含めない＝再分類でID不変）。実装済み機能は
       policy -> realizes -> vd-func 辺、要求充足は vd-func -> realizes -> req-vd-ad 辺。
       設計軸は GT_esmini/docs/virtualdriver/design/adas_axis.md。

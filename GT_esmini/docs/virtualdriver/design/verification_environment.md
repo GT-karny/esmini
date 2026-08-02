@@ -254,34 +254,31 @@ gt_sim_test compare <run_id> <baseline_id>
 
 ## 7. シナリオライブラリ構成
 
+**真実源は `resources/xosc/verification/` そのものである**（`knowledge/namespaces.yaml` の `policy` 名前空間が
+このディレクトリを `source_of_truth` に指定している）。以下は 2026-08-02 時点の内訳で、増えたら実物を見ること。
+
 ```
 resources/xosc/verification/
-  ├── 01_vehicle_model/          # 単純系: 車両物理
-  │   ├── straight_constant_speed.xosc
-  │   ├── straight_constant_speed.expectations.yaml
-  │   └── ...
-  ├── 02_basic_control/          # 単純系: 基本制御
-  │   ├── lane_change_simple.xosc
-  │   └── ...
-  ├── 03_traffic_signals/        # 単純系: 信号
-  │   ├── red_stop_green_go.xosc
-  │   └── ...
-  ├── 04_traffic_signs/          # 単純系: 標識
-  │   ├── stop_sign.xosc
-  │   └── ...
-  ├── 05_anticipation/           # 中長期判断
-  │   ├── decelerate_for_curve.xosc
-  │   ├── decelerate_for_right_turn.xosc
-  │   └── ...
-  ├── 06_lead_vehicle/           # 半自動: 先行車
-  │   └── ...
-  ├── 07_oncoming_yield/         # アノテーション: 対向車待ち
-  │   └── ...
-  ├── 08_unsignalized_junction/  # アノテーション: 無信号交差点
-  │   └── ...
-  └── 09_crosswalk_pedestrian/   # ハイブリッド: 横断歩道の歩行者への譲り
-      └── ...                    #   （discriminator 7本は expectations で自動判定、全20は注釈）
+  01_vehicle_model/           単純系: 車両物理
+  02_basic_control/           単純系: 基本制御
+  03_traffic_signals/         単純系: 信号
+  04_traffic_signs/           単純系: 標識
+  05_anticipation/            中長期判断
+  06_lead_vehicle/            半自動: 先行車
+  07_aeb/                     AEB（安全 tier。motorway 2車線路）
+  07_oncoming_yield/          アノテーション: 対向車待ち
+  08_handoff/                 feature:F7 制御移管とドメイン分割
+  08_unsignalized_junction/   アノテーション: 無信号交差点
+  09_crosswalk_pedestrian/    ハイブリッド: 横断歩道の歩行者への譲り
+  aeb_c2c_grid/               AEB Car-to-Car グリッド（NCAP 逆算）
+  p6_virtual_junction/        ODR 仮想ジャンクション
+  *_batch.yaml                バッチ manifest（10 本）
 ```
+
+**番号は連番の意味を失っている。** `07_aeb` と `08_handoff` は当初の 01〜09 の枠に無かった軸を
+後から足したもので、既存の `07_oncoming_yield` と `08_unsignalized_junction` と番号が衝突している。
+改称は manifest と expectations とコードコメントを巻き込むため見送っている。
+ディレクトリを指すときは番号ではなく名前で書くこと。
 
 各シナリオは:
 - `*.xosc` 本体

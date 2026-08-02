@@ -59,7 +59,10 @@ AD層が何を計画していようが、TTCが臨界なら安全機能（ADAS�
 ## 3. 機能カタログと既存VD挙動のマッピング
 
 > **網羅版カタログ**: `GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml`（namespace `vd-func`、
-> FUNC-001..048）に4系統×AD/ADASの全候補機能を列挙。以下は既存実装のダイジェスト。
+> FUNC-001 から FUNC-075）に4系統×AD/ADASの全候補機能を列挙。
+> カタログ側は本書の2軸に加えて `layer`（計画階層 strategic/tactical/operational）と
+> `kind`（behavior / enabler）を持つ（2026-07-20 追加、`knowledge/capability_model.md` §2）。
+> 以下は既存実装を本書の2軸に当てはめた表である。
 > トレーサビリティ: `policy -> realizes -> vd-func(機能) -> realizes -> req-vd-ad(要求)`。
 
 | 既存挙動（source） | 動機層 | 主体 | 備考 |
@@ -114,6 +117,8 @@ AD層が何を計画していようが、TTCが臨界なら安全機能（ADAS�
 | 法規遵守機能 | ルール matcher | `matcher:stopped_at_signal` / `stopped_at_stop_sign` |
 | 快適機能 | KPI閾値 matcher | `matcher:maintained_following_distance` |
 | 譲り合い機能 | 挙動期待 matcher | （交差点譲りの専用matcherは未整備・TODO） |
+
+安全機能側の matcher の整備状況は [aeb_requirements.md](aeb_requirements.md) §5 にある。
 
 要求（`req-vd-ad:REQ-AD-nnn`）を**層タグ付き**で起こし、
 `policy → realizes → 要求`、`matcher → verifies → 要求` で知識グラフに接続する

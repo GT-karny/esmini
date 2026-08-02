@@ -93,15 +93,21 @@ NCAP セルが規定している項目を、テスト可能な要求の項目に
 | REQ-AD-014 | arbitration | 快適減速で回避可能なら emergency_decel を使わない | — | deceleration_profile_smooth＋発火監視 |
 | REQ-AD-015 | regulatory | AEB作動包絡線と応答フロア（10–60km/h・警報≥0.8s・≥5m/s²） | R152 | 作動域/警報タイミング(要新規) |
 
-## 5. 必要な新規 matcher（verification ギャップ）
+## 5. 検証 matcher の整備状況
 
-既存 matcher は `min_obb_separation_above`(衝突ゼロ) / `deceleration_profile_smooth`(快適) 程度。以下は未整備で、
-`proposal:P11`(必要減速度/TTCメトリクス)・`P12`(衝突検出) に依存（graph.yaml で depends-on 済み）:
+真実源は `GT_esmini/web/backend/services/vd_metrics.py`（namespace `matcher`）である。
 
-- **impact_speed_reduction** — 回避不能時の衝突速度低減量（カラーバンド評価用）
-- **ttc_min_above** / 必要減速度 a_req — 緊急介入トリガの妥当性
-- **no_emergency_without_conflict** — 誤作動ゼロ（negative要求用）
-- **aeb_activation_envelope** — 作動速度域・警報リード時間の適合
+| matcher | 用途 | 状態 |
+| :-- | :-- | :-- |
+| `min_obb_separation_above` | 衝突ゼロ（REQ-AD-001 / 010 / 011 / 012） | 実装済み |
+| `deceleration_profile_smooth` | 快適減速（REQ-AD-014） | 実装済み |
+| `no_emergency_without_conflict` | 誤作動ゼロ（REQ-AD-013） | 実装済み（フェーズ1で追加） |
+| `impact_speed_below` | 回避不能域の mitigation 受入（REQ-AD-001 の高速側） | 実装済み（フェーズ1で追加）。**初回接触時の閉じ速度が閾値未満か**を見るもので、低減量は測らない |
+| 衝突速度の低減量 | NCAP カラーバンド相当の段階評価 | 未整備。採点規則は [`../measurements/aeb_c2c_grid_matrix.md`](../measurements/aeb_c2c_grid_matrix.md) にあるが、オフライン採点であって matcher ではない |
+| `ttc_min_above` と必要減速度 a_req | 緊急介入トリガの妥当性 | 未整備。`proposal:P11` に依存 |
+| `aeb_activation_envelope` | 作動速度域と警報リード時間の適合（REQ-AD-015） | 未整備 |
+
+未整備分は `proposal:P11`（必要減速度/TTCメトリクス）と `P12`（衝突検出）に依存する（graph.yaml で depends-on 済み）。
 
 ## 6. 出典（版と caveat）
 
