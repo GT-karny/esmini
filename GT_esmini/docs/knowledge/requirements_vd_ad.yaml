@@ -1,6 +1,6 @@
 # VirtualDriver 自動運転 / ADAS 対応シーン要求（namespace: req-vd-ad）
 #
-# status: DRAFT (phase 0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md を参照。
+# status: DRAFT (phase 0). 設計軸は GT_esmini/docs/virtualdriver/design/adas_axis.md を参照。
 # 各要求は「動機層(tier) × 主体(agent)」の交点に置く。
 #   tier  : safety(安全機能) | compliance(法規遵守機能) | courtesy(譲り合い機能) | comfort(快適機能)
 #   agent : AD(連続計画・交渉) | ADAS(離散ガーディアン/アシスト)
@@ -38,7 +38,7 @@ kinds:
 
 requirements:
   # ===== AEB 機能ファミリ（vd-func:FUNC-001 前方AEB / FUNC-002 VRU-AEB を落とす） =====
-  # 詳細と出典は GT_esmini/docs/virtualdriver/aeb_requirements.md。数値は要校正。
+  # 詳細と出典は GT_esmini/docs/virtualdriver/design/aeb_requirements.md。数値は要校正。
   - id: REQ-AD-001
     title: 先行車がカットイン後に急制動しても追突しない（複合・本命）
     tier: safety

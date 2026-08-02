@@ -640,7 +640,7 @@ jobs:
       # Release build above dominates the runtime, so a separate job would pay it
       # twice. Separate step names + a separate artifact keep failure attribution.
       #
-      # feature:F7 scenario-driven handover (docs/virtualdriver/
+      # feature:F7 scenario-driven handover (docs/virtualdriver/design/
       # scenario_control_handoff_design.md). Own manifest + own baseline (design
       # doc Fact M) -- does not touch the other three batches' baselines. No OSI
       # capture needed: the sole matcher (vd_control_relinquished) reads

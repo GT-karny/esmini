@@ -1,6 +1,7 @@
 # シナリオからの制御終了と手動運転への移管（feature:F7）— 実装プラン
 
-**状態**: PM 承認待ち（DRAFT）
+**状態**: **実装済み**（`73e4dccb`。回帰ゲート Step 2.8 と CI `gate:scenario-handoff-regression` で稼働中）。
+以下は実装時の判断台帳（§4 の R-1〜R-5）と、確認済み事実（§1）の記録である。
 **方式**: OpenSCENARIO 標準 `ActivateControllerAction`。独自アクションは採らない。
 **制約**: R1 Clean Core（`EnvironmentSimulator` / `OSMP_FMU` 無改変）、既定挙動不変、回帰ゲート deviation=0 維持、新パラメータは config + Web GUI まで露出、検証はヘッドレス恒久テスト。
 

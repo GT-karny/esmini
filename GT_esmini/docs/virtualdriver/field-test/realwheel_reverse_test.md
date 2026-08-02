@@ -20,7 +20,8 @@
 > config の `auto_resume_button`）を押すと AI の操舵へ戻ります。**
 >
 > **2026-07-30、実機で確認済みです**（ボタン押下→MANUAL→AUTO復帰→サーボ再
-> アクティブ化まで、ユーザー本人がボタンを押して確認）。
+> アクティブ化まで、ユーザー本人がボタンを押して確認。記録は
+> [一次記録 §2.2](../measurements/realwheel_handover_results_2026-07.md)）。
 >
 > **放っておいても（自動タイムアウト）は戻りません。** `auto_return_timeout` を
 > 意図的に無効のままにしてあるため、ボタン操作が唯一の手段です。
@@ -161,15 +162,14 @@ $env:ELECTRON_RUN_AS_NODE = $null
 舵が保持されていれば、動き出した瞬間からカーブに沿って走ります。
 保持されていなければ、動き出した瞬間に反対側へ切れて車線から飛び出します。
 
-> ヘッドレス（自動計測）では、修正前は停止すると舵が反対向きの目一杯（旋回中の5.7倍）
-> まで振れ、修正後は旋回中とほぼ同じ角度（0.98倍）で保持されることを確認済みです。
-> 逆構成でも同じく保持されること（-0.065 rad → -0.105 rad、符号保持）を確認しています。
-> **2026-07-30、実機（目視）でも保持されることを確認済みです。**
+> ヘッドレスでは修正後に舵が保持されること、**2026-07-30 に実機（目視）でも保持されること**を
+> 確認済みです。数値は
+> [一次記録 §2.3](../measurements/realwheel_handover_results_2026-07.md)。
 
 ### (C) テレメトリの復路が繋がっているか（driver.steer の確認）
 
-**2026-07-30、実機ログで確認済みです。** `driver.steer` が -0.083〜0.578 の範囲で
-運転者の軸を追従していました（以前は分割構成だと常に `0.0` のまま凍っていました）。
+**2026-07-30、実機ログで確認済みです**（値は
+[一次記録 §2.4](../measurements/realwheel_handover_results_2026-07.md)）。
 再確認したい場合は、別の PowerShell 窓で走行中に次のどちらか一方を実行してください
 （**同じ UDP ポート 48202 を使うので同時には実行できません**）。
 
@@ -201,13 +201,10 @@ for _ in range(30):
 **カーブに沿って値が変化していれば直っています。** `0.0` のまま並んだら、
 まだ凍ったままです。
 
-> **テレメトリの生JSONを直接読むときの注意（2026-07-30、実測で踏んだ罠）**:
-> 存在しないキーを `dict.get(key, 0)` で読むと、無警告で `0` が返り
-> 「力が出ていない」ように見えてしまいます。正しいキー名は6章の表を参照してください。
-> また `ffb.gates.*` は**1フレーム遅れ**です（`ffb.gates` はこのフレームの
-> `ffb.*` を書く**前**のサンプルに対する診断——詳細はソース
-> `VirtualDriverTelemetryJson.cpp` 冒頭のコメント）。素朴に同じフレーム番号で
-> 突き合わせると1フレームずれます。
+> **テレメトリの生JSONを直接読むときの注意**: 存在しないキーを `dict.get(key, 0)` で読むと、
+> 無警告で `0` が返り「力が出ていない」ように見えます。正しいキー名は6章の表を参照してください。
+> また `ffb.gates.*` は**1フレーム遅れ**です。詳細は
+> [一次記録 §3](../measurements/realwheel_handover_results_2026-07.md)。
 
 ---
 
@@ -282,26 +279,14 @@ for _ in range(30):
 
 `override.resume_pressed` と `ffb.gates.*` は、**この逆構成のようにVDが非積分側の
 とき、常に初期値のまま（`resume_pressed=false`、`gates.*=0`/`"none"`）で凍ります。**
+**機能そのものは動きます。** 死んでいるのは「なぜ発火した／しなかったかを後から
+診断する」ためのテレメトリだけです。**未修正。**
 
-原因は `ControllerVirtualDriver::Step()` の非積分側 early-return
-（`GT_esmini/src/control/ControllerVirtualDriver.cpp` の `if (!is_integrator) { ...; return; }`）
-が、`driver.*` と `override.lateral/longitudinal/manual_transition/auto_transition` と
-`ffb.target_active/commanded_force/position_error/target_norm/sample_effective_force`
-は複製して書く（`1fa408b9`・`74814b61`）一方、`override.resume_pressed` と
-`ffb.gates.*` は複製されておらず、early-return より後（積分側だけが通る本体側）
-でしか書かれないためです。
+**この2つが 0 のままでも「ボタンが効いていない」「検出器が動いていない」と読まないでください。**
+帰属は `override.auto_transition` / `override.lateral` の遷移と `ffb.commanded_force` の値で見ます。
 
-**機能そのものは動きます**（オーバーライド発火・ボタン3によるMANUAL→AUTO復帰は
-今回の実機テストで確認済み）。**死んでいるのは「なぜ発火した／しなかったかを
-後から診断する」ためのテレメトリだけです。** 次バージョンの課題として残っています。
-
-> **注意（2026-07-30、実測で誤診しかけた本人の記録）**: `override.resume_pressed`
-> が `false` のまま、`ffb.gates.effective_force` / `actual_norm` / `residual` が
-> `0` のまま、というログを見ても、**それだけで「ボタンが効いていない」
-> 「検出器が動いていない」と読んではいけません。** 機能そのものは
-> `override.auto_transition` や `override.lateral` の遷移、`ffb.commanded_force`
-> の値で確認すること。上記の非積分側での欠落を知らずに `ffb.gates.*` だけ見ると、
-> 実際は正常なセッションを「力が出ていない」と誤診する（今回それをやりかけた）。
+原因と、この欠落で実際に誤診しかけた記録は
+[一次記録 §3](../measurements/realwheel_handover_results_2026-07.md) にあります。
 
 ---
 

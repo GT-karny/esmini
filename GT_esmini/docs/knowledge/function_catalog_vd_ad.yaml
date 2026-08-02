@@ -1,6 +1,6 @@
 # VirtualDriver ADAS/AD 機能カタログ（namespace: vd-func）
 #
-# status: DRAFT (機能軸フェーズ0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md、
+# status: DRAFT (機能軸フェーズ0). 設計軸は GT_esmini/docs/virtualdriver/design/adas_axis.md、
 # 縦軸（検証スパイン）と3面アーキテクチャは GT_esmini/docs/knowledge/capability_model.md。
 # VD にありうる機能を網羅列挙したスーパーセット（剪定前）。
 # GT_esmini(OSI GroundTruth・人間ドライバ無し)で意味を持つかは status/oos_reason で示す。

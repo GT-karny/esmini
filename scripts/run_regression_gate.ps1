@@ -708,7 +708,7 @@ if ($SkipBehavioral) {
 # Same recipe as Steps 2 / 2.6 / 2.7 (shared Invoke-BehavioralBatch) on a
 # SEPARATE manifest + baseline (design doc Fact M: this must not touch the
 # existing 3 pairs). Covers feature:F7 scenario-driven handover
-# (docs/virtualdriver/scenario_control_handoff_design.md): an
+# (docs/virtualdriver/design/scenario_control_handoff_design.md): an
 # ActivateControllerAction lateral="false" longitudinal="false" mid-run must
 # make VirtualDriverController actually relinquish control (telemetry.vd_active
 # false) and never resume it on its own. No OSI capture needed (osi:false).

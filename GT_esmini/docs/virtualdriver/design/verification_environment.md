@@ -4,8 +4,8 @@
 | --- | --- |
 | ドキュメント種別 | プリ実装設計（要件合意） |
 | 関連ドキュメント | [roadmap.md](./roadmap.md) |
-| 状態 | Draft（要件合意済み、実装未着手） |
-| 最終更新 | 2026-06-02 |
+| 状態 | **V0〜V3 実装済み**（`gt_sim_test` CLI・matcher・注釈 UI・回帰ベースライン）。以下は 2026-06 の設計本文で、実装状況は本文に反映されていない |
+| 最終更新 | 2026-06-02（状態行のみ 2026-08-02 更新） |
 
 ---
 
@@ -67,7 +67,7 @@ VirtualDriver の振る舞いを「プランニング段階から走行結果ま
 ## 3. ビジュアライザ要件
 
 ### 3.1 ベース方針
-- **LiveSceneView 拡張で対応**（[GT_esmini/web/frontend/src/components/LiveSceneView.tsx](GT_esmini/web/frontend/src/components/LiveSceneView.tsx)）
+- **LiveSceneView 拡張で対応**（[GT_esmini/web/frontend/src/components/LiveSceneView.tsx](../../../web/frontend/src/components/LiveSceneView.tsx)）
 - 単独パネルを増やすのではなく、既存 SVG シーン上にレイヤーとしてオーバーレイ
 - 細部チャート（v_target(s) profile、誤差時系列）は LiveSceneView と並べる別パネル
 
@@ -314,9 +314,9 @@ resources/xosc/verification/
 
 | 既存 | 流用先 |
 | --- | --- |
-| [LiveSceneView.tsx](GT_esmini/web/frontend/src/components/LiveSceneView.tsx) | VirtualDriver レイヤーの土台 |
+| [LiveSceneView.tsx](../../../web/frontend/src/components/LiveSceneView.tsx) | VirtualDriver レイヤーの土台 |
 | `OsiLivePanel.tsx` | テレメトリ取得のフロント側パターン |
-| `gRPC OSI streaming`（[services/grpc_server.py](GT_esmini/web/backend/services/grpc_server.py) 等） | ライブテレメトリ転送 |
+| `gRPC OSI streaming`（[services/grpc_server.py](../../../web/backend/services/grpc_server.py) 等） | ライブテレメトリ転送 |
 | `osi3::HostVehicleData` | 自車状態の OSI 表現 |
 | esmini `.dat` / replayer | 多車視聴・別経路の補助 |
 | `GT_Sim.exe` headless 起動 | `gt_sim_test` の実行エンジン |

@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:42f574ec863f47bf -->
+<!-- generated-from: sha256:128f11ae55bfd7dd -->
 
 ノード 176・辺 182（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -578,7 +578,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `req-vd-ad:REQ-AD-001` | `policy:aeb` | cutin_hard_brake(_curve).xosc が policies:[lead,aeb]（:47,:50）で AebSafety を発火させ、 impact_speed_below(直進, 閾10.0)/min_obb_separation_above(カーブ, 閾0.5) で判定。 判定を担うのは lead ではなく aeb 側 matcher。 ※ requirements_vd_ad.yaml:68 の red_asset は policies:[lead] と記すが陳腐化（実バッチは [lead,aeb]）。 |
 | `req-vd-ad:REQ-AD-013` | `policy:aeb` | 負例3本 normal_following/benign_cutin/parallel_overtake が policies:[lead,aeb]（:58,:61,:64）で AEB パイプラインの各段（ゲート非発火/候補拒否）を狙い撃ち、no_emergency_without_conflict で 誤発火ゼロを判定。正例(001)と同一バッチ・同一ベースライン（sustained-by:aeb-safety-regression 参照）。 |
-| `req-vd-ad:REQ-AD-010` | `policy:aeb` | CCRs 7セル（aeb_c2c_grid/ccrs_ego10..70.xosc, policies:[lead,aeb], osi:true）＝停止先行車への パラメトリック接近（初期ギャップ=閉じ速度x6s）。判定は expectations でなく探索スイープ層の score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。 2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、 回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。 行列は GT_esmini/docs/virtualdriver/aeb_c2c_grid_matrix.md に固化。 |
+| `req-vd-ad:REQ-AD-010` | `policy:aeb` | CCRs 7セル（aeb_c2c_grid/ccrs_ego10..70.xosc, policies:[lead,aeb], osi:true）＝停止先行車への パラメトリック接近（初期ギャップ=閉じ速度x6s）。判定は expectations でなく探索スイープ層の score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。 2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、 回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。 行列は GT_esmini/docs/virtualdriver/measurements/aeb_c2c_grid_matrix.md に固化。 |
 | `req-vd-ad:REQ-AD-011` | `policy:aeb` | CCRm 5セル（ccrm_ego30..70_lead20.xosc）＋ CCRb 4セル（ccrb_hw{12,40}_d{2,6}.xosc, NCAP 車間12/40m・制動-2/-6 m/s²）、policies:[lead,aeb]。判定は score_aeb_c2c_grid.py の帯行列。 2026-07-24 実測: 全セル avoid(no_aeb)。ただし ccrb_hw12 系は max 8.6 m/s² の強制動での回避 ＝本物のニアミス（min TTC 2.83s、Claim B「IDM経路は快適天井を迂回」の実証セル）。 avoid/mitigate 境界は本グリッドの外側＝格子細分化/ギャップ短縮が後続課題。 |
 | `req-vd-ad:REQ-AD-002` | `policy:lead` | 06_lead_vehicle/follow_steady.xosc が policies:[lead]（:59）。 maintained_following_distance（min_thw 1.0/max_thw 3.5/percentile 50）で快適車間維持を判定。 |
 | `req-vd-ad:REQ-AD-003` | `policy:traffic_light` | 03_traffic_signals/red_stop_green_go.xosc が policies:[traffic_light]（:25）。 stopped_at_signal(require_red=true, signal_id:1/road_id:3) で停止線手前停止を判定。red_hold も同 policy で補強。 |

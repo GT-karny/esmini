@@ -1,10 +1,10 @@
 # 三角ボタンによる AUTO⇄MANUAL モード切替 — 設計と実装プラン
 
-**状態**: 設計完了・実装未着手（実装は Codex 担当）
+**状態**: **実装済み**（`3de45b67`）。以下は実装時の設計判断の記録である。
 **作成**: 2026-07-31
-**関連**: [`handover_control_ownership_defects.md`](handover_control_ownership_defects.md) /
+**関連**: [`control_ownership_defects.md`](control_ownership_defects.md) /
 [`domain_split_ownership.md`](domain_split_ownership.md) /
-[`realwheel_reverse_test.md`](realwheel_reverse_test.md)
+[`realwheel_reverse_test.md`](../field-test/realwheel_reverse_test.md)
 
 **根拠表記**: ★ = 本作業でコードを直接開いて確認 / ☆ = 未確認・実装時に要確認。
 **行番号はズレうる。シンボル名で参照すること。**

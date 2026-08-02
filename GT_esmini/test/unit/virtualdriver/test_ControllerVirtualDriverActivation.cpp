@@ -1,5 +1,5 @@
 // feature:F7 scenario-driven handover — domain-transition classification truth
-// table (docs/virtualdriver/scenario_control_handoff_design.md §3/§7 step 5).
+// table (docs/virtualdriver/design/scenario_control_handoff_design.md §3/§7 step 5).
 //
 // ControllerVirtualDriver::Activate() wraps the upstream
 // scenarioengine::Controller::Activate() call with:

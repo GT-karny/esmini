@@ -1,4 +1,4 @@
-# VirtualDriver Phase 2 — フォローアップ課題（次セッション着手予定）
+# VirtualDriver Phase 2 — フォローアップ課題（2026-06-04 解決済み・凍結）
 
 | 項目 | 内容 |
 | --- | --- |
@@ -29,7 +29,7 @@ Phase 2 完了後に確認された 2 件。どちらも横/縦プランニン�
 が速度を落としてしまう。本来は直進・緩カーブではほぼ減速せず走るべき。
 
 ### 根本原因（特定済み）
-[ManeuverAwareSpeedPlanner.cpp](../../src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp)
+[ManeuverAwareSpeedPlanner.cpp](../../../src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp)
 の前方スキャンが、**ジャンクション接続路なら無条件で `turn_speed`(=5.0) キャップ**を掛けている:
 
 ```cpp
@@ -45,7 +45,7 @@ double v_ceil = std::clamp(std::min({v_curve, v_lim, v_turn}), cfg_.min_speed, k
 ### 修正方針
 `turn_speed` キャップ（と `junction` 制約の発行）を **「その接続路が実際に曲がる」ときだけ**に限定。
 直進接続路は曲率任せ（実質減速なし）。曲がる/直進の判定は既存ロジックを流用:
-- **RouteDrive のコネクタ turnRate 判定**（[ControllerRouteDrive.cpp:331-344](../../src/control/ControllerRouteDrive.cpp#L331)）:
+- **RouteDrive のコネクタ turnRate 判定**（[ControllerRouteDrive.cpp:331-344](../../../src/control/ControllerRouteDrive.cpp#L331)）:
   接続路の `p0(s=0)` と `pE(s=length)` の heading 差 / length ≥ `SHARP_TURN_RATE(0.04 rad/m)` なら turn。
 - または `ControllerVirtualDriver::DetectJunctionTurn` の heading-delta（`GetDrivingDirection` 差 > 0.10 rad）。
 
@@ -64,10 +64,10 @@ double v_ceil = std::clamp(std::min({v_curve, v_lim, v_turn}), cfg_.min_speed, k
 
 ### 根本原因（特定済み）
 追従の基準点が**車両原点（リア寄り）**。
-- 自己位置 = [RealVehicleBackend::GetPose](../../src/control/common/RealVehicleBackend.cpp#L66)
+- 自己位置 = [RealVehicleBackend::GetPose](../../../src/control/common/RealVehicleBackend.cpp#L66)
   = `real_vehicle_.posX_/posY_`（`object->pos_` XY と一致＝esmini 参照点）。
-- preview は**その原点の route s のレーン中心**にアンカー（[TrajectoryShortPlanner.cpp](../../src/control/virtualdriver/TrajectoryShortPlanner.cpp) の `SetLanePos(...,0)`）。
-- [PIDPurePursuitDriver.cpp](../../src/control/virtualdriver/PIDPurePursuitDriver.cpp) は `state.x/y`（=原点）から
+- preview は**その原点の route s のレーン中心**にアンカー（[TrajectoryShortPlanner.cpp](../../../src/control/virtualdriver/TrajectoryShortPlanner.cpp) の `SetLanePos(...,0)`）。
+- [PIDPurePursuitDriver.cpp](../../../src/control/virtualdriver/PIDPurePursuitDriver.cpp) は `state.x/y`（=原点）から
   lookahead と cross-track を測る。
 
 旋回時、原点（リア寄り）がレーン中心に乗ると、フロント（原点+前方≈半車長）はより大きな半径を描き **外側へ膨らむ → 路外**。

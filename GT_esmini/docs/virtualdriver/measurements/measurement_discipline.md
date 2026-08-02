@@ -1,4 +1,4 @@
-# feature:F7 計測計画
+# 手介入検出まわりの計測規律と数値台帳
 
 **版**: **確定版** · **日付**: 2026-07-27 · **状態**: 発効（他ワーカーはこれに従う）
 **HEAD**: `b969b25b` · **ブランチ**: `dev_v0.14`
@@ -976,7 +976,7 @@ D-4（器具の警告・異常値を必ず報告に載せる）と V3（区間�
 | 今日の全経緯 | `test_results/f7_residual_handoff_C.md` |
 | 独立監査フェーズ 2 | `test_results/f7_audit_phase2_report.md` |
 | 実機特性の真実源 | `scripts/ffb_spike/CHARACTERIZATION.md` |
-| しきい値調整の指針（利用者向け） | `GT_esmini/docs/virtualdriver/ffb_override_tuning.md` |
-| 復帰・合流軌道の設計メモ（§6-2 が `ego.offset` 問題の一次分析） | `GT_esmini/docs/virtualdriver/resume_merge_trajectory_design.md` |
+| しきい値調整の指針（利用者向け） | `GT_esmini/docs/virtualdriver/guides/ffb_override_tuning.md` |
+| 復帰・合流軌道の設計メモ（§6-2 が `ego.offset` 問題の一次分析） | `GT_esmini/docs/virtualdriver/design/resume_merge_trajectory_design.md` |
 | 実機確認ランブック | `test_results/f7_residual_realmachine_check.md` |
 | 再生ハーネス（恒久資産） | `GT_esmini/test/tools/ffb_override_replay.cpp` |

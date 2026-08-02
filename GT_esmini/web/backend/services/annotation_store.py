@@ -4,7 +4,7 @@ Bridges the on-disk results/ tree (top-level GUI/CLI runs and batch-nested runs)
 into the SQLite `verification_runs` table via a pull-based, idempotent scan, and
 owns the `verification_annotations` read/write with a JSON sidecar mirror.
 
-Design notes (see GT_esmini/docs/virtualdriver/verification_environment.md §6.3):
+Design notes (see GT_esmini/docs/virtualdriver/design/verification_environment.md §6.3):
 - Pull, not push: gt_sim_test runs headless in DriverScript/.venv with no backend
   up, so the CLI stays dependency-free; the backend discovers batches by scanning
   RESULTS_DIR for */batch_verdict.json.

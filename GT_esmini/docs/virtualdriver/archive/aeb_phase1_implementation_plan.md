@@ -1,7 +1,10 @@
-# AEB 実装計画（フェーズ1）— draft / セッション handoff
+# AEB 実装計画（フェーズ1）— 完了・凍結
 
-> **status: PLAN（未着手）**。機能軸フェーズ0（要求・RED）まで完了、実装はこれから。
-> 設計軸=[adas_axis.md](adas_axis.md)、要求=[aeb_requirements.md](aeb_requirements.md) /
+> **status: 完了・凍結**（`03e193b0` で `AebSafety` 実装、回帰ゲートに搭載済み）。
+> 以下は着手時点の計画本文で、§8 のチェックボックスは当時のまま更新していない。
+> AEB の現況は [`../design/adas_axis.md`](../design/adas_axis.md) と
+> [`../measurements/aeb_c2c_grid_matrix.md`](../measurements/aeb_c2c_grid_matrix.md) を見ること。
+> 設計軸=[adas_axis.md](../design/adas_axis.md)、要求=[aeb_requirements.md](../design/aeb_requirements.md) /
 > `knowledge/requirements_vd_ad.yaml`、RED資産=`resources/xosc/verification/07_aeb/`。
 
 ## 0. これまでの到達点（フェーズ0）
@@ -19,7 +22,7 @@ RED実装中の実証で判明した2点が設計を決める:
 2. **AEBギャップの本質**: `LeadVehicleAware` は既に **~11 m/s² の強い減速**を IDM の MAX_SPEED 経路で出せる（`comfort_decel=2` の天井を迂回）。⇒ **#34 は「減速度不足」ではなく「カットインの遅い検知」**（同一レーン `dLaneId==0` かつ `|dt|<=lateral_tol` のみ検知）が本質。
 
 **⇒ AEBの主眼は「カットイン/横方向侵入の早期検知」。emergency_decel は副次**（既に強く止まれるので、早く気づけば回避できる）。
-**⇒ [adas_axis.md](adas_axis.md) §7 の「安全層=comfort_decel 天井を破る」は要修正**（天井は既に破れている。真の欠落は検知タイミング）。
+**⇒ [adas_axis.md](../design/adas_axis.md) §7 の「安全層=comfort_decel 天井を破る」は要修正**（天井は既に破れている。真の欠落は検知タイミング）。
 
 ## 2. スコープ
 
@@ -48,7 +51,7 @@ RED実装中の実証で判明した2点が設計を決める:
 5. **RED緑化**: `aeb_safety_batch.yaml` を `policies:[lead, aeb]` にして **直進+カーブが PASS**（min_obb_separation_above > 0.5）。※避けられない域なら acceptance を mitigation（衝突速度低減）へ切替（REQ-AD-001 は両対応）。
 6. **negative/回帰**: REQ-AD-013 の誤作動シナリオ（通常追従・LC・併走で emergency 不発火）を追加し PASS。既存 `06_lead_vehicle/*`・`car_following_traffic_control_batch`・回帰baseline が **非回帰**。
 7. **GUI**: `VirtualDriverPanel` に AEB トグル + パラメータ（VD-GUI-PARITY, #33）。`virtual_driver_api` の known-keys に追加。
-8. **docs/KG**: [adas_axis.md](adas_axis.md) §7 修正、`vd-func:FUNC-001` を `status: built`、graph.yaml で policy(Aeb)→realizes→FUNC-001 の実装辺追加、`--render`。#34 を close。
+8. **docs/KG**: [adas_axis.md](../design/adas_axis.md) §7 修正、`vd-func:FUNC-001` を `status: built`、graph.yaml で policy(Aeb)→realizes→FUNC-001 の実装辺追加、`--render`。#34 を close。
 
 ## 5. 検証と matcher
 

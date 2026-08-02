@@ -1,9 +1,10 @@
 # シナリオからの手動運転移管 — 3症状の原因と対策プラン
 
-**状態**: 調査完了・実装未着手（実装は Codex 担当）
+**状態**: **修正1・修正2・修正3-a は実装済み**（`708e792c`）。§7.5 の欠陥 D1-D3 も修正済み。
+以下は原因分析と、実装後も残る既知の制約の記録である。**未実施の項目は §4 修正3-c／修正4／修正5。**
 **作成**: 2026-07-31
 **関連**: [`scenario_control_handoff_design.md`](scenario_control_handoff_design.md) /
-[`scenario_control_handoff_howto.md`](scenario_control_handoff_howto.md) /
+[`scenario_control_handoff_howto.md`](../guides/scenario_control_handoff_howto.md) /
 [`domain_split_ownership.md`](domain_split_ownership.md)
 
 **根拠の出どころ表記**: ★ = 本調査でコードを直接開いて確認 / ☆ = サブエージェント報告（実装時に再確認すること）。
@@ -328,7 +329,7 @@ HVD のデータ源を「名前の優先順で最初に見つかった1つ」か
 **3-d — rpm/gear は HVD 面が正**
 
 `osi3::MovingObject` に受け皿が無く ☆、proto の拡張は R1 抵触で
-[`F5_osi_extension_telemetry_design.md`](F5_osi_extension_telemetry_design.md) が既に棄却済み ☆。
+[`osi_telemetry_extension_decision.md`](osi_telemetry_extension_decision.md) が既に棄却済み ☆。
 **コンシューマ側を HVD 面（UDP 48199）に向けるのが正攻法。** 面を跨いだ要求が来ている場合は
 「どちらの面を見ているか」をユーザーと合意してから着手すること。
 

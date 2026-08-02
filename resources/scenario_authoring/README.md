@@ -1,7 +1,7 @@
 # scenario_authoring — Layer-1 Catalog for VirtualDriver Phase 3d/3e
 
 This directory is the root of the parameterized scenario-authoring foundation described in
-`GT_esmini/docs/virtualdriver/scenario_authoring_foundation.md`.
+`GT_esmini/docs/virtualdriver/design/scenario_authoring_foundation.md`.
 
 It targets VirtualDriver **Phase 3d** (oncoming-vehicle yield / right-turn gap judgement)
 and **Phase 3e** (unsignalized junction priority) verification.
@@ -183,6 +183,6 @@ Rules:
 ## Design Reference
 
 Full rationale, taxonomy, and milestone roadmap:
-`GT_esmini/docs/virtualdriver/scenario_authoring_foundation.md`
+`GT_esmini/docs/virtualdriver/design/scenario_authoring_foundation.md`
 
 Tool dependencies and dev-freeze non-applicability: see §3.2 of that document.

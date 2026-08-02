@@ -1,7 +1,7 @@
 scenario: scenario_split_domain_md_vd
 category: 08_handoff
 # feature:F7 per-domain split: lateral=ManualDrive / longitudinal=VirtualDriver
-# (docs/virtualdriver/domain_split_ownership.md). Init activates MD on lateral
+# (docs/virtualdriver/design/domain_split_ownership.md). Init activates MD on lateral
 # only and VD on longitudinal only, via ActivateControllerAction with
 # objectControllerRef (revMinor=3 ignores controllerRef -- see the xosc header).
 #

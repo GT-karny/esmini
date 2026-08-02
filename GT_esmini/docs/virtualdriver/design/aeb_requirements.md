@@ -1,6 +1,9 @@
 # AEB 機能要求 — NCAP/R152 逆算スキーマ ＋ 要求ファミリ（draft）
 
-> **status: DRAFT（機能軸フェーズ0の続き）** — `vd-func:FUNC-001`(前方AEB)/`FUNC-002`(VRU-AEB) を
+> **status: DRAFT（機能軸フェーズ0の続き）。要求台帳としては現役**
+> （`knowledge/graph.yaml` の `req-vd-ad:REQ-AD-*` が本文書を `source` に引く）。
+> 実測との突き合わせは [`../measurements/aeb_c2c_grid_matrix.md`](../measurements/aeb_c2c_grid_matrix.md)。
+> `vd-func:FUNC-001`(前方AEB)/`FUNC-002`(VRU-AEB) を
 > テスト可能な要求（`req-vd-ad`）に落とす。設計軸は [adas_axis.md](adas_axis.md)。
 > 要求文は自作せず、**Euro NCAP / UN R152 の試験プロトコルを翻案**する（シーンで OpenX 統制語彙を
 > 使ったのと同じ発想）。数値は指標であり **要校正（GT_esmini側の合否閾値は別途キャリブレーション）**。

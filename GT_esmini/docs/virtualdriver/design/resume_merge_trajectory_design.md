@@ -1,8 +1,9 @@
 # AUTO_RESUME 合流軌道生成 — 設計案（feature:F7 ②）
 
-**状態**: DRAFT / PM 承認待ち（実装未着手）
+**状態**: **実装済み**（`de2205a0`、`ResumeMergeProfile.{hpp,cpp}` + config + GUI + ユニットテスト）。
+以下は実装時の設計記録である。本文には調査中の訂正（§6-2 / §6-3）がそのまま残っている。
 **対象**: 手動オーバーライドで本来の車線の隣に出た状態から AUTO_RESUME したときの急復帰
-**既定**: OFF（無効時は従来挙動と完全一致）
+**既定**: 設計時は OFF。**出荷は ON**（`config/virtual_driver.json` の `resume_merge_enabled: true`、2026-07-28 以降）
 
 ---
 
@@ -502,7 +503,7 @@ parity 30 本 → 実機。
 | 8 | backend | `web/backend/api/virtual_driver_api.py` の `_BOOL_KEYS` / `_NUMBER_KEYS` / `DEFAULT_VIRTUAL_DRIVER_CONFIG` | **`KNOWN_KEYS` が唯一の関門。登録漏れは PUT が 422 で黙って落ちる** |
 | 9 | 型契約 | `web/frontend/src/api/client.ts` | **FROZEN CONTRACT（L1-22）。editor 側 `packages/esmini` との同期が必要＝PM 判断事項** |
 | 10 | GUI | `web/frontend/src/components/simulation/VirtualDriverPanel.tsx` の `EDITABLE_KEYS` ＋新セクション | `LiveVdPanel` / `FfbMarginPanel` は表示専用で対象外 |
-| 11 | docs | `docs/virtualdriver/ffb_override_tuning.md` に節追加 ＋ 本ファイル | |
+| 11 | docs | `docs/virtualdriver/guides/ffb_override_tuning.md` に節追加 ＋ 本ファイル | |
 
 ---
 

@@ -168,7 +168,7 @@ private:
     AdSteeringEnvelopeConfig ad_envelope_cfg_;
     AdSteeringEnvelopeState  ad_envelope_state_;
 
-    // feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md).
     // Config captured once at construction (not hot-reloaded), mirroring
     // ad_envelope_cfg_ above -- Step() gates ALL resume-merge logic behind
     // resume_merge_cfg_.enabled so the disabled path (shipped default) runs

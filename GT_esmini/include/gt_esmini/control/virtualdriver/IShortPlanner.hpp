@@ -29,7 +29,7 @@ struct ShortPlanContext
     // ShortPlannerSnapshot::control_point_offset. 0 = anchor at the origin (P2 issue 2).
     double                        control_point_offset = 0.0;
 
-    // feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md).
     // The CONTROLLER resolves the ROUTE lane and drives the ResumeMergeProfile
     // state machine (ArmResumeMerge/AdvanceResumeMerge/DisarmResumeMerge); this
     // planner only CONSUMES the result -- no route/lane resolution or state

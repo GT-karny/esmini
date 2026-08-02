@@ -92,7 +92,7 @@ JSON 側:
 両依頼とも実装・配信済み。**フロントは無改修で点灯可能**（キー名・順序を契約どおり厳守）。
 
 ### 依頼1（必須）: `midlong.v_target_profile` — 完了
-`ToJson()`（[VirtualDriverTelemetryJson.cpp](../../src/control/virtualdriver/VirtualDriverTelemetryJson.cpp)）にトップレベル `midlong` を追加。形状:
+`ToJson()`（[VirtualDriverTelemetryJson.cpp](../../../src/control/virtualdriver/VirtualDriverTelemetryJson.cpp)）にトップレベル `midlong` を追加。形状:
 ```json
 "midlong": { "valid": true,
   "v_target_profile": [[s, v], ...],          // [s,v] ペア配列（s=ego からの前方距離[m], v=上限[m/s]）
@@ -102,7 +102,7 @@ JSON 側:
 - ※旧 commit (`d51942f3`) で一時的に `v_target_curve`（`[{s,v}]`）で出していたが、本契約 `v_target_profile`（`[[s,v]]`）に**置換済み**。`client.ts` の `MidLongProfile` と一致。
 
 ### 依頼2: `MidLongConstraint{s,x,y,v,kind}` — 完了
-- [VirtualDriverTypes.hpp](../../include/gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp) に `MidLongConstraint` 追加、`MidLongPlannerSnapshot::constraints` に格納。
+- [VirtualDriverTypes.hpp](../../../include/gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp) に `MidLongConstraint` 追加、`MidLongPlannerSnapshot::constraints` に格納。
 - `ManeuverAwareSpeedPlanner` が前方スキャン中に**ワールド XY 付き**で制約点を選定（連続する同種制約区間ごとに「最も遅い点」を 1 つ）。`kind` ∈ `"curve" | "junction" | "speed_limit"`（`"stop"` は Phase 3 で使用予定、現状未出力）。
 - 実測例（fabriksgatan 右折）: `{kind:"junction", s≈104, v≈4.3, xy≈(18.9,-5.4)}`。
 

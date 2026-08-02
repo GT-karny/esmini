@@ -97,7 +97,7 @@ SchoolZone / PedestrianZone / GeofencedZone / InterferenceZone / TrafficManageme
 
 ## 5. ベースシーン・ファミリの洗い出し（SCN候補の母集団）
 
-既存資産との突合: 道路類型 G1-G17・シチュエーション S1-S7 は `GT_esmini/docs/virtualdriver/scenario_authoring_foundation.md` §2、検証カテゴリは `resources/xosc/verification/01〜09`。
+既存資産との突合: 道路類型 G1-G17・シチュエーション S1-S7 は `GT_esmini/docs/virtualdriver/design/scenario_authoring_foundation.md` §2、検証カテゴリは `resources/xosc/verification/01〜09`。
 **凡例**: ✅=検証資産あり / 🔶=部分的（資産はあるが検証未整備）/ ❌=未着手
 
 | # | ファミリ | 主なOpenX概念 | 代表シーン候補 | 既存カバー |

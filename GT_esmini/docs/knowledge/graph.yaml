@@ -430,7 +430,7 @@ edges:
 
   # ---- VD 機能軸フェーズ0: ADAS/AD トレーサビリティ (vd-func / req-vd-ad) ----
   # 3段チェーン: policy -> realizes -> vd-func(機能) -> realizes -> req-vd-ad(要求)。
-  # matcher -> verifies -> 要求。設計軸: GT_esmini/docs/virtualdriver/adas_axis.md。
+  # matcher -> verifies -> 要求。設計軸: GT_esmini/docs/virtualdriver/design/adas_axis.md。
 
   # --- policy -> realizes -> vd-func（実装済み/部分機能の実装元マッピング） ---
   - from: policy:lead
@@ -550,12 +550,12 @@ edges:
   - from: matcher:impact_speed_below
     to: req-vd-ad:REQ-AD-001
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想）
   - from: matcher:no_emergency_without_conflict
     to: req-vd-ad:REQ-AD-013
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本）
 
   # --- 要求 -> concerns/depends-on ---
@@ -567,91 +567,91 @@ edges:
   - from: req-vd-ad:REQ-AD-001
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/adas_axis.md
+    source: GT_esmini/docs/virtualdriver/design/adas_axis.md
     note: collision-free 不変条件（衝突検出）が回帰固化の前提
   - from: req-vd-ad:REQ-AD-001
     to: proposal:P11
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/adas_axis.md
+    source: GT_esmini/docs/virtualdriver/design/adas_axis.md
     note: 必要減速度/TTC メトリクスが緊急介入判定・検証の前提
 
   # ---- AEB 機能ファミリ（REQ-AD-010..015、NCAP/R152逆算）: aeb_requirements.md ----
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-010
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→停止先行車回避(CCRs)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-011
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→等速/制動先行車回避(CCRm/CCRb)
   - from: vd-func:FUNC-002
     to: req-vd-ad:REQ-AD-012
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-013
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→誤作動抑止(negative, R152)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-014
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→快適優先の層調停(arbitration)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-015
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→作動包絡線/応答フロア(regulatory, R152)
 
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-010
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 停止先行車との衝突ゼロ
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-011
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 先行車との衝突ゼロ
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-012
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 歩行者/自転車との衝突ゼロ
   - from: matcher:deceleration_profile_smooth
     to: req-vd-ad:REQ-AD-014
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 快適域で滑らかな減速（緊急制動不発火）
 
   - from: req-vd-ad:REQ-AD-010
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 衝突検出(collision-free)が検証前提
   - from: req-vd-ad:REQ-AD-011
     to: proposal:P11
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 必要減速度/衝突速度低減メトリクスが検証前提
   - from: req-vd-ad:REQ-AD-011
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 衝突検出が検証前提
   - from: req-vd-ad:REQ-AD-012
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 衝突検出が検証前提
   - from: req-vd-ad:REQ-AD-013
     to: proposal:P11
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 誤作動ゼロ判定に緊急制動発火メトリクスが必要
 
   # ---- ②刺激: req -> stimulated-by -> policy / scenario-variant（capability_model.md §5） ----
@@ -689,7 +689,7 @@ edges:
       score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。
       2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、
       回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。
-      行列は GT_esmini/docs/virtualdriver/aeb_c2c_grid_matrix.md に固化。
+      行列は GT_esmini/docs/virtualdriver/measurements/aeb_c2c_grid_matrix.md に固化。
   - from: req-vd-ad:REQ-AD-011
     to: policy:aeb
     type: stimulated-by

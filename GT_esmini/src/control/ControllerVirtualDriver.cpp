@@ -600,7 +600,7 @@ void ControllerVirtualDriver::Step(double timeStep)
             requested_cp = dist;
     }
 
-    // 2c. feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // 2c. feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md).
     // Smooths a manual->AUTO_RESUME lateral hand-over by ramping a ROUTE-lane
     // reference into the short planner instead of the raw per-frame
     // current-lane snap (TrajectoryShortPlanner.cpp's anchor). Entirely gated

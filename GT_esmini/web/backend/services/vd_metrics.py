@@ -776,7 +776,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # feature:F7 S4 — asserts a per-domain split is actually holding:
         # lateral driven by one controller, longitudinal by the other, with a
         # single physics integrator underneath
-        # (docs/virtualdriver/domain_split_ownership.md).
+        # (docs/virtualdriver/design/domain_split_ownership.md).
         #
         # Three checks, and all three are needed. The first two attribute the
         # two domains in OPPOSITE directions, so neither controller can satisfy
@@ -910,7 +910,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
 
     if kind == "vd_control_relinquished":
-        # feature:F7 scenario-driven handover (docs/virtualdriver/
+        # feature:F7 scenario-driven handover (docs/virtualdriver/design/
         # scenario_control_handoff_design.md §5.1). Asserts the ego's
         # VirtualDriverController actually gave up control at some point in
         # the run and never resumed it. Reads the top-level telemetry.vd_active

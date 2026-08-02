@@ -138,7 +138,7 @@ struct IndicatorSnapshot
     bool right_on = false;
 };
 
-// feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md
+// feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md
 // section 8-6). Controller-owned merge state-machine snapshot -- deliberately
 // NOT part of ShortPlannerSnapshot above (that one is the cross-session
 // contract this feature must not touch; see this file's header comment).
@@ -219,7 +219,7 @@ struct VirtualDriverTelemetry
     // field in this struct is frozen at its last-active-frame value once the
     // controller is torn down. true only between a completed setup and the
     // next teardown; false before the first activation and after any
-    // teardown. See docs/virtualdriver/scenario_control_handoff_design.md §5.1.4.
+    // teardown. See docs/virtualdriver/design/scenario_control_handoff_design.md §5.1.4.
     bool vd_active = false;
 
     // feature:F7 S2 — true while this controller is the object's designated

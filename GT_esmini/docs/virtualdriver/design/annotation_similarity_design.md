@@ -1,9 +1,9 @@
-# F4 ストレッチ: 注釈データセット類似度の自動判定（設計メモ）
+# 注釈データセット類似度による自動判定（設計メモ・未実装）
 
 | 項目 | 内容 |
 | --- | --- |
 | ドキュメント種別 | 設計メモ（構想のみ・**未実装**） |
-| 関連ドキュメント | [verification_environment.md](./verification_environment.md) §1, §6.4 / [tech_debt_audit_2026-06](../tech_debt_audit_2026-06.md) §5 F4 |
+| 関連ドキュメント | [verification_environment.md](./verification_environment.md) §1, §6.4 / [tech_debt_audit_2026-06](../../tech_debt_audit_2026-06.md) §5 F4 |
 | 状態 | Draft |
 | 最終更新 | 2026-07-11 |
 
