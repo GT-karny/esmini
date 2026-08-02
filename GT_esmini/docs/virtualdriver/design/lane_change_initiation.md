@@ -237,6 +237,9 @@ AD 発起 LC は storyboard の Action を作らない（§2 の理由）ので�
 ラッチの理由（レーン境界を跨いだ瞬間に現在レーン id が目標に一致して差分が 0 に潰れる）は
 AD LC でも同じなので、**発起時に1回だけ確定して LC 完了まで保持する**。
 
+> **2026-08-02 追記**: この §6 は「発起と同時に点灯する」までを決めた。法定タイミング
+> （進路変更の何秒前から出すか）は §11 で決める。§11 は本節の3段構造を4段に置き換える。
+
 ## 7. 検証 — 何を作り、何を判定するか
 
 ### 資産の現況
@@ -340,3 +343,390 @@ LC 用に**別インスタンス**の `ResumeMergeConfig` / `ResumeMergeState` �
 - 検証道路: `resources/xodr/highway_example_with_merge_and_split.xodr`（junction 1 / connection 3）
 - 記述ルール（Waypoint の静的検証）: 同 `scenario_authoring_foundation.md` §10 と
   `scripts/check_route_waypoints.py`
+
+（§11 以降は 2026-08-02 の追記。既存の §1-§10 を参照している箇所があるため、番号は繰り上げない。）
+
+## 11. 方向指示器のリードタイム — 時間で遡れないものを距離で解く
+
+§6 は「発起した瞬間に点灯する」までしか決めていない。実測でも armed と点灯が同一フレーム
+（t=2.70）に出ている。ここではその手前、**合図を先に出す**側を決める。
+
+### 11-1. 「LC 開始の3秒前」は素朴には実装できない
+
+VD の発起はギャップ受容に依存する**反応的**な判断である（§4）。隣接レーンに隙間が空いた
+フレームで初めて armed になるので、**いつ armed になるかは事前に分からない**。したがって
+「armed の3秒前」へタイマーで遡ることは原理的にできない。
+
+前例が答えを持っている。`ControllerRouteDrive` は同じ問題を**距離**で解いている。
+
+```cpp
+// Winker leads the (potential) start by winker_lead_time; preserved across all settings.
+if (laneAvail && dist <= dSeek + config_.winker_lead_time * speed)
+{
+    wantDir = dir;
+}
+
+const bool seeking    = laneAvail && dist <= dSeek;
+```
+（`src/control/ControllerRouteDrive.cpp:253-259`。`dist` は現在道路の終端までの距離
+`ControllerRouteDrive.cpp:241-244`、`speed` は自車速度 `:236`）
+
+つまり「開始の N 秒前」ではなく「**探し始めるしきい値より `v·N` だけ手前**」である。点灯条件に
+ギャップ判定は入らない（`laneAvail` のみ）。ギャップが空かなければ**点灯したまま待つ**。
+挙動としても自然で、合図の意味とも合う。
+
+**同型の実装は VD 内にも既にある。** 交差点旋回の先読みがそれで、
+
+```cpp
+// Lead-time based lookahead so the signal pre-arms before the intersection.
+const double lookahead = std::max(15.0, speed * vd_config_.indicator_lead_time + 10.0);
+```
+（`src/control/ControllerVirtualDriver.cpp:1820`、`indicator_lead_time` 既定 2.0 =
+`config/virtual_driver.json:54`）
+
+本節はこの2つと同じ形を LC 発起へ持ち込む。
+
+### 11-2. 値の根拠と、国別をどう扱うか
+
+**日本**: 道路交通法 第53条第1項が合図を義務づけ、合図の時期は同法施行令 第21条第1項の表が
+定める。進路変更は「**その行為をしようとする時の3秒前のとき**」、右左折は「その行為をしようと
+する地点（交差点）の手前の側端から**30メートル手前**の地点に達したとき」。
+
+**国際**: 1968年 道路交通に関するウィーン条約は**秒数を規定しない**。方向指示器による予告は
+マニューバの間continueし、完了と同時にやめる、という定性規定にとどまる。ドイツ StVO §5 も
+"rechtzeitig und deutlich"（時期を得て明確に）で数値を持たない。米国は州法ごとで、多くは
+**距離**（100 ft 等）で書かれている。
+
+> **決定: 国別テーブル・国別プリセットは作らない。**
+> 規定は国によって**次元そのものが違う**（秒 / 距離 / 定性）。単一の秒パラメータへ畳めない。
+> `lane_change_indicator_lead_time_s` を1本置き、**既定を日本の 3.0 s** とする。他国へ
+> 合わせたい利用者は値を変える（距離規定の国は `v` で割った秒に換算する）。
+> これは `stop_line_stop_target_design.md` で「標識 294 は独 StVO 固有であり ASAM へ
+> 一般化できない」と判断したのと同じ筋である。国別解決を要求として立てるなら
+> `req-vd-ad` 側の新規要求であって、本設計の範囲ではない。
+
+**3.0 s は下限の充足であって上限ではない。** 距離しきい値に換算した時点で「等速で走り続けたら
+3秒後に発起点へ着く」位置での点灯になり、実際にはギャップ待ちが入るので**実リードは 3 秒以上**に
+なる。法定側が下限規定なので、この誤差は安全側に倒れる。
+
+### 11-3. 二段しきい値
+
+```
+発起  : dist_to_connection <= required_m                                   （既存 §3）
+先行合図: dist_to_connection <= required_m + v_ego * lane_change_indicator_lead_time_s
+```
+
+`required_m` は §3 の式そのままで、`ShouldAttemptLaneChangeHop()` が使う値と**同一の量**を
+使う（別途計算しない）。差は `v_ego * lead_time` の1項だけであり、これが RouteDrive の
+`winker_lead_time * speed` に対応する。
+
+> **罠（実装者は必ずガードすること）**: `dist_to_connection` は最終バンドで **`-1.0`**（= 該当なし）
+> を返す。
+> ```cpp
+> if (matched == &plan.bands.back()) { status.dist_to_connection = -1.0; }
+> ```
+> （`src/control/virtualdriver/RouteLanePlan.cpp:412-419`。フィールドの契約は
+> `RouteLanePlan.hpp:77` の "-1 = unknown"）
+> `-1.0 <= 任意の正数` は常に真なので、素朴に書くと**最終バンドで指示器が出っぱなしになる**。
+> `dist_to_connection >= 0.0` を先に判定する。
+
+先行合図の追加条件は発起と同じ前提を共有する: `route_lane_status.valid` かつ
+`!on_target_lane` かつ hop が有効。**ギャップ受容は条件に入れない**（RouteDrive と同じ。
+合図は「入りたい」の表明であって「入れる」の表明ではない）。
+
+#### 実測 — 3秒は定速でだけ厳密に出る（2026-08-02）
+
+実装後に `route_lane_batch.yaml` を実 Release ビルドで走らせた結果。
+
+| シナリオ | t_sig | t_arm | リード |
+| :--- | ---: | ---: | ---: |
+| `lane_change_to_exit_ramp`（隣接車なし） | 2.30 | 2.70 | **0.40 s** |
+| `lane_change_to_exit_ramp_with_traffic`（ギャップ待ちあり） | 3.10 | 7.55 | **4.45 s** |
+
+先行点灯そのものは効いている（FUNC-061 の note にあった「発起と同一フレーム t=2.70 で点灯」が、
+同じ 2.70 に対して 2.30 点灯へ動いた）。だが**隣接車なしの側が 0.40 s しか出ない**。
+テレメトリを読むと理由は一意である。
+
+```
+   t      v    dist     req  sig_thr     gap   sig  arm
+1.95   6.68  184.02  140.00  160.03   23.99  False False
+2.00   6.87  183.68  140.20  160.81   22.87  False False   <- v が 6.67 を超え、床から速度比例へ
+2.15   7.45  182.58  150.67  173.04    9.55  False False
+2.25   7.84  181.81  157.66  181.18    0.63  False False
+2.30   8.04  181.40  161.15  185.25   -3.85  True  False   <- 先行合図
+2.70   9.03  177.92  179.03  206.11  -28.19  True  True    <- 発起
+```
+
+`required_m` は `v < 6.67 m/s`（= `min_lead_distance_m / lead_time_s`）の間、床 40 m に張り付いて
+**140.00 で一定**である。v がその境界を越えた瞬間に速度比例の枝へ移り、そこから
+`n_remaining × lead_time_s × a = 3 × 6.0 × 3.9 ≈ 70 m/s` で膨張する。一方 ego が距離を
+詰める速さは v ≈ 8 m/s にすぎない。**しきい値が自車より 9 倍速く迫ってくる**ので、
+`v × 3.0 ≈ 24 m` のリード距離が 0.4 秒で消える。
+
+> **これは指示器の欠陥ではなく、決断距離が速度比例であることの帰結である。**
+> 定速（`a = 0`）なら `required_m` は動かず、ギャップは v で閉じ、リードは `3v / v = 3.0 s`
+> ちょうどになる。**法定の3秒は定速では厳密に満たされ、加速中だけ縮む。**
+> ギャップ待ちが入る側（`with_traffic`）は待ちのぶん 4.45 s と法定値を上回る。
+
+**対処は入れない（今回のスコープ）。** 秒で一定のリードを加速中にも保証するには、
+しきい値自身の移動速度 `d(required_m)/dt` を閉じ込み速度に含める必要がある
+（`(dist - required) / (v + d(required)/dt) <= lead_time`）。フレーム間差分による数値微分が
+要り、チャタリングの検討も要る。**実測で挙動が判った今こそ設計できるが、指示器に
+リードタイムを入れるという本節の目的の範囲を超える。** `vd-func:FUNC-061` の残タスクとして
+記帳する。
+
+matcher のしきい値は実測に合わせて置いた（隣接車なし `min_lead_s: 0.3`、
+ギャップ待ちあり `2.0`）。後者を測定値 4.45 の近くに置かないのは、4.45 の大半が
+ギャップ待ち時間であり、隣接車の配置を触っただけで matcher が赤くなるからである
+（無関係な変更で鳴る検知器は警報疲れを育てる）。
+
+#### 既知の非対称性 — 最終バンドでは先行しない（実装後に判明）
+
+発起側は同じ `-1.0` を**逆向き**に扱う。
+
+```cpp
+if (dist_to_connection < 0.0)
+{
+    return true;  // "not applicable" (final band) -- nothing left to wait for
+}
+```
+（`src/control/virtualdriver/LaneChangeInitiation.cpp:63-66`。FUNC-055 実装時からの既存挙動）
+
+つまり最終バンドでは `ShouldAttemptLaneChangeHop` が真、`ShouldSignalLaneChangeHop` が偽になり、
+**「発起 ⇒ 先行合図」の包含関係がここだけ破れる**。この区間で発起した場合、指示器は
+armed と同時に点く（＝本節を入れる前の挙動そのまま）。合図が出ないわけではない。
+
+> **判断: `ShouldAttemptLaneChangeHop` 側は変えない。**
+> あれは「もう待つ先が無いのだから即座に判断する」という FUNC-055 の意図的な設計であり、
+> 反転させると発起の挙動が変わって §8 の「既定 OFF なら既存ベースライン不変」とは別の軸で
+> 回帰が動く。指示器のリードタイムを入れるという本節の目的の範囲を超える。
+>
+> 残る欠陥は「最終バンドでの発起にはリードが付かない」ことである。実害は限定的で、
+> 最終バンドは定義上その先に接続点が無い（`RouteLanePlan.cpp:407-411`）＝経路上の
+> 車線変更要求としては終端の縁でしか起きない。**恒久的に許容するのではなく、
+> `vd-func:FUNC-061` の残タスクとして記帳する。**
+
+### 11-4. 置き場所 — `DetectManeuverDir` に置く
+
+> **決定: `DetectManeuverDir` を4段に拡張する。`AutoIndicatorPolicy` と `IndicatorFSM` は
+> 変更しない。**
+
+```
+1. storyboard LaneChangeAction が RUNNING → その方向（従来どおり）
+2. AD 発起 LC が armed            → lc_init_state_.direction_indicator（従来どおり）
+3. AD LC の先行合図が立っている    → その方向          ← 新設
+4. どれでもない                    → 0（DetectJunctionTurn へフォールバック）
+```
+
+根拠は前例2つで、どちらも「コントローラが先読みして `maneuver_dir` を出す」と言っている。
+
+- `AutoIndicatorConfig::lead_time` は未使用の予約フィールドだが、そのコメントが
+  `// [s] reserved — controller sets maneuver_dir this far ahead`
+  （`include/gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp:10`）＝
+  **責務の置き場所はコントローラ側だと既に宣言されている**
+- `DetectJunctionTurn` が同じことを既にやっている（11-1）
+
+実装形は「毎フレーム `lc_signal_dir_`（コントローラのメンバ）を確定させ、`DetectManeuverDir` は
+それを読むだけ」にする。§2 の LC ブロック（`ControllerVirtualDriver.cpp:936-1080`）は
+`DetectManeuverDir` の呼び出し（`:1417-1425`）より**先**に走るので、順序の心配はない。
+
+```
+lc_signal_dir_ =
+    armed                          ? lc_init_state_.direction_indicator
+  : （先行合図の条件が成立）        ? LaneChangeIndicatorDir(ego_lane_raw, hop.next_hop_lane_id, along_s)
+  :                                  0;
+```
+
+armed のときは従来の値と**ビット単位で同じ**なので、この統合は既存挙動を変えない。
+`LaneChangeInitiationState` の POD には触らない（`DisarmLaneChangeHop` などの free 関数が
+新フィールドを踏む事故を避ける）。
+
+先行合図中は方向を**毎フレーム再計算してよい**。ラッチが要るのはレーン境界を跨いだ後に
+差分が 0 へ潰れるからで（§6）、先行合図の段階ではまだ跨いでいない。armed になった時点で
+既存のラッチ（`ArmLaneChangeHop` が確定した `direction_indicator`）へ引き継がれる。
+
+### 11-5. 自動キャンセルは発火しない（調査で確定）
+
+「まだ操舵していない段階で点灯させると自動キャンセルが即座に消すのではないか」という懸念は、
+**この設計では成立しない**。経路が2本に分かれているためである。
+
+- 操舵戻りによる自動キャンセルを持つのは `IndicatorFSM`
+  （`include/gt_esmini/control/manualdrive/ManualDriveTypes.hpp:78-106`）で、その入力は
+  **人間のボタンと人間の操舵**だけである（`ControllerVirtualDriver.cpp:1243-1244`）。
+  出力は `ictx.manual_left/right/active` に入る（`:1422-1424`）。
+- AD 側の点灯を決めるのは `AutoIndicatorPolicy::Update`
+  （`src/control/virtualdriver/AutoIndicatorPolicy.cpp:6-39`）で、**操舵に基づくキャンセルを
+  一切持たない**。`maneuver_dir` をラッチし、0 に戻ってから `min_on_time`（既定 0.3 s）だけ
+  保持して消すだけである。
+- さらに `IndicatorFSM` 自体も、`State::ARMED`（点灯要求済み・未旋回）にはキャンセル分岐が
+  存在しない。`ARMED` 節にあるのは `ACTIVE` への昇格条件だけで、消灯は
+  `ACTIVE` から閾値を跨いで戻ったときにしか起きない（`ManualDriveTypes.hpp:88-93`）。
+
+したがって「先行合図を `maneuver_dir` に載せる」限り、キャンセル機構には**触れられない**。
+逆に言えば、`IndicatorFSM` 側へ AD 由来の点灯を足す実装は責務が混ざるので採らない。
+
+なお `ctx.manual_active` は AD より優先される（`AutoIndicatorPolicy.cpp:11-18`）。これは
+正しい（人間が勝つ）ので、そのままにする。
+
+### 11-6. ギャップ待ちが長引いても消さない
+
+> **決定: 点灯の上限時間は設けない。**
+
+理由は3つ。
+
+1. ウィーン条約の定性規定は「予告はマニューバの間continueし、完了でやめる」であり、
+   待っている間に消すのは合図の意味を壊す
+2. 先行実装（`ControllerRouteDrive`）にも上限が無い。待ちが長い状況＝ギャップが無い状況で
+   あり、そこで消灯すると「入りたい」が周囲に伝わらなくなる
+3. 上限を入れると「消えた後にまた点く」チャタリングの上限復帰ロジックが要る。挙動と実装の
+   両方を複雑にする対価に見合わない
+
+消灯は条件が落ちれば自然に起きる。目標レーン帯に乗った（`on_target_lane`）／バンドを抜けて
+`dist_to_connection` が `-1.0` になった／`suppressed` に入った、のいずれでも `lc_signal_dir_`
+が 0 になり、`AutoIndicatorPolicy` が `min_on_time` 後に消す。
+
+**入れないまま接続点を通過した場合も同じ**で、§5（現行維持＝通過して逸脱を記録）を変えない。
+バンドを抜けた時点で合図は落ちる。
+
+### 11-7. 優先順位は §2 をそのまま継承する
+
+先行合図も `suppressed`（storyboard 横アクション RUNNING / `lat_manual` / resume-merge active）
+の間は**出さない**。合図だけ先に出して実際には動けない、という状態を作らないためである。
+判定は発起側と同じ `suppressed` を使う（新しい判定を作らない）。
+
+### 11-8. テレメトリ — 意図とランプの両方を出す
+
+`LaneChangeInitiationSnapshot`（`VirtualDriverTypes.hpp:231-242`）に1フィールド足す。
+
+| フィールド | 型 | 意味 |
+| :--- | :--- | :--- |
+| `signal_active` | bool | AD LC 経路が方向指示器を要求している（先行合図中 or armed 中） |
+
+`indicator.left/right`（既存、`VirtualDriverTypes.hpp:135-139` →
+`VirtualDriverTelemetryJson.cpp:157`）だけでは**足りない**。ランプが点いている理由が AD LC の
+先行合図なのか `DetectJunctionTurn` の交差点旋回なのかを区別できず、検証が偽 PASS を出しうる。
+
+逆に `signal_active` だけでも足りない。意図が計算されただけで `AutoIndicatorPolicy` に握り
+潰されていても真になるからである。**matcher は両方を見る**（11-9）。
+
+既存の `lane_change.direction` は armed 時のみ非 0 という契約
+（`VirtualDriverTypes.hpp:236` / `ControllerVirtualDriver.cpp:1669`）を**変えない**。
+direction は hop のプロパティであって合図のプロパティではない。
+
+### 11-9. 検証 — 先行を機械判定する
+
+> **新 matcher `indicator_leads_lane_change` を新設する。**
+
+§7 は「新 matcher は作らない」と決めたが、それは「新しい観測量が増えないから」という理由
+だった。今回は**指示器ランプという新しい観測量が増える**ので、その前提が成り立たない。
+`route_lane_plan_holds` は `frames[i]["route_lane"]` しか読まない
+（`web/backend/services/vd_metrics.py:1520-1571`）ので、そこへ別ブロックの判定を混ぜない。
+
+判定内容（`must` キー `min_lead_s`、既定なし＝必須）:
+
+1. `lane_change.signal_active` が最初に真になる時刻 `t_sig` と、`lane_change.armed` が最初に
+   真になる時刻 `t_arm` を取る
+2. **`t_arm - t_sig >= min_lead_s`**（これが「発起より前に点灯している」の本体）
+3. `[t_sig, t_arm]` の全フレームで `indicator.left` または `indicator.right` が真
+   （意図がランプまで届いたことの確認。ここが 11-8 の「両方を見る」）
+4. 点いている側が hop の方向と一致（`lane_change.direction` は armed 後にしか出ないので、
+   armed フレームの `direction` と突き合わせる）
+
+どちらかのブロックが1フレームも存在しなければ **skip**（pass にしない）。既存の
+`route_lane_plan_holds` が `route_lane` ブロック欠落に対して取っている作法
+（`vd_metrics.py:1557-1571`）をそのまま踏襲する。
+
+刺激に使うのは `lane_change_to_exit_ramp_with_traffic`。ギャップ待ちがあるぶん
+`t_arm - t_sig` が長く出るので、先行の存在を見やすい。隣接車なしの
+`lane_change_to_exit_ramp` は待ちが無いぶんリードが `v·lead_time` ぶんに縮むが、
+それでも 0 ではないので両方に付けてよい。
+
+### 11-10. config キー（確定。実装者はこの名前を使うこと）
+
+| キー | 型 | 既定 |
+| :--- | :--- | :--- |
+| `lane_change_indicator_lead_time_s` | number | **3.0** |
+
+**既存の `indicator_lead_time`（2.0、交差点旋回用）とは別キーにする。** 法的規定が別物
+（右左折は「30 m 手前」、進路変更は「3秒前」）で、根拠も次元も違う。1本にまとめると片方を
+合わせたときにもう片方が規定から外れる。
+
+追従先は §8 の5点セットと同じ。`lane_change_initiation_enabled=false` のときこのキーは
+一切参照されない（先行合図の計算そのものが `enabled` の内側にある）ので、**既定 OFF の
+不変条件は §8 のまま**である。
+
+## 12. パラメータの意味を画面から伝える
+
+§8 で config キーが9個増え、§11 で10個目が増えた。GUI（`VirtualDriverPanel.tsx:747-791`）は
+`Lead time (s)` のような**単位付きの短ラベルだけ**で、値の意味は画面に出ていない。
+セクション冒頭の JSX コメント（`:741-746`）はコード上の注釈で、画面には出ない。
+
+### 12-1. 伝えるべきことは3つに絞る
+
+全項目に説明を撒くと階層が壊れる（hint sprawl）。伝えるべきは次の3点に絞る。
+
+1. **3つの距離パラメータが1つの式に入る**こと
+   `required_m = n_remaining × max(v × lead_time_s, min_lead_distance_m) + reserve_distance_m`
+2. **「いつ動き出すか」と「入っていいかの安全判定」は別の関心**であること
+3. **後方ギャップだけ後続車の速度で測る**こと（自車速度ではない。§4 の理由）
+
+### 12-2. 層分け（L0 / L1 / L2）
+
+| 層 | 何を | どう |
+| :--- | :--- | :--- |
+| **L0**（常時表示） | 関心の分離と、式 | サブ見出しでグループを割り、Timing 群の直下に式を1行だけ等幅で併記する |
+| **L1**（近接） | 後方ギャップの基準速度 | Gap 群の直下に1行だけ注記。**ここだけ**に置く |
+| **L2**（オンデマンド） | 各パラメータ1文 | 各フィールドの `title` ツールチップ |
+
+グループ分けは次のとおり。バックエンドのキー順ではなく、**利用者の関心**で割る。
+
+| グループ | キー |
+| :--- | :--- |
+| **Timing — いつ動き出すか** | `lead_time_s` / `min_lead_distance_m` / `reserve_distance_m` / `indicator_lead_time_s` |
+| **Gap acceptance — 入っていいか** | `gap_min_m` / `gap_headway_lead_s` / `gap_headway_rear_s` / `gap_ttc_min_s` |
+| **Comfort — 動きの質** | `lateral_accel_comfort` |
+
+`indicator_lead_time_s` を Timing 群に入れるのは、それが §11-3 のとおり**同じ式に足し込まれる**
+量だからである（合図は Gap の関心には属さない）。
+
+### 12-3. 実装手段 — 新コンポーネントを作らない
+
+> **決定: `NumberInput` に `title` を通す。`description` prop は足さない。**
+
+- `NumberInputProps` は `InputHTMLAttributes<HTMLInputElement>` を継承しているので
+  （`web/frontend/src/components/ui/Input.tsx:34-37`）、`title` は**型を変えずに渡せる**。
+  ただし現状 `{...rest}` は `<input>` へ展開されるため、ラベル上ではツールチップが出ない。
+  `NumberInput` 内で `title` を `FieldWrapper` の `<div>` 側へ回す（`Input.tsx:12-19, 39-45`。
+  3行の変更で、`title` を渡していない既存 149 箇所の呼び出しは無変更で動く）
+- `description` prop を足さない理由: `Checkbox` / `ToggleSwitch` が持つ `description`
+  （`Input.tsx:63-76`）は**1行ラベル横の短文**用途であり、2列グリッドの数値フィールド8個に
+  常時表示の説明文を付けると階層が崩れる。L2 はオンデマンドで足りる
+- ツールチップの前例は既にあり、いずれも**ネイティブ `title` 属性**である
+  （`ControllerSection.tsx:137-141` の Route Drive レーンチェンジ説明、
+  `FfbMarginPanel.tsx:169,176,183` の数値指標説明）。専用 `<Tooltip>` コンポーネントは
+  リポジトリに存在しない。**ここで新設しない**
+
+**言語**: ラベルと L0/L1 の画面テキストは英語（パネル既存の全ラベル・`<p>` と揃える）。
+L2 のツールチップは日本語（`ControllerSection.tsx:140` が確立した唯一のツールチップ前例に
+揃える）。
+
+### 12-4. 3面を同じ説明で揃える（VD-GUI-PARITY / issue #33）
+
+GUI だけで完結させない。同じ内容を次の2か所にも入れる。
+
+| 面 | 場所 | 現状 |
+| :--- | :--- | :--- |
+| config JSON | `config/virtual_driver.json:40` の `_lane_change_initiation` | セクション単位で1個。9キーぶんを1文にまとめてある |
+| API 既定値 | `web/backend/api/virtual_driver_api.py:351-376` の `DEFAULT_VIRTUAL_DRIVER_CONFIG` | 同じ `_xxx` コメントキー流儀で再掲 |
+
+どちらも `_xxx` という文字列値キーをコメント代わりに使う流儀で、`test_virtual_driver_api.py`
+の `test_put_preserves_comment_keys` が PUT でこれらが消えないことを検査している。
+**流儀は変えない**（キーを増やして個別コメント化しない）。既存の1文に、12-1 の3点と
+`lane_change_indicator_lead_time_s` を追記する。
+
+> **注意（記録しておく）**: VD-GUI-PARITY を機械的に検査する仕組みは**無い**。
+> `test_virtual_driver_roundtrip.py` が突き合わせているのは「config JSON ⇔ バックエンドの
+> `KNOWN_KEYS`」の2面だけで、フロントエンドの `EDITABLE_KEYS` は誰も検査していない
+> （`EDITABLE_KEYS` は `VirtualDriverPanel.tsx` の外から参照されていない）。
+> 3面目の追従は人が守る規約のままである。検査の自動化は本設計のスコープ外だが、
+> 増えるたびに手で確認する必要があることを明示しておく。

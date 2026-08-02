@@ -29,16 +29,24 @@ category: 06_route_lane
 # implementation was independently confirmed correct on the no-traffic
 # sibling's PASS and is unchanged).
 #
-# CALIBRATION STATUS OF THIS (2-hop) VERSION: NOT YET MEASURED. This file was
-# reconfigured by the assisting session per explicit parent instruction, but
-# has not itself been re-run against a build. The `must` thresholds below
-# (max_deviations: 0, expect_target_lanes: [-4]) are carried over unchanged
-# from the pre-reconfiguration version, per that instruction (the no-traffic
-# sibling's PASS validated that 0 is achievable when the distance budget
-# suffices; the 2-hop shortening is intended to restore that sufficiency
-# while still keeping one real gap-wait). The parent session will re-run this
-# scenario next and correct this notes: block (and any threshold/window that
-# does not hold) with the actual measured result.
+# CALIBRATION STATUS OF THIS (2-hop) VERSION: MEASURED 2026-08-02 by the parent
+# session against a real Release build (test_results/web/route_lane_indicator/
+# lane_change_to_exit_ramp_with_traffic). PASS. The 2-hop reconfiguration did
+# restore the distance budget: final deviation_count == 0, and the gap-wait is
+# real rather than accidental -- before the first hop arms at t=7.55 the gap
+# check rejects for 32 frames on lead_gap and 46 frames on rear_gap. Both
+# carried-over thresholds (max_deviations: 0, expect_target_lanes: [-4]) held
+# unchanged, so the pre-reconfiguration values needed no correction. The two
+# hops run back-to-back as a single continuous armed segment (7.55 -> 14.30):
+# a completed hop disarms and the next re-arms inside the same frame, so
+# "armed" never dips between them.
+#
+# This supersedes the "NOT YET MEASURED" note that stood here and in
+# route_lane_batch.yaml. The knowledge-graph edge for
+# matcher:route_lane_plan_holds had already recorded a measurement of this
+# version ("7.5s ギャップを拒否してから 2 ホップ", deviation_count=0); that claim
+# was correct, and it is these two files' notes that had gone stale -- not the
+# graph.
 must:
   - event: route_lane_plan_holds
     max_deviations: 0
@@ -61,29 +69,52 @@ must:
       Same band-derivation sanity check as the no-traffic sibling -- background
       traffic does not change what RouteLanePlan computes as the target-lane
       band, only whether/when the ego actually gets there.
+  - event: indicator_leads_lane_change
+    min_lead_s: 2.0
+    reason: >
+      Same design-doc-section-11 pre-signal-timing assertion as the no-traffic
+      sibling's must #3. This scenario is the BETTER stimulus for it (per
+      section 11-9): the gap-wait on the first hop (-2 -> -3) stretches
+      t_arm - t_sig well beyond the no-wait case.
+      MEASURED 2026-08-02 (parent session, real Release build carrying the
+      section-11 telemetry): t_sig=3.10, t_arm=7.55, lead=4.45s, with the lamp
+      lit and matching the hop direction across the whole interval. The lead
+      comfortably exceeds the 3.0s that lane_change_indicator_lead_time_s
+      encodes (JP Road Traffic Act Enforcement Order Art. 21 para 1), because
+      the ego signals and then WAITS -- design doc section 11-6's "signal and
+      wait", observed directly.
+      WHY min_lead_s IS 2.0 AND NOT 3.0 OR 4.4: most of the 4.45s is gap-wait
+      time, which depends on AdjacentTraffic's placement/speed rather than on
+      the indicator rule. Pinning the threshold near the measured value would
+      turn any unrelated gap tuning into a red matcher. 2.0 sits far above the
+      ~0.4s a pure two-threshold lead yields without a gap wait (see the
+      no-traffic sibling), so it still positively asserts "the ego signalled,
+      then waited" -- the behaviour this scenario exists to show -- without
+      coupling the check to gap calibration.
 notes: >
-  NOT MEASURED (this 2-hop version). The scenario was reconfigured from 3 hops
-  to 2 hops per explicit parent instruction, following the parent's own
-  measurement of the superseded 3-hop version (see the file-level comment
-  above for that measured failure and its root cause). This reconfigured
-  version has not been run against a build by either the assisting or the
-  parent session as of this edit -- the parent session plans to re-run it
-  next (batch: resources/xosc/verification/route_lane_batch.yaml) and will
-  replace this notes: block with the actual measured frame trace, the same
-  way lane_change_to_exit_ramp.expectations.yaml's notes: were replaced after
-  its own measurement.
+  MEASURED 2026-08-02 (this 2-hop version), parent session, real Release build
+  with lane_change_initiation enabled via the batch's policies: list
+  (test_results/web/route_lane_indicator/lane_change_to_exit_ramp_with_traffic).
+  All three must entries PASS.
 
-  Specific things to verify on that first real measurement of this version:
-    1. That a gap-wait actually occurs once (i.e. this scenario is not
-       accidentally equivalent to a no-wait run because AdjacentTraffic's
-       level-start placement does not gate the -2 -> -3 hop as expected). If
-       the telemetry shows no meaningful delay relative to a hypothetical
-       traffic-free 2-hop run, the placement should be tightened.
-    2. That the total time/distance to complete both hops plus the gap-wait
-       stays within the 190 m budget with real margin, not just barely --
-       the file-level comment's ~124 m estimate (vs the ~65 m + ~94 m
-       shortfall that broke the 3-hop version) is a hand calculation, not a
-       measured figure.
-    3. Whether a `window:` is needed on the max_deviations must, per the same
-       consideration noted (and resolved as unnecessary) in the no-traffic
-       sibling's notes:.
+  Answering the three things the previous (pre-measurement) revision of this
+  block asked to verify:
+    1. A gap-wait DOES occur and is not accidental: the gap check rejects for
+       32 frames on lead_gap and 46 frames on rear_gap before the first hop
+       arms at t=7.55. AdjacentTraffic's placement needed no tightening.
+    2. The 2-hop distance budget holds with real margin, not barely: final
+       deviation_count == 0, both hops completing inside one armed segment
+       (7.55 -> 14.30) well before the junction 1 connection.
+    3. No `window:` was needed on the max_deviations must -- the unwindowed
+       check held over the full run, same as the no-traffic sibling.
+
+  Indicator pre-signal (design doc section 11): signal_active first true at
+  t=3.10, armed first true at t=7.55, lead=4.45s. This scenario demonstrates
+  the "signal, then wait for a gap" behaviour; the no-traffic sibling isolates
+  the pure two-threshold lead (0.40s under acceleration) and documents why
+  that number is small.
+
+  route_lane.target_lanes reads [-1] on the FINAL frame, not [-4]: by then the
+  ego is past junction 1 and on road 2, where the band is -1. The
+  expect_target_lanes: [-4] must is an EXISTS check (>=1 gated frame) and
+  matches the pre-junction frames -- documented semantics, not a near-miss.

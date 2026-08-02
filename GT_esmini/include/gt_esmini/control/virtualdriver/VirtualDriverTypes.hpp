@@ -239,6 +239,7 @@ struct LaneChangeInitiationSnapshot
     double      dist_to_connection  = -1.0;   // mirrors route_lane.dist_to_connection; -1 = unknown/n.a.
     bool        gap_accepted        = false;  // last-evaluated gap-acceptance verdict
     std::string gap_reason;                   // "" = accepted; else "lead_gap" | "rear_gap" | "rear_ttc"
+    bool        signal_active       = false;  // AD-LC path is requesting the indicator (pre-signal or armed) -- design doc section 11-8
 };
 
 // Aggregate telemetry, exposed via GT_GetVirtualDriverTelemetry().

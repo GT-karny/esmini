@@ -359,6 +359,11 @@ export interface VirtualDriverConfig {
   lane_change_gap_headway_rear_s?: number;
   lane_change_gap_ttc_min_s?: number;
   lane_change_lateral_accel_comfort?: number;
+  // Pre-arms the turn signal v*lane_change_indicator_lead_time_s before the
+  // same connection-deadline threshold used above, independent of gap
+  // acceptance. Separate from indicator_lead_time (intersection turns) —
+  // see docs/virtualdriver/design/lane_change_initiation.md §11-10.
+  lane_change_indicator_lead_time_s?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Input source for the run. "network" (default when never configured — see

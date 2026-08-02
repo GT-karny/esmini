@@ -200,6 +200,12 @@ private:
     ResumeMergeState           lc_merge_state_{};
     double                     lc_prev_heading_       = 0.0;
     bool                       lc_prev_heading_valid_ = false;
+    // design doc section 11-4: AD-LC indicator direction (pre-signal or armed); 0 = not
+    // requesting. Confirmed every frame inside the `if (lc_init_cfg_.enabled)` block in Step() --
+    // reset to 0 just BEFORE that block runs (unconditionally), so when the feature is disabled
+    // this member never leaves 0 (design doc section 8's default-OFF invariant: DetectManeuverDir()
+    // reads this member, so a disabled feature must never make it non-zero).
+    int lc_signal_dir_ = 0;
 
     // Manual indicator (turn-signal) control via input-source buttons, reusing
     // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes

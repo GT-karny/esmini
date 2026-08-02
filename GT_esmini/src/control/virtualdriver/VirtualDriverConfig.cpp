@@ -80,6 +80,7 @@ const DoubleField kDoubleFields[] = {
     {"lane_change_gap_headway_rear_s", &VirtualDriverConfig::lane_change_gap_headway_rear_s},
     {"lane_change_gap_ttc_min_s", &VirtualDriverConfig::lane_change_gap_ttc_min_s},
     {"lane_change_lateral_accel_comfort", &VirtualDriverConfig::lane_change_lateral_accel_comfort},
+    {"lane_change_indicator_lead_time_s", &VirtualDriverConfig::lane_change_indicator_lead_time_s},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
@@ -339,6 +340,7 @@ LaneChangeInitiationConfig VirtualDriverConfig::LaneChangeInitiationCfg() const
     c.gap_headway_lead_s  = lane_change_gap_headway_lead_s;
     c.gap_headway_rear_s  = lane_change_gap_headway_rear_s;
     c.gap_ttc_min_s       = lane_change_gap_ttc_min_s;
+    c.indicator_lead_time_s = lane_change_indicator_lead_time_s;
     return c;
 }
 

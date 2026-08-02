@@ -56,6 +56,7 @@ struct LaneChangeInitiationConfig
     double gap_headway_lead_s   = 1.2;    // [s] ego-speed headway for the forward gap
     double gap_headway_rear_s   = 1.0;    // [s] REAR-VEHICLE-speed headway for the rear gap
     double gap_ttc_min_s        = 3.0;    // [s] minimum time-to-close against an approaching follower
+    double indicator_lead_time_s = 3.0;   // [s] pre-signal lead ahead of the initiation threshold (design doc section 11)
 };
 
 // The single next lane to move into, and how many such hops remain to the nearest lane in
@@ -94,6 +95,21 @@ bool ShouldAttemptLaneChangeHop(int    n_remaining,
                                 double dist_to_connection,
                                 double v_ego,
                                 const LaneChangeInitiationConfig& cfg);
+
+// True when the ego is close enough to the connection that the indicator should ALREADY be on,
+// i.e. one indicator_lead_time_s of travel BEFORE ShouldAttemptLaneChangeHop turns true (design
+// doc section 11-3). Deliberately independent of gap acceptance (section 11-3's "先行合図の追加
+// 条件は... ギャップ受容は条件に入れない"): the signal expresses "I want in", not "I can go".
+//
+// NOTE dist_to_connection < 0 means "unknown / final band has no onward connection"
+// (RouteLanePlan.hpp:77). Unlike ShouldAttemptLaneChangeHop (which treats < 0 as due NOW, since
+// there is no "later" left to wait for), this function must return false there -- a naive `<=`
+// would latch the indicator on forever in the final band, where there is no connection distance
+// to be "close" to at all (design doc section 11-3's explicit trap warning).
+bool ShouldSignalLaneChangeHop(int    n_remaining,
+                               double dist_to_connection,
+                               double v_ego,
+                               const LaneChangeInitiationConfig& cfg);
 
 // One adjacent-lane gap sample (design doc section 4): nearest vehicle ahead / behind in the ONE
 // lane a hop is considering, with bumper-to-bumper gap and that vehicle's own speed. has_lead/

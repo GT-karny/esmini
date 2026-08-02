@@ -67,6 +67,24 @@ bool ShouldAttemptLaneChangeHop(int n_remaining, double dist_to_connection, doub
     return dist_to_connection <= RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
 }
 
+bool ShouldSignalLaneChangeHop(int n_remaining, double dist_to_connection, double v_ego, const LaneChangeInitiationConfig& cfg)
+{
+    // design doc section 11-3's explicit trap: dist_to_connection<0 ("not applicable" / final
+    // band) must NOT be treated as "close enough" here, unlike ShouldAttemptLaneChangeHop's own
+    // < 0 handling above (which returns true there). A naive `<=` against a negative sentinel is
+    // always true and would latch the indicator on forever in the final band.
+    if (dist_to_connection < 0.0)
+    {
+        return false;
+    }
+    if (n_remaining <= 0)
+    {
+        return false;
+    }
+    const double required = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
+    return dist_to_connection <= required + std::max(0.0, v_ego) * cfg.indicator_lead_time_s;
+}
+
 GapAcceptanceResult EvaluateGapAcceptance(const LaneChangeGapSample&        gap,
                                           double                            v_ego,
                                           const LaneChangeInitiationConfig& cfg)

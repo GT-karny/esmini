@@ -108,6 +108,11 @@ struct VirtualDriverConfig
     double lane_change_gap_headway_rear_s    = 1.0;   // [s]
     double lane_change_gap_ttc_min_s         = 3.0;   // [s]
     double lane_change_lateral_accel_comfort = 1.5;   // [m/s^2]
+    // Pre-signal lead ahead of the initiation threshold (design doc section 11). SEPARATE key from
+    // indicator_lead_time (2.0, junction-turn pre-arm below) -- different legal basis/dimension
+    // (JP road traffic law: lane change = 3s before, turns = 30m before), so they are deliberately
+    // NOT unified into one knob (design doc section 11-10).
+    double lane_change_indicator_lead_time_s = 3.0;   // [s]
 
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight

@@ -35,6 +35,7 @@ const EDITABLE_KEYS = [
   'lane_change_initiation_enabled', 'lane_change_lead_time_s', 'lane_change_min_lead_distance_m',
   'lane_change_reserve_distance_m', 'lane_change_gap_min_m', 'lane_change_gap_headway_lead_s',
   'lane_change_gap_headway_rear_s', 'lane_change_gap_ttc_min_s', 'lane_change_lateral_accel_comfort',
+  'lane_change_indicator_lead_time_s',
   'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
@@ -390,7 +391,9 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
             <div>
               <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">Indicator</h4>
               <div className="grid grid-cols-2 gap-3">
-                <NumberInput label="Lead time (s)" step={0.1} value={cfg.indicator_lead_time} onChange={setNum('indicator_lead_time')} />
+                <NumberInput label="Lead time (s)" step={0.1}
+                  title="交差点の右左折で方向指示器を先行点灯させる先読み秒数。車線変更用の Indicator lead time（AD Lane Change Initiation セクション、既定3.0）とは別のキー。法定の根拠も別で、右左折は「30メートル手前」（道路交通法施行令第21条第1項）。"
+                  value={cfg.indicator_lead_time} onChange={setNum('indicator_lead_time')} />
                 <NumberInput label="Min on time (s)" step={0.1} value={cfg.indicator_min_on_time} onChange={setNum('indicator_min_on_time')} />
               </div>
             </div>
@@ -743,7 +746,8 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           lane-change-like trajectory toward the target lane one hop at a
           time, once the connection deadline nears, gated by gap acceptance
           against the target lane's lead/rear neighbors. Default OFF — see
-          docs/virtualdriver/design/lane_change_initiation.md. */}
+          docs/virtualdriver/design/lane_change_initiation.md (§12 for the
+          Timing/Gap/Comfort grouping below). */}
       <section>
         <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
           AD Lane Change Initiation
@@ -755,32 +759,73 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
             onChange={(v) => set('lane_change_initiation_enabled', v)}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <NumberInput label="Lead time (s)" step={0.1}
-            value={cfg.lane_change_lead_time_s ?? 6.0}
-            onChange={setNum('lane_change_lead_time_s')} />
-          <NumberInput label="Min lead distance (m)" step={1}
-            value={cfg.lane_change_min_lead_distance_m ?? 40.0}
-            onChange={setNum('lane_change_min_lead_distance_m')} />
-          <NumberInput label="Reserve distance (m)" step={1}
-            value={cfg.lane_change_reserve_distance_m ?? 20.0}
-            onChange={setNum('lane_change_reserve_distance_m')} />
-          <NumberInput label="Min gap (m)" step={0.5}
-            value={cfg.lane_change_gap_min_m ?? 8.0}
-            onChange={setNum('lane_change_gap_min_m')} />
-          <NumberInput label="Lead gap headway (s)" step={0.1}
-            value={cfg.lane_change_gap_headway_lead_s ?? 1.2}
-            onChange={setNum('lane_change_gap_headway_lead_s')} />
-          <NumberInput label="Rear gap headway (s)" step={0.1}
-            value={cfg.lane_change_gap_headway_rear_s ?? 1.0}
-            onChange={setNum('lane_change_gap_headway_rear_s')} />
-          <NumberInput label="Rear TTC min (s)" step={0.1}
-            value={cfg.lane_change_gap_ttc_min_s ?? 3.0}
-            onChange={setNum('lane_change_gap_ttc_min_s')} />
-          <NumberInput label="Comfort lateral accel (m/s²)" step={0.1}
-            value={cfg.lane_change_lateral_accel_comfort ?? 1.5}
-            onChange={setNum('lane_change_lateral_accel_comfort')} />
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Timing — when it starts moving
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Lead time (s)" step={0.1}
+              title="1ホップあたりの決断距離を自車速度から決める秒数。LC実行そのもの（実測約3.5秒）より大きく取ってあり、ギャップ待ちの時間を含む。大きいほど早く動き出す。"
+              value={cfg.lane_change_lead_time_s ?? 6.0}
+              onChange={setNum('lane_change_lead_time_s')} />
+            <NumberInput label="Min lead distance (m)" step={1}
+              title="決断距離の下限。低速では v×lead_time_s が小さくなりすぎるため、発起が遅れすぎないよう床を設ける。"
+              value={cfg.lane_change_min_lead_distance_m ?? 40.0}
+              onChange={setNum('lane_change_min_lead_distance_m')} />
+            <NumberInput label="Reserve distance (m)" step={1}
+              title="決断距離の式に加える固定の余裕距離。締切ぎりぎりでの発起を避けるためのバッファ。"
+              value={cfg.lane_change_reserve_distance_m ?? 20.0}
+              onChange={setNum('lane_change_reserve_distance_m')} />
+            <NumberInput label="Indicator lead time (s)" step={0.1}
+              title="発起しきい値より何秒ぶん手前で方向指示器を点灯させるか。既定3.0は道路交通法施行令第21条第1項（進路変更は3秒前）。交差点旋回用のIndicator lead time（既定2.0）とは別のキー。"
+              value={cfg.lane_change_indicator_lead_time_s ?? 3.0}
+              onChange={setNum('lane_change_indicator_lead_time_s')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight font-mono">
+            required = hops × max(v × lead_time, min_lead_distance) + reserve_distance
+          </p>
         </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Gap acceptance — whether it may enter
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Min gap (m)" step={0.5}
+              title="隣接レーンに入るために必要な前後ギャップの下限。低速で車間時間だけから判定すると近すぎる値になるのを防ぐ床。"
+              value={cfg.lane_change_gap_min_m ?? 8.0}
+              onChange={setNum('lane_change_gap_min_m')} />
+            <NumberInput label="Lead gap headway (s)" step={0.1}
+              title="前方ギャップの必要車間を自車速度から決める秒数。gap_lead >= max(min_gap, v_ego×この値) で判定する。"
+              value={cfg.lane_change_gap_headway_lead_s ?? 1.2}
+              onChange={setNum('lane_change_gap_headway_lead_s')} />
+            <NumberInput label="Rear gap headway (s)" step={0.1}
+              title="後方ギャップの要求車間を後続車の速度から決める秒数。自車速度ではない。隙間を詰めているのは後続車だから。"
+              value={cfg.lane_change_gap_headway_rear_s ?? 1.0}
+              onChange={setNum('lane_change_gap_headway_rear_s')} />
+            <NumberInput label="Rear TTC min (s)" step={0.1}
+              title="後続車が自車より速く接近しているときに必要な最小到達余裕秒数。後続車が自車に追いつくまでの時間がこれを下回ると入らない。"
+              value={cfg.lane_change_gap_ttc_min_s ?? 3.0}
+              onChange={setNum('lane_change_gap_ttc_min_s')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+            Rear gap and TTC are judged against the FOLLOWER's speed, not the ego's.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Comfort
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Comfort lateral accel (m/s²)" step={0.1}
+              title="車線変更の軌道生成が目標とする快適横加速度。軌道は ResumeMergeProfile を流用するが設定は別インスタンスなので、上の Resume Merge（車線復帰）の値とは独立に効く。AD Steering Safety Envelope の上限が常に優先される。"
+              value={cfg.lane_change_lateral_accel_comfort ?? 1.5}
+              onChange={setNum('lane_change_lateral_accel_comfort')} />
+          </div>
+        </div>
+
         <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
           Default OFF. When enabled, the ego self-corrects toward the route's
           required lane one hop at a time instead of only diagnosing the

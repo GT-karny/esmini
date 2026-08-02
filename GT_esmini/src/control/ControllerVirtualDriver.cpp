@@ -892,6 +892,13 @@ void ControllerVirtualDriver::Step(double timeStep)
     int          lc_now_lane   = 0;
     double       lc_now_offset = 0.0;
 
+    // design doc section 11-4: lc_signal_dir_ is reset here EVERY frame, unconditionally, BEFORE
+    // the `if (lc_init_cfg_.enabled)` gate below. When the feature is disabled the gate never runs,
+    // so this reset is the only write that member gets -- it stays permanently 0, which is exactly
+    // the "既定OFFの不変条件" DetectManeuverDir() below relies on (it reads lc_signal_dir_
+    // unconditionally, gated only by lc_init_cfg_.enabled at its own call site).
+    lc_signal_dir_ = 0;
+
     // Diagnostics-only locals for telemetry_.lane_change, written into telemetry_ itself only at
     // section 11d below (AFTER the is_integrator gate) -- same convention as route_lane/
     // resume_merge telemetry (see the comment on section 11c): a non-integrator does not own
@@ -1056,6 +1063,39 @@ void ControllerVirtualDriver::Step(double timeStep)
         {
             lc_diag_target_track_id = static_cast<int>(lc_init_state_.hop_track_id);
             lc_diag_target_lane_id  = lc_init_state_.hop_target_lane_id;
+        }
+
+        // design doc section 11-4: confirm lc_signal_dir_ exactly once per frame, HERE -- after
+        // lc_init_state_.armed reflects any disarm (suppression, line ~928)/complete (line ~978)/
+        // arm (line ~1034) transition earlier in this same block, so the armed branch below never
+        // races against a stale armed flag from the top of the frame. diag_hop/suppressed are the
+        // SAME locals the "not armed, considering" branch above used (no recomputation).
+        //
+        // The armed branch is bit-identical to the value DetectManeuverDir() used to read directly
+        // off lc_init_state_.armed/direction_indicator before this change (see that function's own
+        // edit): lc_signal_dir_ == lc_init_state_.direction_indicator whenever armed is true, so
+        // routing DetectManeuverDir() through this member instead does not change its output on any
+        // frame where a hop is armed.
+        if (lc_init_state_.armed)
+        {
+            lc_signal_dir_ = lc_init_state_.direction_indicator;
+        }
+        else if (!suppressed && route_lane_status.valid && !route_lane_status.on_target_lane &&
+                 diag_hop.valid &&
+                 ShouldSignalLaneChangeHop(diag_hop.n_remaining, route_lane_status.dist_to_connection,
+                                           ego_speed, lc_init_cfg_))
+        {
+            // Same along_s formula as the arm-time indicator resolution above (line ~1031); may be
+            // recomputed every frame here (unlike the armed latch) because the pre-signal has not
+            // yet crossed the lane boundary that would collapse current/target lane id to the same
+            // value (design doc section 11-4's "先行合図中は方向を毎フレーム再計算してよい").
+            const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+            lc_signal_dir_ =
+                LaneChangeIndicatorDir(route_lane_status.ego_lane_raw, diag_hop.next_hop_lane_id, along_s);
+        }
+        else
+        {
+            lc_signal_dir_ = 0;
         }
 
         // Rolling one-frame-back heading for the NEXT arming instant's a0_lat (design doc section
@@ -1674,6 +1714,11 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.lane_change.dist_to_connection  = lc_diag_dist_to_connection;
     telemetry_.lane_change.gap_accepted        = lc_diag_gap_accepted;
     telemetry_.lane_change.gap_reason          = lc_diag_gap_reason;
+    // design doc section 11-8: signal_active is true whenever the AD-LC path is requesting the
+    // indicator, whether pre-signaling or already armed -- lc_signal_dir_ is 0 in neither case and
+    // permanently 0 when lc_init_cfg_.enabled is false (see the header doc on lc_signal_dir_), so
+    // this needs no separate enabled check.
+    telemetry_.lane_change.signal_active       = (lc_signal_dir_ != 0);
 
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);
@@ -1784,17 +1829,18 @@ int ControllerVirtualDriver::DetectManeuverDir()
         lane_change_action_id_ = nullptr;
         lane_change_dir_       = 0;
 
-        // vd-func:FUNC-055 (design doc lane_change_initiation.md section 6, step 2): no storyboard
-        // lane change is running -- fall back to an in-progress AD-INITIATED lane change, if any.
-        // lc_init_cfg_.enabled is checked FIRST so a disabled feature never reaches lc_init_state_
-        // at all (it stays permanently un-armed, but short-circuiting here keeps this path
-        // structurally identical to before the feature existed, not merely behaviourally so). The
-        // direction was latched once at arm time (ArmLaneChangeHop), for the same two reasons the
-        // storyboard latch above exists: once the ego crosses the lane boundary the delta would
-        // collapse to 0, and the direction is a property of the HOP, not of instantaneous geometry.
-        if (lc_init_cfg_.enabled && lc_init_state_.armed)
+        // vd-func:FUNC-055 (design doc lane_change_initiation.md section 11-4, step 2-3): no
+        // storyboard lane change is running -- fall back to lc_signal_dir_, which the Step() LC
+        // block (above, ~line 936) confirms every frame to either the ARMED hop's latched direction
+        // (lc_init_state_.direction_indicator -- BIT-IDENTICAL to what this function returned before
+        // this change, since lc_signal_dir_ == lc_init_state_.direction_indicator whenever armed is
+        // true) or the PRE-SIGNAL direction ahead of arming (new: design doc section 11), or 0.
+        // lc_init_cfg_.enabled is checked FIRST so a disabled feature never reaches lc_signal_dir_ at
+        // all -- it stays permanently 0 when disabled (see the header doc on lc_signal_dir_), keeping
+        // this path structurally identical to before the feature existed, not merely behaviourally so.
+        if (lc_init_cfg_.enabled && lc_signal_dir_ != 0)
         {
-            return lc_init_state_.direction_indicator;
+            return lc_signal_dir_;
         }
         return 0;
     }

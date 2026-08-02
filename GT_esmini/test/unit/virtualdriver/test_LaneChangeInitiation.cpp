@@ -186,6 +186,89 @@ TEST(ShouldAttemptLaneChangeHop, NoRemainingHopsNeverAttempts)
     EXPECT_FALSE(ShouldAttemptLaneChangeHop(0, 0.0, 10.0, cfg));
 }
 
+// ─────────────────────────── ShouldSignalLaneChangeHop (design doc section 11-3) ───────────────────────────
+// Note: ShouldSignalLaneChangeHop does NOT itself check cfg.enabled (see the header doc) -- unlike
+// ShouldAttemptLaneChangeHop, whose enabled short-circuit is exercised above. The controller wraps
+// the whole LC block (including its call to this function) in `if (lc_init_cfg_.enabled)`, so the
+// disabled-never-signals invariant is exercised at that call site instead (not unit-testable here
+// without the controller). Every test below therefore uses cfg.enabled = true (or leaves it at its
+// irrelevant default) -- it is testing the DISTANCE predicate, not the feature gate.
+
+TEST(ShouldSignalLaneChangeHop, LeadsTheAttemptThresholdBySomeDistance)
+{
+    // At the exact distance ShouldAttemptLaneChangeHop first turns true, the pre-signal must
+    // ALREADY have been true for the preceding indicator_lead_time_s * v_ego of travel: i.e. there
+    // exists a distance strictly beyond required_m (attempt not yet due) where ShouldSignal is true
+    // and ShouldAttempt is false.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled              = true;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining = 1;
+    const double v_ego       = 10.0;  // lead distance = 3.0 * 10.0 = 30 m
+    const double required_m  = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
+
+    const double probe = required_m + 15.0;  // inside the 30 m lead band, outside required_m
+    EXPECT_FALSE(ShouldAttemptLaneChangeHop(n_remaining, probe, v_ego, cfg));
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, cfg));
+}
+
+TEST(ShouldSignalLaneChangeHop, AttemptDueImpliesSignalDue)
+{
+    // Containment: at every distance ShouldAttemptLaneChangeHop is true (due), ShouldSignal must
+    // also be true (the pre-signal band strictly contains the attempt band, since it is required_m
+    // plus a non-negative lead term).
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled = true;
+    const int    n_remaining = 2;
+    const double v_ego       = 15.0;
+    const double required_m  = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
+
+    for (double dist : {required_m, required_m - 1.0, 0.0})
+    {
+        ASSERT_TRUE(ShouldAttemptLaneChangeHop(n_remaining, dist, v_ego, cfg));
+        EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, cfg))
+            << "at dist_to_connection=" << dist;
+    }
+}
+
+TEST(ShouldSignalLaneChangeHop, UnknownDistanceNeverSignals)
+{
+    // design doc section 11-3's explicit trap: dist_to_connection == -1.0 (RouteLaneStatus's
+    // "unknown / final band has no onward connection" convention) must be false here, in CONTRAST
+    // to ShouldAttemptLaneChangeHop, which treats the same -1.0 as always-due (see that function's
+    // UnknownDistanceIsAlwaysDue test above). A naive `<=` against a negative sentinel is always
+    // true and would latch the indicator on forever in the final band.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled = true;
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(2, -1.0, 15.0, cfg));
+    ASSERT_TRUE(ShouldAttemptLaneChangeHop(2, -1.0, 15.0, cfg));  // contrast: attempt says "due"
+}
+
+TEST(ShouldSignalLaneChangeHop, NoRemainingHopsNeverSignals)
+{
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled = true;
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(0, 0.0, 10.0, cfg));
+}
+
+TEST(ShouldSignalLaneChangeHop, ZeroSpeedStillSignalsOnceWithinTheDistanceFloor)
+{
+    // v_ego == 0 collapses the lead-distance term (v_ego * indicator_lead_time_s == 0), so the
+    // pre-signal threshold degenerates to exactly required_m (itself floored by
+    // min_lead_distance_m, per RequiredLaneChangeDistance) -- it must not divide-by-zero, go
+    // negative, or otherwise misbehave; it must simply equal the attempt threshold in this case.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled               = true;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining  = 1;
+    const double v_ego        = 0.0;
+    const double required_m   = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);  // floored by min_lead_distance_m
+
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, required_m, v_ego, cfg));
+    EXPECT_TRUE(ShouldAttemptLaneChangeHop(n_remaining, required_m, v_ego, cfg));
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(n_remaining, required_m + 1.0, v_ego, cfg));
+}
+
 // ─────────────────────────── EvaluateGapAcceptance ───────────────────────────
 // design doc lane_change_initiation.md section 4's three conditions, each independently.
 

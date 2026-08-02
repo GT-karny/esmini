@@ -132,6 +132,7 @@ _NUMBER_KEYS = frozenset(
         "lane_change_gap_headway_rear_s",
         "lane_change_gap_ttc_min_s",
         "lane_change_lateral_accel_comfort",
+        "lane_change_indicator_lead_time_s",
         "control_point_offset",
         "control_point_min_speed",
         "indicator_lead_time",
@@ -363,7 +364,23 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
         "State instance, NOT resume_merge_*'s (separate storage — see "
         "lane_change_initiation.md §8). Default OFF: existing route-lane "
         "behavior (diagnose-only, no self-correction) is unchanged until "
-        "enabled. See docs/virtualdriver/design/lane_change_initiation.md."
+        "enabled. Three things to keep straight (design doc §12-1/§11): "
+        "(1) the three distance parameters (lead_time_s, "
+        "min_lead_distance_m, reserve_distance_m) all feed ONE formula, "
+        "the required_m expression above; (2) 'when it starts moving' "
+        "(that formula) and 'whether it may enter' (the gap_* acceptance "
+        "checks) are separate concerns, tuned independently; (3) the rear "
+        "gap check (gap_headway_rear_s / gap_ttc_min_s) is judged against "
+        "the FOLLOWER's speed, never the ego's. "
+        "lane_change_indicator_lead_time_s [s, default 3.0] pre-arms the "
+        "turn signal that many seconds ahead of the same required_m "
+        "threshold (signals at required_m + v*lane_change_indicator_"
+        "lead_time_s), independent of gap acceptance -- it is its OWN key, "
+        "not merged with indicator_lead_time (2.0, intersection-turn "
+        "signaling) because the legal basis and dimension differ (JP Road "
+        "Traffic Act Enforcement Order Art. 21 para 1: lane changes signal "
+        "3s ahead; turns signal 30m ahead of the intersection). "
+        "See docs/virtualdriver/design/lane_change_initiation.md."
     ),
     "lane_change_initiation_enabled": False,
     "lane_change_lead_time_s": 6.0,
@@ -374,6 +391,7 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "lane_change_gap_headway_rear_s": 1.0,
     "lane_change_gap_ttc_min_s": 3.0,
     "lane_change_lateral_accel_comfort": 1.5,
+    "lane_change_indicator_lead_time_s": 3.0,
     "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
     "control_point_offset": 0.0,
     "control_point_min_speed": 1.0,

@@ -39,15 +39,22 @@ origin: vd-func:FUNC-050   # レーンレベル経路計画。RouteLanePlan の�
 #     lane_change_initiation を組み込んだ実ビルド）。PASS -
 #     max_deviations: 0 / expect_target_lanes: [-4] とも修正不要だった。詳細は
 #     このファイルの notes: を参照。
-#   - lane_change_to_exit_ramp_with_traffic（隣接車あり）は**未較正**。当初の
-#     3ホップ構成（ego が lane -1 から出発）は実測の結果 FAIL
+#   - lane_change_to_exit_ramp_with_traffic（隣接車あり）も**実測済み**（2026-08-02,
+#     親セッション）。当初の3ホップ構成（ego が lane -1 から出発）は実測の結果 FAIL
 #     (deviation_count=1) となった - バグではなく、1ホップ目のギャップ待ちだけで
 #     190m 予算のうち約78mを消費し、残り2ホップ(必要約94m)に対して残り65mしか
 #     残らないという距離設計の問題だった（ギャップ受容自体は正しく機能）。
 #     2026-08-02 にこの反省を受けて ego の出発レーンを -2 に、隣接車を lane -3
-#     1台のみ（2ホップ構成）に再構成したが、この再構成版はまだ実測していない。
-#     実測合わせは lane_change_to_exit_ramp_with_traffic.expectations.yaml の
-#     notes: の手順に従って行う。
+#     1台のみ（2ホップ構成）へ再構成し、**同日その再構成版を実測して PASS**
+#     (deviation_count=0、初回 arm 前に lead_gap 32 / rear_gap 46 フレームの
+#     実ギャップ待ち)。しきい値は据え置きで修正不要だった。詳細は当該
+#     expectations.yaml の notes: を参照。
+#
+# 4本すべてに design doc §11（方向指示器の先行点灯）の matcher
+# indicator_leads_lane_change は付いていない - 付いているのは後半2本のみ
+# （lane_change_initiation を有効化する2本）。実測リードは隣接車なし 0.40s
+# (t_sig=2.30 / t_arm=2.70、加速中なので §11-3 の既知の縮み)、隣接車あり 4.45s
+# (t_sig=3.10 / t_arm=7.55、ギャップ待ちを含む)。
 #
 # Run:
 #   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \

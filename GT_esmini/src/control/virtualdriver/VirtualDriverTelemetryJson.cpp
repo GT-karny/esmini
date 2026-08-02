@@ -268,7 +268,8 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"required_m\":" << t.lane_change.required_m
        << ",\"dist_to_connection\":" << t.lane_change.dist_to_connection
        << ",\"gap_accepted\":" << b(t.lane_change.gap_accepted)
-       << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\"}";
+       << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\""
+       << ",\"signal_active\":" << b(t.lane_change.signal_active) << "}";
 
     os << "}";
 

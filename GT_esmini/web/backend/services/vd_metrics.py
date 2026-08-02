@@ -1705,6 +1705,136 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
         return res("pass", detail)
 
+    if kind == "indicator_leads_lane_change":
+        # vd-func:FUNC-055 pre-signal timing (docs/virtualdriver/design/lane_change_initiation.md
+        # section 11-9). Unlike route_lane_plan_holds just above -- which section 7 deliberately
+        # did NOT extend with a new matcher because it added no new OBSERVED quantity -- this DOES
+        # observe a new quantity (the indicator lamp, telemetry.indicator.left/right) alongside the
+        # new telemetry.lane_change.signal_active (section 11-8), so section 11-9 calls for a
+        # dedicated matcher rather than folding this into route_lane_plan_holds's route_lane-only
+        # reads.
+        #
+        #   min_lead_s   float (required) : t_arm - t_sig must be >= this
+        #   window: [t0, t1]     (optional): sim_time gate (default: all frames)
+        if "min_lead_s" not in must:
+            return res(
+                "skip",
+                "must entry names no min_lead_s -- a matcher that checks nothing must not "
+                "report pass",
+            )
+        min_lead_s = float(must["min_lead_s"])
+
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        # Same "absence is needs-review, not silent pass" discipline as route_lane_plan_holds
+        # above: a frame dict simply omits "lane_change" on a DLL built before LaneChangeInitiation
+        # was wired in, and omits "signal_active" within it on a DLL built before section 11's
+        # pre-signal telemetry landed even if lane_change itself is present.
+        with_lc = [i for i in gated if isinstance(frames[i].get("lane_change"), dict)]
+        if not with_lc:
+            return res(
+                "skip",
+                "no frame in the gated window carries a lane_change block -- stale "
+                "GT_esminiLib.dll (predates LaneChangeInitiation telemetry) or the feature is "
+                "not wired into this run",
+            )
+        with_signal_key = [i for i in with_lc if "signal_active" in frames[i]["lane_change"]]
+        if not with_signal_key:
+            return res(
+                "skip",
+                "no gated frame's lane_change block carries signal_active -- stale "
+                "GT_esminiLib.dll (predates the design doc section 11 pre-signal telemetry)",
+            )
+
+        # 3. First frame signal_active goes true.
+        sig_idx = next(
+            (i for i in with_signal_key if frames[i]["lane_change"].get("signal_active")), None
+        )
+        if sig_idx is None:
+            return res(
+                "fail",
+                "lane_change.signal_active never became true in the gated window -- the "
+                "indicator never pre-signaled the lane change",
+            )
+        t_sig = frames[sig_idx]["sim_time"]
+
+        # 4. First frame armed goes true (searched over the same with_lc set -- armed does not
+        # require the signal_active key to be present, only lane_change itself).
+        arm_idx = next((i for i in with_lc if frames[i]["lane_change"].get("armed")), None)
+        if arm_idx is None:
+            return res(
+                "fail",
+                f"lane_change.armed never became true (signal_active first true at "
+                f"t={t_sig:.2f}) -- the lane change never initiated, so the lead cannot be "
+                f"measured",
+            )
+        t_arm = frames[arm_idx]["sim_time"]
+
+        # 5. Lead requirement.
+        lead = t_arm - t_sig
+        if lead < min_lead_s:
+            return res(
+                "fail",
+                f"indicator led the lane change by only {lead:.2f}s (t_sig={t_sig:.2f}, "
+                f"t_arm={t_arm:.2f}; want >= {min_lead_s}s)",
+                arm_idx,
+            )
+
+        # 6. Indicator lamp must stay lit (left or right) for the WHOLE [t_sig, t_arm] window --
+        # the intent (signal_active) reaching the lamp (indicator.left/right), per section 11-8's
+        # "matcher は両方を見る".
+        lit_window = [i for i in gated if t_sig <= frames[i]["sim_time"] <= t_arm]
+        with_indicator = [i for i in lit_window if isinstance(frames[i].get("indicator"), dict)]
+        if not with_indicator:
+            return res(
+                "skip",
+                "no frame in [t_sig, t_arm] carries an indicator block -- stale "
+                "GT_esminiLib.dll or the feature is not wired into this run",
+            )
+        dark = [
+            i
+            for i in with_indicator
+            if not (frames[i]["indicator"].get("left") or frames[i]["indicator"].get("right"))
+        ]
+        if dark:
+            i0 = dark[0]
+            return res(
+                "fail",
+                f"indicator was dark at t={frames[i0]['sim_time']:.2f}, inside "
+                f"[t_sig={t_sig:.2f}, t_arm={t_arm:.2f}] -- the pre-signal intent never reached "
+                f"the lamp",
+                i0,
+            )
+
+        # 7. Lit side must agree with the hop's direction at t_arm (lane_change.direction: +1 left
+        # / -1 right, only meaningful once armed -- see VirtualDriverTypes.hpp).
+        arm_direction  = frames[arm_idx]["lane_change"].get("direction")
+        arm_indicator  = frames[arm_idx].get("indicator") or {}
+        lit_left       = bool(arm_indicator.get("left"))
+        lit_right      = bool(arm_indicator.get("right"))
+        direction_ok = (arm_direction == 1 and lit_left) or (arm_direction == -1 and lit_right)
+        if not direction_ok:
+            return res(
+                "fail",
+                f"at t_arm={t_arm:.2f} lane_change.direction={arm_direction} but indicator "
+                f"left={lit_left} right={lit_right} -- the lit side does not match the hop's "
+                f"direction",
+                arm_idx,
+            )
+
+        detail = (
+            f"indicator led the lane change by {lead:.2f}s (t_sig={t_sig:.2f}, "
+            f"t_arm={t_arm:.2f}, want >= {min_lead_s}s)"
+        )
+        return res("pass", detail)
+
     return {
         "event": kind,
         "status": "skip",
