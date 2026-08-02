@@ -568,3 +568,17 @@ signals:
       frame 面には既に届いている（PM 直読 2026-07-25）が、読む matcher が無い＝未配線。
       配線候補: テイクオーバー系 matcher（例: resumed_to_auto_within）を起こすときに observes 辺で結線。
       OSI 側 DriverOverride は未populate（vd-func:FUNC-075 の④と同根）。
+
+  - id: route_lane_conformance
+    title: ego が route の要求するレーン帯（目標レーン集合）に居るか
+    exposure: [frame]
+    state: "●"
+    emit: RouteLanePlan.cpp:233,360（BuildRouteLanePlan/EvaluateRouteLaneStatus）→ ControllerVirtualDriver.cpp:1451-1462（telemetry_.route_lane 代入）→ VirtualDriverTelemetryJson.cpp:241-258（route_lane ブロック）
+    note: >-
+      matcher:route_lane_plan_holds が読む（vd_metrics.py:1520-1677）。target_lanes/
+      on_target_lane/dist_to_connection/deviation_count/diagnostic を route_lane 1ブロックに
+      まとめて持つ（route_lane_plan_design.md §4-2）。RouteLanePlan は ITrafficPolicy を
+      経由しない独立層（同 §3-2、policy ではない）のため、policy_constraint_tier /
+      aeb_trigger_flag と同型の「OSI/HVD に対応概念が無い GT 独自 VD テレメトリ専用」
+      exposure=frame。route を持たないエンティティ（AssignRouteAction 未使用シナリオが
+      大半）では diagnostic=="no_route" として現れる（劣化ではなく通常状態、同 §4-5）。

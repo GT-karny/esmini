@@ -520,6 +520,21 @@ edges:
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 交差点優先権規則が交差点譲り要求を充足
+  - from: vd-func:FUNC-049
+    to: req-vd-ad:REQ-AD-016
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 目的地ルーティング（road/lane 列の生成と保持）が経路自前生成要求の中核
+  - from: vd-func:FUNC-050
+    to: req-vd-ad:REQ-AD-016
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: レーンレベル経路計画が「接続に必要な車線へ事前に寄せる」部分を充足
+  - from: vd-func:FUNC-054
+    to: req-vd-ad:REQ-AD-016
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 到達判定・ミッション終了が「目的地で安全に停車する」部分を充足
 
   # --- matcher -> verifies -> req-vd-ad（検証） ---
   - from: matcher:maintained_following_distance
@@ -557,6 +572,21 @@ edges:
     type: verifies
     source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本）
+
+  # --- matcher -> verifies -> vd-func（機能カタログを直接検証。RouteLanePlan は policy を
+  #     経由しないため、policy->realizes->vd-func の3段チェーンが使えず matcher が直接 FUNC を
+  #     検証する形になる。edge_types.curated の verifies は "test asset verifies a
+  #     requirement/feature" と定義済みで vd-func(entity_type: function) も射程内） ---
+  - from: matcher:route_lane_plan_holds
+    to: vd-func:FUNC-050
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
+    note: >-
+      route_lane_batch.yaml の2シナリオ（merge_required_for_exit_ramp=invalid_route 診断、
+      route_valid_off_target_lane_for_exit_ramp=最終ホップの目標レーン帯からの逸脱を検出、
+      設計 §4-4 実測）で route_lane テレメトリが機能することを検証。FUNC-050 の実現範囲は
+      「レーン帯を算出して外に出す」診断までで、寄せる動作(自発的な車線変更)は検証対象外
+      （vd-func:FUNC-055 のスコープ、設計 §5・function_catalog_vd_ad.yaml FUNC-050 note）。
 
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
@@ -880,6 +910,18 @@ edges:
     source: GT_esmini/web/backend/services/vd_metrics.py
     note: policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ）
 
+  # ---- ④観測: RouteLanePlan (vd-func:FUNC-050) ----
+  - from: matcher:route_lane_plan_holds
+    to: signal:route_lane_conformance
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"]
+      （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/
+      on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の
+      must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない
+      ものを pass にしない」規律、domain_split_holds と同型）。
+
   # ---- ⑥常設: matcher -> sustained-by -> gate（capability_model.md §5, フェーズ1） ----
   # 常設ゲート gate:vd-behavior-regression（12シナリオ）が実際に発火させる matcher だけを引く。
   # car_following_traffic_control_batch.yaml が参照する expectations を機械集計した結果＝6件（2026-07-20実測）。
@@ -1186,3 +1228,38 @@ edges:
     type: sustained-by
     source: GT_esmini/test/CMakeLists.txt
     note: OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない
+
+  # ---- 引けなかった辺: RouteLanePlan (vd-func:FUNC-050, 2026-08) ----
+  # 縦串3辺の結線時に検討したが張らなかった2辺と、その理由（一次記録）。
+  #
+  # (1) req-vd-ad:REQ-AD-016 -> stimulated-by -> [06_route_lane の刺激資産]
+  #   資産は実在し実行済み（resources/xosc/verification/06_route_lane/
+  #   merge_required_for_exit_ramp.xosc, route_valid_off_target_lane_for_exit_ramp.xosc、
+  #   route_lane_batch.yaml 経由、overall=pass）。しかし face:3 の登録ハンドルが無い:
+  #   (a) scenario_authoring 生成物ではない手書き xosc なので scenario-variant 命名
+  #       （[a-z0-9_]+__p[0-9]{3}）に該当しない。
+  #   (b) 07_aeb/06_lead/03/04 の先例（scenario-variant 未登録でも policy を「唯一の登録
+  #       ハンドル」として stimulated-by の to にする回避策、上記コメント参照）がここでは
+  #       使えない。RouteLanePlan は ITrafficPolicy を経由しない独立層
+  #       （route_lane_plan_design.md §3-2、route_lane_batch.yaml 自身のコメントも明記）
+  #       ＝ 迂回先の policy 自体が存在しない。
+  #   資産と要求/機能の対応は route_lane_batch.yaml の `origin: vd-func:FUNC-050`
+  #   フィールド（バッチファイルのメタデータ、graph.yaml の辺ではない）に残る。
+  #
+  # (2) [RouteLanePlan 実装] -> realizes -> vd-func:FUNC-050
+  #   既存の realizes 辺は全て `policy:<slug> -> vd-func` の形を取る（policy は face:2 の
+  #   閉じた列挙、namespaces.yaml OPAQUE_LEGACY_NAMESPACES に凍結登録済み＝新値追加は
+  #   lint が拒否する）。RouteLanePlan は design doc が「policies/ に ITrafficPolicy
+  #   実装として置くのは不採用」と明記した独立層のため、policy 列挙に新値を足すのは
+  #   (a) 凍結違反 (b) アーキテクチャ判断への逆行の両方で不適当。実装そのものを指せる
+  #   既存の登録名前空間が無い＝**登録提案**（親判断・本セッションでは新設しない）。
+  #   FUNC-050 の部分実現は現状 matcher:route_lane_plan_holds -> verifies -> vd-func:FUNC-050
+  #   （上記）と function_catalog_vd_ad.yaml の status: partial 更新のみで表現しており、
+  #   同カタログの by: フィールドも意図的に空のまま残している（実装元は policy:slug /
+  #   planner / driver / road のいずれかが期待される書式だが、どれも RouteLanePlan の
+  #   実体を正しく表さないため、根拠の無い値を書くより空欄の方が正直と判断した）。
+  #
+  # 両者とも「名前の類似で辺を張らない・根拠が薄い辺は張らない（誤った辺 > 欠けた辺）」に
+  # 従い未結線のまま残す。新設が要るなら: (i) face:3 に「手書き検証 xosc」用の名前空間、
+  # または (ii) policy とは別の「VD 実装層（非 ITrafficPolicy）」名前空間の登録が候補。
+  # いずれも新設していない（凍結名前空間ポリシーの遵守）。

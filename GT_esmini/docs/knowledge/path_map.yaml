@@ -44,6 +44,11 @@ mappings:
     ids: [policy:conflict]
   - glob: "*virtualdriver/policies/CrosswalkPedestrianAware*"
     ids: [policy:crosswalk]
+  # RouteLanePlan: independent VD layer, NOT under policies/ and not an ITrafficPolicy
+  # (route_lane_plan_design.md §3-2) -- no policy: slug fits, so this maps straight to
+  # the vd-func catalog entry it partially realizes instead.
+  - glob: "*virtualdriver/RouteLanePlan*"
+    ids: [vd-func:FUNC-050]
   # fork lineages (Clean Core governance)
   - glob: "GT_esmini/src/road/GT_RoadManager.cpp"
     ids: [lineage:gt_roadmanager]
@@ -70,6 +75,12 @@ mappings:
     ids: [policy:conflict]
   - glob: "resources/xosc/verification/09_crosswalk_pedestrian/*"
     ids: [policy:crosswalk]
+  # verification scenario category -> vd-func (RouteLanePlan bypasses ITrafficPolicy
+  # entirely, so no policy: slug applies here -- see the RouteLanePlan mapping above)
+  - glob: "resources/xosc/verification/06_route_lane/*"
+    ids: [vd-func:FUNC-050]
+  - glob: "resources/xosc/verification/route_lane_batch.yaml"
+    ids: [vd-func:FUNC-050]
   # the knowledge graph itself
   - glob: "GT_esmini/docs/knowledge/*"
     ids: [directive:R4]

@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:cd979c199a3207f4 -->
+<!-- generated-from: sha256:a2daa877e2236df5 -->
 
-ノード 176・辺 182（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 182・辺 187（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -149,6 +149,9 @@ flowchart LR
     n_vd_func_FUNC_038["FUNC-038"]
     n_vd_func_FUNC_029["FUNC-029"]
     n_vd_func_FUNC_001["FUNC-001"]
+    n_vd_func_FUNC_049["FUNC-049"]
+    n_vd_func_FUNC_050["FUNC-050"]
+    n_vd_func_FUNC_054["FUNC-054"]
     n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_075["FUNC-075"]
   end
@@ -159,6 +162,7 @@ flowchart LR
     n_req_vd_ad_REQ_AD_004["REQ-AD-004"]
     n_req_vd_ad_REQ_AD_005["REQ-AD-005"]
     n_req_vd_ad_REQ_AD_006["REQ-AD-006"]
+    n_req_vd_ad_REQ_AD_016["REQ-AD-016"]
     n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
     n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
@@ -173,6 +177,7 @@ flowchart LR
     n_matcher_min_obb_separation_above["min_obb_separation_above"]
     n_matcher_impact_speed_below["impact_speed_below"]
     n_matcher_no_emergency_without_conflict["no_emergency_without_conflict"]
+    n_matcher_route_lane_plan_holds["route_lane_plan_holds"]
     n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
     n_matcher_speed_above["speed_above"]
     n_matcher_speed_below["speed_below"]
@@ -199,6 +204,7 @@ flowchart LR
     n_signal_object_poses["object_poses"]
     n_signal_obb_separation["obb_separation"]
     n_signal_aeb_trigger_flag["aeb_trigger_flag"]
+    n_signal_route_lane_conformance["route_lane_conformance"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -310,6 +316,9 @@ flowchart LR
   n_vd_func_FUNC_027 -->|realizes| n_req_vd_ad_REQ_AD_005
   n_vd_func_FUNC_038 -->|realizes| n_req_vd_ad_REQ_AD_006
   n_vd_func_FUNC_029 -->|realizes| n_req_vd_ad_REQ_AD_006
+  n_vd_func_FUNC_049 -->|realizes| n_req_vd_ad_REQ_AD_016
+  n_vd_func_FUNC_050 -->|realizes| n_req_vd_ad_REQ_AD_016
+  n_vd_func_FUNC_054 -->|realizes| n_req_vd_ad_REQ_AD_016
   n_matcher_maintained_following_distance -->|verifies| n_req_vd_ad_REQ_AD_002
   n_matcher_stopped_at_signal -->|verifies| n_req_vd_ad_REQ_AD_003
   n_matcher_stopped_at_stop_sign -->|verifies| n_req_vd_ad_REQ_AD_004
@@ -317,6 +326,7 @@ flowchart LR
   n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_001
   n_matcher_impact_speed_below -->|verifies| n_req_vd_ad_REQ_AD_001
   n_matcher_no_emergency_without_conflict -->|verifies| n_req_vd_ad_REQ_AD_013
+  n_matcher_route_lane_plan_holds -->|verifies| n_vd_func_FUNC_050
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
@@ -365,6 +375,7 @@ flowchart LR
   n_matcher_impact_speed_below -->|observes| n_signal_obb_separation
   n_matcher_impact_speed_below -->|observes| n_signal_object_poses
   n_matcher_no_emergency_without_conflict -->|observes| n_signal_aeb_trigger_flag
+  n_matcher_route_lane_plan_holds -->|observes| n_signal_route_lane_conformance
   n_matcher_speed_above -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_speed_below -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_min_speed_above -->|sustained-by| n_gate_vd_behavior_regression
@@ -512,7 +523,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (20)
+### observes (21)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -536,8 +547,9 @@ flowchart LR
 | `matcher:impact_speed_below` | `signal:obb_separation` | OBB 接触判定と接近速度の組み合わせ |
 | `matcher:impact_speed_below` | `signal:object_poses` | 相手の位置・方位・速度 |
 | `matcher:no_emergency_without_conflict` | `signal:aeb_trigger_flag` | policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ） |
+| `matcher:route_lane_plan_holds` | `signal:route_lane_conformance` | vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"] （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/ on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない ものを pass にしない」規律、domain_split_holds と同型）。 |
 
-### realizes (23)
+### realizes (26)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -558,6 +570,9 @@ flowchart LR
 | `vd-func:FUNC-027` | `req-vd-ad:REQ-AD-005` | 横断歩道の歩行者優先が歩行者衝突回避要求を充足 |
 | `vd-func:FUNC-038` | `req-vd-ad:REQ-AD-006` | 非制御交差点の譲りが交差点譲り要求を充足 |
 | `vd-func:FUNC-029` | `req-vd-ad:REQ-AD-006` | 交差点優先権規則が交差点譲り要求を充足 |
+| `vd-func:FUNC-049` | `req-vd-ad:REQ-AD-016` | 目的地ルーティング（road/lane 列の生成と保持）が経路自前生成要求の中核 |
+| `vd-func:FUNC-050` | `req-vd-ad:REQ-AD-016` | レーンレベル経路計画が「接続に必要な車線へ事前に寄せる」部分を充足 |
+| `vd-func:FUNC-054` | `req-vd-ad:REQ-AD-016` | 到達判定・ミッション終了が「目的地で安全に停車する」部分を充足 |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
 | `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |
@@ -627,7 +642,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (11)
+### verifies (12)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -638,6 +653,7 @@ flowchart LR
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-001` | カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ） |
 | `matcher:impact_speed_below` | `req-vd-ad:REQ-AD-001` | 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想） |
 | `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
+| `matcher:route_lane_plan_holds` | `vd-func:FUNC-050` | route_lane_batch.yaml の2シナリオ（merge_required_for_exit_ramp=invalid_route 診断、 route_valid_off_target_lane_for_exit_ramp=最終ホップの目標レーン帯からの逸脱を検出、 設計 §4-4 実測）で route_lane テレメトリが機能することを検証。FUNC-050 の実現範囲は 「レーン帯を算出して外に出す」診断までで、寄せる動作(自発的な車線変更)は検証対象外 （vd-func:FUNC-055 のスコープ、設計 §5・function_catalog_vd_ad.yaml FUNC-050 note）。 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-010` | 停止先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-011` | 先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-012` | 歩行者/自転車との衝突ゼロ |

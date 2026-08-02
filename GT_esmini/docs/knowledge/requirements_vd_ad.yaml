@@ -220,3 +220,32 @@ requirements:
     verified_by: []                       # 交差点譲りの専用matcherは未整備（TODO）
     related: []
     status: draft
+
+  # ===== B1 ミッション/経路計画（strategic層。凍結例外としてID発行、2026-08-02 承認） =====
+  # capability_model.md §2.1 の layer 軸が炙り出した strategic built=0 に対する最初の①主張。
+  # 既存要求が全て「所与の経路上での挙動」だったのに対し、これは経路そのものを主張する。
+  - id: REQ-AD-016
+    title: 起点と目的地だけを与えられて走行可能な経路を自ら生成し、目的地まで走り切る
+    tier: '-'                             # 動機層でなくタスク達成そのもの（vd-func:FUNC-049 と同じ扱い）
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN シナリオが自車の起点と目的地のみを与えたとき、VD は走行可能な road/lane 列を
+      自ら生成して保持し、経路上のレーン接続が要求する車線変更を自発的に行い、
+      目的地へ到達して安全に停車すること。
+    scenario: >-
+      未整備。junction を含む市街路で起点 arm と目的地 arm のみを指定するシナリオが要る。
+      既存の verification 資産は全て Waypoint 列を明示しており該当なし。
+    acceptance: >-
+      (a) 生成経路が起点から目的地まで連続する（truncate しない）
+      (b) 走行中 on-route を維持する（off-route 落ちの発生率で測る）
+      (c) 目的地の許容範囲内に停車する。定量閾値は未校正。
+    realized_by: [vd-func:FUNC-049, vd-func:FUNC-050, vd-func:FUNC-054]
+    verified_by: []                       # on-route 継続率・到達判定の matcher が未整備
+    related: [issue:31]
+    status: future
+    note: >-
+      将来課題。先に「粗い Waypoint 記述＋VD 側の自発車線変更」（レーン接続の辻褄を VD が
+      自分で合わせる方向）を実装し、経路探索そのものの自前化はその後に着手する。
+      issue #31 は本要求の不在が生んだ症状 — VD が車線を自分で寄せられないため、
+      レーン接続の辻褄を人間が Waypoint で手当てする必要があり、その記述漏れが表面化した。
