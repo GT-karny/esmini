@@ -3,9 +3,21 @@
 **状態**: **実装済み**（`b7433c7e` カタログ層追加、`1626fb09` スキャン層拡張、`27e5e703` TrafficLightAware配線、
 `b7b5887c` StopYieldSignAware配線、`7477ca88` 国別切替の単体テスト、`0071dac0` 判別資産とゲート新設）。対象は
 `policy:traffic_light`（`TrafficLightAware`）と `policy:stop_yield`（`StopYieldSignAware`）の停止側（STOP標識）。
-§9.2の窓の実測（既定値10.0mを維持する結論を含む）は
-`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.expectations.yaml` と
-`resources/xosc/verification/04_traffic_signs/stop_sign_stop_line_paired.expectations.yaml` の`notes`ブロックにある。
+
+**設計変更**（`policy:traffic_light` 側のみ。§3.1・§3.2）：実装完了後、信号ヘッドのアンカーの取り方に
+欠陥が見つかった。前提となる`OpenDrive::Clear()`のcontrollerリーク
+是正（`d58b2d66`）、信号がどの交差点を司るかを解決する`SignalJunctionResolver`の新設（`f2fd312e`）、
+アンカーを交差点入口とヘッドのminへ移す本体と判別資産の作り直し（`9f01fba5`）の3コミットで、
+アンカーを「対応する交差点の入口とヘッドのうち近い方」に拡張した。`policy:stop_yield`
+（STOP標識側、§7）はこの変更の対象外で、アンカーは変更前と同じく標識自身の距離のままである。
+
+§9.2の窓の実測（既定値10.0mを維持する結論を含む）は、STOP標識側は変更前のまま
+`resources/xosc/verification/04_traffic_signs/stop_sign_stop_line_paired.expectations.yaml`、
+信号ヘッド側は設計変更後に再実測した
+`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.expectations.yaml` と、
+新設したfar-side判別資産の
+`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.expectations.yaml`
+の各`notes`ブロックにある。
 **制約**: R1 Clean Core（`EnvironmentSimulator` 無改変）、既存資産の挙動は bit-identical、
 新パラメータは config + Web API + フロントエンドまで露出、判定ロジックは純関数として単体テスト可能にする。
 
@@ -152,15 +164,17 @@ upstream の `signals_types_` には触れない。初期に用意するのは�
 ego からの距離昇順で返す。停止線候補もこの同じフィルタを通過した上で列に混ざっているので、
 **新しい経路探索は不要**であり、この列の中から停止線を探せばよい。
 
-対応付けの規則は次の1つに絞る。**「対象（governingヘッド、またはSTOP標識）の距離以下で、
-最も近い停止線分類の信号」**を対とする。`ScanSignalsAhead` の出力は距離昇順なので、
-対象のインデックスより手前を後ろ向きに走査し、最初に見つかった停止線分類のエントリを採用する。
-探索範囲は新しい設定値（窓、§8）で打ち切る。
+対応付けの規則は次の1つに絞る。**「アンカーの距離以下で、最も近い停止線分類の信号」**を対とする。
+アンカーは、STOP標識（`policy:stop_yield`）については標識自身の距離である。
+信号ヘッド（`policy:traffic_light`）については、実装当初はヘッド自身の距離だったが、実装完了後に
+見つかった欠陥を受けて交差点入口を加味した距離に変わっている（§3.1・§3.2）。`ScanSignalsAhead` の
+出力は距離昇順なので、アンカーより手前（小さいdistance_ahead）を後ろ向きに走査し、最初に見つかった
+停止線分類のエントリを採用する。探索範囲は新しい設定値（窓、§11）で打ち切る。
 
 実資産（road196）で確認できる配置は、停止線がヘッドより常に手前（小さいdistance_ahead）にある
-という前提を裏付けている。「対象の距離以下」という条件はこの前提をそのままコードにしたもので、
-停止線が対象より奥にある（＝停止線を通り過ぎてから対象に着く）という物理的にありえない配置を
-最初から候補から除く。
+という前提を裏付けている。「アンカーの距離以下」という条件はこの前提をそのままコードにしたもので、
+停止線がアンカーより奥にある（＝停止線を通り過ぎてからアンカーに着く）という物理的にありえない
+配置を最初から候補から除く。
 
 同一road限定、同一country限定は、いずれも採用しない。ScanSignalsAhead自体が経路距離ベースで
 road境界をまたいで歩く設計であり、停止線が停止対象と別roadに乗っている資産（アプローチ路の
@@ -171,8 +185,134 @@ road境界をまたいで歩く設計であり、停止線が停止対象と別r
 複数の停止線分類信号が同一距離に並ぶ資産（タイブレークが未定義な既知の穴、
 `f7_override_detector_findings` 系ではなく `tl_head_type_and_junction_clearance` メモの
 「同一距離の信号のタイブレークが未定義」）は、この対応付けでは実害が出ない。
-「対象以下で最も近い」という条件は同着のどちらを選んでも同じ距離を返すため、
+「アンカー以下で最も近い」という条件は同着のどちらを選んでも同じ距離を返すため、
 `std::sort` が非安定であることの影響を受けない。
+
+信号ヘッドについてのアンカーの具体的な定義と、それが変わった経緯は次の2節で扱う。
+
+### 3.1 なぜ交差点入口を基準に加えるか
+
+実装当初、信号ヘッドのアンカーも標識と同じくヘッド自身の距離だった。
+この場合、窓（既定10.0m、§11）が実質主張していたのは「停止線はヘッドから10m以内にある」という、
+信号機の取り付け方についての条件である。
+
+ヘッドが交差点の手前に立つ配置（near-side）では、この条件で問題ない。
+停止線とヘッドは同じ入口側にあり、両者の間隔は数メートルに収まる。
+リポジトリ中で唯一実測できる資産（`multi_intersections.xodr` road196、§0）もこの配置であり、
+4mという間隔は10mの窓に余裕を持って収まっていた。
+
+しかし、ヘッドが交差点の向こう側のマストアームに載る配置（far-side）では、同じ条件が成立しない。
+停止線は近づいてくる側の路面にあるのに対し、ヘッドは交差点を渡った先にあるため、両者は交差点の幅
+（30〜40m程度）だけ離れる。
+ヘッド基準の窓をどれだけ広げても、この間隔を10mのオーダーで埋めることはできない。
+far-side配置では、ヘッド基準のアンカーは原理的に停止線を拾えない。
+
+この問題は、「停止線はヘッドの近くにある」という信号機の取り付け方についての主張を、窓という
+1つの数値に埋め込んでしまったことに起因する。
+本来求めたいのは「停止線は交差点の入口の手前にある」という、路面標示の引き方についての主張であり、
+これは信号機がどこに取り付けられているかに依存しない。
+そこでアンカーの候補に、信号ヘッドの距離だけでなく、その信号が司る交差点の入口
+（`RouteJunctionSpan::entry_ahead`、§6）の距離を加えた。
+
+信号ヘッドがどの交差点を司るかは、OpenDRIVEの記述だけからは1通りに決まらない。
+新設した`SignalJunctionResolver`（`ResolveSignalJunction`）は、次の3経路を(a)→(c)→(b)の順に試す。
+
+- **(a) controller連鎖**：signalを参照する`<controller>`が、その`<controller>`を参照する
+  `<junction>`へつながる経路。
+- **(b) 接続路**：signal自身が乗っているroadが、junctionの接続路そのものである経路。
+- **(c) 道路リンク**：signalの乗っているroadを、信号が司る進行方向へたどった先の道路リンクが、
+  junctionそのものである経路。
+
+(a)を最優先にするのは、これだけが信号機の物理的な取り付け位置に依存しない経路だからである。
+(a)は資産の作者が「この信号はこのjunctionを司る」と明示した意味的な対応であり、ヘッドがnear-side
+にあろうとfar-sideにあろうと関係なく成立する。
+(b)・(c)は道路網の形状から機械的に導く経路であり、near-sideのヘッドでは大抵正しいjunctionに
+行き着くが、far-sideのヘッドでは自分の乗っているroadの先にあるjunction（司っているjunctionとは
+別の、地理的に近いだけのjunction）を指してしまう。
+§3.2の判別資産はこの失敗を実際に踏んでおり、(a)のcontroller連鎖だけが正しいjunctionへ解決する。
+
+(a)には2つの穴がある。
+どのjunctionからも参照されないcontrollerと、複数のjunctionから参照されるcontrollerである。
+前者は単に対応が無いだけだが、後者で機械的に最初の1件を選ぶと、資産の書き方次第で黙って別の
+junctionを指しかねない。
+`ResolveControllerChainJunctions`はどちらの場合も解決を諦め、その信号については(c)・(b)へ処理を
+渡す。
+
+(a)の経路が効く資産は、リポジトリ全体で`multi_intersections.xodr`だけであり、どの検証シナリオ
+からも使われていない。
+最優先の経路を未検証のまま出荷しないため、この資産を実際に読み込む単体テスト
+（`GT_esmini/test/unit/virtualdriver/test_SignalJunctionResolver.cpp`）で固定した。
+
+信号がどのjunctionを司るかの解決は、STOP標識・信号ヘッドを問わず走査対象の全信号について
+`ScanSignalsAhead`が行い、`ScannedSignal::junction_id`に持たせる。
+解決自体を走査側で行うのは、経路(c)が要求する進行方向（信号がどちら向きの交通を司るか）を
+持っているのが走査側だけだからである。
+ただし、この結果を実際にアンカーへ使うのは`TrafficLightAware`だけである。
+`StopYieldSignAware`（STOP標識側、§7）は変更していない。
+STOP標識は自分の立つ場所そのものが法的な停止位置であり、ヘッドのように別の場所へ取り付けられる
+余地がそもそも無いため、この問題を抱えていない。
+
+`SignalJunctionResolver`を実装しテストする過程で、別の欠陥が見つかった。
+同一プロセス内で複数のxodrを切り替えて実行する構成（バッチ実行、Webバックエンド）では、
+`OpenDrive::Clear()`が`road_`や`junction_`はクリアする一方、トップレベルの`<controller>`一覧
+（`controller_`）を見落としており、後にロードしたxodrに前のxodrのcontrollerが残り続けていた。
+これはフォーク限定の実装漏れであり、経路(a)の信頼性がプロセスの実行順序に左右されかねなかった。
+`SignalJunctionResolver`本体とは独立に是正し（`d58b2d66`、`[GT_ODR:ctrl-clear]`、
+`GT_esmini/docs/gt_roadmanager_patches.md`）、その上で経路(a)を実装した。
+
+### 3.2 交差点入口だけでは足りない理由
+
+交差点入口をそのままアンカーにすると、新しい欠陥が生まれる。
+入口だけを見た場合、ヘッドより奥（egoから見て遠い側）に停止線が来る配置がありうる。
+この配置で対応付けが成立すると、停止目標はヘッドより奥に置かれる。
+egoはその目標へ向けて減速するが、停止線の手前で止まる前に自分の原点がヘッドのs座標を越えて
+しまうことがあり、越えた瞬間に`RouteSignalScan::ScanSignalsAhead`の前方限定の走査からヘッドが
+外れる。
+ヘッドがスキャンから消えるとRED制約も消え、赤信号のまま再発進する。
+
+これは§5が明示している「停止中もヘッドをスキャン内に残す」という保証そのものであり、入口単独の
+アンカーはこの保証を静かに破っていた。
+この欠陥は実測で確認されている。
+再現の記録は
+`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.expectations.yaml`
+の`notes`ブロック（"N=3 hazard"の項）にあり、egoが停止線の手前でほぼ止まった状態から、
+シナリオ側の停止判定が働くt=25の時点でもなお前方へ這うように動き続けていたことを記録している。
+
+そこで、アンカーは**「交差点入口とヘッドのうち、egoに近い方」**とした。
+`RouteSignalScan::ResolveStopLineAnchor`が`min(junction_entry_ahead, head_dist_ahead)`を返す。
+minを取ると、停止線は定義上必ずアンカー以下の距離にしか対応付けられないため、アンカー自体が
+ヘッド以下になることも保証される。
+§5の保証はこうして無条件に戻る。
+
+near-side配置ではヘッドの方が入口より近いため、minはヘッドを選ぶ。
+この場合の対応付けは実装当初と同じ関数（`FindPairedStopLine`、ヘッド自身のインデックスを
+アンカーとする）を経由し、実測でも変更前とビット一致する結果になることを確認している
+（同notesブロック）。
+far-side配置ではヘッドの方が遠いため、minは入口を選ぶ。
+この場合は新設した`FindPairedStopLineByDistance`を経由する。
+アンカーが裸の距離であり、ヘッドや標識のように「自分自身」として候補から除くべきインデックスが
+無いための別関数である。
+near-sideとfar-sideは同じ1つの規則（min）から、資産の作り方に応じて自動的に振り分けられる。
+振り分けを選ぶ設定項目は無く、どちらが選ばれたかは診断KV`gt.traffic_light.stop_line_anchor`
+（値は`"junction_entry"`または`"head"`）で観測できる。
+
+判別資産も作り直した。
+near-side側は生成器（`resources/scenario_authoring/road_catalog/gen_signalized_short_block.py`）の
+パラメータを、ヘッドからの後退量ではなく交差点入口からの後退量に改めた。
+far-side側は、ヘッドをjunctionの先の道路に置き、controller連鎖（経路(a)）で司るjunctionへ結ぶ
+資産を新設した
+（`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.xosc`）。
+この資産は経路(c)・(b)がヘッド自身の道路リンクから誤って別のjunctionを指してしまう配置であり、
+これを正しく解けることが経路(a)を最優先にする理由（§3.1）の実地の裏付けになっている。
+near-side・far-sideそれぞれの実測値は、前段落および上記2つのexpectations.yamlの`notes`
+ブロックにある。
+
+多段階の横断のように、1つの交差点に停止線が2本以上ある配置（中央分離帯の手前と奥、など）でも、
+奥側の停止線が誤って対応付けられる心配はない。
+`FindPairedStopLine`・`FindPairedStopLineByDistance`はいずれも、アンカーより奥にある候補を、
+窓の値を見るより前の時点で無条件に除外する。
+奥側の停止線は交差点の内側にあり、near-sideのヘッドから見ても交差点入口から見てもアンカーより
+遠いため、この除外規則だけで窓の設定に関係なく候補から落ちる。
 
 ---
 
@@ -204,8 +344,19 @@ RED制約が消え、赤信号無視に読める挙動になる）。
 大きくなる。停止線がヘッドの直前にある通常の配置では、停止線基準の目標はヘッド基準の目標より
 ego に近い側に来るため、ヘッドとの間の余白は縮まりこそすれヘッドがスキャン外に出ることはない。
 停止線とヘッドが同一sの資産（信号の設置台座に停止線が重なっている想定）でも、対応付け規則は
-「対象の距離**以下**」を許すので停止線基準の目標はヘッド基準の目標と一致し、現行と同じ結果になる。
+「アンカーの距離**以下**」を許すので停止線基準の目標はヘッド基準の目標と一致し、現行と同じ結果になる。
 このため、スキャン保持のために追加の特別処理は要らない。
+
+この保証が自動的に成り立つのは、アンカーがヘッド自身の距離だけだった間の話である。
+後日の設計変更（§3.1・§3.2）でアンカーの候補に交差点入口が加わったときは、この前提が無条件には
+成り立たなくなった。
+交差点入口だけをアンカーにする案では、停止線が「交差点入口以下・ヘッドより奥」という配置で
+対応付けられてしまい、この節が守ろうとしていた保証そのものが破れ、赤信号のまま再発進する欠陥が
+実測された（§3.2）。
+最終的に採用した`min(交差点入口, ヘッド)`は、「停止線は必ずアンカー以下」という対応付け規則を
+経由して「アンカーは必ずヘッド以下」も同時に満たすため、この節の結論（追加の特別処理は要らない）
+自体は信号ヘッド側でも変わらず成り立つ。
+ただしそれは§3の対応付け規則から自動的に導かれるのではなく、minという構成で明示的に満たしている。
 
 ---
 
@@ -228,6 +379,11 @@ ego に近い側に来るため、ヘッドとの間の余白は縮まりこそ�
 トポロジ（junction span の入口位置）だけから合成される点であり、どの信号にも紐づいていないため、
 停止線カタログを参照する対象が存在しない。
 
+§3.1で導入したアンカーの交差点入口側の候補は、この節の`span.entry_ahead`と同じ`RouteJunctionSpan`
+から読む同じ値である。
+停止線対応付けのアンカー計算とPULL_BACKのblocking判定は、別々に較正された2つの数値ではなく、
+同じ「交差点入口はどこか」という1つの値を、それぞれの目的で参照しているだけである。
+
 ---
 
 ## 7. 一時停止標識側（STOP FSM）の扱い
@@ -249,6 +405,11 @@ ego に近い側に来るため、ヘッドとの間の余白は縮まりこそ�
 `semantic_stop_sign_full_stop` は、いずれも対応する停止線分類信号を持たない資産
 （`straight_semantic_stop_sign.xodr` を含む `04_traffic_signs` 配下のフィクスチャに
 type=294相当の信号は無い）なので、§4のフォールバックにより変化しない。
+
+§3.1・§3.2で導入した、交差点入口を加味したアンカーは`TrafficLightAware`（信号ヘッド側）だけに
+適用されている。
+この節で述べたSTOP標識側の対応付けは変更しておらず、STOP標識のアンカーは今日も標識自身の距離の
+ままである。
 
 ---
 
@@ -288,11 +449,35 @@ OSIの `TrafficSign` 分類列挙自体に「停止線」の区分が無いと�
 
 ### 9.2 対応付け窓（`*_stop_line_window`）の既定値
 
-実測できているのは `multi_intersections.xodr` road196 の1例（停止線がヘッドの4m手前）だけであり、
-既定値10.0m（§10）は「実測の2倍以上の余裕を持たせつつ隣接交差点の停止線を誤って拾わない値」
-という工学的判断であって、実測に基づく確定値ではない。実装時に、停止線と対象の距離を
-振った複数の判別資産（例: 4m、8m、12m）で「窓内なら採用・窓外ならフォールバック」の
-境界がその資産で意図通りに動くことを実測してから既定値を確定する。
+既定値は10.0m（§11）のままだが、その根拠は§3.1・§3.2の設計変更で変わった。
+
+STOP標識側と、信号ヘッドのnear-side配置（アンカーがヘッド自身になる場合、§3.2）については、
+窓は元どおり「ヘッド（または標識）からの距離」を測る数値である。
+実測できているのは`multi_intersections.xodr` road196の1例（停止線がヘッドの4m手前）だけだが、
+この配置での窓の境界（停止線とアンカーの距離を振り、窓内なら採用・窓外ならフォールバックに
+なるか）は設計変更後に判別資産で再実測されており、4mという実測値には従来どおり余裕を持って
+収まっている
+（`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.expectations.yaml`
+の`notes`ブロック）。
+この半分の根拠は、実測1件だけという弱さを含め、当初の判断と変わらない。
+
+信号ヘッドのfar-side配置（アンカーが交差点入口になる場合）については、窓は「交差点入口からの
+距離」を測る数値に変わる。
+ここは実測に基づく確定値ではない。
+OpenDRIVEのjunction入口（接続路の始端）は、塗装された交差点の縁と必ずしも一致しない。
+同じ物理的な停止線でも、資産の作り方次第で入口からの距離は変わりうる。
+この経路を実際に検証しているのはfar-side判別資産
+（`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.expectations.yaml`）
+1本だけであり、これは判別が機能することを確認したものであって、実在するfar-side資産の入口と
+縁の関係を実測したものではない。
+
+つまり10.0mという1つの既定値は、根拠の強さが異なる2つの問いを束ねている。
+「ヘッドから10mあれば足りるか」は実測1件で支持されており、minの採用によっても変わらない。
+「交差点入口から10mあれば足りるか」は支持する実測が無い。
+minはアンカーを縮める方向にしか働かないため、どちらの問いが有効かは資産ごとに自動的に決まり、
+設定で選ぶものではない（§3.2）。
+「1本の合成道路の実測だけでは既定値を確定できない」という結論の性質そのものは、設計変更の
+前後で変わっていない。
 
 ### 9.3 KG登録の要否
 
@@ -364,6 +549,20 @@ std::optional<size_t> FindPairedStopLine(const std::vector<ScannedSignal>& signa
 
 `JunctionStopGuard.hpp` / `JunctionStopGuard.cpp` は変更しない（§6）。
 
+後日の設計変更（§3.1・§3.2）で、この構成に2つのモジュールが加わった。
+新規ファイル`GT_esmini/include/gt_esmini/control/virtualdriver/policies/SignalJunctionResolver.hpp`
+（+ 対応する`.cpp`）が信号→交差点の解決（`ResolveSignalJunction`、純関数
+`ResolveControllerChainJunctions` / `ResolveAheadLinkEnd`）を担う。
+`RouteSignalScan.hpp`の`ScannedSignal`にはこの解決結果を持たせる`junction_id`フィールドを追加し、
+既存の`FindPairedStopLine`はそのまま残した上で、裸の距離をアンカーに取る
+`FindPairedStopLineByDistance`と、`min(交差点入口, ヘッド)`を計算する`ResolveStopLineAnchor`を
+新設した。
+呼び出し側は`TrafficLightAware::Evaluate`のみを変更しており、governingヘッドの`junction_id`が
+このルートで到達するjunction spanと一致する場合は`ResolveStopLineAnchor`経由で
+`FindPairedStopLineByDistance`を呼び、一致しない場合は変更前と同じ`FindPairedStopLine`を呼ぶ
+（§3.1・§3.2）。
+`StopYieldSignAware::Evaluate`は変更していない。
+
 ---
 
 ## 11. 新規configキー
@@ -373,7 +572,7 @@ std::optional<size_t> FindPairedStopLine(const std::vector<ScannedSignal>& signa
 | キー | 型 | 既定値 | 意味 |
 | :--- | :--- | :--- | :--- |
 | `tl_stop_line_aware_enabled` | bool | `true` | ONで信号ヘッドの停止目標を対応する停止線に差し替える。OFFで現行の`head_s - margin`のみに戻るキルスイッチ |
-| `tl_stop_line_window` | number | `10.0` | ヘッドより手前・この距離以内の停止線のみ対とする（§9.2、未実測） |
+| `tl_stop_line_window` | number | `10.0` | アンカー（信号が司る交差点を解決できればその入口とヘッドのうち近い方、解決できなければヘッド、§3.1・§3.2）より手前・この距離以内の停止線のみ対とする（§9.2） |
 | `sign_stop_line_aware_enabled` | bool | `true` | ONでSTOP標識の停止目標を対応する停止線に差し替える。OFFで現行の`sign_s - margin`のみに戻るキルスイッチ |
 | `sign_stop_line_window` | number | `10.0` | STOP標識より手前・この距離以内の停止線のみ対とする |
 
@@ -445,6 +644,12 @@ STOP標識側は `straight_semantic_stop_sign.xodr` と同様の単純な直線�
 いずれも新規資産の追加であり（R3）、既存の `car_following_traffic_control_expected.yaml` や
 `04_traffic_signs` の既存ベースラインは変更しない。
 
+後日の設計変更（§3.2）で、信号ヘッド側の判別資産はさらに作り直した。
+near-side側の生成パラメータは、ヘッドからの後退量ではなく交差点入口からの後退量に改めた。
+controller連鎖（経路(a)、§3.1）で交差点入口へ明示的に結んだfar-side資産（信号ヘッドをjunctionの
+先の道路に置く配置）も新設した。
+これも新規資産の追加であり、既存ベースラインは変更していない。
+
 ### 13.2 マニフェストとベースライン
 
 新しいマニフェスト（例 `resources/xosc/verification/03_traffic_signals/` と
@@ -452,6 +657,11 @@ STOP標識側は `straight_semantic_stop_sign.xodr` と同様の単純な直線�
 ベースラインを新設する。既存3組（`car_following_traffic_control` /
 `aeb_safety` / 他）には触れない（`realwheel_handover_results_2026-07.md` 系のメモに
 記録されている「回帰ベースラインは独立3組」という前例と同じやり方）。
+
+実装後、これは`resources/xosc/verification/stop_line_pairing_batch.yaml`と
+`GT_esmini/test/regression_baseline/stop_line_pairing_expected.yaml`という組で確定した。
+後日の設計変更（§3.2）では、このマニフェストへfar-side判別資産を追加しただけで、独立した
+4組目は作っていない。
 
 ### 13.3 測定順序
 
@@ -485,3 +695,7 @@ STOP標識側は `straight_semantic_stop_sign.xodr` と同様の単純な直線�
   生成ツール固有の流儀であり、ASAM仕様が定めた書き方ではない（§1）。本設計はこの資産を
   実在するデータとして認識するにとどめ、新規資産（特に日本仕様）には正規のISO 3166-1
   国コード（`country="jp"`）を使うことを推奨する（§9.1）。
+- **信号ヘッドのアンカーを交差点入口だけにする（minを取らない、後日の設計変更で実際に踏んだ案）**：
+  入口だけでは停止線がヘッドより奥に来る配置を許してしまい、§5が守ろうとしていた「停止中も
+  ヘッドをスキャン内に残す」保証が破れ、赤信号のまま再発進する欠陥を実測した。
+  `min(交差点入口, ヘッド)`を採用して保証を無条件に戻した（§3.2）。
