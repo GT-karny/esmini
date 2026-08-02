@@ -7,7 +7,11 @@
 #include "gt_esmini/control/virtualdriver/policies/RouteCrosswalkScan.hpp"
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
 
+#include "RoadManager.hpp"  // roadmanager::LampIcon — the head-type tests speak in real icon names
+
 #include <cmath>
+#include <initializer_list>
+#include <vector>
 
 using namespace gt_esmini;
 
@@ -59,6 +63,79 @@ TEST(TrafficLightDecision, YellowStopsWhenRoomProceedsWhenClose)
     // braking distance at 10 m/s = 100 / (2*4) = 12.5 m.
     EXPECT_TRUE(TrafficLightShouldStop(TrafficLightPhase::YELLOW, 40.0, 10.0, p));   // far -> stop
     EXPECT_FALSE(TrafficLightShouldStop(TrafficLightPhase::YELLOW, 10.0, 10.0, p));  // close -> go
+}
+
+// ──────────────── Phase 3b: which heads govern the ego ────────────────────
+// The route scan cannot separate a pedestrian head from a vehicle head: both are
+// dynamic signals (so both promote to TrafficLight) and a pedestrian head may
+// declare the ego's own driving lane in its <validity> — fabriksgatan_traffic_lights
+// road 3 does exactly that for its two type-1000002 heads, which is how a red
+// DONT_WALK lamp used to halt the ego at a green light. The lamp icons decide.
+
+namespace
+{
+// Icon sets exactly as RoadManager's traffic_light_type_map bakes them per type.
+std::vector<int> Icons(std::initializer_list<roadmanager::LampIcon> icons)
+{
+    std::vector<int> out;
+    for (roadmanager::LampIcon i : icons) out.push_back(static_cast<int>(i));
+    return out;
+}
+}  // namespace
+
+TEST(TrafficLightHead, PedestrianHeadDoesNotGovern)
+{
+    // type 1000002 = 2 lamps {DONT_WALK, WALK}; 1000002.30 = 3 lamps.
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_DONT_WALK, roadmanager::ICON_WALK})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(
+        Icons({roadmanager::ICON_DONT_WALK, roadmanager::ICON_DONT_WALK, roadmanager::ICON_WALK})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_PEDESTRIAN})));
+}
+
+TEST(TrafficLightHead, VehicleHeadGoverns)
+{
+    // type 1000001 = the plain 3-lamp vehicle head; its icons are ICON_NONE.
+    EXPECT_TRUE(IsVehicleTrafficLightHead(
+        Icons({roadmanager::ICON_NONE, roadmanager::ICON_NONE, roadmanager::ICON_NONE})));
+}
+
+TEST(TrafficLightHead, ArrowHeadGoverns)
+{
+    // type 1000011.10 = 3-lamp left-arrow head. Direction matching is a separate
+    // concern; an arrow head is unambiguously addressed to vehicles.
+    EXPECT_TRUE(IsVehicleTrafficLightHead(
+        Icons({roadmanager::ICON_ARROW_LEFT, roadmanager::ICON_ARROW_LEFT, roadmanager::ICON_ARROW_LEFT})));
+}
+
+TEST(TrafficLightHead, BicycleAndTramHeadsDoNotGovern)
+{
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_BICYCLE, roadmanager::ICON_BICYCLE})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_TRAM})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_PEDESTRIAN_AND_BICYCLE})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_BUS_AND_TRAM})));
+}
+
+TEST(TrafficLightHead, MixedIconsGovern)
+{
+    // One vehicle-facing lamp is enough: a combined head still speaks to the ego.
+    EXPECT_TRUE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_NONE, roadmanager::ICON_DONT_WALK})));
+}
+
+TEST(TrafficLightHead, EmptyLampListDoesNotGovern)
+{
+    // Unknown type/subtype combos leave nr_lamps_ == 0, so no phase can be read.
+    // Such a head must not mask a real vehicle head standing behind it.
+    EXPECT_FALSE(IsVehicleTrafficLightHead({}));
+}
+
+TEST(TrafficLightHead, UnclassifiedIconsStayVehicleFacing)
+{
+    // Fallback direction: anything not explicitly a non-vehicle icon keeps the
+    // pre-filter behaviour (govern), so an unmapped icon cannot silently make the
+    // ego ignore a real light.
+    EXPECT_TRUE(IsVehicleLampIcon(roadmanager::ICON_UNKNOWN));
+    EXPECT_TRUE(IsVehicleLampIcon(roadmanager::ICON_OTHER));
+    EXPECT_TRUE(IsVehicleLampIcon(roadmanager::ICON_COUNTDOWN_SECONDS));
 }
 
 // ─────────────────────── Phase 3c: STOP-sign FSM ──────────────────────────

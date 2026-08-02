@@ -34,6 +34,27 @@ bool TrafficLightShouldStop(TrafficLightPhase phase, double dist, double v_ego, 
     }
 }
 
+bool IsVehicleLampIcon(int lamp_icon)
+{
+    switch (lamp_icon)
+    {
+        case roadmanager::LampIcon::ICON_PEDESTRIAN:
+        case roadmanager::LampIcon::ICON_WALK:
+        case roadmanager::LampIcon::ICON_DONT_WALK:
+        case roadmanager::LampIcon::ICON_BICYCLE:
+        case roadmanager::LampIcon::ICON_PEDESTRIAN_AND_BICYCLE:
+        case roadmanager::LampIcon::ICON_TRAM:
+        case roadmanager::LampIcon::ICON_BUS:
+        case roadmanager::LampIcon::ICON_BUS_AND_TRAM: return false;
+        default:                                      return true;  // blank head, arrows, countdown, unknown
+    }
+}
+
+bool IsVehicleTrafficLightHead(const std::vector<int>& lamp_icons)
+{
+    return std::any_of(lamp_icons.begin(), lamp_icons.end(), [](int icon) { return IsVehicleLampIcon(icon); });
+}
+
 namespace
 {
 // Current phase of a traffic light: scan its lamps for an active one (CONSTANT or
@@ -78,6 +99,22 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
     {
         auto* tl = dynamic_cast<roadmanager::TrafficLight*>(s.signal);
         if (!tl) continue;
+
+        // A pedestrian / bicycle / tram head is a TrafficLight too (the tl-gate
+        // promotes every dynamic signal), and its <validity> can name the ego's
+        // own driving lane -- fabriksgatan_traffic_lights road 3 does exactly
+        // that for its two type-1000002 heads -- so the scan's orientation and
+        // lane filters do not reject it. The lamp icons are what tell them
+        // apart. `continue`, not `break`: the nearest VEHICLE head still governs.
+        std::vector<int> icons;
+        const size_t     nr_lamps = tl->GetNrLamps();
+        icons.reserve(nr_lamps);
+        for (size_t i = 0; i < nr_lamps; ++i)
+        {
+            const roadmanager::TrafficLight::Lamp* lamp = tl->GetLamp(i);
+            if (lamp) icons.push_back(static_cast<int>(lamp->GetIcon()));
+        }
+        if (!IsVehicleTrafficLightHead(icons)) continue;
 
         const int               id    = tl->GetId();
         const TrafficLightPhase  phase = ReadPhase(tl);

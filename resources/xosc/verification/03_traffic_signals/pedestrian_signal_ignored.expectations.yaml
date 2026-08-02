@@ -1,0 +1,39 @@
+scenario: pedestrian_signal_ignored
+category: 03_traffic_signals
+# Negative control for the signal TYPE filter: the vehicle head (id=1, type 1000001)
+# is green the whole run while BOTH pedestrian heads (id=2 and id=3, type 1000002)
+# are red. The pedestrian heads carry the ego's driving lane in their <validity>,
+# so orientation + lane-validity do not reject them — only the lamp icons
+# (DONT_WALK/WALK) do. The ego must ignore them entirely.
+#
+# The ego crosses the stop line at 5 m/s so the defect shows up as a full stall
+# rather than the short brake blip green_no_stop sees at cruise speed: once the
+# origin passes s=109 the head at s=114 becomes the nearest signal and a
+# STOP_AT_S 2 m ahead collapses the whole speed profile to zero, permanently.
+must:
+  - event: no_constraint_kind
+    kind: stop
+    after: { sim_time: 1.0 }   # skip the very first frame(s) settling
+    reason: "青の車両灯＋赤の歩行者灯では停止制約が一切出てはならない"
+  - event: min_speed_above
+    threshold: 4.5             # measured: 4.99 with the filter, 0.00 without it
+    road_id: 3
+    after: { sim_time: 4.0 }   # speed ramp is 3 s; settled by here
+    reason: "赤の歩行者信号で減速・停止しない(road3 区間で巡航維持)"
+  - event: speed_above
+    threshold: 4.5             # sanity check, not a discriminator: passes either way
+    after: { sim_time: 4.0 }
+    reason: "巡航速度に到達している(実際に走った run であることの確認)"
+notes: >
+  Discriminator for the TrafficLightAware head-type filter, with both arms measured
+  on 2026-08-02 (dt 0.05):
+    without the filter — at t=6.45, s=109.2 the governing head flips from id=1
+      (vehicle, green) to id=2 (pedestrian, red, 4.8 m ahead); a stop constraint is
+      raised on 372 frames and the ego halts at s=109.86 with speed 0.000 for the
+      rest of the run.
+    with the filter — id=1 governs until s=109, then NO head governs at all
+      (signal_id absent), zero stop constraints, and the ego holds 4.99-5.11 m/s
+      through the junction to road 1 (final s=16.91 on road 1).
+  min_speed_above and no_constraint_kind are the discriminators; speed_above only
+  proves the run moved. The companion red_stop_green_go asserts the opposite side of
+  the same gate: the ego must still stop for the RED vehicle head and resume on green.

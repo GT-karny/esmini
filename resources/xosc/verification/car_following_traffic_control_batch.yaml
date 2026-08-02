@@ -32,6 +32,11 @@ scenarios:
   - scenario: resources/xosc/verification/03_traffic_signals/yellow_decision_stop.xosc
     expectations: resources/xosc/verification/03_traffic_signals/yellow_decision_stop.expectations.yaml
     policies: [traffic_light]
+  # Negative control for the head-TYPE filter: red pedestrian heads whose <validity>
+  # covers the ego lane must not govern the ego (fabriksgatan road 3 signals 2 and 3).
+  - scenario: resources/xosc/verification/03_traffic_signals/pedestrian_signal_ignored.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/pedestrian_signal_ignored.expectations.yaml
+    policies: [traffic_light]
   # --- 04 traffic signs (Phase 3c: StopYieldSignAware) --------------------
   - scenario: resources/xosc/verification/04_traffic_signs/stop_sign_full_stop.xosc
     expectations: resources/xosc/verification/04_traffic_signs/stop_sign_full_stop.expectations.yaml
