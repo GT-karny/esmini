@@ -1,22 +1,26 @@
 # VirtualDriver 機能軸（安全機能 / 快適機能 / 法規遵守機能 / 譲り合い機能）— 設計ドラフト
 
 > **status: フェーズ0 = 本ドラフト。フェーズ1（AEB）は実装済み**（`03e193b0`、`policy:AebSafety`）。
-> §4 末尾に実装で判明した補正が追記してある — **§0 の根本原因の記述はそこで訂正されている。**
-> 以下は当初の枠組みの本文である。Issue #34（カットインAEB）を単発で実装する前に、
-> VD の挙動を「なぜ介入するか（動機層）」× 「どんな主体か（AD / ADAS）」の2軸で整理し、
+> 本文はフェーズ1の実測を反映した現行版である。
+> 当初の見立てが外れた経緯は
+> [`../archive/aeb_phase1_implementation_plan.md`](../archive/aeb_phase1_implementation_plan.md) §1 に凍結してある。
+> VD の挙動を「なぜ介入するか（動機層）」×「どんな主体か（AD / ADAS）」の2軸で整理し、
 > 以後の ADAS/AD 機能の共通の受け皿にすることを目的とする。
-> レビュー用の叩き台であり、要求（`req-vd-ad`）は seed。呼称・粒度は確定前。
+> 要求（`req-vd-ad`）は seed であり、呼称と粒度は確定前。
 
 ## 0. 動機
 
 現状 VD の拡張点は `ITrafficPolicy`（`TrafficPolicyManager`）という**1本の軸**しか無く、
-そこに追従・信号・標識・交差点・横断歩道の全挙動をぶら下げてきた。この結果:
+そこに追従、信号、標識、交差点、横断歩道の全挙動をぶら下げてきた。この結果:
 
 - `LeadVehicleAware`（IDM追従）は**実質 ACC**なのに「policy」として置かれている。
-- **安全介入（AEB）を表現する層が存在しない**。`TrafficPolicyManager` の合成は
-  「最も厳しい `MAX_SPEED` が勝つ」、`ManeuverAwareSpeedPlanner` は減速を**すべて
-  `comfort_decel`（既定2.0 m/s²）で頭打ち**にするため、快適減速を超える緊急減速という
-  概念自体を表現できない（Issue #34 の根本原因）。
+- **安全介入（AEB）を表現する層が存在しない。** ここで欠けているのは減速の強さではない。
+  `LeadVehicleAware` の IDM は `MAX_SPEED` 制約として出るため
+  `ManeuverAwareSpeedPlanner` の `comfort_decel`（既定 2.0 m/s²）の天井を迂回しており、
+  実測で 10.5 m/s² 前後（車両物理の天井）まで到達する。
+  欠けているのは、**カットインを早く検知する手段**と、**その制約が安全由来だと名乗る手段**である。
+  Issue #34 の根本原因は前者で、先行車と見なす条件が同一レーン（`dLaneId==0`）かつ横許容内に
+  限られていた。
 
 そこで、機能を**動機で層別**し、層ごとに調停の硬さ（override / constraint / soft）を与える。
 AEB はこの軸上の「安全機能・最初の1機能」として素直に載る。
@@ -93,19 +97,23 @@ AD層が何を計画していようが、TTCが臨界なら安全機能（ADAS�
 > **設定は #33 の VD-GUI-PARITY に従う**: 追加する `emergency_decel` / TTC閾値等は
 > `config/virtual_driver.json` + `VirtualDriverPanel`（GUI）にセットで露出する。
 
-> **フェーズ1実装知見（2026-07-17・実装で判明、上記フレーミングを補正）**:
-> ① §0の根本原因「快適減速を超える緊急減速という概念自体を表現できない」は **不正確** だった。
-> `MAX_SPEED` 制約は既に `comfort_decel` 天井を迂回しており（`LeadVehicleAware` の IDM 経路が
-> 実測 ~10.5 m/s² ＝車両物理天井まで到達）、真の欠落は **カットインの遅い検知**（同一レーン
-> `dLaneId==0` のみ）だった。② よって `emergency_decel`/tier の役割は「到達不能な減速の解放」
-> ではなく **(a) STOP_AT_S/減速プロファイル経路で緊急制動を正直に表現、(b) SAFETY-tier タグに
-> よる調停（安全が法規を上書き）**。実装は別policy `AebSafety`（早期横侵入検知＋TTC/a_req ゲート
-> ＋SAFETY-tier `STOP_AT_S` → `ManeuverAwareSpeedPlanner` が `emergency_decel` で解く）。数値ノイズ
-> 誤検知を避けるため侵入キューは3フレームのデバウンス付き（REQ-AD-013 SOTIF）。③ 高速カットイン
-> （Ego 108km/h・48m前で先行車が 8 m/s² 制動）は **完全回避が物理的に不能**（必要 ~13.5 m/s²≈1.38g
-> ＞ Civicクラス天井 ~10 m/s²≈1.02g、乾燥路ABS実測 0.87–1.08g・13.5g級はGT2 RS/ZR1級スーパー
-> カー限定、Web実測裏取り済）→ 受入は mitigation（`impact_speed_below`、07_aeb直進で閉じ速度
-> 18→~9 m/s に低減）。完全回避側はカーブ変種（曲率速度制限で回避可能域）が担う。
+### フェーズ1で確定したこと（2026-07-17）
+
+`emergency_decel` と tier が果たす役割は、到達できない減速を解放することではない。
+`STOP_AT_S` と減速プロファイルの経路で緊急制動を正直に表現することと、
+SAFETY tier のタグによって安全が法規を上書きする調停を成立させることの2つである。
+
+実装は既存 policy の拡張ではなく別 policy `AebSafety` とした。
+早期の横侵入検知と TTC / a_req のゲートを持ち、SAFETY tier の `STOP_AT_S` を出し、
+`ManeuverAwareSpeedPlanner` が `emergency_decel` で解く。
+数値ノイズによる誤検知を避けるため、侵入キューには3フレームのデバウンスを入れた（REQ-AD-013 SOTIF）。
+
+高速カットイン（Ego 108 km/h、48 m 前で先行車が 8 m/s² 制動）は完全回避が物理的に不能である。
+必要な減速度 13.5 m/s² 前後（約 1.38g）は Civic クラスの天井 10 m/s² 前後（約 1.02g）を超える。
+乾燥路の ABS 実測は 0.87 から 1.08g で、1.38g 級は GT2 RS や ZR1 級に限られる。
+したがってこの域の受入は mitigation とし、`impact_speed_below` で判定する
+（07_aeb の直進で閉じ速度を 18 から 9 m/s 前後へ低減）。
+完全回避側はカーブ変種（曲率速度制限によって回避可能域に入る）が担う。
 
 ## 5. 検証へのマッピング（トレーサビリティ）
 
@@ -126,9 +134,9 @@ AD層が何を計画していようが、TTCが臨界なら安全機能（ADAS�
 
 ## 6. ロードマップ
 
-- **フェーズ0（本ドラフト）**: 2軸フレーム定義 / `req-vd-ad` activate / seed要求 / トレーサビリティ辺。**コード非改変**。
-- **フェーズ1**: 層タグ付き調停レイヤ + `emergency_decel` を実装し、**AEB（#34）を安全機能の初号機**として載せる。
-  `acc-test.xosc`（+カットイン派生）で collision-free 回帰固化（P11/P12連携）。
+- **フェーズ0（本ドラフト・完了）**: 2軸フレーム定義 / `req-vd-ad` activate / seed要求 / トレーサビリティ辺。**コード非改変**。
+- **フェーズ1（完了・`03e193b0`）**: 層タグ付き調停レイヤ + `emergency_decel` を実装し、**AEB（#34）を安全機能の初号機**として載せた。
+  `07_aeb` と `aeb_safety_batch.yaml` で回帰固化（gate:aeb-safety-regression）。
 - **フェーズ2以降**: 同じ型で LKA/LDW 等（安全/快適の横方向機能）を追加。
 
 ## 7. 未決事項（レビューで詰める）
