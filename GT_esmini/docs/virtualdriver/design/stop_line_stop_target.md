@@ -1,7 +1,11 @@
 # VirtualDriver の停止位置を停止線基準にする設計
 
-**状態**: 設計のみ（未実装）。対象は `policy:traffic_light`（`TrafficLightAware`）と
-`policy:stop_yield`（`StopYieldSignAware`）の停止側（STOP標識）。
+**状態**: **実装済み**（`b7433c7e` カタログ層追加、`1626fb09` スキャン層拡張、`27e5e703` TrafficLightAware配線、
+`b7b5887c` StopYieldSignAware配線、`7477ca88` 国別切替の単体テスト、`0071dac0` 判別資産とゲート新設）。対象は
+`policy:traffic_light`（`TrafficLightAware`）と `policy:stop_yield`（`StopYieldSignAware`）の停止側（STOP標識）。
+§9.2の窓の実測（既定値10.0mを維持する結論を含む）は
+`resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.expectations.yaml` と
+`resources/xosc/verification/04_traffic_signs/stop_sign_stop_line_paired.expectations.yaml` の`notes`ブロックにある。
 **制約**: R1 Clean Core（`EnvironmentSimulator` 無改変）、既存資産の挙動は bit-identical、
 新パラメータは config + Web API + フロントエンドまで露出、判定ロジックは純関数として単体テスト可能にする。
 
