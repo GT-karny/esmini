@@ -1,68 +1,82 @@
-# ControllerVirtualDriver — 全体ロードマップ
+# ControllerVirtualDriver のフェーズ定義と現況
 
 | 項目 | 内容 |
 | --- | --- |
-| ドキュメント種別 | プリ実装ロードマップ（設計合意） |
+| ドキュメント種別 | フェーズ定義と現況（知識グラフ `vd-phase` 名前空間の正典） |
 | 対象モジュール | `gt_esmini::ControllerVirtualDriver` |
-| 状態 | **Phase 0〜3e 実装済み・Phase 4 進行中。** 以下は 2026-06 の計画本文で、各 Phase の完了状況は本文に反映されていない |
-| 最終更新 | 2026-06-02（状態行のみ 2026-08-02 更新） |
+| 最終更新 | 2026-08-02 |
+
+各フェーズが何を達成する単位なのかを定義し、現在どこまで実体があるかを示す。
+着手時点の工数見積とマイルストーンは消化済みのため載せていない（`git log` で辿れる）。
 
 ---
 
-## 0. 受け入れ基準 (VD-GUI-PARITY)
+## 1. 現況
 
-今後 VD に追加する「設定で On/Off できる項目・調整可能なパラメータ」は、対応する GUI フォーム項目
-（`GT_esmini/web/frontend/src/components/simulation/VirtualDriverPanel.tsx`）と API スキーマ
-（`virtual_driver_api.py` の known-keys — `_BOOL_KEYS` / `_NUMBER_KEYS` / `_STRING_ENUM_KEYS`）更新を
-セットで行うことを実装完了要件とする（issue #33）。C++ 側は `config/virtual_driver.json` をフラット
-行パースするだけなので、GUI/API のキー追加のみで反映される（C++ 変更は不要）。
+| Phase | 内容 | 状態 | 実体 |
+| --- | --- | --- | --- |
+| Phase0 | 基盤インターフェース | 完了 | `IShortPlanner` / `IDriverModel` / `IMidLongPlanner` / `ITrafficPolicy` / `IIndicatorPolicy` |
+| Phase1 | MVP（Action 準拠で物理車両が走る） | 完了 | `ControllerVirtualDriver` / `TrajectoryShortPlanner` / `PIDPurePursuitDriver` / `AutoIndicatorPolicy` |
+| Phase2 | 中長期プランナー | 完了 | `ManeuverAwareSpeedPlanner` |
+| Phase3 | 法規ベースの優先判断（3a から 3e の親） | 完了 | `TrafficPolicyManager` と `policies/` 配下 |
+| Phase3a | 先行車追従 | 完了 | `policies/LeadVehicleAware` |
+| Phase3b | 信号停止 | 完了 | `policies/TrafficLightAware`、`policies/RouteSignalScan` |
+| Phase3c | 一時停止と譲れ標識 | 完了 | `policies/StopYieldSignAware` |
+| Phase3d | 対向車待ち（非保護の対向横断旋回） | 完了 | `policies/ConflictPointResolver` |
+| Phase3e | 無信号交差点の優先 | 完了 | `ConflictPointResolver` の junction-priority 経路（既定 OFF） |
+| Phase4 | 仕上げ | 進行中 | §5 |
 
-**GUI vs シナリオ `<Property name="policies">` の優先順位**: 共有 config
-（`config/virtual_driver.json`、GUI 編集対象）＝ベースライン。シナリオの
-`<Property name="policies">` は、そのシナリオ実行時のみ追加でポリシーを有効化する（union）。
-シナリオ側で無効化（OFFへの上書き）はできない — `_write_virtual_driver_config()`
-(`services/simulation_runner.py`) が共有ファイルを基点に **加算的に** ON にするだけの実装のため。
+### ロードマップの外で後から入った層
+
+当初の 4 層構想に無く、後の要求から追加したものを分けて記す。
+フェーズ ID は振っていない。
+
+| 追加分 | 位置 | 出自 |
+| --- | --- | --- |
+| `policies/CrosswalkPedestrianAware`、`policies/RouteCrosswalkScan` | `ITrafficPolicy` | 横断歩道の歩行者優先 |
+| `policies/AebSafety` と tier 調停 | `ITrafficPolicy`（safety tier） | [adas_axis.md](adas_axis.md) の機能軸 |
+| `AdSteeringEnvelope`、`ResumeMergeProfile`、FFB サーボ | 横断層 | 手介入と復帰（feature:F7） |
+| `DomainOwnershipLedger`、ドメイン別の所有権 | 横断層 | [domain_split_ownership.md](domain_split_ownership.md) |
 
 ---
 
-## 1. ビジョン
+## 2. ビジョンと既存コントローラの中での位置
 
-**「フル車両物理を、人間並みのドライバーロジックで自動運転させる」**。
-
-OpenSCENARIO Action 準拠の挙動をベースに、中長期の状況予測と法規ベースの優先判断を備え、いつでも手動オーバーライドできるコントローラを構築する。
-
-既存コントローラ群との位置付け：
+フル車両物理を、人間並みのドライバーロジックで自動運転させる。
+OpenSCENARIO Action 準拠の挙動を土台に、中長期の状況予測と法規ベースの優先判断を備え、いつでも手動でオーバーライドできる構成にする。
 
 | Controller | 走行ロジック | 車両モデル |
 | --- | --- | --- |
 | Default（vanilla esmini） | MoveAlongS + Action | なし（運動学のみ） |
-| `ControllerManualDrive` | 人間入力（SDL2/ネットワーク） | RealVehicle 物理 |
-| `ControllerRouteDrive` | 経路追従 + LC（横方向強化） | 既定に委譲 |
+| `ControllerManualDrive` | 人間入力（SDL2 とネットワーク） | RealVehicle 物理 |
+| `ControllerRouteDrive` | 経路追従と車線変更（横方向強化） | 既定に委譲 |
 | `ControllerKinematic` | 軌道曲率からステア生成 | 軽量 `vehicle::Vehicle` |
-| **`ControllerVirtualDriver`（本ロードマップ）** | **自動生成ペダル+ステアで Default 等価挙動 + 法規判断** | **RealVehicle 物理（共通化）** |
+| `ControllerVirtualDriver` | 自動生成ペダルとステアで Default 等価挙動、および法規判断 | RealVehicle 物理（共通化） |
 
 ---
 
-## 2. 最終形アーキテクチャ
+## 3. アーキテクチャ
 
-プラガブル 4 層 + 横断 1 層。各層は単方向の依存で、上位の制約が下層に流れ込む。
+プラガブル 4 層と横断層で構成する。
+各層は単方向に依存し、上位の制約が下層へ流れ込む。
 
 ```
 [Driver Stack]                                    [外部 / 観測]
 ┌─────────────────────────────────────┐         ┌─────────────┐
 │ IInputSource     (手動入力)         │ ──┐     │ Web GUI     │
-└─────────────────────────────────────┘   │     │ Python      │
-                                          │     │ Recording   │
-┌─────────────────────────────────────┐   │     └─────────────┘
-│ ITrafficPolicy   (法規・優先判断)    │   │           ↑
-│  ├ LeadVehicleAware                 │   │     ┌─────────────┐
-│  ├ TrafficLightAware                │   ├──→  │ GT_CAPI:    │
-│  ├ StopYieldSignAware               │   │     │ GT_GetVirt- │
-│  ├ ConflictPointResolver            │   │     │ ualDriver-  │
-│  └ JunctionPriority                 │   │     │ Telemetry() │
-└─────────────────────────────────────┘   │     └─────────────┘
-       ↓ "constraint: stop@s=X / yield"   │  各層が snapshot
-┌─────────────────────────────────────┐   │  を集約して公開
+└─────────────────────────────────────┘   │     │ Recording   │
+                                          │     └─────────────┘
+┌─────────────────────────────────────┐   │           ↑
+│ ITrafficPolicy   (法規・優先判断)    │   │     ┌─────────────┐
+│  ├ LeadVehicleAware                 │   ├──→  │ GT_CAPI:    │
+│  ├ TrafficLightAware                │   │     │ GT_GetVirt- │
+│  ├ StopYieldSignAware               │   │     │ ualDriver-  │
+│  ├ ConflictPointResolver            │   │     │ Telemetry() │
+│  ├ CrosswalkPedestrianAware         │   │     └─────────────┘
+│  └ AebSafety           (safety tier)│   │
+└─────────────────────────────────────┘   │  各層が snapshot
+       ↓ "constraint: stop@s=X / yield"   │  を集約して公開
+┌─────────────────────────────────────┐   │
 │ IMidLongPlanner  (中長期 v_target(s))│   │
 │  └ ManeuverAwareSpeedPlanner        │   │
 └─────────────────────────────────────┘   │
@@ -75,302 +89,164 @@ OpenSCENARIO Action 準拠の挙動をベースに、中長期の状況予測と
 ┌─────────────────────────────────────┐   │
 │ IDriverModel     (逆制御)            │←──┘  OverrideManager
 │  └ PIDPurePursuitDriver             │      (deadzone/mix/always)
-│  └ StanleyMPCDriver  (差替え可)      │
 └─────────────────────────────────────┘
        ↓ "throttle/brake/steer"
 ┌─────────────────────────────────────┐
 │ IPhysicsBackend  (車両物理)          │
-│  └ RealVehicleBackend (既存共通化)   │
-│  └ HighFidelityBackend (将来差替え)   │
+│  └ RealVehicleBackend               │
 └─────────────────────────────────────┘
        ↓
 [Object pose / OSI HVD / VehicleLight]
 
 [Cross-cutting]
-  IIndicatorPolicy (Auto/Manual 切替)
-  OverrideManager  (横/縦独立で手動入力をマージ)
+  IIndicatorPolicy   (Auto/Manual 切替)
+  OverrideManager    (横/縦独立で手動入力をマージ)
+  AdSteeringEnvelope (AD 指令の安全包絡線)
+  ResumeMergeProfile (AUTO_RESUME 後の合流軌道)
+  DomainOwnershipLedger (どのドメインを誰が書くか)
 ```
 
-### 主要インターフェース要件
-
-| インターフェース | 入力 | 出力 | 既存資産 |
+| インターフェース | 入力 | 出力 | 由来 |
 | --- | --- | --- | --- |
-| `IInputSource` | デバイス/ネット | `PedalSteerCommand` | ManualDrive `IInputSource` をそのまま再利用 |
-| `ITrafficPolicy` | Entities / Signals / Route | `PolicyConstraint` 集合 | 一部 `ControllerACC` / `ControllerNaturalDriver` |
-| `IMidLongPlanner` | Route / Constraint | `v_target(s)` curve | 新規 |
-| `IShortPlanner` | Route / Action / v_target(s) | `(x,y,v,t)` preview | 新規 |
-| `IDriverModel` | Preview / 自車状態 | `throttle/brake/steer` | 新規 |
-| `IPhysicsBackend` | 入力 | 自車 pose / dyn | `RealVehicleBackend` を共通化 |
-| `IIndicatorPolicy` | 横アクション / 経路情報 | LightMask | 部分: `IndicatorFSM`、`AutoLightController` |
+| `IInputSource` | デバイスとネットワーク | `PedalSteerCommand` | ManualDrive から再利用 |
+| `ITrafficPolicy` | Entities / Signals / Route | `PolicyConstraint` 集合 | 新規（一部 `ControllerACC` を参考） |
+| `IMidLongPlanner` | Route と Constraint | `v_target(s)` curve | 新規 |
+| `IShortPlanner` | Route / Action / `v_target(s)` | `(x,y,v,t)` preview | 新規 |
+| `IDriverModel` | Preview と自車状態 | `throttle/brake/steer` | 新規 |
+| `IPhysicsBackend` | 入力 | 自車 pose と dyn | ManualDrive の `RealVehicleBackend` を共通化 |
+| `IIndicatorPolicy` | 横アクションと経路情報 | LightMask | `IndicatorFSM` と `AutoLightController` を部分流用 |
 
 ---
 
-## 3. Phase 別計画
+## 4. フェーズ定義
 
-### Phase 0 — 基盤整備（0.5 週）
+各フェーズのゴールと受入基準を残す。
+どの実装がどれに対応するかは §1 の表にある。
 
-**ゴール**: 全 Phase で共有する純抽象インターフェースを切り、既存資産を共通配置に移す。
+### Phase0：基盤整備
 
-**成果物**:
-- `GT_esmini/include/gt_esmini/control/virtualdriver/IShortPlanner.hpp`
-- `GT_esmini/include/gt_esmini/control/virtualdriver/IDriverModel.hpp`
-- `IMidLongPlanner.hpp` / `ITrafficPolicy.hpp` / `IIndicatorPolicy.hpp`（骨格のみ）
-- 既存 `IPhysicsBackend` を `manualdrive/` から `control/common/` 等共通配置に移動
-- ヘッダ専用 telemetry struct 群（`ShortPlannerSnapshot` / `DriverModelSnapshot` / `MidLongPlannerSnapshot` / `TrafficPolicySnapshot`）
+全フェーズで共有する純抽象インターフェースを切り、既存資産を共通配置へ移す。
 
-**受入基準**: ビルドが通る。既存 `ManualDriveController` の振る舞いに変化なし。
+受入基準：ビルドが通り、既存 `ManualDriveController` の振る舞いが変わらないこと。
 
-**リスク**: 低。
+### Phase1：MVP
 
----
+シナリオ Action 準拠で物理車両が走るところまでを一気通貫させる。
 
-### Phase 1 — MVP（2〜3 週）
+受入基準は次の5つである。
 
-**ゴール**: シナリオ Action 準拠で物理車両が走るところまで一気通貫。
-
-**成果物**:
-- `GT_esmini/include/gt_esmini/control/ControllerVirtualDriver.hpp`
-- `GT_esmini/src/control/ControllerVirtualDriver.cpp`
-- `virtualdriver/TrajectoryShortPlanner.{hpp,cpp}` — Action 読取 + Route 先読みで `(x,y,v,t)×N` を出す
-- `virtualdriver/PIDPurePursuitDriver.{hpp,cpp}` — Lateral=Pure Pursuit、Longitudinal=Speed PID
-- `virtualdriver/AutoIndicatorPolicy.{hpp,cpp}` — `ControllerRouteDrive` 流のシンプル版
-- `RealVehicleBackend` を `IPhysicsBackend` として共通参照
-- `GT_esmini/config/virtual_driver.json` — プランナー/ドライバーモデル選択、ゲイン、override 設定
-- GT_CAPI: `GT_GetVirtualDriverTelemetry()` 実装
-- Web フロント: `ControllerSection.tsx` に `VirtualDriver` 選択肢追加
-- 動作確認用 xosc: `resources/xosc/virtual_driver_basic.xosc`（直線→カーブ→LC→停止）
-
-**受入基準**:
 - `AssignRouteAction` で経路に従う
-- `SpeedAction` で目標速度に物理応答
-- `LaneChangeAction` でレーン変更（プランナー出力がトラジェクトリ込みで表現）
-- 手動入力（オーバーライド）で介入可能
-- GT_CAPI でテレメトリ取得確認（Web 側で生表示できれば可）
+- `SpeedAction` で目標速度に物理応答する
+- `LaneChangeAction` で車線変更する（プランナー出力がトラジェクトリ込みで表現される）
+- 手動入力で介入できる
+- GT_CAPI でテレメトリを取得できる
 
-**リスク**: 中。`IShortPlanner` のトラジェクトリ表現と境界条件設計をしくじると後で書き直しになる。早めにレビューポイントを置く。
+動作確認は `resources/xosc/virtual_driver_basic.xosc`（直線からカーブ、車線変更、停止）で行う。
 
----
+### Phase2：中長期プランナー
 
-### Phase 2 — 中長期プランナー（2〜3 週）
+「先に右折があるから事前に減速」「先のカーブで横 G を超えるから減速」を実現する。
+Route 前方を等間隔にスキャンして `v_target(s)` プロファイルを出す。
+スキャンの内訳は曲率（`v_max(s) = sqrt(a_lat_max / |κ(s)|)`）、右左折検出によるターン速度、`SpeedLimit` 変化点の乗り換え、勾配によるエンジン負荷補正である。
 
-**ゴール**: 「先に右折があるから事前に減速」「先のカーブで横 G 超えるから減速」を実現。
+受入基準：右折の 300 m 手前から滑らかに減速し、カーブ手前で速度が落ち、立ち上がりで再加速すること。
+パラメータ（最大横 G、快適減速度）が JSON で調整でき、テレメトリに `v_target(s)` が含まれること。
 
-**成果物**:
-- `virtualdriver/ManeuverAwareSpeedPlanner.{hpp,cpp}` — Route 前方を等間隔スキャンし `v_target(s)` プロファイルを出す
-- スキャナ内訳:
-  - 曲率 → `v_max(s) = sqrt(a_lat_max / |κ(s)|)`
-  - `JunctionTurnDirection()` 流用で右左折検出 → ターン速度設定
-  - `SpeedLimit` 変化点での滑らかな乗り換え
-  - 勾配（`GetElevation`）からエンジン負荷補正
-- `TrajectoryShortPlanner` を `v_target(s)` 境界条件で動かす改修
-- 動作確認用 xosc: `resources/xosc/virtual_driver_anticipation.xosc`（信号無し交差点を右折、ヘアピンカーブ）
+動作確認は `resources/xosc/virtual_driver_anticipation.xosc` で行う。
 
-**受入基準**:
-- 右折の 300 m 手前から滑らかに減速、カーブ手前で速度低下、立ち上がりで再加速
-- パラメータ（最大横 G、快適減速度）が JSON で調整可能
-- テレメトリに `v_target(s)` curve が含まれる（Web で可視化可能）
+### Phase3：法規ベースの優先判断
 
-**リスク**: 低〜中。プランニング自体は既存 API で完結。ゲイン調整に時間を取られる可能性あり。
+`ITrafficPolicy` を中心に、シーンごとに独立した Policy を積み上げる。
+各 Policy は現在の状況に対する制約（`{stop_at_s, max_speed, max_speed_to_s, wait_until}` など）を出力し、`IMidLongPlanner` がそれを境界として `v_target(s)` を修正する。
 
----
+#### Phase3a：先行車対応
 
-### Phase 3 — 法規ベース優先判断（段階的）
+IDM（Intelligent Driver Model）ベースで先行車に追従する。
+パラメータは time-headway、最小車間、快適減速度である。
 
-`ITrafficPolicy` を中心に、シーンごとに独立した Policy モジュールを積み上げる。各 Policy は「現在の状況に対する制約」（`{stop_at_s, max_speed, max_speed_to_s, wait_until}` 等）を出力し、`IMidLongPlanner` がそれを境界として `v_target(s)` を修正する。
+受入基準：自レーンの先行車を検出して車間を維持し、渋滞でも自然に停止して再発進すること。
 
-#### Phase 3a — 先行車対応（1〜2 週）
+#### Phase3b：信号停止
 
-**成果物**:
-- `virtualdriver/policies/LeadVehicleAware.{hpp,cpp}` — IDM (Intelligent Driver Model) ベースで先行車に追従
-- `ControllerACC` / `ControllerNaturalDriver` のロジックを参考
-- パラメータ: time-headway、最小車間、快適減速度
+自レーン前方の信号を探索し、`GT_TrafficSignalController` の phase を取得して、黄信号で行くか停まるかを判断する。
 
-**受入基準**:
-- 自レーン先行車を検出して車間維持
-- 渋滞でも自然な停止・再発進
+受入基準：赤で停止線に停止し、青で発進し、黄で適切に判断すること。
 
-**リスク**: 低。既存パターン豊富。
+#### Phase3c：一時停止と譲れ標識
 
-#### Phase 3b — 信号停止（1 週）
+Signal を前方スキャンし（`Signal::TypeEnum::TYPE_STOP` など）、停止線で完全停止したのち周辺の安全を確認して発進する。
 
-**成果物**:
-- `virtualdriver/policies/TrafficLightAware.{hpp,cpp}`
-- 自レーン前方の信号探索 + `GT_TrafficSignalController` の phase 取得
-- 黄信号判断（行ける／停まる）ロジック
+受入基準：STOP 標識で停止してから発進し、YIELD 標識では必要なときだけ停止すること。
 
-**受入基準**: 赤で停止線で停止、青で発進、黄で適切判断。
+#### Phase3d：対向車待ち（非保護の対向横断旋回）
 
-**リスク**: 低。`GT_TrafficSignalController` が既に動いている。
+各車の経路を車幅で太らせたコリドー（多角形リボン）にし、自車と他車の真のポリゴン交差から重なり領域を算出する。
+車長込みフットプリントの空間かつ時間の占有で gap-acceptance を判定する。
+待機は重なり領域へ入る `standoff` 手前に `STOP_AT_S` を置き、クロールを許容する。
+解除は対向のフットプリントが領域を `release_buffer` 越えて物理的に通過したかで判定する（位置ベース）。
+LHT と RHT は ego road の `GetRule()` から自動推定する。
 
-#### Phase 3c — 一時停止・譲れ標識（1〜2 週）
+受入基準：信号無し交差点で対向直進を横断する旋回時に対向車を待ち、ギャップが十分ならスムーズに通過すること。
+衝突判定は中心間距離ではなく OBB の重なりで行う（マッチャ `min_obb_separation_above`）。
 
-**成果物**:
-- `virtualdriver/policies/StopYieldSignAware.{hpp,cpp}`
-- Signal 前方スキャン（`Signal::TypeEnum::TYPE_STOP` 等）
-- 停止線で完全停止 → 周辺安全確認 → 発進ロジック
+> 当初は「TTC と交差点 s 座標（点）」モデルで作り、非保護左折で破綻した。
+> 経緯と再設計の実測は [tech_debt_audit_2026-06.md](../../tech_debt_audit_2026-06.md) の 2026-06-23 更新にある。
+> 実装の詳細は `ConflictPointResolver.hpp` のヘッダコメントが正典である。
 
-**受入基準**: STOP 標識で停止後発進、YIELD 標識で必要時のみ停止。
+#### Phase3e：無信号交差点の優先
 
-**リスク**: 中。標識の物理位置と停止線の対応付けが OpenDRIVE データ品質依存。
+OpenDRIVE の `<junction><priority high low>` から ego と他車の優先関係を解決する。
+自車が優先側なら支配的なコンフリクトに譲らず、非優先側と不明な場合は Phase3d の待機挙動に落ちる。
+既定は OFF（`policy_junction_priority_enabled`）で、OpenDRIVE 側に `<priority>` が入っていることを前提とする。
 
-#### Phase 3d — 対向車待ち（非保護の対向横断旋回）★本丸（2〜3 週）
+受入基準：優先道路側として通過し、非優先側として他車を待つこと。
 
-> **状態 2026-06-23: 実装・検証・目視確認 済み（コミットは保留中）。** 当初の「TTC + 交差点 s 座標（点）」モデルは非保護左折で破綻した（対向到達の瞬間に解除→衝突。隣接レーンを反平行ですれ違うため中心間距離 ~2.8m が下限で衝突判定に使えない）。ユーザーと合意のうえ、下記の**フットプリント・コリドー空間時間占有**モデルに作り直した。詳細は `tech_debt_audit_2026-06.md` の 2026-06-23 更新を参照。
+### Phase4：仕上げ
 
-**成果物（実装済み）**:
-- `virtualdriver/policies/ConflictPointResolver.{hpp,cpp}`
-- 各車の経路を車幅で太らせた**コリドー（多角形リボン）**にし、自車×他車の**真のポリゴン交差**（凸クアッドを Sutherland–Hodgman でクリップ）で**重なり領域（面）**を算出（純関数 `conflict_geom::ConvexClip`/`PolygonArea`、単体テスト同梱）
-- 車長込みフットプリントの**空間×時間占有**で gap-acceptance（±`pet`）→ 待機/進入判定
-- 他車予測: 割当 Route でコリドー形状 + 現在速度の等速
-- 待機: 重なり領域進入の `standoff` **手前**に STOP_AT_S（**クロール許容**、0 停止は強制しない）。解除: 対向フットプリントが領域を `release_buffer` 越えて**物理通過**したか（位置ベース）
-- 国別ルール: LHT/RHT は ego road `GetRule()` から**自動推定**（`opendrive-lht-rht.md` 参照）
-- 衝突判定（検証）: 中心間距離でなく **OBB（長さ×幅）重なり**（マッチャ `min_obb_separation_above`、SAT）
-
-**受入基準（達成）**:
-- 信号無し交差点で対向直進を横断する旋回時、対向車を待つ（p017: OBB 重なりなしで通過 → 旋回完了）✓
-- ギャップが十分ならスムーズに通過（p007: 待たず進行）✓
-- 何台か通過後に余裕タイミングで進入（位置ベース解除）✓
-- ビューワー目視確認済み（2026-06-23）
-
-**リスク**: 高（残）。24 バリアント全域の閾値（`standoff`/`release_buffer`/`pet`）チューニング、p023 型の境界、複数台ストリーム。
-
-#### Phase 3e — 無信号交差点優先（2〜3 週）
-
-**成果物**:
-- OpenDRIVE `<priority>` レコード抽出 → `roadmanager` 拡張
-- `virtualdriver/policies/JunctionPriority.{hpp,cpp}` — 優先道路/非優先道路の判定 + 待機ロジック
-
-**受入基準**:
-- 優先道路から非優先道路の車を見て、優先側として通過
-- 非優先側として、他車を待つ
-
-**リスク**: 高。OpenDRIVE データに priority が入っていない場合、何らかの heuristic 必要（道路幅・lane 数で代用等）。
+プロダクトとしての完成度を上げる。
+残りは §5 にある。
 
 ---
 
-### Phase 4 — 仕上げ（1〜2 週）
+## 5. Phase4 の残り
 
-**ゴール**: プロダクトとしての完成度を上げる。
-
-**成果物**:
-- Web GUI: テレメトリのリアルタイム可視化パネル（プランナー出力 / 制御誤差 / TrafficPolicy 判定）
-- FFB 対応（オプション）: ManualDrive の FFB 機構を流用、または外部 Python に投げ出し
-- OSI 拡張領域への一部テレメトリ反映（互換性目的）
-- ドキュメント: VirtualDriver 概論、設定リファレンス、トラブルシュート
-- E2E xosc: `resources/xosc/virtual_driver_e2e.xosc`（信号付き市街路を経路追従 + 他車混在）
-
-**リスク**: 低。
-
----
-
-## 4. 依存グラフ
-
-```
-Phase 0 ──┬─→ Phase 1 ──┬─→ Phase 2 ──┬─→ Phase 3a ─┐
-          │             │             │             │
-          │             │             ├─→ Phase 3b ─┤
-          │             │             │             ├─→ Phase 3d ──→ Phase 4
-          │             │             ├─→ Phase 3c ─┤
-          │             │             │             │
-          │             │             └─→ Phase 3e ─┘
-          │             │
-          │             └─ (この時点で MVP として価値あり、外部利用可)
-          │
-          └─ (インターフェース確定、他開発と並列化可能)
-```
-
-**並列化のチャンス**:
-- Phase 3a / 3b / 3c はそれぞれ独立した Policy なので並列に進められる
-- Phase 4 の GUI 部分は Phase 1 完了後すぐに着手可能（フロントエンド人員がいれば）
-
----
-
-## 5. 工数まとめ
-
-| Phase | 工数 | 累積 | プロダクト価値 |
-| --- | --- | --- | --- |
-| 0  | 0.5 週 | 0.5 週 | 基盤のみ |
-| 1  | 2〜3 週 | 2.5〜3.5 週 | **MVP・外部公開可** |
-| 2  | 2〜3 週 | 4.5〜6.5 週 | 「考えて走る」体験 |
-| 3a | 1〜2 週 | 5.5〜8.5 週 | 渋滞・追従 |
-| 3b | 1 週   | 6.5〜9.5 週 | 信号対応 |
-| 3c | 1〜2 週 | 7.5〜11.5 週 | 標識対応 |
-| 3d | 2〜3 週 | 9.5〜14.5 週 | **本丸完了** |
-| 3e | 2〜3 週 | 11.5〜17.5 週 | 無信号交差点 |
-| 4  | 1〜2 週 | 12.5〜19.5 週 | 製品仕上げ |
-
-並列化を入れれば **8〜12 週** で 3d 本丸まで届く想定。
-
----
-
-## 6. マイルストーン
-
-| マイルストーン | 完了時期目安 | 内容 |
-| --- | --- | --- |
-| **M1** | 〜3 週 | VirtualDriver MVP（Phase 1）→ 内部レビュー、設計の妥当性検証 |
-| **M2** | 〜6 週 | 中長期プランナー込みでデモ可能（〜Phase 2）→ 自動運転シミュ用途として価値が確立 |
-| **M3** | 〜9 週 | 先行車・信号・標識対応（〜Phase 3c）→ 一般道シナリオ実用域 |
-| **M4** | 〜12 週 | 対向車待ち対応（〜Phase 3d）→ 「交差点で待てる」自動運転として完成度 MAX |
-| **M5** | 〜15 週 | 無信号交差点優先 + 仕上げ（〜Phase 4）→ リリース候補 |
-
----
-
-## 7. 決定が必要な分岐点
-
-| 時期 | 決定事項 | 影響 |
-| --- | --- | --- |
-| Phase 0 開始時 | `IPhysicsBackend` を `manualdrive/` から `common/` へ動かすか、`virtualdriver/` 内で再定義するか | ManualDrive と物理を共有するか分離するか |
-| Phase 1 中盤 | Trajectory 表現: 等時間刻み / 等距離刻み | 後段プランナーの設計に影響 |
-| Phase 1 終盤 | `IDriverModel` デフォルト: PID + PP か Stanley か | チューニング工数 |
-| Phase 2 開始 | 「快適減速度」「最大横 G」のデフォルト値 | 走行フィーリング |
-| Phase 3d 開始 | LHT/RHT 切替方法（JSON / xosc property / 自動推定） | 国際対応 → **決定: ego road `GetRule()` から自動推定（2026-06-23）** |
-| Phase 3e 開始 | OpenDRIVE `priority` 不在時の fallback heuristic | データ品質依存 |
-
----
-
-## 8. 既存資産との関係
-
-### 再利用するもの
-
-| 既存 | 再利用先 |
+| 項目 | 状態 |
 | --- | --- |
-| `ControllerManualDrive` の `IInputSource` 階層 | `IInputSource` をそのまま接続 |
-| `ControllerManualDrive` の `OverrideManager` | 手動オーバーライドの横/縦独立制御 |
-| `ControllerManualDrive` の `RealVehicleBackend` | `IPhysicsBackend` 共通化 |
-| `ControllerRouteDrive` の `JunctionTurnDirection()` ロジック | Phase 2 の右左折検出 |
-| `ControllerRouteDrive` の経路計算（`LaneIndependentRouter` 呼出し） | `IShortPlanner` 内で参考 |
-| `ControllerACC` / `ControllerNaturalDriver` の先行車追従 | Phase 3a の IDM 実装参考 |
-| `GT_TrafficSignalController` | Phase 3b の信号 phase 取得 |
-| `IndicatorFSM` / `VehicleLightExtension` | `IIndicatorPolicy::Manual` 実装 |
-
-### 新規実装するもの
-
-- `ControllerVirtualDriver` 本体
-- 4 つの新規インターフェース（`IShortPlanner`, `IDriverModel`, `IMidLongPlanner`, `ITrafficPolicy`）と各々の具体実装
-- 5 つの Policy モジュール（Phase 3）
-- OpenDRIVE `<priority>` 抽出の roadmanager 拡張（Phase 3e）
-- GT_CAPI `GT_GetVirtualDriverTelemetry()` と Web 側可視化
+| Web GUI のテレメトリ可視化 | 完了（`LiveVdPanel` / `PolicyTimelinePanel` / `VTargetProfileChart` / `ActivePolicyPanel` / `FfbMarginPanel`） |
+| FFB 対応 | 完了（ManualDrive の FFB 機構を流用し、目標角追従サーボを追加） |
+| OSI 拡張領域へのテレメトリ反映 | 実装しない判断（[osi_telemetry_extension_decision.md](osi_telemetry_extension_decision.md)） |
+| ドキュメント | 進行中（本ディレクトリ。設定リファレンスとトラブルシュートは未着手） |
+| E2E シナリオ `virtual_driver_e2e.xosc` | 未着手。信号付き市街路の経路追従と他車混在を1本で通す |
 
 ---
 
-## 9. 推奨スタンス
+## 6. 決定済みの設計分岐
 
-1. **Phase 0〜1 をしっかり**: ここのインターフェース設計が後工程すべてを支配する。レビューに時間をかけて損はない。
-2. **Phase 2 までで一旦リリース判断**: 「考えて走る車」までで市場価値が大きい。Phase 3 以降は需要を見ながら段階的に進められる構造にしてある。
-3. **Phase 3d を作る前に 3a / 3b / 3c で経験を積む**: 各 Policy 共通の構造（前方スキャン → 制約出力）を 3 回繰り返すと、3d の設計勘ができる。
-4. **テレメトリは早期から**: Phase 1 から `GT_GetVirtualDriverTelemetry()` を入れておけば、各 Phase の追加分が自然に乗る。デバッグが指数関数的に楽。
-
----
-
-## 10. 関連ドキュメント
-
-- 検証環境設計: [verification_environment.md](./verification_environment.md) — ビジュアライザ・自動検証・アノテーションUIを並列構築する設計。VirtualDriver の各 Phase と同期して進める前提。
+| 論点 | 決定 |
+| --- | --- |
+| `IPhysicsBackend` を共通配置へ移すか | 移す。`control/common/` に置き ManualDrive と物理を共有する |
+| Trajectory の刻み方 | preview は等時間刻み |
+| `IDriverModel` の既定 | PID と Pure Pursuit（`PIDPurePursuitDriver`）。以後は凍結扱い |
+| LHT と RHT の切替方法 | ego road の `GetRule()` から自動推定する |
+| `<priority>` 不在時の扱い | heuristic で代用せず、Phase3d の待機挙動へ落とす |
 
 ---
 
-## 11. 次の一手
+## 7. 設定を追加するときの要件（VD-GUI-PARITY）
 
-- Phase 0〜1 の実装プラン（ファイル単位の手順と API 契約まで詰めたもの）を作成
-- インターフェース 4 種のヘッダ（純抽象 + telemetry struct）を先に切り、レビューに回す
-- Phase 1 の動作確認 xosc を先に書き、受入基準を明文化する
-- 検証環境 V0/V1 のスコープ確定（[verification_environment.md](./verification_environment.md) §12）
+VD に追加する「設定で On/Off できる項目」と「調整可能なパラメータ」は、対応する GUI フォーム項目（`VirtualDriverPanel.tsx`）と API スキーマ（`virtual_driver_api.py` の `_BOOL_KEYS` / `_NUMBER_KEYS` / `_STRING_ENUM_KEYS`）の更新をセットで行うことを実装完了の要件とする（issue #33）。
+C++ 側は `config/virtual_driver.json` をフラットに行パースするだけなので、GUI と API のキー追加だけで反映される。
+
+**GUI とシナリオ `<Property name="policies">` の優先順位**：共有 config（`config/virtual_driver.json`、GUI の編集対象）がベースラインである。
+シナリオの `<Property name="policies">` は、そのシナリオの実行時にかぎり追加でポリシーを有効化する（union）。
+シナリオ側から無効化はできない。
+`_write_virtual_driver_config()`（`services/simulation_runner.py`）が共有ファイルを基点に加算的に ON にするだけの実装のためである。
+
+---
+
+## 8. 関連文書
+
+- 検証環境の設計：[verification_environment.md](verification_environment.md)
+- 検証シナリオの量産基盤：[scenario_authoring_foundation.md](scenario_authoring_foundation.md)
+- 機能を動機層と主体で層別する軸：[adas_axis.md](adas_axis.md)
+- 手介入と移管まわり：[scenario_control_handoff_design.md](scenario_control_handoff_design.md)、[domain_split_ownership.md](domain_split_ownership.md)
