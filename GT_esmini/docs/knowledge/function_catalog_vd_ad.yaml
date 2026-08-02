@@ -79,12 +79,12 @@ functions:
   # ===== 快適機能 comfort（soft最適化・AD寄り） =====
   - { id: FUNC-013, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:lead', note: "ACC定常追従。IDM車間維持（REQ-AD-002）" }
   - { id: FUNC-014, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "Stop&Go/渋滞追従。低速で停止→再発進（発進判断は FUNC-058）" }
-  - { id: FUNC-015, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner', note: "予見的カーブ減速。ManeuverAwareSpeedPlanner の曲率速度" }
-  - { id: FUNC-016, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner', note: "ISA的快適巡航。respect_speed_limit で制限速度に追従" }
-  - { id: FUNC-017, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner', note: "滑らかな加減速/ジャーク制限。comfort_jerk" }
+  - { id: FUNC-015, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'vd-component:maneuver-aware-speed-planner', note: "予見的カーブ減速。ManeuverAwareSpeedPlanner の曲率速度" }
+  - { id: FUNC-016, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'vd-component:maneuver-aware-speed-planner', note: "ISA的快適巡航。respect_speed_limit で制限速度に追従" }
+  - { id: FUNC-017, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'vd-component:maneuver-aware-speed-planner', note: "滑らかな加減速/ジャーク制限。comfort_jerk" }
   - { id: FUNC-018, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "予見的勾配速度。坂道での速度調整。道路縦断勾配データ依存" }
-  - { id: FUNC-019, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'driver', note: "レーンセンタリング(LCC)。PIDPurePursuitDriver の経路追従" }
-  - { id: FUNC-020, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'driver', note: "滑らかなレーンチェンジ *実行*。storyboard由来のLCを快適化。**発起は別機能 FUNC-055**（この分離が layer 軸導入の効用）" }
+  - { id: FUNC-019, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'vd-component:pid-pure-pursuit-driver', note: "レーンセンタリング(LCC)。PIDPurePursuitDriver の経路追従" }
+  - { id: FUNC-020, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'vd-component:pid-pure-pursuit-driver', note: "滑らかなレーンチェンジ *実行*。storyboard由来のLCを快適化。**発起は別機能 FUNC-055**（この分離が layer 軸導入の効用）" }
   - { id: FUNC-021, tier: comfort, layer: operational, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "Traffic Jam Assist。低速でACC+センタリング統合" }
   - { id: FUNC-022, tier: comfort, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "ハイウェイパイロット快適挙動。追い越し判断(FUNC-056)込みの巡航＝上位統合機能" }
 
@@ -92,7 +92,7 @@ functions:
   - { id: FUNC-023, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:traffic_light',     note: "信号遵守。赤/黄で停止（REQ-AD-003）" }
   - { id: FUNC-024, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:stop_yield',        note: "一時停止標識遵守。STOPで停止線手前停止（REQ-AD-004）" }
   - { id: FUNC-025, tier: compliance, layer: tactical,    kind: behavior, agent: AD, dim: lon,  status: partial, by: 'policy:stop_yield',        note: "譲れ標識遵守。YIELDで減速・譲る（法規+譲り合いのクロス）" }
-  - { id: FUNC-026, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'planner',                  note: "ISA(速度制限遵守)。法定速度厳守。快適巡航FUNC-016と同機構、法規側の硬い下限扱い" }
+  - { id: FUNC-026, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: partial, by: 'vd-component:maneuver-aware-speed-planner',                  note: "ISA(速度制限遵守)。法定速度厳守。快適巡航FUNC-016と同機構、法規側の硬い下限扱い" }
   - { id: FUNC-027, tier: compliance, layer: operational, kind: behavior, agent: AD, dim: lon,  status: built,   by: 'policy:crosswalk',         note: "横断歩道の歩行者優先。横断中は無条件停止（REQ-AD-005）" }
   - { id: FUNC-028, tier: compliance, layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: partial, by: 'road',                     note: "通行区分(LHT/RHT)遵守。どちら側を走るか＝strategic。道路遷移/indicatorで一部実現" }
   - { id: FUNC-029, tier: compliance, layer: tactical,    kind: behavior, agent: AD, dim: both, status: partial, by: 'policy:junction_priority', note: "交差点優先権規則。非制御交差点の法的優先" }
@@ -127,7 +127,7 @@ functions:
 
   # ----- B1 Mission / 経路計画（strategic・"目的地到達"軸の本体） -----
   - { id: FUNC-049, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: partial, by: 'road', note: "目的地ルーティング。起点→目的地の road/lane 列を生成し保持する。RoadPath による経路探索が基盤。req-vd-ad:REQ-AD-016（将来課題）。**issue #31 は RoadPath の欠陥ではなくルート記述側の欠落**（junction 跨ぎは 元Arm→ConnectingRoad→行先Arm の各 Road に Waypoint が要る）で、車線変更しないと成立しないレーン接続を人間が Waypoint で手当てせねばならないこと自体が本機能と FUNC-050(診断のみ・是正なし)/055(未実装) の力不足を示す。tier='-'＝動機でなくタスク達成そのもの" }
-  - { id: FUNC-050, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: partial, by: '', note: "レーンレベル経路計画。次のマニューバ(右左折/分岐/専用レーン)に必要なレーンを事前に選び、余裕を持って寄せる。FUNC-034/035 が制約として効く。2026-08実装(RouteLanePlan): road単位のレーン帯(target_lanes)を算出しegoとの適合(on_target_lane/dist_to_connection)を毎フレーム診断としてテレメトリに出すところまでは実現。**寄せる動作(自発的な車線変更)は未実装**＝診断のみで是正しない(実行はFUNC-055のスコープ)。実装を指すKG登録名前空間が無いためgraph.yamlのrealizes辺は未結線（by:は空のまま。matcher:route_lane_plan_holds→verifies→FUNC-050で部分実現を検証）" }
+  - { id: FUNC-050, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: partial, by: 'vd-component:route-lane-plan', note: "レーンレベル経路計画。次のマニューバ(右左折/分岐/専用レーン)に必要なレーンを事前に選び、余裕を持って寄せる。FUNC-034/035 が制約として効く。2026-08実装(RouteLanePlan): road単位のレーン帯(target_lanes)を算出しegoとの適合(on_target_lane/dist_to_connection)を毎フレーム診断としてテレメトリに出すところまでは実現＝req-vd-ad:REQ-AD-017 の段a/b。**寄せる動作(自発的な車線変更)は未実装**＝診断のみで是正しない(実行はFUNC-055=段c)。matcher:route_lane_plan_holds→verifies→FUNC-050 で部分実現を検証" }
   - { id: FUNC-051, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "動的リルート。閉塞・通行不能・工事を検知して経路を再計画。イレギュラー対応の strategic 側" }
   - { id: FUNC-052, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "ルート維持・逸脱復帰。off-route を検知し復帰経路を立てる。issue #31 の予測walkerが off-route に落ちる件と同根の欠落" }
   - { id: FUNC-053, tier: safety, layer: tactical,    kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "経路上の静止障害物回避。停止車・落下物・路上作業を避けつつルートへ復帰する（避けた先で FUNC-052 に戻る）。**発端の「障害物回避してルート維持」軸の本体**。動機は safety だが階層は tactical" }
@@ -142,7 +142,7 @@ functions:
   - { id: FUNC-060, tier: comfort,    layer: operational, kind: behavior, agent: AD, dim: lat, status: none,  by: '', note: "車線内位置取り。大型車/路駐/自転車に対し車線内でオフセットして側方余裕を作る。LCまで至らない微調整" }
 
   # ----- B3 意図伝達（tactical・自車の意図を外へ出す） -----
-  - { id: FUNC-061, tier: compliance, layer: tactical, kind: behavior, agent: AD, dim: none, status: partial, by: 'driver', note: "方向指示器の自発操作。マニューバ発起(FUNC-055..059)に同期して法定タイミングで合図。AutoIndicator/IndicatorFSM が基盤(単体テスト有)だが **発起側が無いため storyboard LC にしか同期していない**" }
+  - { id: FUNC-061, tier: compliance, layer: tactical, kind: behavior, agent: AD, dim: none, status: partial, by: 'vd-component:auto-indicator-policy', note: "方向指示器の自発操作。マニューバ発起(FUNC-055..059)に同期して法定タイミングで合図。AutoIndicator/IndicatorFSM が基盤(単体テスト有)だが **発起側が無いため storyboard LC にしか同期していない**" }
   - { id: FUNC-062, tier: courtesy,   layer: tactical, kind: behavior, agent: AD, dim: none, status: none,    by: '', note: "制動灯/ハザードによる後続への伝達。急減速・停止時の予告。OSI vehicle_lights に出る＝観測可能" }
   - { id: FUNC-063, tier: courtesy,   layer: tactical, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "挙動による意図伝達。クリープ前進で優先主張、早めの減速で譲る意思表示。合図灯を持たない交渉の実体" }
 

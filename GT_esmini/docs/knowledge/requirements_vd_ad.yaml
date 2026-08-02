@@ -34,6 +34,15 @@ kinds:
 #   response    : 要求される応答（定量。emergency_decel/警報リード 等）
 #   acceptance  : 合否（低速=完全回避 / 高速=衝突速度低減≥Δv）＋測定量
 #   source      : 出典標準（翻案元。Euro NCAP コード / UN R152）
+#   acceptance_ladder : 段階受入（2026-08-02 導入）。[{step, claim, met, verified_by}] の列。
+#                 `verified_by` は**段ごとの**判定資産（matcher:*）。graph.yaml の
+#                 `matcher -> verifies -> req` 辺は要求単位までしか表現できず、辺だけを見ると
+#                 「要求全体が検証済み」に読めてしまう。段ごとの実体はここが真実源で、
+#                 辺は「この要求のどこかを検証している」以上を主張しない。
+#                 「達成/未達」の2値でしか書けない粒度の要求は、途中まで進んだ実装を
+#                 全て "未達" に見せてしまい、正直に記帳するほど成果が消える。段で書けば
+#                 要求を割りすぎずに増分が見える。met: は実装状況であって承認状態ではない。
+#                 段を持つ要求は status に partial を使ってよい（全段達成で built）。
 # realized_by / verified_by / related は可読性のための冗長コピー（真実源は graph.yaml）。
 
 requirements:
@@ -223,29 +232,73 @@ requirements:
 
   # ===== B1 ミッション/経路計画（strategic層。凍結例外としてID発行、2026-08-02 承認） =====
   # capability_model.md §2.1 の layer 軸が炙り出した strategic built=0 に対する最初の①主張。
-  # 既存要求が全て「所与の経路上での挙動」だったのに対し、これは経路そのものを主張する。
+  # 既存要求が全て「所与の経路上での挙動」だったのに対し、これらは経路そのものを主張する。
+  #
+  # **段階受入（acceptance_ladder）を使う 2 要求**。初出は 2026-08-02。
+  # 動機: 当初この 2 本は「起終点だけ与えて目的地まで走り切る」の 1 本だった。
+  # 「経路が分かる」と「経路どおりに走れる」は要素技術が別で、片方だけ完成しうるのに、
+  # 1 文にまとめたせいで RouteLanePlan 実装（レーン帯算出＋逸脱検出）の成果を写す場所が
+  # 無く、"未達" としか記帳できなかった。粗い要求は**あらゆる増分を失敗に見せる**。
+  # 対策は辺に partial を足すこと（＝症状への絆創膏）ではなく、要求を割り、
+  # かつ受入基準を段で書いて要求の内側で進捗が見えるようにすること。
   - id: REQ-AD-016
-    title: 起点と目的地だけを与えられて走行可能な経路を自ら生成し、目的地まで走り切る
+    title: 起点と目的地だけから走行可能な経路を導ける
     tier: '-'                             # 動機層でなくタスク達成そのもの（vd-func:FUNC-049 と同じ扱い）
     agent: AD
     kind: positive
     statement: >-
-      WHEN シナリオが自車の起点と目的地のみを与えたとき、VD は走行可能な road/lane 列を
-      自ら生成して保持し、経路上のレーン接続が要求する車線変更を自発的に行い、
-      目的地へ到達して安全に停車すること。
+      WHEN シナリオが自車の起点と目的地のみを与えたとき、VD は起点から目的地まで
+      レーン単位で連続する road/lane 列を導出し、経路として保持すること。
     scenario: >-
       未整備。junction を含む市街路で起点 arm と目的地 arm のみを指定するシナリオが要る。
       既存の verification 資産は全て Waypoint 列を明示しており該当なし。
+    acceptance_ladder:
+      - { step: a, claim: 与えられた Waypoint 列の隙間を埋め、レーン単位で連続する経路に解決できる, met: false, verified_by: [] }
+      - { step: b, claim: 解決に失敗した場合それを検出し外へ出せる（沈黙しない）,                    met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: c, claim: 起点と目的地のみから経路を探索できる（Waypoint 列を要さない）,             met: false, verified_by: [] }
     acceptance: >-
-      (a) 生成経路が起点から目的地まで連続する（truncate しない）
-      (b) 走行中 on-route を維持する（off-route 落ちの発生率で測る）
-      (c) 目的地の許容範囲内に停車する。定量閾値は未校正。
-    realized_by: [vd-func:FUNC-049, vd-func:FUNC-050, vd-func:FUNC-054]
-    verified_by: []                       # on-route 継続率・到達判定の matcher が未整備
-    related: [issue:31]
+      段 a/c は導出経路がレーン単位で連続すること（静的に判定でき、走行を要しない）。
+      段 b は解決失敗が warning とテレメトリに出ること。定量閾値は未校正。
+    realized_by: [vd-func:FUNC-049]
+    verified_by: []                       # 経路連続性を静的に判定する matcher が未整備
+    related: [issue:31, issue:42, req-vd-ad:REQ-AD-017]
     status: future
     note: >-
-      将来課題。先に「粗い Waypoint 記述＋VD 側の自発車線変更」（レーン接続の辻褄を VD が
-      自分で合わせる方向）を実装し、経路探索そのものの自前化はその後に着手する。
-      issue #31 は本要求の不在が生んだ症状 — VD が車線を自分で寄せられないため、
+      段 b のみ 2026-08 の RouteLanePlan で達成（ルート解決失敗の可視化）。
+      段 a は esmini の Route が中間 road を自動補完するため部分的に成立するが、
+      レーン接続が切れている場合は失敗する（成否が道路依存＝実測で確認済み）。
+      段 c が「起終点だけ与える」の本体で未着手。
+
+  - id: REQ-AD-017
+    title: 与えられた経路のとおりに、必要な車線変更込みで走り切る
+    tier: '-'
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 経路が与えられているとき、VD は経路上のレーン接続が要求する車線へ
+      自発的に移り、経路から逸脱せずに終点まで到達すること。
+    scenario: >-
+      部分的に整備済み。resources/xosc/verification/05_anticipation/ の junction 経由
+      シナリオ群が段 a/b の刺激になる。段 c/d 用の「車線変更しないと接続に入れない」
+      シナリオは未整備。
+    acceptance_ladder:
+      - { step: a, claim: 経路が各 road で要求する目標レーン集合を算出できる,      met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: b, claim: 現在レーンが目標レーン集合から外れていることを検出できる, met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: c, claim: 接続点までに目標レーンへ自発的に車線変更する,             met: false, verified_by: [] }
+      - { step: d, claim: 逸脱した場合に経路へ復帰する,                             met: false, verified_by: [] }
+      - { step: e, claim: 経路終点で安全に停車しミッション終了を宣言する,           met: false, verified_by: [] }
+    acceptance: >-
+      段 a/b は signal:route_lane_conformance をテレメトリで観測できること
+      （matcher:route_lane_plan_holds が判定）。段 c は接続点通過時に目標レーン内で
+      あること。段 d は逸脱後の on-route 復帰。段 e は終点許容範囲内での停車。定量閾値は未校正。
+    realized_by: [vd-func:FUNC-050, vd-func:FUNC-052, vd-func:FUNC-054, vd-func:FUNC-055]
+    verified_by: []                       # 段 a/b は matcher:route_lane_plan_holds が vd-func:FUNC-050 経由で担保。
+                                          # 要求そのものに verifies を張るのは段 c/d/e が未達のため overclaim
+    related: [issue:31, req-vd-ad:REQ-AD-016]
+    status: partial
+    note: >-
+      段 a/b は 2026-08 の RouteLanePlan（vd-component:route-lane-plan）で達成済み。
+      ただし**診断のみで是正しない** — 目標レーンから外れていても車線変更はせず、
+      そのまま通過して逸脱を記録する（2026-08-02 の設計決定）。段 c が vd-func:FUNC-055。
+      issue #31 は本要求の段 c 不在が生んだ症状 — VD が車線を自分で寄せられないため、
       レーン接続の辻褄を人間が Waypoint で手当てする必要があり、その記述漏れが表面化した。

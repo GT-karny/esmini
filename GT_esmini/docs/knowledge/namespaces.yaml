@@ -345,6 +345,28 @@ namespaces:
 
   # ---- 検証スパイン④観測・⑥常設（capability_model.md §1 / §4, spine-work:signal-gate-registration で新設） ----
 
+  - slug: vd-component
+    title: VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）
+    entity_type: implementation-unit
+    face: "2"
+    id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
+    source_of_truth: GT_esmini/docs/knowledge/component_catalog_vd.yaml
+    status: active
+    count: 9
+    notes: >-
+      2026-08-02 新設。**動機**: 3段チェーン（実装 -> realizes -> vd-func -> realizes -> req）の
+      実装側ノードは `policy`（ITrafficPolicy 実装）しか登録されておらず、プランナー・
+      ドライバーモデル・横断層を指す語彙が無かった。そのため RouteLanePlan（vd-func:FUNC-050）の
+      realizes 辺が張れず「実装が何を実現しているか」が台帳から欠落した。穴は今回が初出ではなく、
+      `function_catalog_vd_ad.yaml` の `by:` に未登録の擬似ID（'planner' 3件 / 'driver' 3件）が
+      前から使われていたのが同じ欠落の露出である。
+      **policy との分割線**: `policy` は ITrafficPolicy 実装のみ、`vd-component` はそれ以外。
+      policy を吸収統合しない理由は、あちらがコミットメッセージ慣行（`policy:lead` 等）と
+      多数の既存辺に乗っており、移行コストが記帳の正確さに見合わないため。二重登録は禁止で、
+      新しい ITrafficPolicy 実装は `policy` 側に足す。
+      **`by:` の語彙**: `vd-component:*` / `policy:*` のいずれか、または `road`
+      （＝esmini RoadManager のデータ・経路探索由来で VD の実装ユニットではない、の意）。
+
   - slug: signal
     title: 観測可能量（OSI GroundTruth / HostVehicleData が canonical）
     entity_type: observable
@@ -394,7 +416,7 @@ namespaces:
     id_pattern: "REQ-AD-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     status: active
-    count: 13
+    count: 14
     notes: >-
       機能軸カタログの DRAFT 段階で activate（seed REQ-AD-001..006 ＋ AEB家族 001/010-015、
       NCAP/R152逆算スキーマ=aeb_requirements.md）。設計軸は

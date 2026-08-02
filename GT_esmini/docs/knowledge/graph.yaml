@@ -520,21 +520,34 @@ edges:
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 交差点優先権規則が交差点譲り要求を充足
+  # REQ-AD-016（経路を導ける）と REQ-AD-017（経路どおりに走り切る）は 2026-08-02 に
+  # 1本の要求から分割した。要素技術が別で片方だけ完成しうるのに 1 文だったため、
+  # RouteLanePlan の成果（レーン帯算出＋逸脱検出）を写す先が無かった。
   - from: vd-func:FUNC-049
     to: req-vd-ad:REQ-AD-016
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 目的地ルーティング（road/lane 列の生成と保持）が経路自前生成要求の中核
+    note: 目的地ルーティング（road/lane 列の導出と保持）が経路導出要求の中核
   - from: vd-func:FUNC-050
-    to: req-vd-ad:REQ-AD-016
+    to: req-vd-ad:REQ-AD-017
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: レーンレベル経路計画が「接続に必要な車線へ事前に寄せる」部分を充足
+    note: レーンレベル経路計画が段 a/b（目標レーンの算出と逸脱検出）を充足
+  - from: vd-func:FUNC-055
+    to: req-vd-ad:REQ-AD-017
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。未実装
+  - from: vd-func:FUNC-052
+    to: req-vd-ad:REQ-AD-017
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: ルート維持・逸脱復帰が段 d を充足。未実装
   - from: vd-func:FUNC-054
-    to: req-vd-ad:REQ-AD-016
+    to: req-vd-ad:REQ-AD-017
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 到達判定・ミッション終了が「目的地で安全に停車する」部分を充足
+    note: 到達判定・ミッション終了が段 e（終点で安全に停車する）を充足。未実装
 
   # --- matcher -> verifies -> req-vd-ad（検証） ---
   - from: matcher:maintained_following_distance
@@ -573,20 +586,45 @@ edges:
     source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本）
 
-  # --- matcher -> verifies -> vd-func（機能カタログを直接検証。RouteLanePlan は policy を
-  #     経由しないため、policy->realizes->vd-func の3段チェーンが使えず matcher が直接 FUNC を
-  #     検証する形になる。edge_types.curated の verifies は "test asset verifies a
-  #     requirement/feature" と定義済みで vd-func(entity_type: function) も射程内） ---
-  - from: matcher:route_lane_plan_holds
+  # --- vd-component -> realizes -> vd-func（非 ITrafficPolicy の実装ユニット。2026-08-02
+  #     に vd-component 名前空間を新設して張れるようになった辺） ---
+  - from: vd-component:route-lane-plan
     to: vd-func:FUNC-050
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
+    note: >-
+      目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、
+      寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ
+
+  # --- matcher -> verifies -> req-vd-ad（RouteLanePlan 分。2026-08-02 に宛先を差し替えた） ---
+  # 当初は vd-func:FUNC-050 を直接指していた（「policy を経由しないので3段チェーンが使えない」
+  # という判断）。しかし matcher(face:3) -> vd-func(face:2) は capability_model.md §0.2 の
+  # 「面3→面2 の直結＝coupling debt」に該当し、結合監査が正しく検出した（誤検知ではない）。
+  # 実際には vd-func:FUNC-050 -[realizes]-> req-vd-ad:REQ-AD-017 が既にあり、要求経由で
+  # FUNC-050 への追跡可能性は保たれる。既存 verifies 辺 11/12 も宛先は req-vd-ad で、
+  # 面3→面3 に収まっている。**検知器とテスト期待値は一切変えず、グラフ側を厳格な既存
+  # パターンへ寄せる**ことで解消した（期待値を緩めるのは許容差の緩和にあたるため採らない）。
+  # 検証しているのは REQ-AD-017 の段 a/b のみ。**どの段を検証済みかは要求側の
+  # acceptance_ladder[].verified_by が持つ**（辺の粒度では段を表現できないため。
+  # 辺だけを見て要求全体が検証済みと読まないこと）。
+  - from: matcher:route_lane_plan_holds
+    to: req-vd-ad:REQ-AD-017
     type: verifies
     source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
     note: >-
       route_lane_batch.yaml の2シナリオ（merge_required_for_exit_ramp=invalid_route 診断、
       route_valid_off_target_lane_for_exit_ramp=最終ホップの目標レーン帯からの逸脱を検出、
-      設計 §4-4 実測）で route_lane テレメトリが機能することを検証。FUNC-050 の実現範囲は
-      「レーン帯を算出して外に出す」診断までで、寄せる動作(自発的な車線変更)は検証対象外
-      （vd-func:FUNC-055 のスコープ、設計 §5・function_catalog_vd_ad.yaml FUNC-050 note）。
+      設計 §4-4 実測）で route_lane テレメトリが機能することを検証。
+      **REQ-AD-017 の段 a/b のみ**（目標レーンの算出と逸脱検出）。段 c/d/e（自発的な
+      車線変更・逸脱復帰・終点停車）は未実装で検証対象外＝この辺は要求全体の充足を主張しない。
+  - from: matcher:route_lane_plan_holds
+    to: req-vd-ad:REQ-AD-016
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
+    note: >-
+      merge_required_for_exit_ramp シナリオの invalid_route 診断が
+      **REQ-AD-016 の段 b のみ**（経路解決の失敗を検出して外へ出す＝沈黙しない）を検証する。
+      段 a/c（経路の補完・起終点のみからの探索）は検証対象外。
 
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
@@ -1231,6 +1269,16 @@ edges:
 
   # ---- 引けなかった辺: RouteLanePlan (vd-func:FUNC-050, 2026-08) ----
   # 縦串3辺の結線時に検討したが張らなかった2辺と、その理由（一次記録）。
+  #
+  # ★ 2026-08-02 更新: (2) は **解消済み**。vd-component 名前空間を新設し
+  #   vd-component:route-lane-plan -> realizes -> vd-func:FUNC-050 を結線した（上記）。
+  #   下の (2) の記述は「なぜ当時張れなかったか」の一次記録として残す。判断自体は正しく、
+  #   欠けていたのはノード型のほうだった（同じ欠落は function_catalog の by: に
+  #   'planner'/'driver' という未登録の擬似ID として前から露出していた）。
+  #   併せて req-vd-ad:REQ-AD-016 を 016（経路を導ける）/ 017（経路どおりに走り切る）へ
+  #   分割し、段階受入（acceptance_ladder）で部分達成を要求の内側に書けるようにした。
+  #   (1) は未解消のまま残る（手書き検証 xosc を指す face:3 名前空間は、--spine-report の
+  #   ②刺激欠を全数見てから設計する。母数を見ずに切ると片肺の語彙が増えるため）。
   #
   # (1) req-vd-ad:REQ-AD-016 -> stimulated-by -> [06_route_lane の刺激資産]
   #   資産は実在し実行済み（resources/xosc/verification/06_route_lane/

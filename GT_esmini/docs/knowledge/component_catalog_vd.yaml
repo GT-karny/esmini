@@ -1,0 +1,97 @@
+# VirtualDriver 実装ユニット台帳（namespace: vd-component）
+#
+# 3段チェーン「実装 -> realizes -> vd-func -> realizes -> req-vd-ad」の実装側ノードのうち、
+# **ITrafficPolicy 実装ではないもの**を登録する。ITrafficPolicy 実装は namespace `policy`
+# （source_of_truth: resources/xosc/verification）が持つ。二重登録は禁止。
+#
+# 2026-08-02 新設。それ以前、実装側に登録できるのは policy だけで、プランナー・ドライバー
+# モデル・横断層を指す語彙が無かった。function_catalog_vd_ad.yaml の `by:` に未登録の
+# 擬似ID（'planner' / 'driver'）が使われていたのが、その欠落の露出である。
+#
+# フィールド:
+#   id        内容 slug（namespaces.yaml の id_pattern。序数を使わない＝§7.1 規約4）
+#   title     人間可読名（ja）
+#   layer     プラガブル層の所属。roadmap.md §3 のアーキ図に対応
+#             mid-long-planner | short-planner | driver-model | indicator-policy | cross-cutting
+#   interface 実装している純抽象インターフェース（無ければ '-'）
+#   path      実装の主ファイル（repo 相対）
+#   note      何をするユニットか。1-2文
+#
+# 実装が何の機能を実現するかは graph.yaml の realizes 辺が真実源。ここは所属だけを持つ。
+
+components:
+  - id: route-lane-plan
+    title: 経路レーン計画
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/virtualdriver/RouteLanePlan.cpp
+    note: >-
+      経路が各 road で要求する目標レーン集合を接続点から後ろ向きに伝播させて算出し、
+      ego との適合をテレメトリへ出す。ルート解決の失敗も検出して外へ出す。
+      **診断のみで是正しない**（自発的な車線変更は vd-func:FUNC-055 のスコープ）。
+
+  - id: maneuver-aware-speed-planner
+    title: マニューバ考慮 速度プランナー
+    layer: mid-long-planner
+    interface: IMidLongPlanner
+    path: GT_esmini/src/control/virtualdriver/ManeuverAwareSpeedPlanner.cpp
+    note: >-
+      Route 前方を等間隔スキャンして v_target(s) の速度上限プロファイルを出す。
+      曲率・右左折・SpeedLimit 変化点・勾配を織り込む。
+
+  - id: trajectory-short-planner
+    title: 短期トラジェクトリプランナー
+    layer: short-planner
+    interface: IShortPlanner
+    path: GT_esmini/src/control/virtualdriver/TrajectoryShortPlanner.cpp
+    note: v_target(s) と Action から等時間刻みの (x,y,v,t) preview を生成する。
+
+  - id: pid-pure-pursuit-driver
+    title: PID + Pure Pursuit ドライバーモデル
+    layer: driver-model
+    interface: IDriverModel
+    path: GT_esmini/src/control/virtualdriver/PIDPurePursuitDriver.cpp
+    note: >-
+      preview と自車状態から throttle/brake/steer を逆算する。既定の IDriverModel で
+      roadmap.md §6 により以後は凍結扱い。
+
+  - id: auto-indicator-policy
+    title: 自動方向指示器ポリシー
+    layer: indicator-policy
+    interface: IIndicatorPolicy
+    path: GT_esmini/src/control/virtualdriver/AutoIndicatorPolicy.cpp
+    note: >-
+      横アクションと経路情報から LightMask を決める。名前に Policy と付くが
+      ITrafficPolicy ではない（namespace policy には属さない）。
+
+  - id: ad-steering-envelope
+    title: AD 操舵指令の安全包絡線
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/virtualdriver/AdSteeringEnvelope.cpp
+    note: AD 指令の操舵角・躍度に上限をかけ、手介入との調停で破綻しない範囲へ収める。
+
+  - id: resume-merge-profile
+    title: AUTO_RESUME 合流軌道
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/virtualdriver/ResumeMergeProfile.cpp
+    note: 手動介入から AUTO へ戻る際、ROUTE レーン中心へ滑らかに寄せる横方向プロファイル。
+
+  - id: adas-function-report
+    title: ADAS 機能状態レポート
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/virtualdriver/AdasFunctionReport.cpp
+    note: >-
+      作動中の ADAS 機能とその状態を OSI HostVehicleData の
+      vehicle_automated_driving_function[] へ出す。
+
+  - id: domain-ownership-ledger
+    title: ドメイン所有台帳
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/common/DomainOwnershipLedger.cpp
+    note: >-
+      横/縦の各ドメインを誰（人間 / シナリオ / AD）が書くかを一元管理する。
+      ManualDrive と共有するため control/common に置かれている。

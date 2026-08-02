@@ -75,6 +75,71 @@ ns_bad = copy.deepcopy(NAMESPACES)
 del ns_bad["gate"]["face"]
 expect("face 欠落を検出", [e for e in run_values(CATALOGS, ns_bad) if "face タグがありません" in e])
 
+print("== 1a. acceptance_ladder（段階受入, hard）==")
+# 2026-08-02 追加。段は「要求のどこまで出来ているか」の真実源で、graph.yaml の
+# verifies 辺（要求単位）では表現できない粒度を引き受ける。ここが壊れると辺だけが残り
+# 「要求全体が検証済み」と読める＝過大申告が黙って復活する。
+
+
+def ladder_req(catalogs):
+    """acceptance_ladder を持つ最初の要求の index を返す。"""
+    return next(i for i, r in enumerate(catalogs["req-vd-ad"])
+                if r.get("acceptance_ladder"))
+
+
+LI = ladder_req(CATALOGS)
+
+bad = copy.deepcopy(CATALOGS)
+bad["req-vd-ad"][LI]["acceptance_ladder"][0]["met"] = "true"  # 文字列は不可
+expect("met の非boolを検出",
+       [e for e in run_values(bad, NAMESPACES) if "met は bool" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["req-vd-ad"][LI]["acceptance_ladder"][0]["verified_by"] = "matcher:speed_above"
+expect("verified_by の非リストを検出",
+       [e for e in run_values(bad, NAMESPACES) if "verified_by はリスト" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["req-vd-ad"][LI]["acceptance_ladder"][0]["verified_by"] = ["no_such_matcher"]
+expect("verified_by の非matcher参照を検出",
+       [e for e in run_values(bad, NAMESPACES) if "'matcher:<id>' 形式" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["req-vd-ad"][LI]["acceptance_ladder"][0]["verified_by"] = ["matcher:no_such_one"]
+expect("verified_by の未登録 matcher を検出",
+       [e for e in run_values(bad, NAMESPACES) if "id_pattern 外" in e])
+
+# 台帳の自己矛盾（未達なのに判定資産が通っている）
+bad = copy.deepcopy(CATALOGS)
+step = bad["req-vd-ad"][LI]["acceptance_ladder"][0]
+step["met"] = False
+step["verified_by"] = ["matcher:speed_above"]
+expect("met:false なのに verified_by がある矛盾を検出",
+       [e for e in run_values(bad, NAMESPACES) if "met: false なのに" in e])
+
+print("== 1b. function_catalog の by:（実装元, hard）==")
+# 2026-08-02 追加。by: に 'planner'/'driver' という未登録の擬似IDが6件入っていたのを
+# 発見して足した検査。自由文字列を許すと同じ穴が黙って再発する。
+bad = copy.deepcopy(CATALOGS)
+bad["vd-func"][0]["by"] = "planner"
+expect("by: の裸文字列を検出",
+       [e for e in run_values(bad, NAMESPACES) if "名前空間付きIDではありません" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["vd-func"][0]["by"] = "vd-component:no-such-component"
+expect("by: の未登録 vd-component を検出",
+       [e for e in run_values(bad, NAMESPACES) if "component_catalog_vd.yaml にありません" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["vd-func"][0]["by"] = "vd-func:FUNC-001"
+expect("by: の許容外名前空間を検出",
+       [e for e in run_values(bad, NAMESPACES) if "実装元として許容されていません" in e])
+
+bad = copy.deepcopy(CATALOGS)
+bad["vd-func"][0]["by"] = "road"
+expect("by: 'road' は許容（VD実装ユニットでないことを示す統制語）",
+       [e for e in run_values(bad, NAMESPACES) if "by:" in e], want=False)
+
 print("== 2. 規約2（恒久資産のファイル名の工程序数, hard）==")
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)
