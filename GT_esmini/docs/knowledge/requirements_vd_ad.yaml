@@ -312,3 +312,53 @@ requirements:
       issue #31 は本要求の段 c 不在が生んだ症状 — VD が車線を自分で寄せられないため、
       レーン接続の辻褄を人間が Waypoint で手当てする必要があり、その記述漏れが表面化した。
       段 c 達成により、その手当ての必要性は（機能を有効化すれば）原理的に解消する。
+  - id: REQ-AD-018
+    title: 進路変更の前から方向指示器で予告する
+    tier: compliance
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 自発的な進路変更（車線変更）を行うとき、VD は変更を開始する前から
+      方向指示器で予告を始め、マニューバが完了するまで継続すること。
+    scenario: >-
+      resources/xosc/verification/06_route_lane/ の後半2本（route_lane_batch.yaml、
+      policies: [lane_change_initiation]）が刺激。lane_change_to_exit_ramp は
+      ギャップ待ちの無い純粋な先行点灯を、lane_change_to_exit_ramp_with_traffic は
+      「合図してから待つ」挙動を刺激する。FUNC-056..059 由来の進路変更
+      （追い越し・交差点・発進・合流）を刺激する資産は未整備。
+    acceptance_ladder:
+      - { step: a, claim: 車線変更の発起より前に方向指示器が点灯する,                     met: true,  verified_by: [matcher:indicator_leads_lane_change] }
+      - { step: b, claim: 定速走行時に法定のリード（進路変更の3秒前）を満たす,             met: false, verified_by: [] }
+      - { step: c, claim: 加速中もリードが縮まない,                                       met: false, verified_by: [] }
+      - { step: d, claim: 経路要求以外の発起（追い越し/交差点/発進/合流）にも同期する,      met: false, verified_by: [] }
+    acceptance: >-
+      段 a は signal:lane_change_signal_timing をテレメトリで観測できること
+      （matcher:indicator_leads_lane_change が判定。signal_active の立ち上がりが armed の
+      立ち上がりに先行し、その区間ランプが実際に点いていて、点灯側が hop の方向と一致）。
+      **段 a は「先行する」までしか主張しない — 秒数は主張しない。**
+      段 b/c の閾値は法定値 3.0 s（道路交通法 第53条第1項／同施行令 第21条第1項）。
+      段 b は定速区間での実測が要る（現行の刺激2本はどちらも加速中またはギャップ待ちで、
+      定速リードを分離できていない＝段 b 用の資産が未整備）。
+      段 d は FUNC-056..059 の実装待ち。
+    realized_by: [vd-func:FUNC-061]
+    verified_by: []                       # 段 a のみ matcher が担保。要求そのものに verifies を
+                                          # 張るのは段 b/c/d が未達のため overclaim
+    related: [req-vd-ad:REQ-AD-017, vd-func:FUNC-055]
+    status: partial
+    note: >-
+      2026-08-02 に段 a 達成（lane_change_initiation.md §11、DetectManeuverDir を4段へ拡張し
+      lc_signal_dir_ で先行合図を出す）。**既定 OFF**（lane_change_initiation_enabled）。
+      実測（同日、実 Release ビルド）: 隣接車なし t_sig=2.30 / t_arm=2.70 = リード 0.40 s、
+      ギャップ待ちあり t_sig=3.10 / t_arm=7.55 = リード 4.45 s。
+      **段 b/c が未達な理由は同一で、決断距離 required_m が速度比例だから**である。定速なら
+      required_m が動かずリードは lane_change_indicator_lead_time_s（既定 3.0）ちょうどに
+      なるが、加速中は required_m が n_remaining×lead_time_s×a（実測 ~70 m/s）で膨張し、
+      自車の閉じ込み速度（~8 m/s）を大きく上回るため v×3.0 のリード距離が 0.4 秒で消える。
+      根治にはしきい値自身の移動速度を閉じ込み速度に含める必要がある（同 §11-3）。
+      なお最終バンド（dist_to_connection == -1）では ShouldAttemptLaneChangeHop が true・
+      ShouldSignalLaneChangeHop が false となり先行しない（同 §11-3 の「既知の非対称性」）。
+      これも段 c の一部として残る。
+      ウィーン条約（1968）は秒数を規定せず「マニューバ中継続・完了で消灯」のみ、独 StVO §5 は
+      定性規定、米国は多くの州が距離規定 — 次元が国ごとに違うため国別テーブルは作らず、
+      秒パラメータ1本を config で可変にして既定を日本の法定値に置く方針（同 §11-2）。
+

@@ -569,6 +569,23 @@ signals:
       配線候補: テイクオーバー系 matcher（例: resumed_to_auto_within）を起こすときに observes 辺で結線。
       OSI 側 DriverOverride は未populate（vd-func:FUNC-075 の④と同根）。
 
+  - id: lane_change_signal_timing
+    title: AD発起の車線変更で、合図要求と方向指示器ランプが発起に対していつ立つか
+    exposure: [frame]
+    state: "●"
+    emit: ControllerVirtualDriver.cpp:1068-1099（lc_signal_dir_ 確定）→ :1721（telemetry_.lane_change.signal_active）→ VirtualDriverTelemetryJson.cpp:263-272（lane_change ブロック）／ランプ側は AutoIndicatorPolicy.cpp:6-39 → ControllerVirtualDriver.cpp:1425-1426（ApplyLights）→ VirtualDriverTelemetryJson.cpp:157（indicator ブロック）
+    note: >-
+      matcher:indicator_leads_lane_change が読む。**2つの量の時間関係**が観測対象であり、
+      片方だけでは足りない（lane_change_initiation.md §11-8）: signal_active は「AD-LC 経路が
+      指示器を要求している」という**意図**で、意図が AutoIndicatorPolicy に握り潰されても真に
+      なりうる。indicator.left/right は**ランプの実態**だが、点灯理由が AD-LC の先行合図なのか
+      DetectJunctionTurn の交差点旋回なのかを区別できない。matcher は両方を見て
+      「signal_active の立ち上がりが armed の立ち上がりに先行し、その区間ランプが実際に
+      点いていた」ことを判定する。signal:vehicle_lights とは**別の signal** — あちらは
+      AutoLightController → OSI 経路の灯火であり、canonical 面も emit 経路も異なる。
+      exposure=frame は route_lane_conformance と同じ理由（OSI/HVD に対応概念が無い GT 独自
+      VD テレメトリ）。
+
   - id: route_lane_conformance
     title: ego が route の要求するレーン帯（目標レーン集合）に居るか
     exposure: [frame]
