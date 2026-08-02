@@ -1,0 +1,35 @@
+manifest: resources/xosc/verification/stop_line_pairing_batch.yaml
+note: 'Committed baseline for the stop-line pairing discriminator (design/stop_line_stop_target.md
+  sec13). Covers TrafficLightAware (red_hold_stop_line_paired,
+  policy:traffic_light) and StopYieldSignAware (stop_sign_stop_line_paired, policy:stop_yield),
+  each run at the DEFAULT config (tl_stop_line_aware_enabled / sign_stop_line_aware_enabled both
+  default true) -- the s_range in each expectations.yaml brackets the STOP-LINE-based rest position,
+  not the pre-feature margin-based one, so a regression that silently drops FindPairedStopLine''s
+  effect (kill switch flips, or the pairing lookup breaks) fails stopped_at_signal / stopped_at_stop_sign
+  here. BOTH scenarios are GREEN as recorded (2026-08-02); this baseline carries no known-red, unlike
+  car_following_traffic_control_expected.yaml. So ANY deviation is a real regression -- including an
+  unexpected fail (stop-line pairing broke) and, less obviously, no signal at all if a scenario starts
+  erroring out. The falsifying OFF-arm measurement (kill switch OFF must reproduce the OLD margin-based
+  position and correctly FAIL these same expectations) is recorded in each expectations.yaml''s notes,
+  not in this manifest -- policies:[] cannot toggle the kill switch, only enable the policy. Refresh
+  ONLY after an intentional behavior change, with --update, and review the diff.'
+expected_summary:
+  pass: 2
+  fail: 0
+  needs-review: 0
+  error: 0
+scenarios:
+  red_hold_stop_line_paired:
+    status: pass
+    matchers:
+    - event: stopped_at_signal
+      status: pass
+    - event: speed_below
+      status: pass
+  stop_sign_stop_line_paired:
+    status: pass
+    matchers:
+    - event: stopped_at_stop_sign
+      status: pass
+    - event: speed_above
+      status: pass

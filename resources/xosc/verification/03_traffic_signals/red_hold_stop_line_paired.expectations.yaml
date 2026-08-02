@@ -1,0 +1,69 @@
+scenario: red_hold_stop_line_paired
+category: 03_traffic_signals
+# Discriminator for stop-line pairing (design/stop_line_stop_target.md),
+# TrafficLightAware side. Road signalized_short_block__b12_sl4 places a
+# paired stop-line signal (type=294, country=OpenDRIVE) 4 m before the
+# junction-A head (id=0, s=92) -- 1 m off tl_stop_margin (3.0), so the
+# margin-based and stop-line-based stop targets land at different s. Pre-
+# pairing (or kill switch off) the ego would rest near road 0 s=87 (head
+# margin only); with pairing (this scenario's default config) it rests near
+# s=83 (stop-line based). See the notes block for the measured both-arms
+# numbers this s_range was set from.
+must:
+  - event: stopped_at_signal
+    signal_id: 0
+    road_id: 0
+    s_range: [80, 85]
+    min_duration: 2.0
+    stop_speed: 0.3
+    require_red: true
+    reason: "停止線ペアリングにより信号ヘッド基準ではなく停止線基準の位置に完全停止"
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 18.0 }
+    before: { sim_time: 25.0 }
+    reason: "赤が続く間は停止を維持する(発進しない) -- red_hold と同型の恒常性チェック"
+notes: >
+  Both arms measured on 2026-08-02 (dt 0.05, max-time 30, policies:[traffic_light],
+  GT_esminiLib.dll verified to contain the stop-line pairing strings). The OFF arm
+  is NOT reachable through this manifest (the committed virtual_driver.json kill
+  switch tl_stop_line_aware_enabled defaults true) -- it was run standalone with a
+  ConfigFile override (tl_stop_line_aware_enabled=false) purely to confirm this
+  matcher fails for the intended reason; recorded here, not part of any gate.
+    OFF arm (tl_stop_line_aware_enabled=false): gt.traffic_light.stop_line_used=
+      false, dist_m=5.004 (raw head distance, unaffected by pairing per design
+      sec10). True dwell bottom (speed exactly 0) at road 0 s=86.9706
+      (front_bumper.s=90.8706) -- 2.87 m PAST the stop line at s=88: the defect
+      this feature fixes (asserting this scenario's s_range against that arm
+      fails on stopped_at_signal, not on require_red/duration -- the ego does
+      stop and the signal is red, it simply stops in the wrong place).
+    ON arm (this scenario's actual default config): gt.traffic_light.
+      stop_line_used=true. True dwell bottom at road 0 s=82.9710
+      (front_bumper.s=86.8710) -- 1.13 m short of the line at s=88 (planner
+      stop_band=2.0 short of the margin-adjusted line_s, the same systematic
+      offset every STOP_AT_S target in this codebase carries, e.g.
+      junction_not_blocked.expectations.yaml's "tl_stop_margin 3 + planner
+      stop_band 2").
+    Delta (OFF - ON) = 3.9996 m, matching the configured 4 m stop-line offset
+    to within numerical noise (<1 mm) -- a clean, non-overlapping discriminator
+    given s_range's ~2 m margin on both sides.
+  Window-boundary study (design sec9.2; same road family, default
+  tl_stop_line_window=10.0; NOT part of this manifest -- generated to a scratch
+  --out-dir, never committed):
+    offset 8 m (signalized_short_block__b12_sl8, within window): stop_line_used=
+      true, dwell bottom road 0 s=78.9709 (paired, shifts the full 8 m as
+      expected).
+    offset 12 m (signalized_short_block__b12_sl12, exceeds window): stop_line_
+      used=false, dwell bottom road 0 s=86.9706 -- bit-identical to the kill-
+      switch-OFF arm above (both hit the same "dist_ahead unchanged" fallback
+      path, design sec4; confirms the two ways to miss a pairing converge on
+      the same code path, not two independently-behaving branches).
+  Conclusion: keep tl_stop_line_window=10.0 as the default. The one real-world
+  sample on file (multi_intersections.xodr road196, head-to-line = 4 m) sits
+  well inside it (2.5x headroom), and the window boundary itself behaves as
+  designed both at the pure-function level (test_RouteSignalScan.cpp
+  WindowBoundaryDifferenceIsAccepted / JustBeyondWindowBoundaryIsRejected) and,
+  now, at this asset/simulation level. No evidence surfaced here argues for a
+  different value in either direction; a real dataset of stop-line-to-head
+  distances (design sec9.1's deferred JP data, or others) is what would
+  actually move this number, not further synthetic sweeps against one road.

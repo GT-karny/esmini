@@ -671,6 +671,46 @@ jobs:
             test_results/ci/scenario_handoff/batch_summary.md
           if-no-files-found: warn
 
+      # Stop-line pairing regression -- the local regression gate's Step 2.9,
+      # wired to CI. Rides in this job for the same reason as AEB/anticipation/
+      # handoff: the Release build above dominates the runtime, so a separate
+      # job would pay it twice. Separate step names + a separate artifact keep
+      # failure attribution.
+      #
+      # Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md
+      # sec13): TrafficLightAware and StopYieldSignAware must swap their
+      # margin-based stop target for a paired stop-line signal (type=294) when
+      # one is found within the configured window, both default ON. Own
+      # manifest + own baseline -- does not touch the other four batches'
+      # baselines. Not yet registered as a gate: ID in the knowledge graph
+      # (docs/knowledge/ follow-up, tracked separately).
+      # NON-BLOCKING like the batches above: promote by dropping
+      # continue-on-error from the compare step once CI has shown the
+      # baseline stable across a few runs.
+      - name: Run stop-line pairing batch
+        continue-on-error: true
+        shell: bash
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/stop_line_pairing_batch.yaml --out test_results/ci/stop_line_pairing
+
+      # --baseline is mandatory: check_regression_baseline.py defaults to the
+      # car_following baseline, so omitting it would silently compare the wrong one.
+      - name: Compare stop-line pairing vs committed baseline (per-scenario)
+        id: stop-line-pairing-regression
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/stop_line_pairing --baseline GT_esmini/test/regression_baseline/stop_line_pairing_expected.yaml --max-age-seconds 1800
+
+      - name: Upload stop-line pairing regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stop-line-pairing-regression-report
+          path: |
+            test_results/ci/stop_line_pairing/regression_report.md
+            test_results/ci/stop_line_pairing/batch_verdict.json
+            test_results/ci/stop_line_pairing/batch_summary.md
+          if-no-files-found: warn
+
   release:
     needs: [test, test-no-external-modules, embedded-python-option]
     if: github.ref_type == 'tag'

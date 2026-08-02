@@ -69,6 +69,18 @@ _LIGHT_ZOFFSET = 3.0
 # two junction footprints have to fit either side of a block only ~12 m long.
 _JUNCTION_RADIUS = 8.0
 
+# Optional stop-line verification signal (design/stop_line_stop_target.md sec13.1).
+# type=294 + country=OpenDRIVE is NOT an ASAM-defined pattern for a stop line --
+# ASAM leaves stop-line marking out of scope for <signal>. It is the one
+# real-world stop-line signal this repo has on file (multi_intersections.xodr
+# road196: head id=290 at s=0.0, stop line id=292 at s=4.0, both orientation
+# "-"). --stop-line-offset-a mirrors that asset's pattern so the paired-stop-line
+# code path (RouteSignalScan::FindPairedStopLine) has a discriminating fixture;
+# it is not a recommendation for how new OpenDRIVE assets should represent a
+# stop line in general.
+_STOP_LINE_TYPE    = "294"
+_STOP_LINE_COUNTRY = "OpenDRIVE"
+
 _JUNCTION_A_ID = 100
 _JUNCTION_B_ID = 200
 
@@ -87,12 +99,18 @@ def make_short_block_road(
     lanes: int,
     head_setback: float,
     head_offset: float,
+    stop_line_offset_a: float | None = None,
 ) -> xodr.OpenDrive:
     """Return an OpenDrive with two signalised T-junctions `block_length` apart.
 
     `head_setback` places junction A's head that far before the end of road 0;
     `head_offset` places junction B's head that far along road 2 (i.e. past
     junction A's exit).
+
+    `stop_line_offset_a`, when given, additionally places a type=294 stop-line
+    signal on road 0 that far before junction A's head (see _STOP_LINE_TYPE
+    above). None (the default) emits no stop-line signal at all -- the xodr is
+    then identical to a call without this parameter.
     """
     west = xodr.create_road(
         xodr.Line(leg_length), id=_R_WEST, left_lanes=lanes, right_lanes=lanes
@@ -195,6 +213,35 @@ def make_short_block_road(
         )
     )
 
+    if stop_line_offset_a is not None:
+        head_a_s = leg_length - head_setback
+        line_a_s = head_a_s - stop_line_offset_a
+        if line_a_s < 0.0:
+            raise ValueError(
+                f"stop_line_offset_a={stop_line_offset_a} places the stop line at "
+                f"s={line_a_s} < 0 on road {_R_WEST} (head at s={head_a_s})"
+            )
+        # t=0.0 (spans the carriageway), unlike the head's t=_LIGHT_T (mounted
+        # off to the side) -- mirrors multi_intersections.xodr road196, where
+        # head id=290 sits at t=5.3 and its paired stop line id=292 at t=0.0.
+        # No <validity>: an empty validity list applies to all lanes
+        # (RouteSignalScan::SignalAppliesToLane), same as the head above.
+        west.add_signal(
+            xodr.Signal(
+                s=line_a_s,
+                t=0.0,
+                country=_STOP_LINE_COUNTRY,
+                Type=_STOP_LINE_TYPE,
+                subtype="-1",
+                name="stop_line_junction_a",
+                dynamic=xodr.Dynamic.no,
+                orientation=xodr.Orientation.positive,
+                zOffset=0.0,
+                width=3.75,
+                height=0.03,
+            )
+        )
+
     return odr
 
 
@@ -244,6 +291,18 @@ def parse_args() -> argparse.Namespace:
         "exit). Default: 3.0.",
     )
     parser.add_argument(
+        "--stop-line-offset-a",
+        type=float,
+        default=None,
+        metavar="M",
+        help="Place an additional stop-line signal (type=294, country=OpenDRIVE, "
+        "dynamic=no) this far before junction A's head, on road 0. Mirrors the "
+        "one real-world stop-line signal in this repo (multi_intersections.xodr "
+        "road196: head-to-line = 4m) -- not an ASAM-defined pattern, see "
+        "docs/virtualdriver/design/stop_line_stop_target.md sec 1 / sec 14. "
+        "Default: disabled (no stop-line signal emitted; xodr unchanged).",
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=None,
@@ -266,6 +325,8 @@ def main() -> None:
     catalog_id = f"signalized_short_block__b{int(round(args.block_length))}"
     if args.lanes != 1:
         catalog_id += f"_l{args.lanes}"
+    if args.stop_line_offset_a is not None:
+        catalog_id += f"_sl{int(round(args.stop_line_offset_a))}"
 
     odr = make_short_block_road(
         block_length=args.block_length,
@@ -273,18 +334,33 @@ def main() -> None:
         lanes=args.lanes,
         head_setback=args.head_setback,
         head_offset=args.head_offset,
+        stop_line_offset_a=args.stop_line_offset_a,
     )
 
     xodr_path = out_dir / f"{catalog_id}.xodr"
     odr.write_xml(str(xodr_path))
     normalize_header_date(xodr_path, _PINNED_DATE)
+    if args.stop_line_offset_a is not None:
+        # scenariogeneration upper-cases every Signal `country=` string on
+        # write. Harmless for 2-letter ISO codes ("de" -> "DE" still matches
+        # the XSD's e_countryCode_iso3166alpha2 pattern), but it breaks the
+        # ASAM-defined e_countryCode_deprecated sentinel, whose only valid
+        # spelling is the exact-case literal "OpenDRIVE" (OpenDRIVE_Road.xsd
+        # e_countryCode_deprecated) -- "OPENDRIVE" matches neither that
+        # enumeration nor the 2/3-letter patterns. Restore the exact case
+        # post-write, the same idiom normalize_header_date already uses.
+        text = xodr_path.read_text(encoding="utf-8")
+        fixed = text.replace(f'country="{_STOP_LINE_COUNTRY.upper()}"', f'country="{_STOP_LINE_COUNTRY}"')
+        if fixed != text:
+            xodr_path.write_text(fixed, encoding="utf-8")
     print(f"[xodr] -> {xodr_path}  ({len(odr.roads)} roads, 2 junctions)")
 
     meta: dict = {
         "catalog_id": catalog_id,
         "kind": "road",
         "geometry_type": "G4+G4",
-        "signage": "traffic_light x2",
+        "signage": "traffic_light x2"
+        + (" + stop_line" if args.stop_line_offset_a is not None else ""),
         "layout": {
             "ego_path": [_R_WEST, _JUNCTION_A_ID, _R_BLOCK, _JUNCTION_B_ID, _R_EAST],
             "junction_a_id": _JUNCTION_A_ID,
@@ -308,6 +384,13 @@ def main() -> None:
         },
         "generated_at_commit": git_short_hash(),
     }
+    if args.stop_line_offset_a is not None:
+        meta["layout"]["stop_line_junction_a"] = {
+            "road": _R_WEST,
+            "s": (args.leg_length - args.head_setback) - args.stop_line_offset_a,
+            "offset_from_head": args.stop_line_offset_a,
+        }
+        meta["generator"]["params"]["stop_line_offset_a"] = args.stop_line_offset_a
     meta_path = out_dir / f"{catalog_id}.road.meta.yaml"
     write_meta_yaml(meta_path, meta)
     print(f"[meta] -> {meta_path}")

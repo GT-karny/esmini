@@ -189,6 +189,10 @@ param(
     [string]$HandoffBatch = "resources/xosc/verification/scenario_handoff_batch.yaml",
     [string]$HandoffOutDir = "test_results/regression/scenario_handoff",
     [string]$HandoffBaseline = "GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml",
+    [switch]$SkipStopLine,
+    [string]$StopLineBatch = "resources/xosc/verification/stop_line_pairing_batch.yaml",
+    [string]$StopLineOutDir = "test_results/regression/stop_line_pairing",
+    [string]$StopLineBaseline = "GT_esmini/test/regression_baseline/stop_line_pairing_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -738,6 +742,52 @@ if ($SkipBehavioral) {
         foreach ($m in $handoffMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
     } else {
         if (-not (Invoke-BehavioralBatch -Label "Step 2.8" -BatchPath $handoffBatchPath -OutPath $handoffOutPath -BaselinePath (Resolve-RepoPath $HandoffBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.9 - Stop-line pairing batch (reported gate, skippable)
+#
+# Same recipe as Steps 2 / 2.6 / 2.7 / 2.8 (shared Invoke-BehavioralBatch) on a
+# SEPARATE manifest + baseline. Covers the stop-line pairing discriminator
+# (docs/virtualdriver/design/stop_line_stop_target.md sec13): TrafficLightAware
+# and StopYieldSignAware must swap their margin-based stop target for a paired
+# stop-line signal (type=294) when one is found within the configured window
+# (tl_stop_line_window / sign_stop_line_window, both default ON). Both
+# scenarios here run at DEFAULT config; the falsifying kill-switch-OFF
+# measurement is recorded in each expectations.yaml's notes, not reachable
+# through this manifest (policies:[] only enables the policy, not the kill
+# switch -- same structural reason Steps 2.6/2.7/2.8 exist as separate steps
+# rather than more scenarios in Step 2: a red here names the broken claim
+# without opening the report).
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.9: Stop-line pairing batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipStopLine) {
+    Write-Host "==== Step 2.9: Stop-line pairing batch - SKIPPED (-SkipStopLine) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.9: Stop-line pairing batch (gt_sim_test) ====" -ForegroundColor Cyan
+
+    # Same prerequisites as Steps 2 / 2.6 / 2.7 / 2.8 (venv + Release DLL); reuse resolution.
+    $stopLineBatchPath = Resolve-RepoPath $StopLineBatch
+    $stopLineOutPath = Resolve-RepoPath $StopLineOutDir
+
+    $stopLineMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $stopLineMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $stopLineMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $stopLineBatchPath)) { $stopLineMissing += "batch manifest $stopLineBatchPath" }
+
+    if ($stopLineMissing.Count -gt 0) {
+        Write-Host "Step 2.9: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $stopLineMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.9" -BatchPath $stopLineBatchPath -OutPath $stopLineOutPath -BaselinePath (Resolve-RepoPath $StopLineBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
             $overallOk = $false
         }
     }
