@@ -41,9 +41,10 @@
 | 16 | `[GT_ODR:lane-layers]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、lanes 選択点) | ~:4093-4094 | 2 | **P8 1.9 レーンレイヤ対応**: `road_node.child("lanes")`(第 1 ノードのみ読取=第 2 `<lanes layer>` の黙殺、最後のサイレント欠落クラス)を `gt_esmini::odr::SelectLanesLayer(road_node, this)` の薄いデリゲートに置換。permanent モード(デフォルト)= permanent ノードを**無コピー・同一ノードで**返す(AddLane/SetGlobalId の DOM 反復順が完全不変 → レーングローバル ID 安定が構造的に自明)。temporary opt-in(env `GT_ODR_LANE_LAYERS=temporary`)= GT 側 `odr_side/OdrLaneLayers.cpp` が laneSection/laneOffset を s 範囲マージした合成 `<lanes>` DOM を返す(合成 document の寿命はインスタンス別サイドモデルが所有 — pending レジストリ→`OdrSideModel::merged_lanes_docs`)。設計判断 D1-D6 は §9 | しない(GT専用、上流 1.9 レイヤ未対応) |
 
 | 17 | `[GT_ODR:junc-connroad]`(×1) | `OpenDrive::ParseOpenDriveXML`(road ループ、link 節) | ~:4019-4023 | 5 | **誤警告修正(1.8 意味論追従漏れ、upstream バグ)**: 「connecting road {} in junction {} lacks successor/predesessor」WARN が `road/@junction != -1` だけを条件にしていた。ODR 1.6 では @junction は「**connecting road として**所属する junction の ID」だったが、**1.8 で「例えば connecting road、cross path、junction boundary road が所属する junction の ID」に緩められた**(1.9 `OpenDRIVE_Road.xsd` @junction の documentation)。crossPath road は `<crossPath><startLaneLink>/<endLaneLink>` で接続され(1.9 `OpenDRIVE_Junction.xsd` `t_junction_crossPath`: "the cross path itself is a separate road")、`<link>` successor/predecessor を**規格上持たなくてよい**ため、正当な 1.8 資産に誤警告が出ていた。条件を `gt_esmini::odr::IsConnectingRoad(node, rid_str)`(`<junction><connection @connectingRoad>` の DOM プリスキャン、実装は予算外の `odr_side/OdrJunctionExtras.cpp`)で肯定判定に置換。1.6 形式資産では「@junction != -1 の road は必ずどこかの @connectingRoad」のため**既存挙動はビット同一**。junction boundary road / direct junction にも同時に効く。再現資産: `test/odr_fixtures/handauthored/01_crossing_junction_18.xodr` | **PR-5**(高、明白な upstream バグ) |
+| 18 | `[GT_ODR:ctrl-clear]` | `OpenDrive::Clear()` | ~:3781-3782 | 2 | **状態リーク修正(upstream 同一コード)**: トップレベル `<controller>` 一覧(`controller_`、`std::vector<Controller>` 値保持)が `Clear()` から漏れていた。`ParseOpenDriveXML` は追記のみのため、同一プロセスで controller を持つ xodr(例 `multi_intersections.xodr`)→ 持たない xodr(例 `fabriksgatan_traffic_lights.xodr`)の順にロードすると、後者のロード後も前者の controller が `GetNumberOfControllers()` に残存する。`road_ids_`/`junction_ids_`/`dynamic_signals_` と同じ並びに `controller_.clear()` を追加。`Controller`/`Control`(hpp:3332-3373)はポインタを持たない値型のため解放漏れなし | 候補(pristine 側 `Clear()` も同一欠落、upstream 未報告) |
 
-- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 24**(hook×2 / country-rev×2 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×3 / repeat-cubics×1 / lane-layers×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 78(2026-07-21 +2: 明示マーカー化)**(古典 22 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 76`(ctest `MarkerCount` が本値をパース)。
-- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 92 / 150**(include 1 + country-rev 2 + junc-abort 3 + junc-connroad 5 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2 + 2026-07-13 bugfix 5、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 99`(古典 87 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 93`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
+- **`[GT_ODR:` マーカー出現数(非VJ古典パッチ): 25**(hook×2 / country-rev×2 / junc-abort×1 / junc-connroad×1 / obj-roadsurface×1 / lane-types×1 / tl-gate×2 / sig-pos×3 / sig-ref×2 / sig-lanes-guard×1 / direct-junc-log×1 / junc-crossing×2 / curvelocal×3 / repeat-cubics×1 / lane-layers×1 / ctrl-clear×1)+ CMake 側 `[GT_ODR:cmake]`×2 箇所。**全 `[GT_ODR:` リテラル総数 = 79(2026-07-21 +2: 明示マーカー化; 2026-08-02 +1: ctrl-clear)**(古典 25 + vj-* 54)。機械真実源は §7 マニフェスト `fork_odr_marker_total: 79`(ctest `MarkerCount` が本値をパース)。
+- **フォーク追加/変更行数(非VJ古典パッチ、フォーク vs pristine-FILE): 94 / 150**(include 1 + country-rev 2 + junc-abort 3 + junc-connroad 5 + hook 5 + obj-roadsurface 5 + lane-types 4 + tl-gate 9 + sig-pos 9 + sig-ref 9 + sig-lanes-guard 9 + direct-junc-log 5 + junc-crossing 9 + curvelocal 12 + repeat-cubics 3 + lane-layers 2 + ctrl-clear 2) — P3 追加 27 + クラッシュ修正パス 14 + P5 追加 13 + P7 追加 15 + P8 追加 2 + 2026-07-13 bugfix 5 + 2026-08-02 bugfix 2、v3.4.1 resync で lane-types −1(curb 撤去)。**P6 リコンサイルで junc-crossing 13→9**(vj-parse-junction オーバーラップで 3 行が residual へ再帰属 + 1 行が snapshot 一致、§7 参照)。**機械真実源は §7 マニフェスト**: `fork_odr_expect_lines: 106`(古典 94 + vj residual 12、フォーク vs upstream スナップショット)/ `fork_odr_drift_expect_lines: 100`(check_fork_drift、フォーク vs 現 pristine-FILE)。いずれも `check_core_census.py` / `check_fork_drift.py` で実測(算術ではなく機械測定)。
 - 事前承認済みコンティンジェンシー残(未使用): **lane-border フォールバック ~8 は P2 で不使用のまま温存** — border→width 正規化は公開 `Lane::AddLaneWidth` 経由で GT 側(`odr_side/OdrLaneExtras.cpp` の `ApplyBorderWidths`)に実装。既存フック呼び出し `BuildSideModel(doc, this)` が P2 新設の型付きオーバーロード(`roadmanager::OpenDrive*`)へ **exact match で自動束縛**されるため、フォーク改変ゼロで実現。/ P6 分割ヘルパー ~25 / lane @direction ~25
 
 ## 2. 挙動影響(P1 検証で証明)
@@ -118,14 +119,15 @@
 version: 1
 baseline_upstream_tag: v3.4.1            # re-recorded at the v3.4.1 resync (2026-07-08, merge d7d7e20d); snapshots written byte-exact from `git cat-file blob v3.4.1:<path>` (RoadManager.cpp + OSIReporter.cpp changed; other 4 blobs identical to v3.4.0)
 # --- ctest simple-parse keys (keep exactly these key names, one per line) ---
-fork_odr_marker_total: 78           # literal "[GT_ODR:" count in the fork. 2026-07-21 +2 (clang-format-15 準拠化で diff hunk が分離した行への明示マーカー: country-rev if行 + curvelocal for行). S2: +12; S3: +9; S4: +25 mirrored;
+fork_odr_marker_total: 79           # literal "[GT_ODR:" count in the fork. 2026-07-21 +2 (clang-format-15 準拠化で diff hunk が分離した行への明示マーカー: country-rev if行 + curvelocal for行). S2: +12; S3: +9; S4: +25 mirrored;
                                     # S5: +8 (vj-lanes/vj-enter/vj-move begin+end ×2 each + the 4th vj-connect block).
                                     # P6-reconcile: +4 = P7 curvelocal(×2)+repeat-cubics(×1) + P8 lane-layers(×1)
                                     # merged from dev_v0.12 (measured literal count = 75).
                                     # 2026-07-13 bugfix: +1 = junc-connroad(×1). MEASURED literal count = 76.
+                                    # 2026-08-02 bugfix: +1 = ctrl-clear(×1, OpenDrive::Clear() controller_ leak). MEASURED literal count = 79.
 fork_lht_marker_min: 1
 cmake_marker_total: 2
-fork_odr_expect_lines: 104          # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 92) + residuals (12).
+fork_odr_expect_lines: 106          # fork-vs-pristine-snapshot 1st-class lines = sum(fork marker_census 92) + residuals (12).
                                     # v3.4.1 resync: 100 -> 99 (lane-types curb line retired, handled-by-upstream). MEASURED.
                                     # S2 note: 75 -> 74 because the vj overlap re-aligned the junc-crossing dispatch diff
                                     # (13 -> 9; 3 lines re-attributed to vj-parse-junction as the recorded residual, 1 line
@@ -136,8 +138,10 @@ fork_odr_expect_lines: 104          # fork-vs-pristine-snapshot 1st-class lines 
                                     # +repeat-cubics 3 +lane-layers 2, P7/P8 merged from dev_v0.12) + residuals 12.
                                     # MEASURED via check_core_census.py (not arithmetic): fork-only census sum 88 + 12 = 100 <= 150.
                                     # 2026-07-13 bugfix note: 99 -> 104 = +5 junc-connroad (crossPath false-warning fix). MEASURED.
-fork_odr_drift_expect_lines: 98     # v3.4.1 resync: 94 -> 93 (curb retired). 2026-07-13 bugfix: 93 -> 98 (+5
+                                    # 2026-08-02 bugfix note: 104 -> 106 = +2 ctrl-clear (OpenDrive::Clear() controller_ leak fix). MEASURED.
+fork_odr_drift_expect_lines: 100    # v3.4.1 resync: 94 -> 93 (curb retired). 2026-07-13 bugfix: 93 -> 98 (+5
                                     # junc-connroad, fork-only -> fully visible to the file diff). MEASURED via check_fork_drift.py.
+                                    # 2026-08-02 bugfix: 98 -> 100 (+2 ctrl-clear, fork-only -> fully visible to the file diff). MEASURED.
                                     # LEGACY metric (check_fork_drift.py): fork-vs-CURRENT-pristine-FILE [GT_ODR:] nonblank
                                     # lines. Differs from fork_odr_expect_lines because mirrored vj hunks (vj-move/vj-enter/
                                     # vj-connect/vj-parse-*/vj-synth/vj-path/vj-route + the SHARED 15 pristine vj-lanes lines)
@@ -262,6 +266,10 @@ fork_file:
                         # <outline> sibling-by-name for-loop, one diff block below the marker comment). MEASURED.
     repeat-cubics: 3    # P7 (merged): AdjustRepeatInstancePose insertion + comment, single marker. MEASURED.
     lane-layers: 2      # P8 (merged): road_node.child("lanes") -> SelectLanesLayer delegate + marker. MEASURED.
+    ctrl-clear: 2       # 2026-08-02 bugfix: OpenDrive::Clear() never dropped controller_ (top-level <controller>
+                        # list, std::vector<Controller> value-held) -- ParseOpenDriveXML is additive, so a
+                        # same-process reload left the previous file's controllers stacking. Comment line +
+                        # controller_.clear();. MEASURED.
   lht_census: 117       # MEASURED. The [GT_LHT] bucket is the fork-ONLY patch bucket (not all of it is
                         # literally about left-hand traffic). Current members:
                         #   1-A MoveToConnectingRoad/GetRoadConnectionByIdx lane-section pick (see S5 note below)
@@ -451,3 +459,11 @@ exclusions: []
 - **companion テスト期待値**: upstream `01dbcf12` "Update testcases for updates OSI point calculations" の Unittest 3 ファイル+ test/smoke_test.py ハンクを逐語適用(無関係な新規 create_curb_parking.py は除外)。実測値が upstream 新期待値と完全一致(例: MixedRoadsFixture.OSIPointTest Point(4).x 17.6344)= port が upstream と同一挙動である証拠。
 - **skip 解除**: `OSITunnelTestFixture.TestOSIBrokenRoadmarkCurve` を run_tests.sh の SCENARIOPLAYER_SKIP から除去(当初 CI 失敗は同一バイナリ内の先行 OSI outline テストクラッシュ汚染の可能性が高く、単独では port 前後とも PASS — run_tests.sh コメント参照)。
 - **ゴールデン**: conformance quick = PASS 190 / FAIL 0 / XFAIL 3 / XPASS 0(再基準化ゼロ — RM probe/motion ゴールデンは OSI point pivot 修正の影響外)。
+
+## 11. controller_ 状態リーク修正(2026-08-02)
+
+**フォーク追加行数: +2 / 150(104 → 106)。** `OpenDrive::Clear()` は `road_ids_` / `junction_ids_` / `dynamic_signals_` / `road_` / `junction_` / `virtual_junction_anchors_` をクリアする一方、トップレベル `<controller>` 一覧(`controller_`)を見落としていた(pristine 側 `Clear()` も同一欠落 = upstream 同一コード)。`ParseOpenDriveXML` は追記のみのため、同一プロセスで controller を持つ xodr(例 `multi_intersections.xodr`、23 個)→ 持たない xodr(例 `fabriksgatan_traffic_lights.xodr`、0 個のはず)の順にロードすると、後者のロード後も `GetNumberOfControllers()` が前者の値を返し続ける。`Controller`/`Control`(hpp:3332-3373)はポインタを持たない値型(id_t/string/int/`vector<Control>`)のため `controller_.clear()` のみで解放は完了する。
+
+- **ミラー判定**: フォーク限定(`[GT_ODR:ctrl-clear]`、pristine 側 `RoadManager.cpp` は無改変)。根拠: 本ファイル §1 の非VJ古典パッチ(P1-P9b、17 件)は全てフォーク限定であり、pristine 側への in-place ミラーは vj-* ファミリ(P6 virtual junction、2026-07-04 ユーザー承認の R1 緩和)にのみ適用される既定の例外。`check_core_census.py` の二側センサスも新規マーカーをフォーク限定のまま許容する設計(pristine 側未宣言 = 期待値 0、`_expected_fork_census`)。`Clear()` に既存する `[GT_ODR:vj-synth]`(`virtual_junction_anchors_` の解放)は本パッチと無関係な別ハンク。
+- **波及**: `GT_esmini/src/scenario/TrafficSignalController.cpp::ResolveFromODRController`(名前一致で最初の controller を採用、`break` あり)と `GT_esmini/src/control/virtualdriver/policies/SignalJunctionResolver.cpp` の経路(a)(controller チェーン)は、プロセス内バッチ実行で前シナリオの controller/junction 対応に誤結合しうる構造だった。後者には `OpenDrive::GetJunctionById()` による存在確認を追加(解決先が現在の world に実在しなければ経路(c)/(b)へフォールバック)。
+- **回帰**: `GT_esmini/test/unit/road/test_OdrForkPatches.cpp` の `ClearDropsControllersAcrossReload`(実資産の実ロード順で再現)。`GT_esmini/test/unit/virtualdriver/test_SignalJunctionResolver.cpp` の既存前提アサーション `GetNumberOfControllers() == 0`(3 件)もこの欠陥を捕まえていた検知器であり、本修正で green に復帰する(前提アサーション自体は変更していない)。

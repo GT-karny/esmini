@@ -702,3 +702,26 @@ TEST(OdrForkPatches, SignalBeyondRoadLengthSurvives)
     EXPECT_TRUE(sig->GetAllValidGlobalLanes().empty()) << "no valid lanes assigned for the malformed signal";
     roadmanager::Position::GetOpenDrive()->Clear();
 }
+
+// 10. [GT_ODR:ctrl-clear]: OpenDrive::Clear() must drop controller_ (the top-level <controller>
+//     list). ParseOpenDriveXML only ever appends to it, so without this fix the previous file's
+//     controllers survive a same-process reload -- reproduces the exact sequence that surfaced the
+//     defect (test_SignalJunctionResolver.cpp's ResolveSignalJunction tests failing their
+//     GetNumberOfControllers()==0 precondition because the count stayed at the prior file's value).
+TEST(OdrForkPatches, ClearDropsControllersAcrossReload)
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE(root.empty()) << "GT_ODR_REPO_ROOT not defined";
+
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    ASSERT_TRUE(LoadXodr(root + "/resources/xodr/multi_intersections.xodr"));
+    ASSERT_GT(odr->GetNumberOfControllers(), 0u)
+        << "multi_intersections.xodr must carry <controller> elements for this regression to mean anything";
+
+    ASSERT_TRUE(LoadXodr(root + "/resources/xodr/fabriksgatan_traffic_lights.xodr"));
+    EXPECT_EQ(odr->GetNumberOfControllers(), 0u)
+        << "OpenDrive::Clear() must drop controller_ -- a controller-less reload must not inherit the "
+           "previous file's controllers (without the fix this stays at the prior file's controller count)";
+
+    roadmanager::Position::GetOpenDrive()->Clear();
+}
