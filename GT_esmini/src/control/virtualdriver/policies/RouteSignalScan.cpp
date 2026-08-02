@@ -2,6 +2,7 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/virtualdriver/policies/StopLineSignalCatalog.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"
 
 #include <algorithm>
@@ -116,7 +117,13 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object*                         ego,
             const gt_esmini::odr::OdrSignalExtras* sx = gt_esmini::odr::GetSignalExtras(odr, sig);
             if (sx != nullptr && sx->invalidated) continue;
 
-            out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from))});
+            // GetCountry() is already lowercase (XML load normalizes it); no re-normalization here.
+            const std::string country = sig->GetCountry();
+            LoadStopLineCatalog(country);
+            const bool is_stop_line =
+                ClassifyStopLineType(GetStopLineCatalog(), country, sig->GetType(), sig->GetSubType()) == StopLineKind::STOP_LINE;
+
+            out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from)), is_stop_line});
         }
     };
 
@@ -207,6 +214,33 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object*                         ego,
     std::sort(out.begin(), out.end(),
               [](const ScannedSignal& a, const ScannedSignal& b) { return a.distance_ahead < b.distance_ahead; });
     return out;
+}
+
+std::optional<size_t> FindPairedStopLine(const std::vector<ScannedSignal>& signals, std::size_t anchor_index, double window)
+{
+    if (anchor_index >= signals.size()) return std::nullopt;
+
+    const double anchor_dist = signals[anchor_index].distance_ahead;
+
+    std::optional<size_t> best;
+    double best_dist = -std::numeric_limits<double>::infinity();
+
+    for (std::size_t i = 0; i < signals.size(); ++i)
+    {
+        if (i == anchor_index || !signals[i].is_stop_line) continue;
+
+        const double dist = signals[i].distance_ahead;
+        if (dist > anchor_dist) continue;           // never pair with something farther ahead than the anchor
+        if (anchor_dist - dist > window) continue;  // outside the pairing window
+
+        if (dist > best_dist)  // nearer to the anchor than the current best
+        {
+            best_dist = dist;
+            best      = i;
+        }
+    }
+
+    return best;
 }
 
 }  // namespace gt_esmini

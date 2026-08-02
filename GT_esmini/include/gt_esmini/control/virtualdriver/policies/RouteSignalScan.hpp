@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <optional>
 #include <vector>
 
 #include "gt_esmini/control/virtualdriver/policies/JunctionStopGuard.hpp"
@@ -21,6 +23,7 @@ struct ScannedSignal
 {
     roadmanager::Signal* signal         = nullptr;
     double               distance_ahead = 0.0;  // [m] along the route from the ego
+    bool                 is_stop_line   = false;  // StopLineSignalCatalog classification of this signal
 };
 
 // Walk the ego's route forward (Duplicate + CopyRoute + MoveAlongS, the same
@@ -45,5 +48,13 @@ std::vector<ScannedSignal> ScanSignalsAhead(scenarioengine::Object*         ego,
                                             double                          lookahead,
                                             double                          step           = 2.0,
                                             std::vector<RouteJunctionSpan>* junction_spans = nullptr);
+
+// Pure: signals is distance-ascending (ScanSignalsAhead's output). Pairs
+// signals[anchor_index] (a governing head or STOP sign) with the is_stop_line
+// entry nearest to it that is at or before its distance_ahead and within
+// `window` of it; nullopt if none qualifies (out-of-range anchor_index included).
+std::optional<size_t> FindPairedStopLine(const std::vector<ScannedSignal>& signals,
+                                         std::size_t                       anchor_index,
+                                         double                            window);
 
 }  // namespace gt_esmini
