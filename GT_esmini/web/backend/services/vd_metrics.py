@@ -1517,6 +1517,165 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         detail = f"no AEB emergency constraint over {len(gated)} frames -> pass"
         return res("pass", detail)
 
+    if kind == "route_lane_plan_holds":
+        # vd-func:FUNC-050 (レーンレベル経路計画) / RouteLanePlan.hpp conformance.
+        # Reads telemetry.route_lane (VirtualDriverTelemetryJson.cpp's additive
+        # "route_lane" block: valid/road_id/ego_lane/ego_lane_raw/target_lanes/
+        # on_target_lane/dist_to_connection/deviation_count/
+        # last_deviation_road_id/rerouted/diagnostic/reason -- see
+        # docs/virtualdriver/design/route_lane_plan_design.md). Every expect_*
+        # key below is independently OPTIONAL -- same "check only what the
+        # caller asked for" contract as domain_split_holds above -- so a must
+        # entry naming NONE of them is refused (skip, not pass): a matcher
+        # that checks nothing must never report pass (this is the same
+        # discipline as the "nothing evaluated is not a pass" F7 hardening on
+        # assert_expectations, below, one layer further down / per-signal
+        # rather than per-scenario).
+        #
+        #   expect_diagnostic     str  : every gated frame's diagnostic == this
+        #   expect_rerouted       bool : every gated frame's rerouted == this
+        #   expect_target_lanes   list : >=1 gated frame's target_lanes,
+        #                                sorted, == sorted(this)
+        #   expect_on_target_lane bool : >=1 gated frame's on_target_lane == this
+        #   min_deviations        int  : LAST gated frame's deviation_count >= this
+        #   window: [t0, t1]           : optional sim_time gate (default: all frames)
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        # route_lane is an additive telemetry block that postdates this
+        # scenario's baseline captures: a frame dict simply omits the key on a
+        # DLL built before RouteLanePlan was wired in. Absence must surface as
+        # needs-review (via skip -> the assert_expectations rollup), never as
+        # a silent pass -- the same "zero evaluated is not a pass" discipline
+        # as the F7 hardening below, applied per-signal instead of
+        # per-scenario.
+        with_block = [i for i in gated if isinstance(frames[i].get("route_lane"), dict)]
+        if not with_block:
+            return res(
+                "skip",
+                "no frame in the gated window carries a route_lane block -- "
+                "stale GT_esminiLib.dll (predates RouteLanePlan telemetry) or "
+                "the feature is not wired into this run",
+            )
+
+        checks = [
+            k
+            for k in (
+                "expect_diagnostic",
+                "expect_rerouted",
+                "expect_target_lanes",
+                "expect_on_target_lane",
+                "min_deviations",
+            )
+            if k in must
+        ]
+        if not checks:
+            return res(
+                "skip",
+                "must entry names none of expect_diagnostic/expect_rerouted/"
+                "expect_target_lanes/expect_on_target_lane/min_deviations -- "
+                "a matcher that checks nothing must not report pass",
+            )
+
+        # 1. diagnostic is plan-level and must hold on EVERY gated frame that
+        # carries the block (it is a static property of the cached plan, not a
+        # per-frame match outcome).
+        if "expect_diagnostic" in must:
+            want = must["expect_diagnostic"]
+            offenders = [
+                i for i in with_block if frames[i]["route_lane"].get("diagnostic") != want
+            ]
+            if offenders:
+                i0 = offenders[0]
+                got = frames[i0]["route_lane"].get("diagnostic")
+                return res(
+                    "fail",
+                    f"diagnostic == {got!r} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want {want!r} on every frame)",
+                    i0,
+                )
+
+        # 2. rerouted is likewise plan-level: every gated frame must agree.
+        if "expect_rerouted" in must:
+            want = bool(must["expect_rerouted"])
+            offenders = [
+                i for i in with_block if bool(frames[i]["route_lane"].get("rerouted")) != want
+            ]
+            if offenders:
+                i0 = offenders[0]
+                got = bool(frames[i0]["route_lane"].get("rerouted"))
+                return res(
+                    "fail",
+                    f"rerouted == {got} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want {want} on every frame)",
+                    i0,
+                )
+
+        # 3. target_lanes is the band for whichever road the ego is currently
+        # matched against, so it legitimately varies frame to frame (a new
+        # road -> a new band, or no band at all off-plan) -- an EXISTS check,
+        # not an ALL check.
+        if "expect_target_lanes" in must:
+            want = sorted(must["expect_target_lanes"])
+            found = any(
+                sorted(frames[i]["route_lane"].get("target_lanes") or []) == want
+                for i in with_block
+            )
+            if not found:
+                i0 = with_block[-1]
+                got = sorted(frames[i0]["route_lane"].get("target_lanes") or [])
+                return res(
+                    "fail",
+                    f"no gated frame had target_lanes (sorted) == {want}; "
+                    f"last observed {got} at t={frames[i0]['sim_time']:.2f}",
+                    i0,
+                )
+
+        # 4. on_target_lane: likewise an EXISTS check (it tracks target_lanes,
+        # which varies with the matched road).
+        if "expect_on_target_lane" in must:
+            want = bool(must["expect_on_target_lane"])
+            found = any(
+                bool(frames[i]["route_lane"].get("on_target_lane")) == want
+                for i in with_block
+            )
+            if not found:
+                i0 = with_block[-1]
+                got = bool(frames[i0]["route_lane"].get("on_target_lane"))
+                return res(
+                    "fail",
+                    f"no gated frame observed on_target_lane == {want} "
+                    f"(last observed {got} at t={frames[i0]['sim_time']:.2f})",
+                    i0,
+                )
+
+        # 5. deviation_count is a cumulative counter (ControllerVirtualDriver's
+        # route_lane_deviations_) -- only the LAST gated frame's value is
+        # meaningful; it is a running total, not a per-frame condition.
+        if "min_deviations" in must:
+            want = int(must["min_deviations"])
+            i0 = with_block[-1]
+            got = int(frames[i0]["route_lane"].get("deviation_count", 0))
+            if got < want:
+                return res(
+                    "fail",
+                    f"final deviation_count = {got} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want >= {want})",
+                    i0,
+                )
+
+        detail = (
+            f"route_lane_plan_holds: {len(checks)} check(s) held over "
+            f"{len(with_block)}/{len(gated)} gated frame(s)"
+        )
+        return res("pass", detail)
+
     return {
         "event": kind,
         "status": "skip",

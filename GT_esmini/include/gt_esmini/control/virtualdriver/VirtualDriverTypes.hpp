@@ -187,6 +187,41 @@ struct FrontBumperSnapshot
     bool   valid   = false; // false if localization failed (off-road / no road loaded)
 };
 
+// RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) telemetry -- per-frame
+// "is the ego on a lane that still leads to the route's destination" diagnostic.
+// That layer answers a gap Route::AddWaypoint leaves open: a route can report
+// success while requiring a lane change its own target lane never actually
+// receives (see RouteLanePlan.hpp's header comment for the RoadPath::Calculate
+// detail this recovers from).
+//
+// Deliberately typed with plain int (not id_t) so this header keeps its
+// engine-independent, header-only property (see this file's own header comment
+// above) -- the controller converts RouteLanePlan.hpp's id_t fields into these
+// when it populates the snapshot (-1 stands in for id_t's ID_UNDEFINED).
+//
+// valid/road_id/ego_lane*/target_lanes/on_target_lane/dist_to_connection mirror
+// a single frame's RouteLaneStatus match against the plan; diagnostic/rerouted
+// mirror the RouteLanePlan itself (rebuilt only when the route actually
+// changes, not every frame); deviation_count/last_deviation_road_id are the
+// controller's OWN running tally of "left a road while off its target lane(s)"
+// events -- neither pure function produces those, since counting requires
+// state that persists across frames.
+struct RouteLanePlanSnapshot
+{
+    bool             valid                  = false;
+    int              road_id                = -1;
+    int              ego_lane               = 0;     // current lane, normalized to the connecting end
+    int              ego_lane_raw           = 0;      // before normalization
+    std::vector<int> target_lanes;                    // lanes the ego must occupy on the current road
+    bool             on_target_lane         = false;
+    double           dist_to_connection     = -1.0;   // [m] to the next connection point; -1 = unknown
+    int              deviation_count        = 0;      // cumulative "left road off-target" events
+    int              last_deviation_road_id = -1;     // road the most recent deviation occurred on
+    bool             rerouted               = false;  // plan resolved via the LaneIndependentRouter recovery pass
+    std::string      diagnostic;                      // plan-side diagnosis; "" = normal
+    std::string      reason;                          // match-side reason; "" = normal
+};
+
 // Aggregate telemetry, exposed via GT_GetVirtualDriverTelemetry().
 struct VirtualDriverTelemetry
 {
@@ -382,6 +417,7 @@ struct VirtualDriverTelemetry
     IndicatorSnapshot      indicator;
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
     ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
+    RouteLanePlanSnapshot  route_lane;    // RouteLanePlan.hpp: route-lane conformance diagnostic
 };
 
 }  // namespace gt_esmini

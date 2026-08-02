@@ -232,7 +232,32 @@ std::string ToJson(const VirtualDriverTelemetry& t)
         if (i) os << ",";
         os << "\"" << t.policy.detail[i].first << "\":\"" << t.policy.detail[i].second << "\"";
     }
-    os << "}}}";
+    os << "}}";
+
+    // RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) -- route-lane
+    // conformance diagnostic. Additive top-level block; consumers that predate it
+    // simply ignore it. diagnostic/reason are the two fields to read first ("" ==
+    // normal on both).
+    os << ",\"route_lane\":{\"valid\":" << b(t.route_lane.valid)
+       << ",\"road_id\":" << t.route_lane.road_id
+       << ",\"ego_lane\":" << t.route_lane.ego_lane
+       << ",\"ego_lane_raw\":" << t.route_lane.ego_lane_raw
+       << ",\"target_lanes\":[";
+    for (size_t i = 0; i < t.route_lane.target_lanes.size(); ++i)
+    {
+        if (i) os << ",";
+        os << t.route_lane.target_lanes[i];
+    }
+    os << "]"
+       << ",\"on_target_lane\":" << b(t.route_lane.on_target_lane)
+       << ",\"dist_to_connection\":" << t.route_lane.dist_to_connection
+       << ",\"deviation_count\":" << t.route_lane.deviation_count
+       << ",\"last_deviation_road_id\":" << t.route_lane.last_deviation_road_id
+       << ",\"rerouted\":" << b(t.route_lane.rerouted)
+       << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
+       << ",\"reason\":\"" << t.route_lane.reason << "\"}";
+
+    os << "}";
 
     return os.str();
 }

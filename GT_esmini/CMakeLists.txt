@@ -122,6 +122,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdasFunctionReport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/RouteLanePlan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteSignalScan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteCrosswalkScan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/JunctionStopGuard.cpp
@@ -202,6 +203,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/RouteLanePlan.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/RouteSignalScan.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/RouteCrosswalkScan.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/JunctionStopGuard.hpp

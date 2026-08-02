@@ -10,8 +10,11 @@
 #include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
+#include "gt_esmini/control/virtualdriver/RouteLanePlan.hpp"
 #include "osi_hostvehicledata.pb.h"
 
+#include <cstddef>
+#include <string>
 #include <vector>
 
 #define CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME "VirtualDriverController"
@@ -218,6 +221,26 @@ private:
     // that action's lifetime (see DetectManeuverDir).
     const void* lane_change_action_id_ = nullptr;
     int         lane_change_dir_       = 0;
+
+    // RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) -- per-frame "is the
+    // ego on a lane that still leads to the route's destination" diagnostic. See
+    // Step() for the evaluation and telemetry_.route_lane for the published
+    // snapshot; route_lane_plan_ itself is rebuilt only when the route changes
+    // (route_lane_cache_route_/route_lane_cache_hash_ below), not every frame.
+    RouteLanePlan route_lane_plan_;
+    const void*   route_lane_cache_route_ = nullptr;  // Route* identity the plan was built from
+    size_t        route_lane_cache_hash_  = 0;        // hash of the route's (track,lane) waypoint skeleton
+    bool          route_lane_warned_      = false;    // whether the CURRENT diagnostic has been logged
+    std::string   route_lane_warned_reason_;          // the diagnostic value that was last logged
+
+    // Previous frame's road/lane match, kept for the deviation check (did the ego
+    // just leave a road it was off its target lane(s) on) and its log message.
+    id_t             route_lane_prev_road_ = ID_UNDEFINED;
+    int              route_lane_prev_lane_ = 0;
+    std::vector<int> route_lane_prev_target_lanes_;
+    bool             route_lane_prev_on_target_ = true;
+    int              route_lane_deviations_      = 0;
+    id_t             route_lane_last_dev_road_   = ID_UNDEFINED;
 };
 
 scenarioengine::Controller* InstantiateControllerVirtualDriver(void* args);

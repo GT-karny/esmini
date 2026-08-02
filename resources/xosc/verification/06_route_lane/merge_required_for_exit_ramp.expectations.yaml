@@ -1,0 +1,44 @@
+scenario: merge_required_for_exit_ramp
+category: 06_route_lane
+# RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) covering the coarse
+# 2-Waypoint form of the same route as route_valid_off_target_lane_for_exit_ramp:
+# road0/-1/s=10 -> road2/-1/s=40, with no connecting-road Waypoint.
+#
+# esmini cannot bridge this pair. Lane -1 has no <laneLink> into connectingRoad 4
+# at junction 1, so RoadPath::Calculate's Dijkstra never reaches road 2:
+#   [warn] Route::AddWaypoint Skip waypoint for scenario routes since path not found
+#   [warn] Warning: Route ego_route is not valid, will be ignored for the default controller
+# The route is discarded and the ego drives straight in lane -1 for the whole run.
+#
+# Those two WARNs were always emitted -- but nothing in the VD consumed them, so a
+# discarded route was only observable as downstream driving behaviour. This
+# scenario pins that the VD now reports it: BuildRouteLanePlan() checks
+# Route::IsValid() first and short-circuits to diagnostic=="invalid_route", which
+# reaches both the log (once, latched) and every telemetry frame.
+must:
+  - event: route_lane_plan_holds
+    expect_diagnostic: "invalid_route"
+    expect_rerouted: false
+    expect_target_lanes: []
+    expect_on_target_lane: false
+    reason: >
+      An invalid route short-circuits before any lane-band computation, so every
+      frame reads diagnostic=="invalid_route" with no bands. expect_target_lanes:
+      [] guards against the invalid-route branch leaking a phantom band; rerouted
+      must stay false because the LaneIndependentRouter pass is only attempted
+      after a "lane_discontinuity", never for an already-invalid route.
+notes: >
+  Measured (560 frames, dt=0.05, GT_esminiLib.dll with route_lane telemetry): every
+  frame reads diagnostic="invalid_route", reason="no_plan", target_lanes=[],
+  rerouted=false, deviation_count=0. Exactly one VD warning is logged:
+
+    [0.000] [warn] VirtualDriver RouteLanePlan: invalid_route — target-lane
+            guidance unavailable, continuing with position-based lane keeping
+
+  The warning count matters as much as its content: an earlier wiring had the
+  cache keyed on a per-frame route clone, which re-armed the latch every step and
+  emitted this line 560 times (see route_lane_plan_design.md §4-5). If this
+  scenario ever starts flooding the log again, that is the regression.
+
+  deviation_count is deliberately not asserted: with target_lanes always empty the
+  deviation gate cannot fire, so it follows from expect_target_lanes: [] above.

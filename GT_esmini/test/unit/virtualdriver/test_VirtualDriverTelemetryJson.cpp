@@ -103,3 +103,51 @@ TEST(VirtualDriverTelemetryJson, EveryTierHasADistinctName)
         EXPECT_TRUE(Contains(ToJson(t), std::string("\"tier\":\"") + c.name + "\"")) << c.name;
     }
 }
+
+// RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp): the ego's per-frame
+// road/lane match against the route's lane plan. Pins the full field set into
+// the contract -- in particular that target_lanes serializes as a JSON array
+// (a dropped loop there would silently ship an always-empty array) and that
+// diagnostic/on_target_lane -- the two fields a consumer reads first -- survive.
+TEST(VirtualDriverTelemetryJson, RouteLaneSnapshotIsSerialized)
+{
+    VirtualDriverTelemetry t;
+    t.route_lane.valid                  = true;
+    t.route_lane.road_id                = 42;
+    t.route_lane.ego_lane               = -1;
+    t.route_lane.ego_lane_raw           = -2;
+    t.route_lane.target_lanes           = {-1, -2};
+    t.route_lane.on_target_lane         = false;
+    t.route_lane.dist_to_connection     = 12.5;
+    t.route_lane.deviation_count        = 3;
+    t.route_lane.last_deviation_road_id = 7;
+    t.route_lane.rerouted               = true;
+    t.route_lane.diagnostic             = "lane_discontinuity";
+    t.route_lane.reason                 = "off_plan_road";
+
+    const std::string json = ToJson(t);
+
+    EXPECT_TRUE(Contains(json, "\"route_lane\":{\"valid\":true")) << json;
+    EXPECT_TRUE(Contains(json, "\"road_id\":42")) << json;
+    EXPECT_TRUE(Contains(json, "\"ego_lane\":-1")) << json;
+    EXPECT_TRUE(Contains(json, "\"ego_lane_raw\":-2")) << json;
+    EXPECT_TRUE(Contains(json, "\"target_lanes\":[-1,-2]")) << json;
+    EXPECT_TRUE(Contains(json, "\"on_target_lane\":false")) << json;
+    EXPECT_TRUE(Contains(json, "\"dist_to_connection\":12.5")) << json;
+    EXPECT_TRUE(Contains(json, "\"deviation_count\":3")) << json;
+    EXPECT_TRUE(Contains(json, "\"last_deviation_road_id\":7")) << json;
+    EXPECT_TRUE(Contains(json, "\"rerouted\":true")) << json;
+    EXPECT_TRUE(Contains(json, "\"diagnostic\":\"lane_discontinuity\"")) << json;
+    EXPECT_TRUE(Contains(json, "\"reason\":\"off_plan_road\"")) << json;
+}
+
+TEST(VirtualDriverTelemetryJson, RouteLaneSnapshotDefaultsSerializeEmptyTargetLanesAndDiagnostic)
+{
+    VirtualDriverTelemetry t;  // route_lane left at its defaults (valid=false, target_lanes={}, diagnostic="")
+
+    const std::string json = ToJson(t);
+
+    EXPECT_TRUE(Contains(json, "\"target_lanes\":[]")) << json;
+    EXPECT_TRUE(Contains(json, "\"diagnostic\":\"\"")) << json;
+    EXPECT_TRUE(Contains(json, "\"reason\":\"\"")) << json;
+}

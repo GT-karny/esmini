@@ -36,6 +36,8 @@
 #include "logger.hpp"
 
 #include <cmath>
+#include <cstddef>
+#include <functional>
 #include <memory>
 
 using namespace scenarioengine;
@@ -409,6 +411,25 @@ void ControllerVirtualDriver::Deactivate()
     Controller::Deactivate();
 }
 
+namespace
+{
+// Cheap "did the route change" cache key for the RouteLanePlan rebuild in Step()
+// below: the route's resolved (track,lane) waypoint skeleton, combined into one
+// hash. Not cryptographic -- a collision only costs one stale frame, since the
+// OTHER half of the cache key (the Route* identity) still normally changes
+// whenever the route itself does.
+std::size_t HashRouteLaneWaypoints(const std::vector<roadmanager::Position>& waypoints)
+{
+    std::size_t seed = waypoints.size();
+    for (const roadmanager::Position& wp : waypoints)
+    {
+        seed ^= std::hash<id_t>{}(wp.GetTrackId()) + 0x9e3779b9U + (seed << 6) + (seed >> 2);
+        seed ^= std::hash<int>{}(wp.GetLaneId()) + 0x9e3779b9U + (seed << 6) + (seed >> 2);
+    }
+    return seed;
+}
+}  // namespace
+
 void ControllerVirtualDriver::Step(double timeStep)
 {
     if (!object_) return;
@@ -598,6 +619,138 @@ void ControllerVirtualDriver::Step(double timeStep)
         const double dist = (cp < 0.0) ? 0.0 : (cp == 0.0 ? wheel_base : cp);
         if (ego_speed > -vd_config_.control_point_min_speed)
             requested_cp = dist;
+    }
+
+    // RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) -- per-frame "is the
+    // ego on a lane that still leads to the route's destination" check. A pure
+    // diagnostic layer (never touches steering/speed), so -- unlike the
+    // resume-merge block right below -- it runs the same way regardless of which
+    // domain(s) this controller owns this frame; only the TELEMETRY write (11c.,
+    // further down) is gated on being the integrator.
+    RouteLaneStatus route_lane_status;  // stays default (valid=false) when there is no route -- case (b) below
+    {
+        // (a) Cache identity comes from the SHARED route, never from a clone:
+        // Position::CopyRoute does `route_ = new Route` every call, so a clone's
+        // address is fresh each frame and would miss the cache unconditionally --
+        // rebuilding the plan (and re-arming the once-only warning) every step.
+        const roadmanager::Route* shared_route = object_->pos_.GetRoute();
+
+        if (shared_route == nullptr)
+        {
+            // (b) No route at all -- common (many scenarios never run an
+            // AssignRouteAction). "no_route" is the caller-supplied reserved
+            // diagnostic (RouteLanePlan.hpp); (c)/(d) below are skipped entirely,
+            // matching that contract.
+            route_lane_plan_            = RouteLanePlan{};
+            route_lane_plan_.diagnostic = "no_route";
+            route_lane_cache_route_     = nullptr;
+            route_lane_cache_hash_      = 0;
+        }
+        else
+        {
+            // (c) Rebuild only when the route actually changed: Route* identity OR
+            // the resolved (track,lane) waypoint skeleton differs from what the
+            // current route_lane_plan_ was built from.
+            const std::size_t wp_hash = HashRouteLaneWaypoints(shared_route->minimal_waypoints_);
+            if (shared_route != route_lane_cache_route_ || wp_hash != route_lane_cache_hash_)
+            {
+                // Isolated route clone -- same pattern/reason as
+                // ResolveResumeMergeRouteLane below: BuildRouteLanePlan takes the
+                // route by const& and never mutates it, but cloning keeps this call
+                // site safe against a future change that reaches for more of the
+                // shared Route*. Built only on a cache miss: CopyRoute deep-copies
+                // every waypoint, which is far too heavy to repeat per frame.
+                roadmanager::Position rl_pos;
+                rl_pos.Duplicate(object_->pos_);
+                rl_pos.CopyRoute(object_->pos_);
+
+                route_lane_plan_        = BuildRouteLanePlan(*rl_pos.GetRoute());
+                route_lane_cache_route_ = shared_route;
+                route_lane_cache_hash_  = wp_hash;
+                // A rebuild is a NEW situation even if the resulting diagnostic
+                // string repeats the previous one (e.g. a new route that is ALSO
+                // lane_discontinuity) -- re-arm the once-only warning below.
+                route_lane_warned_ = false;
+                route_lane_warned_reason_.clear();
+            }
+
+            // (d) Match the ego every frame, cache hit or not (cheap: one linear
+            // scan over plan.bands). object_->pos_, NOT the physics-backend pose:
+            // EvaluateRouteLaneStatus needs an already road-resolved Position
+            // (GetTrackId/GetLaneId/GetS), which is exactly what object_->pos_ is
+            // -- the same Position the telemetry ego block below and
+            // ResolveResumeMergeRouteLane both read. physics_backend_->GetPose()
+            // (above) only returns raw world x/y/h/speed with no track/lane of its
+            // own, so using it here would mean re-deriving road/lane from scratch:
+            // a second, possibly junction-ambiguous resolution of the same
+            // question, computed a different way than the rest of this frame's
+            // telemetry. The self-localization comment above (preferring the
+            // physics pose over pos_) is specifically about the short planner's
+            // fine-grained cross-track error against the preview during a running
+            // lateral action; this is a coarser topological lane check, for which
+            // pos_'s already-resolved road frame is the right (and only cheap)
+            // source.
+            route_lane_status = EvaluateRouteLaneStatus(route_lane_plan_, object_->pos_);
+        }
+    }
+
+    // Warn once per distinct diagnostic (latched; reset above whenever the plan is
+    // actually rebuilt). This layer's whole purpose is catching a route that LOOKS
+    // fine to Route::AddWaypoint but cannot actually be followed lane-for-lane, so
+    // silently degrading without a trace would defeat it.
+    // "no_route" is excluded on purpose: an entity with no AssignRouteAction is the
+    // common case, not a degradation, and warning about it would bury the diagnostics
+    // that do matter. It still reaches telemetry as route_lane.diagnostic.
+    if (!route_lane_plan_.diagnostic.empty() && route_lane_plan_.diagnostic != "no_route" &&
+        route_lane_plan_.diagnostic != route_lane_warned_reason_)
+    {
+        // discontinuity_road_id is only meaningful for the lane-level break cases;
+        // printing a bare ID_UNDEFINED (4294967295) elsewhere reads as a real road id.
+        if (route_lane_plan_.discontinuity_road_id != ID_UNDEFINED)
+        {
+            LOG_WARN("VirtualDriver RouteLanePlan: {} at road {} — target-lane guidance unavailable, "
+                     "continuing with position-based lane keeping",
+                     route_lane_plan_.diagnostic,
+                     route_lane_plan_.discontinuity_road_id);
+        }
+        else
+        {
+            LOG_WARN("VirtualDriver RouteLanePlan: {} — target-lane guidance unavailable, "
+                     "continuing with position-based lane keeping",
+                     route_lane_plan_.diagnostic);
+        }
+        route_lane_warned_reason_ = route_lane_plan_.diagnostic;
+        route_lane_warned_        = true;
+    }
+
+    // Deviation record: the ego left a road while off its target lane(s) on it.
+    // Gated on route_lane_prev_target_lanes_ being non-empty (the PREVIOUS road
+    // actually had a resolved band) so an object with no route at all -- or one
+    // already off_plan_road -- does not spam a warning on every ordinary road
+    // transition; genuine deviations should stay rare (no latch here, per design).
+    {
+        const id_t current_road = object_->pos_.GetTrackId();
+        if (current_road != route_lane_prev_road_ && !route_lane_prev_target_lanes_.empty() &&
+            !route_lane_prev_on_target_)
+        {
+            ++route_lane_deviations_;
+            route_lane_last_dev_road_ = route_lane_prev_road_;
+
+            std::string lanes_str;
+            for (std::size_t i = 0; i < route_lane_prev_target_lanes_.size(); ++i)
+            {
+                if (i) lanes_str += ",";
+                lanes_str += std::to_string(route_lane_prev_target_lanes_[i]);
+            }
+            LOG_WARN("VirtualDriver RouteLanePlan: left road {} in lane {} but the route requires "
+                     "one of {} — off-route risk downstream",
+                     route_lane_prev_road_, route_lane_prev_lane_, lanes_str);
+        }
+
+        route_lane_prev_road_         = current_road;
+        route_lane_prev_lane_         = object_->pos_.GetLaneId();
+        route_lane_prev_on_target_    = route_lane_status.on_target_lane;
+        route_lane_prev_target_lanes_ = route_lane_status.target_lanes;
     }
 
     // 2c. feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md).
@@ -956,6 +1109,12 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
         telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
         telemetry_.takeover_pressed      = override_mgr_.JustPressedTakeManual();
+        // telemetry_.route_lane is deliberately NOT refreshed here, same as
+        // track_id/lane_id/s below (11.) are not: a non-integrator does not own
+        // "where is the ego on the road" this frame, and route_lane is exactly
+        // that same class of information. route_lane_status itself was still
+        // computed above (before the is_integrator gate), for the warning/
+        // deviation bookkeeping, which does need to run every frame.
 
         // feature:F7 RETURN PATH — same reason driver.steer needed its own
         // line above: THIS is the branch a non-integrating lateral owner
@@ -1279,6 +1438,28 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.front_bumper.offset  = fb.GetOffset();
         telemetry_.front_bumper.valid   = ok;
     }
+
+    // 11c. RouteLanePlan telemetry (control/virtualdriver/RouteLanePlan.hpp).
+    // Computed unconditionally above (before the is_integrator gate), but
+    // published only here -- not in the "if (!is_integrator)" early-return block
+    // above -- for the same reason track_id/lane_id/s (11.) are not refreshed there either:
+    // for a non-integrator this controller does not own "where is the ego on
+    // the road" this frame, and route_lane is exactly that same class of
+    // information one layer up (route conformance, built ON TOP OF track/lane).
+    // Publishing it there anyway would desync it from the very track_id/lane_id
+    // fields it is meant to be read alongside.
+    telemetry_.route_lane.valid                  = route_lane_status.valid;
+    telemetry_.route_lane.road_id                = static_cast<int>(route_lane_status.road_id);
+    telemetry_.route_lane.ego_lane               = route_lane_status.ego_lane;
+    telemetry_.route_lane.ego_lane_raw           = route_lane_status.ego_lane_raw;
+    telemetry_.route_lane.target_lanes           = route_lane_status.target_lanes;
+    telemetry_.route_lane.on_target_lane         = route_lane_status.on_target_lane;
+    telemetry_.route_lane.dist_to_connection     = route_lane_status.dist_to_connection;
+    telemetry_.route_lane.deviation_count        = route_lane_deviations_;
+    telemetry_.route_lane.last_deviation_road_id = static_cast<int>(route_lane_last_dev_road_);
+    telemetry_.route_lane.rerouted               = route_lane_plan_.rerouted;
+    telemetry_.route_lane.diagnostic             = route_lane_plan_.diagnostic;
+    telemetry_.route_lane.reason                 = route_lane_status.reason;
 
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);

@@ -1,0 +1,38 @@
+name: route_lane
+origin: vd-func:FUNC-050   # レーンレベル経路計画。RouteLanePlan の目標レーン帯診断(telemetry.route_lane)を検証する
+# RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) の常設回帰バッチ。
+# 2本は同一の道路・出発点・目的地(highway_example_with_merge_and_split.xodr
+# junction 1、road0 lane -1 s=10 -> road2 lane -1 s=40)を共有し、Route の書き方
+# だけを変えて RouteLanePlan の2つの入口を突く対:
+#   - merge_required_for_exit_ramp: 粗い2 Waypoint。esmini 側で route が
+#     invalid 判定され丸ごと捨てられる -> diagnostic=="invalid_route"。
+#   - route_valid_off_target_lane_for_exit_ramp: connecting road(road4)を
+#     明示した3 Waypoint。route 自体は valid 判定されるが、ego は目標レーン帯
+#     {-4} に乗っていない -> target_lanes/on_target_lane/deviation_count が
+#     診断として機能する（"穴1" - docs/virtualdriver/design/route_lane_plan_design.md
+#     参照）。
+#
+# route_lane はテレメトリの追加ブロック（VirtualDriverTelemetryJson.cpp、OSI
+# scene 非依存）なので osi capture は不要 - このバッチは telemetry.jsonl のみで
+# 判定する。policies は関与しない（RouteLanePlan は ITrafficPolicy ではなく
+# 独立層 - route_lane_plan_design.md 3-2節）。
+#
+# 各 expectations.yaml のしきい値は実測前のプレースホルダ（作成時点で親セッションの
+# Release ビルドが進行中で、route_lane テレメトリを積んだ DLL がまだ無かった）。
+# 実測合わせは各ファイルの notes: を参照。
+#
+# Run:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/route_lane_batch.yaml --out test_results/web/route_lane
+defaults:
+  dt: 0.05
+  max_time: 30.0   # StopTrigger=28s の全2シナリオ + ~2s グレース
+  snapshots: 3
+  osi: false
+scenarios:
+  - scenario: resources/xosc/verification/06_route_lane/merge_required_for_exit_ramp.xosc
+    expectations: resources/xosc/verification/06_route_lane/merge_required_for_exit_ramp.expectations.yaml
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/route_valid_off_target_lane_for_exit_ramp.xosc
+    expectations: resources/xosc/verification/06_route_lane/route_valid_off_target_lane_for_exit_ramp.expectations.yaml
+    report: route_lane
