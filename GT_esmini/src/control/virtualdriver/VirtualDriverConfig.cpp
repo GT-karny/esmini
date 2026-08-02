@@ -96,6 +96,7 @@ const DoubleField kDoubleFields[] = {
     {"creep_advance", &VirtualDriverConfig::creep_advance},
     {"yield_creep_speed", &VirtualDriverConfig::yield_creep_speed},
     {"sign_stop_margin", &VirtualDriverConfig::sign_stop_margin},
+    {"sign_stop_line_window", &VirtualDriverConfig::sign_stop_line_window},
     {"conflict_lookahead", &VirtualDriverConfig::conflict_lookahead},
     {"conflict_step", &VirtualDriverConfig::conflict_step},
     {"conflict_lane_margin", &VirtualDriverConfig::conflict_lane_margin},
@@ -162,6 +163,7 @@ const BoolField kBoolFields[] = {
     {"policy_aeb_enabled", &VirtualDriverConfig::policy_aeb_enabled},
     {"tl_junction_guard_enabled", &VirtualDriverConfig::tl_junction_guard_enabled},
     {"tl_stop_line_aware_enabled", &VirtualDriverConfig::tl_stop_line_aware_enabled},
+    {"sign_stop_line_aware_enabled", &VirtualDriverConfig::sign_stop_line_aware_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
@@ -370,6 +372,9 @@ StopYieldSignAwareConfig VirtualDriverConfig::StopYieldConfig() const
     c.yield_creep_speed      = yield_creep_speed;
     c.lookahead              = sign_lookahead;
     c.stop_margin            = sign_stop_margin;
+
+    c.stop_line_aware_enabled = sign_stop_line_aware_enabled;
+    c.stop_line_window        = sign_stop_line_window;
     return c;
 }
 

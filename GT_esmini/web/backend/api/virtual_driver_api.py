@@ -64,6 +64,9 @@ _BOOL_KEYS = frozenset(
         # policy:traffic_light — stop-line pairing kill switch (default ON; see
         # GT_esmini/docs/virtualdriver/design/stop_line_stop_target.md).
         "tl_stop_line_aware_enabled",
+        # policy:stop_yield — stop-line pairing kill switch for STOP signs only
+        # (default ON; YIELD signs are untouched — see the same design doc §7).
+        "sign_stop_line_aware_enabled",
         "respect_speed_limit",
         "crosswalk_yield_to_waiting",
         "crosswalk_ped_signal_aware",
@@ -139,6 +142,7 @@ _NUMBER_KEYS = frozenset(
         "creep_advance",
         "yield_creep_speed",
         "sign_stop_margin",
+        "sign_stop_line_window",
         "conflict_lookahead",
         "conflict_step",
         "conflict_lane_margin",
@@ -378,6 +382,16 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "creep_advance": 4.0,
     "yield_creep_speed": 3.0,
     "sign_stop_margin": 3.0,
+    "_sign_stop_line": (
+        "Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): "
+        "for each STOP-classified sign, swaps its stop target for a paired "
+        "stop-line signal (type=294) found within sign_stop_line_window before "
+        "it. YIELD signs are untouched (design §7). OFF is a kill switch "
+        "restoring sign_s - sign_stop_margin exactly; no existing gate asset "
+        "has a stop-line-classified signal, so ON changes nothing today either."
+    ),
+    "sign_stop_line_aware_enabled": True,
+    "sign_stop_line_window": 10.0,
     "_policy_conflict": "3d conflict-corridor resolver. Each vehicle's future motion is a width-inflated path CORRIDOR (ribbon of convex quads, half_width + conflict_lane_margin). The conflict REGION is the TRUE polygon intersection of the ego corridor and an oncoming corridor (Sutherland-Hodgman clip; the cluster nearest the ego). Length-aware constant-speed timing of when each body occupies the region (with conflict_pet post-encroachment pad) decides yield; the ego arrival is floored at conflict_nominal_speed (anti-chatter). On conflict, emits STOP_AT_S conflict_standoff before the region entry. Crawl is allowed (the planner may bottom out ~1-2 m/s); the standoff keeps the ego footprint out of the region. POSITIONAL release: held until the governing oncoming's body has driven past the region exit by conflict_release_buffer. The ego (turning/crossing vehicle) always yields to oncoming through-traffic here; the road RoadRule is read for F3 only (junction priority policy). Default OFF.",
     "conflict_lookahead": 120.0,
     "conflict_step": 1.0,

@@ -159,6 +159,13 @@ struct VirtualDriverConfig
     double creep_advance      = 4.0;   // [m] how far past the line to creep
     double yield_creep_speed  = 3.0;   // [m/s] YIELD = decelerate only
     double sign_stop_margin   = 3.0;   // [m] halt this far before the sign (front at line, stays in scan)
+    // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
+    // each STOP-classified sign, swaps its distance for a paired stop-line signal's
+    // when one is found within sign_stop_line_window before it. YIELD signs are
+    // untouched (design §7). OFF is a kill switch — restores
+    // sign_s - sign_stop_margin exactly (see StopYieldSignAware.hpp).
+    bool   sign_stop_line_aware_enabled = true;
+    double sign_stop_line_window        = 10.0;  // [m] pairing search window before the sign
     // 3d — conflict-corridor resolver (unsignalised crossing yield, space-time
     // occupancy of width-inflated path corridors; see ConflictPointResolver).
     double conflict_lookahead           = 120.0; // [m]   path prediction horizon (ego + others)

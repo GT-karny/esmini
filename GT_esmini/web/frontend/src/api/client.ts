@@ -387,6 +387,14 @@ export interface VirtualDriverConfig {
   creep_advance?: number;
   yield_creep_speed?: number;
   sign_stop_margin?: number;
+  // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
+  // each STOP-classified sign, swaps its stop target for a paired stop-line
+  // signal found within sign_stop_line_window before it. YIELD signs are
+  // untouched. OFF restores sign_s - sign_stop_margin exactly. Default ON (no
+  // existing gate asset has a stop-line-classified signal, so this changes
+  // nothing today either way).
+  sign_stop_line_aware_enabled?: boolean;
+  sign_stop_line_window?: number;
   // 3d conflict-corridor resolver
   conflict_lookahead?: number;
   conflict_step?: number;

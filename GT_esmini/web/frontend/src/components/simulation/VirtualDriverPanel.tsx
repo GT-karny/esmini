@@ -40,6 +40,7 @@ const EDITABLE_KEYS = [
   'tl_stop_line_aware_enabled', 'tl_stop_line_window',
   'sign_lookahead', 'stop_hold_time', 'stop_detect_speed', 'stop_line_tol',
   'creep_speed', 'creep_advance', 'yield_creep_speed', 'sign_stop_margin',
+  'sign_stop_line_aware_enabled', 'sign_stop_line_window',
   'conflict_lookahead', 'conflict_step', 'conflict_lane_margin', 'conflict_standoff',
   'conflict_release_buffer', 'conflict_pet', 'conflict_nominal_speed',
   'conflict_min_cross_angle_deg', 'conflict_other_min_speed', 'conflict_area_eps',
@@ -257,6 +258,14 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Creep advance (m)" step={0.1} value={cfg.creep_advance} onChange={setNum('creep_advance')} />
           <NumberInput label="Yield creep speed (m/s)" step={0.1} value={cfg.yield_creep_speed} onChange={setNum('yield_creep_speed')} />
           <NumberInput label="Sign stop margin (m)" step={0.1} value={cfg.sign_stop_margin} onChange={setNum('sign_stop_margin')} />
+          <NumberInput label="Stop-line pairing window (m)" step={0.5} value={cfg.sign_stop_line_window} onChange={setNum('sign_stop_line_window')} />
+        </div>
+        <div className="mt-3 space-y-2">
+          <ToggleSwitch
+            label="Stop-line aware (pair STOP signs with a stop-line signal)"
+            checked={Boolean(cfg.sign_stop_line_aware_enabled)}
+            onChange={(v) => set('sign_stop_line_aware_enabled', v)}
+          />
         </div>
       </section>
 
