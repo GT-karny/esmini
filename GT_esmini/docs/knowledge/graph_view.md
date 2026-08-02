@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:86f79e1cf6b06a83 -->
+<!-- generated-from: sha256:f3e4afa1ed181543 -->
 
-ノード 186・辺 191（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 188・辺 193（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -154,6 +154,7 @@ flowchart LR
     n_vd_func_FUNC_055["FUNC-055"]
     n_vd_func_FUNC_052["FUNC-052"]
     n_vd_func_FUNC_054["FUNC-054"]
+    n_vd_func_FUNC_061["FUNC-061"]
     n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_075["FUNC-075"]
   end
@@ -193,6 +194,7 @@ flowchart LR
   end
   subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
     n_vd_component_route_lane_plan["route-lane-plan"]
+    n_vd_component_lane_change_initiation["lane-change-initiation"]
   end
   subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
     n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
@@ -335,6 +337,8 @@ flowchart LR
   n_matcher_impact_speed_below -->|verifies| n_req_vd_ad_REQ_AD_001
   n_matcher_no_emergency_without_conflict -->|verifies| n_req_vd_ad_REQ_AD_013
   n_vd_component_route_lane_plan -->|realizes| n_vd_func_FUNC_050
+  n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_055
+  n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_061
   n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_017
   n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_016
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
@@ -559,7 +563,7 @@ flowchart LR
 | `matcher:no_emergency_without_conflict` | `signal:aeb_trigger_flag` | policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ） |
 | `matcher:route_lane_plan_holds` | `signal:route_lane_conformance` | vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"] （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/ on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない ものを pass にしない」規律、domain_split_holds と同型）。 |
 
-### realizes (29)
+### realizes (31)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -582,10 +586,12 @@ flowchart LR
 | `vd-func:FUNC-029` | `req-vd-ad:REQ-AD-006` | 交差点優先権規則が交差点譲り要求を充足 |
 | `vd-func:FUNC-049` | `req-vd-ad:REQ-AD-016` | 目的地ルーティング（road/lane 列の導出と保持）が経路導出要求の中核 |
 | `vd-func:FUNC-050` | `req-vd-ad:REQ-AD-017` | レーンレベル経路計画が段 a/b（目標レーンの算出と逸脱検出）を充足 |
-| `vd-func:FUNC-055` | `req-vd-ad:REQ-AD-017` | 自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。未実装 |
+| `vd-func:FUNC-055` | `req-vd-ad:REQ-AD-017` | 自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。 2026-08-02 実装済み（vd-component:lane-change-initiation、既定 OFF） |
 | `vd-func:FUNC-052` | `req-vd-ad:REQ-AD-017` | ルート維持・逸脱復帰が段 d を充足。未実装 |
 | `vd-func:FUNC-054` | `req-vd-ad:REQ-AD-017` | 到達判定・ミッション終了が段 e（終点で安全に停車する）を充足。未実装 |
 | `vd-component:route-lane-plan` | `vd-func:FUNC-050` | 目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、 寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ |
+| `vd-component:lane-change-initiation` | `vd-func:FUNC-055` | route-lane-plan の目標レーン帯へ自発的に寄せる実装。決断距離（残ホップ数比例）・ ギャップ受容（隣接レーンの前後車）・軌道（ResumeMergeProfile 流用、アンカーを 目標レーンへ）・優先順位（storyboard LC > resume-merge > AD発起）を担う。 FUNC-055 のうち**経路要求を動機とする発起のみ**を実現し、遅い先行車・専用レーン 回避を動機とする発起は範囲外（追い越しは vd-func:FUNC-056） |
+| `vd-component:lane-change-initiation` | `vd-func:FUNC-061` | 発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC → AD発起LC → 0 の3段へ拡張し、発起時に方向をラッチ）。FUNC-061 の未同期は これで FUNC-055 分が埋まり、残るは FUNC-056..059（追い越し/交差点/発進/合流） |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
 | `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |
@@ -666,7 +672,7 @@ flowchart LR
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-001` | カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ） |
 | `matcher:impact_speed_below` | `req-vd-ad:REQ-AD-001` | 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想） |
 | `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
-| `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-017` | route_lane_batch.yaml の2シナリオ（merge_required_for_exit_ramp=invalid_route 診断、 route_valid_off_target_lane_for_exit_ramp=最終ホップの目標レーン帯からの逸脱を検出、 設計 §4-4 実測）で route_lane テレメトリが機能することを検証。 **REQ-AD-017 の段 a/b のみ**（目標レーンの算出と逸脱検出）。段 c/d/e（自発的な 車線変更・逸脱復帰・終点停車）は未実装で検証対象外＝この辺は要求全体の充足を主張しない。 |
+| `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-017` | route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの 逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま 通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、 後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。 **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝ この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
 | `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-016` | merge_required_for_exit_ramp シナリオの invalid_route 診断が **REQ-AD-016 の段 b のみ**（経路解決の失敗を検出して外へ出す＝沈黙しない）を検証する。 段 a/c（経路の補完・起終点のみからの探索）は検証対象外。 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-010` | 停止先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-011` | 先行車との衝突ゼロ |

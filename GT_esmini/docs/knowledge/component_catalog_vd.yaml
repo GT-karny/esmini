@@ -30,6 +30,17 @@ components:
       ego との適合をテレメトリへ出す。ルート解決の失敗も検出して外へ出す。
       **診断のみで是正しない**（自発的な車線変更は vd-func:FUNC-055 のスコープ）。
 
+  - id: lane-change-initiation
+    title: 車線変更の発起
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/virtualdriver/LaneChangeInitiation.cpp
+    note: >-
+      route-lane-plan が出した目標レーン帯へ、自分から車線変更を起こす層。決断距離を
+      残ホップ数に比例させ、隣接レーンの前後車に対するギャップ受容を判定して1回1レーンずつ移る。
+      軌道生成は ResumeMergeProfile を無改造で流用し、アンカーを目標レーンへ向ける。
+      **既定 OFF**。入れなかった場合は通過して逸脱を記録する（復帰は vd-func:FUNC-052）。
+
   - id: maneuver-aware-speed-planner
     title: マニューバ考慮 速度プランナー
     layer: mid-long-planner

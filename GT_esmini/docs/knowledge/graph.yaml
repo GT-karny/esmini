@@ -537,7 +537,9 @@ edges:
     to: req-vd-ad:REQ-AD-017
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
-    note: 自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。未実装
+    note: >-
+      自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。
+      2026-08-02 実装済み（vd-component:lane-change-initiation、既定 OFF）
   - from: vd-func:FUNC-052
     to: req-vd-ad:REQ-AD-017
     type: realizes
@@ -595,6 +597,24 @@ edges:
     note: >-
       目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、
       寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ
+  - from: vd-component:lane-change-initiation
+    to: vd-func:FUNC-055
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/lane_change_initiation.md
+    note: >-
+      route-lane-plan の目標レーン帯へ自発的に寄せる実装。決断距離（残ホップ数比例）・
+      ギャップ受容（隣接レーンの前後車）・軌道（ResumeMergeProfile 流用、アンカーを
+      目標レーンへ）・優先順位（storyboard LC > resume-merge > AD発起）を担う。
+      FUNC-055 のうち**経路要求を動機とする発起のみ**を実現し、遅い先行車・専用レーン
+      回避を動機とする発起は範囲外（追い越しは vd-func:FUNC-056）
+  - from: vd-component:lane-change-initiation
+    to: vd-func:FUNC-061
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/lane_change_initiation.md
+    note: >-
+      発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC →
+      AD発起LC → 0 の3段へ拡張し、発起時に方向をラッチ）。FUNC-061 の未同期は
+      これで FUNC-055 分が埋まり、残るは FUNC-056..059（追い越し/交差点/発進/合流）
 
   # --- matcher -> verifies -> req-vd-ad（RouteLanePlan 分。2026-08-02 に宛先を差し替えた） ---
   # 当初は vd-func:FUNC-050 を直接指していた（「policy を経由しないので3段チェーンが使えない」
@@ -612,11 +632,16 @@ edges:
     type: verifies
     source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
     note: >-
-      route_lane_batch.yaml の2シナリオ（merge_required_for_exit_ramp=invalid_route 診断、
-      route_valid_off_target_lane_for_exit_ramp=最終ホップの目標レーン帯からの逸脱を検出、
-      設計 §4-4 実測）で route_lane テレメトリが機能することを検証。
-      **REQ-AD-017 の段 a/b のみ**（目標レーンの算出と逸脱検出）。段 c/d/e（自発的な
-      車線変更・逸脱復帰・終点停車）は未実装で検証対象外＝この辺は要求全体の充足を主張しない。
+      route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp
+      （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの
+      逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は
+      lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic
+      （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま
+      通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、
+      後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。
+      **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝
+      この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の
+      acceptance_ladder[].verified_by が持つ。
   - from: matcher:route_lane_plan_holds
     to: req-vd-ad:REQ-AD-016
     type: verifies

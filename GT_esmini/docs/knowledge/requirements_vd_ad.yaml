@@ -278,27 +278,37 @@ requirements:
       WHILE 経路が与えられているとき、VD は経路上のレーン接続が要求する車線へ
       自発的に移り、経路から逸脱せずに終点まで到達すること。
     scenario: >-
-      部分的に整備済み。resources/xosc/verification/05_anticipation/ の junction 経由
-      シナリオ群が段 a/b の刺激になる。段 c/d 用の「車線変更しないと接続に入れない」
-      シナリオは未整備。
+      段 a/b/c は整備済み。resources/xosc/verification/06_route_lane/ の4本
+      （route_lane_batch.yaml）が刺激。段 a/b は merge_required_for_exit_ramp と
+      route_valid_off_target_lane_for_exit_ramp（是正しないことの確認）。段 c は
+      lane_change_to_exit_ramp（隣接車なし・3ホップ）と
+      lane_change_to_exit_ramp_with_traffic（隣接車あり・2ホップ・ギャップ待ちを強制）。
+      段 d 用の「逸脱後に復帰する」シナリオは未整備。
     acceptance_ladder:
       - { step: a, claim: 経路が各 road で要求する目標レーン集合を算出できる,      met: true,  verified_by: [matcher:route_lane_plan_holds] }
       - { step: b, claim: 現在レーンが目標レーン集合から外れていることを検出できる, met: true,  verified_by: [matcher:route_lane_plan_holds] }
-      - { step: c, claim: 接続点までに目標レーンへ自発的に車線変更する,             met: false, verified_by: [] }
+      - { step: c, claim: 接続点までに目標レーンへ自発的に車線変更する,             met: true,  verified_by: [matcher:route_lane_plan_holds] }
       - { step: d, claim: 逸脱した場合に経路へ復帰する,                             met: false, verified_by: [] }
       - { step: e, claim: 経路終点で安全に停車しミッション終了を宣言する,           met: false, verified_by: [] }
     acceptance: >-
       段 a/b は signal:route_lane_conformance をテレメトリで観測できること
       （matcher:route_lane_plan_holds が判定）。段 c は接続点通過時に目標レーン内で
-      あること。段 d は逸脱後の on-route 復帰。段 e は終点許容範囲内での停車。定量閾値は未校正。
+      あること＝road 遷移時に逸脱を記録しないこと（matcher の max_deviations: 0 が判定。
+      deviation_count は road が切り替わる瞬間にしか増えないので、これは「接続点を
+      目標レーン帯に乗ったまま通過した」と同値）。段 d は逸脱後の on-route 復帰。
+      段 e は終点許容範囲内での停車。段 d/e の定量閾値は未校正。
     realized_by: [vd-func:FUNC-050, vd-func:FUNC-052, vd-func:FUNC-054, vd-func:FUNC-055]
-    verified_by: []                       # 段 a/b は matcher:route_lane_plan_holds が vd-func:FUNC-050 経由で担保。
-                                          # 要求そのものに verifies を張るのは段 c/d/e が未達のため overclaim
+    verified_by: []                       # 段 a/b/c は matcher:route_lane_plan_holds が acceptance_ladder[].verified_by
+                                          # で担保。要求そのものに verifies を張るのは段 d/e が未達のため overclaim
     related: [issue:31, req-vd-ad:REQ-AD-016]
     status: partial
     note: >-
-      段 a/b は 2026-08 の RouteLanePlan（vd-component:route-lane-plan）で達成済み。
-      ただし**診断のみで是正しない** — 目標レーンから外れていても車線変更はせず、
-      そのまま通過して逸脱を記録する（2026-08-02 の設計決定）。段 c が vd-func:FUNC-055。
+      段 a/b は 2026-08 の RouteLanePlan（vd-component:route-lane-plan）で達成。
+      段 c は 2026-08-02 の LaneChangeInitiation（vd-component:lane-change-initiation、
+      vd-func:FUNC-055）で達成＝**目標レーンへ自分で寄せるようになった**。
+      **ただし既定 OFF**（lane_change_initiation_enabled）。有効化しない限り従来どおり
+      診断のみで是正せず、そのまま通過して逸脱を記録する。入れなかったときに通過して
+      逸脱を記録する振る舞い自体は有効時も維持（2026-08-02 の設計決定。復帰は段 d）。
       issue #31 は本要求の段 c 不在が生んだ症状 — VD が車線を自分で寄せられないため、
       レーン接続の辻褄を人間が Waypoint で手当てする必要があり、その記述漏れが表面化した。
+      段 c 達成により、その手当ての必要性は（機能を有効化すれば）原理的に解消する。

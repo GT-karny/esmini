@@ -134,7 +134,7 @@ functions:
   - { id: FUNC-054, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "到達判定・ミッション終了。目的地/退出点の認識と安全な停車。シナリオ終端条件と VD 内部状態の整合" }
 
   # ----- B2 進行マニューバ発起（tactical・"自ら起こす"層） -----
-  - { id: FUNC-055, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "自発的レーンチェンジ *発起*。遅い先行車/経路要求/専用レーン回避から自ら LC を決断する。**現状 LC は storyboard 由来のみ**(FUNC-020は実行側)＝VDは発起できない" }
+  - { id: FUNC-055, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: lat,  status: partial, by: 'vd-component:lane-change-initiation', note: "自発的レーンチェンジ *発起*。2026-08-02実装(LaneChangeInitiation): **経路要求に基づく発起のみ**実装＝req-vd-ad:REQ-AD-017 段c。決断距離は残ホップ数比例、ギャップ受容は隣接レーンの前後車を Position::Delta(bothDirections=true) で見る独立層(ConflictPointResolver は並走関係を min_cross_angle_deg で除外するため流用不可)。軌道は ResumeMergeProfile を無改造流用しアンカーを目標レーンに向ける。**既定 OFF**(lane_change_initiation_enabled)。優先順位 storyboard LC > resume-merge > AD発起。**遅い先行車/専用レーン回避を動機とする発起は未実装**(=partial、追い越しは FUNC-056)。実行側は FUNC-020" }
   - { id: FUNC-056, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "追い越しの発起・完遂。gap評価→LC→加速→復帰の一連。FUNC-030(禁止区間)・FUNC-044(譲り)と相互作用" }
   - { id: FUNC-057, tier: '-',        layer: tactical, kind: behavior, agent: AD, dim: both, status: partial, by: 'road', note: "交差点マニューバ発起。経路(FUNC-049)に従い右左折を自発実行。現状は storyboard trajectory 依存が強く、issue #31 の交互挙動もここに現れる" }
   - { id: FUNC-058, tier: comfort,    layer: tactical, kind: behavior, agent: AD, dim: lon,  status: none,    by: '', note: "停止からの発進判断。信号青・先行車発進・譲り解消を検知して再発進。Stop&Go(FUNC-014)/信号(FUNC-023)/交渉(FUNC-038)の出口" }
@@ -142,7 +142,7 @@ functions:
   - { id: FUNC-060, tier: comfort,    layer: operational, kind: behavior, agent: AD, dim: lat, status: none,  by: '', note: "車線内位置取り。大型車/路駐/自転車に対し車線内でオフセットして側方余裕を作る。LCまで至らない微調整" }
 
   # ----- B3 意図伝達（tactical・自車の意図を外へ出す） -----
-  - { id: FUNC-061, tier: compliance, layer: tactical, kind: behavior, agent: AD, dim: none, status: partial, by: 'vd-component:auto-indicator-policy', note: "方向指示器の自発操作。マニューバ発起(FUNC-055..059)に同期して法定タイミングで合図。AutoIndicator/IndicatorFSM が基盤(単体テスト有)だが **発起側が無いため storyboard LC にしか同期していない**" }
+  - { id: FUNC-061, tier: compliance, layer: tactical, kind: behavior, agent: AD, dim: none, status: partial, by: 'vd-component:auto-indicator-policy', note: "方向指示器の自発操作。マニューバ発起(FUNC-055..059)に同期して法定タイミングで合図。AutoIndicator/IndicatorFSM が基盤(単体テスト有)。2026-08-02: **FUNC-055(経路要求LC)の発起に同期するようになった**(DetectManeuverDir を storyboard LC→AD発起LC→0 の3段へ拡張、発起時に方向をラッチ。実測: 発起と同フレームで点灯しマニューバ完了後に消灯)。**残る未同期は FUNC-056..059**(追い越し/交差点/発進/合流)＝partial の理由。法定タイミング(発起の何秒前から)は未実装" }
   - { id: FUNC-062, tier: courtesy,   layer: tactical, kind: behavior, agent: AD, dim: none, status: none,    by: '', note: "制動灯/ハザードによる後続への伝達。急減速・停止時の予告。OSI vehicle_lights に出る＝観測可能" }
   - { id: FUNC-063, tier: courtesy,   layer: tactical, kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "挙動による意図伝達。クリープ前進で優先主張、早めの減速で譲る意思表示。合図灯を持たない交渉の実体" }
 
