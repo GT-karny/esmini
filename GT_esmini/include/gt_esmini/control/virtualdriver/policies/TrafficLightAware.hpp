@@ -73,11 +73,18 @@ struct TrafficLightAwareConfig
     JunctionStopGuardParams junction;
     // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
     // the governing head only, swap its distance for a paired stop-line signal's
-    // (RouteSignalScan::FindPairedStopLine) when one is found within
-    // stop_line_window before it. OFF is a kill switch: FindPairedStopLine is never
-    // called, so the stop target stays head_s - stop_margin exactly.
+    // when one is found within stop_line_window before the anchor. The anchor is
+    // min(the entry of the junction the head governs, the head's own distance)
+    // (RouteSignalScan::ResolveStopLineAnchor) when that junction is resolved
+    // and reached by this route (SignalJunctionResolver) -- pairing then runs
+    // through RouteSignalScan::FindPairedStopLineByDistance against that anchor
+    // (the min is what keeps the paired stop-line at or before the head too,
+    // design/stop_line_stop_target.md §5); otherwise the anchor is the head
+    // itself and pairing runs through RouteSignalScan::FindPairedStopLine (the
+    // head's own index), unchanged from before. OFF is a kill switch: neither
+    // is ever called, so the stop target stays head_s - stop_margin exactly.
     bool   stop_line_aware_enabled = true;
-    double stop_line_window       = 10.0;  // [m] pairing search window before the head
+    double stop_line_window       = 10.0;  // [m] pairing search window before the anchor (junction entry, or the head as fallback)
 };
 
 // Phase 3b: scan the route ahead for the nearest traffic light that faces the

@@ -1,25 +1,89 @@
 manifest: resources/xosc/verification/stop_line_pairing_batch.yaml
-note: 'Committed baseline for the stop-line pairing discriminator (design/stop_line_stop_target.md
-  sec13). Covers TrafficLightAware (red_hold_stop_line_paired,
-  policy:traffic_light) and StopYieldSignAware (stop_sign_stop_line_paired, policy:stop_yield),
-  each run at the DEFAULT config (tl_stop_line_aware_enabled / sign_stop_line_aware_enabled both
-  default true) -- the s_range in each expectations.yaml brackets the STOP-LINE-based rest position,
-  not the pre-feature margin-based one, so a regression that silently drops FindPairedStopLine''s
-  effect (kill switch flips, or the pairing lookup breaks) fails stopped_at_signal / stopped_at_stop_sign
-  here. BOTH scenarios are GREEN as recorded (2026-08-02); this baseline carries no known-red, unlike
-  car_following_traffic_control_expected.yaml. So ANY deviation is a real regression -- including an
-  unexpected fail (stop-line pairing broke) and, less obviously, no signal at all if a scenario starts
-  erroring out. The falsifying OFF-arm measurement (kill switch OFF must reproduce the OLD margin-based
-  position and correctly FAIL these same expectations) is recorded in each expectations.yaml''s notes,
-  not in this manifest -- policies:[] cannot toggle the kill switch, only enable the policy. Refresh
-  ONLY after an intentional behavior change, with --update, and review the diff.'
+note: "Committed baseline for the stop-line pairing discriminator (design/stop_line_stop_target.md sec13).\
+  \ Covers TrafficLightAware (red_hold_stop_line_paired + red_hold_stop_line_paired_farside, both policy:traffic_light)\
+  \ and StopYieldSignAware (stop_sign_stop_line_paired, policy:stop_yield), each run at the DEFAULT config\
+  \ (tl_stop_line_aware_enabled / sign_stop_line_aware_enabled both default true). The s_range in each\
+  \ expectations.yaml brackets the STOP-LINE-based rest position, not the pre-feature margin-based one,\
+  \ so a regression that silently drops the pairing effect (kill switch flips, or the pairing lookup breaks)\
+  \ fails stopped_at_signal / stopped_at_stop_sign here. ALL THREE scenarios are GREEN as recorded (2026-08-02,\
+  \ re-verified after the min(entry, head) anchor fix below); this baseline carries no known-red, unlike\
+  \ car_following_traffic_control_expected.yaml. So ANY deviation is a real regression, including an unexpected\
+  \ fail and, less obviously, no signal at all if a scenario starts erroring out. The falsifying OFF-arm\
+  \ measurement (kill switch OFF must reproduce the head-based margin position and correctly FAIL these\
+  \ same expectations) is recorded in each expectations.yaml's notes, not in this manifest; policies:[]\
+  \ cannot toggle the kill switch, only enable the policy. Refresh ONLY after an intentional behavior\
+  \ change, with --update, and review the diff.\nANCHOR RULE, CURRENT (2026-08-02, second revision): the\
+  \ stop-line pairing anchor is min(the entry of the junction the governing head resolves to, the head's\
+  \ OWN distance) -- RouteSignalScan::ResolveStopLineAnchor, ties go to the entry. Full rationale and\
+  \ the authoritative worked example live in red_hold_stop_line_paired.expectations.yaml's notes (also\
+  \ pinned by ResolveStopLineAnchor's own unit tests in test_RouteSignalScan.cpp, which use this exact\
+  \ scenario's numbers: entry 100.0, head 92.0, a rejected candidate at 97.0). One line summary: a NEAR-SIDE\
+  \ head (mounted before its junction, the common case) is always nearer than that junction's entry, so\
+  \ min() picks the head there, which reinstates design sec5's \"the paired stop line can never land past\
+  \ the head\" guarantee (true by construction before the whole anchor redesign, NOT automatically true\
+  \ under a pure entry-only anchor). A FAR-SIDE head (mounted past its junction) is always farther than\
+  \ the entry, so min() picks the entry there instead, preserving the reason the entry became a candidate\
+  \ anchor at all. One rule, both regimes, no separate switch.\n  Both-arm measurements, RE-taken 2026-08-02\
+  \ after the min() fix (dt 0.05,\n  policies:[traffic_light], in-process via GT_esminiLib.dll):\n   \
+  \ signalized_short_block__b12_hs4_sl8 (red_hold_stop_line_paired,\n      near-side; head-setback=4,\
+  \ stop-line-setback-a=8; stop line at road\n      0 s=92 sits BEFORE the head at s=96, so min() picks\
+  \ the head, token\n      \"head\", CHANGED from \"junction_entry\" under the pure-entry-anchor\n   \
+  \   design): ON (default) dwell bottom road 0 s=86.9706, stable 11.85s\n      -- IDENTICAL position\
+  \ to before the min() fix (only the reported\n      anchor token changed; the paired candidate's own\
+  \ distance decides\n      the rest position either way, not the anchor value). OFF\n      (tl_stop_line_aware_enabled=false)\
+  \ dwell bottom road 0 s=90.9959,\n      stable 11.55s -- also unchanged (this arm never reaches\n  \
+  \    ResolveStopLineAnchor). Delta 4.0253 m, unchanged.\n    signalized_short_block__b12_sl8_fsa1 (red_hold_stop_line_paired_\n\
+  \      farside, NEWLY ADDED to this batch/baseline 2026-08-02; stop-line-\n      setback-a=8, head-farside-offset-a=1.0;\
+  \ the governing head sits on\n      road 2 past junction A's exit, wired to junction A via an OpenDRIVE\n\
+  \      <controller> because its own road-link geometry, SignalJunctionResolver\n      path (c), would\
+  \ resolve it to junction B instead): the head's own\n      distance (~30 m via road 2) is always farther\
+  \ than junction A's\n      entry, so min() picks the entry, token \"junction_entry\", UNCHANGED\n  \
+  \    from before the min() fix. ON dwell bottom road 0 s=86.9970, stable\n      21.35s -- IDENTICAL\
+  \ to before. OFF dwell bottom road 0 s=94.9967,\n      stable 20.50s (JunctionStopGuard PULL_BACK to\n\
+  \      entry(100)-tl_stop_margin(3)-stop_band(~2)=95, matching\n      junction_not_blocked.xosc's own\
+  \ guarded-arm measurement) -- also\n      IDENTICAL. Delta 8.0 m, unchanged. Re-verified with gt_sim_test.py\n\
+  \      assert: ON passes both matchers on both assets; OFF fails ONLY the\n      position matcher (stopped_at_signal,\
+  \ \"... = 0.00s\" inside its\n      s_range) on both, while the persistence matcher (speed_below) still\n\
+  \      passes on both -- the OFF arm fails because it stops in the wrong\n      place, not because it\
+  \ fails to stop.\n  N=3 scan-retention hazard: CONFIRMED RESOLVED. Pre-min-fix, a stop line\n    3 m\
+  \ before junction A's entry (5 m PAST a head-setback=8 head) made\n    pairing succeed via the entry-only\
+  \ anchor, land the target past the\n    head's own mounting s, and drop the head from RouteSignalScan::\n\
+  \    ScanSignalsAhead's forward-only scan once the ego's origin crossed it\n    -- the ego, already\
+  \ essentially stopped, was measured still creeping\n    toward a re-target 3 m further on, not yet resettled\
+  \ by the scenario's\n    own stop trigger. Re-measured 2026-08-02 against the min()-fixed DLL\n    with\
+  \ the same scratch asset (a runtime policy change needs no\n    road-geometry regeneration): the candidate\
+  \ is now rejected outright\n    (97 > the head-anchor 92, before the window check even runs), the ego\n\
+  \    settles smoothly at the same stable position the true kill-switch-OFF\n    arm reaches (road 0\
+  \ s=86.9706) and stays there 11.85s with no re-target\n    and no renewed motion anywhere in the captured\
+  \ telemetry. Full detail,\n    including a re-run of the 6/10/12 m sweep points (whose own pairing\n\
+  \    verdicts flip in both directions once the anchor basis becomes the\n    head instead of the entry\
+  \ for a near-side asset), is in\n    red_hold_stop_line_paired.expectations.yaml's notes.\n  Window\
+  \ value (tl_stop_line_window=10.0, design sec9.2): kept as the\n    default. For a near-side head the\
+  \ window is (again) measured from the\n    head, exactly sec9.2's original framing, and the one real\
+  \ sample on\n    file (multi_intersections.xodr road196, 4 m) sits comfortably inside\n    it, unaffected\
+  \ by any of this session's changes. For a far-side head\n    the window is measured from the junction\
+  \ entry, and that half of the\n    question is still NOT settled by real-world data: the entry is a\n\
+  \    MODELLING boundary (where a connecting-road link starts), not the\n    painted edge of the intersection,\
+  \ and two assets can put the\n    physically-same painted stop line at different entry-relative\n  \
+  \  distances purely from how far back the road author drew the junction\n    boundary. Do not assume\
+  \ the entry sits close to the real curb just\n    because the one real sample on file happens to have\
+  \ its head mounted\n    exactly at the entry (a coincidence of that one asset, not evidence\n    about\
+  \ entry-to-curb offset in general). Only a real far-side asset\n    with an authored curb reference,\
+  \ or a real dataset of stop-line-to-\n    entry distances, would actually move this number.\n"
 expected_summary:
-  pass: 2
+  pass: 3
   fail: 0
   needs-review: 0
   error: 0
 scenarios:
   red_hold_stop_line_paired:
+    status: pass
+    matchers:
+    - event: stopped_at_signal
+      status: pass
+    - event: speed_below
+      status: pass
+  red_hold_stop_line_paired_farside:
     status: pass
     matchers:
     - event: stopped_at_signal

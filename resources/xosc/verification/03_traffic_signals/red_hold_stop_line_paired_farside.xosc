@@ -1,61 +1,84 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  VirtualDriver verification scenario 03_traffic_signals / red_hold_stop_line_paired
-  Discriminator for the stop-line pairing feature (design/stop_line_stop_target.md),
-  TrafficLightAware side. UPDATED 2026-08-02 for the stop-line-anchor redesign
-  (uncommitted at authoring time; see SignalJunctionResolver.hpp / the
-  junction_id field on RouteSignalScan::ScannedSignal): the pairing anchor
-  moved from the governing head itself to the ENTRY of the junction that head
-  governs. The original asset (signalized_short_block__b12_sl4, stop line 4 m
-  before the HEAD at s=92, giving s=88) put the stop line 12 m before junction
-  A's ENTRY (s=100), past tl_stop_line_window's default 10 m, so pairing now
-  MISSES on that asset and this scenario silently reverted to the pre-feature
-  defect (see red_hold_stop_line_paired.expectations.yaml's notes, the "12 m"
-  entry). Replaced with signalized_short_block__b12_hs4_sl8 (head-setback=4,
-  stop-line-setback-a=8): the stop-line-to-ENTRY distance (the invariant
-  that now matters) is 8 m, comfortably inside the window, and head_setback is
-  lowered from the 8.0 default to 4.0 for this ONE asset only (an explicit CLI
-  override, not a change to the generator's default; signalized_short_block__
-  b12 and everything junction_not_blocked.xosc depends on are unaffected) so
-  the stop-line-based and head-based targets stay far enough apart (about 4 m)
-  to discriminate cleanly; see the expectations.yaml notes for why a smaller,
-  in-window setback (e.g. keeping head_setback=8 and using
-  stop-line-setback-a=4) was tried and rejected (a real, reproducible
-  scan-retention edge case, not just a smaller margin; see this scenario's own
-  expectations.yaml notes).
+  VirtualDriver verification scenario 03_traffic_signals / red_hold_stop_line_paired_farside
+  Far-side discriminator for the stop-line-anchor redesign (design/
+  stop_line_stop_target.md), TrafficLightAware side. Added 2026-08-02 alongside
+  the redesign of red_hold_stop_line_paired.xosc (see that file's own comment
+  for the head-anchor to junction-entry-anchor background). Wired into
+  stop_line_pairing_batch.yaml and the regression baseline (GT_esmini/test/
+  regression_baseline/stop_line_pairing_expected.yaml) as of the
+  min(entry, head) anchor fix (see TrafficLightAware.hpp/RouteSignalScan.hpp's
+  ResolveStopLineAnchor): this scenario is the one the whole anchor redesign
+  exists for, so it belongs in the gate that protects it. Also runnable
+  standalone (gt_sim_test.py run / assert both work against it directly).
 
-  Road signalized_short_block__b12_hs4_sl8 (resources/scenario_authoring/
-  road_catalog, gen_signalized_short_block.py, head-setback=4,
-  stop-line-setback-a=8): road 0 carries the junction-A head (id=0, s=96)
-  AND a paired stop-line signal (id=2, type=294, country=OpenDRIVE, s=92, 8 m
-  before junction A's entry at s=100, within tl_stop_line_window's default
-  10 m). The margin-based (head) and stop-line-based stop targets land at
-  different s: head_s minus margin = 93 (no pairing) vs line_s minus margin =
-  89 (paired, kill switch ON, the default), roughly 4 m apart once the
-  planner's stop_band is folded in (measured, see expectations.yaml notes).
+  This is the configuration the junction-entry anchor exists FOR: a head
+  mounted on the FAR side of the junction it governs (a mast-arm/far-side
+  signal), where the OLD head-anchor design could never pair correctly. The
+  stop line, on the near approach road, is always FARTHER from a far-side head
+  than tl_stop_line_window can reach, no matter how the window is tuned; it is
+  on the wrong side of the junction entirely. The junction-entry anchor CAN
+  pair it, because it measures from a point (the entry) that is on the SAME
+  side of the junction as the stop line.
 
-  The signal (id=0) stays RED for the whole run; the ego cruises toward it and
-  must stop and REMAIN stopped (no scripted stop; TrafficLightAware policy).
-  Signal id=1 (light_junction_b, on road 2) is included in the controller only
-  because it exists in the shared road asset; the ego never reaches it.
+  Road signalized_short_block__b12_sl8_fsa1 (resources/scenario_authoring/
+  road_catalog, gen_signalized_short_block.py, stop-line-setback-a=8,
+  head-farside-offset-a=1.0): road 0 carries ONLY a paired stop-line signal
+  (id=2, type=294, country=OpenDRIVE, s=92, 8 m before junction A's entry at
+  s=100); no head on road 0 at all. The head governing junction A (id=0,
+  "light_junction_a_farside") sits on road 2 (the short block PAST junction
+  A's exit), s=1.0, wired to junction A through an OpenDRIVE controller
+  (SignalJunctionResolver path (a)) because its own road-link geometry (path
+  (c), road 2's successor link) resolves to junction B instead. Signal id=1
+  (light_junction_b, road 2 s=3.0) exists in the shared road-generator asset
+  and is set GREEN for the whole run so it never contributes a stop of its own
+  and stays clearly non-governing (the far-side head at s=1.0 is nearer, so it
+  governs regardless, but an explicit green removes any doubt).
+
+  Two arms (see expectations.yaml notes for the measured numbers):
+    ON  (tl_stop_line_aware_enabled=true, the committed default): the
+        junction-A head resolves to junction A's entry (present on this
+        route's spans); FindPairedStopLineByDistance pairs the stop line at
+        s=92 (8 m before the entry, well inside the 10 m window). Expect
+        gt.traffic_light.stop_line_anchor="junction_entry",
+        stop_line_used=true, and a stop near the stop line.
+    OFF (tl_stop_line_aware_enabled=false, NOT reachable through the default
+        config; run standalone with a ConfigFile override, same idiom as
+        red_hold_stop_line_paired.expectations.yaml's own OFF arm): no pairing
+        is attempted at all; the raw distance to the far-side head is used,
+        which is past junction A's exit, a target JunctionStopGuard must
+        classify as blocking junction A and PULL_BACK to before its entry
+        (the same "don't block the box" mechanism junction_not_blocked.xosc
+        exercises). Expect gt.traffic_light.stop_line_anchor="head",
+        stop_line_used=false, gt.traffic_light.junction_action="pull_back",
+        and a stop several metres CLOSER to the junction than the ON arm's
+        stop line (the ego does stop, for a real reason, the guard, just in
+        the wrong place relative to the marked stop line).
+
+  Ego kinematics (start s=10 on road 0, EgoSpeed=10.0, 3 s linear ramp,
+  StopTrigger at t=35) deliberately mirror junction_not_blocked.xosc's own
+  proven PULL_BACK-not-SUPPRESS timing (same leg_length=100, same
+  tl_junction_guard_enabled defaults) rather than this directory's other
+  stop-line scenarios, which use a faster EgoSpeed and do not need to survive
+  a guard braking-feasibility check on the OFF arm.
 -->
 <OpenSCENARIO>
    <FileHeader revMajor="1"
                revMinor="1"
                date="2026-08-02T10:00:00"
-               description="VirtualDriver verification: stop-line pairing swaps the TrafficLightAware stop target from the head margin to the paired stop line"
+               description="VirtualDriver verification: far-side head (governs junction A via controller, physically past it) pairs to the stop line only once the anchor is the junction entry"
                author="GT_esmini"/>
    <ParameterDeclarations>
-      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="10.0"/>
    </ParameterDeclarations>
    <CatalogLocations/>
    <RoadNetwork>
-      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr"/>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr"/>
       <TrafficSignals>
          <TrafficSignalController name="MainController" delay="0">
             <Phase name="red" duration="60">
                <TrafficSignalState trafficSignalId="0" state="on;off;off"/>
-               <TrafficSignalState trafficSignalId="1" state="on;off;off"/>
+               <TrafficSignalState trafficSignalId="1" state="off;off;on"/>
             </Phase>
          </TrafficSignalController>
       </TrafficSignals>
@@ -175,7 +198,7 @@
          <ConditionGroup>
             <Condition name="StopCondition" delay="0" conditionEdge="rising">
                <ByValueCondition>
-                  <SimulationTimeCondition value="25" rule="greaterThan"/>
+                  <SimulationTimeCondition value="35" rule="greaterThan"/>
                </ByValueCondition>
             </Condition>
          </ConditionGroup>

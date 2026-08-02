@@ -159,11 +159,41 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
         // Stop-line pairing, governing head only. A miss (kill switch off, or no
         // paired entry in window) leaves dist_ahead == s.distance_ahead, so every
         // computation below is unchanged from the pre-pairing code.
-        double dist_ahead     = s.distance_ahead;
-        bool   stop_line_used = false;
+        //
+        // Anchor: when the junction this head governs is resolved and reached by
+        // this route walk (present in `spans`), min(that junction's entry, the
+        // head's own distance) -- see ResolveStopLineAnchor for why the min
+        // matters (design/stop_line_stop_target.md §5). Otherwise the anchor is
+        // the head itself (design/stop_line_stop_target.md far-side follow-up).
+        // The spans membership check matters beyond ResolveSignalJunction's own
+        // exists-in-this-odr check: a junction can be real in the loaded network
+        // yet not be the one ahead on THIS route.
+        double      dist_ahead       = s.distance_ahead;
+        bool        stop_line_used   = false;
+        const char* stop_line_anchor = "head";
         if (governing && cfg_.stop_line_aware_enabled)
         {
-            const auto paired = FindPairedStopLine(signals, i, cfg_.stop_line_window);
+            std::optional<double> junction_entry_ahead;
+            if (s.junction_id)
+            {
+                const auto span_it = std::find_if(spans.begin(),
+                                                   spans.end(),
+                                                   [&](const RouteJunctionSpan& sp) { return sp.junction_id == *s.junction_id; });
+                if (span_it != spans.end()) junction_entry_ahead = span_it->entry_ahead;
+            }
+
+            std::optional<size_t> paired;
+            if (junction_entry_ahead)
+            {
+                const StopLineAnchor anchor = ResolveStopLineAnchor(*junction_entry_ahead, s.distance_ahead);
+                stop_line_anchor            = anchor.token;
+                paired                      = FindPairedStopLineByDistance(signals, anchor.distance_ahead, cfg_.stop_line_window);
+            }
+            else
+            {
+                paired = FindPairedStopLine(signals, i, cfg_.stop_line_window);
+            }
+
             if (paired)
             {
                 dist_ahead     = signals[*paired].distance_ahead;
@@ -197,11 +227,16 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
             // to brake for) as well as a hold; `committed` marks the stop latch that
             // survives a shrinking yellow gap or a brief scan loss. dist_m stays the
             // raw head distance (stop_line_used flags when dist_ahead diverged from it).
+            // stop_line_anchor (tokens: head/junction_entry) always reports which
+            // basis the pairing search ran against -- including "head" when the
+            // kill switch is off or junction resolution/spans membership missed --
+            // so a head-anchor fallback is never silent.
             AddDetail(snap.detail, "gt.traffic_light.signal_id", id);
             AddDetail(snap.detail, "gt.traffic_light.phase", PhaseToken(phase));
             AddDetail(snap.detail, "gt.traffic_light.dist_m", s.distance_ahead);
             AddDetail(snap.detail, "gt.traffic_light.committed", static_cast<bool>(committed_[id]));
             AddDetail(snap.detail, "gt.traffic_light.stop_line_used", stop_line_used);
+            AddDetail(snap.detail, "gt.traffic_light.stop_line_anchor", stop_line_anchor);
         }
         else
         {

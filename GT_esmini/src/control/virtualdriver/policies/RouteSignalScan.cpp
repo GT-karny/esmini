@@ -2,6 +2,7 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/virtualdriver/policies/SignalJunctionResolver.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopLineSignalCatalog.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"
 
@@ -123,7 +124,11 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object*                         ego,
             const bool is_stop_line =
                 ClassifyStopLineType(GetStopLineCatalog(), country, sig->GetType(), sig->GetSubType()) == StopLineKind::STOP_LINE;
 
-            out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from)), is_stop_line});
+            // Same ds_dir the orientation filter above just used -- ResolveSignalJunction
+            // only consults its sign for a Signal::Orientation::NONE signal (see its header).
+            const std::optional<std::uint32_t> junction_id = ResolveSignalJunction(odr, sig, ds_dir);
+
+            out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from)), is_stop_line, junction_id});
         }
     };
 
@@ -241,6 +246,42 @@ std::optional<size_t> FindPairedStopLine(const std::vector<ScannedSignal>& signa
     }
 
     return best;
+}
+
+// Deliberately NOT implemented by delegating to (or from) FindPairedStopLine
+// above: that one excludes signals[anchor_index] from the candidates, a "self"
+// that only exists because its anchor IS one of signals' own entries. This
+// function's anchor_dist need not be any entry's distance_ahead at all (a
+// junction entry never is), so there is no self to exclude and no natural index
+// to plumb through a delegating call in either direction. The loop below is the
+// same pairing rule with that one exclusion removed.
+std::optional<size_t> FindPairedStopLineByDistance(const std::vector<ScannedSignal>& signals, double anchor_dist, double window)
+{
+    std::optional<size_t> best;
+    double best_dist = -std::numeric_limits<double>::infinity();
+
+    for (std::size_t i = 0; i < signals.size(); ++i)
+    {
+        if (!signals[i].is_stop_line) continue;
+
+        const double dist = signals[i].distance_ahead;
+        if (dist > anchor_dist) continue;           // never pair with something farther ahead than the anchor
+        if (anchor_dist - dist > window) continue;  // outside the pairing window
+
+        if (dist > best_dist)  // nearer to the anchor than the current best
+        {
+            best_dist = dist;
+            best      = i;
+        }
+    }
+
+    return best;
+}
+
+StopLineAnchor ResolveStopLineAnchor(double junction_entry_ahead, double head_dist_ahead)
+{
+    if (junction_entry_ahead <= head_dist_ahead) return {junction_entry_ahead, "junction_entry"};
+    return {head_dist_ahead, "head"};
 }
 
 }  // namespace gt_esmini

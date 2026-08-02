@@ -38,8 +38,7 @@
             </laneSection>
         </lanes>
         <signals>
-            <signal id="0" s="92.0" t="-4.0" subtype="-1" dynamic="yes" zOffset="3.0" pitch="0" roll="0" width="0.45" height="3.22" name="light_junction_a" type="1000001" orientation="+" country="DE" hOffset="0"/>
-            <signal id="2" s="88.0" t="0.0" subtype="-1" dynamic="no" zOffset="0.0" pitch="0" roll="0" width="3.75" height="0.03" name="stop_line_junction_a" type="294" orientation="+" country="OpenDRIVE" hOffset="0"/>
+            <signal id="2" s="92.0" t="0.0" subtype="-1" dynamic="no" zOffset="0.0" pitch="0" roll="0" width="3.75" height="0.03" name="stop_line_junction_a" type="294" orientation="+" country="OpenDRIVE" hOffset="0"/>
         </signals>
     </road>
     <road rule="RHT" id="1" junction="-1" length="100.0">
@@ -117,6 +116,7 @@
             </laneSection>
         </lanes>
         <signals>
+            <signal id="0" s="1.0" t="-4.0" subtype="-1" dynamic="yes" zOffset="3.0" pitch="0" roll="0" width="0.45" height="3.22" name="light_junction_a_farside" type="1000001" orientation="+" country="DE" hOffset="0"/>
             <signal id="1" s="3.0" t="-4.0" subtype="-1" dynamic="yes" zOffset="3.0" pitch="0" roll="0" width="0.45" height="3.22" name="light_junction_b" type="1000001" orientation="+" country="DE" hOffset="0"/>
         </signals>
     </road>
@@ -494,7 +494,10 @@
             </laneSection>
         </lanes>
     </road>
-    <junction name="A" id="100" type="default">
+        <controller name="ctrl_light_junction_a_farside" id="1">
+        <control signalId="0" type="0"/>
+    </controller>
+<junction name="A" id="100" type="default">
         <connection incomingRoad="2" id="0" contactPoint="end" connectingRoad="100">
             <laneLink from="1" to="1"/>
             <laneLink from="-1" to="-1"/>
@@ -519,6 +522,7 @@
             <laneLink from="1" to="-1"/>
             <laneLink from="-1" to="1"/>
         </connection>
+            <controller id="1" type="0"/>
     </junction>
     <junction name="B" id="200" type="default">
         <connection incomingRoad="4" id="0" contactPoint="end" connectingRoad="200">

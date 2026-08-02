@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -74,10 +75,21 @@ _JUNCTION_RADIUS = 8.0
 # ASAM leaves stop-line marking out of scope for <signal>. It is the one
 # real-world stop-line signal this repo has on file (multi_intersections.xodr
 # road196: head id=290 at s=0.0, stop line id=292 at s=4.0, both orientation
-# "-"). --stop-line-offset-a mirrors that asset's pattern so the paired-stop-line
-# code path (RouteSignalScan::FindPairedStopLine) has a discriminating fixture;
-# it is not a recommendation for how new OpenDRIVE assets should represent a
-# stop line in general.
+# "-"). --stop-line-setback-a mirrors that asset's pattern so the paired-stop-line
+# code path (RouteSignalScan::FindPairedStopLine / FindPairedStopLineByDistance)
+# has a discriminating fixture; it is not a recommendation for how new OpenDRIVE
+# assets should represent a stop line in general.
+#
+# --stop-line-setback-a places the line this far before junction A's ENTRY (the
+# end of road 0), not before the head. The stop-line pairing anchor moved from
+# the governing head to the junction it governs (SignalJunctionResolver) --
+# far-side/mast-arm heads (--head-farside-offset-a below) sit across the
+# junction from the entry, so "before the head" stopped being the invariant
+# that governs whether pairing can succeed; "before the junction entry" is.
+# head_setback and this parameter are now independent: with the near-side head
+# (the default), the two invariants coincide only when stop_line_setback_a is
+# compared against head_setback by the caller -- the generator itself no longer
+# ties them together.
 _STOP_LINE_TYPE    = "294"
 _STOP_LINE_COUNTRY = "OpenDRIVE"
 
@@ -99,18 +111,33 @@ def make_short_block_road(
     lanes: int,
     head_setback: float,
     head_offset: float,
-    stop_line_offset_a: float | None = None,
+    stop_line_setback_a: float | None = None,
+    head_farside_offset_a: float | None = None,
 ) -> xodr.OpenDrive:
     """Return an OpenDrive with two signalised T-junctions `block_length` apart.
 
-    `head_setback` places junction A's head that far before the end of road 0;
-    `head_offset` places junction B's head that far along road 2 (i.e. past
-    junction A's exit).
+    `head_setback` places junction A's NEAR-SIDE head that far before the end
+    of road 0 (junction A's entry); `head_offset` places junction B's head that
+    far along road 2 (i.e. past junction A's exit).
 
-    `stop_line_offset_a`, when given, additionally places a type=294 stop-line
-    signal on road 0 that far before junction A's head (see _STOP_LINE_TYPE
-    above). None (the default) emits no stop-line signal at all -- the xodr is
-    then identical to a call without this parameter.
+    `stop_line_setback_a`, when given, additionally places a type=294 stop-line
+    signal on road 0 that far before junction A's ENTRY (see _STOP_LINE_TYPE
+    above) -- independent of where junction A's head is placed. None (the
+    default) emits no stop-line signal at all -- the xodr is then identical to
+    a call without this parameter.
+
+    `head_farside_offset_a`, when given, REPLACES junction A's near-side head
+    (the one `head_setback` would otherwise place on road 0) with a head on
+    road 2 that far past junction A's exit -- the same physical placement style
+    `head_offset` uses for junction B's head, mirroring a mast-arm/far-side
+    signal mounted across the intersection. Because that placement's own
+    road-link geometry resolves to junction B (road 2's successor), not A (see
+    SignalJunctionResolver.hpp path (c)), this head is wired to junction A
+    through an explicit OpenDRIVE <controller>/<control> instead (path (a) --
+    the one resolution path that does not depend on physical mounting
+    position). None (the default) keeps the near-side head on road 0 exactly as
+    before; the two placements are mutually exclusive (at most one head governs
+    junction A).
     """
     west = xodr.create_road(
         xodr.Line(leg_length), id=_R_WEST, left_lanes=lanes, right_lanes=lanes
@@ -179,22 +206,52 @@ def make_short_block_road(
         if not _r.elevationprofile.elevations:
             _r.add_elevation(0, 0, 0, 0, 0)
 
-    # Head governing junction A, on the ego's approach.
-    west.add_signal(
-        xodr.Signal(
-            s=leg_length - head_setback,
-            t=_LIGHT_T,
-            country=_LIGHT_COUNTRY,
-            Type=_LIGHT_TYPE,
-            subtype="-1",
-            name="light_junction_a",
-            dynamic=xodr.Dynamic.yes,
-            orientation=xodr.Orientation.positive,
-            zOffset=_LIGHT_ZOFFSET,
-            width=0.45,
-            height=3.22,
+    if head_farside_offset_a is None:
+        # Head governing junction A, on the ego's approach (near-side, the
+        # default). Resolves to junction A via SignalJunctionResolver path (c)
+        # (road 0's own successor link).
+        west.add_signal(
+            xodr.Signal(
+                s=leg_length - head_setback,
+                t=_LIGHT_T,
+                country=_LIGHT_COUNTRY,
+                Type=_LIGHT_TYPE,
+                subtype="-1",
+                name="light_junction_a",
+                dynamic=xodr.Dynamic.yes,
+                orientation=xodr.Orientation.positive,
+                zOffset=_LIGHT_ZOFFSET,
+                width=0.45,
+                height=3.22,
+            )
         )
-    )
+    else:
+        # Far-side head governing junction A, standing on the short block past
+        # junction A's exit -- same placement STYLE as junction B's head below
+        # (orientation positive: it must still face ds_dir>0 on road 2, the
+        # ego's own direction of travel there, NOT the intuitive-but-wrong
+        # "negative to face back at the approaching driver" -- Signal
+        # orientation is relative to the road's s-axis, not world-space facing
+        # direction; every signal on the ego's route needs orientation positive
+        # here since the ego always travels +s through this road network).
+        # Physically past the junction, so path (c) (road 2's own successor
+        # link, which is junction B) would resolve this to the WRONG junction;
+        # wired to junction A via <controller> below instead (path (a)).
+        block.add_signal(
+            xodr.Signal(
+                s=head_farside_offset_a,
+                t=_LIGHT_T,
+                country=_LIGHT_COUNTRY,
+                Type=_LIGHT_TYPE,
+                subtype="-1",
+                name="light_junction_a_farside",
+                dynamic=xodr.Dynamic.yes,
+                orientation=xodr.Orientation.positive,
+                zOffset=_LIGHT_ZOFFSET,
+                width=0.45,
+                height=3.22,
+            )
+        )
     # Head governing junction B, standing on the short block just past junction
     # A's exit. This is the one whose stop line the ego cannot occupy.
     block.add_signal(
@@ -213,13 +270,17 @@ def make_short_block_road(
         )
     )
 
-    if stop_line_offset_a is not None:
-        head_a_s = leg_length - head_setback
-        line_a_s = head_a_s - stop_line_offset_a
+    if stop_line_setback_a is not None:
+        # leg_length, not "head_s": junction A's entry is where road 0 ends
+        # (its successor link, see the junction-A wiring above), independent of
+        # where -- or whether -- a head sits on road 0 at all (head_farside_
+        # offset_a leaves road 0 with no head whatsoever).
+        junction_a_entry_s = leg_length
+        line_a_s = junction_a_entry_s - stop_line_setback_a
         if line_a_s < 0.0:
             raise ValueError(
-                f"stop_line_offset_a={stop_line_offset_a} places the stop line at "
-                f"s={line_a_s} < 0 on road {_R_WEST} (head at s={head_a_s})"
+                f"stop_line_setback_a={stop_line_setback_a} places the stop line at "
+                f"s={line_a_s} < 0 on road {_R_WEST} (junction A entry at s={junction_a_entry_s})"
             )
         # t=0.0 (spans the carriageway), unlike the head's t=_LIGHT_T (mounted
         # off to the side) -- mirrors multi_intersections.xodr road196, where
@@ -291,16 +352,33 @@ def parse_args() -> argparse.Namespace:
         "exit). Default: 3.0.",
     )
     parser.add_argument(
-        "--stop-line-offset-a",
+        "--stop-line-setback-a",
         type=float,
         default=None,
         metavar="M",
         help="Place an additional stop-line signal (type=294, country=OpenDRIVE, "
-        "dynamic=no) this far before junction A's head, on road 0. Mirrors the "
-        "one real-world stop-line signal in this repo (multi_intersections.xodr "
-        "road196: head-to-line = 4m) -- not an ASAM-defined pattern, see "
+        "dynamic=no) this far before junction A's ENTRY (the end of road 0), on "
+        "road 0 -- independent of where junction A's head is placed (see "
+        "--head-setback / --head-farside-offset-a). Mirrors the one real-world "
+        "stop-line signal in this repo (multi_intersections.xodr road196) in "
+        "kind, not in the reference point it is measured from (that asset has "
+        "no OpenDRIVE junction at all) -- not an ASAM-defined pattern, see "
         "docs/virtualdriver/design/stop_line_stop_target.md sec 1 / sec 14. "
         "Default: disabled (no stop-line signal emitted; xodr unchanged).",
+    )
+    parser.add_argument(
+        "--head-farside-offset-a",
+        type=float,
+        default=None,
+        metavar="M",
+        help="Replace junction A's near-side head (--head-setback) with a head "
+        "on road 2, this far past junction A's exit -- the same placement style "
+        "--head-offset uses for junction B's head, mirroring a mast-arm/"
+        "far-side signal mounted across the intersection. Wired to junction A "
+        "via an OpenDRIVE <controller> (SignalJunctionResolver path (a)), since "
+        "this placement's own road-link geometry (path (c)) resolves to "
+        "junction B instead. Default: disabled (near-side head on road 0, "
+        "unchanged).",
     )
     parser.add_argument(
         "--out-dir",
@@ -310,6 +388,51 @@ def parse_args() -> argparse.Namespace:
         help="Output directory. Default: <this file's dir>/generated.",
     )
     return parser.parse_args()
+
+
+def _wire_signal_to_junction_via_controller(xodr_path: Path, signal_name: str, controller_id: int = 1) -> None:
+    """Post-process *xodr_path*: add a top-level <controller> listing the signal
+    named *signal_name* and reference that controller from the FIRST <junction>
+    block in the file (junction A -- it is always written before junction B by
+    this generator, see make_short_block_road). This is SignalJunctionResolver
+    path (a), the only resolution path that does not depend on where the
+    signal is physically mounted -- needed because --head-farside-offset-a
+    places its head on road 2, whose own successor link (path (c)) resolves to
+    junction B, not A.
+
+    Not emitted by scenariogeneration (no Controller/Control class in this
+    venv's version, checked 2026-08-02) -- a raw text splice on the already-
+    written file, same idiom as the country-case fix in main() below. The
+    <controller>/<control> shape mirrors the real one read from
+    multi_intersections.xodr (ctrl002 / junction 146, see
+    SignalJunctionResolver.hpp's module doc and its test fixtures) and OpenDRIVE
+    1.6+ schema order (road*, controller*, junction*).
+
+    Looks the signal's numeric id up by NAME (not by predicting scenariogeneration's
+    id-assignment order) so this stays correct regardless of how many other
+    signals main() has already asked the library to place.
+    """
+    text = xodr_path.read_text(encoding="utf-8")
+
+    m = re.search(r'<signal\b[^>]*\bid="(\d+)"[^>]*\bname="' + re.escape(signal_name) + r'"[^>]*/>', text)
+    if not m:
+        raise RuntimeError(f"{xodr_path}: no <signal name=\"{signal_name}\"> found to wire to a controller")
+    signal_id = m.group(1)
+
+    controller_block = (
+        f'    <controller name="ctrl_{signal_name}" id="{controller_id}">\n'
+        f'        <control signalId="{signal_id}" type="0"/>\n'
+        f"    </controller>\n"
+    )
+    junction_idx = text.index("<junction ")
+    text = text[:junction_idx] + controller_block + text[junction_idx:]
+
+    # First </junction> closes the first <junction ...> (junction A) -- junction
+    # elements do not nest, so this cannot land inside junction B's block.
+    close_idx = text.index("</junction>")
+    text = text[:close_idx] + f'        <controller id="{controller_id}" type="0"/>\n    ' + text[close_idx:]
+
+    xodr_path.write_text(text, encoding="utf-8")
 
 
 def main() -> None:
@@ -325,8 +448,19 @@ def main() -> None:
     catalog_id = f"signalized_short_block__b{int(round(args.block_length))}"
     if args.lanes != 1:
         catalog_id += f"_l{args.lanes}"
-    if args.stop_line_offset_a is not None:
-        catalog_id += f"_sl{int(round(args.stop_line_offset_a))}"
+    if args.head_setback != 8.0:
+        # Not part of catalog_id by default (every pre-existing asset uses the
+        # default 8.0), but stop_line_setback_a is now independent of
+        # head_setback (see make_short_block_road docstring) -- a non-default
+        # head_setback changes the xodr just as much as stop_line_setback_a
+        # does and must be visible in the name, or two assets with different
+        # head placement but the same stop-line setback would collide on the
+        # same catalog_id/filename.
+        catalog_id += f"_hs{int(round(args.head_setback))}"
+    if args.stop_line_setback_a is not None:
+        catalog_id += f"_sl{int(round(args.stop_line_setback_a))}"
+    if args.head_farside_offset_a is not None:
+        catalog_id += f"_fsa{int(round(args.head_farside_offset_a))}"
 
     odr = make_short_block_road(
         block_length=args.block_length,
@@ -334,13 +468,14 @@ def main() -> None:
         lanes=args.lanes,
         head_setback=args.head_setback,
         head_offset=args.head_offset,
-        stop_line_offset_a=args.stop_line_offset_a,
+        stop_line_setback_a=args.stop_line_setback_a,
+        head_farside_offset_a=args.head_farside_offset_a,
     )
 
     xodr_path = out_dir / f"{catalog_id}.xodr"
     odr.write_xml(str(xodr_path))
     normalize_header_date(xodr_path, _PINNED_DATE)
-    if args.stop_line_offset_a is not None:
+    if args.stop_line_setback_a is not None:
         # scenariogeneration upper-cases every Signal `country=` string on
         # write. Harmless for 2-letter ISO codes ("de" -> "DE" still matches
         # the XSD's e_countryCode_iso3166alpha2 pattern), but it breaks the
@@ -353,6 +488,8 @@ def main() -> None:
         fixed = text.replace(f'country="{_STOP_LINE_COUNTRY.upper()}"', f'country="{_STOP_LINE_COUNTRY}"')
         if fixed != text:
             xodr_path.write_text(fixed, encoding="utf-8")
+    if args.head_farside_offset_a is not None:
+        _wire_signal_to_junction_via_controller(xodr_path, "light_junction_a_farside")
     print(f"[xodr] -> {xodr_path}  ({len(odr.roads)} roads, 2 junctions)")
 
     meta: dict = {
@@ -360,17 +497,13 @@ def main() -> None:
         "kind": "road",
         "geometry_type": "G4+G4",
         "signage": "traffic_light x2"
-        + (" + stop_line" if args.stop_line_offset_a is not None else ""),
+        + (" + stop_line" if args.stop_line_setback_a is not None else "")
+        + (" + farside_head_a(controller-wired)" if args.head_farside_offset_a is not None else ""),
         "layout": {
             "ego_path": [_R_WEST, _JUNCTION_A_ID, _R_BLOCK, _JUNCTION_B_ID, _R_EAST],
             "junction_a_id": _JUNCTION_A_ID,
             "junction_b_id": _JUNCTION_B_ID,
             "block_road_id": _R_BLOCK,
-            "light_junction_a": {
-                "road": _R_WEST,
-                "s": args.leg_length - args.head_setback,
-            },
-            "light_junction_b": {"road": _R_BLOCK, "s": args.head_offset},
         },
         "generator": {
             "script": "road_catalog/gen_signalized_short_block.py",
@@ -384,13 +517,29 @@ def main() -> None:
         },
         "generated_at_commit": git_short_hash(),
     }
-    if args.stop_line_offset_a is not None:
+    if args.head_farside_offset_a is None:
+        meta["layout"]["light_junction_a"] = {
+            "road": _R_WEST,
+            "s": args.leg_length - args.head_setback,
+        }
+    else:
+        meta["layout"]["light_junction_a_farside"] = {
+            "road": _R_BLOCK,
+            "s": args.head_farside_offset_a,
+            "resolved_via": "controller_chain (SignalJunctionResolver path (a))",
+        }
+        meta["generator"]["params"]["head_farside_offset_a"] = args.head_farside_offset_a
+    # Inserted here (not in the initial layout dict literal above) so the
+    # default (near-side) case's key order exactly matches the pre-rename meta
+    # files byte-for-byte -- write_meta_yaml preserves insertion order.
+    meta["layout"]["light_junction_b"] = {"road": _R_BLOCK, "s": args.head_offset}
+    if args.stop_line_setback_a is not None:
         meta["layout"]["stop_line_junction_a"] = {
             "road": _R_WEST,
-            "s": (args.leg_length - args.head_setback) - args.stop_line_offset_a,
-            "offset_from_head": args.stop_line_offset_a,
+            "s": args.leg_length - args.stop_line_setback_a,
+            "offset_from_junction_a_entry": args.stop_line_setback_a,
         }
-        meta["generator"]["params"]["stop_line_offset_a"] = args.stop_line_offset_a
+        meta["generator"]["params"]["stop_line_setback_a"] = args.stop_line_setback_a
     meta_path = out_dir / f"{catalog_id}.road.meta.yaml"
     write_meta_yaml(meta_path, meta)
     print(f"[meta] -> {meta_path}")

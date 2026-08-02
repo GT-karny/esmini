@@ -1,13 +1,21 @@
 name: stop_line_pairing
 origin: docs/virtualdriver/design/stop_line_stop_target.md   # 由来はメタデータ。名前には焼き込まない — capability_model.md §7.1 規約2
 # Discriminator batch for stop-line pairing (design sec13): TrafficLightAware's
-# governing-head side (03_traffic_signals) and StopYieldSignAware's STOP-sign
-# side (04_traffic_signs). Each scenario's road carries a type=294 stop-line
-# signal (country=OpenDRIVE) placed a few metres before the corresponding
-# margin-based stop target, at an offset that differs from *_stop_margin, so
-# the kill switch's two arms land at measurably different rest positions.
+# governing-head side (03_traffic_signals, two scenarios -- near-side and
+# far-side head placements) and StopYieldSignAware's STOP-sign side
+# (04_traffic_signs). Each scenario's road carries a type=294 stop-line signal
+# (country=OpenDRIVE) placed a few metres before the corresponding margin-based
+# stop target, at an offset that differs from *_stop_margin, so the kill
+# switch's two arms land at measurably different rest positions.
 #
-# Both scenarios run at their DEFAULT config (tl_stop_line_aware_enabled /
+# red_hold_stop_line_paired_farside (added 2026-08-02 alongside the stop-line-
+# anchor redesign) is the scenario the anchor redesign exists for: its
+# governing head sits physically on the far side of the junction it governs
+# (wired there via an OpenDRIVE <controller>, SignalJunctionResolver path (a)),
+# a placement a head-only anchor can never pair correctly at any window value.
+# See its own .xosc/.expectations.yaml headers for the full asset description.
+#
+# All three scenarios run at their DEFAULT config (tl_stop_line_aware_enabled /
 # sign_stop_line_aware_enabled default true) -- the OFF arm that motivated
 # each s_range is NOT reachable through this manifest (policies:[] only sets
 # policy_traffic_light_enabled / policy_stop_yield_enabled, not the kill
@@ -26,6 +34,9 @@ defaults:
 scenarios:
   - scenario: resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.xosc
     expectations: resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired.expectations.yaml
+    policies: [traffic_light]
+  - scenario: resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.expectations.yaml
     policies: [traffic_light]
   - scenario: resources/xosc/verification/04_traffic_signs/stop_sign_stop_line_paired.xosc
     expectations: resources/xosc/verification/04_traffic_signs/stop_sign_stop_line_paired.expectations.yaml
