@@ -47,6 +47,7 @@
 | AEB の要求（NCAP と R152 からの逆算） | [design/aeb_requirements.md](design/aeb_requirements.md) |
 | 注釈データセット類似度による自動判定（未実装） | [design/annotation_similarity_design.md](design/annotation_similarity_design.md) |
 | VD テレメトリを OSI 拡張へ出さない理由 | [design/osi_telemetry_extension_decision.md](design/osi_telemetry_extension_decision.md) |
+| 信号・STOP標識の停止位置を停止線基準にする（設計のみ） | [design/stop_line_stop_target.md](design/stop_line_stop_target.md) |
 
 ## 数値を引く
 
