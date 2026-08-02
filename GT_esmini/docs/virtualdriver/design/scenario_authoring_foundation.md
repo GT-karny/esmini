@@ -4,8 +4,8 @@
 | --- | --- |
 | ドキュメント種別 | 調査 + 意思決定（プリ実装） |
 | 関連ドキュメント | [roadmap.md](./roadmap.md) / [verification_environment.md](./verification_environment.md) |
-| 状態 | Draft（調査・推奨確定済み、本実装は次セッション） |
-| 最終更新 | 2026-06-06 |
+| 状態 | Draft（調査・推奨確定済み、本実装は次セッション）。§10 は運用ルールとして確定済み |
+| 最終更新 | 2026-08-02（§10 追加） |
 | 対象 Phase | Phase 3d（対向車待ち）/ 3e（無信号交差点）以降の検証シナリオ量産基盤 |
 
 ---
@@ -380,3 +380,33 @@ validate_catalog.py:
 - `scratch/scenariogeneration_eval/t_junction.xodr` / `.xosc` — 生成物（esmini headless 走破確認済み、EXIT=0）
 
 本実装着手時に `road_catalog/` へ昇格（M-A）。scratch は評価用一時物。
+
+---
+
+## 10. Route Waypoint 記述ルール（junction 越え）
+
+**正典**: このルールの正典はここ（本ドキュメント）。`resources/scenario_authoring/README.md` からはリンクのみで、内容の複製はしない。手書き（`resources/xosc/**`）・生成（`scenario_templates/generated/**`）のどちらで作る Route にも同一に適用される、OpenSCENARIO オーサリングの一般規則であって、生成基盤固有の設計事項ではないため。
+
+### 症状
+
+`<AssignRouteAction><Route>` の Waypoint 列が **junction を跨ぐ2点間で connecting road を素通り**すると、esmini の `RoadManager::Route::AddWaypoint` がパス解決に失敗し、当該 Waypoint を `Route::AddWaypoint Skip waypoint for scenario routes since path not found`（WARN ログ）とともに **黙って** 落とす。結果としてルートが junction 以降で truncate され、VirtualDriver は on-route 前提の交差点内パス予測ができなくなって位置ベース推定にフォールバックする。位置ベース推定は不安定で、直進/左折のような近傍コネクションを毎フレーム再評価して交互に誤判定し、本来不要な減速が発生する（issue #31 の実地症状：交差点直進ルート設定時の高速な直進/左折振動）。
+
+症状は「ルート追従がおかしい」という**遠い場所**にしか出ない。原因（Waypoint 列の欠落）とは別ファイル・別タイミングで観測されるため、ログの WARN 1行を見落とすと原因特定が難しい。
+
+### 回避（恒久ルール）
+
+ルートが junction を跨ぐとき、**元Arm → ConnectingRoad → 行先Arm の連続する各 Road に Waypoint を置く**。ConnectingRoad をスキップして行先 Arm に直接 Waypoint を置いてはいけない。
+
+- 対象は **OpenDRIVE の `<road junction="...">` を持つ道路**（connecting road）。plain road 同士の直接リンク（`<link>` の predecessor/successor が `elementType="road"` で直結）は対象外— RoadPath は plain road 間の多段リンクは正しく解決する。問題は connecting road の pathfinding に固有。
+- とくに **車線変更を要するレーン接続**（同一 junction 内に同じ Arm ペアを結ぶ connecting road が複数存在し、進行方向ごとに別の road id が割り当たっている場合を含む）を挟むときは、正しい connecting road（road id）は **進入側 Arm の lane id → 退出側 Arm の lane id** の組み合わせでしか一意に決まらない。road id ペアだけで連想すると、逆方向の connecting road（例: A→B 用と B→A 用が別 road id）を取り違える。
+- 追加する Waypoint の `s` は connecting road の長さの範囲内であれば足りる（区間中央が無難）。`laneId` は **connecting road 自身の driving lane id**（進入側/退出側 Arm の lane id ではない）。
+
+### 根拠
+
+- ログ文言 `Route::AddWaypoint Skip waypoint for scenario routes since path not found`（`EnvironmentSimulator/Modules/RoadManager/RoadManager.cpp`、`Route::AddWaypoint`）— `route_found` が false のとき当該 Waypoint は `minimal_waypoints_` に追加されず、ルートから欠落する。
+- 実例: `fabriksgatan_traffic_lights.xodr` の junction 4 では、road3(lane -1) → road2(lane 1) の移動は connecting road **13**（`predecessor=road3(end)`, `successor=road2(end)`, lane -1→1）を経由する。road id ペア (3,2) には **逆方向専用の connecting road 16**（`predecessor=road2`, `successor=road3`, lane -1→1）も存在し、road id ペアだけで解決すると 16 を誤選択する — lane id 込みの exact match が必須な理由。
+- 機械チェック: `scripts/check_route_waypoints.py`（repo 全体の `.xosc` を対象、`--json` で機械可読）。`resources/scenario_authoring/validate_catalog.py` の静的チェック (e) として生成カタログにも自動適用済み。生成器から使う場合は `authoring_common.make_route(..., xodr_path=...)` に road file を渡すと、欠落した connecting road Waypoint を自動的に補う。
+
+### 既知の例外（対象外）
+
+`resources/xosc/verification/p6_virtual_junction/` の virtual junction シナリオ（`GT_esmini/docs/archive/odr_1619_program/odr_p6_virtual_junction_design.md` P6 設計）は対象外。virtual junction は branch road が main road の途中 s（`elementS` アンカー）にリンクする方式で、通常の connecting road が存在しない。これらのシナリオはむしろ「connecting road を明示しなくても FollowRouteController のアンカー対応ルータが解決できること」自体を検証しているため、Waypoint を追加してはいけない。`scripts/check_route_waypoints.py` はこのディレクトリをデフォルトで除外し、該当箇所は `no-connecting-road`（情報のみ、FAIL 扱いしない）として報告する。

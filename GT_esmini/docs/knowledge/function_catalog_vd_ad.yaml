@@ -126,7 +126,7 @@ functions:
   # ============================================================================
 
   # ----- B1 Mission / 経路計画（strategic・"目的地到達"軸の本体） -----
-  - { id: FUNC-049, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: partial, by: 'road', note: "目的地ルーティング。起点→目的地の road/lane 列を生成し保持する。RoadPath による経路探索が基盤だが **issue #31 で右折レーン接続に失敗しルートが truncate**＝B1の最重要既知欠陥。tier='-'＝動機でなくタスク達成そのもの" }
+  - { id: FUNC-049, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: partial, by: 'road', note: "目的地ルーティング。起点→目的地の road/lane 列を生成し保持する。RoadPath による経路探索が基盤。req-vd-ad:REQ-AD-016（将来課題）。**issue #31 は RoadPath の欠陥ではなくルート記述側の欠落**（junction 跨ぎは 元Arm→ConnectingRoad→行先Arm の各 Road に Waypoint が要る）で、車線変更しないと成立しないレーン接続を人間が Waypoint で手当てせねばならないこと自体が本機能と FUNC-050/055 の不在を示す。tier='-'＝動機でなくタスク達成そのもの" }
   - { id: FUNC-050, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: lat,  status: none,    by: '', note: "レーンレベル経路計画。次のマニューバ(右左折/分岐/専用レーン)に必要なレーンを事前に選び、余裕を持って寄せる。FUNC-034/035 が制約として効く" }
   - { id: FUNC-051, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "動的リルート。閉塞・通行不能・工事を検知して経路を再計画。イレギュラー対応の strategic 側" }
   - { id: FUNC-052, tier: '-',    layer: strategic,   kind: behavior, agent: AD, dim: both, status: none,    by: '', note: "ルート維持・逸脱復帰。off-route を検知し復帰経路を立てる。issue #31 の予測walkerが off-route に落ちる件と同根の欠落" }

@@ -103,7 +103,17 @@
                            </Waypoint>
                            <Waypoint routeStrategy="shortest">
                               <Position>
+                                 <LanePosition roadId="100" laneId="-1" offset="0" s="8.0"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
                                  <LanePosition roadId="2" laneId="-1" offset="0" s="6"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="200" laneId="-1" offset="0" s="8.0"/>
                               </Position>
                            </Waypoint>
                            <Waypoint routeStrategy="shortest">

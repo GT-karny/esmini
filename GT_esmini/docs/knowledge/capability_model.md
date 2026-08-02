@@ -337,7 +337,7 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 
 | ピラー | ID | 中核と既知欠陥 |
 | :-- | :-- | :-- |
-| **B1 Mission/経路計画** | FUNC-049..054 | FUNC-049 目的地ルーティング＝`partial`（RoadPath 基盤、**issue #31 で右折レーン接続失敗→ルート truncate**）。FUNC-053 経路上障害物回避＝**発端の「避けてルート維持」軸の本体** |
+| **B1 Mission/経路計画** | FUNC-049..054 | FUNC-049 目的地ルーティング＝`partial`（RoadPath 基盤、**issue #31 真因はシナリオ側の Route Waypoint 記述欠落（junction 越えで ConnectingRoad の Waypoint を省略）→ `Route::AddWaypoint` パス解決失敗でルート truncate。RoadPath 自体の右折レーン接続失敗ではない**、恒久ルールは `scenario_authoring_foundation.md` §10）。FUNC-053 経路上障害物回避＝**発端の「避けてルート維持」軸の本体** |
 | **B2 マニューバ発起** | FUNC-055..060 | **VD は LC を自発発起できない**（FUNC-020 は実行側、発起は storyboard 由来のみ）＝ layer 軸で初めて分離できた欠陥 |
 | **B3 意図伝達** | FUNC-048, 061..063 | AutoIndicator/IndicatorFSM は在るが**発起側が無いため storyboard LC にしか同期しない**（FUNC-061 partial） |
 | **B4 縮退/ODD** | FUNC-010, 064..066 | ODD監視(enabler)→段階縮退→MRM の三段が全て未 |

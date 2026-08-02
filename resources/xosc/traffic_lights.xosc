@@ -72,6 +72,11 @@
                               </Waypoint>
                               <Waypoint routeStrategy="shortest">
                                     <Position>
+                                       <LanePosition roadId="13" laneId="-1" offset="0.0" s="7.43"/>
+                                    </Position>
+                              </Waypoint>
+                              <Waypoint routeStrategy="shortest">
+                                    <Position>
                                        <LanePosition roadId="2" laneId="1" offset="0.0" s="200"/>
                                     </Position>
                               </Waypoint>

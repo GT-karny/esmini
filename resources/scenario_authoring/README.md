@@ -208,3 +208,8 @@ Full rationale, taxonomy, and milestone roadmap:
 `GT_esmini/docs/virtualdriver/design/scenario_authoring_foundation.md`
 
 Tool dependencies and dev-freeze non-applicability: see §3.2 of that document.
+
+**Route Waypoint authoring rule (junction crossings)**: see §10 of that document (canonical —
+do not duplicate here). When a Route crosses a junction, every OpenDRIVE connecting road on the
+path needs its own Waypoint or esmini silently truncates the route. `make_route(..., xodr_path=...)`
+auto-inserts the missing Waypoint; `validate_catalog.py` static check (e) lints for it.

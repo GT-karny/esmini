@@ -14,6 +14,8 @@ STATIC checks (M-A, always run):
   (c) catalog_id in meta yaml == artifact filename stem.
   (d) scenarios with evaluation: annotation must carry a companion
         <catalog_id>.annotation_required.yaml.
+  (e) scenarios: Route Waypoints don't skip an OpenDRIVE junction connecting
+        road (scripts/check_route_waypoints.py — see design doc §10 / issue #31).
 
 EXECUTION checks (M-D, run unless --skip-run):
   roads (*.xodr):
@@ -68,6 +70,7 @@ from scenariogeneration import xosc  # noqa: E402
 _ROAD_GEN = _HERE / "road_catalog" / "generated"
 _SCENE_GEN = _HERE / "scenario_templates" / "generated"
 _REPORT = _HERE / "validate_report.md"
+_ROUTE_WP_CACHE: dict[Path, tuple] = {}
 
 _REPO = repo_root()
 
@@ -77,6 +80,13 @@ _REPO = repo_root()
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 from GT_esmini.web.backend.services.log_extract import extract_failure  # noqa: E402
+
+# Route-Waypoint / junction-connecting-road continuity checker (scripts/, not
+# a package -- add its directory directly rather than duplicating the logic).
+_scripts_dir = _REPO / "scripts"
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from check_route_waypoints import _HARD_FAIL_REASONS, audit_file as _audit_route_waypoints  # noqa: E402
 
 _DEFAULT_DLL = _REPO / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 _DEFAULT_ESMINI = (
@@ -149,6 +159,19 @@ def _check_id_matches_stem(meta: dict[str, Any], stem: str) -> tuple[bool, str]:
     if cid == stem:
         return True, f"id={cid}"
     return False, f"catalog_id '{cid}' != stem '{stem}'"
+
+
+def _check_route_waypoints(xosc_path: Path) -> tuple[bool, str]:
+    findings, err = _audit_route_waypoints(xosc_path, _ROUTE_WP_CACHE)
+    if err and err != "no-xodr":
+        return False, f"route-waypoint check error: {err}"
+    hard = [f for f in findings if f["reason"] in _HARD_FAIL_REASONS]
+    if not hard:
+        return True, "no skipped connecting roads"
+    details = "; ".join(
+        f"{h['from']}->{h['to']} [{h['reason']}] missing {h['detail']}" for h in hard
+    )
+    return False, details
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +380,12 @@ def validate_scenario(xosc_path: Path, dll: Path | None) -> dict[str, Any]:
             if not ann_ok:
                 results["pass"] = False
 
+    # (e) Route Waypoints must not skip a junction connecting road (issue #31).
+    rw_ok, rw_msg = _check_route_waypoints(xosc_path)
+    results["checks"]["route_waypoints"] = {"ok": rw_ok, "detail": rw_msg}
+    if not rw_ok:
+        results["pass"] = False
+
     if dll is not None:
         run_ok, run_msg = _run_scenario(xosc_path, dll)
         results["checks"]["scenario_run"] = {"ok": run_ok, "detail": run_msg}
@@ -376,6 +405,7 @@ _CHECK_COLUMNS = [
     "meta_fields",
     "id_matches_stem",
     "annotation_required",
+    "route_waypoints",
     "esmini_run",
     "scenario_run",
 ]

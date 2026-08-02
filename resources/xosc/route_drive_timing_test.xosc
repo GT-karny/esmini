@@ -41,6 +41,11 @@
                            </Waypoint>
                            <Waypoint routeStrategy="fastest">
                               <Position>
+                                 <LanePosition roadId="3" laneId="1" s="25.0" offset="0.0"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="fastest">
+                              <Position>
                                  <LanePosition roadId="1" laneId="-3" s="50.0" offset="0.0"/>
                               </Position>
                            </Waypoint>
