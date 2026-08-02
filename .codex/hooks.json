@@ -1,0 +1,19 @@
+{
+  "description": "GT_esmini Codex policy guard.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".codex/hooks/gt_guard.ps1\"",
+            "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/gt_guard.ps1')\"",
+            "timeout": 15,
+            "statusMessage": "GT guard: checking core, venv, and GitHub policy"
+          }
+        ]
+      }
+    ]
+  }
+}
