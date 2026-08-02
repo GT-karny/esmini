@@ -163,8 +163,7 @@ C++ 既定値（`ManualDriveConfig` の struct 既定）は **false**。VD は
 `ControllerVirtualDriver` の構築時に自分のフラットキーから `io_config_.override_cfg.button_takeover` を
 上書きする（`sdl2_auto_resume_button` を詰め替えているのと同じ場所 ★）。
 
-> **罠**: 既定値は C++ struct / `config/*.json` / Web の Python 既定 / TS 既定 の**4 か所**に散る。
-> 食い違うと「フォールバック時だけ挙動が違う」という最悪の形で出る。4 か所すべてを揃えること。
+> 既定値が 4 か所に散る件は [`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) §4 にある。
 
 ---
 
@@ -249,7 +248,7 @@ C++ 既定値（`ManualDriveConfig` の struct 既定）は **false**。VD は
 
 - `web/backend/api/virtual_driver_api.py` — 許可キー一覧・既定値・説明文に `override_button_takeover` を追加。
 - `web/frontend/src/api/client.ts` / `components/simulation/VirtualDriverPanel.tsx` — 同上（トグル UI）。
-- **config 保存は既存ファイルへの merge。全置換は禁止**（過去に 59 キーが恒久消失している）。
+- **config 保存は既存ファイルへの merge。全置換は禁止**（[`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) §4）。
 
 ---
 
@@ -357,8 +356,4 @@ resume 側は意図的に**やっていない**（既存コメントに理由が
 
 - `SDL2WheelInput::read_btn` が単一ビット前提かどうか（2 ビット同時に立てる書き換えの形）☆
 - VD と MD が同じ G29 を同時に開いたときの SDL2 の実挙動 ☆ — 参照カウントと考えているが記録が無い
-- 進行中（未コミット）の MD 側移管作業と本作業の**同一ファイル衝突**:
-  `OverrideManager.hpp/.cpp`、`ControllerManualDrive.cpp`、`ManualDriveCoordinator.cpp` は
-  現在ワーキングツリーに未コミット変更がある ★。**着手前に先行作業をコミットするか、
-  ブランチを分けること。**
 - 本プランは全てソース読解に基づく。プローブもゲートも 1 本も実行していない。

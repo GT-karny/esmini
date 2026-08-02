@@ -22,6 +22,10 @@
 
 > **行番号についての注意**: `ControllerVirtualDriver.cpp` は合流軌道ワーカーが並行編集中（`git status` で `M`）。本書の行番号は執筆時点のスナップショットであり、実装時にはずれている可能性がある。実際、subagent が `:434` と報告した `ffb->Update()` は再確認時点で `:568` にあった。**行番号ではなくシンボル名で参照すること。**
 
+> **この節は本作業の確認記録である。** 移管まわりで恒久的に効く事実と罠は
+> [`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) に集約してある。
+> これから触る人はそちらを先に読むこと。
+
 ### 1.2 一次確認済み（当初 subagent 報告 → 本ワーカーが再確認）
 
 - **G**: `SDLFFBSink` の `Update()` は VD の `Step()` 内からしか呼ばれない（`ControllerVirtualDriver.cpp` の `ffb->Update(hvd, timeStep)`）。`ffb_sink_.Close()` の呼び出しは `SDL2WheelInput.cpp:247` の1箇所のみ（Shutdown/デストラクタ経路）。**一次確認済み。**
@@ -152,9 +156,7 @@ if (auto* ffb = <既存の取得経路>)
 
 R-1/R-2/R-3 の判断に応じて 0〜3 個。追加する場合の経路は既存規約に従う（`VirtualDriverConfig.hpp` → `VirtualDriverConfig.cpp` の反射テーブル → `ControllerVirtualDriver.cpp` の転記 → `config/virtual_driver.json` → `virtual_driver_api.py` の型別許可リスト **と** `DEFAULT_VIRTUAL_DRIVER_CONFIG` の両方 → `client.ts` の型 → `VirtualDriverPanel.tsx` の `EDITABLE_KEYS` とウィジェット）。
 
-**踏んではいけない罠**（既知の事故から）:
-- 既定値が C++ struct / `config/virtual_driver.json` / Python の `DEFAULT_VIRTUAL_DRIVER_CONFIG` の3か所に散る。食い違うとフォールバック時だけ露見するバグになる（`9d0b2e8b` の実例）。
-- config 保存は**必ず既存ファイルへの merge**。全置換は禁止（`5ee8857c` で 59 キーが恒久消失した事故）。`virtual_driver_api.py` は元から merge 方式なので踏襲する。
+既定値の散在と config 保存の罠は [`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) §4 にある。
 
 ---
 

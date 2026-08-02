@@ -56,6 +56,9 @@ ManualDrive に UDP で定常操舵 0.35 を投入（`manual_drive_headless_udp.
 
 ## 2. upstream 欠陥（R1 Clean Core により GT 側では直さない）
 
+> 本節は欠陥 A/B の正典である。
+> 移管まわりの罠を一覧で見たいなら [`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) にある。
+
 ### 欠陥A — per-domain 解放が「現職」ではなく「新参」に対して呼ばれる
 
 `EnvironmentSimulator/Modules/ScenarioEngine/OSCTypeDefs/OSCPrivateAction.cpp`,

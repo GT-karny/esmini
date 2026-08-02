@@ -25,41 +25,18 @@
 ### やさしい説明
 
 車を運転しているのが「誰か」を管理する台帳が、いま **4つ別々にある**。
-
-| # | 台帳 | 誰が持っているか | 何を決めるか |
-|---|---|---|---|
-| ① | esmini 本体の**活性ドメイン** (`Controller::Active()`) | upstream | **そのコントローラの `Step()` を呼ぶかどうか** |
-| ② | GT の**所有台帳** (`DomainOwnershipLedger`) | GT | 誰が車を積分（＝実際に動かす）するか |
-| ③ | ManualDrive の**オーバーライド状態** (`OverrideManager` AUTO/MANUAL) | GT | MD が仕事をするかシナリオに任せるか |
-| ④ | OSI 出力の**データ源選択** (`GT_esminiLib.cpp` の名前引き) | GT | OSI にどのコントローラの値を載せるか |
+4つの内訳と、1フレームの中でそれらがどの順に効くかは
+[`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) §2 にある。
 
 平常時は4つの答えが一致するので問題が出ない。**引き渡しの瞬間だけ4つがバラバラになる**。
+3つの症状は、そのバラけ方の違いである。
 
-- ① が「降りた」と言っているのに ③ は「まだ AUTO（人は触ってない）」と言う → **誰も運転していない**（症状3）
+- ①（活性ドメイン）が「降りた」と言っているのに ③（オーバーライド状態）は「まだ AUTO（人は触ってない）」と言う → **誰も運転していない**（症状3）
 - ① が「降りた」＝ VD の `Step()` が呼ばれない → **復帰ボタンを見ている人がゼロ**（症状1）
-- ④ は名前の優先順で決め打ちしていて ②③ を見ない → **運転していない方のコントローラの空データが OSI に出る**（症状2）
+- ④（出力のデータ源）は名前の優先順で決め打ちしていて ②③ を見ない → **運転していない方のコントローラの空データが OSI に出る**（症状2）
 
-さらに **esmini には「デフォルトの運転手」が居る**（`ScenarioEngine::defaultController`）。これが毎フレーム
-**コントローラより先に**車を等速で道なりに進める ★（`ScenarioEngine.cpp:223` → `:613` `MoveAlongS(speed_*dt)`）。
-普段はそのあと本物のコントローラが位置を絶対上書きするので見えないが、**上書きする人が居ない瞬間だけ
-「等速で道なりに滑る車」として顔を出す**。ユーザーの「Default Controller に落ちてるかも」という直感は正しい。
-
-```
-1フレームの順番（★ 直接確認）
-  storyboard アクション
-    ↓
-  defaultController  ← 等速で MoveAlongS。ADDITIVE のコントローラは止められない
-    ↓
-  各コントローラの Step()  ← Active() が真のものだけ
-    ↓
-  OSI GroundTruth 送信 / OSI HostVehicleData 送信
-```
-
-**なぜ ADDITIVE だと止められないか** ★: `defaultController` を抑止できるのは `MODE_OVERRIDE` のときだけ
-（`ScenarioEngine.cpp:217-218`）。GT の VD も MD も **強制 ADDITIVE**
-（`ControllerVirtualDriver.cpp:176`/`:203`、`ControllerManualDrive.cpp:116`）★。これは意図的な設計
-（ADDITIVE でないと SpeedAction の目標が読めない — [[virtual_driver_controller]] 参照）なので、
-「OVERRIDE にする」は解ではない。**「常に誰かが上書きしている」状態を保つ**のが解。
+3つに共通するのは、**上書きする人が居ない瞬間に `defaultController` が等速で道なりに車を滑らせる**ことである ★。
+ユーザーの「Default Controller に落ちてるかも」という直感は正しい。
 
 ---
 
@@ -436,17 +413,7 @@ Web の Resume ボタンは押下時に入力ゼロ化を同時送信して回�
 
 ## 7. 踏んではいけない罠（既知の事故から）
 
-- **`AssignControllerAction` の `activateLateral/activateLongitudinal` は使わない**（upstream 欠陥B で横縦が入れ替わる）☆
-- **`Activate()` の引数配列は `ControlDomains` 添字（LONG=0, LAT=1）**。`ControlDomainMasks`（LONG=1, LAT=2）と
-  取り違えても黙ってコンパイルが通り、黙って逆のドメインを指す ☆
-- **`Controller::Activate()` は常に 0 を返す**（失敗を報告しない）☆。戻り値で成否を判定しない
-- **`operating_domains_` に無いドメインを ON にしても黙って無視される**（WARN のみ）☆
-- **ヘッドレスで緑 ≠ 実機で力が抜けている**。`SDLFFBSink` は `GT_ENABLE_SDL2` ビルドでしかコンパイルされない ☆
-- **config の既定値は C++ struct / `config/*.json` / Python の `DEFAULT_*` の3か所に散る**。
-  食い違うとフォールバック時だけ露見するバグになる ☆
-- **config 保存は必ず既存ファイルへの merge。全置換は禁止**（過去に59キーが恒久消失）☆
-- **テレメトリのフィールドが構造的に更新されない経路があると、直っていても直っていなくても同じ既定値が出て
-  検証が無意味化する**（[[domain_split_md_vd]] の `ffb.*` 片肺欠落）
+本調査で洗い出した罠は [`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) §1 と §4 に集約した。
 
 ---
 
@@ -468,25 +435,14 @@ Web の Resume ボタンは押下時に入力ゼロ化を同時送信して回�
 
 ### 併せて確定した既知の制約（未修正・仕様として運用する）
 
-- **復帰の1フレーム目だけ直接軸経路が生きている。** ハンドルを 22.5°(0.05 axis-frac)
-  以上切ったまま AUTO_RESUME を押すと、その場で即 MANUAL に再ラッチする。
-  **「中立へ戻してから押す」を手順に明記した。** 抑制するなら
-  `SetUpControlOutputs()` で RESUME 押下フレームと同じ抑制を1フレーム敷くのが筋だが、
-  全再活性化の意味論を変えるため判断を保留した。
-- **VD と MD が同じ物理デバイスを同時に開く構成になる**（往復させるには両方が
-  デバイスを持つ必要がある。非活性側は Step されないのでバス経由では供給できない）。
-  SDL2 の参照カウントで壊れないはずだが**実機確認の記録はまだ無い**。
-  起動ログで `SDL2WheelInput: Opened` が2行・`SDL_HapticNewEffect` 失敗が無いことを見る。
-- **`ffb.disable_non_realtime` はパースされるだけで消費箇所が無い**（`ffb_enabled` と同じ死にキー）。
-  「ヘッドレスなら力は出ない」は成立しない。ヘッドレス検証は UDP 入力構成で行うこと。
-- **VD テレメトリの `sim_time` は再活性化後にシナリオ時刻とずれる**（新規発見・未修正）。
-  往復の実測: 移管 t=15.05 で凍結 → t=22.35 の復帰後、最初のフレームが **15.10** を報告した。
-  VD は内部で `sim_time_ += dt` を積算しており、非活性中は進まないため、
-  **復帰後は「非活性だった時間だけ遅れた時計」になる。**
-  `vd_control_relinquished` の `after:` 判定はこの値を読むので、
-  **復帰を含むシナリオの matcher を時刻窓で書くと黙って誤判定する。**
-  新 matcher `control_returned_to_vd` は `vd_active` のエッジだけで判定し、
-  時刻窓を使わないこと。修正するなら VD 側でシナリオ時刻を受け取る形にする。
+4件を確定させた。復帰1フレーム目の再ラッチ、VD と MD の二重オープンが未検証であること、
+`ffb.disable_non_realtime` が死にキーであること、VD テレメトリの `sim_time` が復帰後にずれることである。
+内容と運用は [`control_ownership_pitfalls.md`](control_ownership_pitfalls.md) §5 にまとめた。
+
+`sim_time` のずれは実測値を持っている。
+移管 t=15.05 で凍結し、t=22.35 の復帰後、最初のフレームが **15.10** を報告した。
+VD は内部で `sim_time_ += dt` を積算しており、非活性中は進まないためである。
+修正するなら VD 側でシナリオ時刻を受け取る形にする。
 
 ## 8. 未確認事項
 

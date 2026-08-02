@@ -34,6 +34,7 @@
 
 | 知りたいこと | 読むもの |
 | :--- | :--- |
+| 所有権と移管まわりを触る前に何を踏むか | [design/control_ownership_pitfalls.md](design/control_ownership_pitfalls.md) |
 | VD 全体の構成とフェーズ計画 | [design/roadmap.md](design/roadmap.md) |
 | 挙動検証の枠組み（単純系と複雑系の分け方） | [design/verification_environment.md](design/verification_environment.md) |
 | シナリオと道路を量産する基盤 | [design/scenario_authoring_foundation.md](design/scenario_authoring_foundation.md) |
