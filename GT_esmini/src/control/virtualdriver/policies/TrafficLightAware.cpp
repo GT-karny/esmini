@@ -137,9 +137,10 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
     std::unordered_set<std::uint32_t> held_junctions;  // rebuilt latch (see header)
     bool                              governing_seen = false;
 
-    for (const auto& s : signals)
+    for (size_t i = 0; i < signals.size(); ++i)
     {
-        auto* tl = dynamic_cast<roadmanager::TrafficLight*>(s.signal);
+        const ScannedSignal& s  = signals[i];
+        auto*                tl = dynamic_cast<roadmanager::TrafficLight*>(s.signal);
         if (!tl) continue;
 
         // A pedestrian / bicycle / tram head is a TrafficLight too (the tl-gate
@@ -154,6 +155,21 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
         const TrafficLightPhase phase = ReadPhase(tl);
         const bool              governing = !governing_seen;
         governing_seen                    = true;
+
+        // Stop-line pairing, governing head only. A miss (kill switch off, or no
+        // paired entry in window) leaves dist_ahead == s.distance_ahead, so every
+        // computation below is unchanged from the pre-pairing code.
+        double dist_ahead     = s.distance_ahead;
+        bool   stop_line_used = false;
+        if (governing && cfg_.stop_line_aware_enabled)
+        {
+            const auto paired = FindPairedStopLine(signals, i, cfg_.stop_line_window);
+            if (paired)
+            {
+                dist_ahead     = signals[*paired].distance_ahead;
+                stop_line_used = true;
+            }
+        }
 
         bool stop;
         if (governing)
@@ -172,18 +188,20 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
             }
             else
             {
-                stop = TrafficLightShouldStop(phase, s.distance_ahead, v_ego, cfg_.params);
+                stop = TrafficLightShouldStop(phase, dist_ahead, v_ego, cfg_.params);
                 if (stop) committed_[id] = true;
             }
 
             // Diagnostics for both decisions (tokens: red/yellow/green/unknown):
             // phase + distance explain a pass-through (green, or a yellow too close
             // to brake for) as well as a hold; `committed` marks the stop latch that
-            // survives a shrinking yellow gap or a brief scan loss.
+            // survives a shrinking yellow gap or a brief scan loss. dist_m stays the
+            // raw head distance (stop_line_used flags when dist_ahead diverged from it).
             AddDetail(snap.detail, "gt.traffic_light.signal_id", id);
             AddDetail(snap.detail, "gt.traffic_light.phase", PhaseToken(phase));
             AddDetail(snap.detail, "gt.traffic_light.dist_m", s.distance_ahead);
             AddDetail(snap.detail, "gt.traffic_light.committed", static_cast<bool>(committed_[id]));
+            AddDetail(snap.detail, "gt.traffic_light.stop_line_used", stop_line_used);
         }
         else
         {
@@ -197,7 +215,7 @@ TrafficPolicySnapshot TrafficLightAware::Evaluate(const TrafficPolicyContext& ct
 
         if (!stop) continue;
 
-        const double wanted = std::max(0.0, s.distance_ahead - cfg_.stop_margin);  // halt before the line
+        const double wanted = std::max(0.0, dist_ahead - cfg_.stop_margin);  // halt before the line
 
         if (!cfg_.junction_guard_enabled)
         {

@@ -371,6 +371,13 @@ export interface VirtualDriverConfig {
   tl_stop_margin?: number;
   tl_junction_guard_enabled?: boolean;
   tl_junction_clearance?: number;
+  // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
+  // for the governing head only, swaps its stop target for a paired stop-line
+  // signal found within tl_stop_line_window before it. OFF restores
+  // head_s - tl_stop_margin exactly. Default ON (no existing gate asset has a
+  // stop-line-classified signal, so this changes nothing today either way).
+  tl_stop_line_aware_enabled?: boolean;
+  tl_stop_line_window?: number;
   // 3c stop / yield sign
   sign_lookahead?: number;
   stop_hold_time?: number;

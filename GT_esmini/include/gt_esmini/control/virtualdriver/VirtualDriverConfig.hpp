@@ -144,6 +144,12 @@ struct VirtualDriverConfig
     // The feasibility question ("can we still stop short of the junction?") is
     // asked with comfort_decel — the deceleration the mid/long planner will
     // actually use to shape that approach — so there is no second key for it.
+    // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
+    // swaps the governing head's distance for a paired stop-line signal's when
+    // one is found within tl_stop_line_window before it. OFF is a kill switch —
+    // restores head_s - tl_stop_margin exactly (see TrafficLightAware.hpp).
+    bool   tl_stop_line_aware_enabled = true;
+    double tl_stop_line_window        = 10.0;  // [m] pairing search window before the head
     // 3c — stop / yield sign.
     double sign_lookahead     = 80.0;  // [m]
     double stop_hold_time     = 1.5;   // [s] dwell once stopped

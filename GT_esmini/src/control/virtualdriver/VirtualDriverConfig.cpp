@@ -87,6 +87,7 @@ const DoubleField kDoubleFields[] = {
     {"tl_yellow_decel", &VirtualDriverConfig::tl_yellow_decel},
     {"tl_stop_margin", &VirtualDriverConfig::tl_stop_margin},
     {"tl_junction_clearance", &VirtualDriverConfig::tl_junction_clearance},
+    {"tl_stop_line_window", &VirtualDriverConfig::tl_stop_line_window},
     {"sign_lookahead", &VirtualDriverConfig::sign_lookahead},
     {"stop_hold_time", &VirtualDriverConfig::stop_hold_time},
     {"stop_detect_speed", &VirtualDriverConfig::stop_detect_speed},
@@ -160,6 +161,7 @@ const BoolField kBoolFields[] = {
     {"policy_junction_priority_enabled", &VirtualDriverConfig::policy_junction_priority_enabled},
     {"policy_aeb_enabled", &VirtualDriverConfig::policy_aeb_enabled},
     {"tl_junction_guard_enabled", &VirtualDriverConfig::tl_junction_guard_enabled},
+    {"tl_stop_line_aware_enabled", &VirtualDriverConfig::tl_stop_line_aware_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
@@ -351,6 +353,9 @@ TrafficLightAwareConfig VirtualDriverConfig::TrafficLightConfig() const
     c.junction.stop_margin    = tl_stop_margin;
     c.junction.exit_clearance = tl_junction_clearance;
     c.junction.decel          = comfort_decel;
+
+    c.stop_line_aware_enabled = tl_stop_line_aware_enabled;
+    c.stop_line_window        = tl_stop_line_window;
     return c;
 }
 

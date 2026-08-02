@@ -71,6 +71,13 @@ struct TrafficLightAwareConfig
     // lands, including in the middle of an intersection. See JunctionStopGuard.hpp.
     bool                    junction_guard_enabled = true;
     JunctionStopGuardParams junction;
+    // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
+    // the governing head only, swap its distance for a paired stop-line signal's
+    // (RouteSignalScan::FindPairedStopLine) when one is found within
+    // stop_line_window before it. OFF is a kill switch: FindPairedStopLine is never
+    // called, so the stop target stays head_s - stop_margin exactly.
+    bool   stop_line_aware_enabled = true;
+    double stop_line_window       = 10.0;  // [m] pairing search window before the head
 };
 
 // Phase 3b: scan the route ahead for the nearest traffic light that faces the

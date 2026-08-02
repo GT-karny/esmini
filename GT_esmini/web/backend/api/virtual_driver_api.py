@@ -61,6 +61,9 @@ _BOOL_KEYS = frozenset(
         "policy_aeb_enabled",
         # policy:traffic_light — "don't block the box" junction guard (default ON).
         "tl_junction_guard_enabled",
+        # policy:traffic_light — stop-line pairing kill switch (default ON; see
+        # GT_esmini/docs/virtualdriver/design/stop_line_stop_target.md).
+        "tl_stop_line_aware_enabled",
         "respect_speed_limit",
         "crosswalk_yield_to_waiting",
         "crosswalk_ped_signal_aware",
@@ -127,6 +130,7 @@ _NUMBER_KEYS = frozenset(
         "tl_yellow_decel",
         "tl_stop_margin",
         "tl_junction_clearance",
+        "tl_stop_line_window",
         "sign_lookahead",
         "stop_hold_time",
         "stop_detect_speed",
@@ -355,6 +359,16 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "_tl_junction_guard": "Don't block the box: keep a light's stop target out of an intersection. Hold BEFORE a junction the ego could not clear; once inside, drop the constraint and drive out. clearance = stand-clear distance past the junction exit. Feasibility uses comfort_decel.",
     "tl_junction_guard_enabled": True,
     "tl_junction_clearance": 5.0,
+    "_tl_stop_line": (
+        "Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): "
+        "for the governing head only, swaps its stop target for a paired "
+        "stop-line signal (type=294) found within tl_stop_line_window before "
+        "it. OFF is a kill switch restoring head_s - tl_stop_margin exactly; "
+        "no existing gate asset has a stop-line-classified signal, so ON "
+        "changes nothing today either."
+    ),
+    "tl_stop_line_aware_enabled": True,
+    "tl_stop_line_window": 10.0,
     "_policy_stop_yield": "3c STOP (dwell+creep FSM) / YIELD (decelerate only; stop deferred to 3d). stop_margin halts before the line so the sign stays in scan (no creep-through).",
     "sign_lookahead": 80.0,
     "stop_hold_time": 1.5,
