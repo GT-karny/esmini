@@ -85,6 +85,28 @@ DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/
     --main ew --lanes 2 --no-signage
 ```
 
+### Signalised short block (two junctions, one block apart)
+
+`gen_signalized_short_block.py` builds two signalised T-junctions separated by a block SHORTER
+than the distance a stopped car needs to stand clear of the first one, with a vehicle traffic
+light at each. It is the road behind the `03_traffic_signals/junction_not_blocked.xosc`
+discriminator for the `policy:traffic_light` "don't block the box" junction guard
+(`JunctionStopGuard.hpp`): the second junction's stop line sits `--head-offset` metres past the
+first junction's exit, and the first junction's own head masks it until the ego is committed.
+
+```powershell
+# Default: 12 m block, stop line 3 m past junction A's exit -> signalized_short_block__b12
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_signalized_short_block.py
+
+# Wider block / stop line further out (relaxes the geometry)
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_signalized_short_block.py `
+    --block-length 20 --head-offset 6
+```
+
+Ego path is `road 0 -> junction 100 (connector 100) -> road 2 -> junction 200 (connector 200) -> road 4`;
+signal ids are 0 (junction A head, on road 0) and 1 (junction B head, on road 2). The
+`road.meta.yaml` `layout` block records those ids so expectations can name the roads directly.
+
 ### Inject `<priority>` into an arbitrary generated xodr (standalone)
 
 `scenariogeneration` cannot emit OpenDRIVE junction `<priority>` records, so this lean lxml

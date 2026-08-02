@@ -136,6 +136,14 @@ struct VirtualDriverConfig
     double tl_lookahead       = 80.0;  // [m]
     double tl_yellow_decel    = 4.0;   // [m/s^2] max decel accepted to stop on yellow
     double tl_stop_margin     = 3.0;   // [m] halt this far before the signal (front at line, stays in scan)
+    // "Don't block the box": keep a light's stop target out of an intersection.
+    // OFF restores the pre-guard behaviour (nearest head governs, target emitted
+    // wherever it lands — including inside a junction). See JunctionStopGuard.hpp.
+    bool   tl_junction_guard_enabled = true;
+    double tl_junction_clearance     = 5.0;  // [m] stand-clear distance past a junction exit
+    // The feasibility question ("can we still stop short of the junction?") is
+    // asked with comfort_decel — the deceleration the mid/long planner will
+    // actually use to shape that approach — so there is no second key for it.
     // 3c — stop / yield sign.
     double sign_lookahead     = 80.0;  // [m]
     double stop_hold_time     = 1.5;   // [s] dwell once stopped

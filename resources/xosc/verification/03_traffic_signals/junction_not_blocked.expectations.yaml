@@ -1,0 +1,61 @@
+scenario: junction_not_blocked
+category: 03_traffic_signals
+# Discriminator for the "don't block the box" junction guard (JunctionStopGuard.hpp).
+#
+# Road signalized_short_block__b12: two signalised T-junctions whose connecting
+# roads are 16 m long, separated by a 12 m block (road 2). Junction 200's stop
+# line (head id=1) stands at road 2 s=3 — only 3 m past junction 100's exit —
+# and junction 100's own head (id=0) is GREEN, so the nearest-head rule cannot
+# see the red one until the ego origin passes road 0 s=92, 8 m from the junction.
+#
+# Stopping for that red light therefore means coming to rest inside, or barely
+# out of, junction 100. The guard's contract is that the ego must stand at least
+# tl_junction_clearance (5 m) past a junction exit — so on this road there is NO
+# legitimate place to stop between road 0 and road 4: the only correct behaviour
+# is to hold BEFORE junction 100 and cross both once the light releases.
+#
+# Hence "min speed on roads 100 and 2 stays above zero" IS the don't-block-the-box
+# assertion for this asset. Road 2 is the discriminating one (measurement below).
+must:
+  - event: min_speed_above
+    threshold: 1.0             # measured: 10.01 with the guard, 0.00 without it
+    road_id: 2
+    reason: "交差点100の出口直後(12m街区)に停まってはならない — 出口クリアランス5m未満"
+  - event: min_speed_above
+    threshold: 1.0             # measured: 6.23 with the guard, 6.39 without it
+    road_id: 100
+    reason: "交差点100の接続路そのもので停止してはならない(don't block the box)"
+  - event: speed_below
+    threshold: 0.3
+    # Both arms read exactly 0.000 over this window; it sits inside the shorter of
+    # the two full-stop spans (guard on: t=[15.25,15.95], guard off: [14.25,15.95]).
+    after: { sim_time: 15.4 }
+    before: { sim_time: 15.9 }
+    reason: "赤の間は実際に停止していること(素通りで矛盾なく通す抜け道を塞ぐ)"
+  - event: speed_above
+    threshold: 8.0
+    after: { sim_time: 25.0 }
+    reason: "青になった後に走り出し、交差点を2つとも抜けている(走った run であることの確認)"
+notes: >
+  Both arms measured on 2026-08-02 (dt 0.05, max-time 40, policies:[traffic_light]).
+  The "without" arm is the same binary with tl_junction_guard_enabled=false, which
+  is the exact pre-guard code path (nearest head governs, its target emitted
+  wherever it lands).
+    without the guard — the green head id=0 masks the red id=1 until road 0 s=92;
+      the ego enters junction 100 at ~10 m/s, brakes across the 16 m connector and
+      comes to rest at road 2 s=1.94 (1.94 m past the junction exit, head id=1
+      1.03 m ahead) for 42 frames, t=[14.00,16.05], until the light turns green.
+      min speed on road 2 = 0.000, on road 100 = 6.394.
+    with the guard — the red head beyond junction 100 forbids entering it: the ego
+      holds at road 0 s=95.0 (tl_stop_margin 3 + planner stop_band 2 short of the
+      s=100 junction entry), never touches roads 100 / 2 / 200 while stopped, and
+      crosses both junctions at 6.23-10.07 m/s once id=1 releases at t=16.05.
+      min speed on road 2 = 10.011, on road 100 = 6.228.
+      Telemetry shows gt.traffic_light.junction_action=pull_back / junction_id=100
+      from t=4.60 to t=16.00, then none.
+  road_id:2 is the discriminator; road_id:100 pins the harder failure mode (resting
+  ON the connecting road, which is what resources/xodr/multi_intersections.xodr with
+  road 202's heads flipped to orientation="+" produced: 263 stopped frames at
+  connector 199 s=10.47, permanently). speed_below/speed_above are not
+  discriminators — they pass either way — and only prove the ego really did stop
+  for the red and really did resume.

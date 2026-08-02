@@ -369,6 +369,8 @@ export interface VirtualDriverConfig {
   tl_lookahead?: number;
   tl_yellow_decel?: number;
   tl_stop_margin?: number;
+  tl_junction_guard_enabled?: boolean;
+  tl_junction_clearance?: number;
   // 3c stop / yield sign
   sign_lookahead?: number;
   stop_hold_time?: number;

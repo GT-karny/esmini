@@ -86,6 +86,7 @@ const DoubleField kDoubleFields[] = {
     {"tl_lookahead", &VirtualDriverConfig::tl_lookahead},
     {"tl_yellow_decel", &VirtualDriverConfig::tl_yellow_decel},
     {"tl_stop_margin", &VirtualDriverConfig::tl_stop_margin},
+    {"tl_junction_clearance", &VirtualDriverConfig::tl_junction_clearance},
     {"sign_lookahead", &VirtualDriverConfig::sign_lookahead},
     {"stop_hold_time", &VirtualDriverConfig::stop_hold_time},
     {"stop_detect_speed", &VirtualDriverConfig::stop_detect_speed},
@@ -158,6 +159,7 @@ const BoolField kBoolFields[] = {
     {"policy_crosswalk_enabled", &VirtualDriverConfig::policy_crosswalk_enabled},
     {"policy_junction_priority_enabled", &VirtualDriverConfig::policy_junction_priority_enabled},
     {"policy_aeb_enabled", &VirtualDriverConfig::policy_aeb_enabled},
+    {"tl_junction_guard_enabled", &VirtualDriverConfig::tl_junction_guard_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
@@ -340,6 +342,15 @@ TrafficLightAwareConfig VirtualDriverConfig::TrafficLightConfig() const
     c.params.yellow_decel = tl_yellow_decel;
     c.lookahead           = tl_lookahead;
     c.stop_margin         = tl_stop_margin;
+
+    c.junction_guard_enabled = tl_junction_guard_enabled;
+    // Pulling a stop back to before a junction is still "halt at the line", so it
+    // reuses tl_stop_margin rather than inventing a second standoff; the
+    // feasibility test uses the planner's comfort_decel, which is the
+    // deceleration that will actually shape the approach (see the header).
+    c.junction.stop_margin    = tl_stop_margin;
+    c.junction.exit_clearance = tl_junction_clearance;
+    c.junction.decel          = comfort_decel;
     return c;
 }
 

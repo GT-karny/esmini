@@ -37,6 +37,12 @@ scenarios:
   - scenario: resources/xosc/verification/03_traffic_signals/pedestrian_signal_ignored.xosc
     expectations: resources/xosc/verification/03_traffic_signals/pedestrian_signal_ignored.expectations.yaml
     policies: [traffic_light]
+  # Discriminator for the "don't block the box" junction guard: a red light 3 m
+  # past a junction exit, masked by a green head at the junction entry. Needs the
+  # 34 s StopTrigger (red releases at t=16), so it overrides the 40 s default.
+  - scenario: resources/xosc/verification/03_traffic_signals/junction_not_blocked.xosc
+    expectations: resources/xosc/verification/03_traffic_signals/junction_not_blocked.expectations.yaml
+    policies: [traffic_light]
   # --- 04 traffic signs (Phase 3c: StopYieldSignAware) --------------------
   - scenario: resources/xosc/verification/04_traffic_signs/stop_sign_full_stop.xosc
     expectations: resources/xosc/verification/04_traffic_signs/stop_sign_full_stop.expectations.yaml

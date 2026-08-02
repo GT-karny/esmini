@@ -36,6 +36,7 @@ const EDITABLE_KEYS = [
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
   'idm_lookahead', 'idm_lateral_tol', 'idm_target_horizon',
   'tl_lookahead', 'tl_yellow_decel', 'tl_stop_margin',
+  'tl_junction_guard_enabled', 'tl_junction_clearance',
   'sign_lookahead', 'stop_hold_time', 'stop_detect_speed', 'stop_line_tol',
   'creep_speed', 'creep_advance', 'yield_creep_speed', 'sign_stop_margin',
   'conflict_lookahead', 'conflict_step', 'conflict_lane_margin', 'conflict_standoff',
@@ -226,6 +227,14 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Lookahead (m)" step={1} value={cfg.tl_lookahead} onChange={setNum('tl_lookahead')} />
           <NumberInput label="Yellow decel (m/s²)" step={0.1} value={cfg.tl_yellow_decel} onChange={setNum('tl_yellow_decel')} />
           <NumberInput label="Stop margin (m)" step={0.1} value={cfg.tl_stop_margin} onChange={setNum('tl_stop_margin')} />
+          <NumberInput label="Junction clearance (m)" step={0.5} value={cfg.tl_junction_clearance} onChange={setNum('tl_junction_clearance')} />
+        </div>
+        <div className="mt-3 space-y-2">
+          <ToggleSwitch
+            label="Junction guard (don't block the box)"
+            checked={Boolean(cfg.tl_junction_guard_enabled)}
+            onChange={(v) => set('tl_junction_guard_enabled', v)}
+          />
         </div>
       </section>
 

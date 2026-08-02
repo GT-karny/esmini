@@ -2,15 +2,22 @@ manifest: resources/xosc/verification/car_following_traffic_control_batch.yaml
 note: Committed regression baseline for the VirtualDriver phase-3 behavioral batch. Compared per-scenario/per-matcher
   by scripts/check_regression_baseline.py. Any deviation (new fail OR a known fail turning pass) fails
   the check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
-  committing.
-  2026-08-02 intentional refresh (policy:traffic_light head-type filter). TrafficLightAware now ignores
-  non-vehicle heads (pedestrian / bicycle / tram), so red_stop_green_go's long-standing speed_above FAIL
-  is resolved - it was never a driver-model limit. On fabriksgatan_traffic_lights road 3 the pedestrian
+  committing. 2026-08-02 intentional refresh (policy:traffic_light head-type filter). TrafficLightAware
+  now ignores non-vehicle heads (pedestrian / bicycle / tram), so red_stop_green_go's long-standing speed_above
+  FAIL is resolved - it was never a driver-model limit. On fabriksgatan_traffic_lights road 3 the pedestrian
   head id=2 (type 1000002, s=114, validity -1..1 covers the ego lane) became the nearest signal the moment
   the ego origin passed the vehicle stop line at s=109, and its red pinned the ego just after it started
   on green. New scenario pedestrian_signal_ignored is the dedicated discriminator for that filter.
+  2026-08-02 second refresh, ADDITIVE ONLY (policy:traffic_light "don't block the box" junction guard).
+  The single deviation was scenario_new for junction_not_blocked; all 13 pre-existing scenarios and
+  every one of their matchers matched this baseline verbatim in the same run, so the guard is
+  non-regressive on the existing corpus. junction_not_blocked is the discriminator: with
+  tl_junction_guard_enabled=false (the pre-guard code path) its min_speed_above on road 2 FAILS
+  (ego rests 1.94 m past junction 100's exit while the light beyond it is red); with the guard ON the
+  ego holds before the junction and all four matchers pass. Both arms measured, see the scenario's
+  expectations notes.
 expected_summary:
-  pass: 13
+  pass: 14
   fail: 0
   needs-review: 0
   error: 0
@@ -47,6 +54,17 @@ scenarios:
     - event: no_constraint_kind
       status: pass
     - event: min_speed_above
+      status: pass
+    - event: speed_above
+      status: pass
+  junction_not_blocked:
+    status: pass
+    matchers:
+    - event: min_speed_above
+      status: pass
+    - event: min_speed_above
+      status: pass
+    - event: speed_below
       status: pass
     - event: speed_above
       status: pass

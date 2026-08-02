@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace scenarioengine;
 
@@ -35,9 +36,21 @@ bool SignalAppliesToLane(const roadmanager::Signal* sig, id_t lane_global_id)
     if (valid.empty()) return true;
     return std::find(valid.begin(), valid.end(), lane_global_id) != valid.end();
 }
+
+// Junction membership of a road, the RAW way: any connecting road belongs to a
+// junction, straight-through ones included. Deliberately not IsTurningConnector
+// (which additionally demands a sharp heading change) — see JunctionStopGuard.hpp.
+id_t JunctionOf(roadmanager::OpenDrive* odr, id_t track)
+{
+    roadmanager::Road* road = odr->GetRoadById(track);
+    return road ? road->GetJunction() : ID_UNDEFINED;
+}
 }  // namespace
 
-std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, double step)
+std::vector<ScannedSignal> ScanSignalsAhead(Object*                         ego,
+                                            double                          lookahead,
+                                            double                          step,
+                                            std::vector<RouteJunctionSpan>* junction_spans)
 {
     std::vector<ScannedSignal> out;
     if (!ego) return out;
@@ -60,6 +73,22 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
     // Travel direction (sign of ds) on the current road. Seeded from the ego's
     // heading relative to its road, then tracked from actual s deltas.
     double dir = (std::cos(ego->pos_.GetHRelative()) >= 0.0) ? 1.0 : -1.0;
+
+    // Junction-span bookkeeping. `open_junction` is the junction currently being
+    // spanned (ID_UNDEFINED = none); spans are closed at the exact road-transition
+    // distance, or at +inf if the walk ends inside one.
+    id_t open_junction = ID_UNDEFINED;
+    if (junction_spans != nullptr)
+    {
+        open_junction = JunctionOf(odr, prev_track);
+        if (open_junction != ID_UNDEFINED)
+        {
+            // The walk STARTS on a connecting road: the ego is already in the box.
+            // entry_ahead is 0 (the entry is behind us and this walk cannot see how
+            // far), and ego_inside tells the guard never to try to stop short of it.
+            junction_spans->push_back({0.0, std::numeric_limits<double>::infinity(), open_junction, true});
+        }
+    }
 
     // Test all signals of `road` with s inside [s_from, s_to] (any order), facing
     // travel direction `ds_dir`, applying to lane `lane_g`. `dist_at_s_from` is the
@@ -146,6 +175,27 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
                 const double entry_s = (new_dir > 0.0) ? 0.0 : len;
                 scanSegment(cur_road, entry_s, cur_s, new_dir, cur_lane_g, (traveled - step) + consumed);
                 dir = new_dir;
+            }
+
+            // 3) Junction spans open/close at the SAME road transition, and
+            //    `consumed` already puts that boundary at an exact route distance
+            //    rather than a step-quantised one.
+            if (junction_spans != nullptr)
+            {
+                const double boundary  = (traveled - step) + consumed;
+                const id_t   cur_junct = JunctionOf(odr, cur_track);
+                if (cur_junct != open_junction)
+                {
+                    if (open_junction != ID_UNDEFINED && !junction_spans->empty())
+                    {
+                        junction_spans->back().exit_ahead = boundary;
+                    }
+                    if (cur_junct != ID_UNDEFINED)
+                    {
+                        junction_spans->push_back({boundary, std::numeric_limits<double>::infinity(), cur_junct, false});
+                    }
+                    open_junction = cur_junct;
+                }
             }
         }
 

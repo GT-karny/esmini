@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 03_traffic_signals / junction_not_blocked
+  Discriminator for the "don't block the box" junction guard (JunctionStopGuard.hpp).
+
+  Road: signalized_short_block__b12 (resources/scenario_authoring/road_catalog),
+  two signalised T-junctions 12 m apart on the ego's path:
+
+      road 0 (100 m) ==[ junction 100 / connector 100, 16 m ]== road 2 (12 m)
+                     ==[ junction 200 / connector 200, 16 m ]== road 4 (100 m)
+
+  Heads (both type 1000001 vehicle heads, orientation "+"):
+    id=0  road 0 s=92   governs entry into junction 100   :  GREEN throughout
+    id=1  road 2 s=3    governs entry into junction 200   :  RED, then green at t=16
+
+  Why this discriminates. While id=1 is red, its stop line is 3 m past junction
+  100's exit — a target the ego cannot stand at without leaving its tail inside
+  junction 100. And the nearest-head rule alone cannot see that coming: id=0 is
+  GREEN and masks id=1 until the ego origin passes s=92, by which point junction
+  100 is 8 m away and there is no room left to stop short of it.
+
+  Without the guard the ego therefore drives into junction 100, brakes for id=1's
+  stop line, and comes to rest ON the connecting road — blocking the intersection
+  for as long as id=1 stays red.
+
+  With the guard the red head beyond the junction forbids ENTERING it: the ego
+  holds ~5 m short of junction 100 (stop_margin 3 + planner stop_band 2) and
+  crosses both junctions only once id=1 turns green.
+
+  The discriminator is min_speed_above on road 100 (the junction 100 connector):
+  the ego may cross it, but must never be standing still on it.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-02T10:00:00"
+               description="VirtualDriver verification: a red light beyond a junction must not park the ego inside it"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="10.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr"/>
+      <TrafficSignals>
+         <TrafficSignalController name="CorridorController" delay="0">
+            <Phase name="junction_b_red" duration="16">
+               <TrafficSignalState trafficSignalId="0" state="off;off;on"/>
+               <TrafficSignalState trafficSignalId="1" state="on;off;off"/>
+            </Phase>
+            <Phase name="junction_b_green" duration="60">
+               <TrafficSignalState trafficSignalId="0" state="off;off;on"/>
+               <TrafficSignalState trafficSignalId="1" state="off;off;on"/>
+            </Phase>
+         </TrafficSignalController>
+      </TrafficSignals>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="6"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="CorridorStory">
+         <Act name="CorridorAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <!-- Cruise must be a running Story Event: an Init SpeedAction is
+                       invisible to the VirtualDriver (see verification_v2 notes). -->
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="34" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

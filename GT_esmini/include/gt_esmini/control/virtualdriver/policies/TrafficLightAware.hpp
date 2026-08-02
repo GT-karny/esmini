@@ -1,9 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
+#include "gt_esmini/control/virtualdriver/policies/JunctionStopGuard.hpp"
 
 namespace gt_esmini
 {
@@ -63,11 +66,31 @@ struct TrafficLightAwareConfig
     // vanishing the instant the origin crosses the signal (which read as
     // red-light-running). ~ vehicle front overhang.
     double             stop_margin = 3.0;   // [m]
+    // "Don't block the box". OFF restores the pre-guard behaviour exactly: the
+    // nearest vehicle head governs and its stop target is emitted wherever it
+    // lands, including in the middle of an intersection. See JunctionStopGuard.hpp.
+    bool                    junction_guard_enabled = true;
+    JunctionStopGuardParams junction;
 };
 
 // Phase 3b: scan the route ahead for the nearest traffic light that faces the
 // ego and applies to its lane, read its current lamp phase, and emit a
 // STOP_AT_S constraint at the signal when the ego should stop.
+//
+// On top of that, two junction rules (junction_guard_enabled):
+//
+//   * the governing head's stop target is run through ResolveJunctionSafeStop,
+//     so a red light sitting just beyond an intersection can no longer park the
+//     ego inside it — with the ego already in the box the constraint is dropped
+//     and the ego drives out;
+//   * heads BEYOND the governing one are additionally consulted for the entry
+//     side of the same rule: a red light the ego could not clear the
+//     intersection before makes the ego hold BEFORE the intersection. This is
+//     the only thing a non-governing head can do — it never contributes an
+//     ordinary stop of its own, so "the nearest head decides where you stop"
+//     still holds. (A green head at the junction entry masks the red one beyond
+//     it until the ego is already committed, which is precisely why the entry
+//     rule cannot be driven off the governing head alone.)
 class TrafficLightAware : public ITrafficPolicy
 {
 public:
@@ -81,6 +104,12 @@ private:
     // yellow decision does not flip-flop to "go" as the gap shrinks, and a brief
     // scan loss does not release the stop.
     std::unordered_map<int, bool> committed_;
+    // Companion latch for the junction entry rule, keyed by junction id: once we
+    // are holding before an intersection we cannot clear, the target must not be
+    // released as the remaining distance drops under the braking distance. Rebuilt
+    // every frame from the junctions actually held for, so it clears itself the
+    // moment the light releases or the junction leaves the scan.
+    std::unordered_set<std::uint32_t> junction_committed_;
 };
 
 }  // namespace gt_esmini
