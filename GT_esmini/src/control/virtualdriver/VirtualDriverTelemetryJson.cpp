@@ -257,6 +257,19 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
        << ",\"reason\":\"" << t.route_lane.reason << "\"}";
 
+    // vd-func:FUNC-055 AD lane-change initiation (LaneChangeInitiation.hpp). Additive top-level
+    // block; consumers that predate it simply ignore it. gap_reason is the field to read first
+    // for "why hasn't it armed yet" ("" == last evaluated gap was accepted, or nothing evaluated).
+    os << ",\"lane_change\":{\"armed\":" << b(t.lane_change.armed)
+       << ",\"target_track_id\":" << t.lane_change.target_track_id
+       << ",\"target_lane_id\":" << t.lane_change.target_lane_id
+       << ",\"direction\":" << t.lane_change.direction
+       << ",\"n_remaining\":" << t.lane_change.n_remaining
+       << ",\"required_m\":" << t.lane_change.required_m
+       << ",\"dist_to_connection\":" << t.lane_change.dist_to_connection
+       << ",\"gap_accepted\":" << b(t.lane_change.gap_accepted)
+       << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\"}";
+
     os << "}";
 
     return os.str();

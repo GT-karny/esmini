@@ -222,6 +222,25 @@ struct RouteLanePlanSnapshot
     std::string      reason;                          // match-side reason; "" = normal
 };
 
+// vd-func:FUNC-055 AD lane-change initiation
+// (docs/virtualdriver/design/lane_change_initiation.md section 7's telemetry minimum: armed /
+// target lane / this hop's direction / gap-acceptance verdict+reason / decision distance vs
+// current dist_to_connection). Additive top-level block; consumers that predate it ignore it.
+// All defaults (false/0/-1/empty) while lane_change_initiation_enabled is false, mirroring
+// ResumeMergeSnapshot's own all-zero-while-disabled convention.
+struct LaneChangeInitiationSnapshot
+{
+    bool        armed               = false;  // an AD-initiated hop is in progress this frame
+    int         target_track_id     = -1;     // road id this hop is on (-1 = ID_UNDEFINED stand-in)
+    int         target_lane_id      = 0;      // the ONE adjacent lane this hop is moving into
+    int         direction           = 0;      // +1 left / -1 right (indicator convention), latched at arm
+    int         n_remaining         = 0;      // hop count from current lane to the nearest route target lane
+    double      required_m          = 0.0;    // this frame's decision-distance threshold (design doc section 3)
+    double      dist_to_connection  = -1.0;   // mirrors route_lane.dist_to_connection; -1 = unknown/n.a.
+    bool        gap_accepted        = false;  // last-evaluated gap-acceptance verdict
+    std::string gap_reason;                   // "" = accepted; else "lead_gap" | "rear_gap" | "rear_ttc"
+};
+
 // Aggregate telemetry, exposed via GT_GetVirtualDriverTelemetry().
 struct VirtualDriverTelemetry
 {
@@ -418,6 +437,7 @@ struct VirtualDriverTelemetry
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
     ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
     RouteLanePlanSnapshot  route_lane;    // RouteLanePlan.hpp: route-lane conformance diagnostic
+    LaneChangeInitiationSnapshot lane_change;  // LaneChangeInitiation.hpp: vd-func:FUNC-055 state
 };
 
 }  // namespace gt_esmini

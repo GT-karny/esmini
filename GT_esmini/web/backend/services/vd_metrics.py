@@ -1538,6 +1538,12 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         #                                sorted, == sorted(this)
         #   expect_on_target_lane bool : >=1 gated frame's on_target_lane == this
         #   min_deviations        int  : LAST gated frame's deviation_count >= this
+        #   max_deviations         int  : LAST gated frame's deviation_count <= this
+        #                                (vd-func:FUNC-055 / lane_change_initiation
+        #                                 design doc §7 -- the success-side
+        #                                 counterpart to min_deviations; a value of 0
+        #                                 asserts the ego reached its target lane band
+        #                                 without ever crossing off-plan)
         #   window: [t0, t1]           : optional sim_time gate (default: all frames)
         window = must.get("window")
         if window is not None:
@@ -1572,6 +1578,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                 "expect_target_lanes",
                 "expect_on_target_lane",
                 "min_deviations",
+                "max_deviations",
             )
             if k in must
         ]
@@ -1579,8 +1586,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             return res(
                 "skip",
                 "must entry names none of expect_diagnostic/expect_rerouted/"
-                "expect_target_lanes/expect_on_target_lane/min_deviations -- "
-                "a matcher that checks nothing must not report pass",
+                "expect_target_lanes/expect_on_target_lane/min_deviations/"
+                "max_deviations -- a matcher that checks nothing must not "
+                "report pass",
             )
 
         # 1. diagnostic is plan-level and must hold on EVERY gated frame that
@@ -1589,7 +1597,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         if "expect_diagnostic" in must:
             want = must["expect_diagnostic"]
             offenders = [
-                i for i in with_block if frames[i]["route_lane"].get("diagnostic") != want
+                i
+                for i in with_block
+                if frames[i]["route_lane"].get("diagnostic") != want
             ]
             if offenders:
                 i0 = offenders[0]
@@ -1605,7 +1615,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         if "expect_rerouted" in must:
             want = bool(must["expect_rerouted"])
             offenders = [
-                i for i in with_block if bool(frames[i]["route_lane"].get("rerouted")) != want
+                i
+                for i in with_block
+                if bool(frames[i]["route_lane"].get("rerouted")) != want
             ]
             if offenders:
                 i0 = offenders[0]
@@ -1667,6 +1679,23 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                     "fail",
                     f"final deviation_count = {got} at t={frames[i0]['sim_time']:.2f} "
                     f"(want >= {want})",
+                    i0,
+                )
+
+        # 6. max_deviations mirrors min_deviations (same cumulative counter,
+        # same "only the LAST gated frame is meaningful" reasoning) with the
+        # comparison reversed: this is the success-side assertion (§7 of
+        # lane_change_initiation.md) -- e.g. max_deviations: 0 asserts the ego
+        # never crossed off-plan before reaching its target lane band.
+        if "max_deviations" in must:
+            want = int(must["max_deviations"])
+            i0 = with_block[-1]
+            got = int(frames[i0]["route_lane"].get("deviation_count", 0))
+            if got > want:
+                return res(
+                    "fail",
+                    f"final deviation_count = {got} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want <= {want})",
                     i0,
                 )
 

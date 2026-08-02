@@ -71,6 +71,15 @@ const DoubleField kDoubleFields[] = {
     {"resume_merge_duration_min_s", &VirtualDriverConfig::resume_merge_duration_min_s},
     {"resume_merge_duration_max_s", &VirtualDriverConfig::resume_merge_duration_max_s},
     {"resume_merge_min_offset_m", &VirtualDriverConfig::resume_merge_min_offset_m},
+    // AD lane-change initiation (vd-func:FUNC-055).
+    {"lane_change_lead_time_s", &VirtualDriverConfig::lane_change_lead_time_s},
+    {"lane_change_min_lead_distance_m", &VirtualDriverConfig::lane_change_min_lead_distance_m},
+    {"lane_change_reserve_distance_m", &VirtualDriverConfig::lane_change_reserve_distance_m},
+    {"lane_change_gap_min_m", &VirtualDriverConfig::lane_change_gap_min_m},
+    {"lane_change_gap_headway_lead_s", &VirtualDriverConfig::lane_change_gap_headway_lead_s},
+    {"lane_change_gap_headway_rear_s", &VirtualDriverConfig::lane_change_gap_headway_rear_s},
+    {"lane_change_gap_ttc_min_s", &VirtualDriverConfig::lane_change_gap_ttc_min_s},
+    {"lane_change_lateral_accel_comfort", &VirtualDriverConfig::lane_change_lateral_accel_comfort},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
@@ -172,6 +181,7 @@ const BoolField kBoolFields[] = {
     {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
     {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
     {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7
+    {"lane_change_initiation_enabled", &VirtualDriverConfig::lane_change_initiation_enabled},  // vd-func:FUNC-055
 };
 
 const IntField kIntFields[] = {
@@ -315,6 +325,31 @@ ResumeMergeConfig VirtualDriverConfig::ResumeMergeCfg() const
     c.duration_min_s = resume_merge_duration_min_s;
     c.duration_max_s = resume_merge_duration_max_s;
     c.min_offset_m   = resume_merge_min_offset_m;
+    return c;
+}
+
+LaneChangeInitiationConfig VirtualDriverConfig::LaneChangeInitiationCfg() const
+{
+    LaneChangeInitiationConfig c;
+    c.enabled             = lane_change_initiation_enabled;
+    c.lead_time_s         = lane_change_lead_time_s;
+    c.min_lead_distance_m = lane_change_min_lead_distance_m;
+    c.reserve_distance_m  = lane_change_reserve_distance_m;
+    c.gap_min_m           = lane_change_gap_min_m;
+    c.gap_headway_lead_s  = lane_change_gap_headway_lead_s;
+    c.gap_headway_rear_s  = lane_change_gap_headway_rear_s;
+    c.gap_ttc_min_s       = lane_change_gap_ttc_min_s;
+    return c;
+}
+
+ResumeMergeConfig VirtualDriverConfig::LaneChangeMergeCfg() const
+{
+    ResumeMergeConfig c;
+    c.enabled        = true;  // outer gate is lane_change_initiation_enabled (see header doc)
+    c.a_lat_comfort  = lane_change_lateral_accel_comfort;
+    c.duration_min_s = kResumeMergeDefaultDurationMinS;  // reuse resume-merge's OWN defaults, not
+    c.duration_max_s = kResumeMergeDefaultDurationMaxS;  // resume_merge_duration_*/min_offset_m --
+    c.min_offset_m   = kResumeMergeDefaultMinOffsetM;    // the two features stay independently tunable
     return c;
 }
 

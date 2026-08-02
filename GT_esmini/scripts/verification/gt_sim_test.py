@@ -773,6 +773,11 @@ _POLICY_FLAG = {
     # AEB phase 1: forward-collision emergency braking guardian (see AebSafety).
     # Independent of "lead" -- composes alongside it.
     "aeb": "policy_aeb_enabled",
+    # vd-func:FUNC-055 (REQ-AD-017 step c): AD-initiated lane change. Not an
+    # ITrafficPolicy (see lane_change_initiation.md §4), but the same
+    # default-OFF opt-in mechanism applies -- reuse the "policies:" list
+    # rather than adding a second config-injection path.
+    "lane_change_initiation": "lane_change_initiation_enabled",
 }
 
 

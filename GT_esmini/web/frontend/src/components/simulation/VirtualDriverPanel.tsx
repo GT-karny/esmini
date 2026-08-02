@@ -31,6 +31,10 @@ const EDITABLE_KEYS = [
   // feature:F7 AD resume-merge trajectory. Default ON since 2026-07-28.
   'resume_merge_enabled', 'resume_merge_a_lat_comfort', 'resume_merge_duration_min_s',
   'resume_merge_duration_max_s', 'resume_merge_min_offset_m',
+  // vd-func:FUNC-055 AD-initiated lane change (REQ-AD-017 step c). Default OFF.
+  'lane_change_initiation_enabled', 'lane_change_lead_time_s', 'lane_change_min_lead_distance_m',
+  'lane_change_reserve_distance_m', 'lane_change_gap_min_m', 'lane_change_gap_headway_lead_s',
+  'lane_change_gap_headway_rear_s', 'lane_change_gap_ttc_min_s', 'lane_change_lateral_accel_comfort',
   'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
@@ -731,6 +735,58 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           instead of steering back by the shortest path. The comfort
           lateral-accel limit shapes the maneuver, but the AD Steering Safety
           Envelope above remains the hard cap regardless.
+        </p>
+      </section>
+
+      {/* AD Lane Change Initiation — vd-func:FUNC-055 (REQ-AD-017 step c).
+          When the route requires a lane the ego is not on, commits to a
+          lane-change-like trajectory toward the target lane one hop at a
+          time, once the connection deadline nears, gated by gap acceptance
+          against the target lane's lead/rear neighbors. Default OFF — see
+          docs/virtualdriver/design/lane_change_initiation.md. */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Lane Change Initiation
+        </h3>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable lane change initiation"
+            checked={Boolean(cfg.lane_change_initiation_enabled)}
+            onChange={(v) => set('lane_change_initiation_enabled', v)}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberInput label="Lead time (s)" step={0.1}
+            value={cfg.lane_change_lead_time_s ?? 6.0}
+            onChange={setNum('lane_change_lead_time_s')} />
+          <NumberInput label="Min lead distance (m)" step={1}
+            value={cfg.lane_change_min_lead_distance_m ?? 40.0}
+            onChange={setNum('lane_change_min_lead_distance_m')} />
+          <NumberInput label="Reserve distance (m)" step={1}
+            value={cfg.lane_change_reserve_distance_m ?? 20.0}
+            onChange={setNum('lane_change_reserve_distance_m')} />
+          <NumberInput label="Min gap (m)" step={0.5}
+            value={cfg.lane_change_gap_min_m ?? 8.0}
+            onChange={setNum('lane_change_gap_min_m')} />
+          <NumberInput label="Lead gap headway (s)" step={0.1}
+            value={cfg.lane_change_gap_headway_lead_s ?? 1.2}
+            onChange={setNum('lane_change_gap_headway_lead_s')} />
+          <NumberInput label="Rear gap headway (s)" step={0.1}
+            value={cfg.lane_change_gap_headway_rear_s ?? 1.0}
+            onChange={setNum('lane_change_gap_headway_rear_s')} />
+          <NumberInput label="Rear TTC min (s)" step={0.1}
+            value={cfg.lane_change_gap_ttc_min_s ?? 3.0}
+            onChange={setNum('lane_change_gap_ttc_min_s')} />
+          <NumberInput label="Comfort lateral accel (m/s²)" step={0.1}
+            value={cfg.lane_change_lateral_accel_comfort ?? 1.5}
+            onChange={setNum('lane_change_lateral_accel_comfort')} />
+        </div>
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Default OFF. When enabled, the ego self-corrects toward the route's
+          required lane one hop at a time instead of only diagnosing the
+          mismatch. If no gap opens before the connection deadline, it
+          crosses off-plan without lane-changing (unchanged deviation
+          recording) — this does not add a stop-and-wait behavior.
         </p>
       </section>
 

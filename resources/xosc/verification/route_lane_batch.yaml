@@ -1,7 +1,7 @@
 name: route_lane
 origin: vd-func:FUNC-050   # レーンレベル経路計画。RouteLanePlan の目標レーン帯診断(telemetry.route_lane)を検証する
 # RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) の常設回帰バッチ。
-# 2本は同一の道路・出発点・目的地(highway_example_with_merge_and_split.xodr
+# 最初の2本は同一の道路・出発点・目的地(highway_example_with_merge_and_split.xodr
 # junction 1、road0 lane -1 s=10 -> road2 lane -1 s=40)を共有し、Route の書き方
 # だけを変えて RouteLanePlan の2つの入口を突く対:
 #   - merge_required_for_exit_ramp: 粗い2 Waypoint。esmini 側で route が
@@ -10,23 +10,51 @@ origin: vd-func:FUNC-050   # レーンレベル経路計画。RouteLanePlan の�
 #     明示した3 Waypoint。route 自体は valid 判定されるが、ego は目標レーン帯
 #     {-4} に乗っていない -> target_lanes/on_target_lane/deviation_count が
 #     診断として機能する（"穴1" - docs/virtualdriver/design/route_lane_plan_design.md
-#     参照）。
+#     参照）。この2本は lane_change_initiation を有効化しない - vd-func:FUNC-055
+#     は「診断のみで是正しないこと」自体を確認する資産のため。
+#
+# 後半の2本は vd-func:FUNC-055（自発的レーンチェンジの発起、req-vd-ad:REQ-AD-017
+# 段c）の成功側を検証する。同じ道路・同じ Route の書き方（road4 を明示した3
+# Waypoint）を土台にしつつ、policies: [lane_change_initiation] で
+# lane_change_initiation_enabled=true を注入する（既定 OFF -
+# docs/virtualdriver/design/lane_change_initiation.md §8）：
+#   - lane_change_to_exit_ramp: 隣接車なし。発起そのものを分離して見る。
+#   - lane_change_to_exit_ramp_with_traffic: lane -3 に隣接車を1台配置し、
+#     ギャップ受容を刺激する（2026-08-02 に3ホップ構成から2ホップ構成へ再構成
+#     - 下の較正状態の段落を参照）。
 #
 # route_lane はテレメトリの追加ブロック（VirtualDriverTelemetryJson.cpp、OSI
 # scene 非依存）なので osi capture は不要 - このバッチは telemetry.jsonl のみで
-# 判定する。policies は関与しない（RouteLanePlan は ITrafficPolicy ではなく
-# 独立層 - route_lane_plan_design.md 3-2節）。
+# 判定する。lane_change_initiation は ITrafficPolicy ではなく RouteLanePlan と
+# 同じ独立層だが（lane_change_initiation.md §4）、既定 OFF の機能を有効化する
+# 手段は traffic policy と同じ「policies: リスト -> gt_sim_test.py の
+# _POLICY_FLAG -> per-run virtual_driver.json + 絶対 ConfigFile 注入」経路を
+# 流用する（別の注入経路を増やさない）。
 #
-# 各 expectations.yaml のしきい値は実測前のプレースホルダ（作成時点で親セッションの
-# Release ビルドが進行中で、route_lane テレメトリを積んだ DLL がまだ無かった）。
-# 実測合わせは各ファイルの notes: を参照。
+# しきい値の較正状態は4本それぞれで異なる。混同しないこと:
+#   - merge_required_for_exit_ramp / route_valid_off_target_lane_for_exit_ramp
+#     （前半2本）は**実測済み**。フレームトレースは各 expectations.yaml の
+#     notes: と docs/virtualdriver/design/route_lane_plan_design.md §4-4 にある。
+#   - lane_change_to_exit_ramp（隣接車なし）は**実測済み**（2026-08-02, 親セッション,
+#     lane_change_initiation を組み込んだ実ビルド）。PASS -
+#     max_deviations: 0 / expect_target_lanes: [-4] とも修正不要だった。詳細は
+#     このファイルの notes: を参照。
+#   - lane_change_to_exit_ramp_with_traffic（隣接車あり）は**未較正**。当初の
+#     3ホップ構成（ego が lane -1 から出発）は実測の結果 FAIL
+#     (deviation_count=1) となった - バグではなく、1ホップ目のギャップ待ちだけで
+#     190m 予算のうち約78mを消費し、残り2ホップ(必要約94m)に対して残り65mしか
+#     残らないという距離設計の問題だった（ギャップ受容自体は正しく機能）。
+#     2026-08-02 にこの反省を受けて ego の出発レーンを -2 に、隣接車を lane -3
+#     1台のみ（2ホップ構成）に再構成したが、この再構成版はまだ実測していない。
+#     実測合わせは lane_change_to_exit_ramp_with_traffic.expectations.yaml の
+#     notes: の手順に従って行う。
 #
 # Run:
 #   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
 #       resources/xosc/verification/route_lane_batch.yaml --out test_results/web/route_lane
 defaults:
   dt: 0.05
-  max_time: 30.0   # StopTrigger=28s の全2シナリオ + ~2s グレース
+  max_time: 30.0   # StopTrigger=28s の全シナリオ + ~2s グレース
   snapshots: 3
   osi: false
 scenarios:
@@ -35,4 +63,12 @@ scenarios:
     report: route_lane
   - scenario: resources/xosc/verification/06_route_lane/route_valid_off_target_lane_for_exit_ramp.xosc
     expectations: resources/xosc/verification/06_route_lane/route_valid_off_target_lane_for_exit_ramp.expectations.yaml
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_with_traffic.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_with_traffic.expectations.yaml
+    policies: [lane_change_initiation]
     report: route_lane

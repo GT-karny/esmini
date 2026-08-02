@@ -80,6 +80,10 @@ _BOOL_KEYS = frozenset(
         # feature:F7 — AD resume-merge trajectory master gate (default ON
         # since 2026-07-28).
         "resume_merge_enabled",
+        # vd-func:FUNC-055 — AD-initiated lane change master gate (REQ-AD-017
+        # acceptance ladder step c). Default OFF — see
+        # docs/virtualdriver/design/lane_change_initiation.md §8.
+        "lane_change_initiation_enabled",
     }
 )
 _NUMBER_KEYS = frozenset(
@@ -117,6 +121,17 @@ _NUMBER_KEYS = frozenset(
         "resume_merge_duration_min_s",
         "resume_merge_duration_max_s",
         "resume_merge_min_offset_m",
+        # vd-func:FUNC-055 — AD-initiated lane change tuning. See
+        # docs/virtualdriver/design/lane_change_initiation.md §8 for the
+        # confirmed key names/defaults (single source of truth).
+        "lane_change_lead_time_s",
+        "lane_change_min_lead_distance_m",
+        "lane_change_reserve_distance_m",
+        "lane_change_gap_min_m",
+        "lane_change_gap_headway_lead_s",
+        "lane_change_gap_headway_rear_s",
+        "lane_change_gap_ttc_min_s",
+        "lane_change_lateral_accel_comfort",
         "control_point_offset",
         "control_point_min_speed",
         "indicator_lead_time",
@@ -333,6 +348,32 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "resume_merge_duration_min_s": 1.5,
     "resume_merge_duration_max_s": 6.0,
     "resume_merge_min_offset_m": 0.5,
+    "_lane_change_initiation": (
+        "vd-func:FUNC-055 AD-initiated lane change (REQ-AD-017 acceptance "
+        "ladder step c). When the route requires a lane the ego is not on "
+        "(RouteLanePlan's target-lane band), commits to a resume-merge-style "
+        "trajectory toward the adjacent lane one hop at a time, once "
+        "dist_to_connection <= n_remaining * max(v*lane_change_lead_time_s, "
+        "lane_change_min_lead_distance_m) + lane_change_reserve_distance_m. "
+        "Gap acceptance (lane_change_gap_*) is evaluated against the target "
+        "lane's lead/rear neighbors before each hop commits; if the deadline "
+        "passes with no gap, the ego crosses off-plan without lane-changing "
+        "(existing RouteLanePlan deviation recording — no stop/wait). "
+        "lane_change_lateral_accel_comfort feeds its OWN ResumeMergeConfig/"
+        "State instance, NOT resume_merge_*'s (separate storage — see "
+        "lane_change_initiation.md §8). Default OFF: existing route-lane "
+        "behavior (diagnose-only, no self-correction) is unchanged until "
+        "enabled. See docs/virtualdriver/design/lane_change_initiation.md."
+    ),
+    "lane_change_initiation_enabled": False,
+    "lane_change_lead_time_s": 6.0,
+    "lane_change_min_lead_distance_m": 40.0,
+    "lane_change_reserve_distance_m": 20.0,
+    "lane_change_gap_min_m": 8.0,
+    "lane_change_gap_headway_lead_s": 1.2,
+    "lane_change_gap_headway_rear_s": 1.0,
+    "lane_change_gap_ttc_min_s": 3.0,
+    "lane_change_lateral_accel_comfort": 1.5,
     "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
     "control_point_offset": 0.0,
     "control_point_min_speed": 1.0,
@@ -367,9 +408,10 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
         "Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): "
         "for the governing head only, swaps its stop target for a paired "
         "stop-line signal (type=294) found within tl_stop_line_window before "
-        "it. OFF is a kill switch restoring head_s - tl_stop_margin exactly; "
-        "no existing gate asset has a stop-line-classified signal, so ON "
-        "changes nothing today either."
+        "the anchor. The anchor is the entry of the junction the head governs "
+        "(SignalJunctionResolver) when that junction is resolved and reached "
+        "by this route; otherwise the anchor is the head itself. OFF is a "
+        "kill switch restoring head_s - tl_stop_margin exactly."
     ),
     "tl_stop_line_aware_enabled": True,
     "tl_stop_line_window": 10.0,

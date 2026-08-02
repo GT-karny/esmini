@@ -7,6 +7,7 @@
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
+#include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
@@ -87,6 +88,27 @@ struct VirtualDriverConfig
     double resume_merge_duration_max_s = kResumeMergeDefaultDurationMaxS; // [s]
     double resume_merge_min_offset_m   = kResumeMergeDefaultMinOffsetM;   // [m]
 
+    // --- AD lane-change initiation (vd-func:FUNC-055) ---
+    // Autonomously starts a lane change toward RouteLanePlan's target lane band when the route
+    // requires it (docs/virtualdriver/design/lane_change_initiation.md). Reuses ResumeMergeProfile
+    // for the trajectory itself (a SEPARATE ResumeMergeConfig/State instance -- see
+    // LaneChangeMergeCfg() below and the design doc section 8 tail); lane_change_lateral_accel_comfort
+    // is the only knob that maps into that second instance, the rest (duration_min_s/duration_max_s/
+    // min_offset_m) reuse resume-merge's OWN shipped defaults (kResumeMergeDefault*) rather than
+    // whatever resume_merge_duration_*/resume_merge_min_offset_m above happen to be tuned to --
+    // the two features' trajectory shaping is deliberately NOT coupled to each other's config.
+    // Default OFF (design doc section 8's "設計要件": existing behavior must stay bit-identical
+    // until a scenario opts in).
+    bool   lane_change_initiation_enabled    = false;
+    double lane_change_lead_time_s           = 6.0;   // [s]
+    double lane_change_min_lead_distance_m   = 40.0;  // [m]
+    double lane_change_reserve_distance_m    = 20.0;  // [m]
+    double lane_change_gap_min_m             = 8.0;   // [m]
+    double lane_change_gap_headway_lead_s    = 1.2;   // [s]
+    double lane_change_gap_headway_rear_s    = 1.0;   // [s]
+    double lane_change_gap_ttc_min_s         = 3.0;   // [s]
+    double lane_change_lateral_accel_comfort = 1.5;   // [m/s^2]
+
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
     // turn the front bumper swings wide and leaves the lane. Shift the lateral
@@ -146,10 +168,12 @@ struct VirtualDriverConfig
     // actually use to shape that approach — so there is no second key for it.
     // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
     // swaps the governing head's distance for a paired stop-line signal's when
-    // one is found within tl_stop_line_window before it. OFF is a kill switch —
-    // restores head_s - tl_stop_margin exactly (see TrafficLightAware.hpp).
+    // one is found within tl_stop_line_window before the anchor -- the entry of
+    // the junction the head governs when that junction is resolved and reached
+    // by this route, else the head itself. OFF is a kill switch — restores
+    // head_s - tl_stop_margin exactly (see TrafficLightAware.hpp).
     bool   tl_stop_line_aware_enabled = true;
-    double tl_stop_line_window        = 10.0;  // [m] pairing search window before the head
+    double tl_stop_line_window        = 10.0;  // [m] pairing search window before the anchor (junction entry, or the head as fallback)
     // 3c — stop / yield sign.
     double sign_lookahead     = 80.0;  // [m]
     double stop_hold_time     = 1.5;   // [s] dwell once stopped
@@ -284,6 +308,13 @@ struct VirtualDriverConfig
     PIDPurePursuitConfig           DriverConfig() const;
     AdSteeringEnvelopeConfig        AdEnvelopeConfig() const;
     ResumeMergeConfig              ResumeMergeCfg() const;
+    LaneChangeInitiationConfig     LaneChangeInitiationCfg() const;
+    // The SEPARATE ResumeMergeConfig instance the AD-lane-change layer drives (design doc section
+    // 8 tail: "resume_merge_cfg_/resume_merge_state_ と記憶域を共有しない"). enabled is always
+    // true here -- the outer gate is lane_change_initiation_enabled, checked by the CALLER before
+    // this config's ArmResumeMerge is ever invoked, same as how resume-merge's own arm call sites
+    // are all inside `if (resume_merge_cfg_.enabled)`.
+    ResumeMergeConfig              LaneChangeMergeCfg() const;
     AutoIndicatorConfig            IndicatorConfig() const;
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;

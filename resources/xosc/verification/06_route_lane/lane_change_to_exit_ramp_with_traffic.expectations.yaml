@@ -1,0 +1,89 @@
+scenario: lane_change_to_exit_ramp_with_traffic
+category: 06_route_lane
+# vd-func:FUNC-055 (AD-initiated lane change) / req-vd-ad:REQ-AD-017 acceptance
+# ladder step c, WITH one background vehicle (AdjacentTraffic, lane -3, s=10,
+# 8.333 m/s -- slower than Ego) to stimulate gap acceptance
+# (lane_change_initiation.md section 4) rather than just the initiation
+# decision that lane_change_to_exit_ramp.xosc isolates.
+#
+# RECONFIGURED TO 2 HOPS 2026-08-02 (parent instruction, following a real
+# measurement -- see below). Ego now starts in lane -2 (not -1, unlike the
+# no-traffic sibling), so only two lane changes are needed: -2 -> -3 -> -4.
+# See the .xosc header comment for the full "why 2 hops, not 3" writeup.
+#
+# WHY: an earlier 3-hop version of this scenario (Ego starting in lane -1,
+# matching the no-traffic sibling exactly, two background vehicles in lanes
+# -2 and -3) was MEASURED by the parent session against a real
+# GT_esminiLib.dll build with lane_change_initiation wired in
+# (test_results/web/route_lane/) and FAILED with deviation_count=1. Per the
+# parent's telemetry read (the scenario's own lane_change block): the first
+# hop's gap-wait alone consumed ~78 m of the 190 m budget
+# (dist_to_connection 190 -> 112, because the adjacent vehicle started level
+# with Ego and was correctly held off, then correctly admitted -- gap
+# acceptance itself was NOT the defect), leaving only 65 m for two more hops
+# needing ~47 m each (~94 m) -- geometrically impossible regardless of gap-
+# acceptance behavior. This is the same conclusion documented in the
+# no-traffic sibling's expectations.yaml notes. The fix applied here is the
+# route-shortening reconfiguration above, not a change to gap-acceptance
+# logic or to the max_deviations matcher (vd_metrics.py's max_deviations
+# implementation was independently confirmed correct on the no-traffic
+# sibling's PASS and is unchanged).
+#
+# CALIBRATION STATUS OF THIS (2-hop) VERSION: NOT YET MEASURED. This file was
+# reconfigured by the assisting session per explicit parent instruction, but
+# has not itself been re-run against a build. The `must` thresholds below
+# (max_deviations: 0, expect_target_lanes: [-4]) are carried over unchanged
+# from the pre-reconfiguration version, per that instruction (the no-traffic
+# sibling's PASS validated that 0 is achievable when the distance budget
+# suffices; the 2-hop shortening is intended to restore that sufficiency
+# while still keeping one real gap-wait). The parent session will re-run this
+# scenario next and correct this notes: block (and any threshold/window that
+# does not hold) with the actual measured result.
+must:
+  - event: route_lane_plan_holds
+    max_deviations: 0
+    reason: >
+      Same success-side assertion as lane_change_to_exit_ramp's must #1: even
+      with a gap-wait delay from AdjacentTraffic on the first hop (-2 -> -3),
+      the ego is expected to find an acceptable gap and complete both lane
+      changes before the junction 1 connection, so deviation_count must still
+      end at 0. Unlike the superseded 3-hop version of this scenario (see the
+      notes: above), the 2-hop distance budget (~124 m estimated vs a 190 m
+      cap) is intended to leave enough slack to absorb one gap-wait -- if this
+      scenario still fails with deviation_count>0, the likely next step is
+      re-examining AdjacentTraffic's placement/speed (per the .xosc's
+      placement writeup), not loosening this threshold, since a repeat
+      distance-budget failure here would mean the 2-hop shortening was
+      insufficient.
+  - event: route_lane_plan_holds
+    expect_target_lanes: [-4]
+    reason: >
+      Same band-derivation sanity check as the no-traffic sibling -- background
+      traffic does not change what RouteLanePlan computes as the target-lane
+      band, only whether/when the ego actually gets there.
+notes: >
+  NOT MEASURED (this 2-hop version). The scenario was reconfigured from 3 hops
+  to 2 hops per explicit parent instruction, following the parent's own
+  measurement of the superseded 3-hop version (see the file-level comment
+  above for that measured failure and its root cause). This reconfigured
+  version has not been run against a build by either the assisting or the
+  parent session as of this edit -- the parent session plans to re-run it
+  next (batch: resources/xosc/verification/route_lane_batch.yaml) and will
+  replace this notes: block with the actual measured frame trace, the same
+  way lane_change_to_exit_ramp.expectations.yaml's notes: were replaced after
+  its own measurement.
+
+  Specific things to verify on that first real measurement of this version:
+    1. That a gap-wait actually occurs once (i.e. this scenario is not
+       accidentally equivalent to a no-wait run because AdjacentTraffic's
+       level-start placement does not gate the -2 -> -3 hop as expected). If
+       the telemetry shows no meaningful delay relative to a hypothetical
+       traffic-free 2-hop run, the placement should be tightened.
+    2. That the total time/distance to complete both hops plus the gap-wait
+       stays within the 190 m budget with real margin, not just barely --
+       the file-level comment's ~124 m estimate (vs the ~65 m + ~94 m
+       shortfall that broke the 3-hop version) is a hand calculation, not a
+       measured figure.
+    3. Whether a `window:` is needed on the max_deviations must, per the same
+       consideration noted (and resolved as unnecessary) in the no-traffic
+       sibling's notes:.

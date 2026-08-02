@@ -11,6 +11,7 @@
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "gt_esmini/control/virtualdriver/RouteLanePlan.hpp"
+#include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <cstddef>
@@ -184,6 +185,21 @@ private:
     ResumeMergeState   resume_merge_state_{};
     double             prev_heading_       = 0.0;
     bool               prev_heading_valid_ = false;
+
+    // vd-func:FUNC-055 AD lane-change initiation
+    // (docs/virtualdriver/design/lane_change_initiation.md). lc_init_cfg_/lc_init_state_ are this
+    // layer's OWN decision state (which hop, if any, is in progress); lc_merge_cfg_/lc_merge_state_
+    // are a SEPARATE ResumeMergeProfile instance driving that hop's trajectory -- deliberately NOT
+    // sharing storage with resume_merge_cfg_/resume_merge_state_ above (design doc section 8 tail).
+    // lc_prev_heading_/lc_prev_heading_valid_ mirror prev_heading_/prev_heading_valid_ above but are
+    // updated independently, gated only on lc_init_cfg_.enabled: sharing the resume-merge pair would
+    // silently starve a0_lat capture whenever resume_merge_enabled is false but this feature is on.
+    LaneChangeInitiationConfig lc_init_cfg_;
+    LaneChangeInitiationState  lc_init_state_{};
+    ResumeMergeConfig          lc_merge_cfg_;
+    ResumeMergeState           lc_merge_state_{};
+    double                     lc_prev_heading_       = 0.0;
+    bool                       lc_prev_heading_valid_ = false;
 
     // Manual indicator (turn-signal) control via input-source buttons, reusing
     // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes

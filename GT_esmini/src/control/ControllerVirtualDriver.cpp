@@ -129,6 +129,11 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     // same convention as ad_envelope_cfg_ above; not hot-reloaded during a run.
     resume_merge_cfg_ = vd_config_.ResumeMergeCfg();
 
+    // vd-func:FUNC-055 AD lane-change initiation (see ResumeMergeProfile.hpp block above for the
+    // convention this mirrors). Built once here; not hot-reloaded during a run.
+    lc_init_cfg_  = vd_config_.LaneChangeInitiationCfg();
+    lc_merge_cfg_ = vd_config_.LaneChangeMergeCfg();
+
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
     if (vd_config_.input_type == "sdl2_wheel")
@@ -875,6 +880,191 @@ void ControllerVirtualDriver::Step(double timeStep)
         prev_heading_valid_ = true;
     }
 
+    // 2d. vd-func:FUNC-055 AD lane-change initiation
+    // (docs/virtualdriver/design/lane_change_initiation.md). Entirely gated behind
+    // lc_init_cfg_.enabled (shipped default: FALSE) -- when false, NOTHING below this guard
+    // executes, so lc_now_* keep their just-declared defaults (false/0/0/0.0) and the sctx.merge_*
+    // wiring right below (unchanged from feature:F7 resume-merge's own arithmetic) sees exactly
+    // what it saw before this feature existed. HARD INVARIANT: bit-identical to today when
+    // disabled -- see the design doc section 8 "設計要件".
+    bool         lc_now_active = false;
+    unsigned int lc_now_track  = 0;
+    int          lc_now_lane   = 0;
+    double       lc_now_offset = 0.0;
+
+    // Diagnostics-only locals for telemetry_.lane_change, written into telemetry_ itself only at
+    // section 11d below (AFTER the is_integrator gate) -- same convention as route_lane/
+    // resume_merge telemetry (see the comment on section 11c): a non-integrator does not own
+    // "where is the ego on the road" this frame, and this block's decision is downstream of that
+    // same question, so it must not publish telemetry for a frame it does not own the answer to.
+    int         lc_diag_target_track_id    = -1;
+    int         lc_diag_target_lane_id     = 0;
+    int         lc_diag_n_remaining        = 0;
+    double      lc_diag_required_m         = 0.0;
+    double      lc_diag_dist_to_connection = -1.0;
+    bool        lc_diag_gap_accepted       = false;
+    std::string lc_diag_gap_reason;
+
+    if (lc_init_cfg_.enabled)
+    {
+        // Same scan pattern resume-merge's own suppression check uses just above (design doc
+        // section 2's priority order: storyboard LaneChangeAction > resume-merge > AD-initiated
+        // LC), duplicated rather than shared so this feature never depends on
+        // resume_merge_cfg_.enabled also being true.
+        bool has_lateral_storyboard_action = false;
+        for (auto* action : object_->getPrivateActions())
+        {
+            if (action->GetCurrentState() != StoryBoardElement::State::RUNNING) continue;
+            if (action->action_type_ == OSCAction::ActionType::LAT_LANE_CHANGE ||
+                action->action_type_ == OSCAction::ActionType::LAT_LANE_OFFSET)
+            {
+                has_lateral_storyboard_action = true;
+                break;
+            }
+        }
+
+        const bool suppressed = has_lateral_storyboard_action || resume_merge_state_.active || lat_manual;
+
+        if (suppressed && lc_init_state_.armed)
+        {
+            // Abort the in-progress hop (design doc section 2: "進行中なら中止" for all three
+            // suppression triggers). No fourth disarm trigger is added to resume-merge's own
+            // state machine -- that direction is closed by design (section 9's scope table).
+            DisarmLaneChangeHop(lc_init_state_);
+            DisarmResumeMerge(lc_merge_state_);
+        }
+
+        // Diagnostic hop plan, computed EVERY frame this feature is enabled -- regardless of
+        // armed/suppressed -- so telemetry_.lane_change.{n_remaining,required_m,dist_to_connection}
+        // stay real numbers WHILE a hop is executing instead of collapsing to 0/0.0/-1.0 (the
+        // "not armed, considering" branch below used to be the ONLY place that filled them, so
+        // they froze the instant a hop armed). While armed, the reference lane is the CURRENT
+        // HOP'S TARGET, not the ego's current (still mid-transition) lane, so n_remaining/
+        // required_m report what is left AFTER this hop finishes, not before -- the ego is
+        // already committed to this hop, so "remaining" should not double-count it.
+        LaneHopPlan diag_hop;
+        if (route_lane_status.valid)
+        {
+            const int reference_lane = lc_init_state_.armed ? lc_init_state_.hop_target_lane_id
+                                                             : route_lane_status.ego_lane_raw;
+            diag_hop            = ComputeLaneHopPlan(reference_lane, route_lane_status.target_lanes);
+            lc_diag_n_remaining = diag_hop.valid ? diag_hop.n_remaining : 0;
+            lc_diag_required_m  = RequiredLaneChangeDistance(lc_diag_n_remaining, ego_speed, lc_init_cfg_);
+        }
+        // route_lane_status.dist_to_connection already carries the right value regardless of
+        // armed state -- route_lane's own telemetry (11c.) publishes this same number every
+        // frame. -1.0 here means exactly what it always means (RouteLaneStatus/RouteLanePlan's
+        // "unknown" / "final band has no onward connection" convention), never "not computed
+        // because a hop happens to be in progress".
+        lc_diag_dist_to_connection = route_lane_status.dist_to_connection;
+
+        if (!suppressed)
+        {
+            if (lc_init_state_.armed && lc_merge_state_.active)
+            {
+                AdvanceResumeMerge(lc_merge_state_, timeStep);
+            }
+
+            if (lc_init_state_.armed && !lc_merge_state_.active)
+            {
+                // The hop's trajectory has run its course (converged to the target lane center,
+                // or was never actually armed -- defensive). Completion check per design doc
+                // section 3: "state.active が false になり、かつ自車の lane id が今回の目標レーン".
+                // If the ego is not yet physically on the target lane (rare: the quintic converges
+                // geometrically but a lane-width/road-curvature mismatch can leave one frame's
+                // rounding short of the boundary), re-arming happens naturally next frame from the
+                // "not armed" branch below, with a FRESH gap check -- not by holding this hop open
+                // indefinitely.
+                DisarmLaneChangeHop(lc_init_state_);
+            }
+
+            if (!lc_init_state_.armed)
+            {
+                // Not currently working a hop: is one due, and if so, is the gap open?
+                // diag_hop above was computed from this SAME reference lane (ego_lane_raw, since
+                // armed is false here), so it is reused directly rather than recomputed.
+                if (route_lane_status.valid && !route_lane_status.on_target_lane && diag_hop.valid)
+                {
+                    const LaneHopPlan& hop = diag_hop;
+                    const bool         due = ShouldAttemptLaneChangeHop(
+                        hop.n_remaining, route_lane_status.dist_to_connection, ego_speed, lc_init_cfg_);
+
+                    lc_diag_target_track_id = static_cast<int>(route_lane_status.road_id);
+                    lc_diag_target_lane_id  = hop.next_hop_lane_id;
+
+                    if (due && entities_)
+                    {
+                        const LaneChangeGapSample gap =
+                            ScanAdjacentLaneGap(*object_, *entities_, hop.direction_step, vd_config_.idm_lookahead);
+                        const GapAcceptanceResult gr = EvaluateGapAcceptance(gap, ego_speed, lc_init_cfg_);
+                        lc_diag_gap_accepted           = gr.accepted;
+                        lc_diag_gap_reason             = gr.reason;
+                        lc_init_state_.last_gap_reason = gr.reason;
+
+                        if (gr.accepted)
+                        {
+                            // Capture hand-over state exactly like resume-merge's own arm block
+                            // above, but the anchor is the HOP TARGET lane instead of the route
+                            // lane (design doc section 1: "アンカーに目標レーンを渡す" -- the
+                            // whole point of reusing ResumeMergeProfile unmodified).
+                            roadmanager::Position hop_center;
+                            if (hop_center.SetLanePos(route_lane_status.road_id, hop.next_hop_lane_id,
+                                                      object_->pos_.GetS(), 0.0) !=
+                                roadmanager::Position::ReturnCode::ERROR_GENERIC)
+                            {
+                                const double h_road = hop_center.GetHRoad();
+                                const double d0 = -(object_->pos_.GetX() - hop_center.GetX()) * std::sin(h_road) +
+                                                   (object_->pos_.GetY() - hop_center.GetY()) * std::cos(h_road);
+                                const double ego_h  = object_->pos_.GetH();
+                                const double v0_lat = object_->GetSpeed() * std::sin(ego_h - h_road);
+
+                                double a0_lat = 0.0;
+                                if (lc_prev_heading_valid_ && timeStep > 1e-9)
+                                {
+                                    const double yaw_rate =
+                                        GetAngleInIntervalMinusPIPlusPI(ego_h - lc_prev_heading_) / timeStep;
+                                    a0_lat = yaw_rate * object_->GetSpeed();
+                                }
+
+                                if (ArmResumeMerge(lc_merge_state_, d0, v0_lat, a0_lat, lc_merge_cfg_))
+                                {
+                                    const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+                                    const int  indicator_dir =
+                                        LaneChangeIndicatorDir(route_lane_status.ego_lane_raw, hop.next_hop_lane_id, along_s);
+                                    ArmLaneChangeHop(lc_init_state_, static_cast<unsigned int>(route_lane_status.road_id),
+                                                     hop.next_hop_lane_id, hop.direction_step, indicator_dir);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (lc_init_state_.armed && lc_merge_state_.active)
+        {
+            lc_now_active = true;
+            lc_now_track  = lc_init_state_.hop_track_id;
+            lc_now_lane   = lc_init_state_.hop_target_lane_id;
+            lc_now_offset = EvaluateResumeMergeOffset(lc_merge_state_, 0.0);
+        }
+
+        // While armed, the ACTIVE hop's own fields are the authoritative telemetry values (the
+        // "not armed, considering" branch above never ran this frame, so lc_diag_target_* would
+        // otherwise still show whatever it last computed before arming).
+        if (lc_init_state_.armed)
+        {
+            lc_diag_target_track_id = static_cast<int>(lc_init_state_.hop_track_id);
+            lc_diag_target_lane_id  = lc_init_state_.hop_target_lane_id;
+        }
+
+        // Rolling one-frame-back heading for the NEXT arming instant's a0_lat (design doc section
+        // 1's reuse of resume-merge's own capture, mirrored here with independent storage -- see
+        // the header doc on lc_prev_heading_). Updated every frame this feature is enabled.
+        lc_prev_heading_       = object_->pos_.GetH();
+        lc_prev_heading_valid_ = true;
+    }
+
     // 3. Auto pipeline: short planner -> driver model
     ShortPlanContext sctx;
     sctx.object               = object_;
@@ -887,11 +1077,20 @@ void ControllerVirtualDriver::Step(double timeStep)
     // feature:F7 resume-merge: defaults (false/0/0/0.0/nullptr) preserve
     // today's behavior when merge_now_active is false (disabled, never
     // armed, or disarmed this frame) -- see the HARD INVARIANT note above.
-    sctx.merge_active     = merge_now_active;
-    sctx.merge_track_id   = merge_now_track;
-    sctx.merge_lane_id    = merge_now_lane;
-    sctx.merge_offset_now = merge_now_offset;
-    sctx.merge_state      = merge_now_active ? &resume_merge_state_ : nullptr;
+    // vd-func:FUNC-055: resume-merge and AD-initiated lane-change both feed the SAME sctx.merge_*
+    // slot (design doc section 1 -- TrajectoryShortPlanner is generic over "which lane is the
+    // anchor", it does not need to know which feature is asking). resume-merge wins on any frame
+    // both would otherwise apply (design doc section 2's priority order); in practice the
+    // suppression check above already keeps them mutually exclusive (LC disarms itself the instant
+    // resume_merge_state_.active goes true), but the branch is written explicitly here rather than
+    // relying on that invariant holding forever (design doc section 2: "両方が同時に書かないよう、
+    // コントローラ側で明示的に分岐すること"). When lc_init_cfg_.enabled is false, lc_now_active is
+    // always false and this collapses to exactly the pre-existing expression.
+    sctx.merge_active     = merge_now_active || lc_now_active;
+    sctx.merge_track_id   = merge_now_active ? merge_now_track : lc_now_track;
+    sctx.merge_lane_id    = merge_now_active ? merge_now_lane : lc_now_lane;
+    sctx.merge_offset_now = merge_now_active ? merge_now_offset : lc_now_offset;
+    sctx.merge_state      = merge_now_active ? &resume_merge_state_ : (lc_now_active ? &lc_merge_state_ : nullptr);
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
 
     DriverState dstate;
@@ -1461,6 +1660,21 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.route_lane.diagnostic             = route_lane_plan_.diagnostic;
     telemetry_.route_lane.reason                 = route_lane_status.reason;
 
+    // 11d. vd-func:FUNC-055 AD lane-change initiation telemetry (LaneChangeInitiation.hpp).
+    // Computed above (before the is_integrator gate, into the lc_diag_*/lc_now_* locals) but
+    // published only here, same reasoning as 11c.'s own comment: a non-integrator does not own
+    // "where is the ego on the road" this frame, and this is exactly that class of information one
+    // layer up. All fields stay at their struct defaults when lc_init_cfg_.enabled is false.
+    telemetry_.lane_change.armed               = lc_init_state_.armed;
+    telemetry_.lane_change.direction           = lc_init_state_.armed ? lc_init_state_.direction_indicator : 0;
+    telemetry_.lane_change.target_track_id     = lc_diag_target_track_id;
+    telemetry_.lane_change.target_lane_id      = lc_diag_target_lane_id;
+    telemetry_.lane_change.n_remaining         = lc_diag_n_remaining;
+    telemetry_.lane_change.required_m          = lc_diag_required_m;
+    telemetry_.lane_change.dist_to_connection  = lc_diag_dist_to_connection;
+    telemetry_.lane_change.gap_accepted        = lc_diag_gap_accepted;
+    telemetry_.lane_change.gap_reason          = lc_diag_gap_reason;
+
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);
 }
@@ -1569,6 +1783,19 @@ int ControllerVirtualDriver::DetectManeuverDir()
     {
         lane_change_action_id_ = nullptr;
         lane_change_dir_       = 0;
+
+        // vd-func:FUNC-055 (design doc lane_change_initiation.md section 6, step 2): no storyboard
+        // lane change is running -- fall back to an in-progress AD-INITIATED lane change, if any.
+        // lc_init_cfg_.enabled is checked FIRST so a disabled feature never reaches lc_init_state_
+        // at all (it stays permanently un-armed, but short-circuiting here keeps this path
+        // structurally identical to before the feature existed, not merely behaviourally so). The
+        // direction was latched once at arm time (ArmLaneChangeHop), for the same two reasons the
+        // storyboard latch above exists: once the ego crosses the lane boundary the delta would
+        // collapse to 0, and the direction is a property of the HOP, not of instantaneous geometry.
+        if (lc_init_cfg_.enabled && lc_init_state_.armed)
+        {
+            return lc_init_state_.direction_indicator;
+        }
         return 0;
     }
 

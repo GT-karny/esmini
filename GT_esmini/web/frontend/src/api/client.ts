@@ -345,6 +345,20 @@ export interface VirtualDriverConfig {
   resume_merge_duration_min_s?: number;
   resume_merge_duration_max_s?: number;
   resume_merge_min_offset_m?: number;
+  // vd-func:FUNC-055 — AD-initiated lane change (REQ-AD-017 acceptance ladder
+  // step c). When the route requires a lane the ego is not on, commits to a
+  // lane change one hop at a time once the connection deadline nears, gated
+  // by gap acceptance against the target lane's neighbors. Default OFF — see
+  // docs/virtualdriver/design/lane_change_initiation.md.
+  lane_change_initiation_enabled?: boolean;
+  lane_change_lead_time_s?: number;
+  lane_change_min_lead_distance_m?: number;
+  lane_change_reserve_distance_m?: number;
+  lane_change_gap_min_m?: number;
+  lane_change_gap_headway_lead_s?: number;
+  lane_change_gap_headway_rear_s?: number;
+  lane_change_gap_ttc_min_s?: number;
+  lane_change_lateral_accel_comfort?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Input source for the run. "network" (default when never configured — see
@@ -373,9 +387,10 @@ export interface VirtualDriverConfig {
   tl_junction_clearance?: number;
   // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
   // for the governing head only, swaps its stop target for a paired stop-line
-  // signal found within tl_stop_line_window before it. OFF restores
-  // head_s - tl_stop_margin exactly. Default ON (no existing gate asset has a
-  // stop-line-classified signal, so this changes nothing today either way).
+  // signal found within tl_stop_line_window before the anchor. The anchor is
+  // the entry of the junction the head governs when that junction is resolved
+  // and reached by this route; otherwise the anchor is the head itself. OFF
+  // restores head_s - tl_stop_margin exactly.
   tl_stop_line_aware_enabled?: boolean;
   tl_stop_line_window?: number;
   // 3c stop / yield sign
