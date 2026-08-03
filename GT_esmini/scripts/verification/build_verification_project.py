@@ -8,17 +8,22 @@ The verification scenarios under ``resources/xosc/verification`` reference share
 assets with ``../../../xodr/...`` / ``../../../models/...`` paths that only work
 in place, so this builder:
 
-  1. copies each verification xosc into ``<project>/xosc/<NN>_<stem>.xosc``,
+  1. auto-discovers every category subfolder under ``resources/xosc/verification``
+     and copies each scenario into ``<project>/xosc/<category>_<stem>.xosc``,
   2. copies every referenced xodr / model into ``<project>/{xodr,models}/`` and
      rewrites the paths to be project-relative,
-  3. tags 03/04/06 scenarios with a ``policies`` Property so a GUI VirtualDriver
-     run enables the matching Phase-3 policy (the web runner reads it — opt-in;
-     05 anticipation needs no policy),
+  3. tags scenarios per CATEGORY_POLICY with a ``policies`` Property so a GUI
+     VirtualDriver run enables the matching Phase-3 policy (the web runner
+     reads it — opt-in; categories without an entry get no auto-enabled policy),
   4. writes a README and (optionally) a .zip for the GUI "Upload ZIP" flow.
 
 By default it writes the project straight into the dev projects dir
 (``test_results/web/projects``) where ``sync_projects`` auto-registers it, so it
 shows up in the GUI immediately. Run via DriverScript/.venv.
+
+``build_package.py`` also calls this at packaging time, writing straight into
+the distributed package's ``data/projects/`` so the packaged app ships a
+"VirtualDriver Verification" project separate from the Built-in Samples one.
 
     py GT_esmini/scripts/verification/build_verification_project.py
 """
@@ -35,20 +40,30 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC = REPO_ROOT / "resources" / "xosc" / "verification"
 DEFAULT_PROJECTS_DIR = REPO_ROOT / "test_results" / "web" / "projects"
 
-# Category folder prefix -> the traffic policy a GUI run should enable for it.
-# 05 anticipation relies on the mid/long planner only (no traffic policy).
-CATEGORY_POLICY = {
-    "03": "traffic_light",
-    "04": "stop_yield",
-    "05": None,
-    "06": "lead",
+# Category directory name -> the traffic policy a GUI run should enable for it
+# (keys must match _VD_POLICY_FLAG in services/simulation_runner.py). Categories
+# not listed here (or added later without an entry) default to None — the
+# scenario still ships and runs, it just doesn't get an opt-in policy toggled
+# on automatically. Keyed by the FULL directory name, not a numeric prefix:
+# 06_lead_vehicle and 06_route_lane share the same leading digit, so truncating
+# to "06" would make them collide.
+CATEGORY_POLICY: dict[str, str | None] = {
+    "03_traffic_signals": "traffic_light",
+    "04_traffic_signs": "stop_yield",
+    "05_anticipation": None,
+    "06_lead_vehicle": "lead",
+    "06_route_lane": None,
+    "07_aeb": "aeb",
+    "07_oncoming_yield": "conflict",
+    "08_handoff": None,
+    "08_overtake": "lead",
+    "08_unsignalized_junction": "junction_priority",
+    "09_crosswalk_pedestrian": "crosswalk",
+    "aeb_c2c_grid": "aeb",
+    "p6_virtual_junction": "junction_priority",
+    "01_vehicle_model": None,
+    "02_basic_control": None,
 }
-CATEGORIES = (
-    "03_traffic_signals",
-    "04_traffic_signs",
-    "05_anticipation",
-    "06_lead_vehicle",
-)
 
 
 def _collect_and_rewrite(
@@ -125,13 +140,14 @@ def build(out_dir: Path, make_zip: bool) -> Path:
 
     missing: list[str] = []
     listed: list[tuple[str, str | None]] = []
+    unmapped: list[str] = []
 
-    for cat in CATEGORIES:
+    categories = sorted(p.name for p in SRC.iterdir() if p.is_dir())
+    for cat in categories:
         cat_dir = SRC / cat
-        if not cat_dir.is_dir():
-            continue
-        num = cat.split("_", 1)[0]
-        policy = CATEGORY_POLICY.get(num)
+        if cat not in CATEGORY_POLICY:
+            unmapped.append(cat)
+        policy = CATEGORY_POLICY.get(cat)
         for xosc in sorted(cat_dir.glob("*.xosc")):
             tree = ET.parse(xosc)
             root = tree.getroot()
@@ -149,11 +165,21 @@ def build(out_dir: Path, make_zip: bool) -> Path:
                 else:
                     missing.append(src_str)
 
-            out_name = f"{num}_{xosc.stem}.xosc"
+            # Prefixed with the full category name (not a truncated leading
+            # digit) so scenarios from different categories can never collide
+            # in the project's flat xosc/ dir.
+            out_name = f"{cat}_{xosc.stem}.xosc"
             tree.write(
                 out_dir / "xosc" / out_name, encoding="utf-8", xml_declaration=True
             )
             listed.append((out_name, policy))
+
+    if unmapped:
+        print(
+            "[build] NOTE: no CATEGORY_POLICY entry for: "
+            f"{', '.join(sorted(set(unmapped)))} (defaulted to no auto-enabled policy)",
+            file=sys.stderr,
+        )
 
     _write_readme(out_dir, listed)
 
