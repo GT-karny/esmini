@@ -96,6 +96,11 @@ thirdparty/openscenario/
 thirdparty/openscenario-v1.2.0/
 thirdparty/osi-python/
 
+# Reference literature for the parking feature (papers + a MIT-licensed
+# Reeds-Shepp reference implementation). Read-only study material; a C++ port
+# into GT_esmini must carry its own attribution rather than vendoring these.
+thirdparty/parking_literature/
+
 # Claude Code skills (external toolkits)
 .claude/skills/skill-creator/
 
