@@ -727,6 +727,28 @@ edges:
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: バック駐車（後退を含むマヌーバ）が対象とするODD軸
 
+  # ---- 出庫機能（req-vd-ad:REQ-AD-022、vd-func:FUNC-078）: 2026-08-03 新設 ----
+  # 凍結名前空間（req-vd-ad / vd-func）への追加につきユーザー承認済み。scene:SCN-014
+  # の第2段要求導出、入庫（REQ-AD-019/020）と対を成す。立案時の作業メモの予定番号
+  # REQ-AD-021 は並行編集（d76fe733, 右左折の合図時期）に先着されていたため
+  # REQ-AD-022 として発行（内容は立案時の C 章から変更なし）。実装・検証資産とも
+  # 未着手のため matcher -> verifies -> req 辺は張らない。
+  - from: vd-func:FUNC-078
+    to: req-vd-ad:REQ-AD-022
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 出庫マヌーバ実行が出庫マヌーバの実行要求を充足。未実装
+  - from: req-vd-ad:REQ-AD-022
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 出庫マヌーバの実行が対象とするODD軸。scene:SCN-014・REQ-AD-019/020 と同じ openx 概念を共有
+  - from: req-vd-ad:REQ-AD-022
+    to: openx:Domain#MoveBackward
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 前進入庫状態からの後退出庫（段b）が対象とするODD軸
+
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
     to: openx:Domain#FollowRoadUser

@@ -416,7 +416,7 @@ namespaces:
     id_pattern: "REQ-AD-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     status: active
-    count: 16
+    count: 19
     notes: >-
       機能軸カタログの DRAFT 段階で activate（seed REQ-AD-001..006 ＋ AEB家族 001/010-015、
       NCAP/R152逆算スキーマ=aeb_requirements.md）。設計軸は
@@ -432,9 +432,9 @@ namespaces:
     id_pattern: "FUNC-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
     status: active
-    count: 77
+    count: 78
     notes: >-
-      機能軸カタログ DRAFT の網羅列挙スーパーセット（FUNC-001..077、剪定前）。tier/agent/status
+      機能軸カタログ DRAFT の網羅列挙スーパーセット（FUNC-001..078、剪定前）。tier/agent/status
       は catalog 側のフィールド（ID書式には含めない＝再分類でID不変）。実装済み機能は
       policy -> realizes -> vd-func 辺、要求充足は vd-func -> realizes -> req-vd-ad 辺。
       設計軸は GT_esmini/docs/virtualdriver/design/adas_axis.md。

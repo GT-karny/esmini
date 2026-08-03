@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:1d9d88128c5fbb97 -->
+<!-- generated-from: sha256:0fbe100e9c7d000d -->
 
-ノード 196・辺 202（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 198・辺 205（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -157,6 +157,7 @@ flowchart LR
     n_vd_func_FUNC_061["FUNC-061"]
     n_vd_func_FUNC_076["FUNC-076"]
     n_vd_func_FUNC_077["FUNC-077"]
+    n_vd_func_FUNC_078["FUNC-078"]
     n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_075["FUNC-075"]
   end
@@ -174,6 +175,7 @@ flowchart LR
     n_req_vd_ad_REQ_AD_021["REQ-AD-021"]
     n_req_vd_ad_REQ_AD_019["REQ-AD-019"]
     n_req_vd_ad_REQ_AD_020["REQ-AD-020"]
+    n_req_vd_ad_REQ_AD_022["REQ-AD-022"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
     n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
     n_req_vd_ad_REQ_AD_012["REQ-AD-012"]
@@ -357,6 +359,9 @@ flowchart LR
   n_req_vd_ad_REQ_AD_019 -. concerns .-> n_openx_Domain_Parking
   n_req_vd_ad_REQ_AD_020 -. concerns .-> n_openx_Domain_Parking
   n_req_vd_ad_REQ_AD_020 -. concerns .-> n_openx_Domain_MoveBackward
+  n_vd_func_FUNC_078 -->|realizes| n_req_vd_ad_REQ_AD_022
+  n_req_vd_ad_REQ_AD_022 -. concerns .-> n_openx_Domain_Parking
+  n_req_vd_ad_REQ_AD_022 -. concerns .-> n_openx_Domain_MoveBackward
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
@@ -451,7 +456,7 @@ flowchart LR
 | `gate:fork-sync` | `gate:fork-census` | INBOUND（上流未取込）と OUTBOUND（フォーク会計）の対。どちらもLHTの*正しさ*は見ない |
 | `feature:F7` | `vd-func:FUNC-075` | 運転主体遷移の隣接スコープ・非重複（F7=切替そのもの、FUNC-075=手動運転中のADAS並行稼働）。混同防止で明記 |
 
-### concerns (64)
+### concerns (66)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -518,6 +523,8 @@ flowchart LR
 | `req-vd-ad:REQ-AD-019` | `openx:Domain#Parking` | 駐車枠の探索・選定が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有 |
 | `req-vd-ad:REQ-AD-020` | `openx:Domain#Parking` | 駐車マヌーバ実行が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有 |
 | `req-vd-ad:REQ-AD-020` | `openx:Domain#MoveBackward` | バック駐車（後退を含むマヌーバ）が対象とするODD軸 |
+| `req-vd-ad:REQ-AD-022` | `openx:Domain#Parking` | 出庫マヌーバの実行が対象とするODD軸。scene:SCN-014・REQ-AD-019/020 と同じ openx 概念を共有 |
+| `req-vd-ad:REQ-AD-022` | `openx:Domain#MoveBackward` | 前進入庫状態からの後退出庫（段b）が対象とするODD軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
 ### depends-on (24)
@@ -584,7 +591,7 @@ flowchart LR
 | `matcher:route_lane_plan_holds` | `signal:route_lane_conformance` | vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"] （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/ on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない ものを pass にしない」規律、domain_split_holds と同型）。 |
 | `matcher:indicator_leads_lane_change` | `signal:lane_change_signal_timing` | vd_metrics.py:1708-1836 の indicator_leads_lane_change 分岐が、frames[i]["lane_change"] の signal_active/armed/direction と frames[i]["indicator"] の left/right を**両方**読む。 片方だけでは判定にならない（lane_change_initiation.md §11-8）: signal_active だけだと 意図が AutoIndicatorPolicy に握り潰されていても真になり、indicator だけだと DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。 |
 
-### realizes (35)
+### realizes (36)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -617,6 +624,7 @@ flowchart LR
 | `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-018` | 方向指示器の自発操作が段 a を充足。段 b/c（法定 3 秒のリードを定速でも加速中でも 満たす）と段 d（FUNC-056..059 由来の発起にも同期）は未実装。 |
 | `vd-func:FUNC-076` | `req-vd-ad:REQ-AD-019` | 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装 |
 | `vd-func:FUNC-077` | `req-vd-ad:REQ-AD-020` | 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装 |
+| `vd-func:FUNC-078` | `req-vd-ad:REQ-AD-022` | 出庫マヌーバ実行が出庫マヌーバの実行要求を充足。未実装 |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
 | `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |
@@ -745,10 +753,10 @@ curated辺のみ。Issue/コミット言及まで含めた逆引きは `--query 
 | `Domain#MakeATurn` | 右左折（交差点通過） | `scene:SCN-004`, `scene:SCN-005`, `scene:SCN-006` |
 | `Domain#Motorcycle` | 二輪車（PrivateVehicle配下） | `scene:SCN-010` |
 | `Domain#Motorway` | 高速道路 | `scene:SCN-008` |
-| `Domain#MoveBackward` | 後退（LongitudinalActivity） | `req-vd-ad:REQ-AD-020`, `scene:SCN-014` |
+| `Domain#MoveBackward` | 後退（LongitudinalActivity） | `req-vd-ad:REQ-AD-020`, `req-vd-ad:REQ-AD-022`, `scene:SCN-014` |
 | `Domain#NightLightingCondition` | 夜間照明条件 | `feature:F6` |
 | `Domain#Overtake` | 追越し（対象後方に始まり前方で終わる、2回の車線変更を伴う） | `scene:SCN-002` |
-| `Domain#Parking` | 駐車場・駐車スペース（Road配下） | `req-vd-ad:REQ-AD-019`, `req-vd-ad:REQ-AD-020`, `scene:SCN-014` |
+| `Domain#Parking` | 駐車場・駐車スペース（Road配下） | `req-vd-ad:REQ-AD-019`, `req-vd-ad:REQ-AD-020`, `req-vd-ad:REQ-AD-022`, `scene:SCN-014` |
 | `Domain#Pedestrian` | 歩行者 | `scene:SCN-009` |
 | `Domain#PedestrianCrossing` | 横断歩道（歩行者が道路/車線を横断できる特殊構造） | `policy:crosswalk`, `scene:SCN-009` |
 | `Domain#PedestrianZone` | 歩行者専用ゾーン | `scene:SCN-015` |

@@ -175,3 +175,7 @@ functions:
   # 完全凍結では網羅性の穴＝strategic「駐車」軸が分母に載らない）で FUNC-076/077 を追加する。
   - { id: FUNC-076, tier: '-', layer: strategic, kind: behavior, agent: AD, dim: both, status: none, by: '', note: "駐車枠探索・選定。場内アイル走行中に parkingSpace（OpenDRIVE object type=parkingSpace、面1で既にパース・OSI出力済）を列挙・占有判定し目標枠を決める。req-vd-ad:REQ-AD-019 対応。tier='-'＝動機でなくタスク達成そのもの（FUNC-049/050 と同じ扱い）。未実装" }
   - { id: FUNC-077, tier: '-', layer: operational, kind: behavior, agent: AD, dim: both, status: none, by: '', note: "駐車マヌーバ実行。駐車モードへの遷移、幾何軌道生成（前進/バック直角駐車、直線+円弧+クロソイド、Reeds-Shepp曲線で入庫可能性を検算）、後退ギア指令、精密停止、終端姿勢が許容外の場合の修正ループ。req-vd-ad:REQ-AD-020 対応。未実装" }
+
+  # ----- 2026-08-03 追加: 出庫（unparking）機能（scene:SCN-014、req-vd-ad:REQ-AD-022 に対応） -----
+  # ★凍結例外（ユーザー判断 2026-08-03）: FUNC-076/077 の前例と同じ理由で FUNC-078 を追加する。
+  - { id: FUNC-078, tier: '-', layer: operational, kind: behavior, agent: AD, dim: both, status: none, by: '', note: "出庫マヌーバ実行。枠内（レーン外）からの駐車モード起動、退出軌道生成（入庫経路の時間反転と同型＝Han円弧幾何/RS検算/操舵レート制限/修正ループ/後退ギア経路を流用）、通路交通（接近車両・歩行者）への譲り判断、driving レーンへの合流とレーン走行モードへの復帰。req-vd-ad:REQ-AD-022 対応。未実装" }
