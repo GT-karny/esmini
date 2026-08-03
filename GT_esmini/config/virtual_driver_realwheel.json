@@ -77,7 +77,7 @@
     "_tl_junction_guard": "Don't block the box: keep a light's stop target out of an intersection. Hold BEFORE a junction the ego could not clear; once inside, drop the constraint and drive out. clearance = stand-clear distance past the junction exit. Feasibility uses comfort_decel.",
     "tl_junction_guard_enabled": true,
     "tl_junction_clearance": 5.0,
-    "_tl_stop_line": "Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for the governing head only, swaps its stop target for a paired stop-line signal (type=294) found within tl_stop_line_window before the anchor. The anchor is the entry of the junction the head governs (SignalJunctionResolver) when that junction is resolved and reached by this route; otherwise the anchor is the head itself. OFF is a kill switch restoring head_s - tl_stop_margin exactly.",
+    "_tl_stop_line": "Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for the governing head only, swaps its stop target for a paired stop-line signal (type=294) found within tl_stop_line_window before the anchor. The anchor is min(the entry of the junction the head governs, the head itself) when that junction is resolved and reached by this route (SignalJunctionResolver); otherwise the anchor is the head itself. OFF is a kill switch restoring head_s - tl_stop_margin exactly.",
     "tl_stop_line_aware_enabled": true,
     "tl_stop_line_window": 10.0,
     "_policy_stop_yield": "3c STOP (dwell+creep FSM) / YIELD (decelerate only; stop deferred to 3d). stop_margin halts before the line so the sign stays in scan (no creep-through).",

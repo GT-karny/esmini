@@ -244,7 +244,7 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
             onChange={(v) => set('tl_junction_guard_enabled', v)}
           />
           <ToggleSwitch
-            label="Stop-line aware (pair the head with a stop-line signal)"
+            label="Stop-line aware (pair the junction-entry/head anchor with a stop-line signal)"
             checked={Boolean(cfg.tl_stop_line_aware_enabled)}
             onChange={(v) => set('tl_stop_line_aware_enabled', v)}
           />

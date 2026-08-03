@@ -426,10 +426,11 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
         "Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): "
         "for the governing head only, swaps its stop target for a paired "
         "stop-line signal (type=294) found within tl_stop_line_window before "
-        "the anchor. The anchor is the entry of the junction the head governs "
-        "(SignalJunctionResolver) when that junction is resolved and reached "
-        "by this route; otherwise the anchor is the head itself. OFF is a "
-        "kill switch restoring head_s - tl_stop_margin exactly."
+        "the anchor. The anchor is min(the entry of the junction the head "
+        "governs, the head itself) when that junction is resolved and reached "
+        "by this route (SignalJunctionResolver); otherwise the anchor is the "
+        "head itself. OFF is a kill switch restoring head_s - tl_stop_margin "
+        "exactly."
     ),
     "tl_stop_line_aware_enabled": True,
     "tl_stop_line_window": 10.0,

@@ -173,10 +173,10 @@ struct VirtualDriverConfig
     // actually use to shape that approach — so there is no second key for it.
     // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
     // swaps the governing head's distance for a paired stop-line signal's when
-    // one is found within tl_stop_line_window before the anchor -- the entry of
-    // the junction the head governs when that junction is resolved and reached
-    // by this route, else the head itself. OFF is a kill switch — restores
-    // head_s - tl_stop_margin exactly (see TrafficLightAware.hpp).
+    // one is found within tl_stop_line_window before the anchor -- min(the
+    // junction entry the head governs, the head itself) when that junction is
+    // resolved and reached by this route, else the head itself. OFF is a kill
+    // switch — restores head_s - tl_stop_margin exactly (see TrafficLightAware.hpp).
     bool   tl_stop_line_aware_enabled = true;
     double tl_stop_line_window        = 10.0;  // [m] pairing search window before the anchor (junction entry, or the head as fallback)
     // 3c — stop / yield sign.
